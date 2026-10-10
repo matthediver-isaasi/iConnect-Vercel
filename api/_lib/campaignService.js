@@ -1,4 +1,5 @@
 import { supabase as rawSupabase } from './database.js';
+import { loadCampaignEngagement } from './campaignEngagement.js';
 import { campaignAddressSuppressed } from './emailBounceService.js';
 import { enrichCampaignPreparationList } from './campaignPreparationList.js';
 import {
@@ -4443,7 +4444,9 @@ export async function getCampaignStats(campaignId, tenantId) {
     ]);
     if (failureResult.error) throw failureResult.error;
 
+    const { events: engagementEvents, ...engagement } = await loadCampaignEngagement(supabase, campaignId, tenantId);
     const stats = {
+      ...engagement,
       total: totalCount,
       sent: statusSentCount + statusDeliveredCount + statusOpenedCount + statusClickedCount,
       sent_only: statusSentCount,
@@ -4484,14 +4487,7 @@ export async function getClickHeatmapData(campaignId, tenantId) {
   }
 
   try {
-    const clicks = await fetchAllRows((offset, limit) =>
-      supabase
-        .from('email_counted_link_click')
-        .select('original_url, link_position, link_index, link_text')
-        .eq('campaign_id', campaignId)
-        .order('id', { ascending: true })
-        .range(offset, offset + limit - 1)
-    );
+    const { events: clicks } = await loadCampaignEngagement(supabase, campaignId, tenantId);
 
     const heatmapData = {};
     for (const click of clicks || []) {
@@ -4502,10 +4498,14 @@ export async function getClickHeatmapData(campaignId, tenantId) {
           position: click.link_position,
           index: click.link_index,
           text: click.link_text,
-          clicks: 0
+          clicks: 0,
+          estimatedClicks: 0,
+          suspectedAutomatedClicks: 0
         };
       }
       heatmapData[key].clicks++;
+      if (click.suspected_automated) heatmapData[key].suspectedAutomatedClicks++;
+      else heatmapData[key].estimatedClicks++;
     }
 
     const sortedData = Object.values(heatmapData).sort((a, b) => b.clicks - a.clicks);
@@ -4542,20 +4542,7 @@ export async function getCampaignRecipients(campaignId, tenantId) {
         .range(offset, offset + limit - 1)
     );
 
-    let linkClicks = [];
-    try {
-      linkClicks = await fetchAllRows((offset, limit) =>
-        supabase
-          .from('email_counted_link_click')
-          .select('recipient_id, original_url, link_text, link_index, created_at')
-          .eq('campaign_id', campaignId)
-          .order('created_at', { ascending: true })
-          .order('id', { ascending: true })
-          .range(offset, offset + limit - 1)
-      );
-    } catch (clicksError) {
-      console.warn('[Campaign Service] Error fetching link clicks, continuing without:', clicksError.message);
-    }
+    const { events: linkClicks } = await loadCampaignEngagement(supabase, campaignId, tenantId);
 
     const clicksByRecipient = {};
     for (const click of linkClicks || []) {
@@ -4566,12 +4553,15 @@ export async function getCampaignRecipients(campaignId, tenantId) {
         url: click.original_url,
         link_text: click.link_text,
         link_index: click.link_index,
-        clicked_at: click.created_at
+        clicked_at: click.clicked_at || click.created_at,
+        suspected_automated: click.suspected_automated,
+        classification_reasons: click.classification_reasons
       });
     }
 
     const enrichedRecipients = (recipients || []).map(r => ({
       ...r,
+      estimated_click_count: (clicksByRecipient[r.id] || []).filter(c => !c.suspected_automated).length,
       link_clicks: clicksByRecipient[r.id] || []
     }));
 

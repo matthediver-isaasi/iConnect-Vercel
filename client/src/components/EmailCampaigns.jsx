@@ -765,6 +765,9 @@ export default function EmailCampaigns() {
         opened: stats.opened || 0,
         clicked: stats.clicked || 0,
         totalTrackedClicks: stats.totalTrackedClicks ?? null,
+        estimatedClicks: stats.estimatedClicks ?? null,
+        estimatedClickedRecipients: stats.estimatedClickedRecipients ?? null,
+        suspectedAutomatedClicks: stats.suspectedAutomatedClicks ?? null,
         bounced: stats.bounced || 0,
         unsubscribed: stats.unsubscribed || 0,
         complained: stats.complained || 0,
@@ -867,9 +870,12 @@ export default function EmailCampaigns() {
     rows.push(['Metric', 'Count']);
     rows.push(['Accepted by provider', statsData.sent]);
     rows.push(['Delivered', statsData.delivered]);
-    rows.push(['Opened', statsData.opened]);
+    rows.push(['Tracking-image requests (recipients; may include privacy preloading)', statsData.opened]);
     rows.push(['Unique recipients clicked', statsData.clicked]);
     rows.push(['Total tracked clicks (iConnect requests)', statsData.totalTrackedClicks ?? 'Unavailable']);
+    rows.push(['Estimated reader clicks', statsData.estimatedClicks ?? 'Unavailable']);
+    rows.push(['Estimated clicked recipients', statsData.estimatedClickedRecipients ?? 'Unavailable']);
+    rows.push(['Suspected automated requests', statsData.suspectedAutomatedClicks ?? 'Unavailable']);
     rows.push(['Click evidence', 'Retained iConnect requests only; may include automated requests. Historical coverage may be incomplete. Not an exact human-click count.']);
     rows.push(['Bounced', statsData.bounced]);
     rows.push(['Unsubscribed', statsData.unsubscribed]);
@@ -881,9 +887,9 @@ export default function EmailCampaigns() {
     if (statsData.heatmapData && statsData.heatmapData.length > 0) {
       rows.push([]);
       rows.push(['Link Click Heatmap']);
-      rows.push(['URL', 'Clicks']);
+      rows.push(['URL', 'Raw requests', 'Estimated clicks', 'Suspected automated requests']);
       statsData.heatmapData.forEach(link => {
-        rows.push([link.url, link.clicks]);
+        rows.push([link.url, link.clicks, link.estimatedClicks, link.suspectedAutomatedClicks]);
       });
     }
 
@@ -894,13 +900,14 @@ export default function EmailCampaigns() {
         (statsFilter ? ` (filtered: ${statsFilter})` : '') +
         (statsLinkFilter ? ` (link: ${statsLinkFilter})` : '');
       rows.push([title]);
-      rows.push(['Email', 'Status', 'Opens', 'Clicks', 'Sent At']);
+      rows.push(['Email', 'Status', 'Tracking-image requests (may include privacy preloading)', 'Raw clicks', 'Estimated clicks', 'Sent At']);
       recipients.forEach(r => {
         rows.push([
           r.email,
           r.status,
           r.open_count || 0,
           r.click_count || 0,
+          r.estimated_click_count ?? 'Unavailable',
           r.sent_at ? new Date(r.sent_at).toISOString() : ''
         ]);
       });
@@ -1082,13 +1089,13 @@ export default function EmailCampaigns() {
 
         <Card data-testid="stat-open-rate">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Open Rate</CardTitle>
+            <CardTitle className="text-sm font-medium">Tracking-image request rate</CardTitle>
             <MailOpen className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.avgOpenRate}%</div>
             <p className="text-xs text-muted-foreground">
-              {stats.totalOpened.toLocaleString()} total opens
+              {stats.totalOpened.toLocaleString()} tracking-image recipient records (may include privacy preloading)
             </p>
           </CardContent>
         </Card>
@@ -1146,7 +1153,7 @@ export default function EmailCampaigns() {
                     <TableHead>Status</TableHead>
                     <TableHead>Audience</TableHead>
                     <TableHead className="text-right">Accepted</TableHead>
-                    <TableHead className="text-right">Opens</TableHead>
+                    <TableHead className="text-right">Tracking-image requests</TableHead>
                     <TableHead className="text-right">Unique recipients clicked</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
@@ -1846,7 +1853,7 @@ export default function EmailCampaigns() {
                 {[
                   { key: 'sent', label: 'Accepted', icon: Send, value: statsData.sent, bg: 'bg-blue-50 dark:bg-blue-950', text: 'text-blue-700 dark:text-blue-300', accent: 'text-blue-600', ring: 'ring-blue-400' },
                   { key: 'delivered', label: 'Delivered', icon: CheckCircle2, value: statsData.delivered, bg: 'bg-green-50 dark:bg-green-950', text: 'text-green-700 dark:text-green-300', accent: 'text-green-600', ring: 'ring-green-400' },
-                  { key: 'opened', label: 'Opened', icon: Eye, value: statsData.opened, bg: 'bg-purple-50 dark:bg-purple-950', text: 'text-purple-700 dark:text-purple-300', accent: 'text-purple-600', ring: 'ring-purple-400' },
+                  { key: 'opened', label: 'Tracking-image recipients', icon: Eye, value: statsData.opened, bg: 'bg-purple-50 dark:bg-purple-950', text: 'text-purple-700 dark:text-purple-300', accent: 'text-purple-600', ring: 'ring-purple-400' },
                   { key: 'clicked', label: 'Unique recipients clicked', icon: MousePointerClick, value: statsData.clicked, bg: 'bg-warning/10 dark:bg-warning/20', text: 'text-warning dark:text-warning', accent: 'text-warning', ring: 'ring-amber-400' },
                 ].map(({ key, label, icon: Icon, value, bg, text, accent, ring }) => (
                   <div
@@ -1866,6 +1873,14 @@ export default function EmailCampaigns() {
 
               <div className="rounded-lg border p-3 text-sm" data-testid="click-counting-explanation">
                 <div className="font-medium">Total tracked clicks: {statsData.totalTrackedClicks ?? 'Unavailable'}</div>
+                <div>Estimated reader clicks: {statsData.estimatedClicks ?? 'Unavailable'} · Estimated clicked recipients: {statsData.estimatedClickedRecipients ?? 'Unavailable'} · Suspected automated requests: {statsData.suspectedAutomatedClicks ?? 'Unavailable'}</div>
+                <p className="text-muted-foreground">
+                  Estimates exclude requests for three or more different links within one second
+                  from the same recipient and client, and narrowly matched verified provider bot
+                  events. Later qualifying requests still count. These rules can miss scanners or
+                  flag genuine activity; estimates do not confirm human actions. Opens are
+                  tracking-image requests and may include privacy preloading.
+                </p>
                 <p className="text-muted-foreground">
                   Counts retained iConnect link requests, including repeat requests. Unique recipients
                   counts each campaign recipient once. Mailgun click events are kept separately and
@@ -1972,7 +1987,7 @@ export default function EmailCampaigns() {
                             </div>
                           </div>
                           <div className="text-sm font-medium w-16 text-right">
-                            {link.clicks} clicks
+                            {link.clicks} raw · {link.estimatedClicks} estimated
                           </div>
                         </div>
                       );
@@ -2013,7 +2028,7 @@ export default function EmailCampaigns() {
                             </div>
                           </div>
                           <div className="text-sm font-medium w-16 text-right shrink-0">
-                            {link.clicks} clicks
+                            {link.clicks} raw · {link.estimatedClicks} estimated
                           </div>
                         </div>
                       );
@@ -2064,7 +2079,7 @@ export default function EmailCampaigns() {
                         <TableHead className="w-8"></TableHead>
                         <TableHead>Email</TableHead>
                         <TableHead>Status</TableHead>
-                        <TableHead className="text-right">Opens</TableHead>
+                        <TableHead className="text-right">Tracking-image requests</TableHead>
                         <TableHead className="text-right">Clicks</TableHead>
                         <TableHead>Sent At</TableHead>
                       </TableRow>
@@ -2099,7 +2114,7 @@ export default function EmailCampaigns() {
                                   <RecipientDeliveryStatus recipient={recipient} />
                                 </TableCell>
                                 <TableCell className="text-right">{recipient.open_count || 0}</TableCell>
-                                <TableCell className="text-right">{recipient.click_count || 0}</TableCell>
+                                <TableCell className="text-right">{recipient.click_count || 0} raw / {recipient.estimated_click_count ?? '—'} estimated</TableCell>
                                 <TableCell className="text-sm text-muted-foreground">
                                   {recipient.sent_at ? new Date(recipient.sent_at).toLocaleString() : '-'}
                                 </TableCell>
@@ -2123,6 +2138,14 @@ export default function EmailCampaigns() {
                                           </a>
                                           <span className="text-muted-foreground shrink-0">
                                             {click.clicked_at ? new Date(click.clicked_at).toLocaleString() : ''}
+                                          </span>
+                                          <span className="text-xs text-muted-foreground">
+                                            {click.suspected_automated
+                                              ? `Suspected automated: ${(click.classification_reasons || []).map(reason =>
+                                                reason === 'rapid_multi_link_burst'
+                                                  ? '3+ different links within 1 second from the same client'
+                                                  : 'matched verified provider bot indicator').join('; ')}`
+                                              : 'Included in estimate; not confirmed human'}
                                           </span>
                                         </div>
                                       ))}

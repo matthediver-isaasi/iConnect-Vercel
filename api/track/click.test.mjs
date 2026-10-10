@@ -6,6 +6,7 @@ async function load(relative, database) {
   let source=await readFile(new URL(relative,import.meta.url),'utf8');
   source=source.replace(/import \{ supabase \} from '[^']+';/,`const supabase = globalThis.__clickTestDatabase;`);
   source=source.replace(/from '[^']*emailDeliveryClassification.js'/,`from '${new URL('../_lib/emailDeliveryClassification.js',import.meta.url).href}'`);
+  source=source.replace(/from '[^']*campaignEngagement.js'/,`from '${new URL('../_lib/campaignEngagement.js',import.meta.url).href}'`);
   globalThis.__clickTestDatabase=database;
   const module=await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}#${Math.random()}`);
   delete globalThis.__clickTestDatabase;

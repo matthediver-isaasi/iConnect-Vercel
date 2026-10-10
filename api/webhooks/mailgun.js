@@ -141,7 +141,7 @@ export default async function handler(req, res) {
       country: eventData.geolocation?.country,
       region: eventData.geolocation?.region,
       city: eventData.geolocation?.city,
-      raw_event: eventData,
+      raw_event: { ...eventData, _iconnect_verified_provider: Boolean(signature && MAILGUN_WEBHOOK_SIGNING_KEY) },
       event_timestamp: timestamp
     });
     // The database derives delivery outcome and suppression from this evidence.

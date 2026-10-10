@@ -1,5 +1,6 @@
 import { supabase } from './database.js';
 import { classifyEmailDelivery } from './emailDeliveryClassification.js';
+import { trustedProviderEvent } from './campaignEngagement.js';
 
 const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY;
 const MAILGUN_REGION = process.env.MAILGUN_REGION || 'eu';
@@ -64,7 +65,7 @@ export function buildEventRow(eventData, campaignId, tenantId, recipientObj, mes
     country: eventData.geolocation?.country,
     region: eventData.geolocation?.region,
     city: eventData.geolocation?.city,
-    raw_event: eventData,
+    raw_event: trustedProviderEvent(eventData, true),
     event_timestamp: timestamp,
   };
 }
