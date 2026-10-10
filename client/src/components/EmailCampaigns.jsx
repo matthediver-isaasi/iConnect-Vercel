@@ -764,6 +764,7 @@ export default function EmailCampaigns() {
         delivered: stats.delivered || 0,
         opened: stats.opened || 0,
         clicked: stats.clicked || 0,
+        totalTrackedClicks: stats.totalTrackedClicks ?? null,
         bounced: stats.bounced || 0,
         unsubscribed: stats.unsubscribed || 0,
         complained: stats.complained || 0,
@@ -819,7 +820,7 @@ export default function EmailCampaigns() {
           case 'opened':
             return r.status === 'opened' || r.status === 'clicked' || r.open_count > 0;
           case 'clicked':
-            return r.status === 'clicked' || r.click_count > 0;
+            return r.click_count > 0;
           case 'bounced':
             return r.status === 'bounced';
           case 'unsubscribed':
@@ -867,7 +868,9 @@ export default function EmailCampaigns() {
     rows.push(['Accepted by provider', statsData.sent]);
     rows.push(['Delivered', statsData.delivered]);
     rows.push(['Opened', statsData.opened]);
-    rows.push(['Clicked', statsData.clicked]);
+    rows.push(['Unique recipients clicked', statsData.clicked]);
+    rows.push(['Total tracked clicks (iConnect requests)', statsData.totalTrackedClicks ?? 'Unavailable']);
+    rows.push(['Click evidence', 'Retained iConnect requests only; may include automated requests. Historical coverage may be incomplete. Not an exact human-click count.']);
     rows.push(['Bounced', statsData.bounced]);
     rows.push(['Unsubscribed', statsData.unsubscribed]);
     rows.push(['Complaints', statsData.complained]);
@@ -1098,7 +1101,7 @@ export default function EmailCampaigns() {
           <CardContent>
             <div className="text-2xl font-bold">{stats.avgClickRate}%</div>
             <p className="text-xs text-muted-foreground">
-              {stats.totalClicked.toLocaleString()} total clicks
+              {stats.totalClicked.toLocaleString()} recipient clicks across campaigns
             </p>
           </CardContent>
         </Card>
@@ -1144,7 +1147,7 @@ export default function EmailCampaigns() {
                     <TableHead>Audience</TableHead>
                     <TableHead className="text-right">Accepted</TableHead>
                     <TableHead className="text-right">Opens</TableHead>
-                    <TableHead className="text-right">Clicks</TableHead>
+                    <TableHead className="text-right">Unique recipients clicked</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -1844,7 +1847,7 @@ export default function EmailCampaigns() {
                   { key: 'sent', label: 'Accepted', icon: Send, value: statsData.sent, bg: 'bg-blue-50 dark:bg-blue-950', text: 'text-blue-700 dark:text-blue-300', accent: 'text-blue-600', ring: 'ring-blue-400' },
                   { key: 'delivered', label: 'Delivered', icon: CheckCircle2, value: statsData.delivered, bg: 'bg-green-50 dark:bg-green-950', text: 'text-green-700 dark:text-green-300', accent: 'text-green-600', ring: 'ring-green-400' },
                   { key: 'opened', label: 'Opened', icon: Eye, value: statsData.opened, bg: 'bg-purple-50 dark:bg-purple-950', text: 'text-purple-700 dark:text-purple-300', accent: 'text-purple-600', ring: 'ring-purple-400' },
-                  { key: 'clicked', label: 'Clicked', icon: MousePointerClick, value: statsData.clicked, bg: 'bg-warning/10 dark:bg-warning/20', text: 'text-warning dark:text-warning', accent: 'text-warning', ring: 'ring-amber-400' },
+                  { key: 'clicked', label: 'Unique recipients clicked', icon: MousePointerClick, value: statsData.clicked, bg: 'bg-warning/10 dark:bg-warning/20', text: 'text-warning dark:text-warning', accent: 'text-warning', ring: 'ring-amber-400' },
                 ].map(({ key, label, icon: Icon, value, bg, text, accent, ring }) => (
                   <div
                     key={key}
@@ -1859,6 +1862,16 @@ export default function EmailCampaigns() {
                     <div className={`text-xs ${accent}`}>{label}</div>
                   </div>
                 ))}
+              </div>
+
+              <div className="rounded-lg border p-3 text-sm" data-testid="click-counting-explanation">
+                <div className="font-medium">Total tracked clicks: {statsData.totalTrackedClicks ?? 'Unavailable'}</div>
+                <p className="text-muted-foreground">
+                  Counts retained iConnect link requests, including repeat requests. Unique recipients
+                  counts each campaign recipient once. Mailgun click events are kept separately and
+                  are not added to these totals. Automated scanners may be included; these are not
+                  exact human-click counts. Historical coverage may be incomplete.
+                </p>
               </div>
 
               {statsData.sent_only > 0 && statsData.delivered < statsData.sent && (

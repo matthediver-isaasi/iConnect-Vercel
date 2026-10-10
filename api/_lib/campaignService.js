@@ -4422,6 +4422,7 @@ export async function getCampaignStats(campaignId, tenantId) {
       hasOpensCount,
       hasClicksCount,
       failureResult,
+      totalTrackedClicks,
     ] = await Promise.all([
       supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true }).eq('campaign_id', campaignId).then(r => { if (r.error) throw r.error; return r.count || 0; }),
       supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true }).eq('campaign_id', campaignId).eq('status', 'sent').then(r => { if (r.error) throw r.error; return r.count || 0; }),
@@ -4438,6 +4439,7 @@ export async function getCampaignStats(campaignId, tenantId) {
       supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true }).eq('campaign_id', campaignId).gt('open_count', 0).then(r => { if (r.error) throw r.error; return r.count || 0; }),
       supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true }).eq('campaign_id', campaignId).gt('click_count', 0).then(r => { if (r.error) throw r.error; return r.count || 0; }),
       supabase.from('email_campaign_recipient').select('email, error_message').eq('campaign_id', campaignId).eq('status', 'failed').not('error_message', 'is', null).limit(20),
+      supabase.from('email_counted_link_click').select('*', { count: 'exact', head: true }).eq('campaign_id', campaignId).then(r => { if (r.error) throw r.error; return r.count || 0; }),
     ]);
     if (failureResult.error) throw failureResult.error;
 
@@ -4448,6 +4450,9 @@ export async function getCampaignStats(campaignId, tenantId) {
       delivered: statusDeliveredCount + statusOpenedCount + statusClickedCount,
       opened: hasOpensCount,
       clicked: hasClicksCount,
+      uniqueClickedRecipients: hasClicksCount,
+      totalTrackedClicks,
+      clickCountingSource: 'iconnect_tracked_requests',
       bounced: statusBouncedCount,
       failed: statusFailedCount,
       pending: statusPendingCount + statusProcessingCount,
@@ -4481,7 +4486,7 @@ export async function getClickHeatmapData(campaignId, tenantId) {
   try {
     const clicks = await fetchAllRows((offset, limit) =>
       supabase
-        .from('email_link_click')
+        .from('email_counted_link_click')
         .select('original_url, link_position, link_index, link_text')
         .eq('campaign_id', campaignId)
         .order('id', { ascending: true })
@@ -4541,7 +4546,7 @@ export async function getCampaignRecipients(campaignId, tenantId) {
     try {
       linkClicks = await fetchAllRows((offset, limit) =>
         supabase
-          .from('email_link_click')
+          .from('email_counted_link_click')
           .select('recipient_id, original_url, link_text, link_index, created_at')
           .eq('campaign_id', campaignId)
           .order('created_at', { ascending: true })

@@ -156,3 +156,4 @@
 - [Training agenda timezone policy](training-agenda-timezone-policy.md) — event-zone wall clocks; reject DST gaps/overlaps until occurrence choices can be persisted.
 - [Node request header copies](node-request-header-copies.md) — object spread drops inherited request headers; use explicit headers and real IncomingMessage test fixtures.
 - [Public bookmark query loops](public-bookmark-query-loop.md) — guest-only 401 loops can clear shared queries and blank unrelated public carousels.
+- [Campaign click authority](campaign-click-authority.md) — iConnect requests own counts; provider evidence stays separate, and historical totals never prove human clicks.

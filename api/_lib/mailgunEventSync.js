@@ -73,6 +73,8 @@ const STATUS_PRIORITY = { complained: 6, unsubscribed: 5, bounced: 4, clicked: 3
 
 export function applyEventToRecipientState(state, eventData, timestamp) {
   const eventType = eventData.event;
+  // Provider clicks are evidence only. iConnect link requests own click metrics.
+  if (eventType === 'clicked') return;
   const deliveryKind = classifyEmailDelivery(eventData);
   const effectiveType = ['failed', 'bounced'].includes(eventType)
     ? (deliveryKind === 'hard_bounce' ? 'bounced' : deliveryKind) : eventType;
@@ -98,14 +100,6 @@ export function applyEventToRecipientState(state, eventData, timestamp) {
         state.counterDeltas.opened_count = (state.counterDeltas.opened_count || 0) + 1;
       }
       if (currentPriority < newPriority) state.status = 'opened';
-      break;
-    case 'clicked':
-      state.click_count = (state.click_count || 0) + 1;
-      if (!state.clicked_at) {
-        state.clicked_at = timestamp;
-        state.counterDeltas.clicked_count = (state.counterDeltas.clicked_count || 0) + 1;
-      }
-      if (currentPriority < newPriority) state.status = 'clicked';
       break;
     case 'bounced':
       if (currentPriority < newPriority) {
@@ -189,12 +183,10 @@ export async function flushRecipientUpdates(recipientStates) {
       const update = { status: state.status };
       if (state.delivered_at) update.delivered_at = state.delivered_at;
       if (state.opened_at) update.opened_at = state.opened_at;
-      if (state.clicked_at) update.clicked_at = state.clicked_at;
       if (state.bounced_at) update.bounced_at = state.bounced_at;
       if (state.complained_at) update.complained_at = state.complained_at;
       if (state.unsubscribed_at) update.unsubscribed_at = state.unsubscribed_at;
       if (state.open_count != null) update.open_count = state.open_count;
-      if (state.click_count != null) update.click_count = state.click_count;
       if (state.error_message) update.error_message = state.error_message;
       return supabase.from('email_campaign_recipient').update(update).eq('id', state.id);
     }));
@@ -372,6 +364,8 @@ export async function syncCampaignEvents(campaign, emailDomain, tenantId, timeBu
         const matchesByMessageId = messageId && messageIds.has(messageId);
         const matchesByEmail = recipientEmail && recipientEmails.has(recipientEmail);
         if (!matchesByMessageId && !matchesByEmail) continue;
+        // An email address alone cannot identify which send produced a click.
+        if (event.event === 'clicked' && !matchesByMessageId) { skipped++; continue; }
 
         if (event.id && existingEventIds.has(event.id)) { skipped++; continue; }
 

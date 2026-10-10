@@ -95,7 +95,7 @@ export default async function handler(req, res) {
       }
     }
 
-    if (!recipient && recipientEmail) {
+    if (!recipient && recipientEmail && eventType !== 'clicked') {
       const { data: fallbackRecipients } = await supabase
         .from('email_campaign_recipient')
         .select('id, campaign_id, member_id, mailgun_message_id')
@@ -148,6 +148,10 @@ export default async function handler(req, res) {
     // Do not acknowledge an event whose durable write failed.
     if (eventWriteError) throw new Error('Could not persist email delivery event');
 
+    // Retained provider evidence is deduplicated in the database, including
+    // webhook/sync races. It must never increment iConnect request counts.
+    if (eventType === 'clicked') return res.status(200).json({ success: true });
+
     if (recipient) {
       const { data: existingRecipient } = await supabase
         .from('email_campaign_recipient')
@@ -185,27 +189,6 @@ export default async function handler(req, res) {
 
           if (isFirstOpen && campaign) {
             await incrementCampaignColumn(campaign.id, 'opened_count');
-          }
-          break;
-        }
-
-        case 'clicked': {
-          const newClickCount = (existingRecipient?.click_count || 0) + 1;
-          const clickUpdate = { click_count: newClickCount };
-          const isFirstClick = !existingRecipient?.clicked_at;
-
-          if (isFirstClick) {
-            clickUpdate.status = 'clicked';
-            clickUpdate.clicked_at = timestamp;
-          }
-
-          await supabase
-            .from('email_campaign_recipient')
-            .update(clickUpdate)
-            .eq('id', recipient.id);
-
-          if (isFirstClick && campaign) {
-            await incrementCampaignColumn(campaign.id, 'clicked_count');
           }
           break;
         }
