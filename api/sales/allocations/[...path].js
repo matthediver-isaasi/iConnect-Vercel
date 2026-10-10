@@ -22,6 +22,12 @@ import {
 } from '../../_lib/allocationInvitation.js';
 
 function pathParts(req) {
+  if (req.url) {
+    const pathname = new URL(req.url, 'http://internal').pathname.replace(/\/+$/, '');
+    const base = '/api/sales/allocations';
+    if (pathname === base) return [];
+    if (pathname.startsWith(`${base}/`)) return pathname.slice(base.length + 1).split('/').filter(Boolean);
+  }
   const path = req.query?.path;
   if (path) return Array.isArray(path) ? path : String(path).split('/').filter(Boolean);
   return [req.query?.id, req.query?.action].filter(Boolean);
