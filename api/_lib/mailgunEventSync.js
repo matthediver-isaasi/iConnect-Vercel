@@ -1,4 +1,5 @@
 import { supabase } from './database.js';
+import { classifyEmailDelivery } from './emailDeliveryClassification.js';
 
 const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY;
 const MAILGUN_REGION = process.env.MAILGUN_REGION || 'eu';
@@ -72,7 +73,9 @@ const STATUS_PRIORITY = { complained: 6, unsubscribed: 5, bounced: 4, clicked: 3
 
 export function applyEventToRecipientState(state, eventData, timestamp) {
   const eventType = eventData.event;
-  const effectiveType = eventType === 'failed' ? 'bounced' : eventType;
+  const deliveryKind = classifyEmailDelivery(eventData);
+  const effectiveType = ['failed', 'bounced'].includes(eventType)
+    ? (deliveryKind === 'hard_bounce' ? 'bounced' : deliveryKind) : eventType;
   const currentPriority = STATUS_PRIORITY[state.status] || 0;
   const newPriority = STATUS_PRIORITY[effectiveType] || 0;
 
@@ -411,13 +414,14 @@ export async function syncCampaignEvents(campaign, emailDomain, tenantId, timeBu
           if (r.error) {
             console.error(`[Mailgun Sync] Batch insert error:`, r.error.message);
             errors += INSERT_BATCH_SIZE;
+            throw new Error('Could not persist provider delivery events');
           }
         }
       }
     }
 
+    await flushInserts();
     await Promise.all([
-      flushInserts(),
       flushRecipientUpdates(recipientStates),
       flushCampaignCounters(campaign.id, recipientStates),
       flushBounceAndUnsubscribe(recipientStates, tenantId, campaign.id),

@@ -1,4 +1,5 @@
 import { supabase as rawSupabase } from './database.js';
+import { campaignAddressSuppressed } from './emailBounceService.js';
 import { enrichCampaignPreparationList } from './campaignPreparationList.js';
 import {
   preparationDatabase, preparationContext, preparationStep,
@@ -3842,6 +3843,17 @@ export async function sendToRecipient(recipient, campaign, tenantId, tenantSlug,
         return 'stopped';
       }
     }
+    // Hard-bounce suppression is independent of consent exceptions and includes
+    // campaigns queued before the bounce. A failed check must never send.
+    if (await campaignAddressSuppressed(recipientDb, tenantId, testDestination || recipient.email)) {
+      if (testDestination) return { success: false, error: 'Hard-bounced address: campaign sends are paused' };
+      if (surveyDelivery?.deliveryId) await finishCampaignSurveyDelivery(supabase, surveyDelivery.deliveryId, false);
+      const { error } = await supabase.from('email_campaign_recipient')
+        .update({ status: 'cancelled', error_message: 'Hard-bounced address: campaign sends are paused' })
+        .eq('id', recipient.id).eq('status', 'processing');
+      if (error) throw error;
+      return 'cancelled';
+    }
     providerSubmitted = true;
     nextTimingStage('providerMs');
     const result = await sendEmail({
@@ -4518,7 +4530,7 @@ export async function getCampaignRecipients(campaignId, tenantId) {
     const recipients = await fetchAllRows((offset, limit) =>
       supabase
         .from('email_campaign_recipient')
-        .select('id, email, status, open_count, click_count, error_message, sent_at')
+        .select('id, email, status, delivery_outcome, delivery_reason, delivery_outcome_at, open_count, click_count, error_message, sent_at')
         .eq('campaign_id', campaignId)
         .order('email', { ascending: true })
         .order('id', { ascending: true })

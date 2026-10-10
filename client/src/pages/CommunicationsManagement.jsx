@@ -20,6 +20,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import EmailCampaigns from "@/components/EmailCampaigns";
 import MemberCommunicationStatusReport from "@/components/communications/MemberCommunicationStatusReport";
+import HardBouncedAddressesReport from "@/components/communications/HardBouncedAddressesReport";
 import CustomObjectAudienceCondition, { customObjectConditionError, customObjectSummary } from "@/components/communications/CustomObjectAudienceCondition";
 import EventSurveyAudiencePicker from "@/components/communications/EventSurveyAudiencePicker";
 import { listAllOrganizationsForAdmin } from '@/lib/adminOrgList';
@@ -1653,7 +1654,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
 
           <CardContent className="p-6">
             <Tabs value={communicationsTab} onValueChange={setCommunicationsTab} className="w-full">
-              <TabsList className="mb-6">
+              <TabsList className="mb-6 h-auto flex-wrap">
                 <TabsTrigger value="campaigns" data-testid="tab-campaigns">
                   <Send className="w-4 h-4 mr-2" />
                   Email Campaigns
@@ -1675,6 +1676,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                     </Badge>
                   )}
                 </TabsTrigger>
+                <TabsTrigger value="hard-bounces">Hard-bounced addresses</TabsTrigger>
                 <TabsTrigger value="status-report" data-testid="tab-member-communication-status">
                   Member Communication Status
                 </TabsTrigger>
@@ -2255,6 +2257,9 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                     })()}
                   </>
                 )}
+              </TabsContent>
+              <TabsContent value="hard-bounces">
+                <HardBouncedAddressesReport active={communicationsTab === 'hard-bounces'} />
               </TabsContent>
               <TabsContent value="status-report">
                 <MemberCommunicationStatusReport active={communicationsTab === 'status-report'} />

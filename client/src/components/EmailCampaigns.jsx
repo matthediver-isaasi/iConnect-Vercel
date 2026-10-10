@@ -4,6 +4,9 @@ import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import RecipientDeliveryStatus from "@/components/communications/RecipientDeliveryStatus";
+import RecipientDeliveryOutcomeFilter from "@/components/communications/RecipientDeliveryOutcomeFilter";
+import { matchesDeliveryOutcome } from "@/components/communications/bounceModel.mjs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
@@ -55,6 +58,7 @@ export default function EmailCampaigns() {
   const [statsRecipients, setStatsRecipients] = useState([]);
   const [loadingRecipients, setLoadingRecipients] = useState(false);
   const [statsFilter, setStatsFilter] = useState(null);
+  const [deliveryOutcome, setDeliveryOutcome] = useState(null);
   const [statsCampaignId, setStatsCampaignId] = useState(null);
   const [expandedRecipients, setExpandedRecipients] = useState(new Set());
   const [statsLinkFilter, setStatsLinkFilter] = useState(null);
@@ -792,6 +796,7 @@ export default function EmailCampaigns() {
       const result = await response.json();
       setStatsRecipients(result.recipients || []);
       setStatsDetailView(true);
+      setDeliveryOutcome(null);
       setStatsFilter(null);
       setStatsLinkFilter(null);
       setExpandedRecipients(new Set());
@@ -803,7 +808,7 @@ export default function EmailCampaigns() {
   };
 
   const getFilteredRecipients = () => {
-    let filtered = statsRecipients;
+    let filtered = statsRecipients.filter(r => !deliveryOutcome || matchesDeliveryOutcome(r, deliveryOutcome));
     if (statsFilter) {
       filtered = filtered.filter(r => {
         switch (statsFilter) {
@@ -2006,6 +2011,7 @@ export default function EmailCampaigns() {
 
               {statsDetailView && (
                 <div>
+                  <RecipientDeliveryOutcomeFilter value={deliveryOutcome} onChange={setDeliveryOutcome} />
                   <div className="flex items-center justify-between mb-3">
                     <h4 className="font-semibold flex items-center gap-2">
                       <Users className="w-4 h-4" />
@@ -2077,22 +2083,7 @@ export default function EmailCampaigns() {
                                 </TableCell>
                                 <TableCell className="font-medium">{recipient.email}</TableCell>
                                 <TableCell>
-                                  <Badge
-                                    variant="outline"
-                                    className={
-                                      recipient.status === 'delivered' || recipient.status === 'opened' || recipient.status === 'clicked'
-                                        ? 'border-green-500 text-green-600'
-                                        : recipient.status === 'bounced' || recipient.status === 'failed'
-                                        ? 'border-red-500 text-red-600'
-                                        : recipient.status === 'complained'
-                                        ? 'border-rose-500 text-rose-600'
-                                        : recipient.status === 'unsubscribed'
-                                        ? 'border-warning/50 text-warning'
-                                        : ''
-                                    }
-                                  >
-                                    {recipient.status}
-                                  </Badge>
+                                  <RecipientDeliveryStatus recipient={recipient} />
                                 </TableCell>
                                 <TableCell className="text-right">{recipient.open_count || 0}</TableCell>
                                 <TableCell className="text-right">{recipient.click_count || 0}</TableCell>

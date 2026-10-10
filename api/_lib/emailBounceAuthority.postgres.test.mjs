@@ -1,0 +1,54 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import path from 'node:path';
+import pg from 'pg';
+import { createLocalPostgresHarness } from '../../scripts/test-support/local-postgres-harness.mjs';
+test('bounce authority: chronological outcomes, address isolation, stale replay and resolution CAS', {timeout:120000}, async()=>{
+ const h=await createLocalPostgresHarness('email-bounce-');
+ const cmd=(n,args)=>{const r=spawnSync(n,args,{encoding:'utf8'});assert.equal(r.status,0,r.stderr)};
+ let db,started=false;
+ try {
+ cmd('initdb',['-D',h.data,'-A','trust','-U','postgres']);
+ cmd('pg_ctl',['-D',h.data,'-l',path.join(h.root,'postgres.log'),'-o',`-F -k ${h.socket} -c listen_addresses= -p ${h.port}`,'-w','start']); started=true;
+ db=new pg.Client({host:h.socket,port:h.port,user:'postgres',database:'postgres'});await db.connect();
+ await db.query(`CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;
+ CREATE TABLE email_campaign(id uuid primary key,tenant_id uuid);
+ CREATE TABLE email_campaign_recipient(id uuid primary key,campaign_id uuid,email text,mailgun_message_id text,status text,clicked_at timestamptz,opened_at timestamptz,delivered_at timestamptz,bounced_at timestamptz,error_message text);
+ CREATE TABLE email_event(id uuid default gen_random_uuid(),recipient_id uuid,campaign_id uuid,tenant_id uuid,email text,mailgun_message_id text,event_type text,severity text,delivery_status_code integer,reason text,delivery_status_message text,event_timestamp timestamptz);
+ INSERT INTO email_campaign VALUES('00000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000002');
+ INSERT INTO email_campaign_recipient(id,campaign_id,email,mailgun_message_id,status) VALUES('00000000-0000-4000-8000-000000000003','00000000-0000-4000-8000-000000000001','test@example.invalid','message','sent');`);
+ await db.query(readFileSync('supabase/migrations/202612080001_email_bounce_authority.sql','utf8'));
+ const event=async(type,severity,code,time,msg='message')=>db.query(`INSERT INTO email_event(recipient_id,campaign_id,tenant_id,email,mailgun_message_id,event_type,severity,delivery_status_code,event_timestamp)
+ VALUES('00000000-0000-4000-8000-000000000003','00000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000002','test@example.invalid',$1,$2,$3,$4,$5)`,[msg,type,severity,code,time]);
+ const row=async()=> (await db.query('select * from email_campaign_recipient')).rows[0];
+ await event('failed','temporary',421,'2026-10-05T13:34:19Z');
+ assert.equal((await row()).delivery_outcome,'soft_bounce');
+ await event('delivered',null,250,'2026-10-05T13:44:19Z');
+ await event('failed','temporary',421,'2026-10-05T13:34:19Z');
+ await db.query(`UPDATE email_campaign_recipient SET status='bounced',error_message='generic'`);
+ assert.equal((await row()).status,'delivered');
+ assert.equal((await db.query('select * from email_address_bounce')).rowCount,0);
+ await event('failed','permanent',550,'2026-10-06T13:34:19Z','wrong-message');
+ assert.equal((await db.query('select * from email_address_bounce')).rowCount,0);
+ await event('failed','permanent',550,'2026-10-06T13:34:19Z');
+ const b=(await db.query('select * from email_address_bounce')).rows[0];
+ await db.query(`UPDATE email_campaign_recipient SET status='clicked',clicked_at=now()`);
+ assert.equal((await row()).status,'bounced');
+ const resolve=async(last,tenant=b.tenant_id)=> (await db.query(`select resolve_email_address_bounce($1,$2,$3,'admin','Address confirmed','example.invalid',now()) as ok`,[tenant,b.id,last])).rows[0].ok;
+ assert.equal(await resolve(b.last_bounced_at,'00000000-0000-4000-8000-000000000009'),false);
+ assert.equal(await resolve('2026-10-05T13:34:19Z'),false);
+ assert.equal(await resolve(b.last_bounced_at),true);
+ await event('failed','permanent',550,'2026-10-06T13:34:19Z');
+ assert.ok((await db.query('select resolved_at from email_address_bounce')).rows[0].resolved_at);
+ await event('failed','permanent',550,'2026-10-07T13:34:19Z');
+ assert.equal((await db.query('select resolved_at from email_address_bounce')).rows[0].resolved_at,null);
+ await event('failed','permanent',421,'2026-10-08T13:34:19Z');
+ assert.equal((await row()).delivery_outcome,'delivery_failed');
+ await db.query(readFileSync('supabase/migrations/202612080002_email_bounce_history.sql','utf8'));
+ await db.query('SET ROLE authenticated');
+ await assert.rejects(db.query('select * from email_address_bounce'),/permission denied/);
+ await assert.rejects(db.query(`select resolve_email_address_bounce(null,null,null,null,null,null,null)`),/permission denied/);
+ } finally {if(db)await db.end();if(started)spawnSync('pg_ctl',['-D',h.data,'-m','immediate','-w','stop']);await h.cleanup();}
+});

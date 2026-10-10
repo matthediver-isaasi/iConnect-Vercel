@@ -46,6 +46,7 @@ import WorkflowConfirmationModal from "@/components/WorkflowConfirmationModal";
 import { toast } from "sonner";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import MemberBounceWarning from "@/components/communications/MemberBounceWarning";
 import { Badge } from "@/components/ui/badge";
 import RoleBadge from "@/components/RoleBadge";
 import MemberLoginStatusBadge from "@/components/MemberLoginStatusBadge";
@@ -1347,7 +1348,9 @@ export default function MemberDetail() {
             {isEditing ? (
               <Input type="email" value={formData.email || ''} onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))} disabled={isLocked} data-testid="input-member-email" />
             ) : (
-              <p className="text-sm">{member.email ? <a href={`mailto:${member.email}`} className="text-blue-600 hover:underline">{member.email}</a> : '-'}</p>
+              <div className="flex flex-wrap items-center gap-2 text-sm">{member.email ? <a href={`mailto:${member.email}`} className="text-blue-600 hover:underline">{member.email}</a> : '-'}
+                <MemberBounceWarning memberId={member.id} email={member.email} enabled={isAccessReady} />
+              </div>
             )}
           </div>
         );

@@ -1,5 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import crypto from 'crypto';
+import { classifyEmailDelivery } from '../_lib/emailDeliveryClassification.js';
 
 const MAILGUN_WEBHOOK_SIGNING_KEY = process.env.MAILGUN_WEBHOOK_SIGNING_KEY;
 
@@ -120,7 +121,7 @@ export default async function handler(req, res) {
       campaign = campaignData;
     }
 
-    await supabase.from('email_event').insert({
+    const { error: eventWriteError } = await supabase.from('email_event').insert({
       tenant_id: campaign?.tenant_id,
       campaign_id: recipient?.campaign_id,
       recipient_id: recipient?.id,
@@ -143,6 +144,9 @@ export default async function handler(req, res) {
       raw_event: eventData,
       event_timestamp: timestamp
     });
+    // The database derives delivery outcome and suppression from this evidence.
+    // Do not acknowledge an event whose durable write failed.
+    if (eventWriteError) throw new Error('Could not persist email delivery event');
 
     if (recipient) {
       const { data: existingRecipient } = await supabase
@@ -208,6 +212,9 @@ export default async function handler(req, res) {
 
         case 'failed':
         case 'bounced': {
+          // Temporary/exhausted delivery states were already recorded by the
+          // event trigger. They must not inflate permanent-bounce counters.
+          if (classifyEmailDelivery(eventData) !== 'hard_bounce') break;
           await supabase
             .from('email_campaign_recipient')
             .update({
@@ -217,7 +224,7 @@ export default async function handler(req, res) {
             })
             .eq('id', recipient.id);
 
-          if (campaign) {
+          if (campaign && existingRecipient?.status !== 'bounced') {
             await incrementCampaignColumn(campaign.id, 'bounced_count');
           }
 
