@@ -19,6 +19,7 @@ export function opportunityContacts(payload) {
       ...role,
       id: role.contact?.id || role.member?.id || role.member_id || role.memberId || role.id,
       name: person.name || [person.first_name, person.last_name].filter(Boolean).join(" ") || person.email || "Contact",
+      email: person.email || "",
     };
   }).filter((contact) => contact.id);
 }

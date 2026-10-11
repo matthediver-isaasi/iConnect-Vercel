@@ -1,6 +1,6 @@
 import { supabase } from '../../_lib/database.js';
 import { hashQuoteToken } from '../../_lib/salesQuoteDelivery.js';
-import { buildSalesQuotePdf } from '../../_lib/salesQuotePdf.js';
+import { buildBrandedSalesQuotePdf } from '../../_lib/salesQuotePdf.js';
 
 const buckets = new Map();
 function limited(key, maximum) {
@@ -95,7 +95,7 @@ async function resolveToken(db, token, lockAuditType, requestMetadata = {}) {
     db.from('sales_quote').select('*').eq('tenant_id', row.tenant_id).eq('id', row.quote_id).maybeSingle(),
     db.from('sales_quote_version').select('*,sales_quote_line(*,sales_quote_bundle_component(*))')
       .eq('tenant_id', row.tenant_id).eq('id', row.quote_version_id).maybeSingle(),
-    db.from('tenant').select('name,slug,domain,logo_url,header_logo_url,primary_color,secondary_color,tagline,description,branding_config,settings').eq('id', row.tenant_id).maybeSingle(),
+    db.from('tenant').select('name,slug,domain,logo_url,header_logo_url,primary_color,secondary_color,tagline,description,branding_config,settings,footer_config').eq('id', row.tenant_id).maybeSingle(),
   ]);
   if (quoteResult.error) throw quoteResult.error;
   if (versionResult.error) throw versionResult.error;
@@ -136,7 +136,7 @@ export function createPublicSalesQuoteHandler(dependencies = {}) {
         const found = await resolveToken(db, token, action === 'download' ? 'downloaded' : 'viewed', metadata(req));
         if (!found.version) return res.status(found.outcome === 'not_found' ? 404 : 410).json({ outcome: found.outcome });
         if (action === 'download') {
-          const pdf = buildSalesQuotePdf(found);
+          const pdf = await buildBrandedSalesQuotePdf(found);
           res.setHeader('Content-Type', 'application/pdf');
           res.setHeader('Content-Disposition', `attachment; filename="quote-${found.quote.quote_number}.pdf"`);
           res.setHeader('Cache-Control', 'private, no-store');

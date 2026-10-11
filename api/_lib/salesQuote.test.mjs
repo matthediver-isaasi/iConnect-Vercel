@@ -209,6 +209,10 @@ test('quote detail route accepts the scalar catch-all shape emitted by the devel
           maybeSingle: async () => ({ data: null, error: null }),
         };
       }
+      if (table === 'tenant') {
+        return { select() { return this; }, eq() { return this; },
+          maybeSingle: async () => ({ data: { name: 'Example', footer_config: { legalText: 'Registered company 123' } }, error: null }) };
+      }
       throw new Error(`unexpected table ${table}`);
     },
   };
@@ -226,4 +230,17 @@ test('quote detail route accepts the scalar catch-all shape emitted by the devel
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.id, uuid);
   assert.equal(res.body.currentVersion.id, 'version-id');
+  const direct = response();
+  await handler({ method: 'GET', url: `/api/sales/quotes/${uuid}`, query: {} }, direct);
+  assert.equal(direct.statusCode, 200);
+  assert.equal(direct.body.id, uuid, 'URL-only requests must resolve a quote, never the list endpoint');
+  const spoof = response();
+  await handler({ method: 'GET', url: `/api/sales/quotes/${uuid}`, query: { path: 'wrong-id' } }, spoof);
+  assert.equal(spoof.body.id, uuid);
+  const draftPdf = response();
+  draftPdf.setHeader = () => {};
+  draftPdf.send = value => { draftPdf.pdf = value; return draftPdf; };
+  await handler({ method: 'GET', url: `/api/sales/quotes/${uuid}?action=pdf`, query: { action: 'pdf' } }, draftPdf);
+  assert.ok(Buffer.isBuffer(draftPdf.pdf), 'saved drafts can be previewed without issuing or sending');
+  assert.match(draftPdf.pdf.toString('latin1'), /DRAFT/);
 });

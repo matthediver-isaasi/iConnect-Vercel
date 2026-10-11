@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { canonicalQuoteBaseUrl, hashQuoteToken, quotePublicUrl } from './salesQuoteDelivery.js';
-import { buildSalesQuotePdf } from './salesQuotePdf.js';
+import { buildSalesQuotePdf, buildBrandedSalesQuotePdf } from './salesQuotePdf.js';
 
 test('quote tokens are one-way hashed and URL encoded', () => {
   const token = 'secret/token+which must never be stored';
@@ -43,4 +43,35 @@ test('quote PDF renders immutable snapshot lines totals bundles and terms', () =
   assert.ok(Buffer.isBuffer(pdf));
   assert.equal(pdf.subarray(0, 4).toString(), '%PDF');
   assert.ok(pdf.length > 1000);
+});
+
+test('draft PDF includes the legal footer, full address and draft marking', () => {
+  const pdf = buildSalesQuotePdf({
+    tenant: { name: 'Example', footer_config: { address: { name: 'Registered Example Ltd', lines: ['Registered address'] }, legalText: 'Company number 12345. VAT GB12345.' } },
+    quote: { quote_number: 'Q-DRAFT' },
+    version: { status: 'draft', version_number: 1, currency: 'GBP', address_snapshot: { postalCode: 'W1 1AA', country: 'United Kingdom' }, sales_quote_line: [] },
+  }).toString('latin1');
+  assert.match(pdf, /DRAFT/);
+  assert.match(pdf, /not issued/);
+  assert.match(pdf, /Registered Example Ltd/);
+  assert.match(pdf, /Company number 12345/);
+  assert.match(pdf, /W1 1AA/);
+});
+
+test('PDF logo download only allows public uploaded assets and embeds converted PNG', async () => {
+  const input = { quote: {}, version: { version_number: 1, currency: 'GBP' }, tenant: {} };
+  for (const logo of ['http://127.0.0.1/image.png', 'https://example.com/image.png', 'https://abc.supabase.co/storage/v1/object/sign/image.png']) {
+    await assert.rejects(buildBrandedSalesQuotePdf({ ...input, tenant: { logo_url: logo } }), /public tenant-uploaded/);
+  }
+  const sharp = (await import('sharp')).default;
+  const bytes = await sharp({ create: { width: 20, height: 10, channels: 3, background: '#123456' } }).png().toBuffer();
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    assert.equal(options.redirect, 'error');
+    return new Response(bytes);
+  };
+  try {
+    const pdf = await buildBrandedSalesQuotePdf({ ...input, tenant: { logo_url: 'https://test.supabase.co/storage/v1/object/public/logos/test.png' } });
+    assert.match(pdf.toString('latin1'), /\/Subtype \/Image/);
+  } finally { globalThis.fetch = original; }
 });

@@ -9,7 +9,7 @@ import {
   amendQuote, compareQuoteVersions, confirmQuoteSale, getQuote, getQuoteHistory, issueQuote, listQuotes, prepareQuoteDraft,
   saveQuoteDraft, transitionQuote,
 } from '../../_lib/salesQuote.js';
-import { buildSalesQuotePdf } from '../../_lib/salesQuotePdf.js';
+import { buildBrandedSalesQuotePdf } from '../../_lib/salesQuotePdf.js';
 import { canonicalQuoteBaseUrl, sendQuote } from '../../_lib/salesQuoteDelivery.js';
 import {
   createSalesInvoice, getSalesInvoicePresentation, refreshSalesInvoiceStatus,
@@ -29,6 +29,9 @@ export function salesQuoteErrorBody(error) {
 }
 
 function pathParts(req) {
+  const pathname = new URL(req.url || '/', 'http://internal').pathname;
+  const match = pathname.match(/^\/api\/sales\/quotes\/([^?]+?)\/?$/);
+  if (match) return match[1].split('/').map(decodeURIComponent);
   const path = req.query?.path;
   if (path) return Array.isArray(path) ? path : String(path).split('/').filter(Boolean);
   return req.query?.id ? [req.query.id, req.query.action].filter(Boolean) : [];
@@ -104,11 +107,11 @@ export function createSalesQuotesHandler(dependencies = {}) {
         const quote = await getQuote(db, actor.tenantId, id);
         const requested = req.query.version ? Number(req.query.version) : quote.current_version;
         const version = quote.versions.find((item) => item.version_number === requested);
-        if (!version || version.status === 'draft') throw new SalesHttpError(409, 'Only an issued quote version can be rendered');
+        if (!version) throw new SalesHttpError(404, 'Quote version not found');
         const { data: tenant, error } = await db.from('tenant')
-          .select('name,slug,domain,logo_url,header_logo_url,primary_color,secondary_color,tagline,description,branding_config,settings').eq('id', actor.tenantId).maybeSingle();
+          .select('name,slug,domain,logo_url,header_logo_url,primary_color,secondary_color,tagline,description,branding_config,settings,footer_config').eq('id', actor.tenantId).maybeSingle();
         if (error) throw error;
-        const pdf = buildSalesQuotePdf({ quote, version, tenant });
+        const pdf = await buildBrandedSalesQuotePdf({ quote, version, tenant });
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `${action === 'download' ? 'attachment' : 'inline'}; filename="quote-${quote.quote_number}.pdf"`);
         res.setHeader('Cache-Control', 'private, no-store');
@@ -215,9 +218,9 @@ export function createSalesQuotesHandler(dependencies = {}) {
         const version = quote.versions.find((item) => item.version_number === requested);
         if (!version) throw new SalesHttpError(404, 'Quote version not found');
         const { data: tenant, error } = await db.from('tenant')
-          .select('name,slug,domain,logo_url,header_logo_url,primary_color,secondary_color,tagline,description,branding_config,settings').eq('id', actor.tenantId).maybeSingle();
+          .select('name,slug,domain,logo_url,header_logo_url,primary_color,secondary_color,tagline,description,branding_config,settings,footer_config').eq('id', actor.tenantId).maybeSingle();
         if (error) throw error;
-        const pdf = req.body?.attachPdf === false ? null : buildSalesQuotePdf({ quote, version, tenant });
+        const pdf = req.body?.attachPdf === false ? null : await buildBrandedSalesQuotePdf({ quote, version, tenant });
         const expiresInDays = Number(req.body?.expiresInDays);
         return res.status(200).json(await sendQuote(db, {
           quote, version, tenant, actor, recipient,

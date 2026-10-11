@@ -94,7 +94,7 @@ function normalizeLine(line, index) {
   return {
     ...emptyLine(), ...line, key: idOf(line) || line.key || `line-${index}`,
     persistedLineId: persistedQuoteLineId(line),
-    type: line.kind || line.type || line.line_type || (line.catalogueId || line.catalogue_id ? "product" : "free_text"),
+    type: line.kind || line.catalogue_kind || line.type || line.line_type || (line.catalogueId || line.catalogue_id ? "product" : "free_text"),
     productId: pick(line, "catalogueId", "catalogue_id", pick(line, "productId", "product_id")), bundleId: pick(line, "catalogueId", "catalogue_id", pick(line, "bundleId", "bundle_id")),
     standardUnitPriceMinor: pick(line, "standardUnitPriceMinor", "standard_unit_price_minor", 0),
     quotedUnitPriceMinor: pick(line, "quotedUnitPriceMinor", "quoted_unit_price_minor", 0),
@@ -103,11 +103,11 @@ function normalizeLine(line, index) {
   };
 }
 
-function normalizeQuote(payload, opportunityId = "") {
+export function normalizeQuote(payload, opportunityId = "") {
   const root = payload?.quote || payload?.data?.quote || payload?.data || payload || {};
   // Detail responses keep quote identity at the root and the immutable/editable
   // values in currentVersion. Always prefer that authoritative version.
-  const version = root.currentVersion || root.current_version || root;
+  const version = root.currentVersion || root.versions?.find(item => Number(item.version_number) === Number(root.current_version)) || (typeof root.current_version === "object" ? root.current_version : root);
   const quote = { ...root, ...version };
   // `invoice: null` is meaningful after an accounting-provider switch: do not
   // fall back to a historical version's invoice in that case.
@@ -285,7 +285,7 @@ function DeliveryHistory({ quoteId }) {
   </CardContent></Card>;
 }
 
-function SendQuoteDialog({ open, onOpenChange, pending, onSend, initialRecipient = "" }) {
+function SendQuoteDialog({ open, onOpenChange, pending, onSend, initialRecipient = "", contacts = [] }) {
   const [recipient, setRecipient] = useState(initialRecipient);
   const [expiresInDays, setExpiresInDays] = useState("30");
   const [attachPdf, setAttachPdf] = useState(true);
@@ -293,6 +293,10 @@ function SendQuoteDialog({ open, onOpenChange, pending, onSend, initialRecipient
   return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-w-md">
     <DialogHeader><DialogTitle>Send quote</DialogTitle><DialogDescription>A secure, expiring link will point to this exact immutable quote version.</DialogDescription></DialogHeader>
     <div className="space-y-4 py-2">
+      <Field label="Opportunity contact"><select aria-label="Quote recipient contact" className="w-full rounded-md border p-2" value={contacts.some(contact => contact.email === recipient) ? recipient : ""} onChange={event => setRecipient(event.target.value)}>
+        <option value="">Enter an email address below</option>
+        {contacts.filter(contact => contact.email).map(contact => <option key={contact.id} value={contact.email}>{contact.name} — {contact.email}</option>)}
+      </select></Field>
       <Field label="Recipient email"><Input type="email" autoFocus value={recipient} onChange={(event) => setRecipient(event.target.value)} placeholder="customer@example.com" /></Field>
       <Field label="Link expiry"><Select value={expiresInDays} onValueChange={setExpiresInDays}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{["7", "14", "30", "60", "90"].map((days) => <SelectItem key={days} value={days}>{days} days</SelectItem>)}</SelectContent></Select></Field>
       <label className="flex items-start gap-3 rounded-lg border p-3 text-sm"><Checkbox checked={attachPdf} onCheckedChange={(value) => setAttachPdf(value === true)} /><span><strong className="block">Attach PDF</strong><span className="text-slate-500">Also include the branded PDF alongside the secure link.</span></span></label>
@@ -323,7 +327,11 @@ function QuoteEditor() {
   const { toast } = useToast();
   const opportunityId = new URLSearchParams(location.search).get("opportunityId") || "";
   const isNew = !id || id === "new";
-  const detail = useQuery({ queryKey: ["sales-quote", id], queryFn: () => request(`/api/sales/quotes/${id}`), enabled: !isNew });
+  const detail = useQuery({ queryKey: ["sales-quote", id], queryFn: async () => {
+    const data = await request(`/api/sales/quotes/${id}`);
+    if (!data?.id || (!data.currentVersion && !data.versions?.length)) throw new Error("The quote details were not returned. Please retry loading this quote.");
+    return data;
+  }, enabled: !isNew, refetchOnMount: "always" });
   const products = useQuery({ queryKey: ["quote-products"], queryFn: () => request("/api/sales/catalogue/products") });
   const bundles = useQuery({ queryKey: ["quote-bundles"], queryFn: () => request("/api/sales/catalogue/bundles") });
   const taxOptions = useCatalogueTaxOptions(true);
@@ -405,19 +413,21 @@ function QuoteEditor() {
   };
   if (!isNew && detail.isLoading) return <Loading />;
   if (!isNew && detail.error) return <Failure error={detail.error} retry={detail.refetch} />;
+  if (!isNew && loadedId !== id) return <Loading />;
   const patch = (key, value) => setForm((old) => ({ ...old, [key]: value }));
   return <div className="space-y-5">
     <div className="flex flex-wrap items-start justify-between gap-3"><div className="flex items-start gap-3"><Button variant="outline" size="icon" onClick={() => navigate("/sales/quotes")}><ArrowLeft className="h-4 w-4" /></Button><div><div className="flex flex-wrap items-center gap-2"><h2 className="text-2xl font-bold">{isNew ? "Create quote" : quote.number || quote.quoteNumber || quote.quote_number || "Quote"}</h2>{statusBadge(status)}{!isNew && <Badge variant="outline">Version {quote.versionNumber || quote.version_number || quote.version || 1}</Badge>}</div><p className="mt-1 text-sm text-slate-500">{readOnly ? "Issued versions are immutable. Create an amendment to make changes." : "Build and save a customer-ready quote."}</p></div></div><div className="flex flex-wrap gap-2">
       {!readOnly && <Button variant="outline" disabled={invalidPrices || preview.isPending || (isNew && !opportunity.ready) || !form.lines.length} onClick={() => preview.mutate()}>{preview.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Recalculate</Button>}
       {!readOnly && <Button variant="outline" disabled={invalidPrices || save.isPending || !form.opportunityId || (isNew && !opportunity.ready) || !form.lines.length} onClick={() => save.mutate()}>{save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save draft</Button>}
-      {!isNew && status === "draft" && allowed(["canIssue", "can_issue", "issue"], false) && <Button disabled={action.isPending || !form.lines.length || isDirty} title={isDirty ? "Save the latest draft before issuing" : ""} onClick={() => action.mutate({ action: "issue" })}><Send className="mr-2 h-4 w-4" />Issue</Button>}
-      {!isNew && status !== "draft" && <><Button variant="outline" disabled={pdf.isPending} onClick={() => pdf.mutate({ preview: true })}><Eye className="mr-2 h-4 w-4" />Preview PDF</Button><Button variant="outline" disabled={pdf.isPending} onClick={() => pdf.mutate({ preview: false })}><Download className="mr-2 h-4 w-4" />Download</Button></>}
+      {!isNew && status === "draft" && allowed(["canIssue", "can_issue", "issue"], false) && <Button disabled={action.isPending || !form.lines.length || isDirty} title={isDirty ? "Save the latest draft before issuing" : "Finalise this version so it can be sent"} onClick={() => action.mutate({ action: "issue" })}><Send className="mr-2 h-4 w-4" />Issue quote</Button>}
+      {!isNew && <><Button variant="outline" disabled={pdf.isPending || isDirty} title={isDirty ? "Save your changes before generating a PDF" : ""} onClick={() => pdf.mutate({ preview: true })}><Eye className="mr-2 h-4 w-4" />{status === "draft" ? "Preview draft PDF" : "Preview PDF"}</Button><Button variant="outline" disabled={pdf.isPending || isDirty} onClick={() => pdf.mutate({ preview: false })}><Download className="mr-2 h-4 w-4" />Download PDF</Button></>}
       {!isNew && ["issued", "sent"].includes(status) && <Button disabled={deliveryAction.isPending} onClick={() => setSendOpen(true)}><Send className="mr-2 h-4 w-4" />Send</Button>}
       {!isNew && ["issued", "sent"].includes(status) && <Button variant="outline" disabled={deliveryAction.isPending} onClick={() => deliveryAction.mutate({ action: "revoke" })}><Link2Off className="mr-2 h-4 w-4" />Revoke link</Button>}
       {!isNew && !["draft", "superseded", "accepted", "converted", "declined", "rejected", "expired"].includes(status) && allowed(["canAmend", "can_amend", "amend"], false) && <Button onClick={() => action.mutate({ action: "amend" })}><RefreshCw className="mr-2 h-4 w-4" />Amend</Button>}
       {!isNew && status === "accepted" && allowed(["canTransition", "can_transition", "transition"], false) && <Button variant="outline" onClick={() => action.mutate({ action: "transition", extra: { status: "converted" } })}>Convert</Button>}
     </div></div>
-    {!isNew && <SendQuoteDialog open={sendOpen} onOpenChange={setSendOpen} pending={deliveryAction.isPending} initialRecipient={quote.recipient || quote.customerEmail || quote.customer_email || ""} onSend={(extra) => deliveryAction.mutate({ action: "send", extra })} />}
+    {!isNew && status === "draft" && <p className="rounded border bg-slate-50 p-3 text-sm">Save draft → preview the draft PDF → Issue quote → Send. Issuing locks this version for delivery.{!allowed(["canIssue"], false) && " Your role does not have permission to issue quotes."}{isDirty && " Save your latest changes first."}</p>}
+    {!isNew && <SendQuoteDialog contacts={contacts} open={sendOpen} onOpenChange={setSendOpen} pending={deliveryAction.isPending} initialRecipient={contacts.find(contact => contact.id === form.billingContactId)?.email || contacts.find(contact => contact.id === form.customerContactId)?.email || quote.recipient || quote.customerEmail || quote.customer_email || ""} onSend={(extra) => deliveryAction.mutate({ action: "send", extra })} />}
     {!isNew && (["accepted", "converted"].includes(status) || Boolean(quote.saleId)) && <InvoiceStatusPanel saleId={quote.saleId} invoice={quote.invoice} invoices={quote.invoices} activeProvider={quote.activeProvider} permissions={permissions} error={action.error} onCreate={(command) => invoiceAction("create-invoice", command)} onRetry={(command) => invoiceAction("create-invoice", command)} onRefresh={quote.invoice ? () => invoiceAction("refresh-invoice-status") : undefined} />}
     {isNew && !form.opportunityId && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Choose an active opportunity below. Its organisation, currency and primary contact will be used for this quote.</div>}
     {form.opportunityId && opportunity.isError && <Failure error={opportunity.error} retry={opportunity.refetch} />}
