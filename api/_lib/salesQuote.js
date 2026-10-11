@@ -3,6 +3,7 @@ import {
 } from '../../shared/salesContracts.js';
 import { SalesHttpError } from './salesAccess.js';
 import { resolveSalesTaxCode } from './salesCatalogueTaxOptions.js';
+import { quoteSalespersonSnapshot } from './quoteSalespeople.js';
 
 const VERSION_SELECT = '*,sales_quote_line(*,sales_quote_bundle_component(*))';
 
@@ -14,15 +15,14 @@ async function one(db, table, tenantId, id, label) {
   return data;
 }
 
-async function snapshotReferences(db, tenantId, actor, draft) {
+async function snapshotReferences(db, tenantId, actor, draft, previousSalesperson) {
   const opportunity = draft.opportunityId ? await one(db, 'opportunity', tenantId, draft.opportunityId, 'Opportunity') : null;
   const organisationId = draft.organisationId || opportunity?.organization_id || null;
-  const salespersonId = draft.salespersonId || draft.salesperson?.id || null;
   const [organisation, customer, billing, salesperson, settings] = await Promise.all([
     organisationId ? one(db, 'organization', tenantId, organisationId, 'Organisation') : null,
     draft.customerContactId ? one(db, 'member', tenantId, draft.customerContactId, 'Customer contact') : null,
     draft.billingContactId ? one(db, 'member', tenantId, draft.billingContactId, 'Billing contact') : null,
-    salespersonId ? one(db, 'member', tenantId, salespersonId, 'Salesperson') : null,
+    quoteSalespersonSnapshot(db, tenantId, actor, draft, previousSalesperson),
     db.from('sales_settings').select('default_terms').eq('tenant_id', tenantId).maybeSingle(),
   ]);
   if (settings.error) throw settings.error;
@@ -37,7 +37,7 @@ async function snapshotReferences(db, tenantId, actor, draft) {
     addressSnapshot: draft.address || null,
     eventSnapshot: event,
     termsSnapshot: { text: draft.terms ?? settings.data?.default_terms ?? '' },
-    salespersonSnapshot: salesperson || { id: actor.actorId, type: actor.actorType },
+    salespersonSnapshot: salesperson,
   };
 }
 
@@ -108,8 +108,8 @@ async function resolveLine(db, tenantId, line, index, allowPriceOverride, previo
   };
 }
 
-export async function prepareQuoteDraft(db, tenantId, actor, draft, allowPriceOverride = false, previousLines = new Map()) {
-  const snapshots = await snapshotReferences(db, tenantId, actor, draft);
+export async function prepareQuoteDraft(db, tenantId, actor, draft, allowPriceOverride = false, previousLines = new Map(), previousSalesperson) {
+  const snapshots = await snapshotReferences(db, tenantId, actor, draft, previousSalesperson);
   const lines = await Promise.all(draft.lines.map((line, index) => resolveLine(
     db, tenantId, { ...line, currency: draft.currency }, index, allowPriceOverride, previousLines.get(line.id),
   )));
@@ -135,22 +135,29 @@ async function quoteRpc(db, name, args) {
   return Array.isArray(data) ? data[0] : data;
 }
 
-export async function saveQuoteDraft(db, tenantId, actor, id, expectedVersion, draft, allowOverride) {
+export async function loadQuoteDraftState(db, tenantId, id) {
   const previousLines = new Map();
+  let previousSalesperson;
   if (id) {
-    const { data: version, error } = await db.from('sales_quote_version').select('id')
+    const { data: version, error } = await db.from('sales_quote_version').select('id,salesperson_snapshot')
       .eq('tenant_id', tenantId).eq('quote_id', id).eq('status', 'draft').maybeSingle();
     if (error) throw error;
     if (version) {
+      previousSalesperson = version.salesperson_snapshot;
       const result = await db.from('sales_quote_line').select('*').eq('tenant_id', tenantId).eq('quote_version_id', version.id);
       if (result.error) throw result.error;
       for (const line of result.data || []) previousLines.set(line.id, line);
     }
   }
+  return { previousLines, previousSalesperson };
+}
+
+export async function saveQuoteDraft(db, tenantId, actor, id, expectedVersion, draft, allowOverride) {
+  const { previousLines, previousSalesperson } = await loadQuoteDraftState(db, tenantId, id);
   for (const line of draft.lines) if (line.id && !previousLines.has(line.id)) {
     throw new SalesHttpError(409, 'A quote line is no longer part of this draft. Reload before saving.');
   }
-  const payload = await prepareQuoteDraft(db, tenantId, actor, draft, allowOverride, previousLines);
+  const payload = await prepareQuoteDraft(db, tenantId, actor, draft, allowOverride, previousLines, previousSalesperson);
   for (let i = 0; i < payload.lines.length; i++) {
     if (!previousLines.has(draft.lines[i].id) && !payload.lines[i].catalogueSnapshot?.tax_code) {
       throw new SalesHttpError(400, `Select a provider tax code for new quote line ${i + 1}${draft.lines[i].kind === 'product' ? ' on its catalogue product' : ''}.`);

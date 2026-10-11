@@ -20,6 +20,7 @@ import { useToast } from "@/components/ui/use-toast";
 import InvoiceStatusPanel from "@/components/sales/InvoiceStatusPanel";
 import QuoteOpportunitySelect from "./QuoteOpportunitySelect";
 import QuoteEventSelect from "./QuoteEventSelect";
+import QuoteSalespersonSelect from "./QuoteSalespersonSelect";
 import { quotePriceText, quotePriceMinor, quotePriceError } from "./quoteFormValues";
 import { clearOpportunityContacts, opportunityContacts, useQuoteOpportunity } from "./useQuoteOpportunity";
 import { calculateQuoteLine } from "@shared/salesContracts.js";
@@ -443,7 +444,7 @@ function QuoteEditor() {
           <Field label="Valid until"><Input disabled={readOnly} type="date" value={form.validUntil} onChange={(e) => patch("validUntil", e.target.value)} /></Field>
           <Field label="PO reference"><Input disabled={readOnly} value={form.purchaseOrderReference} onChange={(e) => patch("purchaseOrderReference", e.target.value)} /></Field>
           <Field label="Customer reference"><Input disabled={readOnly} value={form.customerReference} onChange={(e) => patch("customerReference", e.target.value)} /></Field>
-          <Field label="Salesperson"><Input disabled={readOnly} value={form.salespersonId} onChange={(e) => patch("salespersonId", e.target.value)} placeholder="Member ID" /></Field>
+          <Field label="Salesperson"><QuoteSalespersonSelect disabled={readOnly} value={form.salespersonId} snapshot={form.salesperson_snapshot || form.salesperson} onChange={value => patch("salespersonId", value)} request={request} /></Field>
           <Field label="Currency"><Input disabled={readOnly || form.lines.length > 0} maxLength={3} value={form.currency} onChange={(e) => patch("currency", e.target.value.toUpperCase())} /></Field>
           <Field label="Tax treatment"><Select disabled={readOnly} value={form.taxTreatment} onValueChange={(value) => patch("taxTreatment", value)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="exclusive">Tax exclusive</SelectItem><SelectItem value="inclusive">Tax inclusive</SelectItem><SelectItem value="exempt">Exempt</SelectItem></SelectContent></Select></Field>
           <Field label="Payment terms"><Input disabled={readOnly} value={form.paymentTerms} onChange={(e) => patch("paymentTerms", e.target.value)} /></Field>

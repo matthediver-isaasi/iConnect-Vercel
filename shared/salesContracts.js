@@ -249,7 +249,7 @@ export function normaliseQuoteInput(input) {
     customerContactId: take('customerContactId', 'customer_contact_id'), billingContactId: take('billingContactId', 'billing_contact_id'),
     issueDate: take('issueDate', 'issue_date'), validUntil: take('validUntil', 'valid_until'),
     purchaseOrderReference: take('purchaseOrderReference', 'purchase_order_reference'), customerReference: take('customerReference', 'customer_reference'),
-    taxTreatment: take('taxTreatment', 'tax_treatment'), paymentTerms: take('paymentTerms', 'payment_terms'), salespersonId: take('salespersonId', 'salesperson_id'),
+    taxTreatment: take('taxTreatment', 'tax_treatment'), paymentTerms: take('paymentTerms', 'payment_terms'), salespersonId: Object.hasOwn(value, 'salespersonId') ? value.salespersonId : value.salesperson_id,
     lines: (value.lines ?? value.lineItems ?? value.line_items ?? []).map((line) => {
       const kind = line.kind ?? line.type ?? line.line_type ?? (line.bundleId ?? line.bundle_id ? 'bundle' : line.productId ?? line.product_id ? 'product' : 'free_text');
       const normalized = { id: line.id, kind, catalogueId: line.catalogueId ?? line.catalogue_id ?? (kind === 'bundle' ? line.bundleId ?? line.bundle_id : line.productId ?? line.product_id) ?? null,
