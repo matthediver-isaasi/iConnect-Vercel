@@ -151,15 +151,16 @@ function statusBadge(status) {
   return <Badge className={`border-0 capitalize ${tones[status] || tones.draft}`}>{String(status || "draft").replaceAll("_", " ")}</Badge>;
 }
 
-function QuotesList() {
+export function QuotesList({ opportunityId = "" }) {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
   const [page, setPage] = useState(1);
   const query = useQuery({
-    queryKey: ["sales-quotes", search, status, page],
+    queryKey: ["sales-quotes", search, status, page, opportunityId],
     queryFn: () => {
       const params = new URLSearchParams({ search, page: String(page), limit: "20" });
+      if (opportunityId) params.set("opportunityId", opportunityId);
       if (status !== "all") params.set("status", status);
       return request(`/api/sales/quotes?${params}`);
     },
@@ -171,7 +172,7 @@ function QuotesList() {
     <div className="flex flex-col gap-3 sm:flex-row">
       <div className="relative flex-1"><Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" /><Input className="pl-9" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} placeholder="Search quote, customer or opportunity…" /></div>
       <Select value={status} onValueChange={(value) => { setStatus(value); setPage(1); }}><SelectTrigger className="w-full sm:w-44"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All statuses</SelectItem>{["draft", "issued", "sent", "accepted", "converted", "rejected", "declined", "expired", "superseded"].map((item) => <SelectItem value={item} key={item} className="capitalize">{item}</SelectItem>)}</SelectContent></Select>
-      <Button onClick={() => navigate("/sales/quotes/new")}><Plus className="mr-2 h-4 w-4" />Create quote</Button>
+      <Button onClick={() => navigate(`/sales/quotes/new${opportunityId ? `?opportunityId=${encodeURIComponent(opportunityId)}` : ""}`)}><Plus className="mr-2 h-4 w-4" />Create quote</Button>
     </div>
     {query.isLoading ? <Loading /> : query.error ? <Failure error={query.error} retry={query.refetch} /> : !rows.length ? <Card><CardContent className="py-16 text-center"><PackagePlus className="mx-auto h-9 w-9 text-slate-300" /><h3 className="mt-3 font-semibold">No quotes found</h3><p className="mt-1 text-sm text-slate-500">Create a quote from an opportunity to start building your offer.</p></CardContent></Card> :
       <Card className="overflow-hidden"><div className="overflow-x-auto"><table className="w-full min-w-[760px] text-sm"><thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-4 py-3">Quote</th><th className="px-4 py-3">Customer / opportunity</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Valid until</th><th className="px-4 py-3 text-right">Total</th></tr></thead><tbody>{rows.map((raw) => { const row = normalizeQuote(raw); return <tr key={idOf(row)} onClick={() => navigate(`/sales/quotes/${idOf(row)}`)} className="cursor-pointer border-t hover:bg-blue-50/40"><td className="px-4 py-3"><p className="font-semibold text-slate-900">{row.number || row.quoteNumber || row.quote_number || "Draft quote"}</p><p className="text-xs text-slate-500">Version {row.versionNumber || row.version_number || row.version || 1}</p></td><td className="px-4 py-3"><p>{nameOf(row.organisation_snapshot || row.customer || row.organization) || row.customer_name || "—"}</p><p className="text-xs text-slate-500">{nameOf(row.opportunity) || row.opportunity_name || "—"}</p></td><td className="px-4 py-3">{statusBadge(row.status)}</td><td className="px-4 py-3">{dateText(row.validUntil || row.valid_until)}</td><td className="px-4 py-3 text-right font-semibold">{money(row.grossTotalMinor ?? row.gross_total_minor ?? row.gross_minor ?? row.totalMinor ?? row.total_minor, row.currency)}</td></tr>; })}</tbody></table></div></Card>}
