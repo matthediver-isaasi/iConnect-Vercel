@@ -4,6 +4,7 @@ description: Testing modes, route contracts, parallel test artifacts, and stable
 ---
 
 - [Fixture route contracts](browser-fixture-route-contracts.md) — reject unexpected mutation endpoints; fabricated commit markers can hide a missing transaction.
+- [Sales panel test isolation](sales-panel-test-isolation.md) — isolate unrelated browser-client initialization without adding real tenant credentials to fixtures.
 - [Parallel test output](parallel-browser-test-output.md) — concurrent Playwright runs need separate output directories to protect active traces.
 - [Geometry assertions](browser-geometry-assertions.md) — finish dialog entrance animations before measuring fixed-header geometry.
 - [Isolated fixture watchers](isolated-fixture-watchers.md) — static verification fixtures must not exhaust filesystem watchers by scanning workspace caches.

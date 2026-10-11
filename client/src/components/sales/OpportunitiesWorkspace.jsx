@@ -344,21 +344,26 @@ function SettingsPage() {
   </div>;
 }
 
-function CollectionPanel({ opportunityId, organizationId, type, items, canEdit, onChanged }) {
+export function CollectionPanel({ opportunityId, organizationId, type, items, canEdit, onChanged }) {
   const { toast } = useToast();
   const [text, setText] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [role, setRole] = useState("");
-  const [people, setPeople] = useState([]);
+  const contactsQuery = useQuery({
+    queryKey: ["opportunity-contact-options", organizationId],
+    queryFn: ({ signal }) => loadOpportunityContacts(organizationId, { signal }),
+    enabled: Boolean(canEdit && type === "contacts" && organizationId),
+    retry: false,
+  });
+  const people = contactsQuery.isSuccess ? contactsQuery.data : [];
+  const availablePeople = people.filter(person => !items.some(item =>
+    (item.member_id || item.contact_id || idOf(item.contact || item.member || item)) === idOf(person)));
+  const contactsLoading = Boolean(organizationId && contactsQuery.isPending);
+  const contactSelected = availablePeople.some(person => idOf(person) === text);
   const resource = type === "contacts" ? "contact-roles" : type;
   useEffect(() => {
-    if (!canEdit || type !== "contacts") return;
-    const organization = type === "contacts" && organizationId ? `&organization_id=${encodeURIComponent(organizationId)}` : "";
-    fetch(`/api/members/search?q=&limit=100${organization}`, { credentials: "include" })
-      .then((response) => response.ok ? response.json() : Promise.reject())
-      .then((result) => setPeople(arr(result)))
-      .catch(() => setPeople([]));
-  }, [canEdit, organizationId, type]);
+    setText("");
+  }, [organizationId, opportunityId, type]);
   const create = useMutation({
     mutationFn: (memberId) => request(`/api/opportunities/${opportunityId}?resource=${resource}`, { method: "POST", body: JSON.stringify(type === "tasks" ? { title: text, dueAt: dueDate || null } : type === "notes" ? { body: text } : type === "collaborators" ? { principal: { kind: "member", id: memberId } } : { memberId: text, role }) }),
     onSuccess: () => { setText(""); setDueDate(""); setRole(""); onChanged(); },
@@ -372,7 +377,22 @@ function CollectionPanel({ opportunityId, organizationId, type, items, canEdit, 
   const placeholder = type === "notes" ? "Write a note…" : type === "tasks" ? "Task title…" : type === "contacts" ? "Existing contact ID…" : "Existing team member ID…";
   return <Card><CardContent className="p-5">
     {canEdit && type === "collaborators" && <CollaboratorPicker key={opportunityId} opportunityId={opportunityId} items={items} request={request} onAdd={memberId => create.mutateAsync(memberId)} pending={create.isPending} />}
-    {canEdit && type !== "collaborators" && <div className="mb-5 flex flex-wrap gap-2">{type === "notes" ? <Textarea className="min-w-full" value={text} placeholder={placeholder} onChange={(e) => setText(e.target.value)} /> : type === "contacts" ? <Select value={text} onValueChange={setText}><SelectTrigger className="min-w-[240px] flex-1"><SelectValue placeholder={people.length ? "Select existing organisation contact" : "No available people"} /></SelectTrigger><SelectContent>{people.filter((person) => !items.some((item) => idOf(item.contact || item.member || item) === idOf(person))).map((person) => <SelectItem key={idOf(person)} value={idOf(person)}>{nameOf(person)}{person.email ? ` · ${person.email}` : ""}</SelectItem>)}</SelectContent></Select> : <Input className="min-w-[220px] flex-1" value={text} placeholder={placeholder} onChange={(e) => setText(e.target.value)} />}{type === "contacts" && <Input className="w-44" value={role} placeholder="Contact role" onChange={(e) => setRole(e.target.value)} />}{type === "tasks" && <Input className="w-44" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />}<Button disabled={!text.trim() || create.isPending} onClick={() => create.mutate()}><Plus className="mr-2 h-4 w-4" />Add</Button></div>}
+    {canEdit && type === "contacts" && <div className="mb-3 text-sm" aria-live="polite">
+      {contactsLoading ? <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />Loading organisation contacts…</span>
+        : !organizationId ? <p>No organisation is linked to this opportunity.</p>
+        : contactsQuery.isError ? <div role="alert" className="text-rose-700">{contactsQuery.error.message} <Button variant="outline" size="sm" onClick={() => contactsQuery.refetch()}>Retry</Button></div>
+        : !availablePeople.length ? <p>{people.length ? "All organisation contacts are already added." : "No contacts were found for this organisation."}</p> : null}
+    </div>}
+    {canEdit && type !== "collaborators" && <div className="mb-5 flex flex-wrap gap-2">
+      {type === "notes" ? <Textarea className="min-w-full" value={text} placeholder={placeholder} onChange={(e) => setText(e.target.value)} />
+        : type === "contacts" ? <Select value={contactSelected ? text : ""} onValueChange={setText} disabled={contactsLoading || contactsQuery.isError || !organizationId || !availablePeople.length || create.isPending}>
+          <SelectTrigger aria-label="Organisation contact" className="min-w-[240px] flex-1"><SelectValue placeholder="Select existing organisation contact" /></SelectTrigger>
+          <SelectContent>{availablePeople.map(person => <SelectItem key={idOf(person)} value={idOf(person)}>{nameOf(person)}{person.email ? ` · ${person.email}` : ""}</SelectItem>)}</SelectContent>
+        </Select> : <Input className="min-w-[220px] flex-1" value={text} placeholder={placeholder} onChange={(e) => setText(e.target.value)} />}
+      {type === "contacts" && <Input className="w-44" value={role} placeholder="Contact role" onChange={(e) => setRole(e.target.value)} />}
+      {type === "tasks" && <Input className="w-44" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />}
+      <Button disabled={!text.trim() || create.isPending || (type === "contacts" && (!contactSelected || contactsLoading || contactsQuery.isError))} onClick={() => create.mutate()}><Plus className="mr-2 h-4 w-4" />Add</Button>
+    </div>}
     {!items.length ? <p className="py-8 text-center text-sm text-slate-500">No {type} yet.</p> : <div className="divide-y">{items.map((item, index) => <div key={idOf(item) || index} className="flex items-start justify-between gap-3 py-3"><div><p className="whitespace-pre-wrap text-sm font-medium text-slate-900">{item.body || item.content || item.title || nameOf(item.contact || item.member || item)}</p>{(item.due_date || item.created_at || item.role) && <p className="mt-1 text-xs text-slate-500">{item.role || (item.due_date ? `Due ${date(item.due_date)}` : `Added ${date(item.created_at)}`)}</p>}</div>{canEdit && <Button variant="ghost" size="icon" aria-label="Remove" disabled={remove.isPending} onClick={() => { if (window.confirm("Remove this item?")) remove.mutate(item); }}><Trash2 className="h-4 w-4 text-rose-600" /></Button>}</div>)}</div>}
   </CardContent></Card>;
 }
