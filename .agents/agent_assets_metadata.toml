@@ -1293,3 +1293,17 @@ mtime_ms = 1791536078057
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/3555c489-ce90-4cb7-b0b5-1a3e88492dc2/4cca5690-52c8-4983-8cff-e88254e1af16"
 storage_version_token = "1791536085756000"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "Ziv3WEurfpFFSplphe6Ls"
+uri = "file://generated-artifacts/Global_Schools_Forum_Email_Campaign_Investigation_Report.pdf"
+type = "pdf"
+title = "Global Schools Forum — Email Campaign Investigation Report"
+description = "Updated three-page client report using verified GSF delivery and click examples, with all Graduate Futures and Leeds references removed."
+logical_id = "c9776c78-172f-465a-9a93-e01b27692cd3"
+content_hash = "sha256:71793e303f537850c44f26c4cdc39ebc3cd658aa9697dc0f05c91ce8e3a4915e"
+size = 38751
+mtime_ms = 1791704595199
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/c9776c78-172f-465a-9a93-e01b27692cd3/acb6d589-82ea-44cc-8815-17f914d58db0"
+storage_version_token = "1791704608465224"
+content_type = "application/pdf"
