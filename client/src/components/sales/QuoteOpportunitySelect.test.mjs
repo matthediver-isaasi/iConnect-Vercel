@@ -27,17 +27,17 @@ const { createRoot } = await import("react-dom/client");
 const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
 const bundlePath = path.resolve(`client/src/components/sales/.quote-opportunity-fixture-${process.pid}.mjs`);
 await build({
-  entryPoints: ["client/src/components/sales/QuoteOpportunitySelect.jsx"], outfile: bundlePath,
+  stdin: { contents: 'export {default} from "./client/src/components/sales/QuoteOpportunitySelect.jsx"; export {default as EventSelector} from "./client/src/components/sales/QuoteEventSelect.jsx";', resolveDir: process.cwd(), loader: "js" }, outfile: bundlePath,
   bundle: true, format: "esm", platform: "node", packages: "external", jsx: "transform",
   alias: { "@": path.resolve("client/src") }, logLevel: "silent",
 });
-const { default: Selector } = await import(pathToFileURL(bundlePath).href);
+const { default: Selector, EventSelector } = await import(pathToFileURL(bundlePath).href);
 after(async () => { dom.window.close(); await unlink(bundlePath); });
 const h = React.createElement;
 const wait = (ms = 30) => act(async () => { await new Promise((resolve) => setTimeout(resolve, ms)); });
 const detail = (id, extra = {}) => ({
   id, name: `Opportunity ${id}`, organization_id: `org-${id}`, currency: "EUR",
-  organization: { id: `org-${id}`, name: "Westbridge Learning" },
+  organization: { id: `org-${id}`, name: "Westbridge Learning", invoicing_address: "10 High Street\nLondon\nW1 1AA" },
   primaryContact: { id: `person-${id}`, name: "Asha Malik" },
   "contact-roles": [{ id: `role-${id}`, member_id: `person-${id}`, is_primary: true, contact: { id: `person-${id}`, name: "Asha Malik" } }],
   ...extra,
@@ -194,7 +194,7 @@ test("form-bound detail query prevents stale overwrite and gates save readiness 
 test("existing quote detail resolves name without changing saved quote fields", async () => {
   let state;
   function Harness() {
-    const [form, setForm] = React.useState({ opportunityId: "historical", currency: "GBP", customerContactId: "saved-person", lines: [] });
+    const [form, setForm] = React.useState({ opportunityId: "historical", currency: "GBP", customerContactId: "saved-person", address: { line1: "Saved snapshot" }, lines: [] });
     const query = useQuoteOpportunity({ opportunityId: form.opportunityId, isNew: false, setForm, request: async () => detail("historical") });
     state = { form, query };
     return h("p", null, query.data?.name);
@@ -205,5 +205,63 @@ test("existing quote detail resolves name without changing saved quote fields", 
     assert.match(document.body.textContent, /Opportunity historical/);
     assert.equal(state.form.currency, "GBP");
     assert.equal(state.form.customerContactId, "saved-person");
+    assert.equal(state.form.address.line1, "Saved snapshot");
+  } finally { await cleanup(); }
+});
+
+test("new quote address prefills once, retains overrides after refetch, and clears on opportunity change", async () => {
+  let state, edit, select, refetch;
+  function Harness() {
+    const [form, setForm] = React.useState({ opportunityId: "first", lines: [] });
+    const query = useQuoteOpportunity({ opportunityId: form.opportunityId, isNew: true, setForm, request: async url => detail(url.split("/").at(-1)) });
+    state = form;
+    edit = () => setForm(old => ({ ...old, address: { ...old.address, line1: "Quote override" } }));
+    select = () => setForm(old => clearOpportunityContacts(old, ""));
+    refetch = query.refetch;
+    return null;
+  }
+  const cleanup = await mount(h(Harness));
+  try {
+    await wait();
+    assert.equal(state.address.line1, "10 High Street");
+    assert.equal(state.address.line2, "London\nW1 1AA");
+    await act(async () => edit());
+    await act(async () => refetch());
+    assert.equal(state.address.line1, "Quote override");
+    await act(async () => select());
+    assert.equal(state.address.line1, "");
+  } finally { await cleanup(); }
+});
+
+test("event selector searches, toggles past events, pages, selects both kind and id, and clears", async () => {
+  const calls = []; const chosen = [];
+  const request = async url => {
+    calls.push(url);
+    return { items: [{ id: "event-one", kind: "complex", name: "Annual conference", startDate: "2027-01-01" }], hasMore: !url.includes("page=2") };
+  };
+  const cleanup = await mount(h(EventSelector, { value: "", request, onChange: item => chosen.push(item) }));
+  try {
+    await click("Event");
+    assert.match(calls.at(-1), /excludePast=true/);
+    await act(async () => document.querySelector('input[type="checkbox"]').click());
+    await wait();
+    assert.match(calls.at(-1), /excludePast=false/);
+    await click("Next events");
+    assert.match(calls.at(-1), /page=2/);
+    const input = document.querySelector('[aria-label="Search events"]');
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value").set.call(input, "Annual");
+      input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+    await wait(300);
+    await wait();
+    assert.match(calls.at(-1), /search=Annual&excludePast=false&page=1/);
+    const option = [...document.querySelectorAll('[cmdk-item]')].find(node => node.textContent.includes("Annual conference"));
+    await act(async () => option.click());
+    assert.equal(chosen[0].kind, "complex");
+    assert.equal(chosen[0].id, "event-one");
+    await click("Event");
+    await act(async () => [...document.querySelectorAll('[cmdk-item]')].find(node => node.textContent === "No event").click());
+    assert.equal(chosen[1], null);
   } finally { await cleanup(); }
 });

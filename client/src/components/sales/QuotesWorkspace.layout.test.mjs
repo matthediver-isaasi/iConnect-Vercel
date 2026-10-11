@@ -121,6 +121,15 @@ test("quote lines fit narrow and wide containers and preserve editing/actions", 
     await page.getByPlaceholder("Description", { exact: true }).fill("Revised workshop delivery");
     assert.equal(await page.getByPlaceholder("Description", { exact: true }).inputValue(), "Revised workshop delivery");
     assert.equal(await page.getByText("£30.00", { exact: true }).count(), 2);
+    assert.equal(await page.getByLabel("Line 1 standard price", { exact: true }).inputValue(), "12.50");
+    assert.equal(await page.getByLabel("Line 2 standard price", { exact: true }).isDisabled(), true);
+    await page.getByLabel("Line 1 standard price", { exact: true }).fill("40.00");
+    assert.equal(await page.getByLabel("Line 1 quoted price", { exact: true }).inputValue(), "40.00");
+    assert.equal(await page.getByText("£96.00", { exact: true }).count(), 1);
+    await page.getByLabel("Line 1 quoted price", { exact: true }).fill("24.33");
+    assert.equal(await page.getByText("£58.39", { exact: true }).count(), 1);
+    await page.getByLabel("Line 1 quoted price", { exact: true }).fill("1.234");
+    assert.match(await page.getByRole("alert").innerText(), /Quoted price/);
     await page.getByRole("button", { name: "Delete line 1", exact: true }).click();
     assert.equal(await page.getByRole("button", { name: /^Delete line/ }).count(), 1);
     await page.getByRole("button", { name: "Free text", exact: true }).click();

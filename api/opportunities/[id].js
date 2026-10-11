@@ -33,6 +33,13 @@ async function fullDetail(db, access, accountingAccess, dependencies = {}) {
     return [key, data || []];
   }));
   const [opportunity] = await enrichOpportunities(db, access.opportunity.tenant_id, [access.opportunity]);
+  // Only expose billing defaults on the already-authorised detail endpoint,
+  // not in opportunity search/list responses.
+  const { data: billingOrg, error: billingError } = await db.from('organization')
+    .select('invoicing_address').eq('tenant_id', access.opportunity.tenant_id)
+    .eq('id', access.opportunity.organization_id).maybeSingle();
+  if (billingError) throw billingError;
+  if (opportunity.organization) opportunity.organization = { ...opportunity.organization, invoicing_address: billingOrg?.invoicing_address || '' };
   const children = Object.fromEntries(entries);
   const collaboratorIds = [...new Set((children.collaborators || [])
     .filter(item => item.principal_kind === 'member').map(item => item.principal_id))];

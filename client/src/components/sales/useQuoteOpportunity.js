@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { emptyBillingAddress, organizationBillingAddress } from "./quoteFormValues.js";
 
 export const opportunitySearchParams = (search, page) => new URLSearchParams({
   active: "true", search, page: String(page), pageSize: "25",
@@ -23,7 +24,7 @@ export function opportunityContacts(payload) {
 }
 
 export function clearOpportunityContacts(form, opportunityId) {
-  return { ...form, opportunityId, organizationId: "", customerContactId: "", billingContactId: "" };
+  return { ...form, opportunityId, organizationId: "", customerContactId: "", billingContactId: "", address: emptyBillingAddress() };
 }
 
 export function applyQuoteOpportunity(form, detail) {
@@ -38,6 +39,7 @@ export function applyQuoteOpportunity(form, detail) {
     currency: detail.currency || "GBP",
     customerContactId: primary,
     billingContactId: primary,
+    address: organizationBillingAddress(detail.organization),
   };
 }
 
