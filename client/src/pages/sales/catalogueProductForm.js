@@ -45,6 +45,29 @@ export function productPricesForSaving(form) {
   return prices;
 }
 
+export function bundlePricesForEditing(row = {}) {
+  return {
+    sellingPriceMinor: minorToDecimal(row.sellingPriceMinor),
+    minimumPriceMinor: minorToDecimal(row.minimumPriceMinor),
+  };
+}
+
+export function bundlePricesForSaving(form) {
+  if (!String(form.sellingPriceMinor ?? "").trim()) throw new Error("Enter a selling price.");
+  const prices = {};
+  for (const [key, label] of [["sellingPriceMinor", "Selling price"], ["minimumPriceMinor", "Minimum price"]]) {
+    try {
+      prices[key] = decimalToMinor(form[key]);
+    } catch (error) {
+      throw new Error(`${label}: ${error.message}`);
+    }
+  }
+  if (prices.minimumPriceMinor !== null && prices.minimumPriceMinor > prices.sellingPriceMinor) {
+    throw new Error("Minimum price must not exceed selling price.");
+  }
+  return prices;
+}
+
 export function productTaxForSaving(existing, selectedId, items, available = true) {
   if (!selectedId && existing) return {};
   const code = selectedProviderTaxCode(selectedId, items, available);
