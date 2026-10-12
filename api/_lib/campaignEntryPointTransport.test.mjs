@@ -194,6 +194,7 @@ function fixtureDatabase(initialCampaign, extraTables = {}) {
             };
           }
           if (table === 'plan') return { data: { quotas: {} }, error: null };
+          if (table === 'email_address_bounce') return { data: null, error: null };
           if (table === 'system_settings') {
             if (filters.length && selected === 'setting_value') {
               return { data: { setting_value: RUNTIME_FOOTER }, error: null };

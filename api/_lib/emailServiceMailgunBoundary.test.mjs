@@ -2,6 +2,25 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { deliverMailgunMessage, mailgunSuccessMetadata, sendEmail } from './emailService.js';
 
+test('campaign test mode still submits to Mailgun with provider no-delivery flag', async () => {
+  const payloads = [];
+  const result = await sendEmail({
+    to: 'benchmark@example.invalid', subject: 'Benchmark', html: '<p>Benchmark</p>',
+    tenantId: 'benchmark-tenant', testMode: true,
+    resolveTransactionalPreferences: false, skipFooter: true,
+  }, {
+    client: { messages: { create: async (_domain, message) => {
+      payloads.push(message);
+      return { id: '<test-accepted@example.invalid>', message: 'Queued. Thank you.' };
+    } } },
+    getTenantEmailConfig: async () => ({ domain: 'tenant.invalid' }),
+    getEmailFooter: async () => null,
+  });
+  assert.equal(result.success, true);
+  assert.equal(payloads.length, 1);
+  assert.equal(payloads[0]['o:testmode'], 'yes');
+});
+
 test('explicit 429 signals rate limit without fallback; transport uncertainty remains ambiguous', async () => {
   for (const ambiguous of [false, true]) {
     let calls = 0;

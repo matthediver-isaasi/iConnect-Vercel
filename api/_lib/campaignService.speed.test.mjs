@@ -49,6 +49,7 @@ function fixture({ providerResult = { success: true, messageId: '<accepted>' }, 
   const functions = vm.runInNewContext(`${source};({sendToRecipient, prepareCampaignBatchRender, campaignNeedsRecipientOrganization})`, {
     process: { env: {} }, crypto, Buffer, supabase: db,
     console: { log() {}, warn() {}, error() {} },
+    campaignAddressSuppressed: async () => false,
     prepareCampaignSurveyDelivery: async () => null,
     finishCampaignSurveyDelivery: async () => {},
     resolveCampaignAttendeeContent: async (_db, content) => ({ html: content.html_content, subject: content.subject }),

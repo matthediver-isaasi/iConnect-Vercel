@@ -11,6 +11,7 @@ import { resolvePreparationChunk } from './campaignPreparationStream.js';
 import { discoverAudienceCustomObjects, resolveCustomObjectConditions, validateCustomObjectCondition, validateAudienceCustomObjects } from './audienceCustomObjects.js';
 import { sendEmail, replacePlaceholders } from './emailService.js';
 import { drainCampaignRecipients as drainRecipients, campaignSendConcurrency } from './campaignDrain.js';
+import { createCampaignRecipientClaimer } from './campaignRecipientClaims.js';
 import { replaceBookingPlaceholders } from './eventConfirmationEmail.js';
 import { resolveCampaignAttendeeContent } from './campaignAttendeeContent.js';
 import { prepareCampaignSurveyDelivery, finishCampaignSurveyDelivery } from './campaignSurveyDelivery.js';
@@ -3977,30 +3978,6 @@ export async function sendToRecipient(recipient, campaign, tenantId, tenantSlug,
   }
 }
 
-async function claimPendingRecipients(campaignId, batchSize = BATCH_SIZE) {
-  const { data: pendingIds, error: selectError } = await supabase
-    .from('email_campaign_recipient')
-    .select('id')
-    .eq('campaign_id', campaignId)
-    .eq('status', 'pending')
-    .order('id', { ascending: true })
-    .limit(batchSize);
-  if (selectError) throw selectError;
-
-  if (!pendingIds || pendingIds.length === 0) return [];
-
-  const ids = pendingIds.map(r => r.id);
-  const { data: claimed, error: claimError } = await supabase
-    .from('email_campaign_recipient')
-    .update({ status: 'processing' })
-    .in('id', ids)
-    .eq('status', 'pending')
-    .select();
-  if (claimError) throw claimError;
-
-  return claimed || [];
-}
-
 const SENT_RECIPIENT_STATUSES = ['sent', 'delivered', 'opened', 'clicked'];
 
 export function determineCampaignSendOutcome({
@@ -4257,6 +4234,7 @@ async function releaseClaimedRecipients(claimedRecipients, status = 'pending') {
 }
 
 export async function sendBatch(campaignId, tenantId, campaign, tenantSlug, requestHost, batchSize = BATCH_SIZE, options = {}) {
+  const batchStartedAt = Date.now();
   try {
     await resolveCampaignEventSurvey(supabase, campaign, tenantId);
   } catch (error) {
@@ -4276,17 +4254,27 @@ export async function sendBatch(campaignId, tenantId, campaign, tenantSlug, requ
 
   const designInfo = getCampaignEmailComposition(campaign);
   const batchRender = prepareCampaignBatchRender(campaign, designInfo);
+  const setupMs = Math.max(0, Date.now() - batchStartedAt);
+  const recipientClaimer = createCampaignRecipientClaimer(supabase, campaignId, {
+    pageSize: options.claimPageSize ?? process.env.CAMPAIGN_CLAIM_PAGE_SIZE ?? 50,
+    deadline: options.deadline,
+    now: options.now || Date.now,
+  });
   const stageTimings = { renderMs: 0, preProviderGateMs: 0, providerMs: 0, persistenceMs: 0 };
   const { sent: sentCount, failed: failedCount, stoppedGate, metrics } = await drainCampaignRecipients({
     batchSize,
     concurrency: campaignSendConcurrency(options.concurrency ?? process.env.CAMPAIGN_SEND_CONCURRENCY ?? 2),
     deadline: options.deadline,
     now: options.now || Date.now,
-    claim: () => claimPendingRecipients(campaignId, 1),
+    claim: recipientClaimer.claim,
     gate: () => checkCampaignBatchGate(campaignId, tenantId, campaign),
     release: (recipient, status) => releaseClaimedRecipients([recipient], status),
     onMetrics: metrics => {
-      Object.assign(metrics, stageTimings);
+      // Aggregate timings are summed across slots, not exclusive wall times.
+      // IDs permit correlation without logging addresses, content or tokens.
+      Object.assign(metrics, stageTimings, recipientClaimer.metrics, {
+        campaignId, tenantId, testMode: campaign.is_test_mode === true, setupMs,
+      });
       console.log('[Campaign Service] Batch aggregate', metrics);
     },
     send: (recipient, control) => (options.sendRecipient || sendToRecipient)(recipient, campaign, tenantId, tenantSlug, requestHost, designInfo, null, {
