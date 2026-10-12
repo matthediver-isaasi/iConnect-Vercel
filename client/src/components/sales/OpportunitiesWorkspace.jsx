@@ -214,7 +214,7 @@ function OpportunitiesList({ destination }) {
       <Button variant={mine ? "default" : "outline"} onClick={() => setMine(!mine)}><UserRound className="mr-2 h-4 w-4" />My opportunities</Button>
       <Button variant="outline" size="icon" aria-label={view === "table" ? "Kanban view" : "Table view"} onClick={() => setView(view === "table" ? "kanban" : "table")}>{view === "table" ? <Columns3 className="h-4 w-4" /> : <LayoutList className="h-4 w-4" />}</Button>
       <SavedViews state={{ search, stageId, mine, view }} onApply={(saved) => { setSearch(saved.search || ""); setStageId(saved.stageId || "all"); setMine(Boolean(saved.mine)); setView(saved.view || "table"); }} tenantId={memberInfo?.tenant_id} memberId={memberInfo?.id} />
-      <Button onClick={() => setCreateOpen(true)}><Plus className="mr-2 h-4 w-4" />New</Button>
+      {destination !== "pipeline" && <Button onClick={() => setCreateOpen(true)}><Plus className="mr-2 h-4 w-4" />New</Button>}
     </div>
     {query.isLoading ? <div className="grid h-64 place-items-center"><Loader2 className="h-7 w-7 animate-spin text-blue-600" /></div>
       : query.error ? <Card className="border-rose-200"><CardContent className="flex items-center justify-between p-5 text-rose-700"><span><AlertTriangle className="mr-2 inline h-4 w-4" />{query.error.message}</span><Button variant="outline" onClick={() => query.refetch()}><RefreshCw className="mr-2 h-4 w-4" />Retry</Button></CardContent></Card>
