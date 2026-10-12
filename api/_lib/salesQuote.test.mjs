@@ -72,7 +72,7 @@ test('free-text lines, discounts, and builder aliases normalize to the canonical
 test('catalogue-backed quote lines use the persisted catalogue tax rate', async () => {
   const product = {
     id: uuid, is_active: true, currency: 'GBP', standard_price_minor: 1000,
-    minimum_price_minor: null, tax_rate_bps: 2000, name: 'Training',
+    minimum_price_minor: null, tax_rate_bps: 2000, name: 'Training', create_task_on_acceptance: true,
   };
   const db = {
     from(table) {
@@ -91,6 +91,7 @@ test('catalogue-backed quote lines use the persisted catalogue tax rate', async 
   });
 
   assert.equal(prepared.lines[0].taxRateBps, 2000);
+  assert.equal(prepared.lines[0].catalogueSnapshot.create_task_on_acceptance, true);
   assert.equal(prepared.totals.taxMinor, 200);
   assert.equal(prepared.totals.grossMinor, 1200);
 });

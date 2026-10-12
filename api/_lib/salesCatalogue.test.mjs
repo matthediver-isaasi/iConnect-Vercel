@@ -21,6 +21,17 @@ const bundle = {
   items: [{ productId: '123e4567-e89b-12d3-a456-426614174000', quantity: 2 }],
 };
 
+test('acceptance-task opt-in accepts booleans only and remains optional for legacy products', () => {
+  assert.equal(validateCatalogueProduct(product).ok, true);
+  for (const createTaskOnAcceptance of [true, false]) {
+    assert.equal(validateCatalogueProduct({ ...product, createTaskOnAcceptance }).ok, true);
+    assert.equal(validateCatalogueProduct({ createTaskOnAcceptance }, { patch: true }).ok, true);
+  }
+  for (const createTaskOnAcceptance of ['true', 1, null, {}, []]) {
+    assert.equal(validateCatalogueProduct({ ...product, createTaskOnAcceptance }).ok, false);
+  }
+});
+
 test('catalogue validates currencies, integer minor units, dates and composition', () => {
   assert.equal(validateCatalogueProduct({ ...product, shortDescription: 'A concise description' }).ok, true);
   assert.equal(validateCatalogueProduct({ ...product, shortDescription: 'x'.repeat(501) }).ok, false);

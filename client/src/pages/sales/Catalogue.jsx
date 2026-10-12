@@ -20,7 +20,7 @@ import { catalogueCodeError, normaliseCatalogueCode, suggestedCatalogueCategoryC
 const icon = { categories: FolderTree, products: Package, bundles: Boxes };
 const title = { categories: "Categories", products: "Products", bundles: "Bundles" };
 const singular = { categories: "category", products: "product", bundles: "bundle" };
-const blank = { categories: { name: "", code: "", description: "" }, products: { name: "", code: "", sku: "", categoryId: "", currency: "GBP", standardPriceMinor: "", minimumPriceMinor: "", costMinor: "", shortDescription: "", description: "", taxTreatment: "standard", taxRateBps: "", availableFrom: "", availableTo: "", eventReference: { kind: "", eventId: "", ticketTypeId: "" }, capacityMetadata: "" }, bundles: { name: "", code: "", currency: "GBP", sellingPriceMinor: "", minimumPriceMinor: "", presentationMode: "bundle", availableFrom: "", availableTo: "", description: "", items: [] } };
+const blank = { categories: { name: "", code: "", description: "" }, products: { name: "", code: "", sku: "", categoryId: "", currency: "GBP", standardPriceMinor: "", minimumPriceMinor: "", costMinor: "", shortDescription: "", description: "", taxTreatment: "standard", taxRateBps: "", availableFrom: "", availableTo: "", eventReference: { kind: "", eventId: "", ticketTypeId: "" }, capacityMetadata: "", createTaskOnAcceptance: false }, bundles: { name: "", code: "", currency: "GBP", sellingPriceMinor: "", minimumPriceMinor: "", presentationMode: "bundle", availableFrom: "", availableTo: "", description: "", items: [] } };
 const money = (minor, currency = "GBP") => minor === null || minor === undefined || minor === "" ? "—" : new Intl.NumberFormat("en-GB", { style: "currency", currency }).format(Number(minor) / 100);
 const asList = (data) => Array.isArray(data) ? data : data?.items || data?.results || [];
 
@@ -127,6 +127,7 @@ export function EditDialog({ config, categories, categoriesLoading, products, ev
     const allowed = type === "categories" ? ["name", "code", "description"] : type === "products" ? ["name", "code", "sku", "categoryId", "currency", "standardPriceMinor", "minimumPriceMinor", "costMinor", "shortDescription", "description", "availableFrom", "availableTo", "eventReference", "capacityMetadata"] : ["name", "code", "currency", "sellingPriceMinor", "minimumPriceMinor", "presentationMode", "availableFrom", "availableTo", "description", "items"];
     const data = Object.fromEntries(allowed.map((key) => [key, numeric.includes(key) && form[key] !== "" ? Number(form[key]) : form[key] === "" ? null : form[key]]));
     if (type === "products") {
+      data.createTaskOnAcceptance = Boolean(form.createTaskOnAcceptance);
       try {
         Object.assign(data, productPricesForSaving(form), productTaxForSaving(config.row, selectedTaxId, providerTaxOptions(taxOptions.data), !taxOptions.isError && !taxOptions.isPending));
       } catch (error) {
@@ -207,6 +208,10 @@ function ProductFields({ form, update, categories, events, existing, taxOptions,
     <Field label="Ticket type"><ProductSelect aria-label="Ticket type" value={String(ref.ticketTypeId || "")} onChange={(e) => patchRef("ticketTypeId", e.target.value)} disabled={!selected}><option value="">Optional ticket type</option>{ref.ticketTypeId && !ticket && <option value={String(ref.ticketTypeId)}>Saved ticket (unavailable)</option>}{(selected?.ticketOptions || []).map((ticket) => <option key={ticket.id} value={String(ticket.id)}>{ticket.name} ({ticket.delegateCapacity ?? "Unavailable"} delegate{ticket.delegateCapacity === 1 ? "" : "s"})</option>)}</ProductSelect></Field>
     <Field label="Short description" wide><Input value={form.shortDescription || ""} onChange={(e) => update("shortDescription", e.target.value)} /></Field>
     <Field label="Description" wide><Textarea value={form.description || ""} onChange={(e) => update("description", e.target.value)} /></Field>
+    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 sm:col-span-2">
+      <div className="flex items-start gap-2.5"><input id="product-create-task-on-acceptance" type="checkbox" className="mt-0.5 h-4 w-4 accent-blue-600" checked={Boolean(form.createTaskOnAcceptance)} onChange={(e) => update("createTaskOnAcceptance", e.target.checked)} aria-describedby="product-task-acceptance-help" /><Label htmlFor="product-create-task-on-acceptance" className="text-sm font-medium text-slate-800">Create a task when a quote is accepted</Label></div>
+      <p id="product-task-acceptance-help" className="mt-2 text-xs leading-relaxed text-slate-600">Creates one task per enabled product quote line or enabled bundle component, including its quantity—not one task per unit. Task settings are fixed with the issued quote; later product changes do not alter them. Past quotes are not backfilled and tasks are not migrated when task mode changes. Project tasks need a linked board and automatic-task list configured in the opportunity’s Tasks panel. This does not send emails or trigger financial actions.</p>
+    </div>
     <Field label="Availability and capacity" wide><p className="text-sm text-slate-600">Availability dates describe when this product is offered. General products have no stock enforcement. For event-linked products, the linked ticket controls event capacity.</p>{ref.ticketTypeId && <p className="mt-2 text-xs text-blue-700">Delegates per selected ticket: {ticket?.delegateCapacity ?? "Unavailable"}. This is not a product stock limit.</p>}</Field>
   </>;
 }

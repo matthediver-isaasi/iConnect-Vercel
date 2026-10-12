@@ -4,6 +4,7 @@ import { requireSalesContext } from './salesAccess.js';
 import { SALES_CAPABILITIES } from '../../shared/salesContracts.js';
 import { OpportunityHttpError, principalFromContext, parsePagination } from './opportunityRules.js';
 import { loadOpportunityAccess, enrichOpportunities } from './opportunityService.js';
+import { salesTaskAutomationRequest } from './salesTaskAutomation.js';
 
 const fail = (status, message) => { throw new OpportunityHttpError(status, message); };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -112,6 +113,12 @@ export async function salesProjectRequest(db, context, method, query, body, depe
   }
   const opportunityId = projectUuid(method === 'GET' ? query.opportunityId : body.opportunityId, 'Opportunity');
   const access = await loadOpportunityAccess(db, context, opportunityId, dependencies.hasAdminAccess);
+  if ((method === 'GET' && query.view === 'automation')
+    || (method === 'POST' && ['automation-configure', 'automation-retry'].includes(body.action))) {
+    return salesTaskAutomationRequest(db, context, method, body, {
+      opportunityId, access, actor, canViewProjects, dependencies,
+    });
+  }
   if (method === 'GET' && query.view === 'boards') {
     await requireSalesContext(context, SALES_CAPABILITIES.MANAGE_OPPORTUNITIES, dependencies);
     if (!access.permissions.canEdit || !canViewProjects || !actor.p_identity) fail(403, 'Opportunity and board management access required');

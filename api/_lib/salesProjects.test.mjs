@@ -28,6 +28,8 @@ function fixture(overrides = {}) {
         eq(key, value) { filters.push(row => row[key] === value); calls.push(['eq', table, key, value]); return q; },
         in(key, values) { filters.push(row => values.includes(row[key])); return q; },
         order() { return q; },
+         limit() { return q; },
+         or() { filters.push(row => row.is_archived !== true); return q; },
         maybeSingle() { return Promise.resolve({ data: (rows[table] || []).filter(row => filters.every(f => f(row)))[0] || null, error: null }); },
         then(resolve, reject) { return Promise.resolve({ data: (rows[table] || []).filter(row => filters.every(f => f(row))), error: null }).then(resolve, reject); },
       };
@@ -66,6 +68,61 @@ test('default mode is preserved; server supplies permissions and identity, not c
   assert.equal(args.p_admin, false);
   assert.equal(args.p_identity, id(4));
   assert.equal(args.p_tenant, id(1));
+});
+
+test('automation configuration uses the authenticated tenant and identity without requiring a mode mutation', async () => {
+  const f = fixture();
+  f.rows.sales_opportunity_project = [{ tenant_id: id(1), board_id: id(6), opportunity_id: id(5) }];
+  const res = await f.request({}, { action: 'automation-configure', opportunityId: id(5), listId: id(12),
+    tenantId: id(999), p_identity: id(999), p_actor: id(999) });
+  assert.equal(res.statusCode, 200);
+  const rpc = f.calls.find(c => c[0] === 'rpc');
+  assert.equal(rpc[1], 'configure_sales_task_automation');
+  assert.deepEqual(rpc[2], { p_tenant: id(1), p_opportunity: id(5), p_list: id(12),
+    p_identity: id(4), p_kind: 'member', p_actor: id(2) });
+});
+
+test('automation denies read-only Sales users, absent board membership and missing Create Cards permission', async () => {
+  for (const denied of ['board', 'projects.board-view', 'projects.board-view.create-cards', 'sales.opportunities.manage']) {
+    const f = fixture({ hasFeatureAccess: async (role, key) => key !== denied });
+    f.rows.sales_opportunity_project = [{ tenant_id: id(1), board_id: id(6), opportunity_id: id(5) }];
+    if (denied === 'board') f.rows.project_board_member = [];
+    const res = await f.request({}, { action: 'automation-configure', opportunityId: id(5), listId: id(12) });
+    assert.equal(res.statusCode, 403, denied);
+    assert.equal(f.calls.some(c => c[0] === 'rpc'), false);
+  }
+});
+
+test('Sales editors can revoke stale automation and retry only tenant/opportunity-scoped pending work', async () => {
+  for (const action of ['automation-configure', 'automation-retry']) {
+    const f = fixture();
+    const res = await f.request({}, { action, opportunityId: id(5), listId: null, requestId: id(999), taskMode: 'project' });
+    assert.equal(res.statusCode, 200);
+    const rpc = f.calls.find(c => c[0] === 'rpc');
+    assert.equal(rpc[2].p_tenant, id(1));
+    assert.equal(rpc[2].p_opportunity, id(5));
+    assert.equal('taskMode' in rpc[2], false);
+    assert.equal('requestId' in rpc[2], false);
+  }
+});
+
+test('automation read exposes no destination lists without board management and cannot cross tenant/opportunity boundaries', async () => {
+  const f = fixture();
+  f.rows.sales_opportunity_project = [{ tenant_id: id(1), board_id: id(6), opportunity_id: id(5) }];
+  f.rows.project_board_member = [];
+  f.rows.sales_acceptance_task_request = [
+    { tenant_id: id(1), opportunity_id: id(5), title: 'Allowed' },
+    { tenant_id: id(99), opportunity_id: id(5), title: 'Other tenant' },
+    { tenant_id: id(1), opportunity_id: id(99), title: 'Other opportunity' },
+  ];
+  const res = await f.request({ view: 'automation', opportunityId: id(5) });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.canConfigureBoard, false);
+  assert.deepEqual(res.body.lists, []);
+  assert.deepEqual(res.body.requests.map(r => r.title), ['Allowed']);
+  assert.equal(f.calls.some(c => c[0] === 'rpc'), false, 'GET must never create tasks');
+  const hidden = await f.request({ view: 'automation', opportunityId: id(99) });
+  assert.equal(hidden.statusCode, 404);
 });
 
 test('requests fail closed for authentication, tenant mismatch, Sales baseline and edit capability', async () => {

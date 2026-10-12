@@ -389,9 +389,12 @@ export function validateCatalogueProduct(value, { patch = false } = {}) {
   const allowed = new Set([
     'code', 'sku', 'name', 'shortDescription', 'description', 'categoryId', 'currency', 'standardPriceMinor',
     'minimumPriceMinor', 'costMinor', 'taxTreatment', 'taxRateBps', 'taxCode', 'availableFrom',
-    'availableTo', 'capacityMetadata', 'eventReference', 'displayOrder',
+    'availableTo', 'capacityMetadata', 'eventReference', 'displayOrder', 'createTaskOnAcceptance',
   ]);
   const errors = Object.keys(value).filter((key) => !allowed.has(key)).map((key) => `Unknown product field: ${key}`);
+  if ('createTaskOnAcceptance' in value && typeof value.createTaskOnAcceptance !== 'boolean') {
+    errors.push('createTaskOnAcceptance must be a boolean');
+  }
   if ((!patch || 'code' in value) && (typeof value.code !== 'string' || !CATALOGUE_CODE_RE.test(value.code))) {
     errors.push('code must be 1-64 uppercase letters, numbers, underscores, or hyphens');
   }

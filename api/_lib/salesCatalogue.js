@@ -57,6 +57,7 @@ const mapCategory = (row) => ({
   createdAt: row.created_at, updatedAt: row.updated_at,
 });
 const mapProduct = (row) => ({
+  createTaskOnAcceptance: row.create_task_on_acceptance === true,
   id: row.id, categoryId: row.category_id, code: row.code, sku: row.sku, name: row.name,
   shortDescription: row.short_description, description: row.description, currency: row.currency,
   standardPriceMinor: Number(row.standard_price_minor),
@@ -182,6 +183,7 @@ const categoryRow = (value) => ({
   ...(value.displayOrder !== undefined ? { display_order: value.displayOrder } : {}),
 });
 const productRow = (value) => ({
+  ...('createTaskOnAcceptance' in value ? { create_task_on_acceptance: value.createTaskOnAcceptance } : {}),
   ...('taxCode' in value ? { tax_code: value.taxCode } : {}),
   code: value.code, sku: value.sku ?? null, name: value.name.trim(),
   short_description: value.shortDescription ?? null, description: value.description ?? null,

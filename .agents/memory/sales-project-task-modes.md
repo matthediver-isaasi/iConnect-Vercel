@@ -19,3 +19,9 @@ Do not treat the original Projects schema script or a passing minimal fixture as
 **Why:** The live identity model has evolved independently of the original Projects tables; a fixture based on the old script missed a real migration compilation failure.
 
 **How to apply:** Inspect the destination metadata for every identity/name field used by new joins, and model those types and fields in disposable database tests before applying integration migrations.
+
+Product-driven acceptance tasks are opt-in and forward-only. Use the issued product snapshot and the opportunity task mode at acceptance; retries must not silently migrate work to another mode or board.
+
+**Why:** The user approved support for both task systems without changing existing products or historically accepted quotes. Board configuration failures should not reject a customer's quote acceptance.
+
+**How to apply:** Preserve pending work for explicit recovery, retain completed-task evidence even if a card is deleted, and keep prices, customer details and quote bearer links out of board cards. One task represents a line/component with its quantity, not one task per purchased unit.

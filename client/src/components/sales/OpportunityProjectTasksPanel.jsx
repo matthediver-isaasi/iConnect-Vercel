@@ -14,6 +14,7 @@ import { useSalesProjectBoard } from "./SalesProjectCardEditor";
 import { refreshSalesProjects, useSalesProjectCommand, useSalesProjectTasks } from "./useSalesProjectTasks";
 import { SalesTaskResults } from "./SalesTasksWorkspace";
 import { TaskError, TaskLoading, TaskPagination } from "./SalesProjectTaskStates";
+import OpportunityTaskAutomation from "./OpportunityTaskAutomation";
 
 function BoardLinkDialog({ opportunityId, open, onOpenChange, onLink, pending }) {
   const [search, setSearch] = useState("");
@@ -106,6 +107,7 @@ export default function OpportunityProjectTasksPanel({ opportunityId, standardTa
         : <div className="rounded-lg border border-dashed p-5"><h4 className="font-medium">No project board linked</h4><p className="mt-1 text-sm text-muted-foreground">{data.boardUnavailable ? "The previous board is no longer available. Standard tasks remain preserved." : "Create a board for this opportunity or link an existing one. Either action selects project task mode."}</p>{data.permissions?.canManage && <div className="mt-4 flex flex-wrap gap-2"><Button disabled={!data.permissions?.canCreateBoard || command.isPending} onClick={() => act({ action: "create" })}><Plus className="mr-2 h-4 w-4" />Create project board</Button><Button variant="outline" disabled={command.isPending} onClick={() => setLinkOpen(true)}><Link2 className="mr-2 h-4 w-4" />Link existing board</Button></div>}</div>}
       {command.error && <p role="alert" className="text-sm text-destructive">{[409, 412].includes(command.error.status) ? "This opportunity changed elsewhere. The latest settings have been reloaded; review them and try again." : command.error.message}</p>}
     </CardContent></Card>
+    <OpportunityTaskAutomation key={opportunityId} opportunityId={opportunityId} />
     {data.taskMode === "standard" ? standardTasks : available ? <>
       <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-2"><Label>Completion</Label><Select value={status} onValueChange={setStatus}><SelectTrigger className="w-44"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All tasks</SelectItem><SelectItem value="outstanding">Outstanding</SelectItem><SelectItem value="completed">Completed</SelectItem></SelectContent></Select></div><Button disabled={!board.canCreate} onClick={() => setAddOpen(true)}><Plus className="mr-2 h-4 w-4" />Add project task</Button></div>
       {board.error && <TaskError error={board.error} onRetry={() => board.refetch()} />}

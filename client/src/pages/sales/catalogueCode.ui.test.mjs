@@ -20,7 +20,7 @@ const built = await build({
     name: "isolated-catalogue-data",
     setup(b) {
       b.onResolve({ filter: /^\.\/useCatalogue$/ }, () => ({ path: "catalogue-hooks", namespace: "fixture" }));
-      b.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({ contents: "export const useCatalogueTaxOptions=()=>({data:[],isPending:false}); export const useCatalogue=()=>({}); export const useEventOptions=()=>({});" }));
+      b.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({ contents: "export const useCatalogueTaxOptions=()=>({data:{provider:'xero',items:[{id:'OUTPUT2',name:'VAT',rateBps:2000,selectable:true}]},isPending:false}); export const useCatalogue=()=>({}); export const useEventOptions=()=>({});" }));
     },
   }],
 });
@@ -29,6 +29,59 @@ mod.paths = Module._nodeModulePaths(process.cwd());
 mod._compile(built.outputFiles[0].text, `${process.cwd()}/catalogue-code-fixture.cjs`);
 const { EditDialog } = mod.exports;
 after(() => dom.window.close());
+
+for (const initial of [undefined, false, true]) {
+  test(`product automation preserves ${initial ?? "legacy default"} and submits a boolean on edit`, async () => {
+    const host = document.createElement("div"); document.body.append(host);
+    const root = createRoot(host); const saved = [];
+    await act(async () => root.render(React.createElement(EditDialog, {
+      config: { type: "products", row: { id: "product", name: "Workshop", code: "WORKSHOP", standardPriceMinor: 12500, createTaskOnAcceptance: initial } },
+      categories: [], products: [], events: {}, onClose() {}, onSave(data) { saved.push(data); },
+    })));
+    try {
+      const checkbox = document.querySelector("#product-create-task-on-acceptance");
+      const form = checkbox.closest("form");
+      assert.equal(checkbox.checked, Boolean(initial));
+      const submit = async () => act(async () => form.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })));
+      await submit();
+      assert.equal(saved[0].createTaskOnAcceptance, Boolean(initial));
+      await act(async () => checkbox.click());
+      await submit();
+      assert.equal(saved[1].createTaskOnAcceptance, !Boolean(initial));
+      assert.match(document.querySelector("#product-task-acceptance-help").textContent, /fixed with the issued quote/);
+    } finally { await act(async () => root.unmount()); host.remove(); }
+  });
+}
+
+test("new product automation defaults off and saves opt-in; bundle forms have no toggle", async () => {
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); const saved = [];
+  const props = { categories: [], products: [], events: {}, onClose() {}, onSave(data) { saved.push(data); } };
+  await act(async () => root.render(React.createElement(EditDialog, { ...props, config: { type: "products" } })));
+  try {
+    const checkbox = document.querySelector("#product-create-task-on-acceptance");
+    assert.equal(checkbox.checked, false);
+    const form = checkbox.closest("form");
+    const input = async (element, value) => act(async () => {
+      Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value").set.call(element, value);
+      element.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+    await input(form.querySelector('[aria-label="Internal code"]'), "WORKSHOP");
+    await input(form.querySelector('[aria-label="Standard price"]'), "125.00");
+    await act(async () => {
+      const tax = form.querySelector('[aria-label="Synced VAT code"]');
+      tax.value = JSON.stringify(["xero", "OUTPUT2"]);
+      tax.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    await act(async () => form.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })));
+    assert.equal(saved[0].createTaskOnAcceptance, false);
+    await act(async () => checkbox.click());
+    await act(async () => form.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })));
+    assert.equal(saved[1].createTaskOnAcceptance, true);
+    await act(async () => root.render(React.createElement(EditDialog, { ...props, config: { type: "bundles" } })));
+    assert.equal(document.querySelector("#product-create-task-on-acceptance"), null);
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
 
 for (const type of ["bundles", "products"]) for (const editing of [false, true]) {
   test(`${type}: ${editing ? "edit" : "create"} validates codes before any save`, async () => {
