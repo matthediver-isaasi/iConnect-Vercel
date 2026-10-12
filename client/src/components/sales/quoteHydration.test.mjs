@@ -4,6 +4,7 @@ import Module from "node:module";
 import { build } from "esbuild";
 import React from "react";
 import { renderToString } from "react-dom/server";
+import { readFileSync } from "node:fs";
 const result = await build({ entryPoints: ["client/src/components/sales/QuotesWorkspace.jsx"], bundle: true, write: false, platform: "node", format: "cjs", packages: "external", jsx: "automatic", alias: { "@": `${process.cwd()}/client/src`, "@shared": `${process.cwd()}/shared` } });
 const mod = new Module(`${process.cwd()}/quote-hydration-fixture.cjs`);
 mod.paths = Module._nodeModulePaths(process.cwd());
@@ -22,6 +23,15 @@ test("saved quote detail hydrates opportunity, bundle lines, prices and issue pe
     assert.equal(quote.lines[0].quotedUnitPriceMinor, 4000);
     assert.equal(quote.permissions.canIssue, true);
   }
+});
+
+test("quote form omits the redundant tax treatment control without discarding saved metadata", () => {
+  const source = readFileSync("client/src/components/sales/QuotesWorkspace.jsx", "utf8");
+  assert.doesNotMatch(source, /<Field label="Tax treatment"/);
+  for (const tax_treatment of ["exclusive", "inclusive", "exempt"]) {
+    assert.equal(mod.exports.normalizeQuote({ id: "quote", tax_treatment }).taxTreatment, tax_treatment);
+  }
+  assert.match(source, /taxTreatment: form\.taxTreatment/);
 });
 
 test("opportunity list uses isolated cache entries, includes drafts and formats gross currency", () => {

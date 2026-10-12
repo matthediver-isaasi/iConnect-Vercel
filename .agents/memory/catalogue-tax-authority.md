@@ -13,3 +13,9 @@ Accounting configuration access follows the independent Manage Accounting RBAC p
 **Why:** Portal administrators manage Sales through their assigned roles; excluding every portal member after granting the capability contradicts that access model.
 
 **How to apply:** Retain the Sales baseline, accounting capability, individual exclusions and tenant checks for both reading and saving mappings. Do not replace them with either unrestricted Sales-page access or a tenant-user-only gate.
+
+Do not reintroduce a quote-level Tax Treatment selector.
+
+**Why:** The user considers it confusing duplication of the VAT controls on products and bundles.
+
+**How to apply:** Keep catalogue VAT authoritative while preserving historical quote metadata on unrelated saves.

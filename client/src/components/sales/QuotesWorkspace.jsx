@@ -447,7 +447,6 @@ function QuoteEditor() {
           <Field label="Customer reference"><Input disabled={readOnly} value={form.customerReference} onChange={(e) => patch("customerReference", e.target.value)} /></Field>
           <Field label="Salesperson"><QuoteSalespersonSelect disabled={readOnly} value={form.salespersonId} snapshot={form.salesperson_snapshot || form.salesperson} onChange={value => patch("salespersonId", value)} request={request} /></Field>
           <Field label="Currency"><Input disabled={readOnly || form.lines.length > 0} maxLength={3} value={form.currency} onChange={(e) => patch("currency", e.target.value.toUpperCase())} /></Field>
-          <Field label="Tax treatment"><Select disabled={readOnly} value={form.taxTreatment} onValueChange={(value) => patch("taxTreatment", value)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="exclusive">Tax exclusive</SelectItem><SelectItem value="inclusive">Tax inclusive</SelectItem><SelectItem value="exempt">Exempt</SelectItem></SelectContent></Select></Field>
           <Field label="Payment terms"><Input disabled={readOnly} value={form.paymentTerms} onChange={(e) => patch("paymentTerms", e.target.value)} /></Field>
           <Field label="Internal / customer notes" wide><Textarea disabled={readOnly} rows={3} value={form.notes} onChange={(e) => patch("notes", e.target.value)} /></Field>
         </CardContent></Card>
