@@ -14,6 +14,7 @@ description: Index of event timing, booking lifecycle, attendance rewards and re
 - [CPD points](event-cpd-points-ledger.md) — append-only signed evidence ledger.
 - [Event revenue](event-revenue-basis.md) — booked value versus cash and historical evidence.
 - [Ticket releases](ticket-release-boundaries.md) — new-purchase gates, existing allocations and DST ambiguity.
+- [Email editing boundary](event-email-edit-policy.md) — saving confirmation or reminder messages must never trigger a send or resend.
 
 **Why:** Specialized event constraints remain discoverable without crowding the always-loaded memory index.
 
