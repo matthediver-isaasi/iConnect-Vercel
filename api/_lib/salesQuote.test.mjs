@@ -21,6 +21,19 @@ import { createSalesQuotesHandler } from '../sales/quotes/[...path].js';
 import { prepareQuoteDraft } from './salesQuote.js';
 
 const uuid = '123e4567-e89b-12d3-a456-426614174000';
+test('manual billing address overrides and deliberate clearing reach the persisted snapshot payload', async () => {
+  const db = { from() { return { select() { return this; }, eq() { return this; },
+    maybeSingle: async () => ({ data: { default_terms: '' }, error: null }) }; } };
+  const address = { addressee: 'Accounts', line1: '10 Main Street', line2: 'Floor 2',
+    city: 'Leeds', region: 'Yorkshire', postalCode: 'LS1 1AA', country: 'UK' };
+  for (const savedAddress of [address, Object.fromEntries(Object.keys(address).map(key => [key, '']))]) {
+    const prepared = await prepareQuoteDraft(db, 'tenant', { actorId: 'actor' },
+      normaliseQuoteInput({ currency: 'GBP', address: savedAddress, lines: [
+        { kind: 'free_text', description: 'Service', quantity: '1', standardUnitPriceMinor: 1000, quotedUnitPriceMinor: 1000, taxRateBps: 0 },
+      ] }));
+    assert.deepEqual(prepared.addressSnapshot, savedAddress);
+  }
+});
 const draft = {
   currency: 'GBP',
   lines: [{ kind: 'product', catalogueId: uuid, quantity: '1.25' }],

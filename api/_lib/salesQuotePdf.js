@@ -39,19 +39,32 @@ export function buildSalesQuotePdf({ quote, version, tenant }) {
   const page = (need = 15) => { if (y + need > 280) { doc.addPage(); y = 20; } };
   const text = (value, x = margin, opts = {}) => {
     const lines = doc.splitTextToSize(safe(value), opts.width || width - margin * 2);
-    doc.text(lines, x, y, opts); y += lines.length * (opts.leading || 5);
+    const fontHeight = doc.getFontSize() / doc.internal.scaleFactor;
+    const leading = opts.leading || Math.max(5, fontHeight * 1.25);
+    doc.text(lines, x, y, { ...opts, lineHeightFactor: leading / fontHeight });
+    y += lines.length * leading;
   };
   const brand = tenant?.primary_color || '#5C0085';
   const rgb = /^#[0-9a-f]{6}$/i.test(brand)
     ? [parseInt(brand.slice(1, 3), 16), parseInt(brand.slice(3, 5), 16), parseInt(brand.slice(5, 7), 16)] : [92, 0, 133];
   const logo = tenant?.header_logo_url || tenant?.logo_url;
   if (typeof logo === 'string' && /^data:image\/(png|jpe?g);base64,/i.test(logo)) {
-    try { doc.addImage(logo, /^data:image\/png/i.test(logo) ? 'PNG' : 'JPEG', margin, y - 5, 40, 15, undefined, 'FAST'); y += 17; } catch {}
+    try {
+      const image = doc.getImageProperties(logo);
+      const scale = Math.min(45 / image.width, 25 / image.height);
+      const logoWidth = image.width * scale;
+      const logoHeight = image.height * scale;
+      const logoTop = y - 5;
+      doc.addImage(logo, /^data:image\/png/i.test(logo) ? 'PNG' : 'JPEG', margin, logoTop, logoWidth, logoHeight, undefined, 'FAST');
+      // The next y is a text baseline, not its top edge.
+      y = logoTop + logoHeight + 12;
+    } catch {}
   }
   doc.setTextColor(...rgb); doc.setFont('helvetica', 'bold'); doc.setFontSize(22);
   text(tenant?.name || 'Quote');
+  y += 2;
   doc.setTextColor(0); doc.setFontSize(18); text(`QUOTE ${quote.quote_number || ''}`);
-  if (version.status === 'draft') { doc.setFontSize(12); text('DRAFT — not issued'); }
+  if (version.status === 'draft') { y += 1; doc.setFontSize(12); text('DRAFT — not issued'); y += 2; }
   doc.setFontSize(10); doc.setFont('helvetica', 'normal');
   text(`Version ${version.version_number}  |  ${version.status === 'draft' ? 'Date' : 'Issued'} ${version.issue_date || version.issued_at?.slice(0, 10) || ''}`);
   if (version.valid_until) text(`Valid until ${new Date(version.valid_until).toLocaleDateString('en-GB')}`);

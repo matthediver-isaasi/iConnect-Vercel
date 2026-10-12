@@ -1,5 +1,6 @@
 import crypto from 'crypto';
-import { sendEmail } from './emailService.js';
+import { sendEmail, getEmailFooterForPreview, constrainFooterForEmail } from './emailService.js';
+import { wrapEmailFooter } from './emailFooterLayout.js';
 import { SalesHttpError } from './salesAccess.js';
 import { sanitizeHostname } from './publicBaseUrl.js';
 
@@ -38,9 +39,16 @@ export async function mintQuoteToken(db, { tenantId, quoteId, versionId, recipie
   return { token, tokenId: data.id };
 }
 
-export async function sendQuote(db, input) {
-  const { quote, version, tenant, actor, recipient, attachPdf, pdf, expiresInDays, baseUrl } = input;
-  const deliver = input.sendEmail || sendEmail;
+const escapeQuoteEmail = value => String(value ?? '').replace(/[&<>"']/g, char =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+
+export function validateQuoteEmail({ version, recipient, expiresInDays, personalMessage = '' }) {
+  if (typeof recipient !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) {
+    throw new SalesHttpError(400, 'A valid recipient is required');
+  }
+  if (typeof personalMessage !== 'string' || personalMessage.length > 5000) {
+    throw new SalesHttpError(400, 'Personal message must be text of no more than 5000 characters');
+  }
   if (!['issued', 'sent'].includes(version.status)) throw new SalesHttpError(409, 'Only an issued quote can be sent');
   if (!Number.isInteger(expiresInDays) || expiresInDays < 1 || expiresInDays > 90) {
     throw new SalesHttpError(400, 'expiresInDays must be an integer between 1 and 90');
@@ -49,6 +57,35 @@ export async function sendQuote(db, input) {
   const validUntil = version.valid_until ? new Date(version.valid_until).getTime() : Infinity;
   const expiresAt = new Date(Math.min(requestedExpiry, validUntil)).toISOString();
   if (new Date(expiresAt) <= new Date()) throw new SalesHttpError(409, 'Quote has expired');
+  return expiresAt;
+}
+
+export function renderQuoteEmail({ quote, personalMessage = '', url }) {
+  const number = String(quote.quote_number || '').replace(/[\r\n]/g, '');
+  const message = personalMessage.replace(/\r\n?/g, '\n');
+  return {
+    subject: `Quote ${number}`,
+    html: `${message ? `<p>${escapeQuoteEmail(message).replace(/\n/g, '<br>')}</p>` : ''}<p>Please review quote <strong>${escapeQuoteEmail(number)}</strong>.</p><p><a href="${escapeQuoteEmail(url)}">View and respond to quote</a></p>`,
+    text: `${message ? `${message}\n\n` : ''}Please review quote ${number}: ${url}`,
+  };
+}
+
+export async function previewQuoteEmail(input, dependencies = {}) {
+  const expiresAt = validateQuoteEmail(input);
+  const message = renderQuoteEmail({ ...input, url: '#quote-preview' });
+  const footer = await (dependencies.getEmailFooterForPreview || getEmailFooterForPreview)(input.quote.tenant_id);
+  return {
+    ...message,
+    html: message.html + (footer ? wrapEmailFooter(constrainFooterForEmail(footer)) : ''),
+    recipient: input.recipient, expiresAt, attachPdf: input.attachPdf !== false,
+    version: input.version.version_number,
+  };
+}
+
+export async function sendQuote(db, input) {
+  const { quote, version, tenant, actor, recipient, attachPdf, pdf, baseUrl } = input;
+  const deliver = input.sendEmail || sendEmail;
+  const expiresAt = validateQuoteEmail(input);
   const minted = await mintQuoteToken(db, {
     tenantId: quote.tenant_id, quoteId: quote.id, versionId: version.id,
     recipient, actorId: actor.actorId, expiresAt,
@@ -65,14 +102,11 @@ export async function sendQuote(db, input) {
   const { error: attemptError } = await db.from('sales_quote_delivery_audit')
     .insert({ ...baseAudit, event_type: 'send_attempt' });
   if (attemptError) { await revokeInactive(); throw attemptError; }
-  const escapedUrl = url.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
   let result;
   try {
     result = await deliver({
       to: recipient, tenantId: quote.tenant_id,
-      subject: `Quote ${quote.quote_number}`,
-      html: `<p>Please review quote <strong>${quote.quote_number}</strong>.</p><p><a href="${escapedUrl}">View and respond to quote</a></p>`,
-      text: `Please review quote ${quote.quote_number}: ${url}`,
+      ...renderQuoteEmail({ quote, personalMessage: input.personalMessage, url }),
       attachments: attachPdf ? [{ filename: `${quote.quote_number}.pdf`, data: pdf, contentType: 'application/pdf' }] : null,
     });
   } catch (error) {

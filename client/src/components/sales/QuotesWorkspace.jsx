@@ -11,8 +11,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
@@ -22,6 +20,9 @@ import QuoteOpportunitySelect from "./QuoteOpportunitySelect";
 import QuoteEventSelect from "./QuoteEventSelect";
 import QuoteSalespersonSelect from "./QuoteSalespersonSelect";
 import QuoteContactSelect from "./QuoteContactSelect";
+import SendQuoteDialog from "./SendQuoteDialog";
+import AcceptQuoteButton from "./AcceptQuoteButton";
+import { refreshSavedQuoteDraft } from "./quoteDraftRefresh";
 import QuoteVersionDocuments, { uniqueQuoteVersions } from "./QuoteVersionDocuments";
 import { quotePriceText, quotePriceMinor, quotePriceError } from "./quoteFormValues";
 import { clearOpportunityContacts, opportunityContacts, useQuoteOpportunity } from "./useQuoteOpportunity";
@@ -292,26 +293,6 @@ function DeliveryHistory({ quoteId }) {
   </CardContent></Card>;
 }
 
-function SendQuoteDialog({ open, onOpenChange, pending, onSend, initialRecipient = "", contacts = [] }) {
-  const [recipient, setRecipient] = useState(initialRecipient);
-  const [expiresInDays, setExpiresInDays] = useState("30");
-  const [attachPdf, setAttachPdf] = useState(true);
-  useEffect(() => { if (open && initialRecipient) setRecipient(initialRecipient); }, [open, initialRecipient]);
-  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-w-md">
-    <DialogHeader><DialogTitle>Send quote</DialogTitle><DialogDescription>A secure, expiring link will point to this exact immutable quote version.</DialogDescription></DialogHeader>
-    <div className="space-y-4 py-2">
-      <Field label="Opportunity contact"><select aria-label="Quote recipient contact" className="w-full rounded-md border p-2" value={contacts.some(contact => contact.email === recipient) ? recipient : ""} onChange={event => setRecipient(event.target.value)}>
-        <option value="">Enter an email address below</option>
-        {contacts.filter(contact => contact.email).map(contact => <option key={contact.id} value={contact.email}>{contact.name} — {contact.email}</option>)}
-      </select></Field>
-      <Field label="Recipient email"><Input type="email" autoFocus value={recipient} onChange={(event) => setRecipient(event.target.value)} placeholder="customer@example.com" /></Field>
-      <Field label="Link expiry"><Select value={expiresInDays} onValueChange={setExpiresInDays}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{["7", "14", "30", "60", "90"].map((days) => <SelectItem key={days} value={days}>{days} days</SelectItem>)}</SelectContent></Select></Field>
-      <label className="flex items-start gap-3 rounded-lg border p-3 text-sm"><Checkbox checked={attachPdf} onCheckedChange={(value) => setAttachPdf(value === true)} /><span><strong className="block">Attach PDF</strong><span className="text-slate-500">Also include the branded PDF alongside the secure link.</span></span></label>
-    </div>
-    <DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button disabled={pending || !recipient.trim() || !recipient.includes("@")} onClick={() => onSend({ recipient: recipient.trim(), expiresInDays: Number(expiresInDays), attachPdf })}>{pending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Send quote</Button></DialogFooter>
-  </DialogContent></Dialog>;
-}
-
 function Comparison({ data }) {
   if (data?.from && data?.to) {
     const snapshot = (value) => {
@@ -387,13 +368,33 @@ function QuoteEditor() {
   const [serverTotals, setServerTotals] = useState(null);
   const isDirty = JSON.stringify(form) !== savedFingerprint;
   const save = useMutation({
-    mutationFn: () => request(isNew ? "/api/sales/quotes" : `/api/sales/quotes/${id}`, { method: isNew ? "POST" : "PATCH", body: JSON.stringify(payload()) }),
-    onSuccess: (data) => { const saved = normalizeQuote(data); setSavedFingerprint(JSON.stringify(form)); setServerTotals(data?.totals || data?.currentVersion?.totals || null); qc.invalidateQueries({ queryKey: ["sales-quotes"] }); toast({ title: "Draft quote saved" }); if (isNew && saved.id) navigate(`/sales/quotes/${saved.id}`, { replace: true }); else { setLoadedId(null); detail.refetch(); } },
+    mutationFn: async () => {
+      const submittedFingerprint = JSON.stringify(form);
+      const data = await request(isNew ? "/api/sales/quotes" : `/api/sales/quotes/${id}`, { method: isNew ? "POST" : "PATCH", body: JSON.stringify(payload()) });
+      return { data, submittedFingerprint };
+    },
+    onSuccess: async ({ data, submittedFingerprint }) => {
+      const saved = normalizeQuote(data);
+      setSavedFingerprint(submittedFingerprint);
+      setServerTotals(data?.totals || data?.currentVersion?.totals || null);
+      qc.invalidateQueries({ queryKey: ["sales-quotes"] });
+      if (isNew && saved.id) {
+        toast({ title: "Draft quote saved" });
+        navigate(`/sales/quotes/${saved.id}`, { replace: true });
+      } else {
+        try {
+          await refreshSavedQuoteDraft({ refetch: detail.refetch, normalize: normalizeQuote, submittedFingerprint, setForm, setSavedFingerprint });
+          toast({ title: "Draft quote saved" });
+        } catch (error) {
+          toast({ title: "Draft saved, but could not reload it", description: "Your entered values have been kept. Reload the page before saving again.", variant: "destructive" });
+        }
+      }
+    },
     onError: (error) => { if ([409, 412].includes(error.status)) detail.refetch(); toast({ title: [409, 412].includes(error.status) ? "Quote changed elsewhere" : "Could not save quote", description: [409, 412].includes(error.status) ? "The latest version has been loaded. Review it before trying again." : error.message, variant: "destructive" }); },
   });
   const action = useMutation({
     mutationFn: ({ action: actionName, extra = {} }) => request(`/api/sales/quotes/${id}?action=${actionName}`, { method: "POST", body: JSON.stringify({ expectedVersion: quote.rowVersion, ...extra }) }),
-    onSuccess: (data, variables) => { const result = normalizeQuote(data); qc.invalidateQueries({ queryKey: ["sales-quotes"] }); qc.invalidateQueries({ queryKey: ["sales-quote", id] }); toast({ title: variables.action === "amend" ? "Amendment created" : variables.action === "issue" ? "Quote issued" : "Quote status updated" }); if (variables.action === "amend" && result.id) navigate(`/sales/quotes/${result.id}`); },
+    onSuccess: (data, variables) => { const result = normalizeQuote(data); qc.invalidateQueries({ queryKey: ["sales-quotes"] }); qc.invalidateQueries({ queryKey: ["sales-quote", id] }); qc.invalidateQueries({ queryKey: ["quote-history", id] }); toast({ title: variables.action === "amend" ? "Amendment created" : variables.action === "issue" ? "Quote issued" : variables.extra?.status === "accepted" ? "Quote accepted" : "Quote status updated" }); if (variables.action === "amend" && result.id) navigate(`/sales/quotes/${result.id}`); },
     onError: (error) => toast({ title: "Quote action failed", description: error.message, variant: "destructive" }),
   });
   const deliveryAction = useMutation({
@@ -433,10 +434,11 @@ function QuoteEditor() {
       {!isNew && ["issued", "sent"].includes(status) && <Button disabled={deliveryAction.isPending} onClick={() => setSendOpen(true)}><Send className="mr-2 h-4 w-4" />Send</Button>}
       {!isNew && ["issued", "sent"].includes(status) && <Button variant="outline" disabled={deliveryAction.isPending} onClick={() => deliveryAction.mutate({ action: "revoke" })}><Link2Off className="mr-2 h-4 w-4" />Revoke link</Button>}
       {!isNew && !["draft", "superseded", "accepted", "converted", "declined", "rejected", "expired"].includes(status) && allowed(["canAmend", "can_amend", "amend"], false) && <Button onClick={() => action.mutate({ action: "amend" })}><RefreshCw className="mr-2 h-4 w-4" />Amend</Button>}
+      {!isNew && <AcceptQuoteButton status={status} permitted={allowed(["canTransition", "can_transition", "transition"], false)} pending={action.isPending} onAccept={extra => action.mutateAsync({ action: "transition", extra })} />}
       {!isNew && status === "accepted" && allowed(["canTransition", "can_transition", "transition"], false) && <Button variant="outline" onClick={() => action.mutate({ action: "transition", extra: { status: "converted" } })}>Convert</Button>}
     </div></div>
     {!isNew && status === "draft" && <p className="rounded border bg-slate-50 p-3 text-sm">Save draft → preview the draft PDF → Issue quote → Send. Issuing locks this version for delivery.{!allowed(["canIssue"], false) && " Your role does not have permission to issue quotes."}{isDirty && " Save your latest changes first."}</p>}
-    {!isNew && <SendQuoteDialog contacts={contacts} open={sendOpen} onOpenChange={setSendOpen} pending={deliveryAction.isPending} initialRecipient={contacts.find(contact => contact.id === form.billingContactId)?.email || contacts.find(contact => contact.id === form.customerContactId)?.email || quote.recipient || quote.customerEmail || quote.customer_email || ""} onSend={(extra) => deliveryAction.mutate({ action: "send", extra })} />}
+    {!isNew && <SendQuoteDialog request={request} quoteId={id} version={quote.versionNumber || quote.version_number || quote.version} contacts={contacts} open={sendOpen} onOpenChange={setSendOpen} pending={deliveryAction.isPending} initialRecipient={contacts.find(contact => contact.id === form.billingContactId)?.email || contacts.find(contact => contact.id === form.customerContactId)?.email || quote.recipient || quote.customerEmail || quote.customer_email || ""} onSend={(extra) => deliveryAction.mutateAsync({ action: "send", extra })} />}
     {!isNew && (["accepted", "converted"].includes(status) || Boolean(quote.saleId)) && <InvoiceStatusPanel saleId={quote.saleId} invoice={quote.invoice} invoices={quote.invoices} activeProvider={quote.activeProvider} permissions={permissions} error={action.error} onCreate={(command) => invoiceAction("create-invoice", command)} onRetry={(command) => invoiceAction("create-invoice", command)} onRefresh={quote.invoice ? () => invoiceAction("refresh-invoice-status") : undefined} />}
     {isNew && !form.opportunityId && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Choose an active opportunity below. Its organisation, currency and primary contact will be used for this quote.</div>}
     {form.opportunityId && opportunity.isError && <Failure error={opportunity.error} retry={opportunity.refetch} />}

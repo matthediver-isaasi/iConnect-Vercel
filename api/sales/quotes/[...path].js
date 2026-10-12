@@ -11,7 +11,7 @@ import {
   saveQuoteDraft, transitionQuote, loadQuoteDraftState,
 } from '../../_lib/salesQuote.js';
 import { buildBrandedSalesQuotePdf } from '../../_lib/salesQuotePdf.js';
-import { canonicalQuoteBaseUrl, sendQuote } from '../../_lib/salesQuoteDelivery.js';
+import { canonicalQuoteBaseUrl, sendQuote, previewQuoteEmail, validateQuoteEmail } from '../../_lib/salesQuoteDelivery.js';
 import {
   createSalesInvoice, getSalesInvoicePresentation, refreshSalesInvoiceStatus,
   salesInvoicePermissions,
@@ -218,13 +218,22 @@ export function createSalesQuotesHandler(dependencies = {}) {
           db, actor.tenantId, sale.id, accounting.invoice.provider, dependencies,
         ));
       }
-      if (req.method === 'POST' && id && action === 'send') {
+      if (req.method === 'POST' && id && ['send', 'preview-email'].includes(action)) {
         const recipient = String(req.body?.recipient || '').trim();
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) throw new SalesHttpError(400, 'A valid recipient is required');
         const quote = await getQuote(db, actor.tenantId, id);
         const requested = req.body?.version ? Number(req.body.version) : quote.current_version;
         const version = quote.versions.find((item) => item.version_number === requested);
         if (!version) throw new SalesHttpError(404, 'Quote version not found');
+        const emailInput = {
+          quote, version, recipient, personalMessage: req.body?.personalMessage,
+          attachPdf: req.body?.attachPdf !== false, expiresInDays: Number(req.body?.expiresInDays),
+        };
+        validateQuoteEmail(emailInput);
+        if (action === 'preview-email') {
+          res.setHeader('Cache-Control', 'no-store');
+          return res.status(200).json(await previewQuoteEmail(emailInput, dependencies));
+        }
         const { data: tenant, error } = await db.from('tenant')
           .select('name,slug,domain,logo_url,header_logo_url,primary_color,secondary_color,tagline,description,branding_config,settings,footer_config').eq('id', actor.tenantId).maybeSingle();
         if (error) throw error;
@@ -232,6 +241,7 @@ export function createSalesQuotesHandler(dependencies = {}) {
         const expiresInDays = Number(req.body?.expiresInDays);
         return res.status(200).json(await sendQuote(db, {
           quote, version, tenant, actor, recipient,
+          personalMessage: emailInput.personalMessage,
           attachPdf: req.body?.attachPdf !== false, pdf, expiresInDays,
           baseUrl: (dependencies.canonicalQuoteBaseUrl || canonicalQuoteBaseUrl)(tenant),
           sendEmail: dependencies.sendEmail,

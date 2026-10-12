@@ -34,6 +34,17 @@ test("quote form omits the redundant tax treatment control without discarding sa
   assert.match(source, /taxTreatment: form\.taxTreatment/);
 });
 
+test("all saved billing address fields survive detail hydration including deliberate clearing", () => {
+  const address = { addressee: "Accounts", line1: "10 High Street", line2: "Floor 2", city: "Leeds", region: "Yorkshire", postalCode: "LS1 1AA", country: "UK" };
+  for (const address_snapshot of [address, Object.fromEntries(Object.keys(address).map(key => [key, ""]))]) {
+    const saved = mod.exports.normalizeQuote({ id: "quote", currentVersion: { version_number: 1, address_snapshot } });
+    assert.deepEqual(saved.address, address_snapshot);
+  }
+  const source = readFileSync("client/src/components/sales/QuotesWorkspace.jsx", "utf8");
+  assert.doesNotMatch(source, /setLoadedId\(null\)/);
+  assert.match(source, /await refreshSavedQuoteDraft/);
+});
+
 test("historical PDF requests explicitly select the version and preserve authenticated access", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];

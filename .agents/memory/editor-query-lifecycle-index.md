@@ -9,3 +9,4 @@ description: Index of discovery, pending-query, and saved-metadata lifecycle con
 - [Stable query fallbacks](usequery-default-array-loop.md) — stable fallback arrays prevent synchronization loops.
 - [Saved list metadata reconciliation](saved-list-metadata-reconciliation.md) — wait for authorized metadata before reconciling saved choices.
 - [Saved member layout authority](saved-member-layout-authority.md) — default mandate fields must not override deliberate saved-layout removals.
+- [Post-save freshness](editor-postsave-freshness.md) — wait for fresh data before re-hydrating; stale cached drafts can blank saved fields.

@@ -315,3 +315,17 @@ test('status transition failure does not misreport a delivered email or deactiva
   assert.equal(db.tokenUpdates.some((update) => update.revoked_at), false);
   assert.equal(db.audits.at(-1).event_type, 'send_transition_failed');
 });
+
+test('personal message reaches both email bodies without changing token activation ordering', async () => {
+  const db = sendDb();
+  let delivered;
+  await sendQuote(db, { ...sendInput, personalMessage: 'Hello <team>\nA personal note.',
+    sendEmail: async email => {
+      assert.equal(db.tokenUpdates.some(update => update.activated_at), false);
+      delivered = email;
+      return { success: true, domain: 'mail.example', messageId: 'provider-id' };
+    } });
+  assert.match(delivered.html, /Hello &lt;team&gt;<br>A personal note/);
+  assert.match(delivered.text, /Hello <team>\nA personal note/);
+  assert.ok(db.tokenUpdates.some(update => update.activated_at));
+});

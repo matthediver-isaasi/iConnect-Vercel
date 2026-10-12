@@ -188,7 +188,10 @@ export async function transitionQuote(db, tenantId, actor, id, expectedVersion, 
   }
   return quoteRpc(db, 'transition_sales_quote', {
     p_tenant_id: tenantId, p_quote_id: id, p_expected_version: expectedVersion,
-    p_status: status, p_note: note || null, p_actor_id: actor.actorId, p_actor_type: actor.actorType,
+    p_status: status, p_note: status === 'accepted'
+      ? `Accepted by staff on behalf of the customer.${note ? ` ${note}` : ''}`
+      : note || null,
+    p_actor_id: actor.actorId, p_actor_type: actor.actorType,
   });
 }
 

@@ -140,7 +140,7 @@ async function getEmailFooter(tenantId = null) {
   }
 }
 
-function constrainFooterForEmail(footerHtml) {
+export function constrainFooterForEmail(footerHtml) {
   if (!footerHtml) return footerHtml;
   let result = footerHtml;
   result = result.replace(/<img\b([^>]*?)>/gi, (match, attrs) => {

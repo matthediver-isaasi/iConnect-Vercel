@@ -22,6 +22,12 @@ Do not treat the original Projects schema script or a passing minimal fixture as
 
 Product-driven acceptance tasks are opt-in and forward-only. Use the issued product snapshot and the opportunity task mode at acceptance; retries must not silently migrate work to another mode or board.
 
+Quote acceptance must support both staff recording customer approval in the admin and customers approving through the emailed link.
+
+**Why:** The user explicitly requires both routes to be valid, without waiting for email approval when consent was obtained elsewhere.
+
+**How to apply:** Preserve the actor and source of acceptance in history and run the same configured acceptance automation for either route.
+
 **Why:** The user approved support for both task systems without changing existing products or historically accepted quotes. Board configuration failures should not reject a customer's quote acceptance.
 
 **How to apply:** Preserve pending work for explicit recovery, retain completed-task evidence even if a card is deleted, and keep prices, customer details and quote bearer links out of board cards. One task represents a line/component with its quantity, not one task per purchased unit.
