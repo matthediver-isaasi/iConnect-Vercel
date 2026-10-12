@@ -397,7 +397,7 @@ export function CollectionPanel({ opportunityId, organizationId, type, items, ca
   </CardContent></Card>;
 }
 
-function DocumentsPanel({ opportunityId, items, canEdit, onChanged }) {
+export function DocumentsPanel({ opportunityId, items, canEdit, onChanged }) {
   const { toast } = useToast();
   const upload = useMutation({
     mutationFn: async (file) => {
@@ -406,12 +406,24 @@ function DocumentsPanel({ opportunityId, items, canEdit, onChanged }) {
       if (!uploadResponse.ok) throw new Error("The file could not be uploaded");
       return request(`/api/opportunities/${opportunityId}?resource=documents`, { method: "POST", body: JSON.stringify({ name: file.name, bucket: signed.bucket, storagePath: signed.path, mimeType: file.type, sizeBytes: file.size }) });
     },
-    onSuccess: onChanged,
+    onSuccess: async () => {
+      await onChanged();
+      toast({ title: "Document uploaded" });
+    },
     onError: (error) => toast({ title: "Upload failed", description: error.message, variant: "destructive" }),
   });
   const remove = useMutation({ mutationFn: (item) => request(`/api/opportunities/${opportunityId}?resource=documents&itemId=${idOf(item)}`, { method: "DELETE" }), onSuccess: onChanged, onError: (error) => toast({ title: "Delete failed", description: error.message, variant: "destructive" }) });
-  return <Card><CardContent className="p-5">
-    {canEdit && <label className="mb-5 inline-flex cursor-pointer items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"><Upload className="mr-2 h-4 w-4" />Upload document<input type="file" className="sr-only" onChange={(e) => { if (e.target.files?.[0]) upload.mutate(e.target.files[0]); e.target.value = ""; }} /></label>}
+  return <Card><CardContent className="p-5" aria-busy={upload.isPending}>
+    {canEdit && <label className={`mb-5 inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white ${upload.isPending ? "cursor-wait opacity-70" : "cursor-pointer hover:bg-blue-700"}`}>
+      {upload.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <Upload className="mr-2 h-4 w-4" />}
+      {upload.isPending ? "Uploading…" : "Upload document"}
+      <input type="file" aria-label="Upload document" className="sr-only" disabled={upload.isPending} onChange={(e) => {
+        if (!upload.isPending && e.target.files?.[0]) upload.mutate(e.target.files[0]);
+        e.target.value = "";
+      }} />
+    </label>}
+    {upload.isPending && <p role="status" className="mb-4 break-words text-sm text-slate-600">Uploading {upload.variables?.name} — please wait while we upload the file and update the document list.</p>}
+    {upload.isError && <p role="alert" className="mb-4 text-sm text-rose-700">Upload failed: {upload.error.message}. You can select the file again to retry.</p>}
     {!items.length ? <p className="py-8 text-center text-sm text-slate-500">No documents yet.</p> : <div className="divide-y">{items.map((item) => <div key={idOf(item)} className="flex items-center justify-between py-3"><a className="flex items-center gap-2 text-sm font-medium text-blue-700 hover:underline" href={`/api/storage/secure-url?bucket=${encodeURIComponent(item.bucket)}&path=${encodeURIComponent(item.storage_path)}&redirect=true`} target="_blank" rel="noreferrer"><FileText className="h-4 w-4" />{item.name || item.filename || "Document"}</a>{canEdit && <Button variant="ghost" size="icon" onClick={() => remove.mutate(item)}><Trash2 className="h-4 w-4 text-rose-600" /></Button>}</div>)}</div>}
   </CardContent></Card>;
 }
