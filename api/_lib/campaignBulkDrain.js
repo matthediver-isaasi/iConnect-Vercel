@@ -1,7 +1,7 @@
 // Every row is already owned by this invocation. No ambiguous provider outcome
 // ever returns it to pending. No provider call is retried here.
 export async function finishPreparedCampaignBatch({
-  entries, deadline, now = Date.now, gate, revalidate, revalidateBatch, release, submit, persist,
+  entries, deadline, now = Date.now, gate, revalidate, revalidateBatch, selectBatchSize, release, submit, persist,
 }) {
   const expired = () => deadline != null && deadline - now() < 8000;
   if (!entries.length) return { sent: 0, failed: 0 };
@@ -30,6 +30,16 @@ export async function finishPreparedCampaignBatch({
       }));
       if (outcomes.some(outcome => outcome.status === 'rejected')) throw new Error('Batch eligibility could not be verified');
     }
+    }
+    // Only the fitting prefix can reach the provider. Release the untouched
+    // remainder before submission; it will receive fresh checks next invocation.
+    if (ready.length && selectBatchSize) {
+      const size = selectBatchSize(ready);
+      if (!Number.isInteger(size) || size < 1 || size > ready.length) throw new Error('Invalid batch selection');
+      if (size < ready.length) {
+        await release(ready.slice(size), 'pending');
+        ready = ready.slice(0, size);
+      }
     }
     const current = await gate();
     if (!current.allowed || expired()) {

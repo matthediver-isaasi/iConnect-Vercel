@@ -13,6 +13,7 @@ import { sendEmail, replacePlaceholders, sendPreparedCampaignBatch } from './ema
 import { BULK_TRANSPORT, bulkCampaignCompatible, newCampaignTransport } from './campaignBulkTransport.js';
 import { finishPreparedCampaignBatch } from './campaignBulkDrain.js';
 import { bulkRecipientEligibility } from './campaignBulkEligibility.js';
+import { fittingCampaignBatchSize } from './campaignBulkTransport.js';
 import { drainCampaignRecipients as drainRecipients, campaignSendConcurrency } from './campaignDrain.js';
 import { createCampaignRecipientClaimer } from './campaignRecipientClaims.js';
 import { replaceBookingPlaceholders } from './eventConfirmationEmail.js';
@@ -4325,6 +4326,14 @@ export async function sendBatch(campaignId, tenantId, campaign, tenantSlug, requ
       try {
         const bulkResult = await finishPreparedCampaignBatch({
           entries: prepared, deadline: options.deadline,
+          selectBatchSize: entries => {
+            const started = Date.now();
+            const size = fittingCampaignBatchSize(campaignId, entries.map(e => e.prepared));
+            metrics.bulkSizingMs = Date.now() - started;
+            metrics.bulkSelectedRecipients = size;
+            metrics.bulkDeferredRecipients = entries.length - size;
+            return size;
+          },
           gate: () => checkCampaignBatchGate(campaignId, tenantId, campaign),
           revalidateBatch: async entries => {
             const started = Date.now();

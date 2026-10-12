@@ -63,3 +63,15 @@ relying solely on the campaign's initial audience snapshot.
 
 **How to apply:** Measure its overhead separately from preparation and provider
 submission; avoid reinstating recipient-by-recipient database checks for bulk sends.
+
+Bulk benchmarks must use representative newsletter sizes and verify that one
+provider request actually covers multiple recipients; a bulk transport label
+alone is not evidence of batching.
+
+**Why:** Large personalised HTML repeated inside recipient variables can exceed
+an envelope limit even when the recipient count is small. Silent individual-send
+fallback can then make a nominal bulk benchmark slower than ordinary sending.
+
+**How to apply:** Bound batches by encoded payload size as well as recipient
+count, distinguish size splitting from genuinely incompatible-message fallback,
+and include full-size content in transport regression tests.

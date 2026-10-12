@@ -59,6 +59,19 @@ Worker aggregate logs include `bulkEligibilityMs` and
 `bulkEligibilityRecipients` so the deployed overhead can be measured separately.
 Realistic-latency tests must prove forward progress within the final time budget.
 
+Before submission, the worker selects the largest recipient prefix whose
+**actual encoded envelope** fits the 8 MB application limit. This includes
+UTF-8 bytes, JSON escaping, recipient variables and shared message fields.
+Overflow recipients return to pending before any provider request, retaining
+the prepared audience; the next drain checks them afresh. Oversized multi-recipient
+envelopes no longer cause individual-send fallback.
+
+The final pause/cancel/deadline gate runs after sizing and releasing overflow.
+Only the submitted subset remains processing on an ambiguous provider result
+or an accepted-but-unpersisted response. A single message exceeding the bulk
+limit, or a genuinely incompatible envelope, retains the individual fallback.
+Logs include `bulkSizingMs`, `bulkSelectedRecipients` and `bulkDeferredRecipients`.
+
 Bulk provider events carry `iconn_campaign_id`; the signed webhook resolves
 campaign plus recipient email, not a shared batch message ID alone. Historical
 event sync separates shared IDs by recipient and ignores another campaign's tag.

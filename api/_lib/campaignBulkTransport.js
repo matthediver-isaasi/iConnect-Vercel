@@ -46,6 +46,38 @@ export function buildBulkEnvelope(campaignId, messages) {
     'recipient-variables': JSON.stringify(variables) };
   variableFields.forEach((field, i) => { data[field] = `%recipient.field${i}%`; });
   // Bound payloads below Mailgun's message-size limit, including multipart overhead.
-  if (Buffer.byteLength(JSON.stringify(data)) > 8_000_000) throw new Error('Campaign batch payload too large');
+  if (Buffer.byteLength(JSON.stringify(data)) > 8_000_000) {
+    const error = new Error('Campaign batch payload too large');
+    error.code = 'CAMPAIGN_BATCH_TOO_LARGE';
+    throw error;
+  }
   return { domain: first.domain, messageData: data };
+}
+
+// Choose the largest prefix fitting the actual encoded envelope, including
+// UTF-8, JSON escaping and recipient-variable overhead. Non-size incompatibility
+// retains the existing individual fallback; never split an uncertain submission.
+export function fittingCampaignBatchSize(campaignId, messages) {
+  if (!messages.length || messages.length > 100) throw new Error('Invalid campaign batch size');
+  const fits = size => {
+    try { buildBulkEnvelope(campaignId, messages.slice(0, size)); return true; }
+    catch (error) {
+      if (error.code === 'CAMPAIGN_BATCH_TOO_LARGE') return false;
+      throw error;
+    }
+  };
+  try {
+    if (fits(messages.length)) return messages.length;
+    // A single oversized message may still use the existing individual path.
+    if (!fits(1)) return 1;
+    let low = 1, high = messages.length - 1;
+    while (low < high) {
+      const mid = Math.ceil((low + high) / 2);
+      if (fits(mid)) low = mid;
+      else high = mid - 1;
+    }
+    return low;
+  } catch {
+    return messages.length;
+  }
 }

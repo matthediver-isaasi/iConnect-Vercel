@@ -1,11 +1,63 @@
-import test from 'node:test';
+import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import http from 'node:http';
+import https from 'node:https';
+
+// This worker suite must never reach a real provider, even if an injected
+// callback is accidentally omitted or misspelled.
+const noNetwork = () => { throw new Error('Worker test attempted an unmocked network request'); };
+mock.method(http, 'request', noNetwork);
+mock.method(https, 'request', noNetwork);
+mock.method(globalThis, 'fetch', noNetwork);
 
 process.env.SUPABASE_URL = 'https://campaign-worker.invalid';
 process.env.SUPABASE_SERVICE_KEY = 'isolated-test-key';
 const { supabase } = await import('./database.js');
 const { sendBatch } = await import('./campaignService.js');
+const { buildBulkEnvelope } = await import('./campaignBulkTransport.js');
+
+test('actual worker splits oversized newsletters and later drains untouched recipients exactly once', async t => {
+  const { campaign, rows } = install(t, 100);
+  const previous = process.env.CAMPAIGN_MAILGUN_BATCH_ENABLED;
+  process.env.CAMPAIGN_MAILGUN_BATCH_ENABLED = 'true';
+  t.after(() => {
+    if (previous == null) delete process.env.CAMPAIGN_MAILGUN_BATCH_ENABLED;
+    else process.env.CAMPAIGN_MAILGUN_BATCH_ENABLED = previous;
+  });
+  campaign.delivery_transport = 'mailgun_batch_v1';
+  campaign.is_test_mode = true;
+  const submitted = new Set();
+  let requests = 0;
+  const options = {
+    sendRecipient: async (recipient, _campaign, _tenant, _slug, _host, _design, _destination, opts) => {
+      assert.equal(opts.prepareOnly, true);
+      return { recipient, prepared: { domain: 'example.invalid', messageData: {
+        from: 'sender@example.invalid', to: [recipient.email],
+        html: 'Large newsletter '.repeat(6500), text: 'Plain text', 'o:testmode': 'yes',
+      } } };
+    },
+    submitBulk: async (id, messages) => {
+      const { messageData } = buildBulkEnvelope(id, messages);
+      assert.equal(messageData['o:testmode'], 'yes');
+      for (const address of messageData.to) {
+        assert.ok(!submitted.has(address), 'No duplicate submission');
+        submitted.add(address);
+      }
+      requests++;
+      return { success: true, messageId: `batch-${requests}` };
+    },
+  };
+  await sendBatch('campaign', 'tenant', campaign, 'tenant', null, 100, { ...options, deadline: Date.now() + 38000 });
+  assert.equal(requests, 1);
+  assert.ok(submitted.size > 1 && submitted.size < 100);
+  assert.equal(rows.filter(r => r.status === 'pending').length, 100 - submitted.size);
+  assert.equal(rows.filter(r => r.status === 'processing').length, 0);
+  await sendBatch('campaign', 'tenant', campaign, 'tenant', null, 100, { ...options, deadline: Date.now() + 38000 });
+  assert.equal(requests, 2);
+  assert.equal(submitted.size, 100);
+  assert.ok(rows.every(r => r.status === 'sent'));
+});
 
 test('booking event-scope lookup carries the recipient read budget into nested audience-list resolution', async () => {
   const source = await readFile(new URL('./campaignService.js', import.meta.url), 'utf8');
