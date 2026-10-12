@@ -35,7 +35,7 @@ export function createSalesReportsHandler(dependencies = {}) {
         },
       };
       if (filters.mode === 'dashboard') {
-        return res.status(200).json({ ...base, ...buildSalesDashboard(data, result) });
+        return res.status(200).json({ ...base, ...buildSalesDashboard(data, result, filters) });
       }
       if (filters.mode === 'organisation' || filters.mode === 'organization') {
         if (filters.organisation.length !== 1) throw new SalesHttpError(400, 'organizationId is required');

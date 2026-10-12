@@ -58,6 +58,20 @@ export function parseSalesReportQuery(query = {}) {
   };
   const from = date('from') || date('dateFrom');
   const to = date('to') || date('dateTo');
+  const expectedCloseFrom = date('expectedCloseFrom');
+  const expectedCloseTo = date('expectedCloseTo');
+  for (const value of [expectedCloseFrom, expectedCloseTo]) {
+    if (value && new Date(`${value}T00:00:00.000Z`).toISOString().slice(0, 10) !== value) {
+      throw new SalesHttpError(400, 'Expected close filters must be valid calendar dates');
+    }
+  }
+  if (expectedCloseFrom && expectedCloseTo && expectedCloseFrom > expectedCloseTo) {
+    throw new SalesHttpError(400, 'Expected close from must not be after to');
+  }
+  const expectedCloseSort = query.expectedCloseSort || 'asc';
+  if (!['asc', 'desc'].includes(expectedCloseSort)) {
+    throw new SalesHttpError(400, 'Expected close sort must be asc or desc');
+  }
   if (from && to && from > to) throw new SalesHttpError(400, 'from must not be after to');
   if (from && to && dateValue(to) - dateValue(from) > 10 * 366 * 86400000) {
     throw new SalesHttpError(400, 'Date range must not exceed ten years');
@@ -73,6 +87,7 @@ export function parseSalesReportQuery(query = {}) {
   if (currency.some((item) => !/^[A-Z]{3}$/.test(item))) throw new SalesHttpError(400, 'currency must contain ISO-4217 codes');
   return {
     mode, report, requestedReport, page, pageSize, from, to, currency,
+    expectedCloseFrom, expectedCloseTo, expectedCloseSort,
     owner: text(['owner', 'ownerId']), organisation: text(['organisation', 'organisationId', 'organizationId']),
     event: text(['event', 'eventId']), product: text(['product', 'productId']),
     bundle: text(['bundle', 'bundleId']), category: text(['category', 'categoryId']),
@@ -432,8 +447,10 @@ export function reportTotals(rows) {
   return totals;
 }
 
-export function buildSalesDashboard(data, result) {
+export function buildSalesDashboard(data, result, filters = {}) {
   const now = Date.now();
+  const closeFrom = filters.expectedCloseFrom || (filters.expectedCloseTo ? null : new Date(now).toISOString().slice(0, 10));
+  const closeTo = filters.expectedCloseTo;
   const pipelineByCurrency = result.summary.pipeline;
   const wonByCurrency = result.summary.sales;
   const outstandingQuotes = result.prepared.quoteRows.filter((row) =>
@@ -460,13 +477,17 @@ export function buildSalesDashboard(data, result) {
     id: row.id, title: row.summary, description: row.action, opportunityId: row.opportunity_id,
     date: row.created_at,
   }));
-  const expectedCloses = result.details && result.summary.pipeline
+  const matchingCloses = result.details && result.summary.pipeline
     ? stable(result.prepared.opportunities.filter((row) => !row.stage?.is_won && !row.stage?.is_lost
-      && row.expected_close_date && dateValue(row.expected_close_date) >= now).map((row) => ({
+      && row.expected_close_date
+      && (!closeFrom || String(row.expected_close_date).slice(0, 10) >= closeFrom)
+      && (!closeTo || String(row.expected_close_date).slice(0, 10) <= closeTo)).map((row) => ({
       id: row.id, title: row.name, opportunityId: row.id, expectedCloseDate: row.expected_close_date,
       date: row.expected_close_date, value: number(row.value_minor), currency: row.currency,
       organizationName: row.organisation?.name,
-    }))).sort((a, b) => dateValue(a.date) - dateValue(b.date)).slice(0, 8) : [];
+    }))).sort((a, b) => (filters.expectedCloseSort === 'desc' ? -1 : 1)
+      * (dateValue(a.date) - dateValue(b.date))) : [];
+  const expectedCloses = matchingCloses.slice(0, 8);
   const overdueTasks = (data.tasks || []).filter((row) => !row.completed_at && row.due_at
     && dateValue(row.due_at) < now).sort((a, b) => dateValue(a.due_at) - dateValue(b.due_at)).slice(0, 8)
     .map((row) => ({ id: row.id, title: row.title, opportunityId: row.opportunity_id, date: row.due_at }));
@@ -478,7 +499,7 @@ export function buildSalesDashboard(data, result) {
       openOpportunities: pipelineByCurrency.reduce((sum, row) => sum + row.count, 0),
       wonCount: result.prepared.sales.length, outstandingQuotes: outstandingQuotes.length,
     },
-    byCurrency, recentActivity, recentWins, expectedCloses, overdueTasks, outstandingQuotes,
+    byCurrency, recentActivity, recentWins, expectedCloses, expectedClosesTotal: matchingCloses.length, overdueTasks, outstandingQuotes,
   };
 }
 

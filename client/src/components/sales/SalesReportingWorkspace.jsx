@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatSalesMoney } from "@/lib/salesMoney";
+import { dashboardReportParams, formatDashboardDate, validateExpectedCloseRange } from "./dashboardDates.mjs";
 
 const REPORTS = [
   ["pipeline", "Pipeline"], ["owners", "Owners"], ["products", "Products"],
@@ -45,8 +46,7 @@ const displayValue = (value, column, row) => {
     return currency(value, row.currency || column.currency, true);
   }
   if (type === "date" || /date|created|updated/i.test(column?.key || "")) {
-    const parsed = new Date(value);
-    if (!Number.isNaN(parsed.getTime())) return parsed.toLocaleDateString();
+    return formatDashboardDate(value);
   }
   if (typeof value === "number") return value.toLocaleString();
   return String(value);
@@ -63,29 +63,52 @@ function SummaryCard({ title, value, icon: Icon, hint }) {
   return <Card><CardContent className="p-5"><div className="flex items-start justify-between gap-3"><div><p className="text-sm font-medium text-slate-500">{title}</p><p className="mt-2 text-2xl font-bold text-slate-950">{value}</p>{hint && <p className="mt-1 text-xs text-slate-500">{hint}</p>}</div><span className="rounded-lg bg-blue-50 p-2 text-blue-700"><Icon className="h-5 w-5" /></span></div></CardContent></Card>;
 }
 
-function ActivityList({ title, rows, emptyText }) {
-  return <Card><CardHeader><CardTitle className="text-base">{title}</CardTitle></CardHeader><CardContent className="space-y-2">
+function ActivityList({ title, rows, emptyText, controls, total, query }) {
+  return <Card><CardHeader><CardTitle className="text-base">{title}</CardTitle>{controls}</CardHeader><CardContent className="space-y-2" aria-busy={query?.isFetching || false}>
+    {query?.isFetching && <p className="text-sm text-slate-500" role="status">Loading expected closes…</p>}
+    {query?.error && <div className="flex flex-wrap items-center gap-2 text-sm text-rose-700" role="alert"><span>{query.error.message}</span><Button variant="outline" size="sm" onClick={() => query.refetch()}>Retry</Button></div>}
+    {total > 8 && <p className="text-xs text-slate-500">Showing {Math.min(list(rows).length, 8)} of {total} expected closes</p>}
     {!list(rows).length ? <p className="py-5 text-center text-sm text-slate-500">{emptyText}</p> : list(rows).slice(0, 8).map((row, index) => {
       const opportunityId = row.opportunityId || row.opportunity_id || (row.type === "opportunity" ? id(row) : null);
-       const content = <div className="flex items-center justify-between gap-4 rounded-lg border p-3 hover:bg-slate-50"><div className="min-w-0"><p className="truncate text-sm font-medium text-slate-900">{label(row)}</p><p className="mt-0.5 truncate text-xs text-slate-500">{row.organizationName || row.organisation_name || row.description || row.status || "Sales activity"}</p></div><div className="shrink-0 text-right"><p className="text-sm font-semibold">{row.value != null || row.amount != null ? currency(row.value ?? row.amount, row.currency, true) : ""}</p>{(row.date || row.createdAt || row.expectedCloseDate) && <p className="text-xs text-slate-500">{new Date(row.date || row.createdAt || row.expectedCloseDate).toLocaleDateString()}</p>}</div></div>;
+       const content = <div className="flex items-center justify-between gap-4 rounded-lg border p-3 hover:bg-slate-50"><div className="min-w-0"><p className="truncate text-sm font-medium text-slate-900">{label(row)}</p><p className="mt-0.5 truncate text-xs text-slate-500">{row.organizationName || row.organisation_name || row.description || row.status || "Sales activity"}</p></div><div className="shrink-0 text-right"><p className="text-sm font-semibold">{row.value != null || row.amount != null ? currency(row.value ?? row.amount, row.currency, true) : ""}</p>{(row.date || row.createdAt || row.expectedCloseDate) && <p className="text-xs text-slate-500">{formatDashboardDate(row.date || row.createdAt || row.expectedCloseDate)}</p>}</div></div>;
       return opportunityId ? <Link key={id(row) || index} to={`/sales/opportunities/${opportunityId}`}>{content}</Link> : <div key={id(row) || index}>{content}</div>;
     })}
   </CardContent></Card>;
 }
 
 export function SalesDashboard() {
-  const query = useQuery({ queryKey: ["sales-reports", "dashboard"], queryFn: () => getReport(new URLSearchParams({ view: "dashboard" })), staleTime: 30_000 });
+  const [applied, setApplied] = useState({ expectedCloseFrom: "", expectedCloseTo: "", expectedCloseSort: "asc" });
+  const [range, setRange] = useState({ from: "", to: "" });
+  const [rangeError, setRangeError] = useState("");
+  const query = useQuery({ queryKey: ["sales-reports", "dashboard", applied], queryFn: () => getReport(dashboardReportParams(applied)), staleTime: 30_000, placeholderData: (previous) => previous });
   const data = query.data || {};
   const summary = data.summary || {};
   const currencyRows = list(data.byCurrency);
-  const hasData = Object.keys(summary).length || currencyRows.length || list(data.recentActivity).length || list(data.recentWins).length;
+  const applyRange = (event) => {
+    event.preventDefault();
+    const result = validateExpectedCloseRange(range.from, range.to);
+    setRangeError(result.error || "");
+    if (!result.error) setApplied((previous) => ({ ...previous, ...result }));
+  };
+  const expectedCloseControls = <form className="space-y-3 pt-2" onSubmit={applyRange} noValidate>
+    <div><Label htmlFor="expected-close-sort">Close date order</Label><select id="expected-close-sort" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={applied.expectedCloseSort} onChange={(event) => setApplied((previous) => ({ ...previous, expectedCloseSort: event.target.value }))}><option value="asc">Earliest first</option><option value="desc">Latest first</option></select></div>
+    <div className="grid gap-3 sm:grid-cols-2">
+      <div><Label htmlFor="expected-close-from">From date</Label><Input id="expected-close-from" type="text" inputMode="numeric" placeholder="DD/MM/YYYY" value={range.from} aria-invalid={Boolean(rangeError)} aria-describedby="expected-close-range-help expected-close-range-error" onChange={(event) => setRange((previous) => ({ ...previous, from: event.target.value }))} /></div>
+      <div><Label htmlFor="expected-close-to">To date</Label><Input id="expected-close-to" type="text" inputMode="numeric" placeholder="DD/MM/YYYY" value={range.to} aria-invalid={Boolean(rangeError)} aria-describedby="expected-close-range-help expected-close-range-error" onChange={(event) => setRange((previous) => ({ ...previous, to: event.target.value }))} /></div>
+    </div>
+    <p id="expected-close-range-help" className="text-xs text-slate-500">Optional inclusive range in DD/MM/YYYY. Without a range, shows today and future closes. A range also includes past open opportunities.</p>
+    <p id="expected-close-range-error" className="text-sm text-rose-700" role={rangeError ? "alert" : undefined}>{rangeError}</p>
+    <div className="flex gap-2"><Button type="submit" size="sm">Apply</Button><Button type="button" variant="outline" size="sm" onClick={() => { setRange({ from: "", to: "" }); setRangeError(""); setApplied((previous) => ({ ...previous, expectedCloseFrom: "", expectedCloseTo: "" })); }}>Clear</Button></div>
+    <p className="text-xs text-slate-500" role="status">Applied range: {applied.expectedCloseFrom || applied.expectedCloseTo ? `${applied.expectedCloseFrom ? formatDashboardDate(applied.expectedCloseFrom) : "Any date"} – ${applied.expectedCloseTo ? formatDashboardDate(applied.expectedCloseTo) : "Any date"}` : "Today onwards"}</p>
+  </form>;
   const cards = [
     ["Open pipeline", summary.pipelineValue ?? summary.openPipeline ?? summary.pipeline_value, TrendingUp, summary.openOpportunities != null ? `${summary.openOpportunities} opportunities` : null],
     ["Weighted pipeline", summary.weightedPipeline ?? summary.weightedValue ?? summary.weighted_pipeline, Target, null],
     ["Won", summary.wonValue ?? summary.wonRevenue ?? summary.won_value, Trophy, summary.wonCount != null ? `${summary.wonCount} won` : null],
     ["Outstanding quotes", summary.outstandingQuoteValue ?? summary.quoteValue ?? summary.outstanding_quotes_value, FileText, summary.outstandingQuotes ?? list(data.outstandingQuotes).length],
   ];
-  return <QueryState query={query} empty={!hasData}><div className="space-y-5">
+  return <div className="space-y-5">
+    {query.isLoading && <p className="text-sm text-slate-500" role="status">Loading sales data…</p>}
     {data.definitions?.description && <p className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-sm text-blue-900">{data.definitions.description}</p>}
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{cards.map(([name, value, icon, hint]) => <SummaryCard key={name} title={name} value={summary.currency ? currency(value, summary.currency, true) : "By currency"} icon={icon} hint={hint} />)}</div>
     {currencyRows.length > 0 && <Card><CardHeader><CardTitle className="text-base">Pipeline by currency</CardTitle></CardHeader><CardContent className="space-y-4">{currencyRows.map((row, index) => {
@@ -93,9 +116,9 @@ export function SalesDashboard() {
       const max = Math.max(...currencyRows.map((item) => Number(item.value ?? item.amount ?? item.total ?? 0)), 1);
        return <div key={row.currency || index}><div className="mb-1 flex justify-between text-sm"><span className="font-medium">{row.currency || "Unspecified"}</span><span>{currency(amount, row.currency, true)}</span></div><div className="h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600" style={{ width: `${Math.max(2, amount / max * 100)}%` }} /></div></div>;
     })}</CardContent></Card>}
-    <div className="grid gap-5 xl:grid-cols-2"><ActivityList title="Recent activity" rows={data.recentActivity} emptyText="No recent activity." /><ActivityList title="Recent wins" rows={data.recentWins} emptyText="No recent wins." /><ActivityList title="Expected closes" rows={data.expectedCloses} emptyText="No expected closes." /><ActivityList title="Overdue tasks" rows={data.overdueTasks} emptyText="No overdue tasks." /></div>
+    <div className="grid gap-5 xl:grid-cols-2"><div className="space-y-5"><ActivityList title="Expected closes" rows={data.expectedCloses} emptyText={query.isFetching ? "Waiting for expected closes." : "No expected closes match this range."} controls={expectedCloseControls} total={data.expectedClosesTotal} query={query} /><ActivityList title="Recent activity" rows={data.recentActivity} emptyText="No recent activity." /></div><div className="space-y-5"><ActivityList title="Recent wins" rows={data.recentWins} emptyText="No recent wins." /><ActivityList title="Overdue tasks" rows={data.overdueTasks} emptyText="No overdue tasks." /></div></div>
     {list(data.outstandingQuotes).length > 0 && <ActivityList title="Outstanding quotes" rows={data.outstandingQuotes} emptyText="No outstanding quotes." />}
-  </div></QueryState>;
+  </div>;
 }
 
 function facetOptions(facets, key) {

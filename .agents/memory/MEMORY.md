@@ -157,3 +157,4 @@
 - [Node request header copies](node-request-header-copies.md) — object spread drops inherited request headers; use explicit headers and real IncomingMessage test fixtures.
 - [Public bookmark query loops](public-bookmark-query-loop.md) — guest-only 401 loops can clear shared queries and blank unrelated public carousels.
 - [Campaign click authority](campaign-click-authority.md) — iConnect requests own counts; provider evidence stays separate, and historical totals never prove human clicks.
+- [Sales dashboard dates](sales-dashboard-dates.md) — DD/MM/YYYY regardless of browser locale; expected-close filters must not change financial totals.

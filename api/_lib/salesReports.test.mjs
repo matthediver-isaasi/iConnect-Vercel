@@ -58,6 +58,58 @@ const fixture = {
 
 const filters = (input = {}) => parseSalesReportQuery({ mode: 'report', report: 'sales', ...input });
 
+test('expected-close filters validate dates and ordering separately from report filters', () => {
+  for (const query of [
+    { expectedCloseFrom: '2026-02-30' }, { expectedCloseTo: '12/10/2026' },
+    { expectedCloseFrom: '2026-10-12', expectedCloseTo: '2026-10-11' },
+    { expectedCloseSort: 'invalid' },
+  ]) assert.throws(() => parseSalesReportQuery({ view: 'dashboard', ...query }));
+  const parsed = parseSalesReportQuery({ view: 'dashboard', expectedCloseFrom: '2026-10-12', expectedCloseSort: 'desc' });
+  assert.equal(parsed.from, null);
+  assert.equal(parsed.to, null);
+  assert.equal(parsed.expectedCloseSort, 'desc');
+});
+
+test('dashboard sorts and filters the full expected-close set before limiting, without changing totals', async () => {
+  const data = { ...fixture, opportunities: Array.from({ length: 12 }, (_, index) => ({
+    ...fixture.opportunities[0], id: `close-${String(index + 1).padStart(2, '0')}`,
+    expected_close_date: `2026-01-${String(index + 1).padStart(2, '0')}`,
+  })) };
+  data.opportunities.push({ ...data.opportunities[0], id: 'lost-close', stage_id: 'lost' });
+  const handler = createSalesReportsHandler({
+    loadSalesReportData: async () => data,
+    getTenantContext: async () => ({ isAuthenticated: true, tenantId: 'tenant-a', tenantUserId: 'user-a' }),
+  });
+  async function dashboard(query) {
+    const res = response();
+    await handler({ method: 'GET', query: { view: 'dashboard', ...query } }, res);
+    assert.equal(res.statusCode, 200);
+    return res.body;
+  }
+  const asc = await dashboard({ expectedCloseFrom: '2026-01-01', expectedCloseTo: '2026-01-12' });
+  const desc = await dashboard({ expectedCloseFrom: '2026-01-01', expectedCloseTo: '2026-01-12', expectedCloseSort: 'desc' });
+  assert.equal(asc.expectedClosesTotal, 12);
+  assert.equal(asc.expectedCloses.length, 8);
+  assert.equal(asc.expectedCloses[0].date, '2026-01-01');
+  assert.equal(desc.expectedCloses[0].date, '2026-01-12');
+  assert.equal(desc.expectedCloses[7].date, '2026-01-05');
+  const range = await dashboard({ expectedCloseFrom: '2026-01-03', expectedCloseTo: '2026-01-04' });
+  assert.deepEqual(range.expectedCloses.map(row => row.date), ['2026-01-03', '2026-01-04']);
+  assert.deepEqual(range.summary, asc.summary);
+  assert.deepEqual(range.recentWins, asc.recentWins);
+  assert.equal((await dashboard({ expectedCloseTo: '2026-01-01' })).expectedClosesTotal, 1);
+  assert.equal((await dashboard({ expectedCloseFrom: '2027-01-01' })).expectedClosesTotal, 0);
+});
+
+test('default expected closes include today and break equal-date ties by id', () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const data = { ...fixture, opportunities: ['z', 'a'].map(id => ({
+    ...fixture.opportunities[0], id, expected_close_date: today,
+  })) };
+  const result = buildSalesReport(data, parseSalesReportQuery({ view: 'dashboard' }));
+  assert.deepEqual(buildSalesDashboard(data, result).expectedCloses.map(row => row.id), ['a', 'z']);
+});
+
 test('weighted pipeline uses stage probability and keeps currencies separate', () => {
   const result = buildSalesReport(fixture, filters({ report: 'pipeline' }));
   assert.equal(result.details.find((row) => row.id === 'o-open').weightedValueMinor, 2500);
