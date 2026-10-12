@@ -7,7 +7,7 @@ import { SalesHttpError } from './salesAccess.js';
 
 const SETTINGS_COLUMNS = [
   'tenant_id', 'quote_prefix', 'quote_number_padding', 'default_currency',
-  'default_tax_rate_bps', 'default_terms', 'module_enabled', 'version', 'updated_at',
+  'default_tax_rate_bps', 'default_terms', 'module_enabled', 'version', 'updated_at', 'quote_task_list_name',
 ].join(',');
 
 export async function getSalesSettings(db, tenantId) {
@@ -29,6 +29,7 @@ export async function patchSalesSettings(db, tenantId, actor, patch) {
       ...(patch.defaultTaxRateBps !== undefined ? { defaultTaxRateBps: patch.defaultTaxRateBps } : {}),
       ...(patch.defaultTerms !== undefined ? { defaultTerms: patch.defaultTerms } : {}),
       ...(patch.moduleEnabled !== undefined ? { moduleEnabled: patch.moduleEnabled } : {}),
+      ...(patch.quoteTaskListName !== undefined ? { quoteTaskListName: patch.quoteTaskListName.trim() } : {}),
     },
     p_actor_id: actor.actorId,
     p_actor_type: actor.actorType,

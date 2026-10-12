@@ -204,6 +204,48 @@ test('accepted quote task automation: real PostgreSQL transactions, snapshots, r
       configure(); process();
       assert.equal(sql(`SELECT status FROM sales_acceptance_task_request WHERE quote_version_id=${id(11000)}`), 'completed');
     });
+    await t.test('automatic named lists, both acceptance routes, retries, settings and concurrency', async () => {
+      sql(`CREATE TABLE sales_settings(tenant_id uuid PRIMARY KEY,quote_prefix text DEFAULT 'Q',
+       quote_number_padding integer DEFAULT 6,default_currency text DEFAULT 'GBP',default_tax_rate_bps integer DEFAULT 0,
+       default_terms text DEFAULT '',module_enabled boolean DEFAULT true,version integer DEFAULT 1,updated_by text,updated_at timestamptz);
+       CREATE TABLE sales_audit_event(tenant_id uuid,actor_id text,actor_type text,action text,entity_type text,entity_id text,before_data jsonb,after_data jsonb);
+       ALTER TABLE project_list ALTER COLUMN id SET DEFAULT gen_random_uuid();
+       ALTER TABLE project_list ADD COLUMN name text DEFAULT 'Existing', ADD COLUMN position integer DEFAULT 0;`);
+      sql(readFileSync('supabase/migrations/202610120004_sales_automatic_quote_task_lists.sql', 'utf8'));
+      const before = count('project_card');
+      configure(null);
+      quote(1200, { mode: 'project', flags: [true, false] }); accept(1200);
+      assert.equal(count('project_card'), before + 1);
+      assert.equal(count('project_list', `board_id=${id(5)} AND name='Quote tasks'`), 1);
+      quote(1300, { mode: 'project', flags: [true], bundle: true }); accept(1300);
+      assert.equal(count('project_card'), before + 2);
+      assert.equal(count('project_list', `board_id=${id(5)} AND name='Quote tasks'`), 1);
+      process(); process();
+      assert.equal(count('project_card'), before + 2);
+      service(`SELECT patch_sales_settings(${id(1)},1,'{"quoteTaskListName":"Delivery work"}','staff','tenant_user')`);
+      assert.throws(() => service(`SELECT patch_sales_settings(${id(1)},1,'{"quoteTaskListName":"Stale"}','staff','tenant_user')`), /version conflict/);
+      assert.throws(() => service(`SELECT patch_sales_settings(${id(1)},2,'{"quoteTaskListName":"  "}','staff','tenant_user')`), /1-100/);
+      sql(`UPDATE project_board SET is_archived=true WHERE id=${id(5)}`);
+      quote(1400, { mode: 'project' }); accept(1400);
+      assert.equal(count('sales_acceptance_task_request', `quote_version_id=${id(11400)} AND status='pending'`), 1);
+      sql(`UPDATE project_board SET is_archived=false WHERE id=${id(5)}`);
+      const command = `SET ROLE service_role; SET request.jwt.claim.role='service_role'; SELECT process_sales_acceptance_tasks(${id(1)},${id(3)});`;
+      await Promise.all([0, 1].map(() => promisify(execFile)('psql', [...args, '-c', command])));
+      assert.equal(count('project_card'), before + 3);
+      assert.equal(count('project_list', `name='Delivery work'`), 1);
+      assert.equal(count('project_card', `list_id IN (SELECT id FROM project_list WHERE name='Quote tasks')`), 2);
+      sql(`UPDATE project_list SET is_archived=true WHERE name='Delivery work'`);
+      quote(1500, { mode: 'project' }); accept(1500);
+      assert.equal(count('project_list', `name='Delivery work' AND is_archived IS NOT TRUE`), 1);
+      const standardBefore = count('opportunity_task');
+      quote(1600); accept(1600);
+      assert.equal(count('opportunity_task'), standardBefore + 1);
+      quote(1700, { mode: 'project', flags: [null] }); accept(1700);
+      assert.equal(count('sales_acceptance_task_request', `quote_version_id=${id(11700)}`), 0);
+      assert.throws(() => sql(`SET ROLE authenticated; SELECT sales_quote_task_destination(${id(1)},${id(3)},NULL)`), /permission denied/);
+      assert.throws(() => service(`SELECT sales_quote_task_destination(${id(2)},${id(3)},NULL)`), /unavailable/);
+      assert.throws(() => service(`SELECT sales_quote_task_destination(${id(1)},${id(3)},${id(25)})`), /changed/);
+    });
   } finally {
     if (started) run('pg_ctl', ['-D', data, '-m', 'immediate', '-w', 'stop']);
     rmSync(dir, { recursive: true, force: true });

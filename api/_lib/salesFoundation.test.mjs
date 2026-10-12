@@ -24,6 +24,10 @@ function response() {
 }
 
 test('Sales settings contract rejects unknown, malformed, and stale-shape values', () => {
+  assert.equal(validateSalesSettingsPatch({ expectedVersion: 1, quoteTaskListName: " Delivery " }).ok, true);
+  for (const quoteTaskListName of ["", "  ", "a".repeat(101), null, 17]) {
+    assert.equal(validateSalesSettingsPatch({ expectedVersion: 1, quoteTaskListName }).ok, false);
+  }
   assert.equal(validateSalesSettingsPatch({
     expectedVersion: 1, defaultCurrency: 'GBP', defaultTaxRateBps: 2000,
   }).ok, true);

@@ -49,6 +49,7 @@ export const SALES_INVOICE_STATUSES = Object.freeze([
 ]);
 
 export const DEFAULT_SALES_SETTINGS = Object.freeze({
+  quoteTaskListName: 'Quote tasks',
   quotePrefix: 'Q',
   quoteNumberPadding: 6,
   defaultCurrency: 'GBP',
@@ -281,7 +282,7 @@ export function validateSalesSettingsPatch(value) {
   }
   const allowed = new Set([
     'quotePrefix', 'quoteNumberPadding', 'defaultCurrency',
-    'defaultTaxRateBps', 'defaultTerms', 'moduleEnabled', 'expectedVersion',
+    'defaultTaxRateBps', 'defaultTerms', 'moduleEnabled', 'expectedVersion', 'quoteTaskListName',
   ]);
   const errors = [];
   for (const key of Object.keys(value)) {
@@ -307,6 +308,10 @@ export function validateSalesSettingsPatch(value) {
   if ('moduleEnabled' in value && typeof value.moduleEnabled !== 'boolean') {
     errors.push('moduleEnabled must be boolean');
   }
+  if ('quoteTaskListName' in value && (
+    typeof value.quoteTaskListName !== 'string' || !value.quoteTaskListName.trim()
+    || value.quoteTaskListName.trim().length > 100
+  )) errors.push('quoteTaskListName must contain 1-100 characters');
   if (!Number.isInteger(value.expectedVersion) || value.expectedVersion < 1) {
     errors.push('expectedVersion is required and must be a positive integer');
   }
@@ -318,6 +323,7 @@ export function validateSalesSettingsPatch(value) {
 
 export function mapSalesSettingsRow(row) {
   return {
+    quoteTaskListName: row.quote_task_list_name ?? 'Quote tasks',
     quotePrefix: row.quote_prefix,
     quoteNumberPadding: row.quote_number_padding,
     defaultCurrency: row.default_currency,

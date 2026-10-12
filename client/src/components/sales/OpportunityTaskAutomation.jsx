@@ -1,33 +1,10 @@
-import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Label } from "@/components/ui/label";
 import { TaskError, TaskLoading } from "./SalesProjectTaskStates";
 import { PROJECT_TASKS_URL, projectTaskRequest, refreshSalesProjects, useSalesProjectTasks } from "./useSalesProjectTasks";
-
-function AutomationListForm({ data, pending, onSave }) {
-  const savedList = data.configuration?.list_id || "";
-  const [listId, setListId] = useState(savedList);
-  const lists = data.lists || [];
-  const available = lists.some((list) => list.id === listId);
-  return <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); onSave(listId || null); }}>
-    <div><Label htmlFor="opportunity-automation-list">Automatic project-task list</Label>
-      <select id="opportunity-automation-list" className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm disabled:opacity-50" value={listId} onChange={(event) => setListId(event.target.value)} disabled={!data.boardId || pending}>
-        <option value="">No list configured</option>
-        {listId && !available && <option value={listId} disabled>Saved list (unavailable)</option>}
-        {lists.map((list) => <option key={list.id} value={list.id}>{list.name}</option>)}
-      </select>
-    </div>
-    {data.boardId && !lists.length && <p className="text-sm text-muted-foreground">No lists are available on the linked board. Add a list in Projects, then refresh this panel.</p>}
-    <div className="flex flex-wrap gap-2">
-      <Button type="submit" size="sm" disabled={!data.boardId || !available || pending}>{pending ? "Saving…" : "Save list"}</Button>
-      <Button type="button" size="sm" variant="outline" disabled={!data.configuration || pending} onClick={() => onSave(null)}>Clear configuration</Button>
-    </div>
-  </form>;
-}
 
 export default function OpportunityTaskAutomation({ opportunityId }) {
   const query = useSalesProjectTasks({ view: "automation", opportunityId }, Boolean(opportunityId));
@@ -42,8 +19,6 @@ export default function OpportunityTaskAutomation({ opportunityId }) {
   const requests = data?.requests || [];
   const pending = requests.filter((request) => request.status === "pending");
   const projectPending = pending.some((request) => request.task_mode === "project");
-  const configured = Boolean(data?.boardId && data.configuration?.board_id === data.boardId && data.configuration?.list_id);
-  const unavailableList = configured && data.canConfigureBoard && !(data.lists || []).some((list) => list.id === data.configuration.list_id);
   return <Card><CardContent className="space-y-4 p-5">
     <div><h3 className="font-semibold">Accepted-quote task automation</h3>
       <p className="mt-1 max-w-3xl text-sm text-muted-foreground">Enabled catalogue products create one task per product quote line or enabled bundle component, including quantity—not one task per unit. Task settings are fixed with the issued quote. There is no past quote backfill and no task migration when the opportunity’s mode changes.</p>
@@ -54,13 +29,7 @@ export default function OpportunityTaskAutomation({ opportunityId }) {
         <p className="text-sm font-medium">{data.taskMode === "project" ? "Current mode: Project tasks" : "Current mode: Standard tasks"}</p>
         {data.taskMode === "standard" && <p className="text-sm text-muted-foreground">Standard tasks need no board configuration. You can configure the linked board below for project-mode requests.</p>}
         {!data.boardId ? <p className="text-sm text-amber-700">No project board linked. Link or create a board above and choose a list before project-mode requests can create tasks.</p>
-          : !configured ? <p className="text-sm text-amber-700">No automatic-task list configured for the current linked board. Project-mode requests remain pending until a board manager chooses a list.</p>
-            : unavailableList ? <p className="text-sm text-amber-700">The configured list is unavailable. Choose an available list on the linked board.</p>
-              : <p className="text-sm text-muted-foreground">An automatic-task list is configured on the current linked board.</p>}
-        {data.canConfigureBoard ? <AutomationListForm key={`${data.boardId}:${data.configuration?.board_id}:${data.configuration?.list_id}`} data={data} pending={command.isPending} onSave={(listId) => command.mutate({ action: "automation-configure", listId })} />
-          : <div className="space-y-2"><p className="text-xs text-muted-foreground">Only an authorized manager of the linked board can choose the automatic-task list. An opportunity manager can clear its configuration.</p>
-            {data.canManage && data.configuration && <Button size="sm" variant="outline" disabled={command.isPending} onClick={() => command.mutate({ action: "automation-configure", listId: null })}>Clear configuration</Button>}
-          </div>}
+          : <p className="text-sm text-muted-foreground">Cards are added to “{data.quoteTaskListName || "Quote tasks"}” on the linked board. This list is created automatically if needed. Its name can be changed in Sales settings.</p>}
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div><h4 className="text-sm font-medium">Acceptance requests</h4><p className="mt-1 text-xs text-muted-foreground">Showing {requests.length} of {data.total ?? requests.length} requests, pending first (up to 100). Pending requests retain the mode captured at acceptance.</p></div>

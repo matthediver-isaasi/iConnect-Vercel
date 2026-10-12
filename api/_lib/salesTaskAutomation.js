@@ -2,6 +2,7 @@ import { SALES_CAPABILITIES } from '../../shared/salesContracts.js';
 import { requireSalesContext } from './salesAccess.js';
 import { projectFeature, projectUuid } from './salesProjects.js';
 import { OpportunityHttpError } from './opportunityRules.js';
+import { getSalesSettings } from './salesFoundation.js';
 
 const fail = (status, message) => { throw new OpportunityHttpError(status, message); };
 async function value(query) {
@@ -51,7 +52,7 @@ export async function salesTaskAutomationRequest(db, context, method, body, opti
       p_tenant: context.tenantId, p_opportunity: opportunityId,
     }));
   }
-  const [configuration, requestsResult, lists] = await Promise.all([
+  const [configuration, requestsResult, lists, settings] = await Promise.all([
     value(db.from('sales_task_automation_config').select('board_id,list_id')
       .eq('tenant_id', context.tenantId).eq('opportunity_id', opportunityId).maybeSingle()),
     db.from('sales_acceptance_task_request')
@@ -62,11 +63,13 @@ export async function salesTaskAutomationRequest(db, context, method, body, opti
     canConfigureBoard ? value(db.from('project_list').select('id,name')
       .eq('board_id', link.board_id).or('is_archived.is.null,is_archived.eq.false')
       .order('position').order('id')) : [],
+    getSalesSettings(db, context.tenantId),
   ]);
   if (requestsResult.error) throw requestsResult.error;
   return {
     taskMode: access.opportunity.task_mode || 'standard', boardId: link?.board_id || null,
     canManage, canConfigureBoard, configuration, lists,
+    quoteTaskListName: settings.quoteTaskListName,
     requests: requestsResult.data || [], total: requestsResult.count || 0,
   };
 }

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import QuoteTaskSettings from "./QuoteTaskSettings";
 import { QuotesList } from "./QuotesWorkspace";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -323,6 +324,7 @@ function SettingsPage() {
   const canManageAccounting = hasAccountingManagementCapability(settingsPermissions);
   return <div className="space-y-5">
     {canManageAccounting && <SalesAccountingSettingsPanel />}
+    <QuoteTaskSettings request={request} canManage={isAccessReady && !isFeatureExcluded("sales.settings.manage")} />
     {!isAdmin && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">Only administrators can change pipeline settings.</div>}
     <Card><CardHeader className="flex-row items-center justify-between"><div><CardTitle>Pipeline stages</CardTitle><p className="mt-1 text-sm text-slate-500">Stages are ordered top-to-bottom. Use the arrow controls to change order, then save.</p></div>{isAdmin && <Button variant="outline" onClick={() => setDraft({ ...draft, stages: [...draft.stages, { name: "New stage", color: "#64748b", probability: 0, is_won: false, is_lost: false }] })}><Plus className="mr-2 h-4 w-4" />Stage</Button>}</CardHeader><CardContent className="space-y-3">
       <div id="pipeline-stage-help" className="space-y-2 rounded-lg border bg-slate-50 p-3 text-sm text-slate-700">

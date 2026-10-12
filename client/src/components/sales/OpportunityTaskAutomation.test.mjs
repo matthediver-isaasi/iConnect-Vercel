@@ -66,22 +66,17 @@ test("standard mode shows automation, captured modes and quantities, without mut
     assert.match(host.textContent, /Quantity: 3 · Standard mode at acceptance/);
     assert.match(host.textContent, /Choose a list/);
     assert.match(host.textContent, /no past quote backfill/);
-    assert.ok(host.querySelector("select"));
+    assert.equal(host.querySelector("select"), null);
     assert.equal(calls.some((call) => call.options.method === "POST"), false);
     assert.match(calls[0].url, /view=automation&opportunityId=opportunity/);
   });
 });
 
-test("configuration and retry use version-free commands and invalidate existing task views", async () => {
+test("retry uses version-free commands and invalidates existing task views", async () => {
   await mounted(base, async (host, calls, client) => {
-    await act(async () => {
-      const select = host.querySelector("select");
-      select.value = "delivery";
-      select.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
-    });
-    await click(button(host, "Save list"));
+    await click(button(host, "Retry pending tasks"));
     const post = calls.find((call) => call.options.method === "POST");
-    assert.deepEqual(JSON.parse(post.options.body), { opportunityId: "opportunity", action: "automation-configure", listId: "delivery" });
+    assert.deepEqual(JSON.parse(post.options.body), { opportunityId: "opportunity", action: "automation-retry" });
     assert.equal(post.options.credentials, "include");
     for (const key of [["opportunity", "opportunity"], ["sales-project-tasks", { view: "tasks", source: "standard" }], ["project-board", "board"]]) assert.equal(client.getQueryState(key).isInvalidated, true);
     await click(button(host, "Retry pending tasks"));
@@ -89,10 +84,11 @@ test("configuration and retry use version-free commands and invalidate existing 
   });
 });
 
-test("clearing configuration submits explicit null", async () => {
-  await mounted({ ...base, configuration: { board_id: "board", list_id: "delivery" } }, async (host, calls) => {
-    await click(button(host, "Clear configuration"));
-    assert.equal(JSON.parse(calls.find((call) => call.options.method === "POST").options.body).listId, null);
+test("automatic lists use the tenant setting, not the old manual selector", async () => {
+  await mounted({ ...base, taskMode: "project", quoteTaskListName: "Fulfilment", configuration: { board_id: "board", list_id: "delivery" } }, async (host) => {
+    assert.match(host.textContent, /Fulfilment/);
+    assert.match(host.textContent, /created automatically/);
+    assert.equal(host.querySelector("select"), null);
   });
 });
 
@@ -110,8 +106,8 @@ test("retry uses opportunity management permission, not board configuration perm
 test("project mode clearly reports missing board/list and unavailable saved list", async () => {
   for (const [data, message] of [
     [{ ...base, taskMode: "project", boardId: null, canConfigureBoard: false }, /No project board linked/],
-    [{ ...base, taskMode: "project" }, /No automatic-task list configured/],
-    [{ ...base, taskMode: "project", configuration: { board_id: "board", list_id: "removed" } }, /configured list is unavailable/],
+    [{ ...base, taskMode: "project" }, /Quote tasks/],
+    [{ ...base, taskMode: "project", configuration: { board_id: "board", list_id: "removed" } }, /created automatically/],
   ]) await mounted(data, async (host) => assert.match(host.textContent, message));
 });
 
