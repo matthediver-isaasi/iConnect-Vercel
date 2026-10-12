@@ -21,6 +21,7 @@ import InvoiceStatusPanel from "@/components/sales/InvoiceStatusPanel";
 import QuoteOpportunitySelect from "./QuoteOpportunitySelect";
 import QuoteEventSelect from "./QuoteEventSelect";
 import QuoteSalespersonSelect from "./QuoteSalespersonSelect";
+import QuoteContactSelect from "./QuoteContactSelect";
 import { quotePriceText, quotePriceMinor, quotePriceError } from "./quoteFormValues";
 import { clearOpportunityContacts, opportunityContacts, useQuoteOpportunity } from "./useQuoteOpportunity";
 import { calculateQuoteLine } from "@shared/salesContracts.js";
@@ -361,6 +362,8 @@ function QuoteEditor() {
   const savedContacts = opportunityContacts(detail.data?.opportunity || { contacts: detail.data?.contacts || [] });
   const contacts = isNew ? (opportunity.ready ? opportunity.contacts : []) : savedContacts.length ? savedContacts : opportunity.contacts;
   const contactsDisabled = readOnly || (isNew && !opportunity.ready);
+  const contactsLoading = !savedContacts.length && Boolean(form.opportunityId) && opportunity.isPending;
+  const contactsError = !savedContacts.length && opportunity.isError;
   const opportunityName = opportunity.data?.name || nameOf(quote.opportunity || quote.opportunity_snapshot) || quote.opportunity_name || "";
   const totals = useMemo(() => form.lines.reduce((sum, line) => { const values = lineTotals(line); return { net: sum.net + values.net, tax: sum.tax + values.tax, gross: sum.gross + values.gross }; }, { net: 0, tax: 0, gross: 0 }), [form.lines]);
   const invalidPrices = form.lines.some(line => Boolean(quotePriceError(line)));
@@ -438,8 +441,8 @@ function QuoteEditor() {
       <TabsContent value="quote" className="space-y-5">
         <Card><CardHeader><CardTitle>Customer & commercial details</CardTitle></CardHeader><CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <Field label="Opportunity">{isNew ? <QuoteOpportunitySelect value={form.opportunityId} name={opportunityName} request={request} onChange={(value) => setForm((old) => old.opportunityId === value ? old : clearOpportunityContacts(old, value))} /> : <p className="rounded-md border bg-slate-50 px-3 py-2 text-sm">{opportunityName || (opportunity.isError ? "Opportunity unavailable" : "Loading opportunity…")}</p>}{opportunity.ready && opportunity.data?.organization?.name && <p className="mt-1 text-xs text-slate-500">{opportunity.data.organization.name}</p>}</Field>
-          <Field label="Customer contact">{contacts.length ? <Select disabled={contactsDisabled} value={String(form.customerContactId || "none")} onValueChange={(value) => patch("customerContactId", value === "none" ? "" : value)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">Not selected</SelectItem>{contacts.map((contact) => <SelectItem value={String(contact.id)} key={contact.id}>{contact.name}</SelectItem>)}</SelectContent></Select> : <Input disabled={contactsDisabled} value={form.customerContactId} onChange={(e) => patch("customerContactId", e.target.value)} placeholder="Contact ID" />}</Field>
-          <Field label="Billing contact">{contacts.length ? <Select disabled={contactsDisabled} value={String(form.billingContactId || "none")} onValueChange={(value) => patch("billingContactId", value === "none" ? "" : value)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">Same as customer</SelectItem>{contacts.map((contact) => <SelectItem value={String(contact.id)} key={contact.id}>{contact.name}</SelectItem>)}</SelectContent></Select> : <Input disabled={contactsDisabled} value={form.billingContactId} onChange={(e) => patch("billingContactId", e.target.value)} placeholder="Contact ID" />}</Field>
+          <Field label="Customer contact"><QuoteContactSelect label="Customer contact" contacts={contacts} value={form.customerContactId} loading={contactsLoading} error={contactsError} disabled={contactsDisabled} emptyLabel="Not selected" onChange={value => patch("customerContactId", value)} /></Field>
+          <Field label="Billing contact"><QuoteContactSelect label="Billing contact" contacts={contacts} value={form.billingContactId} loading={contactsLoading} error={contactsError} disabled={contactsDisabled} emptyLabel="Same as customer" onChange={value => patch("billingContactId", value)} /></Field>
           <Field label="Event"><QuoteEventSelect disabled={readOnly} value={form.eventId} kind={form.eventKind} request={request} onChange={event => setForm(old => ({ ...old, eventId: event?.id || "", eventKind: event?.kind || "simple" }))} /></Field>
           <Field label="Issue date"><Input disabled={readOnly} type="date" value={form.issueDate} onChange={(e) => patch("issueDate", e.target.value)} /></Field>
           <Field label="Valid until"><Input disabled={readOnly} type="date" value={form.validUntil} onChange={(e) => patch("validUntil", e.target.value)} /></Field>
