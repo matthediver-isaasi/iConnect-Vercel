@@ -95,6 +95,36 @@ test('catalogue-backed quote lines use the persisted catalogue tax rate', async 
   assert.equal(prepared.totals.grossMinor, 1200);
 });
 
+test('multi-line discounted products and bundles preserve the database price override invariant', async () => {
+  const item = { id: uuid, is_active: true, currency: 'GBP', standard_price_minor: 1000,
+    selling_price_minor: 1000, minimum_price_minor: 800, tax_rate_bps: 2000, name: 'Training' };
+  const db = { from(table) { return {
+    select() { return this; }, eq() { return this; },
+    order: async () => ({ data: [], error: null }),
+    maybeSingle: async () => ({ data: table === 'sales_settings' ? { default_terms: '' } : item, error: null }),
+  }; } };
+  const input = { currency: 'GBP', lines: [
+    { kind: 'product', catalogueId: uuid, quantity: '1', quotedUnitPriceMinor: 1000 },
+    { kind: 'product', catalogueId: uuid, quantity: '2', quotedUnitPriceMinor: 1000, discountBps: 1000 },
+    { kind: 'bundle', catalogueId: uuid, quantity: '1', quotedUnitPriceMinor: 1000, discountBps: 1000 },
+    { kind: 'product', catalogueId: uuid, quantity: '1', quotedUnitPriceMinor: 900 },
+  ] };
+  const prepared = await prepareQuoteDraft(db, 'tenant', { actorId: 'actor' }, input, true);
+  assert.deepEqual(prepared.lines.map(l => l.priceOverridden), [false, false, false, true]);
+  for (const line of prepared.lines) {
+    assert.equal(line.priceOverridden, line.standardUnitPriceMinor !== line.quotedUnitPriceMinor);
+  }
+  assert.equal(prepared.lines[1].netMinor, 1800);
+  assert.equal(prepared.lines[2].netMinor, 900);
+  for (const kind of ['product', 'bundle']) {
+    const discounted = { ...input, lines: [{ ...input.lines[1], kind }] };
+    await assert.rejects(prepareQuoteDraft(db, 'tenant', { actorId: 'actor' }, discounted, false), /override capability required/);
+    await assert.rejects(prepareQuoteDraft(db, 'tenant', { actorId: 'actor' }, {
+      ...discounted, lines: [{ ...discounted.lines[0], discountBps: 3000 }],
+    }, true), /below its minimum price/);
+  }
+});
+
 test('versioned lifecycle uses declined/superseded/converted vocabulary', () => {
   assert.deepEqual(SALES_QUOTE_STATUSES, [
     'draft', 'issued', 'sent', 'accepted', 'declined', 'expired', 'superseded', 'converted',

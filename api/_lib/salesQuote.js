@@ -68,8 +68,10 @@ async function resolveLine(db, tenantId, line, index, allowPriceOverride, previo
     throw new SalesHttpError(400, `Quote line ${index + 1} catalogue price exceeds the supported safe minor-unit range`);
   }
   const quoted = line.quotedUnitPriceMinor ?? standard;
-  const overridden = quoted !== standard || (line.discountBps || 0) !== 0;
-  if (overridden && !allowPriceOverride) throw new SalesHttpError(403, 'Catalogue price override capability required');
+  // Persist unit-price changes separately from discounts. Both require permission,
+  // but the database's price_overridden invariant compares unit prices only.
+  const overridden = quoted !== standard;
+  if ((overridden || (line.discountBps || 0) !== 0) && !allowPriceOverride) throw new SalesHttpError(403, 'Catalogue price override capability required');
   const minimum = item.minimum_price_minor == null ? null : Number(item.minimum_price_minor);
   if (minimum != null && (!Number.isSafeInteger(minimum) || minimum < 0)) {
     throw new SalesHttpError(400, `Quote line ${index + 1} minimum price is invalid`);
