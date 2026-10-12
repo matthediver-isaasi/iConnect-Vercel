@@ -25,10 +25,41 @@ function fixture(size = 12) {
   return { rows, options };
 }
 
-test('configuration defaults to two and clamps integer slots to one through four', () => {
-  for (const [input, expected] of [[undefined, 2], ['bad', 2], [Infinity, 2], [0, 1], [-1, 1], [99, 4], ['3.9', 3]]) {
+test('configuration defaults to eight and clamps integer slots to one through sixteen', () => {
+  for (const [input, expected] of [[undefined, 8], ['bad', 8], [Infinity, 8], [0, 1], [-1, 1], [99, 16], ['3.9', 3]]) {
     assert.equal(campaignSendConcurrency(input), expected);
   }
+});
+
+test('eight fresh gates overlap instead of holding a global admission lock', async () => {
+  const { rows, options } = fixture(8);
+  const barrier = deferred();
+  let gates = 0;
+  const run = drainCampaignRecipients({ ...options, concurrency: 8, batchSize: 8,
+    gate: async () => { gates++; await barrier.promise; return { allowed: true }; },
+    send: async row => { row.status = 'sent'; return 'sent'; },
+  });
+  await tick();
+  const overlapping = gates;
+  barrier.resolve();
+  const result = await run;
+  assert.equal(overlapping, 8);
+  assert.equal(result.sent, 8);
+  assert.ok(rows.every(row => row.status === 'sent'));
+});
+
+test('pause during eight parallel gates releases every unsent claim', async () => {
+  const { rows, options } = fixture(10);
+  const barrier = deferred();
+  const run = drainCampaignRecipients({ ...options, concurrency: 8,
+    gate: async () => { await barrier.promise; return { allowed: false, paused: true }; },
+    send: async () => assert.fail('paused recipients must not reach provider'),
+  });
+  await tick();
+  barrier.resolve();
+  const result = await run;
+  assert.equal(result.sent, 0);
+  assert.ok(rows.every(row => row.status === 'pending'));
 });
 
 test('bounded sends overlap, batch cap is global across slots and claims are disjoint', async () => {
@@ -74,10 +105,13 @@ for (const reason of ['cancelled', 'paused', 'authority', 'deadline']) {
   test(`${reason} stops admission and releases only definitively unsent current claim`, async () => {
     const { rows, options } = fixture();
     const blocker = deferred();
+    const released = deferred();
     let calls = 0, clock = 0;
     const run = drainCampaignRecipients({ ...options, deadline: 100, now: () => clock,
+      release: async (...args) => { await options.release(...args); released.resolve(); },
       gate: async () => {
         if (++calls === 2) {
+          await tick(); // First slot must already be in the provider for this scenario.
           if (reason === 'deadline') clock = 100;
           else return { allowed: false, cancelled: reason === 'cancelled', paused: reason === 'paused' };
         }
@@ -85,7 +119,7 @@ for (const reason of ['cancelled', 'paused', 'authority', 'deadline']) {
       },
       send: async row => { await blocker.promise; row.status = 'sent'; return 'sent'; },
     });
-    await tick();
+    await released.promise;
     assert.equal(rows[1].status, reason === 'cancelled' ? 'cancelled' : 'pending');
     assert.equal(rows[0].status, 'processing');
     blocker.resolve();
@@ -102,9 +136,10 @@ for (const failure of ['claim', 'gate', 'send', 'release']) {
     let claimCalls = 0, gateCalls = 0, settled = false;
     const error = new Error(failure);
     const run = drainCampaignRecipients({ ...options,
-      claim: async () => { if (++claimCalls === 2 && failure === 'claim') throw error; return options.claim(); },
+      claim: async () => { if (++claimCalls === 2 && failure === 'claim') { await tick(); throw error; } return options.claim(); },
       gate: async () => {
         if (++gateCalls === 2) {
+          await tick(); // Exercise failure with an already-started sibling.
           if (failure === 'gate') throw error;
           if (failure === 'release') return { allowed: false };
         }
@@ -177,6 +212,7 @@ for (const firstReason of ['recipient_stop', 'cancelled', 'deadline']) {
     const running = drainCampaignRecipients({ ...options, deadline: 100, now: () => clock,
       gate: async () => {
         if (++gateCalls === 2) {
+          await tick(); // Keep the first provider request in flight before stopping.
           if (firstReason === 'cancelled') return { allowed: false, cancelled: true };
           if (firstReason === 'deadline') clock = 100;
         }

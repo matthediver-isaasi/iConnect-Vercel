@@ -225,8 +225,8 @@ test('worker invocation stops at first rate-limited campaign instead of admittin
   const result = await processSendingCampaigns({ deadline });
   assert.deepEqual(batchCalls, ['first']);
   assert.equal(result.stopReason, 'rate_limit');
-  assert.deepEqual(structuredClone(batchCaps), [{ cap: 200, concurrency: 2, deadline }]);
-  for (const [input, concurrency, cap] of [[1, 1, 100], [4, 4, 400], [99, 4, 400], [0, 1, 100]]) {
+  assert.deepEqual(structuredClone(batchCaps), [{ cap: 800, concurrency: 8, deadline }]);
+  for (const [input, concurrency, cap] of [[1, 1, 100], [4, 4, 400], [99, 16, 1600], [0, 1, 100]]) {
     batchCaps.length = 0;
     await processSendingCampaigns({ deadline, concurrency: input });
     assert.deepEqual(structuredClone(batchCaps), [{ cap, concurrency, deadline }]);

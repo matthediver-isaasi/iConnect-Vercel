@@ -56,6 +56,20 @@ test('overlapping workers cannot own the same recipient', async () => {
   assert.equal(new Set(owned).size, 12);
 });
 
+test('one claimer safely serves sixteen concurrent slots across small page boundaries', async () => {
+  const f = fixture(80);
+  const c = createCampaignRecipientClaimer(f.db, 'campaign', { pageSize: 5 });
+  const owned = [];
+  for (let round = 0; round < 5; round++) {
+    const result = await Promise.all(Array.from({ length: 16 }, () => c.claim()));
+    owned.push(...result.flat().map(row => row.id));
+  }
+  assert.equal(owned.length, 80);
+  assert.equal(new Set(owned).size, 80);
+  assert.equal(c.metrics.candidateReads, 16);
+  assert.equal(c.metrics.claimCollisions, 0);
+});
+
 test('stale candidates cannot claim sent, cancelled or other-campaign rows', async () => {
   const f = fixture(5);
   const c = createCampaignRecipientClaimer(f.db, 'campaign');

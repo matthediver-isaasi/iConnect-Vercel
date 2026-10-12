@@ -16,3 +16,15 @@ an active production campaign to benchmark. Use a separate test-mode campaign,
 verify the provider no-delivery flag, and distinguish campaign test mode from
 the deliberately delivered Send test email action. Preview is not database
 isolation; provider test mode is not exemption from consent or account limits.
+
+Improve bounded individual-message throughput before replacing delivery with
+native provider batches unless batch recipient correlation and ambiguous-outcome
+reconciliation have both been validated.
+
+**Why:** Individual message ownership and provider IDs support the existing
+duplicate protection and event attribution. A bulk request changes both;
+reducing request count alone is not proof of a safe transport migration.
+
+**How to apply:** Preserve fresh per-recipient authorization and suppression
+checks as concurrency increases. Benchmark submission speed separately from
+preparation by resuming the paused test campaign without resetting its rows.

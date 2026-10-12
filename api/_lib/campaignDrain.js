@@ -1,7 +1,7 @@
-// No database/provider dependencies: admissions are serialized, delivery is not.
-export function campaignSendConcurrency(value = 2) {
+// Bounded slots overlap claims, fresh gates, personalization and delivery.
+export function campaignSendConcurrency(value = 8) {
   const number = Number(value);
-  return Number.isFinite(number) ? Math.max(1, Math.min(4, Math.floor(number))) : 2;
+  return Number.isFinite(number) ? Math.max(1, Math.min(16, Math.floor(number))) : 8;
 }
 
 export async function drainCampaignRecipients({
@@ -11,7 +11,6 @@ export async function drainCampaignRecipients({
   const startedAt = now();
   let attempted = 0, claimed = 0, sent = 0, failed = 0, processing = 0;
   let stoppedGate = null, stopReason = null, firstError = null;
-  let admission = Promise.resolve();
   const timings = { claimMs: 0, gateMs: 0, sendMs: 0 };
   const normalStop = reason => ['batch_cap', 'empty_or_contended'].includes(reason);
   const stop = reason => {
@@ -26,8 +25,7 @@ export async function drainCampaignRecipients({
   };
   // Reserve one batch position before awaiting anything. A claim collision
   // consumes a position and yields, never reclaims a processing/ambiguous row.
-  const admit = () => {
-    const next = admission.then(async () => {
+  const admit = async () => {
       if (stopReason) return null;
       if (expired()) { stop('deadline'); return null; }
       if (attempted >= batchSize) { stop('batch_cap'); return null; }
@@ -50,9 +48,6 @@ export async function drainCampaignRecipients({
         try { await release(recipient, 'pending'); } catch {}
         throw error;
       }
-    });
-    admission = next.catch(error => { firstError ||= error; stop('error'); });
-    return next;
   };
   const slot = async () => {
     try {

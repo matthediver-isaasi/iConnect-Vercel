@@ -3120,9 +3120,9 @@ export async function processSendingCampaigns(options = {}) {
 
   try {
     const deadline = options.deadline ?? Date.now() + CAMPAIGN_WORK_BUDGET_MS;
-    const concurrency = campaignSendConcurrency(options.concurrency ?? process.env.CAMPAIGN_SEND_CONCURRENCY ?? 2);
+    const concurrency = campaignSendConcurrency(options.concurrency ?? process.env.CAMPAIGN_SEND_CONCURRENCY);
     // A faster drain must not merely finish the same 100 rows earlier and
-    // wait for the next cron tick. Still bounded: default 200, maximum 400,
+    // wait for the next cron tick. Still bounded: default 800, maximum 1600,
     // shared across slots, with the unchanged invocation-wide 38s deadline.
     const workerBatchSize = BATCH_SIZE * concurrency;
     // Legacy preparations without a completion proof require review. Modern
@@ -3856,6 +3856,13 @@ export async function sendToRecipient(recipient, campaign, tenantId, tenantSlug,
       if (error) throw error;
       return 'cancelled';
     }
+    // Another slot can observe a stop while this slot checks bounce suppression.
+    if (!testDestination && (options.shouldStop?.() ||
+        (options.deadline != null && !campaignHasTime(options.deadline)))) {
+      if (surveyDelivery?.deliveryId) await finishCampaignSurveyDelivery(supabase, surveyDelivery.deliveryId, false);
+      await releaseClaimedRecipients([recipient]);
+      return 'stopped';
+    }
     providerSubmitted = true;
     nextTimingStage('providerMs');
     const result = await sendEmail({
@@ -4263,7 +4270,7 @@ export async function sendBatch(campaignId, tenantId, campaign, tenantSlug, requ
   const stageTimings = { renderMs: 0, preProviderGateMs: 0, providerMs: 0, persistenceMs: 0 };
   const { sent: sentCount, failed: failedCount, stoppedGate, metrics } = await drainCampaignRecipients({
     batchSize,
-    concurrency: campaignSendConcurrency(options.concurrency ?? process.env.CAMPAIGN_SEND_CONCURRENCY ?? 2),
+    concurrency: campaignSendConcurrency(options.concurrency ?? process.env.CAMPAIGN_SEND_CONCURRENCY),
     deadline: options.deadline,
     now: options.now || Date.now,
     claim: recipientClaimer.claim,

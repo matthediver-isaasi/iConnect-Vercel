@@ -7,13 +7,15 @@ export function createCampaignRecipientClaimer(db, campaignId, {
   const parsed = Number(pageSize);
   const size = Number.isFinite(parsed) ? Math.max(1, Math.min(100, Math.floor(parsed))) : 50;
   let candidates = [];
+  let admission = Promise.resolve();
   const metrics = { candidatePageSize: size, candidateReads: 0, claimWrites: 0, claimCollisions: 0 };
   const expired = () => deadline != null && now() >= deadline;
 
-  // Admissions are serialized by campaignDrain. Independent workers may read
-  // overlapping pages; only the winner of the conditional update may send.
-  async function claim() {
-    if (expired()) return [];
+  // Serialize only taking an ID (and refilling the small page). Conditional
+  // ownership writes run concurrently. No gate or provider wait holds this lock.
+  function takeCandidate() {
+    const next = admission.then(async () => {
+    if (expired()) return null;
     if (!candidates.length) {
       metrics.candidateReads++;
       const { data, error } = await db.from('email_campaign_recipient')
@@ -22,9 +24,16 @@ export function createCampaignRecipientClaimer(db, campaignId, {
       if (error) throw error;
       candidates = (data || []).map(row => row.id);
     }
-    // Never spin through repeated pages on contention. Yield after this page.
-    while (candidates.length && !expired()) {
-      const id = candidates.shift();
+    return candidates.shift() ?? null;
+    });
+    admission = next.catch(() => {});
+    return next;
+  }
+  async function claim() {
+    // Bound work on contention; independent workers can read overlapping pages.
+    for (let attempt = 0; attempt < size && !expired(); attempt++) {
+      const id = await takeCandidate();
+      if (id == null || expired()) return [];
       metrics.claimWrites++;
       const { data, error } = await db.from('email_campaign_recipient')
         .update({ status: 'processing' }).eq('campaign_id', campaignId)
