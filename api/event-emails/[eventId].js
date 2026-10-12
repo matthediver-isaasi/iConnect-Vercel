@@ -1,11 +1,6 @@
 import { supabase } from '../_lib/database.js';
-import { reminderConfigurationsChanged } from '../_lib/eventEmailChanges.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { resolveEventEmailSurvey, usesEventSurvey } from '../_lib/campaignEventSurvey.js';
-import {
-  scheduleReminderEmails,
-  scheduleComplexEventReminderEmails,
-} from '../_lib/scheduleReminders.js';
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -67,7 +62,7 @@ export default async function handler(req, res) {
 
       const { data: existingEmails, error: fetchError } = await supabase
         .from('event_email')
-        .select('*')
+        .select('id')
         .eq('event_id', eventId);
 
       if (fetchError) {
@@ -171,25 +166,17 @@ export default async function handler(req, res) {
         });
       }
 
-      const schedulingResult = reminderConfigurationsChanged(existingEmails || [], savedEmails)
-        ? (is_complex_event
-          ? await scheduleComplexEventReminderEmails(eventId)
-          : await scheduleReminderEmails(eventId))
-        : {};
-
-      // Response body now includes scheduling outcomes alongside the existing
-      // `savedEmails` field. Clients that only read `savedEmails` keep working
-      // (the previous 200 shape was a bare array; the legacy editor reader
-      // tolerates both via `Array.isArray(result) ? result : result.savedEmails`).
+      // Saving is configuration-only. Never enqueue or reset deliveries here.
+      // Keep the response shape compatible with both event editors.
       return res.status(200).json({
         savedEmails,
         errors: [],
-        requeued: schedulingResult.requeued || 0,
-        bookingsScheduled: schedulingResult.bookingsScheduled || 0,
-        bookingsConsidered: schedulingResult.bookingsConsidered || 0,
-        schedulingFailures: schedulingResult.schedulingFailures || [],
-        skipped: schedulingResult.skipped || [],
-        schedulerError: schedulingResult.error || null,
+        requeued: 0,
+        bookingsScheduled: 0,
+        bookingsConsidered: 0,
+        schedulingFailures: [],
+        skipped: [],
+        schedulerError: null,
       });
     } catch (err) {
       console.error('[event-emails] Error:', err);

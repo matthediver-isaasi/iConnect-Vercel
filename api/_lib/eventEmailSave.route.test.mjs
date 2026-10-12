@@ -28,7 +28,7 @@ const { default: handler } = await import(`data:text/javascript;base64,${Buffer.
 
 for (const complex of [false, true]) {
   for (const editReminder of [false, true]) {
-    test(`${complex ? 'complex' : 'simple'} event: ${editReminder ? 'reminder edit schedules' : 'confirmation edit skips scheduling'}`, async () => {
+    test(`${complex ? 'complex' : 'simple'} event: ${editReminder ? 'reminder' : 'confirmation'} edit never schedules`, async () => {
       const rows = [
         { id: 'c', email_type: 'booking_confirmation', body: 'Old', is_complex_event: complex },
         { id: 'r', email_type: 'reminder', body: 'Reminder', timing_type: '1_day_before', is_complex_event: complex },
@@ -56,8 +56,10 @@ for (const complex of [false, true]) {
         assert.equal(status, 200);
         assert.equal(result.savedEmails.length, 2);
         assert.equal(result.savedEmails.find(row => row.id === (editReminder ? 'r' : 'c')).body, 'Updated');
-        assert.deepEqual(calls, editReminder ? [complex ? 'complex' : 'simple'] : []);
-        assert.equal(result.schedulerError, editReminder ? 'Example scheduling failure' : null);
+        assert.deepEqual(calls, []);
+        assert.equal(result.schedulerError, null);
+        assert.equal(result.requeued, 0);
+        assert.equal(result.bookingsScheduled, 0);
       } finally {
         delete globalThis.__emailSaveFixture;
       }
