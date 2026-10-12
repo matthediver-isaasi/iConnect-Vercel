@@ -8,3 +8,4 @@ description: Function permissions, pooled locks, nullable JSON and legacy schema
 - [Nullable JSONB migration merges](nullable-jsonb-migration-merges.md) — coalesce nullable JSON before idempotent merges.
 - [Legacy transition-row types](legacy-transition-row-types.md) — dropped attributes can break whole transition-row composites only on the real long-lived schema.
 - [RPC fixture schema parity](rpc-fixture-schema-parity.md) — verify deployed key types; UUID-looking identity values may be stored as text.
+- [Extension function resolution](postgres-extension-resolution.md) — production pgcrypto is in extensions; restricted RPCs must qualify its functions.
