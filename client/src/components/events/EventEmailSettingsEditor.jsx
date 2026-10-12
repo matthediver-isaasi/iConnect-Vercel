@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { readEventEmailSaveResponse } from "./eventEmailSaveResponse.js";
 import CampaignEventSurveySettings from '@/components/CampaignEventSurveySettings';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -111,7 +112,7 @@ export const formatSkippedSummary = (skipped) => {
 };
 
 // PUT the email configuration for an event. Returns { response, result }.
-// Throws only on network-level failure; callers inspect response.ok.
+// Throws on network/unreadable responses; callers inspect response.ok for API errors.
 export const putEventEmails = async (eventId, emails, isComplexEvent = false) => {
   const response = await fetch(`/api/event-emails/${eventId}`, {
     method: "PUT",
@@ -121,7 +122,7 @@ export const putEventEmails = async (eventId, emails, isComplexEvent = false) =>
       isComplexEvent ? { emails, is_complex_event: true } : { emails }
     ),
   });
-  const result = await response.json();
+  const result = await readEventEmailSaveResponse(response);
   return { response, result };
 };
 

@@ -1,4 +1,5 @@
 import { supabase } from '../_lib/database.js';
+import { reminderConfigurationsChanged } from '../_lib/eventEmailChanges.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { resolveEventEmailSurvey, usesEventSurvey } from '../_lib/campaignEventSurvey.js';
 import {
@@ -66,7 +67,7 @@ export default async function handler(req, res) {
 
       const { data: existingEmails, error: fetchError } = await supabase
         .from('event_email')
-        .select('id')
+        .select('*')
         .eq('event_id', eventId);
 
       if (fetchError) {
@@ -170,9 +171,11 @@ export default async function handler(req, res) {
         });
       }
 
-      const schedulingResult = is_complex_event
-        ? await scheduleComplexEventReminderEmails(eventId)
-        : await scheduleReminderEmails(eventId);
+      const schedulingResult = reminderConfigurationsChanged(existingEmails || [], savedEmails)
+        ? (is_complex_event
+          ? await scheduleComplexEventReminderEmails(eventId)
+          : await scheduleReminderEmails(eventId))
+        : {};
 
       // Response body now includes scheduling outcomes alongside the existing
       // `savedEmails` field. Clients that only read `savedEmails` keep working
