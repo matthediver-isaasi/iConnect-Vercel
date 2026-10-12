@@ -9,7 +9,9 @@ import {
 } from './campaignPreparation.js';
 import { resolvePreparationChunk } from './campaignPreparationStream.js';
 import { discoverAudienceCustomObjects, resolveCustomObjectConditions, validateCustomObjectCondition, validateAudienceCustomObjects } from './audienceCustomObjects.js';
-import { sendEmail, replacePlaceholders } from './emailService.js';
+import { sendEmail, replacePlaceholders, sendPreparedCampaignBatch } from './emailService.js';
+import { BULK_TRANSPORT, bulkCampaignCompatible, newCampaignTransport } from './campaignBulkTransport.js';
+import { finishPreparedCampaignBatch } from './campaignBulkDrain.js';
 import { drainCampaignRecipients as drainRecipients, campaignSendConcurrency } from './campaignDrain.js';
 import { createCampaignRecipientClaimer } from './campaignRecipientClaims.js';
 import { replaceBookingPlaceholders } from './eventConfirmationEmail.js';
@@ -488,6 +490,8 @@ export async function createCampaign(campaignData, tenantId, createdBy) {
 
   try {
     const cleanedData = { ...campaignData };
+    delete cleanedData.delivery_transport;
+    if (newCampaignTransport(cleanedData) === BULK_TRANSPORT) cleanedData.delivery_transport = BULK_TRANSPORT;
     await validateAudienceCustomObjects(supabase, tenantId, cleanedData.target_audiences);
     await validateSpeakerAudienceSegments(supabase, tenantId, cleanedData.target_audiences);
     if (cleanedData.event_survey_context?.event_id) {
@@ -554,6 +558,7 @@ export async function updateCampaign(campaignId, updates, tenantId, options = {}
 
   try {
     const cleanedUpdates = { ...updates };
+    delete cleanedUpdates.delivery_transport;
     await validateAudienceCustomObjects(supabase, tenantId, cleanedUpdates.target_audiences);
     await validateSpeakerAudienceSegments(supabase, tenantId, cleanedUpdates.target_audiences);
     delete cleanedUpdates.category_review_required;
@@ -643,6 +648,8 @@ export async function duplicateCampaign(campaignId, tenantId, createdBy) {
       bounced_count, complained_count, unsubscribed_count,
       ...cloneFields
     } = original;
+    delete cloneFields.delivery_transport;
+    if (newCampaignTransport(cloneFields) === BULK_TRANSPORT) cloneFields.delivery_transport = BULK_TRANSPORT;
 
     const { data: newCampaign, error: insertError } = await supabase
       .from('email_campaign')
@@ -3863,7 +3870,7 @@ export async function sendToRecipient(recipient, campaign, tenantId, tenantSlug,
       await releaseClaimedRecipients([recipient]);
       return 'stopped';
     }
-    providerSubmitted = true;
+    providerSubmitted = !options.prepareOnly;
     nextTimingStage('providerMs');
     const result = await sendEmail({
       to: testDestination || recipient.email,
@@ -3882,7 +3889,8 @@ export async function sendToRecipient(recipient, campaign, tenantId, tenantSlug,
       resolveTransactionalPreferences: false,
       campaignDeadlineAt: testDestination ? null : options.deadline,
       testMode: testDestination ? false : !!campaign.is_test_mode
-    });
+    }, options.prepareOnly ? { prepareOnly: true } : {});
+    if (options.prepareOnly && result.prepared) return { recipient, prepared: result.prepared };
     nextTimingStage('persistenceMs');
 
     if (result.rateLimited && !testDestination) options.stop?.('rate_limit');
@@ -4261,6 +4269,15 @@ export async function sendBatch(campaignId, tenantId, campaign, tenantSlug, requ
 
   const designInfo = getCampaignEmailComposition(campaign);
   const batchRender = prepareCampaignBatchRender(campaign, designInfo);
+  const bulkPinned = campaign.delivery_transport === BULK_TRANSPORT;
+  if (bulkPinned && process.env.CAMPAIGN_MAILGUN_BATCH_ENABLED !== 'true') {
+    return { success: false, remaining: null, error: 'Bulk campaign sending is disabled; no recipients were claimed.' };
+  }
+  if (bulkPinned && campaign.is_test_mode !== true && process.env.CAMPAIGN_MAILGUN_BATCH_LIVE_ENABLED !== 'true') {
+    return { success: false, remaining: null, error: 'Live bulk delivery has not been enabled; no recipients were claimed.' };
+  }
+  const useBulk = bulkPinned && bulkCampaignCompatible(campaign);
+  const prepared = [];
   const setupMs = Math.max(0, Date.now() - batchStartedAt);
   const recipientClaimer = createCampaignRecipientClaimer(supabase, campaignId, {
     pageSize: options.claimPageSize ?? process.env.CAMPAIGN_CLAIM_PAGE_SIZE ?? 50,
@@ -4268,10 +4285,11 @@ export async function sendBatch(campaignId, tenantId, campaign, tenantSlug, requ
     now: options.now || Date.now,
   });
   const stageTimings = { renderMs: 0, preProviderGateMs: 0, providerMs: 0, persistenceMs: 0 };
-  const { sent: sentCount, failed: failedCount, stoppedGate, metrics } = await drainCampaignRecipients({
-    batchSize,
+  let { sent: sentCount, failed: failedCount, stoppedGate, metrics } = await drainCampaignRecipients({
+    batchSize: useBulk ? Math.min(batchSize, 100) : batchSize,
     concurrency: campaignSendConcurrency(options.concurrency ?? process.env.CAMPAIGN_SEND_CONCURRENCY),
-    deadline: options.deadline,
+    // Stop collecting early enough to revalidate and submit the prepared chunk.
+    deadline: useBulk && options.deadline != null ? options.deadline - 12000 : options.deadline,
     now: options.now || Date.now,
     claim: recipientClaimer.claim,
     gate: () => checkCampaignBatchGate(campaignId, tenantId, campaign),
@@ -4284,19 +4302,87 @@ export async function sendBatch(campaignId, tenantId, campaign, tenantSlug, requ
       });
       console.log('[Campaign Service] Batch aggregate', metrics);
     },
-    send: (recipient, control) => (options.sendRecipient || sendToRecipient)(recipient, campaign, tenantId, tenantSlug, requestHost, designInfo, null, {
+    send: async (recipient, control) => {
+      const result = await (options.sendRecipient || sendToRecipient)(recipient, campaign, tenantId, tenantSlug, requestHost, designInfo, null, {
       deadline: options.deadline, recheckBeforeProvider: true, batchRender, ...control,
+      prepareOnly: useBulk,
       onTiming: timings => {
         for (const key of Object.keys(stageTimings)) stageTimings[key] += timings[key] || 0;
       },
-    }),
+      });
+      if (useBulk && result?.prepared) { prepared.push(result); return 'prepared'; }
+      return result;
+    },
   });
+
+  if (useBulk && prepared.length) {
+    const release = (entries, status = 'pending') => releaseClaimedRecipients(entries.map(e => e.recipient), status);
+    if (metrics.stopReason && !['batch_cap', 'empty_or_contended', 'deadline'].includes(metrics.stopReason)) {
+      await release(prepared, stoppedGate?.cancelled ? 'cancelled' : 'pending');
+    } else {
+      const budget = options.deadline ? campaignReadBudget(supabase, options.deadline) : null;
+      try {
+        const bulkResult = await finishPreparedCampaignBatch({
+          entries: prepared, deadline: options.deadline,
+          gate: () => checkCampaignBatchGate(campaignId, tenantId, campaign),
+          revalidate: async ({ recipient }) => {
+            const db = budget?.db || supabase;
+            if (!await preparedRecipientStillConsents(db, recipient, campaign, tenantId)) return 'unsubscribed';
+            if (await campaignAddressSuppressed(db, tenantId, recipient.email)) return 'cancelled';
+            return 'ready';
+          },
+          release,
+          submit: entries => (options.submitBulk || sendPreparedCampaignBatch)(campaignId, entries.map(e => e.prepared), options.deadline),
+          persist: async (entries, values) => {
+            const { error } = await supabase.from('email_campaign_recipient').update(values)
+              .eq('campaign_id', campaignId).eq('status', 'processing').in('id', entries.map(e => e.recipient.id));
+            if (error) throw error;
+          },
+        });
+        sentCount += bulkResult.sent;
+        failedCount += bulkResult.failed;
+        stoppedGate ||= bulkResult.stoppedGate;
+        Object.assign(metrics, { transport: BULK_TRANSPORT, bulkRequests: bulkResult.bulkRequests || 0,
+          sent: sentCount, failed: failedCount, stopReason: bulkResult.stopReason || metrics.stopReason });
+        // Incompatible envelopes have never reached Mailgun. Use the normal,
+        // freshly gated individual path; do not reroute uncertain submissions.
+        for (const [index, entry] of (bulkResult.fallback || []).entries()) {
+          const result = await sendToRecipient(entry.recipient, campaign, tenantId, tenantSlug, requestHost, designInfo, null,
+            { deadline: options.deadline, recheckBeforeProvider: true, batchRender });
+          if (result === 'sent') sentCount++;
+          if (result === 'failed') failedCount++;
+          if (result === 'rate_limited') {
+            metrics.stopReason = 'rate_limit';
+            await release(bulkResult.fallback.slice(index + 1));
+            break;
+          }
+          if (result === 'stopped') {
+            await release(bulkResult.fallback.slice(index + 1));
+            break;
+          }
+        }
+        Object.assign(metrics, { elapsedMs: Math.max(0, Date.now() - batchStartedAt),
+          sent: sentCount, failed: failedCount, processing: bulkResult.processing || 0,
+          bulkPrepared: prepared.length, bulkFallback: bulkResult.fallback?.length || 0 });
+        console.log('[Campaign Service] Bulk aggregate', { campaignId, ...metrics });
+      } finally { budget?.dispose(); }
+    }
+  }
 
   const outcome = await getCampaignSendOutcome(campaignId, stoppedGate?.campaign?.status || 'sending');
 
   await updateCampaign(campaignId, {
     sent_count: outcome.sent
   }, tenantId);
+
+  // A provider batch is not a per-minute cap. Drain more bounded chunks while
+  // this invocation still has a meaningful preparation + transport budget.
+  if (useBulk && sentCount > 0 && outcome.queued > 0 && batchSize > 100 &&
+      options.deadline != null && options.deadline - Date.now() > 16000 &&
+      !stoppedGate && ['batch_cap', 'empty_or_contended', null].includes(metrics.stopReason)) {
+    const next = await sendBatch(campaignId, tenantId, campaign, tenantSlug, requestHost, batchSize - 100, options);
+    return { ...next, batchSent: sentCount + (next.batchSent || 0), batchFailed: failedCount + (next.batchFailed || 0) };
+  }
 
   return {
     ...outcome,

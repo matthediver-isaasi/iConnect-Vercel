@@ -39,7 +39,14 @@ export function extractEventIdentifiers(eventData) {
 }
 
 export function lookupRecipient(messageId, recipientEmail, recipientsByMsgId, recipientsByEmail) {
-  if (messageId && recipientsByMsgId.has(messageId)) return recipientsByMsgId.get(messageId);
+  const composite = messageId && recipientEmail
+    ? recipientsByMsgId.get(`${messageId}:${recipientEmail.toLowerCase()}`) : null;
+  if (composite) return composite;
+  if (messageId && recipientsByMsgId.has(messageId)) {
+    const match = recipientsByMsgId.get(messageId);
+    if (match && (!match.email || !recipientEmail || match.email.toLowerCase() === recipientEmail.toLowerCase())) return match;
+    if (!recipientEmail) return null;
+  }
   if (recipientEmail && recipientsByEmail.has(recipientEmail)) return recipientsByEmail.get(recipientEmail);
   return null;
 }
@@ -304,7 +311,8 @@ export async function syncCampaignEvents(campaign, emailDomain, tenantId, timeBu
 
   for (const r of allRecipients) {
     if (r.mailgun_message_id) {
-      recipientsByMsgId.set(r.mailgun_message_id, r);
+      recipientsByMsgId.set(r.mailgun_message_id, recipientsByMsgId.has(r.mailgun_message_id) ? null : r);
+      if (r.email) recipientsByMsgId.set(`${r.mailgun_message_id}:${r.email.toLowerCase()}`, r);
       messageIds.add(r.mailgun_message_id);
     }
     if (r.email) {
@@ -370,6 +378,8 @@ export async function syncCampaignEvents(campaign, emailDomain, tenantId, timeBu
 
         if (event.id && existingEventIds.has(event.id)) { skipped++; continue; }
 
+        if (event['user-variables']?.iconn_campaign_id &&
+            event['user-variables'].iconn_campaign_id !== campaign.id) { skipped++; continue; }
         const recipient = lookupRecipient(messageId, recipientEmail, recipientsByMsgId, recipientsByEmail);
         if (!recipient) { skipped++; continue; }
 

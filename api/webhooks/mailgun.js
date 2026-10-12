@@ -79,13 +79,26 @@ export default async function handler(req, res) {
 
     let recipient = null;
     let campaign = null;
+    const bulkCampaignId = eventData['user-variables']?.iconn_campaign_id;
 
-    if (messageId) {
-      const { data } = await supabase
+    if (bulkCampaignId) {
+      // Batch message IDs are not unique to a recipient. The signed provider
+      // event must identify both the campaign and envelope recipient.
+      if (/^[0-9a-f-]{36}$/i.test(bulkCampaignId) && typeof recipientEmail === 'string' && !recipientEmail.includes('*')) {
+        const { data } = await supabase.from('email_campaign_recipient')
+          .select('id, campaign_id, member_id')
+          .eq('campaign_id', bulkCampaignId).ilike('email', recipientEmail.replace(/[%_\\]/g, '\\$&'))
+          .in('status', ['processing', 'sent', 'delivered', 'opened', 'clicked', 'bounced', 'complained', 'unsubscribed'])
+          .single();
+        recipient = data || null;
+      }
+    } else if (messageId) {
+      let lookup = supabase
         .from('email_campaign_recipient')
         .select('id, campaign_id, member_id')
-        .eq('mailgun_message_id', messageId)
-        .single();
+        .eq('mailgun_message_id', messageId);
+      if (recipientEmail) lookup = lookup.eq('email', recipientEmail);
+      const { data } = await lookup.single();
 
       if (data) {
         recipient = data;
@@ -95,7 +108,7 @@ export default async function handler(req, res) {
       }
     }
 
-    if (!recipient && recipientEmail && eventType !== 'clicked') {
+    if (!bulkCampaignId && !recipient && recipientEmail && eventType !== 'clicked') {
       const { data: fallbackRecipients } = await supabase
         .from('email_campaign_recipient')
         .select('id, campaign_id, member_id, mailgun_message_id')
@@ -113,6 +126,15 @@ export default async function handler(req, res) {
     }
 
     if (recipient) {
+      if (bulkCampaignId && messageId) {
+        // Webhooks can arrive before the worker persists acceptance. Preserve
+        // evidence on that row without overwriting an already-recorded ID.
+        const { error } = await supabase.from('email_campaign_recipient')
+          .update({ mailgun_message_id: messageId })
+          .eq('id', recipient.id).eq('campaign_id', bulkCampaignId)
+          .is('mailgun_message_id', null);
+        if (error) throw error;
+      }
       const { data: campaignData } = await supabase
         .from('email_campaign')
         .select('id, tenant_id')

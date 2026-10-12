@@ -31,6 +31,7 @@ function install(t, size) {
       select(columns, opts = {}) { fields = columns; countRequested = opts.count === 'exact'; head = opts.head; return this; },
       update(updates) { action = 'update'; value = updates; return this; },
       eq(key, expected) { filters.push(row => row[key] === expected); return this; },
+      is(key, expected) { filters.push(row => row[key] === expected); return this; },
       in(key, expected) { filters.push(row => expected.includes(row[key])); return this; },
       not(key, _op, expected) { filters.push(row => row[key] !== expected); return this; },
       order() { return this; },
@@ -38,19 +39,64 @@ function install(t, size) {
       async single() { const result = await this; return { ...result, data: result.data[0] || null }; },
       async maybeSingle() { const result = await this; return { ...result, data: result.data[0] || null }; },
       then(resolve) {
-        const source = table === 'email_campaign' ? [campaign] : rows;
+        const source = table === 'email_campaign' ? [campaign] : table === 'email_address_bounce' ? [] : rows;
         const matching = source.filter(row => filters.every(filter => filter(row))).slice(0, limit);
         if (action === 'update') matching.forEach(row => Object.assign(row, value));
         return resolve({ data: head ? null : structuredClone(matching),
           count: countRequested ? matching.length : null, error: null });
       },
     };
-    assert.ok(['email_campaign', 'email_campaign_recipient'].includes(table));
+    assert.ok(['email_campaign', 'email_campaign_recipient', 'email_address_bounce'].includes(table));
     return q;
   };
   t.after(() => { supabase.from = originalFrom; });
   return { campaign, rows };
 }
+
+test('real worker drains multiple 100-recipient bulk requests without a 100-per-minute cap', async t => {
+  const { campaign, rows } = install(t, 250);
+  const previous = process.env.CAMPAIGN_MAILGUN_BATCH_ENABLED;
+  process.env.CAMPAIGN_MAILGUN_BATCH_ENABLED = 'true';
+  t.after(() => { if (previous == null) delete process.env.CAMPAIGN_MAILGUN_BATCH_ENABLED;
+    else process.env.CAMPAIGN_MAILGUN_BATCH_ENABLED = previous; });
+  campaign.delivery_transport = 'mailgun_batch_v1';
+  campaign.is_test_mode = true;
+  const sizes = [];
+  const result = await sendBatch('campaign', 'tenant', campaign, 'tenant', null, 800, {
+    deadline: Date.now() + 38000,
+    sendRecipient: async (recipient, ...args) => {
+      assert.equal(args.at(-1).prepareOnly, true);
+      return { recipient, prepared: { messageData: { to: [recipient.email] } } };
+    },
+    submitBulk: async (_id, messages) => { sizes.push(messages.length); return { success: true, messageId: 'batch' }; },
+  });
+  assert.deepEqual(sizes, [100, 100, 50]);
+  assert.equal(result.batchSent, 250);
+  assert.equal(result.remaining, 0);
+  assert.ok(rows.every(row => row.status === 'sent'));
+});
+
+test('pinned bulk campaigns claim nothing when the switch is disabled', async t => {
+  const { campaign, rows } = install(t, 3);
+  campaign.delivery_transport = 'mailgun_batch_v1';
+  const result = await sendBatch('campaign', 'tenant', campaign, 'tenant', null, 100);
+  assert.equal(result.success, false);
+  assert.ok(rows.every(row => row.status === 'pending'));
+});
+
+test('test-only rollout cannot submit a bulk campaign after its test flag is cleared', async t => {
+  const { campaign, rows } = install(t, 3);
+  const previous = process.env.CAMPAIGN_MAILGUN_BATCH_ENABLED;
+  process.env.CAMPAIGN_MAILGUN_BATCH_ENABLED = 'true';
+  t.after(() => { if (previous == null) delete process.env.CAMPAIGN_MAILGUN_BATCH_ENABLED;
+    else process.env.CAMPAIGN_MAILGUN_BATCH_ENABLED = previous; });
+  campaign.delivery_transport = 'mailgun_batch_v1';
+  campaign.is_test_mode = false;
+  const result = await sendBatch('campaign', 'tenant', campaign, 'tenant', null, 100);
+  assert.equal(result.success, false);
+  assert.match(result.error, /Live bulk delivery/);
+  assert.ok(rows.every(row => row.status === 'pending'));
+});
 
 test('actual service batch stops after two slow personalized sends and leaves 98 rows unclaimed', async t => {
   const { campaign, rows } = install(t, 100);

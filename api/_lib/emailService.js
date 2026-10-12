@@ -1,5 +1,6 @@
 import Mailgun from 'mailgun.js';
 import formData from 'form-data';
+import { buildBulkEnvelope } from './campaignBulkTransport.js';
 import { supabase } from './database.js';
 import {
   isPreferencePlaceholder,
@@ -253,6 +254,29 @@ export async function deliverMailgunMessage(client, domain, messageData) {
   return client.messages.create(domain, messageData);
 }
 
+export async function sendPreparedCampaignBatch(campaignId, messages, deadline, dependencies = {}) {
+  // Invalid/incompatible payloads are rejected before any provider submission.
+  let envelope;
+  try { envelope = buildBulkEnvelope(campaignId, messages); }
+  catch { return { success: false, notSubmitted: true, incompatible: true }; }
+  if (deadline != null && deadline - Date.now() < 8000) {
+    return { success: false, notSubmitted: true };
+  }
+  try {
+    const client = dependencies.client || getMailgunClient(5000);
+    if (!client) return { success: false, notSubmitted: true };
+    const response = await deliverMailgunMessage(client, envelope.domain, envelope.messageData);
+    if (!response?.id) return { success: false, ambiguousEffect: true };
+    return { success: true, messageId: response.id.replace(/^<|>$/g, '') };
+  } catch (error) {
+    const status = Number(error?.status || error?.statusCode || error?.response?.status);
+    // Never retry a timeout or server failure as an individual send.
+    return { success: false, rateLimited: status === 429,
+      ambiguousEffect: isAmbiguousDeliveryFailure(error) || !status || status >= 500,
+      error: status ? `Mailgun batch rejected (${status})` : 'Mailgun batch outcome unknown' };
+  }
+}
+
 export function mailgunSuccessMetadata(
   response,
   domain,
@@ -466,6 +490,10 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
       }));
       console.log(`[Email Service] Adding ${attachments.length} attachment(s)`);
     }
+
+    // Internal campaign staging only: compose the complete MIME payload without
+    // contacting Mailgun or recording an inbox delivery.
+    if (dependencies.prepareOnly) return { success: true, prepared: { domain, messageData } };
 
     // Opt-in inbox delivery: on a successful send, persist the final rendered
     // HTML to the recipient member's inbox. Swallows its own errors (never

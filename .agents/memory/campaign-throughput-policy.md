@@ -28,3 +28,16 @@ reducing request count alone is not proof of a safe transport migration.
 **How to apply:** Preserve fresh per-recipient authorization and suppression
 checks as concurrency increases. Benchmark submission speed separately from
 preparation by resuming the paused test campaign without resetting its rows.
+
+Native bulk sending must use a fresh campaign with a creation-time transport
+pin; never repurpose a running individual-send campaign for bulk benchmarking.
+The user has explicitly deferred audience-resolution optimisation until the
+bulk submission speed has been measured.
+
+**Why:** Mixing transports mid-send obscures the comparison and complicates
+recovery of uncertain provider acceptance. A no-delivery speed test cannot
+validate the final received message's rendering or personalised headers.
+
+**How to apply:** Keep rollout disabled until the additive migration and worker
+code are deployed. Verify actual controlled-recipient rendering before live
+bulk rollout; retain uncertain rows for reconciliation, not blind retry.
