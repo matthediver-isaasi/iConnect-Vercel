@@ -57,6 +57,38 @@ test('public view resolves only token hash and recursively scrubs database IDs',
   assert.equal(res.headers['Referrer-Policy'], 'no-referrer');
 });
 
+test('URL-only public quote requests resolve the token and cannot be redirected by query parameters', async () => {
+  for (const path of [undefined, ['wrong-token', 'decline']]) {
+    clearPublicSalesQuoteRateLimits();
+    const res = response();
+    await createPublicSalesQuoteHandler({ db: { from(table) { return query(rows[table]); } } })({
+      method: 'GET', url: `/api/public/sales-quote/${token}?path=wrong-token/decline`,
+      query: path ? { path } : {}, headers: {}, socket: {},
+    }, res);
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.quote.quoteNumber, 'Q-2');
+  }
+});
+
+test('URL-only superseded links report their terminal state and URL actions win over query actions', async () => {
+  clearPublicSalesQuoteRateLimits();
+  const res = response();
+  await createPublicSalesQuoteHandler({ db: { from(table) {
+    return query(table === 'sales_quote_version' ? { ...rows[table], status: 'superseded' } : rows[table]);
+  } } })({ method: 'GET', url: `/api/public/sales-quote/${token}`, headers: {}, socket: {} }, res);
+  assert.equal(res.statusCode, 410);
+  assert.equal(res.body.outcome, 'superseded');
+  const calls = [];
+  const decision = response();
+  await createPublicSalesQuoteHandler({ db: { async rpc(name, args) {
+    calls.push({ name, args }); return { data: { outcome: 'declined' }, error: null };
+  } } })({ method: 'POST', url: `/api/public/sales-quote/${token}/decline`,
+    query: { path: [token, 'accept'] }, headers: {}, socket: {},
+    body: { name: 'Fixture', reason: 'Fixture only', idempotencyKey: 'fixture-decline' } }, decision);
+  assert.equal(decision.statusCode, 200);
+  assert.equal(calls[0].args.p_decision, 'declined');
+});
+
 test('public view returns a clear terminal revoked outcome', async () => {
   clearPublicSalesQuoteRateLimits();
   const db = { from(table) {

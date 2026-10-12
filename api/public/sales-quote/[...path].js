@@ -33,6 +33,14 @@ async function consumeDurableRateLimit(db, tokenDigest, clientKey, maximum) {
   return data === true;
 }
 function parts(req) {
+  // Vercel may supply only req.url, while local adapters inject query.path.
+  // The actual URL wins so query parameters cannot substitute a token/action.
+  const pathname = new URL(req.url || '/', 'http://internal').pathname;
+  const match = pathname.match(/^\/api\/public\/sales-quote\/(.+?)\/?$/);
+  if (match) {
+    try { return match[1].split('/').filter(Boolean).map(decodeURIComponent); }
+    catch { return []; }
+  }
   const value = req.query?.path;
   return (Array.isArray(value) ? value : String(value || '').split('/')).filter(Boolean);
 }
