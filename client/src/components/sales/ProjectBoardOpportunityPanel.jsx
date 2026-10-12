@@ -36,7 +36,13 @@ export default function ProjectBoardOpportunityPanel({ boardId }) {
   try { value = new Intl.NumberFormat(undefined, { style: "currency", currency: opportunity.currency || "GBP" }).format((Number(opportunity.value_minor) || 0) / 100); }
   catch { value = `${opportunity.currency || ""} ${(Number(opportunity.value_minor) || 0) / 100}`; }
   return <div className="px-4 pt-3"><Card className="border-blue-200 bg-blue-50/40"><CardContent className="space-y-3 p-4">
-    <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Sales opportunity</p><Link className="mt-1 block font-semibold text-blue-800 hover:underline" to={`/sales/opportunities/${opportunity.id}`}>{opportunity.name}</Link></div><Badge variant="outline">{opportunity.stage?.is_won ? "Won" : opportunity.stage?.is_lost ? "Lost" : "Open"}</Badge></div>
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div><p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Sales opportunity</p><Link className="mt-1 block font-semibold text-blue-800 hover:underline" to={`/sales/opportunities/${opportunity.id}`}>{opportunity.name}</Link></div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant="outline">Status: {opportunity.stage?.is_won ? "Won" : opportunity.stage?.is_lost ? "Lost" : "Open"}</Badge>
+        <Button asChild size="sm"><Link to={`/sales/opportunities/${opportunity.id}`}>Open opportunity</Link></Button>
+      </div>
+    </div>
     <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm"><span>{opportunity.organization?.name || "No organisation"}</span><span className="font-medium">{value}</span><span>Owner: {opportunity.owner?.name || "Unassigned"}</span><span>Expected close: {opportunity.expected_close_date ? new Date(opportunity.expected_close_date).toLocaleDateString() : "Not set"}</span></div>
     <div className="flex flex-wrap items-center gap-3"><Label>Sales pipeline stage</Label>
       <Select value={stageId || ""} disabled={!opportunity.permissions?.canEdit || move.isPending} onValueChange={(id) => {
