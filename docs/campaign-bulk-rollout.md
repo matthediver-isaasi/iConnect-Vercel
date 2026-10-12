@@ -47,6 +47,18 @@ before any provider call. Timeouts, server errors, and accepted-but-unpersisted
 batches remain processing for reconciliation, never automatically retried.
 429 responses are recorded as failures and stop invocation-wide sending.
 
+Bulk preparation does not repeat per-recipient consent/bounce queries. The
+final check uses bounded set queries for the whole chunk, including case-insensitive
+unsubscribe matching and preparation provenance. For 100 category-subscribed
+members this takes at most nine parallel reads, rather than hundreds of serial
+per-recipient reads. Missing/failed/incomplete evidence still prevents submission.
+The final campaign pause/cancel gate remains in place. Individual-message and
+incompatible-envelope fallback paths retain their existing checks.
+
+Worker aggregate logs include `bulkEligibilityMs` and
+`bulkEligibilityRecipients` so the deployed overhead can be measured separately.
+Realistic-latency tests must prove forward progress within the final time budget.
+
 Bulk provider events carry `iconn_campaign_id`; the signed webhook resolves
 campaign plus recipient email, not a shared batch message ID alone. Historical
 event sync separates shared IDs by recipient and ignores another campaign's tag.

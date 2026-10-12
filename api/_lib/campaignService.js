@@ -12,6 +12,7 @@ import { discoverAudienceCustomObjects, resolveCustomObjectConditions, validateC
 import { sendEmail, replacePlaceholders, sendPreparedCampaignBatch } from './emailService.js';
 import { BULK_TRANSPORT, bulkCampaignCompatible, newCampaignTransport } from './campaignBulkTransport.js';
 import { finishPreparedCampaignBatch } from './campaignBulkDrain.js';
+import { bulkRecipientEligibility } from './campaignBulkEligibility.js';
 import { drainCampaignRecipients as drainRecipients, campaignSendConcurrency } from './campaignDrain.js';
 import { createCampaignRecipientClaimer } from './campaignRecipientClaims.js';
 import { replaceBookingPlaceholders } from './eventConfirmationEmail.js';
@@ -3821,7 +3822,7 @@ export async function sendToRecipient(recipient, campaign, tenantId, tenantSlug,
     if (testDestination && surveyDelivery) html = `<p><strong>TEST: These are real attendee survey invitations. Open signed out/private to check access; do not submit a response.</strong></p>${html}`;
     // Survey/booking personalization can take seconds. Recheck immediately
     // before the provider call so a pause/cancellation during rendering wins.
-    if (!testDestination && options.recheckBeforeProvider) {
+    if (!testDestination && options.recheckBeforeProvider && !options.prepareOnly) {
       nextTimingStage('preProviderGateMs');
       try {
         if (budget?.signal.aborted) throw new Error('Campaign preparation deadline exhausted');
@@ -3854,7 +3855,7 @@ export async function sendToRecipient(recipient, campaign, tenantId, tenantSlug,
     }
     // Hard-bounce suppression is independent of consent exceptions and includes
     // campaigns queued before the bounce. A failed check must never send.
-    if (await campaignAddressSuppressed(recipientDb, tenantId, testDestination || recipient.email)) {
+    if (!options.prepareOnly && await campaignAddressSuppressed(recipientDb, tenantId, testDestination || recipient.email)) {
       if (testDestination) return { success: false, error: 'Hard-bounced address: campaign sends are paused' };
       if (surveyDelivery?.deliveryId) await finishCampaignSurveyDelivery(supabase, surveyDelivery.deliveryId, false);
       const { error } = await supabase.from('email_campaign_recipient')
@@ -4325,11 +4326,14 @@ export async function sendBatch(campaignId, tenantId, campaign, tenantSlug, requ
         const bulkResult = await finishPreparedCampaignBatch({
           entries: prepared, deadline: options.deadline,
           gate: () => checkCampaignBatchGate(campaignId, tenantId, campaign),
-          revalidate: async ({ recipient }) => {
-            const db = budget?.db || supabase;
-            if (!await preparedRecipientStillConsents(db, recipient, campaign, tenantId)) return 'unsubscribed';
-            if (await campaignAddressSuppressed(db, tenantId, recipient.email)) return 'cancelled';
-            return 'ready';
+          revalidateBatch: async entries => {
+            const started = Date.now();
+            try {
+              return await bulkRecipientEligibility(budget?.db || supabase, entries, campaign, tenantId);
+            } finally {
+              metrics.bulkEligibilityMs = Date.now() - started;
+              metrics.bulkEligibilityRecipients = entries.length;
+            }
           },
           release,
           submit: entries => (options.submitBulk || sendPreparedCampaignBatch)(campaignId, entries.map(e => e.prepared), options.deadline),

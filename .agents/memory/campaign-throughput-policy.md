@@ -41,3 +41,25 @@ validate the final received message's rendering or personalised headers.
 **How to apply:** Keep rollout disabled until the additive migration and worker
 code are deployed. Verify actual controlled-recipient rendering before live
 bulk rollout; retain uncertain rows for reconciliation, not blind retry.
+
+Bulk-worker tests must model realistic database latency across both preparation
+and final eligibility checks, and prove forward progress within the *combined*
+invocation budget.
+
+**Why:** A bounded batch can repeatedly return every recipient to pending when
+final revalidation consumes the provider's reserved time. Fast fixture queries
+can pass while the live worker makes no submissions.
+
+**How to apply:** Budget the final reads as well as provider submission. Prefer
+bounded set-based eligibility reads and smaller/adaptive chunks without dropping
+consent checks. Test that repeated invocations make progress, not merely that a
+deadline stops sending safely.
+
+The user accepts a final lightweight eligibility check but requires it not to
+adversely impact send time.
+
+**Why:** The user approved retaining a lightweight final check rather than
+relying solely on the campaign's initial audience snapshot.
+
+**How to apply:** Measure its overhead separately from preparation and provider
+submission; avoid reinstating recipient-by-recipient database checks for bulk sends.
