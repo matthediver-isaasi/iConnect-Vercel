@@ -34,6 +34,20 @@ test("quote form omits the redundant tax treatment control without discarding sa
   assert.match(source, /taxTreatment: form\.taxTreatment/);
 });
 
+test("historical PDF requests explicitly select the version and preserve authenticated access", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const blob = new Blob(["%PDF-fixture"], { type: "application/pdf" });
+  globalThis.fetch = async (url, options) => { calls.push({ url, options }); return { ok: true, blob: async () => blob }; };
+  try {
+    assert.equal(await mod.exports.quotePdf("quote-id", 2), blob);
+    assert.equal(calls[0].url, "/api/sales/quotes/quote-id?action=pdf&version=2");
+    assert.equal(calls[0].options.credentials, "include");
+    globalThis.fetch = async () => ({ ok: false, status: 404, json: async () => ({ error: "Quote version not found" }) });
+    await assert.rejects(mod.exports.quotePdf("quote-id", 99), /Quote version not found/);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test("opportunity list uses isolated cache entries, includes drafts and formats gross currency", () => {
   globalThis.React = React;
   const cache = new QueryClient({ defaultOptions: { queries: { retry: false } } });

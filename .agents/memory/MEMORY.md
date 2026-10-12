@@ -73,9 +73,7 @@
 - [Controlled composite pending state](controlled-composite-pending-state.md) — queued sibling edits must drive rendering as well as mutations until the parent acknowledges them.
 - [Catalogue event references](catalogue-event-references.md) — derive ticket delegate capacity live; revalidate links on restore, and replace bundle composition atomically.
 - [Catalogue tax-code authority](catalogue-tax-authority.md) — use direct provider identities for new Sales tax; freeze quote codes and preserve legacy tax without percentage inference.
-- [Sales/Projects task modes](sales-project-task-modes.md) — per-opportunity source choice; keep standard tasks, never auto-migrate or grant board access.
-- [Sales collaborator scope](sales-collaborator-scope.md) — collaborators come from the tenant's own primary organisation; customer contacts stay separate.
-- [Project board responsiveness](project-board-responsiveness.md) — saved changes should be visible when completion feedback appears, including uploads and covers.
+- [Sales and Projects policies](sales-project-policy-index.md) — task modes, acceptance automation, collaborator scope, board responsiveness and dashboard dates.
 - [Deactivating referenced workflow states](workflow-state-deactivation-races.md) — assignment and deactivation must serialize on the same database row; an existence check is raceable.
 - [Immutable child re-parenting](immutable-child-reparenting.md) — child immutability triggers must validate both OLD and NEW parents or updates can move data out of locked snapshots.
 - [Custom Object cardinality migrations](custom-object-cardinality-migrations.md) — widen with a new pinned migration; preserve definition history and global legacy-trigger behavior.
@@ -157,4 +155,3 @@
 - [Node request header copies](node-request-header-copies.md) — object spread drops inherited request headers; use explicit headers and real IncomingMessage test fixtures.
 - [Public bookmark query loops](public-bookmark-query-loop.md) — guest-only 401 loops can clear shared queries and blank unrelated public carousels.
 - [Campaign click authority](campaign-click-authority.md) — iConnect requests own counts; provider evidence stays separate, and historical totals never prove human clicks.
-- [Sales dashboard dates](sales-dashboard-dates.md) — DD/MM/YYYY regardless of browser locale; expected-close filters must not change financial totals.

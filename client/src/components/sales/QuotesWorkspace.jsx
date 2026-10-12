@@ -22,6 +22,7 @@ import QuoteOpportunitySelect from "./QuoteOpportunitySelect";
 import QuoteEventSelect from "./QuoteEventSelect";
 import QuoteSalespersonSelect from "./QuoteSalespersonSelect";
 import QuoteContactSelect from "./QuoteContactSelect";
+import QuoteVersionDocuments, { uniqueQuoteVersions } from "./QuoteVersionDocuments";
 import { quotePriceText, quotePriceMinor, quotePriceError } from "./quoteFormValues";
 import { clearOpportunityContacts, opportunityContacts, useQuoteOpportunity } from "./useQuoteOpportunity";
 import { calculateQuoteLine } from "@shared/salesContracts.js";
@@ -55,8 +56,10 @@ async function request(path, options = {}) {
   return payload;
 }
 
-async function quotePdf(quoteId) {
-  const response = await fetch(`/api/sales/quotes/${quoteId}?action=pdf`, { credentials: "include" });
+export async function quotePdf(quoteId, version) {
+  const params = new URLSearchParams({ action: "pdf" });
+  if (version != null) params.set("version", String(version));
+  const response = await fetch(`/api/sales/quotes/${quoteId}?${params}`, { credentials: "include" });
   if (!response.ok) {
     const payload = await response.json().catch(() => null);
     throw new Error(payload?.message || payload?.error || `Could not generate PDF (${response.status})`);
@@ -250,13 +253,14 @@ export function LinesEditor({ form, setForm, products, bundles, readOnly, canOve
   </CardContent></Card>;
 }
 
-function HistoryPanel({ quoteId, version }) {
+function HistoryPanel({ quoteId, version, versions: rawVersions }) {
   const [compareTo, setCompareTo] = useState("");
+  const versions = uniqueQuoteVersions(rawVersions);
   const history = useQuery({ queryKey: ["quote-history", quoteId], queryFn: () => request(`/api/sales/quotes/${quoteId}?resource=history`) });
   const compare = useQuery({ queryKey: ["quote-compare", quoteId, compareTo, version], queryFn: () => request(`/api/sales/quotes/${quoteId}?resource=compare&from=${encodeURIComponent(compareTo)}&to=${encodeURIComponent(version)}`), enabled: Boolean(compareTo && version) });
   const rows = list(history.data?.history || history.data);
   return <div className="grid gap-4 lg:grid-cols-2"><Card><CardHeader><CardTitle className="flex items-center gap-2"><History className="h-4 w-4" />Status & version history</CardTitle></CardHeader><CardContent>{history.isLoading ? <Loading /> : !rows.length ? <p className="py-6 text-center text-sm text-slate-500">No history recorded.</p> : <ol className="space-y-4">{rows.map((item, index) => <li className="border-l-2 border-blue-200 pl-4" key={idOf(item) || index}><div className="flex items-center gap-2">{statusBadge(item.status || item.toStatus || item.to_status)}<span className="text-sm font-medium">{item.action || item.event || `Version ${item.versionNumber || item.version_number || item.version || ""}`}</span></div><p className="mt-1 text-xs text-slate-500">{nameOf(item.actor || item.createdBy || item.created_by)} · {new Date(item.createdAt || item.created_at || Date.now()).toLocaleString()}</p>{item.note && <p className="mt-1 text-sm">{item.note}</p>}</li>)}</ol>}</CardContent></Card>
-    <Card><CardHeader><CardTitle className="flex items-center gap-2"><GitCompare className="h-4 w-4" />Compare versions</CardTitle></CardHeader><CardContent><Select value={compareTo} onValueChange={setCompareTo}><SelectTrigger><SelectValue placeholder="Choose a version to compare" /></SelectTrigger><SelectContent>{rows.filter((item) => String(item.versionNumber || item.version_number || item.version) !== String(version)).map((item, index) => { const value = String(item.versionNumber || item.version_number || item.version || index + 1); return <SelectItem key={value} value={value}>Version {value}</SelectItem>; })}</SelectContent></Select>{compare.isFetching && <Loading />}{compare.error && <p className="mt-4 text-sm text-rose-700">{compare.error.message}</p>}{compare.data && <Comparison data={compare.data} />}</CardContent></Card>
+    <Card><CardHeader><CardTitle className="flex items-center gap-2"><GitCompare className="h-4 w-4" />Compare versions</CardTitle></CardHeader><CardContent><Select disabled={versions.length < 2} value={compareTo} onValueChange={value => { if (value) setCompareTo(value); }}><SelectTrigger><SelectValue placeholder={versions.length < 2 ? "No other versions to compare" : "Choose a version to compare"} /></SelectTrigger><SelectContent>{versions.filter(item => String(item.number) !== String(version)).map(item => <SelectItem key={item.number} value={String(item.number)}>Version {item.number}</SelectItem>)}</SelectContent></Select>{compare.isFetching && <Loading />}{compare.error && <p className="mt-4 text-sm text-rose-700">{compare.error.message}</p>}{compare.data && <Comparison data={compare.data} />}</CardContent></Card>
   </div>;
 }
 
@@ -404,8 +408,8 @@ function QuoteEditor() {
     onError: (error) => toast({ title: "Delivery action failed", description: error.message, variant: "destructive" }),
   });
   const pdf = useMutation({
-    mutationFn: ({ preview: shouldPreview }) => quotePdf(id).then((blob) => ({ blob, shouldPreview })),
-    onSuccess: ({ blob, shouldPreview }) => openBlob(blob, `${quote.number || quote.quoteNumber || quote.quote_number || "quote"}-v${quote.versionNumber || quote.version_number || 1}.pdf`, shouldPreview),
+    mutationFn: ({ preview: shouldPreview, version = quote.versionNumber || quote.version_number || 1 }) => quotePdf(id, version).then((blob) => ({ blob, shouldPreview, version })),
+    onSuccess: ({ blob, shouldPreview, version }) => openBlob(blob, `${quote.number || quote.quoteNumber || quote.quote_number || "quote"}-v${version}.pdf`, shouldPreview),
     onError: (error) => toast({ title: "Could not load PDF", description: error.message, variant: "destructive" }),
   });
   const invoiceAction = async (actionName, command = {}) => {
@@ -461,7 +465,7 @@ function QuoteEditor() {
         <Card><CardContent className="flex flex-col items-end gap-1 p-5 text-sm"><p className="mb-2 w-full text-xs text-slate-500">{serverTotals ? "Server-calculated totals" : "Local estimate — save or recalculate for final server totals"}</p><div className="flex w-full max-w-xs justify-between"><span>Net</span><strong>{money(serverTotals?.netMinor ?? serverTotals?.net_minor ?? serverTotals?.netTotalMinor ?? serverTotals?.net_total_minor ?? totals.net, form.currency)}</strong></div><div className="flex w-full max-w-xs justify-between"><span>Tax</span><strong>{money(serverTotals?.taxMinor ?? serverTotals?.tax_minor ?? serverTotals?.taxTotalMinor ?? serverTotals?.tax_total_minor ?? totals.tax, form.currency)}</strong></div><div className="mt-2 flex w-full max-w-xs justify-between border-t pt-2 text-lg"><span>Gross total</span><strong>{money(serverTotals?.grossMinor ?? serverTotals?.gross_minor ?? serverTotals?.grossTotalMinor ?? serverTotals?.gross_total_minor ?? totals.gross, form.currency)}</strong></div></CardContent></Card>
       </TabsContent>
       {!isNew && <TabsContent value="delivery"><DeliveryHistory quoteId={id} /></TabsContent>}
-      {!isNew && <TabsContent value="history"><HistoryPanel quoteId={id} version={quote.versionNumber || quote.version_number || quote.version} /></TabsContent>}
+      {!isNew && <TabsContent value="history" className="space-y-4"><QuoteVersionDocuments versions={uniqueQuoteVersions(detail.data?.versions || [])} currentVersion={quote.versionNumber || quote.version_number || quote.version} onPdf={pdf.mutate} pending={pdf.isPending} dirty={isDirty} /><HistoryPanel quoteId={id} version={quote.versionNumber || quote.version_number || quote.version} versions={detail.data?.versions || []} /></TabsContent>}
     </Tabs>
   </div>;
 }
