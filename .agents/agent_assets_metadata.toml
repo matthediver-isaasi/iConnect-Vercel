@@ -1307,3 +1307,17 @@ mtime_ms = 1791704595199
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/c9776c78-172f-465a-9a93-e01b27692cd3/acb6d589-82ea-44cc-8815-17f914d58db0"
 storage_version_token = "1791704608465224"
 content_type = "application/pdf"
+
+[[outputs]]
+id = "pBqvyZ6S7Jg55oG-P-Ks5"
+uri = "file://generated-artifacts/gsf-snapshot-bounces/GSF_Snapshot_24_September_2026_Bounce_Report.xlsx"
+type = "table"
+title = "GSF — Snapshot 24 September 2026: Bounce Report"
+description = "156 email addresses with suspected reasons, hard/soft indicators, original provider evidence and classification notes."
+logical_id = "2495a3c2-eeb6-4f8e-bd8b-d35cd3dde7c4"
+content_hash = "sha256:9814434c8ea419f5ca31de893d543b992c6fd5a5f4ebaf4c9d3751caf058df10"
+size = 25319
+mtime_ms = 1791779366063
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/2495a3c2-eeb6-4f8e-bd8b-d35cd3dde7c4/313223db-76dd-4c92-9eb2-a4de2a55d618"
+storage_version_token = "1791779372922384"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
