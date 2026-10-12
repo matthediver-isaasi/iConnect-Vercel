@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Upload, X, FileText, FileImage, FileSpreadsheet, File, Loader2, Download, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
-import { useSecureFileUrl } from "@/hooks/useSecureFileUrl";
+import { useSecureFileUrl, isSecureReference } from "@/hooks/useSecureFileUrl";
 import { throwUploadHttpError, showUploadErrorToast } from "@/lib/planQuotaError";
 import { formatCustomFieldFileSize, normalizeCustomFieldFileValue } from "@/lib/customFieldFileValue.mjs";
 
@@ -223,7 +223,19 @@ export default function CustomFieldFileUpload({
   const FileIcon = parsedValue?.file_name ? getFileIcon(parsedValue.file_name) : File;
   
   const fileUrl = parsedValue?.file_url;
-  const { resolvedUrl, isLoading: isResolvingUrl, isSecure } = useSecureFileUrl(fileUrl);
+  // A form respondent may upload privately without a member session. Merely
+  // rendering their answer must not issue protected reads and reset the form.
+  // Explicit access uses the authenticated redirect endpoint in a separate tab.
+  const deferredPrivateAccess = Boolean(formId && isSecureReference(fileUrl));
+  const formFileLink = (download = false) => {
+    const url = new URL(fileUrl, window.location.origin);
+    url.searchParams.set('redirect', 'true');
+    if (download) url.searchParams.set('download', 'true');
+    return url.toString();
+  };
+  const { resolvedUrl, isLoading: isResolvingUrl, isSecure } = useSecureFileUrl(
+    deferredPrivateAccess ? null : fileUrl,
+  );
   const secureDownloadUrl = isSecure && fileUrl
     ? `${fileUrl}${fileUrl.includes('?') ? '&' : '?'}download=true`
     : null;
@@ -258,7 +270,8 @@ export default function CustomFieldFileUpload({
   }, [resolvedDownloadUrl, resolvedUrl, isSecure, parsedValue?.file_name]);
   
   if (parsedValue?.file_url) {
-    const displayUrl = resolvedUrl || fileUrl;
+    const displayUrl = deferredPrivateAccess ? formFileLink() : resolvedUrl || fileUrl;
+    const downloadUrl = deferredPrivateAccess ? formFileLink(true) : displayUrl;
     
     return (
       <div className="flex w-full min-w-0 max-w-full items-center gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
@@ -277,6 +290,7 @@ export default function CustomFieldFileUpload({
           ) : (
             <>
               <Button
+                type="button"
                 variant="ghost"
                 size="icon"
                 onClick={isSecure ? (e) => handleOpenFile(e, true) : undefined}
@@ -286,12 +300,13 @@ export default function CustomFieldFileUpload({
                 {isSecure ? (
                   <span><Download className="w-4 h-4" /></span>
                 ) : (
-                  <a href={displayUrl} target="_blank" rel="noopener noreferrer" download>
+                  <a href={downloadUrl} target="_blank" rel="noopener noreferrer" download>
                     <Download className="w-4 h-4" />
                   </a>
                 )}
               </Button>
               <Button
+                type="button"
                 variant="ghost"
                 size="icon"
                 onClick={isSecure ? handleOpenFile : undefined}

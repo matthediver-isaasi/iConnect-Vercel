@@ -14,3 +14,12 @@ skeleton. The apparent slide-painting failure was a cross-component reload loop.
 unauthorized request repetition and root replacement before changing clipping
 or image rendering. Include neighboring public cards and guest auth in fixtures;
 authenticated carousel-only fixtures cannot reproduce this failure.
+
+Private form uploads follow the same boundary: permission to upload an answer
+does not imply permission to read the private file back without a session.
+Form rendering must not probe that access automatically. Explicit file access
+can use the protected endpoint in a separate tab, leaving the draft intact.
+
+**Why:** A private-file 401 during repeated-row rendering can activate global
+session rejection even though a guest's upload was permitted. Making the file
+public or suppressing genuine session invalidation is not a safe fix.

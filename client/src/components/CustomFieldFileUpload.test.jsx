@@ -328,6 +328,39 @@ test('custom-object list formatting never exposes serialized file metadata', () 
   assert.equal(formatRecordValue({ field_type: 'file' }, value), 'Human name.pdf');
 });
 
+test('private form answers never fetch secure URLs on mount or remount', async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (...args) => {
+    requests.push(args);
+    return new Response('{"error":"Authentication required"}', { status: 401 });
+  };
+  const value = JSON.stringify({
+    file_url: '/api/storage/secure-url?bucket=private-uploads&path=tenant%2Freceipt.pdf',
+    file_name: 'receipt.pdf', is_private: true,
+  });
+  try {
+    // Recreating a row's file field must not require a member session.
+    for (let index = 0; index < 2; index++) {
+      const mounted = await mountUpload(value, { formId: 'expense-form' });
+      try {
+        assert.equal(requests.length, 0);
+        const view = mounted.container.querySelector('[data-testid="button-view-file-upload-fixture"]');
+        const download = mounted.container.querySelector('[data-testid="button-download-file-upload-fixture"]');
+        for (const link of [view, download]) {
+          const url = new URL(link.href);
+          assert.equal(url.pathname, '/api/storage/secure-url');
+          assert.equal(url.searchParams.get('redirect'), 'true');
+          assert.equal(url.searchParams.get('bucket'), 'private-uploads');
+          assert.equal(url.searchParams.get('path'), 'tenant/receipt.pdf');
+          assert.equal(link.target, '_blank');
+        }
+        assert.equal(new URL(download.href).searchParams.get('download'), 'true');
+      } finally { await mounted.cleanup(); }
+    }
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test('member detail renderers route file fields through the shared presentation', async () => {
   const [pageSource, componentSource] = await Promise.all([
     readFile(new URL('../pages/MemberDetail.jsx', import.meta.url), 'utf8'),
