@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
+import { isAvailableDueDiligenceForm } from "../../../shared/dueDiligenceForms.js";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -210,6 +211,7 @@ export default function DueDiligenceConfigPage() {
       const allForms = await base44.entities.Form.list();
       return allForms.filter(f => f.due_diligence_required === true);
     },
+    select: forms => forms.filter(isAvailableDueDiligenceForm),
     enabled: !formId && accessChecked
   });
 
@@ -1150,12 +1152,14 @@ export default function DueDiligenceConfigPage() {
     );
   }
 
-  if (!form) {
+  if (!form || form.archived_at) {
     return (
       <div className="p-6">
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
-          <AlertDescription>Form not found. Make sure the form exists and has "Due Diligence Required" enabled.</AlertDescription>
+          <AlertDescription>{form?.archived_at
+            ? 'This form is archived and is not available for due diligence configuration.'
+            : 'Form not found. Make sure the form exists and has "Due Diligence Required" enabled.'}</AlertDescription>
         </Alert>
         <Button variant="outline" className="mt-4" onClick={() => navigate('/DueDiligenceConfig')} data-testid="button-back-to-list">
           <ArrowLeft className="w-4 h-4 mr-2" />
@@ -4103,6 +4107,7 @@ function SeedFromFormDialog({
   const { data: allForms = [], isLoading: formsLoading } = useQuery({
     queryKey: ['seedable-forms-all'],
     queryFn: async () => await base44.entities.Form.list(),
+    select: forms => forms.filter(form => !form.archived_at),
     enabled: open,
   });
 

@@ -39,6 +39,7 @@ import {
   resolveSubmissionField,
 } from "@/lib/relationshipDisplayLabels";
 import { getDueDiligenceReferenceLabel } from "../../../shared/dueDiligenceReference.js";
+import { isAvailableDueDiligenceForm } from "../../../shared/dueDiligenceForms.js";
 
 const DEFAULT_COLUMN_WIDTHS = {
   reference: 200,
@@ -429,7 +430,7 @@ export default function DueDiligenceDashboardPage() {
     });
   }, []);
   
-  const { data: ddForms = [], isLoading: formsLoading } = useQuery({
+  const { data: allDdForms = [], isLoading: formsLoading, isSuccess: formsLoaded } = useQuery({
     queryKey: ['dd-enabled-forms'],
     queryFn: async () => {
       const forms = await base44.entities.Form.list();
@@ -437,6 +438,13 @@ export default function DueDiligenceDashboardPage() {
     },
     enabled: isAccessReady
   });
+
+  const ddForms = useMemo(() => allDdForms.filter(isAvailableDueDiligenceForm), [allDdForms]);
+  useEffect(() => {
+    if (formsLoaded && selectedFormId !== 'all' && !ddForms.some(form => form.id === selectedFormId)) {
+      setSelectedFormId('all');
+    }
+  }, [formsLoaded, ddForms, selectedFormId]);
 
   const { data: ddConfigs = [] } = useQuery({
     queryKey: ['dd-configs-all'],
@@ -457,8 +465,8 @@ export default function DueDiligenceDashboardPage() {
   }, [ddConfigs]);
 
   const formsById = useMemo(
-    () => Object.fromEntries(ddForms.filter((form) => form?.id).map((form) => [String(form.id), form])),
-    [ddForms],
+    () => Object.fromEntries(allDdForms.filter((form) => form?.id).map((form) => [String(form.id), form])),
+    [allDdForms],
   );
 
   const workflowStagesByFormId = useMemo(() => {

@@ -381,6 +381,9 @@ export default function FormManagementPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['forms'] });
+      queryClient.invalidateQueries({ queryKey: ['dd-enabled-forms'] });
+      queryClient.invalidateQueries({ queryKey: ['form-for-dd-config'] });
+      queryClient.invalidateQueries({ queryKey: ['seedable-forms-all'] });
       toast.success(deletingForm?.archived_at ? 'Form restored as inactive. Activate it when ready.' : 'Form archived. Submissions have been kept.');
       setDeleteDialogOpen(false);
       setDeletingForm(null);
