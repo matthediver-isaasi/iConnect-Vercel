@@ -26,6 +26,7 @@ import { getStripeCredentials, findOrCreateStripeCustomer } from '../_lib/stripe
 import { sendConfirmationEmailsFromTemplate as sharedSendConfirmationEmailsFromTemplate } from '../_lib/eventConfirmationEmail.js';
 import { sanitizeOptionSelections, isAttendeeOptionsCollectionEnabled, EMPTY_OPTION_SELECTIONS } from '../_lib/eventOptionSelections.js';
 import { fetchMemberJobTitlesByEmail, resolveStoredJobTitle } from '../_lib/attendeeJobTitleEnrichment.js';
+import { enforceAttendeeJobTitles, checkBookingAttendeeJobTitles } from '../_lib/attendeeJobTitleRequirement.js';
 import { getAllowVoucherUseAfterExpiry, isVoucherUsableForEventDate } from '../_lib/voucherExpiryPolicy.js';
 import { orderVoucherIdsForRedemption } from '../_lib/voucherOrdering.js';
 import { loadEventPaymentPolicy, assertEventPaymentMethodsAllowed } from '../_lib/eventPaymentPolicy.js';
@@ -748,6 +749,8 @@ const functionHandlers = {
         if (params.items != null || metadata?.ticket_class_ids) {
           throw new Error('Simple event payments require one ticket class');
         }
+        await enforceAttendeeJobTitles(supabase, tenantId, params.attendees,
+          metadata?.tickets_required == null ? null : Number(metadata.tickets_required));
         const [ticket] = assertSimpleTicketsReleased(event, [metadata?.ticket_class_id]);
         resolvedTicketId = ticket?.id || null;
         if (ticket?.visibility_mode === 'public_only' && ticket.create_member_records !== true) {
@@ -1351,6 +1354,7 @@ const functionHandlers = {
     }
     const requestTenant = await resolveTenantFromRequest(req);
     if (!requestTenant) return { success: false, error: 'Event not found' };
+    await enforceAttendeeJobTitles(supabase, requestTenant.id, attendees);
 
     // Use case-insensitive email lookup
     const normalizedEmail = memberEmail.toLowerCase();
@@ -1699,6 +1703,7 @@ const functionHandlers = {
           attendee_email: attendee.email,
           attendee_first_name: attendee.first_name,
           attendee_last_name: attendee.last_name,
+          attendee_job_title: attendee.job_title?.trim() || null,
           ticket_price: event.ticket_price || 0,
           booking_reference: attendeeBookingRef,
           booking_group_reference: bookingReference, // Base reference to group all attendees
@@ -2054,6 +2059,18 @@ const functionHandlers = {
     let publicTicketPurchase = null;
     const ticketPurchaser = await getSessionMember(req);
     const needsPublicContactCreation = needsPublicTicketMemberCreation([provisioningTicket], ticketPurchaser, event.tenant_id);
+    // Completed public purchases replay their immutable original booking.
+    if (!previousPublicPurchase?.booking_ids?.length) {
+      const titleRejection = await checkBookingAttendeeJobTitles({
+        db: supabase, tenantId: event.tenant_id, eventId: event.id, attendees: bookingAttendees,
+        bookingTable: 'booking',
+        paymentIntentId: paymentMethod === 'card' && !_testMode ? stripePaymentIntentId : null,
+        purchaserEmail: bookingSessionMember?.email || guestInfo?.email || memberEmail,
+        allocationContext,
+        paymentService: () => getStripeClient(event.tenant_id, 'events'),
+      });
+      if (titleRejection) return titleRejection;
+    }
     if ((needsPublicContactCreation || previousPublicPurchase) && paymentMethod !== PUBLIC_INVOICE_PO) {
       if (!isGuestBooking || selectedVoucherIds.length || Number(trainingFundAmount) || Number(accountAmount)
           || allocationContext || !['card', 'free'].includes(paymentMethod) || _testMode) {

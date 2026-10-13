@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Trash2, Loader2, AlertCircle, CheckCircle2, User, Info } from "lucide-react";
 import AttendeeOptionsSelector from "./AttendeeOptionsSelector";
 
-export default function AttendeeList({ attendees, onUpdate, onRemove, onAdd, memberInfo, eventOptions }) {
+export default function AttendeeList({ attendees, onUpdate, onRemove, onAdd, memberInfo, eventOptions, requireJobTitle = false }) {
   const [validating, setValidating] = useState({});
 
   const validateEmail = async (index, email) => {
@@ -173,7 +173,7 @@ export default function AttendeeList({ attendees, onUpdate, onRemove, onAdd, mem
                     required
                   />
                 </div>
-                {isMissingRequiredName(attendee) && (
+                {(!attendee.first_name || !attendee.last_name) && (
                   <p className="text-xs text-red-600 flex items-center gap-1">
                     <AlertCircle className="w-3 h-3" />
                     Please enter first and last name to continue
@@ -225,6 +225,12 @@ export default function AttendeeList({ attendees, onUpdate, onRemove, onAdd, mem
                 </p>
               )}
             </div>
+            <label className="block text-sm">
+              Job title{requireJobTitle ? ' *' : ' (optional)'}
+              <Input value={attendee.job_title || ''} required={requireJobTitle}
+                onChange={e => onUpdate(index, 'job_title', e.target.value)} />
+              {requireJobTitle && !attendee.job_title?.trim() && <span className="text-red-600 text-xs">Enter a job title for {attendee.first_name || `attendee ${index + 1}`}.</span>}
+            </label>
             <AttendeeOptionsSelector
               eventOptions={eventOptions}
               value={attendee}

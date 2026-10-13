@@ -1,6 +1,7 @@
 
 import { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { Loader2, Search, Users } from "lucide-react";
 import { createClient } from '@supabase/supabase-js';
 
@@ -9,7 +10,9 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-export default function ColleagueSelector({ organizationId, onSelect, memberInfo, ticketRoleIds = [] }) {
+export default function ColleagueSelector({ organizationId, onSelect, memberInfo, ticketRoleIds = [], requireJobTitle = false }) {
+  const [pendingMember, setPendingMember] = useState(null);
+  const [jobTitle, setJobTitle] = useState('');
   const [searchTerm, setSearchTerm] = useState("");
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -81,7 +84,14 @@ export default function ColleagueSelector({ organizationId, onSelect, memberInfo
   });
 
   const handleMemberSelect = (member) => {
+    if (requireJobTitle && pendingMember?.id !== member.id) {
+      setPendingMember(member);
+      setJobTitle(member.job_title || '');
+      setShowDropdown(false);
+      return;
+    }
     onSelect({
+      job_title: pendingMember ? jobTitle.trim() : (member.job_title || ''),
       email: member.email,
       first_name: member.first_name,
       last_name: member.last_name,
@@ -90,6 +100,7 @@ export default function ColleagueSelector({ organizationId, onSelect, memberInfo
     });
     setSearchTerm("");
     setShowDropdown(false);
+    setPendingMember(null);
   };
 
   if (loading) {
@@ -105,6 +116,13 @@ export default function ColleagueSelector({ organizationId, onSelect, memberInfo
 
   return (
     <div className="relative">
+      {pendingMember && <div className="space-y-2 mb-3">
+        <label className="block text-sm">Job title for {pendingMember.first_name} {pendingMember.last_name} *
+          <Input value={jobTitle} onChange={e => setJobTitle(e.target.value)} />
+        </label>
+        <Button disabled={!jobTitle.trim()} onClick={() => handleMemberSelect(pendingMember)}>Add attendee</Button>
+        <Button variant="ghost" onClick={() => setPendingMember(null)}>Cancel</Button>
+      </div>}
       {/* Load error display */}
       {loadError && (
         <div className="mb-2 p-2 bg-warning/10 border border-warning/30 rounded-md text-xs text-warning">

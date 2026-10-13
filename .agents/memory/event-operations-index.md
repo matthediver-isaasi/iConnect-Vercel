@@ -15,6 +15,7 @@ description: Index of event timing, booking lifecycle, attendance rewards and re
 - [Event revenue](event-revenue-basis.md) — booked value versus cash and historical evidence.
 - [Ticket releases](ticket-release-boundaries.md) — new-purchase gates, existing allocations and DST ambiguity.
 - [Email editing boundary](event-email-edit-policy.md) — saving confirmation or reminder messages must never trigger a send or resend.
+- [Attendee title policy](attendee-title-policy.md) — booking requirements must not become profile requirements or historical backfills.
 
 **Why:** Specialized event constraints remain discoverable without crowding the always-loaded memory index.
 

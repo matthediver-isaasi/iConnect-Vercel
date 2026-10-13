@@ -1,4 +1,5 @@
 import TenantEventTimeDisplay from "@/components/events/TenantEventTimeDisplay";
+import { requireAttendeeJobTitle } from "../../../shared/attendeeJobTitleRequirement.js";
 import { purchaseIdentity, ticketMemberPolicy } from "@/utils/publicTicketMembers";
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -99,7 +100,10 @@ function TrackAccessIndicator({ ticket, tracks }) {
   );
 }
 
-function AddAttendeeModal({ open, onOpenChange, ticketClass, memberInfo, organizationInfo, onAddAttendee, existingEmails, isGroupEvent = false, allocationContext = null }) {
+function AddAttendeeModal({ open, onOpenChange, ticketClass, memberInfo, organizationInfo, onAddAttendee, existingEmails, isGroupEvent = false, allocationContext = null, requireJobTitle = false }) {
+  const [selfJobTitle, setSelfJobTitle] = useState(memberInfo?.job_title || '');
+  const [externalJobTitle, setExternalJobTitle] = useState('');
+  useEffect(() => { if (open) setSelfJobTitle(memberInfo?.job_title || ''); }, [open, memberInfo?.job_title]);
   const [externalFirstName, setExternalFirstName] = useState('');
   const [externalLastName, setExternalLastName] = useState('');
   const [externalEmail, setExternalEmail] = useState('');
@@ -117,12 +121,14 @@ function AddAttendeeModal({ open, onOpenChange, ticketClass, memberInfo, organiz
     setExternalLastName('');
     setExternalEmail('');
     setExternalOrganization('');
+    setExternalJobTitle('');
   };
 
   const isSelfAlreadyAdded = existingEmails.includes((memberInfo?.email || '').toLowerCase());
 
   const handleRegisterSelf = () => {
     if (!memberInfo) return;
+    if (requireJobTitle && !selfJobTitle.trim()) { toast.error('Please enter your job title.'); return; }
     if (isSelfAlreadyAdded) {
       toast.info('You are already registered');
       return;
@@ -131,6 +137,7 @@ function AddAttendeeModal({ open, onOpenChange, ticketClass, memberInfo, organiz
       first_name: memberInfo.first_name || '',
       last_name: memberInfo.last_name || '',
       email: memberInfo.email || '',
+      job_title: selfJobTitle.trim(),
       organization: organizationInfo?.name || '',
       isSelf: true
     });
@@ -148,6 +155,7 @@ function AddAttendeeModal({ open, onOpenChange, ticketClass, memberInfo, organiz
       first_name: colleague.first_name || '',
       last_name: colleague.last_name || '',
       email: colleague.email || '',
+      job_title: colleague.job_title || '',
       organization: organizationInfo?.name || '',
       isSelf: false
     });
@@ -156,6 +164,7 @@ function AddAttendeeModal({ open, onOpenChange, ticketClass, memberInfo, organiz
   };
 
   const handleExternalSubmit = () => {
+    if (requireJobTitle && !externalJobTitle.trim()) { toast.error('Please enter this attendee’s job title.'); return; }
     if (!externalEmail || !externalEmail.includes('@')) {
       toast.error('Please enter a valid email address');
       return;
@@ -178,6 +187,7 @@ function AddAttendeeModal({ open, onOpenChange, ticketClass, memberInfo, organiz
       last_name: externalLastName.trim(),
       email: email,
       organization: externalOrganization.trim(),
+      job_title: externalJobTitle.trim(),
       isSelf: false
     });
     resetExternal();
@@ -213,6 +223,9 @@ function AddAttendeeModal({ open, onOpenChange, ticketClass, memberInfo, organiz
 
           {memberInfo && (
             <TabsContent value="self" className="space-y-4 mt-4">
+              <label className="block text-sm">Job title{requireJobTitle ? ' *' : ' (optional)'}
+                <Input value={selfJobTitle} onChange={e => setSelfJobTitle(e.target.value)} />
+              </label>
               <div className="p-3 rounded-md border border-slate-200 space-y-1">
                 <div className="font-medium text-sm text-slate-900">{memberInfo.first_name} {memberInfo.last_name}</div>
                 <div className="text-xs text-slate-500">{memberInfo.email}</div>
@@ -242,6 +255,7 @@ function AddAttendeeModal({ open, onOpenChange, ticketClass, memberInfo, organiz
           {memberInfo && organizationInfo && (
             <TabsContent value="colleague" className="space-y-4 mt-4">
               <ColleagueSelector
+                requireJobTitle={requireJobTitle}
                 organizationId={organizationInfo.id}
                 onSelect={handleColleagueSelect}
                 memberInfo={memberInfo}
@@ -259,6 +273,9 @@ function AddAttendeeModal({ open, onOpenChange, ticketClass, memberInfo, organiz
           )}
 
           <TabsContent value="external" className="space-y-3 mt-4">
+            <label className="block text-sm">Job title{requireJobTitle ? ' *' : ' (optional)'}
+              <Input value={externalJobTitle} onChange={e => setExternalJobTitle(e.target.value)} />
+            </label>
             <div className="grid grid-cols-2 gap-2">
               <Input
                 placeholder="First Name *"
@@ -395,7 +412,7 @@ function TicketDiscountInput({ ticketClassId, discountInfo, onApply, onRemove, e
   );
 }
 
-function CartSummary({ cart, ticketClasses, onRemoveAttendee, onUpdateAttendee, getEffectiveTicketPrice, eventOptions, allocationContext = null }) {
+function CartSummary({ cart, ticketClasses, onRemoveAttendee, onUpdateAttendee, getEffectiveTicketPrice, eventOptions, allocationContext = null, requireJobTitle = false }) {
   const entries = Object.entries(cart).filter(([, item]) => item.attendees.length > 0);
   if (entries.length === 0) return null;
 
@@ -475,6 +492,14 @@ function CartSummary({ cart, ticketClasses, onRemoveAttendee, onUpdateAttendee, 
                     <X className="w-3.5 h-3.5 text-slate-400" />
                   </Button>
                 </div>
+                {onUpdateAttendee && (
+                  <label className="block text-sm">
+                    Job title{requireJobTitle ? ' *' : ' (optional)'}
+                    <Input value={attendee.job_title || ''} required={requireJobTitle}
+                      onChange={e => onUpdateAttendee(ticketClassId, i, { job_title: e.target.value })} />
+                    {requireJobTitle && !attendee.job_title?.trim() && <span className="text-xs text-red-600">Enter a job title for {attendee.first_name || `attendee ${i + 1}`}.</span>}
+                  </label>
+                )}
                 {onUpdateAttendee && (
                   <AttendeeOptionsSelector
                     eventOptions={eventOptions}
@@ -820,7 +845,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
       const items = cartItems.map(ci => ({
         ticket_class_id: ci.ticketClassId,
         attendee_count: ci.attendees.length,
-        attendees: ci.attendees.map(purchaseIdentity),
+        attendees: ci.attendees.map(a => ({ ...purchaseIdentity(a), job_title: a.job_title || '' })),
         discount_code: ci.discountCode || undefined
       }));
       return publicClient.createComplexEventPaymentIntent({
@@ -1249,7 +1274,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
               </Button>
             )}
             {!tbcReplacementActive && (
-              <CartSummary cart={cart} ticketClasses={ticketClasses} onRemoveAttendee={handleRemoveAttendee} onUpdateAttendee={handleUpdateAttendee} getEffectiveTicketPrice={getEffectiveTicketPrice} eventOptions={eventOptions} allocationContext={allocationContext} />
+              <CartSummary requireJobTitle={requireAttendeeJobTitle(systemSettings)} cart={cart} ticketClasses={ticketClasses} onRemoveAttendee={handleRemoveAttendee} onUpdateAttendee={handleUpdateAttendee} getEffectiveTicketPrice={getEffectiveTicketPrice} eventOptions={eventOptions} allocationContext={allocationContext} />
             )}
             {paymentOptionsSection}
           </>
@@ -1257,6 +1282,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
       </CardContent>
 
       <AddAttendeeModal
+        requireJobTitle={requireAttendeeJobTitle(systemSettings)}
         open={attendeeModalOpen}
         onOpenChange={setAttendeeModalOpen}
         ticketClass={selectedTicketForModal}

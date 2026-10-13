@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
+import { requireAttendeeJobTitle, missingAttendeeJobTitle } from "../../../../shared/attendeeJobTitleRequirement.js";
 import PurchaserIdentityFields from "@/components/booking/PurchaserIdentityFields";
 import { ticketMemberPolicy, purchaseIdentity, validatePurchaseIdentities } from "@/utils/publicTicketMembers";
 
@@ -1083,6 +1084,7 @@ export default function PaymentOptions({
 
   // Handle program event booking (existing logic)
   const handleProgramBooking = async () => {
+    if (!guardAttendeeJobTitles()) return;
     // Validate attendees have all required information
     if (registrationMode === 'colleagues' || registrationMode === 'self') {
       const invalidAttendees = attendees.filter(a => {
@@ -1153,6 +1155,7 @@ export default function PaymentOptions({
   };
 
   const handleOneOffBooking = async () => {
+    if (!guardAttendeeJobTitles()) return;
     if (!guardTicketBooking()) return;
     console.log('[PaymentOptions] handleOneOffBooking called', {
       isGuestCheckout,
@@ -1247,6 +1250,7 @@ export default function PaymentOptions({
   };
 
   const proceedToStripePayment = async (paymentEmail) => {
+    if (!guardAttendeeJobTitles()) return;
     if (!guardTicketBooking()) return;
     if (!guardPurchaseIdentity()) return;
     if (requiresPurchaserIdentity) paymentEmail = purchaseIdentity(purchaserInfo).email;
@@ -1260,7 +1264,7 @@ export default function PaymentOptions({
         const piPayload = {
           purchaser_info: purchaseIdentity(purchaserInfo),
           purchase_request_id: getPurchaseRequestId(),
-          attendees: attendees.map(purchaseIdentity),
+          attendees: attendees.map(a => ({ ...purchaseIdentity(a), job_title: a.job_title || '' })),
           event_id: event.id,
           purchaser_email: paymentEmail,
           ticket_class_id: selectedTicketClass?.id,
@@ -1414,6 +1418,7 @@ export default function PaymentOptions({
 
 
   const processOneOffBooking = async (stripePaymentId = null, testMode = false, paidPaymentSnapshot = null) => {
+    if (!stripePaymentId && !guardAttendeeJobTitles()) return;
     // Paid returns must reach server verification/compensation rather than
     // silently abandoning an already captured payment.
     if (!stripePaymentId && !guardTicketBooking()) return;
@@ -1709,7 +1714,18 @@ export default function PaymentOptions({
   };
 
   // Main submit handler with duplicate check
+  const guardAttendeeJobTitles = () => {
+    if (eventPaymentSettingsLoading || eventPaymentSettingsError || !Array.isArray(eventPaymentSettings)) {
+      toast.error('Attendee requirements could not be loaded. Please wait or retry.');
+      return false;
+    }
+    const message = requireAttendeeJobTitle(eventPaymentSettings) && missingAttendeeJobTitle(attendees);
+    if (message) { toast.error(message); return false; }
+    return true;
+  };
+
   const handleSubmit = async () => {
+    if (!guardAttendeeJobTitles()) return;
     if (!guardTicketBooking()) return;
     if (!guardPurchaseIdentity()) return;
     if (memberInfo && totalCost > 0 && !eventPaymentPolicy) {

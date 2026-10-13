@@ -72,6 +72,7 @@ const PUBLIC_SETTINGS_WHITELIST = [
   'event_allow_voucher_payment',
   'event_allow_training_fund_payment',
   'collect_attendee_options',
+  'require_attendee_job_title',
   'event_agenda_item_types',
 ];
 

@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import Stripe from 'stripe';
 import { replayPublicTicketBooking, compensatePublicTicketCapacity } from '../_lib/publicTicketMemberRecovery.js';
 import { assertPublicTicketPurchaser } from '../_lib/publicTicketEmail.js';
 import { preparePublicTicketPurchase, bindPublicTicketPayment, completePublicTicketMembers, assertPublicTicketPaymentEvidence, loadPublicTicketPurchase } from '../_lib/publicTicketMemberPurchase.js';
@@ -10,6 +11,7 @@ import { getSessionMember } from '../_lib/session.js';
 import { getStripeCredentials } from '../_lib/stripeCredentials.js';
 import { sanitizeOptionSelections, isAttendeeOptionsCollectionEnabled, EMPTY_OPTION_SELECTIONS } from '../_lib/eventOptionSelections.js';
 import { fetchMemberJobTitlesByEmail, resolveStoredJobTitle } from '../_lib/attendeeJobTitleEnrichment.js';
+import { checkBookingAttendeeJobTitles } from '../_lib/attendeeJobTitleRequirement.js';
 import {
   resolveTicketPrice,
   getTicketClassFromConfig,
@@ -167,6 +169,22 @@ export default async function handler(req, res) {
         allowMissingSchema: !provisioningItems.some(item => item.ticket?.create_member_records === true),
       }) : null;
     let publicTicketPurchase = null;
+    if (!previousPublicPurchase?.booking_ids?.length) {
+      const titleRejection = await checkBookingAttendeeJobTitles({
+        db: supabase, tenantId: tenant.id, eventId: event.id,
+        attendees: normalizedItems.flatMap(item => item.attendees),
+        bookingTable: 'complex_event_booking',
+        paymentIntentId: payment_method === 'card' ? stripe_payment_intent_id : null,
+        purchaserEmail: authenticatedMember?.email || purchaserInfo?.email || normalizedItems[0]?.attendees?.[0]?.email,
+        allocationContext,
+        paymentService: async () => {
+          const creds = await getStripeCredentials(tenant.id, 'events');
+          if (!creds?.secret_key) throw new Error('Payment processing not configured');
+          return new Stripe(creds.secret_key);
+        },
+      });
+      if (titleRejection) return res.status(titleRejection.statusCode).json(titleRejection);
+    }
     const ticketPurchaser = await getSessionMember(req);
     const needsPublicContactCreation = needsPublicTicketMemberCreation(provisioningItems.map(item => item.ticket), ticketPurchaser, tenant.id);
     if ((previousPublicPurchase || needsPublicContactCreation) && payment_method !== PUBLIC_INVOICE_PO) {
@@ -1478,7 +1496,7 @@ export default async function handler(req, res) {
     });
   } catch (error) {
     console.error('[Complex Event Booking] Error:', error);
-    return res.status(500).json({ error: 'Failed to process booking' });
+    return res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : 'Failed to process booking' });
   }
 }
 

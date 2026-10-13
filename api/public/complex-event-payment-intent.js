@@ -1,4 +1,5 @@
 import Stripe from 'stripe';
+import { enforceAttendeeJobTitles } from '../_lib/attendeeJobTitleRequirement.js';
 import { assertPublicTicketPurchaser } from '../_lib/publicTicketEmail.js';
 import { preparePublicTicketPurchase, bindPublicTicketPayment } from '../_lib/publicTicketMemberPurchase.js';
 import { needsPublicTicketMemberCreation } from '../_lib/publicTicketMemberCreation.js';
@@ -196,6 +197,11 @@ export default async function handler(req, res) {
     }
 
     let grandTotalMinor = 0;
+    for (let index = 0; index < normalizedItems.length; index++) {
+      await enforceAttendeeJobTitles(supabase, tenant.id,
+        isMultiTicket ? items[index]?.attendees : req.body.attendees,
+        normalizedItems[index].attendee_count);
+    }
     let publicTicketPurchase = null;
     const provisioningItems = normalizedItems.map((item, index) => ({
       ticket: getTicketClassFromConfig(allTicketClasses, item.ticket_class_id),

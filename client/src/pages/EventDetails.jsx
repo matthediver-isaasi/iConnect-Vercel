@@ -1,4 +1,5 @@
 import { ticketMemberPolicy } from "@/utils/publicTicketMembers";
+import { requireAttendeeJobTitle, missingAttendeeJobTitle } from "../../../shared/attendeeJobTitleRequirement.js";
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { base44 } from "@/api/base44Client";
@@ -557,7 +558,7 @@ export function EventDetailsExperience({
   });
 
   // Query for all system settings (using public endpoint for unauthenticated access)
-  const { data: systemSettings = [] } = useQuery({
+  const { data: systemSettings = [], isLoading: titleSettingsLoading, isError: titleSettingsError } = useQuery({
     queryKey: ['public-system-settings'],
     queryFn: () => publicClient.listSystemSettings()
   });
@@ -1085,6 +1086,7 @@ export function EventDetailsExperience({
         first_name: currentMemberInfo.first_name || "",
         last_name: currentMemberInfo.last_name || "",
         organization: organizationInfo?.name || currentMemberInfo.organization || "",
+        job_title: currentMemberInfo.job_title || '',
         isValid: true,
         isSelf: true
       };
@@ -1164,6 +1166,7 @@ export function EventDetailsExperience({
     
     const memberAsAttendee = {
       email: currentMemberInfo.email || "",
+      job_title: currentMemberInfo.job_title || '',
       first_name: currentMemberInfo.first_name || "",
       last_name: currentMemberInfo.last_name || "",
       isValid: true,
@@ -1233,6 +1236,7 @@ export function EventDetailsExperience({
 
     if (newAttendingState) {
       const memberAsAttendee = {
+        job_title: currentMemberInfo.job_title || '',
         email: currentMemberInfo.email || "",
         first_name: currentMemberInfo.first_name || "",
         last_name: currentMemberInfo.last_name || "",
@@ -1536,6 +1540,12 @@ export function EventDetailsExperience({
   };
 
   const handleConfirmBooking = async () => {
+    if (titleSettingsLoading || titleSettingsError) {
+      toast.error('Attendee requirements could not be loaded. Please wait or retry.');
+      return;
+    }
+    const titleError = requireAttendeeJobTitle(systemSettings) && missingAttendeeJobTitle(attendees);
+    if (titleError) { toast.error(titleError); return; }
     console.log('[EventDetails] handleConfirmBooking called');
     console.log('[EventDetails] canConfirmBooking:', canConfirmBooking);
     console.log('[EventDetails] hasEnoughTickets:', hasEnoughTickets);
@@ -2202,7 +2212,7 @@ export function EventDetailsExperience({
                     <div className={`grid gap-4 ${embedded ? "event-registration-options" : "grid-cols-1 md:grid-cols-2"}`}>
                       <div className="space-y-2">
                         <Label htmlFor="guest-job-title" className={isGuestFormDisabled ? "text-slate-400" : ""}>
-                          Job Title
+                          Job Title{requireAttendeeJobTitle(systemSettings) ? ' *' : ''}
                         </Label>
                         <Input
                           id="guest-job-title"
@@ -2264,6 +2274,7 @@ export function EventDetailsExperience({
                         </div>
                         <div id="colleague-search-input">
                           <ColleagueSelector
+                          requireJobTitle={requireAttendeeJobTitle(systemSettings)}
                             organizationId={currentMemberInfo?.organization_id}
                             onSelect={handleColleagueSelect}
                             memberInfo={currentMemberInfo}
@@ -2343,6 +2354,7 @@ export function EventDetailsExperience({
                     ) : (
                       <>
                         <AttendeeList
+                          requireJobTitle={requireAttendeeJobTitle(systemSettings)}
                           attendees={attendees}
                           onUpdate={updateAttendee}
                           onRemove={canAddColleagues ? removeAttendee : null}

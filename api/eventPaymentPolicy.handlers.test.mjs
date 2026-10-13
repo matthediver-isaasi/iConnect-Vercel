@@ -15,6 +15,7 @@ const synchronousDependencies = new Set([
   'ticketHasAccessRestrictions',
   'resolveTicketPrice',
   'normalizeRequestedVoucherIds',
+  'needsPublicTicketMemberCreation',
 ]);
 
 async function loadHandler(path) {
@@ -22,7 +23,7 @@ async function loadHandler(path) {
   const replacements = new Map();
   for (const [, names, specifier] of source.matchAll(importPattern)) {
     if (specifier.startsWith('node:') || specifier === 'crypto') continue;
-    if (/\/(?:eventPaymentPolicy(?:Compensation)?|ticketReleaseAccess)\.js$/.test(specifier)) continue;
+    if (/\/(?:eventPaymentPolicy(?:Compensation)?|ticketReleaseAccess|attendeeJobTitleRequirement)\.js$/.test(specifier)) continue;
     if (specifier === 'stripe') {
       replacements.set(specifier, `export default class StripeProxy { constructor(...args) { return new globalThis.${slot}.Stripe(...args); } }`);
       continue;
@@ -83,6 +84,8 @@ function fixture({
   authenticatedMember = { id: 'member-a', tenant_id: 'tenant-a', email: 'member@example.test', organization_id: null },
   paymentIntent = null,
   refundFails = false,
+  completedPurchase = null,
+  existingBookings = [],
 } = {}) {
   const event = { id: 'event-a', tenant_id: 'tenant-a', title: 'Event', status: 'published', event_state: 'active' };
   const settings = omitSettings ? [] : [
@@ -96,8 +99,8 @@ function fixture({
     system_settings: settings,
     member: authenticatedMember ? [authenticatedMember] : [],
     organization: [],
-    booking: [],
-    complex_event_booking: [],
+    booking: existingBookings,
+    complex_event_booking: existingBookings,
     complex_event_ticket_class: [{ id: 'ticket-a', complex_event_id: 'event-a', tenant_id: 'tenant-a' }],
   };
   const calls = [];
@@ -170,6 +173,9 @@ function fixture({
       };
     },
     dependency(name, args = []) {
+      if (name === 'loadPublicTicketPurchase') return completedPurchase;
+      if (name === 'preparePublicTicketPurchase' && completedPurchase) return completedPurchase;
+      if (name === 'replayPublicTicketBooking' && completedPurchase) return { success: true, already_processed: true };
       if (name === 'resolveTenantFromRequest') return { id: requestTenant };
       if (name === 'getTenantContext') return { tenantId: requestTenant };
       if (name === 'getStripeCredentials') {
@@ -179,6 +185,7 @@ function fixture({
       if (name === 'findOrCreateStripeCustomer') return { id: 'cus-fixture' };
       if (name === 'getSessionMember') return authenticatedMember;
       if (name === 'normalizeRequestedVoucherIds') return args[0] || [];
+      if (name === 'needsPublicTicketMemberCreation') return false;
       if (name === 'getTicketClassFromConfig') return null;
       if (name === 'isTicketVisibleToUser') return true;
       if (name === 'ticketHasAccessRestrictions') return false;
@@ -217,8 +224,8 @@ async function invoke(kind, state, body) {
     : resolve(`api/public/${kind}.js`);
   handlers[kind] ||= await loadHandler(path);
   const req = {
-    method: 'POST',
-    query: kind === 'simple' ? { functionName: body.functionName || 'createOneOffEventBooking' } : {},
+    method: kind === 'system-settings' ? 'GET' : 'POST',
+    query: kind === 'simple' ? { functionName: body.functionName || 'createOneOffEventBooking' } : kind === 'system-settings' ? body : {},
     headers: { host: 'fixture.invalid' },
     body,
   };
@@ -305,6 +312,7 @@ test('simple payment initiation binds tenant, purchaser and original credits in 
     event_id: 'event-a',
     tenant_id: 'tenant-a',
     member_email: 'member@example.test',
+    public_ticket_purchase_id: '',
     event_credit_voucher_ids: 'voucher-a,voucher-b',
     event_credit_voucher_order_manual: 'true',
     event_credit_training_fund_minor: '513',
@@ -324,7 +332,7 @@ test('complex payment initiation rejects disabled mixed credits before Stripe', 
   assert.deepEqual(state.effects, []);
 });
 
-test('no-credit bookings do not read event-credit policy settings', async () => {
+test('no-credit bookings still require readable attendee requirements after authentication', async () => {
   const simpleState = fixture({ settingsData: 'error' });
   const simpleRes = await invoke('simple', simpleState, {
     ...mixedSimple,
@@ -332,7 +340,7 @@ test('no-credit bookings do not read event-credit policy settings', async () => 
     selectedVoucherIds: [],
     trainingFundAmount: 0,
   });
-  assert.match(simpleRes.body.error, /Member not found/);
+  assert.match(simpleRes.body.error, /logged in as the booking member/);
   assert.equal(simpleState.calls.some((call) => call.table === 'system_settings'), false);
 
   const complexState = fixture({ settingsData: 'error' });
@@ -341,8 +349,8 @@ test('no-credit bookings do not read event-credit policy settings', async () => 
     selected_voucher_ids: [],
     training_fund_amount: 0,
   });
-  assert.match(complexRes.body.error, /Invalid ticket class/);
-  assert.equal(complexState.calls.some((call) => call.table === 'system_settings'), false);
+  assert.match(complexRes.body.error, /temporarily unavailable/);
+  assert.equal(complexState.calls.some((call) => call.table === 'system_settings'), true);
 });
 
 function paidIntent(overrides = {}) {
@@ -479,3 +487,144 @@ test('existing allocation refund authorization guard remains unchanged', async (
   assert.match(source, /runAuthorizedCardCompensation/);
   assert.match(source, /cardPaymentAuthorizedForCompensation/);
 });
+
+const requiredTitleSetting = { tenant_id: 'tenant-a', setting_key: 'require_attendee_job_title', setting_value: 'true' };
+for (const method of ['free', 'card', 'invoice', 'voucher', 'training_fund']) {
+  test(`required titles reject later attendees before ${method} side effects in simple and complex handlers`, async () => {
+    const attendees = [
+      { email: 'first@example.test', first_name: 'First', job_title: 'Manager' },
+      { email: 'second@example.test', first_name: 'Second', job_title: '  ' },
+    ];
+    for (const [kind, body] of [
+      ['simple', { ...mixedSimple, paymentMethod: method, attendees: structuredClone(attendees) }],
+      ['complex-event-booking', { ...mixedComplex, payment_method: method, items: [
+        { ticket_class_id: 'ticket-a', attendees: [structuredClone(attendees[0])] },
+        { ticket_class_id: 'ticket-a', attendees: [structuredClone(attendees[1])] },
+      ] }],
+    ]) {
+      const state = fixture({ extraSettings: [requiredTitleSetting] });
+      const res = await invoke(kind, state, body);
+      assert.match(res.body.error, /job title for attendee 2 \(Second\)/);
+      assert.deepEqual(state.effects, []);
+      assert.equal(state.providerCalls, 0);
+    }
+  });
+}
+
+test('payment endpoints require complete attendee titles before creating a charge', async () => {
+  for (const [kind, body] of [
+    ['simple', { functionName: 'createStripePaymentIntent', amount: 10, metadata: { event_id: 'event-a' }, attendees: [{ email: 'guest@example.test', job_title: ' ' }] }],
+    ['complex-event-payment-intent', { event_id: 'event-a', items: [{ ticket_class_id: 'ticket-a', attendee_count: 2, attendees: [{ job_title: 'Manager' }] }] }],
+    ['simple', { functionName: 'createBooking', eventId: 'event-a', memberEmail: 'member@example.test', attendees: [{ email: 'guest@example.test' }] }],
+  ]) {
+    const state = fixture({ extraSettings: [requiredTitleSetting] });
+    const res = await invoke(kind, state, body);
+    assert.match(res.body.error, /job title/);
+    assert.deepEqual(state.effects, []);
+    assert.equal(state.providerCalls, 0);
+  }
+});
+
+test('public read exposes only this tenant’s attendee-title toggle', async () => {
+  const state = fixture({ extraSettings: [
+    requiredTitleSetting,
+    { ...requiredTitleSetting, tenant_id: 'tenant-b', setting_value: 'false' },
+  ] });
+  const res = await invoke('system-settings', state, { key: 'require_attendee_job_title' });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.length, 1);
+  assert.equal(res.body[0].setting_value, 'true');
+});
+
+test('card initiation accepts own-profile titles and does not require titles for disabled or other tenant settings', async () => {
+  for (const [extraSettings, attendees, member] of [
+    [[requiredTitleSetting], [{ email: 'member@example.test' }], { id: 'member-a', tenant_id: 'tenant-a', email: 'member@example.test', job_title: 'Director' }],
+    [[{ ...requiredTitleSetting, setting_value: 'false' }], [{ email: 'guest@example.test' }], null],
+    [[{ ...requiredTitleSetting, tenant_id: 'tenant-b' }], [{ email: 'guest@example.test' }], null],
+  ]) {
+    const state = fixture({ extraSettings, authenticatedMember: member });
+    const res = await invoke('simple', state, {
+      functionName: 'createStripePaymentIntent', amount: 10, metadata: { event_id: 'event-a' }, attendees,
+    });
+    assert.equal(res.body.success, true);
+    assert.ok(state.providerCalls > 0);
+    assert.deepEqual(state.effects, []);
+  }
+});
+
+test('completed complex public purchases replay despite a newly required title or unavailable settings', async () => {
+  const state = fixture({
+    extraSettings: [requiredTitleSetting], settingsData: 'error',
+    completedPurchase: { id: 'purchase-a', booking_ids: ['existing-booking'] },
+  });
+  const res = await invoke('complex-event-booking', state, {
+    ...mixedComplex, purchase_request_id: 'purchase-a', payment_method: 'free',
+    selected_voucher_ids: [], training_fund_amount: 0,
+  });
+  assert.equal(res.body.already_processed, true);
+  assert.equal(state.calls.some(call => call.table === 'system_settings'), false);
+  assert.deepEqual(state.effects, []);
+});
+
+test('program-ticket credit card purchases never require attendee job titles', async () => {
+  const state = fixture({ extraSettings: [requiredTitleSetting] });
+  const res = await invoke('simple', state, {
+    functionName: 'createStripePaymentIntent', amount: 100,
+    metadata: { program_name: 'Training credit' }, memberEmail: 'member@example.test',
+  });
+  assert.equal(res.body.success, true);
+  assert.equal(state.calls.some(call => call.table === 'system_settings'), false);
+  assert.ok(state.providerCalls > 0);
+});
+
+for (const kind of ['simple', 'complex-event-booking']) {
+  for (const [status, expected] of [['succeeded', 'refunded'], ['requires_capture', 'payment_cancelled']]) {
+    test(`${kind} reverses ${status} card payment if the title toggle changes during checkout`, async () => {
+      const state = fixture({
+        extraSettings: [requiredTitleSetting],
+        paymentIntent: paidIntent({ status }),
+      });
+      const res = await invoke(kind, state, kind === 'simple'
+        ? { ...mixedSimple, stripePaymentIntentId: 'pi-credit-race', selectedVoucherIds: [], trainingFundAmount: 0 }
+        : { ...mixedComplex, stripe_payment_intent_id: 'pi-credit-race', selected_voucher_ids: [], training_fund_amount: 0 });
+      assert.equal(res.body[expected], true, JSON.stringify(res.body));
+      assert.match(res.body.error, /job title/);
+      assert.deepEqual(state.effects, []);
+    });
+  }
+  test(`${kind} reports title-policy refund failure and never writes bookings or credits`, async () => {
+    const state = fixture({
+      extraSettings: [requiredTitleSetting], paymentIntent: paidIntent(), refundFails: true,
+    });
+    const res = await invoke(kind, state, kind === 'simple'
+      ? { ...mixedSimple, stripePaymentIntentId: 'pi-credit-race' }
+      : { ...mixedComplex, stripe_payment_intent_id: 'pi-credit-race' });
+    assert.equal(res.body.refund_failed, true);
+    assert.deepEqual(state.effects, []);
+  });
+  test(`${kind} title-policy rejection never refunds an intent bound to another purchaser`, async () => {
+    const state = fixture({
+      extraSettings: [requiredTitleSetting],
+      paymentIntent: paidIntent({ metadata: { tenant_id: 'tenant-a', event_id: 'event-a', member_email: 'other@example.test' } }),
+    });
+    const res = await invoke(kind, state, kind === 'simple'
+      ? { ...mixedSimple, stripePaymentIntentId: 'pi-credit-race' }
+      : { ...mixedComplex, stripe_payment_intent_id: 'pi-credit-race' });
+    assert.equal(res.body.refund_failed, true);
+    assert.equal(state.providerCalls, 3); // credentials, SDK, retrieve; no refund.
+    assert.deepEqual(state.effects, []);
+  });
+  test(`${kind} completed member payment keeps existing replay outcome after a title toggle`, async () => {
+    const state = fixture({
+      extraSettings: [requiredTitleSetting], settingsData: 'error',
+      existingBookings: [{ id: 'existing', tenant_id: 'tenant-a', event_id: 'event-a', stripe_payment_intent_id: 'pi-credit-race', status: 'confirmed' }],
+    });
+    const res = await invoke(kind, state, kind === 'simple'
+      ? { ...mixedSimple, stripePaymentIntentId: 'pi-credit-race' }
+      : { ...mixedComplex, stripe_payment_intent_id: 'pi-credit-race' });
+    if (kind === 'simple') assert.equal(res.body.already_processed, true);
+    else assert.match(res.body.error, /already been used/);
+    assert.equal(state.calls.some(call => call.table === 'system_settings'), false);
+    assert.deepEqual(state.effects, []);
+  });
+}

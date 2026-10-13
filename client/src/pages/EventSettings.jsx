@@ -151,6 +151,7 @@ export default function EventSettingsPage() {
   
   // Require internal reference on events
   const [requireInternalReference, setRequireInternalReference] = useState(false);
+  const [requireJobTitle, setRequireJobTitle] = useState(false);
   
   // Allow vouchers to be used for events after their expiry date
   const [allowVoucherAfterExpiry, setAllowVoucherAfterExpiry] = useState(true);
@@ -377,6 +378,7 @@ export default function EventSettingsPage() {
     }
 
     const requireInternalRefSetting = settings.find(s => s.setting_key === 'require_internal_reference');
+    setRequireJobTitle(settings.find(s => s.setting_key === 'require_attendee_job_title')?.setting_value === 'true');
     if (requireInternalRefSetting) {
       setRequireInternalReference(requireInternalRefSetting.setting_value === 'true');
     }
@@ -468,6 +470,10 @@ export default function EventSettingsPage() {
     }
     setIsSaving(true);
     try {
+      const titleSetting = settings.find(s => s.setting_key === 'require_attendee_job_title');
+      const titleValue = { setting_value: String(requireJobTitle), description: 'Require each event attendee’s own job title' };
+      if (titleSetting) await base44.entities.SystemSettings.update(titleSetting.id, titleValue);
+      else await base44.entities.SystemSettings.create({ setting_key: 'require_attendee_job_title', ...titleValue });
       // Save cancellation deadline setting
       const deadlineSetting = settings.find(s => s.setting_key === 'cancellation_deadline_hours');
       
@@ -942,6 +948,7 @@ export default function EventSettingsPage() {
       
       queryClient.invalidateQueries({ queryKey: ['system-settings'] });
       queryClient.invalidateQueries({ queryKey: ['public-system-settings'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/public/system-settings'] });
       queryClient.invalidateQueries({ queryKey: ['event-display-settings'] });
       toast.success('Settings saved successfully');
     } catch (error) {
@@ -2397,6 +2404,10 @@ export default function EventSettingsPage() {
             </div>
           </CardHeader>
           <CardContent className="pt-6">
+            <div className="flex items-center justify-between gap-4 mb-4 max-w-2xl">
+              <Label htmlFor="require-attendee-job-title">Require attendee job title</Label>
+              <Switch id="require-attendee-job-title" checked={requireJobTitle} onCheckedChange={setRequireJobTitle} />
+            </div>
             <div className="max-w-2xl space-y-4">
               <div className="flex items-center justify-between gap-4">
                 <div className="space-y-1">
