@@ -75,3 +75,12 @@ fallback can then make a nominal bulk benchmark slower than ordinary sending.
 **How to apply:** Bound batches by encoded payload size as well as recipient
 count, distinguish size splitting from genuinely incompatible-message fallback,
 and include full-size content in transport regression tests.
+
+The user has chosen to retain the current sender rather than pursue further
+throughput optimisations for now.
+
+**Why:** The user considers the improvements significant and wants to avoid
+additional sender complexity.
+
+**How to apply:** Do not implement the proposed further optimisations unless
+the user reopens that work; preserve tracking, personalisation and survey support.
