@@ -6,6 +6,16 @@ description: Font readiness does not cover later stylesheet discovery, and inter
 Treat document.fonts.ready as readiness for faces currently registered, not as
 proof that asynchronous tenant font discovery or typography is finished.
 
+Editor typography discovery must cover the rendered stage, not just its
+inspector. Never seed editor discovery with host-route public typography.
+
+**Why:** Editor URLs are outside the edited page's microsite route. Main-site
+styles can look like a successful load while omitting the page's selected
+microsite styles; fallback measurements can then be saved as layout changes.
+
+**How to apply:** Test the authoring context ancestry of both stage variants
+and the inspector, and exclude public SSR seeds from editor queries.
+
 **Why:** A resolved promise can precede registration entirely. A transient short
 measurement then becomes permanent false growth, even after every asset loads.
 Extending a timeout cannot establish correctness for arbitrarily late assets.

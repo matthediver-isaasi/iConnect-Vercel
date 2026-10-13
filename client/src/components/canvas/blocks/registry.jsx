@@ -831,7 +831,10 @@ export function useTenantTypographyStylesState() {
   // reusing a mismatched seed.
   const injectedPrefix =
     (typeof window !== 'undefined' && window.__MICROSITE_CONTEXT__?.activeMicrosite?.path_prefix) || null;
-  const initialData = injectedPrefix === micrositePrefix ? readInjectedTypographyStyles : undefined;
+  // Editor routes receive the host's main-site SSR styles, not the edited
+  // page's microsite styles. Never mark that incomplete seed as resolved:
+  // fallback text metrics can otherwise be baked into the saved layout.
+  const initialData = !authoring && injectedPrefix === micrositePrefix ? readInjectedTypographyStyles : undefined;
 
   const { data } = useQuery({
     queryKey: authoring

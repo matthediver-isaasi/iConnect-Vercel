@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import ts from 'typescript';
 
 // Execute the production loader without importing the full canvas registry.
 const source = fs.readFileSync(new URL('../components/canvas/blocks/registry.jsx', import.meta.url), 'utf8');
@@ -56,4 +57,31 @@ test('authoring cache is separate and requires explicit editor context', () => {
   assert.match(source, /\['\/api\/public\/typography-styles', micrositePrefix, 'authoring'\]/);
   const builder = fs.readFileSync(new URL('../components/canvas/CanvasBuilder.jsx', import.meta.url), 'utf8');
   assert.match(builder, /<CanvasEditorPageProvider micrositeId=\{micrositeId\} isEditor>/);
+});
+
+test('both canvas stage variants and the inspector inherit authoring context', () => {
+  const builder = fs.readFileSync(new URL('../components/canvas/CanvasBuilder.jsx', import.meta.url), 'utf8');
+  const tree = ts.createSourceFile('CanvasBuilder.jsx', builder, ts.ScriptTarget.Latest, true, ts.ScriptKind.JSX);
+  const targets = new Set(['CanvasStage', 'CanvasFlowEditorStage', 'CanvasInspector']);
+  const seen = new Set();
+  function visit(node, inEditor = false) {
+    const opening = ts.isJsxElement(node) ? node.openingElement : ts.isJsxSelfClosingElement(node) ? node : null;
+    if (opening) {
+      const name = opening.tagName.getText(tree);
+      if (name === 'CanvasEditorPageProvider') {
+        inEditor = opening.attributes.properties.some(p => p.name?.getText(tree) === 'isEditor' && !p.initializer);
+      }
+      if (targets.has(name)) {
+        assert.equal(inEditor, true, `${name} must load editor typography, not host public typography`);
+        seen.add(name);
+      }
+    }
+    ts.forEachChild(node, child => visit(child, inEditor));
+  }
+  visit(tree);
+  assert.deepEqual([...seen].sort(), [...targets].sort());
+});
+
+test('editor never treats host-injected main-site typography as resolved', () => {
+  assert.match(source, /const initialData = !authoring && injectedPrefix === micrositePrefix \? readInjectedTypographyStyles : undefined/);
 });

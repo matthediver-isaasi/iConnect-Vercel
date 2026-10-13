@@ -2011,6 +2011,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
 
   return (
     <DndContext sensors={sensors} autoScroll={false} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={handleDragCancel}>
+      <CanvasEditorPageProvider micrositeId={micrositeId} isEditor>
       <CanvasSwatchProvider micrositeId={micrositeId}>
       <div
         ref={builderRootRef}
@@ -2355,7 +2356,6 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
             data-testid="panel-inspector"
           >
             <CanvasAnchorProvider design={design} pages={otherPages}>
-            <CanvasEditorPageProvider micrositeId={micrositeId} isEditor>
             <CanvasInspector
               selectedBlocks={selectedBlocks}
               breakpoint={breakpoint}
@@ -2381,7 +2381,6 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
                   : children.length
               }
             />
-            </CanvasEditorPageProvider>
             </CanvasAnchorProvider>
           </aside>
 
@@ -2457,6 +2456,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
 
       <CanvasPalettePanel open={showPalettePanel} onOpenChange={setShowPalettePanel} />
       </CanvasSwatchProvider>
+      </CanvasEditorPageProvider>
     </DndContext>
   );
 });
