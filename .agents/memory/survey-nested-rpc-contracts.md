@@ -14,3 +14,13 @@ the handler mislabeled the resulting validation exception as an answered invite.
 nested transaction, including a failure after response insertion. Classify only
 known invitation failures; log fixed diagnostic categories rather than raw
 database messages, which may contain respondent data.
+
+Validate the real destination table schema as well as nested RPC allowlists.
+
+**Why:** An anonymous submission attribute passed both RPC allowlists but the
+dynamic insert still failed because the destination table lacked its column.
+Allowlist acceptance alone does not establish storage compatibility.
+
+**How to apply:** Include legacy destination schemas in submission tests and
+distinguish transport attributes from persisted columns. Never broaden or
+silently filter arbitrary payload keys to work around a schema mismatch.
