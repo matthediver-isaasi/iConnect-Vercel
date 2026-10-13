@@ -215,6 +215,21 @@ test("V2 builder edits include-empty, row-relative count, headings and empty lab
   await reloaded.cleanup();
 });
 
+test("matching field columns can be added, conditioned and reopened without loss", async () => {
+  const view = await mount(makeReportConfig("department"));
+  await chooseRelatedRecords(view, "matching_field", ["department_member"]);
+  await act(async () => click(buttonNamed("First name")));
+  assert.equal(view.config.columns[0].kind, "matching_field");
+  await act(async () => click(view.container.querySelector("[data-testid=add-indicator-condition]")));
+  assert.equal(view.config.columns[0].conditions.length, 1);
+  const snapshot = structuredClone(view.config);
+  await view.cleanup();
+  const reloaded = await mount(snapshot);
+  assert.deepEqual(reloaded.config, snapshot);
+  assert.match(reloaded.container.textContent, /matching values only/);
+  await reloaded.cleanup();
+});
+
 test("V2 reload shows a connected starting root and grain relative to that root", async () => {
   const config = makeReportConfig("department", {
     start_endpoint: { kind: "member" },

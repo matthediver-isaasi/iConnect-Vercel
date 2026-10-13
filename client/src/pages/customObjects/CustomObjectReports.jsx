@@ -205,15 +205,17 @@ export function CustomObjectReports({
     : ownerEndpoint;
   const selectedEndpoint = reconciled.rowEndpoint;
   const calculation = ["count_distinct", "exists_related"].includes(columnKind);
+  const rowRelativeColumn = calculation || columnKind === "matching_field";
   const columnEndpoint = resolveRelationshipPickerPath({
-    definitions: graph, start: calculation ? selectedEndpoint : selectedStart, path: columnPath, maxHops: 6,
+    definitions: graph, start: rowRelativeColumn ? selectedEndpoint : selectedStart, path: columnPath, maxHops: 6,
   }).endpoint;
   const availableFields = columnEndpoint.kind === "custom_object"
     ? [{ id: "id", label: "ID", builtIn: true }, ...(fieldsByEndpoint[endpointKey(columnEndpoint)] || [])]
     : (CORE_FIELDS[columnEndpoint.kind] || []);
   const addColumn = (field) => setColumns((current) => [...current, {
     id: `${endpointKey(columnEndpoint)}:${field.id}:${Date.now()}`,
-    kind: "field", path: columnPath,
+    kind: columnKind === "matching_field" ? "matching_field" : "field", path: columnPath,
+    ...(columnKind === "matching_field" ? { conditions: [] } : {}),
     ...(columnEndpoint.kind === "custom_object"
       ? (field.builtIn ? { field: String(field.id) } : { field_id: String(field.id) })
       : { field: String(field.id) }),
@@ -301,21 +303,22 @@ export function CustomObjectReports({
               value={columnKind} onChange={(event) => { setColumnKind(event.target.value); setColumnPath([]); }}>
               <option value="field">{endpointLabel(selectedStart, graphObjects, object)} fields</option>
               <option value="related_field">Related record and relationship fields</option>
+               {isV2 && <option value="matching_field">Related field · matching records only</option>}
               {isV2 && <option value="count_distinct">Related record count</option>}
               {isV2 && <option value="exists_related">Has matching related record · True / False</option>}
             </select>
             {columnKind !== "field" && <ReportRelationshipSelector value={columnPath} onChange={setColumnPath}
-              start={calculation ? selectedEndpoint : selectedStart} definitions={graph} objects={graphObjects} object={object}
+              start={rowRelativeColumn ? selectedEndpoint : selectedStart} definitions={graph} objects={graphObjects} object={object}
               disabled={!canManage} metadataLoading={graphLoading} allowRoot={false}
-              label={calculation ? "Related records from each row" : "Related records from starting entity"} />}
-            <p className="text-xs text-slate-500">{columnKind === "exists_related" ? "True when at least one related record meets every condition. Does not filter rows or change other columns." : calculation ? "Calculated for each row. All distinct linked records are counted, independently of indicator conditions." : "Field values are reached from the starting entity, not the row entity."}</p>
+              label={rowRelativeColumn ? "Related records from each row" : "Related records from starting entity"} />}
+            <p className="text-xs text-slate-500">{columnKind === "matching_field" ? "Show only matching records from each row. Blank and repeated values preserve identity order; rows and counts are unchanged." : columnKind === "exists_related" ? "True when at least one related record meets every condition. Does not filter rows or change other columns." : calculation ? "Calculated for each row. All distinct linked records are counted, independently of indicator conditions." : "Field values are reached from the starting entity, not the row entity."}</p>
             {!calculation && <div><Label>Add a field</Label><div className="mt-2 grid max-h-64 gap-2 overflow-y-auto sm:grid-cols-2">
               {availableFields.map((field) => <Button key={field.id} type="button" size="sm" variant="outline"
-                className="h-auto min-h-9 whitespace-normal break-words [overflow-wrap:anywhere]" disabled={!canManage || graphLoading || (columnKind === "related_field" && !columnPath.length)}
+                className="h-auto min-h-9 whitespace-normal break-words [overflow-wrap:anywhere]" disabled={!canManage || graphLoading || (["related_field", "matching_field"].includes(columnKind) && !columnPath.length)}
                 onClick={() => addColumn(field)}><Plus className="mr-1 h-3 w-3 shrink-0" /><span title={field.label} className="min-w-0 line-clamp-2">{field.label}</span></Button>)}
               {columnEndpoint.kind === "custom_object" && !Array.isArray(fieldsByEndpoint[endpointKey(columnEndpoint)]) && <p role="status" className="text-sm text-slate-500">Field metadata unavailable. Saved selections are preserved.</p>}
             </div></div>}
-            {!calculation && relationshipMetadata.length > 0 && <div><Label>Relationship fields</Label><div className="mt-2 grid gap-2 sm:grid-cols-2">{relationshipMetadata.map((field) => <Button key={field.id || field.key} type="button" size="sm" variant="outline" className="h-auto min-h-9 whitespace-normal break-words" disabled={!canManage || graphLoading} onClick={() => addRelationshipColumn(field)}><Plus className="mr-1 h-3 w-3 shrink-0" /><span title={field.label} className="min-w-0 line-clamp-2">{field.label}</span></Button>)}</div></div>}
+            {!rowRelativeColumn && relationshipMetadata.length > 0 && <div><Label>Relationship fields</Label><div className="mt-2 grid gap-2 sm:grid-cols-2">{relationshipMetadata.map((field) => <Button key={field.id || field.key} type="button" size="sm" variant="outline" className="h-auto min-h-9 whitespace-normal break-words" disabled={!canManage || graphLoading} onClick={() => addRelationshipColumn(field)}><Plus className="mr-1 h-3 w-3 shrink-0" /><span title={field.label} className="min-w-0 line-clamp-2">{field.label}</span></Button>)}</div></div>}
             {calculation && <Button type="button" data-testid={columnKind === "exists_related" ? "add-report-indicator" : "add-report-count"}
               disabled={!canManage || graphLoading || !columnPath.length || Boolean(resolveRelationshipPickerPath({ definitions: graph, start: selectedEndpoint, path: columnPath, maxHops: 6 }).error)}
               onClick={() => { if (columnKind === "exists_related") addIndicatorColumn(); else { addCountColumn(columnPath); setAddingColumn(false); } }}>
@@ -324,17 +327,17 @@ export function CustomObjectReports({
           </div>}
           {!renderedColumns.length && <p className="rounded-md border border-dashed p-4 text-sm text-slate-500">No columns yet. Add a field, count or indicator to begin.</p>}
         <div className="space-y-2">{renderedColumns.map((column, index) => {
-          const pathRoot = isV2 && ["count_distinct", "exists_related"].includes(column.kind) ? selectedEndpoint : selectedStart;
+          const pathRoot = isV2 && ["count_distinct", "exists_related", "matching_field"].includes(column.kind) ? selectedEndpoint : selectedStart;
           const displayPath = safePickerPath(column?.path);
           const summary = reportColumnSummary(column, { start: selectedStart, row: isV2 ? selectedEndpoint : selectedStart, definitions: graph, objects: graphObjects, object });
           return <div key={column.id || index} className="min-w-0 space-y-3 rounded border p-3 text-sm">
             <div className="grid min-w-0 gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.7fr)_auto]">
             <div className="min-w-0"><Label htmlFor={`column-heading-${index}`} className="text-xs">Column heading</Label><Input id={`column-heading-${index}`} data-testid={`column-heading-${index}`} disabled={!canManage} value={column.label || ""} onChange={(event) => setColumns((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, label: event.target.value } : item))} /><p title={summary} className="report-column-summary mt-1 break-words text-xs text-slate-500">{summary}</p>
               <details className="mt-1 text-xs text-slate-500"><summary className="cursor-pointer">Technical details</summary><p className="break-words">{pathRoot === selectedEndpoint ? "Row-relative" : "Start-relative"} · {reportPathLabel(displayPath, graph, graphObjects, object, pathRoot)}</p></details></div>
-            {isV2 && !["count_distinct", "exists_related"].includes(column.kind) ? <div className="min-w-0"><Label htmlFor={`column-empty-label-${index}`} className="text-xs">Empty label</Label><Input id={`column-empty-label-${index}`} data-testid={`column-empty-label-${index}`} disabled={!canManage} value={column.empty_label || ""} placeholder="Only when endpoint is missing" onChange={(event) => setColumns((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, empty_label: event.target.value } : item))} /><p className="mt-1 text-xs text-slate-400">Does not replace a blank field value.</p></div> : <div />}
+            {isV2 && !["count_distinct", "exists_related", "matching_field"].includes(column.kind) ? <div className="min-w-0"><Label htmlFor={`column-empty-label-${index}`} className="text-xs">Empty label</Label><Input id={`column-empty-label-${index}`} data-testid={`column-empty-label-${index}`} disabled={!canManage} value={column.empty_label || ""} placeholder="Only when endpoint is missing" onChange={(event) => setColumns((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, empty_label: event.target.value } : item))} /><p className="mt-1 text-xs text-slate-400">Does not replace a blank field value.</p></div> : <div />}
             <div className="flex items-center"><Button type="button" size="sm" variant="ghost" aria-label={`Move column ${index + 1} up`} disabled={!canManage || index === 0} onClick={() => setColumns((items) => moveReportColumn(items, index, -1))}>↑</Button><Button type="button" size="sm" variant="ghost" aria-label={`Move column ${index + 1} down`} disabled={!canManage || index === renderedColumns.length - 1} onClick={() => setColumns((items) => moveReportColumn(items, index, 1))}>↓</Button><Button type="button" size="sm" variant="ghost" aria-label={`Remove column ${index + 1}`} disabled={!canManage} onClick={() => setColumns((items) => items.filter((_, itemIndex) => itemIndex !== index))}><Trash2 className="h-4 w-4" /></Button></div>
             </div>
-            {isV2 && column.kind === "exists_related" && <ReportIndicatorEditor column={column} indicatorLabel={`Indicator column ${index + 1}`}
+            {isV2 && ["exists_related", "matching_field"].includes(column.kind) && <ReportIndicatorEditor column={column} projection={column.kind === "matching_field"} indicatorLabel={`Indicator column ${index + 1}`}
                 onChange={(change) => setColumns((items) => items.map((item, itemIndex) => itemIndex === index
                   ? { ...item, ...change } : item))}
                 canManage={canManage} start={selectedEndpoint} definitions={graph} objects={graphObjects} object={object}

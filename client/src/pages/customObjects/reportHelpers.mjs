@@ -57,7 +57,7 @@ export const reportReachableEndpoints = (definitions, start) => {
 };
 
 export const reportColumnSummary = (column, { start, row, definitions, objects, object }) => {
-  const rowRelative = ["count_distinct", "exists_related"].includes(column.kind);
+  const rowRelative = ["count_distinct", "exists_related", "matching_field"].includes(column.kind);
   const path = isReportPath(column.path) ? column.path : [];
   const resolved = resolveRelationshipPickerPath({ definitions, start: rowRelative ? row : start, path, maxHops: 6 });
   if (resolved.error) return "Saved relationship unavailable — selection retained";
@@ -71,6 +71,7 @@ export const reportColumnSummary = (column, { start, row, definitions, objects, 
   const route = (path.length <= 1 ? `linked directly to ${origin}` : `linked to ${origin} via ${via}`)
     + (relationship ? ` · ${relationship}` : "");
   if (column.kind === "count_distinct") return `Count distinct ${destination} ${route}`;
+  if (column.kind === "matching_field") return `${destination} ${column.field || column.field_id} · ${route} · matching values only · ${Array.isArray(column.conditions) ? column.conditions.length : "Invalid"} conditions`;
   if (column.kind === "exists_related") {
     const count = Array.isArray(column.conditions) ? column.conditions.length : "Invalid";
     return `Has matching ${destination} ${route} · True / False · ${count} condition${count === 1 ? "" : "s"}`;
@@ -204,19 +205,19 @@ export const reconcileReportConfig = ({
       stale.push("A report column is malformed.");
       continue;
     }
-    if (!["field", "relationship_field", "count_distinct", ...(version === 2 ? ["exists_related"] : [])].includes(column.kind)) {
+    if (!["field", "relationship_field", "count_distinct", ...(version === 2 ? ["exists_related", "matching_field"] : [])].includes(column.kind)) {
       stale.push(`Column "${column.label || column.field_id || "unknown"}" has an unsupported kind.`);
     }
     const pathIsValid = isReportPath(column.path);
     const path = pathIsValid ? column.path : [];
     if (!pathIsValid) stale.push(`Column "${column.label || column.field_id || "unknown"}" has a malformed path.`);
-    const columnStart = version === 2 && ["count_distinct", "exists_related"].includes(column.kind)
+    const columnStart = version === 2 && ["count_distinct", "exists_related", "matching_field"].includes(column.kind)
       ? pathCheck.endpoint
       : start;
     const result = resolveRelationshipPickerPath({
       definitions, start: columnStart, path, maxHops: 6,
     });
-    if (version === 2 && column.kind === "exists_related") {
+    if (version === 2 && ["exists_related", "matching_field"].includes(column.kind)) {
       // Indicators use exactly the related-filter condition semantics, always
       // existential. Do not add mode to, or otherwise rewrite, saved columns.
       const check = validateReportFilters({
@@ -226,7 +227,7 @@ export const reconcileReportConfig = ({
       indicatorsPending ||= check.pending;
       stale.push(...check.stale.map((message) => `Indicator "${column.label || "unknown"}": ${message}`));
       if (Object.hasOwn(column, "mode")) stale.push(`Indicator "${column.label || "unknown"}" must not specify a match mode.`);
-      continue;
+      if (column.kind === "exists_related") continue;
     }
     if (result.error) {
       stale.push(`Column "${column.label || column.field_id || "unknown"}" has an unavailable path.`);
@@ -248,6 +249,12 @@ export const reconcileReportConfig = ({
       continue;
     }
     const fieldReference = column.field_id || column.field;
+    if (column.kind === "matching_field" && result.endpoint?.kind !== "custom_object") {
+      const core = result.endpoint?.kind === "member"
+        ? ["id", "first_name", "last_name", "full_name", "email", "organization_id"]
+        : ["id", "name", "email"];
+      if (!core.includes(fieldReference)) stale.push(`Field column "${column.label || fieldReference}" is unavailable.`);
+    }
     if (result.endpoint?.kind === "custom_object" && fieldReference === "id") continue;
     const available = fieldsByEndpoint[endpointKey(result.endpoint)];
     // An endpoint whose metadata has not loaded is not declared stale.

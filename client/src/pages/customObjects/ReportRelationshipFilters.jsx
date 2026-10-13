@@ -19,7 +19,7 @@ const operatorLabels = {
 
 export function ReportRelationshipFilters({
   filters, onChange, canManage, start, definitions, objects, object,
-  fieldsByEndpoint, metadataLoading = false, metadataError = false, onRetry, indicator = false, indicatorLabel = "Indicator",
+  fieldsByEndpoint, metadataLoading = false, metadataError = false, onRetry, indicator = false, indicatorLabel = "Indicator", projection = false,
 }) {
   const list = Array.isArray(filters) ? filters : [];
   const malformed = filters !== undefined && !Array.isArray(filters);
@@ -32,7 +32,7 @@ export function ReportRelationshipFilters({
   });
   return <section data-testid={indicator ? "report-indicator-conditions" : "report-relationship-filters"} className="min-w-0 space-y-3 rounded-md border bg-slate-50/50 p-3">
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <div><Label>{indicator ? "Matching related records" : "Optional row filters"}</Label><p className="mt-1 text-xs text-slate-500">{indicator ? "Returns True if any related record meets every condition; otherwise False. Does not remove rows or change counts." : "Only include rows matching every filter. Filters do not calculate column values."}</p></div>
+      <div><Label>{indicator ? "Matching related records" : "Optional row filters"}</Label><p className="mt-1 text-xs text-slate-500">{projection ? "Show field values only for records meeting every condition. No matches gives empty details. Rows and counts are unchanged." : indicator ? "Returns True if any related record meets every condition; otherwise False. Does not remove rows or change counts." : "Only include rows matching every filter. Filters do not calculate column values."}</p></div>
       {!indicator && <Button type="button" size="sm" variant="outline" data-testid="add-report-filter"
         disabled={!canManage || malformed || list.length >= MAX_REPORT_FILTERS || !resolveRelationshipPickerPath({ definitions, start, path: [], maxHops: 6 }).options.length || metadataLoading}
         onClick={() => onChange([...list, newFilter()])}><Plus className="mr-1 h-3 w-3" />Add filter</Button>}
@@ -67,7 +67,7 @@ export function ReportRelationshipFilters({
               <SelectItem value="any">Any match</SelectItem><SelectItem value="none">None match</SelectItem>
             </SelectContent></Select></div>}
         </div>
-        <p className="text-xs text-slate-500">{indicator ? "True requires at least one matching related occurrence. Missing relationships return False, never an error disguised as False." : filter.mode === "none" ? "Keep rows with no related occurrence matching every condition. Missing row endpoints match." : "Keep rows with at least one related occurrence matching every condition. Missing row endpoints do not match."} All conditions apply to the same endpoint and final relationship occurrence.</p>
+        <p className="text-xs text-slate-500">{projection ? "Matching identities are sorted consistently; blank values and repeated names are preserved." : indicator ? "True requires at least one matching related occurrence. Missing relationships return False, never an error disguised as False." : filter.mode === "none" ? "Keep rows with no related occurrence matching every condition. Missing row endpoints match." : "Keep rows with at least one related occurrence matching every condition. Missing row endpoints do not match."} All conditions apply to the same endpoint and final relationship occurrence.</p>
         {schema.pending && <p role="status" className="text-sm text-slate-500">Endpoint field metadata is not yet available. Saved selections are preserved; preview and export wait for metadata.</p>}
         {!Array.isArray(filter.conditions) && <div className="text-sm text-amber-900">Saved conditions are malformed. <Button type="button" size="sm" variant="outline" disabled={!canManage} onClick={() => setConditions([])}>Reset conditions</Button></div>}
         {Array.isArray(filter.conditions) && !conditions.length && <p className="text-sm text-slate-500">{filter.mode === "none" ? "No conditions: require absence of related records." : "No conditions: require existence of a related record."}</p>}

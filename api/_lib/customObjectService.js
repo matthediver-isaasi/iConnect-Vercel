@@ -4377,6 +4377,9 @@ export function createCustomObjectService({
       if (column.empty_label !== undefined && typeof column.empty_label !== 'string') {
         throw new CustomObjectHttpError(400, 'Report column empty_label must be a string');
       }
+      if (column.kind === 'matching_field' && Object.hasOwn(column, 'mode')) {
+        throw new CustomObjectHttpError(400, 'Matching field columns must not specify a match mode');
+      }
       if (['count_distinct', 'exists_related'].includes(column.kind)) {
         if (!Array.isArray(column.path) || !column.path.length) {
           throw new CustomObjectHttpError(
@@ -4394,13 +4397,14 @@ export function createCustomObjectService({
         });
         continue;
       }
-      if (!['field', 'relationship_field'].includes(column.kind)) {
+      if (!['field', 'relationship_field', 'matching_field'].includes(column.kind)) {
         throw new CustomObjectHttpError(
           400,
           'Report column kind must be field, relationship_field, count_distinct, or exists_related',
         );
       }
-      const path = await resolvePath(column.path ?? [], 'Report column path', startEndpoint);
+      const path = await resolvePath(column.path ?? [], 'Report column path',
+        column.kind === 'matching_field' ? grain.endpoint : startEndpoint);
       const fieldId = String(column.field_id || '');
       const relationshipFieldId = String(column.relationship_field_id || '');
       if (column.kind === 'relationship_field') {
@@ -4456,7 +4460,7 @@ export function createCustomObjectService({
     const filters = [];
     // Indicators use exactly the same permission and condition validation as
     // row filters, but never enter the summary query's row-filter list.
-    const indicatorColumns = resolvedColumns.filter((column) => column.existsRelated);
+    const indicatorColumns = resolvedColumns.filter((column) => column.existsRelated || column.kind === 'matching_field');
     const predicates = [
       ...(report.filters || []).map((filter) => ({ filter })),
       ...indicatorColumns.map((column) => ({
@@ -4594,7 +4598,7 @@ export function createCustomObjectService({
     const resolvedColumns = [];
     for (const column of columns) {
       if (!column || typeof column !== 'object') throw new CustomObjectHttpError(400, 'Report column is malformed');
-      if (column.kind === 'exists_related') throw new CustomObjectHttpError(400, 'Related-record indicators require an explicit version 2 report');
+      if (['exists_related', 'matching_field'].includes(column.kind)) throw new CustomObjectHttpError(400, 'Related-record conditional columns require an explicit version 2 report');
       const path = await resolvePath(column.path ?? [], 'Report column path');
       const fieldId = String(column.field_id ?? column.fieldId ?? '');
       const relationshipFieldId = String(column.relationship_field_id ?? column.relationshipFieldId ?? '');
@@ -4789,7 +4793,7 @@ export function createCustomObjectService({
       throw new CustomObjectHttpError(503, 'Related-record report filters require migration 20261011_custom_object_report_filters.sql on the destination database');
     }
     throwReportV2RpcDb(error);
-    if ((validated.filters.length || validated.columns.some((column) => column.existsRelated)) && (!summary || !Array.isArray(summary.rows)
+    if ((validated.filters.length || validated.columns.some((column) => column.existsRelated || column.kind === 'matching_field')) && (!summary || !Array.isArray(summary.rows)
       || typeof summary.has_more !== 'boolean')) {
       throw new CustomObjectHttpError(503, 'Report query returned a malformed result');
     }
@@ -4814,8 +4818,9 @@ export function createCustomObjectService({
     };
     const countValues = new Map();
     const indicatorValues = new Map();
+    const matchingValues = new Map();
     const indicatorGroups = new Map();
-    for (const column of validated.columns.filter((item) => item.existsRelated)) {
+    for (const column of validated.columns.filter((item) => item.existsRelated || item.kind === 'matching_field')) {
       const key = JSON.stringify(reportRpcPath(column.path.hops));
       const group = indicatorGroups.get(key) || { path: column.path, columns: [] };
       group.columns.push(column);
@@ -4835,12 +4840,21 @@ export function createCustomObjectService({
       }
       for (const column of group.columns) {
         const matches = new Set();
+        const recordsByRoot = new Map();
         for (const occurrence of occurrences) {
           if (column.conditions.every((condition) => reportConditionMatches(occurrence, condition, group.path.endpoint))) {
             matches.add(String(occurrence.root.id));
+            const rootId = String(occurrence.root.id);
+            const records = recordsByRoot.get(rootId) || new Map();
+            records.set(String(occurrence.record.id), occurrence);
+            recordsByRoot.set(rootId, records);
           }
         }
         indicatorValues.set(column, matches);
+        matchingValues.set(column, new Map([...recordsByRoot].map(([rootId, records]) => [
+          rootId, [...records].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
+            .map(([, item]) => reportValue(valueFromItem(item, column))).join('; '),
+        ])));
       }
     }
     for (const column of validated.columns.filter((item) => item.countDistinct)) {
@@ -4886,7 +4900,7 @@ export function createCustomObjectService({
     }
     const fieldPlans = new Map();
     const fieldTraversalGroups = new Map();
-    for (const column of validated.columns.filter((item) => !item.countDistinct && !item.existsRelated)) {
+    for (const column of validated.columns.filter((item) => !item.countDistinct && !item.existsRelated && item.kind !== 'matching_field')) {
       let common = 0;
       while (common < column.path.hops.length
         && common < validated.grain.hops.length
@@ -4945,6 +4959,10 @@ export function createCustomObjectService({
           } else {
             row.values.push(countValues.get(column).get(String(startRecordId)));
           }
+          continue;
+        }
+        if (column.kind === 'matching_field') {
+          row.values.push(matchingValues.get(column)?.get(String(ancestry.at(-1)?.id)) ?? '');
           continue;
         }
         const { common, remaining, groupKey } = fieldPlans.get(column);

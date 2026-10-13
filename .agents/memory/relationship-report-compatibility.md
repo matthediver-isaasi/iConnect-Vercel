@@ -53,3 +53,13 @@ occurrences; combining them without paging can newly hit the provider row cap.
 **How to apply:** Cache only within the current execution, partition traversals
 by root, preserve each grain's root order, and test multi-root fanout beyond
 one provider page alongside sibling isolation.
+
+Responder identity columns must preserve blank slots and repeated names, sorted
+by matching endpoint identity rather than field value.
+
+**Why:** Independently deduplicating or dropping empty first/last/email values
+misassociates people across columns. Responder selection is column-local and must
+not narrow the independent count of all eligible Department members.
+
+**How to apply:** Use identical row-relative paths and final-edge designation
+conditions for each identity column; retain legacy joins on their old semantics.

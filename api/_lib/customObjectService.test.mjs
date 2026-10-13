@@ -871,6 +871,45 @@ test('indicator department report retains every department, independent counts a
   assert.ok(!db.calls.some((call) => call.name === 'custom_object_report_filtered_summary_page'));
 });
 
+test('matching fields retain blanks, duplicate names, department provenance and complete CSV parity', async () => {
+  const { seed, definition } = indicatorFixture();
+  seed.member[0].first_name = 'Same';
+  seed.member[1].first_name = 'Same';
+  seed.member[0].last_name = 'Last';
+  seed.custom_object_relationship.push({
+    ...seed.custom_object_relationship.at(-1), id: 'org-edge-two', source_record_id: 'many',
+  });
+  const indicator = definition.columns.pop();
+  definition.columns.push(...['first_name', 'last_name', 'email'].map((field) => ({
+    ...indicator, kind: 'matching_field', field, label: field,
+  })));
+  const db = mockDb(seed);
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const preview = await service.previewReport(objectId, { definition });
+  const values = Object.fromEntries(preview.data.map((row) => [row.values[0], row.values.slice(1)]));
+  assert.deepEqual(values.many, ['Hospital', 2, 'Same; Same', '; Last', 'second@example.test; shared@example.test']);
+  assert.deepEqual(values.mixed, ['', 2, 'Same', '', 'second@example.test']);
+  assert.deepEqual(values['other-department'], ['', 1, '', '', '']);
+  assert.deepEqual(values['deleted-only'], ['', 0, '', '', '']);
+  assert.deepEqual(values.zero, ['', 0, '', '', '']);
+  const paged = [];
+  for (let page = 1; page <= 4; page++) {
+    const result = await service.previewReport(objectId, { definition, page, pageSize: 2 });
+    paged.push(...result.data);
+  }
+  assert.deepEqual(paged, preview.data);
+  let job = await service.exportReport(objectId, { action: 'start', definition });
+  job = await service.exportReport(objectId, { action: 'process', job_id: job.id });
+  assert.equal(job.status, 'complete');
+  const csv = db.tables.custom_object_report_export_chunk.map((chunk) => chunk.csv_text).join('');
+  assert.match(csv, /many,Hospital,2,Same; Same,; Last,second@example.test; shared@example.test/);
+  for (const conditions of [null, [{ kind: 'field', field: 'secret', op: 'equals', value: 'x' }]]) {
+    const invalid = structuredClone(definition);
+    invalid.columns[3].conditions = conditions;
+    await assert.rejects(service.previewReport(objectId, { definition: invalid }));
+  }
+});
+
 test('indicator conditions cannot combine matching siblings and use the final edge of multihop paths', async () => {
   const { seed, definition, relationship } = indicatorFixture();
   const indicator = definition.columns[3];
@@ -906,6 +945,46 @@ test('indicator traversal pages beyond provider limits without per-root reads or
     .previewReport(objectId, { definition });
   assert.equal(preview.data.find((row) => row.values[0] === 'zero').values[1], 'True');
   assert.equal(db.calls.filter((call) => call.table === 'custom_object_relationship' && call.type === 'range').length, 2);
+});
+
+test('matching projections page large fanout and reject inaccessible conditions and traversal failures', async () => {
+  const { seed, definition, relationship } = indicatorFixture();
+  definition.columns = [definition.columns[0], { ...definition.columns[3], kind: 'matching_field', field: 'email' }];
+  for (let i = 0; i < 1205; i++) {
+    seed.member.push({ id: `page-${i}`, tenant_id: tenantId, email: `page-${i}@example.test` });
+    seed.custom_object_relationship.push({
+      id: `page-edge-${String(i).padStart(5, '0')}`, tenant_id: tenantId,
+      relationship_definition_id: relationship.id, source_record_id: 'zero',
+      target_record_id: `page-${i}`, archived_at: null, field_values: { responder: i === 1204 },
+    });
+  }
+  const db = mockDb(seed, { __relationshipSelectCap: 1000 });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const result = await service.previewReport(objectId, { definition });
+  assert.equal(result.data.find((row) => row.values[0] === 'zero').values[1], 'page-1204@example.test');
+  assert.equal(db.calls.filter((call) => call.table === 'custom_object_relationship' && call.type === 'range').length, 2);
+  const from = db.from.bind(db);
+  db.from = (table) => {
+    const query = from(table);
+    if (table === 'custom_object_relationship') query.execute = () => ({ data: null, error: { message: 'Traversal failed' } });
+    return query;
+  };
+  await assert.rejects(service.previewReport(objectId, { definition }), /Traversal failed/);
+  for (const change of [
+    (r) => { r.columns[1].conditions[0].value = 'true'; },
+    (r) => { r.columns[1].conditions[0].relationship_field_id = 'missing'; },
+    (r) => { r.columns[1].path = []; },
+    (r) => { r.version = 1; },
+    (_r, s) => { s.custom_object_relationship_definition[0].show_on_source = false; },
+    (_r, s) => { s.custom_object_relationship_definition[0].configuration.relationship_fields[0].display_on_source = false; },
+  ]) {
+    const r = structuredClone(definition), s = structuredClone(seed);
+    change(r, s);
+    const invalidDb = mockDb(s);
+    await assert.rejects(createCustomObjectService({ db: invalidDb, context: context(), isAdmin: true })
+      .previewReport(objectId, { definition: r }));
+    assert.equal(invalidDb.calls.some((call) => call.name === 'custom_object_report_summary_page'), false);
+  }
 });
 
 test('indicator metadata and malformed conditions fail closed even for empty reports', async () => {
