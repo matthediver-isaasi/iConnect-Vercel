@@ -52,8 +52,9 @@ async function run() {
   const args = process.argv.slice(2);
   const apply = args.includes('--apply');
   const file = args.find(arg => !arg.startsWith('--'));
+  const worksheet = args.find(arg => arg.startsWith('--worksheet='))?.slice('--worksheet='.length) || 'To import good';
   if (!file) throw new Error('Workbook path required; use --apply only after reviewing preview');
-  const parsed = spawnSync('python', ['scripts/lib/read-bnms-historical-invoices.py', file], { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 });
+  const parsed = spawnSync('python', ['scripts/lib/read-bnms-historical-invoices.py', file, worksheet], { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 });
   if (parsed.status !== 0) throw new Error(parsed.stderr || 'Workbook parsing failed');
   const input = JSON.parse(parsed.stdout);
   const db = await connectDestination();
