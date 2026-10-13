@@ -160,7 +160,7 @@ import {
   validateRepeatableRowVisibilityConfiguration,
 } from "../../../shared/formRepeatableRows.js";
 import { tomorrowUtcDate } from "../../../shared/formFutureDates.js";
-import { isEnhancedAnonymousSettings, validateAnonymousCompletionConfiguration } from "../../../shared/surveyCompletionPolicy.js";
+import { isEnhancedAnonymousSettings, validateAnonymousCompletionConfiguration, surveySettingsForSave } from "../../../shared/surveyCompletionPolicy.js";
 import { repeatableDateHelp } from "../../../shared/formRepeatableDates.js";
 import { normalizeFormWidth } from "../../../shared/formWidth.js";
 import {
@@ -11663,9 +11663,19 @@ export default function FormBuilderPage() {
       const privacyErrors = validateAnonymousCompletionConfiguration({ ...formData, ...data });
       if (privacyErrors.length) throw new Error(privacyErrors.join(' '));
       console.log('[FormBuilder] Updating form', id, 'with data:', JSON.stringify(data, null, 2));
-      return await base44.entities.Form.update(id, data, { headers });
+      const saveData = data.survey_settings
+        ? { ...data, survey_settings: surveySettingsForSave(data.survey_settings) }
+        : data;
+      return await base44.entities.Form.update(id, saveData, { headers });
     },
-    onSuccess: () => {
+    onSuccess: (savedForm) => {
+      if (savedForm?.survey_settings) {
+        setFormData(prev => ({
+          ...prev,
+          survey_settings: savedForm.survey_settings,
+          survey_audit_log: savedForm.survey_audit_log || prev.survey_audit_log,
+        }));
+      }
       queryClient.invalidateQueries({ queryKey: ['forms'] });
       toast.success('Form updated successfully');
     },
@@ -12011,7 +12021,7 @@ export default function FormBuilderPage() {
         fields: formData.fields || [],
         pages: formData.pages || [],
         visibility_rules: formData.visibility_rules || [],
-        survey_settings: formData.survey_settings || {}
+        survey_settings: surveySettingsForSave(formData.survey_settings)
       }, { headers: protectionHeaders });
       const response = await fetch('/api/forms/publish-survey', {
         method: 'POST',

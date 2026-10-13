@@ -1,4 +1,9 @@
 // Prospective only: legacy anonymous versions deliberately do not opt in.
+// Generic saves cannot publish; publication is a separate snapshot operation.
+export function surveySettingsForSave(settings = {}) {
+  return settings.status === 'published' ? { ...settings, status: 'draft' } : { ...settings };
+}
+
 export function isEnhancedAnonymousSettings(settings) {
   return settings?.anonymous_completion_version === 1
     && ['anonymous', 'anonymous_dedupe'].includes(settings?.response_identity);

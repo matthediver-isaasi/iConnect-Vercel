@@ -2,11 +2,22 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   isEnhancedAnonymousSettings, isEnhancedAnonymousSurvey,
+  surveySettingsForSave,
   validateAnonymousCompletionConfiguration as validate,
 } from './surveyCompletionPolicy.js';
 import {
   validateSurveyCompletionUpdate, validateSurveyCompletionPublish,
 } from '../api/_lib/surveyCompletionConfiguration.js';
+
+test('save and pre-publish settings never request direct publication or mutate builder state', () => {
+  const settings = { status: 'published', current_version: 2, response_identity: 'anonymous_dedupe', anonymous_completion_version: 1 };
+  assert.deepEqual(surveySettingsForSave(settings), { ...settings, status: 'draft' });
+  assert.equal(settings.status, 'published');
+  for (const status of ['draft', 'closed']) {
+    assert.deepEqual(surveySettingsForSave({ ...settings, status }), { ...settings, status });
+  }
+  assert.deepEqual(surveySettingsForSave(), {});
+});
 
 const survey = () => ({
   id: 'form', tenant_id: 'tenant', form_type: 'survey',
