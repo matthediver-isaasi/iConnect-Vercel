@@ -1,5 +1,7 @@
 # Billing, import, and evidence topics
 
+- [Historical invoice storage](historical-invoice-storage-boundary.md) — BNMS imports are historical metadata, presented like invoices without operational financial effects.
+
 - [csv_import_job history](csv-import-job-history.md) — import history writes are swallowed by try/catch so column drift fails silently; recording must fire on BOTH the SQL fast path and JS path, and the list must be tenant-filtered.
 - [Member/org import pitfalls](member-import-pitfalls.md) — import SQL fast path silently drops non-core fields; preference_value column is `field_id`; emails must be stored lowercased or login shows "No Member Record".
 - [Accounting provider dual invoice columns](accounting-provider-dual-columns.md) — QBO rows fill only accounting_invoice_id/number; queries filtering xero_* alone silently miss them; keep xero_invoice_id strictly Xero for API calls.
