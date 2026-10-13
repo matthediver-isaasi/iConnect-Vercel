@@ -1,4 +1,5 @@
 import { validateSurveyCompletionUpdate } from '../../_lib/surveyCompletionConfiguration.js';
+import { validateDirectoryConfiguration, canManageDirectoryConfiguration } from '../../_lib/directoryExpression.js';
 import { validateTicketRelease } from '../../../shared/ticketRelease.js';
 import { gatePublicTicketMemberPolicy } from '../../_lib/publicTicketMemberReleaseGate.js';
 import { validatePublicTicketMemberPolicyWrite } from '../../_lib/publicTicketMemberCreation.js';
@@ -327,6 +328,18 @@ export default async function handler(req, res, dependencies = {}) {
     return res.status(403).json({ error: 'Private group fields cannot be queried through generic projections.' });
   }
   if (['membergroup', 'systemsettings'].includes(entityNorm) && req.method === 'GET') delete req.query.expand;
+
+  if (entityNorm === 'dynamicdirectory' && ['PATCH', 'PUT'].includes(req.method)) {
+    if (!await canManageDirectoryConfiguration(tenantCtx, { hasAdminAccess, hasFeatureAccess })) {
+      return res.status(403).json({ error: 'Directory settings access required' });
+    }
+    const { data: existing, error } = await requestDatabase.from('dynamic_directory').select('*')
+      .eq('tenant_id', tenantCtx.tenantId).eq('id', id).maybeSingle();
+    if (error) return res.status(500).json({ error: 'Unable to validate directory' });
+    if (!existing) return res.status(404).json({ error: 'Directory not found' });
+    try { await validateDirectoryConfiguration(requestDatabase, tenantCtx.tenantId, { ...existing, ...req.body }); }
+    catch (error) { return res.status(400).json({ error: error.message }); }
+  }
 
   const genericPreferenceAccessError = await authorizeGenericCommunicationPreferenceAccess(
     entity,

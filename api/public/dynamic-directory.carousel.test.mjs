@@ -9,6 +9,8 @@ import {
   seededOrganizationOrder,
 } from './dynamic-directory.js';
 import { createOrganisationDirectoryFilters } from '../_lib/organisationDirectoryFilters.js';
+import { __setRoleAccessOverlayForTests } from '../_lib/roleVisibility.js';
+__setRoleAccessOverlayForTests([]);
 
 const TENANT_ID = 'tenant-carousel';
 
@@ -418,6 +420,7 @@ test('handler applies the saved organisation filter before global seeded orderin
         organization: rows,
         preference_field: [{
           id: 'sector',
+          field_type: 'dropdown',
           tenant_id: TENANT_ID,
           entity_scope: 'organization',
           is_active: true,
@@ -505,7 +508,7 @@ test('carousel enforces global status/type eligibility after the saved filter, w
         organization: rows,
         preference_field: [
           {
-            id: 'sector', tenant_id: TENANT_ID, entity_scope: 'organization', is_active: true,
+            id: 'sector', tenant_id: TENANT_ID, entity_scope: 'organization', is_active: true, field_type: 'dropdown',
           },
           {
             id: 'application-status', tenant_id: TENANT_ID, entity_scope: 'organization',
@@ -622,7 +625,11 @@ test('carousel eligibility stays in parity with canonical directory population f
     },
   );
 
-  assert.deepEqual(res.payload.records.map((row) => row.id), canonicalResult.organizations.map((row) => row.id));
+  // The carousel's existing own-organisation exception differs from the
+  // canonical search exclusion list. Compare the shared population separately.
+  assert.deepEqual(res.payload.records.filter(row => row.id !== 'own').map((row) => row.id),
+    canonicalResult.organizations.filter(row => row.id !== 'own').map((row) => row.id));
+  assert.ok(res.payload.records.some(row => row.id === 'own'));
 });
 
 test('carousel returns 409 when status policy mutates during the organization scan', async () => {
@@ -822,6 +829,7 @@ test('carousel returns 409 when the saved filter authority mutates during the sc
     organization: organizations(1200),
     preference_field: [{
       id: 'sector',
+      field_type: 'dropdown',
       tenant_id: TENANT_ID,
       entity_scope: 'organization',
       is_active: true,
@@ -979,9 +987,8 @@ test('carousel saved filters fail closed for fields owned by another tenant', as
     },
   );
 
-  assert.equal(res.statusCode, 200);
-  assert.equal(res.payload.total, 0);
-  assert.equal(res.payload.records.length, 0);
+  assert.equal(res.statusCode, 500);
+  assert.equal(res.payload.records, undefined);
 });
 
 test('carousel saved-filter query failures return an error instead of broadening results', async () => {

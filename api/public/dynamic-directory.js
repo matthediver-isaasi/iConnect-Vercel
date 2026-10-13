@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { directoryEligibleIds, revalidateDirectoryInclusion } from '../_lib/directoryExpression.js';
 import { createHmac } from 'node:crypto';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { getTenantContext, hasFeatureAccess } from '../_lib/tenantContext.js';
@@ -24,7 +25,7 @@ import {
 // show_members_on_card_back so guest/Canvas consumers can resolve the
 // unified back-of-card order exactly like the portal does.
 export const PUBLIC_DIRECTORY_SELECT =
-  'id, slug, name, entity_type, filter_field_id, filter_value, is_active, allowed_role_ids, back_field_order, show_members_on_card_back, core_field_visibility, custom_fields_label';
+  'id, slug, name, entity_type, filter_expression, filter_field_id, filter_value, is_active, allowed_role_ids, back_field_order, show_members_on_card_back, core_field_visibility, custom_fields_label';
 
 // Carousel responses are deliberately much smaller than the existing directory
 // response.  The upper bound is part of the API contract: callers cannot turn
@@ -455,7 +456,7 @@ async function renderOrganizationCarousel({
   const filterAuthority = await loadCarouselFilterAuthority({
     supabase,
     tenantId,
-    fieldId: directory.filter_field_id,
+    fieldId: directory.filter_expression != null ? null : directory.filter_field_id,
     filterValue: directory.filter_value,
   });
   const verifiedDomainAuthority = await loadCarouselVerifiedDomainAuthority({
@@ -476,7 +477,7 @@ async function renderOrganizationCarousel({
     verifiedDomainAuthority,
     eligibilityAuthority,
   });
-  const organizations = await fetchCarouselOrganizations({
+  let organizations = await fetchCarouselOrganizations({
     supabase,
     tenantId,
     filterAuthority,
@@ -507,7 +508,7 @@ async function renderOrganizationCarousel({
   const refreshedFilterAuthority = await loadCarouselFilterAuthority({
     supabase,
     tenantId,
-    fieldId: refreshedDirectory.filter_field_id,
+    fieldId: refreshedDirectory.filter_expression != null ? null : refreshedDirectory.filter_field_id,
     filterValue: refreshedDirectory.filter_value,
   });
   const refreshedVerifiedDomainAuthority = await loadCarouselVerifiedDomainAuthority({
@@ -540,6 +541,12 @@ async function renderOrganizationCarousel({
     exclusionsResolver,
   });
   if (!refreshedAccess.allowed) return carouselAccessResponse(res, refreshedAccess);
+
+  const eligibleIds = await directoryEligibleIds(supabase, tenantId, directory, organizations.map(row => row.id));
+  if (eligibleIds !== null) organizations = organizations.filter(row => eligibleIds.includes(row.id));
+  if (!await revalidateDirectoryInclusion(supabase, tenantId, directory, organizations.map(row => row.id))) {
+    return res.status(409).json({ error: 'Directory inclusion changed; retry' });
+  }
 
   const response = buildCarouselResponse(organizations, {
     page: pageNum,
@@ -603,6 +610,7 @@ function carouselAuthorityFingerprint({
       isActive: directory?.is_active === true,
       allowedRoleIds: [...(rolePolicy?.ids || [])].sort(),
       filterFieldId: directory?.filter_field_id || null,
+      filterExpression: directory?.filter_expression ?? null,
       filterValue: directory?.filter_value ?? null,
     },
     display: {
@@ -1058,15 +1066,13 @@ async function fetchCarouselOrganizations({
 
 async function renderMembers({ supabase, tenantId, directory, pageNum, pageSize, offset, sort, search, customFilters, res }) {
   const filterFields = [];
-  if (directory.filter_field_id && directory.filter_value) {
-    filterFields.push({ fieldId: directory.filter_field_id, value: directory.filter_value });
-  }
   for (const [fieldId, value] of Object.entries(customFilters || {})) {
     if (Array.isArray(value) ? value.length > 0 : (value && value !== 'all')) filterFields.push({ fieldId, value });
   }
-  let memberIds = null;
+  let memberIds = await directoryEligibleIds(supabase, tenantId, directory);
   if (filterFields.length > 0) {
-    memberIds = await intersectMemberIds(supabase, filterFields);
+    const searched = await intersectMemberIds(supabase, filterFields);
+    memberIds = memberIds === null ? searched : memberIds.filter(id => searched.includes(id));
     if (memberIds.length === 0) return res.json({ entityType: 'member', records: [], total: 0, page: pageNum, pageSize });
   }
 
@@ -1151,6 +1157,9 @@ async function renderMembers({ supabase, tenantId, directory, pageNum, pageSize,
     organization_name: m.organization_id ? (orgNameById[m.organization_id] || null) : null,
     customValues: valuesByMember[m.id] || {},
   }));
+  if (!await revalidateDirectoryInclusion(supabase, tenantId, directory, pageMemberIds)) {
+    return res.status(409).json({ error: 'Directory inclusion changed; retry' });
+  }
 
   return res.json({
     entityType: 'member',
@@ -1165,15 +1174,13 @@ async function renderMembers({ supabase, tenantId, directory, pageNum, pageSize,
 async function renderOrganizations({ supabase, tenantId, directory, pageNum, pageSize, offset, sort, search, customFilters, res, context }) {
   const displaySettings = await fetchOrgDisplaySettings(supabase, tenantId);
   const filterFields = [];
-  if (directory.filter_field_id && directory.filter_value) {
-    filterFields.push({ fieldId: directory.filter_field_id, value: directory.filter_value });
-  }
   for (const [fieldId, value] of Object.entries(customFilters || {})) {
     if (Array.isArray(value) ? value.length > 0 : (value && value !== 'all')) filterFields.push({ fieldId, value });
   }
-  let orgIds = null;
+  let orgIds = await directoryEligibleIds(supabase, tenantId, directory);
   if (filterFields.length > 0) {
-    orgIds = await intersectOrgIds(supabase, filterFields);
+    const searched = await intersectOrgIds(supabase, filterFields);
+    orgIds = orgIds === null ? searched : orgIds.filter(id => searched.includes(id));
     if (orgIds.length === 0) return res.json({ entityType: 'organization', records: [], total: 0, page: pageNum, pageSize });
   }
   let q = supabase
@@ -1202,6 +1209,9 @@ async function renderOrganizations({ supabase, tenantId, directory, pageNum, pag
   }));
   if (!await revalidateOrganisationPublication({ db: supabase, tenantId, directory, settings: displaySettings, context })) {
     return res.status(409).json({ error: 'Directory publication changed; retry' });
+  }
+  if (!await revalidateDirectoryInclusion(supabase, tenantId, directory, records.map(row => row.id))) {
+    return res.status(409).json({ error: 'Directory inclusion changed; retry' });
   }
   displaySettings.backFieldOrder = publicDirectoryBackOrder(displaySettings.backFieldOrder);
   // Per-directory override for the member-count core item (detail popup /

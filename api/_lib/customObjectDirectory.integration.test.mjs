@@ -532,6 +532,11 @@ test('dynamic directory enforces allowed roles and its saved organization filter
   };
   const seed = baseSeed({
     dynamic_directory: [dynamic],
+    preference_field: [
+      field(primaryFieldId, 'name'),
+      field(valueFieldId, 'value'),
+      { id: filterFieldId, tenant_id: tenantId, entity_scope: 'organization', is_active: true, field_type: 'dropdown' },
+    ],
     organization_preference_value: [{
       organization_id: organizationId,
       field_id: filterFieldId,

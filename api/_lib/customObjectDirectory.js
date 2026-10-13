@@ -1,3 +1,4 @@
+import { directoryEligibleIds } from './directoryExpression.js';
 import {
   getCustomObjectFieldMetadata,
   resolveCustomObjectDisplayValue,
@@ -212,7 +213,7 @@ async function resolveDirectory({ db, context, directoryId, settings, featureChe
   }
 
   const directory = await one(db.from('dynamic_directory')
-    .select('id, entity_type, allowed_role_ids, filter_field_id, filter_value, is_active')
+    .select('id, entity_type, allowed_role_ids, filter_expression, filter_field_id, filter_value, is_active')
     .eq('tenant_id', context.tenantId).eq('id', directoryId)
     .eq('is_active', true).maybeSingle(), 'Failed to look up directory');
   if (!directory || directory.entity_type !== 'organization') {
@@ -294,10 +295,9 @@ export async function isDirectoryOrganizationEligible({
     )) return null;
   }
 
-  if (directory.id !== 'main' && directory.filter_field_id && directory.filter_value) {
-    const values = await rows(db.from('organization_preference_value').select('value')
-      .eq('organization_id', organizationId).eq('field_id', directory.filter_field_id));
-    if (!values.some((row) => matchesDirectoryValue(row.value, directory.filter_value))) return null;
+  if (directory.id !== 'main') {
+    const ids = await directoryEligibleIds(db, context.tenantId, directory, [organizationId]);
+    if (ids !== null && !ids.includes(organizationId)) return null;
   }
   return organization;
 }

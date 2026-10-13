@@ -1,4 +1,5 @@
 import { getTenantContext } from '../_lib/tenantContext.js';
+import { directoryEligibleIds, projectDirectoryInclusion, revalidateDirectoryInclusion, readDirectoryPages } from '../_lib/directoryExpression.js';
 import { supabase } from '../_lib/database.js';
 import { projectOrganisationCoreValues } from '../../shared/organisationDirectoryCore.js';
 import { canReadOrganisationDirectory, revalidateOrganisationPublication } from '../_lib/organisationDirectoryPublication.js';
@@ -85,7 +86,7 @@ export default async function handler(req, res, dependencies = {}) {
     }
 
     if (directory.entity_type === 'member') {
-      return await buildMemberConfig({ res, tenantId, directory, dirId, roles, filterField });
+      return await buildMemberConfig({ res, tenantId, directory, dirId, roles, filterField, supabase: db });
     }
     if (directory.entity_type === 'organization') {
       if (!canReadOrganisationDirectory(directory, tenantContext, tenantId)) {
@@ -102,7 +103,7 @@ export default async function handler(req, res, dependencies = {}) {
 
 // --- member directory config ------------------------------------------------
 
-async function buildMemberConfig({ res, tenantId, directory, dirId, roles, filterField }) {
+async function buildMemberConfig({ res, tenantId, directory, dirId, roles, filterField, supabase }) {
   // Layer this directory's core-field visibility overrides over the global
   // settings so guests resolve visibility exactly like logged-in members.
   const displaySettings = applyCoreFieldVisibility(
@@ -119,7 +120,7 @@ async function buildMemberConfig({ res, tenantId, directory, dirId, roles, filte
   const { memberCustomFields, directoryCustomFields } = await fetchMemberFields(supabase, tenantId, dirId);
 
   return res.json({
-    directory,
+    directory: projectDirectoryInclusion(directory),
     filterField,
     roles,
     displaySettings,
@@ -145,13 +146,13 @@ async function buildOrgConfig({ res, tenantId, directory, dirId, roles, filterFi
     .order('name', { ascending: true }).order('id', { ascending: true }), 'Organisation inventory');
   let organizations = orgRows || [];
 
-  const { data: fieldRows } = await supabase
+  const fieldRows = await readDirectoryPages(() => supabase
     .from('preference_field')
     .select('*')
     .eq('tenant_id', tenantId)
     .eq('is_active', true)
     .eq('entity_scope', 'organization')
-    .order('display_order', { ascending: true });
+    .order('display_order', { ascending: true }).order('id'));
   const orgCustomFields = sortFieldsForDirectory(
     (fieldRows || [])
       .filter((f) => isVisibleInDirectory(f, dirId))
@@ -161,25 +162,22 @@ async function buildOrgConfig({ res, tenantId, directory, dirId, roles, filterFi
   // organization_preference_value has no tenant_id column; scope via org ids.
   const orgIds = organizations.map((o) => o.id);
   const allOrgPreferenceValues = await fetchOrgPreferenceValues(orgIds, supabase);
-  if (directory.filter_field_id && directory.filter_value) {
-    const matching = new Set(allOrgPreferenceValues.filter(value => {
-      if (value.field_id !== directory.filter_field_id) return false;
-      let raw = value.value;
-      if (typeof raw === 'string') {
-        try { raw = JSON.parse(raw); } catch {}
-      }
-      return (Array.isArray(raw) ? raw : [raw]).some(v => String(v) === String(directory.filter_value));
-    }).map(value => value.organization_id));
+  const eligible = await directoryEligibleIds(supabase, tenantId, directory, orgIds);
+  if (eligible !== null) {
+    const matching = new Set(eligible);
     organizations = organizations.filter(org => matching.has(org.id));
   }
   const allowedIds = new Set(organizations.map(org => org.id));
-  const allowedFields = new Set([...orgCustomFields.map(field => field.id), directory.filter_field_id]);
+  const allowedFields = new Set(orgCustomFields.map(field => field.id));
   if (!await revalidateOrganisationPublication({ db: supabase, tenantId, directory, settings: displaySettings, context })) {
     return res.status(409).json({ error: 'Directory publication changed; retry' });
   }
+  if (!await revalidateDirectoryInclusion(supabase, tenantId, directory, organizations.map(row => row.id))) {
+    return res.status(409).json({ error: 'Directory inclusion changed; retry' });
+  }
 
   return res.json({
-    directory,
+    directory: projectDirectoryInclusion(directory),
     filterField,
     roles,
     displaySettings,
@@ -201,20 +199,11 @@ async function fetchOrgPreferenceValues(orgIds, supabase) {
   const chunkSize = 200; // keep .in() lists reasonable
   for (let i = 0; i < orgIds.length; i += chunkSize) {
     const chunk = orgIds.slice(i, i + chunkSize);
-    let offset = 0;
-    const batchSize = 1000;
-    while (true) {
-      const { data, error } = await supabase
+    results.push(...await readDirectoryPages(() => supabase
         .from('organization_preference_value')
         .select('organization_id, field_id, value')
         .in('organization_id', chunk)
-        .range(offset, offset + batchSize - 1);
-      if (error) throw new Error('Unable to load organisation directory values');
-      if (!data || data.length === 0) break;
-      results.push(...data);
-      if (data.length < batchSize) break;
-      offset += batchSize;
-    }
+        .order('id')));
   }
   return results;
 }

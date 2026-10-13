@@ -137,7 +137,7 @@ export default function DynamicDirectoryView() {
   }, [customFieldFilters]);
 
   const { data: memberResponse, isLoading: isLoadingMembers } = useQuery({
-    queryKey: ['directory-members', slug, currentPage, itemsPerPage, sortBy, debouncedSearch, showDisabled, activeCustomFilters],
+    queryKey: ['directory-members', slug, directory?.inclusion_revision, directory?.filter_expression, memberInfo?.tenant_id, memberInfo?.id, currentPage, itemsPerPage, sortBy, debouncedSearch, showDisabled, activeCustomFilters],
     queryFn: async () => {
       const params = new URLSearchParams({
         slug,
@@ -393,35 +393,7 @@ export default function DynamicDirectoryView() {
     staleTime: 5 * 60 * 1000,
   });
 
-  const { data: authSelectedOrgValues = [], isLoading: isLoadingOrgValues } = useQuery({
-    queryKey: ['/api/entities/OrganizationPreferenceValue', selectedOrg?.id],
-    enabled: !!selectedOrg?.id && !isGuest,
-    queryFn: async () => {
-      if (!selectedOrg?.id) return [];
-      try {
-        const values = await base44.entities.OrganizationPreferenceValue.list({
-          filter: { organization_id: selectedOrg.id }
-        });
-        return values || [];
-      } catch {
-        return [];
-      }
-    }
-  });
-
-  const { data: authAllOrgPreferenceValues = [] } = useQuery({
-    queryKey: ['all-org-preference-values', directory?.filter_field_id],
-    enabled: !!directory && directory.entity_type === 'organization' && !isGuest,
-    queryFn: async () => {
-      try {
-        const values = await base44.entities.OrganizationPreferenceValue.listAll();
-        return values || [];
-      } catch {
-        return [];
-      }
-    },
-    staleTime: 60 * 1000,
-  });
+  const isLoadingOrgValues = isLoadingPublicConfig;
 
   // ---- Merged config: guests read from publicConfig, others from base44 ----
   const filterField = isGuest ? (publicConfig?.filterField || null) : authFilterField;
@@ -451,10 +423,9 @@ export default function DynamicDirectoryView() {
   const orgCustomFields = isGuest ? (publicConfig?.orgCustomFields || []) : authOrgCustomFields;
   const memberCustomFields = isGuest ? (publicConfig?.memberCustomFields || []) : authMemberCustomFields;
   const directoryCustomFields = isGuest ? (publicConfig?.directoryCustomFields || []) : authDirectoryCustomFields;
-  const allOrgPreferenceValues = isGuest ? (publicConfig?.allOrgPreferenceValues || []) : authAllOrgPreferenceValues;
-  const selectedOrgValues = isGuest
-    ? (selectedOrg?.id ? (publicConfig?.allOrgPreferenceValues || []).filter(v => v.organization_id === selectedOrg.id) : [])
-    : authSelectedOrgValues;
+  const allOrgPreferenceValues = publicConfig?.allOrgPreferenceValues || [];
+  const selectedOrgValues = selectedOrg?.id
+    ? allOrgPreferenceValues.filter(v => v.organization_id === selectedOrg.id) : [];
 
   const filterableOrgFields = useMemo(() => {
     const baseFilterable = orgCustomFields.filter(f => f.is_filterable && f.id !== directory?.filter_field_id);
@@ -661,15 +632,8 @@ export default function DynamicDirectoryView() {
     const excludedIds = orgDisplaySettings?.excludedOrgIds || [];
     let filtered = organizations.filter(org => !excludedIds.includes(org.id));
 
-    if (directory.filter_field_id && directory.filter_value) {
-      filtered = filtered.filter(org => {
-        const orgValues = orgPreferenceMap[org.id] || {};
-        const orgValue = orgValues[directory.filter_field_id];
-        if (!orgValue) return false;
-        if (Array.isArray(orgValue)) return orgValue.includes(directory.filter_value);
-        return orgValue === directory.filter_value;
-      });
-    }
+    // Inclusion is evaluated server-side before projection. Hidden rule values
+    // are never required by this visitor-side search.
 
     if (searchQuery) {
       const searchLower = searchQuery.toLowerCase();

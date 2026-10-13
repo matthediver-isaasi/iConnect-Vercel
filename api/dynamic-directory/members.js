@@ -1,4 +1,5 @@
 import { getTenantContext, hasFeatureAccess } from '../_lib/tenantContext.js';
+import { directoryEligibleIds, revalidateDirectoryInclusion } from '../_lib/directoryExpression.js';
 import { supabase } from '../_lib/database.js';
 import {
   buildOrganisationMembersResponse,
@@ -133,9 +134,6 @@ export default async function handler(req, res) {
 
     const allFilterFields = [];
     if (directory.entity_type === 'member') {
-      if (directory.filter_field_id && directory.filter_value) {
-        allFilterFields.push({ fieldId: directory.filter_field_id, value: directory.filter_value });
-      }
       for (const [fieldId, value] of Object.entries(customFilters)) {
         if (Array.isArray(value)) {
           if (value.length > 0) {
@@ -147,7 +145,8 @@ export default async function handler(req, res) {
       }
     }
 
-    let memberIds = null;
+    let memberIds = directory.entity_type === 'member'
+      ? await directoryEligibleIds(supabase, tenantId, directory) : null;
     if (departmentId) {
       const requestedDepartmentIds = String(departmentId).split(',').map(id => id.trim()).filter(Boolean).slice(0, 100);
       if (!requestedDepartmentIds.length) return res.status(400).json({ error: 'department_id is invalid' });
@@ -158,7 +157,8 @@ export default async function handler(req, res) {
           return res.status(400).json({ error: 'department_id is not available for this organisation' });
         }
       }
-      memberIds = await resolveDepartmentMemberIds(supabase, tenantId, requestedDepartmentIds);
+      const departmentMembers = await resolveDepartmentMemberIds(supabase, tenantId, requestedDepartmentIds);
+      memberIds = memberIds === null ? departmentMembers : memberIds.filter(id => departmentMembers.includes(id));
       if (!memberIds.length) {
         const empty = { members: [], total: 0, page: pageNum, pageSize };
         if (organizationId) return res.json(buildOrganisationMembersResponse({
@@ -261,6 +261,10 @@ export default async function handler(req, res) {
       console.error('[DynamicDirectory Members] Data query error:', dataError);
       return res.status(500).json({ error: 'Failed to fetch members' });
     }
+    if (directory.id !== 'main' && !await revalidateDirectoryInclusion(supabase, tenantId, directory,
+      organizationId ? [organizationId] : (members || []).map(row => row.id))) {
+      return res.status(409).json({ error: 'Directory inclusion changed; retry' });
+    }
 
     const response = {
       // Department membership is private organisation-directory metadata.
@@ -360,15 +364,9 @@ async function getEligibleOrganization({
     }
   }
 
-  if (directory.id !== 'main' && directory.filter_field_id && directory.filter_value) {
-    const { data: values, error: valuesError } = await supabase
-      .from('organization_preference_value')
-      .select('value')
-      .eq('organization_id', organizationId)
-      .eq('field_id', directory.filter_field_id);
-    if (valuesError || !(values || []).some((row) => matchesValue(row.value, directory.filter_value))) {
-      return null;
-    }
+  if (directory.id !== 'main') {
+    const eligible = await directoryEligibleIds(supabase, tenantId, directory, [organizationId]);
+    if (eligible !== null && !eligible.includes(organizationId)) return null;
   }
   return data[0];
 }
@@ -430,7 +428,7 @@ async function getMemberIdsForFieldValue(tenantId, fieldId, filterValue) {
 
     if (error) {
       console.error('[DynamicDirectory Members] Preference lookup error:', error);
-      break;
+      throw new Error('Unable to read directory filter values');
     }
 
     if (!data || data.length === 0) {

@@ -1,3 +1,4 @@
+import { directoryEligibleIds, readDirectoryPages } from './directoryExpression.js';
 // Task #2419: Member AI structured data Q&A (counts from the database).
 //
 // Lets the member AI assistant answer numerical/aggregate questions
@@ -731,12 +732,11 @@ function prefFieldIdsInSpec(spec) {
 // unpublished them and we refuse ({code:'no_directory'}). Otherwise the
 // visible set is the union of what the active directories expose.
 async function resolveDirectoryRestriction(supabase, tenantId, entityType, prefScope) {
-  const { data: dirs, error } = await supabase
+  const dirs = await readDirectoryPages(() => supabase
     .from('dynamic_directory')
-    .select('id, filter_field_id, filter_value, is_active')
+    .select('id, entity_type, filter_expression, filter_field_id, filter_value, is_active')
     .eq('tenant_id', tenantId)
-    .eq('entity_type', entityType);
-  if (error) throw new Error(error.message);
+    .eq('entity_type', entityType).order('id'));
   if (!dirs || dirs.length === 0) return null; // legacy directory: unrestricted
   const active = dirs.filter((d) => d.is_active === true);
   if (active.length === 0) {
@@ -744,16 +744,11 @@ async function resolveDirectoryRestriction(supabase, tenantId, entityType, prefS
     e.code = 'no_directory';
     throw e;
   }
-  const filtered = active.filter((d) => d.filter_field_id && d.filter_value);
-  if (filtered.length < active.length) return null; // an unfiltered active directory exists
-  const fieldIds = [...new Set(filtered.map((d) => d.filter_field_id))];
-  const maps = await fetchPrefValueMaps(supabase, prefScope, fieldIds);
   const allowed = new Set();
-  for (const d of filtered) {
-    const m = maps.get(d.filter_field_id) || new Map();
-    for (const [entityId, stored] of m.entries()) {
-      if (matchesPrefValue(stored, 'eq', d.filter_value)) allowed.add(entityId);
-    }
+  for (const d of active) {
+    const ids = await directoryEligibleIds(supabase, tenantId, { ...d, entity_type: entityType });
+    if (ids === null) return null;
+    for (const id of ids) allowed.add(id);
   }
   return allowed;
 }

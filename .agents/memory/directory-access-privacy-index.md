@@ -6,6 +6,7 @@ description: Durable rules for directory scope, eligibility, privacy, exports, f
 Use the focused topic that matches the change:
 
 - [Public directory field privacy](public-directory-field-privacy.md) — enforce member eligibility and tenant field visibility in public projections.
+- [Directory inclusion configuration](directory-inclusion-policy.md) — GFI must supply status values before its live Partner Directory is changed.
 - [Directory-owned member scope](directory-owned-member-scope.md) — keep contact views in the source directory; query params cannot change authorization scope.
 - [Directory Data Studio file access](directory-data-studio-file-access.md) — opt-in is not publication consent; downloads must recheck source permissions.
 - [Directory export membership boundary](directory-export-count-boundary.md) — count-only exports use directory eligibility; viewer organisation affects authorization.

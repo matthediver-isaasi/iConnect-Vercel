@@ -1,4 +1,5 @@
 import { isOwnBookingHistoryRead, scopeOwnBookingHistory } from '../../_lib/ownBookingHistory.js';
+import { validateDirectoryConfiguration, canManageDirectoryConfiguration } from '../../_lib/directoryExpression.js';
 import { sendEmail, replacePlaceholders } from '../../_lib/emailService.js';
 import { sendSessionUnavailable } from '../../_lib/sessionAvailability.js';
 import { withoutEnhancedSurveyAnswers } from '../../_lib/surveyCompletionOutputs.js';
@@ -485,6 +486,14 @@ export default async function handler(req, res) {
     if (!roleAccess.ok) {
       return res.status(roleAccess.status).json({ error: roleAccess.error });
     }
+  }
+
+  if (entityNorm === 'dynamicdirectory' && req.method === 'POST') {
+    if (!await canManageDirectoryConfiguration(tenantCtx, { hasAdminAccess, hasFeatureAccess })) {
+      return res.status(403).json({ error: 'Directory settings access required' });
+    }
+    try { await validateDirectoryConfiguration(supabase, tenantCtx.tenantId, req.body || {}); }
+    catch (error) { return res.status(400).json({ error: error.message }); }
   }
 
   const genericPreferenceAccessError = await authorizeGenericCommunicationPreferenceAccess(

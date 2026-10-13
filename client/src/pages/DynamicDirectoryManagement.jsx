@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { useState, useEffect, useSyncExternalStore } from "react";
+import { base44, getActiveTenantId, subscribeToActiveTenantId } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,10 @@ import { toast } from "sonner";
 import SEOSettings from "@/components/blog/SEOSettings";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
-import { getDirectoryFilterOptions, isFieldInDirectory, CORE_FIELDS, MEMBER_BACK_DEFAULT_ORDER, ORG_BACK_CORE_ITEMS, ORG_BACK_DEFAULT_ORDER, resolveBackFieldOrder, enrichFieldForDirectory, getDirectoryOrderedFields } from "@/utils/directorySettings";
+import { isFieldInDirectory, CORE_FIELDS, MEMBER_BACK_DEFAULT_ORDER, ORG_BACK_CORE_ITEMS, ORG_BACK_DEFAULT_ORDER, resolveBackFieldOrder, enrichFieldForDirectory, getDirectoryOrderedFields } from "@/utils/directorySettings";
+import DirectoryExpressionEditor from "@/components/directory/DirectoryExpressionEditor";
+import { emptyDirectoryExpression, readDirectoryExpression, directoryExpressionError, directoryExpressionSaveFields, expressionSummary, draftExpressionFieldIds, loadDirectoryRuleFields } from "@/utils/directoryExpressionEditor";
+import { normalizeDirectoryExpression } from "../../../shared/directoryExpression.js";
 import BackFieldOrderList from "@/components/directory/BackFieldOrderList";
 import { useDirectoryObjectSources } from "@/hooks/useDirectoryObjectSources";
 import DirectoryObjectSourcesGuidance from "@/components/directory/DirectoryObjectSourcesGuidance";
@@ -36,7 +39,9 @@ function generateSlug(name) {
 }
 
 export default function DynamicDirectoryManagementPage() {
-  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
+  const activeTenantId = useSyncExternalStore(subscribeToActiveTenantId, getActiveTenantId, getActiveTenantId);
+  const tenantId = activeTenantId || memberInfo?.tenant_id || null;
   const [accessChecked, setAccessChecked] = useState(false);
   const queryClient = useQueryClient();
 
@@ -45,8 +50,9 @@ export default function DynamicDirectoryManagementPage() {
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
   const [entityType, setEntityType] = useState('member');
-  const [filterFieldId, setFilterFieldId] = useState('');
-  const [filterValue, setFilterValue] = useState('');
+  const [filterExpression, setFilterExpression] = useState(emptyDirectoryExpression);
+  const [savedExpressionError, setSavedExpressionError] = useState('');
+  const [ruleError, setRuleError] = useState('');
   const [isActive, setIsActive] = useState(true);
   // null = use all filterable fields (backward compat), [] = explicitly none, [...ids] = specific selection
   const [selectedFilterFields, setSelectedFilterFields] = useState(null);
@@ -100,41 +106,18 @@ export default function DynamicDirectoryManagementPage() {
     enabled: accessChecked
   });
 
-  const { data: preferenceFields = [], isLoading: isLoadingFields } = useQuery({
-    queryKey: ['/api/entities/PreferenceField', entityType],
+  const fieldsQuery = useQuery({
+    queryKey: ['/api/entities/PreferenceField/inclusion', tenantId, memberInfo?.id, entityType],
     queryFn: async () => {
-      try {
-        const fields = await base44.entities.PreferenceField.list({
-          filter: { entity_scope: entityType, is_active: true },
-          sort: { display_order: 'asc' }
-        });
-        return (fields || []).filter(f => f.field_type === 'picklist' || f.field_type === 'dropdown' || f.field_type === 'boolean');
-      } catch (error) {
-        console.error('Failed to fetch preference fields:', error);
-        return [];
-      }
+      // Continue through short server-capped pages until an empty page.
+      return loadDirectoryRuleFields(base44.entities.PreferenceField, tenantId, entityType);
     },
-    enabled: isDialogOpen
+    enabled: accessChecked && isDialogOpen && !!tenantId,
+    retry: false
   });
-
-  const { data: allFilterableFields = [] } = useQuery({
-    queryKey: ['/api/entities/PreferenceField/filterable', entityType],
-    queryFn: async () => {
-      try {
-        const fields = await base44.entities.PreferenceField.list({
-          filter: { entity_scope: entityType, is_active: true, is_filterable: true },
-          sort: { display_order: 'asc' }
-        });
-        return (fields || []).filter(f => 
-          (f.field_type === 'picklist' || f.field_type === 'dropdown' || f.field_type === 'boolean') && f.is_filterable
-        );
-      } catch (error) {
-        console.error('Failed to fetch filterable fields:', error);
-        return [];
-      }
-    },
-    enabled: isDialogOpen
-  });
+  const preferenceFields = fieldsQuery.data || [];
+  const isLoadingFields = fieldsQuery.isPending || fieldsQuery.isFetching;
+  const allFilterableFields = preferenceFields.filter(f => f.is_filterable);
 
   const { data: roles = [] } = useQuery({
     queryKey: ['/api/entities/Role'],
@@ -309,9 +292,8 @@ export default function DynamicDirectoryManagementPage() {
     );
   };
 
-  const availableFilterFields = allFilterableFields.filter(f => f.id !== filterFieldId);
-
-  const selectedField = preferenceFields.find(f => f.id === filterFieldId);
+  const inclusionFieldIds = draftExpressionFieldIds(filterExpression);
+  const availableFilterFields = allFilterableFields.filter(f => f.id !== inclusionFieldIds[0]);
 
   const createMutation = useMutation({
     mutationFn: async (data) => {
@@ -360,8 +342,9 @@ export default function DynamicDirectoryManagementPage() {
     setName('');
     setSlug('');
     setEntityType('member');
-    setFilterFieldId('');
-    setFilterValue('');
+    setFilterExpression(emptyDirectoryExpression());
+    setSavedExpressionError('');
+    setRuleError('');
     setIsActive(true);
     setSelectedFilterFields([]);  // Default to empty array for new directories (no filters)
     setAllowedRoleIds([]);
@@ -387,8 +370,14 @@ export default function DynamicDirectoryManagementPage() {
     setName(directory.name || '');
     setSlug(directory.slug || '');
     setEntityType(directory.entity_type || 'member');
-    setFilterFieldId(directory.filter_field_id || '');
-    setFilterValue(directory.filter_value || '');
+    try {
+      setFilterExpression(readDirectoryExpression(directory));
+      setSavedExpressionError('');
+    } catch (error) {
+      setFilterExpression(null);
+      setSavedExpressionError(error.message || 'Malformed expression');
+    }
+    setRuleError('');
     setIsActive(directory.is_active !== false);
     // Preserve null/undefined to distinguish between "not configured" and "explicitly empty"
     setSelectedFilterFields(directory.selected_filter_fields ?? null);
@@ -423,25 +412,21 @@ export default function DynamicDirectoryManagementPage() {
 
   const handleEntityTypeChange = (value) => {
     setEntityType(value);
-    setFilterFieldId('');
-    setFilterValue('');
+    setFilterExpression(emptyDirectoryExpression());
+    setSavedExpressionError('');
+    setRuleError('');
     setSelectedFilterFields([]);  // Reset to empty array when changing entity type
   };
 
   const handleToggleFilterField = (fieldId) => {
     setSelectedFilterFields(prev => {
-      const currentList = prev || [];
+      const currentList = prev ?? availableFilterFields.map(f => f.id);
       if (currentList.includes(fieldId)) {
         return currentList.filter(id => id !== fieldId);
       } else {
         return [...currentList, fieldId];
       }
     });
-  };
-
-  const handleFilterFieldChange = (value) => {
-    setFilterFieldId(value);
-    setFilterValue('');
   };
 
   const handleToggleRole = (roleId) => {
@@ -465,13 +450,14 @@ export default function DynamicDirectoryManagementPage() {
       return;
     }
 
-    if (!filterFieldId) {
-      toast.error('Please select a filter field');
-      return;
-    }
-
-    if (!filterValue) {
-      toast.error('Please select a filter value');
+    const expressionError = savedExpressionError || (
+      fieldsQuery.isError ? 'Available fields could not be loaded. Retry before saving.' :
+      isLoadingFields ? 'Wait for available fields to load.' :
+      directoryExpressionError(filterExpression, preferenceFields)
+    );
+    if (expressionError) {
+      setRuleError(expressionError);
+      toast.error(expressionError);
       return;
     }
 
@@ -479,10 +465,8 @@ export default function DynamicDirectoryManagementPage() {
       name: name.trim(),
       slug: slug.trim().toLowerCase().replace(/\s+/g, '-'),
       entity_type: entityType,
-      filter_field_id: filterFieldId,
-      filter_value: filterValue,
+      ...directoryExpressionSaveFields(filterExpression, selectedFilterFields),
       is_active: isActive,
-      selected_filter_fields: selectedFilterFields || [],  // Always include, defaults to empty array
       allowed_role_ids: allowedRoleIds,
       email_source_type: emailSourceType || null,
       email_source_field: emailSourceField || null,
@@ -563,8 +547,7 @@ export default function DynamicDirectoryManagementPage() {
                     <TableHead>Name</TableHead>
                     <TableHead>Slug</TableHead>
                     <TableHead>Entity Type</TableHead>
-                    <TableHead>Filter Field</TableHead>
-                    <TableHead>Filter Value</TableHead>
+                    <TableHead colSpan={2}>Inclusion rules</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
@@ -588,11 +571,14 @@ export default function DynamicDirectoryManagementPage() {
                             <span className="capitalize">{directory.entity_type}</span>
                           </div>
                         </TableCell>
-                        <TableCell data-testid={`directory-filter-field-${directory.id}`}>
-                          {directory.filter_field_name || directory.filter_field_id || '-'}
-                        </TableCell>
-                        <TableCell data-testid={`directory-filter-value-${directory.id}`}>
-                          {directory.filter_value || '-'}
+                        <TableCell colSpan={2} className="max-w-sm text-xs" data-testid={`directory-inclusion-summary-${directory.id}`}>
+                          {(() => {
+                            try {
+                              return expressionSummary(normalizeDirectoryExpression(directory));
+                            } catch {
+                              return <span className="text-red-700">Invalid saved inclusion rules. Edit to repair.</span>;
+                            }
+                          })()}
                         </TableCell>
                         <TableCell data-testid={`directory-status-${directory.id}`}>
                           {directory.is_active !== false ? (
@@ -650,7 +636,7 @@ export default function DynamicDirectoryManagementPage() {
       </div>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="sm:max-w-[500px] max-h-[85vh] overflow-hidden !grid grid-rows-[auto_1fr_auto]">
+        <DialogContent className="sm:max-w-[680px] max-h-[85vh] overflow-hidden !grid grid-rows-[auto_1fr_auto]">
           <DialogHeader>
             <DialogTitle data-testid="dialog-title">
               {editingDirectory ? 'Edit Dynamic Directory' : 'Create Dynamic Directory'}
@@ -705,68 +691,53 @@ export default function DynamicDirectoryManagementPage() {
               </Select>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="filterField">Filter Field *</Label>
-              <Select 
-                value={filterFieldId} 
-                onValueChange={handleFilterFieldChange}
-                disabled={isLoadingFields}
-              >
-                <SelectTrigger data-testid="select-filter-field">
-                  <SelectValue placeholder={isLoadingFields ? "Loading fields..." : "Select filter field"} />
-                </SelectTrigger>
-                <SelectContent>
-                  {preferenceFields.length === 0 ? (
-                    <SelectItem value="_none" disabled>
-                      No picklist/dropdown/boolean fields available
-                    </SelectItem>
-                  ) : (
-                    preferenceFields.map((field) => (
-                      <SelectItem key={field.id} value={field.id}>
-                        {field.label}
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-slate-500">Only picklist, dropdown and boolean fields are available</p>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="filterValue">Filter Value *</Label>
-              <Select 
-                value={filterValue} 
-                onValueChange={setFilterValue}
-                disabled={!selectedField}
-              >
-                <SelectTrigger data-testid="select-filter-value">
-                  <SelectValue placeholder={!selectedField ? "Select a field first" : "Select filter value"} />
-                </SelectTrigger>
-                <SelectContent>
-                  {getDirectoryFilterOptions(selectedField).map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <DirectoryExpressionEditor
+              expression={filterExpression}
+              fields={preferenceFields}
+              loading={isLoadingFields}
+              loadError={fieldsQuery.isError}
+              onRetry={() => fieldsQuery.refetch()}
+              savedError={savedExpressionError}
+              error={ruleError}
+              onChange={expression => { setFilterExpression(expression); setRuleError(''); }}
+              onReplace={() => {
+                if (confirm('Replace the invalid saved inclusion rules? This cannot be undone until you cancel the editor.')) {
+                  setFilterExpression(emptyDirectoryExpression());
+                  setSavedExpressionError('');
+                  setRuleError('');
+                }
+              }}
+            />
 
             <div className="space-y-3 p-3 bg-slate-50 rounded-lg border">
               <div className="flex items-center gap-2">
                 <Filter className="w-4 h-4 text-blue-600" />
                 <Label className="font-medium">Search Filter Fields (Optional)</Label>
               </div>
+              <div className="flex items-center gap-2">
+                <Checkbox id="inherit-search-fields" checked={selectedFilterFields === null}
+                  onCheckedChange={checked => setSelectedFilterFields(checked ? null : availableFilterFields.map(f => f.id))}
+                  disabled={isLoadingFields || fieldsQuery.isError} />
+                <label htmlFor="inherit-search-fields" className="text-xs text-slate-700">Use all available search filters (inherit)</label>
+              </div>
+              {Array.isArray(selectedFilterFields) && selectedFilterFields.some(id => !availableFilterFields.some(f => f.id === id)) && (
+                <p className="text-xs text-amber-800" role="status">
+                  Saved search selections not currently available are retained: {selectedFilterFields.filter(id => !availableFilterFields.some(f => f.id === id)).join(', ')}.
+                  The legacy primary field is excluded from visitor search filters.
+                </p>
+              )}
               {availableFilterFields.length === 0 ? (
                 <p className="text-xs text-slate-500">
                   No additional filterable fields available. To add filter options, create custom fields 
                   (picklist, dropdown or boolean type) with "Is Filterable" enabled in Preference Fields settings.
-                  The primary filter field selected above is excluded from this list.
+                  The legacy primary field is excluded from this list.
                 </p>
               ) : (
                 <>
                   <p className="text-xs text-slate-500">
-                    {(selectedFilterFields?.length || 0) === 0
+                    {selectedFilterFields === null
+                      ? "All available filterable fields will be shown, except the legacy primary field."
+                      : selectedFilterFields.length === 0
                       ? "No filters selected - no additional filter dropdowns will be shown on this directory."
                       : "Only the selected fields will appear as filter dropdowns on this directory."}
                   </p>
@@ -775,7 +746,8 @@ export default function DynamicDirectoryManagementPage() {
                       <div key={field.id} className="flex items-center gap-2">
                         <Checkbox
                           id={`filter-field-${field.id}`}
-                          checked={(selectedFilterFields || []).includes(field.id)}
+                          checked={selectedFilterFields === null || selectedFilterFields.includes(field.id)}
+                          disabled={isLoadingFields || fieldsQuery.isError}
                           onCheckedChange={() => handleToggleFilterField(field.id)}
                           data-testid={`checkbox-filter-field-${field.id}`}
                         />
@@ -792,8 +764,7 @@ export default function DynamicDirectoryManagementPage() {
                     ))}
                   </div>
                   <p className="text-xs text-blue-600 mt-2">
-                    {(selectedFilterFields?.length || 0)} filter{(selectedFilterFields?.length || 0) !== 1 ? 's' : ''} selected
-                    {(selectedFilterFields?.length || 0) === 0 && " (no filter dropdowns will show)"}
+                    {selectedFilterFields === null ? "Inherited filter selection" : `${selectedFilterFields.length} saved filter selections`}
                   </p>
                 </>
               )}

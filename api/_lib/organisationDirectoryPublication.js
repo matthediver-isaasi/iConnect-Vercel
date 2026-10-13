@@ -19,7 +19,7 @@ export function organisationPublicationAuthority(directory, settings) {
   return JSON.stringify({
     active: directory.is_active,
     roles: directory.allowed_role_ids,
-    filter: [directory.filter_field_id, directory.filter_value],
+    filter: [directory.filter_expression, directory.filter_field_id, directory.filter_value],
     publication: resolveOrganisationCorePublication(settings.corePublication, directory.core_field_visibility),
   });
 }
