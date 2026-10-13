@@ -47,7 +47,9 @@ export function validateAnonymousCompletionConfiguration(form = {}) {
     || ['create', 'update', 'upsert'].includes(form.member_entity_action)
     || ['create', 'update', 'upsert'].includes(form.organization_entity_action)
     || present(form.additional_member_creations)
-    || ['create', 'update', 'upsert'].includes(form.entity_action),
+    // Modern pipelines are authoritative, including an explicitly empty set.
+    // The legacy entity_action often retains its default "create" after migration.
+    || (form.entity_pipelines == null && ['create', 'update', 'upsert'].includes(form.entity_action)),
   'Remove CRM field mappings, entity pipelines and structured record actions from this survey.');
   reject(form.is_application_form || form.is_job_posting || form.is_contract || form.auto_create_entity
     || form.due_diligence_required || form.prevent_duplicate_email_submission || present(form.uniqueness_checks),

@@ -46,6 +46,35 @@ test('invalid contract and identity-dependent configurations produce actionable 
   ]) assert.ok(validate({ ...survey(), ...patch }).length, JSON.stringify(patch));
 });
 
+test('empty modern pipelines do not activate a stale legacy entity_action', () => {
+  const emptyModern = {
+    ...survey(),
+    field_mappings: [],
+    entity_pipelines: { members: [], organisations: [] },
+    structured_actions: { version: 1, actions: [] },
+    member_entity_action: 'none',
+    organization_entity_action: 'none',
+    additional_member_creations: [],
+  };
+  for (const entity_action of ['create', 'update', 'upsert']) {
+    assert.deepEqual(validate({ ...emptyModern, entity_action }), []);
+    for (const patch of [
+      { entity_pipelines: null },
+      { entity_pipelines: undefined },
+      { entity_pipelines: { members: [{}], organisations: [] } },
+      { entity_pipelines: { members: [], organisations: [{}] } },
+      { field_mappings: [{ source_field_id: 'answer', target_field: 'email' }] },
+      { structured_actions: { version: 1, actions: [{}] } },
+      { member_entity_action: 'create' },
+      { organization_entity_action: 'update' },
+      { additional_member_creations: [{}] },
+    ]) {
+      assert.ok(validate({ ...emptyModern, entity_action, ...patch })
+        .some(message => message.startsWith('Remove CRM field mappings')));
+    }
+  }
+});
+
 function dbFixture({ responses = [], version, failure = false } = {}) {
   const calls = [];
   return {
