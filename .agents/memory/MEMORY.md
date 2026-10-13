@@ -156,4 +156,4 @@
 - [Node request header copies](node-request-header-copies.md) — object spread drops inherited request headers; use explicit headers and real IncomingMessage test fixtures.
 - [Public bookmark query loops](public-bookmark-query-loop.md) — guest-only 401 loops can clear shared queries and blank unrelated public carousels.
 - [Campaign click authority](campaign-click-authority.md) — iConnect requests own counts; provider evidence stays separate, and historical totals never prove human clicks.
-- [Public branding freshness](public-branding-freshness.md) — local cache clearing cannot invalidate other serverless readers; public API and server chrome need current persisted settings.
+- [Public branding boundaries](public-branding-freshness.md) — fresh authority across serverless readers; linked favicon normalization and rollout constraints.

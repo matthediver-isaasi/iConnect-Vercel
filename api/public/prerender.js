@@ -1,6 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { homepageRoute } from '../_lib/homepage.js';
-import { safeFaviconUrl } from '../../shared/tenantFavicon.js';
+import { FAVICON_LINKS } from '../../shared/tenantFavicon.js';
 import { applyResourceReleaseFilter } from '../../shared/resourceRelease.js';
 import { resolveUnknownPagePolicy } from '../_lib/unknownPagePolicy.js';
 import { renderTenantHtml } from '../_lib/renderHtml.js';
@@ -107,7 +107,8 @@ function buildHtmlPage({ title, description, ogTitle, ogDescription, ogImage, og
   <meta name="twitter:description" content="${escapeHtml(ogDescription || description)}">
   ${ogImage ? `<meta name="twitter:image" content="${escapeHtml(ogImage)}">` : ''}
   ${canonicalUrl ? `<link rel="canonical" href="${escapeHtml(canonicalUrl)}">` : ''}
-  ${favicon ? `<link rel="icon" href="${escapeHtml(favicon)}">` : ''}
+  ${FAVICON_LINKS}
+  <link rel="manifest" href="/site.webmanifest">
   <meta name="robots" content="index, follow">
   <script type="application/ld+json">${buildJsonLd({ title, description, ogUrl, ogImage, tenantName })}</script>
 </head>
@@ -1663,7 +1664,7 @@ return async function handler(req, res) {
       canonicalUrl: pageData.ogUrl,
       bodyContent: pageData.bodyContent,
       tenantName: tenant.name,
-      favicon: safeFaviconUrl(tenant.favicon_url) || '/platform-icon.svg',
+      favicon: '/favicon-192.png',
       navLinks,
     });
 

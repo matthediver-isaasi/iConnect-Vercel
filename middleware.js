@@ -1,3 +1,5 @@
+import { FAVICON_PATHS } from './shared/tenantFavicon.js';
+
 const CRAWLER_USER_AGENTS = [
   'googlebot',
   'google-inspectiontool',
@@ -27,6 +29,12 @@ export const config = {
   matcher: [
     '/',
     '/favicon.ico',
+    '/favicon.png',
+    '/favicon-32.png',
+    '/favicon-192.png',
+    '/favicon-512.png',
+    '/apple-touch-icon.png',
+    '/site.webmanifest',
     '/((?!api/|_next/|_vercel/|sitemap\\.xml|robots\\.txt|favicon\\.ico|.*\\..*).*)',
   ],
 };
@@ -38,8 +46,9 @@ export default async function middleware(request) {
   const isCrawler = CRAWLER_USER_AGENTS.some(bot => ua.includes(bot));
   const requestUrl = new URL(request.url);
   const isRoot = requestUrl.pathname === '/';
-  const isFavicon = requestUrl.pathname === '/favicon.ico';
-  if (!isCrawler && !isRoot && !isFavicon) {
+  const isFavicon = FAVICON_PATHS.includes(requestUrl.pathname);
+  const isManifest = requestUrl.pathname === '/site.webmanifest';
+  if (!isCrawler && !isRoot && !isFavicon && !isManifest) {
     return;
   }
 
@@ -47,12 +56,13 @@ export default async function middleware(request) {
   const pathname = url.pathname;
 
   const fullPath = pathname + url.search;
-  const prerenderUrl = new URL(isFavicon ? '/api/public/favicon' :
+  const prerenderUrl = new URL(isManifest ? '/api/public/manifest' : isFavicon ? '/api/public/favicon' :
     (!isCrawler ? '/api/render' : '/api/public/prerender'), request.url);
   prerenderUrl.searchParams.set('path', fullPath);
 
   try {
     const response = await fetch(prerenderUrl.toString(), {
+      method: request.method,
       redirect: 'manual',
       headers: {
         'host': request.headers.get('host') || '',
@@ -64,14 +74,18 @@ export default async function middleware(request) {
     });
 
     const status = response.status;
-    if (status === 200 || status === 410 || status === 404 || status >= 500) {
-      return new Response(response.body, {
+    if (isFavicon || isManifest || status === 200 || status === 410 || status === 404 || status >= 500) {
+      return new Response(request.method === 'HEAD' ? null : response.body, {
         status,
         headers: {
           'content-type': response.headers.get('content-type') || 'text/html',
           'cache-control': response.headers.get('cache-control') || 'public, max-age=300',
           'x-prerendered': 'true',
           'vary': 'Host, X-Forwarded-Host',
+          ...(response.headers.has('content-length') ? { 'content-length': response.headers.get('content-length') } : {}),
+          ...(response.headers.has('allow') ? { allow: response.headers.get('allow') } : {}),
+          ...(response.headers.has('location') ? { location: response.headers.get('location') } : {}),
+          ...(isFavicon ? { 'x-content-type-options': 'nosniff' } : {}),
         },
       });
     }
@@ -89,5 +103,6 @@ export default async function middleware(request) {
     console.error('[Middleware] Prerender fetch error:', err);
   }
 
+  if (isFavicon || isManifest) return new Response(null, { status: 503, headers: { 'cache-control': 'private, no-store' } });
   return;
 }

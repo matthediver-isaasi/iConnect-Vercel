@@ -9,7 +9,7 @@ import { resolveScopedTypographyStyles } from './typographyScope.js';
 import { resolveTenantBrandingPayload } from './tenantBranding.js';
 import { buildGoogleFontsHref } from './installedFontsShared.js';
 import { homepageRoute } from './homepage.js';
-import { safeFaviconUrl } from '../../shared/tenantFavicon.js';
+import { FAVICON_LINKS } from '../../shared/tenantFavicon.js';
 
 let cachedTemplate = null;
 
@@ -366,7 +366,7 @@ function injectMeta(html, values) {
 
   // Do not claim PNG dimensions for an arbitrary uploaded SVG/ICO/image.
   out = out.replace(/<link\b(?=[^>]*\brel=["'](?:icon|shortcut icon|apple-touch-icon)["'])[^>]*>/gi, '');
-  out = out.replace('</head>', `<link rel="icon" id="dynamic-favicon" href="${escapeAttr(values.favicon32)}"><link rel="apple-touch-icon" href="${escapeAttr(values.favicon32)}"></head>`);
+  out = out.replace('</head>', `${FAVICON_LINKS}</head>`);
   out = replaceOrInsert(out, /<link\b(?=[^>]*rel=["']canonical["'])[^>]*>/i,
     `<link rel="canonical" href="${escapeAttr(values.ogUrl)}">`);
   return out;
@@ -470,8 +470,8 @@ export async function renderTenantHtml(req, options = {}) {
     ogUrl,
     ogType: entity?.ogType || 'website',
     authors: Array.isArray(entity?.authors) ? entity.authors : null,
-    favicon32: safeFaviconUrl(tenant?.favicon_url) || '/platform-icon.svg',
-    favicon192: safeFaviconUrl(tenant?.favicon_url) || '/platform-icon.svg',
+    favicon32: '/favicon-32.png',
+    favicon192: '/favicon-192.png',
   };
   if (homeContent) {
     values.title = homeContent.title;

@@ -47,7 +47,7 @@ function database(tables, failTable) {
 }
 const response = () => ({
   headers: {}, statusCode: 200, setHeader(k, v) { this.headers[k] = v; },
-  status(code) { this.statusCode = code; return this; }, end() { return this; },
+  status(code) { this.statusCode = code; return this; }, end(body) { this.body = body; return this; },
   send(body) { this.body = body; return this; }, json(body) { this.body = body; return this; },
 });
 const request = path => ({ method: 'GET', url: path, query: { path },
@@ -118,8 +118,8 @@ test('ordinary root HTML and crawlers share selected content, SEO, root canonica
     assert.match(body, /rel="canonical" href="https:\/\/alpha.test\/"/);
     assert.match(body, /property="og:url" content="https:\/\/alpha.test\/"/);
     assert.match(body, /"url":"https:\/\/alpha.test\/"/);
-    assert.match(body, /https:\/\/images.test\/alpha.svg/);
-    assert.doesNotMatch(body, /favicon-32|favicon-192|shortcut icon/);
+    assert.match(body, /sizes="192x192" href="\/favicon-192.png"/);
+    assert.doesNotMatch(body, /https:\/\/images.test\/alpha.svg|shortcut icon/);
   }
 });
 
@@ -131,8 +131,8 @@ test('crawler redirect and favicon discovery do not cache tenant-specific decisi
   for (const resolved of [tenant, null, { favicon_url: 'javascript:alert(1)' }]) {
     const icon = response();
     await createFaviconHandler({ resolveTenant: async () => resolved })(request('/favicon.ico'), icon);
-    assert.equal(icon.statusCode, 302);
-    assert.equal(icon.headers.Location, resolved === tenant ? tenant.favicon_url : '/platform-icon.svg');
+    assert.equal(icon.statusCode, 200);
+    assert.equal(icon.headers['Content-Type'], 'image/png');
     assert.match(icon.headers['Cache-Control'], /no-store/);
   }
 });

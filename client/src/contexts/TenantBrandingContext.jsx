@@ -123,16 +123,18 @@ export function TenantBrandingProvider({ children }) {
             const iconLinks = document.querySelectorAll("link[rel~='icon']");
             if (iconLinks.length > 0) {
               iconLinks.forEach((link) => {
-                link.removeAttribute('type');
-                link.removeAttribute('sizes');
-                if (link.href !== data.branding.faviconUrl) {
-                  link.href = data.branding.faviconUrl;
+                 link.type = 'image/png';
+                 link.sizes = '192x192';
+                 if (link.getAttribute('href') !== '/favicon-192.png') {
+                   link.href = '/favicon-192.png';
                 }
               });
             } else {
               const newLink = document.createElement('link');
               newLink.rel = 'icon';
-              newLink.href = data.branding.faviconUrl;
+              newLink.href = '/favicon-192.png';
+              newLink.type = 'image/png';
+              newLink.sizes = '192x192';
               document.head.appendChild(newLink);
             }
           }

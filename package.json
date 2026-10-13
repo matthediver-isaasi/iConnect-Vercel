@@ -120,6 +120,7 @@
     "final-form": "^4.20.10",
     "form-data": "^4.0.5",
     "framer-motion": "^11.13.1",
+    "icojs": "^0.23.0",
     "input-otp": "^1.4.2",
     "jsdom": "^26.1.0",
     "jspdf": "^4.2.1",

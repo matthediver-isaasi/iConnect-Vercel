@@ -26,8 +26,8 @@
     <meta name="description" content="iConn is a multi-tenant membership platform for events, communities, fundraising, and member engagement." />
 
     <!-- Favicons (static so crawlers see them; dynamic-favicon swap is preserved for logged-in SPA users) -->
-    <link rel="icon" href="/favicon.ico" id="dynamic-favicon" />
-    <link rel="apple-touch-icon" href="/favicon.ico" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png" id="dynamic-favicon" />
+    <link rel="apple-touch-icon" type="image/png" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/site.webmanifest" />
 
     <!-- Open Graph (defaults; tenant SSR handler overrides these) -->
@@ -53,8 +53,8 @@
           .then(function(data) {
             if (data && data.faviconUrl && el.href !== data.faviconUrl) {
               el.href = data.faviconUrl;
-              el.removeAttribute('type');
-              el.removeAttribute('sizes');
+              el.type = 'image/png';
+              el.sizes = '192x192';
             }
           }).catch(function() {});
       })();
