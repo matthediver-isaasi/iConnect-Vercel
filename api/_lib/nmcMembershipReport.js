@@ -1,4 +1,5 @@
 import { isAttestedExpiryOnlyHistory } from './expiryOnlyRenewalPolicy.js';
+import { isBnmsUnexpiredAttestation } from './bnmsUnexpiredAttestation.js';
 import { currentMembershipRecognition } from './alphaMembershipRecognition.js';
 import { isDeletedRelationshipMember } from './customObjectMemberEligibility.js';
 
@@ -59,7 +60,7 @@ function membershipEvidence(history, agreements, recognitions, today) {
     if (recognition.length > 1) {
       unresolved.push({ record, reason: 'ambiguous_membership_evidence' }); continue;
     }
-    const legacy = isAttestedExpiryOnlyHistory(observed, NMC_TENANT);
+    const legacy = isAttestedExpiryOnlyHistory(observed, NMC_TENANT) || isBnmsUnexpiredAttestation(observed);
     const paid = ['active', 'paid', 'expired'].includes(record.status) && record.payment_status === 'paid';
     const instalments = record.status === 'active' && record.payment_status === 'partial'
       && agreement?.environment === 'live' && agreement.status === 'active';

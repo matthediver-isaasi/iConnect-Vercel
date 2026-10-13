@@ -14,3 +14,9 @@ Imported Active status plus a legacy expiry date, without membership history, is
 **Why:** The owner explicitly rejected the first evidence rule and approved the second after reviewing aggregate live data.
 
 **How to apply:** Preserve separately reviewed expiry-only membership-history evidence; do not broaden the Honorary exception to other classes, or interpret these reporting choices as renewal or payment authority.
+
+The owner separately confirmed paid status for the reviewed 72 Full/Full Junior upfront members with retained expiries in 2027, approving missing history establishment with unknown start dates, amounts and invoice links.
+
+**Why:** The previous upfront backfill covered only expiries from 22 September to 31 December 2026, leaving this unexpired group outside its scope.
+
+**How to apply:** Treat this as a bounded administrator attestation, not provider settlement or renewal authority. Do not force these records into the earlier 2025/2026 contract or extend the approval to the expired or DD-evidence cohorts.

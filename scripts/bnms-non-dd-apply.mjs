@@ -103,7 +103,7 @@ export function validateManifest(manifest) {
   return manifest;
 }
 
-const SOURCE_SQL = `WITH prefs AS (
+export const SOURCE_SQL = `WITH prefs AS (
  SELECT v.member_id,jsonb_object_agg(f.name,v.value) preferences,count(*)<>count(DISTINCT f.name) duplicate_fields
  FROM member_preference_value v JOIN preference_field f ON f.id=v.field_id
  WHERE f.tenant_id=$1 AND f.name IN ('ym_web_site_member_id','membership_status','ym_date_membership_expires','ym_membership_type','member_class','direct_debit_payment') GROUP BY v.member_id
