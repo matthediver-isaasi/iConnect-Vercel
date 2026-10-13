@@ -9,6 +9,7 @@ import {
   Upload, UserRound,
 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
+import { listAllOrganizationsForAdmin } from "@/lib/adminOrgList";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { getOpportunityUiCapabilities } from "@/lib/opportunityCapabilities";
 import { normalizeOpportunityDetail } from "@/lib/opportunityDetail";
@@ -74,7 +75,7 @@ function LossReasonDialog({ open, onOpenChange, reasons, onConfirm }) {
   </DialogContent></Dialog>;
 }
 
-function OpportunityDialog({ open, onOpenChange, stages, onCreated }) {
+export function OpportunityDialog({ open, onOpenChange, stages, onCreated }) {
   const { toast } = useToast();
   const [form, setForm] = useState({ name: "", organizationId: "", contactId: "", contactRole: "Primary contact", stageId: "", value: "", currency: "GBP", priority: "medium", expectedCloseDate: "" });
   const [organizations, setOrganizations] = useState([]);
@@ -85,13 +86,22 @@ function OpportunityDialog({ open, onOpenChange, stages, onCreated }) {
     && (contactOptions.organizationId !== form.organizationId || contactOptions.loading));
   const contactsError = contactOptions.organizationId === form.organizationId ? contactOptions.error : null;
   const [loadingOptions, setLoadingOptions] = useState(false);
+  const [organizationsError, setOrganizationsError] = useState(null);
+  const [organizationsRetry, setOrganizationsRetry] = useState(0);
   useEffect(() => {
     if (!open) return;
+    const controller = new AbortController();
+    let active = true;
     setLoadingOptions(true);
-    base44.entities.Organization.list({ sort: { name: "asc" } })
-      .then((items) => setOrganizations(arr(items))).catch(() => setOrganizations([]))
-      .finally(() => setLoadingOptions(false));
-  }, [open]);
+    setOrganizations([]);
+    setOrganizationsError(null);
+    // ID breaks name ties so offset pages have a deterministic order.
+    listAllOrganizationsForAdmin({ sort: { name: "asc", id: "asc" }, signal: controller.signal })
+      .then((items) => { if (active) setOrganizations(items); })
+      .catch((error) => { if (active) setOrganizationsError(error.message || "Could not load organisations."); })
+      .finally(() => { if (active) setLoadingOptions(false); });
+    return () => { active = false; controller.abort(); };
+  }, [open, organizationsRetry]);
   useEffect(() => {
     if (!open || !form.organizationId) return;
     const organizationId = form.organizationId;
@@ -126,7 +136,10 @@ function OpportunityDialog({ open, onOpenChange, stages, onCreated }) {
     <DialogHeader><DialogTitle>New opportunity</DialogTitle><DialogDescription>Create an opportunity against an existing organisation and, optionally, one of its contacts.</DialogDescription></DialogHeader>
     <div className="grid gap-4 sm:grid-cols-2">
       <div className="sm:col-span-2"><Label htmlFor="opp-name">Name</Label><Input id="opp-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
-      <div><Label>Organisation *</Label><Select value={form.organizationId} onValueChange={(organizationId) => setForm({ ...form, organizationId, contactId: "" })}><SelectTrigger><SelectValue placeholder={loadingOptions ? "Loading…" : "Select organisation"} /></SelectTrigger><SelectContent>{organizations.map((item) => <SelectItem key={idOf(item)} value={idOf(item)}>{nameOf(item)}</SelectItem>)}</SelectContent></Select></div>
+      <div><Label>Organisation *</Label><Select disabled={loadingOptions || Boolean(organizationsError)} value={form.organizationId} onValueChange={(organizationId) => { if (organizationId) setForm({ ...form, organizationId, contactId: "" }); }}><SelectTrigger aria-busy={loadingOptions}><SelectValue placeholder={loadingOptions ? "Loading…" : "Select organisation"} /></SelectTrigger><SelectContent>{organizations.map((item) => <SelectItem key={idOf(item)} value={idOf(item)}>{nameOf(item)}</SelectItem>)}</SelectContent></Select>
+        {organizationsError ? <p role="alert" className="mt-1 text-sm text-rose-700">Could not load organisations: {organizationsError} <button type="button" className="underline" onClick={() => setOrganizationsRetry(value => value + 1)}>Retry</button></p>
+          : !loadingOptions && !organizations.length && <p className="mt-1 text-sm text-slate-500">No organisations are available.</p>}
+      </div>
       <div><Label>Primary contact</Label><Select disabled={!form.organizationId || contactsLoading || Boolean(contactsError)} value={form.contactId || "none"} onValueChange={(contactId) => { if (contactId) setForm({ ...form, contactId: contactId === "none" ? "" : contactId }); }}><SelectTrigger aria-busy={contactsLoading}><SelectValue placeholder="Select contact" /></SelectTrigger><SelectContent><SelectItem value="none">{contactsLoading ? "Loading contacts…" : !form.organizationId ? "Select an organisation first" : "No primary contact"}</SelectItem>{contacts.map((item) => <SelectItem key={idOf(item)} value={idOf(item)}>{nameOf(item)}{item.email ? ` · ${item.email}` : ""}</SelectItem>)}</SelectContent></Select>
         {contactsError ? <p role="alert" className="mt-1 text-sm text-rose-700">{contactsError} <button type="button" className="underline" onClick={() => setContactRetry(value => value + 1)}>Retry</button></p>
           : form.organizationId && !contactsLoading && !contacts.length && <p className="mt-1 text-sm text-slate-500">No contacts are linked to this organisation. A primary contact is optional.</p>}
@@ -137,7 +150,7 @@ function OpportunityDialog({ open, onOpenChange, stages, onCreated }) {
       <div><Label>Value</Label><Input type="number" min="0" step="0.01" value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} /></div>
       <div><Label>Expected close</Label><Input type="date" value={form.expectedCloseDate} onChange={(e) => setForm({ ...form, expectedCloseDate: e.target.value })} /></div>
     </div>
-    <DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button disabled={!form.name.trim() || !form.organizationId || !form.stageId || contactsLoading || create.isPending} onClick={() => create.mutate()}>{create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create</Button></DialogFooter>
+    <DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button disabled={!form.name.trim() || !form.organizationId || !form.stageId || loadingOptions || Boolean(organizationsError) || !organizations.some(item => idOf(item) === form.organizationId) || contactsLoading || create.isPending} onClick={() => create.mutate()}>{create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create</Button></DialogFooter>
   </DialogContent></Dialog>;
 }
 

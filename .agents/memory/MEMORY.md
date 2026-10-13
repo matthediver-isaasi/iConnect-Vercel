@@ -129,7 +129,6 @@
 - [Select native hydration](select-native-hydration.md) — late Radix options can emit empty changes that erase saved selections; sentinel-based clearing must ignore these.
 - [Async query-builder returns](async-query-builder-return.md) — wrap Supabase builders in objects across async helpers or they execute before callers finish scoping and paging.
 - [Private uploads and checkpoints](private-upload-checkpoints.md) — automatic checkpoints can track uploads before ignore rules; verify the index and inherited shared history separately.
-- [Validation registration](validation-registration.md) — registering validation may append it to default Run; keep standalone checks without changing application startup.
 - [Widget cache authority](widget-cache-authority.md) — stale/overdue is not active work; unchanged results require request-correlated publication evidence, not old success/pending flags.
 - [Group campaign claims](group-campaign-claims.md) — bind validated delivery snapshots and scheduled-worker selections to the atomic claim; draft status alone is insufficient.
 - [Campaign preparation progress](campaign-preparation-progress.md) — durable read replay can exhaust its own budget; bounded resolver continuations must guarantee new progress.
@@ -145,7 +144,6 @@
 - [Public ticket contact creation](public-ticket-contact-boundary.md) — purchaser and attendee CRM records never imply activation, membership, affiliation or consent.
 - [Website first-content paths](website-critical-path.md) — metadata remount reuse differs from page authority; compare matched builds and separate dispatch from real-content timing.
 - [Survey score CSV contract](survey-score-csv-contract.md) — preserve historical raw scores; reject coercion-only answers without applying current survey ranges.
-- [Private audit logging](private-audit-logging.md) — redact assertion failures too; deep-equality errors can expose entire private records.
 - [About-me Job Title](about-me-job-title.md) — never show a placeholder in the Job Title input.
 - [Homepage canonical authority](homepage-canonical-authority.md) — explicit clearing beats legacy fallback; mutable selections cannot create cached permanent aliases.
 - [Crawler semantic content](crawler-semantic-content.md) — unstyled crawler responses must retain complete public content and semantic headings, not flattened excerpts.

@@ -14,4 +14,6 @@ description: Testing modes, route contracts, parallel test artifacts, and stable
 - [PDF browser verification](pdf-browser-verification.md) — fixture layout evidence is separate from unshimmed PDF.js compatibility.
 - [Consent report verification](consent-report-verification.md) — assert individual matrix cells, not row-wide text.
 - [Excel report validation](excel-report-validation.md) — valid ZIP/XML does not establish Excel compatibility.
+- [Validation registration](validation-registration.md) — registering validation may append it to default Run; keep standalone checks without changing application startup.
+- [Private audit logging](private-audit-logging.md) — redact assertion failures too; deep-equality errors can expose entire private records.
 - [Live import snapshot boundaries](live-import-snapshot-boundaries.md) — separate cohort invariants from concurrent production activity.

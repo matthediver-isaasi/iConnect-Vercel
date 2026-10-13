@@ -54,3 +54,40 @@ test('ordinary opportunity lists retain closed stages; lookup errors are not emp
   await failed.handler({method:'GET',query:{active:'true'}},failed.res);
   assert.ok(failed.res.statusCode>=400);
 });
+
+test('creation accepts every organisation status with an optional contact, but rejects another tenant', async () => {
+  for (const status of ['Live', 'Pending', null]) {
+    for (const contactId of [null, 'contact']) {
+      let inserted;
+      const db = { from(table) {
+        const filters = {};
+        const q = {
+          select() { return q; },
+          eq(key, value) { filters[key] = value; return q; },
+          insert(row) { inserted = row; return q; },
+          async single() { return { data: { id: 'created', ...inserted }, error: null }; },
+          async maybeSingle() {
+            assert.equal(filters.tenant_id, 'tenant-a');
+            return { data: filters.id === 'other-tenant-org' ? null
+              : { id: filters.id, application_status: status, organization_id: 'org', is_active: true }, error: null };
+          },
+        };
+        return q;
+      } };
+      const handler = createOpportunitiesHandler({ db,
+        getTenantContext: async () => ({ isAuthenticated: true, tenantId: 'tenant-a', tenantUserId: 'user' }),
+        requireCapability: async () => {},
+      });
+      const res = { status(n) { this.statusCode = n; return this; }, json(body) { this.body = body; return this; } };
+      const body = { name: 'Sale', organizationId: 'org', stageId: 'stage', contactId };
+      await handler({ method: 'POST', body }, res);
+      assert.equal(res.statusCode, 201);
+      assert.equal(res.body.organization_id, 'org');
+      assert.equal(res.body.primary_contact_id, contactId);
+      inserted = null;
+      await handler({ method: 'POST', body: { ...body, organizationId: 'other-tenant-org' } }, res);
+      assert.equal(res.statusCode, 404);
+      assert.equal(inserted, null);
+    }
+  }
+});
