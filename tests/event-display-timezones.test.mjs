@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { buildEventTimeRows, parseEventDisplayTimezones } from '../shared/eventDisplayTimezones.js';
+import { familiarTimezoneName, timezoneDiscoveryKey, timezoneSearchText, uniqueDiscoveryTimezones } from '../shared/timezoneDiscovery.js';
 
 const settings = (zones, use24 = true) => [
   { setting_key: 'event_display_timezones', setting_value: JSON.stringify(zones) },
@@ -9,6 +10,41 @@ const settings = (zones, use24 = true) => [
 ];
 const zones = [{ timezone: 'Europe/London', label: 'UK' }, { timezone: 'Africa/Nairobi', label: 'EAT' }, { timezone: 'Asia/Kolkata', label: 'IST' }, { timezone: 'America/New_York' }];
 const rows = (start, end, use24) => buildEventTimeRows({ start, end, timezone: 'Europe/London', settings: settings(zones, use24) });
+
+test('familiar discovery is independent of Intl abbreviations and India spelling', () => {
+  for (const zone of ['Asia/Kolkata', 'Asia/Calcutta']) {
+    const text = timezoneSearchText(zone, zone.split('/')[1], 'GMT+5:30', 'GMT+5:30');
+    for (const query of ['IST', 'India Standard Time', 'Kolkata', 'Calcutta', 'Asia/Kolkata', 'Asia/Calcutta', 'GMT+5:30']) {
+      assert.ok(text.includes(query.toLowerCase().replace(/\s+/g, '')), query);
+    }
+    assert.match(familiarTimezoneName(zone), /India Standard Time \(IST\)/);
+    assert.equal(timezoneDiscoveryKey(zone), 'Asia/Kolkata');
+  }
+  const text = timezoneSearchText('Africa/Nairobi', 'Nairobi', 'GMT+3', 'GMT+3');
+  for (const query of ['EAT', 'East Africa Time', 'Nairobi', 'Africa/Nairobi', 'GMT+3']) {
+    assert.ok(text.includes(query.toLowerCase().replace(/\s+/g, '')), query);
+  }
+  assert.equal(familiarTimezoneName('Europe/London'), '');
+  assert.equal(timezoneSearchText('America/New_York', 'New York', 'EST', 'GMT-5'), 'america/newyorknewyorkestgmt-5');
+  for (const list of [['Asia/Kolkata'], ['Asia/Calcutta'], ['Asia/Kolkata', 'Asia/Calcutta'], ['Asia/Calcutta', 'Asia/Kolkata']]) {
+    assert.deepEqual(uniqueDiscoveryTimezones(['Africa/Nairobi', ...list, 'Europe/London']), ['Africa/Nairobi', list[0], 'Europe/London']);
+  }
+});
+
+test('both saved India spellings retain their value, labels and order across round trips', () => {
+  for (const timezone of ['Asia/Kolkata', 'Asia/Calcutta']) {
+    const saved = [{ timezone, label: 'IST' }, { timezone: 'Africa/Nairobi', label: 'EAT' }];
+    assert.deepEqual(parseEventDisplayTimezones(JSON.stringify(saved)), saved);
+    const result = buildEventTimeRows({ start: '2026-01-15T23:00:00Z', timezone: 'UTC', settings: settings(saved) });
+    assert.deepEqual(result.slice(1).map(({ label, time, date }) => ({ label, time, date })), [
+      { label: 'IST', time: '04:30', date: '16 Jan 2026' },
+      { label: 'EAT', time: '02:00', date: '16 Jan 2026' },
+    ]);
+    const primary = buildEventTimeRows({ start: '2026-01-15T23:00:00Z', timezone: timezone === 'Asia/Kolkata' ? 'Asia/Calcutta' : 'Asia/Kolkata', settings: settings(saved) });
+    assert.equal(primary.length, 2);
+    assert.equal(primary[0].label, 'IST');
+  }
+});
 
 test('ordered parsing tolerates malformed data and deduplicates aliases', () => {
   for (const bad of ['', '{', '{}', null, 42]) assert.deepEqual(parseEventDisplayTimezones(bad), []);

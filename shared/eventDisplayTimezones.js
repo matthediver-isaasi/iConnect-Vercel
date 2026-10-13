@@ -1,9 +1,11 @@
+import { timezoneDiscoveryKey } from './timezoneDiscovery.js';
+
 export const EVENT_DISPLAY_TIMEZONES_KEY = 'event_display_timezones';
 export const MAX_TIMEZONE_LABEL_LENGTH = 16;
 
 export function canonicalTimezone(value) {
   if (typeof value !== 'string' || (!value.includes('/') && value !== 'UTC')) return null;
-  try { return new Intl.DateTimeFormat('en', { timeZone: value }).resolvedOptions().timeZone; }
+  try { return timezoneDiscoveryKey(new Intl.DateTimeFormat('en', { timeZone: value }).resolvedOptions().timeZone); }
   catch { return null; }
 }
 

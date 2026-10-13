@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { ChevronDown, Search, Check } from 'lucide-react';
+import { familiarTimezoneName, timezoneDiscoveryKey, timezoneSearchText, uniqueDiscoveryTimezones } from '../../../shared/timezoneDiscovery.js';
 
 function getAllTimezones() {
   try {
@@ -53,14 +54,14 @@ function buildTimezoneMetadata(tzList) {
       const abbr = abbrParts.find(p => p.type === 'timeZoneName')?.value || '';
       const city = tz.split('/').pop().replace(/_/g, ' ');
       const offsetStr = offset !== abbr ? `${abbr}, ${offset}` : offset;
-      const label = `${city} (${offsetStr})`;
+      const label = `${familiarTimezoneName(tz) || city} (${offsetStr})`;
       const region = tz.split('/')[0];
-      const searchText = `${tz} ${city} ${abbr} ${offset}`.toLowerCase().replace(/_/g, ' ').replace(/\s+/g, '');
+      const searchText = timezoneSearchText(tz, city, abbr, offset);
 
       metadata[tz] = { label, region, searchText };
     } catch {
       const city = tz.split('/').pop().replace(/_/g, ' ');
-      metadata[tz] = { label: city, region: tz.split('/')[0], searchText: `${tz} ${city}`.toLowerCase() };
+      metadata[tz] = { label: familiarTimezoneName(tz) || city, region: tz.split('/')[0], searchText: timezoneSearchText(tz, city) };
     }
   }
 
@@ -112,7 +113,7 @@ export default function TimezoneSelect({ value, onChange, id }) {
   const searchInputRef = useRef(null);
   const selectedRef = useRef(null);
 
-  const allTimezones = useMemo(() => getAllTimezones(), []);
+  const allTimezones = useMemo(() => uniqueDiscoveryTimezones(getAllTimezones()), []);
   const metadata = useMemo(() => buildTimezoneMetadata(allTimezones), [allTimezones]);
 
   const filteredTimezones = useMemo(() => {
@@ -153,6 +154,8 @@ export default function TimezoneSelect({ value, onChange, id }) {
   function getLabelForValue(tz) {
     if (!tz) return 'Select timezone...';
     if (metadata[tz]) return metadata[tz].label;
+    const alias = allTimezones.find(zone => timezoneDiscoveryKey(zone) === timezoneDiscoveryKey(tz));
+    if (alias) return metadata[alias].label;
     const city = tz.split('/').pop().replace(/_/g, ' ');
     return `${city} (${tz})`;
   }
@@ -199,7 +202,7 @@ export default function TimezoneSelect({ value, onChange, id }) {
                   {REGION_LABELS[region] || region}
                 </div>
                 {tzList.map(tz => {
-                  const isSelected = value === tz;
+                  const isSelected = timezoneDiscoveryKey(value) === timezoneDiscoveryKey(tz);
                   return (
                     <button
                       key={tz}

@@ -79,12 +79,68 @@ test('real settings save/reload, reorder/remove and tenant isolation', async ({ 
   await expect(page.getByLabel('Remove Africa/Nairobi')).toBeVisible();
 });
 
+for (const enumeration of ['Kolkata', 'Calcutta', 'fallback']) {
+  test(`EAT/IST discovery and settings round trip with ${enumeration} enumeration`, async ({ page, request }) => {
+    await page.addInitScript(mode => {
+      const original = Intl.supportedValuesOf?.bind(Intl);
+      Intl.supportedValuesOf = key => {
+        if (key !== 'timeZone') return original(key);
+        if (mode === 'fallback') throw new RangeError('Enumeration unavailable');
+        return ['Africa/Nairobi', `Asia/${mode}`, 'Europe/London'];
+      };
+    }, enumeration);
+    const store = { one: [{ id: 'zones', setting_key: 'event_display_timezones', setting_value: '[]' }] };
+    await fixture(page, request, 'settings', 'one', store);
+    const editor = page.getByRole('group', { name: 'Event display timezones' });
+    const choose = async (query, name) => {
+      await editor.getByRole('combobox').click();
+      await editor.getByTestId('input-timezone-search').fill(query);
+      const option = editor.getByRole('button', { name });
+      await expect(option).toHaveCount(1);
+      await option.click();
+    };
+    for (const query of ['EAT', 'East Africa Time', 'Nairobi', 'Africa/Nairobi', 'GMT+3']) {
+      await choose(query, /Nairobi — East Africa Time \(EAT\)/);
+    }
+    await editor.getByRole('button', { name: 'Add timezone', exact: true }).click();
+    await editor.getByLabel('Label (optional)').fill('EAT');
+    for (const query of ['IST', 'India Standard Time', 'Kolkata', 'Calcutta', 'Asia/Kolkata', 'Asia/Calcutta', 'GMT+5:30']) {
+      await choose(query, /Kolkata \/ Calcutta — India Standard Time \(IST\)/);
+    }
+    await editor.getByRole('button', { name: 'Add timezone', exact: true }).click();
+    await editor.getByLabel('Label (optional)').nth(1).fill('IST');
+    const india = enumeration === 'Kolkata' ? 'Asia/Kolkata' : 'Asia/Calcutta';
+    await editor.getByLabel(`Move ${india} up`).click();
+    await page.getByRole('button', { name: 'Save Settings', exact: true }).first().click();
+    const saved = [{ timezone: india, label: 'IST' }, { timezone: 'Africa/Nairobi', label: 'EAT' }];
+    await expect.poll(() => JSON.parse(store.one.find(s => s.id === 'zones').setting_value)).toEqual(saved);
+    await page.reload();
+    await expect(editor.getByLabel('Label (optional)').nth(0)).toHaveValue('IST');
+    await expect(editor.getByLabel('Label (optional)').nth(1)).toHaveValue('EAT');
+    await choose('IST', /India Standard Time/);
+    await expect(editor.getByRole('button', { name: 'Add timezone', exact: true })).toBeDisabled();
+    // A previously saved opposite alias must also block duplicate additions,
+    // without silently rewriting its persisted spelling.
+    const opposite = india === 'Asia/Kolkata' ? 'Asia/Calcutta' : 'Asia/Kolkata';
+    saved[0].timezone = opposite;
+    store.one.find(s => s.id === 'zones').setting_value = JSON.stringify(saved);
+    await page.reload();
+    await choose('Calcutta', /India Standard Time/);
+    await expect(editor.getByRole('button', { name: 'Add timezone', exact: true })).toBeDisabled();
+    await page.getByRole('button', { name: 'Save Settings', exact: true }).first().click();
+    await expect.poll(() => JSON.parse(store.one.find(s => s.id === 'zones').setting_value)).toEqual(saved);
+  });
+}
+
 test('public simple, complex and featured cards plus range display wrap on mobile', async ({ page, request }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await fixture(page, request);
   for (const id of ['card-event-display-test', 'card-event-complex', 'card-featured-event-display-test']) {
     const card = page.getByTestId(id);
     await expect(card.getByRole('definition').filter({ hasText: '04:30' })).toBeVisible();
+    await expect(card.getByRole('definition').filter({ hasText: '02:00' })).toBeVisible();
+    await expect(card.getByText('EAT', { exact: true })).toBeVisible();
+    await expect(card.getByText('IST', { exact: true })).toBeVisible();
     await expect(card.getByText('16 Jan 2027', { exact: true }).first()).toBeVisible();
   }
   await expect(page.getByTestId('header-range')).toContainText('23:00 – 01:00');
