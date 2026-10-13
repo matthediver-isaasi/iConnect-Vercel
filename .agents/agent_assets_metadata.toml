@@ -1321,3 +1321,17 @@ mtime_ms = 1791779366063
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/2495a3c2-eeb6-4f8e-bd8b-d35cd3dde7c4/313223db-76dd-4c92-9eb2-a4de2a55d618"
 storage_version_token = "1791779372922384"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "GzOnlrTY8sDcw3mBEQyb7"
+uri = "file://private/bnms-job-title-audit/replacement/BNMS-job-titles-with-email-2026-10-13.xlsx"
+type = "table"
+title = "BNMS job titles — including email addresses"
+description = "Refreshed spreadsheet retaining the previous fields, with Email address added. 3,973 members; 3,810 missing job titles listed first. Workbook reopened and data verified."
+logical_id = "bea84495-ac59-49e2-b674-e423f5c580d2"
+content_hash = "sha256:7a140c9cac690d863f84c46467d4de7765356b8f6bedc47671994bab3a759d82"
+size = 574388
+mtime_ms = 1791899809665
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/bea84495-ac59-49e2-b674-e423f5c580d2/5dd77cd4-58d3-4362-a770-1241d1e0a06c"
+storage_version_token = "1791899818757658"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
