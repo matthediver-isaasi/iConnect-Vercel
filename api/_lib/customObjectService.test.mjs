@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  originalReport as responderOriginal, correctedReport,
+  tenantId as bnmsTenant, objectId as bnmsObject, memberRelationship as bnmsMembers,
+  organizationRelationship as bnmsOrg, responderField as bnmsResponder,
+} from '../../scripts/lib/bnms-responder-report.mjs';
+import {
   CustomObjectHttpError,
   createCustomObjectService,
 } from './customObjectService.js';
@@ -907,6 +912,55 @@ test('matching fields retain blanks, duplicate names, department provenance and 
     const invalid = structuredClone(definition);
     invalid.columns[3].conditions = conditions;
     await assert.rejects(service.previewReport(objectId, { definition: invalid }));
+  }
+});
+
+test('actual BNMS saved shape: four direct members, zero/one/multiple responders, saved preview and complete CSV', async () => {
+  const { seed, relationship } = indicatorFixture();
+  seed.member.push(...['third', 'fourth', 'affiliated-only'].map((id) => ({
+    id, tenant_id: tenantId, first_name: id, email: `${id}@example.test`, organization_id: 'org',
+  })));
+  for (const [member, value] of [['shared', false], ['second', undefined], ['third', null], ['fourth', 'true']]) {
+    seed.custom_object_relationship.push({
+      id: `four-${member}`, tenant_id: tenantId, relationship_definition_id: relationship.id,
+      source_record_id: 'zero', target_record_id: member, archived_at: null,
+      field_values: value === undefined ? {} : { responder: value },
+    });
+  }
+  // Map fixture schema to the real saved references; no live members are loaded.
+  const mapping = new Map([
+    [bnmsTenant, tenantId], [bnmsObject, objectId], [bnmsMembers, relationship.id],
+    [bnmsOrg, 'department-organisation'], [bnmsResponder, 'responder-field'],
+    ['35e4f2dd-6f22-4875-8d2f-4ffb05b1980f', 'department-name'],
+    ['c5dcd16c-e63e-49f2-b72f-b0caaa7c5903', 'department-name'],
+  ]);
+  const field = relationship.configuration.relationship_fields[0];
+  mapping.set(bnmsResponder, field.id);
+  const definition = JSON.parse(JSON.stringify(correctedReport(responderOriginal).config),
+    (_key, value) => typeof value === 'string' ? mapping.get(value) || value : value);
+  const db = mockDb(seed);
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  for (const designated of [[], ['shared'], ['shared', 'second']]) {
+    for (const edge of db.tables.custom_object_relationship.filter((e) => e.id.startsWith('four-'))) {
+      if (designated.includes(edge.target_record_id)) edge.field_values = { responder: true };
+    }
+    const reopened = JSON.parse(JSON.stringify(definition));
+    const preview = await service.previewReport(objectId, { definition: reopened });
+    const row = preview.data.find((r) => r.values[1] === 'zero');
+    assert.equal(row.values[7], 4, 'Organisation affiliation must not inflate direct member count');
+    assert.equal(row.values[3], designated.length ? 'True' : 'False');
+    const members = db.tables.member.filter((m) => designated.includes(m.id)).sort((a, b) => a.id.localeCompare(b.id));
+    assert.deepEqual(row.values.slice(4, 7), ['first_name', 'last_name', 'email']
+      .map((key) => members.map((m) => m[key] ?? '').join('; ')));
+    const other = preview.data.find((r) => r.values[1] === 'other-department');
+    assert.deepEqual(other.values.slice(3, 8), ['False', '', '', '', 1]);
+    let job = await service.exportReport(objectId, { action: 'start', definition: reopened });
+    do { job = await service.exportReport(objectId, { action: 'process', job_id: job.id }); }
+    while (job.status === 'processing');
+    assert.equal(job.status, 'complete');
+    const csv = db.tables.custom_object_report_export_chunk.filter((c) => c.job_id === job.id).map((c) => c.csv_text).join('');
+    assert.ok(csv.includes(row.values.join(',')));
+    assert.equal(job.processed, preview.total);
   }
 });
 

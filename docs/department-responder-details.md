@@ -1,6 +1,73 @@
 # Department responder details
 
-## Live read-only findings
+## Applied saved-report correction (2026-10-13)
+
+The specific affected report is `r_mv134nau_j0a4dp`, **Department member count
+with survey responder**, in BNMS Department settings. On verified DEST
+`lvmzliemqnieeoruhkik`, its saved revision 3 contained three `matching_field`
+identity columns with **empty conditions**. The indicator already had the correct
+Survey respondent Equals boolean true predicate, and the count already used the
+direct Members relationship. Empty matching conditions select every eligible
+linked member; the independent indicator does not constrain other columns.
+
+The correction was applied and re-read successfully: saved revision 4 adds that
+same final-edge boolean condition to first name, last name and email only.
+Department-root grain, Organisation projection, count, other columns, and
+unrelated settings/reports were preserved. No execution-engine defect was
+reproduced, so no application behavior or legacy joins were changed.
+
+### Authoritative evidence versus the original report
+
+For Organisation `11b4eef3-43f1-4724-94cb-b7baeb27bbcf`, active Department
+`09f6f695-7773-4d27-8938-d526bfa83615` currently has **four** eligible direct
+members: **one true**, **one false**, and **two missing** relationship designations.
+This differs from the originally reported zero-designation state. No designation
+was changed to recreate that state.
+
+The current application service was executed directly against DEST, paging all
+325 Department rows before and after correction. The reported Department stayed
+visible, its member count stayed **4**, and its responder indicator stayed
+**True**, consistent with the live designation. Responder identity slots changed
+from **4 to 1**. Each corrected identity cell was compared in memory to a
+SQL-derived digest of the designated members in member-ID order; no member
+names/emails or their digests were logged or retained in the evidence output.
+A separate read after commit confirmed the saved definition yields that result.
+
+### Recovery and concurrency
+
+`scripts/lib/bnms-responder-report.mjs` preserves the exact original non-personal
+report definition. `scripts/correct-bnms-responder-report.mjs` is destination-pinned,
+uses provider CA and hostname verification, and is read-only by default.
+`--apply` requires exact equality with the inspected report, locks the unique
+settings row, preserves unrelated values, compares the full settings value in
+the UPDATE, and checks the returned value before commit. A full settings snapshot
+was also written before mutation under ignored
+`generated-artifacts/department-responder-repair/`, named by its SHA-256.
+
+For an explicitly approved recovery, `--restore` replaces only the exact corrected
+report with the retained original; it refuses intervening edits to that report.
+It does not restore an entire old settings document over unrelated changes.
+
+### Verification boundaries
+
+- 160 backend/repair tests pass, including the saved definition's shape with four
+  direct members, an organisation-only member, false/missing/null/string values,
+  zero/one/multiple designated responders, shared-member Department isolation,
+  independent counts, ordered blank identity slots, full CSV and legacy behavior.
+- 17 mounted builder tests pass, including saving and reopening the corrected
+  exact BNMS definition without losing any of its three typed conditions.
+- These tests use isolated fixtures. The live result above is direct current-code
+  service execution against DEST, **not** a signed-in deployed browser session.
+- Signed-in deployed preview and a downloaded production CSV were **not verified**.
+  No build was deployed. The separate live-verification work should confirm the
+  deployed renderer/export agrees with the corrected setting; this repair does
+  not claim that source availability proves deployed behavior.
+
+**Migrations:** none needed, none applied to DEST, SOURCE or any other database,
+and none outstanding. This was one settings correction on verified DEST.
+SOURCE, relationships, member designations and unrelated reports were untouched.
+
+## Earlier live read-only findings (before the correction)
 
 Verified DEST (`lvmzliemqnieeoruhkik`) using pinned target validation,
 provider CA and hostname verification, inside `BEGIN READ ONLY`.
@@ -85,8 +152,9 @@ Isolated backend and mounted-builder tests cover existing report compatibility,
 shared-member designations, zero/multiple responders, blank/repeated names,
 repeated Organisation values, missing links, deleted members, pagination,
 complete export and save/reopen. These fixtures are not signed-in live UI tests.
-The new application has not been publicly deployed and the production report
-has not been overwritten.
+At that earlier stage, the new application had not been publicly deployed and
+the production report had not been overwritten. The narrowly scoped correction
+and its current verification limits are recorded above.
 
 **Migrations:** none needed, none applied to DEST, SOURCE or any other database,
 and none outstanding for this change.

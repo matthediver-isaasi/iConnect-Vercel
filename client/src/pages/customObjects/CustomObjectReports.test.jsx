@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { register } from "node:module";
+import { originalReport, correctedReport, objectId as bnmsObject, memberRelationship, organizationRelationship, responderField } from "../../../../scripts/lib/bnms-responder-report.mjs";
 
 // The browser loads the real scoped stylesheet. Mounted Node tests exercise
 // behavior, not CSS, and must not attempt a network or stylesheet fetch.
@@ -91,7 +92,8 @@ const savedReports = {
   async deleteReport() {},
 };
 
-async function mount(initialConfig, suppliedDefinitions = definitions, suppliedSaved = savedReports) {
+async function mount(initialConfig, suppliedDefinitions = definitions, suppliedSaved = savedReports, suppliedObject = object,
+  suppliedFields = [{ id: "department_name", label: "Department name", is_active: true }]) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -104,7 +106,7 @@ async function mount(initialConfig, suppliedDefinitions = definitions, suppliedS
   graph.forEach((definition) => {
     for (const side of ["source", "target"]) {
       const id = definition[`${side}_custom_object_id`];
-      if (id && id !== object.id) queryClient.setQueryData(["custom-object-report-fields", id], []);
+      if (id && id !== suppliedObject.id) queryClient.setQueryData(["custom-object-report-fields", id], []);
     }
   });
   let latest;
@@ -113,8 +115,8 @@ async function mount(initialConfig, suppliedDefinitions = definitions, suppliedS
     root.render(
       <QueryClientProvider client={queryClient}>
         <CustomObjectReports
-          object={object}
-          fields={[{ id: "department_name", label: "Department name", is_active: true }]}
+           object={suppliedObject}
+           fields={suppliedFields}
           definitions={suppliedDefinitions}
           canManage
           initialConfig={initialConfig}
@@ -228,6 +230,37 @@ test("matching field columns can be added, conditioned and reopened without loss
   assert.deepEqual(reloaded.config, snapshot);
   assert.match(reloaded.container.textContent, /matching values only/);
   await reloaded.cleanup();
+});
+
+test("exact corrected BNMS definition saves and reopens with all three boolean edge conditions intact", async () => {
+  const report = correctedReport(originalReport);
+  const schema = [
+    { ...definitions[0], id: memberRelationship, source_custom_object_id: bnmsObject,
+      configuration: { relationship_fields: [{ id: responderField, key: "survey_respondent",
+        label: "Survey respondent", type: "boolean" }] } },
+    { ...definitions[0], id: organizationRelationship, source_custom_object_id: bnmsObject,
+      target_kind: "organization" },
+  ];
+  const fields = report.config.columns.filter((c) => c.field_id).map((c) => ({
+    id: c.field_id, label: c.label, is_active: true,
+  }));
+  let stored;
+  const saved = { ...savedReports, reports: [report], activeReport: report, activeReportId: report.id,
+    async updateReport(id, config) { stored = JSON.parse(JSON.stringify({ id, config })); } };
+  const view = await mount(report.config, schema, saved, { ...object, id: bnmsObject }, fields);
+  assert.equal(buttonNamed("Preview").disabled, false);
+  await act(async () => changeText(view.container.querySelector("[data-testid=column-heading-0]"), "Organisation"));
+  await act(async () => view.container.querySelector("[data-testid=button-custom-object-report-switcher]")
+    .dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true, cancelable: true, button: 0, ctrlKey: false })));
+  await act(async () => click(document.querySelector("[data-testid=menuitem-custom-object-report-update]")));
+  assert.equal(stored.id, report.id);
+  await view.cleanup();
+  const reopened = await mount(stored.config, schema, savedReports, { ...object, id: bnmsObject }, fields);
+  assert.deepEqual(reopened.config, stored.config);
+  assert.deepEqual(reopened.config.columns.slice(3), report.config.columns.slice(3));
+  assert.equal(buttonNamed("Preview").disabled, false);
+  assert.equal(buttonNamed("Export CSV").disabled, false);
+  await reopened.cleanup();
 });
 
 test("V2 reload shows a connected starting root and grain relative to that root", async () => {
