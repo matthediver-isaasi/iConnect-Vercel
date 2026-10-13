@@ -47,6 +47,7 @@ import { toast } from "sonner";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import MemberBounceWarning from "@/components/communications/MemberBounceWarning";
+import MemberGraceWarning from "@/components/MemberGraceWarning";
 import { Badge } from "@/components/ui/badge";
 import RoleBadge from "@/components/RoleBadge";
 import MemberLoginStatusBadge from "@/components/MemberLoginStatusBadge";
@@ -1656,6 +1657,7 @@ export default function MemberDetail() {
       </div>
 
       {/* Tabs */}
+      <MemberGraceWarning memberId={member?.id} enabled={isAccessReady} />
       <Tabs value={activeTab} onValueChange={(tab) => {
         setActiveTab((current) => current === tab ? current : tab);
         const next = searchForMemberTab(searchParams, tab);

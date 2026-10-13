@@ -1,4 +1,5 @@
 import { supabase } from '../_lib/database.js';
+import { loadMemberGraceWarning } from '../_lib/memberGraceWarning.js';
 import { attachAlphaMembershipRecognition, currentMembershipRecognition } from '../_lib/alphaMembershipRecognition.js';
 import { getSessionMember } from '../_lib/session.js';
 import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tenantContext.js';
@@ -1234,6 +1235,13 @@ async function handleGet(req, res, tenantId, db = supabase, {
   // Retain the paid term, not a fabricated successor or price. Verified
   // renewal policy is projected separately from that historical purchase.
   const today = new Date(now).toISOString().slice(0, 10);
+  let graceWarning = null;
+  let graceWarningUnavailable = false;
+  try {
+    graceWarning = await loadMemberGraceWarning(db, { member, history: personalHistory, paused: pause?.paused, now });
+  } catch {
+    graceWarningUnavailable = true;
+  }
   for (const record of personalHistory) {
     if (!record.term_end_date || record.term_end_date >= today) continue;
     if (record.expiry_renewal_policy_error) continue;
@@ -1360,6 +1368,8 @@ async function handleGet(req, res, tenantId, db = supabase, {
       currentYearCost: null,
       nextYearPreview: null,
       legacyCurrentMembership,
+      graceWarning,
+      graceWarningUnavailable,
       history,
       commitments,
       currentCommitments,
@@ -1490,6 +1500,8 @@ async function handleGet(req, res, tenantId, db = supabase, {
     },
     pause,
     legacyCurrentMembership,
+    graceWarning,
+    graceWarningUnavailable,
     currentYearCost,
     nextYearPreview,
     history,
