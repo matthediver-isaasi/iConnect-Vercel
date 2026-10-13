@@ -1,0 +1,428 @@
+{
+  "project": "lvmzliemqnieeoruhkik",
+  "form": "a8610153-ab67-4fee-8941-54d2b725e252",
+  "tenant": "ff2df806-b321-4254-b651-3af11fccf1db",
+  "protectionsHash": "b5a2e9b6784fdcaa249cfd0aad2fe449f5a7d303d81ab9be5f143e33c5e654c0",
+  "entries": [
+    {
+      "id": "a8610153-ab67-4fee-8941-54d2b725e252",
+      "version": null,
+      "beforeHash": "6d8a4c6f4a6a935913384b52ba1120313814e33aa39c8c0e9baaa0107da15656",
+      "afterHash": "1bb2c1dca39c0539a613d79e9421352d8ec7056c4f66ac67a9c202f886cc958a",
+      "fields": [
+        {
+          "id": "field_1788523548654",
+          "label": "Please rate the standard of the exhibition",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Please rate the standard of the exhibition"
+        },
+        {
+          "id": "ded8f47c-a838-422f-87b3-49d199b5ad19",
+          "label": "Please rate the quality of the complimentary lunch and refreshments",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Please rate the quality of the complimentary lunch and refreshments"
+        },
+        {
+          "id": "5f5ab0bf-8b7a-430b-8ea3-ca1bef12d0d8",
+          "label": "The suitability of the venue (Brangwyn Hall)",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "The suitability of the venue (Brangwyn Hall)"
+        },
+        {
+          "id": "4737c9ed-f1ce-408d-8f60-74eefb92deef",
+          "label": "Swansea as the location for the Autumn Meeting",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Swansea as the location for the Autumn Meeting"
+        },
+        {
+          "id": "979d51aa-005b-4360-9c74-826a686d08b2",
+          "label": "Signposting within the venue",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Signposting within the venue"
+        },
+        {
+          "id": "52f25f89-d8dc-4e1a-8c60-ba33b260fd3a",
+          "label": "Comfort in the lecture theatre",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Comfort in the lecture theatre"
+        },
+        {
+          "id": "ac62eea9-a39f-4ee8-8515-68008d1641ea",
+          "label": "AV quality in the lecture halls",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "AV quality in the lecture halls"
+        },
+        {
+          "id": "d6569505-31de-4404-8aed-7902db17ad22",
+          "label": "Registration fee value",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Registration fee value"
+        },
+        {
+          "id": "d1a53d3b-7916-4a87-ad1f-8e3e48709da4",
+          "label": "Overall quality of the sessions",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Overall quality of the sessions"
+        },
+        {
+          "id": "557cf1c3-d5c5-4bf8-92e6-adbe4ffa168c",
+          "label": "The dinner on Thursday 24th September",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "The dinner on Thursday 24th September"
+        },
+        {
+          "id": "5255ac6e-50ea-499c-bdde-60b6def4137f",
+          "label": "Pre-conference communications",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Pre-conference communications"
+        },
+        {
+          "id": "37089df3-fe77-4540-b182-e9f7e0034932",
+          "label": "Your registration experience",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Your registration experience"
+        },
+        {
+          "id": "6d25158e-ab9d-4cf9-9ee7-10935407eae0",
+          "label": "Overall organisation",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Overall organisation"
+        },
+        {
+          "id": "5cad6df4-abcc-4ce6-83d1-a8d5f0465d3f",
+          "label": "Please rate the overall quality of the programme",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Please rate the overall quality of the programme"
+        },
+        {
+          "id": "9bd840ac-6c30-4259-8349-c3090faf8d13",
+          "label": "Improve patient-centred care through real-world evidence",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Improve patient-centred care through real-world evidence"
+        },
+        {
+          "id": "63f53d0c-eb8a-4cb8-9e78-854813d28535",
+          "label": "Advance professional practice and innovation",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Advance professional practice and innovation"
+        },
+        {
+          "id": "5402d171-f508-476f-9958-7bd08e63347f",
+          "label": "Enhance clinical knowledge of emerging theranostic applications and protocols.",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Enhance clinical knowledge of emerging theranostic applications and protocols."
+        },
+        {
+          "id": "81de636e-c693-4acd-801a-9a8f9bebc216",
+          "label": "Were you able to fulfil your aims?",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Were you able to fulfil your aims?"
+        },
+        {
+          "id": "field_1790574227968",
+          "label": "Presenters only - please rate the pre-conference communications",
+          "beforePresent": false,
+          "after": "Presenters only - please rate the pre-conference communications"
+        }
+      ]
+    },
+    {
+      "id": "d920ed8c-271a-4bb5-a4b2-4275325b3d82",
+      "version": 1,
+      "beforeHash": "43cf17918f665623694f8af2e8bf1ae1abf0e556315864b407d15aa16dae778a",
+      "afterHash": "03935c0f6ae1c34408e51bae76abf27b962c1f618f9048d6c3cdad19b7282cf1",
+      "fields": [
+        {
+          "id": "field_1788523548654",
+          "label": "Please rate the standard of the exhibition",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Please rate the standard of the exhibition"
+        },
+        {
+          "id": "ded8f47c-a838-422f-87b3-49d199b5ad19",
+          "label": "Please rate the quality of the complimentary lunch and refreshments",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Please rate the quality of the complimentary lunch and refreshments"
+        },
+        {
+          "id": "5f5ab0bf-8b7a-430b-8ea3-ca1bef12d0d8",
+          "label": "The suitability of the venue (Brangwyn Hall)",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "The suitability of the venue (Brangwyn Hall)"
+        },
+        {
+          "id": "4737c9ed-f1ce-408d-8f60-74eefb92deef",
+          "label": "Swansea as the location for the Autumn Meeting",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Swansea as the location for the Autumn Meeting"
+        },
+        {
+          "id": "979d51aa-005b-4360-9c74-826a686d08b2",
+          "label": "Signposting within the venue",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Signposting within the venue"
+        },
+        {
+          "id": "52f25f89-d8dc-4e1a-8c60-ba33b260fd3a",
+          "label": "Comfort in the lecture theatre",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Comfort in the lecture theatre"
+        },
+        {
+          "id": "ac62eea9-a39f-4ee8-8515-68008d1641ea",
+          "label": "AV quality in the lecture halls",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "AV quality in the lecture halls"
+        },
+        {
+          "id": "d6569505-31de-4404-8aed-7902db17ad22",
+          "label": "Registration fee value",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Registration fee value"
+        },
+        {
+          "id": "d1a53d3b-7916-4a87-ad1f-8e3e48709da4",
+          "label": "Overall quality of the sessions",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Overall quality of the sessions"
+        },
+        {
+          "id": "557cf1c3-d5c5-4bf8-92e6-adbe4ffa168c",
+          "label": "The dinner on Thursday 24th September",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "The dinner on Thursday 24th September"
+        },
+        {
+          "id": "5255ac6e-50ea-499c-bdde-60b6def4137f",
+          "label": "Pre-conference communications",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Pre-conference communications"
+        },
+        {
+          "id": "37089df3-fe77-4540-b182-e9f7e0034932",
+          "label": "Your registration experience",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Your registration experience"
+        },
+        {
+          "id": "6d25158e-ab9d-4cf9-9ee7-10935407eae0",
+          "label": "Overall organisation",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Overall organisation"
+        },
+        {
+          "id": "5cad6df4-abcc-4ce6-83d1-a8d5f0465d3f",
+          "label": "Please rate the overall quality of the programme",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Please rate the overall quality of the programme"
+        },
+        {
+          "id": "9bd840ac-6c30-4259-8349-c3090faf8d13",
+          "label": "Improve patient-centred care through real-world evidence",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Improve patient-centred care through real-world evidence"
+        },
+        {
+          "id": "63f53d0c-eb8a-4cb8-9e78-854813d28535",
+          "label": "Advance professional practice and innovation",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Advance professional practice and innovation"
+        },
+        {
+          "id": "5402d171-f508-476f-9958-7bd08e63347f",
+          "label": "Enhance clinical knowledge of emerging theranostic applications and protocols.",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Enhance clinical knowledge of emerging theranostic applications and protocols."
+        },
+        {
+          "id": "81de636e-c693-4acd-801a-9a8f9bebc216",
+          "label": "Were you able to fulfil your aims?",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Were you able to fulfil your aims?"
+        },
+        {
+          "id": "field_1790574227968",
+          "label": "Presenters only - please rate the pre-conference communications",
+          "beforePresent": false,
+          "after": "Presenters only - please rate the pre-conference communications"
+        }
+      ]
+    },
+    {
+      "id": "4e4a7d28-8177-4f94-8966-b38e8e4770ee",
+      "version": 2,
+      "beforeHash": "e634956d04e32a517240dfb1c4eaaaa08b382d4c1d475be69b1effdd16d856b7",
+      "afterHash": "350552114ed9ef634f9b71203b23c51ba6133867b0dca2c5426a493f9eb17b3e",
+      "fields": [
+        {
+          "id": "field_1788523548654",
+          "label": "Please rate the standard of the exhibition",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Please rate the standard of the exhibition"
+        },
+        {
+          "id": "ded8f47c-a838-422f-87b3-49d199b5ad19",
+          "label": "Please rate the quality of the complimentary lunch and refreshments",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Please rate the quality of the complimentary lunch and refreshments"
+        },
+        {
+          "id": "5f5ab0bf-8b7a-430b-8ea3-ca1bef12d0d8",
+          "label": "The suitability of the venue (Brangwyn Hall)",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "The suitability of the venue (Brangwyn Hall)"
+        },
+        {
+          "id": "4737c9ed-f1ce-408d-8f60-74eefb92deef",
+          "label": "Swansea as the location for the Autumn Meeting",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Swansea as the location for the Autumn Meeting"
+        },
+        {
+          "id": "979d51aa-005b-4360-9c74-826a686d08b2",
+          "label": "Signposting within the venue",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Signposting within the venue"
+        },
+        {
+          "id": "52f25f89-d8dc-4e1a-8c60-ba33b260fd3a",
+          "label": "Comfort in the lecture theatre",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Comfort in the lecture theatre"
+        },
+        {
+          "id": "ac62eea9-a39f-4ee8-8515-68008d1641ea",
+          "label": "AV quality in the lecture halls",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "AV quality in the lecture halls"
+        },
+        {
+          "id": "d6569505-31de-4404-8aed-7902db17ad22",
+          "label": "Registration fee value",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Registration fee value"
+        },
+        {
+          "id": "d1a53d3b-7916-4a87-ad1f-8e3e48709da4",
+          "label": "Overall quality of the sessions",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Overall quality of the sessions"
+        },
+        {
+          "id": "557cf1c3-d5c5-4bf8-92e6-adbe4ffa168c",
+          "label": "The dinner on Thursday 24th September",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "The dinner on Thursday 24th September"
+        },
+        {
+          "id": "5255ac6e-50ea-499c-bdde-60b6def4137f",
+          "label": "Pre-conference communications",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Pre-conference communications"
+        },
+        {
+          "id": "37089df3-fe77-4540-b182-e9f7e0034932",
+          "label": "Your registration experience",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Your registration experience"
+        },
+        {
+          "id": "6d25158e-ab9d-4cf9-9ee7-10935407eae0",
+          "label": "Overall organisation",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Overall organisation"
+        },
+        {
+          "id": "5cad6df4-abcc-4ce6-83d1-a8d5f0465d3f",
+          "label": "Please rate the overall quality of the programme",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Please rate the overall quality of the programme"
+        },
+        {
+          "id": "9bd840ac-6c30-4259-8349-c3090faf8d13",
+          "label": "Improve patient-centred care through real-world evidence",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Improve patient-centred care through real-world evidence"
+        },
+        {
+          "id": "63f53d0c-eb8a-4cb8-9e78-854813d28535",
+          "label": "Advance professional practice and innovation",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Advance professional practice and innovation"
+        },
+        {
+          "id": "5402d171-f508-476f-9958-7bd08e63347f",
+          "label": "Enhance clinical knowledge of emerging theranostic applications and protocols.",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Enhance clinical knowledge of emerging theranostic applications and protocols."
+        },
+        {
+          "id": "81de636e-c693-4acd-801a-9a8f9bebc216",
+          "label": "Were you able to fulfil your aims?",
+          "beforePresent": true,
+          "before": "Exhibition standard",
+          "after": "Were you able to fulfil your aims?"
+        },
+        {
+          "id": "field_1790574227968",
+          "label": "Presenters only - please rate the pre-conference communications",
+          "beforePresent": false,
+          "after": "Presenters only - please rate the pre-conference communications"
+        }
+      ]
+    }
+  ]
+}
