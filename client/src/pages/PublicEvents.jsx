@@ -13,6 +13,7 @@ import { Link } from "react-router-dom";
 import TenantCtaButton from "@/components/common/TenantCtaButton";
 import { getSeatStatusLabels } from "@/lib/seatStatusLabels";
 import TrainingMiniAgenda from "@/components/events/TrainingMiniAgenda";
+import TenantEventTimeDisplay from "@/components/events/TenantEventTimeDisplay";
 import { getTenantCtaLabel, isEventRegistrationClosed, resolveEventCtaLabel } from "@/lib/eventCtaLabel";
 import {
   isImmediateEvent as isImmediateEventTiming,
@@ -294,8 +295,9 @@ export default function PublicEventsPage() {
                         {event.start_date && (
                           <div className="flex items-center gap-2 text-sm text-slate-600">
                             <Clock className="w-4 h-4 text-slate-400 shrink-0" />
-                            <span>{formatEventTime(event.start_date, eventTimezone)}</span>
-                            <span className="text-slate-400 text-xs">({timezoneAbbr})</span>
+                            <TenantEventTimeDisplay event={event}>
+                              <span>{formatEventTime(event.start_date, eventTimezone)} ({timezoneAbbr})</span>
+                            </TenantEventTimeDisplay>
                           </div>
                         )}
                         </>
@@ -435,8 +437,9 @@ export default function PublicEventsPage() {
                     {event.start_date && (
                       <div className="flex items-center gap-2 text-sm text-slate-600">
                         <Clock className="w-4 h-4 text-slate-400 shrink-0" />
-                        <span>{formatEventTime(event.start_date, eventTimezone)}</span>
-                        <span className="text-slate-400 text-xs">({timezoneAbbr})</span>
+                        <TenantEventTimeDisplay event={event}>
+                          <span>{formatEventTime(event.start_date, eventTimezone)} ({timezoneAbbr})</span>
+                        </TenantEventTimeDisplay>
                       </div>
                     )}
                     </>

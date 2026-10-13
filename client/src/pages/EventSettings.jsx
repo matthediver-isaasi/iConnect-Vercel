@@ -22,6 +22,8 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { AGENDA_ITEM_TYPES_SETTING_KEY, parseAgendaItemTypes, AGENDA_TYPE_BEHAVIOUR_OPTIONS, inferAgendaTypeBehaviour } from "@/hooks/useAgendaItemTypes";
 import { INTERNAL_EVENT_TYPES_SETTING_KEY, parseInternalEventTypes } from "@/lib/internalEventTypes";
 import { resolveEventPaymentPolicy } from "../../../shared/eventPaymentPolicy.js";
+import { EVENT_DISPLAY_TIMEZONES_KEY, parseEventDisplayTimezones } from "../../../shared/eventDisplayTimezones.js";
+import EventDisplayTimezoneEditor from "@/components/events/EventDisplayTimezoneEditor";
 import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
 
@@ -135,6 +137,7 @@ export default function EventSettingsPage() {
   
   // Time format setting (12 or 24 hour)
   const [use24HourFormat, setUse24HourFormat] = useState(false);
+  const [eventDisplayTimezones, setEventDisplayTimezones] = useState([]);
   
   // Default VAT rate for ticket classes
   const [defaultVatRate, setDefaultVatRate] = useState(null); // Stores { taxType, name, effectiveRate }
@@ -356,6 +359,8 @@ export default function EventSettingsPage() {
     }
     
     // Load time format setting (12 or 24 hour)
+    const displayTimezonesSetting = settings.find(s => s.setting_key === EVENT_DISPLAY_TIMEZONES_KEY);
+    setEventDisplayTimezones(parseEventDisplayTimezones(displayTimezonesSetting?.setting_value));
     const timeFormatSetting = settings.find(s => s.setting_key === 'event_time_format_24h');
     if (timeFormatSetting) {
       setUse24HourFormat(timeFormatSetting.setting_value === 'true');
@@ -764,6 +769,20 @@ export default function EventSettingsPage() {
       }
       
       // Save event donation enabled setting
+      const displayTimezonesSetting = settings.find(s => s.setting_key === EVENT_DISPLAY_TIMEZONES_KEY);
+      const displayTimezonesData = {
+        setting_value: JSON.stringify(parseEventDisplayTimezones(eventDisplayTimezones)),
+        description: 'Ordered timezones and optional labels for displaying event times',
+      };
+      if (displayTimezonesSetting) {
+        await base44.entities.SystemSettings.update(displayTimezonesSetting.id, displayTimezonesData);
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: EVENT_DISPLAY_TIMEZONES_KEY,
+          ...displayTimezonesData,
+        });
+      }
+
       const donationSetting = settings.find(s => s.setting_key === 'event_donation_enabled');
       
       if (donationSetting) {
@@ -923,6 +942,7 @@ export default function EventSettingsPage() {
       
       queryClient.invalidateQueries({ queryKey: ['system-settings'] });
       queryClient.invalidateQueries({ queryKey: ['public-system-settings'] });
+      queryClient.invalidateQueries({ queryKey: ['event-display-settings'] });
       toast.success('Settings saved successfully');
     } catch (error) {
       toast.error('Failed to save settings: ' + error.message);
@@ -2978,6 +2998,11 @@ export default function EventSettingsPage() {
                   </Button>
                 </div>
               </div>
+              <EventDisplayTimezoneEditor
+                value={eventDisplayTimezones}
+                onChange={setEventDisplayTimezones}
+                disabled={isSaving || loadingSettings || settingsLoadFailed}
+              />
             </div>
           </CardContent>
         </Card>

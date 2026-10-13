@@ -1,3 +1,4 @@
+import TenantEventTimeDisplay from "@/components/events/TenantEventTimeDisplay";
 import { useState, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
@@ -314,7 +315,9 @@ export default function IEditEventSpotlightElement({ content, variant, settings 
                 {show_time && event.start_date && (
                   <div className="flex items-center gap-2 text-slate-600">
                     <Clock className="w-5 h-5 text-slate-400" />
-                    <span>{formatEventTime(event.start_date, event.end_date)}</span>
+                    <TenantEventTimeDisplay event={event} end={event.end_date}>
+                      <span>{formatEventTime(event.start_date, event.end_date)}</span>
+                    </TenantEventTimeDisplay>
                   </div>
                 )}
               </div>

@@ -1,3 +1,4 @@
+import TenantEventTimeDisplay from "@/components/events/TenantEventTimeDisplay";
 import { purchaseIdentity, ticketMemberPolicy } from "@/utils/publicTicketMembers";
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -1690,10 +1691,12 @@ export function ComplexEventDetailExperience({
                   {event.start_date && (
                     <div className="flex items-center gap-3 text-slate-700">
                       <Clock className="w-5 h-5 text-slate-400" />
+                      <TenantEventTimeDisplay event={event} end={event.end_date}>
                       <span>{formatTime(event.start_date, tz)}</span>
                       {event.end_date && (
                         <span className="text-slate-500">- {formatTime(event.end_date, tz)}</span>
                       )}
+                      </TenantEventTimeDisplay>
                     </div>
                   )}
 

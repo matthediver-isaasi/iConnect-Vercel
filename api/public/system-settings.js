@@ -48,6 +48,7 @@ const PUBLIC_SETTINGS_WHITELIST = [
   'date_display_format',
   'event_types',
   'event_time_format_24h',
+  'event_display_timezones',
   'event_cta_button',
   'job_types',
   'job_hours',

@@ -8,6 +8,7 @@ import { Calendar, MapPin, Clock, Users, Search, Loader2, Ticket } from "lucide-
 import { format, parseISO, isPast } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 import { publicClient } from "@/api/publicClient";
+import TenantEventTimeDisplay from "@/components/events/TenantEventTimeDisplay";
 import { getFocalPointStyle } from "@/components/FocalPointPicker";
 import { parseEventTypes } from "@/lib/utils";
 import { Link } from "react-router-dom";
@@ -230,6 +231,7 @@ export default function PublicComplexEvents() {
                       </div>
                     )}
 
+                    <TenantEventTimeDisplay event={event} />
                     {event.location && (
                       <div className="flex items-center gap-2 text-sm text-slate-600">
                         <MapPin className="w-4 h-4 text-slate-400 shrink-0" />

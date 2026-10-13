@@ -48,6 +48,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import EventCard, { EventClickCountMetric } from "../components/events/EventCard";
+import TenantEventTimeDisplay from "@/components/events/TenantEventTimeDisplay";
 import PageTour from "../components/tour/PageTour";
 import TourButton from "../components/tour/TourButton";
 import { base44 } from "@/api/base44Client";
@@ -2012,6 +2013,7 @@ export default function EventsPage({
                                   </span>
                                 </div>
                               ) : null)}
+                              <TenantEventTimeDisplay event={event} />
                               {!isImmediateEventTiming(event.status) && event.status !== 'tbc' && event.days_nonconsecutive && event.day_count > 1 && (
                                 <div className="flex items-center gap-2 text-sm text-slate-600" data-testid={`text-day-count-${event.id}`}>
                                   <CalendarDays className="w-4 h-4 text-slate-400 shrink-0" />
@@ -2401,6 +2403,7 @@ export default function EventsPage({
                               </span>
                             </div>
                           ) : null)}
+                          <TenantEventTimeDisplay event={event} />
                           {!isImmediateEventTiming(event.status) && event.status !== 'tbc' && event.days_nonconsecutive && event.day_count > 1 && (
                             <div className="flex items-center gap-2 text-sm text-slate-600" data-testid={`text-grid-day-count-${event.id}`}>
                               <CalendarDays className="w-4 h-4 text-slate-400 shrink-0" />

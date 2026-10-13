@@ -30,7 +30,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
 import DOMPurify from "dompurify";
 import { createPageUrl } from "@/utils";
-import { formatEventTime, getTimezoneAbbreviation } from "@/utils/timeFormat";
+import { formatEventTime, formatEventDate, getTimezoneAbbreviation } from "@/utils/timeFormat";
+import TenantEventTimeDisplay from "@/components/events/TenantEventTimeDisplay";
 import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import AttendeeList from "../components/booking/AttendeeList";
@@ -1761,9 +1762,9 @@ export function EventDetailsExperience({
                   {!isImmediateEventTiming(event?.status) && startDate && (
                     <div className="flex items-center gap-3 text-slate-700">
                       <Calendar className="w-5 h-5 text-slate-400" />
-                      <span className="font-medium">{format(startDate, "EEEE, MMMM d, yyyy")}</span>
+                      <span className="font-medium">{formatEventDate(startDate, "EEEE, MMMM d, yyyy", event.timezone)}</span>
                       {endDate && startDate.getTime() !== endDate.getTime() && (
-                        <span className="text-slate-500">- {format(endDate, "MMMM d, yyyy")}</span>
+                        <span className="text-slate-500">- {formatEventDate(endDate, "MMMM d, yyyy", event.timezone)}</span>
                       )}
                     </div>
                   )}
@@ -1771,11 +1772,13 @@ export function EventDetailsExperience({
                   {!isImmediateEventTiming(event?.status) && startDate && (
                     <div className="flex items-center gap-3 text-slate-700">
                       <Clock className="w-5 h-5 text-slate-400" />
+                      <TenantEventTimeDisplay event={event} end={event.end_date} disabled={notifyIframeResize}>
                       <span>{formatEventTime(startDate, systemSettings, event?.timezone)}</span>
                       {endDate && (
                         <span className="text-slate-500">- {formatEventTime(endDate, systemSettings, event?.timezone)}</span>
                       )}
                       <span className="text-slate-400 text-sm">({getTimezoneAbbreviation(startDate, event?.timezone)})</span>
+                      </TenantEventTimeDisplay>
                     </div>
                   )}
 
