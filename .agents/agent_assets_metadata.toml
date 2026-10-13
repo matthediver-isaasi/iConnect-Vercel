@@ -1335,3 +1335,17 @@ mtime_ms = 1791899809665
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/bea84495-ac59-49e2-b674-e423f5c580d2/5dd77cd4-58d3-4362-a770-1241d1e0a06c"
 storage_version_token = "1791899818757658"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "a0pIMhHLzWSOzH4QQ4WSg"
+uri = "file://generated-artifacts/BNMS_NMC_34_Member_Reconciliation_13-10-2026.xlsx"
+type = "table"
+title = "BNMS — 34-member NMC reconciliation"
+description = "Confidential workbook containing names, email addresses, membership evidence, recommended actions and detailed checks for the nine payment-related cases."
+logical_id = "dd8a4e37-cd96-4f78-b353-09c4bd5ced48"
+content_hash = "sha256:d5a63091c79706da2e1b7683d82a0428877ee4b769c97bd57c1e532f7e0796fc"
+size = 16651
+mtime_ms = 1791923022902
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/dd8a4e37-cd96-4f78-b353-09c4bd5ced48/a7b81e88-4572-41fd-9ab8-a621ee0ebce5"
+storage_version_token = "1791923031947533"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
