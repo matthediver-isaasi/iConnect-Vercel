@@ -19,7 +19,7 @@ export async function selectTenantWithFooterFallback(database, applyFilters) {
   return result;
 }
 
-export async function resolveTenantFromHost(hostname) {
+export async function resolveTenantFromHost(hostname, { fresh = false } = {}) {
   console.log('[TenantResolver] resolveTenantFromHost called with:', hostname);
   
   if (!hostname) {
@@ -36,6 +36,16 @@ export async function resolveTenantFromHost(hostname) {
   const cached = tenantCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
     console.log('[TenantResolver] Cache hit for:', cacheKey);
+    // The cache authorizes host -> tenant identity, not mutable branding.
+    // A writer in another serverless instance cannot invalidate this Map.
+    if (fresh) {
+      const { data, error } = await selectTenantWithFooterFallback(supabase, query => query
+        .eq('id', cached.tenant.id)
+        .eq('status', 'active')
+        .single());
+      if (error || !data) throw new Error('Failed to load current tenant branding');
+      return data;
+    }
     return cached.tenant;
   }
 
@@ -98,6 +108,7 @@ export async function resolveTenantFromHost(hostname) {
         .single());
 
       if (error) {
+        if (fresh && error.code !== 'PGRST116') throw new Error('Failed to load current tenant branding');
         console.log('[TenantResolver] Slug lookup error:', error.message);
       }
       if (!error && data) {
@@ -112,6 +123,7 @@ export async function resolveTenantFromHost(hostname) {
         .single());
 
       if (error) {
+        if (fresh && error.code !== 'PGRST116') throw new Error('Failed to load current tenant branding');
         console.log('[TenantResolver] Domain lookup error:', error.message, 'code:', error.code);
       }
       if (!error && data) {
@@ -133,6 +145,7 @@ export async function resolveTenantFromHost(hostname) {
     return tenant;
 
   } catch (err) {
+    if (fresh) throw err;
     console.error('[TenantResolver] Error resolving tenant:', err);
     return null;
   }
@@ -142,7 +155,7 @@ export function getHostFromRequest(req) {
   return req.headers['x-forwarded-host'] || req.headers.host || '';
 }
 
-export async function resolveTenantFromRequest(req) {
+export async function resolveTenantFromRequest(req, options = {}) {
   console.log('[TenantResolver] resolveTenantFromRequest called');
   
   if (!supabase) {
@@ -185,6 +198,7 @@ export async function resolveTenantFromRequest(req) {
       return bySlug;
     }
     if (slugError) {
+      if (options.fresh && slugError.code !== 'PGRST116') throw new Error('Failed to load current tenant branding');
       console.log('[TenantResolver] Slug param lookup error:', slugError.message);
     }
     
@@ -199,6 +213,7 @@ export async function resolveTenantFromRequest(req) {
       return byDomain;
     }
     if (domainError) {
+      if (options.fresh && domainError.code !== 'PGRST116') throw new Error('Failed to load current tenant branding');
       console.log('[TenantResolver] Domain param lookup error:', domainError.message);
     }
   }
@@ -216,6 +231,7 @@ export async function resolveTenantFromRequest(req) {
       return byDomain;
     }
     if (error) {
+      if (options.fresh && error.code !== 'PGRST116') throw new Error('Failed to load current tenant branding');
       console.log('[TenantResolver] Domain param lookup error:', error.message);
     }
   }
@@ -223,7 +239,7 @@ export async function resolveTenantFromRequest(req) {
   // Fall back to host-based resolution
   const hostname = getHostFromRequest(req);
   console.log('[TenantResolver] Falling back to host-based resolution, hostname:', hostname);
-  return resolveTenantFromHost(hostname);
+  return resolveTenantFromHost(hostname, options);
 }
 
 export function clearTenantCache(slugOrDomain) {

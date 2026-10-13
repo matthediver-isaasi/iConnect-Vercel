@@ -6,14 +6,14 @@ export function createPageTenantResolver({
   resolveHost = resolveTenantFromHost,
   resolveRequest = resolveTenantFromRequest,
 } = {}) {
-  return async function resolvePageTenant(req) {
+  return async function resolvePageTenant(req, options = {}) {
     const rawHost = String(getHostFromRequest(req) || '').trim().toLowerCase();
     const host = rawHost.replace(/:\d+$/, '');
     const developmentHost = host === 'localhost' || host === '127.0.0.1'
       || host === '[::1]' || host.endsWith('.replit.dev') || host.endsWith('.repl.co');
-    if (developmentHost) return resolveRequest(req);
+    if (developmentHost) return resolveRequest(req, options);
     if (!host || /[,\s/\\]/.test(host)) return null;
-    return resolveHost(rawHost);
+    return resolveHost(rawHost, options);
   };
 }
 

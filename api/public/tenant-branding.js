@@ -34,7 +34,7 @@ export function createTenantBrandingHandler({
   }
 
   try {
-    const tenantData = await resolveTenant(req);
+    const tenantData = await resolveTenant(req, { fresh: true });
 
     if (!tenantData) {
       console.log('[Tenant Branding] Tenant not found');

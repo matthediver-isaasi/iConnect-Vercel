@@ -376,9 +376,10 @@ export async function renderTenantHtml(req, options = {}) {
   const template = options.template || loadTemplate();
   let tenant = null;
   try {
-    tenant = await (options.resolveTenant || resolvePageTenant)(req);
+    tenant = await (options.resolveTenant || resolvePageTenant)(req, { fresh: true });
   } catch (err) {
     console.error('[renderHtml] tenant resolution failed:', err?.message);
+    throw err;
   }
 
   let ogUrl = buildOgUrl(req);

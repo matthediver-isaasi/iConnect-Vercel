@@ -69,9 +69,11 @@ async function installFixture(page, {
     }
 
     if (url.pathname === "/api/auth/me") return json(route, {}, 401);
+    if (url.pathname === "/api/public/homepage-route") return json(route, { target: null });
     if (url.pathname === "/api/auth/tenant-user-me") return json(route, { authenticated: false });
     if (url.pathname === "/api/public/tenant-branding") {
       const headerConfig = {
+        topBarHeight: 90,
         logoHeight: desktopLogoHeight,
         logoShrinkOnScroll: true,
         logoScrolledHeight: desktopScrolledHeight,
@@ -181,6 +183,18 @@ async function expectMobileGeometry(page, expectedHeight, { logo = true } = {}) 
 }
 
 test.describe("task 4602 mobile public header height", () => {
+  test("200px toolbar provides 176px proportional logo and usable menu at 390px", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 760 });
+    const state = await openHeader(page, { mobileHeaderHeight: 200, headerLogoUrl: TALL_LOGO });
+    await expectMobileGeometry(page, 200);
+    const image = page.getByTestId("link-header-logo-mobile").locator("img");
+    await expect(image).toHaveCSS("height", "176px");
+    const box = await image.boundingBox();
+    expect(box.width).toBeCloseTo(44, 0);
+    await page.getByRole("button", { name: "Open menu" }).click();
+    await expect(page.getByRole("button", { name: "Close menu" })).toBeVisible();
+    expectCleanFixture(state);
+  });
   for (const width of [320, 375, 430, 768]) {
     test(`uses configured height without collision at ${width}px`, async ({ page }, testInfo) => {
       await page.setViewportSize({ width, height: 760 });
@@ -247,7 +261,7 @@ test.describe("task 4602 mobile public header height", () => {
   test("uses desktop chrome and preserves desktop shrink-on-scroll", async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 1200, height: 420 });
     const state = await installFixture(page, {
-      mobileHeaderHeight: 180,
+      mobileHeaderHeight: 200,
       headerLogoUrl: WIDE_LOGO,
       desktopLogoHeight: 112,
       desktopScrolledHeight: 52,
@@ -257,6 +271,7 @@ test.describe("task 4602 mobile public header height", () => {
     await expect(page.getByTestId("mobile-header-toolbar")).toBeHidden();
     const desktopImage = page.getByTestId("link-header-logo").locator("img");
     await expect(desktopImage).toHaveCSS("height", "112px");
+    await expect(page.locator('header div[style*="height: 90px"]').first()).toHaveCSS("height", "90px");
     await page.screenshot({ path: testInfo.outputPath("desktop-before-scroll.png"), fullPage: false });
     await page.evaluate(() => window.scrollTo(0, 500));
     await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(20);
