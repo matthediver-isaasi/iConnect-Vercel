@@ -233,6 +233,16 @@ function fixture(tables, segments = [{ type: 'all_members', ids: [] }]) {
   return model;
 }
 
+test('preparation reports aggregate work without recipient contents', async () => {
+  const model = fixture({ member: [{ id: 'one', tenant_id: 'tenant', email: 'private@example.invalid', status: 'active' }] });
+  const summaries = [];
+  await model.finishStream({ onMetrics: m => summaries.push(m) });
+  assert.ok(summaries.some(m => m.transitions > 0 && m.sourceReads > 0 && m.readCheckpoints > 0));
+  assert.equal(summaries.at(-1).finalPhase, 'complete');
+  assert.ok(summaries.every(m => Number.isFinite(m.elapsedMs)));
+  assert.ok(!JSON.stringify(summaries).includes('private@example.invalid'));
+});
+
 test('12,000 normal members: resolution checkpoints before insertion, consent, dedup and bounded journal pages',async()=>{
   const members=Array.from({length:12000},(_,i)=>({
     id:`member-${i}`,tenant_id:'tenant',email:`recipient-${i}@example.com`,

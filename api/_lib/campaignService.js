@@ -3051,6 +3051,9 @@ export async function processPreparingCampaigns(options = {}) {
     try {
       results.push({ campaignId: campaign.campaign_id, ...await prepareCampaignAudience({
         db: rawSupabase, generation: campaign.id, deadline,
+        onMetrics: metrics => console.log('[Campaign Service] Preparation aggregate', {
+          campaignId: campaign.campaign_id, ...metrics,
+        }),
         // Quota approval/reservation and promotion are serialized in the RPC,
         // not a racy application-level read/count followed by an insert.
         resolveChunk: input => resolvePreparationChunk({ ...input,

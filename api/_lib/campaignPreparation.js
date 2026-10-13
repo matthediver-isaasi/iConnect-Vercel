@@ -49,21 +49,29 @@ export async function preparationStep(db, generation, owner, action, payload = {
 // Each lookup loads only the requested read, never all prior history. Failed or
 // aborted reads are never checkpointed. The proxy throws DB errors even for
 // legacy resolver branches which previously ignored the error property.
-export function journalDatabase(db, state, owner, deadline, now = Date.now) {
+export function journalDatabase(db, state, owner, deadline, now = Date.now, metrics = {}) {
   const check = () => { if (now() >= deadline - MARGIN_MS) throw new PreparationYield(); };
   let sequence = 0;
   const pages = new Map();
   const pageSize = 8;
+  let emptyHistory = false;
+  const recordedKeys = new Set();
   const loadPage = (index, signal) => {
+    if (emptyHistory) return Promise.resolve([]);
     if (!pages.has(index)) {
       // Bounded read-ahead avoids one network round trip per replayed query.
       // Retain at most two pages rather than loading all generation history.
       if (pages.size >= 2) pages.delete(pages.keys().next().value);
-      pages.set(index, db.from('campaign_preparation_read').select('sequence,key,result')
-        .eq('generation', state.id).eq('segment', state.segment)
-        .gte('sequence', index * pageSize).lt('sequence', (index + 1) * pageSize)
-        .order('sequence').limit(pageSize).abortSignal(signal).then(result => {
+      metrics.historyReads = (metrics.historyReads || 0) + 1;
+      let query = db.from('campaign_preparation_read').select('sequence,key,result')
+        .eq('generation', state.id).eq('segment', state.segment);
+      // The first bounded read must cover the whole segment: a crashed
+      // Promise.all may have saved sequence 8 without saving sequences 0–7.
+      // Only a genuinely empty segment permits skipping later cache misses.
+      if (index !== 0) query = query.gte('sequence', index * pageSize).lt('sequence', (index + 1) * pageSize);
+      pages.set(index, query.order('sequence').limit(pageSize).abortSignal(signal).then(result => {
           if (result.error) throw result.error;
+          if (index === 0 && Array.isArray(result.data) && !result.data.length) emptyHistory = true;
           return result.data || [];
         }));
     }
@@ -81,7 +89,8 @@ export function journalDatabase(db, state, owner, deadline, now = Date.now) {
         let cached = rows.find(row => row.key === key);
         // Promise.all branches may resume in a different order on replay.
         // Query identity, not timing/order of completion, is authoritative.
-        if (!cached) {
+        if (!cached && (!emptyHistory || recordedKeys.has(key))) {
+          metrics.historyReads = (metrics.historyReads || 0) + 1;
           const exact = await db.from('campaign_preparation_read').select('result')
             .eq('generation', state.id).eq('segment', state.segment).eq('key', key)
             .abortSignal(controller.signal).maybeSingle();
@@ -94,6 +103,7 @@ export function journalDatabase(db, state, owner, deadline, now = Date.now) {
         }
         let query = typeof table === 'string' ? db.from(table) : db.rpc(table.rpc, table.args);
         for (const [name, args] of calls) query = query[name](...args);
+        metrics.sourceReads = (metrics.sourceReads || 0) + 1;
         const result = await (typeof query.abortSignal === 'function' ? query.abortSignal(controller.signal) : query);
         if (result.error) throw result.error;
         // The reserved margin is for checkpointing a successfully completed
@@ -102,6 +112,16 @@ export function journalDatabase(db, state, owner, deadline, now = Date.now) {
         await preparationStep(db, state.id, owner, 'read', {
           segment: state.segment, sequence: querySequence, key, result: saved,
         });
+        metrics.readCheckpoints = (metrics.readCheckpoints || 0) + 1;
+        if (emptyHistory) {
+          recordedKeys.add(key);
+          // Stream transitions are small. Bound legacy resolver bookkeeping;
+          // after this limit, conservatively resume ordinary persisted lookups.
+          if (recordedKeys.size >= 64) {
+            emptyHistory = false;
+            recordedKeys.clear();
+          }
+        }
         return saved;
       } catch (error) {
         if (controller.signal.aborted) throw new PreparationYield();
@@ -123,10 +143,13 @@ export function journalDatabase(db, state, owner, deadline, now = Date.now) {
 
 export async function prepareCampaignAudience({
   db, generation, resolve, resolveChunk, authorize, quota, deadline = Date.now() + PREPARATION_BUDGET_MS,
-  now = Date.now, owner = randomUUID(),
+  now = Date.now, owner = randomUUID(), onMetrics,
 }) {
+  const startedAt = now();
+  const metrics = { historyReads: 0, sourceReads: 0, readCheckpoints: 0, transitions: 0 };
   let state = await preparationStep(db, generation, owner, 'claim');
   if (!state) return { success: true, status: 'preparing', busy: true };
+  const initialPhase = state.phase;
   const check = () => { if (now() >= deadline - MARGIN_MS) throw new PreparationYield(); };
   try {
     if (state.authorization_error) throw new Error(state.authorization_error);
@@ -137,7 +160,7 @@ export async function prepareCampaignAudience({
       : [{ type: state.snapshot.target_type, ids: state.snapshot.target_ids || [] }];
     while (state.phase === 'resolve' && state.segment < segments.length) {
       check();
-      const journal = journalDatabase(db, state, owner, deadline, now);
+      const journal = journalDatabase(db, state, owner, deadline, now, metrics);
       if (resolveChunk) {
         const chunk = await resolveChunk({ db: journal, state });
         // This mutation commits output, facts and continuation together.
@@ -148,6 +171,7 @@ export async function prepareCampaignAudience({
           continuation: chunk.continuation, done: chunk.done === true,
           facts: chunk.facts || [], candidates: chunk.candidates || [],
         });
+        metrics.transitions++;
         continue;
       }
       const result = await preparationContext.run({ db: journal, at: state.snapshot.sent_at }, () =>
@@ -216,5 +240,9 @@ export async function prepareCampaignAudience({
     return { success: yielded, status: failed ? 'failed' : 'preparing', preparationPending: !failed,
       retryable, terminal: failed,
       ...(yielded ? { budgetExhausted: true } : { error: error.message }) };
+  } finally {
+    // Counts and timings only: never log audience contents or personal data.
+    if (onMetrics) onMetrics({ ...metrics, initialPhase, finalPhase: state.phase,
+      elapsedMs: Math.max(0, now() - startedAt) });
   }
 }
