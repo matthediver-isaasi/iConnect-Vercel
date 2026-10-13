@@ -91,6 +91,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useDateFormat } from "@/hooks/useDateFormat";
 import MemberEmails from "@/components/MemberEmails";
 import MemberActivityTimeline from "@/components/MemberActivityTimeline";
+import HistoricalInvoices from "@/components/membership/HistoricalInvoices";
 import MemberMembershipTab from "@/components/MemberMembershipTab";
 import CrmTagInput from "@/components/crm/CrmTagInput";
 import { formatTermLength } from "@/lib/memberGroupTermSnapshot";
@@ -1932,6 +1933,10 @@ export default function MemberDetailView({
           </TabsContent>
 
           <TabsContent value="activity" className="space-y-6">
+            {!isNew && <HistoricalInvoices
+              memberId={member?.id}
+              activeTenantId={memberInfo?.tenant_id || memberInfo?.tenantId || null}
+            />}
             {!isNew && member.created_on && (
               <Card>
                 <CardContent className="py-4">

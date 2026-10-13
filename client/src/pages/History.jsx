@@ -17,6 +17,8 @@ import TourButton from "../components/tour/TourButton";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { getMembershipHistorySchedule } from "@/components/membership/historySchedule";
 import HistoricalDdPayments from "@/components/membership/HistoricalDdPayments";
+import HistoricalInvoices from "@/components/membership/HistoricalInvoices";
+import { useHistoricalInvoices } from "@/hooks/useHistoricalInvoices";
 import MemberMembershipInstalments, { isMonthlyMembershipRecord } from "@/components/membership/MemberMembershipInstalments";
 import MembershipPricingDisplay from "@/components/membership/MembershipPricingDisplay";
 import { getMembershipPricingPresentation } from "@/components/membership/membershipPricingPresentation";
@@ -114,6 +116,10 @@ export default function HistoryPage({ hasBanner }) {
   const [showTour, setShowTour] = useState(false);
   const [tourAutoShow, setTourAutoShow] = useState(false);
   const [activeTab, setActiveTab] = useState("all");
+  const historicalInvoicesQuery = useHistoricalInvoices({
+    memberId: memberInfo?.id,
+    activeTenantId: memberInfo?.tenant_id || memberInfo?.tenantId || null,
+  });
 
   useEffect(() => {
     mountedRef.current = true;
@@ -410,7 +416,7 @@ export default function HistoryPage({ hasBanner }) {
     { key: 'program', label: 'Program Tickets', count: transactions.length, eligible: hasOrg, queries: [programQuery] },
     { key: 'training-fund', label: 'Training Fund', count: dedupedTrainingFundTransactions.length + trainingFundPurchases.length, eligible: hasOrg, queries: [trainingFundQuery, trainingFundPurchasesQuery] },
     { key: 'vouchers', label: 'Vouchers', count: voucherTransactions.length, eligible: hasOrg, queries: [vouchersQuery] },
-    { key: 'membership', label: 'Membership', count: membershipHistory.length, eligible: true, queries: [membershipQuery] },
+    { key: 'membership', label: 'Membership', count: membershipHistory.length + (historicalInvoicesQuery.data?.total || 0), eligible: true, queries: [membershipQuery, historicalInvoicesQuery] },
   ].map(category => ({
     ...category,
     confirmedEmpty: category.count === 0 && category.queries.every(query => query.isSuccess && !query.isFetching),
@@ -1947,6 +1953,10 @@ export default function HistoryPage({ hasBanner }) {
                   )}
 
                   {/* Membership History Section */}
+                  <HistoricalInvoices
+                    memberId={memberInfo?.id}
+                    activeTenantId={memberInfo?.tenant_id || memberInfo?.tenantId || null}
+                  />
                   <HistoricalDdPayments
                     memberId={memberInfo?.id}
                     activeTenantId={memberInfo?.tenant_id || memberInfo?.tenantId || null}
@@ -2134,6 +2144,10 @@ export default function HistoryPage({ hasBanner }) {
 
                 {/* Membership Tab */}
                 <TabsContent value="membership" className="space-y-3">
+                  <HistoricalInvoices
+                    memberId={memberInfo?.id}
+                    activeTenantId={memberInfo?.tenant_id || memberInfo?.tenantId || null}
+                  />
                   <HistoricalDdPayments
                     memberId={memberInfo?.id}
                     activeTenantId={memberInfo?.tenant_id || memberInfo?.tenantId || null}
