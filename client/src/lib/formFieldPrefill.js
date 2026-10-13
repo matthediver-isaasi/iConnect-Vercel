@@ -5,7 +5,14 @@ import { isAddressLookupAnswerFilled } from '../../../shared/formAddressLookup.j
 // Used by both the standalone FormView page and IEdit-embedded forms so that
 // fixes to either helper apply everywhere at once.
 
+const DISPLAY_ONLY_FIELD_TYPES = new Set([
+  'instructions', 'image', 'section_header', 'heading', 'paragraph', 'divider', 'spacer', 'html',
+]);
+
 export const isFieldValueFilled = (field, value) => {
+  // Older saved forms can mark display blocks required, but they have no answer.
+  if (DISPLAY_ONLY_FIELD_TYPES.has(field.type)) return true;
+
   if (field.type === 'address_lookup') {
     return isAddressLookupAnswerFilled(field, value);
   }
