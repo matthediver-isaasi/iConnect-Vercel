@@ -1489,3 +1489,17 @@ mtime_ms = 1791969737015
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/61d298f0-fa4c-4e1c-b200-6af80d22f2ac/172723ec-8315-48a1-b4fa-21c8f5389652"
 storage_version_token = "1791969868674798"
 content_type = "text/csv"
+
+[[outputs]]
+id = "isjoOYi3OtuTDOSOHflr5"
+uri = "file://generated-artifacts/bnms-zoom-reconciliation/BNMS_webinar_attendance_review.xlsx"
+type = "table"
+title = "BNMS webinar attendance reconciliation"
+description = "40 unique exact-name booking matches, duplicate-booking cases, unresolved Zoom names and waiting-room-only entries for review. No attendance records have been changed."
+logical_id = "0b7ad74a-7e29-4a23-8a5f-625caff797f8"
+content_hash = "sha256:5c148d81ec287c05ee79a20b638e818bdaafb73b529824b5c5f51b33f5c0c2a8"
+size = 17260
+mtime_ms = 1791978149351
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/0b7ad74a-7e29-4a23-8a5f-625caff797f8/ce8fd768-9e12-4ec9-82c4-344a3e2ad240"
+storage_version_token = "1791978230624461"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
