@@ -1447,3 +1447,17 @@ mtime_ms = 1791965287252
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/77ed7118-6d48-4341-8869-8dcea14c00a7/72770ee1-3292-414a-b8e3-604fb0575f9f"
 storage_version_token = "1791965306452651"
 content_type = "text/csv"
+
+[[outputs]]
+id = "kDNon-fSqTv-4lxFkGG0k"
+uri = "file://generated-artifacts/bnms-current-commitments/BNMS-Membership-Recovery-162-14-10-2026.csv"
+type = "table"
+title = "BNMS — Recovery investigation for 162 members"
+description = "All 162 records with payment evidence, source reconciliation, proposed historical dates, live GoCardless findings and next steps. Includes 19 paid current-term candidates and 27 free-student cases requiring entitlement confirmation. No repairs applied."
+logical_id = "cbe6701a-86d3-45cb-a031-e49811dc0f22"
+content_hash = "sha256:1964b03d164d5c5e487768a058daef12abb180361bb0b62ab2d616ec649dff91"
+size = 117775
+mtime_ms = 1791966934274
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/cbe6701a-86d3-45cb-a031-e49811dc0f22/0ace815d-a99a-4562-a0a7-10c1f30e0e02"
+storage_version_token = "1791966968237075"
+content_type = "text/csv"

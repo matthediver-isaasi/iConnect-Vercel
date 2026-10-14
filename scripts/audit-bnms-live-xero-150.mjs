@@ -4,13 +4,15 @@ import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { destinationTarget } from './apply-custom-object-relationship-deleted-members-migration.mjs';
-const dir='generated-artifacts/bnms-live-xero-150';
+assert.ok(process.argv.length===2||(process.argv.length===3&&process.argv[2]==='remaining-84'));
+const remaining=process.argv[2]==='remaining-84';
+const dir=remaining?'generated-artifacts/bnms-remaining-84':'generated-artifacts/bnms-live-xero-150';
 fs.mkdirSync(`${dir}/cache`,{recursive:true,mode:0o700});
 const sha=x=>createHash('sha256').update(x).digest('hex');
 const save=(name,x)=>fs.writeFileSync(`${dir}/${name}`,JSON.stringify(x,null,2),{mode:0o600});
-const bytes=fs.readFileSync('generated-artifacts/bnms-missing-150-review/snapshot.json');
+const bytes=fs.readFileSync(remaining?`${dir}/snapshot.json`:'generated-artifacts/bnms-missing-150-review/snapshot.json');
 const snapshot=JSON.parse(bytes);
-assert.equal(snapshot.members.length,150);
+assert.equal(snapshot.members.length,remaining?84:150);
 assert.equal(snapshot.tenant,'ff2df806-b321-4254-b651-3af11fccf1db');
 const pin={snapshotHash:sha(bytes),tenant:snapshot.tenant};
 if(fs.existsSync(`${dir}/pin.json`))assert.deepEqual(JSON.parse(fs.readFileSync(`${dir}/pin.json`)),pin);
@@ -64,15 +66,14 @@ try{
   const contacts=new Map();
   for(let i=0;i<snapshot.source.length;i+=20){
     const batch=snapshot.source.slice(i,i+20);
-    const accounts=batch.map(s=>s.preferences.ym_web_site_member_id.trim());
-    assert.ok(accounts.every(a=>/^\d+$/.test(a)));
-    for(const c of await pages('Contacts',{where:accounts.map(a=>`AccountNumber==${JSON.stringify(a)}`).join(' OR '),includeArchived:'true'},'Contacts'))
+    const accounts=batch.map(s=>String(s.preferences.ym_web_site_member_id||'').trim()).filter(a=>/^\d+$/.test(a));
+    for(const c of accounts.length?await pages('Contacts',{where:accounts.map(a=>`AccountNumber==${JSON.stringify(a)}`).join(' OR '),includeArchived:'true'},'Contacts'):[])
       contacts.set(c.ContactID,c);
-    console.log(`CONTACTS ${Math.min(i+20,150)}/150; requests=${requests}`);
+    console.log(`CONTACTS ${Math.min(i+20,snapshot.members.length)}/${snapshot.members.length}; requests=${requests}`);
   }
   for(let i=0;i<snapshot.members.length;i+=20){
-    const emails=snapshot.members.slice(i,i+20).map(m=>m.email.trim().toLowerCase());
-    for(const c of await pages('Contacts',{where:emails.map(e=>`EmailAddress==${JSON.stringify(e)}`).join(' OR '),includeArchived:'true'},'Contacts'))
+    const emails=snapshot.members.slice(i,i+20).map(m=>String(m.email||'').trim().toLowerCase()).filter(Boolean);
+    for(const c of emails.length?await pages('Contacts',{where:emails.map(e=>`EmailAddress==${JSON.stringify(e)}`).join(' OR '),includeArchived:'true'},'Contacts'):[])
       contacts.set(c.ContactID,c);
   }
   const archiveInvoices=[];
@@ -95,11 +96,12 @@ try{
     const source=snapshot.source.find(s=>s.id===m.id);
     const knownNumbers=new Set(snapshot.invoices.filter(i=>i.member_id===m.id).map(i=>i.invoice_number));
     const archiveContactIds=archiveInvoices.filter(i=>knownNumbers.has(i.InvoiceNumber)).map(i=>i.Contact.ContactID);
-    const found=[...contacts.values()].filter(c=>c.AccountNumber?.trim()===source.preferences.ym_web_site_member_id.trim()
-      ||c.EmailAddress?.trim().toLowerCase()===m.email.trim().toLowerCase()||archiveContactIds.includes(c.ContactID));
+    const legacy=String(source.preferences.ym_web_site_member_id||'').trim(),email=String(m.email||'').trim().toLowerCase();
+    const found=[...contacts.values()].filter(c=>(legacy&&c.AccountNumber?.trim()===legacy)
+      ||(email&&c.EmailAddress?.trim().toLowerCase()===email)||archiveContactIds.includes(c.ContactID));
     const c=found[0];
-    const emailMatch=found.length===1&&c.EmailAddress?.trim().toLowerCase()===m.email.trim().toLowerCase();
-    const accountMatch=found.length===1&&c.AccountNumber?.trim()===source.preferences.ym_web_site_member_id.trim();
+    const emailMatch=found.length===1&&!!email&&c.EmailAddress?.trim().toLowerCase()===email;
+    const accountMatch=found.length===1&&!!legacy&&c.AccountNumber?.trim()===legacy;
     const archiveMatch=found.length===1&&archiveContactIds.includes(c.ContactID);
     return {memberId:m.id,contacts:found,exact:!!emailMatch&&(accountMatch||archiveMatch),
       emailMatch:!!emailMatch,accountMatch,archiveMatch};
@@ -136,7 +138,7 @@ try{
     results.push({...match,membershipInvoices:history,latestInvoiceId:latest?.InvoiceID||null,
       latestPaidInvoiceId:latestPaid?.InvoiceID||null,payments});
     save('members.json',results);
-    if(results.length%10===0)console.log(`PAYMENTS ${results.length}/150; requests=${requests}; dayRemaining=${remainingDay}`);
+    if(results.length%10===0)console.log(`PAYMENTS ${results.length}/${snapshot.members.length}; requests=${requests}; dayRemaining=${remainingDay}`);
   }
   save('complete.json',{...pin,completedAt:new Date().toISOString(),members:results.length,requests,
     cachedRequests:fs.readdirSync(`${dir}/cache`).length,remainingDay,remainingMinute,financialWrites:0,membershipWrites:0});

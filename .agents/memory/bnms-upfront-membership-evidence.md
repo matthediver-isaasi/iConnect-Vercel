@@ -46,6 +46,16 @@ itemise a year's membership: preserve the membership line amount, never copy the
 whole event invoice total into membership cost. Paid invoice evidence alone
 does not confirm coverage dates; cohort reconstruction still needs approval.
 
+Some original overseas imports put “Overseas” in membership type but not member
+class; later copies use the expanded class label.
+
+**Why:** An exact-string comparison treated compatible source copies as conflicting
+entitlement evidence even when identity, type, status and expiry all agreed.
+
+**How to apply:** Reconcile wording only when those independent fields agree;
+never discard a real class, NMC entitlement, expiry or identity difference. This
+does not authorise changing the saved member class or reconstructing a term.
+
 The operator explicitly approved establishing the reviewed current cohort with
 unknown historical amounts and no invoice links where matching remained
 unresolved. Do not interpret that approval as authority to link uncertain invoices
