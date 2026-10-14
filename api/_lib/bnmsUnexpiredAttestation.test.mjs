@@ -30,3 +30,16 @@ test('NMC includes new attested expiry-only history but still rejects unapproved
   assert.equal(projectNmcReport({...input,history:[{...history,notes:null}]}).total,0);
   assert.equal(projectNmcReport({...input,reportDate:'2027-06-19'}).excludedCounts.expired_over_90_days,1);
 });
+test('approved overseas attestation belongs in Full and Full Junior without financial inference', () => {
+  const expiry = '2027-07-08';
+  const overseasHistory = {...history,term_end_date:expiry,currency:null,
+    notes:JSON.stringify({...notes,expiry,approvalScope:'single_overseas_nmc_member'})};
+  const fields=NMC_FIELDS.map(name=>({id:name,name,tenant_id:NMC_TENANT,entity_scope:'member',is_active:true,
+    options:name==='member_class'?['Overseas Full with NMC']:[]}));
+  const input={members:[{id:'m',tenant_id:NMC_TENANT}],fields,
+    preferences:[{member_id:'m',field_id:'member_class',value:'Overseas Full with NMC'}],
+    organizations:[],history:[overseasHistory],reportDate:'2026-10-14'};
+  assert.equal(projectNmcReport(input).sheets[0].count,1);
+  assert.equal(isAttestedExpiryOnlyHistory(overseasHistory,NMC_TENANT),false);
+  assert.equal(projectNmcReport({...input,history:[]}).reviewCounts.missing_membership_evidence,1);
+});

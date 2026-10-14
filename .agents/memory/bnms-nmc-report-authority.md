@@ -20,3 +20,9 @@ The owner separately confirmed paid status for the reviewed 72 Full/Full Junior 
 **Why:** The previous upfront backfill covered only expiries from 22 September to 31 December 2026, leaving this unexpired group outside its scope.
 
 **How to apply:** Treat this as a bounded administrator attestation, not provider settlement or renewal authority. Do not force these records into the earlier 2025/2026 contract or extend the approval to the expired or DD-evidence cohorts.
+
+The owner subsequently confirmed paid status for the separately reviewed single overseas NMC membership. This is individual approval, not blanket approval for all overseas memberships.
+
+**Why:** Archived invoices supported the membership description but omitted settlement status and currency; the owner supplied paid-status authority.
+
+**How to apply:** Use the persisted per-member approval audit to identify the authorised record. Preserve unknown commencement, amounts and currency; archived invoice existence alone must not authorise payment or renewal.
