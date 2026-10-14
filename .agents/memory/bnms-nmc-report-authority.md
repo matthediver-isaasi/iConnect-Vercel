@@ -30,13 +30,17 @@ BNMS NMC fulfilment is classified by the member-scoped `member_class`, never rol
 
 **How to apply:** Keep membership evidence and tenant-staff exclusions independent of journal routing. Default printed choices retain the Full/Full junior and overseas equivalents; other classes require explicit print selection. The owner removed Associate/Honorary/Retired and Trainee/LMIC print sheets. Export only delivery-required columns, with online-only restricted to title, first name, last name and email.
 
-Normal new monthly first-collection waits should be reported separately from
-membership evidence problems, but are not fulfilment entitlement.
+Normal new monthly first-collection waits should be distinguished from
+membership evidence problems inside Review before fulfilment, not a separate
+large card. Setup pending, submitted collections and failed first collections
+must remain distinguishable, but are not fulfilment entitlement.
 
-**Why:** The owner requested a clear healthy waiting category without relabelling
-manual approval, failed collections, malformed records or historical uncertainty.
+**Why:** The owner requested a compact review section and accurate waiting counts;
+saved mandate-activation agreements can still have no confirmed collection.
 
-**How to apply:** Require tenant-owned live agreement, plan and history evidence.
+**How to apply:** Require tenant-owned live agreement and history evidence; a
+mandate still being set up may not yet have a plan. Submitted/failed collections
+require a matching plan with zero paid instalments.
 Keep pending members outside eligible totals until confirmed payment and
 activation; test transitions with fixtures, without provider writes.
 

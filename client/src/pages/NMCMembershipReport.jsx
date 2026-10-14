@@ -205,6 +205,7 @@ export default function NMCMembershipReport() {
 
   const report = query.data;
   const reviews = reasonEntries(report?.reviewCounts);
+  const pending = reasonEntries(report?.pendingCounts);
   const excluded = reasonEntries(report?.excludedCounts);
   const options = report?.classOptions || [];
   const unknownValues = draft ? [...new Set([...draft.printedClasses, ...draft.onlineClasses])].filter(value => !options.some(option => option.value === value)) : [];
@@ -263,11 +264,6 @@ export default function NMCMembershipReport() {
             <div className="flex items-start gap-2 max-w-xs text-sm"><ShieldCheck className="h-5 w-5 shrink-0" aria-hidden="true" /><p>Read-only reporting.<br /><span className="text-muted-foreground">No membership, payment or address data is changed by this report.</span></p></div>
           </section>
 
-          <Card className="nmc-panel" data-testid="nmc-awaiting-first-payment">
-            <CardHeader className="pb-3"><CardTitle className="text-lg">Awaiting first payment</CardTitle></CardHeader>
-            <CardContent><p className="text-2xl font-semibold tabular-nums">{displayCount(report.pendingCounts?.awaiting_first_payment)}</p><p className="text-sm text-muted-foreground mt-2">New monthly memberships with matching live agreement, plan and unpaid history evidence. These members are not included in eligible totals or the workbook until payment is confirmed and membership is activated. Manual approval waits, failed collections and uncertain records are not included in this category.</p></CardContent>
-          </Card>
-
           <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] gap-6">
             <Card className="nmc-panel">
               <CardHeader className="pb-3"><CardTitle className="text-lg flex items-center gap-2"><FileSpreadsheet className="h-5 w-5" aria-hidden="true" />Workbook contents</CardTitle><p className="text-sm text-muted-foreground">Printed and online-only fulfilment use the saved member class selections. Review diagnostics are separate and do not appear as rows in the workbook.</p></CardHeader>
@@ -279,9 +275,16 @@ export default function NMCMembershipReport() {
               </CardContent>
             </Card>
 
-            <Card className={`nmc-panel ${reviews.length ? "nmc-review" : ""}`}>
+            <Card className={`nmc-panel ${reviews.length || pending.length ? "nmc-review" : ""}`} data-testid="nmc-review-before-fulfilment">
               <CardHeader className="pb-3"><CardTitle className="text-lg">Review before fulfilment</CardTitle><p className="text-sm">Review counts are diagnostics, not workbook rows or confirmed journal recipients. Investigate the reasons below in the source membership records; no Review worksheet is included.</p></CardHeader>
               <CardContent>
+                {pending.length > 0 && <section className="mb-4 border-b nmc-rule pb-4" aria-label="First payment progress">
+                  <h3 className="font-semibold text-sm mb-2">First payment progress</h3>
+                  <ul className="divide-y divide-current/10" data-testid="list-nmc-payment-progress">{pending.map(([reason, value]) => <li className="py-3 first:pt-0" key={reason}>
+                    <div className="flex items-start justify-between gap-3"><h4 className="font-semibold text-sm">{nmcReasonLabel(reason)}</h4><Badge variant="outline" className="shrink-0 tabular-nums">{displayCount(value)}</Badge></div>
+                    <p className="text-sm mt-2 leading-relaxed">{nmcReviewGuidance(reason)}</p>
+                  </li>)}</ul>
+                </section>}
                 {reviews.length ? <ul className="divide-y divide-current/10" data-testid="list-nmc-review-reasons">{reviews.map(([reason, value]) => <li className="py-3 first:pt-0" key={reason}><div className="flex items-start justify-between gap-3"><h3 className="font-semibold text-sm">{nmcReasonLabel(reason)}</h3><Badge variant="outline" className="shrink-0 tabular-nums">{displayCount(value)}</Badge></div><p className="text-sm mt-2 leading-relaxed">{nmcReviewGuidance(reason)}</p></li>)}</ul> : <p className="text-sm py-3" data-testid="text-nmc-no-review">No review reasons reported for this snapshot.</p>}
                 <p className="text-xs mt-4 text-muted-foreground">Reason counts are shown as returned by the report; do not assume they are mutually exclusive.</p>
               </CardContent>

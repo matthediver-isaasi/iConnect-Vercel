@@ -144,6 +144,22 @@ async function mount({ access = accessFixture, loadingBranding = false, branding
   };
 }
 
+test("payment stages and failures are inside review before fulfilment, with no standalone card", async () => {
+  const view = await mount({ transport: async () => jsonResponse({ ...report,
+    pendingCounts: { awaiting_mandate_setup: 1, first_collection_submitted: 2 },
+    reviewCounts: { first_collection_failed: 2 },
+  }) });
+  try {
+    await waitFor(() => view.container.querySelector('[data-testid="list-nmc-payment-progress"]'), "payment progress");
+    const section = view.container.querySelector('[data-testid="nmc-review-before-fulfilment"]');
+    assert.match(section.textContent, /Awaiting mandate \/ setup1/);
+    assert.match(section.textContent, /First collection submitted — awaiting confirmation2/);
+    assert.match(section.textContent, /First collection failed2/);
+    assert.match(section.textContent, /not a normal setup wait/);
+    assert.equal(view.container.querySelector('[data-testid="nmc-awaiting-first-payment"]'), null);
+  } finally { await view.close(); }
+});
+
 test("loading transitions to recipient worksheet counts with review diagnostics separate", async () => {
   let resolve;
   const pending = new Promise(done => { resolve = done; });
@@ -155,10 +171,10 @@ test("loading transitions to recipient worksheet counts with review diagnostics 
     await waitFor(() => view.container.querySelector('[data-testid="table-nmc-sheets"]'), "worksheet counts");
     assert.equal(view.container.querySelectorAll('[data-testid="table-nmc-sheets"] tbody tr').length, 4);
     assert.equal(view.container.querySelector('[data-testid="text-nmc-total"]').textContent, "62");
-    const awaiting = view.container.querySelector('[data-testid="nmc-awaiting-first-payment"]');
-    assert.match(awaiting.textContent, /Awaiting first payment5/);
-    assert.match(awaiting.textContent, /not included in eligible totals or the workbook/);
-    assert.match(awaiting.textContent, /Manual approval waits, failed collections/);
+    assert.equal(view.container.querySelector('[data-testid="nmc-awaiting-first-payment"]'), null);
+    const awaiting = view.container.querySelector('[data-testid="nmc-review-before-fulfilment"] [data-testid="list-nmc-payment-progress"]');
+    assert.match(awaiting.textContent, /First collection pending5/);
+    assert.match(awaiting.textContent, /not included in the workbook/);
     assert.equal(view.container.querySelector('[data-testid="text-report-date"]').textContent, "31 Mar 2026");
     const rows = [...view.container.querySelectorAll('[data-testid="table-nmc-sheets"] tbody tr')].map(row => row.textContent);
     assert.deepEqual(rows, ["Print active37", "Print grace4", "Online active19", "Online grace2"]);

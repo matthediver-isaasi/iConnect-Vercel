@@ -25,11 +25,18 @@ export function formatNmcReportDate(value) {
 }
 
 export function nmcReasonLabel(reason) {
+  if (reason === "awaiting_mandate_setup") return "Awaiting mandate / setup";
+  if (reason === "first_collection_submitted") return "First collection submitted — awaiting confirmation";
+  if (reason === "awaiting_first_payment") return "First collection pending";
   return String(reason).replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_-]/g, " ").replace(/^\w/, letter => letter.toUpperCase());
 }
 
 export function nmcReviewGuidance(reason) {
   const guidance = {
+    awaiting_mandate_setup: "Direct Debit setup is still pending. No confirmed first collection is recorded; these members are not included in the workbook.",
+    first_collection_submitted: "The first collection has been submitted but is not yet confirmed. These members stay outside the workbook until payment and membership evidence qualify.",
+    awaiting_first_payment: "The first collection is pending or awaiting submission. No confirmed payment is recorded; these members are not included in the workbook.",
+    first_collection_failed: "The first collection failed and no instalments have been paid. Check the payment record before taking action. This is not a normal setup wait and does not establish journal eligibility.",
     missing_membership_evidence: "Check the source membership record and add or reconcile evidenced membership history. Do not infer entitlement from an imported Active status or legacy expiry alone.",
     missing_class: "Confirm and populate the member’s membership class in the source record, then refresh the report.",
     unknown_class: "Check the recorded class against the supported BNMS membership classes and correct an unrecognised value before refreshing.",

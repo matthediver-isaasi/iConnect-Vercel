@@ -95,10 +95,37 @@ test('submission event timestamps are not settlement evidence; timestamped failu
     const result = report({ ...input, plans: [{ ...input.plans[0],
       last_payment_status: status, last_payment_at: '2026-10-07T10:00:00Z' }] });
     const waiting = ['pending_submission', 'submitted'].includes(status);
-    assert.deepEqual(result.pendingCounts, waiting ? { awaiting_first_payment: 1 } : {}, status);
+    assert.deepEqual(result.pendingCounts, waiting ? { [status === 'submitted' ? 'first_collection_submitted' : 'awaiting_first_payment']: 1 } : {}, status);
     assert.equal(result.total, 0);
-    assert.deepEqual(result.reviewCounts, waiting ? {} : { unproven_membership_evidence: 1 });
+    assert.deepEqual(result.reviewCounts, waiting ? {} : { [status === 'failed' ? 'first_collection_failed' : 'unproven_membership_evidence']: 1 });
   }
+});
+test('mandate-based setup and submitted first collections are diagnostics, never eligible recipients', () => {
+  const base = pendingFixture();
+  const setup = { ...base, agreements: [{ ...base.agreements[0], status: 'mandate_pending', metadata: { dd: { activation_rule: 'mandate' } } }], plans: [] };
+  assert.deepEqual(report(setup).pendingCounts, { awaiting_mandate_setup: 1 });
+  assert.equal(report(setup).total, 0);
+  const submitted = { ...base, history: [{ ...base.history[0], status: 'active' }],
+    agreements: [{ ...base.agreements[0], metadata: { dd: { activation_rule: 'mandate' } } }],
+    plans: [{ ...base.plans[0], status: 'mandate_pending', last_payment_status: 'submitted', last_payment_at: '2026-10-07T10:00:00Z' }] };
+  assert.deepEqual(report(submitted).pendingCounts, { first_collection_submitted: 1 });
+  assert.equal(report(submitted).total, 0);
+  assert.deepEqual(report(submitted).reviewCounts, {});
+  for (const patch of [
+    { history: [{ ...submitted.history[0], previous_term_id: 'old' }] },
+    { history: [...submitted.history, { ...term, id: 'other' }] },
+    { plans: [{ ...submitted.plans[0], member_id: 'foreign' }] },
+    { plans: [{ ...submitted.plans[0], instalments_paid: 1 }] },
+    { plans: [{ ...submitted.plans[0], last_payment_status: 'confirmed' }] },
+    { agreements: [{ ...submitted.agreements[0], environment: 'sandbox' }] },
+    { agreements: [{ ...submitted.agreements[0], metadata: { dd: { activation_rule: 'manual' } } }] },
+  ]) {
+    assert.deepEqual(report({ ...submitted, ...patch }).pendingCounts, {});
+  }
+  const failed = report({ ...base, plans: [{ ...base.plans[0], status: 'payment_grace_period', last_payment_status: 'failed', grace_expires_at: '2026-10-14' }] });
+  assert.deepEqual(failed.reviewCounts, { first_collection_failed: 1 });
+  assert.deepEqual(failed.pendingCounts, {});
+  assert.equal(failed.total, 0);
 });
 test('default class mappings keep only full print classes; roles never determine routing', () => {
   const allowed = new Set(options);

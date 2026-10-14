@@ -64,6 +64,43 @@ function awaitingFirstPayment(history, agreements, plans, today) {
     && (p.retry_count == null || p.retry_count === 0)
     && (p.auto_retry_attempts == null || p.auto_retry_attempts === 0);
 }
+function firstCollectionDiagnostic(history, agreements, plans, today) {
+  // Diagnostic only: these states never establish paid journal entitlement.
+  if (history.length !== 1) return null;
+  const h = history[0], a = agreements.get(h.billing_agreement_id);
+  const start = nmcDate(h.term_start_date), end = nmcDate(h.term_end_date);
+  if (!start || !end || start > today || start > end || end < today || h.previous_term_id
+    || h.payment_status !== 'unpaid' || !a || a.member_id !== h.member_id || a.organization_id
+    || a.environment !== 'live' || a.provider !== 'gocardless'
+    || !['mandate_pending', 'first_payment_pending'].includes(a.status)) return null;
+  const rule = a.metadata?.dd?.activation_rule;
+  if (!['mandate', 'first_payment'].includes(rule)
+    || !(h.status === 'pending_payment_setup' || (h.status === 'active' && rule === 'mandate'))) return null;
+  const linked = plans.filter(p => p.billing_agreement_id === a.id);
+  if (!linked.length && a.status === 'mandate_pending' && h.status === 'pending_payment_setup'
+    && a.needs_attention === false && !a.attention_reason) return { pending: 'awaiting_mandate_setup' };
+  if (linked.length !== 1) return null;
+  const p = linked[0];
+  if (p.member_id !== h.member_id || p.organization_id || p.environment !== 'live' || p.provider !== a.provider
+    || p.interval_unit !== 'monthly' || p.instalments_paid !== 0
+    || !Number.isInteger(p.instalments_total) || p.instalments_total <= 0
+    || !Number.isInteger(p.amount_minor) || p.amount_minor <= 0
+    || !h.membership_year || p.membership_year !== h.membership_year) return null;
+  if (p.last_payment_status === 'failed' && ['first_payment_pending', 'mandate_pending', 'payment_grace_period'].includes(p.status)) {
+    return { review: 'first_collection_failed' };
+  }
+  if (![a, p].every(row => row.needs_attention === false && !row.attention_reason)
+    || p.grace_expires_at || p.arrears_policy_applied || p.arrears_policy_applied_at
+    || (p.retry_count != null && p.retry_count !== 0)
+    || (p.auto_retry_attempts != null && p.auto_retry_attempts !== 0)
+    || !['first_payment_pending', 'mandate_pending'].includes(p.status)) return null;
+  if (p.last_payment_status === 'submitted') return { pending: 'first_collection_submitted' };
+  if (p.last_payment_status === 'pending_submission') return { pending: 'awaiting_first_payment' };
+  if (p.last_payment_status == null && !p.last_payment_at && a.status === 'mandate_pending'
+    && p.status === 'mandate_pending') return { pending: 'awaiting_mandate_setup' };
+  return null;
+}
+
 function membershipEvidence(history, agreements, plans, recognitions, today) {
   if (!history.length) return { review: 'missing_membership_evidence' };
   const candidates = [];
@@ -118,7 +155,10 @@ function membershipEvidence(history, agreements, plans, recognitions, today) {
     if (days > 90) return { excluded: 'expired_over_90_days' };
     return { status: days > 0 ? 'Expired' : 'Active', months: completedMonths(chosen.expiry, today) };
   }
-  if (awaitingFirstPayment(history, agreements, plans, today)) return { pending: 'awaiting_first_payment' };
+  const diagnostic = firstCollectionDiagnostic(history, agreements, plans, today);
+  if (diagnostic) return diagnostic;
+  if (awaitingFirstPayment(history, agreements, plans, today)) return { pending: plans.find(p => p.billing_agreement_id === history[0].billing_agreement_id)?.last_payment_status === 'submitted'
+    ? 'first_collection_submitted' : 'awaiting_first_payment' };
   if (unresolved.length) return { review: unresolved[0].reason };
   return { excluded: tests && tests + future === history.length ? 'test_membership_only' : 'future_membership_only' };
 }
