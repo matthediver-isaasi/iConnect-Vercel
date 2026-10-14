@@ -25,6 +25,8 @@ membership invoice exists.
 **Why:** A separately approved historical repair initially preserved a stale
 imported expiry; the subsequent Xero check found a newer full membership payment.
 The owner authorised reconstructing that individual's successor as 12 months.
+The owner subsequently confirmed the reconstructed record displayed correctly,
+using the member-class-selected structure and the verified Xero payment.
 
 **How to apply:** Check later provider invoices before presenting an expired
 legacy term as the member's latest entitlement. Keep confirmed payments separate
