@@ -1,6 +1,7 @@
 import { selectCanvasCommitment, buildCanvasSummary } from '../membership/canvas-summary.js';
 import { isDeletedRelationshipMember } from './customObjectMemberEligibility.js';
 import { shapeLegacyCurrentMembership } from '../membership/member-membership.js';
+import { isBnmsCorrectedExpiryAttestation } from './bnmsCorrectedExpiryAttestation.js';
 
 export const isEligiblePaymentReportMember = (row, tenantId) =>
   row?.tenant_id === tenantId && !isDeletedRelationshipMember(row);
@@ -231,7 +232,7 @@ export function projectMembershipPaymentReport({
       && (record.billing_period === 'annual' || record.commitment_snapshot?.payment_frequency === 'upfront')
       && record.commitment_snapshot?.payment_frequency !== 'monthly'
       && ['upfront', 'card', 'stripe', 'invoice', 'bank_transfer'].includes(record.payment_method);
-    if (!legacy && !datedUpfront) continue;
+    if (!legacy && !datedUpfront && !isBnmsCorrectedExpiryAttestation(record)) continue;
     // A later retained term (even cancelled/unpaid or recurring) supersedes
     // this historical row. Never resurrect it because that successor is hidden.
     if (history.some(other => other.id !== record.id && other.tenant_id === tenantId

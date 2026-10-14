@@ -144,7 +144,7 @@ export default function MembershipPaymentReport() {
   const showCollectionAmount = directDebitView || paymentMethod === "all";
   // Keep each report variant readable; overflow stays inside the results region.
   const columnWidths = [
-    200, 260, 190, 120, 160, 150, 150,
+    200, 260, ...(!upfrontView ? [190] : []), 120, 160, 150, 190,
     ...(!upfrontView ? [150, 260] : []),
     ...(!directDebitView ? [250] : []),
     270,
@@ -390,11 +390,11 @@ export default function MembershipPaymentReport() {
                     <tr className="border-b bg-slate-50 text-left text-slate-600">
                       <th className="px-3 py-2 font-medium">Member</th>
                       <th className="px-3 py-2 font-medium">Email</th>
-                      <th className="px-3 py-2 font-medium">Tier</th>
+                      {!upfrontView && <th className="px-3 py-2 font-medium">Tier</th>}
                       <th className="px-3 py-2 font-medium">Status</th>
                       <th className="px-3 py-2 font-medium">Payment method</th>
                       <th className="px-3 py-2 font-medium">Membership expiry</th>
-                      <th className="px-3 py-2 font-medium">Days past expiry</th>
+                      <th className="px-3 py-2 font-medium">Expiry / grace countdown</th>
                       {!upfrontView && (
                         <>
                           <th className="px-3 py-2 font-medium whitespace-nowrap"
@@ -423,7 +423,7 @@ export default function MembershipPaymentReport() {
                   </thead>
                   <tbody>
                     {rows.map((row) => (
-                      <tr key={row.memberId} className="border-b last:border-0" data-testid={`row-payment-${row.memberId}`}>
+                      <tr key={row.memberId} className={`border-b last:border-0 ${row.expiryTone === "grace" ? "bg-orange-50" : row.expiryTone === "expired" ? "bg-red-50" : ""}`} data-testid={`row-payment-${row.memberId}`}>
                         <td className="px-3 py-2 font-medium">
                           {canViewMembers ? (
                             <Link className="text-primary hover:underline" to={`/members/${encodeURIComponent(row.memberId)}`}>
@@ -432,16 +432,14 @@ export default function MembershipPaymentReport() {
                           ) : row.name || "Unknown"}
                         </td>
                         <td className="px-3 py-2">{row.email || "Unknown"}</td>
-                        <td className="px-3 py-2">{row.tier || "Unknown"}</td>
+                        {!upfrontView && <td className="px-3 py-2">{row.tier || "Unknown"}</td>}
                         <td className="px-3 py-2"><Badge variant="outline">{row.statusLabel || humanise(row.status)}</Badge></td>
                         <td className="px-3 py-2">
                           {methodLabels.get(row.paymentMethod) || humanise(row.paymentMethod)}
                         </td>
                         <td className="px-3 py-2 whitespace-nowrap">{formatDate(row.currentExpiryDate)}</td>
                         <td className="px-3 py-2">
-                          {row.daysPastExpiry == null ? "Unknown" : row.daysPastExpiry > 0
-                            ? <Badge variant={row.daysPastExpiry > 90 ? "destructive" : "outline"}>{row.daysPastExpiry} days</Badge>
-                            : "Not expired"}
+                          {row.expiryTiming || "Expiry unknown"}
                         </td>
                         {!upfrontView && (
                           <>

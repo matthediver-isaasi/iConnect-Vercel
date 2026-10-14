@@ -753,6 +753,8 @@ test('expiry filters intersect search and method before pagination and CSV', asy
   assert.equal(result.body.total, 2);
   assert.equal(result.body.rows[0].memberId, 'b');
   assert.equal(result.body.rows[0].daysPastExpiry, 91);
+  assert.equal(result.body.rows[0].expiryTiming, '91 days past expiry');
+  assert.equal(result.body.rows[0].expiryTone, null, 'BNMS journal window must not apply to other tenants');
   const csv = await request(deps, { ...query, format: 'csv' });
   assert.equal(csv.body.trimEnd().split('\r\n').length, 3);
   assert.match(csv.body, /Expiry a,/);

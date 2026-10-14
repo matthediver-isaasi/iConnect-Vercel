@@ -133,6 +133,16 @@ export function createMembershipPaymentReportHandler(deps = {}) {
       const providerSchedules = await (deps.resolveSchedules || resolvePaymentReportSchedules)(input);
       const rows = projectMembershipPaymentReport({ ...input, providerSchedules, directDebitDetails })
         .map(row => ({ ...row, ...paymentReportExpiry(row, deps.today || new Date().toISOString().slice(0, 10)) }))
+        .map(row => {
+          const days = row.currentExpiryDate ? Math.round((Date.parse(row.currentExpiryDate) - Date.parse(deps.today || new Date().toISOString().slice(0, 10))) / 86400000) : null;
+          // BNMS journal review window only; not a billing/access policy.
+          const journalWindow = tenantId === 'ff2df806-b321-4254-b651-3af11fccf1db';
+          return { ...row, expiryTiming: days == null ? 'Expiry unknown' : days >= 0
+            ? `${days} days until expiry` : journalWindow
+              ? -days <= 90 ? `${90 + days} grace days remaining` : `Grace exceeded by ${-days - 90} days`
+              : `${-days} days past expiry`,
+            expiryTone: days < 0 && journalWindow ? (-days <= 90 ? 'grace' : 'expired') : null };
+        })
         .map(row => row.paymentMethod !== 'upfront' ? row : {
           ...row, ...projectUpfrontRenewalAmount({ row,
             member: members.find(member => member.id === row.memberId && member.tenant_id === tenantId),
