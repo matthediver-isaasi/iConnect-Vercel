@@ -3,6 +3,16 @@ name: BNMS NMC report authority
 description: Owner-approved journal report eligibility and classification boundaries.
 ---
 
+Members linked to BNMS's own tenant organisation must be excluded from all
+NMC membership report counts, including review counts.
+
+**Why:** The owner explicitly stated that members of the BNMS tenant organisation
+should not be included in any counts, including staff using external email domains.
+
+**How to apply:** Identify the primary tenant organisation and use the member's
+organisation relationship, not the member's email domain. The owner identified
+the BNMS tenant by its bnms.org.uk domain.
+
 BNMS NMC fulfilment is classified by the member-scoped `member_class`, never roles. Eligible NMC classes receive print; all otherwise eligible non-NMC classes go exclusively to Online-only, even if category sheets are empty.
 
 **Why:** The user explicitly confirmed this allocation.
