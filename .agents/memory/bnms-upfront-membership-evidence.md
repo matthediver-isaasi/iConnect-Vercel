@@ -33,6 +33,19 @@ legacy term as the member's latest entitlement. Keep confirmed payments separate
 from operator-authorised duration and structure reconstruction. Do not extend
 this individual's term approval to the wider unresolved cohort.
 
+Historical BNMS Xero contacts do not consistently carry the imported YM account
+number. A failed account-number lookup is not proof of missing invoices.
+
+**Why:** Live investigation found many contacts through pinned historical invoice
+numbers and email instead. Some nevertheless had a different non-empty legacy
+account number, requiring identity review rather than automatic matching.
+
+**How to apply:** Check invoice references and email as independent evidence, and
+hold explicit account-number conflicts. Mixed event invoices may separately
+itemise a year's membership: preserve the membership line amount, never copy the
+whole event invoice total into membership cost. Paid invoice evidence alone
+does not confirm coverage dates; cohort reconstruction still needs approval.
+
 The operator explicitly approved establishing the reviewed current cohort with
 unknown historical amounts and no invoice links where matching remained
 unresolved. Do not interpret that approval as authority to link uncertain invoices

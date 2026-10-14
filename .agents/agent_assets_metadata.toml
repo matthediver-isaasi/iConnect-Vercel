@@ -1419,3 +1419,17 @@ mtime_ms = 1791962638650
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/5ae673d6-0313-4f0a-b1d4-aeb6d625e8cd/41fe1808-d745-4a34-80ff-e419d279a3f5"
 storage_version_token = "1791962715137350"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "MOa1hoZ44zwWmiFrKdvW6"
+uri = "file://generated-artifacts/bnms-live-xero-150/BNMS-Live-Xero-Membership-Review-150-14-10-2026.csv"
+type = "table"
+title = "BNMS — Live Xero membership review: all 150 members"
+description = "Spreadsheet of the 72 conditional reconstruction candidates and 78 records requiring further review, including invoice evidence, membership amounts, proposed dates and hold reasons. No memberships changed."
+logical_id = "5a668464-7662-4853-96c4-ab9ce7005773"
+content_hash = "sha256:5506d9eb76a21e3f43233a82fc050682bffa43a0584c1efe471632ee1d0a9070"
+size = 75671
+mtime_ms = 1791964415963
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/5a668464-7662-4853-96c4-ab9ce7005773/fbac2310-186f-4e37-b3f4-beb4541128c9"
+storage_version_token = "1791964486593284"
+content_type = "text/csv"
