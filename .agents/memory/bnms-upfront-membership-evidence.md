@@ -8,6 +8,29 @@ not creation of new or future commitments. The operator authorized assuming thes
 members paid, with manual corrections later; keep that attestation distinct from
 provider-verified invoice evidence.
 
+BNMS membership structure is always derived from the member custom field
+`member_class`. The imported YM membership-type label is not a structure.
+
+**Why:** The owner corrected a repair which displayed “Full Membership UK” as
+though it were a configured structure.
+
+**How to apply:** Resolve the configured structure through its member-class
+selector. For administrator-approved reconstruction, distinguish that mapping
+from proof of which configuration existed on the original payment date. Use
+verified invoice amounts, not current structure prices, for historical payments.
+
+An imported expiry is not the complete membership history when a later paid
+membership invoice exists.
+
+**Why:** A separately approved historical repair initially preserved a stale
+imported expiry; the subsequent Xero check found a newer full membership payment.
+The owner authorised reconstructing that individual's successor as 12 months.
+
+**How to apply:** Check later provider invoices before presenting an expired
+legacy term as the member's latest entitlement. Keep confirmed payments separate
+from operator-authorised duration and structure reconstruction. Do not extend
+this individual's term approval to the wider unresolved cohort.
+
 The operator explicitly approved establishing the reviewed current cohort with
 unknown historical amounts and no invoice links where matching remained
 unresolved. Do not interpret that approval as authority to link uncertain invoices
