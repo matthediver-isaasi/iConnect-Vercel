@@ -1349,3 +1349,17 @@ mtime_ms = 1791923022902
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/dd8a4e37-cd96-4f78-b353-09c4bd5ced48/a7b81e88-4572-41fd-9ab8-a621ee0ebce5"
 storage_version_token = "1791923031947533"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "0Qw-sTdk6Mj2AQKCBrypw"
+uri = "file://generated-artifacts/BNMS_Membership_Expiry_Format_Audit_14-10-2026.xlsx"
+type = "table"
+title = "BNMS membership expiry date audit"
+description = "155 non-standard dates with names, email addresses, original values and unverified UK/US interpretations, plus summary counts and blank saved values."
+logical_id = "c3f65f8a-80fa-4279-a0c5-6281e7a1c710"
+content_hash = "sha256:9e53ae7a3350a3a5ed520ee8a244a1700e0628be678a91d55aafa521b1ffc308"
+size = 24749
+mtime_ms = 1791959202304
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/c3f65f8a-80fa-4279-a0c5-6281e7a1c710/3a643d8d-e4b7-41e6-95f6-ef746ae5400f"
+storage_version_token = "1791959209876406"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
