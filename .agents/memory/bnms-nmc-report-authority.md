@@ -38,3 +38,16 @@ The owner separately authorised establishment of one expired individual's paid h
 **Why:** That individual was outside the corrected-date cohort; approval of the earlier cohort did not cover him. The wider report count includes Former-class records and is not a count of current paid members.
 
 **How to apply:** Use the individual approval audit to bound the write. Retain the known expiry and unknown start/amounts, with no renewal or billing authority. Review the other records by class, imported status, expiry and DD evidence; do not automatically exclude Former records or mark the wider cohort paid.
+
+Historical entitlement approval may explicitly exclude cash-payment authority.
+The owner approved a retained-expiry case on that basis while leaving another
+reviewed record unselected, and approved unresolved identities only with unknown
+costs and no invoice links.
+
+**Why:** Credit-settled invoices and duplicate/conflicting provider identities
+must not become verified cash merely because the membership is recognized.
+
+**How to apply:** Treat an unselected record as unapproved. Preserve unpaid
+status for entitlement-only approval, distinguish operator-paid attestation
+from verified cash, and retain unknown commencement. These are historical
+record corrections, never renewal, collection or invoice-link authority.

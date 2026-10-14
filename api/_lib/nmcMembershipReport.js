@@ -2,6 +2,7 @@ import { isAttestedExpiryOnlyHistory } from './expiryOnlyRenewalPolicy.js';
 import { isBnmsUnexpiredAttestation } from './bnmsUnexpiredAttestation.js';
 import { isBnmsCorrectedExpiryAttestation } from './bnmsCorrectedExpiryAttestation.js';
 import { isBnmsIndividualHistoricalAttestation } from './bnmsIndividualHistoricalAttestation.js';
+import { isBnmsHistoricalEntitlement } from './bnmsHistoricalEntitlement.js';
 import { currentMembershipRecognition } from './alphaMembershipRecognition.js';
 import { isDeletedRelationshipMember } from './customObjectMemberEligibility.js';
 
@@ -64,7 +65,7 @@ function membershipEvidence(history, agreements, recognitions, today) {
     }
     const legacy = isAttestedExpiryOnlyHistory(observed, NMC_TENANT)
       || isBnmsUnexpiredAttestation(observed) || isBnmsCorrectedExpiryAttestation(observed)
-      || isBnmsIndividualHistoricalAttestation(observed);
+      || isBnmsIndividualHistoricalAttestation(observed) || isBnmsHistoricalEntitlement(observed);
     const paid = ['active', 'paid', 'expired'].includes(record.status) && record.payment_status === 'paid';
     const instalments = record.status === 'active' && record.payment_status === 'partial'
       && agreement?.environment === 'live' && agreement.status === 'active';
