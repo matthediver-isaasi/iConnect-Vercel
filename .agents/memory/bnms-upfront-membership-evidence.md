@@ -3,6 +3,15 @@ name: BNMS upfront membership evidence
 description: Operator-attested current membership establishment is distinct from verified invoice settlement and future billing authority.
 ---
 
+Grace countdowns and warning colours must come from the member's applied
+membership schedule, not a fixed 90-day period.
+
+**Why:** The owner explicitly corrected the report's use of a hard-coded window.
+
+**How to apply:** Preserve saved term-policy authority. Missing applied policy
+means unknown grace, not a default duration; never infer it from today's matching
+schedule or from the NMC journal's date-based exclusion counter.
+
 For the approved annual reconstructions, the owner confirmed memberships are
 12 months and authorised assuming the previous schedule matches the current
 member-class-selected schedule.

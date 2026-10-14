@@ -175,6 +175,7 @@ export function projectMembershipPaymentReport({
       && ['upfront', 'card', 'invoice', 'bank_transfer'].includes(method);
     const row = {
       memberId: member.id,
+      historyId: record.id,
       name: `${member.first_name || ''} ${member.last_name || ''}`.trim() || member.email || 'Unnamed member',
       email: member.email || null,
       tier: summary.membership.membershipType,
@@ -243,6 +244,7 @@ export function projectMembershipPaymentReport({
         || (dateOnly(other.term_end_date) && other.term_end_date > expiry)))) continue;
     rows.push({
       memberId: member.id,
+      historyId: record.id,
       name: `${member.first_name || ''} ${member.last_name || ''}`.trim() || member.email || 'Unnamed member',
       email: member.email || null,
       tier: legacy?.tierLabel || record.tier_label,

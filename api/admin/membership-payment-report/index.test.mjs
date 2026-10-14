@@ -26,7 +26,7 @@ test('personal projection reuses aliases and returns only public fields', () => 
   assert.equal(row.nextPaymentDate, payment.charge_date);
   assert.equal(row.scheduleState, 'confirmed');
   assert.equal(row.currentExpiryDate, history.term_end_date);
-  assert.deepEqual(Object.keys(row).sort(), ['memberId', 'name', 'email', 'tier', 'status', 'paymentMethod', 'currentExpiryDate', 'nextPaymentDate', 'scheduleState'].sort());
+  assert.deepEqual(Object.keys(row).sort(), ['historyId', 'memberId', 'name', 'email', 'tier', 'status', 'paymentMethod', 'currentExpiryDate', 'nextPaymentDate', 'scheduleState'].sort());
 });
 
 test('stored method aliases share existing membership normalization', () => {
@@ -100,6 +100,7 @@ function database(tables = {}, calls = []) {
   return { from(table) {
     const filters = [];
     return {
+      maybeSingle() { return Promise.resolve({ data: (tables[table] || []).filter(row => filters.every(f => f(row)))[0] || null, error: null }); },
       select(columns) {
         if (table === 'member_preference_value') assert.ok(!columns.split(',').includes('tenant_id'), 'preference values have no tenant_id column');
         this.columns = columns; return this;
@@ -753,7 +754,7 @@ test('expiry filters intersect search and method before pagination and CSV', asy
   assert.equal(result.body.total, 2);
   assert.equal(result.body.rows[0].memberId, 'b');
   assert.equal(result.body.rows[0].daysPastExpiry, 91);
-  assert.equal(result.body.rows[0].expiryTiming, '91 days past expiry');
+  assert.equal(result.body.rows[0].expiryTiming, '91 days past expiry — grace policy unknown');
   assert.equal(result.body.rows[0].expiryTone, null, 'BNMS journal window must not apply to other tenants');
   const csv = await request(deps, { ...query, format: 'csv' });
   assert.equal(csv.body.trimEnd().split('\r\n').length, 3);

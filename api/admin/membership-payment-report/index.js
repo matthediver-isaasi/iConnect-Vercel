@@ -6,6 +6,7 @@ import { membershipPaymentReportCsv } from '../../_lib/membershipPaymentReportCs
 import { projectUpfrontRenewalAmount } from '../../_lib/membershipPaymentReportAmount.js';
 import { loadPaymentReportDirectDebit } from '../../_lib/membershipPaymentReportDirectDebit.js';
 import { PAYMENT_REPORT_EXPIRY_FILTERS, paymentReportExpiry } from '../../_lib/membershipPaymentReportExpiry.js';
+import { paymentReportGrace } from '../../_lib/membershipPaymentReportGrace.js';
 
 const FEATURE = 'commerce.membership-payment-report';
 const BATCH = 1000;
@@ -131,18 +132,8 @@ export function createMembershipPaymentReportHandler(deps = {}) {
       const directDebitDetails = includeDirectDebit
         ? await (deps.loadDirectDebit || loadPaymentReportDirectDebit)({ ...input, reservations }, { db }) : new Map();
       const providerSchedules = await (deps.resolveSchedules || resolvePaymentReportSchedules)(input);
-      const rows = projectMembershipPaymentReport({ ...input, providerSchedules, directDebitDetails })
+      const projected = projectMembershipPaymentReport({ ...input, providerSchedules, directDebitDetails })
         .map(row => ({ ...row, ...paymentReportExpiry(row, deps.today || new Date().toISOString().slice(0, 10)) }))
-        .map(row => {
-          const days = row.currentExpiryDate ? Math.round((Date.parse(row.currentExpiryDate) - Date.parse(deps.today || new Date().toISOString().slice(0, 10))) / 86400000) : null;
-          // BNMS journal review window only; not a billing/access policy.
-          const journalWindow = tenantId === 'ff2df806-b321-4254-b651-3af11fccf1db';
-          return { ...row, expiryTiming: days == null ? 'Expiry unknown' : days >= 0
-            ? `${days} days until expiry` : journalWindow
-              ? -days <= 90 ? `${90 + days} grace days remaining` : `Grace exceeded by ${-days - 90} days`
-              : `${-days} days past expiry`,
-            expiryTone: days < 0 && journalWindow ? (-days <= 90 ? 'grace' : 'expired') : null };
-        })
         .map(row => row.paymentMethod !== 'upfront' ? row : {
           ...row, ...projectUpfrontRenewalAmount({ row,
             member: members.find(member => member.id === row.memberId && member.tenant_id === tenantId),
@@ -154,6 +145,10 @@ export function createMembershipPaymentReportHandler(deps = {}) {
           // Apply once to the complete projection for JSON totals, pages and CSV.
           && (!search || row.name.toLowerCase().includes(search)
             || (row.email || '').toLowerCase().includes(search)));
+      const rows = [];
+      for (const row of projected) rows.push(await paymentReportGrace(db, {
+        row, history, configs, tenantId, today: deps.today || new Date().toISOString().slice(0, 10),
+      }));
       sortPaymentReportRows(rows, sortBy, sortDirection);
       if (format === 'csv') {
         const csv = membershipPaymentReportCsv(rows, method);
