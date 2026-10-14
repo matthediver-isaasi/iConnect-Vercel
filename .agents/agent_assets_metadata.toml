@@ -1377,3 +1377,45 @@ mtime_ms = 1791962164537
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/d4734785-c1eb-4fa9-954a-b538e4da8c11/dd0ec884-2e3d-4056-8214-f82527863b2b"
 storage_version_token = "1791962257552319"
 content_type = "text/csv"
+
+[[outputs]]
+id = "yT5Oz4L7QES6XdhWt3_1F"
+uri = "file://generated-artifacts/bnms-missing-150-review/final/proposal.html"
+type = "html"
+title = "BNMS 150-member review and conditional repair proposal"
+description = "Findings, evidence limits and explicit approval requirements. All 150 remain held; no changes applied."
+logical_id = "d111237b-3919-4c8d-880b-de336ad34888"
+content_hash = "sha256:ef37972ab076b0fcd028fb82154b4145e04444f3448a69c3a8ccb8e729516328"
+size = 4956
+mtime_ms = 1791962638656
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/d111237b-3919-4c8d-880b-de336ad34888/b69a31ef-8ffe-4a6e-b27e-90150150d92f"
+storage_version_token = "1791962713516052"
+content_type = "text/html"
+
+[[outputs]]
+id = "ng_xXL0pfaIaBRkO7UYCE"
+uri = "file://generated-artifacts/bnms-missing-150-review/final/member-review.csv"
+type = "table"
+title = "Private BNMS member-by-member review"
+description = "150 pinned members, original source references, invoice evidence counts and individual hold reasons."
+logical_id = "5d139512-0ecf-4318-a669-c06be52feb7d"
+content_hash = "sha256:630c25610996d3c8299fc1812357ce15473ec16fadbc8f280bc81dde4be5e84f"
+size = 100353
+mtime_ms = 1791962638651
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/5d139512-0ecf-4318-a669-c06be52feb7d/76d5e6b4-e7a1-49f8-940e-dcc3a880926c"
+storage_version_token = "1791962714300037"
+content_type = "text/csv"
+
+[[outputs]]
+id = "_wvkVdQd0eRr5GJ138IEI"
+uri = "file://generated-artifacts/bnms-missing-150-review/final/proposal.json"
+type = "unspecified"
+title = "Pinned BNMS evidence manifest"
+description = "Complete private evidence and conditional repair fields; SHA-256 828d60e1756255a18e69064991427d5a628e24c1bab2655b1e7e8a84ed5342b0. Not executable or approved."
+logical_id = "5ae673d6-0313-4f0a-b1d4-aeb6d625e8cd"
+content_hash = "sha256:828d60e1756255a18e69064991427d5a628e24c1bab2655b1e7e8a84ed5342b0"
+size = 1051872
+mtime_ms = 1791962638650
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/5ae673d6-0313-4f0a-b1d4-aeb6d625e8cd/41fe1808-d745-4a34-80ff-e419d279a3f5"
+storage_version_token = "1791962715137350"
+content_type = "application/octet-stream"
