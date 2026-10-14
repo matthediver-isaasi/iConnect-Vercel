@@ -13,6 +13,17 @@ should not be included in any counts, including staff using external email domai
 organisation relationship, not the member's email domain. The owner identified
 the BNMS tenant by its bnms.org.uk domain.
 
+Do not guess staff scope when the primary organisation is absent or ambiguous;
+stop report generation rather than publishing counts with uncertain exclusions.
+Staff must also stay out of exclusion-reason counters, not just report sheets
+and review totals.
+
+**Why:** The owner requires exclusion from all counts, and guessing from names,
+email domains or creation order could suppress ordinary external members.
+
+**How to apply:** Require unique tenant-scoped primary-organisation authority
+before projecting the report; leave membership records unchanged.
+
 BNMS NMC fulfilment is classified by the member-scoped `member_class`, never roles. Eligible NMC classes receive print; all otherwise eligible non-NMC classes go exclusively to Online-only, even if category sheets are empty.
 
 **Why:** The user explicitly confirmed this allocation.

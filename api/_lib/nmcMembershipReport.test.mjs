@@ -17,7 +17,8 @@ const term = { id: 'h1', member_id: 'm1', tenant_id, term_start_date: '2025-10-0
 const pref = (name, value, id = 'm1') => ({ id: `${id}-${name}`, member_id: id, field_id: name, value });
 function fixture(overrides = {}) {
   return { reportDate: '2026-10-07', members: [{ ...member }], history: [{ ...term }], fields,
-    organizations: [{ id: 'o1', tenant_id, name: 'Fixture Organisation' }],
+    organizations: [{ id: 'o1', tenant_id, name: 'Fixture Organisation' },
+      { id: 'bnms-primary', tenant_id, name: 'BNMS', is_primary: true }],
     preferences: [pref('member_class', 'Full with NMC'), pref('nmc_address_zip', '00120')], ...overrides };
 }
 const report = overrides => projectNmcReport(fixture(overrides));
@@ -93,7 +94,7 @@ test('deleted/test/contact-only records excluded; incomplete and ambiguous value
   assert.equal(report({ preferences: [] }).reviewCounts.missing_class, 1);
   assert.equal(report({ preferences: [pref('member_class', 'unknown')] }).reviewCounts.unknown_class, 1);
   assert.equal(report({ preferences: [pref('member_class', 'Full'), pref('member_class', 'Full')] }).reviewCounts.duplicate_custom_values, 1);
-  assert.equal(report({ organizations: [] }).reviewCounts.unresolved_organisation, 1);
+  assert.equal(report({ organizations: fixture().organizations.filter(o => o.is_primary) }).reviewCounts.unresolved_organisation, 1);
   assert.throws(() => report({ fields: [] }));
   assert.throws(() => report({ members: [member, member] }));
   assert.throws(() => report({ members: [{ ...member, tenant_id: 'foreign' }] }));
@@ -138,9 +139,9 @@ test('class labels and tenant-scoped RBAC role names are literal text and do not
 
 function fakeDatabase(tables, { cap = 317, failTable, calls = [] } = {}) {
   return { from(table) {
-    const filters = []; let key = 'id', limit = 500;
+    const filters = []; let key = 'id', limit = 500, columns = '*';
     const q = {
-      select(_, options) { assert.equal(options.count, 'exact'); return q; },
+      select(selected, options) { columns = selected; assert.equal(options.count, 'exact'); return q; },
       eq(k, v) { filters.push(r => r[k] === v); return q; },
       in(k, values) { filters.push(r => values.includes(r[k])); return q; },
       gt(k, v) { filters.push(r => r[k] > v); return q; },
@@ -149,7 +150,9 @@ function fakeDatabase(tables, { cap = 317, failTable, calls = [] } = {}) {
         calls.push(table);
         const all = (tables[table] || []).filter(r => filters.every(f => f(r))).sort((a, b) => a[key].localeCompare(b[key]));
         return Promise.resolve(table === failTable ? { data: null, error: { message: 'private error' } }
-          : { data: all.slice(0, Math.min(cap, limit)), error: null, count: all.length }).then(resolve, reject);
+          : { data: all.slice(0, Math.min(cap, limit)).map(row => columns === '*' ? row
+            : Object.fromEntries(columns.split(',').map(column => [column, row[column]]))),
+            error: null, count: all.length }).then(resolve, reject);
       },
     }; return q;
   } };
@@ -176,6 +179,58 @@ function response() {
   return { headers: {}, statusCode: 200, setHeader(k, v) { this.headers[k] = v; }, status(n) { this.statusCode = n; return this; },
     json(v) { this.body = v; return this; }, send(v) { this.body = v; return this; } };
 }
+test('BNMS primary organisation staff disappear before every counter, regardless of email or evidence', async () => {
+  const baseline = fixture();
+  // An ordinary external member with a BNMS email must remain eligible.
+  baseline.members[0].email = 'ordinary@bnms.org.uk';
+  const staff = [
+    { id: 'staff-missing' },
+    { id: 'staff-paid' },
+    { id: 'staff-duplicate' },
+    { id: 'staff-deleted', status: 'deleted' },
+    { id: 'staff-sample', is_sample: true },
+    { id: 'staff-guest', is_guest: true },
+  ].map(m => ({ ...member, ...m, organization_id: 'bnms-primary', email: `${m.id}@external.invalid` }));
+  const input = {
+    ...baseline,
+    members: [...baseline.members, ...staff, { ...member, id: 'external-missing' }],
+    organizations: [...baseline.organizations,
+      { id: 'o1', tenant_id: 'foreign', name: 'Foreign primary', is_primary: true }],
+    history: [...baseline.history, { ...term, id: 'staff-history', member_id: 'staff-paid' }],
+    preferences: [...baseline.preferences, pref('member_class', 'Full with NMC', 'staff-paid'),
+      pref('member_class', 'Full', 'staff-duplicate'),
+      { ...pref('member_class', 'Full', 'staff-duplicate'), id: 'staff-duplicate-second-value' }],
+  };
+  const before = structuredClone(input);
+  const expected = projectNmcReport({ ...baseline, members: [...baseline.members, { ...member, id: 'external-missing' }] });
+  const projected = projectNmcReport(input);
+  assert.deepEqual(projected, expected);
+  assert.deepEqual(projected.reviewCounts, { missing_class: 1 });
+  assert.deepEqual(projected.excludedCounts, {});
+  assert.equal(projected.total, 1);
+  const tables = {
+    member: [...input.members, { ...member, id: 'foreign-member', tenant_id: 'foreign' }],
+    preference_field: input.fields, member_membership_history: input.history,
+    member_preference_value: input.preferences, organization: input.organizations,
+  };
+  assert.deepEqual(await loadNmcReport(fakeDatabase(tables, { cap: 2 }), input.reportDate), expected);
+  assert.deepEqual(input, before, 'projection and loader must not mutate members or memberships');
+  const wb = XLSX.read(nmcMembershipWorkbook(projected), { type: 'buffer' });
+  assert.equal(XLSX.utils.sheet_to_json(wb.Sheets[NMC_SHEETS[0]]).length, 1);
+});
+
+test('primary organisation authority must be complete and unique, never inferred from name or email', async () => {
+  for (const organizations of [
+    [],
+    [{ id: 'o1', tenant_id, name: 'BNMS', domain: 'bnms.org.uk' }],
+    [...fixture().organizations, { id: 'second-primary', tenant_id, is_primary: true }],
+    [{ id: 'foreign-primary', tenant_id: 'foreign', is_primary: true }],
+  ]) {
+    assert.throws(() => report({ organizations }), /Primary report organisation/);
+  }
+  await assert.rejects(loadNmcReport(fakeDatabase({}, { failTable: 'organization' }), '2026-10-07'));
+});
+
 const ctx = { isAuthenticated: true, tenantId: tenant_id, roleId: 'admin', memberExcludedFeatures: [] };
 test('individual admin revocation denies JSON and XLSX even when the report permission remains; tenant-user admin path preserved', async () => {
   for (const format of ['json', 'xlsx']) {

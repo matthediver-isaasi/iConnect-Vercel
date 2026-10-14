@@ -33,7 +33,7 @@ export async function loadNmcReport(db, reportDate) {
     read('member', 'id,tenant_id,first_name,last_name,email,mobile,landline,organization_id,role_id,status,is_sample,is_guest'),
     read('preference_field', 'id,tenant_id,name,entity_scope,is_active,options', q => q.in('name', NMC_FIELDS).eq('entity_scope', 'member').eq('is_active', true)),
     read('member_membership_history'),
-    read('organization', 'id,tenant_id,name'),
+    read('organization', 'id,tenant_id,name,is_primary'),
     read('membership_billing_agreements', 'id,tenant_id,member_id,organization_id,environment,status,provider'),
     read('role', 'id,tenant_id,name'),
     ...MEMBERSHIP_RECOGNITION_TABLES.map(table => read(table, '*', q => q, 'history_id')),

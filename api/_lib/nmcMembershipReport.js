@@ -6,6 +6,7 @@ import { isBnmsHistoricalEntitlement } from './bnmsHistoricalEntitlement.js';
 import { currentMembershipRecognition } from './alphaMembershipRecognition.js';
 import { isDeletedRelationshipMember } from './customObjectMemberEligibility.js';
 
+// BNMS (bnms.org.uk); this report and its staff exclusion are tenant-specific.
 export const NMC_TENANT = 'ff2df806-b321-4254-b651-3af11fccf1db';
 export const NMC_FEATURE = 'membership.nmc-membership-report';
 export const NMC_SHEETS = ['Full and Full Junior', 'Associate Honorary Retired', 'Trainee and LMIC', 'Online-only'];
@@ -120,12 +121,18 @@ export function projectNmcReport({ members, fields, preferences, history, organi
     histories.get(h.member_id).push(h);
   }
   const orgs = new Map(organizations.filter(o => o.tenant_id === NMC_TENANT).map(o => [o.id, o]));
+  const primaryOrganizations = [...orgs.values()].filter(o => o.is_primary === true);
+  if (primaryOrganizations.length !== 1) throw new Error('Primary report organisation is missing or ambiguous');
+  const primaryOrganizationId = primaryOrganizations[0].id;
   const agreementMap = new Map(agreements.filter(a => a.tenant_id === NMC_TENANT).map(a => [a.id, a]));
   const rows = [], reviewCounts = {}, excludedCounts = {}, seen = new Set();
   const count = (target, key) => { target[key] = (target[key] || 0) + 1; };
   for (const member of members) {
     if (member.tenant_id !== NMC_TENANT || seen.has(member.id)) throw new Error('Member scope or uniqueness mismatch');
     seen.add(member.id);
+    // Owner-approved staff exclusion applies to EVERY count, including exclusions
+    // and review reasons. Email domains and organisation names are not authority.
+    if (member.organization_id === primaryOrganizationId) continue;
     if (isDeletedRelationshipMember(member) || member.status === 'deleted' || member.deleted_at || member.anonymized_at) {
       count(excludedCounts, 'deleted'); continue;
     }
