@@ -1363,3 +1363,17 @@ mtime_ms = 1791959202304
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/c3f65f8a-80fa-4279-a0c5-6281e7a1c710/3a643d8d-e4b7-41e6-95f6-ef746ae5400f"
 storage_version_token = "1791959209876406"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "Ab0NIUmcgbHYLHfsNL2FT"
+uri = "file://generated-artifacts/bnms-missing-history-review/BNMS-Missing-Membership-Evidence-Review-14-10-2026.csv"
+type = "table"
+title = "BNMS — Missing membership evidence review"
+description = "All 681 remaining records, with member ID, name, email, class, imported status and expiry, Direct Debit indicators and suggested review. Opens in Excel."
+logical_id = "d4734785-c1eb-4fa9-954a-b538e4da8c11"
+content_hash = "sha256:a564ba9514a9323c122755a667b91abc94c30486c3e76327eef8d0818c70c253"
+size = 154114
+mtime_ms = 1791962164537
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/d4734785-c1eb-4fa9-954a-b538e4da8c11/dd0ec884-2e3d-4056-8214-f82527863b2b"
+storage_version_token = "1791962257552319"
+content_type = "text/csv"

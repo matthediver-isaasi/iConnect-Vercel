@@ -32,3 +32,9 @@ The owner also confirmed paid entitlement through the retained corrected expirie
 **Why:** Date normalisation exposed missing histories rather than incorrect seeded dates. The owner explicitly approved all members in that reviewed cohort, not just the upfront or unexpired subset.
 
 **How to apply:** Use the recorded cohort audit to bound the approval. Expired terms remain expired. DD evidence plus operator-paid confirmation is historical membership authority only—not provider settlement, mandate activation, collection consent or renewal-policy authority. Do not extend this approval to other missing-history members.
+
+The owner separately authorised establishment of one expired individual's paid historical term while requesting identification—not bulk repair—of the remaining missing-evidence records.
+
+**Why:** That individual was outside the corrected-date cohort; approval of the earlier cohort did not cover him. The wider report count includes Former-class records and is not a count of current paid members.
+
+**How to apply:** Use the individual approval audit to bound the write. Retain the known expiry and unknown start/amounts, with no renewal or billing authority. Review the other records by class, imported status, expiry and DD evidence; do not automatically exclude Former records or mark the wider cohort paid.
