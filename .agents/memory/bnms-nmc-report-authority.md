@@ -26,3 +26,9 @@ The owner subsequently confirmed paid status for the separately reviewed single 
 **Why:** Archived invoices supported the membership description but omitted settlement status and currency; the owner supplied paid-status authority.
 
 **How to apply:** Use the persisted per-member approval audit to identify the authorised record. Preserve unknown commencement, amounts and currency; archived invoice existence alone must not authorise payment or renewal.
+
+The owner also confirmed paid entitlement through the retained corrected expiries for the reviewed missing-history cohort, including its six DD-evidence members and already-expired terms.
+
+**Why:** Date normalisation exposed missing histories rather than incorrect seeded dates. The owner explicitly approved all members in that reviewed cohort, not just the upfront or unexpired subset.
+
+**How to apply:** Use the recorded cohort audit to bound the approval. Expired terms remain expired. DD evidence plus operator-paid confirmation is historical membership authority only—not provider settlement, mandate activation, collection consent or renewal-policy authority. Do not extend this approval to other missing-history members.
