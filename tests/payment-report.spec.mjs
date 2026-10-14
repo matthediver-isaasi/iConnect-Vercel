@@ -11,6 +11,7 @@ import { readFile } from "node:fs/promises";
 
 const APP_ORIGIN = new URL(
   process.env.PLAYWRIGHT_BASE_URL
+    || (process.env.PAYMENT_REPORT_ISOLATED ? "http://127.0.0.1:5189" : null)
     || (process.env.REPLIT_DEV_DOMAIN
       ? `https://${process.env.REPLIT_DEV_DOMAIN}`
       : "http://127.0.0.1:5000"),
@@ -83,6 +84,86 @@ function deferred() {
   let release;
   const promise = new Promise((resolve) => { release = resolve; });
   return { promise, release };
+}
+
+const LONG_ROWS = ROWS.map((row) => ({
+  ...row,
+  name: `${row.name} Alexandra Montgomery-Wetherington`,
+  email: `${row.memberId}.alexandra.montgomery-wetherington@international-membership.example.invalid`,
+  tier: "International Professional Membership — Advanced Clinical Practice",
+  paymentArrangement: "Monthly collection planned following confirmation of the membership agreement and bank mandate",
+  nextStructureName: "International professional membership structure for the upcoming membership year",
+  nextStructureState: "Review required — confirm the applicable structure before any collection is scheduled",
+  renewalLabel: "Expected renewal — reporting only",
+  nextPaymentAmount: row.paymentMethod === "direct_debit" ? 123456.78 : null,
+  nextPaymentCurrency: "GBP",
+  nextPaymentAmountState: "Projected collection amount — not yet bank scheduled",
+}));
+
+for (const width of [2560, 1440, 390]) {
+  test(`readable report columns and local scrolling at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 1000 });
+    const state = await installFixture(page, { fixtureRows: LONG_ROWS });
+    await page.goto("/membershippaymentreport");
+    for (const [method, label, count] of [
+      ["all", "All payment methods", 11],
+      ["upfront", "Upfront", 8],
+      ["direct_debit", "Direct Debit", 9],
+    ]) {
+      if (method !== "all") {
+        await page.getByTestId("select-payment-method").click();
+        await page.getByRole("option", { name: label, exact: true }).click();
+      }
+      const row = page.locator("tbody tr").first();
+      await expect(row).toContainText("Montgomery-Wetherington");
+      await expect(page.locator("thead th")).toHaveCount(count);
+      await page.screenshot({ path: testInfo.outputPath(`after-${method}-${width}.png`), fullPage: true });
+      const geometry = await page.locator("table").evaluate((table) => {
+        const container = table.parentElement;
+        const headers = [...table.querySelectorAll("th")];
+        const cells = [...table.querySelector("tbody tr").children];
+        return {
+          pageWidth: document.documentElement.scrollWidth,
+          viewport: innerWidth,
+          container: container.clientWidth,
+          scrollWidth: container.scrollWidth,
+          reportWidth: container.closest("[data-testid='membership-payment-report']").getBoundingClientRect().width,
+          mainWidth: document.querySelector("main").clientWidth,
+          widths: headers.map((h) => h.getBoundingClientRect().width),
+          aligned: headers.every((h, i) => Math.abs(h.getBoundingClientRect().left - cells[i].getBoundingClientRect().left) < 1),
+          overflowingCells: cells.filter((cell) => cell.scrollWidth > cell.clientWidth + 1).length,
+        };
+      });
+      expect(geometry.pageWidth).toBeLessThanOrEqual(geometry.viewport);
+      expect(geometry.reportWidth).toBeCloseTo(geometry.mainWidth, 0);
+      expect(geometry.aligned).toBe(true);
+      expect(geometry.overflowingCells).toBe(0);
+      expect(geometry.widths[0]).toBeGreaterThanOrEqual(200);
+      expect(geometry.widths[2]).toBeGreaterThanOrEqual(190);
+      expect(geometry.widths[4]).toBeGreaterThanOrEqual(155);
+      if (method !== "upfront") expect(geometry.widths[6]).toBeGreaterThanOrEqual(220);
+      if (width === 2560) expect(geometry.reportWidth).toBeGreaterThan(1280);
+      if (width <= 1440) {
+        expect(geometry.scrollWidth).toBeGreaterThan(geometry.container);
+        await page.getByRole("region", { name: "Membership payment results" }).evaluate((el) => { el.scrollLeft = el.scrollWidth; });
+        await expect(row.locator("td").last()).toBeInViewport();
+      }
+      await expect(page.getByTestId("select-payment-method")).toBeInViewport();
+      await expect(page.getByLabel("Find member")).toBeInViewport();
+      await expect(page.getByTestId("button-download-payment-report")).toBeInViewport();
+      if (method === "all") {
+        await expect(page.getByText("Reporting only; subject to membership status. No renewal or payment is booked.").first()).toBeVisible();
+        await expect(page.getByRole("button", { name: "Next", exact: true })).toBeVisible();
+      }
+      if (method === "direct_debit") {
+        await expect(row).toContainText("£123,456.78");
+        await expect(row).toContainText(LONG_ROWS[1].nextPaymentAmountState);
+        await expect(row).toContainText(LONG_ROWS[1].paymentArrangement);
+      }
+    }
+    expect(state.writes).toEqual([]);
+    expect(state.unexpectedExternal).toEqual([]);
+  });
 }
 
 function json(route, body, status = 200) {

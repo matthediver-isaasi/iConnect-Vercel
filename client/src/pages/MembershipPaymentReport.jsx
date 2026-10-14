@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
+import "./MembershipPaymentReport.css";
 
 const FEATURE_ID = "commerce.membership-payment-report";
 const MEMBERS_PERMISSION = "crm.members";
@@ -139,6 +140,16 @@ export default function MembershipPaymentReport() {
   const upfrontView = paymentMethod === "upfront";
   const directDebitView = ["direct_debit", "monthly_direct_debit"].includes(paymentMethod);
   const showCollectionAmount = directDebitView || paymentMethod === "all";
+  // Keep each report variant readable; overflow stays inside the results region.
+  const columnWidths = [
+    200, 260, 190, 120, 160,
+    ...(!upfrontView ? [150, 260, ...(!directDebitView ? [145] : [])] : []),
+    ...(!directDebitView ? [250] : []),
+    270,
+    ...(showCollectionAmount ? [210] : []),
+    ...(upfrontView ? [230] : []),
+  ];
+  const minimumTableWidth = columnWidths.reduce((width, column) => width + column, 0);
 
   const cancelExport = () => {
     exportRequestId.current += 1;
@@ -227,7 +238,7 @@ export default function MembershipPaymentReport() {
 
   if (!hasReportAccess) {
     return (
-      <div className="p-6 space-y-4">
+      <div className="membership-payment-report p-4 sm:p-6 lg:p-8 space-y-4" data-testid="membership-payment-report">
         <Skeleton className="h-8 w-72" />
         <Skeleton className="h-48 w-full" />
       </div>
@@ -235,10 +246,10 @@ export default function MembershipPaymentReport() {
   }
 
   return (
-    <div className="p-4 md:p-6 space-y-6 max-w-7xl mx-auto">
+    <div className="membership-payment-report p-4 sm:p-6 lg:p-8 space-y-6" data-testid="membership-payment-report">
       <div>
         <div className="flex items-center gap-2">
-          <CreditCard className="h-6 w-6 text-slate-600" />
+          <CreditCard className="h-6 w-6 shrink-0 text-slate-600" />
           <h1 className="text-2xl font-bold text-slate-900" data-testid="text-page-title">
             Individual Membership Payment Report
           </h1>
@@ -250,13 +261,13 @@ export default function MembershipPaymentReport() {
         </p>
       </div>
 
-      <Card>
-        <CardHeader className="pb-3">
+      <Card className="min-w-0 max-w-full">
+        <CardHeader className="p-4 sm:p-6 pb-3 sm:pb-3">
           <div className="flex flex-wrap items-end justify-between gap-4">
-            <div className="flex flex-wrap items-end gap-3">
-              <div className="space-y-1">
+            <div className="flex w-full min-w-0 flex-col gap-3 sm:w-auto sm:flex-row sm:flex-wrap sm:items-end">
+              <div className="min-w-0 space-y-1">
                 <Label htmlFor="membership-payment-search">Find member</Label>
-                <div className="relative w-72 max-w-full">
+                <div className="relative w-full sm:w-72 max-w-full">
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
                   <Input
                     id="membership-payment-search"
@@ -281,10 +292,10 @@ export default function MembershipPaymentReport() {
                   )}
                 </div>
               </div>
-              <div className="space-y-1">
+              <div className="min-w-0 space-y-1">
                 <Label htmlFor="membership-payment-method">Payment method</Label>
                 <Select value={paymentMethod} onValueChange={changeMethod}>
-                  <SelectTrigger id="membership-payment-method" className="w-64" data-testid="select-payment-method">
+                  <SelectTrigger id="membership-payment-method" className="w-full sm:w-64" data-testid="select-payment-method">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -295,7 +306,7 @@ export default function MembershipPaymentReport() {
                 </Select>
               </div>
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-3">
+            <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-3 sm:w-auto sm:justify-end">
               {!isLoadingResults && !query.error && (
                 <p className="text-sm text-slate-500" data-testid="text-result-count">
                   {total} member{total === 1 ? "" : "s"}
@@ -317,7 +328,7 @@ export default function MembershipPaymentReport() {
             </div>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="min-w-0 p-4 pt-0 sm:p-6 sm:pt-0">
           {exportError && (
             <Alert variant="destructive" className="mb-4">
               <AlertCircle className="h-4 w-4" />
@@ -343,8 +354,11 @@ export default function MembershipPaymentReport() {
             </p>
           ) : (
             <>
-              <div className="overflow-x-auto rounded-md border">
-                <table className="w-full text-sm">
+              <div className="max-w-full overflow-x-auto rounded-md border" role="region" aria-label="Membership payment results" tabIndex={0}>
+                <table className="payment-results-table w-full text-sm" style={{ minWidth: minimumTableWidth }}>
+                  <colgroup>
+                    {columnWidths.map((width, index) => <col key={index} style={{ width }} />)}
+                  </colgroup>
                   <thead>
                     <tr className="border-b bg-slate-50 text-left text-slate-600">
                       <th className="px-3 py-2 font-medium">Member</th>
@@ -419,13 +433,13 @@ export default function MembershipPaymentReport() {
                         </td>
                         {showCollectionAmount && <td className="px-3 py-2">
                           {Number.isFinite(row.nextPaymentAmount) && row.nextPaymentCurrency
-                            ? new Intl.NumberFormat("en-GB", { style: "currency", currency: row.nextPaymentCurrency }).format(row.nextPaymentAmount)
+                            ? <span className="whitespace-nowrap">{new Intl.NumberFormat("en-GB", { style: "currency", currency: row.nextPaymentCurrency }).format(row.nextPaymentAmount)}</span>
                             : ["direct_debit", "monthly_direct_debit"].includes(row.paymentMethod) ? row.nextPaymentAmountState || "Unavailable" : "—"}
                           {Number.isFinite(row.nextPaymentAmount) && <div className="text-xs text-muted-foreground">{row.nextPaymentAmountState}</div>}
                         </td>}
                         {upfrontView && <td className="px-3 py-2" title={row.nextRenewalAmountState}>
                           {Number.isFinite(row.nextRenewalAmount) && row.nextRenewalCurrency
-                            ? new Intl.NumberFormat("en-GB", { style: "currency", currency: row.nextRenewalCurrency }).format(row.nextRenewalAmount)
+                            ? <span className="whitespace-nowrap">{new Intl.NumberFormat("en-GB", { style: "currency", currency: row.nextRenewalCurrency }).format(row.nextRenewalAmount)}</span>
                             : row.nextRenewalAmountState || "Review required"}
                         </td>}
                       </tr>
@@ -434,10 +448,10 @@ export default function MembershipPaymentReport() {
                 </table>
               </div>
               {totalPages > 1 && (
-                <div className="mt-4 flex items-center justify-between gap-3">
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-x-2 gap-y-3">
                   <Button variant="outline" size="sm" onClick={() => setPage((value) => Math.max(1, value - 1))}
                     disabled={page <= 1 || query.isFetching}>Previous</Button>
-                  <span className="text-sm text-slate-600">Page {page} of {totalPages}</span>
+                  <span className="text-sm text-slate-600 whitespace-nowrap">Page {page} of {totalPages}</span>
                   <Button variant="outline" size="sm" onClick={() => setPage((value) => Math.min(totalPages, value + 1))}
                     disabled={page >= totalPages || query.isFetching}>Next</Button>
                 </div>
