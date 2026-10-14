@@ -88,6 +88,7 @@ const report = {
   ],
   total: 62,
   reviewCounts: { missing_membership_evidence: 7, duplicate_custom_values: 3, unresolved_organisation: 2 },
+  pendingCounts: { awaiting_first_payment: 5 },
   excludedCounts: { outside_window: 11 },
 };
 const jsonResponse = (body, status = 200) => new Response(JSON.stringify(body), {
@@ -148,6 +149,10 @@ test("loading transitions to four worksheet counts with review diagnostics separ
     await waitFor(() => view.container.querySelector('[data-testid="table-nmc-sheets"]'), "worksheet counts");
     assert.equal(view.container.querySelectorAll("tbody tr").length, 4);
     assert.equal(view.container.querySelector('[data-testid="text-nmc-total"]').textContent, "62");
+    const awaiting = view.container.querySelector('[data-testid="nmc-awaiting-first-payment"]');
+    assert.match(awaiting.textContent, /Awaiting first payment5/);
+    assert.match(awaiting.textContent, /not included in eligible totals or the workbook/);
+    assert.match(awaiting.textContent, /Manual approval waits, failed collections/);
     assert.equal(view.container.querySelector('[data-testid="text-report-date"]').textContent, "31 Mar 2026");
     const rows = [...view.container.querySelectorAll("tbody tr")].map(row => row.textContent);
     assert.deepEqual(rows, ["Print active37", "Print grace4", "Online active19", "Online grace2"]);

@@ -22,6 +22,83 @@ function fixture(overrides = {}) {
     preferences: [pref('member_class', 'Full with NMC'), pref('nmc_address_zip', '00120')], ...overrides };
 }
 const report = overrides => projectNmcReport(fixture(overrides));
+function pendingFixture(provider = 'gocardless') {
+  return {
+    history: [{ ...term, billing_agreement_id: 'a1', membership_year: '2026/2027',
+      status: 'pending_payment_setup', payment_status: 'unpaid' }],
+    agreements: [{ id: 'a1', tenant_id, member_id: member.id, provider, environment: 'live',
+      status: 'first_payment_pending', needs_attention: false,
+      metadata: { [provider === 'stripe' ? 'card' : 'dd']: { activation_rule: 'first_payment' } } }],
+    plans: [{ id: 'p1', tenant_id, member_id: member.id, billing_agreement_id: 'a1', provider,
+      environment: 'live', status: 'first_payment_pending', interval_unit: 'monthly',
+      membership_year: '2026/2027', instalments_paid: 0, instalments_total: 12,
+      amount_minor: 1000, needs_attention: false }],
+  };
+}
+test('live first-payment waits are separate from review and never exported; payment AND activation enable original class routing', () => {
+  for (const provider of ['gocardless', 'stripe']) {
+    for (const klass of ['Full with NMC', 'Full']) {
+      const input = { ...pendingFixture(provider), preferences: [pref('member_class', klass)] };
+      const pending = report(input);
+      assert.deepEqual(pending.pendingCounts, { awaiting_first_payment: 1 });
+      assert.deepEqual(pending.reviewCounts, {});
+      assert.equal(pending.total, 0);
+      assert.ok(pending.sheets.every(s => s.count === 0));
+      const wb = XLSX.read(nmcMembershipWorkbook(pending), { type: 'buffer' });
+      for (const name of wb.SheetNames) assert.equal(wb.Sheets[name]['!ref'], 'A1:P1');
+      const paid = { ...input,
+        plans: [{ ...input.plans[0], status: 'active', instalments_paid: 1, last_payment_status: 'confirmed' }],
+        agreements: [{ ...input.agreements[0], status: 'active' }],
+        history: [{ ...input.history[0], payment_status: 'partial' }] };
+      assert.equal(report(paid).total, 0, 'payment alone does not activate');
+      const active = report({ ...paid, history: [{ ...paid.history[0], status: 'active' }] });
+      assert.equal(active.total, 1);
+      assert.deepEqual(active.pendingCounts, {});
+      assert.equal(active.rows[0].sheet, klass.includes('NMC') ? NMC_SHEETS[0] : 'Online-only');
+    }
+  }
+});
+test('manual, failed, malformed, mismatched, test and historical evidence cannot be healthy pending', () => {
+  const base = pendingFixture();
+  const variants = [
+    ...[
+      { metadata: { dd: { activation_rule: 'manual' } } }, { metadata: {} },
+      { tenant_id: 'foreign' }, { member_id: 'other' }, { organization_id: 'o1' },
+      { environment: 'sandbox' }, { status: 'payment_overdue' }, { needs_attention: true },
+    ].map(patch => ({ agreements: [{ ...base.agreements[0], ...patch }] })),
+    ...[
+      { tenant_id: 'foreign' }, { member_id: 'other' }, { organization_id: 'o1' },
+      { billing_agreement_id: 'wrong' }, { environment: 'sandbox' }, { status: 'payment_grace_period' },
+      { last_payment_status: 'failed' }, { last_payment_status: 'charged_back' },
+      { last_payment_status: 'confirmed' }, { needs_attention: true }, { retry_count: 1 },
+      { instalments_paid: null }, { instalments_paid: 1 }, { amount_minor: null },
+      { grace_expires_at: '2026-10-10' }, { membership_year: 'wrong' },
+    ].map(patch => ({ plans: [{ ...base.plans[0], ...patch }] })),
+    ...[
+      { term_end_date: 'bad' }, { term_start_date: null }, { previous_term_id: 'old' },
+      { payment_status: 'partial' }, { status: 'pending_manual_activation' },
+    ].map(patch => ({ history: [{ ...base.history[0], ...patch }] })),
+    { plans: [] }, { plans: [base.plans[0], { ...base.plans[0], id: 'p2' }] },
+    { history: [base.history[0], { ...term, id: 'uncertain', payment_status: 'unpaid' }] },
+    { organizations: fixture().organizations.filter(o => o.is_primary) },
+  ];
+  for (const patch of variants) {
+    const result = report({ ...base, ...patch });
+    assert.deepEqual(result.pendingCounts, {}, JSON.stringify(patch));
+    assert.equal(result.total, 0, JSON.stringify(patch));
+  }
+});
+test('submission event timestamps are not settlement evidence; timestamped failures remain review-only', () => {
+  const input = pendingFixture();
+  for (const status of ['pending_submission', 'submitted', 'failed', 'confirmed', 'paid_out', null]) {
+    const result = report({ ...input, plans: [{ ...input.plans[0],
+      last_payment_status: status, last_payment_at: '2026-10-07T10:00:00Z' }] });
+    const waiting = ['pending_submission', 'submitted'].includes(status);
+    assert.deepEqual(result.pendingCounts, waiting ? { awaiting_first_payment: 1 } : {}, status);
+    assert.equal(result.total, 0);
+    assert.deepEqual(result.reviewCounts, waiting ? {} : { unproven_membership_evidence: 1 });
+  }
+});
 test('all valid class mappings; non-NMC precedence never inferred from category or roles', () => {
   const allowed = new Set(options);
   for (const c of classes) assert.equal(nmcSheet(c, allowed), NMC_SHEETS[3]);
@@ -231,6 +308,16 @@ test('primary organisation authority must be complete and unique, never inferred
   await assert.rejects(loadNmcReport(fakeDatabase({}, { failTable: 'organization' }), '2026-10-07'));
 });
 
+test('loader reads scoped plans completely and fails closed when plans cannot load', async () => {
+  const input = pendingFixture();
+  const tables = { member: [member], preference_field: fields,
+    member_membership_history: input.history, membership_billing_agreements: input.agreements,
+    membership_payment_plans: [...input.plans, { ...input.plans[0], id: 'foreign', tenant_id: 'foreign' }],
+    organization: fixture().organizations, member_preference_value: fixture().preferences };
+  const result = await loadNmcReport(fakeDatabase(tables, { cap: 1 }), '2026-10-07');
+  assert.deepEqual(result.pendingCounts, { awaiting_first_payment: 1 });
+  await assert.rejects(loadNmcReport(fakeDatabase(tables, { failTable: 'membership_payment_plans' }), '2026-10-07'));
+});
 const ctx = { isAuthenticated: true, tenantId: tenant_id, roleId: 'admin', memberExcludedFeatures: [] };
 test('individual admin revocation denies JSON and XLSX even when the report permission remains; tenant-user admin path preserved', async () => {
   for (const format of ['json', 'xlsx']) {

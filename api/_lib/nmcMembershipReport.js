@@ -38,7 +38,38 @@ export function nmcSheet(value, allowed) {
   return null;
 }
 
-function membershipEvidence(history, agreements, recognitions, today) {
+function awaitingFirstPayment(history, agreements, plans, today) {
+  // Only a new, unambiguous term qualifies. Never disguise historical
+  // uncertainty or a renewal of an earlier term as healthy initial setup.
+  if (history.length !== 1) return false;
+  const h = history[0], a = agreements.get(h.billing_agreement_id);
+  const start = nmcDate(h.term_start_date), end = nmcDate(h.term_end_date);
+  if (!start || !end || start > end || end < today || h.previous_term_id
+    || h.status !== 'pending_payment_setup' || h.payment_status !== 'unpaid'
+    || !a || a.member_id !== h.member_id || a.organization_id
+    || a.environment !== 'live' || a.status !== 'first_payment_pending') return false;
+  const snapshot = a.provider === 'stripe' ? a.metadata?.card
+    : a.provider === 'gocardless' ? a.metadata?.dd : null;
+  if (snapshot?.activation_rule !== 'first_payment') return false;
+  const linked = plans.filter(p => p.billing_agreement_id === a.id);
+  if (linked.length !== 1) return false;
+  const p = linked[0];
+  return p.member_id === h.member_id && !p.organization_id
+    && p.environment === 'live' && p.provider === a.provider
+    && p.status === 'first_payment_pending' && p.interval_unit === 'monthly'
+    && p.instalments_paid === 0 && Number.isInteger(p.instalments_total) && p.instalments_total > 0
+    && Number.isInteger(p.amount_minor) && p.amount_minor > 0
+    && p.membership_year === h.membership_year && !!h.membership_year
+    && [null, undefined, 'pending_submission', 'submitted'].includes(p.last_payment_status)
+    // GoCardless timestamps every mirrored event, including submission.
+    // A timestamp without a known pre-confirmation status remains uncertain.
+    && (!p.last_payment_at || ['pending_submission', 'submitted'].includes(p.last_payment_status))
+    && [a, p].every(row => row.needs_attention === false && !row.attention_reason)
+    && !p.grace_expires_at && !p.arrears_policy_applied && !p.arrears_policy_applied_at
+    && (p.retry_count == null || p.retry_count === 0)
+    && (p.auto_retry_attempts == null || p.auto_retry_attempts === 0);
+}
+function membershipEvidence(history, agreements, plans, recognitions, today) {
   if (!history.length) return { review: 'missing_membership_evidence' };
   const candidates = [];
   const unresolved = [];
@@ -92,12 +123,13 @@ function membershipEvidence(history, agreements, recognitions, today) {
     if (days > 90) return { excluded: 'expired_over_90_days' };
     return { status: days > 0 ? 'Expired' : 'Active', months: completedMonths(chosen.expiry, today) };
   }
+  if (awaitingFirstPayment(history, agreements, plans, today)) return { pending: 'awaiting_first_payment' };
   if (unresolved.length) return { review: unresolved[0].reason };
   return { excluded: tests && tests + future === history.length ? 'test_membership_only' : 'future_membership_only' };
 }
 
 /** Read-only projection. No login, role, DD history or pricing is membership authority. */
-export function projectNmcReport({ members, fields, preferences, history, organizations, roles = [], agreements = [], recognitions = [], reportDate }) {
+export function projectNmcReport({ members, fields, preferences, history, organizations, roles = [], agreements = [], plans = [], recognitions = [], reportDate }) {
   if (!nmcDate(reportDate)) throw new Error('Invalid report date');
   const fieldMap = new Map();
   for (const name of NMC_FIELDS) {
@@ -125,7 +157,8 @@ export function projectNmcReport({ members, fields, preferences, history, organi
   if (primaryOrganizations.length !== 1) throw new Error('Primary report organisation is missing or ambiguous');
   const primaryOrganizationId = primaryOrganizations[0].id;
   const agreementMap = new Map(agreements.filter(a => a.tenant_id === NMC_TENANT).map(a => [a.id, a]));
-  const rows = [], reviewCounts = {}, excludedCounts = {}, seen = new Set();
+  const scopedPlans = plans.filter(p => p.tenant_id === NMC_TENANT);
+  const rows = [], reviewCounts = {}, excludedCounts = {}, pendingCounts = {}, seen = new Set();
   const count = (target, key) => { target[key] = (target[key] || 0) + 1; };
   for (const member of members) {
     if (member.tenant_id !== NMC_TENANT || seen.has(member.id)) throw new Error('Member scope or uniqueness mismatch');
@@ -150,7 +183,12 @@ export function projectNmcReport({ members, fields, preferences, history, organi
     const honorary = klass === 'Honorary' && value('membership_status') === 'Active'
       && !value('ym_date_membership_expires').trim() && !records.length;
     const evidence = honorary ? { status: 'Active', months: 0 }
-      : membershipEvidence(records, agreementMap, recognitions, reportDate);
+      : membershipEvidence(records, agreementMap, scopedPlans, recognitions, reportDate);
+    if (evidence.pending) {
+      if (member.organization_id && !orgs.has(member.organization_id)) count(reviewCounts, 'unresolved_organisation');
+      else count(pendingCounts, evidence.pending);
+      continue;
+    }
     if (evidence.review) {
       const reason = !records.length && ['Initial enquiry', 'Full application received'].includes(value('membership_status'))
         ? 'applicant_only' : evidence.review;
@@ -171,5 +209,5 @@ export function projectNmcReport({ members, fields, preferences, history, organi
   rows.sort((a, b) => a.cells[2].localeCompare(b.cells[2], 'en-GB')
     || a.cells[1].localeCompare(b.cells[1], 'en-GB') || a.memberId.localeCompare(b.memberId));
   return { reportDate, sheets: NMC_SHEETS.map(name => ({ name, count: rows.filter(r => r.sheet === name).length })),
-    total: rows.length, reviewCounts, excludedCounts, rows };
+    total: rows.length, reviewCounts, excludedCounts, pendingCounts, rows };
 }

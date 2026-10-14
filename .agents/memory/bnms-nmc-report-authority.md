@@ -30,6 +30,16 @@ BNMS NMC fulfilment is classified by the member-scoped `member_class`, never rol
 
 **How to apply:** Do not infer print entitlement from category, role or postal-address presence.
 
+Normal new monthly first-collection waits should be reported separately from
+membership evidence problems, but are not fulfilment entitlement.
+
+**Why:** The owner requested a clear healthy waiting category without relabelling
+manual approval, failed collections, malformed records or historical uncertainty.
+
+**How to apply:** Require tenant-owned live agreement, plan and history evidence.
+Keep pending members outside eligible totals until confirmed payment and
+activation; test transitions with fixtures, without provider writes.
+
 Imported Active status plus a legacy expiry date, without membership history, is not sufficient membership evidence: flag these records for review. Active Honorary records without an expiry or membership history are recognised non-expiring members.
 
 **Why:** The owner explicitly rejected the first evidence rule and approved the second after reviewing aggregate live data.

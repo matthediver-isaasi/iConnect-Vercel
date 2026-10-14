@@ -124,6 +124,11 @@ export default function NMCMembershipReport() {
             <div className="flex items-start gap-2 max-w-xs text-sm"><ShieldCheck className="h-5 w-5 shrink-0" aria-hidden="true" /><p>Read-only reporting.<br /><span className="text-muted-foreground">No membership, payment or address data is changed by this report.</span></p></div>
           </section>
 
+          <Card className="nmc-panel" data-testid="nmc-awaiting-first-payment">
+            <CardHeader className="pb-3"><CardTitle className="text-lg">Awaiting first payment</CardTitle></CardHeader>
+            <CardContent><p className="text-2xl font-semibold tabular-nums">{displayCount(report.pendingCounts?.awaiting_first_payment)}</p><p className="text-sm text-muted-foreground mt-2">New monthly memberships with matching live agreement, plan and unpaid history evidence. These members are not included in eligible totals or the workbook until payment is confirmed and membership is activated. Manual approval waits, failed collections and uncertain records are not included in this category.</p></CardContent>
+          </Card>
+
           <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] gap-6">
             <Card className="nmc-panel">
               <CardHeader className="pb-3"><CardTitle className="text-lg flex items-center gap-2"><FileSpreadsheet className="h-5 w-5" aria-hidden="true" />Workbook contents</CardTitle><p className="text-sm text-muted-foreground">Four fulfilment worksheets. Review diagnostics are separate and do not appear as rows in the workbook.</p></CardHeader>
