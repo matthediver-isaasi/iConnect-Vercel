@@ -3,6 +3,7 @@ import { getTenantContext } from '../../_lib/tenantContext.js';
 import {
   parseMemberListFilters,
   validateOrganizationFilterEntries,
+  resolveMemberBooleanFilterDefaults,
   memberFilterSelectJoins,
   applyMemberListFilters,
   stripFilterJoinAliases,
@@ -86,6 +87,7 @@ export async function handlePaginatedMembers(req, res, {
     // filters, direct-column coreFilters) — kept in lockstep with the CSV
     // export via api/_lib/memberListFilters.js.
     const filterCtx = parseMemberListFilters({ search, organizationId, departmentId, roleId, status, customFilters, organizationFilters, coreFilters });
+    await resolveMemberBooleanFilterDefaults(db, tenantId, filterCtx);
     await validateOrganizationFilterEntries(db, tenantId, filterCtx);
     const departmentMemberIds = filterCtx.departmentIds.length
       ? await resolveDepartments(db, tenantId, filterCtx.departmentIds) : null;

@@ -4,6 +4,7 @@ import { escapeCsvCell as escapeCSV, CSV_BOM, CSV_ROW_SEPARATOR } from '../../_l
 import {
   parseMemberListFilters,
   validateOrganizationFilterEntries,
+  resolveMemberBooleanFilterDefaults,
   memberFilterSelectJoins,
   applyMemberListFilters,
   stripFilterJoinAliases,
@@ -235,6 +236,7 @@ export default async function handler(req, res) {
     // shows — including multi-role selections, operator-driven coreFilters
     // (e.g. role none_of) and custom field filters.
     const filterCtx = parseMemberListFilters({ search, organizationId, departmentId, roleId, status, customFilters, organizationFilters, coreFilters });
+    if (!idList) await resolveMemberBooleanFilterDefaults(supabase, tenantId, filterCtx);
     await validateOrganizationFilterEntries(supabase, tenantId, filterCtx);
     const departmentMemberIds = !idList && filterCtx.departmentIds.length
       ? await resolveDepartmentMemberIds(supabase, tenantId, filterCtx.departmentIds) : null;

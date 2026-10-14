@@ -15,3 +15,4 @@
 - [Membership summary evidence](membership-summary-evidence.md) — upfront settlement, recurring-payment setup and renewal dates need distinct claims.
 - [Rolling membership consent](rolling-membership-consent.md) — agreed commencement survives delayed payment callbacks; pending activation is separate, and legacy anniversaries require original evidence.
 - [Membership card evidence](membership-card-evidence.md) — joining provenance, historical payments, mandate readiness and future collections must remain distinct.
+- [BNMS CRM DD flag](bnms-crm-dd-flag.md) — treating an unset legacy flag as No for filtering is not proof of absent GoCardless mandates or payments.

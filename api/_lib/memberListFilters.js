@@ -96,13 +96,37 @@ export async function validateOrganizationFilterEntries(supabaseClient, tenantId
   return ctx;
 }
 
+// BNMS's legacy DD flag is sparsely stored. This is a CRM-flag interpretation,
+// not a statement about live GoCardless mandates or payment status.
+// Resolve the field server-side; never accept this exception from client input.
+export async function resolveMemberBooleanFilterDefaults(db, tenantId, ctx) {
+  if (tenantId !== 'ff2df806-b321-4254-b651-3af11fccf1db') return ctx;
+  const ids = ctx.customFilterEntries
+    .filter(([, entry]) => entry.op === 'bool_is' && entry.value === 'No')
+    .map(([id]) => id);
+  if (!ids.length) return ctx;
+  const { data, error } = await db.from('preference_field').select('id')
+    .eq('tenant_id', tenantId).eq('entity_scope', 'member').eq('is_active', true)
+    .eq('name', 'direct_debit_payment').eq('field_type', 'boolean').in('id', ids);
+  if (error || !Array.isArray(data)) throw new Error('Direct Debit filter definition could not be loaded');
+  const allowed = new Set(data.map(field => field.id));
+  ctx.customFilterEntries = ctx.customFilterEntries.map(([id, entry]) =>
+    [id, allowed.has(id) ? { ...entry, includeUnset: true } : entry]);
+  return ctx;
+}
+
+const includesUnsetBoolean = entry =>
+  entry.op === 'bool_is' && entry.value === 'No' && entry.includeUnset === true;
+const memberEntryNeedsAntiJoin = entry =>
+  includesUnsetBoolean(entry) || prefEntryNeedsAntiJoin(entry);
+
 // Aliased member_preference_value joins the select clause must include for the
 // active custom filters. Positive ops inner-join; negative ops left-join and
 // are excluded via `.is(alias, null)` in applyMemberListFilters.
 export function memberFilterSelectJoins(ctx) {
   const memberJoins = ctx.customFilterEntries
     .map(([, entry], idx) => {
-      const joinType = prefEntryNeedsAntiJoin(entry) ? '!left' : '!inner';
+      const joinType = memberEntryNeedsAntiJoin(entry) ? '!left' : '!inner';
       return `,\n      cf${idx}:member_preference_value${joinType}(field_id, value)`;
     })
     .join('');
@@ -120,8 +144,17 @@ export function memberFilterSelectJoins(ctx) {
 export function applyMemberListFilters(query, ctx, { tenantId } = {}) {
   ctx.customFilterEntries.forEach(([fieldId, entry], idx) => {
     const alias = `cf${idx}`;
-    query = applyPrefFilterEntry(query, alias, fieldId, entry);
-    if (prefEntryNeedsAntiJoin(entry)) {
+    if (includesUnsetBoolean(entry)) {
+      // Exclude members with any nonblank value other than explicit No/false.
+      // Missing rows, NULL and empty values pass; contradictory true+false
+      // duplicates and malformed nonblank values do not count as No.
+      query = query.eq(`${alias}.field_id`, fieldId)
+        .not(`${alias}.value`, 'is', null)
+        .not(`${alias}.value`, 'in', '("No","false","")');
+    } else {
+      query = applyPrefFilterEntry(query, alias, fieldId, entry);
+    }
+    if (memberEntryNeedsAntiJoin(entry)) {
       // Anti-join: keep only members with NO matching preference-value row.
       query = query.is(alias, null);
     }

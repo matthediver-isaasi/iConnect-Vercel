@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   parseMemberListFilters,
   validateOrganizationFilterEntries,
+  resolveMemberBooleanFilterDefaults,
   memberFilterSelectJoins,
   applyMemberListFilters,
   stripFilterJoinAliases,
@@ -195,4 +196,83 @@ test('organisation filter validation enforces tenant, scope, active and visibili
   assert.ok(calls.some(c => c[0] === 'eq' && c[1] === 'tenant_id' && c[2] === 'tenant-1'));
   assert.ok(calls.some(c => c[0] === 'eq' && c[1] === 'entity_scope' && c[2] === 'organization'));
   assert.ok(calls.some(c => c[0] === 'eq' && c[1] === 'is_active' && c[2] === true));
+});
+
+const bnms = 'ff2df806-b321-4254-b651-3af11fccf1db';
+function definitionDb(data = [{ id: 'dd' }], error = null) {
+  const q = stubQuery();
+  q.from = (...args) => { q.calls.push(['from', ...args]); return q; };
+  q.select = (...args) => { q.calls.push(['select', ...args]); return q; };
+  q.then = (resolve, reject) => Promise.resolve({ data, error }).then(resolve, reject);
+  return q;
+}
+
+test('BNMS DD No is resolved by tenant-owned active boolean definition, not a label or client flag', async () => {
+  const ctx = parseMemberListFilters({
+    customFilters: JSON.stringify({ dd: '__bool__:No', unrelated: '__bool__:No' }),
+    organizationFilters: JSON.stringify({ dd: '__bool__:No' }),
+  });
+  const db = definitionDb();
+  await resolveMemberBooleanFilterDefaults(db, bnms, ctx);
+  for (const [col, value] of [['tenant_id',bnms], ['entity_scope','member'],
+    ['is_active',true], ['name','direct_debit_payment'], ['field_type','boolean']]) {
+    assert.ok(db.calls.some(c=>c[0]==='eq' && c[1]===col && c[2]===value));
+  }
+  const joins = memberFilterSelectJoins(ctx);
+  assert.match(joins, /cf0:member_preference_value!left/);
+  assert.match(joins, /cf1:member_preference_value!inner/);
+  assert.match(joins, /orgf0:organization!inner/);
+  const q = stubQuery();
+  applyMemberListFilters(q, ctx);
+  assert.deepEqual(q.calls.slice(0,4), [
+    ['eq','cf0.field_id','dd'],
+    ['not','cf0.value','is',null],
+    ['not','cf0.value','in','("No","false","")'],
+    ['is','cf0',null],
+  ]);
+  assert.ok(q.calls.some(c=>c[0]==='or' && c[1]==='value.eq.No,value.eq.false' && c[2].foreignTable==='cf1'));
+  assert.equal(normalizeClientException(), false);
+  function normalizeClientException() {
+    return parseMemberListFilters({customFilters:JSON.stringify({
+      dd:{op:'empty',includeUnset:true},
+    })}).customFilterEntries[0][1].includeUnset === true;
+  }
+});
+
+test('DD Yes, All, empty operators, unrelated fields and other tenants retain their current behavior', async () => {
+  for (const [tenant, raw, definitions] of [
+    [bnms, '__bool__:Yes', [{id:'dd'}]],
+    [bnms, 'all', [{id:'dd'}]],
+    [bnms, {op:'empty'}, [{id:'dd'}]],
+    [bnms, {op:'not_empty'}, [{id:'dd'}]],
+    ['other-tenant', '__bool__:No', [{id:'dd'}]],
+    [bnms, '__bool__:No', []],
+  ]) {
+    const ctx = parseMemberListFilters({customFilters:JSON.stringify({dd:raw})});
+    const before = structuredClone(ctx);
+    const db = definitionDb(definitions);
+    await resolveMemberBooleanFilterDefaults(db, tenant, ctx);
+    assert.deepEqual(ctx, before);
+    if (tenant !== bnms || raw !== '__bool__:No') assert.equal(db.calls.length, 0);
+  }
+});
+
+test('DD definition lookup failures fail closed rather than silently changing filter meaning', async () => {
+  for (const db of [definitionDb(null),definitionDb([], {message:'failure'})]) {
+    const ctx=parseMemberListFilters({customFilters:JSON.stringify({dd:'__bool__:No'})});
+    await assert.rejects(resolveMemberBooleanFilterDefaults(db,bnms,ctx),/could not be loaded/);
+  }
+});
+
+test('list and CSV export share DD No semantics alongside other filters', async () => {
+  const params={customFilters:JSON.stringify({dd:'__bool__:No',other:['A']}),
+    roleId:'role',status:'active',search:'name'};
+  const list=parseMemberListFilters(params), csv=parseMemberListFilters(params);
+  await resolveMemberBooleanFilterDefaults(definitionDb(),bnms,list);
+  await resolveMemberBooleanFilterDefaults(definitionDb(),bnms,csv);
+  assert.equal(memberFilterSelectJoins(list),memberFilterSelectJoins(csv));
+  const a=stubQuery(),b=stubQuery();
+  applyMemberListFilters(a,list,{tenantId:bnms});
+  applyMemberListFilters(b,csv,{tenantId:bnms});
+  assert.deepEqual(a.calls,b.calls);
 });
