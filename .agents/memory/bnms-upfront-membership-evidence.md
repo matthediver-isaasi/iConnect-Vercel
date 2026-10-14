@@ -3,6 +3,20 @@ name: BNMS upfront membership evidence
 description: Operator-attested current membership establishment is distinct from verified invoice settlement and future billing authority.
 ---
 
+For the approved annual reconstructions, the owner confirmed memberships are
+12 months and authorised assuming the previous schedule matches the current
+member-class-selected schedule.
+
+**Why:** The owner requested replacing unknown commencement with a reconstructed
+start date rather than displaying “Legacy membership (start unknown)”.
+
+**How to apply:** Derive the start one calendar year before the day after the
+retained expiry, validating the full 12-month interval. Keep verified historical
+amounts and payment dates; current pricing must not overwrite them. Record the
+schedule/date assumption as administrator authority, not provider-confirmed
+coverage or new collection consent. This does not authorise extending expiries
+or silently repairing other cohorts.
+
 The owner approved the 19 payment-backed current-term candidates in the
 14 October 2026 missing-history recovery report, with their individually listed
 12-month reconstructed dates. This approval does not cover the report's
