@@ -3,6 +3,13 @@ name: BNMS upfront membership evidence
 description: Operator-attested current membership establishment is distinct from verified invoice settlement and future billing authority.
 ---
 
+BNMS students do not need fee history.
+
+**Why:** The user explicitly stated that fee history is not needed for students.
+
+**How to apply:** Do not treat absent student fee history as something that must
+be reconstructed. Keep any review of student eligibility separate from fee history.
+
 Treat the BNMS upfront backfill as establishment of existing 2025–2026 memberships,
 not creation of new or future commitments. The operator authorized assuming these
 members paid, with manual corrections later; keep that attestation distinct from
