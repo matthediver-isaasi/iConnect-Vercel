@@ -3,6 +3,19 @@ name: BNMS upfront membership evidence
 description: Operator-attested current membership establishment is distinct from verified invoice settlement and future billing authority.
 ---
 
+The owner approved the 19 payment-backed current-term candidates in the
+14 October 2026 missing-history recovery report, with their individually listed
+12-month reconstructed dates. This approval does not cover the report's
+historical-only, Student or unresolved cohorts.
+
+**Why:** The report was investigation-only; the owner subsequently selected
+“Approve all 19 with the listed dates.”
+
+**How to apply:** Use the pinned recovery report and per-member reconstruction
+provenance. Revalidate individual settlement and identity rather than substituting
+a blanket paid attestation. Preserve member_class and historical amounts; this
+approval provides no renewal-policy or future collection authority.
+
 BNMS students do not need fee history.
 
 **Why:** The user explicitly stated that fee history is not needed for students.

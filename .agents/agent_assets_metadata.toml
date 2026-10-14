@@ -1475,3 +1475,17 @@ mtime_ms = 1791968188246
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/dea80828-85c5-4d35-870c-3dd8454d97ea/54440f9e-4341-484e-a73e-4971df57b50f"
 storage_version_token = "1791968263898066"
 content_type = "text/csv"
+
+[[outputs]]
+id = "slbkGOIGZoMFk9fLz0JDI"
+uri = "file://generated-artifacts/bnms-approved-19/BNMS-19-Restoration-Verified.csv"
+type = "table"
+title = "BNMS — 19 restored memberships"
+description = "Per-member approved dates, unchanged classes, historical amounts, paid invoice references and verified Online-only NMC classification. Zero-insert replay passed."
+logical_id = "61d298f0-fa4c-4e1c-b200-6af80d22f2ac"
+content_hash = "sha256:61e279d169412dd493814611d827f442427c45e2bc7fcbf911b2458cc3407a53"
+size = 3413
+mtime_ms = 1791969737015
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/61d298f0-fa4c-4e1c-b200-6af80d22f2ac/172723ec-8315-48a1-b4fa-21c8f5389652"
+storage_version_token = "1791969868674798"
+content_type = "text/csv"
