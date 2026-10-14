@@ -18,7 +18,7 @@ function formatDate(value) {
 export function membershipPaymentReportCsv(rows, method = 'all') {
   if (method === 'upfront') {
     const cells = [
-      ['Member', 'Email', 'Tier', 'Status', 'Payment method', 'Membership renewal', 'Next structure', 'Next renewal amount (projected, incl. VAT)', 'Currency'],
+      ['Member', 'Email', 'Tier', 'Status', 'Payment method', 'Membership renewal', 'Next structure', 'Next renewal amount (projected, incl. VAT)', 'Currency', 'Membership expiry', 'Days past expiry'],
       ...rows.map(row => [
         row.name || 'Unknown', row.email || 'Unknown', row.tier || 'Unknown',
         humanise(row.status),
@@ -28,6 +28,7 @@ export function membershipPaymentReportCsv(rows, method = 'all') {
           ? row.nextStructureState : row.nextStructureName || 'Review required — no uniquely named applicable structure',
         Number.isFinite(row.nextRenewalAmount) ? row.nextRenewalAmount.toFixed(2) : row.nextRenewalAmountState || 'Review required',
         row.nextRenewalCurrency || '',
+        formatDate(row.currentExpiryDate), row.daysPastExpiry ?? 'Unknown',
       ]),
     ];
     return CSV_BOM + cells.map(row => row.map(escapeCsvCell).join(',')).join(CSV_ROW_SEPARATOR) + CSV_ROW_SEPARATOR;
@@ -38,7 +39,8 @@ export function membershipPaymentReportCsv(rows, method = 'all') {
     ['Member', 'Email', 'Tier', 'Status', 'Payment method', 'Next payment', 'Schedule',
       ...(!ddOnly ? ['Current expiry', 'Renewal date', 'Renewal basis'] : []),
       'Payment arrangement', ddOnly ? 'Collection structure' : 'Next structure', 'Structure review',
-      ...(dd ? ['Next payment amount', 'Currency', 'Payment amount basis'] : [])],
+      ...(dd ? ['Next payment amount', 'Currency', 'Payment amount basis'] : []),
+      'Membership expiry', 'Days past expiry'],
     ...rows.map(row => [
       row.name || 'Unknown', row.email || 'Unknown', row.tier || 'Unknown',
       row.statusLabel || humanise(row.status),
@@ -49,6 +51,7 @@ export function membershipPaymentReportCsv(rows, method = 'all') {
       row.paymentArrangement || '', row.nextStructureName || '', row.nextStructureState || '',
       ...(dd ? [Number.isFinite(row.nextPaymentAmount) ? row.nextPaymentAmount.toFixed(2) : '',
         row.nextPaymentCurrency || '', row.nextPaymentAmountState || ''] : []),
+      formatDate(row.currentExpiryDate), row.daysPastExpiry ?? 'Unknown',
     ]),
   ];
   return CSV_BOM + cells.map(row => row.map(escapeCsvCell).join(',')).join(CSV_ROW_SEPARATOR) + CSV_ROW_SEPARATOR;

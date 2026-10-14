@@ -67,6 +67,7 @@ export default function MembershipPaymentReport() {
   const { isFeatureExcluded, isAccessReady, sessionValidated } = useMemberAccess();
   const [page, setPage] = useState(1);
   const [paymentMethod, setPaymentMethod] = useState("all");
+  const [expiry, setExpiry] = useState("all");
   const [sort, setSort] = useState(null);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -93,10 +94,11 @@ export default function MembershipPaymentReport() {
   useEffect(() => () => exportController.current?.abort(), []);
 
   const query = useQuery({
-    queryKey: ["membership-payment-report", page, paymentMethod, debouncedSearch, sort],
+    queryKey: ["membership-payment-report", page, paymentMethod, expiry, debouncedSearch, sort],
     queryFn: async ({ signal }) => {
       const params = new URLSearchParams({
         method: paymentMethod,
+        expiry,
         page: String(page),
         pageSize: String(PAGE_SIZE),
       });
@@ -142,8 +144,8 @@ export default function MembershipPaymentReport() {
   const showCollectionAmount = directDebitView || paymentMethod === "all";
   // Keep each report variant readable; overflow stays inside the results region.
   const columnWidths = [
-    200, 260, 190, 120, 160,
-    ...(!upfrontView ? [150, 260, ...(!directDebitView ? [145] : [])] : []),
+    200, 260, 190, 120, 160, 150, 150,
+    ...(!upfrontView ? [150, 260] : []),
     ...(!directDebitView ? [250] : []),
     270,
     ...(showCollectionAmount ? [210] : []),
@@ -198,7 +200,7 @@ export default function MembershipPaymentReport() {
     const controller = new AbortController();
     exportController.current = controller;
     try {
-      const params = new URLSearchParams({ format: "csv", method: paymentMethod });
+      const params = new URLSearchParams({ format: "csv", method: paymentMethod, expiry });
       if (debouncedSearch) params.set("search", debouncedSearch);
       if (sort) {
         params.set("sortBy", sort.field);
@@ -305,6 +307,25 @@ export default function MembershipPaymentReport() {
                   </SelectContent>
                 </Select>
               </div>
+              <div className="min-w-0 space-y-1">
+                <Label htmlFor="membership-expiry-filter">Membership expiry</Label>
+                <Select value={expiry} onValueChange={(value) => {
+                  cancelExport();
+                  setExpiry(value);
+                  setPage(1);
+                }}>
+                  <SelectTrigger id="membership-expiry-filter" className="w-full sm:w-64" data-testid="select-membership-expiry">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All expiry dates</SelectItem>
+                    <SelectItem value="not_expired">Not expired</SelectItem>
+                    <SelectItem value="expired_within_90">Expired within 90 days</SelectItem>
+                    <SelectItem value="expired_over_90">Expired over 90 days ago</SelectItem>
+                    <SelectItem value="unknown">Expiry unknown</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-3 sm:w-auto sm:justify-end">
               {!isLoadingResults && !query.error && (
@@ -329,6 +350,12 @@ export default function MembershipPaymentReport() {
           </div>
         </CardHeader>
         <CardContent className="min-w-0 p-4 pt-0 sm:p-6 sm:pt-0">
+          {expiry !== "all" && (
+            <p className="mb-4 text-sm text-muted-foreground">
+              Based on the membership term’s saved expiry date, not payment due dates or grace entitlement.
+              NMC journal eligibility uses additional rules, so totals may differ.
+            </p>
+          )}
           {exportError && (
             <Alert variant="destructive" className="mb-4">
               <AlertCircle className="h-4 w-4" />
@@ -350,7 +377,7 @@ export default function MembershipPaymentReport() {
             <p className="py-10 text-center text-sm text-slate-500" data-testid="text-no-payment-rows">
               {debouncedSearch
                 ? `No individual memberships match “${debouncedSearch}”.`
-                : "No individual memberships match this payment method."}
+                : "No individual memberships match these filters."}
             </p>
           ) : (
             <>
@@ -366,6 +393,8 @@ export default function MembershipPaymentReport() {
                       <th className="px-3 py-2 font-medium">Tier</th>
                       <th className="px-3 py-2 font-medium">Status</th>
                       <th className="px-3 py-2 font-medium">Payment method</th>
+                      <th className="px-3 py-2 font-medium">Membership expiry</th>
+                      <th className="px-3 py-2 font-medium">Days past expiry</th>
                       {!upfrontView && (
                         <>
                           <th className="px-3 py-2 font-medium whitespace-nowrap"
@@ -377,7 +406,6 @@ export default function MembershipPaymentReport() {
                             </button> : "Next payment"}
                           </th>
                           <th className="px-3 py-2 font-medium">Schedule</th>
-                          {!directDebitView && <th className="px-3 py-2 font-medium">Current expiry</th>}
                         </>
                       )}
                        {!directDebitView && <th className="px-3 py-2 font-medium"
@@ -409,11 +437,16 @@ export default function MembershipPaymentReport() {
                         <td className="px-3 py-2">
                           {methodLabels.get(row.paymentMethod) || humanise(row.paymentMethod)}
                         </td>
+                        <td className="px-3 py-2 whitespace-nowrap">{formatDate(row.currentExpiryDate)}</td>
+                        <td className="px-3 py-2">
+                          {row.daysPastExpiry == null ? "Unknown" : row.daysPastExpiry > 0
+                            ? <Badge variant={row.daysPastExpiry > 90 ? "destructive" : "outline"}>{row.daysPastExpiry} days</Badge>
+                            : "Not expired"}
+                        </td>
                         {!upfrontView && (
                           <>
                             <td className="px-3 py-2 whitespace-nowrap">{formatDate(row.nextPaymentDate)}</td>
                             <td className="px-3 py-2">{row.paymentArrangement || humanise(row.scheduleState)}</td>
-                            {!directDebitView && <td className="px-3 py-2 whitespace-nowrap">{row.renewalLabel ? formatDate(row.currentExpiryDate) : "—"}</td>}
                           </>
                         )}
                         {!directDebitView && <td className="px-3 py-2">

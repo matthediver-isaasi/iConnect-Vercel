@@ -25,7 +25,8 @@ test('personal projection reuses aliases and returns only public fields', () => 
   assert.equal(row.paymentMethod, 'monthly_direct_debit');
   assert.equal(row.nextPaymentDate, payment.charge_date);
   assert.equal(row.scheduleState, 'confirmed');
-  assert.deepEqual(Object.keys(row).sort(), ['memberId', 'name', 'email', 'tier', 'status', 'paymentMethod', 'nextPaymentDate', 'scheduleState'].sort());
+  assert.equal(row.currentExpiryDate, history.term_end_date);
+  assert.deepEqual(Object.keys(row).sort(), ['memberId', 'name', 'email', 'tier', 'status', 'paymentMethod', 'currentExpiryDate', 'nextPaymentDate', 'scheduleState'].sort());
 });
 
 test('stored method aliases share existing membership normalization', () => {
@@ -373,7 +374,7 @@ test('deleted identities are excluded before projection and provider requests, n
   assert.equal(json.body.total, 0);
   assert.deepEqual(json.body.rows, []);
   const csv = await request({ db, resolveSchedules }, { format: 'csv' });
-  assert.equal(csv.body, '\ufeffMember,Email,Tier,Status,Payment method,Next payment,Schedule,Current expiry,Renewal date,Renewal basis,Payment arrangement,Next structure,Structure review,Next payment amount,Currency,Payment amount basis\r\n');
+  assert.equal(csv.body, '\ufeffMember,Email,Tier,Status,Payment method,Next payment,Schedule,Current expiry,Renewal date,Renewal basis,Payment arrangement,Next structure,Structure review,Next payment amount,Currency,Payment amount basis,Membership expiry,Days past expiry\r\n');
 });
 
 test('CSV exports full filtered batches in JSON order, excluding deleted and foreign identities', async () => {
@@ -417,8 +418,8 @@ test('CSV uses readable dates, preserves accents, escapes quotes/newlines and ne
     membership_billing_agreements: [agreement], membership_payment_plans: [plan], gocardless_payments: [payment],
   });
   const csv = await request({ db, resolveSchedules: async () => new Map() }, { format: 'csv' });
-  assert.equal(csv.body, '\ufeffMember,Email,Tier,Status,Payment method,Next payment,Schedule,Current expiry,Renewal date,Renewal basis,Payment arrangement,Next structure,Structure review,Next payment amount,Currency,Payment amount basis\r\n'
-    + `"'=Zoë, ""Test"" Next",'+mail@example.org,'@Tier Two,Current,Monthly Direct Debit,10 Jun 2026,Confirmed,,,,,,Review required — collection structure unavailable,,,Review required — next amount unavailable\r\n`);
+  assert.equal(csv.body, '\ufeffMember,Email,Tier,Status,Payment method,Next payment,Schedule,Current expiry,Renewal date,Renewal basis,Payment arrangement,Next structure,Structure review,Next payment amount,Currency,Payment amount basis,Membership expiry,Days past expiry\r\n'
+    + `"'=Zoë, ""Test"" Next",'+mail@example.org,'@Tier Two,Current,Monthly Direct Debit,10 Jun 2026,Confirmed,,,,,,Review required — collection structure unavailable,,,Review required — next amount unavailable,31 Dec 2026,0\r\n`);
 });
 
 test('CSV defaults to alphabetical order when no date sort is requested', async () => {
@@ -654,8 +655,8 @@ test('endpoint selects legacy evidence and uses one full dataset for totals, fil
   const csv = await request(deps, { method: 'upfront', format: 'csv', pageSize: '1' });
   const lines = csv.body.trimEnd().split('\r\n');
   assert.equal(lines.length, 1001);
-  assert.equal(lines[0], '\ufeffMember,Email,Tier,Status,Payment method,Membership renewal,Next structure,"Next renewal amount (projected, incl. VAT)",Currency');
-  assert.match(lines[1], /,Upfront,01 Jan 2027,Review required — no uniquely named applicable structure,Review required — next structure unresolved,$/);
+  assert.equal(lines[0], '\ufeffMember,Email,Tier,Status,Payment method,Membership renewal,Next structure,"Next renewal amount (projected, incl. VAT)",Currency,Membership expiry,Days past expiry');
+  assert.match(lines[1], /,Upfront,01 Jan 2027,Review required — no uniquely named applicable structure,Review required — next structure unresolved,,31 Dec 2026,0$/);
   assert.deepEqual(lines.slice(101, 201).map(line => line.split(',')[0]), filtered.body.rows.map(row => row.name));
 });
 
@@ -733,6 +734,35 @@ test('endpoint and CSV expose expected upfront dates without provider collection
   assert.equal(row.nextRenewalAmount, 150);
   assert.equal(row.nextRenewalCurrency, 'GBP');
   const csv = await request(deps, { method: 'upfront', format: 'csv' });
-  assert.equal(csv.body, '\ufeffMember,Email,Tier,Status,Payment method,Membership renewal,Next structure,"Next renewal amount (projected, incl. VAT)",Currency\r\n'
-    + 'Ada,ada@example.org,Personal,Paused,Upfront,10 Dec 2026,Future personal,150.00,GBP\r\n');
+  assert.equal(csv.body, '\ufeffMember,Email,Tier,Status,Payment method,Membership renewal,Next structure,"Next renewal amount (projected, incl. VAT)",Currency,Membership expiry,Days past expiry\r\n'
+    + 'Ada,ada@example.org,Personal,Paused,Upfront,10 Dec 2026,Future personal,150.00,GBP,09 Dec 2026,0\r\n');
+});
+
+test('expiry filters intersect search and method before pagination and CSV', async () => {
+  const members = ['a', 'b', 'c', 'd'].map(id => ({ ...member, id, first_name: `Expiry ${id}` }));
+  // Relative to June 1: 92, 91, 90 and 0 days past expiry.
+  const dates = ['2026-03-01', '2026-03-02', '2026-03-03', '2026-06-01'];
+  const histories = members.map((m, i) => ({ ...history, id: m.id, member_id: m.id,
+    billing_agreement_id: null, payment_method: 'upfront', billing_period: 'annual',
+    payment_status: 'paid', term_end_date: dates[i], membership_renewal_date: null }));
+  const deps = { db: database({ member: members, member_membership_history: histories }),
+    resolveSchedules: async () => new Map() };
+  const query = { expiry: 'expired_over_90', method: 'upfront', search: 'Expiry', pageSize: '1', page: '2' };
+  const result = await request(deps, query);
+  assert.equal(result.code, 200);
+  assert.equal(result.body.total, 2);
+  assert.equal(result.body.rows[0].memberId, 'b');
+  assert.equal(result.body.rows[0].daysPastExpiry, 91);
+  const csv = await request(deps, { ...query, format: 'csv' });
+  assert.equal(csv.body.trimEnd().split('\r\n').length, 3);
+  assert.match(csv.body, /Expiry a,/);
+  assert.match(csv.body, /Expiry b,/);
+  assert.doesNotMatch(csv.body, /Expiry c,/);
+  assert.equal((await request(deps, { expiry: 'expired_within_90' })).body.rows[0].memberId, 'c');
+  assert.equal((await request(deps, { expiry: 'not_expired' })).body.rows[0].memberId, 'd');
+  assert.equal((await request(deps, { ...query, method: 'card' })).body.total, 0);
+  assert.equal((await request(deps, { expiry: 'unknown' })).body.total, 0);
+  for (const expiry of ['invalid', ['expired_over_90'], {}, 90]) {
+    assert.equal((await request({ db: { from() { throw new Error('Should not read'); } } }, { expiry })).code, 400);
+  }
 });

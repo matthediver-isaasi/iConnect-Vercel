@@ -60,7 +60,7 @@ test('conditional VAT and unresolved incentive/structure evidence remain explici
 });
 test('CSV distinguishes zero, missing evidence and currency without changing other payment exports', () => {
   const row = { paymentMethod: 'upfront', ...run({ flat_cost: 0, currency: 'EUR' }) };
-  assert.match(membershipPaymentReportCsv([row], 'upfront'), /,0.00,EUR\r\n$/);
+  assert.match(membershipPaymentReportCsv([row], 'upfront'), /,0.00,EUR,Unknown,Unknown\r\n$/);
   assert.match(membershipPaymentReportCsv([{ ...row, ...run({ flat_cost: null }) }], 'upfront'), /Review required — price missing/);
   assert.doesNotMatch(membershipPaymentReportCsv([row], 'card'), /Next renewal amount/);
 });

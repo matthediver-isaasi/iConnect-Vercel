@@ -179,6 +179,7 @@ export function projectMembershipPaymentReport({
       tier: summary.membership.membershipType,
       status: member.membership_paused ? 'paused' : record.status || summary.membership.state,
       paymentMethod: method,
+      currentExpiryDate: dateOnly(record.term_end_date),
       ...schedule({ selected, agreement: plan ? agreement : null, plan,
         payments: paymentsByPlan.get(plan?.id) || [], paused: member.membership_paused, method, today,
         providerSchedule: providerSchedules.get(plan?.id) }),

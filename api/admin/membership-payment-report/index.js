@@ -5,6 +5,7 @@ import { resolvePaymentReportSchedules } from '../../_lib/membershipPaymentRepor
 import { membershipPaymentReportCsv } from '../../_lib/membershipPaymentReportCsv.js';
 import { projectUpfrontRenewalAmount } from '../../_lib/membershipPaymentReportAmount.js';
 import { loadPaymentReportDirectDebit } from '../../_lib/membershipPaymentReportDirectDebit.js';
+import { PAYMENT_REPORT_EXPIRY_FILTERS, paymentReportExpiry } from '../../_lib/membershipPaymentReportExpiry.js';
 
 const FEATURE = 'commerce.membership-payment-report';
 const BATCH = 1000;
@@ -74,6 +75,10 @@ export function createMembershipPaymentReportHandler(deps = {}) {
         return res.status(403).json({ error: 'Membership Payment Report permission required' });
       }
       const method = req.query?.method ?? 'all';
+      const expiry = req.query?.expiry ?? 'all';
+      if (!PAYMENT_REPORT_EXPIRY_FILTERS.includes(expiry)) {
+        return res.status(400).json({ error: 'Invalid membership expiry filter' });
+      }
       const format = req.query?.format ?? 'json';
       const sortBy = req.query?.sortBy ?? '';
       const sortDirection = req.query?.sortDirection ?? 'asc';
@@ -127,12 +132,14 @@ export function createMembershipPaymentReportHandler(deps = {}) {
         ? await (deps.loadDirectDebit || loadPaymentReportDirectDebit)({ ...input, reservations }, { db }) : new Map();
       const providerSchedules = await (deps.resolveSchedules || resolvePaymentReportSchedules)(input);
       const rows = projectMembershipPaymentReport({ ...input, providerSchedules, directDebitDetails })
+        .map(row => ({ ...row, ...paymentReportExpiry(row, deps.today || new Date().toISOString().slice(0, 10)) }))
         .map(row => row.paymentMethod !== 'upfront' ? row : {
           ...row, ...projectUpfrontRenewalAmount({ row,
             member: members.find(member => member.id === row.memberId && member.tenant_id === tenantId),
             tenantId, configs, preferences, bands, overrides, vatRules, settings }),
         })
         .filter(row => (method === 'all' || row.paymentMethod === method)
+          && (expiry === 'all' || row.expiryCategory === expiry)
           // Literal substring matching avoids SQL/PostgREST wildcard semantics.
           // Apply once to the complete projection for JSON totals, pages and CSV.
           && (!search || row.name.toLowerCase().includes(search)
