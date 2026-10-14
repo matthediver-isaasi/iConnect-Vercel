@@ -71,6 +71,16 @@ the source import, although the original email and account number both matched.
 **How to apply:** Keep explicit account-number conflicts on hold and document the
 original-source identity evidence; never accept a name-only match.
 
+Xero invoice-list and single-invoice responses can differ in non-financial shape:
+tracking metadata may be expanded, and absent credit fields may become zero/empty.
+
+**Why:** Strict whole-object comparison rejected unchanged financial evidence
+when a list response was reverified through the individual invoice endpoint.
+
+**How to apply:** Compare stable invoice, contact, line, tax and payment identities
+and monetary values. Normalise absent versus zero/empty credit fields, but never
+ignore actual credits, payment changes or validation errors.
+
 Some original overseas imports put “Overseas” in membership type but not member
 class; later copies use the expanded class label.
 
