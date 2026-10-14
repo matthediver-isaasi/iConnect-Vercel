@@ -1,4 +1,5 @@
 import { supabase } from '../_lib/database.js';
+import { handleManualCardApproval } from '../_lib/manualCardMembershipApproval.js';
 import { loadMemberGraceWarning } from '../_lib/memberGraceWarning.js';
 import { attachAlphaMembershipRecognition, currentMembershipRecognition } from '../_lib/alphaMembershipRecognition.js';
 import { getSessionMember } from '../_lib/session.js';
@@ -927,6 +928,10 @@ export function createMemberMembershipHandler(dependencies = {}) {
 
       const { tenantId } = tenantContext;
 
+      if (req.method === 'POST' && req.body?.action === 'approve_card_membership') {
+        return await handleManualCardApproval(req, res, { db, context: tenantContext, checkAdmin });
+      }
+
       if (req.method === 'GET') {
         if (req.query?.recordId !== undefined) {
           return await handleInstalmentGet(req, res, {
@@ -1363,6 +1368,7 @@ async function handleGet(req, res, tenantId, db = supabase, {
       };
   if (!config) {
     return res.json({
+      canApproveCardMembership: isAdmin,
       member: { id: member.id, name: `${member.first_name || ''} ${member.last_name || ''}`.trim(), email: member.email || null },
       config: null,
       currentYearCost: null,
@@ -1487,6 +1493,7 @@ async function handleGet(req, res, tenantId, db = supabase, {
 
   return res.json({
     member: { id: member.id, name: `${member.first_name || ''} ${member.last_name || ''}`.trim(), email: member.email || null },
+    canApproveCardMembership: isAdmin,
     config: {
       id: config.id,
       name: config.name,

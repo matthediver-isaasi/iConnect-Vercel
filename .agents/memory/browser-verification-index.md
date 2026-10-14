@@ -1,3 +1,4 @@
+- [Radix test DOM order](radix-test-dom-order.md) — initialise JSDOM before importing dialog components or mounted portals may never appear.
 ---
 name: Verification boundaries
 description: Testing modes, route contracts, parallel test artifacts, and stable browser geometry assertions.

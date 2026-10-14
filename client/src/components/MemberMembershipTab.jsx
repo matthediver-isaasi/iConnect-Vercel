@@ -1,4 +1,5 @@
 import { Fragment, useState, useEffect, useSyncExternalStore } from "react";
+import ApproveCardMembership from "@/components/membership/ApproveCardMembership";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -1841,6 +1842,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                             </Badge>
                             <PaymentStatusBadge paymentStatus={record.payment_status} />
                           </div>
+                          <ApproveCardMembership memberId={memberId} record={record} allowed={data?.canApproveCardMembership === true} />
                             {record.mandatePresentation && (
                               <p className="mt-1 text-xs text-muted-foreground">
                                 Existing Direct Debit mandate active.
