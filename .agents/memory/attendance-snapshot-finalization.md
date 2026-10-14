@@ -16,3 +16,9 @@ For workflow publication, compare a new fingerprint only with the current outcom
 **How to apply:** Publish revisions through a transactional outbox. Key once-per-record delivery claims by workflow + booking, not member or transition. Never auto-replay an ambiguous claimed action; leave the outbox blocked until an admin acknowledges the attempt without replay, then resume still-unclaimed workflows.
 
 When a provider meeting is detached, replaced, or its policy changes, keep the materialized target hidden through pending and failed syncs. Only a successful fresh snapshot may reactivate it; retry state must not expose facts from the previous meeting identity.
+
+Administrator-approved attendance-only reconciliations are an explicit exception to normal transition publication: retain the evidence, matching, revisions and current outcomes atomically, with a durable explanation that award/workflow publication was deliberately withheld.
+
+**Why:** Attendance approval is not necessarily approval to issue CPD points or certificates. Publishing the normal transition can enqueue awards even without calling an application-level award function.
+
+**How to apply:** Verify live database side effects and existing pending jobs before the repair; compare award/notification queues before and after. Do not later replay intentionally withheld transitions as routine recovery without separate approval.

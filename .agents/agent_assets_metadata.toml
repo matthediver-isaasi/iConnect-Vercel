@@ -1503,3 +1503,17 @@ mtime_ms = 1791978149351
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/0b7ad74a-7e29-4a23-8a5f-625caff797f8/ce8fd768-9e12-4ec9-82c4-344a3e2ad240"
 storage_version_token = "1791978230624461"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "krmCuI6jE625WSjQ1H3W3"
+uri = "file://generated-artifacts/bnms-zoom-reconciliation/BNMS_webinar_partial_name_review.xlsx"
+type = "table"
+title = "BNMS webinar: partial-name attendance matches"
+description = "Review of all 54 unresolved Zoom names: 27 with one candidate booking, five with multiple candidates and 22 without a first-name or surname match. Suggested matches have not been marked attended."
+logical_id = "790d3c2e-306c-467d-becb-f89f0e4630bb"
+content_hash = "sha256:26834ec422c7664f92df8caebd684c613227d5252d097b2e9a5bc5ff830c0325"
+size = 12951
+mtime_ms = 1791978783944
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/790d3c2e-306c-467d-becb-f89f0e4630bb/bdfd2244-359c-4a14-be88-4530f18e36ac"
+storage_version_token = "1791979006213375"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
