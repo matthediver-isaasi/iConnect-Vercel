@@ -21,6 +21,7 @@ import { Form, FormSubmission } from "@/api/entities";
 import { Search, Download, Calendar, Building2, CreditCard, Receipt, Ticket, Users, Banknote, ChevronLeft, ChevronRight, XCircle, ArrowLeftRight, Loader2, Filter, Hash, Layers, RefreshCw, Check, X, Clock, Star, Pencil, Flag, UserPlus, Tag, FileBadge } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { attendanceSyncMessage, responseErrors, responseHasPendingSync } from "@/lib/attendanceSyncSummary";
+import { filterRegistrationAttendance } from "@/lib/eventRegistrationAttendance.mjs";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import TransferTicketDialog from "@/components/TransferTicketDialog";
@@ -423,6 +424,7 @@ export default function EventRegistrationReport() {
   const [cpdDialog, setCpdDialog] = useState(null);
   const [statusFilter, setStatusFilter] = useState("active");
   const [consentFilter, setConsentFilter] = useState("all");
+  const [attendanceFilter, setAttendanceFilter] = useState("all");
   const [showColumnChooser, setShowColumnChooser] = useState(false);
   const [selectedColumnKeys, setSelectedColumnKeys] = useState(() => new Set());
   const knownColumnKeysRef = useRef(new Set());
@@ -890,6 +892,7 @@ export default function EventRegistrationReport() {
   };
 
   const handleClearFilters = () => {
+    setAttendanceFilter("all");
     setFilterEventName("");
     setSelectedEvent(null);
     setFilterInternalRef("");
@@ -906,7 +909,7 @@ export default function EventRegistrationReport() {
   const reportGenerated = !!appliedFilters;
 
   const filteredGroups = useMemo(() => {
-    let result = bookingGroups;
+    let result = filterRegistrationAttendance(bookingGroups, attendanceFilter);
 
     if (statusFilter !== "all") {
       result = result.map(group => {
@@ -971,7 +974,7 @@ export default function EventRegistrationReport() {
     });
 
     return result;
-  }, [bookingGroups, searchQuery, sortBy, organizations, statusFilter, consentFilter]);
+  }, [bookingGroups, searchQuery, sortBy, organizations, statusFilter, consentFilter, attendanceFilter]);
 
   const totalAttendees = useMemo(() => {
     return filteredGroups.reduce((sum, g) => sum + g.attendees.length, 0);
@@ -1364,7 +1367,7 @@ export default function EventRegistrationReport() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, statusFilter, consentFilter]);
+  }, [searchQuery, statusFilter, consentFilter, attendanceFilter]);
 
   const handleExportCSV = () => {
     if (filteredGroups.length === 0) return;
@@ -2114,6 +2117,17 @@ export default function EventRegistrationReport() {
                     <SelectItem value="all">All Consent</SelectItem>
                     <SelectItem value="consented">Consented Only</SelectItem>
                     <SelectItem value="not_consented">Not Consented</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={attendanceFilter} onValueChange={setAttendanceFilter}>
+                  <SelectTrigger className="w-[220px]" aria-label="Filter by attendance" data-testid="select-attendance-filter">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Attendance</SelectItem>
+                    <SelectItem value="attended">Attended Only</SelectItem>
+                    <SelectItem value="not_attended">Absent / Below Threshold</SelectItem>
+                    <SelectItem value="unconfirmed">Attendance Unconfirmed</SelectItem>
                   </SelectContent>
                 </Select>
                 <Select value={sortBy} onValueChange={setSortBy}>
