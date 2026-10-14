@@ -5,15 +5,15 @@ import { isBnmsIndividualHistoricalAttestation } from './bnmsIndividualHistorica
 import { isBnmsHistoricalEntitlement } from './bnmsHistoricalEntitlement.js';
 import { currentMembershipRecognition } from './alphaMembershipRecognition.js';
 import { isDeletedRelationshipMember } from './customObjectMemberEligibility.js';
+import { defaultNmcJournalSettings, nmcClassOptions } from './nmcJournalSettings.js';
 
 // BNMS (bnms.org.uk); this report and its staff exclusion are tenant-specific.
 export const NMC_TENANT = 'ff2df806-b321-4254-b651-3af11fccf1db';
 export const NMC_FEATURE = 'membership.nmc-membership-report';
-export const NMC_SHEETS = ['Full and Full Junior', 'Associate Honorary Retired', 'Trainee and LMIC', 'Online-only'];
+export const NMC_SHEETS = ['Full and Full Junior', 'Online-only'];
 export const NMC_ADDRESS_FIELDS = ['nmc_address_line_1', 'nmc_address_line_2', 'nmc_address_line_3', 'nmc_address_city', 'nmc_address_zip', 'nmc_address_country'];
 export const NMC_FIELDS = ['member_class', 'membership_status', 'ym_date_membership_expires', 'title', ...NMC_ADDRESS_FIELDS];
 export const NMC_HEADERS = ['Title', 'First name', 'Last name', 'Organisation', 'NMC address line 1', 'NMC address line 2', 'NMC address line 3', 'NMC address city', 'NMC address post/zip code', 'NMC address country', 'Email address', 'Phone number', 'Membership status', 'Number of months expired', 'Member Class', 'RBAC Role'];
-const bases = ['Associate', 'Full', 'Full junior', 'Trainee', 'Student', 'Overseas Full', 'Overseas Full junior', 'Honorary', 'Retired', 'Former', 'Department contact', 'Patient representative', 'LMIC Full', 'LMIC Full junior', 'Overseas associate', 'CPD Guest'];
 const text = value => value == null ? '' : String(value);
 export function nmcDate(value) {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
@@ -26,15 +26,10 @@ export function completedMonths(expiry, today) {
   const anniversaryDay = Math.min(a.getUTCDate(), new Date(Date.UTC(b.getUTCFullYear(), b.getUTCMonth() + 1, 0)).getUTCDate());
   return Math.max(0, months - (b.getUTCDate() < anniversaryDay ? 1 : 0));
 }
-export function nmcSheet(value, allowed) {
+export function nmcSheet(value, allowed, settings = defaultNmcJournalSettings([...allowed].map(v => ({ value: v, label: v })))) {
   if (typeof value !== 'string' || !allowed.has(value)) return null;
-  const print = value.includes('NMC');
-  const base = value.replace(/ with NMC$/, '');
-  if (!bases.includes(base)) return null;
-  if (!print) return NMC_SHEETS[3];
-  if (['Full', 'Full junior', 'Overseas Full', 'Overseas Full junior'].includes(base)) return NMC_SHEETS[0];
-  if (['Associate', 'Overseas associate', 'Honorary', 'Retired'].includes(base)) return NMC_SHEETS[1];
-  if (['Trainee', 'Student', 'LMIC Full', 'LMIC Full junior'].includes(base)) return NMC_SHEETS[2];
+  if (settings.printedClasses.includes(value)) return NMC_SHEETS[0];
+  if (settings.onlineClasses.includes(value)) return NMC_SHEETS[1];
   return null;
 }
 
@@ -129,7 +124,7 @@ function membershipEvidence(history, agreements, plans, recognitions, today) {
 }
 
 /** Read-only projection. No login, role, DD history or pricing is membership authority. */
-export function projectNmcReport({ members, fields, preferences, history, organizations, roles = [], agreements = [], plans = [], recognitions = [], reportDate }) {
+export function projectNmcReport({ members, fields, preferences, history, organizations, roles = [], agreements = [], plans = [], recognitions = [], reportDate, settings: savedSettings = null }) {
   if (!nmcDate(reportDate)) throw new Error('Invalid report date');
   const fieldMap = new Map();
   for (const name of NMC_FIELDS) {
@@ -138,7 +133,8 @@ export function projectNmcReport({ members, fields, preferences, history, organi
     fieldMap.set(name, matches[0]);
   }
   const options = fieldMap.get('member_class').options;
-  if (!Array.isArray(options) || !options.length) throw new Error('Class definitions unavailable');
+  const classOptions = nmcClassOptions(options);
+  const settings = savedSettings || defaultNmcJournalSettings(classOptions);
   const allowed = new Set(options.map(o => typeof o === 'string' ? o : o.value));
   const classLabels = new Map(options.map(o => typeof o === 'string' ? [o, o] : [o.value, text(o.label || o.value)]));
   const roleNames = new Map(roles.filter(r => r.tenant_id === NMC_TENANT).map(r => [r.id, text(r.name)]));
@@ -174,8 +170,9 @@ export function projectNmcReport({ members, fields, preferences, history, organi
     const values = name => prefs.get(`${member.id}|${fieldMap.get(name).id}`) || [];
     if (NMC_FIELDS.some(name => values(name).length > 1)) { count(reviewCounts, 'duplicate_custom_values'); continue; }
     const value = name => text(values(name)[0]);
-    const klass = value('member_class'), sheet = nmcSheet(klass, allowed);
-    if (!sheet) { count(reviewCounts, klass ? 'unknown_class' : 'missing_class'); continue; }
+    const klass = value('member_class'), sheet = nmcSheet(klass, allowed, settings);
+    if (!allowed.has(klass)) { count(reviewCounts, klass ? 'unknown_class' : 'missing_class'); continue; }
+    if (!sheet) { count(excludedCounts, 'class_not_selected_for_journal'); continue; }
     const records = histories.get(member.id) || [];
     if (['Department contact', 'CPD Guest'].includes(klass) && !records.length) {
       count(excludedCounts, 'nonmember_contact'); continue;
@@ -198,7 +195,7 @@ export function projectNmcReport({ members, fields, preferences, history, organi
     if (member.organization_id && !orgs.has(member.organization_id)) {
       count(reviewCounts, 'unresolved_organisation'); continue;
     }
-    rows.push({ memberId: member.id, sheet, cells: [
+    rows.push({ memberId: member.id, memberClass: klass, sheet, cells: [
       value('title'), text(member.first_name), text(member.last_name),
       text(orgs.get(member.organization_id)?.name), ...NMC_ADDRESS_FIELDS.map(value),
       text(member.email), text(member.mobile || member.landline), evidence.status, evidence.months,
@@ -208,6 +205,10 @@ export function projectNmcReport({ members, fields, preferences, history, organi
   }
   rows.sort((a, b) => a.cells[2].localeCompare(b.cells[2], 'en-GB')
     || a.cells[1].localeCompare(b.cells[1], 'en-GB') || a.memberId.localeCompare(b.memberId));
-  return { reportDate, sheets: NMC_SHEETS.map(name => ({ name, count: rows.filter(r => r.sheet === name).length })),
+  const classCounts = Object.fromEntries([['printed', 'printedClasses', NMC_SHEETS[0]], ['online', 'onlineClasses', NMC_SHEETS[1]]]
+    .map(([group, key, sheet]) => [group, settings[key].map(value => ({
+      value, label: classLabels.get(value) || value, count: rows.filter(r => r.sheet === sheet && r.memberClass === value).length,
+    }))]));
+  return { reportDate, settings, classOptions, classCounts, sheets: NMC_SHEETS.map(name => ({ name, count: rows.filter(r => r.sheet === name).length })),
     total: rows.length, reviewCounts, excludedCounts, pendingCounts, rows };
 }

@@ -90,6 +90,12 @@ const report = {
   reviewCounts: { missing_membership_evidence: 7, duplicate_custom_values: 3, unresolved_organisation: 2 },
   pendingCounts: { awaiting_first_payment: 5 },
   excludedCounts: { outside_window: 11 },
+  settings: { printedClasses: ["full"], onlineClasses: ["associate"], revision: 3 },
+  classOptions: [{ value: "full", label: "Full member" }, { value: "associate", label: "Associate" }, { value: "trainee", label: "Trainee" }],
+  classCounts: {
+    printed: [{ value: "full", label: "Full member", count: 41 }],
+    online: [{ value: "associate", label: "Associate", count: 21 }],
+  },
 };
 const jsonResponse = (body, status = 200) => new Response(JSON.stringify(body), {
   status, headers: { "content-type": "application/json" },
@@ -138,7 +144,7 @@ async function mount({ access = accessFixture, loadingBranding = false, branding
   };
 }
 
-test("loading transitions to four worksheet counts with review diagnostics separate", async () => {
+test("loading transitions to recipient worksheet counts with review diagnostics separate", async () => {
   let resolve;
   const pending = new Promise(done => { resolve = done; });
   const view = await mount({ transport: () => pending });
@@ -147,14 +153,14 @@ test("loading transitions to four worksheet counts with review diagnostics separ
     assert.equal(view.calls.length, 1);
     await act(async () => resolve(jsonResponse(report)));
     await waitFor(() => view.container.querySelector('[data-testid="table-nmc-sheets"]'), "worksheet counts");
-    assert.equal(view.container.querySelectorAll("tbody tr").length, 4);
+    assert.equal(view.container.querySelectorAll('[data-testid="table-nmc-sheets"] tbody tr').length, 4);
     assert.equal(view.container.querySelector('[data-testid="text-nmc-total"]').textContent, "62");
     const awaiting = view.container.querySelector('[data-testid="nmc-awaiting-first-payment"]');
     assert.match(awaiting.textContent, /Awaiting first payment5/);
     assert.match(awaiting.textContent, /not included in eligible totals or the workbook/);
     assert.match(awaiting.textContent, /Manual approval waits, failed collections/);
     assert.equal(view.container.querySelector('[data-testid="text-report-date"]').textContent, "31 Mar 2026");
-    const rows = [...view.container.querySelectorAll("tbody tr")].map(row => row.textContent);
+    const rows = [...view.container.querySelectorAll('[data-testid="table-nmc-sheets"] tbody tr')].map(row => row.textContent);
     assert.deepEqual(rows, ["Print active37", "Print grace4", "Online active19", "Online grace2"]);
     const reviews = view.container.querySelector('[data-testid="list-nmc-review-reasons"]');
     assert.equal(reviews.querySelectorAll("li").length, 3);
@@ -254,6 +260,186 @@ test("empty workbook keeps diagnostic explanations available", async () => {
     await waitFor(() => view.container.querySelector('[data-testid="text-nmc-empty"]'), "empty state");
     assert.equal(view.container.querySelector('[data-testid="text-nmc-total"]').textContent, "0");
     assert.ok(view.container.querySelector('[data-testid="list-nmc-review-reasons"]'));
-    assert.equal(view.container.querySelectorAll("tbody tr").length, 4);
+    assert.equal(view.container.querySelectorAll('[data-testid="table-nmc-sheets"] tbody tr').length, 4);
+  } finally { await view.close(); }
+});
+
+const byTestId = (view, id) => view.container.querySelector(`[data-testid="${id}"]`);
+async function click(view, id) {
+  const element = byTestId(view, id);
+  assert.ok(element, `Missing ${id}`);
+  await act(async () => element.click());
+}
+async function openSettings(view) {
+  await waitFor(() => byTestId(view, "table-nmc-sheets"), "loaded report");
+  await click(view, "tab-nmc-settings");
+  await waitFor(() => byTestId(view, "nmc-printedClasses-full"), "saved settings");
+}
+
+test("saved class count tables use natural labels and no obsolete fulfilment rules", async () => {
+  const view = await mount();
+  try {
+    await waitFor(() => byTestId(view, "table-nmc-printed-classes"), "class count tables");
+    assert.match(byTestId(view, "table-nmc-printed-classes").textContent, /Full member41/);
+    assert.match(byTestId(view, "table-nmc-online-classes").textContent, /Associate21/);
+    assert.doesNotMatch(view.container.textContent, /Four fulfilment worksheets|All non-NMC membership classes are Online-only/);
+    assert.match(view.container.textContent, /exactly 90 days, not three months/);
+  } finally { await view.close(); }
+});
+
+test("class selections move between groups, save explicitly with revision, and refresh report", async () => {
+  let current = report;
+  let completeSave;
+  const view = await mount({ transport: async (_url, options) => {
+    if (options.method === "PUT") {
+      const payload = JSON.parse(options.body);
+      assert.deepEqual(payload, { printedClasses: ["full", "associate"], onlineClasses: [], revision: 3 });
+      await new Promise(resolve => { completeSave = resolve; });
+      current = { ...report, settings: { ...payload, revision: 4 } };
+      return jsonResponse({ settings: current.settings });
+    }
+    return jsonResponse(current);
+  } });
+  try {
+    await openSettings(view);
+    assert.equal(byTestId(view, "nmc-onlineClasses-associate").checked, true);
+    await click(view, "nmc-printedClasses-associate");
+    assert.equal(byTestId(view, "nmc-onlineClasses-associate").checked, false);
+    assert.equal(view.calls.length, 1, "editing must not save automatically");
+    assert.equal(byTestId(view, "button-refresh-nmc-report").disabled, true);
+    assert.equal(byTestId(view, "button-download-nmc-report").disabled, true);
+    await click(view, "button-save-nmc-settings");
+    await waitFor(() => completeSave, "save request");
+    assert.equal(byTestId(view, "button-save-nmc-settings").disabled, true);
+    assert.equal(byTestId(view, "nmc-printedClasses-full").closest("fieldset").disabled, true);
+    assert.equal(byTestId(view, "button-refresh-nmc-report").disabled, true);
+    assert.equal(byTestId(view, "button-download-nmc-report").disabled, true);
+    await act(async () => completeSave());
+    await waitFor(() => byTestId(view, "text-nmc-settings-success"), "saved settings");
+    assert.equal(view.calls.length, 3, "save must refresh the report");
+    assert.equal(view.calls[1].options.method, "PUT");
+    assert.equal(byTestId(view, "button-download-nmc-report").disabled, false);
+    assert.equal(byTestId(view, "button-save-nmc-settings").disabled, true);
+  } finally { await view.close(); }
+});
+
+test("empty selections and unavailable saved values are preserved until explicitly removed", async () => {
+  const saved = { ...report, settings: { printedClasses: ["full", "legacy-class"], onlineClasses: [], revision: 7 } };
+  let payload;
+  const view = await mount({ transport: (_url, options) => {
+    if (options.method === "PUT") {
+      payload = JSON.parse(options.body);
+      return jsonResponse({ settings: { ...payload, revision: 8 } });
+    }
+    return jsonResponse(payload ? { ...saved, settings: { ...payload, revision: 8 } } : saved);
+  } });
+  try {
+    await openSettings(view);
+    assert.equal(byTestId(view, "nmc-printedClasses-legacy-class").checked, true);
+    assert.match(view.container.textContent, /Unavailable saved class/);
+    await click(view, "nmc-printedClasses-full");
+    await click(view, "button-save-nmc-settings");
+    await waitFor(() => byTestId(view, "text-nmc-settings-success"), "unknown preserved");
+    assert.deepEqual(payload, { printedClasses: ["legacy-class"], onlineClasses: [], revision: 7 });
+    await click(view, "nmc-printedClasses-legacy-class");
+    await click(view, "button-save-nmc-settings");
+    await waitFor(() => payload?.revision === 8 && byTestId(view, "button-save-nmc-settings").disabled, "empty selections saved");
+    assert.deepEqual(payload, { printedClasses: [], onlineClasses: [], revision: 8 });
+  } finally { await view.close(); }
+});
+
+test("save errors retain edits, permit retry and allow discard without a PUT", async () => {
+  const view = await mount({ transport: (_url, options) => options.method === "PUT" ? jsonResponse({ error: "Please review these classes" }, 400) : jsonResponse(report) });
+  try {
+    await openSettings(view);
+    await click(view, "nmc-printedClasses-trainee");
+    await click(view, "button-save-nmc-settings");
+    await waitFor(() => byTestId(view, "text-nmc-settings-error"), "save error");
+    assert.match(byTestId(view, "text-nmc-settings-error").textContent, /Please review these classes/);
+    assert.equal(byTestId(view, "nmc-printedClasses-trainee").checked, true);
+    assert.equal(byTestId(view, "button-save-nmc-settings").disabled, false);
+    assert.equal(byTestId(view, "button-download-nmc-report").disabled, true);
+    await click(view, "button-save-nmc-settings");
+    await waitFor(() => view.calls.length === 3 && byTestId(view, "text-nmc-settings-error"), "retry");
+    await click(view, "button-discard-nmc-settings");
+    assert.equal(byTestId(view, "nmc-printedClasses-trainee").checked, false);
+    assert.equal(byTestId(view, "button-download-nmc-report").disabled, false);
+    assert.equal(view.calls.length, 3);
+  } finally { await view.close(); }
+});
+
+test("409 prevents further saves and exports until explicitly reloading latest settings", async () => {
+  let reads = 0;
+  const latest = { ...report, settings: { printedClasses: ["trainee"], onlineClasses: ["full"], revision: 9 } };
+  const view = await mount({ transport: (_url, options) => {
+    if (options.method === "PUT") return jsonResponse({ error: "Conflict" }, 409);
+    return jsonResponse(++reads === 1 ? report : latest);
+  } });
+  try {
+    await openSettings(view);
+    await click(view, "nmc-printedClasses-associate");
+    await click(view, "button-save-nmc-settings");
+    await waitFor(() => byTestId(view, "button-reload-nmc-settings"), "conflict reload");
+    assert.match(byTestId(view, "text-nmc-settings-error").textContent, /Another administrator/);
+    assert.equal(byTestId(view, "button-save-nmc-settings").disabled, true);
+    assert.equal(byTestId(view, "button-download-nmc-report").disabled, true);
+    assert.equal(byTestId(view, "button-refresh-nmc-report").disabled, true);
+    await click(view, "button-save-nmc-settings");
+    assert.equal(view.calls.length, 2);
+    await click(view, "button-reload-nmc-settings");
+    await waitFor(() => !byTestId(view, "button-reload-nmc-settings"), "conflict resolved");
+    assert.equal(byTestId(view, "nmc-printedClasses-associate").checked, false);
+    assert.equal(byTestId(view, "nmc-printedClasses-trainee").checked, true);
+    assert.equal(byTestId(view, "nmc-onlineClasses-full").checked, true);
+    assert.equal(byTestId(view, "button-download-nmc-report").disabled, false);
+  } finally { await view.close(); }
+});
+
+test("failed conflict reload preserves local selections and stays blocked until reload succeeds", async () => {
+  let reads = 0;
+  const view = await mount({ transport: (_url, options) => {
+    if (options.method === "PUT") return jsonResponse({ error: "Conflict" }, 409);
+    reads += 1;
+    return reads === 2 ? jsonResponse({ error: "Unavailable" }, 503) : jsonResponse(report);
+  } });
+  try {
+    await openSettings(view);
+    await click(view, "nmc-printedClasses-trainee");
+    await click(view, "button-save-nmc-settings");
+    await waitFor(() => byTestId(view, "button-reload-nmc-settings"), "conflict");
+    await click(view, "button-reload-nmc-settings");
+    await waitFor(() => byTestId(view, "text-nmc-settings-error")?.textContent.includes("Could not reload"), "reload failure");
+    assert.equal(byTestId(view, "nmc-printedClasses-trainee").checked, true);
+    assert.equal(byTestId(view, "button-save-nmc-settings").disabled, true);
+    assert.equal(byTestId(view, "button-download-nmc-report").disabled, true);
+    await click(view, "button-reload-nmc-settings");
+    await waitFor(() => !byTestId(view, "button-reload-nmc-settings"), "reload retry");
+    assert.equal(byTestId(view, "nmc-printedClasses-trainee").checked, false);
+    assert.equal(byTestId(view, "button-download-nmc-report").disabled, false);
+  } finally { await view.close(); }
+});
+
+test("saved settings with a failed report refresh block export until report retry succeeds", async () => {
+  let reads = 0;
+  let settings = report.settings;
+  const view = await mount({ transport: (_url, options) => {
+    if (options.method === "PUT") {
+      settings = { ...JSON.parse(options.body), revision: 4 };
+      return jsonResponse({ settings });
+    }
+    reads += 1;
+    return reads === 2 ? jsonResponse({ error: "Snapshot unavailable" }, 503) : jsonResponse({ ...report, settings });
+  } });
+  try {
+    await openSettings(view);
+    await click(view, "nmc-printedClasses-trainee");
+    await click(view, "button-save-nmc-settings");
+    await waitFor(() => byTestId(view, "text-nmc-settings-success"), "saved with report failure");
+    assert.match(byTestId(view, "text-nmc-settings-success").textContent, /settings saved.*could not be refreshed/);
+    assert.equal(byTestId(view, "button-download-nmc-report").disabled, true);
+    assert.equal(byTestId(view, "button-save-nmc-settings").disabled, true);
+    await click(view, "button-refresh-nmc-report");
+    await waitFor(() => !byTestId(view, "button-download-nmc-report").disabled, "report recovery");
+    assert.equal(byTestId(view, "nmc-printedClasses-trainee").checked, true);
   } finally { await view.close(); }
 });

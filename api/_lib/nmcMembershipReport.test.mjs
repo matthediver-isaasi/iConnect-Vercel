@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as XLSX from 'xlsx';
 import { NMC_TENANT as tenant_id, NMC_FIELDS, NMC_HEADERS, NMC_SHEETS, projectNmcReport, nmcSheet, completedMonths } from './nmcMembershipReport.js';
-import { nmcMembershipWorkbook } from './nmcMembershipWorkbook.js';
+import { nmcMembershipWorkbook, NMC_EXPORT_COLUMNS } from './nmcMembershipWorkbook.js';
 import { nmcReadAll, loadNmcReport } from './nmcMembershipReportLoader.js';
 import { createNmcReportHandler } from '../admin/nmc-membership-report/index.js';
 import { isResourceExcluded, __setRoleAccessOverlayForTests } from './roleVisibility.js';
@@ -45,7 +45,8 @@ test('live first-payment waits are separate from review and never exported; paym
       assert.equal(pending.total, 0);
       assert.ok(pending.sheets.every(s => s.count === 0));
       const wb = XLSX.read(nmcMembershipWorkbook(pending), { type: 'buffer' });
-      for (const name of wb.SheetNames) assert.equal(wb.Sheets[name]['!ref'], 'A1:P1');
+      assert.equal(wb.Sheets[NMC_SHEETS[0]]['!ref'], 'A1:J1');
+      assert.equal(wb.Sheets['Online-only']['!ref'], 'A1:D1');
       const paid = { ...input,
         plans: [{ ...input.plans[0], status: 'active', instalments_paid: 1, last_payment_status: 'confirmed' }],
         agreements: [{ ...input.agreements[0], status: 'active' }],
@@ -99,12 +100,11 @@ test('submission event timestamps are not settlement evidence; timestamped failu
     assert.deepEqual(result.reviewCounts, waiting ? {} : { unproven_membership_evidence: 1 });
   }
 });
-test('all valid class mappings; non-NMC precedence never inferred from category or roles', () => {
+test('default class mappings keep only full print classes; roles never determine routing', () => {
   const allowed = new Set(options);
-  for (const c of classes) assert.equal(nmcSheet(c, allowed), NMC_SHEETS[3]);
+  for (const c of classes) assert.equal(nmcSheet(c, allowed), NMC_SHEETS[1]);
   for (const c of classes.slice(0, 4)) assert.equal(nmcSheet(`${c} with NMC`, allowed), NMC_SHEETS[0]);
-  for (const c of classes.slice(4, 8)) assert.equal(nmcSheet(`${c} with NMC`, allowed), NMC_SHEETS[1]);
-  for (const c of classes.slice(8, 12)) assert.equal(nmcSheet(`${c} with NMC`, allowed), NMC_SHEETS[2]);
+  for (const c of classes.slice(4, 12)) assert.equal(nmcSheet(`${c} with NMC`, allowed), null);
   for (const c of ['', 'No NMC', 'Full with NMC ', 'Unknown']) assert.equal(nmcSheet(c, allowed), null);
   assert.equal(report({ members: [{ ...member, role_id: 'Full with NMC', login_enabled: false }], preferences: [pref('member_class', 'Full')] }).rows[0].sheet, 'Online-only');
 });
@@ -116,6 +116,23 @@ test('expiry day active; day 90 included; day 91 excluded; valid dates only', ()
   assert.equal(historic('2026-07-09').rows[0].cells[13], 2);
   for (const expiry of ['2026-02-30', '07/09/2026', 'bad']) assert.equal(historic(expiry).reviewCounts.invalid_expiry_or_term, 1);
   assert.equal(report({ history: [{ ...term, term_start_date: '2027-01-01' }] }).reviewCounts.invalid_expiry_or_term, 1);
+});
+test('saved selections route renamed/new classes, exclude unselected classes and retain evidence boundaries', () => {
+  const settings = { printedClasses: ['new-class-id'], onlineClasses: ['Full with NMC'], revision: 2 };
+  const customFields = fields.map(f => f.name === 'member_class'
+    ? { ...f, options: [...f.options, { value: 'new-class-id', label: 'New printed membership' }] } : f);
+  const result = report({ settings, fields: customFields, preferences: [pref('member_class', 'new-class-id')] });
+  assert.equal(result.rows[0].sheet, 'Full and Full Junior');
+  assert.deepEqual(result.classCounts.printed, [{ value: 'new-class-id', label: 'New printed membership', count: 1 }]);
+  assert.equal(result.classCounts.online[0].count, 0);
+  assert.equal(report({ settings }).rows[0].sheet, 'Online-only', 'explicit online selection overrides NMC in name');
+  const missing = report({ settings, fields: customFields, preferences: [pref('member_class', 'new-class-id')], history: [] });
+  assert.equal(missing.total, 0);
+  assert.equal(missing.reviewCounts.missing_membership_evidence, 1);
+  const empty = report({ settings: { printedClasses: [], onlineClasses: [], revision: 1 } });
+  assert.equal(empty.total, 0);
+  assert.equal(empty.excludedCounts.class_not_selected_for_journal, 1);
+  assert.deepEqual(empty.classCounts, { printed: [], online: [] });
 });
 test('completed calendar months clamp anniversaries to month end and preserve leap days', () => {
   for (const [expiry, today, expected] of [
@@ -176,24 +193,26 @@ test('deleted/test/contact-only records excluded; incomplete and ambiguous value
   assert.throws(() => report({ members: [member, member] }));
   assert.throws(() => report({ members: [{ ...member, tenant_id: 'foreign' }] }));
 });
-test('four-sheet workbook always retains exact headers and literal text, never formula cells', () => {
+test('two recipient sheets use exact reduced headers and literal text; class counts are separate', () => {
   const result = report({ members: [{ ...member, first_name: '=1+1', last_name: '@unsafe' }],
     preferences: [pref('member_class', 'Full with NMC'), pref('nmc_address_zip', '00120'), pref('nmc_address_line_1', ' \\t=HYPERLINK(\"bad\")')] });
   const wb = XLSX.read(nmcMembershipWorkbook(result), { type: 'buffer' });
-  assert.deepEqual(wb.SheetNames, NMC_SHEETS);
+  assert.deepEqual(wb.SheetNames, [...NMC_SHEETS, 'Class counts']);
   for (const name of NMC_SHEETS) {
     assert.ok(name.length <= 31);
     const grid = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: '' });
-    assert.deepEqual(grid[0], NMC_HEADERS);
+    assert.deepEqual(grid[0], NMC_EXPORT_COLUMNS[name].map(c => NMC_HEADERS[c]));
   }
   const sheet = wb.Sheets[NMC_SHEETS[0]];
-  for (const cell of ['B2', 'C2', 'E2', 'I2', 'L2']) {
+  for (const cell of ['B2', 'C2', 'D2', 'H2', 'J2']) {
     assert.equal(sheet[cell].t, 's'); assert.equal(sheet[cell].f, undefined);
   }
-  assert.equal(sheet.I2.v, '00120'); assert.equal(sheet.L2.v, '+440012300');
-  assert.equal(sheet.F2.v, ''); assert.equal(sheet.N2.v, 0);
+  assert.equal(sheet.H2.v, '00120');
+  assert.equal(sheet.E2.v, ''); assert.equal(sheet.K2, undefined);
+  assert.equal(wb.Sheets['Class counts'].B5.v, 1);
   const empty = XLSX.read(nmcMembershipWorkbook(report({ members: [] })), { type: 'buffer' });
-  for (const name of empty.SheetNames) assert.equal(empty.Sheets[name]['!ref'], 'A1:P1');
+  assert.equal(empty.Sheets[NMC_SHEETS[0]]['!ref'], 'A1:J1');
+  assert.equal(empty.Sheets['Online-only']['!ref'], 'A1:D1');
 });
 
 test('class labels and tenant-scoped RBAC role names are literal text and do not affect eligibility', () => {
@@ -206,8 +225,9 @@ test('class labels and tenant-scoped RBAC role names are literal text and do not
   assert.equal(result.rows[0].sheet, NMC_SHEETS[0]);
   assert.deepEqual(result.rows[0].cells.slice(14), ['Full membership with journal', '=Super Admin']);
   const sheet = XLSX.read(nmcMembershipWorkbook(result), { type: 'buffer' }).Sheets[NMC_SHEETS[0]];
-  for (const key of ['O2', 'P2']) { assert.equal(sheet[key].t, 's'); assert.equal(sheet[key].f, undefined); }
-  assert.equal(sheet.P2.v, '=Super Admin');
+  assert.equal(sheet.O2, undefined);
+  assert.equal(sheet.P2, undefined);
+  assert.equal(result.classCounts.printed[0].label, 'Full membership with journal');
   assert.equal(report().rows[0].cells[15], 'No role assigned');
   const unavailable = report({ members: [{ ...member, role_id: 'foreign-role' }], roles: [{ id: 'foreign-role', tenant_id: 'foreign', name: 'Private name' }] });
   assert.equal(unavailable.rows[0].cells[15], 'Role unavailable');
@@ -218,11 +238,15 @@ function fakeDatabase(tables, { cap = 317, failTable, calls = [] } = {}) {
   return { from(table) {
     const filters = []; let key = 'id', limit = 500, columns = '*';
     const q = {
-      select(selected, options) { columns = selected; assert.equal(options.count, 'exact'); return q; },
+      select(selected, options) { columns = selected; if (options) assert.equal(options.count, 'exact'); return q; },
       eq(k, v) { filters.push(r => r[k] === v); return q; },
       in(k, values) { filters.push(r => values.includes(r[k])); return q; },
       gt(k, v) { filters.push(r => r[k] > v); return q; },
       order(k) { key = k; return q; }, limit(n) { limit = n; return q; },
+      async maybeSingle() {
+        const result = await q;
+        return { ...result, data: result.data?.[0] || null };
+      },
       then(resolve, reject) {
         calls.push(table);
         const all = (tables[table] || []).filter(r => filters.every(f => f(r))).sort((a, b) => a[key].localeCompare(b[key]));

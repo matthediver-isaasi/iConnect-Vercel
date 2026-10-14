@@ -24,11 +24,11 @@ email domains or creation order could suppress ordinary external members.
 **How to apply:** Require unique tenant-scoped primary-organisation authority
 before projecting the report; leave membership records unchanged.
 
-BNMS NMC fulfilment is classified by the member-scoped `member_class`, never roles. Eligible NMC classes receive print; all otherwise eligible non-NMC classes go exclusively to Online-only, even if category sheets are empty.
+BNMS NMC fulfilment is classified by the member-scoped `member_class`, never roles. The owner replaced name-based journal routing with explicitly saved printed and online-only class selections. The two lists are exclusive; unselected classes are not recipients.
 
-**Why:** The user explicitly confirmed this allocation.
+**Why:** The owner found the “with NMC” naming rule too rigid and requested independent persisted class choices for each delivery group.
 
-**How to apply:** Do not infer print entitlement from category, role or postal-address presence.
+**How to apply:** Keep membership evidence and tenant-staff exclusions independent of journal routing. Default printed choices retain the Full/Full junior and overseas equivalents; other classes require explicit print selection. The owner removed Associate/Honorary/Retired and Trainee/LMIC print sheets. Export only delivery-required columns, with online-only restricted to title, first name, last name and email.
 
 Normal new monthly first-collection waits should be reported separately from
 membership evidence problems, but are not fulfilment entitlement.

@@ -17,3 +17,6 @@
 .nmc-report .nmc-review { background: #faf6ec; border-color: #e8dabc; color: #76551f; }
 .nmc-report details > summary { cursor: pointer; }
 .nmc-report details > summary:focus-visible { outline: 2px solid #27576a; outline-offset: 4px; }
+.nmc-report .nmc-tabs { display: flex; gap: .5rem; border-bottom: 1px solid var(--nmc-line); padding-bottom: .75rem; }
+.nmc-report .nmc-class-option { display: flex; align-items: flex-start; gap: .65rem; padding: .75rem 0; border-bottom: 1px solid var(--nmc-line); font-size: .875rem; }
+.nmc-report .nmc-class-option input { margin-top: .2rem; accent-color: #27576a; flex-shrink: 0; }

@@ -1,5 +1,6 @@
 import { NMC_FIELDS, NMC_TENANT, projectNmcReport } from './nmcMembershipReport.js';
 import { MEMBERSHIP_RECOGNITION_TABLES } from './alphaMembershipRecognition.js';
+import { loadNmcJournalSettings } from './nmcJournalSettings.js';
 
 // Keyset pagination handles even a provider cap below the requested page size.
 // Exact counts and unique IDs detect incomplete reads rather than exporting them.
@@ -27,6 +28,7 @@ export async function nmcReadAll(build, key = 'id') {
 }
 
 export async function loadNmcReport(db, reportDate) {
+  const settings = await loadNmcJournalSettings(db, NMC_TENANT);
   const read = (table, columns = '*', configure = q => q, key = 'id') =>
     nmcReadAll(() => configure(db.from(table).select(columns, { count: 'exact' }).eq('tenant_id', NMC_TENANT)), key);
   const [members, fields, history, organizations, agreements, plans, roles, ...recognitionSets] = await Promise.all([
@@ -48,5 +50,5 @@ export async function loadNmcReport(db, reportDate) {
     preferences.push(...values);
   }
   return projectNmcReport({ members, fields, preferences, history, organizations, agreements, plans, roles,
-    recognitions: recognitionSets.flat(), reportDate });
+    recognitions: recognitionSets.flat(), reportDate, settings });
 }
