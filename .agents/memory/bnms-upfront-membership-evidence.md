@@ -10,6 +10,15 @@ BNMS students do not need fee history.
 **How to apply:** Do not treat absent student fee history as something that must
 be reconstructed. Keep any review of student eligibility separate from fee history.
 
+BNMS journal exclusions must be resolved through the underlying membership
+records, not a hard-coded journal inclusion list.
+
+**Why:** The user explicitly rejected hard-wiring the expected journal audience.
+
+**How to apply:** Investigate Xero and original import evidence first, then seek
+approval of unresolved membership dates. Journal eligibility confirmation alone
+is not confirmation that an outstanding collection has been paid.
+
 Treat the BNMS upfront backfill as establishment of existing 2025–2026 memberships,
 not creation of new or future commitments. The operator authorized assuming these
 members paid, with manual corrections later; keep that attestation distinct from
@@ -52,6 +61,15 @@ hold explicit account-number conflicts. Mixed event invoices may separately
 itemise a year's membership: preserve the membership line amount, never copy the
 whole event invoice total into membership cost. Paid invoice evidence alone
 does not confirm coverage dates; cohort reconstruction still needs approval.
+
+A changed current email may be corroborated by an original import email and
+the same unique legacy account number on the Xero contact.
+
+**Why:** A genuine renewal was held because the member had changed email since
+the source import, although the original email and account number both matched.
+
+**How to apply:** Keep explicit account-number conflicts on hold and document the
+original-source identity evidence; never accept a name-only match.
 
 Some original overseas imports put “Overseas” in membership type but not member
 class; later copies use the expanded class label.

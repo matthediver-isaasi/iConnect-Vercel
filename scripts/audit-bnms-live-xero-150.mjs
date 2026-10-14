@@ -4,15 +4,16 @@ import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { destinationTarget } from './apply-custom-object-relationship-deleted-members-migration.mjs';
-assert.ok(process.argv.length===2||(process.argv.length===3&&process.argv[2]==='remaining-84'));
+assert.ok(process.argv.length===2||(process.argv.length===3&&['remaining-84','nmc-25'].includes(process.argv[2])));
 const remaining=process.argv[2]==='remaining-84';
-const dir=remaining?'generated-artifacts/bnms-remaining-84':'generated-artifacts/bnms-live-xero-150';
+const nmc=process.argv[2]==='nmc-25';
+const dir=nmc?'generated-artifacts/bnms-nmc-25-evidence':remaining?'generated-artifacts/bnms-remaining-84':'generated-artifacts/bnms-live-xero-150';
 fs.mkdirSync(`${dir}/cache`,{recursive:true,mode:0o700});
 const sha=x=>createHash('sha256').update(x).digest('hex');
 const save=(name,x)=>fs.writeFileSync(`${dir}/${name}`,JSON.stringify(x,null,2),{mode:0o600});
-const bytes=fs.readFileSync(remaining?`${dir}/snapshot.json`:'generated-artifacts/bnms-missing-150-review/snapshot.json');
+const bytes=fs.readFileSync(remaining||nmc?`${dir}/snapshot.json`:'generated-artifacts/bnms-missing-150-review/snapshot.json');
 const snapshot=JSON.parse(bytes);
-assert.equal(snapshot.members.length,remaining?84:150);
+assert.equal(snapshot.members.length,nmc?25:remaining?84:150);
 assert.equal(snapshot.tenant,'ff2df806-b321-4254-b651-3af11fccf1db');
 const pin={snapshotHash:sha(bytes),tenant:snapshot.tenant};
 if(fs.existsSync(`${dir}/pin.json`))assert.deepEqual(JSON.parse(fs.readFileSync(`${dir}/pin.json`)),pin);
@@ -135,8 +136,14 @@ try{
       assert.equal(body.Payments[0].PaymentID,p.PaymentID);
       payments.push(body.Payments[0]);
     }
+    const invoiceAudit=[];
+    if(nmc)for(const invoiceId of new Set([latest?.InvoiceID,latestPaid?.InvoiceID].filter(Boolean))){
+      const body=await get(`Invoices/${invoiceId}/History`);
+      assert.ok(Array.isArray(body.HistoryRecords),'Invoice audit history incomplete');
+      invoiceAudit.push({invoiceId,records:body.HistoryRecords});
+    }
     results.push({...match,membershipInvoices:history,latestInvoiceId:latest?.InvoiceID||null,
-      latestPaidInvoiceId:latestPaid?.InvoiceID||null,payments});
+      latestPaidInvoiceId:latestPaid?.InvoiceID||null,payments,invoiceAudit});
     save('members.json',results);
     if(results.length%10===0)console.log(`PAYMENTS ${results.length}/${snapshot.members.length}; requests=${requests}; dayRemaining=${remainingDay}`);
   }
