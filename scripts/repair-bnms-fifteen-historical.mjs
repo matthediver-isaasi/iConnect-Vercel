@@ -11,9 +11,10 @@ const additional=process.argv[3]==='additional-nine';
 const mary=process.argv[3]==='mary-included';
 const mariana=process.argv[3]==='mariana-paid';
 const martti=process.argv[3]==='martti-paid';
+const osama=process.argv[3]==='osama-paid';
 const included=process.argv[3]==='jo-included'||mary;
-assert.ok(!process.argv[3]||additional||included||mariana||martti);
-const approved=martti?['ce6bd29b-f9a5-4217-a6b8-e35b2d5ce093']:mariana?['a7d48296-c57c-43c9-8eb7-9139b764dd07']:mary?['7bd2fb4f-aee9-4b9f-b925-7343f317aa4e']:included?['2ed34ac1-6f57-44d5-8a21-75bf3521d826']:additional?[
+assert.ok(!process.argv[3]||additional||included||mariana||martti||osama);
+const approved=osama?['dea0d7ed-b311-4759-aacb-47f68a3fd3fa']:martti?['ce6bd29b-f9a5-4217-a6b8-e35b2d5ce093']:mariana?['a7d48296-c57c-43c9-8eb7-9139b764dd07']:mary?['7bd2fb4f-aee9-4b9f-b925-7343f317aa4e']:included?['2ed34ac1-6f57-44d5-8a21-75bf3521d826']:additional?[
   '5310e36a-5c40-4e3d-b533-781037a52543','6aa9e9aa-f72a-42da-b516-89b219e89309',
   '5f6a2fb2-d4f0-4cdf-a437-b985493e3a5c','784682f0-9445-45d5-beb5-dbfd5ac58c60',
   'f1485422-d0ac-49fd-b8df-fb9386a56fee','575f64e2-a940-4ecf-8bda-909fa1fe32d1',
@@ -29,7 +30,7 @@ const approved=martti?['ce6bd29b-f9a5-4217-a6b8-e35b2d5ce093']:mariana?['a7d4829
   'ca24a246-4bd3-40ba-9db4-a39044c5a8ef','df2ba5a2-a6ba-4c40-b914-446b6e956027',
   'fe1b50de-d67e-412a-83c9-47cd2a1aca2f',
 ];
-const dir=martti?'generated-artifacts/bnms-martti-paid-membership':mariana?'generated-artifacts/bnms-mariana-paid-membership':mary?'generated-artifacts/bnms-mary-included-membership':included?'generated-artifacts/bnms-jo-included-membership':additional?'generated-artifacts/bnms-additional-nine-historical':'generated-artifacts/bnms-fifteen-historical';
+const dir=osama?'generated-artifacts/bnms-osama-paid-membership':martti?'generated-artifacts/bnms-martti-paid-membership':mariana?'generated-artifacts/bnms-mariana-paid-membership':mary?'generated-artifacts/bnms-mary-included-membership':included?'generated-artifacts/bnms-jo-included-membership':additional?'generated-artifacts/bnms-additional-nine-historical':'generated-artifacts/bnms-fifteen-historical';
 fs.mkdirSync(dir,{recursive:true,mode:0o700});
 const save=(name,value)=>fs.writeFileSync(`${dir}/${name}.json`,JSON.stringify(value,null,2),{mode:0o600});
 const load=name=>JSON.parse(fs.readFileSync(`${dir}/${name}.json`,'utf8'));
@@ -85,6 +86,11 @@ try{
     const records=[],evidence=[];
     for(const member of approved){
       const p=prior.find(r=>r.memberId===member),provider=providers.find(r=>r.memberId===member);
+      if(osama){
+        assert.equal(p.proposedStart,'2025-09-22');assert.equal(p.retainedExpiry,'2026-09-21');
+        assert.equal(p.invoiceNumber,'300004785');assert.equal(p.amount,61);assert.equal(p.membershipAmount,61);
+        assert.equal(provider.latestPaidInvoiceId,'d8daf65c-3a3a-418d-ae41-1d71446047de');
+      }
       if(martti){
         assert.equal(p.proposedStart,'2025-09-27');assert.equal(p.retainedExpiry,'2026-09-26');
         assert.equal(p.invoiceNumber,'300004821');assert.equal(p.amount,47);assert.equal(p.membershipAmount,47);
@@ -104,7 +110,7 @@ try{
         p.invoiceNumber='200005988';p.amount=556;p.membershipAmount=0;
         provider.latestPaidInvoiceId='3c0ef6a1-a57f-451d-96ee-e48cbc3358ec';
       }
-      if(!additional&&!included&&!mariana&&!martti){assert.equal(p.category,'Paid historical-only reconstruction candidate');assert.equal(p.holds.length,0);}
+      if(!additional&&!included&&!mariana&&!martti&&!osama){assert.equal(p.category,'Paid historical-only reconstruction candidate');assert.equal(p.holds.length,0);}
       const m=before.member.find(m=>m.id===member);
       assert.equal(m.email.toLowerCase(),p.email.toLowerCase());
       const prefs=before.preferences.filter(v=>v.member_id===member);
@@ -167,6 +173,7 @@ try{
       assert.ok(payments.length>0);
       assert.ok(Math.abs(payments.reduce((a,p)=>a+p.Amount,0)-invoice.Total)<0.005);
       const paidAt=new Date(Math.max(...payments.map(p=>Number(/\/Date\((\d+)/.exec(p.Date)[1])))).toISOString();
+      if(osama)assert.equal(paidAt.slice(0,10),'2025-12-23');
       if(martti)assert.equal(paidAt.slice(0,10),'2026-01-06');
       if(mariana)assert.equal(paidAt.slice(0,10),'2025-05-22');
       if(included)assert.equal(paidAt.slice(0,10),mary?'2025-07-29':'2025-04-17');
@@ -179,11 +186,11 @@ try{
         status:'expired',payment_status:'paid',payment_method:'upfront',paid_at:paidAt,accounting_provider:'xero',
         accounting_invoice_id:invoice.InvoiceID,accounting_invoice_number:invoice.InvoiceNumber,
         xero_invoice_id:invoice.InvoiceID,xero_invoice_number:invoice.InvoiceNumber,
-        notes:JSON.stringify({source:martti?'operator_approved_late_paid_retained_term':mariana?'operator_approved_identity_reconciled_paid_membership':included?'operator_approved_included_event_membership':additional?'operator_approved_nine_retained_expiry_reconstructions':'operator_approved_fifteen_historical_reconstructions',approvalDate:'2026-10-15',
+        notes:JSON.stringify({source:martti||osama?'operator_approved_late_paid_retained_term':mariana?'operator_approved_identity_reconciled_paid_membership':included?'operator_approved_included_event_membership':additional?'operator_approved_nine_retained_expiry_reconstructions':'operator_approved_fifteen_historical_reconstructions',approvalDate:'2026-10-15',
           includedMembershipAuthority:included?'Owner approved one year free membership included in paid event invoice. Zero separate membership charge; event consideration is not membership revenue.':null,
           identityAuthority:mary||mariana?{basis:'Owner explicitly confirmed Xero and iConnect addresses belong to the same member',
             memberEmail:m.email,providerEmail:contact.EmailAddress,contactId:contact.ContactID}:null,
-          latePaymentAuthority:additional||martti?'Owner explicitly instructed retaining stored expiry; late payment does not shift the approved annual term.':null,
+          latePaymentAuthority:additional||martti||osama?'Owner explicitly instructed retaining stored expiry; late payment does not shift the approved annual term.':null,
           termAuthority:'approved_12_month_term_retaining_recorded_expiry',scope:'historical_only_not_renewed',
           scheduleAuthority:'Current member-class schedule approved for reconstruction; not historical configuration evidence.',
           invoiceId:invoice.InvoiceID,paymentIds:payments.map(p=>p.PaymentID),
