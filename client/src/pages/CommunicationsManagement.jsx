@@ -2884,7 +2884,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
             <DialogHeader>
               <DialogTitle data-testid="text-preview-list-name">{previewListName}</DialogTitle>
               <DialogDescription>
-                {previewLoading ? 'Loading audience members...' : `${previewTotalCount} total recipient${previewTotalCount !== 1 ? 's' : ''}`}
+                {previewLoading ? 'Loading audience members...' : `${previewTotalCount} list contact${previewTotalCount !== 1 ? 's' : ''}. Campaign category eligibility is not included; check the campaign recipient preview before sending.`}
               </DialogDescription>
             </DialogHeader>
             <div className="flex-1 min-h-0 overflow-y-auto">

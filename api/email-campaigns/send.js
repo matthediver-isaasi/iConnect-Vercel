@@ -3,6 +3,7 @@ import { sendCampaign, getTargetRecipients, getCampaign, scheduleCampaign } from
 import { getHostFromRequest } from '../_lib/tenantResolver.js';
 import { supabase } from '../_lib/database.js';
 import { resolveCampaignEventSurvey } from '../_lib/campaignEventSurvey.js';
+import { campaignAudienceFeedback } from '../../shared/campaignAudienceFeedback.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -45,6 +46,7 @@ export default async function handler(req, res) {
       preview: true,
       recipientCount: recipientsResult.recipients.length,
       stats: recipientsResult.stats || null,
+      eligibilityMessage: campaignAudienceFeedback(recipientsResult.stats),
     };
 
     if (previewList === true) {
@@ -85,6 +87,8 @@ export default async function handler(req, res) {
       success: true,
       preview: true,
       recipientCount: recipientsResult.recipients.length,
+      stats: recipientsResult.stats || null,
+      eligibilityMessage: campaignAudienceFeedback(recipientsResult.stats),
       sampleRecipients: recipientsResult.recipients.slice(0, 10).map(r => ({
         email: r.email,
         firstName: r.first_name,

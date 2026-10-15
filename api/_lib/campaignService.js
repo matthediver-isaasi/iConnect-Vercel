@@ -1857,11 +1857,13 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
       const emailBatchSize = 200;
       for (let i = 0; i < attendeeEmailArr.length; i += emailBatchSize) {
         const batch = attendeeEmailArr.slice(i, i + emailBatchSize);
-        const { data: members } = await supabase
-          .from('member')
-          .select('id, email, first_name, last_name, communications_opted_out_all')
-          .eq('tenant_id', tenantId)
-          .or(buildEmailCaseInsensitiveOr(batch));
+        // Use the same bounded, deterministic identity selection as durable
+        // preparation (highest member ID), rather than unspecified row order.
+        const { data: members, error } = await supabase.rpc('campaign_preparation_email_members', {
+          p_tenant: tenantId, p_emails: batch.map(email => email.trim().toLowerCase()), p_trim: false,
+        });
+        if (error) throw error;
+        if (!Array.isArray(members)) throw new Error('Campaign email identity lookup returned invalid data');
         if (members) {
           for (const m of members) {
             if (!m.email) continue;
@@ -1876,12 +1878,13 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
       const idBatchSize = 500;
       for (let i = 0; i < fallbackIdArr.length; i += idBatchSize) {
         const batch = fallbackIdArr.slice(i, i + idBatchSize);
-        const { data: members } = await supabase
+        const { data: members, error } = await supabase
           .from('member')
           .select('id, email, first_name, last_name, communications_opted_out_all')
           .eq('tenant_id', tenantId)
           .in('id', batch)
-          .not('email', 'ilike', 'deleted_%@deleted.local');
+          .not('email', 'ilike', 'deleted_%@deleted.local').order('id');
+        if (error) throw error;
         if (members) fallbackMembers.push(...members);
       }
 

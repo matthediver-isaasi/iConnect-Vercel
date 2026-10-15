@@ -144,6 +144,8 @@ test('preview returns a tenant-bound, deduplicated and sorted valid audience lis
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.listName, 'Customers');
   assert.equal(res.body.totalCount, 2);
+  assert.equal(res.body.countScope, 'list_without_campaign_category');
+  assert.match(res.body.eligibilityNotice, /does not apply a campaign subscription category/);
   assert.deepEqual(res.body.recipients.map(({ email }) => email), ['A@example.test', 'z@example.test']);
   assert.deepEqual(db.calls[0].filters, [
     ['eq', 'id', 'list-a'],
@@ -193,6 +195,23 @@ test('preview cannot read an audience list belonging to another tenant', async (
   );
   assert.equal(res.statusCode, 404);
   assert.equal(res.body.error, 'Audience list not found');
+});
+
+test('preview propagates technical list lookup failures instead of reporting missing or empty audiences', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  const db = database();
+  db.from = () => {
+    const query = {
+      select() { return query; }, eq() { return query; },
+      maybeSingle: async () => ({ data: null, error: { message: 'Audience storage unavailable' } }),
+    };
+    return query;
+  };
+  const res = response();
+  await previewHandler({ method: 'POST', body: { listId: 'list-a' } }, res, endpointDependencies(db));
+  assert.equal(res.statusCode, 500);
+  assert.equal(res.body.error, 'Audience storage unavailable');
+  assert.equal(res.body.totalCount, undefined);
 });
 
 const campaignService = await loadCampaignService();

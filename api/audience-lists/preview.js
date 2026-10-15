@@ -33,9 +33,10 @@ export default async function handler(req, res, dependencies = {}) {
       .select('id, name, target_audiences, ignore_opt_outs')
       .eq('id', listId)
       .eq('tenant_id', tenantId)
-      .single();
+      .maybeSingle();
 
-    if (error || !list) {
+    if (error) throw error;
+    if (!list) {
       return res.status(404).json({ error: 'Audience list not found' });
     }
 
@@ -74,6 +75,8 @@ export default async function handler(req, res, dependencies = {}) {
       success: true,
       listName: list.name,
       totalCount: uniqueRecipients.length,
+      countScope: 'list_without_campaign_category',
+      eligibilityNotice: 'This list preview does not apply a campaign subscription category. Use the campaign recipient preview to check send eligibility.',
       recipients: uniqueRecipients
     });
   } catch (err) {

@@ -366,9 +366,8 @@ export default function EmailCampaigns() {
         body: JSON.stringify({ campaignId: campaign.id, preview: true })
       });
 
-      if (!response.ok) throw new Error('Failed to preview recipients');
-
       const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to preview recipients');
       setPreviewData({ campaign, ...data });
       setShowPreviewDialog(true);
     } catch (error) {
@@ -1239,6 +1238,9 @@ export default function EmailCampaigns() {
                             {campaign.preparation?.phase === 'failed' && campaign.status === 'failed' && (
                               <span className="text-xs text-destructive block max-w-[320px] whitespace-normal break-words" data-testid={`text-preparation-error-${campaign.id}`}>
                                 Audience preparation failed: {campaign.preparation.last_error || 'No further details available.'}
+                                {campaign.preparation.last_error === 'No recipients found for this campaign' && (
+                                  <> This older preparation did not retain exclusion counts. Review a fresh campaign recipient preview; a failed preparation cannot be resumed. If appropriate, duplicate it as a new draft without overriding consent.</>
+                                )}
                               </span>
                             )}
                             {campaign.status === 'scheduled' && campaign.scheduled_at && (
@@ -1653,8 +1655,16 @@ export default function EmailCampaigns() {
                   </span>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  This campaign will be sent to all eligible members who haven't unsubscribed
+                  Eligible recipients under this campaign’s current category and consent settings. Eligibility is checked again during preparation.
                 </p>
+                {previewData.stats && (
+                  <p className="text-sm text-muted-foreground mt-2">
+                    {previewData.stats.totalAudience} matching contacts; {previewData.stats.globalOptOuts} global consent exclusions; {previewData.stats.categoryOptOuts} category eligibility exclusions; {previewData.stats.duplicatesRemoved} duplicates removed.
+                  </p>
+                )}
+                {previewData.eligibilityMessage && (
+                  <p className="text-sm mt-2" role="status">{previewData.eligibilityMessage}</p>
+                )}
               </div>
 
               {previewData.recipients && previewData.recipients.length > 0 && (
