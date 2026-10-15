@@ -5,6 +5,16 @@ description: Which Supabase project the runtime vs migrations actually use, and 
 
 # Workspace DB targets
 
+Provider-evidence runners must select DEST before importing application modules,
+including report helpers that indirectly initialize the shared Supabase client.
+
+**Why:** A static report-helper import initialized SOURCE before the runner's
+DEST override, so a later Xero token lookup queried the wrong schema.
+
+**How to apply:** Pin the target and set the runtime destination first, then
+dynamically import application helpers. A correct SQL target alone does not prove
+that provider credential reads use the same database.
+
 The Supabase MCP SQL connection can be read-only while the separately configured DEST SQL connection is writable.
 
 **Why:** An authorized member-role update was rejected by MCP as a read-only transaction, but the existing pinned DEST connection supported the update without credential or database-setting changes.
