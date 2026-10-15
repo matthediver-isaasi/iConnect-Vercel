@@ -16,7 +16,11 @@ export function eventTicketTaxAmount(amount, percentage, policy) {
 }
 
 function freezeLineTax(line, ticket) {
-  const policy = eventTicketLineAmountType(ticket);
+  // Checkout ticket prices are final, tax-inclusive amounts. Legacy invoice
+  // policy metadata must not add tax on top of the amount already charged.
+  // Keep eventTicketLineAmountType unchanged for historical reconstruction:
+  // existing persisted snapshots require separately approved recovery.
+  const policy = 'Inclusive';
   // Producer-only metadata is consumed before persisting/sending Xero lines.
   line._invoiceLineAmountType = policy;
   const percentage = ticket?.vat_rate_percentage;

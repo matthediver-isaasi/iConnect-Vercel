@@ -49,11 +49,11 @@ Historical invoice evidence must ignore unrelated survey invitation revisions, w
 
 **How to apply:** Avoid no-op mirror updates. For previously rejected evidence, prove that only the survey revision differs and retain the original rejection in append-only audit; never reset ambiguous provider writes to retry.
 
-The user confirmed the BNMS £200 account-event ticket is VAT-inclusive at 20% (£166.67 net, £33.33 VAT).
+The user confirmed on 2026-10-15: "all tickets are entered with their tax applied"; the ticket VAT setting tells Xero/QuickBooks how to derive net price. This supersedes the earlier single-ticket scope.
 
-**Why:** Explicit user confirmation resolved missing historical ticket tax evidence; it does not establish tax policy for other tickets.
+**Why:** Treating a final £200 checkout price as Exclusive proposed a £240 invoice and blocked recovery. The older £166.67 payment was also confirmed as the full VAT-inclusive ticket price.
 
-**How to apply:** Keep inclusive treatment scoped to that ticket. Publish code that understands the explicit ticket policy before enabling the live policy, or an older Exclusive checkout can add VAT on top.
+**How to apply:** New event checkout prices include the configured tax; do not add it again. Preserve zero-tax/exempt behaviour and provider tax identities. Repair old snapshots only with audited authority and original payment/purchaser evidence; never reprice old bookings using current tickets.
 
 GFI does not charge VAT on event tickets. Its existing ticket settings and VAT charging behaviour must not change as a consequence of BNMS VAT work.
 

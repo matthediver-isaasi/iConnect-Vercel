@@ -97,7 +97,7 @@ for (const enabled of [undefined, 'false']) test(`QuickBooks checkout ignores Xe
     };
   };
   const ticket = f.event.pricing_config.ticket_classes[0];
-  Object.assign(ticket, { vat_rate_key: 'OUTPUT2', vat_rate_percentage: 20, invoice_line_amount_type: 'Inclusive' });
+  Object.assign(ticket, { vat_rate_key: 'OUTPUT2', vat_rate_percentage: 20 });
   let snapshot;
   f.input.db.rpc = async (name, args) => {
     assert.equal(name, 'accounting_event_capture');
@@ -142,7 +142,7 @@ test('simple checkout captures historical purchaser, PO, dates, tax, tracking, a
   assert.equal(snapshot.invoice.DueDate, '2026-01-31');
   assert.equal(snapshot.invoice.CurrencyCode, 'GBP');
   assert.equal(snapshot.invoice.Status, 'AUTHORISED');
-  assert.equal(snapshot.invoice.LineAmountTypes, 'Exclusive');
+  assert.equal(snapshot.invoice.LineAmountTypes, 'Inclusive');
   assert.equal(snapshot.invoice.LineItems[0].AccountCode, '201');
   assert.equal(snapshot.invoice.LineItems[0].TaxType, 'NONE');
   assert.equal(snapshot.invoice.LineItems[0].TaxAmount, 0);
@@ -230,11 +230,12 @@ test('captured card invoices are authorised even when account invoice default is
   assert.equal(f.queued[0].snapshot.invoice.Status, 'AUTHORISED');
 });
 
-test('explicit Inclusive 20% checkout freezes gross 200 and VAT 33.33 before provider work', async () => {
+test('20% checkout freezes gross 200 and VAT 33.33 regardless of legacy policy metadata', async () => {
+  for (const legacyPolicy of [undefined, 'Inclusive', 'Exclusive']) {
   for (const paymentMethod of ['account', 'card']) {
     const f = fixture();
     Object.assign(f.event.pricing_config.ticket_classes[0], {
-      invoice_line_amount_type: 'Inclusive', vat_rate_key: 'OUTPUT2', vat_rate_percentage: 20,
+      invoice_line_amount_type: legacyPolicy, vat_rate_key: 'OUTPUT2', vat_rate_percentage: 20,
     });
     Object.assign(f.input, { amount: 200, paymentMethod });
     if (paymentMethod === 'card') Object.assign(f.input, { paymentIntentId: 'pi_original',
@@ -258,17 +259,34 @@ test('explicit Inclusive 20% checkout freezes gross 200 and VAT 33.33 before pro
     f.event.pricing_config.ticket_classes[0].invoice_line_amount_type = 'Exclusive';
     assert.equal(s.invoice.LineAmountTypes, 'Inclusive', 'frozen evidence never follows later catalogue edits');
   }
+  }
 });
 
-test('missing or invalid VAT policy never implies inclusive; builder failures preserve partial original intent', async () => {
+test('complex ticket checkout also treats an unlabelled price as tax inclusive', () => {
+  const lines = complexEventInvoiceLines({
+    event: { title: 'Complex event' },
+    resolvedItems: [{
+      serverTicket: { name: 'Ticket' }, ticketClass: { vat_rate_key: 'OUTPUT2', vat_rate_percentage: 20 },
+      authoritativePrice: 200, attendees: [{ first_name: 'Attendee' }],
+    }],
+    actualVoucherApplied: 0, actualTfApplied: 0,
+  }, '200');
+  assert.equal(lines[0].UnitAmount, 200);
+  assert.equal(lines[0].TaxAmount, 33.33);
+  assert.equal(lines[0]._invoiceLineAmountType, 'Inclusive');
+});
+
+test('new checkout prices include tax without policy metadata; builder failures preserve partial original intent', async () => {
   const f = fixture();
   f.event.pricing_config.ticket_classes[0].vat_rate_percentage = 20;
   await enqueueCheckoutEventInvoice(f.input, f.deps);
   const original = structuredClone(f.queued[0].snapshot);
-  assert.equal(original.invoice, null);
-  assert.equal(original.originalInvoice.LineAmountTypes, 'Exclusive');
-  f.event.pricing_config.ticket_classes[0].invoice_line_amount_type = 'Inclusive';
-  assert.deepEqual(f.queued[0].snapshot, original, 'policy changes never repair/overwrite frozen invalid snapshots');
+  assert.equal(original.invoice.LineAmountTypes, 'Inclusive');
+  assert.equal(validRecoverySnapshot(original), true);
+  f.event.pricing_config.ticket_classes[0].invoice_line_amount_type = 'Exclusive';
+  assert.deepEqual(f.queued[0].snapshot, original, 'later catalogue changes cannot rewrite frozen evidence');
+  await enqueueCheckoutEventInvoice(f.input, f.deps);
+  assert.equal(f.queued[1].snapshot.invoice.LineAmountTypes, 'Inclusive', 'legacy Exclusive metadata does not add tax to checkout prices');
   const broken = fixture();
   broken.input.buildLines = () => { throw new Error('line evidence unavailable'); };
   await enqueueCheckoutEventInvoice(broken.input, broken.deps);
@@ -295,7 +313,7 @@ for (const taxKey of ['EXEMPTOUTPUT', 'NONE', null]) test(`unchanged legacy ${ta
   assert.equal((await enqueueCheckoutEventInvoice(f.input, f.deps)).status, 'pending');
   assert.equal(validRecoveryTaxIntent(f.queued[0].snapshot), true);
   assert.equal(f.queued[0].snapshot.invoice.LineItems[0].UnitAmount, 25);
-  assert.equal(f.queued[0].snapshot.invoice.LineAmountTypes, 'Exclusive');
+  assert.equal(f.queued[0].snapshot.invoice.LineAmountTypes, 'Inclusive');
   assert.equal(f.queued[0].snapshot.invoice.LineItems[0].TaxAmount, undefined);
   assert.deepEqual(f.event, before);
 });
@@ -333,7 +351,10 @@ test('missing purchaser, inconsistent gross and missing context evidence are dur
   for (const failure of ['contact', 'gross', 'context', 'connection']) {
     const f = fixture({ settingsError: failure === 'context', tokens: failure === 'connection' ? [] : undefined });
     if (failure === 'contact') f.input.contact = null;
-    if (failure === 'gross') f.event.pricing_config.ticket_classes[0].vat_rate_percentage = 20;
+    if (failure === 'gross') {
+      const build = f.input.buildLines;
+      f.input.buildLines = account => build(account).map(line => ({ ...line, UnitAmount: line.UnitAmount + 1 }));
+    }
     assert.equal((await enqueueCheckoutEventInvoice(f.input, f.deps)).status, 'needs_review');
     assert.equal(validRecoverySnapshot(f.queued[0].snapshot), false);
   }

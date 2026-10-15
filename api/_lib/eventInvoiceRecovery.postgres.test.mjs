@@ -284,6 +284,28 @@ test('isolated PostgreSQL recovery: grants, immutable authority, fence, mirrors,
     sql('SET ROLE anon; SELECT event_invoice_recovery_claim();', true);
     sql('SET ROLE authenticated; SELECT * FROM event_invoice_recovery;', true);
     sql(`UPDATE event_invoice_recovery SET snapshot='{}';`, true);
+    const correctionMigration = readFileSync(new URL('../../supabase/migrations/202612310001_event_invoice_tax_correction_audit.sql', import.meta.url), 'utf8');
+    // Historical relation is referenced lazily by the preserved trigger branch.
+    sql(`CREATE TABLE IF NOT EXISTS event_invoice_recovery_historical_evidence(operation_id uuid,state text,snapshot jsonb);`);
+    sql(correctionMigration);
+    sql(correctionMigration);
+    const bad = { ...JSON.parse(snapshot), invoice: null, originalInvoice: { Type: 'ACCREC', LineAmountTypes: 'Exclusive' },
+      reviewReasons: ['Historical invoice gross total does not match the checkout amount'] };
+    const corrected = { ...bad, invoice: { Type: 'ACCREC', LineAmountTypes: 'Inclusive' } };
+    delete corrected.originalInvoice; delete corrected.reviewReasons;
+    sql(`INSERT INTO booking(tenant_id,booking_group_reference) VALUES('${tenant}','tax-correction');`);
+    assert.equal(sql(enqueue('tax-correction', `'${JSON.stringify(bad)}'`, false)), 'needs_review');
+    const correctionId = sql(`SELECT id FROM event_invoice_recovery WHERE booking_group_reference='tax-correction'`);
+    const correction = `UPDATE event_invoice_recovery SET snapshot='${JSON.stringify(corrected)}',status='pending',reason_code=NULL WHERE id='${correctionId}'`;
+    sql(correction, true);
+    sql(`INSERT INTO event_invoice_tax_correction_audit VALUES('${correctionId}','${JSON.stringify(bad)}','${JSON.stringify(corrected)}','Administrator confirmed tax inclusive final checkout prices',now())`);
+    sql(`SET ROLE service_role; INSERT INTO event_invoice_tax_correction_audit SELECT * FROM event_invoice_tax_correction_audit`, true);
+    sql(`UPDATE event_invoice_recovery SET attempts=1 WHERE id='${correctionId}'`);
+    sql(correction, true);
+    sql(`UPDATE event_invoice_recovery SET attempts=0 WHERE id='${correctionId}'`);
+    sql(correction);
+    sql(`UPDATE event_invoice_recovery SET snapshot=snapshot||'{"amount":999}' WHERE id='${correctionId}'`, true);
+    sql(`DELETE FROM event_invoice_tax_correction_audit WHERE operation_id='${correctionId}'`, true);
   } finally {
     if (started) run('pg_ctl', ['-D', h.data, '-m', 'immediate', '-w', 'stop']);
     await h.cleanup();
