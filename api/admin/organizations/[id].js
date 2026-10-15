@@ -1,3 +1,5 @@
+import { organizationNameError } from '../../../shared/organizationNameValidation.js';
+
 import { getSessionMember } from '../../_lib/session.js';
 import { createClient } from '@supabase/supabase-js';
 import { isResourceExcluded } from '../../_lib/roleVisibility.js';
@@ -84,6 +86,8 @@ export default async function handler(req, res) {
 
   try {
     const rawUpdates = req.body;
+    const nameError = organizationNameError(rawUpdates);
+    if (nameError) return res.status(400).json({ error: nameError });
 
     const allowedFields = [
       'logo_url', 'name', 'description', 'website_url',

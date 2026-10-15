@@ -27,6 +27,38 @@ const dropdown = {
   not_listed_choice: { enabled: true, label: 'My organisation is not listed' },
 };
 
+test('existing organisation name survives address-only updates through all legacy name aliases', async () => {
+  for (const alias of ['name', 'organization_name', 'organisation_name']) {
+    for (const name of [undefined, '', null, ' \t', '__clear__', 'Renamed Hospital']) {
+      const organizationId = '7dc51049-90dc-42cf-9567-2b128321c21c';
+      const result = await invokeProcessor({
+        fields: [dropdown, { id: 'title', type: 'text' }, { id: 'address', type: 'text' }],
+        form_values: { organisation: organizationId, address: 'New address', ...(name === undefined ? {} : { title: name }) },
+        entity_pipelines: { organisations: [{
+          id: 'org-primary', isPrimary: true,
+          mappings: [
+            { source_type: 'field', source_field_id: 'organisation', target_type: 'core', target_entity: 'organization', target_field: 'name' },
+            { source_type: 'field', source_field_id: 'title', target_type: 'core', target_entity: 'organization', target_field: alias },
+            { source_type: 'field', source_field_id: 'address', target_type: 'core', target_entity: 'organization', target_field: 'address' },
+          ],
+        }] },
+      }, { existingOrganization: { id: organizationId, tenant_id: 'tenant-runtime-org', name: 'Existing Hospital' } });
+      const updates = result.updates.filter(entry => entry.table === 'organization');
+      if (name === ' \t' || name === '__clear__') {
+        assert.equal(result.response.statusCode, 400);
+        assert.match(result.response.body.error, /name is required/i);
+        assert.equal(updates.length, 0);
+      } else {
+        assert.equal(result.response.statusCode, 200, `${alias}: ${JSON.stringify(name)}`);
+        assert.equal(updates.length, 1);
+        assert.equal(updates[0].payload.address, 'New address');
+        assert.equal({ name: 'Existing Hospital', ...updates[0].payload }.name,
+          name === 'Renamed Hospital' ? name : 'Existing Hospital');
+      }
+    }
+  }
+});
+
 function publicPayload(overrides = {}) {
   return {
     fields: [dropdown],

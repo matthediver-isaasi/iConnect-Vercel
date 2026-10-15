@@ -18,6 +18,24 @@ import {
 import { computeAuthoritativeHiddenFieldIds } from './formFieldVisibility.js';
 import { FORM_NOT_LISTED_TEXT_KEY, FORM_NOT_LISTED_VALUE } from '../../shared/formNotListedChoice.js';
 
+test('organisation structured mappings reject explicit clears but preserve omitted names', () => {
+  const action = {
+    target: { kind: 'organization' }, operation: 'update_selected',
+    mappings: [
+      { source_field_id: 'title', target_type: 'core', target_field: 'name' },
+      { source_field_id: 'address', target_type: 'core', target_field: 'address' },
+    ],
+  };
+  for (const title of ['', ' \t\n', null, '__clear__', false, 0]) {
+    assert.throws(() => mappedPayload({ action, values: { title, address: 'New address' } }, 'organization', new Map()),
+      /Organisation name is required/);
+  }
+  const patch = mappedPayload({ action, values: { address: 'New address' } }, 'organization', new Map()).core;
+  assert.deepEqual({ name: 'Existing Hospital', ...patch }, { name: 'Existing Hospital', address: 'New address' });
+  assert.equal(mappedPayload({ action, values: { title: 'Renamed Hospital' } }, 'organization', new Map()).core.name,
+    'Renamed Hospital');
+});
+
 test('structured row file answers remain metadata except at URL core destinations', () => {
   const file = {
     file_url: '/api/storage/secure-url?bucket=private-uploads&path=tenant%2Freport.pdf',

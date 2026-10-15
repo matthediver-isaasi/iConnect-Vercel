@@ -1,3 +1,5 @@
+import { organizationNameError } from '../../shared/organizationNameValidation.js';
+
 // Shared, headless import-slice processor for the Import Manager.
 //
 // This module contains the actual row-processing logic (both the SQL fast path
@@ -849,6 +851,14 @@ export async function processImportSlice({
 
       const lookupKey = isEmailIdentifier ? identifierValue.toLowerCase() : identifierValue;
       const existingId = existingMap.get(lookupKey);
+
+      // clearOnEmpty is valid for optional fields, never for an organisation name.
+      const nameError = entityType === 'organization' ? organizationNameError(coreData) : null;
+      if (nameError) {
+        chunkErrors++;
+        errorLog.push({ row: rowIndex + 1, identifier: identifierValue, error: nameError });
+        continue;
+      }
 
       if (existingId) {
         toUpdate.push({ id: existingId, data: coreData, noteContent, identifierValue, rowIndex });

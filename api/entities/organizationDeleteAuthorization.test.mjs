@@ -109,13 +109,17 @@ function database(organization) {
     }
     result(single = false) {
       if (this.operation !== 'select') {
-        mutations.push({ table: this.table, operation: this.operation, filters: this.filters });
+        mutations.push({ table: this.table, operation: this.operation, filters: this.filters, payload: this.payload });
+        if (this.operation === 'update' && this.matchingOrganization()) {
+          Object.assign(organization, this.payload);
+          return { data: single ? organization : [organization], error: null };
+        }
         return { data: null, error: null };
       }
       let data = [];
       if (this.matchingOrganization()) data = [organization];
       if (this.table === 'member') data = [];
-      return { data: single ? data[0] || null : data, error: single && !data.length ? { code: 'PGRST116' } : null };
+      return { data: single ? data[0] || null : data, error: single && !data.length && this.table !== 'system_settings' ? { code: 'PGRST116' } : null };
     }
     async single() { return this.result(true); }
     async maybeSingle() { return this.result(true); }
@@ -124,7 +128,7 @@ function database(organization) {
   return { from(table) { calls.push(table); return new Query(table); }, mutations, calls };
 }
 
-async function invoke({ organization, tenantId = 'tenant-a', admin = true }) {
+async function invoke({ organization, tenantId = 'tenant-a', admin = true, method = 'DELETE', body = {}, entity = 'Organization' }) {
   const db = database(organization);
   globalThis[fixtureSlot] = {
     db,
@@ -133,13 +137,40 @@ async function invoke({ organization, tenantId = 'tenant-a', admin = true }) {
   };
   const { response, res } = responseRecorder();
   await handler({
-    method: 'DELETE',
-    query: { entity: 'Organization', id: organization?.id || 'org-a' },
-    body: {},
+    method,
+    query: { entity, id: organization?.id || 'org-a' },
+    body,
     headers: {},
   }, res);
   return { response, db };
 }
+
+test('ordinary organisation updates reject explicit blank names before any write for normalized entity aliases', async () => {
+  for (const entity of ['Organization', 'organization', 'Organi-zation', 'organi_zation']) {
+    for (const method of ['PATCH']) {
+      for (const name of ['', ' \t\n', null]) {
+        const organization = { id: 'org-a', tenant_id: 'tenant-a', name: 'Existing Hospital' };
+        const { response, db } = await invoke({ organization, method, entity, body: { name, address: 'New address' } });
+        assert.equal(response.statusCode, 400);
+        assert.equal(response.body.error, 'Organisation name is required');
+        assert.deepEqual(db.mutations, []);
+        assert.equal(organization.name, 'Existing Hospital');
+      }
+    }
+  }
+});
+
+test('ordinary address-only updates preserve a populated organisation name', async () => {
+  for (const method of ['PATCH']) {
+    const organization = { id: 'org-a', tenant_id: 'tenant-a', name: 'Existing Hospital' };
+    const { response, db } = await invoke({ organization, method, body: { address: 'New address' } });
+    assert.equal(response.statusCode, 200);
+    const write = db.mutations.find(entry => entry.table === 'organization');
+    assert.equal(Object.hasOwn(write.payload, 'name'), false);
+    assert.equal(organization.name, 'Existing Hospital');
+    assert.equal(organization.address, 'New address');
+  }
+});
 
 test('organization DELETE allows an admin to delete a tenant-owned non-primary organization', async () => {
   const result = await invoke({

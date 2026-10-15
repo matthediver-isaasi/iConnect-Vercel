@@ -1,3 +1,5 @@
+import { organizationNameError } from '../../shared/organizationNameValidation.js';
+
 import {
   computeAuthoritativeHiddenFieldIds,
   computeHiddenFieldIds,
@@ -1798,6 +1800,10 @@ export function mappedPayload(invocation, entity, preferenceFields) {
       && item.value !== ''
       && !(Array.isArray(item.value) && item.value.length === 0))) {
     throw new StructuredActionContractError('Upsert fallback uniqueness field has no visible, non-empty value');
+  }
+  if (entity === 'organization') {
+    const nameError = organizationNameError(core);
+    if (nameError) throw new StructuredActionContractError(nameError);
   }
   return { core, custom, clearCustom, match };
 }

@@ -1,3 +1,5 @@
+import { organizationNameError } from '../../shared/organizationNameValidation.js';
+
 import { supabase } from '../_lib/database.js';
 import { sendEmail } from '../_lib/emailService.js';
 import { buildInboxDelivery } from '../_lib/transactionalInbox.js';
@@ -3207,6 +3209,11 @@ export async function executeFieldMappingActions(stageId, ddSubmission, tenantId
 
             const updateData = {};
             updateData[columnName] = storedValue;
+            const nameError = organizationNameError(updateData);
+            if (nameError) {
+              mappingResults.push({ field: target_field, status: 'error', error: nameError });
+              continue;
+            }
 
             const previewValue = typeof storedValue === 'string' && storedValue.length > 120
               ? `${storedValue.slice(0, 120)}…`

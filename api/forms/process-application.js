@@ -1,3 +1,5 @@
+import { organizationNameError } from '../../shared/organizationNameValidation.js';
+
 import { loadLegacyApplicationScope } from '../_lib/formLegacyApplication.js';
 import { publishedAnonymousCompletion } from '../_lib/surveyCompletionBoundary.js';
 import { createClient } from '@supabase/supabase-js';
@@ -3243,6 +3245,13 @@ export default async function handler(req, res, {
             }
           }
           
+          const nameError = organizationNameError(orgUpdateData);
+          if (nameError) {
+            addProcessingNote({ level: 'error', stage: 'organization_update', message: nameError });
+            await flushProcessingNotes();
+            return res.status(400).json({ error: nameError });
+          }
+
           // Set tenant_id if org has none and we have a resolved tenant
           if (effectiveEntityTenantId && !existingOrg.tenant_id) {
             orgUpdateData.tenant_id = effectiveEntityTenantId;

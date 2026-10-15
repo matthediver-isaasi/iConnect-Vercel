@@ -35,3 +35,22 @@ test('editor validates before either new or existing organisation save',()=>{
   const validation=save.indexOf("typeof formData.name !== 'string' || !formData.name.trim()");
   assert.ok(validation>=0&&validation<save.indexOf('if (isNew)'));
 });
+
+test('secondary admin endpoint validates names before building the update', () => {
+  const source = readFileSync(new URL('../api/admin/organizations/[id].js', import.meta.url), 'utf8');
+  const gate = source.indexOf('organizationNameError(rawUpdates)');
+  assert.ok(gate > 0 && gate < source.indexOf('.update(updates)'));
+  assert.ok(source.includes('if (nameError) return res.status(400).json({ error: nameError });'));
+});
+
+test('name-matching SQL import skips absent identifiers and coalesces blank names on update', () => {
+  const source = readFileSync(new URL('../supabase/functions/import_organizations.sql', import.meta.url), 'utf8');
+  assert.match(source, /IF rec.name IS NULL OR trim\(rec.name\) = '' THEN\s+skipped_count := skipped_count \+ 1;\s+CONTINUE;/);
+  assert.match(source, /name\s+= COALESCE\(NULLIF\(trim\(rec.name\), ''\), name\)/);
+});
+
+test('member self-service organisation updates do not allow name changes', () => {
+  const source = readFileSync(new URL('../api/my-organization.js', import.meta.url), 'utf8');
+  const fields = source.match(/const allowedFields = \[([\s\S]*?)\];/)[1];
+  assert.doesNotMatch(fields, /['"]name['"]/);
+});
