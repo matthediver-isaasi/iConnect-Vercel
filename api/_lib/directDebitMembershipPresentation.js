@@ -6,6 +6,27 @@ import { MANUAL_ADOPTION, MANUAL_RECOGNITION } from './bnmsManualCohort.js';
 // Entitlement presentation only. Never change the agreement, payment plan,
 // collection hold or provider state to make an existing member look current.
 const replaceable = new Set(['active', 'pending', 'pending_activation', 'payment_setup_required', 'mandate_pending', 'first_payment_pending']);
+const cancelledBilling = new Set(['cancelled', 'canceled', 'payment_plan_cancelled']);
+
+// A provider-verified, operator-approved conversion retains the original
+// import ledger as audit evidence, not as the current billing relationship.
+// Do not generalise this to missing histories or arbitrary detached plans.
+function approvedUpfrontConversion(history, adoption, plan, agreement) {
+  let notes;
+  try { notes = typeof history.notes === 'string' ? JSON.parse(history.notes) : history.notes; }
+  catch { return false; }
+  const prior = notes?.priorMembership;
+  return notes?.source === 'operator_approved_paypal_upfront_correction'
+    && notes.futureCollectionConsent === false
+    && cancelledBilling.has(plan.status) && cancelledBilling.has(agreement.status)
+    && history.billing_agreement_id === null && history.payment_method === 'upfront'
+    && history.payment_status === 'paid' && history.accounting_provider === 'xero'
+    && !!notes.invoiceId && notes.invoiceId === history.accounting_invoice_id
+    && notes.invoiceId === history.xero_invoice_id
+    && prior?.id === history.id && prior.tenant_id === adoption.tenant_id
+    && prior.member_id === adoption.member_id
+    && prior.billing_agreement_id === adoption.agreement_id;
+}
 
 export function directDebitCollectionPresentation(plan) {
   return { held: !!plan.collection_stopped_at || plan.metadata?.bnms_release_required === true };
@@ -49,6 +70,7 @@ export async function loadDirectDebitMembershipPresentations(db, tenantId, plans
     readConsoleRows(() => db.from('organisation_membership_history').select('*').eq('tenant_id', tenantId).order('id')),
   ]);
   const imports = new Map();
+  const convertedHistories = new Map();
   if (tenantId === ALPHA_RECOGNITION_TENANT) {
     // Canonical adoption ledgers, not arbitrary plan metadata, discovery or a
     // mandate's readiness, distinguish historical imports from new joiners.
@@ -67,8 +89,15 @@ export async function loadDirectDebitMembershipPresentations(db, tenantId, plans
             || plan.billing_agreement_id !== adoption.agreement_id
             || (plan.member_id && plan.member_id !== adoption.member_id)
             || !history || history.tenant_id !== tenantId
-            || history.member_id !== adoption.member_id || history.billing_agreement_id !== adoption.agreement_id) {
+            || history.member_id !== adoption.member_id) {
           throw new Error('Historical Direct Debit adoption ownership mismatch');
+        }
+        if (history.billing_agreement_id !== adoption.agreement_id) {
+          if (!approvedUpfrontConversion(history, adoption, plan, agreement)) {
+            throw new Error('Historical Direct Debit adoption ownership mismatch');
+          }
+          convertedHistories.set(history.id, adoption.agreement_id);
+          continue;
         }
         if (imports.has(plan.id)) throw new Error('Ambiguous historical Direct Debit adoption');
         imports.set(plan.id, { source: table, adoptionId: adoption.id, historyId: adoption.history_id });
@@ -86,6 +115,10 @@ export async function loadDirectDebitMembershipPresentations(db, tenantId, plans
     }
     for (const row of recognition) {
       const history = personal.find(h => h.id === row.history_id);
+      // Superseded recognition belongs to the cancelled agreement. Never attach
+      // it to the corrected upfront term or use it to establish entitlement.
+      if (history && row.tenant_id === tenantId && row.member_id === history.member_id
+          && convertedHistories.get(history.id) === row.agreement_id) continue;
       if (row.tenant_id !== tenantId || (history && (row.member_id !== history.member_id || row.agreement_id !== history.billing_agreement_id))) {
         throw new Error('Membership recognition ownership mismatch');
       }

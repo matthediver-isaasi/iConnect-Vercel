@@ -393,3 +393,49 @@ test('canonical adoption ownership mismatches, ambiguous evidence and read error
   await assert.rejects(loadDirectDebitMembershipPresentations(database(data), tenant, [plan]), /Ambiguous/);
   await assert.rejects(loadDirectDebitMembershipPresentations(database(tables(), 'bnms_dd_beta_adoption'), tenant, [plan]), /lookup/);
 });
+
+function convertedFixture() {
+  const data = tables();
+  const adoption = { id: 'adoption', tenant_id: tenant, member_id: 'member',
+    agreement_id: 'agreement', plan_id: 'plan', history_id: 'history' };
+  data.bnms_dd_alpha_adoption = [adoption];
+  data.membership_billing_agreements[0].status = 'payment_plan_cancelled';
+  const prior = structuredClone(data.member_membership_history[0]);
+  const row = data.member_membership_history[0];
+  Object.assign(row, { billing_agreement_id: null, payment_method: 'upfront', payment_status: 'paid',
+    accounting_provider: 'xero', accounting_invoice_id: 'invoice', xero_invoice_id: 'invoice',
+    notes: JSON.stringify({ source: 'operator_approved_paypal_upfront_correction',
+      futureCollectionConsent: false, invoiceId: 'invoice', priorMembership: prior }) });
+  data.bnms_dd_alpha_membership_recognition = [{ ...recognition }];
+  return { data, cancelledPlan: { ...plan, status: 'payment_plan_cancelled' } };
+}
+
+test('approved upfront conversion preserves cancelled plan and ignores superseded DD recognition', async () => {
+  const { data, cancelledPlan } = convertedFixture();
+  const before = structuredClone(data);
+  const result = await loadDirectDebitMembershipPresentations(database(data), tenant, [cancelledPlan], today);
+  assert.equal(result.get('plan').displayStatus, 'payment_plan_cancelled');
+  assert.equal(result.get('plan').historicalImport, null);
+  assert.notEqual(result.get('plan').evidence?.source, 'administrative_recognition');
+  assert.deepEqual(data, before);
+});
+
+test('conversion exception never permits active billing, unrelated owners or unverified corrections', async () => {
+  for (const mutate of [
+    f => { f.cancelledPlan.status = 'active'; },
+    f => { f.data.membership_billing_agreements[0].status = 'active'; },
+    f => { f.data.member_membership_history[0].member_id = 'other'; },
+    f => { f.data.member_membership_history[0].notes = '{}'; },
+    f => { f.data.member_membership_history[0].notes = '{invalid'; },
+    f => { f.data.member_membership_history[0].payment_status = 'unpaid'; },
+    f => { f.data.member_membership_history[0].accounting_invoice_id = 'other'; },
+    f => {
+      const row = f.data.member_membership_history[0], notes = JSON.parse(row.notes);
+      notes.priorMembership.billing_agreement_id = 'other'; row.notes = JSON.stringify(notes);
+    },
+    f => { f.data.bnms_dd_alpha_membership_recognition[0].agreement_id = 'other'; },
+  ]) {
+    const f = convertedFixture(); mutate(f);
+    await assert.rejects(loadDirectDebitMembershipPresentations(database(f.data), tenant, [f.cancelledPlan], today), /ownership/);
+  }
+});
