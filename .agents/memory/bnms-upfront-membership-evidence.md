@@ -35,6 +35,16 @@ membership expiry or start date.
 **How to apply:** Keep actual payment timestamps as financial evidence, separate
 from coverage dates. Obtain separate instructions for unresolved coverage.
 
+Owner-approved membership included free in a paid event package can establish
+the retained annual term, but the event invoice total is not a membership fee.
+
+**Why:** The owner approved recording the included entitlement linked to the
+paid invoice without treating event consideration as membership revenue.
+
+**How to apply:** Verify the explicit included-membership description and cash
+settlement, obtain identity and coverage approval, record no separate membership
+charge, and preserve the invoice link and explanation of the included benefit.
+
 Xero single-invoice responses can return a batch ID in a payment's PaymentID
 field, while the invoice-list response supplies the individual payment ID.
 

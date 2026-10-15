@@ -8,8 +8,9 @@ import {buildRollingCommitment} from '../api/_lib/rollingMembershipCommitment.js
 const mode=process.argv[2];assert.ok(['prepare','dry-run','apply','verify'].includes(mode));
 const tenant='ff2df806-b321-4254-b651-3af11fccf1db';
 const additional=process.argv[3]==='additional-nine';
-assert.ok(!process.argv[3]||additional);
-const approved=additional?[
+const included=process.argv[3]==='jo-included';
+assert.ok(!process.argv[3]||additional||included);
+const approved=included?['2ed34ac1-6f57-44d5-8a21-75bf3521d826']:additional?[
   '5310e36a-5c40-4e3d-b533-781037a52543','6aa9e9aa-f72a-42da-b516-89b219e89309',
   '5f6a2fb2-d4f0-4cdf-a437-b985493e3a5c','784682f0-9445-45d5-beb5-dbfd5ac58c60',
   'f1485422-d0ac-49fd-b8df-fb9386a56fee','575f64e2-a940-4ecf-8bda-909fa1fe32d1',
@@ -25,7 +26,7 @@ const approved=additional?[
   'ca24a246-4bd3-40ba-9db4-a39044c5a8ef','df2ba5a2-a6ba-4c40-b914-446b6e956027',
   'fe1b50de-d67e-412a-83c9-47cd2a1aca2f',
 ];
-const dir=additional?'generated-artifacts/bnms-additional-nine-historical':'generated-artifacts/bnms-fifteen-historical';
+const dir=included?'generated-artifacts/bnms-jo-included-membership':additional?'generated-artifacts/bnms-additional-nine-historical':'generated-artifacts/bnms-fifteen-historical';
 fs.mkdirSync(dir,{recursive:true,mode:0o700});
 const save=(name,value)=>fs.writeFileSync(`${dir}/${name}.json`,JSON.stringify(value,null,2),{mode:0o600});
 const load=name=>JSON.parse(fs.readFileSync(`${dir}/${name}.json`,'utf8'));
@@ -81,7 +82,12 @@ try{
     const records=[],evidence=[];
     for(const member of approved){
       const p=prior.find(r=>r.memberId===member),provider=providers.find(r=>r.memberId===member);
-      if(!additional){assert.equal(p.category,'Paid historical-only reconstruction candidate');assert.equal(p.holds.length,0);}
+      if(included){
+        assert.equal(p.proposedStart,'2025-04-18');assert.equal(p.retainedExpiry,'2026-04-17');
+        p.invoiceNumber='200005988';p.amount=556;p.membershipAmount=0;
+        provider.latestPaidInvoiceId='3c0ef6a1-a57f-451d-96ee-e48cbc3358ec';
+      }
+      if(!additional&&!included){assert.equal(p.category,'Paid historical-only reconstruction candidate');assert.equal(p.holds.length,0);}
       const m=before.member.find(m=>m.id===member);
       assert.equal(m.email.toLowerCase(),p.email.toLowerCase());
       const prefs=before.preferences.filter(v=>v.member_id===member);
@@ -99,6 +105,7 @@ try{
       assert.ok(newest.length<100,'Contact invoice pagination required');
       assert.ok(!newest.some(i=>i.Type==='ACCREC'&&i.InvoiceID!==invoice.InvoiceID
         &&i.DateString>invoice.DateString&&!['VOIDED','DELETED'].includes(i.Status)
+        &&!(included&&i.InvoiceNumber==='200006008'&&i.AmountPaid===0&&i.AmountDue===0&&i.AmountCredited===420&&i.Total===420)
         &&i.LineItems?.some(l=>/\bmembership\b/i.test(l.Description||''))),`Newer membership invoice: ${p.name}`);
       assert.equal(invoice.Type,'ACCREC');assert.equal(invoice.Status,'PAID');assert.equal(invoice.CurrencyCode,'GBP');
       assert.equal(invoice.Total,p.amount);assert.equal(invoice.AmountPaid,invoice.Total);assert.equal(invoice.AmountDue,0);
@@ -106,10 +113,16 @@ try{
       assert.equal((invoice.CreditNotes||[]).length,0);
       const lines=invoice.LineItems.filter(l=>/\bmembership\b/i.test(l.Description||'')
         &&!/\bevent|attend|conference|meeting|ticket|discount|includes/i.test(l.Description||''));
-      assert.equal(lines.length,1);assert.equal(lines[0].Quantity,1);assert.equal(lines[0].TaxAmount,0);
+      if(included){
+        assert.equal(invoice.LineItems.length,1);
+        assert.equal(invoice.LineItems[0].Description,'S2025 - 3 days - full includes 1 year free membership - Jo Hopkins');
+      }else{
+        assert.equal(lines.length,1);assert.equal(lines[0].Quantity,1);assert.equal(lines[0].TaxAmount,0);
+      }
       const amount=additional&&p.memberId==='5310e36a-5c40-4e3d-b533-781037a52543'?156:
         additional&&p.memberId==='6aa9e9aa-f72a-42da-b516-89b219e89309'?128:p.membershipAmount;
-      assert.equal(lines[0].LineAmount,amount);
+      if(included)assert.equal(amount,0);
+      else assert.equal(lines[0].LineAmount,amount);
       const payments=[];
       // Xero's single-invoice endpoint can expose a BatchPaymentID as PaymentID.
       // The invoice-list response supplies the individual payment ID; still verify
@@ -124,6 +137,7 @@ try{
       assert.ok(payments.length>0);
       assert.ok(Math.abs(payments.reduce((a,p)=>a+p.Amount,0)-invoice.Total)<0.005);
       const paidAt=new Date(Math.max(...payments.map(p=>Number(/\/Date\((\d+)/.exec(p.Date)[1])))).toISOString();
+      if(included)assert.equal(paidAt.slice(0,10),'2025-04-17');
       const amounts={annual_cost:amount,final_cost:amount,vat_amount:0,total_with_vat:amount,currency:'GBP'};
       const commitment=buildRollingCommitment({config,startDate:p.proposedStart,paymentMethod:'upfront',
         paymentFrequency:'upfront',amounts,pricingSnapshot:{tier_label:klass.value,...amounts}});
@@ -133,7 +147,8 @@ try{
         status:'expired',payment_status:'paid',payment_method:'upfront',paid_at:paidAt,accounting_provider:'xero',
         accounting_invoice_id:invoice.InvoiceID,accounting_invoice_number:invoice.InvoiceNumber,
         xero_invoice_id:invoice.InvoiceID,xero_invoice_number:invoice.InvoiceNumber,
-        notes:JSON.stringify({source:additional?'operator_approved_nine_retained_expiry_reconstructions':'operator_approved_fifteen_historical_reconstructions',approvalDate:'2026-10-15',
+        notes:JSON.stringify({source:included?'operator_approved_included_event_membership':additional?'operator_approved_nine_retained_expiry_reconstructions':'operator_approved_fifteen_historical_reconstructions',approvalDate:'2026-10-15',
+          includedMembershipAuthority:included?'Owner approved one year free membership included in paid event invoice. Zero separate membership charge; event consideration is not membership revenue.':null,
           latePaymentAuthority:additional?'Owner explicitly instructed retaining stored expiry; late payment does not shift the approved annual term.':null,
           termAuthority:'approved_12_month_term_retaining_recorded_expiry',scope:'historical_only_not_renewed',
           scheduleAuthority:'Current member-class schedule approved for reconstruction; not historical configuration evidence.',
