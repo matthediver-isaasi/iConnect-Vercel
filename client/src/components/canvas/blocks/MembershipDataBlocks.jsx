@@ -1,5 +1,5 @@
 import { useId, useState } from 'react';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, TriangleAlert } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ColorField } from './ColorField';
@@ -13,6 +13,7 @@ import { useReportReflowHeight } from '../AccordionReflowContext';
 import { useCanvasMembershipSummary } from '@/hooks/useCanvasMembershipSummary';
 import {
   normalizeCanvasMembershipContent, normalizeCanvasMembershipSummary,
+  getCanvasMembershipDefaults,
   MEMBERSHIP_DATA_STATES, MEMBERSHIP_PAYMENT_STATES, MEMBERSHIP_PAYMENT_METHODS, MEMBERSHIP_TEXT_ROLES,
   formatMembershipAmount, formatMembershipDate, safeMembershipLink, membershipRenewalFormSlug,
 } from '@/lib/canvasMembershipData';
@@ -61,6 +62,17 @@ export function MembershipDataView({
   // state explicitly says `none`.
   const hidePublishedPaymentDetails = paymentCard && ready && state === 'none' && !asEditor && !showRenewal;
   const copy = content.states[state];
+  // Collapse only the duplicated generated label, never an author's heading.
+  const hideDuplicateEyebrow = paymentCard && ready
+    && !['monthly_direct_debit', 'monthly_card'].includes(summary.payment.method)
+    && (summary.payment.state === 'paid' || summary.payment.method === 'upfront')
+    && content.eyebrow === 'PAYMENT DETAILS' && copy.heading === 'Payment details';
+  const termEndDate = summary.membership.termEndDate || summary.membership.expiryDate;
+  const termEndLabel = summary.membership.grace ? content.fields.previousMembershipEnded : content.fields.expiryDate;
+  const renewalPrice = paymentCard && !bankSetupPending && summary.renewal.price
+    ? formatMembershipAmount(summary.renewal.price.amount, summary.renewal.price.currency) : null;
+  const showSupporting = copy.supporting.trim() && (!summary.membership.grace
+    || copy.supporting !== getCanvasMembershipDefaults(type).states[state].supporting);
   const styles = Object.fromEntries(MEMBERSHIP_TEXT_ROLES.map(role => [
     role, resolveTenantStyle(content.typography[role], tenantStyles),
   ]));
@@ -164,18 +176,22 @@ export function MembershipDataView({
           Editor preview — sample data, not a member record
         </p>
       )}
-      <p {...role('eyebrow')}>{content.eyebrow}</p>
+      {!hideDuplicateEyebrow && <p {...role('eyebrow')}>{content.eyebrow}</p>}
       <div className="membership-title">
         <h2 id={`${id}-heading`} {...role('heading')}>{copy.heading}</h2>
-        {ready && !paymentCard && <span {...role('status', { color: stateColors[state], display: 'inline-flex', alignItems: 'center', gap: 8 })}>
+        {ready && !paymentCard && <span {...role('status', { color: summary.membership.grace ? '#865d10' : stateColors[state], display: 'inline-flex', alignItems: 'center', gap: 8 })}>
           <span aria-hidden="true" style={{ width: 10, height: 10, borderRadius: '50%', background: 'currentColor', flexShrink: 0 }} />
           {summary.membership.grace ? 'In grace period — renewal due' : copy.status}
         </span>}
       </div>
-      {ready && summary.membership.grace && <p {...role('supporting', { marginTop: 16 })}>
-        Your membership is in its grace period until {formatMembershipDate(summary.membership.grace.graceEndDate)}.
-        {' '}Please renew by this date to continue your membership.
-      </p>}
+      {ready && summary.membership.grace && <div data-testid="membership-grace-notice"
+        style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginTop: 16 }}>
+        <TriangleAlert size={18} aria-hidden="true" style={{ color: '#a16b13', flexShrink: 0, marginTop: 4 }} />
+        <p {...role('supporting')}>
+          Your membership is in its grace period until {formatMembershipDate(summary.membership.grace.graceEndDate)}.
+          {' '}{content.messages.graceRenewalAction}
+        </p>
+      </div>}
       {!ready ? (
         <p {...role('supporting', { marginTop: 16 })} role={result?.status === 'error' || result?.status === 'denied' ? 'alert' : 'status'}>
           {content.messages[result?.status] || content.messages.error}
@@ -225,25 +241,44 @@ export function MembershipDataView({
             </dl>}
             {summary.payment.collectionStructure && structureNotice?.trim() && <p {...role('supporting', { marginTop: 8 })}>{structureNotice}</p>}
           </div>}
-          {summary.membership.expiryDate && <dl style={{ marginTop: 16 }}>
-            <dt {...role('fieldLabel')}>{summary.membership.grace ? 'Previous membership ended' : content.fields.expiryDate}</dt>
-            <dd {...role('value')}>{formatMembershipDate(summary.membership.expiryDate)}</dd>
+          {(summary.membership.termStartDate || termEndDate || renewalPrice) && <dl className="membership-fields" style={{ marginTop: 16 }}>
+            {summary.membership.termStartDate && <div style={{ minWidth: 0 }}>
+              <dt {...role('fieldLabel')}>{content.fields.termStartDate}</dt>
+              <dd {...role('value')}>{formatMembershipDate(summary.membership.termStartDate)}</dd>
+            </div>}
+            {termEndDate && <div style={{ minWidth: 0 }}>
+              <dt {...role('fieldLabel')}>{termEndLabel}</dt>
+              <dd {...role('value')}>{formatMembershipDate(termEndDate)}</dd>
+            </div>}
+            {renewalPrice && <div style={{ minWidth: 0 }} data-testid="membership-renewal-price">
+              <dt {...role('fieldLabel')}>{content.fields.renewalAmount}</dt>
+              <dd {...role('value')}>{renewalPrice}</dd>
+            </div>}
           </dl>}
+          {!bankSetupPending && summary.renewal.eligible && !renewalPrice && summary.renewal.priceState && (
+            <p {...role('supporting', { marginTop: 16 })} role="status" data-testid="membership-renewal-price-status">
+              {summary.renewal.priceState === 'loading' ? content.messages.renewalPriceLoading : content.messages.renewalPriceUnavailable}
+            </p>
+          )}
           {summary.payment.state === 'paid' && summary.payment.method === 'upfront' && <dl style={{ marginTop: 16 }}>
             <dt {...role('fieldLabel')}>{content.fields.method}</dt>
             <dd {...role('value')}>{displayMethod}</dd>
           </dl>}
-          {!summary.membership.grace && copy.supporting.trim() && <p {...role('supporting', { marginTop: 16 })}>
+          {showSupporting && <p {...role('supporting', { marginTop: 16 })}>
             {copy.supporting}
           </p>}
         </div>
       ) : (
         <>
-          {!summary.membership.grace && <p {...role('supporting', { marginTop: 12 })}>{copy.supporting}</p>}
+          {showSupporting && <p {...role('supporting', { marginTop: 12 })}>{copy.supporting}</p>}
           <dl className="membership-fields">
-            {summary.membership.expiryDate && <div style={{ minWidth: 0 }}>
-              <dt {...role('fieldLabel')}>{content.fields.expiryDate}</dt>
-              <dd {...role('value')}>{formatMembershipDate(summary.membership.expiryDate)}</dd>
+            {summary.membership.termStartDate && <div style={{ minWidth: 0 }}>
+              <dt {...role('fieldLabel')}>{content.fields.termStartDate}</dt>
+              <dd {...role('value')}>{formatMembershipDate(summary.membership.termStartDate)}</dd>
+            </div>}
+            {termEndDate && <div style={{ minWidth: 0 }}>
+              <dt {...role('fieldLabel')}>{termEndLabel}</dt>
+              <dd {...role('value')}>{formatMembershipDate(termEndDate)}</dd>
             </div>}
             {fieldKeys.map(key => <div key={key} style={{ minWidth: 0 }}>
               <dt {...role('fieldLabel')}>{key === 'nextPayment' ? paymentDateLabel : key === 'amount' ? amountLabel : content.fields[key]}</dt>
@@ -281,7 +316,8 @@ function MembershipDataRender(props) {
   const previewRenewal = props.asEditor && props.type === 'payment-details'
     && safeMembershipLink(props.block.content?.renewalLink);
   const displayResult = previewRenewal ? { status: 'ready', isSample: true, data: {
-    membership: { state: 'active', memberSince: '2020-01-01', membershipType: 'Example membership', expiryDate: '2030-10-01' },
+    membership: { state: 'active', memberSince: '2020-01-01', membershipType: 'Example membership',
+      termStartDate: '2029-10-02', termEndDate: '2030-10-01', expiryDate: '2030-10-01' },
     payment: { state: 'paid', method: 'upfront' },
     renewal: { eligible: true },
   } } : result;

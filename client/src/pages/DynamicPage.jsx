@@ -24,6 +24,7 @@ function ArticleEditor(props) {
 import PublicArticles from "./PublicArticles";
 import FormView from "./FormView";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import { canvasNeedsSymbols } from "@/lib/canvasNeedsSymbols.mjs";
 import { getUnknownPageRedirectTarget, resolveUnknownPage } from "./unknownPageRedirect";
 import { readPublicPage, DYNAMIC_PAGE_PENDING_TIMEOUT_MS } from "./dynamicPageRequest";
 import { usePublicPageNavigation } from "@/components/navigation/PublicPageNavigation";
@@ -425,6 +426,7 @@ export default function DynamicPage() {
       // layout lives in canvas_design on the page row itself. Skip the
       // element fetch to save a round trip.
       if (page.builder_type === 'canvas') {
+        if (!canvasNeedsSymbols(page.canvas_design)) return { page, elements: [], symbols: [] };
         // This path is authenticated (preview iframe or a logged-in viewer of
         // a hybrid/member page). The public page endpoint did not run, so pull
         // symbol designs from the authenticated endpoint and embed them so the

@@ -35,6 +35,24 @@ export async function fetchCanvasMembershipSummary({ signal, tenantId } = {}) {
   return normalizeCanvasMembershipSummary(result);
 }
 
+export async function fetchCanvasRenewalPrice({ signal, tenantId } = {}) {
+  const response = await fetch('/api/membership/canvas-renewal-price', {
+    credentials: 'include', cache: 'no-store', signal,
+    headers: tenantId ? { 'X-Tenant-Id': tenantId } : {},
+  });
+  if (!response.ok) {
+    const error = new Error('Renewal price could not be loaded.');
+    error.status = response.status;
+    throw error;
+  }
+  const result = await response.json();
+  // The separate self-only quote endpoint is the verification boundary. Never
+  // source this value from summary.payment or a retained signup/payment record.
+  return normalizeCanvasMembershipSummary({ renewal: {
+    eligible: true, price: result?.price ? { ...result.price, verified: true } : null,
+  } }).renewal.price || null;
+}
+
 export function useCanvasMembershipSummary({ asEditor = false } = {}) {
   const { authResolved, sessionValidated, memberInfo } = useLayoutContext();
   const branding = useTenantBranding();
@@ -44,12 +62,13 @@ export function useCanvasMembershipSummary({ asEditor = false } = {}) {
   const tenantMismatch = activeTenantId && memberInfo?.tenant_id
     && String(activeTenantId) !== String(memberInfo.tenant_id);
   const enabled = !asEditor && typeof window !== 'undefined' && authenticated && !tenantMismatch;
+  const scopeKey = canvasMembershipQueryKey({
+    tenantId, tenantSlug: branding?.tenantSlug,
+    host: typeof window !== 'undefined' ? window.location.host : '',
+    viewerId: authenticated ? memberInfo.id : '',
+  });
   const query = useQuery({
-    queryKey: canvasMembershipQueryKey({
-      tenantId, tenantSlug: branding?.tenantSlug,
-      host: typeof window !== 'undefined' ? window.location.host : '',
-      viewerId: authenticated ? memberInfo.id : '',
-    }),
+    queryKey: scopeKey,
     queryFn: ({ signal }) => fetchCanvasMembershipSummary({ signal, tenantId }),
     enabled,
     staleTime: 0,
@@ -57,6 +76,20 @@ export function useCanvasMembershipSummary({ asEditor = false } = {}) {
     retry: false,
     refetchOnMount: 'always',
     // Never hydrate/dehydrate this private response as page or offline data.
+    meta: { private: true, persist: false },
+  });
+  const requestPrice = enabled && query.isSuccess && query.data?.renewal.eligible === true
+    && ['upfront', 'card', 'bank_transfer', 'invoice'].includes(query.data?.payment.method);
+  const priceQuery = useQuery({
+    queryKey: ['canvas-membership-renewal-price', ...scopeKey.slice(1),
+      query.data?.membership.termStartDate || '', query.data?.membership.expiryDate || '',
+      query.data?.membership.renewalDate || ''],
+    queryFn: ({ signal }) => fetchCanvasRenewalPrice({ signal, tenantId }),
+    enabled: requestPrice,
+    staleTime: 0,
+    gcTime: 0,
+    retry: false,
+    refetchOnMount: 'always',
     meta: { private: true, persist: false },
   });
   if (asEditor) return { status: 'ready', data: EDITOR_SAMPLE, isSample: true };
@@ -68,5 +101,11 @@ export function useCanvasMembershipSummary({ asEditor = false } = {}) {
     data: null,
   };
   if (!query.data) return { status: 'loading', data: null };
-  return { status: 'ready', data: query.data, isSample: false };
+  return { status: 'ready', data: { ...query.data, renewal: {
+    ...query.data.renewal,
+    // Never leak a cached quote through a disabled observer on auth/term change.
+    price: requestPrice && priceQuery.isSuccess ? priceQuery.data || undefined : undefined,
+    ...(requestPrice ? { priceState: priceQuery.isError ? 'unavailable'
+      : priceQuery.isSuccess ? (priceQuery.data ? 'ready' : 'unavailable') : 'loading' } : {}),
+  } }, isSample: false };
 }

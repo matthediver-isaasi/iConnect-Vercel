@@ -4,6 +4,41 @@ import { readFileSync } from 'node:fs';
 import { buildCanvasSummary, canvasDate, createCanvasSummaryHandler, selectCanvasCommitment } from './canvas-summary.js';
 
 const today = '2026-09-18';
+test('separate renewal quote uses verified simulation, not prior paid cost', async () => {
+  const h = harness({ extra: { renewalPriceOnly: true, loadRenewalContext: async (_db, scope) => {
+    assert.equal(scope.memberId, 'member-a');
+    return { renewal: { eligible: true, state: 'eligible_renewal', successorStart: '2027-01-01', successorEnd: '2027-12-31' },
+      simulation: { success: true, totalWithVat: 197, config: { currency: 'GBP' } } };
+  } } });
+  const r = await h.request();
+  assert.equal(r.statusCode, 200);
+  assert.deepEqual(r.payload, { price: { amount: 197, currency: 'GBP', termStart: '2027-01-01', termEnd: '2027-12-31' }, state: 'eligible_renewal' });
+  assert.match(r.headers['Cache-Control'], /private, no-store/);
+});
+test('renewal quote endpoint preserves authentication, tenant, feature and selector gates', async () => {
+  let called = 0;
+  const extra = { renewalPriceOnly: true, loadRenewalContext: async () => { called++; throw Error('Must not run'); } };
+  assert.equal((await harness({ extra, session: null }).request()).statusCode, 401);
+  assert.equal((await harness({ extra, context: { tenantId: 'other' } }).request()).statusCode, 409);
+  assert.equal((await harness({ extra, permission: false }).request()).statusCode, 403);
+  assert.equal((await harness({ extra }).request({ query: { memberId: 'other' } })).statusCode, 400);
+  assert.equal(called, 0);
+});
+test('ineligible, recurring and invalid renewal quotes never expose a price', async () => {
+  for (const patch of [{ eligible: false }, { currentAgreementId: 'agreement' }]) {
+    const r = await harness({ extra: { renewalPriceOnly: true, loadRenewalContext: async () => ({
+      renewal: { eligible: true, state: 'renewal_pending', ...patch },
+      simulation: { success: true, totalWithVat: 156, config: { currency: 'GBP' } },
+    }) } }).request();
+    assert.equal(r.payload.price, null);
+  }
+  for (const amount of [-1, NaN, '156', null]) {
+    const r = await harness({ extra: { renewalPriceOnly: true, loadRenewalContext: async () => ({
+      renewal: { eligible: true }, simulation: { success: true, totalWithVat: amount, config: { currency: 'GBP' } },
+    }) } }).request();
+    assert.equal(r.payload.price, null);
+  }
+});
 const member = { id: 'member-a', tenant_id: 'tenant-a', organization_id: 'org-a', role_id: 'role-a' };
 const term = (patch = {}) => ({
   id: 'term-a', tenant_id: 'tenant-a', member_id: 'member-a',
@@ -137,10 +172,11 @@ function dbFixture({ rows = {}, errors = {}, unfiltered = false } = {}) {
 }
 
 function harness({ session = member, context = { tenantId: 'tenant-a' }, admin = false,
-  permission = true, rows = {}, errors, unfiltered, currentDay = today } = {}) {
+  permission = true, rows = {}, errors, unfiltered, currentDay = today, extra = {} } = {}) {
   const db = dbFixture({ rows: { member: [member], ...rows }, errors, unfiltered });
   const gates = [];
   const handler = createCanvasSummaryHandler({
+    ...extra,
     db, now: () => new Date(`${currentDay}T12:00:00Z`),
     getSessionMember: async () => session,
     getTenantContext: async () => context,
@@ -714,7 +750,7 @@ test('authenticated response is minimal, tenant scoped and private no-store', as
   assert.deepEqual(Object.keys(res.payload), ['membership', 'payment', 'renewal']);
   assert.deepEqual(res.payload.renewal, { eligible: false });
   assert.deepEqual(Object.keys(res.payload.membership), [
-    'state', 'memberSince', 'membershipType', 'renewalDate', 'paymentHistoryFrom',
+    'state', 'memberSince', 'termStartDate', 'expiryDate', 'membershipType', 'renewalDate', 'paymentHistoryFrom',
   ]);
   assert.deepEqual(Object.keys(res.payload.payment), [
     'state', 'method', 'nextPayment', 'amount', 'currency', 'collectionStatus',

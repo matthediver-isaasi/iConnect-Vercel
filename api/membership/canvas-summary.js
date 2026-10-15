@@ -135,6 +135,10 @@ export function buildCanvasSummary({ selected, plan = null, paused = false, toda
     // No current persisted writer records original membership commencement
     // provenance. A retained term start (including a cutover) is insufficient.
     memberSince: null,
+    ...(record.membership_source === 'personal' && selected.commitment && selected.validCommencement ? {
+      termStartDate: canvasDate(record.term_start_date),
+      expiryDate: canvasDate(record.term_end_date),
+    } : {}),
     membershipType: text(commitment?.tierLabel) || text(commitment?.structureName) || text(record.tier_label),
     renewalDate: selected.renewal || null,
     ...(selected.legacy ? { expiryDate: selected.legacy.endDate } : {}),
@@ -464,10 +468,28 @@ export function createCanvasSummaryHandler(dependencies = {}) {
       if (error) throw error;
       if (!owner) return res.status(404).json({ error: 'Member not found' });
       if (!belongsTo(owner, tenantId, 'id', member.id)) throw new Error('Member ownership mismatch');
+      if (dependencies.renewalPriceOnly) {
+        const { loadFormMembershipRenewalContext } = await import('../_lib/formMembershipRenewalContext.js');
+        const { createMembershipSimulator } = await import('../_lib/membershipSimulationCore.js');
+        const result = await (dependencies.loadRenewalContext || loadFormMembershipRenewalContext)(db, {
+          tenantId, memberId: member.id, now: now(),
+          simulate: dependencies.simulate || createMembershipSimulator(db).simulateMembershipForMember,
+        });
+        const amount = result.simulation?.totalWithVat;
+        const currency = result.simulation?.config?.currency;
+        const valid = result.simulation?.success === true && result.renewal?.eligible === true && !result.renewal.currentAgreementId
+          && Number.isFinite(amount) && amount >= 0 && /^[A-Z]{3}$/.test(currency || '');
+        return res.json({ price: valid ? {
+          amount, currency, termStart: result.renewal.successorStart, termEnd: result.renewal.successorEnd,
+        } : null, state: result.renewal?.state || 'unavailable' });
+      }
       // Organisation entitlement comes only from the current scoped member row.
-      const personal = await readHistory(db, tenantId, 'member_id', member.id, 'member_membership_history', 'personal');
-      const organisation = owner.organization_id
-        ? await readHistory(db, tenantId, 'organization_id', owner.organization_id, 'organisation_membership_history', 'organisation') : [];
+      const [personal, organisation] = await Promise.all([
+        readHistory(db, tenantId, 'member_id', member.id, 'member_membership_history', 'personal'),
+        owner.organization_id
+          ? readHistory(db, tenantId, 'organization_id', owner.organization_id, 'organisation_membership_history', 'organisation')
+          : Promise.resolve([]),
+      ]);
       const today = now().toISOString().slice(0, 10);
       await attachAlphaMembershipRecognition(db, tenantId, member.id, personal, today);
       const selected = selectCanvasCommitment(personal, organisation, today);

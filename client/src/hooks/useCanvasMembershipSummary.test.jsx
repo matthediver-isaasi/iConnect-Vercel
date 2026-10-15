@@ -13,7 +13,7 @@ const { act } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query');
 const { default: LayoutContext } = await import('../contexts/LayoutContext.jsx');
-const { useCanvasMembershipSummary, fetchCanvasMembershipSummary } = await import('./useCanvasMembershipSummary.js');
+const { useCanvasMembershipSummary, fetchCanvasMembershipSummary, fetchCanvasRenewalPrice } = await import('./useCanvasMembershipSummary.js');
 const { setActiveTenantId } = await import('../api/base44Client.js');
 
 const responseData = viewer => ({
@@ -41,6 +41,131 @@ test('fetch is authenticated, abortable, no-store and rejects denied/malformed r
     globalThis.fetch = async () => ({ ok: true, json: async () => ({}) });
     await assert.rejects(fetchCanvasMembershipSummary(), /invalid/);
   } finally { globalThis.fetch = original; }
+});
+
+test('separate renewal quote fetch is private, abortable, strictly validated and never substitutes payment amounts', async () => {
+  const original = globalThis.fetch;
+  const controller = new AbortController();
+  let payload = { state: 'ready', price: { amount: 163.75, currency: 'GBP',
+    termStart: '2026-09-24', termEnd: '2027-09-23' } };
+  try {
+    globalThis.fetch = async (url, options) => {
+      assert.equal(url, '/api/membership/canvas-renewal-price');
+      assert.equal(options.credentials, 'include');
+      assert.equal(options.cache, 'no-store');
+      assert.equal(options.headers['X-Tenant-Id'], 't1');
+      assert.equal(options.signal, controller.signal);
+      return { ok: true, json: async () => payload };
+    };
+    const load = () => fetchCanvasRenewalPrice({ tenantId: 't1', signal: controller.signal });
+    assert.deepEqual(await load(), { verified: true, amount: 163.75, currency: 'GBP' });
+    for (const price of [null, { amount: '163.75', currency: 'GBP' }, { amount: -1, currency: 'GBP' },
+      { amount: 163.75, currency: 'gbp' }]) {
+      payload = { state: 'unavailable', price, payment: { amount: 117, currency: 'GBP' } };
+      assert.equal(await load(), null);
+    }
+    globalThis.fetch = async () => ({ ok: false, status: 403 });
+    await assert.rejects(load(), error => error.status === 403);
+  } finally { globalThis.fetch = original; }
+});
+
+test('eligible upfront quotes load independently, share in-flight reads and stay isolated across auth and tenant changes', async () => {
+  const original = globalThis.fetch;
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  let method = 'upfront';
+  let eligible = true;
+  let priceCalls = 0;
+  let resolvePrice;
+  let seen;
+  const auth = id => ({ authResolved: true, sessionValidated: true, memberInfo: { id, tenant_id: 't1' } });
+  function Probe() {
+    seen = useCanvasMembershipSummary();
+    return <div>{seen.status}:{seen.data?.renewal.priceState}:{seen.data?.renewal.price?.amount}</div>;
+  }
+  async function mount(context) {
+    await act(async () => {
+      root.render(<QueryClientProvider client={client}>
+        <LayoutContext.Provider value={context}><Probe /><Probe /></LayoutContext.Provider>
+      </QueryClientProvider>);
+      await new Promise(resolve => setTimeout(resolve, 15));
+    });
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 15)); });
+  }
+  try {
+    globalThis.fetch = async (url, options) => {
+      assert.equal(options.cache, 'no-store');
+      assert.equal(options.credentials, 'include');
+      assert.equal(options.headers['X-Tenant-Id'], 't1');
+      if (url === '/api/membership/canvas-renewal-price') {
+        priceCalls += 1;
+        return new Promise(resolve => { resolvePrice = resolve; });
+      }
+      assert.equal(url, '/api/membership/canvas-summary');
+      return { ok: true, json: async () => ({
+        ...responseData('Current viewer'), payment: { state: 'paid', method },
+        renewal: { eligible }, membership: { state: 'active', termStartDate: '2025-09-24', expiryDate: '2026-09-23' },
+      }) };
+    };
+    await mount(auth('a'));
+    assert.equal(priceCalls, 1);
+    assert.equal(seen.status, 'ready');
+    assert.equal(seen.data.renewal.priceState, 'loading');
+    assert.equal(seen.data.renewal.price, undefined);
+    await act(async () => {
+      resolvePrice({ ok: true, json: async () => ({ state: 'ready', price: { amount: 163.75, currency: 'GBP' } }) });
+      await new Promise(resolve => setTimeout(resolve, 15));
+    });
+    assert.equal(seen.data.renewal.price.amount, 163.75);
+    assert.equal(seen.data.renewal.priceState, 'ready');
+    const quote = client.getQueryCache().getAll().find(query => query.queryKey[0] === 'canvas-membership-renewal-price');
+    assert.deepEqual(quote.meta, { private: true, persist: false });
+    assert.ok(quote.queryKey.includes('a'));
+    assert.ok(quote.queryKey.includes('t1'));
+    await mount(auth('b'));
+    assert.equal(priceCalls, 2);
+    assert.equal(seen.data.renewal.price, undefined);
+    const delayedPrice = resolvePrice;
+    await mount({ authResolved: true, sessionValidated: false, memberInfo: null });
+    assert.equal(seen.status, 'guest');
+    assert.equal(seen.data, null);
+    await act(async () => {
+      delayedPrice({ ok: true, json: async () => ({ state: 'ready', price: { amount: 188, currency: 'GBP' } }) });
+      await new Promise(resolve => setTimeout(resolve, 15));
+    });
+    assert.equal(seen.data, null);
+    for (const [id, nextMethod, nextEligible] of [
+      ['dd', 'monthly_direct_debit', true], ['monthly', 'monthly_card', true], ['closed', 'upfront', false],
+    ]) {
+      method = nextMethod;
+      eligible = nextEligible;
+      await mount(auth(id));
+      assert.equal(priceCalls, 2);
+      assert.equal(seen.data.renewal.price, undefined);
+    }
+    method = 'upfront';
+    eligible = true;
+    await mount(auth('unavailable'));
+    await act(async () => {
+      resolvePrice({ ok: false, status: 500 });
+      await new Promise(resolve => setTimeout(resolve, 15));
+    });
+    assert.equal(seen.status, 'ready');
+    assert.equal(seen.data.renewal.priceState, 'unavailable');
+    const beforeMismatch = priceCalls;
+    await act(async () => setActiveTenantId('other-tenant'));
+    assert.equal(priceCalls, beforeMismatch);
+    assert.equal(seen.status, 'denied');
+    assert.equal(seen.data, null);
+  } finally {
+    await act(async () => root.unmount());
+    setActiveTenantId(null);
+    client.clear();
+    container.remove();
+    globalThis.fetch = original;
+  }
 });
 
 test('cards share a request, editor/guest never fetch, viewer transitions never reuse private data', async () => {

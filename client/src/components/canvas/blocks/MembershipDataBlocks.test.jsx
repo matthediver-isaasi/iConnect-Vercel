@@ -53,9 +53,105 @@ test('grace uses member-friendly copy without internal policy diagnostics', () =
     assert.match(html, /Your membership is in its grace period until/);
     assert.match(html, /23 September 2026/);
     assert.match(html, /22 December 2026/);
-    assert.match(html, /Please renew by this date to continue your membership/);
+    assert.match(html, /Renew now to keep your membership beyond the grace period/);
+    assert.match(html, /Your previous payment does not cover the renewal/);
     assert.doesNotMatch(html, /DISPLAY ONLY|renewal boundary|historical policy|recorded prior term|Recorded paid term|Renewal payment is separate/);
-    if (type === 'payment-details') assert.match(html, /Previous membership ended/);
+    assert.match(html, /Previous membership ended/);
+    const doc = new JSDOM(html).window.document;
+    const warning = doc.querySelector('[data-testid="membership-grace-notice"] svg');
+    assert.equal(warning.getAttribute('aria-hidden'), 'true');
+    assert.equal(warning.style.color, 'rgb(161, 107, 19)');
+    assert.doesNotMatch(doc.body.textContent, /Your current membership has been paid in full/);
+  }
+});
+
+test('upfront stock payment headings deduplicate without rewriting saved custom text', () => {
+  const data = { membership: { state: 'active' }, payment: { state: 'paid', method: 'upfront' } };
+  for (const breakpoint of ['desktop', 'mobile']) {
+    for (const asEditor of [false, true]) {
+      const doc = new JSDOM(render({ type: 'payment-details', breakpoint, asEditor,
+        result: { status: 'ready', data } })).window.document;
+      assert.equal(doc.querySelector('[data-membership-role="eyebrow"]'), null);
+      assert.equal(doc.querySelector('h2').textContent, 'Payment details');
+      assert.equal(doc.querySelector('section').getAttribute('aria-labelledby'), doc.querySelector('h2').id);
+    }
+  }
+  for (const content of [
+    { eyebrow: 'YOUR PAYMENTS' },
+    { states: { paid: { heading: 'Your annual payment', supporting: 'Our membership team can help.' } } },
+  ]) {
+    const doc = new JSDOM(render({ type: 'payment-details', block: { id: 'custom-upfront', content },
+      result: { status: 'ready', data } })).window.document;
+    assert.ok(doc.querySelector('[data-membership-role="eyebrow"]'));
+    assert.ok(doc.body.textContent.includes(content.eyebrow || 'Your annual payment'));
+  }
+  assert.match(render({ type: 'payment-details' }), /data-membership-role="eyebrow"/);
+  for (const method of ['monthly_card', 'monthly_direct_debit']) {
+    const html = render({ type: 'payment-details', result: { status: 'ready', data: {
+      ...live, payment: { ...live.payment, method },
+    } } });
+    assert.match(html, /data-membership-role="eyebrow"/);
+    assert.match(html, /Next payment amount/);
+    assert.match(html, /£21.50/);
+    assert.match(html, /1 October 2029/);
+  }
+});
+
+test('both cards display retained term dates and grace labels, never dates inferred from join or renewal', () => {
+  for (const type of ['membership-summary', 'payment-details']) {
+    for (const grace of [undefined, { inGrace: true, graceEndDate: '2027-12-22' }]) {
+      const data = { membership: { state: 'active', termStartDate: '2026-09-24', termEndDate: '2027-09-23',
+        expiryDate: '2027-09-22', renewalDate: '2027-09-24', grace },
+      payment: { state: 'paid', method: 'upfront' } };
+      const html = render({ type, result: { status: 'ready', data } });
+      assert.match(html, /Membership valid from/);
+      assert.match(html, /24 September 2026/);
+      assert.match(html, /23 September 2027/);
+      assert.doesNotMatch(html, /22 September 2027|24 September 2027/);
+      assert.ok(html.includes(grace ? 'Previous membership ended' : 'Membership valid until'));
+    }
+    const html = render({ type, result: { status: 'ready', data: {
+      membership: { state: 'active', renewalDate: '2027-09-24' }, payment: { state: 'paid', method: 'upfront' },
+    } } });
+    assert.doesNotMatch(html, /Membership valid from|Membership valid until|24 September 2027/);
+  }
+});
+
+test('renewal price is independent from historical payment and grace preserves custom wording and labels', () => {
+  const data = {
+    membership: { state: 'expired', termStartDate: '2025-09-24', termEndDate: '2026-09-23',
+      grace: { inGrace: true, graceEndDate: '2026-12-22' } },
+    payment: { state: 'paid', method: 'upfront', amount: 117, currency: 'GBP',
+      confirmedPayment: { date: '2025-09-24', amount: 117, currency: 'GBP', historical: true } },
+    renewal: { eligible: true, price: { verified: true, amount: 163.75, currency: 'GBP' } },
+  };
+  const block = { id: 'priced-renewal', content: {
+    renewalLink: '/forms/renew', fields: { termStartDate: 'Your term began', renewalAmount: 'Your renewal fee',
+      previousMembershipEnded: 'Your previous term ended' },
+    states: { paid: { supporting: 'Contact our membership team for help.' } },
+  } };
+  for (const breakpoint of ['desktop', 'mobile']) {
+    const html = render({ type: 'payment-details', block, breakpoint, result: { status: 'ready', data } });
+    for (const text of ['Your term began', 'Your renewal fee', 'Your previous term ended',
+      '£163.75', 'Contact our membership team for help.', 'Renew your subscription']) assert.ok(html.includes(text), text);
+    assert.doesNotMatch(html, /£117/);
+  }
+  for (const price of [undefined, { verified: false, amount: 163.75, currency: 'GBP' }]) {
+    const html = render({ type: 'payment-details', block, result: {
+      status: 'ready', data: { ...data, renewal: { eligible: true, price } },
+    } });
+    assert.doesNotMatch(html, /membership-renewal-price|Your renewal fee|£163|£117/);
+    assert.match(html, /Renew your subscription/);
+  }
+  for (const priceState of ['loading', 'unavailable']) {
+    const doc = new JSDOM(render({ type: 'payment-details', block, result: {
+      status: 'ready', data: { ...data, renewal: { eligible: true, priceState } },
+    } })).window.document;
+    const notice = doc.querySelector('[data-testid="membership-renewal-price-status"]');
+    assert.equal(notice.getAttribute('role'), 'status');
+    assert.ok(notice.textContent.includes(priceState === 'loading' ? 'Checking your renewal price' : 'Check the renewal form'));
+    assert.ok(doc.querySelector('[data-testid="membership-renewal-cta"]'));
+    assert.doesNotMatch(doc.body.textContent, /£117|£163/);
   }
 });
 function render(overrides = {}) {

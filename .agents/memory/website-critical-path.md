@@ -7,6 +7,17 @@ Distinguish public route metadata from cookie-bearing page payloads when removin
 website request waterfalls. Preserve safe metadata reuse across layout remounts;
 do not automatically give all discovery queries mount-unique keys.
 
+Member-facing renewal pricing must not hold up portal first content or the
+independently available membership summary. Never use the previous paid amount
+as a substitute while a current renewal quote loads.
+
+**Why:** The portal is the primary member entry point; accurate optional pricing
+can require more reads than the saved membership facts. The user explicitly
+requires clearer upfront/grace information without increasing initial load time.
+
+**How to apply:** Keep pricing failure/loading local to the card, preserve
+tenant/viewer/masquerade isolation, and show unavailable rather than a guessed price.
+
 **Why:** A mount-unique homepage-slug query repeated discovery when layout policy
 remounted the homepage and made browser Back slower, despite earlier dispatch.
 The slug is routing metadata, not membership authority. Raw member-capable page

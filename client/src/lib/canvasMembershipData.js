@@ -82,6 +82,8 @@ export function getCanvasMembershipDefaults(type = 'membership-summary') {
       confirmedPayment: 'Confirmed payment', historicalPayment: 'Historical confirmed payment',
       confirmedPaymentAmount: 'Confirmed payment amount', plannedPayment: 'Planned payment',
       mandateStatus: 'Direct Debit status',
+      termStartDate: 'Membership valid from', previousMembershipEnded: 'Previous membership ended',
+      renewalAmount: 'Renewal price',
     },
     methods: {
       direct_debit: 'Direct Debit', monthly_direct_debit: 'Monthly Direct Debit',
@@ -99,6 +101,9 @@ export function getCanvasMembershipDefaults(type = 'membership-summary') {
       noPaymentScheduled: 'No scheduled payment recorded',
       signupPriceBasis: 'Based on the price when you joined.',
       variableSignupPriceBasis: 'Based on the price when you joined. This amount may change.',
+      graceRenewalAction: 'Renew now to keep your membership beyond the grace period. Your previous payment does not cover the renewal.',
+      renewalPriceLoading: 'Checking your renewal price…',
+      renewalPriceUnavailable: 'Your renewal price is not available here. Check the renewal form before making payment.',
     },
     typography: Object.fromEntries(MEMBERSHIP_TEXT_ROLES.map(role => [role, ''])),
     // Responsive outer-card minimum height. Zero deliberately means Auto.
@@ -207,8 +212,13 @@ export function membershipRenewalFormSlug(value) {
 }
 
 function isoDate(value) {
-  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(value)
-    && Number.isFinite(Date.parse(value)) ? value : null;
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(value)
+    || !Number.isFinite(Date.parse(value))) return null;
+  // Date.parse rolls impossible dates into the next month; never present those
+  // as retained term evidence.
+  const day = value.slice(0, 10);
+  const parsed = new Date(`${day}T00:00:00Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === day ? value : null;
 }
 
 function paymentEvidence(value) {
@@ -235,14 +245,29 @@ export function normalizeCanvasMembershipSummary(value) {
   const source = record(value);
   const membership = record(source.membership);
   const payment = record(source.payment);
+  const renewal = record(source.renewal);
+  const price = record(renewal.price);
+  const termStartDate = isoDate(membership.termStartDate);
+  const termEndDate = isoDate(membership.termEndDate);
+  const orderedTerm = !termStartDate || !termEndDate || termStartDate.slice(0, 10) <= termEndDate.slice(0, 10);
   return {
     // Only the authenticated server response can establish renewal eligibility.
-    renewal: { eligible: record(source.renewal).eligible === true },
+    // A retained payment, signup quote or current collection is not a renewal quote.
+    renewal: { eligible: renewal.eligible === true,
+      ...(['loading', 'ready', 'unavailable'].includes(renewal.priceState) ? { priceState: renewal.priceState } : {}),
+      ...(renewal.eligible === true && price.verified === true
+        && Number.isFinite(price.amount) && price.amount >= 0
+        && typeof price.currency === 'string' && /^[A-Z]{3}$/.test(price.currency) ? {
+          price: { verified: true, amount: price.amount, currency: price.currency },
+        } : {}),
+    },
     membership: {
       state: MEMBERSHIP_DATA_STATES.includes(membership.state) ? membership.state : 'unavailable',
       memberSince: isoDate(membership.memberSince),
       membershipType: typeof membership.membershipType === 'string' ? membership.membershipType : null,
       renewalDate: isoDate(membership.renewalDate),
+      ...(orderedTerm && termStartDate ? { termStartDate } : {}),
+      ...(orderedTerm && termEndDate ? { termEndDate } : {}),
       ...(isoDate(membership.expiryDate) ? { expiryDate: isoDate(membership.expiryDate) } : {}),
       ...(membership.grace?.inGrace && isoDate(membership.grace.graceEndDate) ? {
         grace: { inGrace: true, graceEndDate: isoDate(membership.grace.graceEndDate),

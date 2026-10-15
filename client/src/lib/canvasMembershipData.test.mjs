@@ -16,6 +16,55 @@ test('renewal configuration survives normalization but never stores server eligi
   }
 });
 
+test('saved term dates remain separate from original join and renewal dates', () => {
+  const input = { membership: { state: 'active', termStartDate: '2026-09-24', termEndDate: '2027-09-23',
+    renewalDate: '2027-09-24', memberSince: null } };
+  const normalized = normalizeCanvasMembershipSummary(input);
+  assert.equal(normalized.membership.termStartDate, '2026-09-24');
+  assert.equal(normalized.membership.termEndDate, '2027-09-23');
+  assert.equal(normalized.membership.memberSince, null);
+  assert.deepEqual(normalizeCanvasMembershipSummary(normalized), normalized);
+  for (const value of [null, '', '2026', '2026-02-30', 'not a date']) {
+    const data = normalizeCanvasMembershipSummary({ membership: { termStartDate: value, termEndDate: value } });
+    assert.equal(data.membership.termStartDate, undefined);
+    assert.equal(data.membership.termEndDate, undefined);
+  }
+  const reversed = normalizeCanvasMembershipSummary({ membership: {
+    termStartDate: '2027-09-24', termEndDate: '2026-09-23',
+  } });
+  assert.equal(reversed.membership.termStartDate, undefined);
+  assert.equal(reversed.membership.termEndDate, undefined);
+  const noTerm = normalizeCanvasMembershipSummary({ membership: { memberSince: '2017-01-01', renewalDate: '2027-09-24' } });
+  assert.equal(noTerm.membership.termStartDate, undefined);
+  assert.equal(noTerm.membership.termEndDate, undefined);
+});
+
+test('renewal price requires explicit verified current quote, never historical amounts', () => {
+  const payment = { amount: 117, currency: 'GBP', confirmedPayment: { date: '2025-09-24', amount: 117, currency: 'GBP' } };
+  for (const amount of [0, 163.75]) {
+    const data = normalizeCanvasMembershipSummary({
+      renewal: { eligible: true, price: { verified: true, amount, currency: 'GBP', private: 'hidden' } }, payment,
+    });
+    assert.deepEqual(data.renewal.price, { verified: true, amount, currency: 'GBP' });
+    assert.deepEqual(normalizeCanvasMembershipSummary(data), data);
+  }
+  for (const price of [undefined, {}, { amount: 117, currency: 'GBP' },
+    { verified: 'true', amount: 117, currency: 'GBP' }, { verified: true, amount: '117', currency: 'GBP' },
+    { verified: true, amount: -1, currency: 'GBP' }, { verified: true, amount: Infinity, currency: 'GBP' },
+    { verified: true, amount: 117, currency: 'gbp' }]) {
+    assert.equal(normalizeCanvasMembershipSummary({ renewal: { eligible: true, price }, payment }).renewal.price, undefined);
+  }
+  for (const eligible of [false, 'true', undefined]) {
+    assert.equal(normalizeCanvasMembershipSummary({ renewal: { eligible,
+      price: { verified: true, amount: 117, currency: 'GBP' } }, payment }).renewal.price, undefined);
+  }
+  const content = normalizeCanvasMembershipContent({ renewal: {
+    eligible: true, price: { verified: true, amount: 117, currency: 'GBP' },
+  }, membership: { termStartDate: '2026-09-24' } }, 'payment-details');
+  assert.equal(content.renewal, undefined);
+  assert.equal(content.membership, undefined);
+});
+
 test('bank setup keeps expected signup price separate and saved labels keep their meaning', () => {
   const input = { payment: { state: 'bank_setup_pending',
     expectedMonthlyPrice: { amount: 13, currency: 'GBP', variable: true, private: 'hidden' } } };
