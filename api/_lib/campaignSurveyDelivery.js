@@ -1,4 +1,4 @@
-import { resolveCampaignEventSurvey, usesEventSurvey, replaceEventSurvey } from './campaignEventSurvey.js';
+import { resolveCampaignEventSurveySelection, usesEventSurvey, replaceEventSurvey } from './campaignEventSurvey.js';
 import { resolveEventEmailContext } from './eventEmailContext.js';
 import { prepareCertificateSurveyLinks } from './certificateSurveyGrants.js';
 
@@ -38,7 +38,7 @@ export async function prepareCampaignSurveyDelivery({ db, campaign, tenantId, re
   if (!hasList && !hasUrl) return null;
   const context = campaign.event_survey_context;
   await resolveEventEmailContext(db, context, tenantId);
-  const ordinaryUrl = hasUrl ? await resolveCampaignEventSurvey(db, campaign, tenantId) : null;
+  const selection = hasUrl ? await resolveCampaignEventSurveySelection(db, campaign, tenantId) : null;
   const bookingSource = context.event_type === 'event' ? 'standard' : 'complex';
   if (!recipient?.email) throw new Error('A source attendee is required for campaign survey invitations.');
   const bookings = checked(await db.from(bookingSource === 'standard' ? 'booking' : 'complex_event_booking')
@@ -68,10 +68,12 @@ export async function prepareCampaignSurveyDelivery({ db, campaign, tenantId, re
       db, tenant, eventType: context.event_type, eventId: context.event_id,
       bookingSource, bookingId: booking.id, recipient: booking.attendee_email,
       preview: false, deliveryId: delivery.id, deliveryKind: 'campaign',
-      assignmentId: hasList ? null : context.assignment_id || null,
+      assignmentId: hasList ? null : selection?.assignmentId || context.assignment_id || null,
     });
-    const selected = ordinaryUrl && links.links?.find(link =>
-      link.assignmentUrl === ordinaryUrl);
+    // A preview origin and the canonical invitation host can differ. The
+    // validated, tenant/event-scoped assignment—not its URL—is the identity.
+    const selected = selection && links.links?.find(link =>
+      link.assignmentId === selection.assignmentId);
     if (hasUrl && !selected) throw new Error('The selected campaign survey is no longer available.');
     // A completed entitlement is deliberately not reopened by a resend.
     const url = selected?.url || '#';

@@ -37,6 +37,10 @@ export async function resolveEventEmailSurvey(db, config, event, eventType) {
 // Resolve only explicit campaign context, never recipient bookings. No writes,
 // token minting, access-mode changes or request-Origin dependencies.
 export async function resolveCampaignEventSurvey(db, campaign, tenantId) {
+  return (await resolveCampaignEventSurveySelection(db, campaign, tenantId))?.url || null;
+}
+
+export async function resolveCampaignEventSurveySelection(db, campaign, tenantId) {
   await resolveCampaignEventSponsors(db, campaign, tenantId);
   if (!usesEventSurvey(campaign)) return null;
   const context = campaign.event_survey_context;
@@ -75,5 +79,8 @@ export async function resolveCampaignEventSurvey(db, campaign, tenantId) {
   const { data: tenant, error: tenantError } = await db.from('tenant')
     .select('slug, domain').eq('id', tenantId).maybeSingle();
   if (tenantError || !tenant?.slug) reject('the tenant public URL is unavailable.');
-  return `${getTenantTrustedBaseUrl(null, tenant)}/survey/${encodeURIComponent(assignment.token)}`;
+  return {
+    assignmentId: assignment.id,
+    url: `${getTenantTrustedBaseUrl(null, tenant)}/survey/${encodeURIComponent(assignment.token)}`,
+  };
 }

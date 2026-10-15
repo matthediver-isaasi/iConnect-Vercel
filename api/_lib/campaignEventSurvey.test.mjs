@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { resolveCampaignEventSurvey, replaceEventSurvey, resolveEventEmailSurvey } from './campaignEventSurvey.js';
+import { resolveCampaignEventSurvey, resolveCampaignEventSurveySelection, replaceEventSurvey, resolveEventEmailSurvey } from './campaignEventSurvey.js';
 import { resolveCampaignAttendeeContent } from './campaignAttendeeContent.js';
 import { sanitizeSlotHtml } from './slotHtmlSanitizer.js';
 import { readFile } from 'node:fs/promises';
@@ -53,6 +53,17 @@ test('one reusable template resolves two events without changing access policy o
     assert.equal(replaceEventSurvey(campaign.html_content, url), `<a href="${url}">Survey ${url}</a>`);
   }
   assert.equal(JSON.stringify(rows), before);
+});
+
+test('validated selection retains assignment identity for explicit and single-survey contexts', async () => {
+  const { db, campaign } = fixture();
+  for (const assignment_id of [undefined, 'a1']) {
+    const selected = await resolveCampaignEventSurveySelection(db, {
+      ...campaign, event_survey_context: { ...campaign.event_survey_context, assignment_id },
+    }, 't');
+    assert.equal(selected.assignmentId, 'a1');
+    assert.equal(selected.url, await resolveCampaignEventSurvey(db, campaign, 't'));
+  }
 });
 
 for (const [name, mutate, expected] of [

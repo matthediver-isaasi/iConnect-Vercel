@@ -5,6 +5,13 @@ description: Durable decisions for event-assigned surveys — exclusive assignme
 
 # Survey event assignments — durable decisions
 
+## Survey identity is independent of delivery domain
+Match a validated campaign survey to generated invitations by assignment ID, not full URL.
+
+**Why:** Preview campaign lookup and canonical invitation generation can legitimately resolve different domains for the same assignment.
+
+**How to apply:** Retain tenant/event scoping, publication and availability validation before matching. Do not change canonical invitation hosts merely to make comparisons pass.
+
 ## Audience participation is not invitation eligibility
 Survey audiences require an explicit assignment even when only one exists.
 Closed and archived assignments may still be targeted using trustworthy historical
