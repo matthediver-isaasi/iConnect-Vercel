@@ -43,6 +43,7 @@ import MonthlyCollectionSchedule, {
 import HistoricalDdPayments from "@/components/membership/HistoricalDdPayments";
 import MembershipPricingDisplay from "@/components/membership/MembershipPricingDisplay";
 import { getMembershipPricingPresentation } from "@/components/membership/membershipPricingPresentation";
+import { formatMembershipMessageDates } from "@/components/membership/membershipMessageDates.mjs";
 import {
   historyScheduleDateLabel,
   membershipHistoryTermLabel,
@@ -1655,7 +1656,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                 />
               ) : (
                 <div className="text-center py-4 text-muted-foreground">
-                  <p className="text-sm" data-testid="text-member-no-current-tier">{data?.pricingErrors?.currentYear || 'No tier matched for the current year'}</p>
+                  <p className="text-sm" data-testid="text-member-no-current-tier">{formatMembershipMessageDates(data?.pricingErrors?.currentYear) || 'No tier matched for the current year'}</p>
                 </div>
               )}
             </CardContent>
@@ -1698,7 +1699,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                   />
                 ) : (
                   <div className="text-center py-4 text-muted-foreground">
-                    <p className="text-sm" data-testid="text-member-no-next-tier">{data?.pricingErrors?.nextYear || 'No tier matched for the next year'}</p>
+                    <p className="text-sm" data-testid="text-member-no-next-tier">{formatMembershipMessageDates(data?.pricingErrors?.nextYear) || 'No tier matched for the next year'}</p>
                   </div>
                 )}
               </CardContent>
