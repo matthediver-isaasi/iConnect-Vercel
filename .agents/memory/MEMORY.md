@@ -103,6 +103,7 @@
 - [Merge is not public rollout](merge-vs-public-rollout.md) — custom domains may keep serving an older frontend bundle after source merges; verify the live asset contains the feature.
 - [Entity-pipeline mapping ownership](entity-pipeline-mapping-ownership.md) — enclosing member/org pipeline owns every mapping destination; normalize saved metadata and reject mismatches at side-effect boundaries.
 - [Organisation reference vs mutation](organization-reference-mutation-auth.md) — a persisted tenant-valid selection may link records, but only explicit creation provenance can bypass mutation authorization.
+- [Organisation name recovery](organisation-name-recovery.md) — match original IDs; hidden form placeholders can conflict with explicit not-listed organisation answers.
 - [Email design validity](email-design-validity.md) — non-empty generated HTML does not prove unsupported blocks survived; preserve stored HTML when a design cannot be edited safely.
 - [Email column release gate](email-column-release-gate.md) — received-client approval and its CSS-evidence waiver; browser tests alone are not Gmail/Outlook proof.
 - [Transactional preference identity](transactional-preference-boundary.md) — personalization identity is not recipient authority; resolve after the final envelope and footer, separate from campaigns.

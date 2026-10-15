@@ -66,6 +66,7 @@ import SortableHeader, { getAriaSort } from "@/components/SortableHeader";
 import { safeLogoSrc } from "@/lib/safeLogoSrc";
 import { organisationDirectKey } from "@/lib/organisationCacheSync.mjs";
 import MultiSelectFilter from "@/components/MultiSelectFilter";
+import OrganisationName from "@/components/OrganisationName";
 import {
   coerceCustomFilters,
   isActiveCustomFilterValue,
@@ -1943,7 +1944,7 @@ function OrganisationsListPageInner({ access }) {
                                     );
                                   })()}
                                   <div>
-                                    <p className="font-medium text-slate-900">{org.name}</p>
+                                    <p className="font-medium text-slate-900"><OrganisationName name={org.name} /></p>
                                     {org.website_url && (
                                       <p className="text-xs text-slate-500 truncate max-w-[200px]">{org.website_url}</p>
                                     )}
@@ -2139,7 +2140,7 @@ function OrganisationsListPageInner({ access }) {
                           );
                         })()}
                         <div className="min-w-0 flex-1">
-                          <h3 className="font-medium text-slate-900 truncate">{org.name}</h3>
+                          <h3 className="font-medium text-slate-900 truncate"><OrganisationName name={org.name} /></h3>
                         </div>
                       </div>
 
