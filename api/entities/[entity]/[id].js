@@ -128,6 +128,7 @@ const DEDICATED_ORGANISATION_DIRECTORY_SETTINGS = new Set([
   GROUP_FIELDS_KEY,
   'org_directory_filterable_back_fields',
   'org_directory_allow_csv_download',
+  'org_engagement_report_types',
 ]);
 const entityToTable = {
   'Gallery': 'gallery',

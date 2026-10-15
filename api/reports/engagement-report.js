@@ -1,5 +1,6 @@
 import { supabase } from '../_lib/database.js';
-import { getTenantContext } from '../_lib/tenantContext.js';
+import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
+import { loadEngagementSettings, saveEngagementSettings, engagementCohort } from '../_lib/engagementReportSettings.js';
 import { isResourceExcluded } from '../_lib/roleVisibility.js';
 import {
   startOfWeek, endOfWeek, subWeeks,
@@ -56,7 +57,9 @@ export function createEngagementReportHandler(deps = {}) {
   const getContext = deps.getTenantContext || getTenantContext;
 
   return async function handler(req, res) {
-  if (req.method !== 'GET') {
+   res.setHeader?.('Cache-Control', 'private, no-store');
+   const settingsRequest = req.query?.settings === 'true';
+   if (req.method !== 'GET' && !(settingsRequest && req.method === 'PUT')) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
@@ -72,6 +75,22 @@ export function createEngagementReportHandler(deps = {}) {
     }
 
     const { tenantId } = tenantContext;
+    if (settingsRequest) {
+      const individuallyDeniedAdmin = !tenantContext.tenantUserId
+        && (!tenantContext.roleId || isResourceExcluded(
+          Array.isArray(tenantContext.memberExcludedFeatures) ? tenantContext.memberExcludedFeatures : [],
+          'admin.role-management',
+        ));
+      const canManage = !individuallyDeniedAdmin
+        && await (deps.hasAdminAccess || hasAdminAccess)(tenantContext);
+      if (req.method === 'PUT' && !canManage) {
+        return res.status(403).json({ error: 'Tenant administrator access required' });
+      }
+      const settings = req.method === 'PUT'
+        ? await saveEngagementSettings(db, tenantId, req.body)
+        : await loadEngagementSettings(db, tenantId);
+      return res.status(200).json({ ...settings, canManage, tenantId });
+    }
     const { weekOffset = '0', startDate, endDate } = req.query;
 
     let periodStart;
@@ -112,6 +131,10 @@ export function createEngagementReportHandler(deps = {}) {
     const periodLengthDays = differenceInCalendarDays(periodEnd, periodStart) + 1;
     const prevPeriodEnd = endOfDay(subDays(periodStart, 1));
     const prevPeriodStart = startOfDay(subDays(periodStart, periodLengthDays));
+    const appliedFilter = await loadEngagementSettings(db, tenantId);
+    if (appliedFilter.configured && !appliedFilter.valid) {
+      return res.status(409).json({ error: appliedFilter.warning });
+    }
 
     const members = [];
     const memberBatchSize = 1000;
@@ -150,7 +173,8 @@ export function createEngagementReportHandler(deps = {}) {
           .eq('tenant_id', tenantId)
           .in('id', batch);
 
-        if (!orgsError && orgs) {
+        if (orgsError) throw new Error('Failed to fetch organisations');
+        if (orgs) {
           for (const org of orgs) {
             organizations[org.id] = org.name;
           }
@@ -159,10 +183,11 @@ export function createEngagementReportHandler(deps = {}) {
     }
 
     const orgMap = new Map();
+    const cohort = await engagementCohort(db, tenantId, Object.keys(organizations), appliedFilter);
 
     for (const member of (members || [])) {
       const orgId = member.organization_id;
-      if (!orgId) continue;
+      if (!orgId || !cohort.has(orgId)) continue;
 
       if (!orgMap.has(orgId)) {
         orgMap.set(orgId, {
@@ -255,6 +280,7 @@ export function createEngagementReportHandler(deps = {}) {
 
     return res.status(200).json({
       organizations: orgList,
+      appliedFilter,
       summary: {
         totalOrganizations: orgList.length,
         totalOrgsWithActivity,
@@ -276,7 +302,7 @@ export function createEngagementReportHandler(deps = {}) {
     });
   } catch (error) {
     console.error('[Engagement Report] Error:', error);
-    return res.status(500).json({ error: 'Failed to fetch engagement report' });
+    return res.status(error.status || 500).json({ error: error.status ? error.message : 'Failed to fetch engagement report' });
   }
   };
 }

@@ -1,5 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import EngagementSettings from "@/components/reports/EngagementSettings";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -89,6 +91,7 @@ export default function OrganisationEngagementReport() {
     isFeatureExcluded,
     isAccessReady,
     sessionValidated,
+    memberInfo,
   } = useMemberAccess();
   const [preset, setPreset] = useState('week');
   const initialWeek = getCurrentRangeForPreset('week');
@@ -98,6 +101,13 @@ export default function OrganisationEngagementReport() {
   const [customEnd, setCustomEnd] = useState('');
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedOrg, setExpandedOrg] = useState(null);
+  const [tab, setTab] = useState('report');
+  const [savedNotice, setSavedNotice] = useState('');
+  const queryClient = useQueryClient();
+  const tenantId = memberInfo?.tenant_id;
+  const identity = `${tenantId || ''}:${memberInfo?.id || ''}`;
+  const settingsKey = ['engagement-report-settings', identity];
+  const reportKey = ['engagement-report', identity];
 
   const hasReportAccess = isAccessReady
     && sessionValidated
@@ -122,8 +132,40 @@ export default function OrganisationEngagementReport() {
   const queryStart = preset === 'custom' ? customStart : fmtIso(rangeStart);
   const queryEnd = preset === 'custom' ? customEnd : fmtIso(rangeEnd);
 
-  const { data: reportData, isLoading } = useQuery({
-    queryKey: ['engagement-report', queryStart, queryEnd],
+  const settingsQuery = useQuery({
+    queryKey: settingsKey,
+    enabled: hasReportAccess && Boolean(tenantId),
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    queryFn: async () => {
+      const response = await fetch('/api/reports/engagement-report?settings=true', { credentials: 'include' });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to load settings');
+      return data;
+    },
+  });
+  const saveSettings = useMutation({
+    mutationFn: async input => {
+      setSavedNotice('');
+      const response = await fetch('/api/reports/engagement-report?settings=true', {
+        method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to save settings');
+      return data;
+    },
+    onSuccess: async data => {
+      queryClient.setQueryData(settingsKey, data);
+      setExpandedOrg(null);
+      await queryClient.cancelQueries({ queryKey: reportKey });
+      queryClient.removeQueries({ queryKey: reportKey, type: 'inactive' });
+      await queryClient.resetQueries({ queryKey: reportKey });
+      setSavedNotice('Settings saved.');
+    },
+  });
+  const { data: reportData, isLoading, error: reportError, isFetching } = useQuery({
+    queryKey: [...reportKey, queryStart, queryEnd],
     queryFn: async () => {
       const url = `/api/reports/engagement-report?startDate=${encodeURIComponent(queryStart)}&endDate=${encodeURIComponent(queryEnd)}`;
       const response = await fetch(url, { credentials: 'include' });
@@ -133,12 +175,12 @@ export default function OrganisationEngagementReport() {
       }
       return response.json();
     },
-    enabled: queryEnabled && hasReportAccess,
+    enabled: queryEnabled && hasReportAccess && Boolean(tenantId),
     staleTime: 0,
     refetchOnMount: true,
   });
 
-  const organizations = reportData?.organizations || [];
+  const organizations = reportError || isFetching ? [] : (reportData?.organizations || []);
   const summary = reportData?.summary || {};
   const period = reportData?.period || reportData?.week || {};
 
@@ -259,7 +301,7 @@ export default function OrganisationEngagementReport() {
             Activity rankings based on member engagement
           </p>
         </div>
-        {filteredOrgs.length > 0 && (
+        {tab === 'report' && filteredOrgs.length > 0 && (
           <Button
             variant="outline"
             className="gap-2"
@@ -272,6 +314,31 @@ export default function OrganisationEngagementReport() {
         )}
       </div>
 
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList aria-label="Organisation engagement">
+          <TabsTrigger value="report">Report</TabsTrigger>
+          <TabsTrigger value="settings">Settings</TabsTrigger>
+        </TabsList>
+        <TabsContent value="settings" forceMount className={`space-y-4 ${tab !== 'settings' ? 'hidden' : ''}`}>
+          {settingsQuery.isPending && <p role="status">Loading settings…</p>}
+          {settingsQuery.error && <div>
+            <p role="alert">{settingsQuery.error.message}</p>
+            <Button variant="outline" onClick={() => settingsQuery.refetch()}>Retry loading settings</Button>
+          </div>}
+          {savedNotice && <p role="status">{savedNotice}</p>}
+          {settingsQuery.data && !settingsQuery.isError && <EngagementSettings
+            key={`${identity}:${settingsQuery.dataUpdatedAt}`}
+            settings={settingsQuery.data} save={saveSettings.mutate}
+            saving={saveSettings.isPending} error={saveSettings.error}
+            reload={() => { saveSettings.reset(); settingsQuery.refetch(); }} />}
+        </TabsContent>
+        <TabsContent value="report" className="space-y-6">
+          {reportError && <p role="alert">{reportError.message}</p>}
+          {reportData?.appliedFilter && <p className="text-sm text-muted-foreground">
+            {reportData.appliedFilter.configured
+              ? `Saved scope: ${reportData.appliedFilter.values.length} organisation type(s) selected.`
+              : 'All organisations included — no type selection saved yet.'}
+          </p>}
       <Card>
         <CardContent className="pt-6">
           <div className="flex flex-col gap-4">
@@ -366,7 +433,7 @@ export default function OrganisationEngagementReport() {
         </div>
       )}
 
-      {!isLoading && queryEnabled && (
+      {!isLoading && !isFetching && !reportError && queryEnabled && (
         <>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <Card>
@@ -578,6 +645,8 @@ export default function OrganisationEngagementReport() {
           </Card>
         </>
       )}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

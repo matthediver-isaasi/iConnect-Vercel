@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { __setRoleAccessOverlayForTests } from '../_lib/roleVisibility.js';
+__setRoleAccessOverlayForTests([]);
 
 import {
   authorizeEngagementReport,
@@ -145,6 +147,7 @@ function reportDb() {
         not(column, operator, value) { call.filters.push(['not', column, operator, value]); return query; },
         in(column, value) { call.filters.push(['in', column, value]); return query; },
         order() { return query; },
+        limit() { return query; },
         async maybeSingle() {
           const tenant = call.filters.find(item => item[1] === 'tenant_id')?.[2];
           const id = call.filters.find(item => item[1] === 'id')?.[2];
@@ -152,7 +155,7 @@ function reportDb() {
           return { data, error: null };
         },
         async range() {
-          return { data: rows.member, error: null };
+          return { data: table === 'member' ? rows.member : [], error: null };
         },
         then(resolve, reject) {
           try {

@@ -25,3 +25,15 @@ the leak.
 `checkCrossOrgPermissions(roleId).isAdmin`. Group admins (the `n` flag) are NOT
 admins, so they get 403 — design advisory features to degrade gracefully on 403
 (treat as "no result") rather than block.
+
+For member sessions, role-level administrator approval must also respect
+individual administrator exclusions, including parent exclusions. Retain the
+explicit tenant-dashboard-user bypass.
+
+**Why:** role-level administrator checks alone can grant tenant-wide settings
+writes to someone whose individual administrator permission was revoked while
+their report-viewing permission remained intact.
+
+**How to apply:** combine the established administrator gate with effective
+`admin.role-management` exclusion checking for members; test a permitted report
+viewer with an administrator role and an individual administrator denial.
