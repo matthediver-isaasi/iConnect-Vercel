@@ -35,6 +35,16 @@ membership schedule, not a fixed 90-day period.
 means unknown grace, not a default duration; never infer it from today's matching
 schedule or from the NMC journal's date-based exclusion counter.
 
+Member-detail expiry warnings must remain independent of renewal checkout
+availability. An unpaid successor reservation does not prove renewal.
+
+**Why:** Checkout may be blocked to prevent duplicate purchase while the
+existing paid term is overdue; hiding its warning would conceal that debt.
+
+**How to apply:** Resolve the latest applicable paid personal term and its
+applied grace policy. Only a valid paid term covering today supersedes the old
+warning; missing policy should be visible, not treated as no expiry.
+
 For the approved BNMS late-payment reconstructions, retain the stored expiry
 and derive the annual start from it. Do not advance the anniversary or create a
 successor term merely because the verified payment arrived later.

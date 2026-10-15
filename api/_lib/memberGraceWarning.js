@@ -1,4 +1,4 @@
-import { loadCanvasRenewalEligibility } from './canvasRenewalEligibility.js';
+import { paymentReportGrace } from './membershipPaymentReportGrace.js';
 
 const DAY = 86400000;
 const dateOnly = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
@@ -10,6 +10,8 @@ export function annualGraceWarning(eligibility, today) {
   return {
     expired: today > closes,
     days: Math.floor((Date.parse(today) - Date.parse(end)) / DAY),
+    remainingDays: Math.max(0, Math.floor((Date.parse(closes) - Date.parse(today)) / DAY)),
+    noGrace: today > closes && (eligibility.noGrace === true || closes === end),
     endsOn: closes,
     reason: 'Upfront membership has not yet been renewed.',
   };
@@ -44,7 +46,10 @@ export async function loadMemberGraceWarning(db, { member, history, paused, now 
   const today = new Date(now).toISOString().slice(0, 10);
   // Only personal paid terms establish renewal authority. A newer paid term
   // supersedes an older expired term; pending attempts are not renewals.
-  const paid = history.filter(row => row.status === 'paid')
+  const paid = history.filter(row => row.membership_source === 'personal'
+      && row.tenant_id === member.tenant_id && row.member_id === member.id
+      && row.payment_status === 'paid' && ['active', 'paid', 'expired'].includes(row.status)
+      && (!row.term_start_date || row.term_start_date <= today))
     .sort((a, b) => String(b.term_end_date || '').localeCompare(String(a.term_end_date || '')));
   const record = paid[0];
   if (!record) return null;
@@ -58,12 +63,32 @@ export async function loadMemberGraceWarning(db, { member, history, paused, now 
       .eq('tenant_id', member.tenant_id).eq('billing_agreement_id', agreement.id)
       .order('created_at', { ascending: false }).limit(1).maybeSingle();
     if (result.error) throw result.error;
-    return recurringGraceWarning(result.data, agreement, new Date(now).getTime());
+    const warning = recurringGraceWarning(result.data, agreement, new Date(now).getTime());
+    if (!warning && ['payment_grace_period', 'payment_overdue', 'payment_plan_cancelled', 'expired', 'cancelled', 'canceled'].includes(result.data?.status)) {
+      return { policyUnknown: true, reason: 'The recurring payment is overdue or cancelled, but its grace deadline is unavailable. Review the payment plan before taking action.' };
+    }
+    return warning;
   }
-  if (!record.term_end_date || record.term_end_date >= today) return null;
-  const eligibility = await loadCanvasRenewalEligibility(db, {
-    selected: { record }, owner: member, history: paid, today,
+  if (record.term_end_date >= today) return null;
+  let configs = [];
+  if (!record.commitment_snapshot?.config && record.config_id) {
+    const { data, error } = await db.from('membership_tier_config').select('*')
+      .eq('tenant_id', member.tenant_id).eq('id', record.config_id).maybeSingle();
+    if (error) throw error;
+    if (data) configs = [data];
+  }
+  // Renewal checkout eligibility is not a warning policy: reservations must
+  // block duplicate checkout without hiding an overdue, unpaid renewal.
+  const result = await paymentReportGrace(db, {
+    row: { historyId: record.id, memberId: member.id, currentExpiryDate: record.term_end_date },
+    history: paid, configs, tenantId: member.tenant_id, today,
   });
-  if (eligibility.reason === 'eligibility_evidence_unavailable') throw new Error('Renewal evidence unavailable');
-  return annualGraceWarning(eligibility, today);
+  const warning = annualGraceWarning({
+    paidThroughDate: record.term_end_date, graceEndDate: result.graceEndDate,
+    noGrace: (record.commitment_snapshot?.config || configs[0])?.renewal_grace_days != null
+      && Number((record.commitment_snapshot?.config || configs[0])?.renewal_grace_days) === 0
+      && Date.parse(result.graceEndDate) - Date.parse(record.term_end_date) <= DAY,
+  }, today);
+  return warning || { policyUnknown: true,
+    reason: 'The membership expiry or applied grace policy could not be established. Review the Membership tab before taking action.' };
 }

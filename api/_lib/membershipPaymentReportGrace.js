@@ -19,7 +19,7 @@ export async function paymentReportGrace(db, { row, history, configs, tenantId, 
   }
   const record = history.find(h => h.id === row.historyId && h.member_id === row.memberId && h.tenant_id === tenantId);
   let graceEndDate = null;
-  if (record && !record.billing_agreement_id && ['upfront', 'card', 'stripe', 'invoice', 'bank_transfer'].includes(record.payment_method)) {
+  if (record && !record.billing_agreement_id && ['upfront', 'manual', 'card', 'stripe', 'invoice', 'bank_transfer'].includes(record.payment_method)) {
     const assigned = await loadExpiryOnlyRenewalPolicy(db, { tenantId, history: record });
     if (assigned) graceEndDate = assigned.graceEndDate;
     else {
@@ -33,5 +33,5 @@ export async function paymentReportGrace(db, { row, history, configs, tenantId, 
       }
     }
   }
-  return { ...row, ...paymentReportCountdown(row, today, graceEndDate) };
+  return { ...row, graceEndDate, ...paymentReportCountdown(row, today, graceEndDate) };
 }
