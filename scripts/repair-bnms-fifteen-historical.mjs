@@ -7,7 +7,15 @@ import {destinationTarget} from './apply-custom-object-relationship-deleted-memb
 import {buildRollingCommitment} from '../api/_lib/rollingMembershipCommitment.js';
 const mode=process.argv[2];assert.ok(['prepare','dry-run','apply','verify'].includes(mode));
 const tenant='ff2df806-b321-4254-b651-3af11fccf1db';
-const approved=[
+const additional=process.argv[3]==='additional-nine';
+assert.ok(!process.argv[3]||additional);
+const approved=additional?[
+  '5310e36a-5c40-4e3d-b533-781037a52543','6aa9e9aa-f72a-42da-b516-89b219e89309',
+  '5f6a2fb2-d4f0-4cdf-a437-b985493e3a5c','784682f0-9445-45d5-beb5-dbfd5ac58c60',
+  'f1485422-d0ac-49fd-b8df-fb9386a56fee','575f64e2-a940-4ecf-8bda-909fa1fe32d1',
+  '5c622874-0743-4310-9d3c-3b2f3815abc0','7f03f328-b428-404c-9cc8-88767fafdb94',
+  'c05d0240-5884-43c2-9435-311c44f4e84d',
+]:[
   '061b8e4d-c007-418e-9eb1-7e2953db9406','0b4143f2-4de3-4e06-8588-cccaeb4aef4d',
   '0f13863a-ee27-480d-9711-e6eaae948037','22d6148c-55b6-4725-95fd-2db1d2b3af3c',
   '2a0353bb-c971-4f85-a134-c43ec99c1b0d','3e7d67fa-d7b9-4c00-852e-975242d034e6',
@@ -17,7 +25,7 @@ const approved=[
   'ca24a246-4bd3-40ba-9db4-a39044c5a8ef','df2ba5a2-a6ba-4c40-b914-446b6e956027',
   'fe1b50de-d67e-412a-83c9-47cd2a1aca2f',
 ];
-const dir='generated-artifacts/bnms-fifteen-historical';
+const dir=additional?'generated-artifacts/bnms-additional-nine-historical':'generated-artifacts/bnms-fifteen-historical';
 fs.mkdirSync(dir,{recursive:true,mode:0o700});
 const save=(name,value)=>fs.writeFileSync(`${dir}/${name}.json`,JSON.stringify(value,null,2),{mode:0o600});
 const load=name=>JSON.parse(fs.readFileSync(`${dir}/${name}.json`,'utf8'));
@@ -49,7 +57,7 @@ async function snapshot(){
 try{
   if(mode==='prepare'){
     await db.query('BEGIN READ ONLY');const before=await snapshot();await db.query('ROLLBACK');
-    assert.equal(before.member.length,15);assert.equal(before.member_membership_history.length,0);
+    assert.equal(before.member.length,approved.length);assert.equal(before.member_membership_history.length,0);
     assert.equal(before.membership_billing_agreements.length,0);assert.equal(before.membership_payment_plans.length,0);
     const prior=JSON.parse(fs.readFileSync('generated-artifacts/bnms-current-commitments/recovery-review.json')).rows;
     const providers=JSON.parse(fs.readFileSync('generated-artifacts/bnms-remaining-84/members.json'));
@@ -73,7 +81,7 @@ try{
     const records=[],evidence=[];
     for(const member of approved){
       const p=prior.find(r=>r.memberId===member),provider=providers.find(r=>r.memberId===member);
-      assert.equal(p.category,'Paid historical-only reconstruction candidate');assert.equal(p.holds.length,0);
+      if(!additional){assert.equal(p.category,'Paid historical-only reconstruction candidate');assert.equal(p.holds.length,0);}
       const m=before.member.find(m=>m.id===member);
       assert.equal(m.email.toLowerCase(),p.email.toLowerCase());
       const prefs=before.preferences.filter(v=>v.member_id===member);
@@ -97,11 +105,18 @@ try{
       if(invoice.AmountCredited!=null)assert.equal(invoice.AmountCredited,0);
       assert.equal((invoice.CreditNotes||[]).length,0);
       const lines=invoice.LineItems.filter(l=>/\bmembership\b/i.test(l.Description||'')
-        &&!/\bevent|attend|conference|meeting|ticket|discount/i.test(l.Description||''));
+        &&!/\bevent|attend|conference|meeting|ticket|discount|includes/i.test(l.Description||''));
       assert.equal(lines.length,1);assert.equal(lines[0].Quantity,1);assert.equal(lines[0].TaxAmount,0);
-      assert.equal(lines[0].LineAmount,p.membershipAmount);
+      const amount=additional&&p.memberId==='5310e36a-5c40-4e3d-b533-781037a52543'?156:
+        additional&&p.memberId==='6aa9e9aa-f72a-42da-b516-89b219e89309'?128:p.membershipAmount;
+      assert.equal(lines[0].LineAmount,amount);
       const payments=[];
-      for(const entry of invoice.Payments||[]){
+      // Xero's single-invoice endpoint can expose a BatchPaymentID as PaymentID.
+      // The invoice-list response supplies the individual payment ID; still verify
+      // its actual invoice association and full cash settlement below.
+      const listed=newest.find(i=>i.InvoiceID===invoice.InvoiceID);
+      assert.ok(listed);assert.equal(listed.AmountPaid,invoice.AmountPaid);
+      for(const entry of listed.Payments||[]){
         const payment=(await get(`Payments/${entry.PaymentID}`)).Payments[0];
         assert.equal(payment.Status,'AUTHORISED');assert.equal(payment.Invoice.InvoiceID,invoice.InvoiceID);
         assert.ok(payment.Amount>0);payments.push(payment);
@@ -109,7 +124,6 @@ try{
       assert.ok(payments.length>0);
       assert.ok(Math.abs(payments.reduce((a,p)=>a+p.Amount,0)-invoice.Total)<0.005);
       const paidAt=new Date(Math.max(...payments.map(p=>Number(/\/Date\((\d+)/.exec(p.Date)[1])))).toISOString();
-      const amount=p.membershipAmount;
       const amounts={annual_cost:amount,final_cost:amount,vat_amount:0,total_with_vat:amount,currency:'GBP'};
       const commitment=buildRollingCommitment({config,startDate:p.proposedStart,paymentMethod:'upfront',
         paymentFrequency:'upfront',amounts,pricingSnapshot:{tier_label:klass.value,...amounts}});
@@ -119,7 +133,8 @@ try{
         status:'expired',payment_status:'paid',payment_method:'upfront',paid_at:paidAt,accounting_provider:'xero',
         accounting_invoice_id:invoice.InvoiceID,accounting_invoice_number:invoice.InvoiceNumber,
         xero_invoice_id:invoice.InvoiceID,xero_invoice_number:invoice.InvoiceNumber,
-        notes:JSON.stringify({source:'operator_approved_fifteen_historical_reconstructions',approvalDate:'2026-10-15',
+        notes:JSON.stringify({source:additional?'operator_approved_nine_retained_expiry_reconstructions':'operator_approved_fifteen_historical_reconstructions',approvalDate:'2026-10-15',
+          latePaymentAuthority:additional?'Owner explicitly instructed retaining stored expiry; late payment does not shift the approved annual term.':null,
           termAuthority:'approved_12_month_term_retaining_recorded_expiry',scope:'historical_only_not_renewed',
           scheduleAuthority:'Current member-class schedule approved for reconstruction; not historical configuration evidence.',
           invoiceId:invoice.InvoiceID,paymentIds:payments.map(p=>p.PaymentID),
@@ -139,7 +154,7 @@ try{
     await db.query('SELECT id FROM member WHERE tenant_id=$1 AND id=ANY($2::uuid[]) ORDER BY id FOR UPDATE',[tenant,approved]);
     const before=await snapshot();
     if(mode==='apply')assert.equal(load('dry-run').preparedHash,hash(prepared));
-    const replay=before.member_membership_history.length===15;
+    const replay=before.member_membership_history.length===approved.length;
     if(mode==='verify')assert.ok(replay,'Repair missing');
     const withoutHistory=x=>({...x,member_membership_history:[]});
     assert.deepEqual(withoutHistory(before),withoutHistory(prepared.before),'Source changed since provider review');
@@ -155,7 +170,7 @@ try{
       }
     }
     const after=await snapshot();assert.deepEqual(withoutHistory(after),withoutHistory(before));
-    assert.equal(after.member_membership_history.length,15);
+    assert.equal(after.member_membership_history.length,approved.length);
     for(const record of prepared.records){
       const actual=after.member_membership_history.find(h=>h.id===record.id);assert.ok(actual);
       for(const [key,value] of Object.entries(record)){
@@ -168,10 +183,10 @@ try{
     }
     const report=projectMembershipPaymentReport({tenantId:tenant,members:after.member,
       history:after.member_membership_history,configs:after.configs,today:'2026-10-15'});
-    assert.equal(report.length,15);assert.ok(report.every(r=>r.status==='expired'&&r.paymentMethod==='upfront'));
+    assert.equal(report.length,approved.length);assert.ok(report.every(r=>r.status==='expired'&&r.paymentMethod==='upfront'));
     await db.query(mode==='apply'?'COMMIT':'ROLLBACK');
     if(mode==='dry-run')save('dry-run',{preparedHash:hash(prepared)});
     save(`${mode}-${Date.now()}`,{after,report,replay});
-    console.log(JSON.stringify({mode,replay,records:15,reportIncluded:report.length,providerWrites:0}));
+    console.log(JSON.stringify({mode,replay,records:approved.length,reportIncluded:report.length,providerWrites:0}));
   }
 }catch(e){await db.query('ROLLBACK').catch(()=>{});throw e;}finally{await db.end();}

@@ -25,6 +25,26 @@ membership schedule, not a fixed 90-day period.
 means unknown grace, not a default duration; never infer it from today's matching
 schedule or from the NMC journal's date-based exclusion counter.
 
+For the approved BNMS late-payment reconstructions, retain the stored expiry
+and derive the annual start from it. Do not advance the anniversary or create a
+successor term merely because the verified payment arrived later.
+
+**Why:** The owner explicitly instructed that late payment does not adjust the
+membership expiry or start date.
+
+**How to apply:** Keep actual payment timestamps as financial evidence, separate
+from coverage dates. Obtain separate instructions for unresolved coverage.
+
+Xero single-invoice responses can return a batch ID in a payment's PaymentID
+field, while the invoice-list response supplies the individual payment ID.
+
+**Why:** A fully paid mixed invoice returned 404 when its batch ID was queried
+as an individual payment, despite the actual payment being available.
+
+**How to apply:** Use the matching invoice-list payment reference, then verify
+the payment's invoice association, authorised status and amount independently.
+Do not interpret a batch-reference 404 as evidence of non-payment.
+
 For the approved annual reconstructions, the owner confirmed memberships are
 12 months and authorised assuming the previous schedule matches the current
 member-class-selected schedule.
