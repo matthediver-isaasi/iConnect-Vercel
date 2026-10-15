@@ -3,7 +3,7 @@
 - [Better Stack subhourly timezone](better-stack-subhourly-timezone.md) — a server-timezone adjustment must be cleared with approval before setting a subhourly interval.
 - [BNMS membership topics](bnms-membership-index.md) — owner-approved membership evidence, historical test cohorts and NMC fulfilment eligibility.
 - [Router consistency in client/](router-consistency.md) — app uses react-router-dom; new pages built with wouter look like they navigate but break SPA routing.
-- [Serverless catch-all routing](serverless-catchall-routing.md) — test URL-only requests as well as locally injected route parameters; query strings must not override operations.
+- [Serverless runtime topics](serverless-runtime-index.md) — catch-all routing, traceable payment-handler imports, and invocation time budgets.
 - [Supabase realtime publication](supabase-realtime-publication.md) — realtime subscriptions silently get no events until the table is added to the supabase_realtime publication.
 - [Membership tier scheduling](membership-tier-scheduling.md) — a config is "in effect" by date range, not just effective_to IS NULL; switch-over caps the old config to newStart-1.
 - [base44 new field needs a DB column](base44-new-field-migration.md) — adding a new property to an existing base44 entity requires a migration; the column-per-field table does not auto-create columns.
@@ -35,7 +35,6 @@
 - [Transactional inbox delivery](transactional-inbox-delivery.md) — source-aware inbox reads/writes; project mentions must share message state between the main and board inboxes.
 - [Canvas AI generation](canvas-ai-index.md) — source fidelity, editing proposals, style references, design-first gates, and retry carry-forward.
 - [Microsite path-prefix surfaces](microsite-prefix-surfaces.md) — rows with microsite_id serve only at /{prefix}/{slug}; page-by-slug, nav, branding, entityMeta, sitemap must all exclude them from the default site.
-- [Serverless chunk time budget](serverless-chunk-time-budget.md) — record-count chunking still 504s when matches drive cost; budget wall-clock per invocation with an exact per-record resume cursor.
 - [Microsite branding overrides](microsite-branding-overrides.md) — a new overridable key needs whitelist + tenant-branding merge + SSR renderHtml + editor card; SSR and the branding endpoint are separate resolution paths.
 - [Typography styles microsite scoping](typography-microsite-scope.md) — a style is scoped to main-site OR one microsite; effective default per style_type = microsite default ?? main-site default; is_default unique per (scope,type) app-level only.
 - [Unchecked supabase inserts hide schema drift](unchecked-supabase-inserts.md) — supabase-js returns {error}, never throws; unchecked side-effect inserts fail silently forever on column drift.

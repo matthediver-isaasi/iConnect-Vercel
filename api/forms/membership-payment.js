@@ -451,6 +451,14 @@ async function handlePost(req, res, resolvedTenantId) {
   if (req.body.configId) explicitConfigId = req.body.configId;
 
   if (['start_direct_debit', 'start_monthly_card'].includes(action)) {
+    // Literal paths let the serverless bundler trace all three handlers.
+    // Load before reserving a term or fencing provider work: an import failure
+    // cannot have started a provider operation and must not strand a renewal.
+    const paymentHandler = action === 'start_monthly_card'
+      ? (await import('../membership/monthly-card.js')).default
+      : isMemberScoped
+        ? (await import('../membership/direct-debit.js')).default
+        : (await import('../membership/org-direct-debit.js')).default;
     const context = await renewalContext(tenantId, member, organizationId);
     const method = action === 'start_direct_debit' ? 'direct_debit' : 'monthly_card';
     if (context.renewal.state !== 'joining') {
@@ -471,12 +479,10 @@ async function handlePost(req, res, resolvedTenantId) {
     }
     req.body = { ...req.body, action: 'start',
       ...(organizationId ? { organizationId } : {}) };
-    const endpoint = method === 'monthly_card' ? '../membership/monthly-card.js'
-      : isMemberScoped ? '../membership/direct-debit.js' : '../membership/org-direct-debit.js';
     const reservation = { tenant_id: tenantId,
       quote: { simResult: { formRenewalElectionId: req.membershipPaymentContext?.electionId } } };
     const operation = await beginRenewalProviderWork(supabase, reservation);
-    const result = await (await import(endpoint)).default(req, res);
+    const result = await paymentHandler(req, res);
     if (res.statusCode < 400) await finishRenewalProviderWork(supabase, reservation, operation);
     return result;
   }
