@@ -92,13 +92,18 @@ function fixture(tables, segments = [{ type: 'all_members', ids: [] }]) {
       let after = '', ordering, columns;
       const query = {
         select(value) { columns=value; return this; },
-        eq(k,v) { filters.push(r => r[k] === v); return this; },
+        eq(k,v) { filters.push(r => k.split('.').reduce((o,key)=>o?.[key],r) === v); return this; },
         neq(k,v) { filters.push(r => r[k] !== v); return this; },
+        or(expression) {
+          const emails = [...expression.matchAll(/email\.ilike\.([^,]+)/g)].map(m => m[1].replaceAll('"','').toLowerCase());
+          filters.push(r => emails.includes(r.email?.toLowerCase()));
+          return this;
+        },
         is(k,v) { filters.push(r => r[k] === v); return this; },
         in(k,v) { filters.push(r => v.includes(r[k])); return this; },
         not(k,op,v) {
           if (op === 'ilike') filters.push(r => !r[k]?.startsWith('deleted_'));
-          else if(op === 'is') filters.push(r => r[k] !== v);
+          else if(op === 'is') filters.push(r => k.split('.').reduce((o,key)=>o?.[key],r) !== v);
           return this;
         },
         gte(k,v) { filters.push(r => r[k] >= v); return this; },
@@ -143,7 +148,9 @@ function fixture(tables, segments = [{ type: 'all_members', ids: [] }]) {
         });
         return {data:result,error:null};
       }
-      if(name==='campaign_preparation_attended_bookings') return {data:[],error:null};
+      if(name==='campaign_preparation_attended_bookings') return {data:(tables.complex_event_session_checkin || [])
+        .filter(r => r.tenant_id === args.p_tenant && args.p_ids.includes(r.booking_id) && r.checked_in_at)
+        .map(r => ({booking_id:r.booking_id})),error:null};
       assert.equal(name,'campaign_preparation_step');
       const action=args.p_action, p=args.p_payload;
       model.actions.push(action);
@@ -232,6 +239,41 @@ function fixture(tables, segments = [{ type: 'all_members', ids: [] }]) {
   model.finishStream = overrides => model.finish({resolveChunk:stream,...overrides});
   return model;
 }
+
+test('attendance preview and preparation agree for Zoom, check-in, both and neither, for both booking sources', async () => {
+  for (const complex of [false, true]) {
+    for (const selection of ['attended', 'not_attended', 'all']) {
+      const type = complex ? 'complex_event_booking' : 'booking';
+      const ids = ['zoom', 'checkin', 'both', 'absent', 'neither', 'foreign-outcome', 'wrong-source', 'disabled-target', 'opted'];
+      const tables = {
+        [type]: ids.map(id => ({ id, tenant_id:'tenant', event_id:'event', status:'confirmed',
+          attendee_email:`${id}@example.com`, checked_in_at:!complex && ['checkin','both'].includes(id) ? '2026-01-01' : null })),
+        complex_event_session_checkin: complex ? ['checkin','both'].map(booking_id =>
+          ({tenant_id:'tenant',booking_id,checked_in_at:'2026-01-01'})) : [],
+        attendance_current_outcome: [
+          ...['zoom','both','opted'].map(booking_id => ({tenant_id:'tenant',booking_type:type,booking_id,status:'attended',
+            attendance_target:{tenant_id:'tenant',tracking_enabled:true}})),
+          {tenant_id:'tenant',booking_type:type,booking_id:'disabled-target',status:'attended',
+            attendance_target:{tenant_id:'tenant',tracking_enabled:false}},
+          {tenant_id:'tenant',booking_type:type,booking_id:'absent',status:'absent'},
+          {tenant_id:'other',booking_type:type,booking_id:'foreign-outcome',status:'attended'},
+          {tenant_id:'tenant',booking_type:complex?'booking':'complex_event_booking',booking_id:'wrong-source',status:'attended'},
+        ],
+        email_unsubscribe:[{id:'u',tenant_id:'tenant',email:'opted@example.com',unsubscribe_type:'all'}],
+      };
+      const model = fixture(tables, [{type:'event_attendees',ids:['event'],attendance_selection:{event:selection}}]);
+      const preview = await preparationContext.run({db:model.db}, () => getTargetRecipients(model.state.snapshot,'tenant'));
+      assert.equal(preview.success,true,preview.error);
+      const expected = selection === 'attended' ? ['zoom','checkin','both'] :
+        selection === 'not_attended' ? ['absent','neither','foreign-outcome','wrong-source','disabled-target'] : ids.filter(id=>id!=='opted');
+      const emails = new Set(expected.map(id=>`${id}@example.com`));
+      assert.deepEqual(new Set(preview.recipients.map(r=>r.email)),emails,`${type} ${selection} preview`);
+      await model.finishStream();
+      assert.deepEqual(new Set(model.recipients.keys()),emails,`${type} ${selection} prepared`);
+      if (selection === 'all') assert(!model.sourceQueries.some(q => q.table === 'attendance_current_outcome'));
+    }
+  }
+});
 
 test('preparation reports aggregate work without recipient contents', async () => {
   const model = fixture({ member: [{ id: 'one', tenant_id: 'tenant', email: 'private@example.invalid', status: 'active' }] });

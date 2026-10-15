@@ -14,7 +14,7 @@ async function loadCampaignService() {
   const replacements = new Map();
 
   for (const [, names, specifier] of source.matchAll(importPattern)) {
-    if (specifier === 'crypto' || specifier === './eventSurveyAudience.js') continue;
+    if (specifier === 'crypto' || specifier === './eventSurveyAudience.js' || specifier === './campaignRecordedAttendance.js') continue;
     const exports = [];
     for (const entry of names.replace(/[{}]/g, '').split(',').map((value) => value.trim()).filter(Boolean)) {
       const [imported, local = imported] = entry.split(/\s+as\s+/);
@@ -26,7 +26,7 @@ async function loadCampaignService() {
         exports.push(`export function ${imported}(...args) { return globalThis.${serviceSlot}.dependency(${JSON.stringify(imported)}, args); }`);
       }
     }
-    replacements.set(specifier, exports.join('\n'));
+    replacements.set(specifier, [replacements.get(specifier), ...exports].filter(Boolean).join('\n'));
   }
 
   const result = await build({

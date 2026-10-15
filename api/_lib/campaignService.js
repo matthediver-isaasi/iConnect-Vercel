@@ -1,4 +1,5 @@
 import { supabase as rawSupabase } from './database.js';
+import { recordedAudienceAttendance } from './campaignRecordedAttendance.js';
 import { loadCampaignEngagement } from './campaignEngagement.js';
 import { campaignAddressSuppressed } from './emailBounceService.js';
 import { enrichCampaignPreparationList } from './campaignPreparationList.js';
@@ -1735,7 +1736,7 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
       const selectCols = hasAttendanceFilter
         ? (isComplex
             ? 'id, event_id, ticket_class_id, ticket_class_name, attendee_email, attendee_first_name, attendee_last_name, member_id'
-            : 'event_id, ticket_class_id, ticket_class_name, attendee_email, attendee_first_name, attendee_last_name, member_id, checked_in_at')
+            : 'id, event_id, ticket_class_id, ticket_class_name, attendee_email, attendee_first_name, attendee_last_name, member_id, checked_in_at')
         : 'event_id, ticket_class_id, ticket_class_name, attendee_email, attendee_first_name, attendee_last_name, member_id';
       for (let i = 0; i < targetIds.length; i += idBatchSize) {
         const idBatch = targetIds.slice(i, i + idBatchSize);
@@ -1749,16 +1750,17 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
             .eq('tenant_id', tenantId)
             .eq('status', 'confirmed')
             .in('event_id', idBatch)
+            .order('id')
             .range(offset, offset + pageSize - 1);
           if (error) {
             console.error(`[EventAttendees] ${table} query error:`, error);
-            break;
+            throw new Error('Unable to load event audience bookings', { cause: error });
           }
           if (data && data.length > 0) {
             const kept = ticketTypeSel ? data.filter(row => shouldKeepBooking(row, isComplex)) : data;
             rows.push(...kept);
             offset += data.length;
-            hasMore = data.length === pageSize;
+            hasMore = true;
           } else {
             hasMore = false;
           }
@@ -1773,6 +1775,10 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
     ]);
 
     if (hasAttendanceFilter) {
+      const [recordedRegular, recordedComplex] = await Promise.all([
+        recordedAudienceAttendance(supabase, tenantId, 'booking', regularBookings.filter(row => attendanceSel[row.event_id]).map(row => row.id)),
+        recordedAudienceAttendance(supabase, tenantId, 'complex_event_booking', complexBookings.filter(row => attendanceSel[row.event_id]).map(row => row.id)),
+      ]);
       // Complex events: attended = at least one session check-in with checked_in_at set.
       const complexIdsNeedingLookup = complexBookings
         .filter(row => attendanceSel[row.event_id])
@@ -1792,15 +1798,16 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
             .eq('tenant_id', tenantId)
             .in('booking_id', idBatch)
             .not('checked_in_at', 'is', null)
+            .order('booking_id').order('session_id')
             .range(offset, offset + pageSize - 1);
           if (error) {
             console.error('[EventAttendees] session check-in lookup error:', error);
-            break;
+            throw new Error('Unable to verify session attendance', { cause: error });
           }
           if (data && data.length > 0) {
             for (const ck of data) attendedComplexBookingIds.add(ck.booking_id);
             offset += data.length;
-            hasMore = data.length === pageSize;
+            hasMore = true;
           } else {
             hasMore = false;
           }
@@ -1813,8 +1820,8 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
         return sel === 'attended' ? attended : !attended;
       };
 
-      regularBookings = regularBookings.filter(row => keepByAttendance(row, !!row.checked_in_at));
-      complexBookings = complexBookings.filter(row => keepByAttendance(row, attendedComplexBookingIds.has(row.id)));
+      regularBookings = regularBookings.filter(row => keepByAttendance(row, !!row.checked_in_at || recordedRegular.has(row.id)));
+      complexBookings = complexBookings.filter(row => keepByAttendance(row, attendedComplexBookingIds.has(row.id) || recordedComplex.has(row.id)));
     }
 
     const bookingRows = [...regularBookings, ...complexBookings];

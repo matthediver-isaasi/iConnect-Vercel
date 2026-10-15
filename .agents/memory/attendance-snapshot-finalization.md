@@ -22,3 +22,15 @@ Administrator-approved attendance-only reconciliations are an explicit exception
 **Why:** Attendance approval is not necessarily approval to issue CPD points or certificates. Publishing the normal transition can enqueue awards even without calling an application-level award function.
 
 **How to apply:** Verify live database side effects and existing pending jobs before the repair; compare award/notification queues before and after. Do not later replay intentionally withheld transitions as routine recovery without separate approval.
+
+Audience attendance must recognise approved provider outcomes without converting
+them into QR/check-in records. Keep preview and background preparation aligned,
+including the inverse “Not attended” selection and inactive-target exclusions.
+
+**Why:** The approved Zoom reconciliation deliberately recorded attendance without
+publishing award transitions; checking only booking check-in timestamps excluded
+all of those attendees from an attendance-filtered audience.
+
+**How to apply:** Use current attended outcomes for active targets alongside
+existing check-in evidence, scoped by tenant and booking source. Do not manufacture
+check-ins or replay CPD/certificate actions to make recipients appear.

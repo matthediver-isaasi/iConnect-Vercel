@@ -1,4 +1,5 @@
 import { validateEventSurveyScope } from './eventSurveyAudience.js';
+import { recordedAudienceAttendance } from './campaignRecordedAttendance.js';
 import { isEnhancedAnonymousSettings } from '../../shared/surveyCompletionPolicy.js';
 import { discoverAudienceCustomObjects, validateCustomObjectCondition, matchesCustomObjectValue } from './audienceCustomObjects.js';
 import { customObjectSelectionKey } from '../../shared/audienceCustomObjectContract.js';
@@ -301,10 +302,13 @@ async function eventChunk(db, state, work, bucket) {
       if (!Array.isArray(data)) throw new Error('Campaign attendance lookup returned invalid data');
       attended = new Set(data.map(r => r.booking_id));
     }
+    const recorded = await recordedAudienceAttendance(db, tenant,
+      complex ? 'complex_event_booking' : 'booking',
+      selected.filter(row => ['attended', 'not_attended'].includes(s.attendance_selection?.[row.event_id])).map(row => row.id));
     selected = selected.filter(row => {
       const filter = s.attendance_selection?.[row.event_id];
-      return !['attended', 'not_attended'].includes(filter) ||
-        (complex ? attended.has(row.id) : Boolean(row.checked_in_at)) === (filter === 'attended');
+      const hasAttendance = (complex ? attended.has(row.id) : Boolean(row.checked_in_at)) || recorded.has(row.id);
+      return !['attended', 'not_attended'].includes(filter) || hasAttendance === (filter === 'attended');
     });
   }
   const facts = selected.filter(r => !(r.attendee_email || '').trim() && r.member_id)
