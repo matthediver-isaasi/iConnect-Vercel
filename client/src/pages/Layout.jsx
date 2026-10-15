@@ -892,8 +892,8 @@ function CollapsibleNavItem({ item, location, variant = 'user', hasPendingPOs = 
   const isCollapsed = state === 'collapsed';
   const [popoverOpen, setPopoverOpen] = useState(false);
   const Icon = item.icon;
-  const isActive = isPortalMenuDestinationActive(item, location.pathname)
-    || (item.subItems && item.subItems.some(sub => isPortalMenuDestinationActive(sub, location.pathname)));
+  const isActive = isPortalMenuDestinationActive(item, location)
+    || (item.subItems && item.subItems.some(sub => isPortalMenuDestinationActive(sub, location)));
   
   // Variant-specific colors
   const colors = variant === 'admin' 
@@ -935,7 +935,7 @@ function CollapsibleNavItem({ item, location, variant = 'user', hasPendingPOs = 
           >
             <div className="space-y-1">
               {item.subItems.map(subItem => {
-                const isSubItemActive = isPortalMenuDestinationActive(subItem, location.pathname);
+                const isSubItemActive = isPortalMenuDestinationActive(subItem, location);
                 const isBookingsPage = subItem.url?.toLowerCase() === '/bookings';
                 const showSubPendingPOWarning = hasPendingPOs && isBookingsPage && variant === 'user';
                 return (
@@ -985,7 +985,7 @@ function CollapsibleNavItem({ item, location, variant = 'user', hasPendingPOs = 
       <CollapsibleContent>
         <SidebarMenuSub>
           {item.subItems.map(subItem => {
-            const isSubItemActive = isPortalMenuDestinationActive(subItem, location.pathname);
+            const isSubItemActive = isPortalMenuDestinationActive(subItem, location);
             const isBookingsPage = subItem.url?.toLowerCase() === '/bookings';
             const showSubPendingPOWarning = hasPendingPOs && isBookingsPage && variant === 'user';
             return (
@@ -3071,8 +3071,8 @@ useEffect(() => {
                     {filteredNavigationItems.map((item) => {
                       const Icon = item.icon;
                       // Determine if the current item (or any of its sub-items) is active
-                      const isActive = isPortalMenuDestinationActive(item, location.pathname)
-                        || (item.subItems && item.subItems.some(sub => isPortalMenuDestinationActive(sub, location.pathname)));
+                      const isActive = isPortalMenuDestinationActive(item, location)
+                        || (item.subItems && item.subItems.some(sub => isPortalMenuDestinationActive(sub, location)));
 
                       if (item.subItems) {
                         return (
@@ -3137,8 +3137,8 @@ useEffect(() => {
                       {filteredAdminNavigationItems.map((item) => {
                         const Icon = item.icon;
                         // Determine if the current item (or any of its sub-items) is active
-                        const isActive = isPortalMenuDestinationActive(item, location.pathname)
-                          || (item.subItems && item.subItems.some(sub => isPortalMenuDestinationActive(sub, location.pathname)));
+                        const isActive = isPortalMenuDestinationActive(item, location)
+                          || (item.subItems && item.subItems.some(sub => isPortalMenuDestinationActive(sub, location)));
 
                         if (item.subItems) {
                           return (
@@ -3324,8 +3324,8 @@ useEffect(() => {
                     <nav className="space-y-1">
                       {filteredNavigationItems.map((item) => {
                         const Icon = item.icon;
-                        const isActive = isPortalMenuDestinationActive(item, location.pathname)
-                          || (item.subItems && item.subItems.some(sub => isPortalMenuDestinationActive(sub, location.pathname)));
+                        const isActive = isPortalMenuDestinationActive(item, location)
+                          || (item.subItems && item.subItems.some(sub => isPortalMenuDestinationActive(sub, location)));
                         const isBookingsPage = item.url?.toLowerCase() === '/bookings';
                         const showPendingPOWarning = hasPendingPOs && isBookingsPage;
                         const isInboxPage = item.url?.toLowerCase() === '/inbox';
@@ -3344,7 +3344,7 @@ useEffect(() => {
                               <CollapsibleContent>
                                 <div className="pl-7 space-y-1 mt-1">
                                   {item.subItems.map(subItem => {
-                                    const isSubItemActive = isPortalMenuDestinationActive(subItem, location.pathname);
+                                    const isSubItemActive = isPortalMenuDestinationActive(subItem, location);
                                     return (
                                       <PortalNavLink
                                         key={subItem.title}
@@ -3400,8 +3400,8 @@ useEffect(() => {
                       <nav className="space-y-1">
                         {filteredAdminNavigationItems.map((item) => {
                           const Icon = item.icon;
-                          const isActive = isPortalMenuDestinationActive(item, location.pathname)
-                            || (item.subItems && item.subItems.some(sub => isPortalMenuDestinationActive(sub, location.pathname)));
+                          const isActive = isPortalMenuDestinationActive(item, location)
+                            || (item.subItems && item.subItems.some(sub => isPortalMenuDestinationActive(sub, location)));
 
                           if (item.subItems) {
                             return (
@@ -3416,7 +3416,7 @@ useEffect(() => {
                                 <CollapsibleContent>
                                   <div className="pl-7 space-y-1 mt-1">
                                     {item.subItems.map(subItem => {
-                                      const isSubItemActive = isPortalMenuDestinationActive(subItem, location.pathname);
+                                      const isSubItemActive = isPortalMenuDestinationActive(subItem, location);
                                       return (
                                         <PortalNavLink
                                           key={subItem.title}

@@ -18,12 +18,28 @@ import {
   isPortalMenuDestinationActive,
   loadViewableCustomObjectPortalDestinations,
   getCustomObjectReportPortalDestinations,
+  parseCustomObjectReportDestination,
+  customObjectReportDestination,
   resolvePortalMenuDestination,
   validateExternalPortalUrl,
   validatePortalMenuDestination,
 } from './portalMenuLinks.js';
 
 const createInternalUrl = (url) => `/${String(url).replace(/^\/+/, '')}`;
+
+test('specific saved report destinations round trip without changing reports-tab destinations', () => {
+  const url = customObjectReportDestination('department', 'r_123&test');
+  assert.equal(url, 'CustomObjectsAdmin/department?report=r_123%26test#reports');
+  assert.deepEqual(parseCustomObjectReportDestination(url), { objectId: 'department', reportId: 'r_123&test' });
+  assert.equal(resolvePortalMenuDestination({ url }, createPageUrl).url, `/${url}`);
+  assert.deepEqual(parseCustomObjectReportDestination('CustomObjectsAdmin/department#reports'), { objectId: 'department', reportId: '' });
+  assert.equal(parseCustomObjectReportDestination('CustomObjectRecords/department'), null);
+  assert.equal(customObjectReportDestination('department'), 'CustomObjectsAdmin/department#reports');
+  const location = { pathname: '/CustomObjectsAdmin/department', search: '?report=one', hash: '#reports' };
+  assert.equal(isPortalMenuDestinationActive({ url: customObjectReportDestination('department', 'one') }, location), true);
+  assert.equal(isPortalMenuDestinationActive({ url: customObjectReportDestination('department', 'two') }, location), false);
+  assert.equal(isPortalMenuDestinationActive({ url: customObjectReportDestination('department') }, location), false);
+});
 
 test('Data Studio report menu destinations open the reports tab and retain its access gate', () => {
   const destinations = getCustomObjectReportPortalDestinations([{

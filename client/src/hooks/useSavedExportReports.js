@@ -39,7 +39,7 @@ export const sanitizeReports = (raw) => {
     }));
 };
 
-export function useSavedExportReports({ settingKey, description, enabled = true }) {
+export function useSavedExportReports({ settingKey, description, enabled = true, strict = false }) {
   if (!settingKey) throw new Error('useSavedExportReports: settingKey is required');
   const queryClient = useQueryClient();
   const rowIdRef = useRef(null);
@@ -47,7 +47,7 @@ export function useSavedExportReports({ settingKey, description, enabled = true 
 
   const queryKey = ['saved-export-reports', settingKey];
 
-  const { data, isFetching, refetch } = useQuery({
+  const { data, isFetching, refetch, error } = useQuery({
     queryKey,
     enabled,
     staleTime: 15000,
@@ -60,11 +60,12 @@ export function useSavedExportReports({ settingKey, description, enabled = true 
           let reports = [];
           try {
             reports = sanitizeReports(JSON.parse(row.setting_value)?.reports);
-          } catch {}
+          } catch (error) { if (strict) throw error; }
           return { id: row.id, reports };
         }
         return { id: null, reports: [] };
-      } catch {
+      } catch (error) {
+        if (strict) throw error;
         return { id: null, reports: [] };
       }
     },
@@ -149,6 +150,7 @@ export function useSavedExportReports({ settingKey, description, enabled = true 
 
   return {
     reports,
+    error,
     reportsLoaded,
     isFetching,
     refetch,

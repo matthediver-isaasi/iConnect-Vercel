@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./ReportBuilder.css";
 import { useMutation, useQueries } from "@tanstack/react-query";
 import { Download, Loader2, Plus, Trash2, TriangleAlert } from "lucide-react";
@@ -53,12 +53,14 @@ export function CustomObjectReports({
   initialConfig,
   savedReports: savedReportsOverride,
   onConfigChange,
+  linkedReportId = "",
 }) {
   const objectId = object.id;
   const liveSaved = useSavedExportReports({
     settingKey: `custom_object_reports_${objectId}`,
     description: `Shared reports for ${object.plural_label || "a Custom Object"}`,
     enabled: Boolean(objectId) && !savedReportsOverride,
+    strict: Boolean(linkedReportId),
   });
   const saved = savedReportsOverride || liveSaved;
   const [config, setConfig] = useState(() =>
@@ -69,6 +71,33 @@ export function CustomObjectReports({
   const [page, setPage] = useState(1);
   const [preview, setPreview] = useState(null);
   const [exportProgress, setExportProgress] = useState(null);
+  const [appliedLink, setAppliedLink] = useState("");
+  const [previewedLink, setPreviewedLink] = useState("");
+  const linkKey = linkedReportId ? `${objectId}:${linkedReportId}` : "";
+  const currentLink = useRef(linkKey);
+  currentLink.current = linkKey;
+  const linkedReport = saved.reports.find(report => report.id === linkedReportId);
+  const linkPending = Boolean(linkKey && appliedLink !== linkKey);
+  useEffect(() => {
+    if (!linkKey) {
+      if (appliedLink) {
+        setConfig(makeReportConfig(objectId));
+        saved.setActiveReportId(null);
+        setPreview(null);
+      }
+      setAppliedLink("");
+      setPreviewedLink("");
+      return;
+    }
+    if (appliedLink === linkKey || saved.isFetching || saved.error || !linkedReport) return;
+    setConfig(loadReportConfig(objectId, linkedReport.config));
+    saved.setActiveReportId(linkedReport.id);
+    setColumnPath([]);
+    setPreview(null);
+    setPage(1);
+    setPreviewedLink("");
+    setAppliedLink(linkKey);
+  }, [linkKey, appliedLink, linkedReport, saved.isFetching, saved.error, objectId]);
   const graph = Array.isArray(definitions) ? definitions : definitions?.data || [];
   const graphLoading = definitions == null;
   const graphObjects = Array.isArray(definitions) ? [] : definitions?.objects || [];
@@ -100,7 +129,7 @@ export function CustomObjectReports({
   const reconciled = useMemo(() => reconcileReportConfig({
     config, objectId, definitions: graph, fieldsByEndpoint, metadataLoading: graphLoading,
   }), [config, objectId, graph, fieldsByEndpoint, graphLoading]);
-  const executionBlocked = graphLoading || reconciled.stale.length > 0
+  const executionBlocked = linkPending || graphLoading || reconciled.stale.length > 0
     || reconciled.filtersPending || reconciled.indicatorsPending || !renderedColumns.length;
 
   useEffect(() => {
@@ -114,16 +143,23 @@ export function CustomObjectReports({
     onConfigChange?.(config);
   }, [config, onConfigChange]);
   const previewMutation = useMutation({
-    mutationFn: (requestedPage) => {
+    mutationFn: async (requestedPage) => {
       if (executionBlocked) throw new Error("Resolve unavailable selections and wait for report metadata before preview.");
-      return relationshipRequest(reportUrl(objectId, "preview"), {
+      const requestLink = linkKey;
+      const data = await relationshipRequest(reportUrl(objectId, "preview"), {
       method: "POST",
       body: JSON.stringify({ definition: reconciled.config, page: requestedPage, pageSize: 50 }),
       });
+      if (currentLink.current === requestLink) { setPreview(data); setPage(requestedPage); }
+      return data;
     },
-    onSuccess: (data, requestedPage) => { setPreview(data); setPage(requestedPage); },
     onError: (error) => { setPreview(null); toast.error(error.message); },
   });
+  useEffect(() => {
+    if (!linkKey || appliedLink !== linkKey || executionBlocked || previewedLink === linkKey) return;
+    setPreviewedLink(linkKey);
+    previewMutation.mutate(1);
+  }, [linkKey, appliedLink, executionBlocked, previewedLink]);
   const exportMutation = useMutation({
     mutationFn: async () => {
       if (executionBlocked) throw new Error("Resolve unavailable selections and wait for report metadata before export.");
@@ -252,6 +288,21 @@ export function CustomObjectReports({
     setAddingColumn(false);
   };
   const dirty = !saved.activeReport || JSON.stringify(saved.activeReport.config) !== JSON.stringify(config);
+  if (linkPending) {
+    const loading = !saved.error && (saved.isFetching || (!saved.reportsLoaded && !savedReportsOverride));
+    return (
+      <Card><CardHeader><CardTitle>{loading ? "Loading report…" : "Report unavailable"}</CardTitle></CardHeader>
+        <CardContent>
+          <p role={loading ? "status" : "alert"}>
+            {loading ? "Loading the selected saved report." : saved.error
+              ? "The saved reports could not be loaded. Please try again."
+              : "This saved report no longer exists or is not available for this data object."}
+          </p>
+          {!loading && saved.refetch && <Button className="mt-3" variant="outline" onClick={() => saved.refetch()}>Retry</Button>}
+        </CardContent>
+      </Card>
+    );
+  }
   const unsupportedVersion = ![1, 2].includes(configView.version);
   const rows = preview?.rows || preview?.data || [];
   const headers = preview?.headers || preview?.columns || renderedColumns.map((column) => column.label || column.field_id);

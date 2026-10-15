@@ -93,12 +93,12 @@ const savedReports = {
 };
 
 async function mount(initialConfig, suppliedDefinitions = definitions, suppliedSaved = savedReports, suppliedObject = object,
-  suppliedFields = [{ id: "department_name", label: "Department name", is_active: true }]) {
+  suppliedFields = [{ id: "department_name", label: "Department name", is_active: true }], linkedReportId = "") {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
   const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { retry: false } },
+    defaultOptions: { queries: { retry: false, staleTime: Infinity, gcTime: 0 }, mutations: { retry: false, gcTime: 0 } },
   });
   // These component fixtures never contact a tenant API. Seed authorised
   // connected-object metadata explicitly, including an intentionally empty schema.
@@ -120,6 +120,7 @@ async function mount(initialConfig, suppliedDefinitions = definitions, suppliedS
           definitions={suppliedDefinitions}
           canManage
           initialConfig={initialConfig}
+          linkedReportId={linkedReportId}
           savedReports={suppliedSaved}
           onConfigChange={onConfigChange}
         />
@@ -153,6 +154,68 @@ const changeSelect = (select, value) => {
 
 const buttonNamed = (name) => [...document.querySelectorAll("button")].find((button) =>
   button.textContent.trim() === name || button.getAttribute("aria-label") === name);
+
+test("direct report link selects the named configuration without falling back to another report", async () => {
+  let activeId;
+  const config = makeReportConfig("department");
+  const fixture = await mount(undefined, definitions, {
+    ...savedReports, reportsLoaded: true,
+    reports: [{ id: "named", name: "Named report", config }],
+    setActiveReportId(id) { activeId = id; },
+  }, object, [], "named");
+  try {
+    assert.equal(activeId, "named");
+    assert.deepEqual(fixture.config, config);
+    assert.doesNotMatch(fixture.container.textContent, /Report unavailable/);
+  } finally { await fixture.cleanup(); }
+});
+
+test("deleted direct report links show an explicit unavailable message, not an empty builder", async () => {
+  const fixture = await mount(undefined, definitions, { ...savedReports, reportsLoaded: true }, object, [], "deleted");
+  try {
+    assert.match(fixture.container.textContent, /Report unavailable/);
+    assert.match(fixture.container.textContent, /no longer exists/);
+    assert.equal(fixture.container.querySelector("table"), null);
+  } finally { await fixture.cleanup(); }
+});
+
+test("direct report link previews its saved definition once metadata is available", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  const config = makeReportConfig("department", {
+    columns: [{ id: "name", kind: "field", path: [], field_id: "department_name", label: "Name" }],
+  });
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url, body: JSON.parse(options.body) });
+    return { ok: true, json: async () => ({ total: 1, headers: ["Name"], rows: [["Example department"]] }) };
+  };
+  let fixture;
+  try {
+    fixture = await mount(undefined, definitions, {
+      ...savedReports, reportsLoaded: true,
+      reports: [{ id: "named", name: "Named report", config }],
+    }, object, [{ id: "department_name", label: "Department name", is_active: true }], "named");
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].url, "/api/custom-objects/department/report-preview");
+    assert.equal(requests[0].body.definition.columns[0].field_id, "department_name");
+    assert.match(fixture.container.textContent, /Example department/);
+  } finally {
+    if (fixture) await fixture.cleanup();
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("direct report links wait for saved reports and expose loading errors", async () => {
+  const fixture = await mount(undefined, definitions, { ...savedReports, isFetching: true }, object, [], "named");
+  try { assert.match(fixture.container.textContent, /Loading report/); }
+  finally { await fixture.cleanup(); }
+  const failed = await mount(undefined, definitions, {
+    ...savedReports, error: new Error("Unavailable"), reportsLoaded: false,
+  }, object, [], "named");
+  try { assert.match(failed.container.textContent, /could not be loaded/); }
+  finally { await failed.cleanup(); }
+});
 
 async function chooseRelatedRecords(view, kind, steps) {
   await act(async () => click(view.container.querySelector("[data-testid=add-report-column]")));

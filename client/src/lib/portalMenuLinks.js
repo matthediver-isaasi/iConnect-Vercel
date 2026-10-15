@@ -73,13 +73,22 @@ export function resolvePortalMenuDestination(item, createInternalUrl = (url) => 
 export function isPortalMenuDestinationActive(destination, pathname) {
   if (destination?.isExternal === true || typeof destination?.url !== 'string') return false;
   if (!destination.url.trim()) return false;
+  const currentUrl = typeof pathname === 'object'
+    ? `${pathname.pathname || ''}${pathname.search || ''}${pathname.hash || ''}`
+    : pathname;
+  const reportDestination = parseCustomObjectReportDestination(destination.url);
+  if (reportDestination) {
+    const current = parseCustomObjectReportDestination(currentUrl);
+    return Boolean(current && current.objectId === reportDestination.objectId
+      && current.reportId === reportDestination.reportId);
+  }
   const normalizePath = (value) => {
     const path = String(value || '').split(/[?#]/, 1)[0];
     const withLeadingSlash = path.startsWith('/') ? path : `/${path}`;
     return withLeadingSlash.length > 1 ? withLeadingSlash.replace(/\/+$/, '') : withLeadingSlash;
   };
   const destinationPath = normalizePath(destination.url);
-  const currentPath = normalizePath(pathname);
+  const currentPath = normalizePath(currentUrl);
   return currentPath === destinationPath || currentPath.startsWith(`${destinationPath}/`);
 }
 
@@ -136,4 +145,16 @@ export function getCustomObjectReportPortalDestinations(objects = []) {
     label: `Data Studio reports: ${object.label.replace(/^Custom Object: /, '')}`,
     featureId: 'admin.data-studio',
   }));
+}
+
+export function parseCustomObjectReportDestination(value) {
+  const match = String(value || '').match(/^\/?CustomObjectsAdmin\/([^/?#]+)(?:\?([^#]*))?#reports$/);
+  if (!match) return null;
+  try {
+    return { objectId: decodeURIComponent(match[1]), reportId: new URLSearchParams(match[2] || '').get('report') || '' };
+  } catch { return null; }
+}
+
+export function customObjectReportDestination(objectId, reportId = '') {
+  return `CustomObjectsAdmin/${encodeURIComponent(objectId)}${reportId ? `?${new URLSearchParams({ report: reportId })}` : ''}#reports`;
 }

@@ -732,6 +732,8 @@ function Detail() {
           </TabsContent>
           <TabsContent value="reports" className="mt-5">
             <CustomObjectReports
+              key={objectId}
+              linkedReportId={new URLSearchParams(location.search).get("report") || ""}
               object={object}
               fields={fields}
               definitions={relationshipGraphQuery.data || relationshipsQuery.data}

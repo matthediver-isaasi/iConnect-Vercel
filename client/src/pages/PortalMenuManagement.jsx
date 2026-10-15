@@ -28,6 +28,8 @@ import {
   getPortalMenuLinkType,
   loadViewableCustomObjectPortalDestinations,
   getCustomObjectReportPortalDestinations,
+  parseCustomObjectReportDestination,
+  customObjectReportDestination,
   PORTAL_MENU_LINK_TYPES,
   validatePortalMenuDestination,
 } from "@/lib/portalMenuLinks";
@@ -296,6 +298,21 @@ export default function PortalMenuManagementPage() {
     queryKey: ['custom-objects-for-portal-menu'],
     queryFn: () => loadViewableCustomObjectPortalDestinations(),
     staleTime: 60 * 1000,
+  });
+
+  const reportDestination = parseCustomObjectReportDestination(editingItem?.url);
+  const reportOptionsQuery = useQuery({
+    queryKey: ['portal-menu-report-options', reportDestination?.objectId],
+    enabled: showDialog && Boolean(reportDestination),
+    queryFn: async () => {
+      const settings = await base44.entities.SystemSettings.list();
+      const row = settings?.find(item => item.setting_key === `custom_object_reports_${reportDestination.objectId}`);
+      if (!row) return [];
+      const reports = JSON.parse(row.setting_value)?.reports;
+      if (!Array.isArray(reports)) throw new Error('Unable to read saved reports.');
+      return reports.filter(report => typeof report.id === 'string' && report.id && report.name && report.config);
+    },
+    staleTime: 0,
   });
 
   const { data: roleAccessItems = [] } = useQuery({
@@ -798,7 +815,8 @@ export default function PortalMenuManagementPage() {
                     <Label>Page</Label>
                     <Select
                       value={
-                        availablePages.find(page => (page.route || page.value) === editingItem.url)?.value
+                        reportDestination ? customObjectReportDestination(reportDestination.objectId)
+                          : availablePages.find(page => (page.route || page.value) === editingItem.url)?.value
                         || editingItem.url
                         || "_none"
                       }
@@ -843,6 +861,39 @@ export default function PortalMenuManagementPage() {
                       </SelectContent>
                     </Select>
                     <p className="text-xs text-slate-500">Leave empty if this is a parent menu with sub-items</p>
+                    {reportDestination && (
+                      <div className="space-y-2 pt-2">
+                        <Label>Report</Label>
+                        <Select
+                          value={reportDestination.reportId || '_all'}
+                          onValueChange={value => setEditingItem({
+                            ...editingItem,
+                            url: customObjectReportDestination(reportDestination.objectId, value === '_all' ? '' : value),
+                            feature_id: 'admin.data-studio',
+                          })}
+                        >
+                          <SelectTrigger><SelectValue placeholder="All reports" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="_all">All reports (Reports tab)</SelectItem>
+                            {reportDestination.reportId && !(reportOptionsQuery.data || []).some(report => report.id === reportDestination.reportId) && (
+                              <SelectItem value={reportDestination.reportId} disabled>
+                                {reportOptionsQuery.isFetching ? 'Loading selected report…' : 'Saved report unavailable'}
+                              </SelectItem>
+                            )}
+                            {(reportOptionsQuery.data || []).map(report => (
+                              <SelectItem key={report.id} value={report.id}>{report.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {reportOptionsQuery.isFetching && <p className="text-xs text-slate-500">Loading saved reports…</p>}
+                        {reportOptionsQuery.isError && <p role="alert" className="text-xs text-red-600">
+                          Could not load reports. <button type="button" onClick={() => reportOptionsQuery.refetch()}>Retry</button>
+                        </p>}
+                        {reportOptionsQuery.isSuccess && reportOptionsQuery.data.length === 0 && (
+                          <p className="text-xs text-slate-500">Save a named report in this object's Reports tab to link to it directly.</p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <>
