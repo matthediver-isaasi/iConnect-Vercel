@@ -22,3 +22,11 @@ The canonical helper is `getAllActiveConfigs(tenantId, onDate)` in `api/_lib/mem
 **How to apply:** use the date-aware lifecycle helper for grouping/status labels and the server immutability rule (`effective_to == null`) for edit controls.
 
 **Known gap (see follow-up tasks):** the reminders cron `processTenantReminders` in `api/_lib/membershipReminders.js` still filters on `effective_to IS NULL` instead of date-aware resolution, and the tiers.js UPDATE path doesn't re-cap when a scheduled structure's start date is edited in place.
+
+## BNMS approved renewal-date coverage
+
+BNMS authorised continuous, non-overlapping schedule coverage from 01/01/2026, using approved current settings for previously uncovered periods while preserving existing historical versions and prices. This does not authorise rewriting members' saved terms or changing renewal/grace windows.
+
+**Why:** A member can be within grace yet unable to renew because no schedule covers the day after their saved expiry. Backdating every current version indiscriminately introduces overlaps and leaves renewal selection ambiguous.
+
+**How to apply:** Preserve anniversary-based successor dates. Fill only uncovered periods, keeping existing version boundaries intact; do not interpret this approval as pricing authority for dates before January 2026.
