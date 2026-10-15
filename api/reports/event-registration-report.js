@@ -28,7 +28,8 @@ export function reportInvoiceRecord(bookings) {
     || bookings[0];
 }
 
-export default async function handler(req, res) {
+export default async function handler(req, res, publicPoOnly = false) {
+  res.setHeader?.('Cache-Control', 'private, no-store');
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -45,13 +46,19 @@ export default async function handler(req, res) {
     if (tenantContext.tenantMismatch) {
       return res.status(409).json({ error: 'Tenant context changed. Reload this page.' });
     }
-    if (!(await hasAdminAccess(tenantContext)) ||
-        (tenantContext.roleId && !(await hasFeatureAccess(tenantContext.roleId, 'events.event-report', tenantContext.memberExcludedFeatures)))) {
+    if (publicPoOnly ? !(tenantContext.roleId
+      ? await hasFeatureAccess(tenantContext.roleId, 'events.public-invoice-po-report', tenantContext.memberExcludedFeatures)
+      : tenantContext.isSuperAdmin === true) : (!(await hasAdminAccess(tenantContext)) ||
+        (tenantContext.roleId && !(await hasFeatureAccess(tenantContext.roleId, 'events.event-report', tenantContext.memberExcludedFeatures))))) {
       return res.status(403).json({ error: 'You do not have access to the Event Registration Report' });
     }
 
     const { tenantId } = tenantContext;
-    const { eventId, eventName, internalReference, dateFrom, dateTo, eventDateFrom, eventDateTo, generate } = req.query;
+    const { eventId, eventName, internalReference, dateFrom, dateTo, eventDateFrom, eventDateTo, generate } =
+      publicPoOnly ? { eventId: req.query?.eventId, generate: 'true' } : req.query;
+    if (publicPoOnly && eventId != null && (typeof eventId !== 'string' || !/^[0-9a-f-]{36}$/i.test(eventId))) {
+      return res.status(400).json({ error: 'Invalid event selection' });
+    }
 
     let { data: regularEvents, error: eventsError } = await readAllReportRows(supabase
       .from('event')
@@ -99,8 +106,8 @@ export default async function handler(req, res) {
 
     // Exclude "To be confirmed" events: they are interest-gatherers that
     // frequently get cancelled/replaced and must never inflate reporting.
-    regularEvents = (regularEvents || []).filter(e => e.status !== 'tbc');
-    complexEvents = (complexEvents || []).filter(e => e.status !== 'tbc');
+    regularEvents = (regularEvents || []).filter(e => publicPoOnly || e.status !== 'tbc');
+    complexEvents = (complexEvents || []).filter(e => publicPoOnly || e.status !== 'tbc');
 
     const allEvents = [
       ...(regularEvents || []).map(e => ({
@@ -253,14 +260,14 @@ export default async function handler(req, res) {
       }
 
       const allocationQueries = [];
-      if (targetEventIds.length > 0) {
+      if (!publicPoOnly && targetEventIds.length > 0) {
         allocationQueries.push(
           supabase.from('sales_commercial_allocation_totals').select('*')
             .eq('tenant_id', tenantId).eq('event_reference_kind', 'simple')
             .in('event_id', targetEventIds),
         );
       }
-      if (targetComplexEventIds.length > 0) {
+      if (!publicPoOnly && targetComplexEventIds.length > 0) {
         allocationQueries.push(
           supabase.from('sales_commercial_allocation_totals').select('*')
             .eq('tenant_id', tenantId).eq('event_reference_kind', 'complex')
@@ -307,6 +314,7 @@ export default async function handler(req, res) {
           .order('booking_group_reference', { ascending: true, nullsFirst: false })
           .order('created_at', { ascending: false }).order('id');
 
+        if (publicPoOnly) bookingQuery = bookingQuery.eq('payment_method', 'public_invoice_po').eq('purchaser_context->>classification', 'public_non_member');
         if (dateFrom) {
           bookingQuery = bookingQuery.gte('created_at', new Date(dateFrom + 'T00:00:00.000Z').toISOString());
         }
@@ -347,6 +355,7 @@ export default async function handler(req, res) {
           complexBookingQuery = complexBookingQuery.lt('created_at', toDate.toISOString());
         }
 
+        if (publicPoOnly) complexBookingQuery = complexBookingQuery.eq('payment_method', 'public_invoice_po').eq('purchaser_context->>classification', 'public_non_member');
         const { data: complexBookingData, error: complexBookingsError } = await readAllReportRows(complexBookingQuery);
 
         if (complexBookingsError) {
@@ -1057,7 +1066,31 @@ export default async function handler(req, res) {
       };
     }
 
+    const formSubmissions = [];
+    if (publicPoOnly && bookingGroups.length) {
+      const scopedEvents = [...new Set(bookingGroups.map(g => g.eventId))];
+      const formResult = await readAllReportRows(supabase.from('form')
+        .select('id,title:name,fields,pages,related_event_id,form_type')
+        .eq('tenant_id', tenantId).eq('is_event_related', true)
+        .in('related_event_id', scopedEvents).order('id'));
+      if (formResult.error) throw new Error('Unable to load linked forms');
+      for (const form of formResult.data) {
+        // Never turn anonymous surveys into named attendee answers.
+        if (form.form_type === 'survey') continue;
+        const emails = new Set(bookingGroups.filter(g => g.eventId === form.related_event_id)
+          .flatMap(g => [g.publicInvoicePurchaser?.email, ...g.attendees.map(a => a.attendee_email)])
+          .filter(Boolean).map(email => email.trim().toLowerCase()));
+        const submissions = await readAllReportRows(supabase.from('form_submission')
+          .select('id,form_id,submitted_by_email,submission_data,created_at:created_date,is_anonymous')
+          .eq('tenant_id', tenantId).eq('form_id', form.id).order('id'));
+        if (submissions.error) throw new Error('Unable to load linked form answers');
+        formSubmissions.push(...submissions.data
+          .filter(s => s.is_anonymous !== true && emails.has(s.submitted_by_email?.trim().toLowerCase()))
+          .map(s => ({ ...s, form })));
+      }
+    }
     return res.status(200).json({
+      ...(publicPoOnly ? { formSubmissions } : {}),
       tenantId,
       events: allEvents,
       bookingGroups,

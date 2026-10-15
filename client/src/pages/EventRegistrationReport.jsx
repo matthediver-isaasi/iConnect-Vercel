@@ -34,6 +34,7 @@ import {
 } from "@/lib/relationshipDisplayLabels";
 import { toast } from "sonner";
 import PublicInvoicePoRegistrations from "@/components/events/PublicInvoicePoRegistrations";
+import PublicInvoicePoFormAnswers from "@/components/events/PublicInvoicePoFormAnswers";
 import EventInvoiceStatus from "@/components/booking/EventInvoiceStatus";
 import { eventInvoiceAwaited, eventInvoiceId, eventInvoiceNeedsAttention, eventInvoiceNumber, eventInvoiceRefetchInterval, eventInvoiceRetryAt } from "../../../shared/eventInvoiceRecoveryPresentation.mjs";
 import AttendeeCpdCertificateDialog from "@/components/events/AttendeeCpdCertificateDialog";
@@ -1137,29 +1138,8 @@ export default function EventRegistrationReport() {
   const renderPublicInvoiceFormAnswers = (group, email) => {
     if (loadingReportForms || loadingLinkedSubmissions) return <p className="text-sm">Loading form answers…</p>;
     if (reportFormsError || linkedSubmissionsError) return <p role="alert" className="text-sm text-destructive">Unable to load submitted form answers. Please refresh and try again.</p>;
-    const submissions = linkedSubmissions.filter(sub => {
-      const form = linkedFormsById[sub.form_id];
-      return email && form && String(form.related_event_id) === String(group.eventId)
-        && normEmail(extractSubmissionEmail(sub, form.fields)) === normEmail(email);
-    });
-    return <div className="space-y-3">
-      {submissions.length === 0 ? <p className="text-sm text-muted-foreground">No linked form submissions found for this email.</p> :
-        submissions.map(sub => {
-          const form = linkedFormsById[sub.form_id];
-          const data = sub.submission_data || {};
-          return <section key={sub.id} className="rounded-md border p-3 space-y-2">
-            <h4 className="text-sm font-medium">{form.title || form.name || 'Registration form'}</h4>
-            <p className="text-xs text-muted-foreground">Linked by event and email{ sub.created_at ? ` · Submitted ${new Date(sub.created_at).toLocaleString()}` : ''}</p>
-            {(form.fields || []).filter(field => field?.id).map(field => {
-              const value = getSubmissionFieldValue(data, field);
-              const answer = isRelationshipDropdownField(field)
-                ? formatRelationshipAnswerDisplayValue(field, value, relationshipLabelsByRecordId, data)
-                : formatLinkedAnswer(value);
-              return <div key={field.id} className="text-sm"><p className="text-muted-foreground">{field.label || field.id}</p><p className="whitespace-pre-wrap break-words">{answer || 'Not supplied'}</p></div>;
-            })}
-          </section>;
-        })}
-    </div>;
+    return <PublicInvoicePoFormAnswers group={group} email={email} submissions={linkedSubmissions}
+      formsById={linkedFormsById} labels={relationshipLabelsByRecordId} />;
   };
 
   const standardColumns = useMemo(() => ([

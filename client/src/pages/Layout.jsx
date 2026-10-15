@@ -450,6 +450,12 @@ const adminNavigationItems = [
     featureId: "page_EventRegistrationReport"
   },
   {
+    title: "Public Invoice / PO Registrations",
+    url: createPageUrl("PublicInvoicePoReport"),
+    icon: FileText,
+    featureId: "events.public-invoice-po-report"
+  },
+  {
     title: "Event Budget Report",
     url: createPageUrl("EventBudgetReport"),
     icon: FileText,
@@ -1667,6 +1673,7 @@ useEffect(() => {
 
   // Pages that should use the bare layout (no new header/footer)
   adminPages.push("NMCMembershipReport");
+  adminPages.push("PublicInvoicePoReport");
   const bareLayoutPages = [];
 
   // Note: hasAdminNavAccess() removed - admin navigation visibility is now determined
@@ -1789,6 +1796,7 @@ useEffect(() => {
     'MembershipPaymentReport': 'page_admin_MembershipPaymentReport',
     'NMCMembershipReport': NMC_REPORT_FEATURE,
     'EventRegistrationReport': 'page_admin_EventRegistrationReport',
+    'PublicInvoicePoReport': 'events.public-invoice-po-report',
     'EventBudgetReport': 'page_admin_EventBudgetReport',
     'SurveyReports': 'page_admin_SurveyReports',
     'OrganisationEngagementReport': 'reports.org-engagement',

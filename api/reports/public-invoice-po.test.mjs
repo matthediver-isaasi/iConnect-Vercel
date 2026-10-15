@@ -27,7 +27,7 @@ test('purchaser contact is allowlisted, never raw snapshot metadata', () => {
 
 // Execute the actual route with deterministic auth/DB seams. No live credentials,
 // network access or database writes are involved.
-async function runRoute(context, admin, feature, { fixtures = {}, query = {}, failTable = null } = {}) {
+async function runRoute(context, admin, feature, { fixtures = {}, query = {}, failTable = null, publicPoOnly = false } = {}) {
   let source = await readFile(new URL('./event-registration-report.js', import.meta.url), 'utf8');
   source = source.replace(/^import .*;\r?$/gm, '');
   const prelude = `
@@ -79,7 +79,8 @@ async function runRoute(context, admin, feature, { fixtures = {}, query = {}, fa
       let filters = [], start = 0, end = 1;
       const q = {
         select() { return q; },
-        eq(key, value) { filters.push(row => row[key] === value); return q; },
+        eq(key, value) { filters.push(row => key.includes('->>')
+          ? row[key.split('->>')[0]]?.[key.split('->>')[1]] === value : row[key] === value); return q; },
         in(key, values) { filters.push(row => values.includes(row[key])); return q; },
         overlaps(key, values) { filters.push(row => values.some(value => row[key]?.includes(value))); return q; },
         gte(key, value) { filters.push(row => row[key] >= value); return q; },
@@ -97,7 +98,7 @@ async function runRoute(context, admin, feature, { fixtures = {}, query = {}, fa
     const getTenantContext = async () => (${JSON.stringify(context)});
     const hasAdminAccess = async () => ${JSON.stringify(admin)};
     const hasFeatureAccess = async (role, resource, exclusions) => {
-      if (resource !== 'events.event-report') throw new Error('Incorrect report permission');
+      if (resource !== ${JSON.stringify(publicPoOnly ? 'events.public-invoice-po-report' : 'events.event-report')}) throw new Error('Incorrect report permission');
       return ${JSON.stringify(feature)} && !(exclusions || []).includes(resource);
     };
     export { queries, ranges };
@@ -107,9 +108,43 @@ async function runRoute(context, admin, feature, { fixtures = {}, query = {}, fa
   module.queries.length = 0;
   module.ranges.length = 0;
   const res = { status(code) { this.code = code; return this; }, json(body) { this.body = body; return this; } };
-  await module.default({ method: 'GET', query }, res);
+  await module.default({ method: 'GET', query }, res, publicPoOnly);
   return { ...res, queries: module.queries, ranges: module.ranges };
 }
+
+test('dedicated PO report requires its own permission; ordinary tenant administrators cannot bypass it', async () => {
+  for (const context of [
+    { isAuthenticated: true, tenantId: 'tenant' },
+    { isAuthenticated: true, tenantId: 'tenant', roleId: 'role' },
+  ]) {
+    assert.equal((await runRoute(context, true, false, { publicPoOnly: true })).code, 403);
+  }
+  assert.equal((await runRoute({ isAuthenticated: true, tenantId: 'tenant', isSuperAdmin: true }, true, false, { publicPoOnly: true })).code, 200);
+  assert.equal((await runRoute({ isAuthenticated: true, tenantId: 'tenant', roleId: 'role', tenantMismatch: true }, true, true, { publicPoOnly: true })).code, 409);
+});
+
+test('dedicated report defaults to all events, includes TBC and only exposes public PO bookings', async () => {
+  const booking = { id: 'po', tenant_id: 'tenant', event_id: 'simple', status: 'confirmed',
+    booking_reference: 'REF', booking_group_reference: 'REF', payment_method: 'public_invoice_po',
+    attendee_email: 'attendee@example.test', purchaser_context: { classification: 'public_non_member', details: { email: 'buyer@example.test' } } };
+  const result = await runRoute({ isAuthenticated: true, tenantId: 'tenant', roleId: 'role' }, false, true, {
+    publicPoOnly: true, fixtures: {
+      event: [{ id: 'simple', tenant_id: 'tenant', title: 'Event', status: 'tbc' }],
+      booking: [booking, { ...booking, id: 'private', payment_method: 'card' }, { ...booking, id: 'other', tenant_id: 'other' }],
+      form: [{ id: 'f', tenant_id: 'tenant', title: 'Registration', is_event_related: true, related_event_id: 'simple', fields: [] }],
+      form_submission: [
+        { id: 's', tenant_id: 'tenant', form_id: 'f', submitted_by_email: 'buyer@example.test', submission_data: { answer: 'Yes' } },
+        { id: 'private-answer', tenant_id: 'tenant', form_id: 'f', submitted_by_email: 'unrelated@example.test' },
+      ],
+    },
+  });
+  assert.equal(result.code, 200);
+  assert.equal(result.body.events.length, 1);
+  assert.equal(result.body.bookingGroups.length, 1);
+  assert.equal(result.body.bookingGroups[0].attendees.length, 1);
+  assert.deepEqual(result.body.formSubmissions.map(s => s.id), ['s']);
+  assert(!result.queries.includes('sales_commercial_allocation_totals'));
+});
 
 test('report rejects unauthenticated, non-admin, role-excluded and per-member excluded access before any query', async () => {
   for (const [context, admin, feature, status] of [

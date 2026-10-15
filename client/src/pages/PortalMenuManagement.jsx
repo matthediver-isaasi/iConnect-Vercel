@@ -69,6 +69,7 @@ const availableIcons = {
 
 // Pages whose Role Access ID should default to a specific RBAC key when selected.
 const PAGE_DEFAULT_FEATURES = {
+  PublicInvoicePoReport: "events.public-invoice-po-report",
   NMCMembershipReport: NMC_REPORT_FEATURE,
   EventBudgetReport: "events.event-budget-report",
   OrganisationEngagementReport: "reports.org-engagement",
@@ -116,6 +117,7 @@ const builtInPages = [
   { value: "EventDetails", label: "Event Details" },
   { value: "EventBudgetReport", label: "Event Budget Report" },
   { value: "EventRegistrationReport", label: "Event Registration Report" },
+  { value: "PublicInvoicePoReport", label: "Public Invoice / PO Registrations" },
   { value: "Events", label: "Events" },
   { value: "EventSettings", label: "Event Settings" },
   { value: "FileManagement", label: "File Management" },

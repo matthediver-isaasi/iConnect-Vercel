@@ -343,6 +343,7 @@ import EventCheckIn from "./EventCheckIn";
 import EventCheckInDashboard from "./EventCheckInDashboard";
 
 const EventRegistrationReport = lazy(() => import("./EventRegistrationReport"));
+const PublicInvoicePoReport = lazy(() => import("./PublicInvoicePoReport"));
 
 const EventBudgetReport = lazy(() => import("./EventBudgetReport"));
 
@@ -593,6 +594,7 @@ const PAGES = {
     TicketSalesAnalytics: TicketSalesAnalytics,
     PendingPurchaseOrdersReport: PendingPurchaseOrdersReport,
     EventRegistrationReport: EventRegistrationReport,
+    PublicInvoicePoReport: PublicInvoicePoReport,
     EventBudgetReport: EventBudgetReport,
     FormConversionReport: FormConversionReport,
     SurveyReports: SurveyReports,
@@ -1094,6 +1096,7 @@ function PagesContent() {
                 <Route path="/TicketSalesAnalytics" element={<TicketSalesAnalytics />} />
                 <Route path="/PendingPurchaseOrdersReport" element={<PendingPurchaseOrdersReport />} />
                 <Route path="/EventRegistrationReport" element={<EventRegistrationReport />} />
+                <Route path="/PublicInvoicePoReport" element={<PublicInvoicePoReport />} />
                 <Route path="/EventBudgetReport" element={<EventBudgetReport />} />
                 <Route path="/FormConversionReport" element={<FormConversionReport />} />
                 <Route path="/SurveyReports" element={<SurveyReports />} />
