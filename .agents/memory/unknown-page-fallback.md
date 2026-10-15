@@ -3,6 +3,17 @@ name: Unknown-page fallback authority
 description: Keep missing-route evidence independent of rendering coverage and tenant caches.
 ---
 
+New built-in pages must be registered in the shared server route registry as well
+as the client router, and their roots reserved against CMS/member-slug collisions.
+
+**Why:** A deployed report with valid RBAC still received an HTTP 302 to `/`
+before React loaded because the server registry omitted it. The homepage then
+forwarded the member to their role landing page, resembling an access denial.
+
+**How to apply:** Inspect the original HTTP status and Location without following
+redirects before changing permissions. Test direct links against unknown-page
+fallback, including case, trailing slash and query strings.
+
 Only a confirmed route miss may use legacy redirect mappings or the optional
 homepage fallback. A renderer lacking support for a route is not missing-route
 evidence; neither are failed lookups, pending requests or denied access.

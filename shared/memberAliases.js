@@ -142,6 +142,7 @@ export const RESERVED_MEMBER_SLUGS = new Set([
   'paramtest',
   'quote',
   'pendingpurchaseordersreport',
+  'publicinvoiceporeport',
   'photogalleries',
   'platform',
   'portalmenumanagement',

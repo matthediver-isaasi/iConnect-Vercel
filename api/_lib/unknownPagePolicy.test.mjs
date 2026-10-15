@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { matchesRegisteredRoute } from '../../shared/registeredRoutes.js';
 import { MEMBERSHIP_RETURN_ROUTES } from '../../client/src/lib/membershipPaymentReturn.js';
 import { resolveUnknownPagePolicy, safeRedirectTarget } from './unknownPagePolicy.js';
+import { isReservedPageSlug, isReservedMemberSlug } from '../../shared/memberAliases.js';
 
 const tenant = { id: 'a', settings: { redirect_unknown_pages_to_homepage: true } };
 function database(tables = {}, failTable) {
@@ -43,6 +44,18 @@ test('every literal registered route is covered; dynamic CMS routes are not', ()
   for (const route of MEMBERSHIP_RETURN_ROUTES) assert.ok(matchesRegisteredRoute(route.path));
   assert.equal(matchesRegisteredRoute('/some-unknown-page'), false);
   assert.equal(matchesRegisteredRoute('/some-prefix/some-page'), false);
+});
+
+test('public Invoice/PO report is an existing protected route, never a homepage fallback', async () => {
+  for (const path of ['/PublicInvoicePoReport', '/publicinvoiceporeport', '/PublicInvoicePoReport/', '/PublicInvoicePoReport?eventId=example']) {
+    const db = database();
+    const result = await resolveUnknownPagePolicy(db, tenant, path);
+    assert.equal(result.found, false, path);
+    assert.equal(result.route_outcome, 'existing', path);
+    assert.deepEqual(db.calls, [], 'Built-in report must not depend on CMS discovery or homepage settings');
+  }
+  assert.equal(isReservedPageSlug('PublicInvoicePoReport'), true);
+  assert.equal(isReservedMemberSlug('publicinvoiceporeport'), true);
 });
 
 test('deployed Vercel rewrite ordering sends legacy pages to HTML for browsers and crawlers', () => {
