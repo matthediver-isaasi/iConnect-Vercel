@@ -283,6 +283,8 @@ const entityTableByNormalizedName = new Map(
 );
 const getTableName = (entity) => entityTableByNormalizedName.get(normalizeEntityName(entity)) || null;
 
+import { organizationNameError } from '../../../shared/organizationNameValidation.js';
+
 export default async function handler(req, res, dependencies = {}) {
   const requestNow = Date.now();
   const { entity, id } = req.query;
@@ -1294,6 +1296,10 @@ export default async function handler(req, res, dependencies = {}) {
       const sanitizedBody = Array.isArray(genericSanitizedBody)
         ? genericSanitizedBody
         : { ...genericSanitizedBody };
+      if (entityNormalized === 'organization') {
+        const nameError = organizationNameError(req.body);
+        if (nameError) return res.status(400).json({ error: nameError });
+      }
       if (entityNormalized === 'event' || entityNormalized === 'complexevent') {
         const displayModeError = validateEventDisplayModePayload(sanitizedBody);
         if (displayModeError) return res.status(422).json(displayModeError);

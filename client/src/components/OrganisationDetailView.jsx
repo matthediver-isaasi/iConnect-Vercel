@@ -1227,6 +1227,10 @@ export default function OrganisationDetailView({
   });
 
   const handleSave = async () => {
+    if (typeof formData.name !== 'string' || !formData.name.trim()) {
+      toast.error('Organisation name is required');
+      return;
+    }
     const textareaFields = (orgCustomFields || []).filter(f => 
       (f.field_type === 'textarea' || f.field_type === 'long_text') && (f.min_length || f.max_length)
     );
@@ -1248,11 +1252,6 @@ export default function OrganisationDetailView({
       if (createOrgMutation.isPending) return;
       
       // Create mode: create org first, then save custom fields
-      if (!formData.name?.trim()) {
-        toast.error('Organisation name is required');
-        return;
-      }
-      
       createOrgMutation.mutate(formData, {
         onSuccess: async (createdOrg) => {
           // Save custom field values for the newly created org
