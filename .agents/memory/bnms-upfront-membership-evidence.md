@@ -3,6 +3,16 @@ name: BNMS upfront membership evidence
 description: Operator-attested current membership establishment is distinct from verified invoice settlement and future billing authority.
 ---
 
+The owner instructed: “We should still complete historical records correctly
+for all former members.”
+
+**Why:** Current Former/Resigned classification does not remove historical
+membership entitlement or the need to retain accurate records.
+
+**How to apply:** Investigate historical class, dates and payment evidence rather
+than treating Former as a purchasable schedule. Keep historical reconstruction
+separate from reactivation or renewal; unresolved evidence still needs review.
+
 An authorised correction from migrated Direct Debit to independently paid upfront
 membership must preserve the original consent evidence and verify normal expiry
 processing, not only that the corrected row can be saved.
