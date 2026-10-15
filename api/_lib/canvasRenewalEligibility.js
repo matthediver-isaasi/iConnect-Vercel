@@ -8,6 +8,10 @@ const day = value => {
   return Number.isFinite(+parsed) && parsed.toISOString().slice(0, 10) === value ? value : null;
 };
 const hidden = () => ({ eligible: false });
+// Only explicit retirement evidence excludes a checkout; elapsed time or an
+// unpaid status alone must never remove duplicate-renewal protection.
+export const isRetiredCanvasCheckout = record =>
+  record?.status === 'expired_checkout' || !!record?.cancelled_for_switch_at;
 const upfrontPeriod = record => record.billing_period === 'annual'
   || (!!record.term_key && ['quarterly', 'monthly'].includes(record.billing_period)
     && record.commitment_snapshot?.payment_frequency === 'upfront');
@@ -15,7 +19,7 @@ const upfrontPeriod = record => record.billing_period === 'annual'
 // Read-only display policy. In particular, an attested expiry-only legacy row
 // does not acquire a fabricated start, rolling commitment or renewal authority.
 export function canvasRenewalEligibility({ record, config, history = [], today, paused = false, hasRecurring = false }) {
-  if (!record || record.membership_source !== 'personal' || paused || hasRecurring
+  if (!record || isRetiredCanvasCheckout(record) || record.membership_source !== 'personal' || paused || hasRecurring
       || !['active', 'paid', 'expired'].includes(record.status)
       || record.payment_status !== 'paid' || record.billing_agreement_id
       || !['upfront', 'manual', 'card', 'stripe', 'invoice', 'bank_transfer'].includes(record.payment_method)
@@ -33,6 +37,7 @@ export function canvasRenewalEligibility({ record, config, history = [], today, 
   // A successor reservation (including unpaid/scheduled) must not offer a
   // second renewal. Ambiguous overlapping retained terms also fail closed.
   if (history.some(other => other.id !== record.id
+      && !isRetiredCanvasCheckout(other)
       && !['cancelled', 'canceled', 'failed'].includes(other.status)
       && (other.previous_term_id === record.id || !day(other.term_start_date)
         || other.term_start_date >= (start || end)))) return hidden();

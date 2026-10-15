@@ -209,6 +209,37 @@ test('self-scoped endpoint exposes only eligibility for assigned upfront renewal
   }
 });
 
+test('retired renewal checkout preserves paid legacy grace dates and renewal CTA', async () => {
+  const owner = { ...member, tenant_id: legacyTenant };
+  const paid = legacyTerm({ term_end_date: '2026-10-09' });
+  const config = { id: 'legacy-config', tenant_id: legacyTenant, structure_scope_type: 'member',
+    renewal_open_days: 30, renewal_grace_days: 90 };
+  for (const retirement of [
+    { status: 'expired_checkout' },
+    { status: 'pending', cancelled_for_switch_at: '2026-10-15T15:06:24Z' },
+  ]) {
+    const checkout = { ...paid, id: 'retired', payment_status: 'unpaid',
+      payment_method: 'card_monthly', billing_period: 'monthly_card',
+      term_start_date: '2026-10-10', term_end_date: '2027-10-09',
+      membership_renewal_date: '2027-10-10', billing_agreement_id: 'retired-agreement', ...retirement };
+    const history = [paid, checkout];
+    const before = structuredClone(history);
+    const h = harness({ session: owner, context: { tenantId: legacyTenant }, currentDay: '2026-10-15',
+      rows: { member: [owner], member_membership_history: history, membership_tier_config: [config],
+        membership_billing_agreements: [{ id: 'retired-agreement', tenant_id: legacyTenant,
+          member_id: owner.id, status: 'cancelled' }] } });
+    const result = await h.request();
+    assert.equal(result.statusCode, 200);
+    assert.equal(result.payload.renewal.eligible, true);
+    assert.equal(result.payload.payment.state, 'paid');
+    assert.equal(result.payload.membership.expiryDate, '2026-10-09');
+    assert.equal(result.payload.membership.grace.graceEndDate, '2027-01-07');
+    assert.deepEqual(history, before, 'historical audit records are not mutated');
+    assert.ok(h.db.calls.some(call => call.columns?.includes('cancelled_for_switch_at')));
+    assert.equal(selectCanvasCommitment([checkout], [], '2026-10-15'), null);
+  }
+});
+
 test('legacy assignment uses unique canonical report matching and fails closed for ambiguity', async () => {
   const owner = { ...member, tenant_id: legacyTenant };
   const config = { id: 'legacy-config', tenant_id: legacyTenant, structure_scope_type: 'member',
@@ -781,6 +812,8 @@ test('history query projections respect each owner schema and avoid unsupported 
   const personalBilling = migration('20260726_gocardless_phase2_dd_config.sql');
   const orgBilling = migration('20260726_gocardless_phase3_org_dd.sql');
   const settlement = migration('20260525_membership_history_payment_status.sql');
+  assert.match(migration('20261207_membership_successor_switch.sql'),
+    /ALTER TABLE public\.member_membership_history ADD COLUMN cancelled_for_switch_at timestamptz/);
   assert.match(personalBilling, /ALTER TABLE member_membership_history\s+ADD COLUMN IF NOT EXISTS billing_agreement_id/);
   assert.match(orgBilling, /ALTER TABLE organisation_membership_history\s+ADD COLUMN IF NOT EXISTS billing_agreement_id/);
   for (const table of ['member_membership_history', 'organisation_membership_history']) {
@@ -792,7 +825,7 @@ test('history query projections respect each owner schema and avoid unsupported 
   // Server-only attestation fields are intentionally absent from the public
   // history projection. The API regression above exercises their selection.
   for (const column of personal.filter(column => !['billing_agreement_id', 'payment_status',
-    'notes', 'currency', 'config_id', 'term_duration_months', 'final_cost', 'total_with_vat'].includes(column))) {
+    'notes', 'currency', 'config_id', 'term_duration_months', 'final_cost', 'total_with_vat', 'cancelled_for_switch_at'].includes(column))) {
     assert.ok(personalSelect.includes(`'${column}'`), `personal ${column} must match the existing history schema`);
   }
   for (const column of org) assert.ok(orgSelect.includes(`'${column}'`), `organisation ${column} must match the existing history schema`);

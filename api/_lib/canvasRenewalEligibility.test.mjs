@@ -10,6 +10,20 @@ const record = {
   status: 'active', term_start_date: '2026-01-01', term_end_date: '2026-12-31',
 };
 const eligible = (today, patch = {}) => canvasRenewalEligibility({ record, config, today, ...patch }).eligible;
+test('explicitly retired checkouts do not block renewal but live unpaid successors do', () => {
+  const successor = { ...record, id: 'successor', previous_term_id: record.id,
+    term_start_date: '2027-01-01', payment_status: 'unpaid', status: 'pending' };
+  for (const retirement of [
+    { status: 'expired_checkout' },
+    { cancelled_for_switch_at: '2026-12-24T12:00:00Z' },
+  ]) {
+    assert.equal(eligible('2026-12-25', { history: [record, { ...successor, ...retirement }] }), true);
+    assert.equal(eligible('2026-12-25', { record: { ...record, ...retirement } }), false);
+  }
+  for (const status of ['pending', 'scheduled', 'active', 'unpaid']) {
+    assert.equal(eligible('2026-12-25', { history: [record, { ...successor, status }] }), false);
+  }
+});
 test('manual upfront terms can renew only with paid evidence and no recurring obligation', () => {
   const manual = { ...record, payment_method: 'manual' };
   assert.equal(eligible('2026-12-25', { record: manual }), true);

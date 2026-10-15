@@ -6,7 +6,7 @@ import { shapePersistedCommitment, shapeLegacyCurrentMembership } from './member
 import { shapePlan } from './payment-plan.js';
 import { loadMigratedMandatePresentation, migratedMandatePresentation } from '../_lib/migratedMandatePresentation.js';
 import { canvasDirectDebitCollection } from '../_lib/canvasDirectDebitCollection.js';
-import { loadCanvasRenewalEligibility } from '../_lib/canvasRenewalEligibility.js';
+import { isRetiredCanvasCheckout, loadCanvasRenewalEligibility } from '../_lib/canvasRenewalEligibility.js';
 import { signupMonthlyPriceFromAgreement, completedPendingBankActivation } from '../_lib/membershipSignupEvidence.js';
 
 // This endpoint is deliberately self-only, including for administrators. It
@@ -15,7 +15,7 @@ import { signupMonthlyPriceFromAgreement, completedPendingBankActivation } from 
 const HISTORY_COLUMNS = 'id, tenant_id, membership_year, tier_label, status, payment_method, billing_period, term_key, term_start_date, term_end_date, membership_renewal_date, commitment_snapshot';
 // Only personal billing is supported here. Do not require organisation billing
 // columns (or invoice settlement columns) to display an organisation membership.
-const PERSONAL_HISTORY_COLUMNS = `${HISTORY_COLUMNS}, member_id, billing_agreement_id, payment_status, notes, currency, config_id, term_duration_months, final_cost, total_with_vat, previous_term_id`;
+const PERSONAL_HISTORY_COLUMNS = `${HISTORY_COLUMNS}, member_id, billing_agreement_id, payment_status, notes, currency, config_id, term_duration_months, final_cost, total_with_vat, previous_term_id, cancelled_for_switch_at`;
 const ORGANISATION_HISTORY_COLUMNS = `${HISTORY_COLUMNS}, organization_id`;
 const pending = new Set(['pending', 'pending_activation', 'pending_payment', 'pending_payment_setup', 'payment_setup_required', 'mandate_pending', 'first_payment_pending', 'scheduled', 'unpaid']);
 const failed = new Set(['failed', 'payment_failed', 'payment_overdue', 'payment_grace_period']);
@@ -62,7 +62,8 @@ function dated(record, today) {
 }
 
 export function selectCanvasCommitment(personal, organisation, today) {
-  const sources = [personal, organisation].map(rows => rows.map(row => dated(row, today)));
+  const sources = [personal, organisation].map(rows =>
+    rows.filter(row => !isRetiredCanvasCheckout(row)).map(row => dated(row, today)));
   const descending = (a, b) => (b.start || '').localeCompare(a.start || '')
     || String(a.record.id).localeCompare(String(b.record.id));
   // Source priority applies to today's term, not the newest recorded row.
