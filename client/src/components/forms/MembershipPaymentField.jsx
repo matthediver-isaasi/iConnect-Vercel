@@ -7,6 +7,17 @@ import DirectDebitPlanCard from "@/components/membership/DirectDebitPlanCard";
 import GoCardlessDropinFlow from "@/components/gocardless/GoCardlessDropinFlow";
 import { directDebitFirstCollectionText, directDebitPolicyText, directDebitHasFixedTermTotal } from "@/lib/directDebitConsentSummary";
 import MembershipCommitmentNotice, { membershipTermLabel } from "@/components/membership/MembershipCommitmentNotice";
+import RenewalMethodChooser from "./RenewalMethodChooser";
+
+function renewalOptions(data) {
+  if (!data?.membershipYear || data.approvalPending || data.zeroDue) return [];
+  return [
+    data.stripeEnabled && !isBelowStripeMinimum(data.totalWithVat ?? data.finalCost, data.currency)
+      && { id: 'upfront', label: 'Pay in full by card', price: formatCurrency(data.totalWithVat ?? data.finalCost, data.currency) },
+    data.cardMonthly && { id: 'monthly_card', label: 'Pay monthly by card', price: `${formatCurrency(data.cardMonthly.monthlyAmount, data.cardMonthly.currency || data.currency)}/month` },
+    data.directDebit && { id: 'direct_debit', label: 'Pay monthly by Direct Debit', price: `${formatCurrency(data.directDebit.monthlyAmount, data.directDebit.currency || data.currency)}/month` },
+  ].filter(Boolean);
+}
 
 const CURRENCY_SYMBOLS = { GBP: '\u00a3', USD: '$', EUR: '\u20ac', AUD: 'A$', NZD: 'NZ$' };
 const STRIPE_MINIMUMS = { GBP: 0.30, USD: 0.50, EUR: 0.50, AUD: 0.50, NZD: 0.50 };
@@ -37,6 +48,9 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
   const [processingPayment, setProcessingPayment] = useState(false);
   const [switchingPayment, setSwitchingPayment] = useState(false);
   const switchInFlight = useRef(false);
+  const actionInFlight = useRef(false);
+  const [chosenMethod, setChosenMethod] = useState(null);
+  const [busyMethod, setBusyMethod] = useState(null);
   const [paymentComplete, setPaymentComplete] = useState(false);
   const [paymentError, setPaymentError] = useState(null);
   const [paymentYear, setPaymentYear] = useState(null);
@@ -108,6 +122,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
   useEffect(() => {
     setPaymentComplete(false);
     setPaymentMode(null);
+    setChosenMethod(null);
     setPaymentTerm(null);
     setPaymentYear(null);
     setHasDdPlan(false);
@@ -197,6 +212,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
             });
           }
         }
+        return result;
       })
       .catch((err) => {
         if (requestId === feeRequestRef.current) setError(err.message);
@@ -437,11 +453,12 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
     }
   };
 
-  const releaseUnusedRenewal = async () => {
-    if (switchInFlight.current || creatingPayment || processingPayment || startingDd || startingCard) return;
+  const releaseUnusedRenewal = async (nextMethod = null) => {
+    if (switchInFlight.current || actionInFlight.current || loading || disabled || creatingPayment || processingPayment || startingDd || startingCard) return;
     switchInFlight.current = true;
     setPaymentError(null);
     setSwitchingPayment(true);
+    setBusyMethod(nextMethod);
     try {
       const response = await fetch('/api/forms/membership-payment', {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
@@ -451,9 +468,11 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
       const result = await response.json();
       if (!response.ok || result.released !== true) throw new Error(result.error || 'Cancellation has not been confirmed. Your renewal remains reserved.');
       elementsRef.current?.getElement?.('payment')?.destroy();
+      elementsRef.current?.getElement?.('address')?.destroy();
       elementsRef.current = null;
       stripeRef.current = null;
       setPaymentMode(null);
+      setChosenMethod(null);
       setPaymentTerm(null);
       setPaymentYear(null);
       setDdStarted(false);
@@ -463,14 +482,40 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
       setDdInviteSent(false);
       sessionStorage.removeItem('pending_form_membership_payment_year');
       sessionStorage.removeItem('pending_form_membership_field_overrides');
-      await fetchFees();
+      const refreshed = await fetchFees();
+      if (nextMethod) {
+        if (refreshed?.renewal?.eligible && renewalOptions(refreshed).some(option => option.id === nextMethod)) {
+          setChosenMethod(nextMethod);
+        } else {
+          setPaymentError('Your previous checkout was cancelled, but this payment option could not be confirmed. Check renewal status before choosing again.');
+        }
+      }
     } catch (error) {
       await fetchFees();
       setPaymentError(error.message);
     } finally {
       switchInFlight.current = false;
       setSwitchingPayment(false);
+      setBusyMethod(null);
     }
+  };
+
+  // Ref guards also cover multiple clicks before React has rendered busy state.
+  const runPaymentAction = async (action) => {
+    if (actionInFlight.current || switchInFlight.current || loading || disabled) return;
+    actionInFlight.current = true;
+    try { await action(); } finally { actionInFlight.current = false; }
+  };
+
+  const chooseRenewalMethod = async (method) => {
+    if (actionInFlight.current || switchInFlight.current || loading || disabled || ddDropin) return;
+    if (!renewalOptions(data).some(option => option.id === method)) return;
+    if (data.renewal?.state === 'renewal_pending' && data.renewal.selectedMethod !== method) {
+      await releaseUnusedRenewal(method);
+      return;
+    }
+    setChosenMethod(method);
+    setPaymentError(null);
   };
 
   const startDirectDebit = async () => {
@@ -581,7 +626,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
     );
   }
 
-  if (loading) {
+  if (loading && !data) {
     return (
       <Card data-testid={`membership-payment-loading-${field.id}`}>
         <CardContent className="pt-6">
@@ -601,6 +646,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
           <div className="flex items-center gap-2 text-destructive">
             <AlertCircle className="h-4 w-4 shrink-0" />
             <p className="text-sm">{error}</p>
+            <Button type="button" variant="outline" onClick={fetchFees} disabled={loading}>Check renewal status</Button>
           </div>
         </CardContent>
       </Card>
@@ -639,12 +685,16 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
   const renewal = data.renewal;
   const isRenewal = renewal && renewal.state !== 'joining';
   const resuming = renewal?.state === 'renewal_pending' && renewal?.selectedMethod && data.membershipYear;
+  const busy = disabled || loading || switchingPayment || processingPayment || creatingPayment || startingDd || startingCard || !!ddDropin;
+  const selectedMethod = renewal?.state === 'renewal_pending' ? renewal.selectedMethod : chosenMethod;
   const canPay = !switchingPayment && renewal?.switchState !== 'reconciling'
     && (!isRenewal || renewal.eligible || resuming);
   const renewalMessages = {
     renewal_not_open: `Renewal opens on ${formatMembershipDate(renewal?.opensOn)}.`,
     renewal_closed: `Online renewal closed on ${formatMembershipDate(renewal?.closesOn)}. Please contact the membership team for help renewing.`,
-    renewal_pending: 'Your renewal is in progress. Continue below, or choose “Change payment method” to use another option. If you have already paid, choose “Check renewal status” instead.',
+    renewal_pending: data.membershipYear
+      ? 'Choose a payment card below to continue with that method. Choosing a different card safely checks your previous checkout first. If you have already paid, choose “Check renewal status” instead.'
+      : 'Check renewal status to recover your payment details. To cancel an unfinished checkout safely, choose “Change payment method”. If you have already paid, do not pay again.',
     next_term_purchased: 'Your next membership term has already been paid for.',
     current_membership: 'We haven’t confirmed full payment for your current membership. Please contact the membership team if you need help.',
     continuing_arrangement: 'Your membership renews automatically with your existing monthly payments. You do not need to renew here.',
@@ -662,8 +712,8 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
             <p className="text-sm">Any remaining payments for your current membership are still due.</p>
             <DirectDebitPlanCard memberId={memberId} />
           </>}
-          {renewal.state === 'renewal_pending' && <Button type="button" variant="outline" onClick={fetchFees}>Check renewal status</Button>}
-          {renewal.state === 'renewal_pending' && <Button type="button" variant="outline" disabled={disabled || switchingPayment || processingPayment || creatingPayment || startingDd || startingCard} onClick={releaseUnusedRenewal}>{switchingPayment ? 'Confirming cancellation…' : 'Change payment method'}</Button>}
+          {renewal.state === 'renewal_pending' && <Button type="button" variant="outline" disabled={busy} onClick={fetchFees}>{loading ? 'Checking renewal status…' : 'Check renewal status'}</Button>}
+          {renewal.state === 'renewal_pending' && <Button type="button" variant="outline" disabled={busy} onClick={() => releaseUnusedRenewal()}>{switchingPayment ? 'Confirming cancellation…' : 'Change payment method'}</Button>}
           {switchingPayment && <p role="status">Checking your payment so you can safely choose another method. Please keep this page open.</p>}
           {paymentError && <p role="alert" className="text-sm text-destructive">{paymentError}</p>}
         </CardContent>
@@ -679,14 +729,14 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
         {isRenewal && (
           <div className="rounded-md border p-3 space-y-2 text-sm" data-testid="membership-renewal-summary">
             <p className="font-medium">{renewalMessages[renewal.state] || 'Renew your membership for the next term.'}</p>
-            {renewal.state === 'renewal_pending' && <Button type="button" variant="outline" disabled={disabled || switchingPayment || processingPayment || creatingPayment || startingDd || startingCard} onClick={releaseUnusedRenewal}>{switchingPayment ? 'Confirming cancellation…' : 'Change payment method'}</Button>}
             {switchingPayment && <p role="status">Checking your payment so you can safely choose another method. Please keep this page open.</p>}
+            {!switchingPayment && renewal.switchState === 'reconciling' && <p role="status">Your previous checkout still needs to be checked. Choose another payment card to retry the safe cancellation, or check renewal status. Do not make another payment until this check finishes.</p>}
             {renewal.currentEnd && <p>Current membership ends: {formatMembershipDate(renewal.currentEnd)}.</p>}
             {renewal.successorStart && <p>Your renewal covers: {formatMembershipDate(renewal.successorStart)}{renewal.successorEnd ? ` to ${formatMembershipDate(renewal.successorEnd)}` : ''}.</p>}
             {renewal.currentAgreementId && <p>Any remaining payments for your current membership are still due.</p>}
             {renewal.eligible && <p>Pay in full to pay for your renewal now. If you choose Direct Debit, you’ll set it up now and receive confirmation of your collection dates. No payment will be collected before your new membership period starts.</p>}
             {renewal.state === 'renewal_pending' && (
-              <Button type="button" variant="outline" onClick={fetchFees} disabled={loading}>Check renewal status</Button>
+              <Button type="button" variant="outline" onClick={fetchFees} disabled={busy}>{loading ? 'Checking renewal status…' : 'Check renewal status'}</Button>
             )}
           </div>
         )}
@@ -792,11 +842,17 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
           </div>
         )}
 
+        {isRenewal && (renewal.eligible || resuming) && (
+          <RenewalMethodChooser options={renewalOptions(data)} selectedMethod={selectedMethod}
+            busyMethod={busyMethod} disabled={busy}
+            onSelect={chooseRenewalMethod} />
+        )}
+
         {(() => {
           const hasAnyPlan = !isRenewal && (hasDdPlan || hasCardPlan);
-          const showStripeOption = canPay && (!resuming || renewal.selectedMethod === 'upfront') && !data.approvalPending && (data.zeroDue || (!belowMinimum && data.stripeEnabled)) && !paymentMode && !hasAnyPlan;
-          const showDdOption = canPay && (!resuming || renewal.selectedMethod === 'direct_debit') && !data.approvalPending && !ddStarted && !hasAnyPlan && data.directDebit && !paymentMode;
-          const showCardMonthlyOption = canPay && (!resuming || renewal.selectedMethod === 'monthly_card') && !data.approvalPending && !ddStarted && !hasAnyPlan && data.cardMonthly && !paymentMode;
+          const showStripeOption = canPay && (!isRenewal || data.zeroDue || chosenMethod === 'upfront') && !data.approvalPending && (data.zeroDue || (!belowMinimum && data.stripeEnabled)) && !paymentMode && !hasAnyPlan;
+          const showDdOption = canPay && (!isRenewal || chosenMethod === 'direct_debit') && !data.approvalPending && !ddStarted && !hasAnyPlan && data.directDebit && !paymentMode;
+          const showCardMonthlyOption = canPay && (!isRenewal || chosenMethod === 'monthly_card') && !data.approvalPending && !ddStarted && !hasAnyPlan && data.cardMonthly && !paymentMode;
           if (!showStripeOption && !showDdOption && !showCardMonthlyOption) return null;
           const cardMonthly = data.cardMonthly;
           const cardCurrency = cardMonthly?.currency || data.currency;
@@ -827,8 +883,9 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
                   </div>
                   <p className="text-xs text-muted-foreground">One card payment covering the full membership year.</p>
                   <Button
-                    onClick={initStripe}
-                    disabled={disabled || creatingPayment}
+                    type="button"
+                    onClick={() => runPaymentAction(initStripe)}
+                    disabled={busy}
                     className="w-full"
                     data-testid={`button-pay-membership-${field.id}`}
                   >
@@ -866,8 +923,9 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
                   </p>
                   <Button
                     variant="outline"
-                    onClick={startMonthlyCard}
-                    disabled={disabled || startingCard}
+                    type="button"
+                    onClick={() => runPaymentAction(startMonthlyCard)}
+                    disabled={busy}
                     className="w-full"
                     data-testid={`button-monthly-card-${field.id}`}
                   >
@@ -962,8 +1020,9 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
                   )}
                   <Button
                     variant="outline"
-                    onClick={startDirectDebit}
-                    disabled={disabled || startingDd}
+                    type="button"
+                    onClick={() => runPaymentAction(startDirectDebit)}
+                    disabled={busy}
                     className="w-full"
                     data-testid={`button-direct-debit-${field.id}`}
                   >
@@ -1058,8 +1117,9 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
               data-testid={`stripe-element-${field.id}`}
             />
             <Button
-              onClick={handleStripePayment}
-              disabled={processingPayment}
+              type="button"
+              onClick={() => runPaymentAction(handleStripePayment)}
+              disabled={busy || !canPay}
               className="w-full"
               data-testid={`button-confirm-payment-${field.id}`}
             >

@@ -50,3 +50,12 @@ Display renewal dates in UK DD/MM/YYYY format.
 **Why:** The user explicitly requested UK dates rather than YYYY-MM-DD in the renewal element.
 
 **How to apply:** Format calendar dates for display only; keep stored dates and payment boundaries unchanged.
+
+An unfinished checkout must not be presented as “In progress” or given a
+replacement status label implying that no further action is needed.
+
+**Why:** The user explicitly requires returning members to understand that they
+must choose a method and continue payment, not wait for an abandoned checkout.
+
+**How to apply:** Highlight the previous choice without a status badge. Keep
+method choice separate from the existing payment confirmation and consent.
