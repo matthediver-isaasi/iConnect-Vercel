@@ -23,10 +23,10 @@ const membershipSupport = {
   none: 'There is no current membership to display.',
 };
 const paymentHeadings = {
-  bank_setup_pending: 'Payment details',
-  current_direct_debit: 'Payment details',
-  first_payment_pending: 'Payment details',
-  active: 'Payment details', paid: 'Payment details', pending: 'Payment details', paused: 'Payment details',
+  bank_setup_pending: 'Your subscription',
+  current_direct_debit: 'Your subscription',
+  first_payment_pending: 'Your subscription',
+  active: 'Your subscription', paid: 'Your subscription', pending: 'Your subscription', paused: 'Your subscription',
   expired: 'Payment arrangement expired', failed: 'Payment needs attention',
   unavailable: 'Payment details unavailable', none: 'No payment arrangement',
 };
@@ -73,6 +73,7 @@ export function getCanvasMembershipDefaults(type = 'membership-summary') {
     }])),
     fields: {
       memberSince: 'Member since', membershipType: '', amount: 'Next payment amount', method: 'Payment method',
+      availablePaymentMethod: 'You can pay by',
       projectedAmount: 'Projected next payment amount', configuredAmount: 'Configured amount',
       expectedMonthlyAmount: 'Expected monthly amount',
       collectionStructure: 'Collection structure',
@@ -88,7 +89,7 @@ export function getCanvasMembershipDefaults(type = 'membership-summary') {
     methods: {
       direct_debit: 'Direct Debit', monthly_direct_debit: 'Monthly Direct Debit',
       card: 'Card', monthly_card: 'Monthly card', bank_transfer: 'Bank transfer',
-      invoice: 'Invoice', upfront: 'Upfront', flat_rate: 'Flat Rate', unavailable: 'Unavailable',
+      invoice: 'Invoice', upfront: payment ? 'Credit/debit card' : 'Upfront', flat_rate: 'Flat Rate', unavailable: 'Unavailable',
     },
     messages: {
       loading: 'Loading your membership details…',
@@ -159,8 +160,17 @@ export function normalizeCanvasMembershipContent(content, type = 'membership-sum
   return {
     eyebrow: text(input.eyebrow, defaults.eyebrow),
     states: Object.fromEntries((type === 'payment-details' ? MEMBERSHIP_PAYMENT_STATES : MEMBERSHIP_DATA_STATES).map(state => [
-      state, strings(record(input.states)[state], defaults.states[state],
-        (type === 'payment-details' ? legacyGenerated.payment : legacyGenerated.membership)[state]),
+      state, (() => {
+        const normalized = strings(record(input.states)[state], defaults.states[state],
+          (type === 'payment-details' ? legacyGenerated.payment : legacyGenerated.membership)[state]);
+        // Presentation-only upgrade of the previous stock heading. Do not
+        // rewrite authored variants or mutate the saved Canvas document.
+        if (type === 'payment-details' && defaults.states[state].heading === 'Your subscription'
+          && normalized.heading === 'Payment details') {
+          normalized.heading = 'Your subscription';
+        }
+        return normalized;
+      })(),
     ])),
     fields: (() => {
       const raw = record(input.fields);
@@ -174,7 +184,7 @@ export function normalizeCanvasMembershipContent(content, type = 'membership-sum
       if (raw.membershipType === legacyGenerated.fields.membershipType) normalized.membershipType = '';
       return normalized;
     })(),
-    methods: strings(input.methods, defaults.methods),
+    methods: strings(input.methods, defaults.methods, type === 'payment-details' ? { upfront: 'Upfront' } : {}),
     messages: strings(input.messages, defaults.messages),
     typography: strings(input.typography, defaults.typography),
     minHeight: responsiveNumber(input.minHeight, defaults.minHeight, 4000),

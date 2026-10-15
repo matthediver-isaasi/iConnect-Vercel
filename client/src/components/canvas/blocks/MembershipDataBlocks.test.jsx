@@ -29,6 +29,8 @@ const { Simulate } = await import('react-dom/test-utils');
 const { renderToStaticMarkup } = await import('react-dom/server');
 const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query');
 const { MembershipDataView, MembershipDataInspector } = await import('./MembershipDataBlocks.jsx');
+const { TenantBrandingProvider } = await import('../../../contexts/TenantBrandingContext.jsx');
+const { publicClient } = await import('../../../api/publicClient');
 const {
   getCanvasMembershipDefaults, MEMBERSHIP_DATA_STATES, MEMBERSHIP_PAYMENT_STATES, MEMBERSHIP_TEXT_ROLES,
 } = await import('../../../lib/canvasMembershipData.js');
@@ -72,7 +74,7 @@ test('upfront stock payment headings deduplicate without rewriting saved custom 
       const doc = new JSDOM(render({ type: 'payment-details', breakpoint, asEditor,
         result: { status: 'ready', data } })).window.document;
       assert.equal(doc.querySelector('[data-membership-role="eyebrow"]'), null);
-      assert.equal(doc.querySelector('h2').textContent, 'Payment details');
+      assert.equal(doc.querySelector('h2').textContent, 'Your subscription');
       assert.equal(doc.querySelector('section').getAttribute('aria-labelledby'), doc.querySelector('h2').id);
     }
   }
@@ -162,6 +164,134 @@ function render(overrides = {}) {
   />);
 }
 
+test('date facts share intrinsic label/value tracks across wrapped labels and responsive columns', () => {
+  for (const type of ['membership-summary', 'payment-details']) {
+    for (const breakpoint of [undefined, 'desktop', 'mobile']) {
+      const doc = new JSDOM(render({ type, breakpoint,
+        block: { id: 'wrapped-dates', content: { fields: {
+          previousMembershipEnded: 'The previous membership term ended on this date',
+        } } },
+        result: { status: 'ready', data: {
+          membership: { state: 'expired', termStartDate: '2025-08-26', termEndDate: '2026-08-25',
+            grace: { inGrace: true, graceEndDate: '2026-11-24' } },
+          payment: { state: 'paid', method: 'upfront' },
+        } },
+      })).window.document;
+      const fields = [...doc.querySelectorAll('.membership-fields > div')];
+      const dates = fields.filter(field => /26 August 2025|25 August 2026/.test(field.textContent));
+      assert.equal(dates.length, 2);
+      for (const field of dates) {
+        assert.equal(field.firstElementChild.tagName, 'DT');
+        assert.equal(field.lastElementChild.tagName, 'DD');
+      }
+      const css = doc.querySelector('style').textContent;
+      assert.match(css, /\.membership-fields > div\{[^}]*grid-template-rows:subgrid;grid-row:span 2;row-gap:0/);
+      assert.match(css, /@container \(max-width:650px\)[^]*repeat\(2,minmax\(0,1fr\)\)/);
+      assert.match(css, /@container \(max-width:380px\)[^]*grid-template-columns:minmax\(0,1fr\)/);
+      assert.doesNotMatch(css, /white-space:nowrap|height:\d+px/);
+    }
+  }
+});
+
+test('saved upfront defaults render as an available card option, not a historical network claim', () => {
+  const data = { membership: { state: 'active' }, payment: { state: 'paid', method: 'upfront' } };
+  for (const asEditor of [false, true]) {
+    const doc = new JSDOM(render({ type: 'payment-details', asEditor,
+      block: { id: 'saved-stock', content: { states: { paid: { heading: 'Payment details' } },
+        methods: { upfront: 'Upfront' }, fields: { method: 'Payment method' } } },
+      result: { status: 'ready', data },
+    })).window.document;
+    assert.equal(doc.querySelector('h2').textContent, 'Your subscription');
+    const method = [...doc.querySelectorAll('dl')].find(dl => dl.textContent.includes('Credit/debit card'));
+    assert.equal(method.querySelector('dt').textContent, 'You can pay by');
+    assert.equal(method.querySelector('svg').getAttribute('aria-hidden'), 'true');
+    assert.ok(method.querySelector('.lucide-credit-card'));
+    assert.doesNotMatch(doc.body.textContent, /Upfront|Visa|Mastercard|Amex|paid using|last paid by/i);
+  }
+  const custom = render({ type: 'payment-details',
+    block: { id: 'custom-payment', content: {
+      states: { paid: { heading: 'Your annual plan' } },
+      fields: { method: 'Choose your payment option' }, methods: { upfront: 'Card at checkout' },
+    } }, result: { status: 'ready', data },
+  });
+  for (const text of ['Your annual plan', 'Choose your payment option', 'Card at checkout']) assert.ok(custom.includes(text));
+  for (const method of ['monthly_direct_debit', 'monthly_card']) {
+    const doc = new JSDOM(render({ type: 'payment-details',
+      result: { status: 'ready', data: { ...live, payment: { ...live.payment, method } } },
+    })).window.document;
+    assert.match(doc.body.textContent, /Payment method/);
+    assert.match(doc.body.textContent, method === 'monthly_card' ? /Monthly card/ : /Monthly Direct Debit/);
+    assert.equal(doc.querySelector('.lucide-credit-card'), null);
+    assert.doesNotMatch(doc.body.textContent, /You can pay by|Credit\/debit card/);
+  }
+});
+
+test('renewal uses tenant Primary design, label typography, hover and safe editor navigation', async () => {
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  const originalGetBranding = publicClient.getTenantBranding;
+  const primary = {
+    background: { type: 'solid', solidColor: '#163d58' },
+    hover: { type: 'solid', solidColor: '#315c71' },
+    textColor: '#f7ead6', hoverTextColor: '#f9d397',
+    border: { width: 3, style: 'dashed', color: '#589aa1' }, radius: 13,
+    size: { paddingX: 29, paddingY: 12 }, labelSize: 19,
+    labelTypographyStyleId: 'primary-label',
+  };
+  const data = { membership: { state: 'active' }, payment: { state: 'paid', method: 'upfront' },
+    renewal: { eligible: true } };
+  try {
+    // Exercise both current and legacy branding shapes through the real context.
+    for (const branding of [{ buttonStyles: { primary } }, { brandingConfig: { button_styles: { primary } } }]) {
+      publicClient.getTenantBranding = async () => ({ success: true, branding });
+      await act(async () => root.render(<TenantBrandingProvider key={JSON.stringify(branding)}>
+        <MembershipDataView type="payment-details" asEditor
+          tenantStyles={[{ id: 'primary-label', font_family: 'Georgia', font_size: 27, color: '#a11234' }]}
+          block={{ id: 'tenant-renewal', content: {
+            renewalLink: 'https://renew.example.org/form?source=portal', renewalLinkNewTab: true,
+            typography: { link: 'wrong-link-style' },
+          } }}
+          result={{ status: 'ready', data }} />
+      </TenantBrandingProvider>));
+      const cta = container.querySelector('[data-testid="membership-renewal-cta"]');
+      assert.equal(cta.getAttribute('href'), 'https://renew.example.org/form?source=portal');
+      assert.equal(cta.target, '_blank');
+      assert.equal(cta.rel, 'noopener noreferrer');
+      assert.equal(cta.style.backgroundColor, 'rgb(22, 61, 88)');
+      assert.equal(cta.style.border, '3px dashed rgb(88, 154, 161)');
+      assert.equal(cta.style.borderRadius, '13px');
+      assert.equal(cta.style.paddingLeft, '29px');
+      assert.equal(cta.style.paddingTop, '12px');
+      const label = cta.querySelector('span');
+      assert.equal(label.style.fontFamily, 'Georgia');
+      assert.equal(label.style.fontSize, '19px');
+      assert.equal(label.style.color, 'rgb(247, 234, 214)');
+      assert.equal(cta.querySelector('svg'), null);
+      await act(async () => Simulate.mouseEnter(cta));
+      assert.equal(cta.style.backgroundColor, 'rgb(49, 92, 113)');
+      assert.equal(cta.querySelector('span').style.color, 'rgb(249, 211, 151)');
+      await act(async () => Simulate.mouseLeave(cta));
+      assert.equal(cta.style.backgroundColor, 'rgb(22, 61, 88)');
+      const event = new window.MouseEvent('click', { bubbles: true, cancelable: true });
+      cta.dispatchEvent(event);
+      assert.equal(event.defaultPrevented, true);
+    }
+  } finally {
+    await act(async () => root.unmount());
+    publicClient.getTenantBranding = originalGetBranding;
+    container.remove();
+  }
+  const fallback = new JSDOM(render({ type: 'payment-details',
+    block: { id: 'fallback-renewal', content: { renewalLink: '/forms/renew' } },
+    result: { status: 'ready', data },
+  })).window.document.querySelector('[data-testid="membership-renewal-cta"]');
+  assert.ok(fallback.classList.contains('bg-primary'));
+  assert.ok(fallback.classList.contains('text-primary-foreground'));
+  assert.equal(fallback.getAttribute('target'), null);
+  assert.equal(fallback.getAttribute('rel'), null);
+});
+
 test('completed bank setup shows separate expected price and suppresses saved repeat-setup links', () => {
   const data = { membership: { state: 'pending' }, renewal: { eligible: true },
     payment: { state: 'bank_setup_pending', method: 'monthly_direct_debit',
@@ -175,7 +305,7 @@ test('completed bank setup shows separate expected price and suppresses saved re
       const html = render({ type: 'payment-details', block, breakpoint, asEditor,
         result: { status: 'ready', data, isSample: asEditor } });
       const text = new JSDOM(html).window.document.body.textContent;
-      assert.match(text, /Payment details/);
+      assert.match(text, /Your subscription/);
       assert.match(text, /Expected monthly fee/);
       assert.match(text, /£13.00 per month/);
       assert.match(text, /Based on the price when you joined. This amount may change/);
@@ -377,7 +507,7 @@ test('attested upfront membership shows known expiry and no invented payment or 
     assert.match(html, /16 October 2026/);
     assert.doesNotMatch(html, /Payment details unavailable|Renewal date|17 October|Next payment amount|£/);
     if (type === 'payment-details') {
-      assert.match(html, /Upfront/);
+      assert.match(html, /Credit\/debit card/);
       assert.match(html, /Your current membership has been paid in full/);
     }
   }
@@ -520,7 +650,7 @@ test('paid-upfront cards render renewal without implying an automatic charge', (
   const paymentHtml = render({
     type: 'payment-details', result: { status: 'ready', data: paid },
   });
-  assert.match(paymentHtml, /Payment details/);
+  assert.match(paymentHtml, /Your subscription/);
   assert.match(paymentHtml, /Your current membership has been paid in full\./);
   assert.doesNotMatch(paymentHtml, /automatic|auto-renew|saved card/i);
 
@@ -733,7 +863,7 @@ test('inspector state edits preserve metadata, independent state copy, seven sty
     await act(async () => Simulate.change(heading, { target: { value: 'Collections on hold' } }));
     const next = updates.at(-1)(block);
     assert.equal(next.content.states.paused.heading, 'Collections on hold');
-    assert.equal(next.content.states.active.heading, 'Payment details');
+    assert.equal(next.content.states.active.heading, 'Your subscription');
     assert.equal(next.locked, true);
     assert.equal(next.id, 'p');
     for (const role of MEMBERSHIP_TEXT_ROLES) assert.ok(container.querySelector(`[data-testid="membership-typography-${role}"]`));

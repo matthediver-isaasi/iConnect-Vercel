@@ -6,6 +6,36 @@ import {
   MEMBERSHIP_DATA_STATES, MEMBERSHIP_PAYMENT_STATES, MEMBERSHIP_TEXT_ROLES,
 } from './canvasMembershipData.js';
 
+test('subscription presentation upgrades only exact saved defaults, without mutating Canvas content', () => {
+  const saved = {
+    states: {
+      paid: { heading: 'Payment details', supporting: 'Ask the team about your term.' },
+      active: { heading: 'Payment details for your plan' },
+      pending: { heading: '' },
+      paused: { heading: 'Payment details ' },
+      failed: { heading: 'Payment details' },
+    },
+    fields: { method: 'Ways to pay' }, methods: { upfront: 'Upfront' },
+  };
+  const before = structuredClone(saved);
+  const normalized = normalizeCanvasMembershipContent(saved, 'payment-details');
+  assert.equal(normalized.states.paid.heading, 'Your subscription');
+  assert.equal(normalized.states.paid.supporting, 'Ask the team about your term.');
+  assert.equal(normalized.states.active.heading, 'Payment details for your plan');
+  assert.equal(normalized.states.pending.heading, '');
+  assert.equal(normalized.states.paused.heading, 'Payment details ');
+  assert.equal(normalized.states.failed.heading, 'Payment details');
+  assert.equal(normalized.methods.upfront, 'Credit/debit card');
+  assert.equal(normalized.fields.method, 'Ways to pay');
+  assert.equal(normalizeCanvasMembershipContent({
+    methods: { upfront: 'Pay by card at checkout' },
+  }, 'payment-details').methods.upfront, 'Pay by card at checkout');
+  assert.equal(normalizeCanvasMembershipContent(saved).states.active.heading, 'Payment details for your plan');
+  assert.equal(normalizeCanvasMembershipContent(saved).methods.upfront, 'Upfront');
+  assert.deepEqual(saved, before);
+  assert.deepEqual(normalizeCanvasMembershipContent(normalized, 'payment-details'), normalized);
+});
+
 test('renewal configuration survives normalization but never stores server eligibility', () => {
   for (const renewalLink of ['/members/renew?source=portal', 'https://example.org/renew', '/forms/renew-membership']) {
     const content = normalizeCanvasMembershipContent({ renewalLink, renewalLinkNewTab: true, renewal: { eligible: true } }, 'payment-details');
@@ -86,7 +116,7 @@ test('bank setup keeps expected signup price separate and saved labels keep thei
   assert.equal(content.fields.amount, 'Your next charge');
   assert.equal(content.fields.expectedMonthlyAmount, 'Expected monthly fee');
   assert.equal(content.states.pending.supporting, 'Custom pending message');
-  assert.equal(content.states.bank_setup_pending.heading, 'Payment details');
+  assert.equal(content.states.bank_setup_pending.heading, 'Your subscription');
   assert.deepEqual(normalizeCanvasMembershipContent(content, 'payment-details'), content);
 });
 
@@ -104,7 +134,7 @@ test('form picker decodes persisted slugs once without corrupting query strings 
 
 test('payment wording avoids first-ever-payment claims for migrated members', () => {
   const defaults = getCanvasMembershipDefaults('payment-details');
-  assert.equal(defaults.states.first_payment_pending.heading, 'Payment details');
+  assert.equal(defaults.states.first_payment_pending.heading, 'Your subscription');
   assert.equal(defaults.states.first_payment_pending.status, 'Payment pending');
   assert.doesNotMatch(defaults.states.first_payment_pending.supporting, /first payment/i);
   const normalized = normalizeCanvasMembershipSummary({
@@ -251,7 +281,7 @@ test('paid is a payment state only and preserves historical dates', () => {
   assert.equal(data.payment.nextPayment, null);
   const paymentDefaults = getCanvasMembershipDefaults('payment-details');
   assert.deepEqual(paymentDefaults.states.paid, {
-    heading: 'Payment details',
+    heading: 'Your subscription',
     supporting: 'Your current membership has been paid in full.',
     status: 'Paid in full',
   });

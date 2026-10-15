@@ -1,5 +1,9 @@
 import { useId, useState } from 'react';
-import { ArrowRight, TriangleAlert } from 'lucide-react';
+import { ArrowRight, CreditCard, TriangleAlert } from 'lucide-react';
+import { useTenantBranding } from '@/contexts/TenantBrandingContext';
+import {
+  buildTenantButtonInlineStyle, composeButtonLabelStyle, resolveTenantButtonStyle,
+} from '@/lib/tenantButtonStyle';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ColorField } from './ColorField';
@@ -7,7 +11,7 @@ import { FormPickerField } from './FormPickerField';
 import {
   LinkField, TypographyStyleField, useTenantTypographyStylesState,
   resolveTenantStyle, isAwaitingTypographyStyle, buildTypographyInlineStyle,
-  buildTenantTypographyResponsiveCss,
+  buildTenantTypographyResponsiveCss, renderStyleIcon,
 } from './registry';
 import { useReportReflowHeight } from '../AccordionReflowContext';
 import { useCanvasMembershipSummary } from '@/hooks/useCanvasMembershipSummary';
@@ -40,6 +44,43 @@ const stateColors = {
   failed: '#b42318', unavailable: '#667085', none: '#667085',
 };
 
+// Use the same Primary slot, size/background/border and label composition as
+// Canvas Button, rather than the membership link typography or a local colour.
+export function MembershipRenewalButton({
+  href, newTab, asEditor, tenantStyles, stylesResolved, breakpoint,
+}) {
+  const branding = useTenantBranding()?.branding || null;
+  const buttonStyle = resolveTenantButtonStyle('tenant-primary', branding);
+  const [hovered, setHovered] = useState(false);
+  const labelStyle = resolveTenantStyle(buttonStyle?.labelTypographyStyleId, tenantStyles);
+  const awaitingLabel = isAwaitingTypographyStyle(buttonStyle?.labelTypographyStyleId, labelStyle, stylesResolved);
+  const labelCss = composeButtonLabelStyle({
+    typographyCss: labelStyle ? buildTypographyInlineStyle(labelStyle, {
+      breakpoint: breakpoint || 'desktop', omitMarginBottom: true,
+    }) : null,
+    textColor: buttonStyle ? (hovered ? buttonStyle.hoverTextColor || buttonStyle.textColor : buttonStyle.textColor) || '#ffffff' : null,
+    labelSize: buttonStyle?.labelSize,
+  });
+  const icon = buttonStyle?.icon;
+  const iconElement = icon?.name ? renderStyleIcon(icon.name, Number.isFinite(icon.size) ? icon.size : 18, icon.color) : null;
+  return <a href={href} data-testid="membership-renewal-cta"
+    target={newTab ? '_blank' : undefined} rel={newTab ? 'noopener noreferrer' : undefined}
+    onClick={asEditor ? event => event.preventDefault() : undefined}
+    onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
+    className={buttonStyle
+      ? 'inline-flex items-center justify-center gap-1.5 font-medium'
+      : 'inline-flex items-center justify-center gap-1.5 rounded-md font-medium bg-primary text-primary-foreground hover-elevate active-elevate-2 h-10 px-5 text-base'}
+    style={{
+      ...buildTenantButtonInlineStyle(buttonStyle, { hovered }),
+      // Canvas Button leaves label line-height to typography/inheritance.
+      lineHeight: undefined, maxWidth: '100%', textDecoration: 'none',
+    }}>
+    {iconElement && icon.position !== 'after' && <span aria-hidden="true" style={{ display: 'inline-flex', flexShrink: 0 }}>{iconElement}</span>}
+    <span style={{ ...labelCss, visibility: awaitingLabel ? 'hidden' : undefined }}>Renew your subscription</span>
+    {iconElement && icon.position === 'after' && <span aria-hidden="true" style={{ display: 'inline-flex', flexShrink: 0 }}>{iconElement}</span>}
+  </a>;
+}
+
 // Separate view makes the state contract testable without authentication/network.
 export function MembershipDataView({
   block, type = 'membership-summary', breakpoint, asEditor = false,
@@ -66,7 +107,7 @@ export function MembershipDataView({
   const hideDuplicateEyebrow = paymentCard && ready
     && !['monthly_direct_debit', 'monthly_card'].includes(summary.payment.method)
     && (summary.payment.state === 'paid' || summary.payment.method === 'upfront')
-    && content.eyebrow === 'PAYMENT DETAILS' && copy.heading === 'Payment details';
+    && content.eyebrow === 'PAYMENT DETAILS' && copy.heading === 'Your subscription';
   const termEndDate = summary.membership.termEndDate || summary.membership.expiryDate;
   const termEndLabel = summary.membership.grace ? content.fields.previousMembershipEnded : content.fields.expiryDate;
   const renewalPrice = paymentCard && !bankSetupPending && summary.renewal.price
@@ -124,6 +165,12 @@ export function MembershipDataView({
     : nextCollection?.status === 'planned' ? content.fields.plannedPaymentDate : content.fields.nextPayment;
   const displayMethod = summary.payment.method === 'flat_rate' || content.methods[summary.payment.method] === 'Flat Rate'
     ? null : content.methods[summary.payment.method];
+  const upfrontPayment = paymentCard && summary.payment.method === 'upfront';
+  const methodLabel = upfrontPayment && content.fields.method === 'Payment method'
+    ? content.fields.availablePaymentMethod : content.fields.method;
+  const methodValue = upfrontPayment ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+    <CreditCard size={20} aria-hidden="true" style={{ flexShrink: 0 }} />{displayMethod}
+  </span> : displayMethod;
   const nextPaymentAmount = formatMembershipAmount(summary.payment.amount, summary.payment.currency)
     || content.messages.amountUnknown;
    const expectedPrice = bankSetupPending ? summary.payment.expectedMonthlyPrice : null;
@@ -166,6 +213,8 @@ export function MembershipDataView({
         ${responsiveMinHeightCss}
         [data-block-type="payment-details"]:has(> [data-payment-details-visibility="hidden"]){display:none !important}
         ${selector} .membership-fields{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:24px;margin:40px 0 0;padding:0}
+        ${selector} .membership-fields > div{display:grid;grid-template-rows:subgrid;grid-row:span 2;row-gap:0;min-width:0}
+        ${selector} .membership-fields > div > dd{align-self:start}
         ${selector} .membership-title{display:flex;align-items:center;gap:24px 60px;flex-wrap:wrap}
         @container (max-width:650px){${selector} .membership-fields{grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}}
         @container (max-width:380px){${selector} .membership-fields{grid-template-columns:minmax(0,1fr)}}
@@ -222,8 +271,8 @@ export function MembershipDataView({
               <dd {...role('value')}>{formatMembershipDate(confirmedPayment.date)} · {confirmedAmount}</dd>
             </div>}
             {paymentFactsAvailable && displayMethod && <div style={{ minWidth: 0 }}>
-              <dt {...role('fieldLabel')}>{content.fields.method}</dt>
-              <dd {...role('value')}>{displayMethod}</dd>
+              <dt {...role('fieldLabel')}>{methodLabel}</dt>
+              <dd {...role('value')}>{methodValue}</dd>
             </div>}
              {paymentFactsAvailable && !bankSetupPending && summary.payment.mandateStatus && <div style={{ minWidth: 0 }}>
               <dt {...role('fieldLabel')}>{content.fields.mandateStatus}</dt>
@@ -261,8 +310,8 @@ export function MembershipDataView({
             </p>
           )}
           {summary.payment.state === 'paid' && summary.payment.method === 'upfront' && <dl style={{ marginTop: 16 }}>
-            <dt {...role('fieldLabel')}>{content.fields.method}</dt>
-            <dd {...role('value')}>{displayMethod}</dd>
+            <dt {...role('fieldLabel')}>{methodLabel}</dt>
+            <dd {...role('value')}>{methodValue}</dd>
           </dl>}
           {showSupporting && <p {...role('supporting', { marginTop: 16 })}>
             {copy.supporting}
@@ -294,15 +343,10 @@ export function MembershipDataView({
         {...role('link', { display: 'inline-flex', alignItems: 'center', gap: 10, marginTop: 24, textDecoration: 'none' })}>
         {content.manageLinkText}<ArrowRight size={18} aria-hidden="true" style={{ flexShrink: 0 }} />
       </a>}
-      {showRenewal && <div>
-        <a href={renewalHref}
-          data-testid="membership-renewal-cta"
-          target={content.renewalLinkNewTab ? '_blank' : undefined}
-          rel={content.renewalLinkNewTab ? 'noopener noreferrer' : undefined}
-          onClick={asEditor ? event => event.preventDefault() : undefined}
-          {...role('link', { display: 'inline-flex', alignItems: 'center', gap: 10, marginTop: 24, textDecoration: 'none' })}>
-          Renew your subscription<ArrowRight size={18} aria-hidden="true" style={{ flexShrink: 0 }} />
-        </a>
+      {showRenewal && <div style={{ marginTop: 24 }}>
+        <MembershipRenewalButton href={renewalHref} newTab={content.renewalLinkNewTab}
+          asEditor={asEditor} tenantStyles={tenantStyles} stylesResolved={stylesResolved}
+          breakpoint={breakpoint || viewportBreakpoint} />
       </div>}
     </section>
   );
