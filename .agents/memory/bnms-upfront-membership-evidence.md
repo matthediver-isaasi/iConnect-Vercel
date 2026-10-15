@@ -3,6 +3,18 @@ name: BNMS upfront membership evidence
 description: Operator-attested current membership establishment is distinct from verified invoice settlement and future billing authority.
 ---
 
+BNMS authorised correcting zero-day grace copied into reconstructed paid
+upfront terms where the approved current schedule allows 90 days. Do not treat
+a genuine checkout's older zero-day policy as the same reconstruction error.
+
+**Why:** Reconstructed records can copy a stale default; actual purchases retain
+their agreed policy. A present-day schedule mismatch alone does not authorise
+rewriting either kind of saved commitment.
+
+**How to apply:** Require explicit reconstruction provenance and an exact
+before/after audit. Preserve dates, prices, payment evidence, renewal-opening
+windows and access settings; keep ordinary commitment immutability enforced.
+
 The owner wants former members' historical records to be accurate, but has
 deferred the bulk former-member recovery because the overhead is not worthwhile.
 
