@@ -13,6 +13,17 @@ Health monitoring must read persisted completed-sweep evidence and eligibility-a
 
 **Why:** Monitoring must not consume the quota it monitors; a successful empty sweep differs from a never-run worker, and permitted cooldowns differ from overdue work.
 
+Preflight reviewed repairs against the actual claim/guard contract before
+requeueing, not just snapshot validation. Keep any test claims inside rolled-back
+savepoints and never invoke a provider writer during the preflight.
+
+**Why:** Correcting VAT evidence alone left a separate payment-ownership claim
+empty; otherwise valid invoices immediately returned to review before any write.
+
+**How to apply:** Validate payment linkage, duplicates, leases and booking
+eligibility together; preserve immutable financial evidence and audit exact
+before/after rows when a targeted ownership repair is authorised.
+
 The user clarified that the sweep's purpose includes creating missing historical invoices, not merely identifying them. A missing checkout snapshot alone must not be treated as permanently unrepairable when original booking/provider evidence can support recovery.
 
 **Why:** A discovery-only historical sweep did not meet the intended product requirement.
