@@ -126,3 +126,14 @@ export function getPortalMenuFallbackFeatureId({ section, title, url, link_type:
 
   return `page_${normalizedSection}_${normalizedUrl}`;
 }
+
+// Reports currently live in the schema detail page, whose access gate is Data
+// Studio, not the narrower record-list permission. Keep that gate intact.
+export function getCustomObjectReportPortalDestinations(objects = []) {
+  return objects.map(object => ({
+    objectId: object.objectId,
+    value: `CustomObjectsAdmin/${encodeURIComponent(object.objectId)}#reports`,
+    label: `Data Studio reports: ${object.label.replace(/^Custom Object: /, '')}`,
+    featureId: 'admin.data-studio',
+  }));
+}

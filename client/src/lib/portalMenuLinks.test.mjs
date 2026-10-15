@@ -17,12 +17,35 @@ import {
   getPortalMenuLinkType,
   isPortalMenuDestinationActive,
   loadViewableCustomObjectPortalDestinations,
+  getCustomObjectReportPortalDestinations,
   resolvePortalMenuDestination,
   validateExternalPortalUrl,
   validatePortalMenuDestination,
 } from './portalMenuLinks.js';
 
 const createInternalUrl = (url) => `/${String(url).replace(/^\/+/, '')}`;
+
+test('Data Studio report menu destinations open the reports tab and retain its access gate', () => {
+  const destinations = getCustomObjectReportPortalDestinations([{
+    objectId: 'cd1ebfd3-3e16-4091-be5a-99992d926f2f',
+    label: 'Custom Object: Departments',
+  }, {
+    objectId: 'future-table',
+    label: 'Custom Object: Future table',
+  }]);
+  assert.equal(destinations.length, 2);
+  assert.deepEqual(destinations[0], {
+    objectId: 'cd1ebfd3-3e16-4091-be5a-99992d926f2f',
+    value: 'CustomObjectsAdmin/cd1ebfd3-3e16-4091-be5a-99992d926f2f#reports',
+    label: 'Data Studio reports: Departments',
+    featureId: 'admin.data-studio',
+  });
+  assert.equal(resolvePortalMenuDestination({
+    url: destinations[0].value,
+  }, createPageUrl).url, '/CustomObjectsAdmin/cd1ebfd3-3e16-4091-be5a-99992d926f2f#reports');
+  assert.equal(destinations[1].value, 'CustomObjectsAdmin/future-table#reports');
+  assert.deepEqual(getCustomObjectReportPortalDestinations([]), []);
+});
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 test('legacy portal menu records remain internal current-tab links', () => {

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DragDropContext, Draggable, Droppable } from "@hello-pangea/dnd";
 import {
@@ -502,6 +502,7 @@ export function CustomObjectDetail() {
 }
 function Detail() {
   const { objectId } = useParams();
+  const location = useLocation();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const tabFromHash = () => {
@@ -511,6 +512,11 @@ function Detail() {
       : "overview";
   };
   const [selectedTab, setSelectedTab] = useState(tabFromHash);
+  // Router links use pushState, which does not dispatch a native hashchange.
+  // Also reset the tab when navigating between tables without remounting.
+  useEffect(() => {
+    setSelectedTab(tabFromHash());
+  }, [objectId, location.hash]);
   useEffect(() => {
     const selectLinkedTab = () => setSelectedTab(tabFromHash());
     window.addEventListener("hashchange", selectLinkedTab);

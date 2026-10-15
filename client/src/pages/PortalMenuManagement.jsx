@@ -27,6 +27,7 @@ import {
   getPortalMenuFallbackFeatureId,
   getPortalMenuLinkType,
   loadViewableCustomObjectPortalDestinations,
+  getCustomObjectReportPortalDestinations,
   PORTAL_MENU_LINK_TYPES,
   validatePortalMenuDestination,
 } from "@/lib/portalMenuLinks";
@@ -353,6 +354,7 @@ export default function PortalMenuManagementPage() {
       ...ieditPages,
       ...dynamicDirectories,
       ...customObjectDestinations,
+      ...getCustomObjectReportPortalDestinations(customObjectDestinations),
     ].filter(item => isBnmsTenant || !isNmcReportDestination(item)).sort((a, b) => {
       // Keep "_none" at top
       if (a.value === "_none") return -1;
