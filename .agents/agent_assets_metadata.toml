@@ -1517,3 +1517,17 @@ mtime_ms = 1791978783944
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/790d3c2e-306c-467d-becb-f89f0e4630bb/bdfd2244-359c-4a14-be88-4530f18e36ac"
 storage_version_token = "1791979006213375"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "BLpmfr01CW3v0ixSDXbA6"
+uri = "file://generated-artifacts/bnms-zoom-reconciliation/BNMS_Webinar_Unmatched_Attendees_15-10-2026.xlsx"
+type = "table"
+title = "BNMS webinar — unmatched Zoom attendees"
+description = "Reconciliation workbook with 25 unmatched Zoom names, 2 ambiguous matches, 3 waiting-room-only entries, and the approved matches."
+logical_id = "ef8d955f-edf9-43a9-b08f-e6dcc80fc4b7"
+content_hash = "sha256:7a6c18768b6bdf97d086f5a540fab109918277fec2684b8596ff4e7cd7078fcd"
+size = 16931
+mtime_ms = 1792052432477
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/ef8d955f-edf9-43a9-b08f-e6dcc80fc4b7/8406ad57-8ee7-4b25-b4ec-a717ee7154ea"
+storage_version_token = "1792052440088607"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
