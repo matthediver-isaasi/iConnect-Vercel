@@ -38,7 +38,7 @@ import EventInvoiceStatus from "@/components/booking/EventInvoiceStatus";
 import { eventInvoiceAwaited, eventInvoiceId, eventInvoiceNeedsAttention, eventInvoiceNumber, eventInvoiceRefetchInterval, eventInvoiceRetryAt } from "../../../shared/eventInvoiceRecoveryPresentation.mjs";
 import AttendeeCpdCertificateDialog from "@/components/events/AttendeeCpdCertificateDialog";
 import CpdPointsReplayDialog from "@/components/events/CpdPointsReplayDialog";
-import { CPD_REPLAY_ENDPOINT, cpdRegistrationIdentity, cpdRegistrationKey, readCpdReplayResponse } from "@/lib/cpdPointsReplay";
+import { CPD_REPLAY_ENDPOINT, cpdEventChoices, cpdRegistrationIdentity, cpdRegistrationKey, readCpdReplayResponse } from "@/lib/cpdPointsReplay";
 import { formatRegistrationPricePaid } from "@/lib/eventRegistrationPricePaid";
 import { financialAmount, financialCurrency, financialExport, paymentMethodLabel } from "@/lib/eventRegistrationFinancial";
 import { summarizeRegistrationRevenue, registrationRevenueExplanation } from "../../../shared/eventRegistrationRevenue.mjs";
@@ -420,6 +420,8 @@ export default function EventRegistrationReport() {
   const [certificateTarget, setCertificateTarget] = useState(null);
   const [cpdSelection, setCpdSelection] = useState({});
   const [cpdEventChoice, setCpdEventChoice] = useState("");
+  const [cpdEventSearch, setCpdEventSearch] = useState("");
+  const cpdEventSuggestions = useMemo(() => cpdEventChoices(eventsForTypeAhead), [eventsForTypeAhead]);
   const [cpdReplayChoice, setCpdReplayChoice] = useState("");
   const [cpdDialog, setCpdDialog] = useState(null);
   const [statusFilter, setStatusFilter] = useState("active");
@@ -433,6 +435,7 @@ export default function EventRegistrationReport() {
     setGuestMemberTarget(null);
     setCpdSelection({});
     setCpdEventChoice("");
+    setCpdEventSearch("");
     setCpdReplayChoice("");
     setCpdDialog(null);
   }, [memberInfo?.tenant_id, memberInfo?.id]);
@@ -1757,19 +1760,22 @@ export default function EventRegistrationReport() {
           <div className="flex flex-wrap items-end gap-2">
             <label className="min-w-0 flex-1 space-y-1 text-sm">
               <span>All registrations for one explicit event</span>
-              <select className="block h-10 w-full rounded-md border bg-background px-3 text-sm" value={cpdEventChoice} onChange={event => setCpdEventChoice(event.target.value)} data-testid="cpd-all-event-choice">
-                <option value="">Choose an event — independent of report filters</option>
-                {eventsForTypeAhead.map(event => {
-                  const type = event.source === "complex_event" ? "complex" : "simple";
-                  return <option key={`${type}:${event.id}`} value={`${type}:${event.id}`}>{event.title || "Untitled event"} · {type} · {event.start_date ? String(event.start_date).slice(0, 10) : "No date"} · {event.id}</option>;
-                })}
-              </select>
+              <TypeAheadInput
+                value={cpdEventSearch}
+                onChange={value => { setCpdEventSearch(value); setCpdEventChoice(""); }}
+                onSelect={item => { setCpdEventSearch(item.label); setCpdEventChoice(item.value); }}
+                suggestions={cpdEventSuggestions}
+                placeholder="Type an event name or date…"
+                data-testid="cpd-all-event-choice"
+                renderItem={item => <span>{item.label}</span>}
+              />
+              <span className="block text-xs text-muted-foreground">Select a search result. This choice is independent of report filters.</span>
             </label>
             <Button type="button" variant="outline" disabled={!cpdEventChoice} data-testid="reprocess-cpd-all-event" onClick={() => {
               const [event_type, event_id] = cpdEventChoice.split(":");
               const event = eventsForTypeAhead.find(item => item.id === event_id && (item.source === "complex_event" ? "complex" : "simple") === event_type);
               if (!event) return;
-              setCpdDialog({ scope: { mode: "all_event", event_id, event_type }, scopeLabel: `All registrations · ${event.title || "Untitled event"} · ${event_type} · ${event_id}` });
+              setCpdDialog({ scope: { mode: "all_event", event_id, event_type }, scopeLabel: `All registrations · ${cpdEventSuggestions.find(item => item.value === cpdEventChoice)?.label || event.title}` });
             }}>Preview all event registrations</Button>
           </div>
           <p className="text-xs text-muted-foreground">All-event preview includes all server-side registrations, including those hidden by filters or pagination. It does not use the selected rows.</p>
