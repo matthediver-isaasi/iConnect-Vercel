@@ -13,9 +13,10 @@ const mariana=process.argv[3]==='mariana-paid';
 const martti=process.argv[3]==='martti-paid';
 const osama=process.argv[3]==='osama-paid';
 const rakesh=process.argv[3]==='rakesh-paid';
+const heather=process.argv[3]==='heather-complimentary';
 const included=process.argv[3]==='jo-included'||mary;
-assert.ok(!process.argv[3]||additional||included||mariana||martti||osama||rakesh);
-const approved=rakesh?['9de12938-46f6-4bd8-a41c-0d160563c99c']:osama?['dea0d7ed-b311-4759-aacb-47f68a3fd3fa']:martti?['ce6bd29b-f9a5-4217-a6b8-e35b2d5ce093']:mariana?['a7d48296-c57c-43c9-8eb7-9139b764dd07']:mary?['7bd2fb4f-aee9-4b9f-b925-7343f317aa4e']:included?['2ed34ac1-6f57-44d5-8a21-75bf3521d826']:additional?[
+assert.ok(!process.argv[3]||additional||included||mariana||martti||osama||rakesh||heather);
+const approved=heather?['009a46d1-eb3c-4c0a-b774-f3e2ee6a6c8e']:rakesh?['9de12938-46f6-4bd8-a41c-0d160563c99c']:osama?['dea0d7ed-b311-4759-aacb-47f68a3fd3fa']:martti?['ce6bd29b-f9a5-4217-a6b8-e35b2d5ce093']:mariana?['a7d48296-c57c-43c9-8eb7-9139b764dd07']:mary?['7bd2fb4f-aee9-4b9f-b925-7343f317aa4e']:included?['2ed34ac1-6f57-44d5-8a21-75bf3521d826']:additional?[
   '5310e36a-5c40-4e3d-b533-781037a52543','6aa9e9aa-f72a-42da-b516-89b219e89309',
   '5f6a2fb2-d4f0-4cdf-a437-b985493e3a5c','784682f0-9445-45d5-beb5-dbfd5ac58c60',
   'f1485422-d0ac-49fd-b8df-fb9386a56fee','575f64e2-a940-4ecf-8bda-909fa1fe32d1',
@@ -31,7 +32,7 @@ const approved=rakesh?['9de12938-46f6-4bd8-a41c-0d160563c99c']:osama?['dea0d7ed-
   'ca24a246-4bd3-40ba-9db4-a39044c5a8ef','df2ba5a2-a6ba-4c40-b914-446b6e956027',
   'fe1b50de-d67e-412a-83c9-47cd2a1aca2f',
 ];
-const dir=rakesh?'generated-artifacts/bnms-rakesh-paid-membership':osama?'generated-artifacts/bnms-osama-paid-membership':martti?'generated-artifacts/bnms-martti-paid-membership':mariana?'generated-artifacts/bnms-mariana-paid-membership':mary?'generated-artifacts/bnms-mary-included-membership':included?'generated-artifacts/bnms-jo-included-membership':additional?'generated-artifacts/bnms-additional-nine-historical':'generated-artifacts/bnms-fifteen-historical';
+const dir=heather?'generated-artifacts/bnms-heather-complimentary-membership':rakesh?'generated-artifacts/bnms-rakesh-paid-membership':osama?'generated-artifacts/bnms-osama-paid-membership':martti?'generated-artifacts/bnms-martti-paid-membership':mariana?'generated-artifacts/bnms-mariana-paid-membership':mary?'generated-artifacts/bnms-mary-included-membership':included?'generated-artifacts/bnms-jo-included-membership':additional?'generated-artifacts/bnms-additional-nine-historical':'generated-artifacts/bnms-fifteen-historical';
 fs.mkdirSync(dir,{recursive:true,mode:0o700});
 const save=(name,value)=>fs.writeFileSync(`${dir}/${name}.json`,JSON.stringify(value,null,2),{mode:0o600});
 const load=name=>JSON.parse(fs.readFileSync(`${dir}/${name}.json`,'utf8'));
@@ -87,6 +88,11 @@ try{
     const records=[],evidence=[];
     for(const member of approved){
       const p=prior.find(r=>r.memberId===member),provider=providers.find(r=>r.memberId===member);
+      if(heather){
+        assert.equal(p.proposedStart,'2025-05-01');assert.equal(p.retainedExpiry,'2026-04-30');
+        assert.equal(p.invoiceNumber,'300004410');assert.equal(p.amount,61);
+        assert.equal(provider.latestPaidInvoiceId,'97079742-ed2a-4462-aa75-91710d6e394c');
+      }
       if(rakesh){
         assert.equal(p.proposedStart,'2025-06-08');assert.equal(p.retainedExpiry,'2026-06-07');
         assert.equal(p.invoiceNumber,'300005419');assert.equal(p.amount,156);assert.equal(p.membershipAmount,156);
@@ -116,7 +122,7 @@ try{
         p.invoiceNumber='200005988';p.amount=556;p.membershipAmount=0;
         provider.latestPaidInvoiceId='3c0ef6a1-a57f-451d-96ee-e48cbc3358ec';
       }
-      if(!additional&&!included&&!mariana&&!martti&&!osama&&!rakesh){assert.equal(p.category,'Paid historical-only reconstruction candidate');assert.equal(p.holds.length,0);}
+      if(!additional&&!included&&!mariana&&!martti&&!osama&&!rakesh&&!heather){assert.equal(p.category,'Paid historical-only reconstruction candidate');assert.equal(p.holds.length,0);}
       const m=before.member.find(m=>m.id===member);
       assert.equal(m.email.toLowerCase(),p.email.toLowerCase());
       const prefs=before.preferences.filter(v=>v.member_id===member);
@@ -155,9 +161,11 @@ try{
         &&!(included&&!mary&&i.InvoiceNumber==='200006008'&&i.AmountPaid===0&&i.AmountDue===0&&i.AmountCredited===420&&i.Total===420)
         &&i.LineItems?.some(l=>/\bmembership\b/i.test(l.Description||''))),`Newer membership invoice: ${p.name}`);
       assert.equal(invoice.Type,'ACCREC');assert.equal(invoice.Status,'PAID');assert.equal(invoice.CurrencyCode,'GBP');
-      assert.equal(invoice.Total,p.amount);assert.equal(invoice.AmountPaid,invoice.Total);assert.equal(invoice.AmountDue,0);
-      if(invoice.AmountCredited!=null)assert.equal(invoice.AmountCredited,0);
-      assert.equal((invoice.CreditNotes||[]).length,0);
+      assert.equal(invoice.Total,p.amount);assert.equal(invoice.AmountPaid,heather?0:invoice.Total);assert.equal(invoice.AmountDue,0);
+      if(invoice.AmountCredited!=null)assert.equal(invoice.AmountCredited,heather?61:0);
+      if(heather){
+        assert.equal(invoice.AmountCredited,61);assert.ok(invoice.CreditNotes.length>0);
+      }else assert.equal((invoice.CreditNotes||[]).length,0);
       const lines=invoice.LineItems.filter(l=>/\bmembership\b/i.test(l.Description||'')
         &&!/\bevent|attend|conference|meeting|ticket|discount|includes/i.test(l.Description||''));
       if(mary){
@@ -169,9 +177,9 @@ try{
       }else{
         assert.equal(lines.length,1);assert.equal(lines[0].Quantity,1);assert.equal(lines[0].TaxAmount,0);
       }
-      const amount=additional&&p.memberId==='5310e36a-5c40-4e3d-b533-781037a52543'?156:
+      const amount=heather?0:additional&&p.memberId==='5310e36a-5c40-4e3d-b533-781037a52543'?156:
         additional&&p.memberId==='6aa9e9aa-f72a-42da-b516-89b219e89309'?128:p.membershipAmount;
-      if(included)assert.equal(amount,0);
+      if(included||heather)assert.equal(amount,0);
       else assert.equal(lines[0].LineAmount,amount);
       const payments=[];
       // Xero's single-invoice endpoint can expose a BatchPaymentID as PaymentID.
@@ -184,9 +192,10 @@ try{
         assert.equal(payment.Status,'AUTHORISED');assert.equal(payment.Invoice.InvoiceID,invoice.InvoiceID);
         assert.ok(payment.Amount>0);payments.push(payment);
       }
-      assert.ok(payments.length>0);
-      assert.ok(Math.abs(payments.reduce((a,p)=>a+p.Amount,0)-invoice.Total)<0.005);
-      const paidAt=new Date(Math.max(...payments.map(p=>Number(/\/Date\((\d+)/.exec(p.Date)[1])))).toISOString();
+      if(heather)assert.equal(payments.length,0);
+      else assert.ok(payments.length>0);
+      assert.ok(Math.abs(payments.reduce((a,p)=>a+p.Amount,0)-(heather?0:invoice.Total))<0.005);
+      const paidAt=heather?null:new Date(Math.max(...payments.map(p=>Number(/\/Date\((\d+)/.exec(p.Date)[1])))).toISOString();
       if(rakesh)assert.equal(paidAt.slice(0,10),'2026-08-24');
       if(osama)assert.equal(paidAt.slice(0,10),'2025-12-23');
       if(martti)assert.equal(paidAt.slice(0,10),'2026-01-06');
@@ -213,6 +222,17 @@ try{
           invoiceId:invoice.InvoiceID,paymentIds:payments.map(p=>p.PaymentID),
           invoiceTotal:invoice.Total,membershipPortion:amount,mixedInvoice:invoice.LineItems.length>1,
           futureCollectionConsent:false,providerWrites:0})};
+      if(heather){
+        record.accounting_provider=null;record.accounting_invoice_id=null;record.accounting_invoice_number=null;
+        record.xero_invoice_id=null;record.xero_invoice_number=null;
+        record.notes=JSON.stringify({...JSON.parse(record.notes),
+          source:'operator_confirmed_complimentary_membership',
+          complimentary:true,cashReceived:0,
+          paymentStatusMeaning:'Zero charge settled; no cash payment received.',
+          authority:'Owner explicitly confirmed complimentary membership for the retained annual term.',
+          invoiceId:null,creditedInvoiceReference:invoice.InvoiceNumber,
+          creditedInvoiceIsPaymentEvidence:false});
+      }
       records.push(record);evidence.push({memberId:member,invoice,contact,payments,outstanding});
       console.log(JSON.stringify({verified:p.name,invoice:p.invoiceNumber,membershipAmount:amount}));
     }
@@ -247,7 +267,7 @@ try{
     for(const record of prepared.records){
       const actual=after.member_membership_history.find(h=>h.id===record.id);assert.ok(actual);
       for(const [key,value] of Object.entries(record)){
-        if(key==='paid_at')assert.equal(Date.parse(actual[key]),Date.parse(value));
+        if(key==='paid_at'&&value!==null)assert.equal(Date.parse(actual[key]),Date.parse(value));
         else assert.deepEqual(actual[key],value,key);
       }
       const display=shapePersistedCommitment(actual);
