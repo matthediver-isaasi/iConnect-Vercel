@@ -1,5 +1,28 @@
 # BNMS invoicing-address mapping audit
 
+## Owner-approved researched enrichment — 2026-10-15
+
+The later enriched CSV contains the same 262 organisation IDs as the original
+manual-review export. The owner authorised applying its enrichment, including
+the entries explicitly labelled “Suggested – check before import”. This
+approval does not change those entries into independently verified addresses.
+
+`scripts/apply-bnms-address-enrichment.mjs` pins both source-file hashes and the
+BNMS production DEST. A rolled-back trial preceded the committed transaction.
+The import filled 373 previously blank address custom fields across 153
+organisations: 38 fields from 13 verified-listing entries and 335 fields from
+140 suggested entries. The 109 remaining organisations were not changed.
+Names, invoicing addresses, definitions and unplanned address values were
+preserved. Fourteen affected organisations already had blank names; matching
+used the original export's exact IDs, without restoring or changing names.
+
+Before-images, research provenance, transaction verification and the committed
+receipt are retained under the ignored `private/bnms-address-audit/enrichment/`
+directory. Independent post-commit verification matched the saved after-state.
+The runner refuses a second application once its receipt exists; `verify` is
+read-only. No migration or deployment was needed, and no provider calls were
+made.
+
 The original audit below was read-only. The owner subsequently authorized the
 215 clear copies; see the completed-copy section below. No schema migration
 was necessary or applied.
