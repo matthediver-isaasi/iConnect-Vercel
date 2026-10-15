@@ -3,6 +3,19 @@ name: BNMS upfront membership evidence
 description: Operator-attested current membership establishment is distinct from verified invoice settlement and future billing authority.
 ---
 
+An authorised correction from migrated Direct Debit to independently paid upfront
+membership must preserve the original consent evidence and verify normal expiry
+processing, not only that the corrected row can be saved.
+
+**Why:** Migration-specific first-collection guards and general purchased-term
+immutability are independent protections. A non-GoCardless paid correction can
+otherwise remain subject to a GoCardless-only activation check on later updates.
+
+**How to apply:** Verify provider cancellation and external settlement first,
+obtain coverage-date authority, retain the before-image and cancelled provider
+records, and test financial rejection plus ordinary lifecycle updates in a
+rolled-back transaction. Do not broaden permissions for unrelated memberships.
+
 Grace countdowns and warning colours must come from the member's applied
 membership schedule, not a fixed 90-day period.
 
