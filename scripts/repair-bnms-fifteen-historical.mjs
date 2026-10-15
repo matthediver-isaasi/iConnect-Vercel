@@ -9,9 +9,10 @@ const mode=process.argv[2];assert.ok(['prepare','dry-run','apply','verify'].incl
 const tenant='ff2df806-b321-4254-b651-3af11fccf1db';
 const additional=process.argv[3]==='additional-nine';
 const mary=process.argv[3]==='mary-included';
+const mariana=process.argv[3]==='mariana-paid';
 const included=process.argv[3]==='jo-included'||mary;
-assert.ok(!process.argv[3]||additional||included);
-const approved=mary?['7bd2fb4f-aee9-4b9f-b925-7343f317aa4e']:included?['2ed34ac1-6f57-44d5-8a21-75bf3521d826']:additional?[
+assert.ok(!process.argv[3]||additional||included||mariana);
+const approved=mariana?['a7d48296-c57c-43c9-8eb7-9139b764dd07']:mary?['7bd2fb4f-aee9-4b9f-b925-7343f317aa4e']:included?['2ed34ac1-6f57-44d5-8a21-75bf3521d826']:additional?[
   '5310e36a-5c40-4e3d-b533-781037a52543','6aa9e9aa-f72a-42da-b516-89b219e89309',
   '5f6a2fb2-d4f0-4cdf-a437-b985493e3a5c','784682f0-9445-45d5-beb5-dbfd5ac58c60',
   'f1485422-d0ac-49fd-b8df-fb9386a56fee','575f64e2-a940-4ecf-8bda-909fa1fe32d1',
@@ -27,7 +28,7 @@ const approved=mary?['7bd2fb4f-aee9-4b9f-b925-7343f317aa4e']:included?['2ed34ac1
   'ca24a246-4bd3-40ba-9db4-a39044c5a8ef','df2ba5a2-a6ba-4c40-b914-446b6e956027',
   'fe1b50de-d67e-412a-83c9-47cd2a1aca2f',
 ];
-const dir=mary?'generated-artifacts/bnms-mary-included-membership':included?'generated-artifacts/bnms-jo-included-membership':additional?'generated-artifacts/bnms-additional-nine-historical':'generated-artifacts/bnms-fifteen-historical';
+const dir=mariana?'generated-artifacts/bnms-mariana-paid-membership':mary?'generated-artifacts/bnms-mary-included-membership':included?'generated-artifacts/bnms-jo-included-membership':additional?'generated-artifacts/bnms-additional-nine-historical':'generated-artifacts/bnms-fifteen-historical';
 fs.mkdirSync(dir,{recursive:true,mode:0o700});
 const save=(name,value)=>fs.writeFileSync(`${dir}/${name}.json`,JSON.stringify(value,null,2),{mode:0o600});
 const load=name=>JSON.parse(fs.readFileSync(`${dir}/${name}.json`,'utf8'));
@@ -83,6 +84,11 @@ try{
     const records=[],evidence=[];
     for(const member of approved){
       const p=prior.find(r=>r.memberId===member),provider=providers.find(r=>r.memberId===member);
+      if(mariana){
+        assert.equal(p.proposedStart,'2025-05-21');assert.equal(p.retainedExpiry,'2026-05-20');
+        assert.equal(p.invoiceNumber,'300004428');assert.equal(p.amount,71);assert.equal(p.membershipAmount,71);
+        assert.equal(provider.latestPaidInvoiceId,'f7d67aaf-1f59-4e44-8021-9fae113c6af0');
+      }
       if(mary){
         assert.equal(p.proposedStart,'2025-07-30');assert.equal(p.retainedExpiry,'2026-07-29');
         assert.equal(p.invoiceNumber,'200005869');assert.equal(p.amount,482.5);p.membershipAmount=0;
@@ -92,7 +98,7 @@ try{
         p.invoiceNumber='200005988';p.amount=556;p.membershipAmount=0;
         provider.latestPaidInvoiceId='3c0ef6a1-a57f-451d-96ee-e48cbc3358ec';
       }
-      if(!additional&&!included){assert.equal(p.category,'Paid historical-only reconstruction candidate');assert.equal(p.holds.length,0);}
+      if(!additional&&!included&&!mariana){assert.equal(p.category,'Paid historical-only reconstruction candidate');assert.equal(p.holds.length,0);}
       const m=before.member.find(m=>m.id===member);
       assert.equal(m.email.toLowerCase(),p.email.toLowerCase());
       const prefs=before.preferences.filter(v=>v.member_id===member);
@@ -105,7 +111,12 @@ try{
       const invoice=(await get(`Invoices/${provider.latestPaidInvoiceId}`)).Invoices[0];
       assert.equal(invoice.InvoiceNumber,p.invoiceNumber);
       const contact=(await get(`Contacts/${invoice.Contact.ContactID}`)).Contacts[0];
-      if(mary){
+      if(mariana){
+        assert.equal(contact.ContactID,'8aaa1caa-e9e4-4a86-b317-73b59016f2d6');
+        assert.equal(contact.Name,'Mariana Pinto');
+        assert.equal(contact.EmailAddress.toLowerCase(),'mariana.pinto@belfasttrust.hscni.net');
+        assert.equal(m.email.toLowerCase(),'bbmarianapinto@hotmail.com');
+      }else if(mary){
         assert.equal(contact.ContactID,'ff299dce-fc45-4abc-845b-669738c47d2f');
         assert.equal(contact.Name,'Mary Akinade');
         assert.equal(contact.EmailAddress.toLowerCase(),'mary.akinade@gstt.nhs.uk');
@@ -150,6 +161,7 @@ try{
       assert.ok(payments.length>0);
       assert.ok(Math.abs(payments.reduce((a,p)=>a+p.Amount,0)-invoice.Total)<0.005);
       const paidAt=new Date(Math.max(...payments.map(p=>Number(/\/Date\((\d+)/.exec(p.Date)[1])))).toISOString();
+      if(mariana)assert.equal(paidAt.slice(0,10),'2025-05-22');
       if(included)assert.equal(paidAt.slice(0,10),mary?'2025-07-29':'2025-04-17');
       const amounts={annual_cost:amount,final_cost:amount,vat_amount:0,total_with_vat:amount,currency:'GBP'};
       const commitment=buildRollingCommitment({config,startDate:p.proposedStart,paymentMethod:'upfront',
@@ -160,9 +172,9 @@ try{
         status:'expired',payment_status:'paid',payment_method:'upfront',paid_at:paidAt,accounting_provider:'xero',
         accounting_invoice_id:invoice.InvoiceID,accounting_invoice_number:invoice.InvoiceNumber,
         xero_invoice_id:invoice.InvoiceID,xero_invoice_number:invoice.InvoiceNumber,
-        notes:JSON.stringify({source:included?'operator_approved_included_event_membership':additional?'operator_approved_nine_retained_expiry_reconstructions':'operator_approved_fifteen_historical_reconstructions',approvalDate:'2026-10-15',
+        notes:JSON.stringify({source:mariana?'operator_approved_identity_reconciled_paid_membership':included?'operator_approved_included_event_membership':additional?'operator_approved_nine_retained_expiry_reconstructions':'operator_approved_fifteen_historical_reconstructions',approvalDate:'2026-10-15',
           includedMembershipAuthority:included?'Owner approved one year free membership included in paid event invoice. Zero separate membership charge; event consideration is not membership revenue.':null,
-          identityAuthority:mary?{basis:'Owner explicitly confirmed Xero and iConnect addresses belong to the same member',
+          identityAuthority:mary||mariana?{basis:'Owner explicitly confirmed Xero and iConnect addresses belong to the same member',
             memberEmail:m.email,providerEmail:contact.EmailAddress,contactId:contact.ContactID}:null,
           latePaymentAuthority:additional?'Owner explicitly instructed retaining stored expiry; late payment does not shift the approved annual term.':null,
           termAuthority:'approved_12_month_term_retaining_recorded_expiry',scope:'historical_only_not_renewed',
