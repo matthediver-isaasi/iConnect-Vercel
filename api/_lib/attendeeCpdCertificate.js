@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { resolveEventCpdCertificate } from './eventCpdCertificateRules.js';
+import { resolveEventCpdCertificate, loadCertificateConfig } from './eventCpdCertificateRules.js';
 import { renderCpdCertificatePdf } from './cpdCertificatePdf.js';
 import { loadCpdEmailTemplate, prepareCpdEmail } from './eventCpdEmail.js';
 import { prepareCertificateSurveyLinks } from './certificateSurveyGrants.js';
@@ -104,7 +104,7 @@ async function guestCertificatePoints(db, { tenantId, booking, bookingSource, ev
     : { evidence };
 }
 
-export async function resolveAttendeeCertificate(db, { tenantId, bookingId, bookingSource, memberCertificateId = null }) {
+export async function resolveAttendeeCertificate(db, { tenantId, bookingId, bookingSource, memberCertificateId = null, emailOnly = false }) {
   const booking = await one(db, CERTIFICATE_BOOKINGS[bookingSource], tenantId, bookingId);
   if (!booking) throw Object.assign(new Error('Attendee booking not found'), { status: 404 });
   const eventType = bookingSource === 'complex' ? 'complex' : 'simple';
@@ -122,6 +122,9 @@ export async function resolveAttendeeCertificate(db, { tenantId, bookingId, book
   const recipient = typeof booking.attendee_email === 'string' ? booking.attendee_email.trim() : '';
   const base = { attendee_name: attendeeName, recipient, event_name: event.title || '', available: false,
     can_send: false, fingerprint: null, reason: null, send_reason: null };
+  if(emailOnly && (booking.status!=='confirmed' || !attendeeMemberId)){
+    return {...base,reason:'Badge notifications require a confirmed booking and an unambiguous attendee member.'};
+  }
   if (['cancelled', 'canceled', 'transferred', 'refunded'].includes(booking.status)) {
     return { ...base, reason: 'This booking is cancelled, transferred or refunded.' };
   }
@@ -153,13 +156,25 @@ export async function resolveAttendeeCertificate(db, { tenantId, bookingId, book
     }
     throw error;
   }
-  if (!policy.available) return { ...base, reason: `Certificate unavailable: ${policy.reason.replaceAll('_', ' ')}.` };
-  const template = await one(db, 'cpd_certificate_template', tenantId, policy.template_id);
-  if (!template || template.status !== 'active' || template.source_bucket !== 'private-uploads'
-    || !template.source_path?.startsWith(`${tenantId}/`)) {
+  if (emailOnly && !policy.available) {
+    const config=await loadCertificateConfig(db,tenantId,eventType,booking.event_id);
+    const start=String(event.start_date||'').slice(0,10);
+    const end=String(event.end_date||'').slice(0,10);
+    const display=value=>/^\d{4}-\d{2}-\d{2}$/.test(value)?value.split('-').reverse().join('/'):'';
+    policy={...policy,email_template_id:config.eventRule?.email_template_id||null,
+      placeholders:policy.placeholders||{
+        'cpd.activity_start_date':start,'cpd.activity_end_date':end,
+        'cpd.activity_date':display(start),
+        'cpd.activity_date_range':end&&end!==start?`${display(start)} – ${display(end)}`:display(start),
+      }};
+  }
+  if (!emailOnly && !policy.available) return { ...base, reason: `Certificate unavailable: ${policy.reason.replaceAll('_', ' ')}.` };
+  const template = emailOnly ? {} : await one(db, 'cpd_certificate_template', tenantId, policy.template_id);
+  if (!emailOnly && (!template || template.status !== 'active' || template.source_bucket !== 'private-uploads'
+    || !template.source_path?.startsWith(`${tenantId}/`))) {
     return { ...base, reason: 'The active tenant-private certificate template is unavailable.' };
   }
-  const { data: fields, error } = await db.from('cpd_certificate_placeholder').select('*')
+  const { data: fields, error } = emailOnly ? {data:[],error:null} : await db.from('cpd_certificate_placeholder').select('*')
     .eq('tenant_id', tenantId).eq('template_id', template.id)
     .order('page_number').order('display_order').order('id');
   if (error) throw error;

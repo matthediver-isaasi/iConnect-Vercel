@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import CpdFollowUpActions from "./CpdFollowUpActions";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -24,6 +25,7 @@ export default function CpdPointsReplayDialog({ scope, scopeLabel, replayId: ini
   const [preview, setPreview] = useState(null);
   const [rows, setRows] = useState([]);
   const [busy, setBusy] = useState(false);
+  const [followUpBusy,setFollowUpBusy]=useState(false);
   const [error, setError] = useState("");
   const [reason, setReason] = useState("");
   const [replayId, setReplayId] = useState(initialReplayId || null);
@@ -185,7 +187,7 @@ export default function CpdPointsReplayDialog({ scope, scopeLabel, replayId: ini
   const changePage = replayId ? setPage : setPreviewPage;
 
   return (
-    <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
+    <Dialog open onOpenChange={open => { if (!open && !followUpBusy) onClose(); }}>
       <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto" data-testid="cpd-replay-dialog">
         <DialogHeader>
           <DialogTitle>{replayId ? "CPD points processing results" : "Reprocess CPD points"}</DialogTitle>
@@ -253,13 +255,16 @@ export default function CpdPointsReplayDialog({ scope, scopeLabel, replayId: ini
           <span className="text-sm">Page {currentPage} of {totalPages}</span>
           <Button type="button" variant="outline" disabled={busy || currentPage >= totalPages} onClick={() => changePage(value => value + 1)}>Next</Button>
         </div>}
-        {!replayId && canConfirm && <div className="space-y-2 border-t pt-3">
+        {!replayId && canConfirm && !followUpBusy && <div className="space-y-2 border-t pt-3">
           <Label htmlFor="cpd-replay-reason">Reason for reprocessing (required)</Label>
           <Textarea id="cpd-replay-reason" value={reason} onChange={event => setReason(event.target.value)} maxLength={500} disabled={busy || uncertain} />
           <p className="text-xs text-muted-foreground">Confirm only after reviewing this complete preview. The worker rechecks eligibility and will not award a different rule or amount. Certificates are not sent automatically.</p>
           <Button type="button" disabled={busy || !reason.trim()} onClick={confirm} data-testid="confirm-cpd-reprocessing">{uncertain ? "Retry confirmation safely" : "Confirm reprocessing"}</Button>
         </div>}
-        <DialogFooter><Button type="button" variant="outline" onClick={onClose}>Close</Button></DialogFooter>
+        {preview?.complete && rows.length>0 && <CpdFollowUpActions registrations={rows} onBusyChange={setFollowUpBusy}
+          ready={!busy && !stale && !uncertain && (!replayId || (result?.totals &&
+            result.totals.pending===0 && result.totals.retrying===0 && result.totals.failed===0))} />}
+        <DialogFooter><Button type="button" variant="outline" disabled={followUpBusy} onClick={onClose}>Close</Button></DialogFooter>
       </DialogContent>
     </Dialog>
   );

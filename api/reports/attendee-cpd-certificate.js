@@ -6,6 +6,7 @@ import { sendEmail } from '../_lib/emailService.js';
 import { CERTIFICATE_BOOKINGS, resolveAttendeeCertificate, renderAttendeeCertificate } from '../_lib/attendeeCpdCertificate.js';
 import { prepareCpdEmail } from '../_lib/eventCpdEmail.js';
 import { prepareCertificateSurveyLinks, setCertificateSurveyGrantsDelivery } from '../_lib/certificateSurveyGrants.js';
+import { resolveBadgeNotification } from '../_lib/cpdBadgeNotification.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const redactCredential = value => typeof value === 'string'
@@ -17,11 +18,11 @@ export const publicDelivery = row => row ? {
   updated_at: row.updated_at, error: row.error || null, provider_message_id: row.provider_message_id || null,
 } : null;
 
-async function latestDelivery(db, tenantId, source, id) {
+async function latestDelivery(db, tenantId, source, id, purpose='attendee') {
   const { data, error } = await db.from('attendee_cpd_certificate_delivery')
     .select('id,status,recipient,created_at,updated_at,error,provider_message_id')
     .eq('tenant_id', tenantId).eq('booking_source', source).eq('booking_id', id)
-    .eq('purpose', 'attendee')
+    .eq('purpose', purpose)
     .order('created_at', { ascending: false }).order('id', { ascending: false }).limit(1).maybeSingle();
   if (error) throw error;
   return data;
@@ -29,7 +30,9 @@ async function latestDelivery(db, tenantId, source, id) {
 
 export async function handleAttendeeCertificate(req, res, deps = {}) {
   const db = deps.db || supabase;
-  const resolve = deps.resolve || resolveAttendeeCertificate;
+  const baseResolve = deps.resolve || resolveAttendeeCertificate;
+  const badgeOnly = (req.method==='GET'?req.query?.notification_kind:req.body?.notification_kind)==='badge';
+  const resolve = badgeOnly ? (db, identity)=>resolveBadgeNotification(db,identity,baseResolve) : baseResolve;
   const render = deps.render || renderAttendeeCertificate;
   res.setHeader('Cache-Control', 'private, no-store');
   if (!['GET', 'POST'].includes(req.method)) return res.status(405).json({ error: 'Method not allowed' });
@@ -45,6 +48,9 @@ export async function handleAttendeeCertificate(req, res, deps = {}) {
     const input = req.method === 'GET' ? req.query : req.body;
     const { booking_id: bookingId, booking_source: bookingSource } = input || {};
     const isTest = req.method === 'POST' && input?.action === 'test-send';
+    if(badgeOnly && (isTest || (req.method==='POST' && !['send','email-preview'].includes(input.action)))){
+      return res.status(400).json({error:'Badge notifications support email preview and confirmed send only'});
+    }
     if (!UUID.test(bookingId || '') || !Object.hasOwn(CERTIFICATE_BOOKINGS, bookingSource || '')) {
       return res.status(400).json({ error: 'A valid booking_id and booking_source (standard or complex) are required' });
     }
@@ -53,7 +59,7 @@ export async function handleAttendeeCertificate(req, res, deps = {}) {
       return res.status(400).json({ error: 'action must be preview, email-preview, test-send or send' });
     }
     const resolved = await resolve(db, identity);
-    const latest = await latestDelivery(db, context.tenantId, bookingSource, bookingId);
+    const latest = await latestDelivery(db, context.tenantId, bookingSource, bookingId,badgeOnly?'badge':'attendee');
     const blocked = latest && ['pending', 'unknown'].includes(latest.status);
     const metadata = {
       attendee_name: resolved.attendee_name, recipient: resolved.recipient, event_name: resolved.event_name,
@@ -85,13 +91,13 @@ export async function handleAttendeeCertificate(req, res, deps = {}) {
     }
     if (input.action === 'email-preview') {
       if (!resolved.can_send) return res.status(409).json({ error: resolved.send_reason });
-      const pdf = await render(db, resolved);
+      const pdf = badgeOnly ? null : await render(db, resolved);
       return res.status(200).json({
         recipient: resolved.recipient,
         subject: resolved.email_message.subject, html: resolved.email_message.html,
         text: resolved.email_message.text || null,
-        attachment: { filename: 'cpd-certificate.pdf', content_type: 'application/pdf',
-          bytes: pdf.length, sha256: createHash('sha256').update(pdf).digest('hex') },
+        attachment: pdf ? { filename: 'cpd-certificate.pdf', content_type: 'application/pdf',
+          bytes: pdf.length, sha256: createHash('sha256').update(pdf).digest('hex') } : null,
         survey_links_inactive: true,
         omitted_surveys: resolved.survey_list?.omitted || [],
       });
@@ -113,7 +119,7 @@ export async function handleAttendeeCertificate(req, res, deps = {}) {
       p_request_id: input.request_id, p_fingerprint: resolved.fingerprint,
       p_actor: context.memberId ? `member:${context.memberId}` : `tenant_user:${context.tenantUserId}`,
       p_recipient: recipient, p_provenance: resolved.provenance,
-      p_purpose: isTest ? 'test' : 'attendee',
+      p_purpose: isTest ? 'test' : badgeOnly ? 'badge' : 'attendee',
       p_deliberate_resend: input.deliberate_resend === true,
     });
     if (claimError) throw claimError;
@@ -131,7 +137,7 @@ export async function handleAttendeeCertificate(req, res, deps = {}) {
     let attempted = false;
     let surveyGrantIds = [];
     try {
-      const pdf = await render(db, resolved);
+      const pdf = badgeOnly ? null : await render(db, resolved);
       // Recheck just before the provider boundary: cancellation, changed email,
       // template/configuration changes, guest evidence and ledger corrections invalidate consent.
       const current = await resolve(db, identity);
@@ -177,7 +183,7 @@ export async function handleAttendeeCertificate(req, res, deps = {}) {
         enableTracking: false,
         disableTracking: true,
         includeRenderedContent: true,
-        attachments: [{ filename: 'cpd-certificate.pdf', data: pdf, contentType: 'application/pdf' }],
+        attachments: pdf ? [{ filename: 'cpd-certificate.pdf', data: pdf, contentType: 'application/pdf' }] : [],
       });
       outcome = result.success ? { status: 'accepted', provider_message_id: result.id || result.messageId || null, error: null }
         : { status: result.ambiguousEffect || !result.status || Number(result.status) >= 500 ? 'unknown' : 'failed',

@@ -30,6 +30,7 @@ function database(rows) {
       const orders = [];
       const q = {
         select() { return q; }, eq(k, v) { filters.push(row => row[k] === v); return q; },
+        is(k,v) { filters.push(row=>row[k]===v);return q; },
         insert(value) { insert = value; return q; },
         ilike(k, v) { filters.push(row => String(row[k] || '').toLowerCase() === v.toLowerCase()); return q; },
         order(k, opts = {}) { orders.push([k, opts.ascending !== false]); return q; },
@@ -282,6 +283,39 @@ function claims(f) {
     return { data: { claimed: true, delivery: row } };
   };
 }
+test('badge-only notification uses configured event email without a PDF and has isolated delivery purpose',async()=>{
+  const f=await fixture();
+  selectEmail(f);
+  const memberId=randomUUID();
+  f.db.rows.member=[{id:memberId,tenant_id:tenantId,email:f.booking.attendee_email}];
+  f.db.rows.member_badge=[{id:randomUUID(),tenant_id:tenantId,member_id:memberId,badge_id:randomUUID(),
+    booking_id:bookingId,booking_type:'booking',event_id:eventId,source:'event_cpd',revoked_at:null}];
+  // A badge notification does not depend on an active PDF template.
+  f.template.status='inactive';
+  f.config.eventRule.template_id=null;
+  f.db.storage.from=()=>assert.fail('Badge-only email must not download a PDF');
+  claims(f);
+  const originalRpc=f.db.rpc;
+  f.db.rpc=async(name,args)=>{assert.equal(args.p_purpose,'badge');return originalRpc(name,args);};
+  const input={booking_id:bookingId,booking_source:'standard',notification_kind:'badge'};
+  const metadata=await invoke(f,{...input,method:'GET'});
+  assert.equal(metadata.statusCode,200);
+  assert.equal(metadata.body.can_send,true,metadata.body.reason||metadata.body.send_reason);
+  const result=await invoke(f,{...input,action:'send',confirmed:true,deliberate_resend:true,
+    request_id:randomUUID(),expected_fingerprint:metadata.body.fingerprint},{
+    send:async message=>{
+      assert.equal(message.to,f.booking.attendee_email);
+      assert.deepEqual(message.attachments,[]);
+      assert.match(message.subject,/Real event/);
+      return {success:true,id:'mock-badge-delivery'};
+    }
+  });
+  assert.equal(result.statusCode,200,JSON.stringify(result.body));
+  assert.equal(result.body.success,true);
+  const certificateMetadata=await invoke(f,{booking_id:bookingId,booking_source:'standard',method:'GET'});
+  assert.equal(certificateMetadata.body.latest_delivery,null);
+});
+
 async function sendInput(f) {
   const r = await resolveAttendeeCertificate(f.db, identity);
   return { booking_id: bookingId, booking_source: 'standard', action: 'send',

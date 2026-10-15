@@ -20,3 +20,9 @@ Attendance transitions enqueue badge work independently of workflow publication.
 **Why:** Coupling badge processing to workflow delivery lets one feature block the other, while a record-only QR key suppresses legitimate re-check-ins after reversal.
 
 **How to apply:** Use a dedicated retryable outbox, include booking/target/revision or check-in timestamp in keys, reload current evidence before granting, and never auto-revoke historical awards.
+
+CPD reprocessing should offer missing-badge checks, badge notifications and certificate resends independently. Badge notifications use the email template selected in the event's CPD configuration, not a separately configured badge template.
+
+**Why:** The user explicitly requested both badge actions and directed notifications to use the event's existing CPD email setup.
+
+**How to apply:** Keep each action opt-in, preserve the distinction between a badge award and email delivery, and never count a badge-only notification as a delivered certificate.

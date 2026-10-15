@@ -53,8 +53,8 @@ function EmailTemplateSelect({ value, templates, onChange, canManageEmailTemplat
   return (
     <div className="space-y-2 border-t pt-4" data-testid="event-cpd-email-template">
       <div>
-        <Label htmlFor="cpd-email-template">Certificate email template (event-wide)</Label>
-        <p className="text-xs text-muted-foreground">The message accompanying a manually emailed CPD certificate. This does not change the PDF template or ticket-specific certificate settings.</p>
+        <Label htmlFor="cpd-email-template">CPD email template (event-wide)</Label>
+        <p className="text-xs text-muted-foreground">Used for certificate emails and optional badge notifications from the Event Registration Report. Badge-only notifications have no PDF attachment, so use wording suitable for both if you send both types. This does not change the PDF template or ticket-specific certificate settings.</p>
       </div>
       <Select value={value || NO_TEMPLATE} onValueChange={next => {
         if (next) onChange(next === NO_TEMPLATE ? null : next);
