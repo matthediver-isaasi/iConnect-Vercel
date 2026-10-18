@@ -52,6 +52,9 @@ const result = await build({
       export {default as Finalization} from "./client/src/components/sales/AgreementFinalizationPanel.jsx";
       export {default as Requests} from "./client/src/components/sales/AgreementSignatureRequests.jsx";
       export {default as Signature} from "./client/src/components/forms/SignatureField.jsx";
+      export {default as LayoutContext} from "./client/src/contexts/LayoutContext.jsx";
+      export {setActiveTenantId} from "./client/src/api/base44Client.js";
+      export {PARTNERSHIP_TERMS_HTML} from "./client/src/components/sales/partnershipTerms.js";
       export {signaturePayload,legalHtmlOf} from "./client/src/components/sales/agreementSignature.js";`,
     resolveDir: process.cwd(),
   },
@@ -65,7 +68,8 @@ const result = await build({
 const mod = new Module(`${process.cwd()}/sales-agreement-fixture.cjs`);
 mod.paths = Module._nodeModulePaths(process.cwd());
 mod._compile(result.outputFiles[0].text, `${process.cwd()}/sales-agreement-fixture.cjs`);
-const { Editor, Signer, Send, Signature, Public, Finalization, Requests, signaturePayload, legalHtmlOf } = mod.exports;
+const { Editor, Signer, Send, Signature, Public, Finalization, Requests, LayoutContext,
+  setActiveTenantId, PARTNERSHIP_TERMS_HTML, signaturePayload, legalHtmlOf } = mod.exports;
 after(() => { URL.createObjectURL = originalCreate; URL.revokeObjectURL = originalRevoke; dom.window.close(); });
 
 async function mount(Component, props = {}) {
@@ -76,6 +80,13 @@ async function mount(Component, props = {}) {
   const render = async next => {
     props = { ...props, ...next };
     let element = React.createElement(Component, props);
+    if (Component === Editor) element = React.createElement(LayoutContext.Provider, {
+      value: {
+        authResolved: true, sessionValidated: true, sessionWorkPaused: false,
+        memberInfo: { id: "agreement-author", tenant_id: "tenant-agreement-fixture" },
+        sessionRoleSnapshot: { session_key: "agreement-session" },
+      },
+    }, element);
     if (Component === Public) element = React.createElement(MemoryRouter, { initialEntries: ["/agreement/fixture-token"] }, React.createElement(Routes, null, React.createElement(Route, { path: "/agreement/:token", element })));
     await act(async () => root.render(React.createElement(QueryClientProvider, { client }, element)));
   };
@@ -94,13 +105,33 @@ async function input(id, value) {
 }
 async function wait(ms = 0) { await act(async () => { await new Promise(resolve => setTimeout(resolve, ms)); }); }
 
-test("mounted legal editor inserts approved clauses and a real editable cancellation table, without source customer data", async () => {
+test("mounted legal editor inserts the tenant's saved terms and a real editable cancellation table, without source customer data", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  // The seed is only test data returned by the settings endpoint. The unique
+  // tenant addition proves insertion uses the saved response, not a fallback.
+  const partnershipTermsHtml = `${PARTNERSHIP_TERMS_HTML}<p>Willow Institute tenant-approved partnership conditions.</p>`;
+  setActiveTenantId("tenant-agreement-fixture");
+  globalThis.fetch = async (path, options = {}) => {
+    calls.push({ path, options });
+    assert.equal(path, "/api/sales/settings");
+    assert.equal(options.headers["X-Tenant-Id"], "tenant-agreement-fixture");
+    return new Response(JSON.stringify({
+      version: 7, showInternalCode: true, showSku: true, partnershipTermsHtml,
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  };
   let html = "<h2>Agreement terms</h2><p></p>";
-  const view = await mount(Editor, { value: html, onChange: value => { html = value; }, fields: [{ label: "Customer reference", value: "<PO-24>" }] });
+  let view;
   try {
+    view = await mount(Editor, { value: html, onChange: value => { html = value; }, fields: [{ label: "Customer reference", value: "<PO-24>" }] });
+    await wait(25);
+    assert.equal(calls.length, 1);
+    assert.equal(button("Insert standard partnership terms").disabled, false);
     await click("Insert standard partnership terms");
+    assert.match(document.querySelector('[role="alertdialog"]').textContent, /current saved standard partnership terms/);
     assert.equal(document.querySelectorAll(".tiptap table").length, 0);
-    await click("Insert approved clauses");
+    await click("Insert saved terms");
+    assert.ok(html.includes("Willow Institute tenant-approved partnership conditions."));
     for (const percent of ["25%", "50%", "75%", "100%"]) assert.ok(html.includes(percent), percent);
     for (const detail of ["Access", "Elliot", "Jeremy Swan", "3,000", "11-13 January", "6 October"]) assert.ok(!html.includes(detail), detail);
     assert.equal(document.querySelectorAll(".tiptap table").length, 1);
@@ -115,7 +146,11 @@ test("mounted legal editor inserts approved clauses and a real editable cancella
     await view.render({ value: html, disabled: true });
     await click("Edit terms");
     assert.equal(document.querySelector(".tiptap").getAttribute("contenteditable"), "false");
-  } finally { await view.cleanup(); }
+  } finally {
+    await view?.cleanup();
+    setActiveTenantId(null);
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("signature upload is opt-in and normalized PNG; typed mode clears stale signature before its debounce", async () => {

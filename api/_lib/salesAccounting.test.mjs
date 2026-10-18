@@ -78,6 +78,7 @@ function configurationDb(state) {
   const db = {
     rpcCalls,
     from(table) {
+      let settingKey;
       const result = () => {
         if (table === 'sales_accounting_tax_mapping') return { data: state.mappings, error: null };
         if (table === 'sales_commercial_sale') return { data: [{ quote_version_id: 'version' }], error: null };
@@ -85,10 +86,11 @@ function configurationDb(state) {
         return { data: null, error: null };
       };
       const query = {
-        select() { return query; }, eq() { return query; }, is() { return query; }, in() { return query; },
+        select() { return query; }, eq(key, value) { if (key === 'setting_key') settingKey = value; return query; }, is() { return query; }, in() { return query; },
         order() { return query; }, limit() { return query; },
         async maybeSingle() {
-          if (table === 'sales_settings') return { data: { default_tax_rate_bps: state.defaultRate }, error: null };
+          if (table === 'sales_settings') return { data: { default_tax_rate_bps: state.defaultRate, default_product_tax_code: state.defaultCode }, error: null };
+          if (table === 'system_settings' && settingKey === 'xero_vat_rates') return { data: { setting_value: state.snapshot }, error: null };
           if (table === 'system_settings') return { data: state.itemId ? { setting_value: state.itemId } : null, error: null };
           return result();
         },
@@ -98,7 +100,8 @@ function configurationDb(state) {
     },
     async rpc(name, args) {
       rpcCalls.push({ name, args });
-      if (name !== 'save_sales_accounting_configuration') throw new Error(`Unexpected RPC ${name}`);
+      if (!['save_sales_accounting_configuration', 'save_sales_accounting_configuration_with_default'].includes(name)) throw new Error(`Unexpected RPC ${name}`);
+      if (name === 'save_sales_accounting_configuration_with_default') state.defaultCode = args.p_default_tax_code;
       state.mappings = args.p_mappings.map((mapping) => ({
         tax_rate_bps: mapping.taxRateBps, provider_tax_code: mapping.providerTaxCodeId,
         provider_tax_name: mapping.providerTaxCodeName,
@@ -109,6 +112,36 @@ function configurationDb(state) {
   };
   return db;
 }
+
+test('default product tax uses synced identity, supports clearing and rejects invalid/provider-switched codes', async () => {
+  const state = { mappings: [], lines: [], snapshot: { rates: [
+    { taxType: 'OUTPUT2', name: '20% VAT on Income', effectiveRate: 20, status: 'ACTIVE', canApplyToRevenue: true },
+    { taxType: 'EXEMPT', name: 'Exempt Income', effectiveRate: 0, status: 'ACTIVE', canApplyToRevenue: true },
+  ] } };
+  const db = configurationDb(state);
+  const deps = { getActiveAccountingProvider: async () => 'xero', getAccountingProviderByName: () => ({
+    listSalesTaxCodes: async () => [], listSalesItems: async () => [],
+  }) };
+  const result = await saveSalesAccountingConfiguration(db, 'tenant', {
+    mappings: [], defaultProductTaxCode: { provider: 'xero', id: 'OUTPUT2' },
+  }, deps);
+  assert.deepEqual(result.defaultProductTaxCode, { provider: 'xero', id: 'OUTPUT2', name: '20% VAT on Income', rateBps: 2000 });
+  assert.equal(db.rpcCalls[0].name, 'save_sales_accounting_configuration_with_default');
+  await saveSalesAccountingConfiguration(db, 'tenant', { mappings: [] }, deps);
+  assert.equal(state.defaultCode.id, 'OUTPUT2', 'unrelated saves preserve the default');
+  for (const code of [{ provider: 'xero', id: 'UNKNOWN' }, { provider: 'quickbooks', id: 'OUTPUT2' }]) {
+    const before = db.rpcCalls.length;
+    await assert.rejects(saveSalesAccountingConfiguration(db, 'tenant', { mappings: [], defaultProductTaxCode: code }, deps), error => error.status === 409);
+    assert.equal(db.rpcCalls.length, before);
+  }
+  state.snapshot.rates = state.snapshot.rates.filter(rate => rate.taxType !== 'OUTPUT2');
+  const stale = await getSalesAccountingConfiguration(db, 'tenant', deps);
+  assert.equal(stale.defaultProductTaxCode, null);
+  assert.equal(stale.defaultProductTaxCodeUnavailable, true);
+  await saveSalesAccountingConfiguration(db, 'tenant', { mappings: [], defaultProductTaxCode: null }, deps);
+  assert.equal(state.defaultCode, null);
+  assert.equal(validateSalesAccountingConfigurationPatch({ mappings: [], defaultProductTaxCode: { provider: 'xero', id: 'OUTPUT2', rateBps: 0 } }).ok, false);
+});
 
 test('fresh Xero configuration discovers required zero/default/accepted rates and becomes ready', async () => {
   const state = { mappings: [], lines: [{ tax_rate_bps: 0 }, { tax_rate_bps: 2000 }],

@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { missingPrerequisiteLabel, normalizeSalesAccountingConfiguration, serializeSalesAccountingConfiguration } from "@/lib/salesAccountingConfiguration";
 import { useQuoteNaming } from "@/hooks/useSalesSettings";
+import { taxCodeKey, taxCodeLabel } from "@/lib/salesTaxCodes";
 
 async function request(path, options = {}) {
   const response = await fetch(path, {
@@ -39,7 +40,7 @@ export default function SalesAccountingSettingsPanel({ saleId: selectedSaleId } 
   const [saved, setSaved] = useState(false);
   useEffect(() => {
     if (!configuration.data) return;
-    setDraft({ mappings: normalized.mappings, quickbooksSalesItemId: normalized.quickbooksSalesItemId });
+    setDraft({ mappings: normalized.mappings, quickbooksSalesItemId: normalized.quickbooksSalesItemId, defaultProductTaxCode: normalized.defaultProductTaxCode, defaultProductTaxCodeChanged: false });
   }, [configuration.data]);
   const save = useMutation({
     mutationFn: () => request(`/api/sales/accounting/configuration${saleId ? `?saleId=${encodeURIComponent(saleId)}` : ""}`, {
@@ -49,6 +50,7 @@ export default function SalesAccountingSettingsPanel({ saleId: selectedSaleId } 
     onSuccess: async () => {
       setSaved(true);
       await queryClient.invalidateQueries({ queryKey: ["sales-accounting-configuration"] });
+      await queryClient.invalidateQueries({ queryKey: ["sales-catalogue", "tax-options"] });
     },
   });
 
@@ -74,6 +76,24 @@ export default function SalesAccountingSettingsPanel({ saleId: selectedSaleId } 
         <ul className="mt-1 list-disc pl-5">{(normalized.missing.length ? normalized.missing : ["Choose mappings for every required field below."]).map((item, index) => <li key={`${item}-${index}`}>{missingPrerequisiteLabel(item)}</li>)}</ul>
       </div>}
       <div className="grid gap-4 sm:grid-cols-2">
+        <div className="sm:col-span-2">
+          <Label htmlFor="default-product-vat-code">Default product VAT code</Label>
+          <Select value={taxCodeKey(draft.defaultProductTaxCode) || (normalized.defaultProductTaxCodeUnavailable && !draft.defaultProductTaxCodeChanged ? "unavailable" : "none")} onValueChange={(key) => {
+            setSaved(false);
+            setDraft((old) => ({ ...old, defaultProductTaxCode: key === "none" ? null : normalized.productTaxOptions.items.find((item) => taxCodeKey(item) === key), defaultProductTaxCodeChanged: true }));
+          }}>
+            <SelectTrigger id="default-product-vat-code" aria-label="Default product VAT code"><SelectValue placeholder="No default" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">No default</SelectItem>
+              {normalized.defaultProductTaxCodeUnavailable && !draft.defaultProductTaxCodeChanged && <SelectItem value={taxCodeKey(draft.defaultProductTaxCode) || "unavailable"} disabled>VAT code unavailable</SelectItem>}
+              {!normalized.defaultProductTaxCodeUnavailable && taxCodeKey(draft.defaultProductTaxCode) && !normalized.productTaxOptions.items.some((item) => taxCodeKey(item) === taxCodeKey(draft.defaultProductTaxCode)) && <SelectItem value={taxCodeKey(draft.defaultProductTaxCode)} disabled>{taxCodeLabel(draft.defaultProductTaxCode)}</SelectItem>}
+              {normalized.productTaxOptions.items.filter((item) => taxCodeKey(item) && !(normalized.defaultProductTaxCodeUnavailable && !draft.defaultProductTaxCodeChanged && taxCodeKey(item) === taxCodeKey(draft.defaultProductTaxCode))).map((item) => <SelectItem key={taxCodeKey(item)} value={taxCodeKey(item)} disabled={!item.selectable || Boolean(normalized.productTaxOptions.error)}>{taxCodeLabel(item)}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <p className="mt-2 text-xs text-slate-500">Preselects a VAT code for new products only. Existing and copied products keep their own VAT code. You can change the selection before saving a new product.</p>
+          {normalized.productTaxOptions.error && <p role="alert" className="mt-2 text-sm text-amber-800">Synced VAT codes could not be loaded. The saved default will be preserved unless you clear it. <Button type="button" variant="link" className="h-auto p-0 text-sm" onClick={() => configuration.refetch()}>Retry</Button></p>}
+          {normalized.defaultProductTaxCodeUnavailable && !draft.defaultProductTaxCodeChanged && <p role="status" className="mt-2 text-sm text-amber-800">The saved default VAT code is unavailable. Choose a replacement or clear the default. New products will need a VAT code selected manually.</p>}
+        </div>
         {normalized.requiredTaxRates.length > 0 && <p className="text-sm text-slate-600 sm:col-span-2">Legacy tax mappings for this sale’s accepted {naming.singular.toLowerCase()} only. Lines with saved provider codes use those codes directly.</p>}
         {normalized.requiredTaxRates.map((rate) => <div key={rate.value}>
           <Label>Legacy tax rate {rate.label}</Label>

@@ -2,7 +2,7 @@ import { supabase } from '../../_lib/database.js';
 import { getTenantContext } from '../../_lib/tenantContext.js';
 import { requireSalesContext, SalesHttpError } from '../../_lib/salesAccess.js';
 import { SALES_CAPABILITIES } from '../../../shared/salesContracts.js';
-import { listCatalogueTaxOptions } from '../../_lib/salesCatalogueTaxOptions.js';
+import { listCatalogueTaxOptions, getDefaultProductTaxCode } from '../../_lib/salesCatalogueTaxOptions.js';
 
 export function createCatalogueTaxOptionsHandler(dependencies = {}) {
   const db = dependencies.db || supabase;
@@ -21,7 +21,8 @@ export function createCatalogueTaxOptionsHandler(dependencies = {}) {
         actor = await requireSalesContext(context, SALES_CAPABILITIES.MANAGE_QUOTES, dependencies);
       }
       if (!db) throw new SalesHttpError(503, 'Database not configured');
-      return res.status(200).json(await listCatalogueTaxOptions(db, actor.tenantId, dependencies));
+      const options = await listCatalogueTaxOptions(db, actor.tenantId, dependencies);
+      return res.status(200).json({ ...options, ...await getDefaultProductTaxCode(db, actor.tenantId, options) });
     } catch (error) {
       const status = error instanceof SalesHttpError ? error.status : 500;
       return res.status(status).json({

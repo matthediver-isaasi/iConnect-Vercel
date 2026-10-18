@@ -9,6 +9,7 @@ import { saveQuoteDraft } from './salesQuote.js';
 function fixture() {
   const rows = [
     { id: 'team', tenant_id: 'tenant', organization_id: 'primary', first_name: 'Alex', email: 'alex@example.test' },
+    { id: 'unassigned', tenant_id: 'tenant', organization_id: 'primary' },
     { id: 'foreign', tenant_id: 'other', organization_id: 'primary' },
     { id: 'customer', tenant_id: 'tenant', organization_id: 'customer' },
     { id: 'deleted', tenant_id: 'tenant', organization_id: 'primary', email: 'deleted_old@deleted.local' },
@@ -17,11 +18,17 @@ function fixture() {
     const filters = []; let single = false; let start = 0; let end = 99;
     const q = {
       select() { return q; }, eq(k, v) { filters.push(row => row[k] === v); return q; },
+      in(k, values) { filters.push(row => values.includes(row[k])); return q; },
       or() { filters.push(row => !row.email?.startsWith('deleted_')); return q; },
       order() { return q; }, range(a, b) { start = a; end = b; return q; },
       maybeSingle() { single = true; return q; },
       then(resolve) {
-        const data = (table === 'organization' ? [{ id: 'primary', tenant_id: 'tenant', is_primary: true }] : rows).filter(row => filters.every(f => f(row)));
+        const source = table === 'opportunity' ? [{ id: 'opportunity', tenant_id: 'tenant' }]
+          : table === 'opportunity_collaborator' ? ['team','foreign','customer','deleted'].map(principal_id => ({
+            principal_id, tenant_id: 'tenant', opportunity_id: 'opportunity', principal_kind: 'member',
+          }))
+          : table === 'organization' ? [{ id: 'primary', tenant_id: 'tenant', is_primary: true }] : rows;
+        const data = source.filter(row => filters.every(f => f(row)));
         resolve({ data: single ? data[0] || null : data.slice(start, end + 1), error: null });
       },
     };
@@ -29,15 +36,19 @@ function fixture() {
   } };
 }
 
-test('options include only primary-organisation colleagues in this tenant', async () => {
-  assert.deepEqual((await quoteSalespersonOptions(fixture(), 'tenant')).items.map(p => p.id), ['team']);
+test('options include only assigned collaborators, not other primary-organisation colleagues', async () => {
+  assert.deepEqual((await quoteSalespersonOptions(fixture(), 'tenant', '0', 'opportunity')).items.map(p => p.id), ['team']);
+  assert.deepEqual((await quoteSalespersonOptions(fixture(), 'tenant')).items, []);
+  await assert.rejects(quoteSalespersonOptions(fixture(), 'tenant', '0', 'other-opportunity'), { status: 404 });
+  await assert.rejects(quoteSalespersonOptions(fixture(), 'other', '0', 'opportunity'), { status: 404 });
   await assert.rejects(quoteSalespersonOptions(fixture(), 'tenant', '-1'), { status: 400 });
 });
 test('new selections reject foreign, customer, deleted and missing members', async () => {
-  for (const salespersonId of ['foreign', 'customer', 'deleted', 'missing']) {
-    await assert.rejects(quoteSalespersonSnapshot(fixture(), 'tenant', {}, { salespersonId }), { status: 400 });
+  for (const salespersonId of ['foreign', 'customer', 'deleted', 'missing', 'unassigned']) {
+    await assert.rejects(quoteSalespersonSnapshot(fixture(), 'tenant', {}, { salespersonId, opportunityId: 'opportunity' }), { status: 400 });
   }
-  assert.equal((await quoteSalespersonSnapshot(fixture(), 'tenant', {}, { salespersonId: 'team' })).first_name, 'Alex');
+  assert.equal((await quoteSalespersonSnapshot(fixture(), 'tenant', {}, { salespersonId: 'team', opportunityId: 'opportunity' })).first_name, 'Alex');
+  await assert.rejects(quoteSalespersonSnapshot(fixture(), 'tenant', {}, { salespersonId: 'team', opportunityId: 'other-opportunity' }), { status: 400 });
 });
 test('persisted snapshots survive unchanged without looking up departed people; clear is explicit', async () => {
   const db = { from() { throw new Error('Unexpected lookup'); } };
@@ -45,7 +56,7 @@ test('persisted snapshots survive unchanged without looking up departed people; 
   assert.equal(await quoteSalespersonSnapshot(db, 'tenant', {}, { salespersonId: 'departed' }, previous), previous);
   const cleared = normaliseQuoteInput({ salespersonId: null });
   assert.equal(await quoteSalespersonSnapshot(db, 'tenant', {}, cleared, previous), null);
-  assert.deepEqual(await quoteSalespersonSnapshot(db, 'tenant', { actorId: 'actor', actorType: 'tenant_user' }, {}), { id: 'actor', type: 'tenant_user' });
+  assert.equal(await quoteSalespersonSnapshot(db, 'tenant', { actorId: 'actor', actorType: 'tenant_user' }, {}), null);
 });
 test('options require authenticated tenant Sales and quote-management access', async () => {
   for (const context of [

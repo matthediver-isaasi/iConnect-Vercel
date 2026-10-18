@@ -24,6 +24,21 @@ const built = await build({
   plugins: [{
     name: "isolated-naming",
     setup(build) {
+      build.onResolve({ filter: /^@\/components\/ui\/select$/ }, () => ({ path: "select", namespace: "select-fixture" }));
+      build.onLoad({ filter: /.*/, namespace: "select-fixture" }, () => ({
+        contents: `import React from "react";
+          export const SelectTrigger = () => null;
+          export const SelectValue = () => null;
+          export const SelectContent = ({children}) => React.createElement(React.Fragment, null, children);
+          export const SelectItem = ({value, disabled, children}) => React.createElement("option", {value, disabled}, children);
+          export const Select = ({value, onValueChange, children}) => {
+            const nodes = React.Children.toArray(children);
+            const trigger = nodes.find(node => node.type === SelectTrigger);
+            return React.createElement("select", {value, "aria-label":trigger?.props["aria-label"], onChange:e=>onValueChange(e.target.value)},
+              nodes.filter(node=>node.type !== SelectTrigger));
+          };`,
+        loader: "js", resolveDir: process.cwd(),
+      }));
       build.onResolve({ filter: /^@\/hooks\/useSalesSettings$/ }, () => ({ path: "naming", namespace: "fixture" }));
       build.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({
         contents: 'export const useQuoteNaming = () => globalThis.accountingPanelNaming;',
@@ -73,6 +88,68 @@ for (const naming of [
       assert.match(host.textContent, /Legacy tax rate 20%/);
       assert.match(host.textContent, /Accounting configuration/);
       assert.equal(fetches, 0);
+    } finally {
+      await act(async () => root.unmount());
+      client.clear(); host.remove();
+      globalThis.fetch = originalFetch;
+      delete globalThis.accountingPanelNaming;
+    }
+  });
+}
+
+for (const unavailable of [false, true]) {
+  test(`default VAT settings save, clear and invalidate catalogue options; unavailable ${unavailable}`, async () => {
+    globalThis.accountingPanelNaming = { singular: "Quote", plural: "Quotes", slug: "quotes" };
+    const originalFetch = globalThis.fetch;
+    const code = { provider: "xero", id: "PRIVATE-OUTPUT", name: "Standard sales VAT", rateBps: 2000, selectable: true };
+    let configuration = {
+      activeProvider: "xero", isReady: true, mappings: { 0: "LEGACY-ZERO" }, requiredTaxRates: [],
+      productTaxOptions: { provider: "xero", items: [code, { id: "DISABLED", name: "Archived VAT", selectable: false }] },
+      defaultProductTaxCode: unavailable ? null : code, defaultProductTaxCodeUnavailable: unavailable,
+    };
+    const patches = [];
+    globalThis.fetch = async (_url, options) => {
+      if (options?.method === "PATCH") {
+        const patch = JSON.parse(options.body);
+        patches.push(patch);
+        if ("defaultProductTaxCode" in patch) configuration = { ...configuration, defaultProductTaxCode: patch.defaultProductTaxCode ? code : null, defaultProductTaxCodeUnavailable: false };
+      }
+      return { ok: true, status: 200, json: async () => configuration };
+    };
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity, gcTime: Infinity }, mutations: { retry: false, gcTime: Infinity } } });
+    client.setQueryData(["sales-accounting-configuration", null], configuration);
+    client.setQueryData(["sales-catalogue", "tax-options", "tenant"], { items: [] });
+    const host = document.createElement("div"); document.body.append(host);
+    const root = createRoot(host);
+    const save = async () => act(async () => {
+      [...host.querySelectorAll("button")].find(button => button.textContent === "Save accounting configuration").click();
+      await new Promise(resolve => setTimeout(resolve, 30));
+    });
+    const choose = async key => act(async () => {
+      const select = host.querySelector('[aria-label="Default product VAT code"]');
+      select.value = key;
+      select.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    try {
+      await act(async () => root.render(React.createElement(QueryClientProvider, { client },
+        React.createElement(MemoryRouter, { future: { v7_startTransition: true, v7_relativeSplatPath: true } }, React.createElement(Panel)))));
+      const select = host.querySelector('[aria-label="Default product VAT code"]');
+      assert.ok(select);
+      assert.equal(select.value, unavailable ? "unavailable" : JSON.stringify(["xero", code.id]));
+      assert.equal(select.textContent.includes("PRIVATE-OUTPUT"), false);
+      assert.equal(select.textContent.includes("xero"), false);
+      assert.ok([...select.options].find(option => option.textContent === "Archived VAT").disabled);
+      if (unavailable) assert.match(host.textContent, /saved default VAT code is unavailable/);
+      await save();
+      assert.deepEqual(patches[0], { mappings: [{ taxRateBps: 0, providerTaxCodeId: "LEGACY-ZERO" }] });
+      assert.equal(client.getQueryState(["sales-catalogue", "tax-options", "tenant"]).isInvalidated, true);
+      await choose(JSON.stringify(["xero", code.id]));
+      await save();
+      assert.deepEqual(patches[1].defaultProductTaxCode, { provider: "xero", id: code.id });
+      assert.deepEqual(patches[1].mappings, patches[0].mappings);
+      await choose("none");
+      await save();
+      assert.equal(patches[2].defaultProductTaxCode, null);
     } finally {
       await act(async () => root.unmount());
       client.clear(); host.remove();

@@ -52,3 +52,16 @@ export async function resolveSalesTaxCode(db, tenantId, choice, dependencies = {
   }
   return { provider: options.provider, id: code.id, name: code.name, rateBps: code.rateBps };
 }
+
+export async function getDefaultProductTaxCode(db, tenantId, options) {
+  const { data, error } = await db.from('sales_settings').select('default_product_tax_code')
+    .eq('tenant_id', tenantId).maybeSingle();
+  if (error) throw error;
+  const saved = data?.default_product_tax_code;
+  const current = saved?.provider === options.provider
+    ? options.items.find(item => item.id === saved.id && item.selectable) : null;
+  return {
+    defaultProductTaxCode: current ? { provider: options.provider, id: current.id, name: current.name, rateBps: current.rateBps } : null,
+    defaultProductTaxCodeUnavailable: Boolean(saved && !current),
+  };
+}

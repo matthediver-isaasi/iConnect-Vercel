@@ -25,7 +25,9 @@ export function opportunityContacts(payload) {
 }
 
 export function clearOpportunityContacts(form, opportunityId) {
-  return { ...form, opportunityId, organizationId: "", customerContactId: "", billingContactId: "", address: emptyBillingAddress() };
+  return { ...form, opportunityId, organizationId: "", customerContactId: "", billingContactId: "",
+    ...(form.opportunityId !== opportunityId ? { salespersonId: "", salesperson: null, salesperson_snapshot: null } : {}),
+    address: emptyBillingAddress() };
 }
 
 export function applyQuoteOpportunity(form, detail) {

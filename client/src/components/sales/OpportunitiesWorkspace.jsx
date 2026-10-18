@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import QuoteTaskSettings from "./QuoteTaskSettings";
 import CatalogueVisibilitySettings from "./CatalogueVisibilitySettings";
 import QuoteNamingSettings from "./QuoteNamingSettings";
+import PartnershipTermsSettings from "./PartnershipTermsSettings";
 import { useQuoteNaming } from "@/hooks/useSalesSettings";
 import { quotePath } from "@shared/salesNaming.js";
 import { QuotesList } from "./QuotesWorkspace";
@@ -343,6 +344,7 @@ function SettingsPage() {
   return <div className="space-y-5">
     {canManageAccounting && <SalesAccountingSettingsPanel />}
     <QuoteNamingSettings request={request} canManage={isAccessReady && !isFeatureExcluded("sales.settings.manage")} />
+    <PartnershipTermsSettings request={request} canManage={isAccessReady && !isFeatureExcluded("sales.settings.manage")} />
     <QuoteTaskSettings request={request} canManage={isAccessReady && !isFeatureExcluded("sales.settings.manage")} />
     <BillingPresetSettings request={request} canManage={isAccessReady && !isFeatureExcluded("sales.settings.manage")} />
     <CatalogueVisibilitySettings request={request} canManage={isAccessReady && !isFeatureExcluded("sales.settings.manage")} />

@@ -1,3 +1,4 @@
+import { listCatalogueTaxOptions, getDefaultProductTaxCode, resolveSalesTaxCode } from './salesCatalogueTaxOptions.js';
 import { createHash } from 'node:crypto';
 import { calculateQuoteLine, calculateQuoteTotals, normalizeSalesInvoiceStatus, validateCurrency } from '../../shared/salesContracts.js';
 import {
@@ -178,7 +179,16 @@ export async function getSalesAccountingConfiguration(db, tenantId, dependencies
   if (activeProvider === 'quickbooks' && !quickbooksSalesItemId) {
     missing.push({ code: 'MISSING_SALES_ITEM', provider: activeProvider });
   }
+  let productTaxOptions;
+  try {
+    productTaxOptions = await listCatalogueTaxOptions(db, tenantId, { ...dependencies, getActiveAccountingProvider: async () => activeProvider });
+  } catch (error) {
+    if (error.status !== 409) throw error;
+    productTaxOptions = { provider: activeProvider, items: [], error: error.message };
+  }
+  const defaultTax = await getDefaultProductTaxCode(db, tenantId, productTaxOptions);
   return {
+    productTaxOptions, ...defaultTax,
     activeProvider, isReady: missing.length === 0, missing, requiredTaxRates, mappings,
     availableTaxCodes, quickbooksSalesItemId, availableItems,
   };
@@ -216,9 +226,13 @@ export async function saveSalesAccountingConfiguration(db, tenantId, input, depe
       throw error;
     }
   }
-  const { error } = await db.rpc('save_sales_accounting_configuration', {
+  const changeDefault = Object.hasOwn(input, 'defaultProductTaxCode');
+  const defaultCode = changeDefault && input.defaultProductTaxCode !== null
+    ? await resolveSalesTaxCode(db, tenantId, input.defaultProductTaxCode, dependencies) : null;
+  const { error } = await db.rpc(changeDefault ? 'save_sales_accounting_configuration_with_default' : 'save_sales_accounting_configuration', {
     p_tenant_id: tenantId, p_provider: current.activeProvider,
     p_mappings: mappings, p_quickbooks_sales_item_id: itemId,
+    ...(changeDefault ? { p_default_tax_code: defaultCode } : {}),
   });
   if (error) throw error;
   return getSalesAccountingConfiguration(db, tenantId, dependencies);

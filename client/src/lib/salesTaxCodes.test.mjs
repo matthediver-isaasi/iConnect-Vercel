@@ -1,12 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { persistedQuoteLineId, providerTaxOptions, quoteLineIdentityForSaving, quoteLineTaxForSaving, savedLineTaxCode, selectedProviderTaxCode, taxCodeKey } from "./salesTaxCodes.js";
+import { persistedQuoteLineId, providerTaxOptions, quoteLineIdentityForSaving, quoteLineTaxForSaving, savedLineTaxCode, selectedProviderTaxCode, taxCodeKey, taxCodeLabel } from "./salesTaxCodes.js";
 
 const items = [
   { provider: "xero", id: "OUTPUT", name: "Sales VAT", rateBps: 2000, selectable: true },
   { provider: "xero", id: "OTHER", name: "Other VAT", rateBps: 2000, selectable: true },
   { provider: "quickbooks", id: "OUTPUT", rateBps: 725, selectable: true },
 ];
+
+test("VAT labels use only natural names, never provider or internal IDs", () => {
+  assert.equal(taxCodeLabel(items[0]), "Sales VAT");
+  for (const code of [null, undefined, {}, { id: "INTERNAL", provider: "xero" }, { name: "" }, { name: "   " }]) {
+    assert.equal(taxCodeLabel(code), "VAT code unavailable");
+  }
+});
 
 test("only persisted UUID line ids are serialized, never local keys or temporary ids", () => {
   const uuid = "af4c62c7-a5d8-46f2-9482-35de27e6d928";

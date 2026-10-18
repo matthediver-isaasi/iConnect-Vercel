@@ -73,7 +73,7 @@ export function createSalesQuotesHandler(dependencies = {}) {
       if (read && !id && action === 'salesperson-options') {
         await requireSalesContext(context, SALES_CAPABILITIES.MANAGE_QUOTES, dependencies);
         res.setHeader('Cache-Control', 'private, no-store');
-        return res.status(200).json(await quoteSalespersonOptions(db, actor.tenantId, req.query?.offset));
+        return res.status(200).json(await quoteSalespersonOptions(db, actor.tenantId, req.query?.offset, req.query?.opportunityId));
       }
       if (read && id && action === 'sender-options') {
         await requireSalesContext(context, SALES_CAPABILITIES.MANAGE_QUOTES, dependencies);

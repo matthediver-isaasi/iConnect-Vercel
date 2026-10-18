@@ -25,7 +25,7 @@ const built = await build({
       b.onLoad({ filter: /.*/, namespace: "settings-fixture" }, () => ({ contents: "export const useSalesSettings=()=>globalThis.catalogueSettingsFixture; export const useSalesSettingsScope=()=>({scopeKey:'fixture',ready:true});" }));
       b.onResolve({ filter: /\/useMemberAccess$/ }, () => ({ path: "access", namespace: "access-fixture" }));
       b.onLoad({ filter: /.*/, namespace: "access-fixture" }, () => ({ contents: "export const useMemberAccess=()=>({isAccessReady:true,isFeatureExcluded:()=>false});" }));
-      b.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({ contents: "export const useCatalogueTaxOptions=()=>({data:{provider:'xero',items:[{id:'OUTPUT2',name:'VAT',rateBps:2000,selectable:true}]},isPending:false}); export const useCatalogue=(type)=>({data:globalThis.catalogueRowsFixture?.[type]||[],create:{},update:{}}); export const useEventOptions=()=>({});" }));
+      b.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({ contents: "export const useCatalogueTaxOptions=()=>globalThis.catalogueTaxOptionsFixture||({data:{provider:'xero',items:[{id:'OUTPUT2',name:'VAT',rateBps:2000,selectable:true}]},isPending:false}); export const useCatalogue=(type)=>({data:globalThis.catalogueRowsFixture?.[type]||[],create:{},update:{}}); export const useEventOptions=()=>({});" }));
     },
   }],
 });
@@ -50,6 +50,74 @@ const enterInput = async (label, value) => act(async () => {
   Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value").set.call(input, value);
   input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
 });
+
+const defaultCode = { provider: "xero", id: "DEFAULT-PRIVATE", name: "Standard sales VAT", rateBps: 2000, selectable: true };
+const overrideCode = { provider: "xero", id: "OVERRIDE-PRIVATE", name: "Zero rated sales", rateBps: 0, selectable: true };
+const defaultTaxOptions = () => ({ isPending: false, isError: false, data: { provider: "xero", items: [defaultCode, overrideCode], defaultProductTaxCode: defaultCode, defaultProductTaxCodeUnavailable: false } });
+const chooseTax = async (code) => act(async () => {
+  const select = document.querySelector('[aria-label="Synced VAT code"]');
+  select.value = code ? JSON.stringify([code.provider, code.id]) : "";
+  select.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+});
+
+for (const mode of ["new", "edit", "copy", "legacy-copy"]) {
+  test(`${mode} product uses default only for new products; natural labels and explicit overrides survive refresh`, async () => {
+    globalThis.catalogueTaxOptionsFixture = defaultTaxOptions();
+    const source = { id: "source", name: "Workshop", standardPriceMinor: 29, taxRateBps: 0, ...(mode !== "legacy-copy" ? { taxCode: overrideCode } : {}) };
+    const props = { config: { type: "products", ...(mode === "edit" ? { row: source } : mode.includes("copy") ? { copySource: source } : {}) }, categories: [], products: [], events: {}, onClose() {}, showInternalCode: false, onSave(data) { saved.push(data); } };
+    const saved = [];
+    try {
+      await renderFixture(RawEditDialog, props, async root => {
+        const select = () => document.querySelector('[aria-label="Synced VAT code"]');
+        assert.equal(select().value, mode === "new" ? JSON.stringify(["xero", defaultCode.id]) : mode === "copy" ? JSON.stringify(["xero", overrideCode.id]) : "");
+        assert.equal([...select().options].find(option => option.value === JSON.stringify(["xero", defaultCode.id])).textContent, "Standard sales VAT");
+        assert.equal([...select().options].find(option => option.value === JSON.stringify(["xero", overrideCode.id])).textContent, "Zero rated sales");
+        assert.equal(select().textContent.includes("PRIVATE"), false);
+        assert.equal(select().textContent.includes("xero"), false);
+        if (mode === "new") await enterInput("Standard price", "0.29");
+        if (mode === "legacy-copy") {
+          await submitForm();
+          assert.equal(saved.length, 0, "copy cannot silently inherit the global default");
+        } else {
+          await submitForm();
+          if (mode === "edit") assert.equal("taxCode" in saved[0], false);
+          else assert.deepEqual(saved[0].taxCode, { provider: "xero", id: mode === "new" ? defaultCode.id : overrideCode.id });
+        }
+        await chooseTax(overrideCode);
+        globalThis.catalogueTaxOptionsFixture = defaultTaxOptions();
+        await act(async () => root.render(React.createElement(RawEditDialog, props)));
+        assert.equal(select().value, JSON.stringify(["xero", overrideCode.id]));
+        await submitForm();
+        assert.deepEqual(saved.at(-1).taxCode, { provider: "xero", id: overrideCode.id });
+        await chooseTax(null);
+        globalThis.catalogueTaxOptionsFixture = defaultTaxOptions();
+        await act(async () => root.render(React.createElement(RawEditDialog, props)));
+        assert.equal(select().value, "", "refresh must not restore default after user clears it");
+      });
+    } finally { delete globalThis.catalogueTaxOptionsFixture; }
+  });
+}
+
+for (const unavailable of [false, true]) {
+  test(`new product waits for options and initializes once; unavailable default ${unavailable}`, async () => {
+    globalThis.catalogueTaxOptionsFixture = { isPending: true };
+    const props = { config: { type: "products" }, categories: [], products: [], events: {}, onClose() {}, onSave() {} };
+    try {
+      await renderFixture(RawEditDialog, props, async root => {
+        const select = () => document.querySelector('[aria-label="Synced VAT code"]');
+        assert.equal(select().value, "");
+        globalThis.catalogueTaxOptionsFixture = defaultTaxOptions();
+        globalThis.catalogueTaxOptionsFixture.data.defaultProductTaxCodeUnavailable = unavailable;
+        await act(async () => root.render(React.createElement(RawEditDialog, props)));
+        assert.equal(select().value, unavailable ? "" : JSON.stringify(["xero", defaultCode.id]));
+        globalThis.catalogueTaxOptionsFixture = defaultTaxOptions();
+        globalThis.catalogueTaxOptionsFixture.data.defaultProductTaxCode = overrideCode;
+        await act(async () => root.render(React.createElement(RawEditDialog, props)));
+        assert.equal(select().value, unavailable ? "" : JSON.stringify(["xero", defaultCode.id]));
+      });
+    } finally { delete globalThis.catalogueTaxOptionsFixture; }
+  });
+}
 
 for (const showInternalCode of [false, true]) for (const showSku of [false, true]) {
   for (const mode of ["create", "edit", "copy"]) {

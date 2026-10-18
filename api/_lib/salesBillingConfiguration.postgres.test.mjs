@@ -43,6 +43,8 @@ test('billing settings and bundle saves: real SQL replay, CAS, tenancy, integrit
     await db.query(migration('202610130002_sales_catalogue_atomic_create'));
     await db.query(migration('202610180004_sales_billing_configuration'));
     await db.query(migration('202610180004_sales_billing_configuration'));
+    await db.query(migration('202610180005_sales_partnership_terms'));
+    await db.query(migration('202610180005_sales_partnership_terms'));
     const a = await connect(true), b = await connect(true);
     const patch = (c, version, fields, tenant = id(1)) => c.query('SELECT * FROM patch_sales_settings($1,$2,$3,$4,$5)', [tenant, version, fields, 'actor', 'tenant_user']);
     const term = { id: id(3), name: '7 days', days: 7, isActive: true, isDefault: true };
@@ -51,6 +53,17 @@ test('billing settings and bundle saves: real SQL replay, CAS, tenancy, integrit
     assert.equal(results.filter(r => r.status === 'fulfilled').length, 1);
     assert.equal(results.find(r => r.status === 'rejected').reason.code, '40001', JSON.stringify(results.find(r => r.status === 'rejected').reason));
     let version = (await db.query('SELECT version FROM sales_settings WHERE tenant_id=$1', [id(1)])).rows[0].version;
+    const html = '<h2>STANDARD PARTNERSHIP TERMS</h2><h3>1. Terms</h3><table><tr><td>25%</td></tr></table>';
+    await patch(a, version++, { partnershipTermsHtml: html });
+    assert.equal((await db.query('SELECT partnership_terms_html FROM sales_settings WHERE tenant_id=$1', [id(1)])).rows[0].partnership_terms_html, html);
+    await assert.rejects(patch(a, version - 1, { partnershipTermsHtml: 'stale' }), /changed|version|conflict/i);
+    for (const invalid of [null, 123, {}, 'x'.repeat(100001)]) {
+      await assert.rejects(patch(a, version, { partnershipTermsHtml: invalid }), /Invalid partnership terms/);
+    }
+    await patch(a, 1, { partnershipTermsHtml: 'Other tenant' }, id(2));
+    assert.equal((await db.query('SELECT partnership_terms_html FROM sales_settings WHERE tenant_id=$1', [id(1)])).rows[0].partnership_terms_html, html);
+    await patch(a, version++, { partnershipTermsHtml: '' });
+    assert.equal((await db.query('SELECT partnership_terms_html FROM sales_settings WHERE tenant_id=$1', [id(1)])).rows[0].partnership_terms_html, '');
     await patch(a, version++, { billingPresets: presets, showSku: false, quoteSingularName: 'Proposal', quoteTaskListName: 'Fulfilment' });
     await patch(a, version++, { billingPresets: presets });
     const settings = (await db.query('SELECT * FROM sales_settings WHERE tenant_id=$1', [id(1)])).rows[0];

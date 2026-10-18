@@ -37,6 +37,21 @@ test('direct-tax migration preserves legacy data, supports empty configuration, 
     assert.equal(sql('SELECT setting_value FROM system_settings'), 'item-1');
     sql(migration);
     assert.equal(sql('SELECT count(*) FROM sales_accounting_tax_mapping'), '1');
+    sql(`CREATE TABLE sales_settings(tenant_id uuid PRIMARY KEY,version integer NOT NULL DEFAULT 1,updated_at timestamptz DEFAULT now());`);
+    const defaultsMigration = readFileSync('supabase/migrations/202610180006_sales_default_product_vat.sql', 'utf8');
+    sql(defaultsMigration);
+    sql(defaultsMigration);
+    const code = JSON.stringify({ provider: 'xero', id: 'OUTPUT2', name: '20% VAT on Income', rateBps: 2000 });
+    const saveDefault = value => `SET ROLE service_role; SET request.jwt.claim.role='service_role';
+      SELECT save_sales_accounting_configuration_with_default('${tenant}','xero','[]',NULL,${value}); RESET ROLE;`;
+    sql(saveDefault(`'${code}'::jsonb`));
+    assert.equal(sql("SELECT default_product_tax_code->>'id' FROM sales_settings"), 'OUTPUT2');
+    assert.equal(sql('SELECT provider_tax_code FROM sales_accounting_tax_mapping'), 'EXEMPT');
+    assert.equal(sql("SELECT has_function_privilege('authenticated','public.save_sales_accounting_configuration_with_default(uuid,text,jsonb,text,jsonb)','EXECUTE')"), 'f');
+    assert.throws(() => sql(saveDefault(`'{"provider":"quickbooks","id":"OUTPUT2","name":"VAT","rateBps":2000}'::jsonb`)));
+    assert.equal(sql("SELECT default_product_tax_code->>'id' FROM sales_settings"), 'OUTPUT2');
+    sql(saveDefault('NULL'));
+    assert.equal(sql('SELECT default_product_tax_code IS NULL AND version=2 FROM sales_settings'), 't');
   } finally {
     if (started) run('pg_ctl', ['-D', data, '-m', 'immediate', '-w', 'stop']);
     rmSync(dir, { recursive: true, force: true });

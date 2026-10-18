@@ -1,3 +1,5 @@
+import { providerTaxOptions, selectedProviderTaxCode, taxCodeKey, taxCodeLabel } from "./salesTaxCodes.js";
+
 const valueOf = (value, keys, fallback = null) => {
   for (const key of keys) {
     if (value?.[key] !== undefined && value?.[key] !== null) return value[key];
@@ -50,7 +52,10 @@ export function normalizeSalesAccountingConfiguration(payload) {
       label: typeof item === "object" ? valueOf(item, ["label", "name"], formatRequiredTaxRate(valueOf(item, ["taxRateBps", "tax_rate_bps", "rateBps", "rate_bps", "rate"]))) : formatRequiredTaxRate(item),
     })),
     mappings,
-    availableTaxCodes: asArray(value.availableTaxCodes ?? value.available_tax_codes).map((item) => option(item, ["id", "code", "taxCodeId", "tax_code_id"])).filter((item) => item.id),
+    availableTaxCodes: asArray(value.availableTaxCodes ?? value.available_tax_codes).map((item) => ({ ...option(item, ["id", "code", "taxCodeId", "tax_code_id"]), label: taxCodeLabel(item) })).filter((item) => item.id),
+    productTaxOptions: { provider: value.productTaxOptions?.provider ?? null, items: providerTaxOptions(value.productTaxOptions), error: value.productTaxOptions?.error ?? null },
+    defaultProductTaxCode: value.defaultProductTaxCode ?? null,
+    defaultProductTaxCodeUnavailable: value.defaultProductTaxCodeUnavailable === true,
     quickbooksSalesItemId: value.quickbooksSalesItemId ?? value.quickbooks_sales_item_id ?? null,
     availableItems: asArray(value.availableItems ?? value.available_items).map((item) => option(item, ["id", "itemId", "item_id"])).filter((item) => item.id),
   };
@@ -96,7 +101,22 @@ export function serializeSalesAccountingConfiguration(configuration, draft) {
   if (missingRates.length) {
     throw new Error(`Select a provider tax code for: ${missingRates.join(", ")}.`);
   }
+  // A settings save must not discard mappings outside this sale's required rates.
+  const allMappings = { ...configuration?.mappings, ...draft?.mappings };
+  for (const [rate, id] of Object.entries(allMappings)) {
+    if (!requiredRates.some((required) => required.value === rate) && id != null && String(id).trim() && Number.isInteger(Number(rate))) {
+      mappings.push({ taxRateBps: Number(rate), providerTaxCodeId: String(id) });
+    }
+  }
   const payload = { mappings };
+  if (draft?.defaultProductTaxCodeChanged) {
+    if (draft.defaultProductTaxCode == null) {
+      payload.defaultProductTaxCode = null;
+    } else {
+      const code = selectedProviderTaxCode(taxCodeKey(draft.defaultProductTaxCode), configuration.productTaxOptions?.items || [], !configuration.productTaxOptions?.error);
+      payload.defaultProductTaxCode = { provider: code.provider, id: code.id };
+    }
+  }
   if (String(configuration?.providerKey || "").includes("quickbooks")) {
     if (!draft?.quickbooksSalesItemId) throw new Error("Select a QuickBooks sales item.");
     payload.quickbooksSalesItemId = String(draft.quickbooksSalesItemId);

@@ -27,6 +27,53 @@ test("normalizes readiness, zero tax rate, mappings and QuickBooks item options"
   assert.equal(configuration.availableItems[0].label, "Sales");
 });
 
+test("normalizes product defaults and natural-name options including unavailable saved defaults", () => {
+  const saved = { provider: "xero", id: "OUTPUT", name: "Standard sales", rateBps: 2000 };
+  const configuration = normalizeSalesAccountingConfiguration({ data: {
+    productTaxOptions: { provider: "xero", items: [{ id: "OUTPUT", name: "Standard sales", rateBps: 2000, selectable: true }] },
+    defaultProductTaxCode: saved, defaultProductTaxCodeUnavailable: true,
+    availableTaxCodes: [{ id: "PRIVATE", label: "Internal code", name: "Zero rated" }, { id: "SECRET" }],
+  } });
+  assert.deepEqual(configuration.defaultProductTaxCode, saved);
+  assert.equal(configuration.defaultProductTaxCodeUnavailable, true);
+  assert.deepEqual(configuration.productTaxOptions.items[0], { ...saved, selectable: true });
+  assert.deepEqual(configuration.availableTaxCodes.map((code) => code.label), ["Zero rated", "VAT code unavailable"]);
+  assert.equal(normalizeSalesAccountingConfiguration().defaultProductTaxCode, null);
+});
+
+test("default PATCH is opt-in, identity-only, clearable, and preserves all existing mappings", () => {
+  const code = { provider: "xero", id: "OUTPUT", name: "Standard sales", rateBps: 2000, selectable: true };
+  const configuration = normalizeSalesAccountingConfiguration({
+    activeProvider: "xero", mappings: { 0: "ZERO", 2000: "OLD" },
+    productTaxOptions: { provider: "xero", items: [code] }, defaultProductTaxCode: code,
+  });
+  const mappings = [{ taxRateBps: 0, providerTaxCodeId: "ZERO" }, { taxRateBps: 2000, providerTaxCodeId: "OLD" }];
+  assert.deepEqual(serializeSalesAccountingConfiguration(configuration, { defaultProductTaxCode: code }), { mappings });
+  assert.deepEqual(serializeSalesAccountingConfiguration(configuration, { defaultProductTaxCode: code, defaultProductTaxCodeChanged: true }), {
+    mappings, defaultProductTaxCode: { provider: "xero", id: "OUTPUT" },
+  });
+  assert.deepEqual(serializeSalesAccountingConfiguration(configuration, { defaultProductTaxCode: null, defaultProductTaxCodeChanged: true }), { mappings, defaultProductTaxCode: null });
+  assert.throws(() => serializeSalesAccountingConfiguration(configuration, {
+    defaultProductTaxCodeChanged: true, defaultProductTaxCode: { provider: "quickbooks", id: "OUTPUT" },
+  }), /Select a synced provider VAT code/);
+  configuration.defaultProductTaxCodeUnavailable = true;
+  assert.deepEqual(serializeSalesAccountingConfiguration(configuration, {}), { mappings });
+  configuration.productTaxOptions.items[0].selectable = false;
+  assert.throws(() => serializeSalesAccountingConfiguration(configuration, { defaultProductTaxCode: code, defaultProductTaxCodeChanged: true }), /Select a synced provider VAT code/);
+});
+
+test("provider sync errors allow unrelated saves and clearing, but not selecting a default", () => {
+  const code = { provider: "xero", id: "VAT", name: "Sales VAT", selectable: true };
+  const configuration = normalizeSalesAccountingConfiguration({
+    productTaxOptions: { provider: "xero", items: [code], error: "Sync unavailable" },
+    defaultProductTaxCode: code,
+  });
+  assert.equal(configuration.productTaxOptions.error, "Sync unavailable");
+  assert.deepEqual(serializeSalesAccountingConfiguration(configuration, {}), { mappings: [] });
+  assert.deepEqual(serializeSalesAccountingConfiguration(configuration, { defaultProductTaxCodeChanged: true, defaultProductTaxCode: null }), { mappings: [], defaultProductTaxCode: null });
+  assert.throws(() => serializeSalesAccountingConfiguration(configuration, { defaultProductTaxCodeChanged: true, defaultProductTaxCode: code }), /Select a synced provider VAT code/);
+});
+
 test("serializes Xero mappings as the backend PATCH array including zero", () => {
   const configuration = normalizeSalesAccountingConfiguration({
     activeProvider: "xero",

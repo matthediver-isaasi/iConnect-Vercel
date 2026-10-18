@@ -146,8 +146,9 @@ export function EditDialog({ config, categories, categoriesLoading, products, ev
     }
   }, [config]);
   useEffect(() => {
-    if (!config?.copySource || type !== "products" || taxOptions.isPending || taxOptions.isError || copyTaxInitialized.current) return;
-    setSelectedTaxId(selectableCopyTaxId(config.copySource, providerTaxOptions(taxOptions.data)));
+    if (!config || config.row || type !== "products" || !taxOptions.data || taxOptions.isPending || taxOptions.isError || copyTaxInitialized.current) return;
+    const source = config.copySource || (!taxOptions.data.defaultProductTaxCodeUnavailable ? { taxCode: taxOptions.data.defaultProductTaxCode } : null);
+    setSelectedTaxId(selectableCopyTaxId(source, providerTaxOptions(taxOptions.data)));
     copyTaxInitialized.current = true;
   }, [config, type, taxOptions.data, taxOptions.isPending, taxOptions.isError]);
   if (!config) return null;
@@ -248,14 +249,15 @@ function ProductFields({ form, update, categories, events, existing, taxOptions,
     <Field label={`Cost (${form.currency || "GBP"}, excl. VAT)`}><Input aria-label="Cost" type="text" inputMode="decimal" value={form.costMinor ?? ""} onChange={(e) => update("costMinor", e.target.value)} /></Field>
     <Field label="Synced VAT code">
       <ProductSelect aria-label="Synced VAT code" value={selectedTaxId} onChange={(e) => onTaxChange(e.target.value)} disabled={taxOptions.isPending || taxOptions.isError}>
-        <option value="">{existing ? `Keep saved: ${savedCode ? taxCodeLabel(savedCode) : "Legacy tax — no saved code"} (${taxPercent(existing.taxRateBps)})` : "Select a synced provider VAT code"}</option>
-        {taxItems.filter((item) => taxCodeKey(item)).map((item) => <option key={taxCodeKey(item)} value={taxCodeKey(item)} disabled={!item.selectable}>{taxCodeLabel(item)} · {taxPercent(item.rateBps)}{!item.selectable ? ` — ${item.reason || "Unavailable"}` : ""}</option>)}
+        <option value="">{existing ? savedCode ? taxCodeLabel(savedCode) : "Legacy tax — no saved code" : "Select a synced provider VAT code"}</option>
+        {taxItems.filter((item) => taxCodeKey(item)).map((item) => <option key={taxCodeKey(item)} value={taxCodeKey(item)} disabled={!item.selectable}>{taxCodeLabel(item)}</option>)}
       </ProductSelect>
     </Field>
     <Field label="VAT rate"><Input aria-label="VAT rate" readOnly value={selectedCode ? taxPercent(selectedCode.rateBps) : existing && !selectedTaxId ? taxPercent(existing.taxRateBps) : "Select a VAT code"} /></Field>
     <div className="space-y-2 text-xs text-slate-600 sm:col-span-2">
       {taxOptions.isPending ? <div role="status" className="animate-pulse rounded bg-slate-100 p-3">Loading synced VAT codes…</div> : taxOptions.isError ? <p role="alert" className="text-red-600">{taxOptions.error?.message || "VAT codes could not be loaded."} <Button type="button" variant="link" className="h-auto p-0 text-xs" onClick={() => taxOptions.refetch()}>Retry</Button></p> : <>
         {taxOptions.data?.note && <p>{taxOptions.data.note}</p>}
+         {!existing && taxOptions.data?.defaultProductTaxCodeUnavailable && <p className="text-amber-700">The default product VAT code is unavailable. Select a synced VAT code before saving.</p>}
         {!taxItems.some((item) => item.selectable) && <p className="text-amber-700">No synced provider VAT codes are available.</p>}
       </>}
       {existing && !selectedTaxId && <p className="text-slate-600">Saved tax: {savedCode ? taxCodeLabel(savedCode) : `Legacy ${existing.taxTreatment || "tax"} — no saved code`} · {taxPercent(existing.taxRateBps)}. Saving without a new selection preserves it, even if the code is unavailable.</p>}

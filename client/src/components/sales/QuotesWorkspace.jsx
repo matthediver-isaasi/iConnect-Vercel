@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import AmendQuoteButton from "./AmendQuoteButton";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -259,8 +260,8 @@ export function LinesEditor({ form, setForm, products, bundles, readOnly, canOve
               const code = taxItems.find((item) => taxCodeKey(item) === event.target.value && item.selectable);
               if (code) patch(index, { ...(!line.taxChanged ? { originalTaxCode: line.taxCode, originalTaxRateBps: line.taxRateBps, originalLegacyTax: line.legacyTax } : {}), taxCode: code, taxRateBps: code.rateBps, taxChanged: true });
             }}>
-              <option value="">{line.taxChanged ? "Undo tax selection" : line.taxCode ? `Keep saved: ${taxCodeLabel(line.taxCode)}` : line.legacyTax ? "Keep legacy tax — no saved provider code" : "Choose a synced provider VAT code"}</option>
-              {taxItems.filter((code) => taxCodeKey(code)).map((code) => <option key={taxCodeKey(code)} value={taxCodeKey(code)} disabled={!code.selectable}>{taxCodeLabel(code)} · {Number(code.rateBps) / 100}%</option>)}
+              <option value="">{line.taxChanged ? "Undo tax selection" : line.taxCode ? taxCodeLabel(line.taxCode) : line.legacyTax ? "Keep legacy tax — no saved provider code" : "Choose a synced provider VAT code"}</option>
+              {taxItems.filter((code) => taxCodeKey(code)).map((code) => <option key={taxCodeKey(code)} value={taxCodeKey(code)} disabled={!code.selectable}>{taxCodeLabel(code)}</option>)}
             </select>
             {!line.taxChanged && line.legacyTax && <p className="mt-1 text-xs text-slate-500">Existing tax is preserved until you explicitly choose a provider code.</p>}
           </>}
@@ -421,7 +422,28 @@ function QuoteEditor() {
   });
   const action = useMutation({
     mutationFn: ({ action: actionName, extra = {} }) => request(`/api/sales/quotes/${id}?action=${actionName}`, { method: "POST", body: JSON.stringify({ expectedVersion: quote.rowVersion, ...extra }) }),
-    onSuccess: (data, variables) => { const result = normalizeQuote(data); qc.invalidateQueries({ queryKey: ["sales-quotes"] }); qc.invalidateQueries({ queryKey: ["sales-quote", id] }); qc.invalidateQueries({ queryKey: ["quote-history", id] }); toast({ title: variables.action === "amend" ? "Amendment created" : variables.action === "issue" ? `${naming.singular} issued` : variables.extra?.status === "accepted" ? `${naming.singular} accepted` : `${naming.singular} status updated` }); if (variables.action === "amend" && result.id) navigate(quotePath(naming, result.id)); },
+    onSuccess: async (data, variables) => {
+      const result = normalizeQuote(data);
+      qc.invalidateQueries({ queryKey: ["sales-quotes"] });
+      qc.invalidateQueries({ queryKey: ["quote-history", id] });
+      if (variables.action === "amend") {
+        // Keep the busy feedback through the authoritative reload, not just
+        // the POST. An amendment retains the quote ID but changes its version.
+        const refreshed = await detail.refetch();
+        if (refreshed.error || !refreshed.data) {
+          toast({ title: "Amendment created; reload needed", description: `The amendment was created, but its editable details could not be loaded. Reload this ${naming.singular.toLowerCase()} to continue.`, variant: "destructive" });
+          return;
+        }
+        const fresh = normalizeQuote(refreshed.data);
+        setForm(fresh);
+        setSavedFingerprint(JSON.stringify(fresh));
+        toast({ title: "Amendment ready to edit" });
+        if (result.id && result.id !== id) navigate(quotePath(naming, result.id));
+      } else {
+        qc.invalidateQueries({ queryKey: ["sales-quote", id] });
+        toast({ title: variables.action === "issue" ? `${naming.singular} issued` : variables.extra?.status === "accepted" ? `${naming.singular} accepted` : `${naming.singular} status updated` });
+      }
+    },
     onError: (error) => toast({ title: `${naming.singular} action failed`, description: error.message, variant: "destructive" }),
   });
   const deliveryAction = useMutation({
@@ -461,9 +483,9 @@ function QuoteEditor() {
       {!readOnly && <Button variant="outline" disabled={invalidPrices || save.isPending || !form.opportunityId || (isNew && !opportunity.ready) || !form.lines.length} onClick={() => save.mutate()}>{save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save draft</Button>}
       {!isNew && status === "draft" && allowed(["canIssue", "can_issue", "issue"], false) && <Button disabled={action.isPending || !form.lines.length || isDirty} title={isDirty ? "Save the latest draft before issuing" : "Finalise this version so it can be sent"} onClick={() => action.mutate({ action: "issue" })}><Send className="mr-2 h-4 w-4" />Issue {naming.singular}</Button>}
       {!isNew && <><Button variant="outline" disabled={pdf.isPending || isDirty} title={isDirty ? "Save your changes before generating a PDF" : ""} onClick={() => pdf.mutate({ preview: true })}><Eye className="mr-2 h-4 w-4" />{status === "draft" ? "Preview draft PDF" : "Preview PDF"}</Button><Button variant="outline" disabled={pdf.isPending || isDirty} onClick={() => pdf.mutate({ preview: false })}><Download className="mr-2 h-4 w-4" />Download PDF</Button></>}
-      {!isNew && ["issued", "sent"].includes(status) && <Button disabled={deliveryAction.isPending} onClick={() => setSendOpen(true)}><Send className="mr-2 h-4 w-4" />Send</Button>}
-      {!isNew && ["issued", "sent"].includes(status) && <Button variant="outline" disabled={deliveryAction.isPending} onClick={() => deliveryAction.mutate({ action: "revoke" })}><Link2Off className="mr-2 h-4 w-4" />Revoke link</Button>}
-      {!isNew && !["draft", "superseded", "accepted", "converted", "declined", "rejected", "expired"].includes(status) && allowed(["canAmend", "can_amend", "amend"], false) && <Button onClick={() => action.mutate({ action: "amend" })}><RefreshCw className="mr-2 h-4 w-4" />Amend</Button>}
+      {!isNew && ["issued", "sent"].includes(status) && <Button disabled={deliveryAction.isPending || action.isPending} onClick={() => setSendOpen(true)}><Send className="mr-2 h-4 w-4" />Send</Button>}
+      {!isNew && ["issued", "sent"].includes(status) && <Button variant="outline" disabled={deliveryAction.isPending || action.isPending} onClick={() => deliveryAction.mutate({ action: "revoke" })}><Link2Off className="mr-2 h-4 w-4" />Revoke link</Button>}
+      {!isNew && !["draft", "superseded", "accepted", "converted", "declined", "rejected", "expired"].includes(status) && allowed(["canAmend", "can_amend", "amend"], false) && <AmendQuoteButton pending={action.isPending || deliveryAction.isPending} onAmend={() => action.mutateAsync({ action: "amend" })} />}
       {!isNew && <AcceptQuoteButton status={status} permitted={allowed(["canTransition", "can_transition", "transition"], false)} pending={action.isPending} onAccept={extra => action.mutateAsync({ action: "transition", extra })} />}
       {!isNew && status === "accepted" && allowed(["canTransition", "can_transition", "transition"], false) && <Button variant="outline" onClick={() => action.mutate({ action: "transition", extra: { status: "converted" } })}>Convert</Button>}
     </div></div>
@@ -486,7 +508,7 @@ function QuoteEditor() {
           <Field label="Valid until"><Input disabled={readOnly} type="date" value={form.validUntil} onChange={(e) => patch("validUntil", e.target.value)} /></Field>
           <Field label="PO reference"><Input disabled={readOnly} value={form.purchaseOrderReference} onChange={(e) => patch("purchaseOrderReference", e.target.value)} /></Field>
           <Field label="Customer reference"><Input disabled={readOnly} value={form.customerReference} onChange={(e) => patch("customerReference", e.target.value)} /></Field>
-          <Field label="Salesperson"><QuoteSalespersonSelect disabled={readOnly} value={form.salespersonId} snapshot={form.salesperson_snapshot || form.salesperson} onChange={value => patch("salespersonId", value)} request={request} /></Field>
+          <Field label="Salesperson"><QuoteSalespersonSelect disabled={readOnly} opportunityId={form.opportunityId} value={form.salespersonId} snapshot={form.salesperson_snapshot || form.salesperson} onChange={value => patch("salespersonId", value)} request={request} /></Field>
           <Field label="Currency"><Input disabled={readOnly || form.lines.length > 0} maxLength={3} value={form.currency} onChange={(e) => patch("currency", e.target.value.toUpperCase())} /></Field>
           <Field label="Payment terms"><Input disabled={readOnly} value={form.paymentTerms} onChange={(e) => patch("paymentTerms", e.target.value)} /></Field>
           <Field label="Internal / customer notes" wide><Textarea disabled={readOnly} rows={3} value={form.notes} onChange={(e) => patch("notes", e.target.value)} /></Field>

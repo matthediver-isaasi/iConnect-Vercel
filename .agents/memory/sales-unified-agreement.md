@@ -13,3 +13,15 @@ Recipient email verification must produce a separate short-lived secret proof he
 **Why:** A forwarded-link holder could otherwise sign after the intended recipient verifies their email.
 
 **How to apply:** Bind proof to the delivery token and current code generation, invalidate on resend, keep it out of URLs and logs, and validate it transactionally with acceptance.
+
+Standard partnership terms must be editable under Sales settings per tenant. GFI's standalone terms start at clause 1, not clause 3; numbered cross-references must align.
+
+**Why:** The user explicitly requested a central editing location and correction of the inherited numbering.
+
+**How to apply:** Insert the tenant's saved template as a document snapshot. Template changes do not rewrite existing agreement versions or signed documents. Do not offer GFI-branded text as an automatic fallback for other tenants.
+
+The Sales Person dropdown on proposals must list only the proposal's collaborators, not all tenant-organisation members.
+
+**Why:** The user explicitly narrowed the salesperson selection scope.
+
+**How to apply:** Resolve collaborators from the linked opportunity and enforce the same scope for new selections when saving. Preserve historical saved snapshots on unrelated edits; do not automatically assign the current operator.

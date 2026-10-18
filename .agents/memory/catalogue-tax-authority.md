@@ -19,3 +19,9 @@ Do not reintroduce a quote-level Tax Treatment selector.
 **Why:** The user considers it confusing duplication of the VAT controls on products and bundles.
 
 **How to apply:** Keep catalogue VAT authoritative while preserving historical quote metadata on unrelated saves.
+
+VAT dropdown labels show the provider's natural-language name only, not internal codes. Sales accounting settings supply an optional default for new products, with per-product overrides.
+
+**Why:** The user found combined names/internal codes confusing and requested pre-populated VAT for new products.
+
+**How to apply:** Keep provider/code identity internally. Default only new-product initialization; never replace existing or copied product tax, or a user's in-progress selection. Validate the default against the active provider's synced revenue codes.

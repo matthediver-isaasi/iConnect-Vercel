@@ -45,6 +45,7 @@ export const SALES_INVOICE_STATUSES = Object.freeze([
 ]);
 
 export const DEFAULT_SALES_SETTINGS = Object.freeze({
+  partnershipTermsHtml: '',
   billingPresets: Object.freeze({ issueDelays: Object.freeze([]), paymentTerms: Object.freeze([]) }),
   showInternalCode: true,
   showSku: true,
@@ -97,8 +98,16 @@ export function validateSalesInvoiceCommand(value) {
 
 export function validateSalesAccountingConfigurationPatch(value) {
   if (!isObject(value)) return { ok: false, errors: ['Body must be an object'] };
-  const errors = Object.keys(value).filter((key) => !['mappings', 'quickbooksSalesItemId'].includes(key))
+  const errors = Object.keys(value).filter((key) => !['mappings', 'quickbooksSalesItemId', 'defaultProductTaxCode'].includes(key))
     .map((key) => `Unknown accounting configuration field: ${key}`);
+  if ('defaultProductTaxCode' in value && value.defaultProductTaxCode !== null) {
+    const code = value.defaultProductTaxCode;
+    if (!isObject(code) || !['xero', 'quickbooks'].includes(code.provider)
+      || typeof code.id !== 'string' || !code.id.trim() || code.id.length > 255
+      || Object.keys(code).some(key => !['provider', 'id'].includes(key))) {
+      errors.push('defaultProductTaxCode must be null or a provider and code identity');
+    }
+  }
   if (!Array.isArray(value.mappings)) {
     errors.push('mappings must be an array');
   } else {
@@ -287,6 +296,7 @@ export function validateSalesSettingsPatch(value) {
     return { ok: false, errors: ['Body must be an object'] };
   }
   const allowed = new Set([
+    'partnershipTermsHtml',
     'quotePrefix', 'quoteNumberPadding', 'defaultCurrency',
     'billingPresets',
     'defaultTaxRateBps', 'defaultTerms', 'moduleEnabled', 'expectedVersion', 'quoteTaskListName',
@@ -294,6 +304,9 @@ export function validateSalesSettingsPatch(value) {
     'quoteSingularName', 'quotePluralName', 'quoteUrlSegment',
   ]);
   const errors = [...quoteNamingErrors(value)];
+  if ('partnershipTermsHtml' in value && (typeof value.partnershipTermsHtml !== 'string' || value.partnershipTermsHtml.length > 100000)) {
+    errors.push('partnershipTermsHtml must be a string of at most 100000 characters');
+  }
   if ('billingPresets' in value) errors.push(...billingPresetErrors(value.billingPresets));
   for (const key of ['showInternalCode', 'showSku']) {
     if (key in value && typeof value[key] !== 'boolean') errors.push(`${key} must be boolean`);
@@ -336,6 +349,7 @@ export function validateSalesSettingsPatch(value) {
 
 export function mapSalesSettingsRow(row) {
   return {
+    partnershipTermsHtml: row.partnership_terms_html ?? '',
     billingPresets: row.billing_presets ?? { issueDelays: [], paymentTerms: [] },
     showInternalCode: row.show_internal_code ?? true,
     showSku: row.show_sku ?? true,

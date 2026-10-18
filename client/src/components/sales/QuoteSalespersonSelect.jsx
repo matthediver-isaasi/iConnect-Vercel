@@ -7,11 +7,12 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 
 export const salespersonName = person => person?.name || [person?.first_name, person?.last_name].filter(Boolean).join(" ") || person?.email || "";
 
-export async function loadQuoteSalespeople(request, signal, tenantId) {
+export async function loadQuoteSalespeople(request, signal, tenantId, opportunityId) {
+  if (!opportunityId) return [];
   const items = [];
   let offset = 0;
   do {
-    const page = await request(`/api/sales/quotes?action=salesperson-options&offset=${offset}`, { signal, ...(tenantId ? { headers: { "X-Tenant-Id": tenantId } } : {}) });
+    const page = await request(`/api/sales/quotes?action=salesperson-options&offset=${offset}&opportunityId=${encodeURIComponent(opportunityId)}`, { signal, ...(tenantId ? { headers: { "X-Tenant-Id": tenantId } } : {}) });
     items.push(...page.items);
     if (page.nextOffset == null) return items;
     if (page.nextOffset <= offset) throw new Error("Could not load all salespeople.");
@@ -22,10 +23,10 @@ export async function loadQuoteSalespeople(request, signal, tenantId) {
 
 export default function QuoteSalespersonSelect(props) {
   const tenantId = useSyncExternalStore(subscribeToActiveTenantId, getActiveTenantId, () => null);
-  return <SalespersonPicker key={tenantId || "portal"} {...props} tenantId={tenantId} />;
+  return <SalespersonPicker key={`${tenantId || "portal"}:${props.opportunityId || ""}`} {...props} tenantId={tenantId} />;
 }
 
-function SalespersonPicker({ value, snapshot, disabled, onChange, request, tenantId }) {
+function SalespersonPicker({ value, snapshot, disabled, onChange, request, tenantId, opportunityId }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [state, setState] = useState({ loading: true, items: [] });
@@ -37,12 +38,12 @@ function SalespersonPicker({ value, snapshot, disabled, onChange, request, tenan
     if (!open || disabled) return;
     const controller = new AbortController();
     setState({ loading: true, items: [] });
-    loadQuoteSalespeople(request, controller.signal, tenantId).then(
+    loadQuoteSalespeople(request, controller.signal, tenantId, opportunityId).then(
       items => { if (!controller.signal.aborted) setState({ loading: false, items }); },
       error => { if (!controller.signal.aborted) setState({ loading: false, items: [], error }); },
     );
     return () => controller.abort();
-  }, [open, disabled, request, attempt, tenantId]);
+  }, [open, disabled, request, attempt, tenantId, opportunityId]);
   const current = snapshot?.id === value ? snapshot : selection?.id === value ? selection : null;
   const choose = person => { setSelection(person); onChange(person?.id || ""); setOpen(false); };
   const rows = state.items.filter(person => `${salespersonName(person)} ${person.email || ""}`.toLowerCase().includes(search.trim().toLowerCase()));
@@ -58,7 +59,7 @@ function SalespersonPicker({ value, snapshot, disabled, onChange, request, tenan
           {value && <p className="px-3 py-2 text-xs text-slate-500">Current: {salespersonName(current) || "Saved salesperson"}. Kept unless changed.</p>}
           {state.loading ? <p role="status" className="p-3 text-sm">Loading salespeople…</p>
             : state.error ? <div role="alert" className="p-3 text-sm"><p>Could not load salespeople.</p><Button type="button" variant="link" onClick={() => setAttempt(n => n + 1)}>Retry salespeople</Button></div>
-              : !rows.length ? <p className="p-3 text-sm">{search.trim() ? "No matching salespeople." : "No eligible salespeople in your team."}</p>
+              : !rows.length ? <p className="p-3 text-sm">{!opportunityId ? "Select an opportunity first." : search.trim() ? "No matching salespeople." : "No collaborators available. Add collaborators to this proposal’s opportunity."}</p>
                 : <CommandGroup>{rows.map(person => <CommandItem key={person.id} value={person.id} onSelect={() => choose(person)}>
                   <div><p>{salespersonName(person) || "Unnamed team member"}{value === person.id ? " (selected)" : ""}</p><p className="text-xs text-slate-500">{person.email}</p></div>
                 </CommandItem>)}</CommandGroup>}

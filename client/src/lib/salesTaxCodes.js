@@ -26,7 +26,7 @@ export function savedLineTaxCode(line) {
 }
 
 export function taxCodeLabel(code) {
-  return code ? `${code.name || code.id} · ${code.provider} (${code.id})` : "";
+  return typeof code?.name === "string" && code.name.trim() ? code.name : "VAT code unavailable";
 }
 
 export function selectedProviderTaxCode(key, items, available = true) {

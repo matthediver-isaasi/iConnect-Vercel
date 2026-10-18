@@ -39,7 +39,7 @@ async function mount(props) {
   const root = createRoot(container);
   function Harness() {
     const [value, setValue] = React.useState(props.value || "");
-    return h(Selector, { ...props, value, onChange: id => { setValue(id); props.onChange?.(id); } });
+    return h(Selector, { opportunityId: "opportunity", ...props, value, onChange: id => { setValue(id); props.onChange?.(id); } });
   }
   await act(async () => root.render(h(Harness)));
   return async () => { await act(async () => root.unmount()); container.remove(); };
@@ -91,7 +91,7 @@ test("loading, failure, retry and empty retain a saved selection", async () => {
     await wait();
     assert.match(document.body.textContent, /Could not load salespeople/);
     await click("Retry salespeople");
-    assert.match(document.body.textContent, /No eligible salespeople/);
+    assert.match(document.body.textContent, /No collaborators available/);
     assert.match(document.body.textContent, /Historical Name/);
     assert.deepEqual(changes, []);
   } finally { await cleanup(); }
@@ -109,12 +109,23 @@ test("discovery loads later pages and rejects a failed partial list", async () =
   assert.deepEqual(await loadQuoteSalespeople(async url => {
     urls.push(url);
     return urls.length === 1 ? { items: [person], nextOffset: 100 } : { items: [{ id: "later" }], nextOffset: null };
-  }, signal), [person, { id: "later" }]);
+  }, signal, null, "opportunity"), [person, { id: "later" }]);
+  assert.ok(urls.every(url => url.includes("opportunityId=opportunity")));
   assert.match(urls[1], /offset=100/);
   await assert.rejects(loadQuoteSalespeople(async url => {
-    if (url.endsWith("100")) throw new Error("Later page failed");
+    if (url.includes("offset=100")) throw new Error("Later page failed");
     return { items: [person], nextOffset: 100 };
-  }, signal), /Later page failed/);
+  }, signal, null, "opportunity"), /Later page failed/);
+});
+
+test("no opportunity means no personnel discovery", async () => {
+  const signal = new AbortController().signal;
+  assert.deepEqual(await loadQuoteSalespeople(() => { throw new Error("Must not fetch all tenant members"); }, signal, "tenant", null), []);
+  const cleanup = await mount({ opportunityId: "", request: () => { throw new Error("Unexpected request"); } });
+  try {
+    await click("Salesperson");
+    assert.match(document.body.textContent, /Select an opportunity first/);
+  } finally { await cleanup(); }
 });
 
 test("tenant switches discard open results and scope the next request", async () => {
@@ -130,7 +141,7 @@ test("tenant switches discard open results and scope the next request", async ()
     await act(async () => setActiveTenantId("tenant-b"));
     assert.doesNotMatch(document.body.textContent, /Alex Jones/);
     await click("Salesperson");
-    assert.match(document.body.textContent, /No eligible salespeople/);
+    assert.match(document.body.textContent, /No collaborators available/);
     assert.deepEqual(scopes, ["tenant-a", "tenant-b"]);
   } finally { await cleanup(); await act(async () => setActiveTenantId(null)); }
 });

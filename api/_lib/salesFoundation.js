@@ -4,8 +4,10 @@ import {
   mapSalesSettingsRow,
 } from '../../shared/salesContracts.js';
 import { SalesHttpError } from './salesAccess.js';
+import { sanitizeAgreementHtml } from './salesAgreementHtml.js';
 
 const SETTINGS_COLUMNS = [
+  'partnership_terms_html',
   'tenant_id', 'quote_prefix', 'quote_number_padding', 'default_currency',
   'default_tax_rate_bps', 'default_terms', 'module_enabled', 'version', 'updated_at', 'quote_task_list_name',
   'show_internal_code', 'show_sku',
@@ -26,6 +28,7 @@ export async function patchSalesSettings(db, tenantId, actor, patch) {
     p_tenant_id: tenantId,
     p_expected_version: patch.expectedVersion,
     p_patch: {
+      ...(patch.partnershipTermsHtml !== undefined ? { partnershipTermsHtml: sanitizeAgreementHtml(patch.partnershipTermsHtml) } : {}),
       ...(patch.billingPresets !== undefined ? { billingPresets: patch.billingPresets } : {}),
       ...(patch.showInternalCode !== undefined ? { showInternalCode: patch.showInternalCode } : {}),
       ...(patch.showSku !== undefined ? { showSku: patch.showSku } : {}),
