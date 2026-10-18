@@ -10,8 +10,9 @@ export async function quoteSenderOptions(db, quote, actor) {
   const principals = [{ kind: opportunity.owner_kind, id: opportunity.owner_id }];
   for (let offset = 0; ; offset += 100) {
     const { data, error: readError } = await db.from('opportunity_collaborator')
-      .select('id,principal_kind,principal_id').eq('tenant_id', actor.tenantId)
-      .eq('opportunity_id', quote.opportunity_id).order('id').range(offset, offset + 99);
+      .select('principal_kind,principal_id').eq('tenant_id', actor.tenantId)
+      .eq('opportunity_id', quote.opportunity_id)
+      .order('principal_kind').order('principal_id').range(offset, offset + 99);
     if (readError) throw readError;
     principals.push(...(data || []).map(row => ({ kind: row.principal_kind, id: row.principal_id })));
     if (data.length < 100) break;

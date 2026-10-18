@@ -1,11 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { quoteSenderOptions, resolveQuoteSender } from './salesQuoteSenders.js';
 import { previewQuoteEmail, sendQuote } from './salesQuoteDelivery.js';
 import { quoteSenderHeaders } from './emailService.js';
 
 const actor = { tenantId: 'tenant', actorType: 'member', actorId: 'self' };
 const quote = { opportunity_id: 'opp' };
+const collaboratorDefinition = readFileSync(new URL('../../supabase/migrations/20260908_opportunity_pipeline.sql', import.meta.url), 'utf8')
+  .match(/CREATE TABLE IF NOT EXISTS public\.opportunity_collaborator \(([\s\S]*?)\n\);/)[1];
+const collaboratorColumns = new Set([...collaboratorDefinition.matchAll(/^  (\w+) (?:uuid|varchar|timestamptz)\b/gm)].map(match => match[1]));
 function fixture({ removed = false, fail = false } = {}) {
   const rows = {
     opportunity: [{ tenant_id: 'tenant', id: 'opp', owner_kind: 'tenant_user', owner_id: 'owner' }],
@@ -26,9 +30,17 @@ function fixture({ removed = false, fail = false } = {}) {
   };
   return { from(table) {
     let filtered = rows[table] || [];
-    return { select() { return this; }, eq(k, v) { filtered = filtered.filter(r => r[k] === v); return this; },
-      order() { return this; },
-      async range(a, b) { return { data: filtered.slice(a, b + 1), error: fail ? new Error('Unavailable') : null }; },
+    const orders = [];
+    const checkColumn = column => {
+      if (table === 'opportunity_collaborator') assert.ok(collaboratorColumns.has(column), `Unknown collaborator column: ${column}`);
+    };
+    return { select(columns) { columns.split(',').forEach(checkColumn); return this; },
+      eq(k, v) { checkColumn(k); filtered = filtered.filter(r => r[k] === v); return this; },
+      order(column) { checkColumn(column); orders.push(column); return this; },
+      async range(a, b) {
+        if (table === 'opportunity_collaborator') assert.deepEqual(orders, ['principal_kind', 'principal_id']);
+        return { data: filtered.slice(a, b + 1), error: fail ? new Error('Unavailable') : null };
+      },
       async maybeSingle() { return { data: filtered[0] || null }; },
     };
   } };
