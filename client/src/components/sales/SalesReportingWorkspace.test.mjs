@@ -36,7 +36,17 @@ test("dashboard controls apply ranges, retain applied bounds on sort, clear and 
   globalThis.HTMLElement = dom.window.HTMLElement;
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   const { createRoot } = await import("react-dom/client");
-  const result = await build({ entryPoints: ["client/src/components/sales/SalesReportingWorkspace.jsx"], bundle: true, write: false, platform: "node", format: "cjs", packages: "external", jsx: "automatic", alias: { "@": `${process.cwd()}/client/src` } });
+  const result = await build({ entryPoints: ["client/src/components/sales/SalesReportingWorkspace.jsx"], bundle: true, write: false, platform: "node", format: "cjs", packages: "external", jsx: "automatic", alias: { "@": `${process.cwd()}/client/src`, "@shared": `${process.cwd()}/shared` },
+    plugins: [{
+      name: "quote-naming-fixture",
+      setup(builder) {
+        builder.onResolve({ filter: /hooks\/useSalesSettings$/ }, () => ({ path: "naming", namespace: "fixture" }));
+        builder.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({
+          contents: 'export const useQuoteNaming = () => ({ singular: "Training Proposal", plural: "Training Proposals", slug: "training-proposals" });',
+        }));
+      },
+    }],
+  });
   const mod = new Module(`${process.cwd()}/sales-dashboard-fixture.cjs`);
   mod.paths = Module._nodeModulePaths(process.cwd());
   mod._compile(result.outputFiles[0].text, `${process.cwd()}/sales-dashboard-fixture.cjs`);
@@ -51,6 +61,7 @@ test("dashboard controls apply ranges, retain applied bounds on sort, clear and 
       expectedCloses: requests.length === 1 ? [{ id: "close-1", name: "Training renewal", expectedCloseDate: "2026-01-02" }] : [],
       expectedClosesTotal: requests.length === 1 ? 13 : 0,
       recentActivity: [{ id: "activity-1", name: "Quote issued", createdAt: "2026-01-01T00:00:00Z" }],
+      outstandingQuotes: [{ id: "quote/18", name: "Authored Quote title", opportunityId: "opportunity-1" }],
     } };
   };
   const cache = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
@@ -68,6 +79,10 @@ test("dashboard controls apply ranges, retain applied bounds on sort, clear and 
     assert.match(document.body.textContent, /Showing 1 of 13/);
     assert.match(document.body.textContent, /02\/01\/2026/);
     assert.match(document.body.textContent, /01\/01\/2026/);
+    assert.match(document.body.textContent, /Outstanding Training Proposals/);
+    assert.match(document.body.textContent, /Quote issued/);
+    const quoteLink = [...document.querySelectorAll("a")].find(node => node.textContent.includes("Authored Quote title"));
+    assert.equal(quoteLink.getAttribute("href"), "/sales/training-proposals/quote%2F18");
     assert.ok(document.body.textContent.indexOf("Expected closes") < document.body.textContent.indexOf("Recent activity"));
     const expectedCard = document.getElementById("expected-close-sort").closest("form").parentElement.parentElement;
     assert.match(expectedCard.parentElement.textContent, /Recent activity/);

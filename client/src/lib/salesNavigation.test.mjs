@@ -8,6 +8,8 @@ import {
   SALES_DESTINATIONS,
   SALES_PORTAL_PAGES,
   getSalesPortalPermission,
+  decorateSalesMenu,
+  getSalesPortalPages,
 } from './salesNavigation.js';
 
 test('each Sales destination has its own page permission and route', () => {
@@ -60,15 +62,16 @@ test('all Sales destinations are selectable portal pages with their canonical ro
   assert.equal(getSalesPortalPermission('/sales/quotes/?page=2'), 'sales.quotes');
   assert.equal(getSalesPortalPermission('https://elsewhere.example/sales/quotes'), null);
   assert.equal(getSalesPortalPermission('/Resources'), null);
+  assert.equal(getSalesPortalPermission('/sales/allocations/allocation-id'), 'sales.allocations.manage');
 });
 
 test('portal management offers Sales pages and applies their permission even when changing an existing item', async () => {
   const { readFile } = await import('node:fs/promises');
   const source = await readFile(new URL('../pages/PortalMenuManagement.jsx', import.meta.url), 'utf8');
-  assert.match(source, /\.\.\.SALES_PORTAL_PAGES/);
+  assert.match(source, /\.\.\.getSalesPortalPages\(quoteNaming\)/);
   assert.match(source, /if \(page\?\.featureId\) \{\s*next\.feature_id = page\.featureId;/);
   const layout = await readFile(new URL('../pages/Layout.jsx', import.meta.url), 'utf8');
-  assert.match(layout, /getSalesPortalPermission\(item\.url, isFeatureExcluded\)/);
+  assert.match(layout, /getSalesPortalPermission\(item\.url, isFeatureExcluded, quoteNaming\)/);
 });
 
 test('Reports navigation uses the same capability enforced by the API', () => {
@@ -95,4 +98,25 @@ test('excluding Dashboard does not hide other permitted Sales destinations', () 
   assert.equal(visible.length, SALES_DESTINATIONS.length - 1);
   assert.equal(visible.some(({ key }) => key === 'dashboard'), false);
   assert.equal(visible.some(({ key }) => key === 'pipeline'), true);
+});
+
+test('tenant destinations and permissions resolve list/new/detail without reserving arbitrary Sales paths', () => {
+  for (const naming of [{ singular: 'Proposal', plural: 'Proposals', slug: 'proposals' },
+    { singular: 'Sales Plan', plural: 'Sales Plans', slug: 'sales-plans' }]) {
+    for (const slug of ['quotes', naming.slug]) for (const suffix of ['', '/new', '/record-id?opportunityId=123#terms']) {
+      const path = `/sales/${slug}${suffix}`;
+      assert.equal(getSalesDestination(path, naming)?.label, naming.plural);
+      assert.equal(getSalesPortalPermission(path, () => false, naming), 'sales.quotes');
+      assert.equal(getSalesPortalPermission(path, key => key === 'sales.view', naming), 'sales.view');
+    }
+    assert.equal(getSalesDestination('/sales/old-alias', naming), null);
+    assert.equal(getSalesDestination(`/sales/${naming.slug}/id/extra`, naming), null);
+    assert.equal(getSalesDestination('/sales/settings', naming).key, 'settings');
+    assert.equal(getSalesPortalPages(naming).find(item => item.featureId === 'sales.quotes').route, `/sales/${naming.slug}`);
+    const source = [{ title: 'Quotes', url: '/sales/quotes?tab=draft#top' }];
+    assert.equal(decorateSalesMenu(source, naming)[0].title, naming.plural);
+    assert.equal(decorateSalesMenu(source, naming)[0].url, `/sales/${naming.slug}?tab=draft#top`);
+    assert.equal(decorateSalesMenu(source, naming, { authored: true })[0].title, 'Quotes');
+    assert.equal(source[0].url, '/sales/quotes?tab=draft#top');
+  }
 });

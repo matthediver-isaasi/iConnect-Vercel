@@ -8,7 +8,9 @@ import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useTenantAiAssistant } from "@/hooks/useTenantAiAssistant";
 import { resolveMemberAiLauncherStyle } from "@shared/memberAiLauncherColors.js";
 import { createViewerRequestLease } from "@/lib/canvasViewerValues";
-import { getSalesPortalPermission } from "@/lib/salesNavigation";
+import { getSalesPortalPermission, decorateSalesMenu } from "@/lib/salesNavigation";
+import { useSalesSettings } from "@/hooks/useSalesSettings";
+import { resolveQuoteNaming } from "@shared/salesNaming.js";
 import {
   acquireViewerSessionRequest,
   getViewerSessionScope,
@@ -1156,6 +1158,8 @@ export default function Layout({ children, currentPageName, authenticationOnly =
   useViewerSessionPreload(viewerSessionScope,
     !retentionDeadlineRef.current || viewerSessionCanRecover());
   const { memberRole, roleStatus, roleError, retryRole } = useSessionMemberRole();
+  const salesSettings = useSalesSettings();
+  const quoteNaming = resolveQuoteNaming(salesSettings.data);
 
   const retrySessionRoleValidation = React.useCallback(() => {
     invalidateViewerProtectedWork();
@@ -1771,6 +1775,7 @@ useEffect(() => {
     'SalesPipeline': 'sales.pipeline',
     'SalesOpportunities': 'sales.opportunities',
     'SalesQuotes': 'sales.quotes',
+    'SalesRoute': 'sales.view',
     'SalesProducts': 'sales.products',
     'SalesBundles': 'sales.bundles',
     'SalesTasks': 'sales.tasks',
@@ -2503,7 +2508,7 @@ useEffect(() => {
     // This ensures filtering works even if feature_id wasn't set in the database
     const getFeatureId = (item, itemSection) => {
       const salesPermission = item.link_type !== 'external'
-        ? getSalesPortalPermission(item.url, isFeatureExcluded) : null;
+        ? getSalesPortalPermission(item.url, isFeatureExcluded, quoteNaming) : null;
       if (salesPermission) return salesPermission;
       if (isNmcReportDestination(item)) return NMC_REPORT_FEATURE;
       const customObjectId = item.link_type !== 'external'
@@ -2626,11 +2631,11 @@ useEffect(() => {
       : navigationItems;
     
     // Deep clone with icons preserved - NEVER mutate originals
-    const clonedItems = applyMemberTerminology(baseItems.map(item => ({
+    const clonedItems = decorateSalesMenu(applyMemberTerminology(baseItems.map(item => ({
       ...item,
       icon: item.icon,
       subItems: item.subItems ? item.subItems.map(sub => ({ ...sub })) : undefined
-    })));
+    }))), quoteNaming, { authored: dynamicNavItems.length > 0 });
     
     // When NOT using custom slug, return cloned items with original createPageUrl() URLs
     if (!isCustomSlug) {
@@ -2671,7 +2676,7 @@ useEffect(() => {
       
       return processedItem;
     });
-  }, [dynamicNavItems, isCustomSlug, articleDisplayName, urlSlug, getArticleListUrl, getMyArticlesUrl, isCustomMemberTerm, memberLabelPlural, getMemberListUrl, isFeatureExcluded]);
+  }, [dynamicNavItems, isCustomSlug, articleDisplayName, urlSlug, getArticleListUrl, getMyArticlesUrl, isCustomMemberTerm, memberLabelPlural, getMemberListUrl, isFeatureExcluded, quoteNaming.singular, quoteNaming.plural, quoteNaming.slug]);
   
   const adminNavigationItemsSource = useMemo(() => {
     // Get base items (from DB or hardcoded)
@@ -2680,11 +2685,11 @@ useEffect(() => {
       : adminNavigationItems;
     
     // Deep clone with icons preserved - NEVER mutate originals
-    const clonedItems = applyMemberTerminology(baseItems.map(item => ({
+    const clonedItems = decorateSalesMenu(applyMemberTerminology(baseItems.map(item => ({
       ...item,
       icon: item.icon,
       subItems: item.subItems ? item.subItems.map(sub => ({ ...sub })) : undefined
-    })));
+    }))), quoteNaming, { authored: dynamicNavItems.length > 0 });
     
     // When NOT using custom slug, return cloned items with original createPageUrl() URLs
     if (!isCustomSlug) {
@@ -2725,12 +2730,17 @@ useEffect(() => {
       
       return processedItem;
     });
-  }, [dynamicNavItems, isCustomSlug, articleDisplayName, urlSlug, getArticleListUrl, getMyArticlesUrl, isCustomMemberTerm, memberLabelPlural, getMemberListUrl, isFeatureExcluded]);
+  }, [dynamicNavItems, isCustomSlug, articleDisplayName, urlSlug, getArticleListUrl, getMyArticlesUrl, isCustomMemberTerm, memberLabelPlural, getMemberListUrl, isFeatureExcluded, quoteNaming.singular, quoteNaming.plural, quoteNaming.slug]);
 
   // Filter navigation items based on member's excluded features
   // Inspect destinations too: a saved custom menu may carry an unrelated grant.
-  const canDiscoverReportDestination = (item) => !isNmcReportDestination(item)
-    || !isFeatureExcluded(NMC_REPORT_FEATURE);
+  const canDiscoverReportDestination = (item) => {
+    // A custom Sales URL cannot borrow a saved unrelated permission while its
+    // tenant naming is unresolved. Fixed destinations remain independently usable.
+    if (!item.isExternal && /^\/sales\//i.test(item.url || '')
+      && !getSalesPortalPermission(item.url, isFeatureExcluded, quoteNaming)) return false;
+    return !isNmcReportDestination(item) || !isFeatureExcluded(NMC_REPORT_FEATURE);
+  };
   const filteredNavigationItems = navigationItemsSource
     .filter(canDiscoverReportDestination)
     .map(item => {

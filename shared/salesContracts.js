@@ -1,10 +1,5 @@
-/**
- * Shared Sales foundation contract.
- *
- * Money is always an integer number of minor units. A commercial document has
- * exactly one ISO-4217 currency; line values never carry an independent
- * currency. Issued versions are immutable and amendments create version + 1.
- */
+import { DEFAULT_QUOTE_NAMING, quoteNamingErrors } from './salesNaming.js';
+
 export const SALES_CAPABILITIES = Object.freeze({
   VIEW: 'sales.view',
   MANAGE_OPPORTUNITIES: 'sales.opportunities.manage',
@@ -51,6 +46,9 @@ export const SALES_INVOICE_STATUSES = Object.freeze([
 export const DEFAULT_SALES_SETTINGS = Object.freeze({
   showInternalCode: true,
   showSku: true,
+  quoteSingularName: DEFAULT_QUOTE_NAMING.singular,
+  quotePluralName: DEFAULT_QUOTE_NAMING.plural,
+  quoteUrlSegment: DEFAULT_QUOTE_NAMING.slug,
   quoteTaskListName: 'Quote tasks',
   quotePrefix: 'Q',
   quoteNumberPadding: 6,
@@ -286,8 +284,9 @@ export function validateSalesSettingsPatch(value) {
     'quotePrefix', 'quoteNumberPadding', 'defaultCurrency',
     'defaultTaxRateBps', 'defaultTerms', 'moduleEnabled', 'expectedVersion', 'quoteTaskListName',
     'showInternalCode', 'showSku',
+    'quoteSingularName', 'quotePluralName', 'quoteUrlSegment',
   ]);
-  const errors = [];
+  const errors = [...quoteNamingErrors(value)];
   for (const key of ['showInternalCode', 'showSku']) {
     if (key in value && typeof value[key] !== 'boolean') errors.push(`${key} must be boolean`);
   }
@@ -331,6 +330,9 @@ export function mapSalesSettingsRow(row) {
   return {
     showInternalCode: row.show_internal_code ?? true,
     showSku: row.show_sku ?? true,
+    quoteSingularName: row.quote_singular_name ?? DEFAULT_QUOTE_NAMING.singular,
+    quotePluralName: row.quote_plural_name ?? DEFAULT_QUOTE_NAMING.plural,
+    quoteUrlSegment: row.quote_url_segment ?? DEFAULT_QUOTE_NAMING.slug,
     quoteTaskListName: row.quote_task_list_name ?? 'Quote tasks',
     quotePrefix: row.quote_prefix,
     quoteNumberPadding: row.quote_number_padding,

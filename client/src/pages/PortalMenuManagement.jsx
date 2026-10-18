@@ -18,7 +18,8 @@ import { cn } from "@/lib/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import { ROLE_ACCESS_MAP } from "@/lib/roleAccessMap";
-import { SALES_PORTAL_PAGES } from "@/lib/salesNavigation";
+import { getSalesPortalPages } from "@/lib/salesNavigation";
+import { useQuoteNaming } from "@/hooks/useSalesSettings";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { BNMS_TENANT_ID, NMC_REPORT_FEATURE, isNmcReportDestination } from "@/lib/nmcMembershipReport.mjs";
 import {
@@ -234,6 +235,7 @@ const builtInPages = [
 ];
 
 export default function PortalMenuManagementPage() {
+  const quoteNaming = useQuoteNaming();
   const { isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
   const { branding } = useTenantBranding();
   const isBnmsTenant = branding?.id === BNMS_TENANT_ID && memberInfo?.tenant_id === BNMS_TENANT_ID;
@@ -369,7 +371,7 @@ export default function PortalMenuManagementPage() {
     return [
       { value: "_none", label: "No Page (Parent Menu)" },
       ...builtInPages.filter(item => isBnmsTenant || !isNmcReportDestination(item)),
-      ...SALES_PORTAL_PAGES,
+      ...getSalesPortalPages(quoteNaming),
       ...ieditPages,
       ...dynamicDirectories,
       ...customObjectDestinations,
@@ -380,7 +382,7 @@ export default function PortalMenuManagementPage() {
       if (b.value === "_none") return 1;
       return a.label.localeCompare(b.label);
     });
-  }, [ieditPages, dynamicDirectories, customObjectDestinations, isBnmsTenant]);
+  }, [ieditPages, dynamicDirectories, customObjectDestinations, isBnmsTenant, quoteNaming.singular, quoteNaming.plural, quoteNaming.slug]);
 
   const createMutation = useMutation({
     mutationFn: (data) => base44.entities.PortalMenu.create(data),

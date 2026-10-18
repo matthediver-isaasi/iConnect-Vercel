@@ -1,6 +1,7 @@
 import { matchesRegisteredRoute } from '../../shared/registeredRoutes.js';
 import { isFormScheduleAvailable } from './formAvailability.js';
 import { isReservedMemberSlug } from '../../shared/memberAliases.js';
+import { isQuoteRoute, quoteNamingErrors, RESERVED_SALES_SEGMENTS, resolveQuoteNaming } from '../../shared/salesNaming.js';
 
 export function normalizeRoutePath(value) {
   if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//')
@@ -25,9 +26,30 @@ async function rows(query) {
 
 const slugify = value => String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 
+// A tenant alias is data, never a statically registered /sales/* wildcard.
+// Read at the decision point: changing this mutable setting must take effect
+// immediately, including when tenant/domain resolution is cached.
+export async function matchesTenantQuoteRoute(db, tenant, path) {
+  const parts = path.split('/');
+  if (parts[1]?.toLowerCase() !== 'sales'
+      || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(parts[2] || '')
+      || (parts[2]?.length ?? 0) > 100
+      || RESERVED_SALES_SEGMENTS.includes(parts[2])
+      || !isQuoteRoute(path, { slug: parts[2] })) return false;
+  const settings = await rows(db.from('sales_settings').select('quote_url_segment')
+    .eq('tenant_id', tenant.id));
+  if (settings.length > 1) throw new Error('Ambiguous Sales naming settings');
+  const patch = settings.length ? { quoteUrlSegment: settings[0].quote_url_segment } : {};
+  if (quoteNamingErrors(patch).length) throw new Error('Invalid Sales naming settings');
+  return isQuoteRoute(path, resolveQuoteNaming(patch));
+}
+
 export async function resolveRouteOutcome(db, tenant, input) {
   const path = normalizeRoutePath(input);
   if (excludedRoute(path) || matchesRegisteredRoute(path)) return 'existing';
+  if (/^\/sales(?:\/|$)/i.test(path)) {
+    return await matchesTenantQuoteRoute(db, tenant, path) ? 'existing' : 'missing';
+  }
   const parts = path.slice(1).split('/').map(decodeURIComponent);
   const settings = await rows(db.from('system_settings').select('setting_key, setting_value')
     .eq('tenant_id', tenant.id).in('setting_key', ['article_display_name', 'article_url_slug', 'member_display_name']));

@@ -98,6 +98,49 @@ test('active microsites and registered routes retain precedence', async () => {
   assert.equal((await homepageRoute(database(tables), tenant, '/assets/main.js')).target, undefined);
 });
 
+test('Sales aliases never become homepage redirects; tenant lookups are fresh and failures propagate', async () => {
+  const tables = fixture();
+  tables.tenant[0] = { ...tables.tenant[0], status: 'active' };
+  tables.sales_settings = [
+    { tenant_id: 'alpha', quote_url_segment: 'proposals' },
+    { tenant_id: 'beta', quote_url_segment: 'offers' },
+  ];
+  const db = database(tables);
+  for (const path of ['/sales/proposals', '/sales/proposals/new', '/sales/proposals/id',
+    '/sales/offers', '/sales/proposals/id/edit', '/sales/settings', '/sales/quotes/id']) {
+    const result = await homepageRoute(db, tenant, path);
+    assert.equal(result.target, undefined, path);
+    assert.equal(result.state, 'unrelated', path);
+  }
+  await assert.rejects(homepageRoute(database(tables, 'sales_settings'), tenant, '/sales/proposals'), /lookup failed/);
+  assert.equal((await homepageRoute(database(tables, 'sales_settings'), tenant, '/sales/settings')).target, undefined);
+  assert.equal((await homepageRoute(database(tables, 'sales_settings'), tenant, '/sales/quotes')).target, undefined);
+  // A setting that attempts to select an application URL is invalid, never a
+  // reason to canonicalize the alias to / (which currently emits a 308).
+  tables.system_settings[0].setting_value = 'sales/proposals';
+  assert.equal((await resolveHomepage(db, tenant)).state, 'invalid');
+  const policy = createUnknownPageHttpPolicy({ database: db, resolveTenant: async () => tenant });
+  const req = request('/sales/proposals');
+  const res = response();
+  assert.equal(await policy(req, res), false);
+  assert.equal(res.headers.Location, undefined);
+  assert.equal(res.statusCode, 200);
+  tables.sales_settings[0].quote_url_segment = 'estimates';
+  const oldReq = request('/sales/proposals');
+  const oldRes = response();
+  assert.equal(await policy(oldReq, oldRes), false);
+  assert.equal(oldReq.pageRouteOutcome, 'missing');
+  assert.equal(oldRes.statusCode, 404);
+  const failingReq = request('/sales/estimates');
+  const failingRes = response();
+  await createUnknownPageHttpPolicy({
+    database: database(tables, 'sales_settings'), resolveTenant: async () => tenant,
+  })(failingReq, failingRes);
+  assert.equal(failingReq.pageRouteOutcome, 'error');
+  assert.equal(failingRes.headers.Location, undefined);
+  assert.equal(failingRes.statusCode, 200);
+});
+
 test('ordinary root HTML and crawlers share selected content, SEO, root canonical and tenant icon', async () => {
   const db = database(fixture());
   const res = response();

@@ -13,7 +13,17 @@ const React = (await import("react")).default;
 const { act } = React;
 const { createRoot } = await import("react-dom/client");
 const bundle = await build({ entryPoints: ["client/src/components/sales/AcceptQuoteButton.jsx"], bundle: true, write: false,
-  packages: "external", platform: "node", format: "cjs", jsx: "automatic", alias: { "@": `${process.cwd()}/client/src` } });
+  packages: "external", platform: "node", format: "cjs", jsx: "automatic", alias: { "@": `${process.cwd()}/client/src` },
+  plugins: [{
+    name: "quote-naming-fixture",
+    setup(builder) {
+      builder.onResolve({ filter: /hooks\/useSalesSettings$/ }, () => ({ path: "naming", namespace: "fixture" }));
+      builder.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({
+        contents: 'export const useQuoteNaming = () => ({ singular: "Training Proposal", plural: "Training Proposals", slug: "training-proposals" });',
+      }));
+    },
+  }],
+});
 const mod = new Module(`${process.cwd()}/accept-quote-fixture.cjs`);
 mod.paths = Module._nodeModulePaths(process.cwd());
 mod._compile(bundle.outputFiles[0].text, `${process.cwd()}/accept-quote-fixture.cjs`);
@@ -32,6 +42,8 @@ test("admin acceptance is permission/status gated and requires explicit confirma
     assert.equal(button("Mark as accepted"), undefined);
     await act(async () => root.render(React.createElement(Component, props)));
     await act(async () => button("Mark as accepted").click());
+    assert.match(document.body.textContent, /Accept Training Proposal on the customer’s behalf/);
+    assert.match(document.body.textContent, /agreed to this Training Proposal/);
     assert.equal(calls.length, 0);
     const textarea = document.querySelector("textarea");
     await act(async () => {

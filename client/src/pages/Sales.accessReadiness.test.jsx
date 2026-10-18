@@ -15,6 +15,14 @@ globalThis.navigator = dom.window.navigator;
 globalThis.localStorage = dom.window.localStorage;
 globalThis.HTMLElement = dom.window.HTMLElement;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+const originalFetch = globalThis.fetch;
+globalThis.fetch = async url => {
+  assert.equal(url, "/api/sales/settings", "only isolated settings discovery is expected");
+  return { ok: true, json: async () => ({
+    quoteSingularName: "Quote", quotePluralName: "Quotes", quoteUrlSegment: "quotes",
+    showInternalCode: false, showSku: false, version: 1,
+  }) };
+};
 
 const React = (await import("react")).default;
 globalThis.React = React;
@@ -91,7 +99,9 @@ const {
 } = bundled;
 
 after(async () => {
+  globalThis.fetch = originalFetch;
   await unlink(bundlePath).catch(() => {});
+  await unlink(bundlePath.replace(/\.mjs$/, ".css")).catch(() => {});
 });
 
 const member = (overrides = {}) => ({

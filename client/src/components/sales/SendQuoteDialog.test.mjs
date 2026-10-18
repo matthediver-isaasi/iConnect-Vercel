@@ -29,6 +29,15 @@ const result = await build({
   entryPoints: ["client/src/components/sales/SendQuoteDialog.jsx"],
   bundle: true, write: false, platform: "node", format: "cjs", packages: "external",
   jsx: "automatic", alias: { "@": `${process.cwd()}/client/src` },
+  plugins: [{
+    name: "quote-naming-fixture",
+    setup(builder) {
+      builder.onResolve({ filter: /hooks\/useSalesSettings$/ }, () => ({ path: "naming", namespace: "fixture" }));
+      builder.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({
+        contents: 'export const useQuoteNaming = () => globalThis.__sendQuoteNaming || ({ singular: "quote", plural: "quotes", slug: "quotes" });',
+      }));
+    },
+  }],
 });
 const mod = new Module(`${process.cwd()}/quote-send-fixture.cjs`);
 mod.paths = Module._nodeModulePaths(process.cwd());
@@ -69,6 +78,22 @@ async function mount(extra = {}) {
   await render();
   return { render, cleanup: async () => { await act(async () => root.unmount()); container.remove(); } };
 }
+
+test("configured internal naming preserves the public email subject/body and API identity", async () => {
+  globalThis.__sendQuoteNaming = { singular: "Training Proposal", plural: "Training Proposals", slug: "training-proposals" };
+  const view = await mount();
+  try {
+    assert.ok(button("Send Training Proposal"));
+    assert.match(document.body.textContent, /this exact Training Proposal version/);
+    await click("Preview email");
+    assert.match(document.body.textContent, /Your training quote/);
+    assert.match(document.querySelector("iframe").srcdoc, /View quote/);
+    assert.equal(document.querySelector("iframe").title, "Training Proposal email preview");
+  } finally {
+    await view.cleanup();
+    delete globalThis.__sendQuoteNaming;
+  }
+});
 
 test("preview uses the authenticated preview endpoint only; safe iframe and complete send payload", async () => {
   const requests = [], sends = [];

@@ -42,7 +42,7 @@ test('accepted quote task automation: real PostgreSQL transactions, snapshots, r
     UPDATE sales_quote_version SET status='accepted' WHERE id=${id(n + 10000)};`);
   let started = false;
   try {
-    run('initdb', ['-D', data, '-A', 'trust', '-U', 'postgres', '--no-locale']);
+    run('initdb', ['-D', data, '-A', 'trust', '-U', 'postgres', '--no-locale', '--encoding=UTF8']);
     run('pg_ctl', ['-D', data, '-l', join(dir, 'log'), '-o', `-F -k ${socket} -p 55454 -c listen_addresses=''`, '-w', 'start']);
     started = true;
     // Fixture types/nullable defaults checked against DEST metadata. No network DB.
@@ -245,6 +245,33 @@ test('accepted quote task automation: real PostgreSQL transactions, snapshots, r
       assert.throws(() => sql(`SET ROLE authenticated; SELECT sales_quote_task_destination(${id(1)},${id(3)},NULL)`), /permission denied/);
       assert.throws(() => service(`SELECT sales_quote_task_destination(${id(2)},${id(3)},NULL)`), /unavailable/);
       assert.throws(() => service(`SELECT sales_quote_task_destination(${id(1)},${id(3)},${id(25)})`), /changed/);
+    });
+    await t.test('quote naming migration preserves task-list configuration, cards and automation RPCs', () => {
+      sql(readFileSync('supabase/migrations/202610180001_sales_catalogue_visibility.sql', 'utf8'));
+      service(`SELECT patch_sales_settings(${id(1)},2,'{"showInternalCode":false,"showSku":false}','staff','tenant_user')`);
+      const listsBefore = sql('SELECT jsonb_agg(to_jsonb(l) ORDER BY id) FROM project_list l');
+      const cardsBefore = sql('SELECT jsonb_agg(to_jsonb(c) ORDER BY id) FROM project_card c');
+      const automationBefore = sql(`SELECT jsonb_agg(pg_get_functiondef(oid) ORDER BY proname)
+        FROM pg_proc WHERE pronamespace='public'::regnamespace
+        AND proname IN ('sales_quote_task_destination','process_sales_acceptance_tasks')`);
+      const settingsBefore = sql(`SELECT to_jsonb(s) FROM sales_settings s WHERE tenant_id=${id(1)}`);
+      sql(readFileSync('supabase/migrations/202610180002_sales_quote_naming.sql', 'utf8'));
+      assert.equal(sql('SELECT jsonb_agg(to_jsonb(l) ORDER BY id) FROM project_list l'), listsBefore);
+      assert.equal(sql('SELECT jsonb_agg(to_jsonb(c) ORDER BY id) FROM project_card c'), cardsBefore);
+      assert.equal(sql(`SELECT jsonb_agg(pg_get_functiondef(oid) ORDER BY proname)
+        FROM pg_proc WHERE pronamespace='public'::regnamespace
+        AND proname IN ('sales_quote_task_destination','process_sales_acceptance_tasks')`), automationBefore);
+      assert.equal(sql(`SELECT to_jsonb(s)-'quote_singular_name'-'quote_plural_name'-'quote_url_segment'
+        FROM sales_settings s WHERE tenant_id=${id(1)}`), settingsBefore);
+      service(`SELECT patch_sales_settings(${id(1)},3,
+        '{"quoteSingularName":"Proposal","quotePluralName":"Proposals","quoteUrlSegment":"proposals"}','staff','tenant_user')`);
+      const before = count('project_card');
+      quote(1800, { mode: 'project' }); accept(1800);
+      assert.equal(count('project_card'), before + 1);
+      assert.equal(count('project_list', "name IN ('Proposal','Proposals','proposals')"), 0);
+      assert.equal(count('project_list', "name='Delivery work' AND is_archived IS NOT TRUE"), 1);
+      assert.equal(sql(`SELECT quote_task_list_name FROM sales_settings WHERE tenant_id=${id(1)}`), 'Delivery work');
+      assert.equal(sql(`SELECT NOT show_internal_code AND NOT show_sku FROM sales_settings WHERE tenant_id=${id(1)}`), 't');
     });
   } finally {
     if (started) run('pg_ctl', ['-D', data, '-m', 'immediate', '-w', 'stop']);

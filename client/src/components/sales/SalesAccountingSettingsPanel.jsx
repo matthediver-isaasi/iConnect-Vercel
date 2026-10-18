@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { missingPrerequisiteLabel, normalizeSalesAccountingConfiguration, serializeSalesAccountingConfiguration } from "@/lib/salesAccountingConfiguration";
+import { useQuoteNaming } from "@/hooks/useSalesSettings";
 
 async function request(path, options = {}) {
   const response = await fetch(path, {
@@ -25,6 +26,7 @@ async function request(path, options = {}) {
 }
 
 export default function SalesAccountingSettingsPanel({ saleId: selectedSaleId } = {}) {
+  const naming = useQuoteNaming();
   const [searchParams] = useSearchParams();
   const saleId = selectedSaleId || searchParams.get("saleId");
   const queryClient = useQueryClient();
@@ -62,7 +64,7 @@ export default function SalesAccountingSettingsPanel({ saleId: selectedSaleId } 
   }
   return <Card>
     <CardHeader className="flex-row items-start justify-between gap-3">
-      <div><CardTitle>Accounting configuration</CardTitle><p className="mt-1 text-sm text-slate-500">Sales uses synced provider tax codes selected on products and quote lines. New transactions do not need percentage mappings.</p></div>
+      <div><CardTitle>Accounting configuration</CardTitle><p className="mt-1 text-sm text-slate-500">Sales uses synced provider tax codes selected on products and {naming.singular.toLowerCase()} lines. New transactions do not need percentage mappings.</p></div>
       <Badge className={normalized.isReady ? "border-0 bg-emerald-100 text-emerald-800" : "border-0 bg-amber-100 text-amber-800"}>{normalized.isReady ? "Ready" : "Configuration required"}</Badge>
     </CardHeader>
     <CardContent className="space-y-5">
@@ -72,7 +74,7 @@ export default function SalesAccountingSettingsPanel({ saleId: selectedSaleId } 
         <ul className="mt-1 list-disc pl-5">{(normalized.missing.length ? normalized.missing : ["Choose mappings for every required field below."]).map((item, index) => <li key={`${item}-${index}`}>{missingPrerequisiteLabel(item)}</li>)}</ul>
       </div>}
       <div className="grid gap-4 sm:grid-cols-2">
-        {normalized.requiredTaxRates.length > 0 && <p className="text-sm text-slate-600 sm:col-span-2">Legacy tax mappings for this sale’s accepted quote only. Lines with saved provider codes use those codes directly.</p>}
+        {normalized.requiredTaxRates.length > 0 && <p className="text-sm text-slate-600 sm:col-span-2">Legacy tax mappings for this sale’s accepted {naming.singular.toLowerCase()} only. Lines with saved provider codes use those codes directly.</p>}
         {normalized.requiredTaxRates.map((rate) => <div key={rate.value}>
           <Label>Legacy tax rate {rate.label}</Label>
           <Select value={String(draft.mappings[rate.value] || "unmapped")} onValueChange={(selected) => setDraft((old) => ({ ...old, mappings: { ...old.mappings, [rate.value]: selected === "unmapped" ? null : selected } }))}>

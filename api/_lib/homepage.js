@@ -1,4 +1,5 @@
 import { matchesRegisteredRoute } from '../../shared/registeredRoutes.js';
+import { matchesTenantQuoteRoute } from './unknownPagePolicy.js';
 
 async function rows(query) {
   const { data, error } = await query;
@@ -38,6 +39,13 @@ export async function resolveHomepage(db, tenant) {
 export async function homepageRoute(db, tenant, input) {
   const url = new URL(input, 'https://homepage.invalid');
   const path = url.pathname.replace(/\/+$/, '') || '/';
+  // Application destinations never become homepage canonical redirects. An
+  // alias lookup failure must propagate, not authorize a missing-page fallback.
+  // Do not return an alias-derived permanent redirect: the setting is mutable.
+  if (/^\/sales(?:\/|$)/i.test(path)) {
+    if (!matchesRegisteredRoute(path)) await matchesTenantQuoteRoute(db, tenant, path);
+    return { state: 'unrelated' };
+  }
   if (path !== '/' && !/^\/[^/]+$/.test(path)) return { state: 'unrelated' };
   if (url.searchParams.has('_canvasPreview')) return { state: 'preview' };
   const home = await resolveHomepage(db, tenant);

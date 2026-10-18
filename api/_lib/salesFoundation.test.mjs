@@ -5,10 +5,12 @@ import {
   SALES_CAPABILITIES,
   canTransitionQuote,
   isMinorUnitAmount,
+  mapSalesSettingsRow,
   nextQuoteVersion,
   validateMoney,
   validateSalesSettingsPatch,
 } from '../../shared/salesContracts.js';
+import { RESERVED_SALES_SEGMENTS } from '../../shared/salesNaming.js';
 process.env.ROLE_ACCESS_OVERLAY_SKIP_PRIME = '1';
 const { __setRoleAccessOverlayForTests } = await import('./roleVisibility.js');
 __setRoleAccessOverlayForTests([]);
@@ -60,6 +62,126 @@ test('Sales settings contract rejects unknown, malformed, and stale-shape values
   assert.equal(canTransitionQuote('accepted', 'draft'), false);
   assert.equal(nextQuoteVersion(2, 'issued'), 3);
   assert.throws(() => nextQuoteVersion(2, 'draft'));
+});
+
+test('naming contract accepts trimmed Unicode codepoints and rejects malformed or reserved slugs', () => {
+  for (const patch of [
+    { quoteSingularName: ' \u00a0提案\u3000' }, { quotePluralName: '😀'.repeat(100) },
+    { quoteUrlSegment: 'proposals-2026' }, { quoteUrlSegment: 'a'.repeat(100) },
+  ]) assert.equal(validateSalesSettingsPatch({ expectedVersion: 1, ...patch }).ok, true);
+  for (const key of ['quoteSingularName', 'quotePluralName']) {
+    for (const value of [null, 4, false, '', '\u00a0\u3000', '😀'.repeat(101)]) {
+      assert.equal(validateSalesSettingsPatch({ expectedVersion: 1, [key]: value }).ok, false, `${key}: ${value}`);
+    }
+  }
+  for (const quoteUrlSegment of [
+    null, false, 2, '', 'a'.repeat(101), 'Quotes', 'with space', 'two--hyphens',
+    '-edge', 'edge-', ' proposals ', 'proposals/path', 'café', 'quotes?x=y',
+    ...RESERVED_SALES_SEGMENTS,
+  ]) assert.equal(validateSalesSettingsPatch({ expectedVersion: 1, quoteUrlSegment }).ok, false, String(quoteUrlSegment));
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(mapSalesSettingsRow({})).filter(([key]) => key.startsWith('quote') && key !== 'quotePrefix' && key !== 'quoteNumberPadding')),
+    { quoteSingularName: 'Quote', quotePluralName: 'Quotes', quoteUrlSegment: 'quotes', quoteTaskListName: 'Quote tasks' },
+  );
+});
+
+test('naming API persists only supplied names, preserves task-list independence, and surfaces stale versions', async () => {
+  const calls = [];
+  let conflict = false;
+  const handler = createSalesSettingsHandler({
+    db: { async rpc(name, args) {
+      calls.push({ name, args });
+      return conflict ? { error: { code: '40001' } } : { data: [{
+        quote_singular_name: args.p_patch.quoteSingularName ?? 'Quote',
+        quote_plural_name: args.p_patch.quotePluralName ?? 'Quotes',
+        quote_url_segment: args.p_patch.quoteUrlSegment ?? 'quotes',
+        quote_task_list_name: 'Delivery checklist', version: 2,
+      }] };
+    } },
+    getTenantContext: async () => ({ isAuthenticated: true, tenantId: 'tenant-a', tenantUserId: 'actor-a' }),
+  });
+  const res = response();
+  await handler({ method: 'PATCH', body: {
+    expectedVersion: 1, quoteSingularName: '\u3000提案\u00a0', quotePluralName: ' Proposals ', quoteUrlSegment: 'proposals',
+  } }, res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.quoteTaskListName, 'Delivery checklist');
+  assert.equal(res.body.quoteSingularName, '提案');
+  assert.deepEqual(calls[0], {
+    name: 'patch_sales_settings',
+    args: { p_tenant_id: 'tenant-a', p_expected_version: 1, p_actor_id: 'actor-a', p_actor_type: 'tenant_user',
+      p_patch: { quoteSingularName: '提案', quotePluralName: 'Proposals', quoteUrlSegment: 'proposals' } },
+  });
+  conflict = true;
+  const stale = response();
+  await handler({ method: 'PATCH', body: { expectedVersion: 1, quotePluralName: 'Offers' } }, stale);
+  assert.equal(stale.statusCode, 409);
+  const invalid = response();
+  await handler({ method: 'PATCH', body: { expectedVersion: 2, quoteUrlSegment: 'allocations' } }, invalid);
+  assert.equal(invalid.statusCode, 400);
+  assert.equal(calls.length, 2);
+});
+
+test('merged visibility and naming settings share one tenant-scoped read and versioned patch', async () => {
+  const calls = [];
+  const row = {
+    quote_singular_name: 'Proposal', quote_plural_name: 'Proposals', quote_url_segment: 'proposals',
+    show_internal_code: false, show_sku: false, quote_task_list_name: 'Delivery tasks', version: 4,
+  };
+  const handler = createSalesSettingsHandler({
+    getTenantContext: async () => ({ isAuthenticated: true, tenantId: 'tenant-a', tenantUserId: 'actor-a' }),
+    db: {
+      from(table) {
+        assert.equal(table, 'sales_settings');
+        return {
+          select(columns) {
+            for (const column of ['show_internal_code', 'show_sku', 'quote_singular_name', 'quote_plural_name', 'quote_url_segment']) {
+              assert.ok(columns.split(',').includes(column), column);
+            }
+            return this;
+          },
+          eq(column, value) { assert.deepEqual([column, value], ['tenant_id', 'tenant-a']); return this; },
+          async maybeSingle() { return { data: row, error: null }; },
+        };
+      },
+      async rpc(name, args) {
+        calls.push({ name, args });
+        return { data: [row], error: null };
+      },
+    },
+  });
+  const read = response();
+  await handler({ method: 'GET' }, read);
+  assert.equal(read.body.showInternalCode, false);
+  assert.equal(read.body.showSku, false);
+  assert.equal(read.body.quoteUrlSegment, 'proposals');
+  const patch = response();
+  await handler({ method: 'PATCH', body: {
+    expectedVersion: 3, showInternalCode: false, showSku: false,
+    quoteSingularName: ' Proposal ', quotePluralName: ' Proposals ', quoteUrlSegment: 'proposals',
+  } }, patch);
+  assert.equal(patch.statusCode, 200);
+  assert.deepEqual(calls[0].args.p_patch, {
+    showInternalCode: false, showSku: false, quoteSingularName: 'Proposal', quotePluralName: 'Proposals', quoteUrlSegment: 'proposals',
+  });
+  assert.equal(calls[0].args.p_expected_version, 3);
+  assert.equal(patch.body.quoteTaskListName, 'Delivery tasks');
+});
+
+test('naming PATCH enforces settings capability and refuses browser tenant/actor injection', async () => {
+  const context = { isAuthenticated: true, tenantId: 'tenant-a', memberId: 'member-a', roleId: 'r1', memberExcludedFeatures: [] };
+  const db = { rpc() { assert.fail('Denied request must never persist'); } };
+  const denied = response();
+  await createSalesSettingsHandler({
+    db, getTenantContext: async () => context,
+    hasFeatureAccess: async (_role, key) => key === SALES_CAPABILITIES.VIEW,
+  })({ method: 'PATCH', body: { expectedVersion: 1, quoteSingularName: 'Offer' } }, denied);
+  assert.equal(denied.statusCode, 403);
+  const injected = response();
+  await createSalesSettingsHandler({
+    db, getTenantContext: async () => ({ isAuthenticated: true, tenantId: 'tenant-a', tenantUserId: 'actor-a' }),
+  })({ method: 'PATCH', body: { expectedVersion: 1, quoteSingularName: 'Offer', tenantId: 'tenant-b', actorId: 'attacker' } }, injected);
+  assert.equal(injected.statusCode, 400);
 });
 
 test('Sales access requires baseline and the independent action capability', async () => {

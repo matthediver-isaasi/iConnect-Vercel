@@ -9,6 +9,7 @@ const SETTINGS_COLUMNS = [
   'tenant_id', 'quote_prefix', 'quote_number_padding', 'default_currency',
   'default_tax_rate_bps', 'default_terms', 'module_enabled', 'version', 'updated_at', 'quote_task_list_name',
   'show_internal_code', 'show_sku',
+  'quote_singular_name', 'quote_plural_name', 'quote_url_segment',
 ].join(',');
 
 export async function getSalesSettings(db, tenantId) {
@@ -26,6 +27,9 @@ export async function patchSalesSettings(db, tenantId, actor, patch) {
     p_patch: {
       ...(patch.showInternalCode !== undefined ? { showInternalCode: patch.showInternalCode } : {}),
       ...(patch.showSku !== undefined ? { showSku: patch.showSku } : {}),
+      ...(patch.quoteSingularName !== undefined ? { quoteSingularName: patch.quoteSingularName.trim() } : {}),
+      ...(patch.quotePluralName !== undefined ? { quotePluralName: patch.quotePluralName.trim() } : {}),
+      ...(patch.quoteUrlSegment !== undefined ? { quoteUrlSegment: patch.quoteUrlSegment } : {}),
       ...(patch.quotePrefix !== undefined ? { quotePrefix: patch.quotePrefix } : {}),
       ...(patch.quoteNumberPadding !== undefined ? { quoteNumberPadding: patch.quoteNumberPadding } : {}),
       ...(patch.defaultCurrency !== undefined ? { defaultCurrency: patch.defaultCurrency } : {}),

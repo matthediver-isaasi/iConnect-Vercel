@@ -1,4 +1,6 @@
 import { useHomepageCanonical } from "@/hooks/useHomepageCanonical";
+import { useQuoteNaming } from "@/hooks/useSalesSettings";
+import { getSalesDestination } from "@/lib/salesNavigation";
 import { useEffect, useRef, lazy, Suspense } from 'react';
 import Layout from "./Layout.jsx";
 import { BUILTIN_ARTICLE_ALIASES } from "@shared/articleAliases.js";
@@ -848,6 +850,7 @@ const PAGES = {
     SalesPipeline: Sales,
     SalesOpportunities: Sales,
     SalesQuotes: Sales,
+    SalesRoute: Sales,
     SalesCatalogue: Sales,
     SalesProducts: Sales,
     SalesBundles: Sales,
@@ -860,7 +863,7 @@ const PAGES = {
     ComplexEventDetail: ComplexEventDetail,
 }
 
-function _getCurrentPage(url) {
+function _getCurrentPage(url, quoteNaming) {
     if (url.endsWith('/')) {
         url = url.slice(0, -1);
     }
@@ -881,7 +884,7 @@ function _getCurrentPage(url) {
             reports: 'SalesReports',
             settings: 'SalesSettings',
         };
-        return salesPages[salesPage] || 'SalesDashboard';
+        return salesPages[salesPage] || (getSalesDestination(url, quoteNaming)?.key === 'quotes' ? 'SalesQuotes' : 'SalesRoute');
     }
     if (urlParts[0]?.toLowerCase() === 'customobjectsadmin') {
         return 'CustomObjectsAdmin';
@@ -952,6 +955,7 @@ function SurveyAssignmentRoute() {
 
 // Create a wrapper component that uses useLocation inside the Router context
 function PagesContent() {
+    const quoteNaming = useQuoteNaming();
     useHomepageCanonical();
     const location = useLocation();
     const { branding, loading: brandingLoading } = useTenantBranding();
@@ -1022,6 +1026,9 @@ function PagesContent() {
                 <Route path="/sales/reports" element={<Sales destination="reports" />} />
                 <Route path="/sales/settings" element={<Sales destination="settings" />} />
                 <Route path="/sales/allocations/:allocationId" element={<EventAllocationManager />} />
+                <Route path="/sales/:destination" element={<Sales />} />
+                <Route path="/sales/:destination/:id" element={<Sales />} />
+                <Route path="/sales/*" element={<Sales />} />
                 
                 <Route path="/MemberDemo" element={<MemberDemo />} />
                 
@@ -1417,7 +1424,7 @@ function PagesContent() {
     const matches = matchRoutes(createRoutesFromChildren(routes), location);
     const pageComponent = matches?.at(-1)?.route.element?.type;
     const pageOwned = [DynamicPage, ViewPage, HomePageRedirect, SmartLoginRoute].includes(pageComponent);
-    const currentPage = pageComponent === DynamicPage ? '_DynamicPage' : _getCurrentPage(location.pathname);
+    const currentPage = pageComponent === DynamicPage ? '_DynamicPage' : _getCurrentPage(location.pathname, quoteNaming);
     const navigationScope = JSON.stringify([
         window.location.host, getTenantSlugFromLocation(), branding?.id,
         authResolved, sessionValidated, memberInfo?.id, memberInfo?.tenant_id,

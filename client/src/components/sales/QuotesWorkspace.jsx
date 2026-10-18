@@ -15,6 +15,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/use-toast";
+import { useQuoteNaming } from "@/hooks/useSalesSettings";
+import { quotePath } from "@shared/salesNaming.js";
 import InvoiceStatusPanel from "@/components/sales/InvoiceStatusPanel";
 import QuoteOpportunitySelect from "./QuoteOpportunitySelect";
 import QuoteEventSelect from "./QuoteEventSelect";
@@ -157,6 +159,7 @@ function statusBadge(status) {
 }
 
 export function QuotesList({ opportunityId = "" }) {
+  const naming = useQuoteNaming();
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
@@ -175,13 +178,13 @@ export function QuotesList({ opportunityId = "" }) {
   const pages = Math.max(1, Number(query.data?.totalPages || query.data?.total_pages || Math.ceil(total / 20)));
   return <div className="space-y-4">
     <div className="flex flex-col gap-3 sm:flex-row">
-      <div className="relative flex-1"><Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" /><Input className="pl-9" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} placeholder="Search quote, customer or opportunity…" /></div>
+      <div className="relative flex-1"><Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" /><Input className="pl-9" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} placeholder={`Search ${naming.singular}, customer or opportunity…`} /></div>
       <Select value={status} onValueChange={(value) => { setStatus(value); setPage(1); }}><SelectTrigger className="w-full sm:w-44"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All statuses</SelectItem>{["draft", "issued", "sent", "accepted", "converted", "rejected", "declined", "expired", "superseded"].map((item) => <SelectItem value={item} key={item} className="capitalize">{item}</SelectItem>)}</SelectContent></Select>
-      <Button onClick={() => navigate(`/sales/quotes/new${opportunityId ? `?opportunityId=${encodeURIComponent(opportunityId)}` : ""}`)}><Plus className="mr-2 h-4 w-4" />Create quote</Button>
+      <Button onClick={() => navigate(`${quotePath(naming, "new")}${opportunityId ? `?opportunityId=${encodeURIComponent(opportunityId)}` : ""}`)}><Plus className="mr-2 h-4 w-4" />Create {naming.singular}</Button>
     </div>
-    {query.isLoading ? <Loading /> : query.error ? <Failure error={query.error} retry={query.refetch} /> : !rows.length ? <Card><CardContent className="py-16 text-center"><PackagePlus className="mx-auto h-9 w-9 text-slate-300" /><h3 className="mt-3 font-semibold">No quotes found</h3><p className="mt-1 text-sm text-slate-500">Create a quote from an opportunity to start building your offer.</p></CardContent></Card> :
-      <Card className="overflow-hidden"><div className="overflow-x-auto"><table className="w-full min-w-[760px] text-sm"><thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-4 py-3">Quote</th><th className="px-4 py-3">Customer / opportunity</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Valid until</th><th className="px-4 py-3 text-right">Total</th></tr></thead><tbody>{rows.map((raw) => { const row = normalizeQuote(raw); return <tr key={idOf(row)} onClick={() => navigate(`/sales/quotes/${idOf(row)}`)} className="cursor-pointer border-t hover:bg-blue-50/40"><td className="px-4 py-3"><p className="font-semibold text-slate-900">{row.number || row.quoteNumber || row.quote_number || "Draft quote"}</p><p className="text-xs text-slate-500">Version {row.versionNumber || row.version_number || row.version || 1}</p></td><td className="px-4 py-3"><p>{nameOf(row.organisation_snapshot || row.customer || row.organization) || row.customer_name || "—"}</p><p className="text-xs text-slate-500">{nameOf(row.opportunity) || row.opportunity_name || "—"}</p></td><td className="px-4 py-3">{statusBadge(row.status)}</td><td className="px-4 py-3">{dateText(row.validUntil || row.valid_until)}</td><td className="px-4 py-3 text-right font-semibold">{money(row.grossTotalMinor ?? row.gross_total_minor ?? row.gross_minor ?? row.totalMinor ?? row.total_minor, row.currency)}</td></tr>; })}</tbody></table></div></Card>}
-    {pages > 1 && <div className="flex items-center justify-between text-sm text-slate-500"><span>{total} quotes · Page {page} of {pages}</span><div className="flex gap-2"><Button variant="outline" size="icon" disabled={page === 1} onClick={() => setPage(page - 1)}><ChevronLeft className="h-4 w-4" /></Button><Button variant="outline" size="icon" disabled={page === pages} onClick={() => setPage(page + 1)}><ChevronRight className="h-4 w-4" /></Button></div></div>}
+    {query.isLoading ? <Loading /> : query.error ? <Failure error={query.error} retry={query.refetch} /> : !rows.length ? <Card><CardContent className="py-16 text-center"><PackagePlus className="mx-auto h-9 w-9 text-slate-300" /><h3 className="mt-3 font-semibold">No {naming.plural} found</h3><p className="mt-1 text-sm text-slate-500">Create a {naming.singular} from an opportunity to start building your offer.</p></CardContent></Card> :
+      <Card className="overflow-hidden"><div className="overflow-x-auto"><table className="w-full min-w-[760px] text-sm"><thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-4 py-3">{naming.singular}</th><th className="px-4 py-3">Customer / opportunity</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Valid until</th><th className="px-4 py-3 text-right">Total</th></tr></thead><tbody>{rows.map((raw) => { const row = normalizeQuote(raw); return <tr key={idOf(row)} onClick={() => navigate(quotePath(naming, idOf(row)))} className="cursor-pointer border-t hover:bg-blue-50/40"><td className="px-4 py-3"><p className="font-semibold text-slate-900">{row.number || row.quoteNumber || row.quote_number || `Draft ${naming.singular}`}</p><p className="text-xs text-slate-500">Version {row.versionNumber || row.version_number || row.version || 1}</p></td><td className="px-4 py-3"><p>{nameOf(row.organisation_snapshot || row.customer || row.organization) || row.customer_name || "—"}</p><p className="text-xs text-slate-500">{nameOf(row.opportunity) || row.opportunity_name || "—"}</p></td><td className="px-4 py-3">{statusBadge(row.status)}</td><td className="px-4 py-3">{dateText(row.validUntil || row.valid_until)}</td><td className="px-4 py-3 text-right font-semibold">{money(row.grossTotalMinor ?? row.gross_total_minor ?? row.gross_minor ?? row.totalMinor ?? row.total_minor, row.currency)}</td></tr>; })}</tbody></table></div></Card>}
+    {pages > 1 && <div className="flex items-center justify-between text-sm text-slate-500"><span>{total} {naming.plural} · Page {page} of {pages}</span><div className="flex gap-2"><Button variant="outline" size="icon" disabled={page === 1} onClick={() => setPage(page - 1)}><ChevronLeft className="h-4 w-4" /></Button><Button variant="outline" size="icon" disabled={page === pages} onClick={() => setPage(page + 1)}><ChevronRight className="h-4 w-4" /></Button></div></div>}
   </div>;
 }
 
@@ -204,6 +207,7 @@ function lineTotals(line) {
 }
 
 export function LinesEditor({ form, setForm, products, bundles, readOnly, canOverride }) {
+  const { singular } = useQuoteNaming();
   const taxOptions = useCatalogueTaxOptions(!readOnly);
   const taxItems = providerTaxOptions(taxOptions.data);
   const patch = (index, changes) => setForm((old) => ({ ...old, lines: old.lines.map((line, i) => i === index ? { ...line, ...changes } : line) }));
@@ -214,7 +218,7 @@ export function LinesEditor({ form, setForm, products, bundles, readOnly, canOve
     patch(index, { [`${type}Id`]: id, description: source?.name || "", standardUnitPriceMinor: price, quotedUnitPriceMinor: price, standardUnitPriceMinorInput: undefined, quotedUnitPriceMinorInput: undefined, ...(type === "product" ? { taxRateBps: pick(source, "taxRateBps", "tax_rate_bps", 0), taxCode: source?.taxCode || null, legacyTax: false, taxChanged: false } : {}) });
   };
   const move = (index, direction) => setForm((old) => { const lines = [...old.lines]; [lines[index], lines[index + direction]] = [lines[index + direction], lines[index]]; return { ...old, lines }; });
-  return <Card><CardHeader className="flex-row flex-wrap items-center justify-between gap-2"><div><CardTitle>Quote lines</CardTitle><p className="mt-1 text-sm text-slate-500">Add catalogue items, bundles or a custom line. Enter prices in {form.currency}, e.g. 40.00.</p></div>{!readOnly && <div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => add("product")}><Plus className="mr-1 h-3.5 w-3.5" />Product</Button><Button size="sm" variant="outline" onClick={() => add("bundle")}><Plus className="mr-1 h-3.5 w-3.5" />Bundle</Button><Button size="sm" variant="outline" onClick={() => add("free_text")}><Plus className="mr-1 h-3.5 w-3.5" />Free text</Button></div>}</CardHeader><CardContent>
+  return <Card><CardHeader className="flex-row flex-wrap items-center justify-between gap-2"><div><CardTitle>{singular} lines</CardTitle><p className="mt-1 text-sm text-slate-500">Add catalogue items, bundles or a custom line. Enter prices in {form.currency}, e.g. 40.00.</p></div>{!readOnly && <div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => add("product")}><Plus className="mr-1 h-3.5 w-3.5" />Product</Button><Button size="sm" variant="outline" onClick={() => add("bundle")}><Plus className="mr-1 h-3.5 w-3.5" />Bundle</Button><Button size="sm" variant="outline" onClick={() => add("free_text")}><Plus className="mr-1 h-3.5 w-3.5" />Free text</Button></div>}</CardHeader><CardContent>
     {!form.lines.length ? <p className="rounded-lg border border-dashed py-10 text-center text-sm text-slate-500">No lines yet.</p> : <div className="space-y-3">{form.lines.map((line, index) => {
       const totals = lineTotals(line);
       return <div key={line.key} className="min-w-0 rounded-xl border bg-slate-50/50 p-3">
@@ -266,13 +270,14 @@ function HistoryPanel({ quoteId, version, versions: rawVersions }) {
 }
 
 function DeliveryHistory({ quoteId }) {
+  const { singular } = useQuoteNaming();
   const history = useQuery({
     queryKey: ["quote-delivery-history", quoteId],
     queryFn: () => request(`/api/sales/quotes/${quoteId}?action=delivery-history`),
   });
   const rows = list(history.data?.history || history.data?.deliveries || history.data);
   return <Card><CardHeader><CardTitle className="flex items-center gap-2"><Send className="h-4 w-4" />Delivery history</CardTitle></CardHeader><CardContent>
-    {history.isLoading ? <Loading /> : history.error ? <Failure error={history.error} retry={history.refetch} /> : !rows.length ? <p className="py-8 text-center text-sm text-slate-500">This quote has not been delivered yet.</p> :
+    {history.isLoading ? <Loading /> : history.error ? <Failure error={history.error} retry={history.refetch} /> : !rows.length ? <p className="py-8 text-center text-sm text-slate-500">This {singular} has not been delivered yet.</p> :
       <ol className="space-y-4">{rows.map((item, index) => {
         // Delivery history deliberately consumes only fields exposed by the
         // delivery-history DTO; never render request metadata or token values.
@@ -308,6 +313,7 @@ function Comparison({ data }) {
 }
 
 function QuoteEditor() {
+  const naming = useQuoteNaming();
   const { id } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
@@ -317,7 +323,7 @@ function QuoteEditor() {
   const isNew = !id || id === "new";
   const detail = useQuery({ queryKey: ["sales-quote", id], queryFn: async () => {
     const data = await request(`/api/sales/quotes/${id}`);
-    if (!data?.id || (!data.currentVersion && !data.versions?.length)) throw new Error("The quote details were not returned. Please retry loading this quote.");
+    if (!data?.id || (!data.currentVersion && !data.versions?.length)) throw new Error(`The ${naming.singular} details were not returned. Please retry loading this ${naming.singular}.`);
     return data;
   }, enabled: !isNew, refetchOnMount: "always" });
   const products = useQuery({ queryKey: ["quote-products"], queryFn: () => request("/api/sales/catalogue/products") });
@@ -363,7 +369,7 @@ function QuoteEditor() {
   const preview = useMutation({
     mutationFn: () => request(`/api/sales/quotes${isNew ? "" : `/${id}`}?action=preview`, { method: "POST", body: JSON.stringify(payload()) }),
     onSuccess: (data) => setServerTotals(data?.quote?.totals || data?.totals || data?.preview?.totals || data?.currentVersion?.totals || data),
-    onError: (error) => toast({ title: "Could not recalculate quote", description: error.message, variant: "destructive" }),
+    onError: (error) => toast({ title: `Could not recalculate ${naming.singular}`, description: error.message, variant: "destructive" }),
   });
   const [serverTotals, setServerTotals] = useState(null);
   const isDirty = JSON.stringify(form) !== savedFingerprint;
@@ -379,23 +385,23 @@ function QuoteEditor() {
       setServerTotals(data?.totals || data?.currentVersion?.totals || null);
       qc.invalidateQueries({ queryKey: ["sales-quotes"] });
       if (isNew && saved.id) {
-        toast({ title: "Draft quote saved" });
-        navigate(`/sales/quotes/${saved.id}`, { replace: true });
+        toast({ title: `Draft ${naming.singular} saved` });
+        navigate(quotePath(naming, saved.id), { replace: true });
       } else {
         try {
           await refreshSavedQuoteDraft({ refetch: detail.refetch, normalize: normalizeQuote, submittedFingerprint, setForm, setSavedFingerprint });
-          toast({ title: "Draft quote saved" });
+          toast({ title: `Draft ${naming.singular} saved` });
         } catch (error) {
           toast({ title: "Draft saved, but could not reload it", description: "Your entered values have been kept. Reload the page before saving again.", variant: "destructive" });
         }
       }
     },
-    onError: (error) => { if ([409, 412].includes(error.status)) detail.refetch(); toast({ title: [409, 412].includes(error.status) ? "Quote changed elsewhere" : "Could not save quote", description: [409, 412].includes(error.status) ? "The latest version has been loaded. Review it before trying again." : error.message, variant: "destructive" }); },
+    onError: (error) => { if ([409, 412].includes(error.status)) detail.refetch(); toast({ title: [409, 412].includes(error.status) ? `${naming.singular} changed elsewhere` : `Could not save ${naming.singular}`, description: [409, 412].includes(error.status) ? "The latest version has been loaded. Review it before trying again." : error.message, variant: "destructive" }); },
   });
   const action = useMutation({
     mutationFn: ({ action: actionName, extra = {} }) => request(`/api/sales/quotes/${id}?action=${actionName}`, { method: "POST", body: JSON.stringify({ expectedVersion: quote.rowVersion, ...extra }) }),
-    onSuccess: (data, variables) => { const result = normalizeQuote(data); qc.invalidateQueries({ queryKey: ["sales-quotes"] }); qc.invalidateQueries({ queryKey: ["sales-quote", id] }); qc.invalidateQueries({ queryKey: ["quote-history", id] }); toast({ title: variables.action === "amend" ? "Amendment created" : variables.action === "issue" ? "Quote issued" : variables.extra?.status === "accepted" ? "Quote accepted" : "Quote status updated" }); if (variables.action === "amend" && result.id) navigate(`/sales/quotes/${result.id}`); },
-    onError: (error) => toast({ title: "Quote action failed", description: error.message, variant: "destructive" }),
+    onSuccess: (data, variables) => { const result = normalizeQuote(data); qc.invalidateQueries({ queryKey: ["sales-quotes"] }); qc.invalidateQueries({ queryKey: ["sales-quote", id] }); qc.invalidateQueries({ queryKey: ["quote-history", id] }); toast({ title: variables.action === "amend" ? "Amendment created" : variables.action === "issue" ? `${naming.singular} issued` : variables.extra?.status === "accepted" ? `${naming.singular} accepted` : `${naming.singular} status updated` }); if (variables.action === "amend" && result.id) navigate(quotePath(naming, result.id)); },
+    onError: (error) => toast({ title: `${naming.singular} action failed`, description: error.message, variant: "destructive" }),
   });
   const deliveryAction = useMutation({
     mutationFn: ({ action: actionName, extra = {} }) => request(`/api/sales/quotes/${id}?action=${actionName}`, { method: "POST", body: JSON.stringify(extra) }),
@@ -404,7 +410,7 @@ function QuoteEditor() {
       qc.invalidateQueries({ queryKey: ["sales-quote", id] });
       qc.invalidateQueries({ queryKey: ["quote-delivery-history", id] });
       if (variables.action === "send") setSendOpen(false);
-      toast({ title: variables.action === "send" ? "Quote sent" : "Customer link revoked" });
+      toast({ title: variables.action === "send" ? `${naming.singular} sent` : "Customer link revoked" });
     },
     onError: (error) => toast({ title: "Delivery action failed", description: error.message, variant: "destructive" }),
   });
@@ -426,10 +432,10 @@ function QuoteEditor() {
   if (!isNew && loadedId !== id) return <Loading />;
   const patch = (key, value) => setForm((old) => ({ ...old, [key]: value }));
   return <div className="space-y-5">
-    <div className="flex flex-wrap items-start justify-between gap-3"><div className="flex items-start gap-3"><Button variant="outline" size="icon" onClick={() => navigate("/sales/quotes")}><ArrowLeft className="h-4 w-4" /></Button><div><div className="flex flex-wrap items-center gap-2"><h2 className="text-2xl font-bold">{isNew ? "Create quote" : quote.number || quote.quoteNumber || quote.quote_number || "Quote"}</h2>{statusBadge(status)}{!isNew && <Badge variant="outline">Version {quote.versionNumber || quote.version_number || quote.version || 1}</Badge>}</div><p className="mt-1 text-sm text-slate-500">{readOnly ? "Issued versions are immutable. Create an amendment to make changes." : "Build and save a customer-ready quote."}</p></div></div><div className="flex flex-wrap gap-2">
+    <div className="flex flex-wrap items-start justify-between gap-3"><div className="flex items-start gap-3"><Button variant="outline" size="icon" onClick={() => navigate(quotePath(naming))}><ArrowLeft className="h-4 w-4" /></Button><div><div className="flex flex-wrap items-center gap-2"><h2 className="text-2xl font-bold">{isNew ? `Create ${naming.singular}` : quote.number || quote.quoteNumber || quote.quote_number || naming.singular}</h2>{statusBadge(status)}{!isNew && <Badge variant="outline">Version {quote.versionNumber || quote.version_number || quote.version || 1}</Badge>}</div><p className="mt-1 text-sm text-slate-500">{readOnly ? "Issued versions are immutable. Create an amendment to make changes." : `Build and save a customer-ready ${naming.singular}.`}</p></div></div><div className="flex flex-wrap gap-2">
       {!readOnly && <Button variant="outline" disabled={invalidPrices || preview.isPending || (isNew && !opportunity.ready) || !form.lines.length} onClick={() => preview.mutate()}>{preview.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Recalculate</Button>}
       {!readOnly && <Button variant="outline" disabled={invalidPrices || save.isPending || !form.opportunityId || (isNew && !opportunity.ready) || !form.lines.length} onClick={() => save.mutate()}>{save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save draft</Button>}
-      {!isNew && status === "draft" && allowed(["canIssue", "can_issue", "issue"], false) && <Button disabled={action.isPending || !form.lines.length || isDirty} title={isDirty ? "Save the latest draft before issuing" : "Finalise this version so it can be sent"} onClick={() => action.mutate({ action: "issue" })}><Send className="mr-2 h-4 w-4" />Issue quote</Button>}
+      {!isNew && status === "draft" && allowed(["canIssue", "can_issue", "issue"], false) && <Button disabled={action.isPending || !form.lines.length || isDirty} title={isDirty ? "Save the latest draft before issuing" : "Finalise this version so it can be sent"} onClick={() => action.mutate({ action: "issue" })}><Send className="mr-2 h-4 w-4" />Issue {naming.singular}</Button>}
       {!isNew && <><Button variant="outline" disabled={pdf.isPending || isDirty} title={isDirty ? "Save your changes before generating a PDF" : ""} onClick={() => pdf.mutate({ preview: true })}><Eye className="mr-2 h-4 w-4" />{status === "draft" ? "Preview draft PDF" : "Preview PDF"}</Button><Button variant="outline" disabled={pdf.isPending || isDirty} onClick={() => pdf.mutate({ preview: false })}><Download className="mr-2 h-4 w-4" />Download PDF</Button></>}
       {!isNew && ["issued", "sent"].includes(status) && <Button disabled={deliveryAction.isPending} onClick={() => setSendOpen(true)}><Send className="mr-2 h-4 w-4" />Send</Button>}
       {!isNew && ["issued", "sent"].includes(status) && <Button variant="outline" disabled={deliveryAction.isPending} onClick={() => deliveryAction.mutate({ action: "revoke" })}><Link2Off className="mr-2 h-4 w-4" />Revoke link</Button>}
@@ -437,13 +443,13 @@ function QuoteEditor() {
       {!isNew && <AcceptQuoteButton status={status} permitted={allowed(["canTransition", "can_transition", "transition"], false)} pending={action.isPending} onAccept={extra => action.mutateAsync({ action: "transition", extra })} />}
       {!isNew && status === "accepted" && allowed(["canTransition", "can_transition", "transition"], false) && <Button variant="outline" onClick={() => action.mutate({ action: "transition", extra: { status: "converted" } })}>Convert</Button>}
     </div></div>
-    {!isNew && status === "draft" && <p className="rounded border bg-slate-50 p-3 text-sm">Save draft → preview the draft PDF → Issue quote → Send. Issuing locks this version for delivery.{!allowed(["canIssue"], false) && " Your role does not have permission to issue quotes."}{isDirty && " Save your latest changes first."}</p>}
+    {!isNew && status === "draft" && <p className="rounded border bg-slate-50 p-3 text-sm">Save draft → preview the draft PDF → Issue {naming.singular} → Send. Issuing locks this version for delivery.{!allowed(["canIssue"], false) && ` Your role does not have permission to issue ${naming.plural}.`}{isDirty && " Save your latest changes first."}</p>}
     {!isNew && <SendQuoteDialog request={request} quoteId={id} version={quote.versionNumber || quote.version_number || quote.version} contacts={contacts} open={sendOpen} onOpenChange={setSendOpen} pending={deliveryAction.isPending} initialRecipient={contacts.find(contact => contact.id === form.billingContactId)?.email || contacts.find(contact => contact.id === form.customerContactId)?.email || quote.recipient || quote.customerEmail || quote.customer_email || ""} onSend={(extra) => deliveryAction.mutateAsync({ action: "send", extra })} />}
     {!isNew && (["accepted", "converted"].includes(status) || Boolean(quote.saleId)) && <InvoiceStatusPanel saleId={quote.saleId} invoice={quote.invoice} invoices={quote.invoices} activeProvider={quote.activeProvider} permissions={permissions} error={action.error} onCreate={(command) => invoiceAction("create-invoice", command)} onRetry={(command) => invoiceAction("create-invoice", command)} onRefresh={quote.invoice ? () => invoiceAction("refresh-invoice-status") : undefined} />}
-    {isNew && !form.opportunityId && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Choose an active opportunity below. Its organisation, currency and primary contact will be used for this quote.</div>}
+    {isNew && !form.opportunityId && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Choose an active opportunity below. Its organisation, currency and primary contact will be used for this {naming.singular}.</div>}
     {form.opportunityId && opportunity.isError && <Failure error={opportunity.error} retry={opportunity.refetch} />}
     {isNew && form.opportunityId && !opportunity.ready && !opportunity.isError && <p role="status" className="animate-pulse rounded-lg bg-slate-100 p-3 text-sm text-slate-500">Loading the selected opportunity’s customer details…</p>}
-    <Tabs defaultValue="quote"><TabsList><TabsTrigger value="quote">Quote</TabsTrigger>{!isNew && <><TabsTrigger value="delivery">Delivery</TabsTrigger><TabsTrigger value="history">History & compare</TabsTrigger></>}</TabsList>
+    <Tabs defaultValue="quote"><TabsList><TabsTrigger value="quote">{naming.singular}</TabsTrigger>{!isNew && <><TabsTrigger value="delivery">Delivery</TabsTrigger><TabsTrigger value="history">History & compare</TabsTrigger></>}</TabsList>
       <TabsContent value="quote" className="space-y-5">
         <Card><CardHeader><CardTitle>Customer & commercial details</CardTitle></CardHeader><CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <Field label="Opportunity">{isNew ? <QuoteOpportunitySelect value={form.opportunityId} name={opportunityName} request={request} onChange={(value) => setForm((old) => old.opportunityId === value ? old : clearOpportunityContacts(old, value))} /> : <p className="rounded-md border bg-slate-50 px-3 py-2 text-sm">{opportunityName || (opportunity.isError ? "Opportunity unavailable" : "Loading opportunity…")}</p>}{opportunity.ready && opportunity.data?.organization?.name && <p className="mt-1 text-xs text-slate-500">{opportunity.data.organization.name}</p>}</Field>
@@ -459,7 +465,7 @@ function QuoteEditor() {
           <Field label="Payment terms"><Input disabled={readOnly} value={form.paymentTerms} onChange={(e) => patch("paymentTerms", e.target.value)} /></Field>
           <Field label="Internal / customer notes" wide><Textarea disabled={readOnly} rows={3} value={form.notes} onChange={(e) => patch("notes", e.target.value)} /></Field>
         </CardContent></Card>
-        <Card><CardHeader><CardTitle>Billing address snapshot</CardTitle><p className="text-sm text-slate-500">New quotes start with the organisation’s invoicing address, where available. You can change it here without changing the organisation. Free-text address lines are copied as saved; check the city, postcode and country before issuing.</p></CardHeader><CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{[["addressee", "Addressee"], ["line1", "Address line 1"], ["line2", "Address line 2 / remaining address"], ["city", "City"], ["region", "County / region"], ["postalCode", "Postcode"], ["country", "Country"]].map(([key, label]) => {
+        <Card><CardHeader><CardTitle>Billing address snapshot</CardTitle><p className="text-sm text-slate-500">New {naming.plural} start with the organisation’s invoicing address, where available. You can change it here without changing the organisation. Free-text address lines are copied as saved; check the city, postcode and country before issuing.</p></CardHeader><CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{[["addressee", "Addressee"], ["line1", "Address line 1"], ["line2", "Address line 2 / remaining address"], ["city", "City"], ["region", "County / region"], ["postalCode", "Postcode"], ["country", "Country"]].map(([key, label]) => {
           const AddressInput = key === "line2" ? Textarea : Input;
           return <Field key={key} label={label}><AddressInput aria-label={label} disabled={readOnly || (isNew && !opportunity.ready)} value={form.address[key]} onChange={(e) => setForm((old) => ({ ...old, address: { ...old.address, [key]: e.target.value } }))} /></Field>;
         })}</CardContent></Card>

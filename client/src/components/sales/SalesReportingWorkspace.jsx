@@ -13,6 +13,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatSalesMoney } from "@/lib/salesMoney";
+import { useQuoteNaming } from "@/hooks/useSalesSettings";
+import { quotePath } from "@shared/salesNaming.js";
 import { dashboardReportParams, formatDashboardDate, validateExpectedCloseRange } from "./dashboardDates.mjs";
 
 const REPORTS = [
@@ -35,6 +37,8 @@ const list = (value) => Array.isArray(value) ? value : value?.items || value?.da
 const label = (value) => value?.label || value?.name || value?.title || value?.display_name || String(value ?? "—");
 const id = (value) => value?.id || value?._id || value?.value;
 const titleCase = (value) => String(value || "").replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+const reportLabel = (value, naming) => String(value || "").replace(/\b(quotes|quote)\b/gi, (word) => word.length === 6 ? naming.plural : naming.singular);
+const summaryLabel = (key, naming) => reportLabel(titleCase(String(key).replace(/([a-z])([A-Z])/g, "$1 $2")), naming);
 const currency = (value, code = "GBP", minorUnits = false) =>
   formatSalesMoney(value, code, { minorUnits });
 const displayValue = (value, column, row) => {
@@ -63,20 +67,24 @@ function SummaryCard({ title, value, icon: Icon, hint }) {
   return <Card><CardContent className="p-5"><div className="flex items-start justify-between gap-3"><div><p className="text-sm font-medium text-slate-500">{title}</p><p className="mt-2 text-2xl font-bold text-slate-950">{value}</p>{hint && <p className="mt-1 text-xs text-slate-500">{hint}</p>}</div><span className="rounded-lg bg-blue-50 p-2 text-blue-700"><Icon className="h-5 w-5" /></span></div></CardContent></Card>;
 }
 
-function ActivityList({ title, rows, emptyText, controls, total, query }) {
+function ActivityList({ title, rows, emptyText, controls, total, query, quoteRows = false }) {
+  const naming = useQuoteNaming();
   return <Card><CardHeader><CardTitle className="text-base">{title}</CardTitle>{controls}</CardHeader><CardContent className="space-y-2" aria-busy={query?.isFetching || false}>
     {query?.isFetching && <p className="text-sm text-slate-500" role="status">Loading expected closes…</p>}
     {query?.error && <div className="flex flex-wrap items-center gap-2 text-sm text-rose-700" role="alert"><span>{query.error.message}</span><Button variant="outline" size="sm" onClick={() => query.refetch()}>Retry</Button></div>}
     {total > 8 && <p className="text-xs text-slate-500">Showing {Math.min(list(rows).length, 8)} of {total} expected closes</p>}
     {!list(rows).length ? <p className="py-5 text-center text-sm text-slate-500">{emptyText}</p> : list(rows).slice(0, 8).map((row, index) => {
       const opportunityId = row.opportunityId || row.opportunity_id || (row.type === "opportunity" ? id(row) : null);
+      const quoteId = row.quoteId || row.quote_id || (quoteRows || row.type === "quote" ? id(row) : null);
        const content = <div className="flex items-center justify-between gap-4 rounded-lg border p-3 hover:bg-slate-50"><div className="min-w-0"><p className="truncate text-sm font-medium text-slate-900">{label(row)}</p><p className="mt-0.5 truncate text-xs text-slate-500">{row.organizationName || row.organisation_name || row.description || row.status || "Sales activity"}</p></div><div className="shrink-0 text-right"><p className="text-sm font-semibold">{row.value != null || row.amount != null ? currency(row.value ?? row.amount, row.currency, true) : ""}</p>{(row.date || row.createdAt || row.expectedCloseDate) && <p className="text-xs text-slate-500">{formatDashboardDate(row.date || row.createdAt || row.expectedCloseDate)}</p>}</div></div>;
-      return opportunityId ? <Link key={id(row) || index} to={`/sales/opportunities/${opportunityId}`}>{content}</Link> : <div key={id(row) || index}>{content}</div>;
+      const to = quoteId ? quotePath(naming, quoteId) : opportunityId ? `/sales/opportunities/${opportunityId}` : null;
+      return to ? <Link key={id(row) || index} to={to}>{content}</Link> : <div key={id(row) || index}>{content}</div>;
     })}
   </CardContent></Card>;
 }
 
 export function SalesDashboard() {
+  const naming = useQuoteNaming();
   const [applied, setApplied] = useState({ expectedCloseFrom: "", expectedCloseTo: "", expectedCloseSort: "asc" });
   const [range, setRange] = useState({ from: "", to: "" });
   const [rangeError, setRangeError] = useState("");
@@ -105,11 +113,11 @@ export function SalesDashboard() {
     ["Open pipeline", summary.pipelineValue ?? summary.openPipeline ?? summary.pipeline_value, TrendingUp, summary.openOpportunities != null ? `${summary.openOpportunities} opportunities` : null],
     ["Weighted pipeline", summary.weightedPipeline ?? summary.weightedValue ?? summary.weighted_pipeline, Target, null],
     ["Won", summary.wonValue ?? summary.wonRevenue ?? summary.won_value, Trophy, summary.wonCount != null ? `${summary.wonCount} won` : null],
-    ["Outstanding quotes", summary.outstandingQuoteValue ?? summary.quoteValue ?? summary.outstanding_quotes_value, FileText, summary.outstandingQuotes ?? list(data.outstandingQuotes).length],
+    [`Outstanding ${naming.plural}`, summary.outstandingQuoteValue ?? summary.quoteValue ?? summary.outstanding_quotes_value, FileText, summary.outstandingQuotes ?? list(data.outstandingQuotes).length],
   ];
   return <div className="space-y-5">
     {query.isLoading && <p className="text-sm text-slate-500" role="status">Loading sales data…</p>}
-    {data.definitions?.description && <p className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-sm text-blue-900">{data.definitions.description}</p>}
+    {data.definitions?.description && <p className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-sm text-blue-900">{reportLabel(data.definitions.description, naming)}</p>}
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{cards.map(([name, value, icon, hint]) => <SummaryCard key={name} title={name} value={summary.currency ? currency(value, summary.currency, true) : "By currency"} icon={icon} hint={hint} />)}</div>
     {currencyRows.length > 0 && <Card><CardHeader><CardTitle className="text-base">Pipeline by currency</CardTitle></CardHeader><CardContent className="space-y-4">{currencyRows.map((row, index) => {
       const amount = Number(row.value ?? row.amount ?? row.total ?? 0);
@@ -117,7 +125,7 @@ export function SalesDashboard() {
        return <div key={row.currency || index}><div className="mb-1 flex justify-between text-sm"><span className="font-medium">{row.currency || "Unspecified"}</span><span>{currency(amount, row.currency, true)}</span></div><div className="h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600" style={{ width: `${Math.max(2, amount / max * 100)}%` }} /></div></div>;
     })}</CardContent></Card>}
     <div className="grid gap-5 xl:grid-cols-2"><div className="space-y-5"><ActivityList title="Expected closes" rows={data.expectedCloses} emptyText={query.isFetching ? "Waiting for expected closes." : "No expected closes match this range."} controls={expectedCloseControls} total={data.expectedClosesTotal} query={query} /><ActivityList title="Recent activity" rows={data.recentActivity} emptyText="No recent activity." /></div><div className="space-y-5"><ActivityList title="Recent wins" rows={data.recentWins} emptyText="No recent wins." /><ActivityList title="Overdue tasks" rows={data.overdueTasks} emptyText="No overdue tasks." /></div></div>
-    {list(data.outstandingQuotes).length > 0 && <ActivityList title="Outstanding quotes" rows={data.outstandingQuotes} emptyText="No outstanding quotes." />}
+    {list(data.outstandingQuotes).length > 0 && <ActivityList title={`Outstanding ${naming.plural}`} rows={data.outstandingQuotes} emptyText={`No outstanding ${naming.plural}.`} quoteRows />}
   </div>;
 }
 
@@ -136,17 +144,19 @@ function facetOptions(facets, key) {
 }
 
 function DrilldownValue({ column, row, children }) {
+  const naming = useQuoteNaming();
   const key = column.key || column.id || "";
   const relatedId = row[`${key}Id`] || row[`${key}_id`] || (/(opportunity|quote|organization|organisation|event)_?id/i.test(key) ? row[key] : null);
   let to;
   if (/opportunity/i.test(key) && relatedId) to = `/sales/opportunities/${relatedId}`;
-  else if (/quote/i.test(key) && relatedId) to = `/sales/quotes/${relatedId}`;
+  else if (/quote/i.test(key) && relatedId) to = quotePath(naming, relatedId);
   else if (/organi[sz]ation/i.test(key) && relatedId) to = `/organisations/${relatedId}`;
   else if (/event/i.test(key) && relatedId) to = `/events/${relatedId}`;
   return to ? <Link className="inline-flex items-center gap-1 font-medium text-blue-700 hover:underline" to={to}>{children}<ArrowRight className="h-3 w-3" /></Link> : children;
 }
 
 export function SalesReports() {
+  const naming = useQuoteNaming();
   const [report, setReport] = useState("pipeline");
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState(EMPTY_FILTERS);
@@ -160,7 +170,7 @@ export function SalesReports() {
   }, [report, page, filters]);
   const query = useQuery({ queryKey: ["sales-reports", report, page, filters], queryFn: () => getReport(params), placeholderData: (previous) => previous });
   const data = query.data || {};
-  const columns = list(data.columns).map((item) => typeof item === "string" ? { key: item, label: titleCase(item) } : { ...item, key: item.key || item.id || item.field });
+  const columns = list(data.columns).map((item) => typeof item === "string" ? { key: item } : { ...item, key: item.key || item.id || item.field });
   const rows = list(data.rows);
   const pagination = data.pagination || {};
   const total = Number(pagination.total ?? data.total ?? rows.length);
@@ -194,21 +204,22 @@ export function SalesReports() {
       {saved.length > 0 && <Select onValueChange={(name) => { const item = saved.find((entry) => entry.name === name); if (item) { setReport(item.report); setFilters({ ...EMPTY_FILTERS, ...item.filters }); } }}><SelectTrigger className="w-44"><SelectValue placeholder="Load saved filters" /></SelectTrigger><SelectContent>{saved.map((item) => <SelectItem key={item.name} value={item.name}>{item.name}</SelectItem>)}</SelectContent></Select>}
       <Button variant="ghost" onClick={() => setFilters(EMPTY_FILTERS)}>Clear</Button><Button className="ml-auto" variant="outline" onClick={exportCsv}><Download className="mr-2 h-4 w-4" />Export CSV</Button>
     </div></CardContent></Card>
-    {(activeDefinition?.description || data.definitions?.description) && <p className="text-sm text-slate-600">{activeDefinition?.description || data.definitions.description}</p>}
+    {(activeDefinition?.description || data.definitions?.description) && <p className="text-sm text-slate-600">{reportLabel(activeDefinition?.description || data.definitions.description, naming)}</p>}
     <QueryState query={query} empty={!rows.length}><div className="space-y-3">
-      <Card className="overflow-hidden"><div className="overflow-x-auto"><table className="w-full min-w-[640px] text-sm"><thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500"><tr>{columns.map((column) => <th key={column.key} className="whitespace-nowrap px-4 py-3">{column.label || titleCase(column.key)}{column.description && <span className="ml-1 normal-case text-slate-400" title={column.description}>ⓘ</span>}</th>)}</tr></thead><tbody>{rows.map((row, rowIndex) => <tr key={id(row) || rowIndex} className="border-t hover:bg-slate-50">{columns.map((column) => <td key={column.key} className="max-w-xs px-4 py-3"><DrilldownValue column={column} row={row}>{displayValue(row[column.key], column, row)}</DrilldownValue></td>)}</tr>)}</tbody>{data.totals && <tfoot className="border-t-2 bg-slate-50 font-semibold"><tr>{columns.map((column, index) => <td key={column.key} className="px-4 py-3">{index === 0 && data.totals[column.key] == null ? "Totals" : displayValue(data.totals[column.key], column, data.totals)}</td>)}</tr></tfoot>}</table></div></Card>
+      <Card className="overflow-hidden"><div className="overflow-x-auto"><table className="w-full min-w-[640px] text-sm"><thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500"><tr>{columns.map((column) => <th key={column.key} className="whitespace-nowrap px-4 py-3">{column.label ? reportLabel(column.label, naming) : summaryLabel(column.key, naming)}{column.description && <span className="ml-1 normal-case text-slate-400" title={reportLabel(column.description, naming)}>ⓘ</span>}</th>)}</tr></thead><tbody>{rows.map((row, rowIndex) => <tr key={id(row) || rowIndex} className="border-t hover:bg-slate-50">{columns.map((column) => <td key={column.key} className="max-w-xs px-4 py-3"><DrilldownValue column={column} row={row}>{displayValue(row[column.key], column, row)}</DrilldownValue></td>)}</tr>)}</tbody>{data.totals && <tfoot className="border-t-2 bg-slate-50 font-semibold"><tr>{columns.map((column, index) => <td key={column.key} className="px-4 py-3">{index === 0 && data.totals[column.key] == null ? "Totals" : displayValue(data.totals[column.key], column, data.totals)}</td>)}</tr></tfoot>}</table></div></Card>
       <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-500"><span>{total.toLocaleString()} results · Page {page} of {pages}</span><div className="flex gap-2"><Button variant="outline" size="icon" aria-label="Previous page" disabled={page <= 1 || query.isFetching} onClick={() => setPage((value) => value - 1)}><ChevronLeft className="h-4 w-4" /></Button><Button variant="outline" size="icon" aria-label="Next page" disabled={page >= pages || query.isFetching} onClick={() => setPage((value) => value + 1)}><ChevronRight className="h-4 w-4" /></Button></div></div>
     </div></QueryState>
   </div>;
 }
 
 export function OrganisationCommercial({ organizationId, enabled = true }) {
+  const naming = useQuoteNaming();
   const query = useQuery({ queryKey: ["sales-reports", "organisation", organizationId], enabled: enabled && Boolean(organizationId), queryFn: () => getReport(new URLSearchParams({ view: "organisation", organizationId })) });
   const data = query.data || {};
-  const sections = [["Opportunities", data.opportunities], ["Quotes", data.quotes], ["Sales", data.sales], ["Invoices", data.invoices], ["Allocations", data.allocations]];
+  const sections = [["Opportunities", data.opportunities, false, "opportunities"], [naming.plural, data.quotes, true, naming.plural], ["Sales", data.sales, false, "sales"], ["Invoices", data.invoices, false, "invoices"], ["Allocations", data.allocations, false, "allocations"]];
   const hasData = Object.keys(data.summary || {}).length || sections.some(([, rows]) => list(rows).length);
   return <QueryState query={query} empty={!hasData}><div className="space-y-5">
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{Object.entries(data.summary || {}).filter(([key]) => key !== "currency").map(([key, value]) => <SummaryCard key={key} title={titleCase(key)} value={/valueMinor|amountMinor|revenueMinor|salesValue/i.test(key) ? (data.summary.currency ? currency(value, data.summary.currency, true) : "By currency") : displayValue(value, { key }, {})} icon={/invoice|quote/i.test(key) ? FileText : /date|due/i.test(key) ? CalendarClock : CircleDollarSign} />)}</div>
-    <div className="grid gap-5 lg:grid-cols-2">{sections.map(([name, rows]) => <ActivityList key={name} title={name} rows={rows} emptyText={`No ${name.toLowerCase()} for this organisation.`} />)}</div>
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{Object.entries(data.summary || {}).filter(([key]) => key !== "currency").map(([key, value]) => <SummaryCard key={key} title={summaryLabel(key, naming)} value={/valueMinor|amountMinor|revenueMinor|salesValue/i.test(key) ? (data.summary.currency ? currency(value, data.summary.currency, true) : "By currency") : displayValue(value, { key }, {})} icon={/invoice|quote/i.test(key) ? FileText : /date|due/i.test(key) ? CalendarClock : CircleDollarSign} />)}</div>
+    <div className="grid gap-5 lg:grid-cols-2">{sections.map(([name, rows, quoteRows, emptyLabel]) => <ActivityList key={name} title={name} rows={rows} quoteRows={quoteRows} emptyText={`No ${emptyLabel} for this organisation.`} />)}</div>
   </div></QueryState>;
 }

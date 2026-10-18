@@ -17,6 +17,16 @@ const built = await build({
   entryPoints: ["client/src/components/sales/OpportunityTaskAutomation.jsx"],
   bundle: true, write: false, packages: "external", platform: "node", format: "cjs", jsx: "automatic",
   alias: { "@": `${process.cwd()}/client/src` },
+  plugins: [{
+    name: "isolated-naming",
+    setup(build) {
+      build.onResolve({ filter: /^@\/hooks\/useSalesSettings$/ }, () => ({ path: "naming", namespace: "fixture" }));
+      build.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({
+        contents: 'export const useQuoteNaming = () => globalThis.automationNaming || { singular: "Quote", plural: "Quotes", slug: "quotes" };',
+        loader: "js",
+      }));
+    },
+  }],
 });
 const mod = new Module(`${process.cwd()}/automation-fixture.cjs`);
 mod.paths = Module._nodeModulePaths(process.cwd());
@@ -116,6 +126,27 @@ test("empty requests compose an empty state and disable retry", async () => {
     assert.match(host.textContent, /No acceptance requests yet/);
     assert.equal(button(host, "Retry pending tasks").disabled, true);
   });
+});
+
+test("tenant terminology updates internal prose but preserves authored task list names", async () => {
+  globalThis.automationNaming = { singular: "Proposal", plural: "Proposals", slug: "proposals" };
+  try {
+    await mounted({ ...base, quoteTaskListName: "Quote delivery" }, async host => {
+      assert.match(host.textContent, /Accepted proposal task automation/);
+      assert.match(host.textContent, /product proposal line/);
+      assert.match(host.textContent, /issued proposal/);
+      assert.match(host.textContent, /past proposals/);
+      assert.match(host.textContent, /Cards are added to “Quote delivery”/);
+      assert.match(host.textContent, /does not send emails or perform financial actions/);
+    });
+    await mounted({ ...base, requests: [], total: 0 }, async host => {
+      assert.match(host.textContent, /future issued proposals/);
+      assert.match(host.textContent, /qualifying proposal is accepted/);
+      assert.match(host.textContent, /Cards are added to “Quote tasks”/);
+    });
+  } finally {
+    delete globalThis.automationNaming;
+  }
 });
 
 test("mutation failures remain visible without losing existing requests", async () => {

@@ -54,6 +54,10 @@ test("quote lines fit narrow and wide containers and preserve editing/actions", 
     plugins: [{
       name: "isolated-tax-options",
       setup(builder) {
+        builder.onResolve({ filter: /hooks\/useSalesSettings$/ }, () => ({ path: "naming", namespace: "naming-fixture" }));
+        builder.onLoad({ filter: /.*/, namespace: "naming-fixture" }, () => ({
+          contents: 'export const useQuoteNaming = () => ({ singular: "Quote", plural: "Quotes", slug: "quotes" });',
+        }));
         builder.onResolve({ filter: /pages\/sales\/useCatalogue$/ }, () => ({ path: "tax-options", namespace: "fixture" }));
         builder.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({
           contents: "export const useCatalogueTaxOptions = () => ({ data: [], isPending: false, isError: false });",

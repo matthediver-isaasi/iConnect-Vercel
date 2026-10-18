@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import QuoteTaskSettings from "./QuoteTaskSettings";
 import CatalogueVisibilitySettings from "./CatalogueVisibilitySettings";
+import QuoteNamingSettings from "./QuoteNamingSettings";
+import { useQuoteNaming } from "@/hooks/useSalesSettings";
+import { quotePath } from "@shared/salesNaming.js";
 import { QuotesList } from "./QuotesWorkspace";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -338,6 +341,7 @@ function SettingsPage() {
   const canManageAccounting = hasAccountingManagementCapability(settingsPermissions);
   return <div className="space-y-5">
     {canManageAccounting && <SalesAccountingSettingsPanel />}
+    <QuoteNamingSettings request={request} canManage={isAccessReady && !isFeatureExcluded("sales.settings.manage")} />
     <QuoteTaskSettings request={request} canManage={isAccessReady && !isFeatureExcluded("sales.settings.manage")} />
     <CatalogueVisibilitySettings request={request} canManage={isAccessReady && !isFeatureExcluded("sales.settings.manage")} />
     {!isAdmin && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">Only administrators can change pipeline settings.</div>}
@@ -446,6 +450,7 @@ export function DocumentsPanel({ opportunityId, items, canEdit, onChanged }) {
 }
 
 function OpportunityDetail() {
+  const naming = useQuoteNaming();
   const { id } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -472,7 +477,7 @@ function OpportunityDetail() {
   const refresh = () => qc.invalidateQueries({ queryKey: ["opportunity", id] });
   const invoiceQuoteId = normalizedDetail.invoiceQuoteId;
   const invoiceAction = async (actionName, command = {}) => {
-    if (!invoiceQuoteId) return Promise.reject(new Error("The accepted quote for this opportunity is unavailable."));
+    if (!invoiceQuoteId) return Promise.reject(new Error(`The accepted ${naming.singular} for this opportunity is unavailable.`));
     const result = await request(`/api/sales/quotes/${invoiceQuoteId}?action=${actionName}`, { method: "POST", body: JSON.stringify(command) });
     await refresh();
     return result;
@@ -505,12 +510,12 @@ function OpportunityDetail() {
   return <div className="space-y-5">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div className="flex items-start gap-3"><Button variant="outline" size="icon" aria-label="Back to opportunities" onClick={() => navigate("/sales/opportunities")}><ArrowLeft className="h-4 w-4" /></Button><div><div className="flex flex-wrap items-center gap-2"><h2 className="text-2xl font-bold text-slate-950">{nameOf(opportunity)}</h2><Badge className="capitalize" variant="outline">{opportunity.priority || "medium"}</Badge></div><div className="mt-1 flex flex-wrap gap-x-4 text-sm text-slate-500"><span>{nameOf(opportunity.organization || { name: opportunity.organization_name })}</span><span>{money(opportunityValue(opportunity), opportunity.currency)}</span><span>Close {date(opportunity.expected_close_date || opportunity.expectedCloseDate)}</span></div></div></div>
-      <div className="flex flex-wrap gap-2"><Button asChild><Link to={`/sales/quotes/new?opportunityId=${id}`}><FileText className="mr-2 h-4 w-4" />Create quote</Link></Button>{opportunity.organization_id && <Button variant="outline" asChild><Link to={`/organisations/${opportunity.organization_id}`}>View organisation</Link></Button>}</div>
+      <div className="flex flex-wrap gap-2"><Button asChild><Link to={`${quotePath(naming, "new")}?opportunityId=${encodeURIComponent(id)}`}><FileText className="mr-2 h-4 w-4" />Create {naming.singular}</Link></Button>{opportunity.organization_id && <Button variant="outline" asChild><Link to={`/organisations/${opportunity.organization_id}`}>View organisation</Link></Button>}</div>
     </div>
     {isConfirmed && <InvoiceStatusPanel invoice={normalizedDetail.invoice} invoices={normalizedDetail.invoices} activeProvider={normalizedDetail.activeProvider} permissions={capabilities} error={update.error} onCreate={(command) => invoiceAction("create-invoice", command)} onRetry={(command) => invoiceAction("create-invoice", command)} onRefresh={normalizedDetail.invoice ? () => invoiceAction("refresh-invoice-status") : undefined} />}
     <Tabs value={searchParams.get("tab") || "overview"} onValueChange={(tab) => { const params = new URLSearchParams(searchParams); params.set("tab", tab); setSearchParams(params, { replace: true }); }}>
       <TabsList className="h-auto max-w-full flex-wrap justify-start">
-        <TabsTrigger value="overview">Overview</TabsTrigger><TabsTrigger value="contacts">Contacts</TabsTrigger><TabsTrigger value="notes">Notes</TabsTrigger><TabsTrigger value="documents">Documents</TabsTrigger><TabsTrigger value="tasks">Tasks</TabsTrigger><TabsTrigger value="activity">Activity</TabsTrigger><TabsTrigger value="quotes">Quotes</TabsTrigger><TabsTrigger value="allocations">Allocations</TabsTrigger>
+        <TabsTrigger value="overview">Overview</TabsTrigger><TabsTrigger value="contacts">Contacts</TabsTrigger><TabsTrigger value="notes">Notes</TabsTrigger><TabsTrigger value="documents">Documents</TabsTrigger><TabsTrigger value="tasks">Tasks</TabsTrigger><TabsTrigger value="activity">Activity</TabsTrigger><TabsTrigger value="quotes">{naming.plural}</TabsTrigger><TabsTrigger value="allocations">Allocations</TabsTrigger>
       </TabsList>
       <TabsContent value="overview" className="space-y-4">
         <Card><CardHeader><CardTitle>Opportunity details</CardTitle></CardHeader><CardContent className="grid gap-4 sm:grid-cols-2">

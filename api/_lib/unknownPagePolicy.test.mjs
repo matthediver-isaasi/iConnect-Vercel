@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { matchesRegisteredRoute } from '../../shared/registeredRoutes.js';
 import { MEMBERSHIP_RETURN_ROUTES } from '../../client/src/lib/membershipPaymentReturn.js';
-import { resolveUnknownPagePolicy, safeRedirectTarget } from './unknownPagePolicy.js';
+import { resolveRouteOutcome, resolveUnknownPagePolicy, safeRedirectTarget } from './unknownPagePolicy.js';
 import { isReservedPageSlug, isReservedMemberSlug } from '../../shared/memberAliases.js';
 
 const tenant = { id: 'a', settings: { redirect_unknown_pages_to_homepage: true } };
@@ -37,13 +37,70 @@ const rule = (extra = {}) => ({ tenant_id: 'a', is_active: true, source_pattern:
 
 test('every literal registered route is covered; dynamic CMS routes are not', () => {
   const source = readFileSync(new URL('../../client/src/pages/index.jsx', import.meta.url), 'utf8');
-  const dynamic = ['/:slug', '/:micrositePrefix/search', '/:micrositePrefix/Search', '/:micrositePrefix/:slug', '/*', '*'];
+  const dynamic = ['/:slug', '/:micrositePrefix/search', '/:micrositePrefix/Search', '/:micrositePrefix/:slug', '/sales/*', '/*', '*'];
   for (const [, path] of source.matchAll(/<Route path="([^"]+)"/g)) {
-    if (!dynamic.includes(path)) assert.ok(matchesRegisteredRoute(path.replace(/:[^/]+/g, 'example')), path);
+    // Dynamic Sales aliases, like CMS routes, need tenant data. Never add them
+    // to REGISTERED_ROUTES simply to make this static parity check pass.
+    const salesAlias = /^\/sales\/:[^/]+(?:\/:[^/]+)?$/.test(path);
+    if (!dynamic.includes(path) && !salesAlias) assert.ok(matchesRegisteredRoute(path.replace(/:[^/]+/g, 'example')), path);
   }
   for (const route of MEMBERSHIP_RETURN_ROUTES) assert.ok(matchesRegisteredRoute(route.path));
   assert.equal(matchesRegisteredRoute('/some-unknown-page'), false);
   assert.equal(matchesRegisteredRoute('/some-prefix/some-page'), false);
+  assert.equal(matchesRegisteredRoute('/sales/proposals'), false);
+  assert.equal(matchesRegisteredRoute('/sales/proposals/example'), false);
+});
+
+test('Sales aliases require fresh tenant settings and only collection/new/id shapes', async () => {
+  const tables = { sales_settings: [
+    { tenant_id: 'a', quote_url_segment: 'proposals' },
+    { tenant_id: 'b', quote_url_segment: 'offers' },
+  ], redirect_mapping: [rule()] };
+  const db = database(tables);
+  for (const path of ['/sales/proposals', '/sales/proposals/', '/sales/proposals/new', '/sales/proposals/quote_123-abc']) {
+    assert.equal(await resolveRouteOutcome(db, tenant, path), 'existing', path);
+    const result = await resolveUnknownPagePolicy(db, tenant, path);
+    assert.deepEqual(result, { found: false, route_outcome: 'existing' });
+  }
+  assert.ok(db.calls.filter(call => call.table === 'sales_settings')
+    .every(call => call.filters.some(([key, value]) => key === 'tenant_id' && value === 'a')));
+  assert.ok(!db.calls.some(call => call.table === 'redirect_mapping'));
+  for (const path of ['/sales/offers', '/sales/no-such-alias', '/sales/proposals/new/extra',
+    '/sales/proposals/id/edit', '/sales/proposals/a.b', '/sales/proposals/a%2Fb', '/sales/Proposals',
+    '/sales/allocations', '/sales/reports/new']) {
+    assert.equal(await resolveRouteOutcome(db, tenant, path), 'missing', path);
+  }
+  assert.equal(await resolveRouteOutcome(db, { id: 'b' }, '/sales/offers/new'), 'existing');
+  assert.equal(await resolveRouteOutcome(db, { id: 'b' }, '/sales/proposals'), 'missing');
+  tables.sales_settings[0].quote_url_segment = 'estimates';
+  assert.equal(await resolveRouteOutcome(db, tenant, '/sales/proposals'), 'missing');
+  assert.equal(await resolveRouteOutcome(db, tenant, '/sales/estimates'), 'existing');
+});
+
+test('Sales static defaults and reserved destinations win without consulting mutable settings', async () => {
+  const db = database({}, 'sales_settings');
+  for (const path of ['/sales', '/sales/quotes', '/sales/quotes/new', '/sales/quotes/123',
+    '/sales/dashboard', '/sales/pipeline', '/sales/opportunities', '/sales/opportunities/id',
+    '/sales/catalogue', '/sales/products', '/sales/bundles', '/sales/tasks',
+    '/sales/reports', '/sales/settings', '/sales/allocations/id']) {
+    assert.equal(await resolveRouteOutcome(db, tenant, path), 'existing', path);
+  }
+  assert.ok(!db.calls.some(call => call.table === 'sales_settings'));
+  assert.equal(await resolveRouteOutcome(database(), tenant, '/sales/proposals'), 'missing');
+});
+
+test('Sales naming lookup failures and corrupt settings are errors, never missing redirect evidence', async () => {
+  const db = database({ redirect_mapping: [rule()] }, 'sales_settings');
+  await assert.rejects(resolveUnknownPagePolicy(db, tenant, '/sales/proposals'), /lookup failed/);
+  assert.ok(!db.calls.some(call => ['redirect_mapping', 'tenant'].includes(call.table)));
+  for (const quote_url_segment of [null, 'tasks', 'Invalid', 'two--hyphens']) {
+    await assert.rejects(resolveRouteOutcome(database({
+      sales_settings: [{ tenant_id: 'a', quote_url_segment }],
+    }), tenant, '/sales/proposals'), /Invalid Sales naming/);
+  }
+  await assert.rejects(resolveRouteOutcome(database({
+    sales_settings: [1, 2].map(() => ({ tenant_id: 'a', quote_url_segment: 'proposals' })),
+  }), tenant, '/sales/proposals'), /Ambiguous/);
 });
 
 test('public Invoice/PO report is an existing protected route, never a homepage fallback', async () => {
@@ -83,9 +140,10 @@ test('deployed Vercel rewrite ordering sends legacy pages to HTML for browsers a
     for (const path of ['/old.html', '/old.aspx', '/old.php', '/legacy/old.html', '/old.HTML', '/missing']) {
       assert.equal(destination(path, agent), '/api/render', `${agent}: ${path}`);
     }
-    for (const path of ['/assets/main.js', '/main.css', '/font.woff2', '/image.png', '/site.webmanifest', '/library.wasm']) {
+    for (const path of ['/assets/main.js', '/main.css', '/font.woff2', '/image.png', '/library.wasm']) {
       assert.equal(destination(path, agent), path, `${agent}: static ${path}`);
     }
+    assert.equal(destination('/site.webmanifest', agent), '/api/public/manifest');
     assert.equal(destination('/robots.txt', agent), '/api/public/robots.txt');
     assert.equal(destination('/sitemap.xml', agent), '/api/public/sitemap.xml');
     assert.equal(destination('/api/redirects/resolve', agent), null);

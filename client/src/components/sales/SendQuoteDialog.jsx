@@ -1,3 +1,4 @@
+import { useQuoteNaming } from "@/hooks/useSalesSettings";
 import { useEffect, useMemo, useRef, useState } from "react";
 import DOMPurify from "dompurify";
 import { Eye, Send } from "lucide-react";
@@ -16,6 +17,7 @@ export default function SendQuoteDialog(props) {
 }
 
 function SendQuoteForm({ open, onOpenChange, pending, onSend, request, quoteId, version, initialRecipient = "", contacts = [] }) {
+  const { singular } = useQuoteNaming();
   const [recipient, setRecipient] = useState(initialRecipient);
   const [expiresInDays, setExpiresInDays] = useState("30");
   const [attachPdf, setAttachPdf] = useState(true);
@@ -102,7 +104,7 @@ function SendQuoteForm({ open, onOpenChange, pending, onSend, request, quoteId, 
       await onSend(payload);
       setPreview(null);
     } catch (error) {
-      setSendError(error.message || "Could not send the quote. Your message has been kept; please try again.");
+      setSendError(error.message || `Could not send the ${singular}. Your message has been kept; please try again.`);
     } finally {
       sendLock.current = false;
       setSending(false);
@@ -112,13 +114,13 @@ function SendQuoteForm({ open, onOpenChange, pending, onSend, request, quoteId, 
   return <Dialog open={open} onOpenChange={(next) => { if (!busy) onOpenChange(next); }}>
     <DialogContent hideCloseButton={busy} className="max-h-[90dvh] w-[calc(100%-2rem)] max-w-3xl overflow-y-auto">
       <DialogHeader>
-        <DialogTitle>Send quote</DialogTitle>
-        <DialogDescription>Review the email before sending a secure, expiring link to this exact quote version.</DialogDescription>
+        <DialogTitle>Send {singular}</DialogTitle>
+        <DialogDescription>Review the email before sending a secure, expiring link to this exact {singular} version.</DialogDescription>
       </DialogHeader>
       <div className="grid gap-4 py-2 sm:grid-cols-2">
         <div className="space-y-1.5 sm:col-span-2">
           <Label htmlFor="quote-recipient-contact">Opportunity contact</Label>
-          <select id="quote-recipient-contact" aria-label="Quote recipient contact" disabled={busy} className="w-full rounded-md border bg-background p-2 text-sm" value={contacts.some(contact => contact.email === recipient) ? recipient : ""} onChange={event => edit(setRecipient, event.target.value)}>
+          <select id="quote-recipient-contact" aria-label={`${singular} recipient contact`} disabled={busy} className="w-full rounded-md border bg-background p-2 text-sm" value={contacts.some(contact => contact.email === recipient) ? recipient : ""} onChange={event => edit(setRecipient, event.target.value)}>
             <option value="">Enter an email address below</option>
             {contacts.filter(contact => contact.email).map(contact => <option key={contact.id || contact.email} value={contact.email}>{contact.name} — {contact.email}</option>)}
           </select>
@@ -138,14 +140,14 @@ function SendQuoteForm({ open, onOpenChange, pending, onSend, request, quoteId, 
           previewError ? <div role="alert" className="text-sm text-destructive"><p>{previewError}</p><Button type="button" variant="outline" size="sm" className="mt-3" disabled={!valid || busy} onClick={previewEmail}>Retry preview</Button></div> :
           freshPreview ? <div className="space-y-3">
             <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm"><dt className="text-muted-foreground">Subject</dt><dd className="break-words font-medium">{freshPreview.subject}</dd><dt className="text-muted-foreground">To</dt><dd className="break-words">{freshPreview.recipient}</dd><dt className="text-muted-foreground">PDF attachment</dt><dd>{freshPreview.attachPdf ? "Yes" : "No"}</dd></dl>
-            <p className="text-xs text-muted-foreground">Preview links are disabled. Previewing does not send an email or create a live quote link.</p>
+            <p className="text-xs text-muted-foreground">Preview links are disabled. Previewing does not send an email or create a live {singular} link.</p>
             <div className="overflow-hidden rounded-md border bg-background">
-              <iframe title="Quote email preview" sandbox="" referrerPolicy="no-referrer" tabIndex={0} srcDoc={previewHtml} className="h-80 w-full border-0" />
+              <iframe title={`${singular} email preview`} sandbox="" referrerPolicy="no-referrer" tabIndex={0} srcDoc={previewHtml} className="h-80 w-full border-0" />
             </div>
           </div> : <p className="py-5 text-center text-sm text-muted-foreground">Preview the email to check your message and enable sending. Any changes require a new preview.</p>}
       </section>
       {sendError && <p role="alert" className="text-sm text-destructive">{sendError}</p>}
-      <DialogFooter className="gap-2"><Button type="button" variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>Cancel</Button><Button type="button" disabled={!valid || !freshPreview || busy || previewLoading} onClick={send}><Send className="mr-2 h-4 w-4" />{busy ? "Sending…" : "Send quote"}</Button></DialogFooter>
+      <DialogFooter className="gap-2"><Button type="button" variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>Cancel</Button><Button type="button" disabled={!valid || !freshPreview || busy || previewLoading} onClick={send}><Send className="mr-2 h-4 w-4" />{busy ? "Sending…" : `Send ${singular}`}</Button></DialogFooter>
     </DialogContent>
   </Dialog>;
 }

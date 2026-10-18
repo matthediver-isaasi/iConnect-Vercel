@@ -13,7 +13,7 @@ export async function salesSettingsRequest(path, options = {}) {
   });
   const data = await response.json();
   if (!response.ok) {
-    const error = new Error(data?.error || "Could not load Sales settings. Please retry.");
+    const error = new Error(data?.details?.join(" ") || data?.error || "Could not load Sales settings. Please retry.");
     error.status = response.status;
     throw error;
   }
@@ -33,8 +33,9 @@ export function useSalesSettingsScope() {
   return { scopeKey, ready, tenant, generation };
 }
 
-export function useSalesSettings(request = salesSettingsRequest) {
-  const { scopeKey, ready, tenant, generation } = useSalesSettingsScope();
+export function useSalesSettings(request = salesSettingsRequest, { enabled = true } = {}) {
+  const { scopeKey, ready: scopeReady, tenant, generation } = useSalesSettingsScope();
+  const ready = scopeReady && enabled;
   const queryKey = ["sales-settings", scopeKey];
   const qc = useQueryClient();
   const query = useQuery({
@@ -50,8 +51,13 @@ export function useSalesSettings(request = salesSettingsRequest) {
       return result;
     },
   });
+  const accept = async result => {
+    await qc.cancelQueries({ queryKey, exact: true });
+    qc.setQueryData(queryKey, old => !old || result.version >= old.version ? result : old);
+  };
   return {
-    ...query, scopeKey, queryKey, lastConfirmedData: ready ? query.data : undefined,
+    ...query, scopeKey, queryKey, ready: ready && query.isSuccess,
+    lastConfirmedData: ready ? query.data : undefined,
     data: ready && !query.isError ? query.data : undefined,
     patch: patch => {
       if (!ready || getActiveTenantId() !== tenant || getViewerProtectedWorkGeneration() !== generation
@@ -63,9 +69,7 @@ export function useSalesSettings(request = salesSettingsRequest) {
     },
     // Both settings cards share the same authoritative version. Their local
     // drafts are deliberately independent of unrelated server fields.
-    accept: async result => {
-      await qc.cancelQueries({ queryKey, exact: true });
-      qc.setQueryData(queryKey, result);
-    },
+    accept,
+    publish: accept,
   };
 }
