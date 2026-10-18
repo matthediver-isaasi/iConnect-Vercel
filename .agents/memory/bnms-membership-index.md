@@ -8,3 +8,4 @@ description: Owner-approved BNMS evidence, historical tests and NMC fulfilment b
 - [NMC report authority](bnms-nmc-report-authority.md): member-class print routing, review-only legacy custom evidence and recognised Honorary exception.
 - [Legacy expiry format authority](bnms-expiry-format-authority.md): user-confirmed US interpretation for the reviewed short-date cohort; edits still require scoped approval.
 - [Imported Job Title authority](bnms-job-title-authority.md): approved Occupation mapping; preserve original Notes and protect subsequent edits.
+- [Historical membership archive](bnms-historical-membership-archive.md): standalone Data Studio records linked to known members; never current membership authority.

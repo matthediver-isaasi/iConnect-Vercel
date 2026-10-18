@@ -1,0 +1,10 @@
+---
+name: BNMS historical membership archive
+description: User-defined isolation boundary for original membership history retained in Data Studio.
+---
+
+BNMS's original membership history is to be retained as a basic historical Custom Data object with a relationship to a known member. It must not interact with existing membership data or flows.
+
+**Why:** The user explicitly requested an archive only, not a migration into the operational membership system.
+
+**How to apply:** Keep archive records separate from live membership history, status, billing, renewals, eligibility and automation. Linking an archive record to an existing member does not authorize changing that member or treating an old membership label/date as current authority.
