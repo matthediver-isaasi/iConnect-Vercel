@@ -62,8 +62,7 @@
 - [WordPress option leases](wordpress-option-leases.md) — expiring locks need DB compare-and-swap takeover/renewal and compare-and-delete release; read/delete/add reopens concurrency races.
 - [Preference-field ownership scopes](preference-field-ownership-scopes.md) — adding a new field owner requires API and DB guards on every legacy value table, not just filtering field definitions.
 - [External campaign contacts](external-campaign-contacts.md) — non-member recipients may have no subscriber row; resolve them before shared suppression and treat email_unsubscribe as canonical.
-- [Mail delivery policies](mail-delivery-index.md) — Mailgun tracking TLS, sending-domain authorization, and direct member correspondence boundaries.
-- [Email bounce authority](email-bounce-authority.md) — address-scoped campaign suppression, chronological delivery outcomes and audited provider-checked resolution.
+- [Mail delivery and evidence](mail-delivery-index.md) — Mailgun readiness, correspondence, bounce/click authority and recipient-history preservation.
 - [Attendance snapshot finalization](attendance-snapshot-finalization.md) — provider reports must publish atomically; idempotency includes bookings, policy, target, intervals, and matches.
 - [Authoritative empty feeds](authoritative-empty-feeds.md) — destructive consumers need confirmed-empty vs load-failure states; never collapse backend errors into [].
 - [Communication consent boundaries](communication-consent-index.md) — category deletion, global/category serialization, and member opt-in eligibility.
@@ -154,6 +153,5 @@
 - [Event display timezone policy](event-display-timezone-policy.md) — audience timezones are display-only; scheduling and date-only agendas stay unchanged.
 - [Node request header copies](node-request-header-copies.md) — object spread drops inherited request headers; use explicit headers and real IncomingMessage test fixtures.
 - [Public bookmark query loops](public-bookmark-query-loop.md) — guest-only 401 loops can clear shared queries and blank unrelated public carousels.
-- [Campaign click authority](campaign-click-authority.md) — iConnect requests own counts; provider evidence stays separate, and historical totals never prove human clicks.
 - [Public branding boundaries](public-branding-freshness.md) — fresh authority across serverless readers; linked favicon normalization and rollout constraints.
 - [Portable npm downloads](portable-npm-downloads.md) — dependency updates can record workspace-only registry URLs that break Vercel installs.

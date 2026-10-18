@@ -1,6 +1,33 @@
 # Campaign test-mode inbox exclusion
 
-## Latest status — 2026-10-18: applied, verification exception outstanding
+## Latest reconciliation — 2026-10-18 15:57 UTC: exception remains open
+
+The read-only [recipient-history investigation](campaign-inbox-recipient-reconciliation.md)
+is complete for currently accessible evidence. **It does not establish exact
+before/after recipient changes or authorize a repair or sender resume.**
+No new migration or data repair was applied; the migration below remains committed.
+
+- DEST still has 145 campaigns, 219,580 recipients and 1,404 inbox-state rows.
+- 217,863 current recipient row versions share transaction `28592758` with the
+  new inbox view. Within that cohort, 149,977 reached delivery-status assignment
+  branches. These are **assignment candidates, not a count of changed values**.
+- Stored event records show activity around the rollout, including a later open
+  associated with the one classified recipient whose current row version is
+  newer than the migration. A sender freeze is not a provider-event write freeze.
+- No recoverable pre-migration recipient snapshot was found in the inspected
+  workspace or accessible database audit surfaces. R2 backup access is not
+  configured here, Supabase log access was denied, and independent Mailgun
+  Events GETs returned 401. Those failures do **not** prove that backups or
+  provider records do not exist.
+- The original checksum discrepancy remains unresolved. Obtain an independently
+  preserved pre-migration snapshot and the exact baseline query/timestamps;
+  reconcile intervening event writes before proposing any field-level repair.
+
+**Keep sending frozen.** No trigger changes, backfill replay, evidence overwrite,
+provider send, deployment, or resume was performed. Matching deployed code and
+controlled signed-in inbox verification remain separate rollout requirements.
+
+## Committed migration status — 2026-10-18 15:47 UTC
 
 The user explicitly confirmed that scheduled, manual and resume/recovery campaign
 sending were stopped. This was an operator attestation, not an independently
