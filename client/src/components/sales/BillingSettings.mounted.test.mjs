@@ -97,6 +97,57 @@ test("mounted presets send a versioned isolated patch; conflicts preserve local 
   } finally { await fixture.close(); }
 });
 
+test("both preset lists support removing saved defaults and blank drafts, persisting empty lists", async () => {
+  let server = settings();
+  const calls = [];
+  const fixture = await mounted(React.createElement(Settings, { canManage: true }), {
+    load: async () => server,
+    request: async (_path, options) => {
+      const patch = JSON.parse(options.body); calls.push(patch);
+      server = { ...server, billingPresets: patch.billingPresets, version: server.version + 1 };
+      return server;
+    },
+  });
+  try {
+    await click(button(fixture.host, "Add issue delay"));
+    await click(fixture.host.querySelector('[aria-label="Remove invoice issue delay 2"]'));
+    assert.equal(fixture.host.querySelector('[aria-label="Invoice issue delays name 2"]'), null);
+    await click(button(fixture.host, "Add payment terms"));
+    await click(fixture.host.querySelector('[aria-label="Remove payment terms 2"]'));
+    assert.equal(fixture.host.querySelector('[aria-label="Payment terms name 2"]'), null);
+    await click(fixture.host.querySelector('[aria-label="Remove invoice issue delay After a week"]'));
+    assert.ok(fixture.host.querySelector('[aria-label="Payment terms name 1"]'));
+    await click(fixture.host.querySelector('[aria-label="Remove payment terms Two weeks"]'));
+    assert.equal(calls.length, 0, "removal is a draft until explicitly saved");
+    assert.equal(fixture.host.querySelectorAll('input').length, 0);
+    await act(async () => { fixture.host.querySelector("form").dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })); await settle(); });
+    assert.deepEqual(calls, [{ expectedVersion: 4, billingPresets: { issueDelays: [], paymentTerms: [] } }]);
+    assert.equal(server.quoteTaskListName, "Production tasks");
+    await act(async () => { await fixture.client.invalidateQueries({ queryKey: ["sales-settings", "tenant-a"] }); });
+    assert.equal(fixture.host.querySelectorAll('input').length, 0, "removed options stay removed after reload");
+    await fixture.render(React.createElement(Settings, { canManage: false }));
+    assert.equal(fixture.host.querySelector('[aria-label^="Remove "]'), null);
+  } finally { await fixture.close(); }
+});
+
+test("preset removal obeys read-only permissions and pending-save state", async () => {
+  let finish;
+  const fixture = await mounted(React.createElement(Settings, { canManage: false }), {
+    request: () => new Promise(resolve => { finish = resolve; }),
+  });
+  try {
+    assert.equal(fixture.host.querySelector('[aria-label^="Remove "]'), null);
+    await fixture.render(React.createElement(Settings, { canManage: true }));
+    await click(fixture.host.querySelector('[aria-label="Remove invoice issue delay After a week"]'));
+    await act(async () => { fixture.host.querySelector("form").dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })); await settle(); });
+    const remove = fixture.host.querySelector('[aria-label="Remove payment terms Two weeks"]');
+    assert.ok(remove.matches(":disabled"));
+    await click(remove);
+    assert.ok(fixture.host.querySelector('[aria-label="Payment terms name 1"]'));
+    await act(async () => { finish({ ...settings(), version: 5, billingPresets: { issueDelays: [], paymentTerms: settings().billingPresets.paymentTerms } }); await settle(); });
+  } finally { await fixture.close(); }
+});
+
 test("preset permission denial disables editing; scoped remount discards a previous tenant draft", async () => {
   const fixture = await mounted(React.createElement(Settings, { canManage: true }));
   try {

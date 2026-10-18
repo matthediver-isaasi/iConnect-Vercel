@@ -17,7 +17,7 @@ function PresetForm({ query, settings, canManage }) {
   });
   const change = (key, rows) => { setDraft({ ...presets, [key]: rows }); save.reset(); };
   return <form className="space-y-6" onSubmit={event => { event.preventDefault(); if (canManage && query.ready && !query.isFetching && !save.isPending && draft && !invalid) save.mutate(); }}>
-    <p className="text-sm text-muted-foreground">Invoice issue timing and time to pay are separate. Changes apply to new selections only; issued and accepted commitments keep their saved terms.</p>
+    <p className="text-sm text-muted-foreground">Invoice issue timing and time to pay are separate. Changes apply to new selections only; issued and accepted commitments keep their saved terms. Remove an option below, then save billing presets to confirm. Existing saved billing terms are not changed.</p>
     {[["issueDelays", "Invoice issue delays", "Calendar days after acceptance, before an invoice is issued"], ["paymentTerms", "Payment terms", "Calendar days after invoice issue, before payment is due"]].map(([key, title, help]) => <fieldset key={key} disabled={!canManage || save.isPending} className="space-y-3 rounded-lg border p-4">
       <legend className="px-1 text-sm font-semibold">{title}</legend><p className="text-xs text-muted-foreground">{help}. Zero means the same day.</p>
       {!presets[key]?.length && <p className="rounded-md bg-muted p-3 text-sm text-muted-foreground">No presets configured. Add a named option for your sales team.</p>}
@@ -30,6 +30,7 @@ function PresetForm({ query, settings, canManage }) {
             <label className="flex items-center gap-2"><input type="checkbox" checked={row.isActive} onChange={event => patch({ isActive: event.target.checked, ...(!event.target.checked ? { isDefault: false } : {}) })} />Active for new selections</label>
             <label className="flex items-center gap-2"><input type="radio" name={`default-${key}`} disabled={!row.isActive} checked={row.isDefault} onChange={() => change(key, rows.map(item => ({ ...item, isDefault: item.id === row.id })))} />Default for new selections</label>
             {row.isDefault && <Button type="button" variant="link" className="h-auto p-0 text-xs" onClick={() => patch({ isDefault: false })}>Clear default</Button>}
+            {canManage && <Button type="button" variant="outline" size="sm" className="text-destructive sm:ml-auto" aria-label={`Remove ${key === "issueDelays" ? "invoice issue delay" : "payment terms"} ${row.name || index + 1}`} onClick={() => change(key, rows.filter(item => item.id !== row.id))}>Remove</Button>}
           </div>
         </div>;
       })}
