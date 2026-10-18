@@ -17,6 +17,8 @@ import {
 import { resolveAllocationInvitation } from '../_lib/allocationInvitation.js';
 import { loadEventPaymentPolicy, assertEventPaymentMethodsAllowed } from '../_lib/eventPaymentPolicy.js';
 import { assertRequestedTicketsReleased, loadComplexReleaseTickets } from '../_lib/ticketReleaseAccess.js';
+import { assertPrivateTicketsAccessible } from '../_lib/privateTicketAccess.js';
+import { isPrivateTicket } from '../../shared/ticketAudience.js';
 import { buildEventCreditSnapshotMetadata } from '../_lib/eventPaymentPolicyCompensation.js';
 import { getAllowVoucherUseAfterExpiry, isVoucherUsableForEventDate } from '../_lib/voucherExpiryPolicy.js';
 import {
@@ -107,6 +109,11 @@ export default async function handler(req, res) {
     }
 
     const allTicketClasses = await loadComplexReleaseTickets(supabase, event);
+    await assertPrivateTicketsAccessible({
+      req, db: supabase, event, tickets: allTicketClasses,
+      ticketIds: isMultiTicket ? items.map(item => item?.ticket_class_id) : [ticket_class_id],
+      allocationContext, eventKind: 'complex',
+    });
     assertRequestedTicketsReleased({
       event, tickets: allTicketClasses,
       ticketIds: isMultiTicket ? items.map(item => item?.ticket_class_id) : [ticket_class_id],
@@ -207,7 +214,7 @@ export default async function handler(req, res) {
       ticket: getTicketClassFromConfig(allTicketClasses, item.ticket_class_id),
       attendees: isMultiTicket ? items[index]?.attendees : req.body.attendees,
     }));
-    if (needsPublicTicketMemberCreation(provisioningItems.map(item => item.ticket), isMember ? member : null, tenant.id)) {
+    if (needsPublicTicketMemberCreation(provisioningItems.map(item => item.ticket).filter(ticket => !isPrivateTicket(ticket)), isMember ? member : null, tenant.id)) {
       if (provisioningItems.some((item, index) => !Array.isArray(item.attendees)
           || item.attendees.length !== normalizedItems[index].attendee_count)) {
         return res.status(400).json({ error: 'Provide complete attendee details matching each ticket quantity before payment.' });
@@ -217,7 +224,7 @@ export default async function handler(req, res) {
         requestId: req.body.purchase_request_id, purchaser: req.body.purchaser_info,
         items: provisioningItems, authenticatedMember: isMember ? member : null,
       });
-    } else if (provisioningItems.some(item => item.ticket?.visibility_mode === 'public_only')) {
+    } else if (provisioningItems.some(item => !isPrivateTicket(item.ticket) && item.ticket?.visibility_mode === 'public_only')) {
       await assertPublicTicketPurchaser({
         db: supabase, tenantId: tenant.id, purchaserEmail: req.body.purchaser_email,
         authenticatedMember: isMember ? member : null,
@@ -233,7 +240,7 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: `Invalid ticket class: ${item.ticket_class_id}` });
       }
 
-      if (!isTicketVisibleToUser(ticketClass, isMember)) {
+      if (!isPrivateTicket(ticketClass) && !isTicketVisibleToUser(ticketClass, isMember)) {
         return res.status(403).json({ error: `Ticket class ${ticketClass.name || item.ticket_class_id} is not available to you` });
       }
 

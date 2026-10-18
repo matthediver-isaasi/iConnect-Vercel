@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { base44 } from '../api/base44Client';
 import { publicClient } from '../api/publicClient';
 import { useLayoutContext } from '../contexts/LayoutContext';
+import { useTicketViewerKey } from './useTicketViewerKey';
 
 /**
  * Task #1519 — /Events visibility helpers for group events.
@@ -19,6 +20,7 @@ import { useLayoutContext } from '../contexts/LayoutContext';
 export function isBespokeRsvpEvent(e) {
   if (!e?.member_group_id) return false;
   if (e.is_complex) return false;
+  if (e.pricing_config?.ticket_classes_configured === true) return false;
   const tc = e?.pricing_config?.ticket_classes;
   return !Array.isArray(tc) || tc.length === 0;
 }
@@ -91,6 +93,7 @@ export function useMyGroupIds() {
  */
 export function useEventsData({ forcePublic = false, includeGroupEvents = false, isAdmin = false } = {}) {
   const { memberInfo, forcePublicLayout, sessionValidated } = useLayoutContext();
+  const viewerKey = useTicketViewerKey(sessionValidated ? memberInfo : null);
   
   // SECURITY: Require BOTH memberInfo AND sessionValidated to treat as authenticated.
   // sessionValidated is set to true ONLY after /api/auth/me succeeds in Layout.jsx.
@@ -111,7 +114,7 @@ export function useEventsData({ forcePublic = false, includeGroupEvents = false,
     : (list || []).filter((e) => !e?.member_group_id);
 
   return useQuery({
-    queryKey: ['events', isAuthenticated ? 'authenticated' : 'public'],
+    queryKey: ['events', isAuthenticated ? 'authenticated' : 'public', ...viewerKey],
     queryFn: async () => {
       try {
         if (isAuthenticated) {
@@ -155,13 +158,13 @@ export function useEventsData({ forcePublic = false, includeGroupEvents = false,
  */
 export function useEventData(eventId, { forcePublic = false } = {}) {
   const { memberInfo, forcePublicLayout, sessionValidated } = useLayoutContext();
+  const viewerKey = useTicketViewerKey(sessionValidated ? memberInfo : null);
   
   // SECURITY: Require BOTH memberInfo AND sessionValidated to treat as authenticated.
   const isAuthenticated = !!memberInfo && !!sessionValidated && !forcePublicLayout && !forcePublic;
   
   return useQuery({
-    queryKey: ['event', eventId, isAuthenticated ? 'authenticated' : 'public', isAuthenticated ? memberInfo?.id : null],
-    placeholderData: (previous, previousQuery) => previousQuery?.queryKey[1] === eventId ? previous : undefined,
+    queryKey: ['event', eventId, isAuthenticated ? 'authenticated' : 'public', ...viewerKey],
     enabled: !!eventId,
     queryFn: async () => {
       try {
@@ -192,11 +195,12 @@ export function useEventData(eventId, { forcePublic = false } = {}) {
 
 export function useEventDataBySlug(slug, { forcePublic = false } = {}) {
   const { memberInfo, forcePublicLayout, sessionValidated } = useLayoutContext();
+  const viewerKey = useTicketViewerKey(sessionValidated ? memberInfo : null);
   
   const isAuthenticated = !!memberInfo && !!sessionValidated && !forcePublicLayout && !forcePublic;
   
   return useQuery({
-    queryKey: ['event-by-slug', slug, isAuthenticated ? 'authenticated' : 'public', isAuthenticated ? memberInfo?.id : null],
+    queryKey: ['event-by-slug', slug, isAuthenticated ? 'authenticated' : 'public', ...viewerKey],
     placeholderData: (previous, previousQuery) => previousQuery?.queryKey[1] === slug ? previous : undefined,
     enabled: !!slug,
     queryFn: async () => {

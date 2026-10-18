@@ -40,6 +40,9 @@ async function validateWrite({ method = 'POST', entity = 'complexeventticketclas
       trace.push('authorize');
       return denied ? { ok: false, status: 403, error: 'Denied' } : { ok: true, body: authorizedBody ?? sanitizedBody };
     },
+    validateTicketAudienceWrite: async ({ body }) => body,
+    validatePublicTicketMemberPolicyWrite: async () => {},
+    hasAdminAccess: async () => true,
     validateTicketRelease: ticket => {
       trace.push('validate');
       return validateTicketRelease(ticket);

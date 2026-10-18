@@ -1,4 +1,6 @@
 import { useState, useMemo } from "react";
+import { useLayoutContext } from "@/contexts/LayoutContext";
+import { useTicketViewerKey } from "@/hooks/useTicketViewerKey";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -37,12 +39,14 @@ const getCheapestPrice = (pricingConfig) => {
 };
 
 export default function PublicComplexEvents() {
+  const { memberInfo, sessionValidated } = useLayoutContext();
+  const viewerKey = useTicketViewerKey(sessionValidated ? memberInfo : null);
   const [searchQuery, setSearchQuery] = useState("");
   const [showPast, setShowPast] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState("all");
 
   const { data: allEvents = [], isLoading } = useQuery({
-    queryKey: ['public-complex-events'],
+    queryKey: ['public-complex-events', ...viewerKey],
     queryFn: async () => await publicClient.listComplexEvents() || [],
     staleTime: 0
   });

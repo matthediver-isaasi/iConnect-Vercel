@@ -41,6 +41,8 @@ import {
 } from '../_lib/allocationPaymentBinding.js';
 import { loadEventPaymentPolicy, assertEventPaymentMethodsAllowed } from '../_lib/eventPaymentPolicy.js';
 import { assertRequestedTicketsReleased, loadComplexReleaseTickets } from '../_lib/ticketReleaseAccess.js';
+import { assertPrivateTicketsAccessible } from '../_lib/privateTicketAccess.js';
+import { isPrivateTicket } from '../../shared/ticketAudience.js';
 import { compensateRejectedEventCreditPayment } from '../_lib/eventPaymentPolicyCompensation.js';
 
 function generateBookingReference() {
@@ -160,6 +162,19 @@ export default async function handler(req, res) {
     let allTicketClasses;
     try { allTicketClasses = await loadComplexReleaseTickets(supabase, event); }
     catch (error) { return res.status(503).json({ error: error.message }); }
+    let privateTicketError = null;
+    try {
+      await assertPrivateTicketsAccessible({
+        req, db: supabase, event, tickets: allTicketClasses,
+        ticketIds: normalizedItems.map(item => item?.ticket_class_id),
+        allocationContext, eventKind: 'complex',
+      });
+    } catch (error) {
+      privateTicketError = error;
+      if (payment_method !== 'card' || !stripe_payment_intent_id) {
+        return res.status(error.statusCode || 403).json({ error: error.message });
+      }
+    }
     const provisioningItems = normalizedItems.map(item => ({
       ticket: getTicketClassFromConfig(allTicketClasses, item.ticket_class_id) || { id: item.ticket_class_id }, attendees: item.attendees,
     }));
@@ -169,7 +184,7 @@ export default async function handler(req, res) {
         allowMissingSchema: !provisioningItems.some(item => item.ticket?.create_member_records === true),
       }) : null;
     let publicTicketPurchase = null;
-    if (!previousPublicPurchase?.booking_ids?.length) {
+    if (!privateTicketError && !previousPublicPurchase?.booking_ids?.length) {
       const titleRejection = await checkBookingAttendeeJobTitles({
         db: supabase, tenantId: tenant.id, eventId: event.id,
         attendees: normalizedItems.flatMap(item => item.attendees),
@@ -186,8 +201,8 @@ export default async function handler(req, res) {
       if (titleRejection) return res.status(titleRejection.statusCode).json(titleRejection);
     }
     const ticketPurchaser = await getSessionMember(req);
-    const needsPublicContactCreation = needsPublicTicketMemberCreation(provisioningItems.map(item => item.ticket), ticketPurchaser, tenant.id);
-    if ((previousPublicPurchase || needsPublicContactCreation) && payment_method !== PUBLIC_INVOICE_PO) {
+    const needsPublicContactCreation = needsPublicTicketMemberCreation(provisioningItems.map(item => item.ticket).filter(ticket => !isPrivateTicket(ticket)), ticketPurchaser, tenant.id);
+    if (!privateTicketError && (previousPublicPurchase || needsPublicContactCreation) && payment_method !== PUBLIC_INVOICE_PO) {
       if (selected_voucher_ids?.length || Number(requestedTrainingFundAmount) || allocationContext
           || !['card', 'free'].includes(payment_method)) {
         return res.status(400).json({ error: 'Public ticket member creation requires a guest card or free checkout without account credits.' });
@@ -202,8 +217,8 @@ export default async function handler(req, res) {
       if (payment_method === 'free' && publicTicketPurchase.stripe_payment_intent_id) {
         return res.status(409).json({ error: 'This checkout requires its original verified payment. Do not pay again.' });
       }
-    } else if (payment_method !== PUBLIC_INVOICE_PO
-        && provisioningItems.some(item => item.ticket?.visibility_mode === 'public_only')) {
+    } else if (!privateTicketError && payment_method !== PUBLIC_INVOICE_PO
+        && provisioningItems.some(item => !isPrivateTicket(item.ticket) && item.ticket?.visibility_mode === 'public_only')) {
       await assertPublicTicketPurchaser({
         db: supabase, tenantId: tenant.id,
         purchaserEmail: purchaserInfo?.email || normalizedItems[0]?.attendees?.[0]?.email,
@@ -219,6 +234,12 @@ export default async function handler(req, res) {
     }
     let ticketReleaseError = null;
     try {
+      if (privateTicketError) throw privateTicketError;
+      await assertPrivateTicketsAccessible({
+        req, db: supabase, event, tickets: allTicketClasses,
+        ticketIds: normalizedItems.map(item => item?.ticket_class_id),
+        allocationContext, eventKind: 'complex',
+      });
       assertRequestedTicketsReleased({
         event, tickets: allTicketClasses,
         ticketIds: normalizedItems.map(item => item?.ticket_class_id),
@@ -410,11 +431,11 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: `Invalid ticket class: ${item.ticket_class_id}` });
       }
 
-      if (ticketClass && !isTicketVisibleToUser(ticketClass, isMember)) {
+      if (ticketClass && !isPrivateTicket(ticketClass) && !isTicketVisibleToUser(ticketClass, isMember)) {
         return res.status(403).json({ error: 'You do not have access to this ticket class' });
       }
 
-      if (ticketClass && ticketHasAccessRestrictions(ticketClass)) {
+      if (ticketClass && !isPrivateTicket(ticketClass) && ticketHasAccessRestrictions(ticketClass)) {
         if (!isMember) {
           return res.status(403).json({ error: 'You do not have access to this ticket class' });
         }

@@ -2,11 +2,13 @@ import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { resolveTicketPrice, validateDiscountCode, computeDiscountedPrice } from '../_lib/complexEventPricing.js';
 import { createClient } from '@supabase/supabase-js';
 import { getSessionMember } from '../_lib/session.js';
+import { assertPrivateTicketsAccessible } from '../_lib/privateTicketAccess.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
 
 export default async function handler(req, res) {
+  res.setHeader('Cache-Control', 'private, no-store');
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
@@ -20,13 +22,18 @@ export default async function handler(req, res) {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const { data: ticketClassRows } = await supabase
+    const { data: ticketClassRows, error: ticketError } = await supabase
       .from('complex_event_ticket_class')
       .select('*')
       .eq('complex_event_id', event_id)
       .eq('tenant_id', tenant.id);
+    if (ticketError) return res.status(503).json({ valid: false, reason: 'Unable to load ticket class' });
 
     const allTicketClasses = ticketClassRows || [];
+    await assertPrivateTicketsAccessible({
+      req, db: supabase, event: { id: event_id, tenant_id: tenant.id },
+      tickets: allTicketClasses, ticketIds: [ticket_class_id], eventKind: 'complex',
+    });
 
     const ticket = resolveTicketPrice(allTicketClasses, ticket_class_id);
     if (!ticket.found || ticket.price <= 0) {
@@ -75,6 +82,7 @@ export default async function handler(req, res) {
       discount_code_id: result.discountCode.id
     });
   } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ valid: false, reason: error.message });
     console.error('[Complex Event Validate Discount] Error:', error);
     return res.status(500).json({ valid: false, reason: 'Failed to validate discount code' });
   }

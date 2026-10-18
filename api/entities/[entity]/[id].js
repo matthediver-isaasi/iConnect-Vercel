@@ -1,6 +1,9 @@
 import { validateSurveyCompletionUpdate } from '../../_lib/surveyCompletionConfiguration.js';
 import { validateDirectoryConfiguration, canManageDirectoryConfiguration } from '../../_lib/directoryExpression.js';
 import { validateTicketRelease } from '../../../shared/ticketRelease.js';
+import { validateTicketAudienceWrite } from '../../_lib/ticketAudienceWrite.js';
+import { assertGenericPrivateTicketBooking } from '../../_lib/privateTicketAccess.js';
+import { isTicketAudienceEntity, ticketAudienceProjectionError, loadTicketAudienceReadContext, scopeTicketAudienceQuery, projectTicketAudienceRows } from '../../_lib/ticketAudienceRead.js';
 import { gatePublicTicketMemberPolicy } from '../../_lib/publicTicketMemberReleaseGate.js';
 import { validatePublicTicketMemberPolicyWrite } from '../../_lib/publicTicketMemberCreation.js';
 import { triggerWorkflows, triggerPreferenceWorkflows } from '../../_lib/workflows.js';
@@ -30,7 +33,7 @@ import {
   rejectGenericServerOwnedEntity,
   stripGenericServerOwnedFields,
 } from '../../_lib/serverOwnedEntityBoundary.js';
-import { isEventFamilyEntity, authorizeGroupAdminEventWrite } from '../../_lib/groupAdminEventWrite.js';
+import { isEventFamilyEntity, authorizeGroupAdminEventWrite, authorizeGroupAdminEventAction } from '../../_lib/groupAdminEventWrite.js';
 import { checkBadgeWriteAccess } from '../../_lib/badgeAccess.js';
 import { deleteOrDeactivateBadge } from '../../_lib/badgeDelete.js';
 import { isResourceEntity, authorizeGroupAdminResourceWrite } from '../../_lib/groupAdminResourceWrite.js';
@@ -327,6 +330,10 @@ export default async function handler(req, res, dependencies = {}) {
 
   // Get tenant context from session
   const tenantCtx = await (dependencies.getTenantContext || getTenantContext)(req);
+  if (req.method === 'GET') {
+    const projectionError = ticketAudienceProjectionError(entityNorm, req.query);
+    if (projectionError) return res.status(400).json({ error: projectionError });
+  }
   if (req.method === 'GET' && /member_group|group_id|system_settings/i.test(String(req.query.expand || ''))
       && !(tenantCtx.isAuthenticated && await hasAdminAccess(tenantCtx))) {
     return res.status(403).json({ error: 'Private group fields cannot be queried through generic projections.' });
@@ -764,10 +771,14 @@ export default async function handler(req, res, dependencies = {}) {
   try {
     if (req.method === 'GET') {
       const { expand } = req.query;
+      const audienceContext = isTicketAudienceEntity(entityNorm)
+        ? await loadTicketAudienceReadContext({ req, ctx: tenantCtx, db: supabase }) : null;
+      if (audienceContext) res.setHeader('Cache-Control', 'private, no-store');
       let query = supabase
         .from(tableName)
         .select(entityNorm === 'memberresourcecategory' ? MEMBER_RESOURCE_CATEGORY_SELECT : ['formsubmission', 'surveyanswer'].includes(entityNorm) && expand ? `${expand},survey_version_id` : expand || '*')
         .eq('id', id);
+      if (audienceContext) query = scopeTicketAudienceQuery(query, entityNorm, audienceContext);
 
       if (entityNorm === 'resource') {
         res.setHeader('Cache-Control', 'private, no-store');
@@ -1008,11 +1019,28 @@ export default async function handler(req, res, dependencies = {}) {
       if (entityNorm === 'membergroup') {
         return res.json((await projectGroupCustomFields(requestDatabase, tenantCtx, [data], hasAdminAccess))[0]);
       }
+      if (audienceContext) {
+        const [visible] = projectTicketAudienceRows([data], entityNorm, audienceContext);
+        if (!visible) return res.status(404).json({ error: 'Not found' });
+        return res.json(visible);
+      }
       return res.json(data);
 
     } else if (req.method === 'PATCH') {
       // Normalize entity name for comparison (handles both PascalCase and slug-case)
       const entityNormalized = entity.replace(/[-_]/g, '').toLowerCase();
+      if ((entityNorm === 'booking' || entityNorm === 'complexeventbooking')
+        && ['ticket_class_id', 'event_id'].some(key => Object.prototype.hasOwnProperty.call(req.body || {}, key))) {
+        const { data: existing, error } = await supabase.from(tableName).select('*')
+          .eq('tenant_id', tenantCtx.tenantId).eq('id', id).maybeSingle();
+        if (error) return res.status(503).json({ error: 'Unable to verify booking ticket audience' });
+        if (!existing) return res.status(404).json({ error: 'Not found' });
+        try {
+          await assertGenericPrivateTicketBooking({ req, db: supabase, tenantCtx, entity, body: req.body, existing });
+        } catch (error) {
+          return res.status(error.statusCode || 403).json({ error: error.message });
+        }
+      }
 
       if (entityNormalized === 'gallery' && Object.prototype.hasOwnProperty.call(req.body || {}, 'access_policy')) {
         const policy = await validateGalleryAccessPolicy({
@@ -2028,6 +2056,15 @@ export default async function handler(req, res, dependencies = {}) {
         if (validatesTicketRelease) {
           if (existingError) return res.status(500).json({ error: 'Failed to load ticket release settings for update' });
           if (!existingRow) return res.status(404).json({ error: 'Record not found' });
+          try {
+            const normalized = await validateTicketAudienceWrite({
+              db: supabase, tenantId: tenantCtx.tenantId, entity: entityNormalized,
+              body: sanitizedBody, existingRow,
+            });
+            Object.assign(sanitizedBody, normalized);
+          } catch (error) {
+            return res.status(error.statusCode || error.status || 400).json({ error: error.message });
+          }
           // PATCH merges row fields; JSON pricing_config, when supplied,
           // replaces the stored JSON exactly as it does in the database.
           const merged = { ...existingRow, ...sanitizedBody };
@@ -2841,6 +2878,21 @@ export default async function handler(req, res, dependencies = {}) {
       return res.json(responseData);
 
     } else if (req.method === 'DELETE') {
+      if (isTicketAudienceEntity(entityNorm)) {
+        let eventId = id;
+        if (entityNorm === 'complexeventticketclass') {
+          const { data: ticket, error } = await supabase.from('complex_event_ticket_class')
+            .select('complex_event_id').eq('tenant_id', tenantCtx.tenantId).eq('id', id).maybeSingle();
+          if (error) return res.status(503).json({ error: 'Unable to verify ticket management access' });
+          if (!ticket) return res.status(404).json({ error: 'Not found' });
+          eventId = ticket.complex_event_id;
+        }
+        const access = await authorizeGroupAdminEventAction({
+          eventId, eventTable: entityNorm === 'event' ? 'event' : 'complex_event',
+          tenantCtx, req,
+        });
+        if (!access.ok) return res.status(access.status || 403).json({ error: access.error });
+      }
       if (entityNorm === 'communicationcategory') {
         if (!tenantCtx.isAuthenticated) {
           return res.status(401).json({ error: 'Authentication required' });

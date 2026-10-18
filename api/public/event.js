@@ -7,8 +7,12 @@ import {
   suppressImmediateSchedule,
 } from '../../shared/eventTiming.js';
 import { normalizeEventDisplayMode } from '../../shared/eventDisplayMode.js';
+import { filterViewerTickets } from '../../shared/ticketAudienceProjection.js';
+import { loadPrivateTicketViewer } from '../_lib/privateTicketAccess.js';
+import { isPrivateTicket } from '../../shared/ticketAudience.js';
 
 export default async function handler(req, res) {
+  res.setHeader('Cache-Control', 'private, no-store');
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -118,7 +122,8 @@ export default async function handler(req, res) {
 
     const allowGuestsToViewAllTickets = event.pricing_config?.allowGuestsToViewAllTickets || false;
 
-    const allTicketClasses = event.pricing_config?.ticket_classes || [];
+    const viewer = await loadPrivateTicketViewer(req, tenant.id, supabase);
+    const allTicketClasses = filterViewerTickets(event.pricing_config?.ticket_classes || [], viewer, tenant.id);
     const allPrices = allTicketClasses
       .map(tc => {
         if (tc.price === undefined || tc.price === null || tc.price === '') return NaN;
@@ -126,7 +131,7 @@ export default async function handler(req, res) {
       })
       .filter(p => Number.isFinite(p));
     let cheapestPrice = allPrices.length > 0 ? Math.min(...allPrices) : null;
-    if (cheapestPrice === null) {
+    if (cheapestPrice === null && !(event.pricing_config?.ticket_classes || []).length) {
       const legacy = event.pricing_config?.ticket_price;
       if (legacy !== undefined && legacy !== null && legacy !== '') {
         const n = Number(legacy);
@@ -136,6 +141,7 @@ export default async function handler(req, res) {
 
     const publicTicketClassesBase = allTicketClasses
       .filter(tc => {
+        if (isPrivateTicket(tc)) return tc.private_ticket_eligible === true;
         if (allowGuestsToViewAllTickets) return true;
         if (tc.visibility_mode) {
           return tc.visibility_mode === 'members_and_public' || tc.visibility_mode === 'public_only';
@@ -149,6 +155,8 @@ export default async function handler(req, res) {
         price: tc.price,
         currency: tc.currency,
         visibility_mode: tc.visibility_mode,
+        audience_mode: tc.audience_mode,
+        ...(tc.private_ticket_eligible === true ? { private_ticket_eligible: true } : {}),
         ...publicTicketMemberPolicy(tc),
         is_public: tc.is_public,
         is_group_ticket: tc.is_group_ticket || false,
@@ -240,9 +248,10 @@ export default async function handler(req, res) {
       timezone: event.timezone,
       pricing_config: event.pricing_config ? {
         ticket_classes: publicTicketClasses,
+        ticket_classes_configured: (event.pricing_config?.ticket_classes || []).length > 0,
         allowGuestsToViewAllTickets: allowGuestsToViewAllTickets,
         collectThirdPartyConsent: event.pricing_config?.collectThirdPartyConsent === true,
-        ticket_price: event.pricing_config.ticket_price,
+        ticket_price: (event.pricing_config?.ticket_classes || []).length ? undefined : event.pricing_config.ticket_price,
         offer_type: event.pricing_config.offer_type
       } : null,
       allow_public_invoice_po: event.allow_public_invoice_po === true,

@@ -22,7 +22,8 @@ test("member creation controls render for both public audiences; toggle exposes 
   let changed;
   const render = ticket => root.render(<PublicTicketMemberFields ticket={ticket} roles={[{ id: "contact", name: "Association contact" }]} onChange={patch => { changed = patch; }} />);
   await act(async () => render({ id: "ticket", visibility_mode: "members_only" }));
-  assert.equal(host.textContent, "");
+  assert.match(host.textContent, /Selected members only/);
+  assert.equal(host.querySelector('[role="switch"]'), null);
   await act(async () => render({ id: "ticket", visibility_mode: "members_and_public" }));
   assert.ok(host.querySelector('[role="switch"]'));
   const ticket = { id: "ticket", visibility_mode: "public_only", create_member_records: false };

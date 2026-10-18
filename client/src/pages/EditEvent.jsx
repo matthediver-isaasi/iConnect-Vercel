@@ -791,7 +791,7 @@ export default function EditEvent() {
       const newRoles = currentRoles.includes(roleId)
         ? currentRoles.filter(id => id !== roleId)
         : [...currentRoles, roleId];
-      return { ...t, role_ids: newRoles };
+      return updateTicketMemberField(t, 'role_ids', newRoles);
     }));
   };
 
@@ -802,7 +802,7 @@ export default function EditEvent() {
       const newGroups = currentGroups.includes(groupId)
         ? currentGroups.filter(id => id !== groupId)
         : [...currentGroups, groupId];
-      return { ...t, member_group_ids: newGroups };
+      return updateTicketMemberField(t, 'member_group_ids', newGroups);
     }));
   };
 
@@ -1901,7 +1901,7 @@ export default function EditEvent() {
       const formattedTicketClasses = ticketClasses.map(ticket => {
         const ticketData = {
           ...serializeTicketRelease(ticket),
-          ...ticketMemberPolicy(isGroupLimited ? {} : ticket),
+          ...ticketMemberPolicy(isGroupLimited ? { ...ticket, create_member_records: false, new_member_role_id: null } : ticket),
           id: ticket.id,
           name: ticket.name,
           // Group-limited events allow free tickets only.
@@ -1911,7 +1911,7 @@ export default function EditEvent() {
           member_group_ids: isGroupLimited ? [] : (ticket.member_group_ids || []),
           is_default: ticket.is_default || false,
           // Group events: ticket visibility follows the event audience choice.
-          visibility_mode: isGroupLimited ? 'members_and_public' : (ticket.visibility_mode || 'members_only'),
+          visibility_mode: ticket.audience_mode === 'selected_members' ? 'members_only' : isGroupLimited ? 'members_and_public' : (ticket.visibility_mode || 'members_only'),
           role_match_only: isGroupLimited ? false : (ticket.role_match_only || false),
           offer_type: isGroupLimited ? 'none' : ticket.offer_type,
           // Ticket availability: null = unlimited, number = limited
@@ -3634,7 +3634,7 @@ export default function EditEvent() {
                         )}
 
                         {/* Ticket Availability */}
-                        <PublicTicketMemberFields ticket={ticket} roles={roles} onChange={patch => setTicketClasses(prev => prev.map(t => t.id === ticket.id ? { ...t, ...patch } : t))} />
+                        <PublicTicketMemberFields ticket={ticket} eventId={eventId} groupId={groupId} roles={roles} onChange={patch => setTicketClasses(prev => prev.map(t => t.id === ticket.id ? { ...t, ...patch } : t))} />
                         <TicketReleaseFields
                           ticket={ticket}
                           eventTimezone={eventTimezone}

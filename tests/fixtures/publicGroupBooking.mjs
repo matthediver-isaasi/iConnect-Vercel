@@ -10,15 +10,29 @@ async function loadComplexHandler() {
   const source = await readFile(path, 'utf8');
   const mocks = new Map();
   for (const [, names, specifier] of source.matchAll(/import\s+([\s\S]*?)\s+from\s+['"]([^'"]+)['"];?/g)) {
-    if (/ticketAccess|complexEventPricing|ticketReleaseAccess|eventOptionSelections|attendeeJobTitleEnrichment/.test(specifier)) continue;
+    if (/ticketAccess|privateTicketAccess|ticketAudience|complexEventPricing|ticketReleaseAccess|eventOptionSelections|attendeeJobTitleEnrichment|attendeeJobTitleRequirement|eventPaymentPolicyCompensation/.test(specifier)) continue;
+    if (!names.trim().startsWith('{')) {
+      mocks.set(specifier, `export default function(...args) { return globalThis.${slot}.dependency(${JSON.stringify(names.trim())}, args); }`);
+      continue;
+    }
     mocks.set(specifier, names.replace(/[{}]/g, '').split(',').map(s => s.trim()).filter(Boolean)
       .map(name => `export function ${name}(...args) { return globalThis.${slot}.dependency(${JSON.stringify(name)}, args); }`).join('\n'));
   }
   const result = await build({
     entryPoints: [path], bundle: true, write: false, platform: 'node', format: 'esm',
     plugins: [{ name: 'isolated-group-booking', setup(b) {
-      b.onResolve({ filter: /.*/ }, args => mocks.has(args.path) ? { path: args.path, namespace: 'fixture' } : undefined);
-      b.onLoad({ filter: /.*/, namespace: 'fixture' }, args => ({ contents: mocks.get(args.path), loader: 'js' }));
+      b.onResolve({ filter: /.*/ }, args => {
+        if (args.path.endsWith('/session.js')) return { path: '__session', namespace: 'fixture' };
+        if (args.path.endsWith('/tenantContext.js')) return { path: '__tenant', namespace: 'fixture' };
+        return mocks.has(args.path) ? { path: args.path, namespace: 'fixture' } : undefined;
+      });
+      b.onLoad({ filter: /.*/, namespace: 'fixture' }, args => ({
+        contents: args.path === '__session'
+          ? `export const getSession = (...args) => globalThis.${slot}.dependency('getSession', args);
+             export const getSessionMember = (...args) => globalThis.${slot}.dependency('getSessionMember', args);`
+          : args.path === '__tenant' ? 'export const hasAdminAccess = async () => false;'
+            : mocks.get(args.path), loader: 'js',
+      }));
     } }],
   });
   return (await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`)).default;

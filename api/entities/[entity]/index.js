@@ -5,6 +5,9 @@ import { sendSessionUnavailable } from '../../_lib/sessionAvailability.js';
 import { withoutEnhancedSurveyAnswers } from '../../_lib/surveyCompletionOutputs.js';
 import { validateAnonymousCompletionConfiguration } from '../../../shared/surveyCompletionPolicy.js';
 import { validateTicketRelease } from '../../../shared/ticketRelease.js';
+import { validateTicketAudienceWrite } from '../../_lib/ticketAudienceWrite.js';
+import { assertGenericPrivateTicketBooking } from '../../_lib/privateTicketAccess.js';
+import { isTicketAudienceEntity, ticketAudienceProjectionError, loadTicketAudienceReadContext, scopeTicketAudienceQuery, projectTicketAudienceRows } from '../../_lib/ticketAudienceRead.js';
 import { gatePublicTicketMemberPolicy } from '../../_lib/publicTicketMemberReleaseGate.js';
 import { validatePublicTicketMemberPolicyWrite } from '../../_lib/publicTicketMemberCreation.js';
 import { generatePasswordSetupUrl, hasSetPasswordToken, replaceSetPasswordToken } from '../../_lib/passwordSetupUrl.js';
@@ -461,6 +464,10 @@ export default async function handler(req, res) {
     // Only protected consumers interpret this header; public responses do not.
     res.setHeader('X-Session-Status', 'invalid');
   }
+  if (req.method === 'GET') {
+    const projectionError = ticketAudienceProjectionError(entityNorm, req.query);
+    if (projectionError) return res.status(400).json({ error: projectionError });
+  }
 
   // Gallery configuration and files change who can view private media. This
   // is a server authorization boundary, not a client page/role-map concern.
@@ -833,6 +840,9 @@ export default async function handler(req, res) {
   try {
     if (req.method === 'GET') {
       // List entities
+      const audienceContext = isTicketAudienceEntity(entityNorm)
+        ? await loadTicketAudienceReadContext({ req, ctx: tenantCtx, db: supabase }) : null;
+      if (audienceContext) res.setHeader('Cache-Control', 'private, no-store');
       const { filter, sort, limit, offset, expand } = req.query;
       const guestWriterListResult = entityNorm === 'guestwriter'
         ? parseGuestWriterListQuery(req.query)
@@ -855,6 +865,7 @@ export default async function handler(req, res) {
       let query = supabase
         .from(tableName)
         .select(entityNorm === 'memberresourcecategory' ? MEMBER_RESOURCE_CATEGORY_SELECT : ['formsubmission', 'surveyanswer'].includes(entityNorm) && expand ? `${expand},survey_version_id` : expand || '*', wantsCount ? { count: 'exact' } : undefined);
+      if (audienceContext) query = scopeTicketAudienceQuery(query, entityNorm, audienceContext);
 
       if (entityNorm === 'resource') {
         res.setHeader('Cache-Control', 'private, no-store');
@@ -1461,6 +1472,7 @@ export default async function handler(req, res) {
           return res.status(500).json({ error: 'Failed to validate custom field ownership' });
         }
       }
+      if (audienceContext) data = projectTicketAudienceRows(data, entityNorm, audienceContext);
       
       // SECURITY (Task #1421): group-linked forum categories/threads/posts are
       // private to that group's members. The query above is only tenant-scoped,
@@ -1574,6 +1586,15 @@ export default async function handler(req, res) {
 
     } else if (req.method === 'POST') {
       // Create entity
+      if (entityNorm === 'booking' || entityNorm === 'complexeventbooking') {
+        try {
+          for (const body of Array.isArray(req.body) ? req.body : [req.body]) {
+            await assertGenericPrivateTicketBooking({ req, db: supabase, tenantCtx, entity, body });
+          }
+        } catch (error) {
+          return res.status(error.statusCode || 403).json({ error: error.message });
+        }
+      }
       if (entityNorm === 'jobposting' && hasManagedJobProvenance(req.body)) {
         return res.status(403).json({ error: 'External job provenance is managed by the feed synchronizer' });
       }
@@ -2676,6 +2697,14 @@ export default async function handler(req, res) {
       // Validate only the authorized payload; release scheduling never grants
       // additional audience access or changes the event-write guardrails.
       if (entityNorm === 'event' || entityNorm === 'complexeventticketclass') {
+        try {
+          const normalized = await validateTicketAudienceWrite({
+            db: supabase, tenantId: tenantCtx.tenantId, entity: entityNorm, body: sanitizedBody,
+          });
+          Object.assign(sanitizedBody, normalized);
+        } catch (error) {
+          return res.status(error.statusCode || error.status || 400).json({ error: error.message });
+        }
         const records = Array.isArray(sanitizedBody) ? sanitizedBody : [sanitizedBody];
         const tickets = records.flatMap(record => entityNorm === 'event'
           ? record.pricing_config?.ticket_classes || []

@@ -115,6 +115,15 @@ const sb = createClient(process.env.DEST_SUPABASE_URL, process.env.DEST_SUPABASE
 -   **Destination directory verification (read-only):** `node scripts/verify-directory-source-values-destination.mjs` checks the configured BNMS Department Name source against DEST without changing settings or records. `npx playwright test --config=tests/task-4360-destination-harness.config.mjs` renders the local app with fixture sign-in/chrome and real destination-backed directory service responses. This harness is not a deployed-login/authentication test; `scripts/verify-task-4360-preview.mjs` separately supports normal authenticated preview verification with an ephemeral `PLAYWRIGHT_STORAGE_STATE`.
 -   **Repeatable Custom Object source verification (read-only):** `node scripts/verify-form-row-choice-sources.mjs --parent-object=<uuid> --related-object=<uuid> --value-field=<name>` checks record → distinct scalar → filtered record options and submission eligibility against DEST using an in-memory form. It does not save forms, submissions, or catalogue records.
 
+## Private member ticket verification
+
+Selected-member ticket audiences use isolated tests only; do not run live payments, notifications, or deployment as part of verification.
+
+- API/policy/read/write checks: `node scripts/run-isolated-tests.mjs node --test api/_lib/privateTicketAccess.test.mjs api/_lib/ticketAudienceRead.test.mjs api/_lib/ticketAudienceWrite.test.mjs api/entities/ticketAudienceReads.test.mjs api/entities/ticketReleaseWrites.test.mjs api/events/ticket-members.test.mjs api/public/ticket-release.handlers.test.mjs api/public/ticketReleaseSerializers.test.mjs api/public/complex-event-private-discount.test.mjs api/_lib/allocationInvitation.test.mjs api/public/event-allocation/context/context.test.mjs tests/public-group-booking.test.mjs scripts/apply-ticket-selected-member-audience-migration.test.mjs`.
+- Database guard checks: `node scripts/run-isolated-tests.mjs --allow-local-postgres node --test api/_lib/ticketAudienceWrite.postgres.test.mjs` uses only a temporary UNIX-socket PostgreSQL cluster.
+- Browser fixtures: `npx playwright test --config=client/src/components/events/selectedMembers.task5178.config.mjs` bundles actual editors/detail components with intercepted data/provider requests; it is not live signed-in verification.
+- Rollout: `docs/task-5178-ticket-audience-rollout.md` records the pending `202612310005_ticket_selected_member_audience.sql` migration and strict DEST-only application/verification commands. Apply and verify the schema before deploying dependent code. No live migration was applied during implementation.
+
 ## Env vars (current canonical set)
 Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPABASE_*` names; prefer the `DEST_*` names below for new code.
 

@@ -143,6 +143,7 @@
 - [Deferred card Checkout timing](deferred-card-checkout.md) — trial minimum lead time needs an anchor alternative; provider trial semantics never imply free membership access.
 - [Synthetic renewal fixture authority](synthetic-renewal-fixture-authority.md) — BNMS counterfactual terms are fixture-only approval; reserved emails do not suppress transactional provider calls.
 - [Public ticket contact creation](public-ticket-contact-boundary.md) — purchaser and attendee CRM records never imply activation, membership, affiliation or consent.
+- [Private ticket purchase authority](private-ticket-purchase-authority.md) — selected-member lists govern new purchases; sibling tickets and purchased allocation entitlements retain independent access.
 - [Website first-content paths](website-critical-path.md) — metadata remount reuse differs from page authority; compare matched builds and separate dispatch from real-content timing.
 - [Survey score CSV contract](survey-score-csv-contract.md) — preserve historical raw scores; reject coercion-only answers without applying current survey ranges.
 - [About-me Job Title](about-me-job-title.md) — never show a placeholder in the Job Title input.

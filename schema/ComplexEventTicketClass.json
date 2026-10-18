@@ -66,6 +66,17 @@
       "type": "number",
       "description": "VAT percentage value"
     },
+    "audience_mode": {
+      "type": ["string", "null"],
+      "enum": ["legacy", "selected_members", null],
+      "description": "Missing/null means legacy visibility and role/group eligibility. selected_members is an explicit tenant-member allowlist; never inferred from legacy restrictions."
+    },
+    "selected_member_ids": {
+      "type": ["array", "null"],
+      "items": { "type": "string", "format": "uuid" },
+      "uniqueItems": true,
+      "description": "Canonical member UUIDs in this tenant. Required for selected_members; an empty list denies everyone. Cleared on an explicit return to legacy. No legacy backfill."
+    },
     "visibility_mode": {
       "type": "string",
       "enum": ["members_only", "members_and_public", "public_only"],

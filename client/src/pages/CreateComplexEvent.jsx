@@ -1761,7 +1761,7 @@ export default function CreateComplexEvent() {
       const newRoles = currentRoles.includes(roleId)
         ? currentRoles.filter(id => id !== roleId)
         : [...currentRoles, roleId];
-      return { ...t, role_ids: newRoles };
+      return updateTicketMemberField(t, 'role_ids', newRoles);
     }));
   };
 
@@ -1772,7 +1772,7 @@ export default function CreateComplexEvent() {
       const newGroups = currentGroups.includes(groupId)
         ? currentGroups.filter(id => id !== groupId)
         : [...currentGroups, groupId];
-      return { ...t, member_group_ids: newGroups };
+      return updateTicketMemberField(t, 'member_group_ids', newGroups);
     }));
   };
 
@@ -2234,7 +2234,7 @@ export default function CreateComplexEvent() {
         const ticket = ticketClasses[ti];
         const tcPayload = {
           ...serializeTicketRelease(ticket),
-          ...ticketMemberPolicy(isGroupLimited ? {} : ticket),
+          ...ticketMemberPolicy(isGroupLimited ? { ...ticket, create_member_records: false, new_member_role_id: null } : ticket),
           complex_event_id: eventId,
           name: ticket.name || "Standard Ticket",
           price: isGroupLimited ? 0 : (parseFloat(ticket.price) || 0),
@@ -4101,7 +4101,7 @@ export default function CreateComplexEvent() {
                         </div>
                       )}
 
-                      <PublicTicketMemberFields ticket={ticket} roles={roles} onChange={patch => setTicketClasses(prev => prev.map(t => t._localId === ticket._localId ? { ...t, ...patch } : t))} />
+                      <PublicTicketMemberFields ticket={ticket} eventId={editId} eventType="complex" groupId={lockedGroupId} roles={roles} onChange={patch => setTicketClasses(prev => prev.map(t => t._localId === ticket._localId ? { ...t, ...patch } : t))} />
                       <TicketReleaseFields
                         ticket={ticket}
                         eventTimezone={formData.timezone}

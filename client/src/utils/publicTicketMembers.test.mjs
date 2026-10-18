@@ -69,5 +69,5 @@ test("standard and complex editor serialization and checkout recovery carry the 
   assert.match(payment, /sessionStorage.getItem\(key\) \|\| uuidv4\(\)/);
   const complex = readFileSync(new URL("../pages/ComplexEventDetail.jsx", import.meta.url), "utf8");
   assert.equal((complex.match(/purchase_request_id: data.purchase_request_id/g) || []).length, 2);
-  assert.match(complex, /attendees: ci.attendees.map\(purchaseIdentity\)/);
+  assert.match(complex, /attendees: ci\.attendees\.map\(a => \(\{ \.\.\.purchaseIdentity\(a\), job_title: a\.job_title \|\| '' \}\)\)/);
 });

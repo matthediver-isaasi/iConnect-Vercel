@@ -1,4 +1,6 @@
 import TenantEventTimeDisplay from "@/components/events/TenantEventTimeDisplay";
+import { reconcilePrivateCart, mergeAllocationTicket } from "@/utils/privateTicketAudience";
+import { useTicketViewerKey } from "@/hooks/useTicketViewerKey";
 import { requireAttendeeJobTitle } from "../../../shared/attendeeJobTitleRequirement.js";
 import { purchaseIdentity, ticketMemberPolicy } from "@/utils/publicTicketMembers";
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
@@ -620,7 +622,9 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
   const availableTicketClasses = useMemo(() => {
     return ticketClasses.filter(tc => {
       if (allocationContext?.ticketTypeId
-        && String(tc.id) === String(allocationContext.ticketTypeId)) return true;
+        && String(tc.id) === String(allocationContext.ticketTypeId)
+        && (tc.audience_mode !== 'selected_members' || tc.allocation_ticket_eligible === true)) return true;
+      if (tc.audience_mode === 'selected_members') return !isGuest && tc.private_ticket_eligible === true;
       const vis = getTicketVisibility(tc);
       const ticketRoleIds = Array.isArray(tc.role_ids) ? tc.role_ids : [];
       const ticketGroupIds = Array.isArray(tc.member_group_ids) ? tc.member_group_ids : [];
@@ -1333,6 +1337,7 @@ export function ComplexEventDetailExperience({
 }) {
   const { memberInfo: sessionMember, organizationInfo, isAdmin, authResolved, sessionValidated, roleStatus } = useMemberAccess();
   const memberInfo = authResolved && sessionValidated && roleStatus === 'ready' ? sessionMember : null;
+  const viewerKey = useTicketViewerKey(memberInfo);
   const { openLogin, loginModal } = useEventLogin();
   // Task #3508: canonical ACTIVE-group-membership signal (unexpired assignment
   // + active group, resolved server-side) used for the join-to-book gate.
@@ -1341,7 +1346,7 @@ export function ComplexEventDetailExperience({
   const [selectedSpeaker, setSelectedSpeaker] = useState(null);
   const [cart, setCart] = useState({});
   const { data: allocationPayload, isLoading: allocationLoading, error: allocationError } = useQuery({
-    queryKey: ['event-allocation-context', allocationToken],
+    queryKey: ['event-allocation-context', allocationToken, ...viewerKey],
     queryFn: () => publicClient.getEventAllocationContext(allocationToken),
     enabled: Boolean(allocationToken),
     retry: false,
@@ -1366,23 +1371,41 @@ export function ComplexEventDetailExperience({
   const isSlugLookup = !!explicitEventSlug && !explicitEventId && !allocationContext?.eventId;
 
   const { data: slugResolvedEvent, isLoading: isSlugLoading } = useQuery({
-    queryKey: ['complex-event-by-slug', explicitEventSlug],
+    queryKey: ['complex-event-by-slug', explicitEventSlug, ...viewerKey],
     queryFn: async () => await publicClient.getComplexEventBySlug(explicitEventSlug),
     enabled: isSlugLookup
   });
 
   const eventId = allocationContext?.eventId || explicitEventId || (slugResolvedEvent?.id) || null;
 
-  const { data: event, isLoading: eventLoading } = useQuery({
-    queryKey: ['complex-event', eventId],
+  const { data: queriedEvent, isLoading: eventLoading } = useQuery({
+    queryKey: ['complex-event', eventId, ...viewerKey],
     queryFn: async () => await publicClient.getComplexEvent(eventId),
     enabled: !!eventId,
     staleTime: 30 * 1000
   });
+  const event = useMemo(() => {
+    if (!queriedEvent || !allocationContext) return queriedEvent;
+    let pricing = queriedEvent.pricing_config;
+    if (typeof pricing === 'string') {
+      try { pricing = JSON.parse(pricing); } catch { pricing = null; }
+    }
+    return { ...queriedEvent, pricing_config: { ...pricing, ticket_classes: mergeAllocationTicket(pricing?.ticket_classes || [], allocationPayload, allocationContext) } };
+  }, [queriedEvent, allocationPayload, allocationContext]);
   const speakerDisclosure = useEventDisclosure(event?.id, event?.speaker_display_mode);
 
+  // The cart outlives BookingSection while an identity-specific query loads.
+  // Remove private snapshots immediately, without erasing independent siblings.
+  useEffect(() => {
+    let pricing = event?.pricing_config;
+    if (typeof pricing === 'string') {
+      try { pricing = JSON.parse(pricing); } catch { pricing = null; }
+    }
+    setCart(previous => reconcilePrivateCart(previous, pricing?.ticket_classes || [], memberInfo, allocationContext));
+  }, [event, memberInfo?.tenant_id, memberInfo?.id, allocationContext]);
+
   const { data: sessions = [], isLoading: sessionsLoading } = useQuery({
-    queryKey: ['complex-event-sessions-public', eventId],
+    queryKey: ['complex-event-sessions-public', eventId, ...viewerKey],
     queryFn: async () => await publicClient.getComplexEventSessions(eventId) || [],
     enabled: !!eventId
   });
@@ -1438,7 +1461,7 @@ export function ComplexEventDetailExperience({
       id: String(tc.id),
       price: Number(tc.price) || 0
     }));
-    if (allTickets.length === 0) return null;
+    if (allTickets.length === 0) return pConfig?.ticket_classes_configured === true ? new Set() : null;
 
     const isGuest = !memberInfo;
     const userRoleId = memberInfo?.role_id;
@@ -1451,6 +1474,8 @@ export function ComplexEventDetailExperience({
     };
 
     const visibleTickets = allTickets.filter(tc => {
+      if (tc.allocation_ticket_eligible === true && String(tc.id) === String(allocationContext?.ticketTypeId)) return true;
+      if (tc.audience_mode === 'selected_members') return !isGuest && tc.private_ticket_eligible === true;
       const vis = getVis(tc);
       const ticketRoleIds = Array.isArray(tc.role_ids) ? tc.role_ids : [];
       const ticketGroupIds = Array.isArray(tc.member_group_ids) ? tc.member_group_ids : [];
@@ -1468,7 +1493,7 @@ export function ComplexEventDetailExperience({
       return roleMatches || groupMatches;
     });
 
-    if (visibleTickets.length === 0) return null;
+    if (visibleTickets.length === 0) return new Set();
 
     const hasAllTracksTicket = visibleTickets.some(tc => tc.all_tracks);
     if (hasAllTracksTicket) return null;
@@ -1478,7 +1503,7 @@ export function ComplexEventDetailExperience({
       (tc.linked_track_ids || []).forEach(id => accessibleIds.add(String(id)));
     });
 
-    if (accessibleIds.size === 0) return null;
+    if (accessibleIds.size === 0) return new Set();
 
     const trackIdToName = {};
     eventTracks.forEach(t => { trackIdToName[String(t.id)] = t.name; });
@@ -1490,7 +1515,7 @@ export function ComplexEventDetailExperience({
     });
 
     return names;
-  }, [event, memberInfo, userMemberGroupIds]);
+  }, [event, memberInfo, userMemberGroupIds, allocationContext]);
 
   const filteredSessions = useMemo(() => {
     if (!accessibleTrackNames) return sessions;
@@ -1818,7 +1843,7 @@ export function ComplexEventDetailExperience({
                     sessions={filteredSessions}
                     timezone={tz}
                     trackColorMap={filteredTrackColorMap}
-                    eventTracks={event?.tracks || []}
+                    eventTracks={(event?.tracks || []).filter(track => !accessibleTrackNames || accessibleTrackNames.has(track.name))}
                     speakerMap={speakerMap}
                     eventImageUrl={event?.image_url}
                     eventImageFocalPoint={event?.image_focal_point}

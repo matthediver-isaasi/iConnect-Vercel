@@ -4,10 +4,16 @@ export const isProvisionableRole = role => !!role
   && role.max_members == null && !role.requires_organization;
 
 export function ticketMemberPolicy(ticket = {}) {
-  return publicTicketMemberPolicy(ticket);
+  return { ...publicTicketMemberPolicy(ticket), ...(ticket?.audience_mode ? { audience_mode: ticket.audience_mode, selected_member_ids: ticket.selected_member_ids || [] } : {}) };
 }
 
 export function updateTicketMemberField(ticket, field, value) {
+  if (field === 'audience_mode') return value === 'selected_members'
+    ? { ...ticket, audience_mode: value, selected_member_ids: ticket.selected_member_ids || [], role_ids: [], member_group_ids: [], role_match_only: false, visibility_mode: 'members_only', is_public: false, create_member_records: false, new_member_role_id: null }
+    : { ...ticket, audience_mode: 'legacy', selected_member_ids: [] };
+  if (ticket.audience_mode === 'selected_members' && ['role_ids', 'member_group_ids', 'visibility_mode', 'create_member_records', 'new_member_role_id'].includes(field)) {
+    ticket = { ...ticket, audience_mode: 'legacy', selected_member_ids: [] };
+  }
   return field === "visibility_mode" && value !== ticket.visibility_mode
     ? { ...ticket, [field]: value, create_member_records: false, new_member_role_id: null }
     : { ...ticket, [field]: value };

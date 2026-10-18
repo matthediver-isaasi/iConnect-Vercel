@@ -14,7 +14,7 @@ async function loadHandler() {
   const replacements = new Map();
   for (const [, names, specifier] of source.matchAll(/import\s+([\s\S]*?)\s+from\s+['"]([^'"]+)['"];?/g)) {
     if (specifier.startsWith('node:') || specifier === 'crypto'
-      || /ticketReleaseAccess|eventPaymentPolicyCompensation|complexEventPricing|ticketAccess|eventOptionSelections|attendeeJobTitleEnrichment/.test(specifier)) continue;
+      || /ticketReleaseAccess|privateTicketAccess|ticketAudience|eventPaymentPolicyCompensation|complexEventPricing|ticketAccess|eventOptionSelections|attendeeJobTitleEnrichment|attendeeJobTitleRequirement/.test(specifier)) continue;
     const exports = [];
     if (names.trim().startsWith('{')) {
       for (const entry of names.replace(/[{}]/g, '').split(',').map(s => s.trim()).filter(Boolean)) {
@@ -34,6 +34,8 @@ async function loadHandler() {
       name: 'legacy-release-handler-boundaries',
       setup(builder) {
         builder.onResolve({ filter: /.*/ }, args => {
+          if (args.path.endsWith('/session.js')) return { path: '../_lib/session.js', namespace: 'fixture' };
+          if (args.path.endsWith('/tenantContext.js')) return { path: '../_lib/tenantContext.js', namespace: 'fixture' };
           if (replacements.has(args.path) || args.path === '@supabase/supabase-js') {
             return { path: args.path, namespace: 'fixture' };
           }

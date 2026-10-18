@@ -40,19 +40,53 @@ export function resolveAllocationInvitation(db, token) {
   });
 }
 
+// Explicit allowlist: allocation bearers receive only the one purchased ticket's
+// registration/display fields, never an audience list or member eligibility.
+function allocationTicketSnapshot(ticket) {
+  if (ticket.audience_mode != null && !['legacy', 'selected_members'].includes(ticket.audience_mode)) {
+    throw new SalesHttpError(503, 'Unable to verify allocation ticket');
+  }
+  const fields = [
+    'id', 'name', 'description', 'price', 'currency', 'is_free',
+    'visibility_mode', 'is_public', 'is_group_ticket', 'group_size',
+    'early_bird_enabled', 'early_bird_price', 'early_bird_deadline',
+    'offer_type', 'bogo_logic_type', 'bogo_buy_quantity', 'bogo_get_free_quantity',
+    'bulk_discount_threshold', 'bulk_discount_percentage',
+    'available_count', 'is_unlimited_tickets', 'display_order',
+    'all_tracks', 'release_at', 'release_timezone',
+  ];
+  const result = {};
+  for (const field of fields) {
+    const value = ticket[field];
+    if (value === null || ['string', 'number', 'boolean'].includes(typeof value)) result[field] = value;
+  }
+  if (Array.isArray(ticket.linked_track_ids)) {
+    result.linked_track_ids = ticket.linked_track_ids.filter(id => typeof id === 'string');
+  }
+  return {
+    ...result,
+    audience_mode: ticket.audience_mode || 'legacy',
+    allocation_ticket_eligible: true,
+  };
+}
+
 // Deliberately returns only the registration contract, never commercial sale
 // fields, movements, manager identities, or the stored token hash.
 export async function getPublicAllocationInvitationContext(db, token) {
   const context = await resolveAllocationInvitation(db, token);
+  if (!context || !['simple', 'complex'].includes(context.eventKind)) {
+    throw new SalesHttpError(404, 'Allocation invitation context is unavailable');
+  }
   const [totalsResult, orgResult, eventResult, ticketResult] = await Promise.all([
     db.from('sales_commercial_allocation_totals').select('allocated,named,reserved,released,cancelled,remaining')
       .eq('tenant_id', context.tenantId).eq('allocation_id', context.allocationId).maybeSingle(),
     db.from('organization').select('id,name').eq('tenant_id', context.tenantId)
       .eq('id', context.organizationId).maybeSingle(),
-    db.from(context.eventKind === 'complex' ? 'complex_event' : 'event').select('id,slug,title')
+    db.from(context.eventKind === 'complex' ? 'complex_event' : 'event')
+      .select(context.eventKind === 'complex' ? 'id,slug,title' : 'id,slug,title,pricing_config')
       .eq('tenant_id', context.tenantId).eq('id', context.eventId).maybeSingle(),
     context.eventKind === 'complex'
-      ? db.from('complex_event_ticket_class').select('id,name').eq('tenant_id', context.tenantId)
+      ? db.from('complex_event_ticket_class').select('*').eq('tenant_id', context.tenantId)
         .eq('complex_event_id', context.eventId).eq('id', context.ticketTypeId).maybeSingle()
       : Promise.resolve({ data: null, error: null }),
   ]);
@@ -62,17 +96,19 @@ export async function getPublicAllocationInvitationContext(db, token) {
   if (!totalsResult.data || !orgResult.data || !eventResult.data) {
     throw new SalesHttpError(404, 'Allocation invitation context is unavailable');
   }
-  let ticketName = ticketResult.data?.name || null;
+  let ticket = ticketResult.data;
   if (context.eventKind === 'simple') {
-    const classes = eventResult.data.pricing_config?.ticket_classes;
-    // The context endpoint's event select intentionally avoids pricing config
-    // in normal responses; fetch it only for the fixed ticket display name.
-    const { data: eventPricing, error } = await db.from('event').select('pricing_config')
-      .eq('tenant_id', context.tenantId).eq('id', context.eventId).maybeSingle();
-    if (error) throw error;
-    ticketName = Array.isArray(eventPricing?.pricing_config?.ticket_classes)
-      ? eventPricing.pricing_config.ticket_classes.find((item) => String(item.id) === String(context.ticketTypeId))?.name
+    let pricing = eventResult.data.pricing_config;
+    if (typeof pricing === 'string' && pricing) {
+      try { pricing = JSON.parse(pricing); }
+      catch { throw new SalesHttpError(503, 'Unable to verify allocation ticket'); }
+    }
+    ticket = Array.isArray(pricing?.ticket_classes)
+      ? pricing.ticket_classes.find(item => item?.id != null && String(item.id) === String(context.ticketTypeId))
       : null;
+  }
+  if (!ticket || String(ticket.id) !== String(context.ticketTypeId)) {
+    throw new SalesHttpError(404, 'The purchased allocation ticket is unavailable');
   }
   const totals = totalsResult.data;
   return {
@@ -84,7 +120,8 @@ export async function getPublicAllocationInvitationContext(db, token) {
     eventSlug: eventResult.data.slug || null,
     eventName: eventResult.data.title || 'Event',
     ticketTypeId: context.ticketTypeId,
-    ticketName: ticketName || 'Ticket',
+    ticketName: ticket.name || 'Ticket',
+    ticket_class: allocationTicketSnapshot(ticket),
     organizationId: orgResult.data.id,
     organizationName: orgResult.data.name || 'Organisation',
     delegateEmail: context.delegateEmail,

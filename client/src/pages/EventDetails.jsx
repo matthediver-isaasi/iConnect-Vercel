@@ -33,6 +33,8 @@ import DOMPurify from "dompurify";
 import { createPageUrl } from "@/utils";
 import { formatEventTime, formatEventDate, getTimezoneAbbreviation } from "@/utils/timeFormat";
 import TenantEventTimeDisplay from "@/components/events/TenantEventTimeDisplay";
+import { mergeAllocationTicket } from "@/utils/privateTicketAudience";
+import { useTicketViewerKey } from "@/hooks/useTicketViewerKey";
 import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import AttendeeList from "../components/booking/AttendeeList";
@@ -264,6 +266,7 @@ export function EventDetailsExperience({
   const [tourAutoShow, setTourAutoShow] = useState(false);
 
   const currentMemberInfo = authResolved && sessionValidated && roleStatus === 'ready' ? memberInfo : null;
+  const viewerKey = useTicketViewerKey(currentMemberInfo);
 
   const [attendees, setAttendees] = useState([]);
   const [submitting, setSubmitting] = useState(false);
@@ -327,7 +330,7 @@ export function EventDetailsExperience({
   const hasInitialized = useRef(null);
 
   const { data: allocationPayload, isLoading: allocationLoading, error: allocationError } = useQuery({
-    queryKey: ['event-allocation-context', allocationToken],
+    queryKey: ['event-allocation-context', allocationToken, ...viewerKey],
     queryFn: () => publicClient.getEventAllocationContext(allocationToken),
     enabled: Boolean(allocationToken),
     retry: false,
@@ -756,10 +759,13 @@ export function EventDetailsExperience({
     
     // Ensure ticket_classes is an array
     const rawTicketClasses = pricingConfig.ticket_classes;
-    const ticketClasses = Array.isArray(rawTicketClasses) ? rawTicketClasses : [];
+    const ticketClasses = mergeAllocationTicket(Array.isArray(rawTicketClasses) ? rawTicketClasses : [], allocationPayload, allocationMode ? allocationContext : null);
     
     // If no ticket classes defined, use legacy single-price format
     if (ticketClasses.length === 0) {
+      // Only suppress the legacy default when the server confirms that
+      // configured classes were redacted. Historic empty arrays remain legacy.
+      if (pricingConfig.ticket_classes_configured === true) return [];
       return [{
         id: 'default',
         name: 'Standard Ticket',
@@ -780,7 +786,7 @@ export function EventDetailsExperience({
     
     // Normalize ticket classes with backwards compatibility for is_public field
     return ticketClasses
-      .filter(tc => tc && typeof tc === 'object')
+      .filter(tc => tc && typeof tc === 'object' && (tc.audience_mode !== 'selected_members' || (currentMemberInfo && tc.private_ticket_eligible === true) || (allocationMode && tc.allocation_ticket_eligible === true && String(tc.id) === String(allocationContext.ticketTypeId))))
       .map(tc => {
         // Handle backwards compatibility: convert is_public to visibility_mode
         let visibilityMode = tc.visibility_mode;
@@ -793,6 +799,9 @@ export function EventDetailsExperience({
         }
         
         return {
+          audience_mode: tc.audience_mode || 'legacy',
+          allocation_ticket_eligible: tc.allocation_ticket_eligible === true,
+          private_ticket_eligible: tc.private_ticket_eligible === true,
           id: String(tc.id || `ticket-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`),
           name: String(tc.name || 'Ticket'),
           price: Number(tc.price) || 0,
@@ -825,7 +834,7 @@ export function EventDetailsExperience({
           early_bird_deadline: tc.early_bird_deadline || null
         };
       });
-  }, [isOneOffEvent, pricingConfig]);
+  }, [isOneOffEvent, pricingConfig, currentMemberInfo, allocationPayload, allocationContext, allocationMode]);
   
   const releaseNowMs = useTicketReleaseClock(allNormalizedTickets);
 

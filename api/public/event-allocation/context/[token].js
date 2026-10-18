@@ -8,6 +8,8 @@ export function createAllocationContextHandler(dependencies = {}) {
   const resolveTenant = dependencies.resolveTenantFromRequest || resolveTenantFromRequest;
   const getInvitationContext = dependencies.getPublicAllocationInvitationContext || getPublicAllocationInvitationContext;
   return async function handler(req, res) {
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('Referrer-Policy', 'no-referrer');
     if (req.method !== 'GET') {
       res.setHeader('Allow', 'GET');
       return res.status(405).json({ error: 'Method not allowed' });

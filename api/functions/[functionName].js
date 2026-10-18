@@ -31,6 +31,8 @@ import { getAllowVoucherUseAfterExpiry, isVoucherUsableForEventDate } from '../_
 import { orderVoucherIdsForRedemption } from '../_lib/voucherOrdering.js';
 import { loadEventPaymentPolicy, assertEventPaymentMethodsAllowed } from '../_lib/eventPaymentPolicy.js';
 import { assertSimpleTicketsReleased, normalizeSimpleTicketId } from '../_lib/ticketReleaseAccess.js';
+import { assertSimplePrivateTicketsAccessible } from '../_lib/privateTicketAccess.js';
+import { isPrivateTicket } from '../../shared/ticketAudience.js';
 import {
   buildEventCreditSnapshotMetadata,
   compensateRejectedEventCreditPayment,
@@ -752,15 +754,16 @@ const functionHandlers = {
         await enforceAttendeeJobTitles(supabase, tenantId, params.attendees,
           metadata?.tickets_required == null ? null : Number(metadata.tickets_required));
         const [ticket] = assertSimpleTicketsReleased(event, [metadata?.ticket_class_id]);
+        await assertSimplePrivateTicketsAccessible({ req, db: supabase, event, ticketIds: [metadata?.ticket_class_id] });
         resolvedTicketId = ticket?.id || null;
-        if (ticket?.visibility_mode === 'public_only' && ticket.create_member_records !== true) {
+        if (!isPrivateTicket(ticket) && ticket?.visibility_mode === 'public_only' && ticket.create_member_records !== true) {
           await assertPublicTicketPurchaser({
             db: supabase, tenantId, purchaserEmail: memberEmail,
             authenticatedMember: await getSessionMember(req),
           });
         }
         const ticketPurchaser = await getSessionMember(req);
-        if (needsPublicTicketMemberCreation([ticket], ticketPurchaser, tenantId)) {
+        if (!isPrivateTicket(ticket) && needsPublicTicketMemberCreation([ticket], ticketPurchaser, tenantId)) {
           await validatePublicTicketSimpleCharge({
             ticket, attendees: params.attendees, tenantId, eventId: event.id,
             discountCode: params.discountCode, amount,
@@ -1402,6 +1405,7 @@ const functionHandlers = {
     try {
       if (params.items != null) throw new Error('Simple event bookings require one ticket class');
       assertSimpleTicketsReleased(event, [params.ticketClassId]);
+      await assertSimplePrivateTicketsAccessible({ req, db: supabase, event, ticketIds: [params.ticketClassId] });
     } catch (error) {
       return { success: false, error: error.message };
     }
@@ -2024,6 +2028,15 @@ const functionHandlers = {
 
     // Completed payments stay idempotent even if a ticket is rescheduled later.
     const provisioningTicket = (event.pricing_config?.ticket_classes || []).find(ticket => String(ticket.id) === String(ticketClassId));
+    let privateTicketError = null;
+    try {
+      await assertSimplePrivateTicketsAccessible({ req, db: supabase, event, ticketIds: [ticketClassId], allocationContext });
+    } catch (error) {
+      privateTicketError = error;
+      if (paymentMethod !== 'card' || !stripePaymentIntentId || _testMode) {
+        return { success: false, error: error.message };
+      }
+    }
     // A submitted email is not authentication, even when the event is public.
     // Only genuine guest purchases may proceed without a matching session.
     let bookingSessionMember = null;
@@ -2032,12 +2045,12 @@ const functionHandlers = {
     } catch {
       return { success: false, error: 'Unable to verify booking session' };
     }
-    if (!isGuestBooking && (!bookingSessionMember
+    if (!privateTicketError && !isGuestBooking && (!bookingSessionMember
         || (bookingSessionMember.organization?.tenant_id || bookingSessionMember.tenant_id) !== event.tenant_id
         || String(bookingSessionMember.email || '').trim().toLowerCase() !== String(memberEmail || '').trim().toLowerCase())) {
       return { success: false, error: 'You must be logged in as the booking member to register for this event or group' };
     }
-    if (provisioningTicket && !isTicketVisibleToUser({
+    if (provisioningTicket && !isPrivateTicket(provisioningTicket) && !isTicketVisibleToUser({
       ...provisioningTicket,
       // Preserve the simple-event legacy public-ticket representation.
       visibility_mode: provisioningTicket.visibility_mode || (provisioningTicket.is_public === true ? 'members_and_public' : 'members_only'),
@@ -2049,7 +2062,7 @@ const functionHandlers = {
         tenantId: event.tenant_id, eventId: event.id, eventKind: 'simple',
         requestId: params.purchase_request_id, allowMissingSchema: !provisioningTicket?.create_member_records,
       }) : null;
-    if (provisioningTicket?.visibility_mode === 'public_only'
+    if (!privateTicketError && !isPrivateTicket(provisioningTicket) && provisioningTicket?.visibility_mode === 'public_only'
         && provisioningTicket.create_member_records !== true && !previousPublicPurchase && paymentMethod !== PUBLIC_INVOICE_PO) {
       await assertPublicTicketPurchaser({
         db: supabase, tenantId: event.tenant_id, purchaserEmail: guestInfo?.email || memberEmail,
@@ -2060,7 +2073,7 @@ const functionHandlers = {
     const ticketPurchaser = await getSessionMember(req);
     const needsPublicContactCreation = needsPublicTicketMemberCreation([provisioningTicket], ticketPurchaser, event.tenant_id);
     // Completed public purchases replay their immutable original booking.
-    if (!previousPublicPurchase?.booking_ids?.length) {
+    if (!privateTicketError && !previousPublicPurchase?.booking_ids?.length) {
       const titleRejection = await checkBookingAttendeeJobTitles({
         db: supabase, tenantId: event.tenant_id, eventId: event.id, attendees: bookingAttendees,
         bookingTable: 'booking',
@@ -2071,7 +2084,7 @@ const functionHandlers = {
       });
       if (titleRejection) return titleRejection;
     }
-    if ((needsPublicContactCreation || previousPublicPurchase) && paymentMethod !== PUBLIC_INVOICE_PO) {
+    if (!privateTicketError && !isPrivateTicket(provisioningTicket) && (needsPublicContactCreation || previousPublicPurchase) && paymentMethod !== PUBLIC_INVOICE_PO) {
       if (!isGuestBooking || selectedVoucherIds.length || Number(trainingFundAmount) || Number(accountAmount)
           || allocationContext || !['card', 'free'].includes(paymentMethod) || _testMode) {
         return { success: false, error: 'Public ticket member creation requires a guest card or free checkout without account credits.' };
@@ -2109,8 +2122,10 @@ const functionHandlers = {
     }
     let ticketReleaseError = null;
     try {
+      if (privateTicketError) throw privateTicketError;
       if (params.items != null) throw new Error('Simple event bookings require one ticket class');
       assertSimpleTicketsReleased(event, [ticketClassId], allocationContext);
+      await assertSimplePrivateTicketsAccessible({ req, db: supabase, event, ticketIds: [ticketClassId], allocationContext });
       ticketClassId = normalizeSimpleTicketId(event, ticketClassId);
     } catch (error) {
       ticketReleaseError = error;
@@ -2162,19 +2177,19 @@ const functionHandlers = {
     }
 
     // Block registration for closed events (event_state or legacy status='closed' when event_state is null, or past registration deadline)
-    if (event.event_state === 'closed' || (!event.event_state && event.status === 'closed')) {
+    if (!privateTicketError && (event.event_state === 'closed' || (!event.event_state && event.status === 'closed'))) {
       console.log('[createOneOffEventBooking] Blocking registration - event is closed:', eventId);
       return { success: false, error: 'Registration is closed for this event' };
     }
 
     // Block registration once an admin has started the safe-deletion flow
     // (status='cancelling'). See task-700 / api/_lib/eventDeletion.js.
-    if (event.status === 'cancelling') {
+    if (!privateTicketError && event.status === 'cancelling') {
       console.log('[createOneOffEventBooking] Blocking registration - event is being cancelled:', eventId);
       return { success: false, error: 'This event is being cancelled and is no longer accepting bookings' };
     }
 
-    if (event.registration_closes_at && new Date() > new Date(event.registration_closes_at)) {
+    if (!privateTicketError && event.registration_closes_at && new Date() > new Date(event.registration_closes_at)) {
       console.log('[createOneOffEventBooking] Blocking registration - past registration deadline:', eventId);
       return { success: false, error: 'Registration deadline has passed for this event' };
     }
@@ -2183,7 +2198,7 @@ const functionHandlers = {
     let member = null;
     let org = null;
     
-    if (!isGuestBooking) {
+    if (!privateTicketError && !isGuestBooking) {
       let memberQuery = supabase
         .from('member')
         .select('*')
@@ -2385,7 +2400,7 @@ const functionHandlers = {
     // is only purchasable by members whose role OR member group matches.
     if (ticketClassId && event.pricing_config?.ticket_classes) {
       const selectedTicketClass = event.pricing_config.ticket_classes.find(tc => tc.id === ticketClassId);
-      if (selectedTicketClass && ticketHasAccessRestrictions(selectedTicketClass)) {
+      if (selectedTicketClass && !isPrivateTicket(selectedTicketClass) && ticketHasAccessRestrictions(selectedTicketClass)) {
         if (isGuestBooking || !member) {
           console.log('[createOneOffEventBooking] Blocking guest from restricted ticket:', ticketClassId);
           return { success: false, error: 'You do not have access to this ticket class' };

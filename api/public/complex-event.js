@@ -3,9 +3,12 @@ import { createClient } from '@supabase/supabase-js';
 import { getEventCommercialCapacity, mergeTicketCommercialCapacity } from '../_lib/eventCommercialCapacity.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { normalizeEventDisplayMode } from '../../shared/eventDisplayMode.js';
+import { filterViewerTickets } from '../../shared/ticketAudienceProjection.js';
+import { loadPrivateTicketViewer } from '../_lib/privateTicketAccess.js';
 
 
 export default async function handler(req, res) {
+  res.setHeader('Cache-Control', 'private, no-store');
   console.log('[Public Complex Event] v3 handler invoked');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -73,20 +76,23 @@ export default async function handler(req, res) {
 
     const { data: ticketClasses, error: tcError } = await supabase
       .from('complex_event_ticket_class')
-      .select('id, name, price, is_free, early_bird_enabled, early_bird_price, early_bird_deadline, release_at, release_timezone, visibility_mode, linked_track_ids, all_tracks, display_order, is_group_ticket, group_size, role_ids, role_match_only, member_group_ids, available_count, is_unlimited_tickets, create_member_records, new_member_role_id')
+      .select('id, name, price, is_free, early_bird_enabled, early_bird_price, early_bird_deadline, release_at, release_timezone, visibility_mode, linked_track_ids, all_tracks, display_order, is_group_ticket, group_size, role_ids, role_match_only, member_group_ids, available_count, is_unlimited_tickets, create_member_records, new_member_role_id, audience_mode, selected_member_ids')
       .eq('complex_event_id', event.id)
       .eq('tenant_id', tenant.id)
       .order('display_order', { ascending: true });
 
     if (tcError) {
       console.error('[Public Complex Event] ticket class query error:', tcError.message);
+      return res.status(503).json({ error: 'Unable to load event tickets' });
     }
+    const viewer = await loadPrivateTicketViewer(req, tenant.id, supabase);
+    const visibleTicketClasses = filterViewerTickets(ticketClasses, viewer, tenant.id);
 
     // Count-based ticket availability (Task #1760): available_count is a fixed
     // maximum; live availability is derived from the number of confirmed
     // complex_event_booking rows per finite ticket class.
     const soldCounts = {};
-    const finiteTicketClassIds = (ticketClasses || [])
+    const finiteTicketClassIds = visibleTicketClasses
       .filter(tc => !tc.is_unlimited_tickets && tc.available_count !== null && tc.available_count !== undefined)
       .map(tc => String(tc.id));
     if (finiteTicketClassIds.length > 0) {
@@ -113,7 +119,7 @@ export default async function handler(req, res) {
       .order('display_order', { ascending: true });
 
     const commercialCapacity = await getEventCommercialCapacity(supabase, tenant.id, 'complex', event.id);
-    const publicTicketClasses = (ticketClasses || [])
+    const publicTicketClasses = visibleTicketClasses
       .map(tc => {
         const isUnlimited = tc.is_unlimited_tickets === true ||
           tc.available_count === null || tc.available_count === undefined;
@@ -133,6 +139,8 @@ export default async function handler(req, res) {
           currency: 'gbp',
           is_free: tc.is_free,
           visibility_mode: tc.visibility_mode,
+          audience_mode: tc.audience_mode,
+          ...(tc.private_ticket_eligible === true ? { private_ticket_eligible: true } : {}),
           ...publicTicketMemberPolicy(tc),
           early_bird_enabled: tc.early_bird_enabled || false,
           early_bird_price: tc.early_bird_price != null ? Number(tc.early_bird_price) : null,
@@ -199,7 +207,8 @@ export default async function handler(req, res) {
       custom_duration_explainer: event.custom_duration_explainer || null,
       tracks: tracks || [],
       pricing_config: {
-        ...(publicTicketClasses.length > 0 ? { ticket_classes: publicTicketClasses } : {}),
+        ticket_classes: publicTicketClasses,
+        ticket_classes_configured: (ticketClasses || []).length > 0,
         collectThirdPartyConsent: event.pricing_config?.collectThirdPartyConsent === true
       }
     });

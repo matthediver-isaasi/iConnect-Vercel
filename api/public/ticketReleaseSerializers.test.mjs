@@ -14,6 +14,14 @@ async function handler(file) {
       plugins: [{
         name: 'ticket-release-fixture',
         setup(builder) {
+          builder.onResolve({ filter: /\/tenantContext\.js$/ }, () => ({ path: 'tenant', namespace: 'tenant-fixture' }));
+          builder.onLoad({ filter: /.*/, namespace: 'tenant-fixture' }, () => ({
+            contents: 'export const hasAdminAccess = async () => false;',
+          }));
+          builder.onResolve({ filter: /\/session\.js$/ }, () => ({ path: 'session', namespace: 'session-fixture' }));
+          builder.onLoad({ filter: /.*/, namespace: 'session-fixture' }, () => ({
+            contents: 'export const getSession = async () => globalThis.__ticketAudienceSession || null;',
+          }));
           builder.onResolve({ filter: /^@supabase\/supabase-js$|\/_lib\/(tenantResolver|eventCommercialCapacity)\.js$/ }, args => ({
             path: args.path, namespace: 'fixture',
           }));
@@ -60,7 +68,7 @@ function database(seed) {
   };
 }
 
-async function invoke(file, tickets, extraPricing = {}, eventOverrides = {}) {
+async function invoke(file, tickets, extraPricing = {}, eventOverrides = {}, viewer = null) {
   const event = {
     id: 'event-a', tenant_id: 'tenant-a', title: 'Event', slug: 'event-a',
     status: 'published', start_date: '2036-01-01T12:00:00Z',
@@ -70,7 +78,9 @@ async function invoke(file, tickets, extraPricing = {}, eventOverrides = {}) {
   globalThis[slot] = database({
     event: [event], complex_event: [event],
     complex_event_ticket_class: tickets.map(ticket => ({ ...ticket, tenant_id: 'tenant-a', complex_event_id: event.id })),
+    member: viewer ? [viewer] : [],
   });
+  globalThis.__ticketAudienceSession = viewer ? { data: { memberId: viewer.id } } : null;
   process.env.SUPABASE_URL = 'https://fixture.invalid';
   process.env.SUPABASE_SERVICE_KEY = 'fixture-key';
   const res = {
@@ -133,3 +143,49 @@ test('simple detail retains allowGuestsToViewAllTickets for scheduled members-on
   const payload = await invoke('./event.js', [{ ...scheduled, visibility_mode: 'members_only' }], { allowGuestsToViewAllTickets: true });
   assert.equal(payload.pricing_config.ticket_classes[0].release_at, release.release_at);
 });
+
+const listedMember = '11111111-1111-4111-8111-111111111111';
+const privateTicket = {
+  id: 'private', name: 'Private offer', price: 1, visibility_mode: 'members_only',
+  audience_mode: 'selected_members', selected_member_ids: [listedMember],
+  is_unlimited_tickets: true,
+};
+for (const file of ['./event.js', './events.js', './complex-event.js', './complex-events.js']) {
+  test(`${file}: private tickets never become guest teasers or affect cheapest price`, async () => {
+    const payload = await invoke(file, [privateTicket, scheduled], { allowGuestsToViewAllTickets: true });
+    assert.deepEqual(payload.pricing_config.ticket_classes.map(t => t.id), ['scheduled']);
+    assert.ok(!JSON.stringify(payload).includes('selected_member_ids'));
+    assert.ok(!JSON.stringify(payload).includes('Private offer'));
+    if ('cheapest_price' in payload) assert.equal(payload.cheapest_price, 75);
+  });
+  test(`${file}: listed members receive only a redacted private ticket alongside eligible siblings`, async () => {
+    const payload = await invoke(file, [privateTicket, scheduled], {}, {}, { id: listedMember, tenant_id: 'tenant-a' });
+    assert.deepEqual(payload.pricing_config.ticket_classes.map(t => t.id), ['private', 'scheduled']);
+    assert.equal(payload.pricing_config.ticket_classes[0].private_ticket_eligible, true);
+    assert.equal(payload.pricing_config.ticket_classes[0].audience_mode, 'selected_members');
+    assert.ok(!JSON.stringify(payload).includes('selected_member_ids'));
+  });
+  for (const member of [
+    { id: '22222222-2222-4222-8222-222222222222', tenant_id: 'tenant-a' },
+    { id: listedMember, tenant_id: 'tenant-b' },
+  ]) {
+    test(`${file}: nonlisted and cross-tenant sessions cannot retrieve a private ticket (${member.tenant_id})`, async () => {
+      const payload = await invoke(file, [privateTicket, scheduled], {}, {}, member);
+      assert.deepEqual(payload.pricing_config.ticket_classes.map(t => t.id), ['scheduled']);
+    });
+  }
+  test(`${file}: empty private lists deny everybody`, async () => {
+    const payload = await invoke(file, [{ ...privateTicket, selected_member_ids: [] }, scheduled], {}, {}, { id: listedMember, tenant_id: 'tenant-a' });
+    assert.deepEqual(payload.pricing_config.ticket_classes.map(t => t.id), ['scheduled']);
+  });
+}
+
+for (const file of ['./event.js', './events.js']) {
+  test(`${file}: hidden configured tickets cannot leak a legacy price fallback`, async () => {
+    const payload = await invoke(file, [privateTicket], { ticket_price: 1, allowGuestsToViewAllTickets: true });
+    assert.equal(payload.cheapest_price, null);
+    assert.equal(payload.pricing_config.ticket_price, undefined);
+    assert.deepEqual(payload.pricing_config.ticket_classes, []);
+    assert.equal(payload.pricing_config.ticket_classes_configured, true);
+  });
+}

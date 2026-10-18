@@ -7,8 +7,12 @@ import {
   suppressImmediateSchedule,
 } from '../../shared/eventTiming.js';
 import { normalizeEventDisplayMode } from '../../shared/eventDisplayMode.js';
+import { filterViewerTickets } from '../../shared/ticketAudienceProjection.js';
+import { loadPrivateTicketViewer } from '../_lib/privateTicketAccess.js';
+import { isPrivateTicket } from '../../shared/ticketAudience.js';
 
 export default async function handler(req, res) {
+  res.setHeader('Cache-Control', 'private, no-store');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -118,10 +122,11 @@ export default async function handler(req, res) {
       }
     }
 
+    const viewer = await loadPrivateTicketViewer(req, tenant.id, supabase);
     const events = (rawEvents || []).map(rawEvent => {
       // Immediate events: suppress schedule fields and training agenda
       const event = suppressImmediateSchedule(rawEvent);
-      const allTicketClasses = event.pricing_config?.ticket_classes || [];
+      const allTicketClasses = filterViewerTickets(event.pricing_config?.ticket_classes || [], viewer, tenant.id);
       const allPrices = allTicketClasses
         .map(tc => {
           if (tc.price === undefined || tc.price === null || tc.price === '') return NaN;
@@ -129,7 +134,7 @@ export default async function handler(req, res) {
         })
         .filter(p => Number.isFinite(p));
       let cheapestPrice = allPrices.length > 0 ? Math.min(...allPrices) : null;
-      if (cheapestPrice === null) {
+      if (cheapestPrice === null && !(event.pricing_config?.ticket_classes || []).length) {
         const legacy = event.pricing_config?.ticket_price;
         if (legacy !== undefined && legacy !== null && legacy !== '') {
           const n = Number(legacy);
@@ -138,6 +143,7 @@ export default async function handler(req, res) {
       }
       const publicTicketClasses = allTicketClasses
         .filter(tc => {
+          if (isPrivateTicket(tc)) return tc.private_ticket_eligible === true;
           if (tc.visibility_mode) {
             return tc.visibility_mode === 'members_and_public' || tc.visibility_mode === 'public_only';
           }
@@ -150,6 +156,8 @@ export default async function handler(req, res) {
           price: tc.price,
           currency: tc.currency,
           visibility_mode: tc.visibility_mode,
+          audience_mode: tc.audience_mode,
+          ...(tc.private_ticket_eligible === true ? { private_ticket_eligible: true } : {}),
           ...publicTicketMemberPolicy(tc),
           is_public: tc.is_public,
           early_bird_enabled: tc.early_bird_enabled || false,
@@ -184,7 +192,9 @@ export default async function handler(req, res) {
         speaker_display_mode: normalizeEventDisplayMode(event.speaker_display_mode),
         sponsor_display_mode: normalizeEventDisplayMode(event.sponsor_display_mode),
         cheapest_price: cheapestPrice,
-        pricing_config: publicTicketClasses.length > 0 ? { ticket_classes: publicTicketClasses } : null,
+        pricing_config: publicTicketClasses.length > 0 || (event.pricing_config?.ticket_classes || []).length > 0
+          ? { ticket_classes: publicTicketClasses, ticket_classes_configured: (event.pricing_config?.ticket_classes || []).length > 0 }
+          : null,
         cta_override_url: event.cta_override_url || null,
         cta_override_mode: event.cta_override_mode || 'card',
         cta_button_label: event.cta_button_label || null,

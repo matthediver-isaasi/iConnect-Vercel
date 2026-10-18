@@ -8,6 +8,7 @@ import { assertRequestedTicketsReleased, assertSimpleTicketsReleased } from '../
 // Real exported endpoints and release/compensation helpers, with fail-closed
 // database/provider boundaries. Run under scripts/run-isolated-tests.mjs.
 const slot = '__ticketReleaseFixture';
+Error.stackTraceLimit = 0;
 const handlers = {};
 async function loadHandler(kind) {
   const path = resolve(kind.startsWith('simple') ? 'api/functions/[functionName].js'
@@ -16,7 +17,7 @@ async function loadHandler(kind) {
   const replacements = new Map();
   for (const [, names, specifier] of source.matchAll(/import\s+([\s\S]*?)\s+from\s+['"]([^'"]+)['"];?/g)) {
     if (specifier.startsWith('node:') || specifier === 'crypto'
-      || /ticketReleaseAccess|eventPaymentPolicyCompensation|complexEventPricing/.test(specifier)) continue;
+      || /ticketReleaseAccess|privateTicketAccess|ticketAudience|eventPaymentPolicyCompensation|complexEventPricing/.test(specifier)) continue;
     const exports = [];
     if (names.trim().startsWith('{')) {
       for (const entry of names.replace(/[{}]/g, '').split(',').map(s => s.trim()).filter(Boolean)) {
@@ -28,6 +29,7 @@ async function loadHandler(kind) {
     } else {
       exports.push(`export default function(...args) { return globalThis.${slot}.dependency(${JSON.stringify(names.trim())}, args); }`);
     }
+    if (specifier.endsWith('/session.js') && !/\bgetSession\b/.test(names)) exports.push(`export function getSession(...args) { return globalThis.${slot}.dependency('getSession', args); }`);
     replacements.set(specifier, exports.join('\n'));
   }
   const result = await build({
@@ -36,12 +38,16 @@ async function loadHandler(kind) {
       name: 'release-test-boundaries',
       setup(builder) {
         builder.onResolve({ filter: /.*/ }, args => {
+          if (args.path.endsWith('/session.js')) return { path: '../_lib/session.js', namespace: 'fixture' };
+          if (args.path.endsWith('/tenantContext.js')) return { path: '__tenantContext', namespace: 'fixture' };
           if (replacements.has(args.path) || args.path === '@supabase/supabase-js') {
             return { path: args.path, namespace: 'fixture' };
           }
         });
         builder.onLoad({ filter: /.*/, namespace: 'fixture' }, args => ({
-          contents: args.path === '@supabase/supabase-js'
+          contents: args.path === '__tenantContext'
+            ? `export const getTenantContext = (...args) => globalThis.${slot}.dependency('getTenantContext', args); export const hasAdminAccess = async () => false;`
+            : args.path === '@supabase/supabase-js'
             ? `export const createClient = () => globalThis.${slot}.db;`
             : replacements.get(args.path), loader: 'js',
         }));
@@ -55,13 +61,16 @@ const email = 'person@example.test';
 const attendee = { email, first_name: 'Test', last_name: 'Person' };
 function fixture({ release = '2099-01-01T12:00:00Z', noTickets = false, completed = false,
   allocation = false, ticketReadError = false, intentStatus = 'succeeded', bound = true,
-  scheduledFree = false, soleTicket = false, otherScheduled = false, missingPaymentEmail = false } = {}) {
+  scheduledFree = false, soleTicket = false, otherScheduled = false, missingPaymentEmail = false, privateAudience = false, authenticated = false, selected = true } = {}) {
   const tickets = noTickets ? [] : [
     { id: 'open', name: 'Open', price: 10, visibility_mode: 'members_and_public' },
     { id: 'scheduled', name: 'Scheduled', price: scheduledFree ? 0 : 10, is_free: scheduledFree, visibility_mode: 'members_and_public',
       release_at: release, release_timezone: release ? 'Europe/London' : null },
   ];
   if (soleTicket) tickets.splice(0, 1);
+  if (privateAudience) Object.assign(tickets.find(t => t.id === 'scheduled'), {
+    audience_mode: 'selected_members', selected_member_ids: [selected ? '12345678-1234-1234-1234-123456789012' : '22345678-1234-1234-1234-123456789012'],
+  });
   if (otherScheduled && tickets[0]) Object.assign(tickets[0], { release_at: release, release_timezone: 'Europe/London' });
   const event = { id: 'event', tenant_id: 'tenant', status: 'published', event_state: 'active',
     pricing_config: { ticket_classes: tickets } };
@@ -70,7 +79,7 @@ function fixture({ release = '2099-01-01T12:00:00Z', noTickets = false, complete
     complex_event_ticket_class: tickets.map(t => ({ ...t, tenant_id: 'tenant', complex_event_id: 'event' })),
     booking: completed ? [{ id: 'booked', tenant_id: 'tenant', event_id: 'event', stripe_payment_intent_id: 'pi_paid', booking_reference: 'BK1', status: 'confirmed' }] : [],
     complex_event_booking: completed ? [{ id: 'booked', tenant_id: 'tenant', event_id: 'event', stripe_payment_intent_id: 'pi_paid' }] : [],
-    member: [{ id: 'member', tenant_id: 'tenant', email }], organization: [],
+    member: [{ id: authenticated ? '12345678-1234-1234-1234-123456789012' : 'member', tenant_id: 'tenant', email }], organization: [],
   };
   const effects = [], unexpected = [];
   const paymentIntent = {
@@ -118,9 +127,12 @@ function fixture({ release = '2099-01-01T12:00:00Z', noTickets = false, complete
       if (name === 'createClient') return db;
       if (name === 'resolveTenantFromRequest') return { id: 'tenant' };
       if (name === 'getTenantContext') return { tenantId: 'tenant' };
-      if (name === 'getSessionMember') return null;
+      if (name === 'getSessionMember') return authenticated ? rows.member[0] : null;
+      if (name === 'getSession') return authenticated ? { data: { memberId: rows.member[0].id } } : null;
       if (name === 'loadEventPaymentPolicy') return {};
       if (name === 'assertEventPaymentMethodsAllowed') return;
+      if (name === 'enforceAttendeeJobTitles' || name === 'checkBookingAttendeeJobTitles') return null;
+      if (name === 'needsPublicTicketMemberCreation') return false;
       if (name === 'normalizeRequestedVoucherIds') return [];
       if (name === 'getStripeClient' || name === 'Stripe') return stripe;
       if (name === 'getStripeCredentials') return { secret_key: 'fixture', publishable_key: 'fixture', is_enabled: true };
@@ -166,6 +178,48 @@ async function invoke(kind, options = {}, override = {}) {
   return { ...state, res };
 }
 const kinds = ['simple-intent', 'complex-intent', 'simple-booking', 'complex-booking', 'simple-program'];
+for (const kind of kinds) {
+  test(`${kind}: private ticket rejects guest before financial effects despite forged identity`, async () => {
+    const result = await invoke(kind, { privateAudience: true, release: null }, {
+      memberId: '12345678-1234-1234-1234-123456789012', private_ticket_eligible: true,
+      allocationContext: { tenantId: 'tenant', eventId: 'event', ticketTypeId: 'scheduled' },
+    });
+    assert.match(result.res.body.error, /access to this ticket/);
+    assert.deepEqual(result.effects, []);
+  });
+}
+for (const kind of ['simple-booking', 'complex-booking']) {
+  test(`${kind}: changed private audience compensates a bound captured payment without booking`, async () => {
+    const result = await invoke(kind, { privateAudience: true, release: null }, kind === 'simple-booking'
+      ? { paymentMethod: 'card', stripePaymentIntentId: 'pi_paid' }
+      : { payment_method: 'card', stripe_payment_intent_id: 'pi_paid' });
+    assert.match(result.res.body.error, /access to this ticket/);
+    assert.deepEqual(result.effects, ['refund']);
+  });
+  test(`${kind}: denied private completion never refunds an unbound intent`, async () => {
+    const result = await invoke(kind, { privateAudience: true, release: null, bound: false }, kind === 'simple-booking'
+      ? { paymentMethod: 'card', stripePaymentIntentId: 'pi_paid' }
+      : { payment_method: 'card', stripe_payment_intent_id: 'pi_paid' });
+    assert.deepEqual(result.effects, []);
+    assert.equal(result.res.body.refund_failed, true);
+  });
+}
+test('simple private completion with expired member session still reaches bound payment compensation', async () => {
+  const result = await invoke('simple-booking', { privateAudience: true, release: null }, {
+    isGuestBooking: false, paymentMethod: 'card', stripePaymentIntentId: 'pi_paid',
+  });
+  assert.deepEqual(result.effects, ['refund']);
+  assert.match(result.res.body.error, /access to this ticket/);
+});
+for (const kind of ['simple-intent', 'complex-intent']) {
+  test(`${kind}: canonical selected member can pay; other authenticated member cannot`, async () => {
+    const allowed = await invoke(kind, { privateAudience: true, release: null, authenticated: true });
+    assert.equal(allowed.effects.filter(effect => effect.intent).length, 1);
+    const denied = await invoke(kind, { privateAudience: true, release: null, authenticated: true, selected: false });
+    assert.match(denied.res.body.error, /access to this ticket/);
+    assert.deepEqual(denied.effects, []);
+  });
+}
 for (const kind of kinds) {
   test(`${kind}: sole free ticket is still gated; caller clock/allocation flags ignored`, async () => {
     const result = await invoke(kind, { scheduledFree: true, soleTicket: true }, {

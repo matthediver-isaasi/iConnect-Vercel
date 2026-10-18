@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { useTicketViewerKey } from "@/hooks/useTicketViewerKey";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -168,6 +169,7 @@ export default function EventsPage({
   // This fixes the issue where PublicLayout doesn't pass memberInfo props
   const organizationInfo = contextOrganizationInfo || propsOrganizationInfo;
   const memberInfo = contextMemberInfo || propsMemberInfo;
+  const viewerKey = useTicketViewerKey(memberInfo);
   // Use context isFeatureExcluded if available, otherwise use prop
   const resolvedIsFeatureExcluded = contextIsFeatureExcluded || isFeatureExcluded || (() => false);
   const {
@@ -245,7 +247,7 @@ export default function EventsPage({
   const { data: myGroupIds = [] } = useMyGroupIds();
 
   const { data: complexEvents = [], isLoading: isLoadingComplex } = useQuery({
-    queryKey: ['complex-events-for-listing', !!memberInfo],
+    queryKey: ['complex-events-for-listing', ...viewerKey],
     queryFn: async () => {
       let data;
       if (memberInfo) {

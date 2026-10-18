@@ -115,7 +115,7 @@ export default function ComplexEventTicketManager({
       const newRoles = currentRoles.includes(roleId)
         ? currentRoles.filter(id => id !== roleId)
         : [...currentRoles, roleId];
-      return { ...t, role_ids: newRoles };
+      return updateTicketMemberField(t, 'role_ids', newRoles);
     }));
   };
 
@@ -911,7 +911,7 @@ export default function ComplexEventTicketManager({
                 <Separator />
 
                 {/* VAT Rate Selection */}
-                <PublicTicketMemberFields ticket={ticket} roles={roles} loading={loadingRoles} onChange={patch => setTicketClasses(prev => prev.map(t => t.id === ticket.id ? { ...t, ...patch } : t))} />
+                <PublicTicketMemberFields ticket={ticket} eventId={eventId} eventType="complex" roles={roles} loading={loadingRoles} onChange={patch => setTicketClasses(prev => prev.map(t => t.id === ticket.id ? { ...t, ...patch } : t))} />
                 <div className="space-y-2">
                   <Label className="text-sm font-medium text-slate-700">VAT Rate</Label>
                   <Select

@@ -2,12 +2,15 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { isProvisionableRole } from "@/utils/publicTicketMembers";
+import SelectedMemberAudience from "./SelectedMemberAudience";
 
-export default function PublicTicketMemberFields({ ticket, roles = [], onChange, loading = false }) {
-  if (!["public_only", "members_and_public"].includes(ticket.visibility_mode)) return null;
+export default function PublicTicketMemberFields({ ticket, roles = [], onChange, loading = false, eventId, eventType, groupId }) {
+  const audience = <SelectedMemberAudience ticket={ticket} onChange={onChange} eventId={eventId} eventType={eventType} groupId={groupId} />;
+  if (ticket.audience_mode === "selected_members" || !["public_only", "members_and_public"].includes(ticket.visibility_mode)) return audience;
   const eligibleRoles = roles.filter(isProvisionableRole);
   return (
     <div className="space-y-3 rounded-lg border border-slate-200 p-4">
+      {audience}
       <div className="flex items-center justify-between gap-4">
         <div>
           <Label htmlFor={`create-members-${ticket.id || ticket._localId}`}>Create member records upon purchase</Label>

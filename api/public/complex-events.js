@@ -1,8 +1,12 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { normalizeEventDisplayMode } from '../../shared/eventDisplayMode.js';
+import { filterViewerTickets } from '../../shared/ticketAudienceProjection.js';
+import { loadPrivateTicketViewer } from '../_lib/privateTicketAccess.js';
+import { isPrivateTicket } from '../../shared/ticketAudience.js';
 
 export default async function handler(req, res) {
+  res.setHeader('Cache-Control', 'private, no-store');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -115,12 +119,13 @@ export default async function handler(req, res) {
     if (eventIds.length > 0) {
       const { data: ticketClasses, error: tcError } = await supabase
         .from('complex_event_ticket_class')
-        .select('id, complex_event_id, name, price, is_free, early_bird_enabled, early_bird_price, early_bird_deadline, release_at, release_timezone, visibility_mode, linked_track_ids, all_tracks, display_order')
+        .select('id, complex_event_id, name, price, is_free, early_bird_enabled, early_bird_price, early_bird_deadline, release_at, release_timezone, visibility_mode, linked_track_ids, all_tracks, display_order, audience_mode, selected_member_ids')
         .in('complex_event_id', eventIds)
         .eq('tenant_id', tenant.id)
         .order('display_order', { ascending: true });
 
-      if (!tcError && ticketClasses) {
+      if (tcError) return res.status(503).json({ error: 'Unable to load event tickets' });
+      if (ticketClasses) {
         for (const tc of ticketClasses) {
           if (!ticketClassesByEvent[tc.complex_event_id]) {
             ticketClassesByEvent[tc.complex_event_id] = [];
@@ -130,14 +135,16 @@ export default async function handler(req, res) {
       }
     }
 
+    const viewer = await loadPrivateTicketViewer(req, tenant.id, supabase);
     const events = (rawEvents || []).map(event => {
-      const allTicketClasses = ticketClassesByEvent[event.id] || [];
+      const allTicketClasses = filterViewerTickets(ticketClassesByEvent[event.id] || [], viewer, tenant.id);
       const allPrices = allTicketClasses
         .map(tc => Number(tc.price))
         .filter(p => Number.isFinite(p));
       const cheapestPrice = allPrices.length > 0 ? Math.min(...allPrices) : null;
       const publicTicketClasses = allTicketClasses
         .filter(tc => {
+          if (isPrivateTicket(tc)) return tc.private_ticket_eligible === true;
           const vis = tc.visibility_mode || 'members_only';
           return vis === 'members_and_public' || vis === 'public_only';
         })
@@ -147,6 +154,8 @@ export default async function handler(req, res) {
           price: Number(tc.price) || 0,
           currency: 'gbp',
           visibility_mode: tc.visibility_mode,
+          audience_mode: tc.audience_mode,
+          ...(tc.private_ticket_eligible === true ? { private_ticket_eligible: true } : {}),
           early_bird_enabled: tc.early_bird_enabled || false,
           early_bird_price: tc.early_bird_price != null ? Number(tc.early_bird_price) : null,
           early_bird_deadline: tc.early_bird_deadline || null,
@@ -192,7 +201,9 @@ export default async function handler(req, res) {
         custom_duration_explainer: event.custom_duration_explainer || null,
         track_count: trackCountByEvent[event.id] || 0,
         cheapest_price: cheapestPrice,
-        pricing_config: publicTicketClasses.length > 0 ? { ticket_classes: publicTicketClasses } : null,
+        pricing_config: publicTicketClasses.length > 0 || (ticketClassesByEvent[event.id] || []).length > 0
+          ? { ticket_classes: publicTicketClasses, ticket_classes_configured: (ticketClassesByEvent[event.id] || []).length > 0 }
+          : null,
         cta_override_url: event.cta_override_url || null,
         cta_override_mode: event.cta_override_mode || 'card',
         cta_button_label: event.cta_button_label || null,
