@@ -6150,6 +6150,7 @@ test('inherited related list fields project rows in both directions and enforce 
     field_id: targetAllowed.id,
     key: targetAllowed.name,
     label: targetAllowed.label,
+    field_type: targetAllowed.field_type,
     value: 'Target row',
   }]);
 
@@ -6167,6 +6168,7 @@ test('inherited related list fields project rows in both directions and enforce 
     field_id: sourceField.id,
     key: sourceField.name,
     label: sourceField.label,
+    field_type: sourceField.field_type,
     value: 'Source row',
   }]);
 
@@ -6275,6 +6277,7 @@ test('core-to-custom related lists inherit custom object list fields', async () 
     field_id: targetField.id,
     key: targetField.name,
     label: targetField.label,
+    field_type: targetField.field_type,
     value: 'First Aid',
   }]);
 });

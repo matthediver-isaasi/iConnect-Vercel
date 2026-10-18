@@ -1,4 +1,5 @@
 import { normalizeCustomFieldFileValue } from "@/lib/customFieldFileValue.mjs";
+import { formatRecordDate } from "./dateValues.mjs";
 
 export const arrayValue = (value) => {
   if (Array.isArray(value)) return value;
@@ -202,6 +203,7 @@ export const buildRecordPayload = (fields, values, { partial = false } = {}) => 
 
 export const formatRecordValue = (field, value, countryNames = {}) => {
   if (blank(value)) return "—";
+  if (field?.field_type === "date") return formatRecordDate(value);
   if (field?.field_type === "boolean") return value === true || value === "true" ? "Yes" : "No";
   const options = new Map(optionValues(field).map((option) => [option.value, option.label]));
   if (["picklist", "list", "countries"].includes(field?.field_type)) {

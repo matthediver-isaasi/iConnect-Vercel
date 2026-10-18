@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { formatRecordDate, parseRecordDateInput, formatCompactRecordField } from "./dateValues.mjs";
 import {
   applyRecordPermissionToggle,
   arrayValue,
@@ -21,6 +22,34 @@ import {
   unplacedRelationshipPanels,
   validateRecordValues,
 } from "./recordHelpers.js";
+
+test("date fields use UK display without changing ISO storage or interpreting text fields", () => {
+  for (const timezone of ["America/Los_Angeles", "Europe/London", "Pacific/Auckland"]) {
+    const original = process.env.TZ;
+    try {
+      process.env.TZ = timezone;
+      assert.equal(formatRecordValue({ field_type: "date" }, "2023-06-02"), "02/06/2023");
+      assert.equal(formatRecordValue({ field_type: "date" }, "2024-03-19"), "19/03/2024");
+      assert.equal(formatRecordValue({ field_type: "date" }, "2028-07-31"), "31/07/2028");
+      assert.equal(formatRecordValue({ field_type: "date" }, null), "—");
+      assert.equal(formatRecordValue({ field_type: "text" }, "2023-06-02"), "2023-06-02");
+    } finally {
+      if (original === undefined) delete process.env.TZ;
+      else process.env.TZ = original;
+    }
+  }
+  assert.equal(formatCompactRecordField({ field_type: "date", value: "2024-02-29" }), "29/02/2024");
+  assert.equal(formatCompactRecordField({ field_type: "text", value: "2024-02-29" }), "2024-02-29");
+  assert.equal(formatRecordDate(null), "");
+  assert.equal(parseRecordDateInput("02/06/2023"), "2023-06-02");
+  assert.equal(parseRecordDateInput("02/06/"), "02/06/");
+  const fields = [{ name: "start_date", label: "Start date", field_type: "date" }];
+  assert.deepEqual(buildRecordPayload(fields, { start_date: parseRecordDateInput("02/06/2023") }),
+    { data: { start_date: "2023-06-02" } });
+  assert.deepEqual(validateRecordValues(fields, { start_date: parseRecordDateInput("29/02/2024") }), {});
+  assert.ok(validateRecordValues(fields, { start_date: parseRecordDateInput("31/02/2024") }).start_date);
+  assert.ok(validateRecordValues(fields, { start_date: parseRecordDateInput("12/31/2024") }).start_date);
+});
 
 test("picker context normalizes only a complete opposite-side relationship column", () => {
   const definition = {

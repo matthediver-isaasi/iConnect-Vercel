@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { formatCompactRecordField } from "./dateValues.mjs";
 import { Link, useLocation } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Archive, ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, CircleAlert, GripVertical, Link2, Loader2, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
@@ -509,8 +510,8 @@ function RelationshipPanel({
   );
   const previewValue = (related, descriptor) => {
     if (descriptor.kind === "compact_scalar")
-      return related.compact_fields?.find((item) =>
-        String(item.field_id) === descriptor.fieldId)?.value;
+      return formatCompactRecordField(related.compact_fields?.find((item) =>
+        String(item.field_id) === descriptor.fieldId));
     if (descriptor.kind === "relationship_preview")
       return related.relationship_columns?.filter((item) =>
         String(item.relationship_definition_id) === descriptor.relationshipDefinitionId
@@ -620,7 +621,7 @@ function RelationshipPanel({
                  const label = related.primary_label || "Untitled record";
                  const primary = path ? <Link to={path} state={linkState} className="font-semibold text-slate-900 hover:underline">{label}</Link> : <span className="font-semibold text-slate-900">{label}</span>;
                  const values = previewColumns.map((column) => column.type === "field"
-                   ? related.compact_fields?.find((item) => String(item.field_id) === column.field_id)?.value
+                   ? formatCompactRecordField(related.compact_fields?.find((item) => String(item.field_id) === column.field_id))
                    : related.relationship_columns?.filter((item) => String(item.relationship_definition_id) === column.relationship_definition_id && item.side === column.side) || []);
                    return <article key={edge.relationship_id} className={`${relationshipCardColumnLayoutClasses.card} group`}><div className="flex items-start justify-between gap-3"><div className="min-w-0">{primary}{edge.archived_at && <Badge variant="outline" className="mt-2 block w-fit">Archived link</Badge>}</div>{relatedActions(edge, related, label, true)}</div>{(edgeFields.length > 0 || previewColumns.length > 0) && <dl className="mt-4 space-y-3">{edgeFields.map((field) => <div key={`edge-field-${field.id}`}><dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">{field.label}</dt><dd className="mt-1 text-sm text-slate-700">{renderEdgeField(edge, field)}</dd></div>)}{previewColumns.map((column, index) => <div key={`${column.type}-${column.field_id || column.relationship_definition_id}-${index}`}><dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">{column.label}</dt><dd className="mt-1 text-sm text-slate-700">{Array.isArray(values[index]) ? values[index].length ? values[index].map((item, valueIndex) => { const valuePath = relatedRecordPath(item.value); return <React.Fragment key={`${item.value.id}-${valueIndex}`}>{valueIndex > 0 && ", "}{valuePath ? <Link to={valuePath} state={linkState} className="hover:underline">{item.value.primary_label}</Link> : item.value.primary_label}</React.Fragment>; }) : "—" : relationshipScalarDisplayValue(values[index])}</dd></div>)}</dl>}</article>;
                })}</div>}</div>}

@@ -14,3 +14,9 @@ Remove only exact duplicate source rows; retain distinct membership entries, inc
 **Why:** The user approved deduplication only for exact duplicates and explicitly said source filename and spreadsheet row number were unnecessary.
 
 **How to apply:** Compare all original columns before deduplication, without trimming or merging membership labels. Preserve the remaining values as archive evidence, not current membership authority.
+
+The archive's dates must display in UK `dd/mm/yyyy` format.
+
+**Why:** The user supplied UK-formatted dates and explicitly rejected US front-end presentation.
+
+**How to apply:** Format date-only values for display without timezone conversion or swapping their stored month/day. A presentation complaint is not authorization to rewrite the imported dates.

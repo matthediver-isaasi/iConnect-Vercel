@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { arrayValue, optionValues } from "./recordHelpers";
+import { formatRecordDate, parseRecordDateInput } from "./dateValues.mjs";
 
 const normalizedFileValue = (value) => {
   const file = Array.isArray(value) ? value[0] : value;
@@ -26,6 +27,7 @@ function MultiValueControl({ field, value, onChange, countries = false, disabled
 
 export function RecordFieldControl({ field, value, onChange, disabled = false }) {
   const type = field.field_type;
+  if (type === "date") return <Input disabled={disabled} type="text" inputMode="numeric" placeholder="dd/mm/yyyy" aria-label={`${field.label || field.name} (dd/mm/yyyy)`} value={formatRecordDate(value)} onChange={(event) => onChange(parseRecordDateInput(event.target.value))} />;
   if (type === "file") return <CustomFieldFileUpload fieldId={field.id} customObjectId={field.custom_object_id} value={normalizedFileValue(value)} onChange={onChange} allowedTypes={field.allowed_file_types} publicAccess={field.public_access} disabled={disabled} />;
   if (type === "textarea") return <Textarea disabled={disabled} minLength={field.min_length ?? undefined} maxLength={field.max_length ?? undefined} value={value ?? ""} onChange={(event) => onChange(event.target.value)} />;
   if (["picklist", "countries", "list"].includes(type)) return <MultiValueControl field={field} value={value} onChange={onChange} countries={type === "countries"} disabled={disabled} />;

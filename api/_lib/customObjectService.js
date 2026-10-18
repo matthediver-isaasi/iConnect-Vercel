@@ -2291,7 +2291,7 @@ export function createCustomObjectService({
       .filter(Boolean)
       .map((field) => {
         const metadata = getCustomObjectFieldMetadata(field);
-        return { field_id: field.id, key: metadata.key, label: metadata.label, value: row.data?.[metadata.key] ?? null };
+        return { field_id: field.id, key: metadata.key, label: metadata.label, field_type: metadata.type, value: row.data?.[metadata.key] ?? null };
       });
     return {
       primary_label: resolveCustomObjectDisplayValue({
