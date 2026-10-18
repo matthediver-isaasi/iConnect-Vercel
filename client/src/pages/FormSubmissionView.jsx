@@ -557,6 +557,8 @@ export default function FormSubmissionView() {
                 Delete the submission for “{form?.name || submission.form_name || 'Form Submission'}”
                 {submission.submitted_by_name ? ` from ${submission.submitted_by_name}` : ''}?
                 {' '}This permanently deletes the submission and cannot be undone.
+                {(form?.form_type === 'survey' || submission.survey_version_id) &&
+                  ' Its answers will also be removed from survey statistics.'}
                 {' '}It does not refund payments or undo processing, or delete linked member or organisation records.
                 <span className="block mt-2 break-all">Submission ID: {submissionId}</span>
               </AlertDialogDescription>

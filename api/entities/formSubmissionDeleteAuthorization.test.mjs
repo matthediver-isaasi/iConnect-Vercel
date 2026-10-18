@@ -146,9 +146,14 @@ test('real DELETE allows submission managers and tenant dashboard users', async 
   }
 });
 
-test('authorized callers still cannot delete survey or cross-tenant submissions', async () => {
+test('authorized managers can delete surveys, but not cross-tenant submissions', async () => {
+  const survey = await invoke({ formType: 'survey' });
+  assert.equal(survey.statusCode, 200);
+  assert.deepEqual(survey.writes[0].ids, ['fixture-submission']);
   for (const [options, status] of [
-    [{ formType: 'survey' }, 403], [{ submissionTenant: 'other-tenant' }, 404],
+    [{ submissionTenant: 'other-tenant' }, 404],
+    [{ formType: 'survey', submissionTenant: 'other-tenant' }, 404],
+    [{ formType: 'survey', excluded: ['forms.submissions'] }, 403],
   ]) {
     const result = await invoke(options);
     assert.equal(result.statusCode, status);

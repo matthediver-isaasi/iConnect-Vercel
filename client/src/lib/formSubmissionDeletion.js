@@ -16,6 +16,12 @@ export async function reconcileDeletedSubmission(queryClient, submissionId) {
     : rows);
   await queryClient.invalidateQueries({ ...lists, refetchType: 'none' });
   await queryClient.invalidateQueries({ queryKey: ['form-submission-stats'], refetchType: 'none' });
+  const reports = { predicate: query => typeof query.queryKey[0] === 'string' && (
+    query.queryKey[0].startsWith('survey-report-') ||
+    query.queryKey[0].includes('survey-assignments')
+  ) };
+  await queryClient.cancelQueries(reports);
+  await queryClient.invalidateQueries(reports);
 }
 
 export function submissionDeletionRestriction({ submission, form, formReady }) {
@@ -24,9 +30,6 @@ export function submissionDeletionRestriction({ submission, form, formReady }) {
   }
   if (form.due_diligence_required === true) {
     return 'Due Diligence submissions must be managed through the Due Diligence Dashboard.';
-  }
-  if (form.form_type === 'survey' || submission.survey_version_id || submission.survey_assignment_id) {
-    return 'Survey responses are immutable and cannot be deleted.';
   }
   return null;
 }

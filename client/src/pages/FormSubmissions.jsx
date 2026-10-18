@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { Link, useSearchParams, useLocation } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
+import { reconcileDeletedSubmission } from "@/lib/formSubmissionDeletion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -876,8 +877,8 @@ export default function FormSubmissionsPage() {
     mutationFn: async (id) => {
       return await base44.entities.FormSubmission.delete(id);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['form-submissions'] });
+    onSuccess: async (_, id) => {
+      await reconcileDeletedSubmission(queryClient, id);
       setSubmissionToDelete(null);
       toast.success('Submission deleted');
     },
@@ -2991,6 +2992,7 @@ export default function FormSubmissionsPage() {
             <AlertDialogDescription>
               Are you sure you want to delete this submission from "{submissionToDelete ? resolveFormName(submissionToDelete) : ''}"? 
               This action cannot be undone.
+              {' '}For survey responses, the answers will also be removed from survey statistics.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

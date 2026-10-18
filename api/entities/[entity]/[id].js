@@ -2903,8 +2903,8 @@ export default async function handler(req, res, dependencies = {}) {
 
       // Handle cascade deletion for entities with foreign key relationships
 
-      // SECURITY (survey integrity): survey responses cannot be deleted via
-      // the generic entity API — see the PATCH guard above.
+      // Submission deletion remains protected by the management permission
+      // above. Survey answer cleanup and counters are transactional DB triggers.
       {
         const entityNormalizedDel = entity.replace(/[-_]/g, '').toLowerCase();
         if (entityNormalizedDel === 'jobposting') {
@@ -2916,25 +2916,6 @@ export default async function handler(req, res, dependencies = {}) {
           const { data: externalJob } = await externalQuery.maybeSingle();
           if (externalJob?.external_source) {
             return res.status(403).json({ error: 'External job postings are managed by their feed and cannot be deleted' });
-          }
-        }
-        if (entityNormalizedDel === 'formsubmission') {
-          const { data: subRow } = await supabase
-            .from('form_submission')
-            .select('form_id')
-            .eq('id', id)
-            .eq('tenant_id', tenantCtx.tenantId)
-            .maybeSingle();
-          if (subRow?.form_id) {
-            const { data: subForm } = await supabase
-              .from('form')
-              .select('form_type')
-              .eq('id', subRow.form_id)
-              .eq('tenant_id', tenantCtx.tenantId)
-              .maybeSingle();
-            if (subForm?.form_type === 'survey') {
-              return res.status(403).json({ error: 'Survey responses are immutable and cannot be deleted' });
-            }
           }
         }
       }

@@ -13,6 +13,9 @@ test('prunes all list variants, invalidates totals, and fences an outstanding st
   ];
   const rows = [{ id: 'deleted' }, { id: 'keep' }];
   try {
+    for (const key of ['survey-report-summary', 'survey-report-distribution', 'survey-report-comments', 'survey-report-responses', 'survey-report-filters']) {
+      client.setQueryData([key, 'survey'], { total: 2 });
+    }
     for (const key of keys) client.setQueryData(key, rows);
     client.setQueryData(['form-submission-stats'], { count: 2 });
     client.setQueryData(['unrelated'], rows);
@@ -30,7 +33,17 @@ test('prunes all list variants, invalidates totals, and fences an outstanding st
     }
     assert.equal(client.getQueryState(['form-submission-stats']).isInvalidated, true);
     assert.deepEqual(client.getQueryData(['unrelated']), rows);
+    for (const key of ['survey-report-summary', 'survey-report-distribution', 'survey-report-comments', 'survey-report-responses', 'survey-report-filters']) {
+      assert.equal(client.getQueryState([key, 'survey']).isInvalidated, true);
+    }
   } finally { client.clear(); }
+});
+
+test('survey responses can be deleted while due diligence restrictions remain', () => {
+  const submission = { id: 'response', form_id: 'survey', survey_version_id: 'version', survey_assignment_id: 'assignment' };
+  const form = { id: 'survey', form_type: 'survey' };
+  assert.equal(submissionDeletionRestriction({ submission, form, formReady: true }), null);
+  assert.match(submissionDeletionRestriction({ submission, form: { ...form, due_diligence_required: true }, formReady: true }), /Due Diligence/);
 });
 
 test('eligibility requires matching, successfully resolved metadata; legacy standard forms remain eligible', () => {
