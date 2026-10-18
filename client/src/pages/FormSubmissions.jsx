@@ -661,7 +661,7 @@ export default function FormSubmissionsPage() {
     );
   }, [sortedForms, includeInactiveForms, selectedForm]);
 
-  // Used by CSV export to resolve organisation_dropdown UUIDs to names.
+  // Shared by exports and the detail viewer to resolve organisation UUIDs.
   const { data: organisationsForExport = [] } = useQuery({
     queryKey: ['organizations-for-form-submissions-export'],
     queryFn: async () => await listAllOrganizationsForAdmin(),
@@ -694,7 +694,7 @@ export default function FormSubmissionsPage() {
       .map(group => [String(group.id), group.name || '']),
   ), [organisationGroupsForExport]);
 
-  // Used by CSV export to resolve communication_preferences category IDs to names.
+  // Shared by exports and the detail viewer to resolve communication category IDs.
   const { data: communicationCategoriesForExport = [] } = useQuery({
     queryKey: ['communication-categories-for-form-submissions-export'],
     queryFn: async () => {
@@ -715,7 +715,7 @@ export default function FormSubmissionsPage() {
     return map;
   }, [communicationCategoriesForExport]);
 
-  // Used by CSV export to resolve custom_field option values to their labels.
+  // Shared by exports and the detail viewer to resolve custom field option labels.
   const { data: customFieldsForExport = [] } = useQuery({
     queryKey: ['preference-fields-for-form-submissions-export'],
     queryFn: async () => {
@@ -1834,6 +1834,8 @@ export default function FormSubmissionsPage() {
     );
   }
 
+  const detailValueResolvers = buildExportResolvers();
+
   return (
     <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
@@ -2933,6 +2935,18 @@ export default function FormSubmissionsPage() {
                           ? (Array.isArray(value)
                             ? value.map(id => organisationGroupNamesById[String(id)] || 'Unavailable organisation group').join(', ')
                             : organisationGroupNamesById[String(value)] || 'Unavailable organisation group')
+                        : field?.type === 'organisation_dropdown'
+                          ? (Array.isArray(value)
+                            ? value.map(detailValueResolvers.resolveOrgName).join(', ')
+                            : detailValueResolvers.resolveOrgName(value))
+                        : field?.type === 'communication_preferences'
+                          ? detailValueResolvers.resolveCommunicationPreferences(value)
+                        : field?.type === 'image_buttons'
+                          ? (Array.isArray(value)
+                            ? value.map(item => detailValueResolvers.resolveImageButtonLabel(item, field)).join(', ')
+                            : detailValueResolvers.resolveImageButtonLabel(value, field))
+                        : field?.type === 'custom_field'
+                          ? detailValueResolvers.resolveCustomFieldValue(value, field)
                         : Array.isArray(value) ? value.join(', ') : String(value);
                     return (
                     <div key={key} className="bg-white rounded-lg p-3 border border-slate-200">
