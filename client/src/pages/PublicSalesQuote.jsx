@@ -11,6 +11,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import BillingSchedule from "@/components/sales/BillingSchedule";
 import { billingScheduleOf } from "@/components/sales/billingGroups";
+import AgreementDecisionForm from "@/components/sales/AgreementDecisionForm";
+import AgreementDocument from "@/components/sales/AgreementDocument";
+import { legalHtmlOf } from "@/components/sales/agreementSignature";
 
 const pick = (value, camel, snake, fallback = "") => value?.[camel] ?? value?.[snake] ?? fallback;
 const items = (value) => Array.isArray(value) ? value : value?.items || value?.data || [];
@@ -93,6 +96,7 @@ export default function PublicSalesQuote() {
         declineReason: decision === "decline" ? form.declineReason.trim() || null : null,
         agreement: decision === "accept" && form.agreement === true,
         idempotencyKey,
+        ...(form.signature ? { signature: form.signature, consent: form.consent === true, verificationProof: form.verificationProof } : {}),
       }),
     }),
     onSuccess: (data) => setResult(data),
@@ -101,6 +105,12 @@ export default function PublicSalesQuote() {
   const quoteRoot = root.quote || root.salesQuote || root.sales_quote || root;
   const snapshot = quoteRoot.snapshot || quoteRoot.currentVersion || quoteRoot.current_version || quoteRoot.version || quoteRoot;
   const quote = { ...quoteRoot, ...snapshot };
+  const agreement = result?.agreement || root.agreement || quote.agreement;
+  const hasAgreement = Boolean(agreement?.required || legalHtmlOf(quote));
+  const finalize = useMutation({
+    mutationFn: () => publicRequest(`${path}/finalize`, { method: "POST", body: "{}" }),
+    onSuccess: data => { setResult(current => ({ ...current, status: "accepted", ...data, agreement: { ...agreement, ...data.agreement } })); query.refetch(); },
+  });
   const branding = root.tenant || root.branding || quote.branding || {};
   const lines = items(quote.lines || quote.lineItems || quote.line_items);
   const totals = quote.totals || {};
@@ -118,7 +128,8 @@ export default function PublicSalesQuote() {
     return <main className="min-h-screen bg-slate-50 px-4 py-16"><Outcome status={errorStatus} message={query.error.message} /></main>;
   }
   if (outcomeCopy[decisionErrorStatus]) return <main className="min-h-screen bg-slate-50 px-4 py-16"><Outcome status={decisionErrorStatus} message={submit.error.message} /></main>;
-  if (!actionable || result) return <main className="min-h-screen bg-slate-50 px-4 py-16"><Outcome status={status} message={result?.message} /></main>;
+  const acceptedAgreement = hasAgreement && ["accepted", "already_accepted", "converted"].includes(status);
+  if ((!actionable || result) && !acceptedAgreement) return <main className="min-h-screen bg-slate-50 px-4 py-16"><Outcome status={status} message={result?.message} /></main>;
 
   return <main className="min-h-screen bg-slate-100">
     <header className="border-b bg-white"><div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-5 sm:px-6">
@@ -126,16 +137,18 @@ export default function PublicSalesQuote() {
       <Button asChild variant="outline"><a href={`${path}/download`} download><Download className="mr-2 h-4 w-4" />PDF</a></Button>
     </div></header>
     <div className="mx-auto max-w-5xl space-y-6 px-4 py-8 sm:px-6">
-      <Card><CardContent className="p-5 sm:p-8">
-        <div className="flex flex-col justify-between gap-5 border-b pb-6 sm:flex-row"><div><p className="text-sm font-semibold uppercase tracking-wider" style={{ color: primary }}>Quote</p><h1 className="mt-1 text-2xl font-bold text-slate-950 sm:text-3xl">{quote.number || quote.quoteNumber || quote.quote_number || "Sales quote"}</h1><Badge className="mt-3">Version {quote.versionNumber || quote.version_number || 1}</Badge></div><dl className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm"><dt className="text-slate-500">Issued</dt><dd>{dateText(pick(quote, "issueDate", "issue_date"))}</dd><dt className="text-slate-500">Valid until</dt><dd>{dateText(pick(quote, "validUntil", "valid_until"))}</dd></dl></div>
+      {acceptedAgreement && <Card className="border-emerald-200"><CardContent className="space-y-3 p-6"><h2 className="flex items-center gap-2 text-xl font-semibold"><CheckCircle2 className="h-5 w-5 text-emerald-600" />Agreement accepted</h2><p className="text-sm text-muted-foreground">Your acceptance has been recorded. Both parties’ signatures are retained with this exact agreement version.</p>{agreement?.downloadAvailable && <Button asChild><a href={`${path}/agreement-download`} download>Download signed agreement PDF</a></Button>}{!agreement?.downloadAvailable && <p className="text-sm">{agreement?.finalizationStatus === "failed" ? "Acceptance is complete, but the signed PDF could not be prepared. Retry below; you do not need to sign again." : "The signed PDF is being prepared. Check its status below; do not sign again."}</p>}{agreement?.completionNotifications && <p className="text-xs text-muted-foreground">Completion email: sender {agreement.completionNotifications.sender || "pending"} · customer {agreement.completionNotifications.customer || "pending"}. Failed emails can be retried after 60 seconds.</p>}{(!agreement?.downloadAvailable || (agreement?.completionNotifications && Object.values(agreement.completionNotifications).some(value => value !== "sent"))) && <Button variant="outline" disabled={finalize.isPending} onClick={() => finalize.mutate()}>{finalize.isPending ? "Preparing signed PDF…" : agreement?.downloadAvailable ? "Retry completion emails" : "Retry / check signed PDF"}</Button>}{finalize.error && <p role="alert" className="text-sm text-destructive">{finalize.error.message}</p>}</CardContent></Card>}
+      {!hasAgreement && <Card><CardContent className="p-5 sm:p-8">
+        <div className="flex flex-col justify-between gap-5 border-b pb-6 sm:flex-row"><div><p className="text-sm font-semibold uppercase tracking-wider" style={{ color: primary }}>{hasAgreement ? "Agreement" : "Quote"}</p><h1 className="mt-1 text-2xl font-bold text-slate-950 sm:text-3xl">{quote.number || quote.quoteNumber || quote.quote_number || "Sales quote"}</h1><Badge className="mt-3">Version {quote.versionNumber || quote.version_number || 1}</Badge></div><dl className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm"><dt className="text-slate-500">Issued</dt><dd>{dateText(pick(quote, "issueDate", "issue_date"))}</dd><dt className="text-slate-500">Valid until</dt><dd>{dateText(pick(quote, "validUntil", "valid_until"))}</dd></dl></div>
         <div className="grid gap-5 border-b py-6 sm:grid-cols-2"><div><p className="text-xs font-semibold uppercase text-slate-500">Prepared for</p><p className="mt-2 font-semibold">{quote.customerName || quote.customer_name || quote.organisationName || quote.organisation_name || quote.organisation?.name || address.addressee || "Customer"}</p>{[address.line1 || address.line_1, address.line2 || address.line_2, address.city, address.region, address.postalCode || address.postal_code, address.country].filter(Boolean).map((part) => <p key={part} className="text-sm text-slate-600">{part}</p>)}</div><div><p className="text-xs font-semibold uppercase text-slate-500">References</p><p className="mt-2 text-sm">PO: {pick(quote, "purchaseOrderReference", "purchase_order_reference", "—")}</p><p className="text-sm">Customer: {pick(quote, "customerReference", "customer_reference", "—")}</p></div></div>
         <div className="-mx-5 overflow-x-auto sm:-mx-8"><table className="w-full min-w-[620px] text-sm"><thead className="bg-slate-50 text-left text-xs uppercase text-slate-500"><tr><th className="px-5 py-3 sm:px-8">Description</th><th className="px-3 py-3 text-right">Qty</th><th className="px-3 py-3 text-right">Unit price</th><th className="px-5 py-3 text-right sm:px-8">Total</th></tr></thead><tbody>{lines.map((line, index) => <tr key={line.id || index} className="border-t"><td className="px-5 py-4 sm:px-8"><strong>{line.description || line.name || "Item"}</strong>{line.detail && <p className="text-xs text-slate-500">{line.detail}</p>}</td><td className="px-3 py-4 text-right">{line.quantity}</td><td className="px-3 py-4 text-right">{currencyText(line.quotedUnitPriceMinor ?? line.quoted_unit_price_minor ?? line.unitPriceMinor ?? line.unit_price_minor, currency)}</td><td className="px-5 py-4 text-right font-semibold sm:px-8">{currencyText(line.grossMinor ?? line.gross_minor ?? line.totalMinor ?? line.total_minor, currency)}</td></tr>)}</tbody></table></div>
         <div className="ml-auto mt-6 max-w-sm space-y-2 text-sm"><div className="flex justify-between"><span>Net</span><span>{currencyText(totals.netMinor ?? totals.net_minor ?? quote.netMinor ?? quote.net_minor ?? quote.netTotalMinor ?? quote.net_total_minor, currency)}</span></div><div className="flex justify-between"><span>Tax</span><span>{currencyText(totals.taxMinor ?? totals.tax_minor ?? quote.taxMinor ?? quote.tax_minor ?? quote.taxTotalMinor ?? quote.tax_total_minor, currency)}</span></div><div className="flex justify-between border-t pt-3 text-xl font-bold"><span>Total</span><span>{currencyText(total, currency)}</span></div></div>
         {(quote.terms || quote.paymentTerms || quote.payment_terms || quote.notes) && <div className="mt-8 rounded-lg bg-slate-50 p-4"><p className="font-semibold">Terms</p><p className="mt-1 whitespace-pre-wrap text-sm text-slate-600">{typeof quote.terms === "string" ? quote.terms : quote.terms?.text || quote.terms?.paymentTerms || quote.terms?.payment_terms || quote.paymentTerms || quote.payment_terms || ""}{quote.notes ? `\n\n${quote.notes}` : ""}</p></div>}
-      </CardContent></Card>
-      <BillingSchedule schedule={billingScheduleOf(quote)} />
+      </CardContent></Card>}
+      {!hasAgreement && <BillingSchedule schedule={billingScheduleOf(quote)} />}
+      {hasAgreement && <AgreementDocument quote={quote} sender={agreement?.sender} recipient={agreement?.customer || agreement?.contact} />}
       {submit.error && <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800"><AlertTriangle className="mr-2 inline h-4 w-4" />{submit.error.message}</div>}
-      {decision ? <DecisionForm decision={decision} pending={submit.isPending} onCancel={() => setDecision("")} onSubmit={(form) => submit.mutate(form)} /> : <div className="flex flex-col gap-3 sm:flex-row sm:justify-end"><Button size="lg" variant="outline" className="border-rose-300 text-rose-700" onClick={() => setDecision("decline")}>Decline</Button><Button size="lg" style={{ backgroundColor: primary }} onClick={() => setDecision("accept")}>Accept quote</Button></div>}
+      {!acceptedAgreement && (decision ? hasAgreement && decision === "accept" ? <AgreementDecisionForm agreement={agreement || {}} path={path} request={publicRequest} pending={submit.isPending} onCancel={() => setDecision("")} onSubmit={form => submit.mutate(form)} /> : <DecisionForm decision={decision} pending={submit.isPending} onCancel={() => setDecision("")} onSubmit={(form) => submit.mutate(form)} /> : <div className="flex flex-col gap-3 sm:flex-row sm:justify-end"><Button size="lg" variant="outline" className="border-rose-300 text-rose-700" onClick={() => setDecision("decline")}>Decline</Button><Button size="lg" style={{ backgroundColor: primary }} onClick={() => setDecision("accept")}>{hasAgreement ? "Review and sign agreement" : "Accept quote"}</Button></div>)}
     </div>
   </main>;
 }

@@ -12,6 +12,8 @@ import {
   saveQuoteDraft, transitionQuote, loadQuoteDraftState,
 } from '../../_lib/salesQuote.js';
 import { buildBrandedSalesQuotePdf } from '../../_lib/salesQuotePdf.js';
+import { hasSalesAgreement, prepareSalesAgreement, getSalesAgreement, agreementDto, agreementPdf, downloadSalesAgreement, finalizeAndNotifySalesAgreement } from '../../_lib/salesAgreement.js';
+import { listSigningRequests, requestSalesAgreementSignature, validateSigningRequest } from '../../_lib/salesAgreementSigningRequests.js';
 import { canonicalQuoteBaseUrl, sendQuote, previewQuoteEmail, validateQuoteEmail } from '../../_lib/salesQuoteDelivery.js';
 import {
   createSalesInvoice, getSalesInvoicePresentation, refreshSalesInvoiceStatus,
@@ -91,6 +93,7 @@ export function createSalesQuotesHandler(dependencies = {}) {
         const draft = quote.currentVersion?.status === 'draft';
         return res.status(200).json({
           ...quote,
+          ...(hasSalesAgreement(quote.currentVersion) ? { agreement: agreementDto(await getSalesAgreement(db, quote.currentVersion.id)) } : {}),
           permissions: {
             canView: true,
             canEdit: canManage && draft,
@@ -114,6 +117,11 @@ export function createSalesQuotesHandler(dependencies = {}) {
         });
       }
       if (read && action === 'history') return res.status(200).json({ items: await getQuoteHistory(db, actor.tenantId, id) });
+      if (read && id && action === 'signing-requests') {
+        await requireSalesContext(context, SALES_CAPABILITIES.MANAGE_QUOTES, dependencies);
+        res.setHeader('Cache-Control', 'private, no-store');
+        return res.status(200).json(await listSigningRequests(db, await getQuote(db, actor.tenantId, id), actor));
+      }
       if (read && action === 'compare') {
         const from = Number(req.query.from); const to = Number(req.query.to);
         if (!Number.isInteger(from) || !Number.isInteger(to)) throw new SalesHttpError(400, 'from and to versions are required');
@@ -127,7 +135,12 @@ export function createSalesQuotesHandler(dependencies = {}) {
         const { data: tenant, error } = await db.from('tenant')
           .select('name,slug,domain,logo_url,header_logo_url,primary_color,secondary_color,tagline,description,branding_config,settings,footer_config').eq('id', actor.tenantId).maybeSingle();
         if (error) throw error;
-        const pdf = await buildBrandedSalesQuotePdf({ quote, version, tenant });
+        const envelope = hasSalesAgreement(version) ? await getSalesAgreement(db, version.id) : null;
+        const pdf = envelope
+          ? envelope.customer ? await downloadSalesAgreement(db, envelope) : await agreementPdf(envelope)
+          : hasSalesAgreement(version)
+            ? await agreementPdf({ snapshot: { quote, version, tenant }, sender: null, customer: null, document_hash: null })
+            : await buildBrandedSalesQuotePdf({ quote, version, tenant });
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `${action === 'download' ? 'attachment' : 'inline'}; filename="quote-${quote.quote_number}.pdf"`);
         res.setHeader('Cache-Control', 'private, no-store');
@@ -168,12 +181,12 @@ export function createSalesQuotesHandler(dependencies = {}) {
         const body = normaliseQuoteInput(req.body || {});
         const validation = validateQuoteDraft(body, { existing: Boolean(id) });
         if (!validation.ok) return res.status(400).json({ error: 'Invalid quote preview', details: validation.errors });
-        const { previousLines, previousSalesperson, previousBillingSchedule } = await loadQuoteDraftState(db, actor.tenantId, id);
-        try { return res.status(200).json({ quote: await prepareQuoteDraft(db, actor.tenantId, actor, body, false, previousLines, previousSalesperson, previousBillingSchedule), permissions: { canOverridePrices: false } }); }
+        const { previousLines, previousSalesperson, previousBillingSchedule, previousLegalHtml } = await loadQuoteDraftState(db, actor.tenantId, id);
+        try { return res.status(200).json({ quote: await prepareQuoteDraft(db, actor.tenantId, actor, body, false, previousLines, previousSalesperson, previousBillingSchedule, previousLegalHtml), permissions: { canOverridePrices: false } }); }
         catch (error) {
           if (!(error instanceof SalesHttpError) || error.status !== 403) throw error;
           await requireSalesContext(context, SALES_CAPABILITIES.MANAGE_CATALOGUE_PRICES, dependencies);
-          return res.status(200).json({ quote: await prepareQuoteDraft(db, actor.tenantId, actor, body, true, previousLines, previousSalesperson, previousBillingSchedule), permissions: { canOverridePrices: true } });
+          return res.status(200).json({ quote: await prepareQuoteDraft(db, actor.tenantId, actor, body, true, previousLines, previousSalesperson, previousBillingSchedule, previousLegalHtml), permissions: { canOverridePrices: true } });
         }
       }
       if ((req.method === 'POST' && !id) || (req.method === 'PATCH' && id && !action)) {
@@ -194,6 +207,14 @@ export function createSalesQuotesHandler(dependencies = {}) {
       if (req.method === 'POST' && id && action === 'issue') {
         if (!Number.isInteger(req.body?.expectedVersion) || req.body.expectedVersion < 1) throw new SalesHttpError(400, 'expectedVersion is required');
         return res.status(200).json(await issueQuote(db, actor.tenantId, actor, id, req.body.expectedVersion));
+      }
+      if (req.method === 'POST' && id && action === 'finalize-agreement') {
+        const quote = await getQuote(db, actor.tenantId, id);
+        const requested = req.body?.version ? Number(req.body.version) : quote.current_version;
+        const version = quote.versions.find(item => item.version_number === requested);
+        if (!version) throw new SalesHttpError(404, 'Quote version not found');
+        const envelope = await finalizeAndNotifySalesAgreement(db, await getSalesAgreement(db, version.id), dependencies);
+        return res.status(envelope.finalization_status === 'complete' ? 200 : 503).json({ agreement: agreementDto(envelope) });
       }
       if (req.method === 'POST' && id && action === 'amend') {
         if (!Number.isInteger(req.body?.expectedVersion) || req.body.expectedVersion < 1) throw new SalesHttpError(400, 'expectedVersion is required');
@@ -228,7 +249,7 @@ export function createSalesQuotesHandler(dependencies = {}) {
           db, actor.tenantId, sale.id, accounting.invoice.provider, dependencies,
         ));
       }
-      if (req.method === 'POST' && id && ['send', 'preview-email'].includes(action)) {
+      if (req.method === 'POST' && id && ['send', 'preview-email', 'request-signature'].includes(action)) {
         const recipient = String(req.body?.recipient || '').trim();
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) throw new SalesHttpError(400, 'A valid recipient is required');
         const quote = await getQuote(db, actor.tenantId, id);
@@ -238,17 +259,34 @@ export function createSalesQuotesHandler(dependencies = {}) {
         const sender = await resolveQuoteSender(db, quote, actor, req.body?.senderKey, dependencies);
         const emailInput = {
           quote, version, recipient, sender, personalMessage: req.body?.personalMessage,
-          attachPdf: req.body?.attachPdf !== false, expiresInDays: Number(req.body?.expiresInDays),
+          attachPdf: req.body?.attachPdf !== false, expiresInDays: Number(req.body?.expiresInDays ?? (action === 'request-signature' ? 30 : undefined)),
         };
         validateQuoteEmail(emailInput);
+        let tenant = null;
+        if (action === 'send' || hasSalesAgreement(version)) {
+          const tenantResult = await db.from('tenant')
+            .select('name,slug,domain,logo_url,header_logo_url,primary_color,secondary_color,tagline,description,branding_config,settings,footer_config').eq('id', actor.tenantId).maybeSingle();
+          if (tenantResult.error) throw tenantResult.error;
+          tenant = tenantResult.data;
+        }
+        if (action === 'request-signature') {
+          return res.status(201).json(await requestSalesAgreementSignature(db, {
+            quote, version, tenant, actor, sender, body: req.body || {},
+          }, dependencies));
+        }
+        await validateSigningRequest(db, req.body?.signingRequestId, quote, version, actor);
+        const envelope = await prepareSalesAgreement(db, {
+          quote, version, tenant, actor, sender, body: req.body || {}, persist: action === 'send',
+          requestMetadata: {
+            ip: String(req.headers?.['x-vercel-forwarded-for'] || req.headers?.['x-real-ip'] || req.socket?.remoteAddress || '').split(',')[0].trim().slice(0, 100),
+            userAgent: String(req.headers?.['user-agent'] || '').slice(0, 500),
+          },
+        });
         if (action === 'preview-email') {
           res.setHeader('Cache-Control', 'no-store');
           return res.status(200).json(await previewQuoteEmail(emailInput, dependencies));
         }
-        const { data: tenant, error } = await db.from('tenant')
-          .select('name,slug,domain,logo_url,header_logo_url,primary_color,secondary_color,tagline,description,branding_config,settings,footer_config').eq('id', actor.tenantId).maybeSingle();
-        if (error) throw error;
-        const pdf = req.body?.attachPdf === false ? null : await buildBrandedSalesQuotePdf({ quote, version, tenant });
+        const pdf = req.body?.attachPdf === false ? null : envelope ? await agreementPdf(envelope) : await buildBrandedSalesQuotePdf({ quote, version, tenant });
         const expiresInDays = Number(req.body?.expiresInDays);
         return res.status(200).json(await sendQuote(db, {
           quote, version, tenant, actor, recipient, sender,

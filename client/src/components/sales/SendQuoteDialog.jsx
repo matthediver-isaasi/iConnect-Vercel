@@ -9,6 +9,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import SignatureField from "@/components/forms/SignatureField";
+import AgreementDocument from "./AgreementDocument";
+import { legalHtmlOf, signaturePayload } from "./agreementSignature";
 
 // Unmount the form between sessions so drafts and successful previews cannot
 // leak into the next delivery. Prop changes within a session keep the draft.
@@ -16,14 +19,25 @@ export default function SendQuoteDialog(props) {
   return props.open ? <SendQuoteForm {...props} /> : null;
 }
 
-function SendQuoteForm({ open, onOpenChange, pending, onSend, request, quoteId, version, initialRecipient = "", contacts = [] }) {
+function SendQuoteForm({ open, onOpenChange, pending, onSend, onRequestSignature, signingRequest, request, quoteId, version, initialRecipient = "", contacts = [], quote = {} }) {
+  const draft = signingRequest?.draft || {};
   const { singular } = useQuoteNaming();
-  const [recipient, setRecipient] = useState(initialRecipient);
+  const [recipient, setRecipient] = useState(draft.recipient || initialRecipient);
   const [senderKey, setSenderKey] = useState("");
   const [senders, setSenders] = useState([]);
   const [senderError, setSenderError] = useState("");
   const [senderLoading, setSenderLoading] = useState(true);
   const [senderRetry, setSenderRetry] = useState(0);
+  const [selfKey, setSelfKey] = useState("");
+  const [senderName, setSenderName] = useState("");
+  const [senderRole, setSenderRole] = useState("");
+  const [senderConsent, setSenderConsent] = useState(false);
+  const [senderSignature, setSenderSignature] = useState(null);
+  const [contactName, setContactName] = useState(() => draft.contactName || quote.agreement?.contact?.name || contacts.find(contact => contact.email === initialRecipient)?.name || "");
+  const [contactRole, setContactRole] = useState(() => draft.contactRole || quote.agreement?.contact?.role || contacts.find(contact => contact.email === initialRecipient)?.role || "");
+  const agreement = Boolean(legalHtmlOf(quote));
+  const frozenAgreement = agreement && Boolean(quote.agreement?.sender?.signedAt);
+  const requestingSignature = agreement && !frozenAgreement && senderKey && senderKey !== selfKey;
   useEffect(() => {
     let active = true;
     setSenderLoading(true);
@@ -34,14 +48,17 @@ function SendQuoteForm({ open, onOpenChange, pending, onSend, request, quoteId, 
       .then(data => {
         if (!active) return;
         setSenders(data.items);
-        setSenderKey(data.defaultSenderKey || "");
+        setSenderKey(signingRequest?.senderKey || (frozenAgreement ? data.items.find(item => item.email?.toLowerCase() === quote.agreement?.sender?.email?.toLowerCase())?.key : "") || data.defaultSenderKey || "");
+        const actorKey = data.selfSenderKey || data.currentUserKey || data.items.find(item => item.isSelf)?.key || data.defaultSenderKey || "";
+        setSelfKey(actorKey);
+        setSenderName(data.items.find(item => item.key === actorKey)?.name || "");
       }).catch(error => { if (active) setSenderError(error.message || "Could not load senders."); })
       .finally(() => { if (active) setSenderLoading(false); });
     return () => { active = false; };
   }, [quoteId, senderRetry]);
-  const [expiresInDays, setExpiresInDays] = useState("30");
-  const [attachPdf, setAttachPdf] = useState(true);
-  const [personalMessage, setPersonalMessage] = useState("");
+  const [expiresInDays, setExpiresInDays] = useState(String(draft.expiresInDays || 30));
+  const [attachPdf, setAttachPdf] = useState(draft.attachPdf !== false);
+  const [personalMessage, setPersonalMessage] = useState(draft.personalMessage || "");
   const [preview, setPreview] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState("");
@@ -50,12 +67,13 @@ function SendQuoteForm({ open, onOpenChange, pending, onSend, request, quoteId, 
   const requestId = useRef(0);
   const sendLock = useRef(false);
   const recipientEdited = useRef(false);
-  const payload = { recipient: recipient.trim(), expiresInDays: Number(expiresInDays), attachPdf, personalMessage, version, senderKey };
+  const payload = { recipient: recipient.trim(), expiresInDays: Number(expiresInDays), attachPdf, personalMessage, version, senderKey, ...(signingRequest?.id ? { signingRequestId: signingRequest.id } : {}), ...(agreement ? { ...(!frozenAgreement && !requestingSignature ? { senderName: senderName.trim(), senderRole: senderRole.trim(), senderConsent, senderSignature: signaturePayload(senderSignature) } : {}), contactName: contactName.trim(), contactRole: contactRole.trim(), contactEmail: recipient.trim() } : {}) };
   const fingerprint = JSON.stringify([quoteId, payload]);
   const currentFingerprint = useRef(fingerprint);
   currentFingerprint.current = fingerprint;
   const busy = pending || sending;
-  const valid = Boolean(!senderLoading && !senderError && senders.some(item => item.key === senderKey) && quoteId && version != null && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.recipient) && personalMessage.length <= 5000);
+  const deliveryValid = Boolean(!senderLoading && !senderError && senders.some(item => item.key === senderKey) && quoteId && version != null && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.recipient) && personalMessage.length <= 5000 && (!agreement || (contactName.trim() && contactRole.trim())));
+  const valid = deliveryValid && !requestingSignature && (!agreement || frozenAgreement || (senderKey === selfKey && senderName.trim() && senderRole.trim() && senderConsent && signaturePayload(senderSignature)));
   const freshPreview = preview?.fingerprint === fingerprint ? preview.data : null;
   // Sanitize only the displayed copy. The server-rendered/sent email and plain
   // text draft remain unchanged. Retain email layout/styles, but strip every
@@ -89,6 +107,7 @@ function SendQuoteForm({ open, onOpenChange, pending, onSend, request, quoteId, 
   }, [initialRecipient, busy]);
   const edit = (setter, value) => {
     if (setter === setRecipient) recipientEdited.current = true;
+    if (setter === setSenderKey) { setSenderSignature(null); setSenderConsent(false); }
     invalidate();
     setter(value);
   };
@@ -130,6 +149,15 @@ function SendQuoteForm({ open, onOpenChange, pending, onSend, request, quoteId, 
       setSending(false);
     }
   };
+  const requestSignature = async () => {
+    if (!requestingSignature || !deliveryValid || busy || sendLock.current || !onRequestSignature) return;
+    sendLock.current = true;
+    setSending(true);
+    setSendError("");
+    try { await onRequestSignature(payload); }
+    catch (error) { setSendError(error.message || "Could not request the colleague’s signature. Your draft has been kept. If notification failed, wait 60 seconds before retrying."); }
+    finally { sendLock.current = false; setSending(false); }
+  };
 
   return <Dialog open={open} onOpenChange={(next) => { if (!busy) onOpenChange(next); }}>
     <DialogContent hideCloseButton={busy} className="max-h-[90dvh] w-[calc(100%-2rem)] max-w-3xl overflow-y-auto">
@@ -140,21 +168,23 @@ function SendQuoteForm({ open, onOpenChange, pending, onSend, request, quoteId, 
       <div className="grid gap-4 py-2 sm:grid-cols-2">
         <div className="space-y-1.5 sm:col-span-2">
           <Label htmlFor="quote-sender">Sender</Label>
-          <select id="quote-sender" disabled={busy || senderLoading} className="w-full rounded-md border bg-background p-2 text-sm" value={senderKey} onChange={event => edit(setSenderKey, event.target.value)}>
+          <select id="quote-sender" disabled={busy || senderLoading || frozenAgreement || Boolean(signingRequest)} className="w-full rounded-md border bg-background p-2 text-sm" value={senderKey} onChange={event => edit(setSenderKey, event.target.value)}>
             <option value="">{senderLoading ? "Loading senders…" : "Choose a sender"}</option>
-            {senders.map(sender => <option key={sender.key} value={sender.key}>{sender.name} — {sender.email}</option>)}
+            {senders.map(sender => <option key={sender.key} value={sender.key}>{sender.name} — {sender.email}{agreement && sender.key !== selfKey ? " (request their signature)" : ""}</option>)}
           </select>
           <p className="text-xs text-muted-foreground">Sent using the tenant’s sending address and this person’s name. Replies go to this person.</p>
+          {agreement && <p className="text-xs text-muted-foreground">Only sign as yourself. Choosing a colleague requests their signature through an authenticated workspace link; it never signs on their behalf.</p>}
           {senderError ? <div role="alert" className="text-sm text-destructive">{senderError} <Button variant="outline" size="sm" onClick={() => setSenderRetry(value => value + 1)}>Retry senders</Button></div> : !senderLoading && !senders.length ? <p role="alert" className="text-sm text-destructive">No eligible owner or collaborator has a valid email address.</p> : null}
         </div>
         <div className="space-y-1.5 sm:col-span-2">
           <Label htmlFor="quote-recipient-contact">Opportunity contact</Label>
-          <select id="quote-recipient-contact" aria-label={`${singular} recipient contact`} disabled={busy} className="w-full rounded-md border bg-background p-2 text-sm" value={contacts.some(contact => contact.email === recipient) ? recipient : ""} onChange={event => edit(setRecipient, event.target.value)}>
+          <select id="quote-recipient-contact" aria-label={`${singular} recipient contact`} disabled={busy || frozenAgreement} className="w-full rounded-md border bg-background p-2 text-sm" value={contacts.some(contact => contact.email === recipient) ? recipient : ""} onChange={event => { edit(setRecipient, event.target.value); const contact = contacts.find(item => item.email === event.target.value); setContactName(contact?.name || ""); setContactRole(contact?.role || contact?.jobTitle || contact?.job_title || ""); }}>
             <option value="">Enter an email address below</option>
             {contacts.filter(contact => contact.email).map(contact => <option key={contact.id || contact.email} value={contact.email}>{contact.name} — {contact.email}</option>)}
           </select>
         </div>
-        <div className="space-y-1.5"><Label htmlFor="quote-recipient-email">Recipient email</Label><Input id="quote-recipient-email" type="email" autoFocus disabled={busy} value={recipient} onChange={event => edit(setRecipient, event.target.value)} placeholder="customer@example.com" /></div>
+        <div className="space-y-1.5"><Label htmlFor="quote-recipient-email">Recipient email</Label><Input id="quote-recipient-email" type="email" autoFocus disabled={busy || frozenAgreement} value={recipient} onChange={event => edit(setRecipient, event.target.value)} placeholder="customer@example.com" /></div>
+        {agreement && <><div className="space-y-1.5"><Label htmlFor="agreement-contact-name">Customer signatory name</Label><Input id="agreement-contact-name" disabled={busy || frozenAgreement} value={contactName} onChange={event => edit(setContactName, event.target.value)} /></div><div className="space-y-1.5"><Label htmlFor="agreement-contact-role">Customer signatory role / job title</Label><Input id="agreement-contact-role" disabled={busy || frozenAgreement} value={contactRole} onChange={event => edit(setContactRole, event.target.value)} /></div></>}
         <div className="space-y-1.5"><Label htmlFor="quote-link-expiry">Link expiry</Label><Select disabled={busy} value={expiresInDays} onValueChange={value => edit(setExpiresInDays, value)}><SelectTrigger id="quote-link-expiry"><SelectValue /></SelectTrigger><SelectContent>{["7", "14", "30", "60", "90"].map(days => <SelectItem key={days} value={days}>{days} days</SelectItem>)}</SelectContent></Select></div>
         <div className="space-y-1.5 sm:col-span-2">
           <Label htmlFor="quote-personal-message">Personal message <span className="font-normal text-muted-foreground">(optional)</span></Label>
@@ -163,7 +193,16 @@ function SendQuoteForm({ open, onOpenChange, pending, onSend, request, quoteId, 
         </div>
         <label className="flex items-start gap-3 rounded-lg border p-3 text-sm sm:col-span-2"><Checkbox disabled={busy} checked={attachPdf} onCheckedChange={value => edit(setAttachPdf, value === true)} /><span><strong className="block">Attach PDF</strong><span className="text-muted-foreground">Also include the branded PDF alongside the secure link.</span></span></label>
       </div>
-      <section aria-label="Email preview" className="min-w-0 rounded-lg border bg-muted/30 p-4">
+      {requestingSignature && <section className="space-y-3 rounded-lg border bg-muted/30 p-4"><h3 className="font-semibold">Request your colleague’s signature</h3><p className="text-sm text-muted-foreground">The selected colleague receives an authenticated link to review this version, sign as themselves and send it to the customer. No signature or customer email is sent by this request.</p><details><summary className="cursor-pointer text-sm font-semibold">Review full agreement</summary><div className="mt-4"><AgreementDocument quote={quote} recipient={{ name: contactName, role: contactRole, email: recipient }} /></div></details></section>}
+      {frozenAgreement && <section className="space-y-3 rounded-lg border p-4"><h3 className="font-semibold">Resend signed version</h3><p className="text-sm text-muted-foreground">The original sender signature and contact details are frozen. Resend to the same recipient; make an amendment for changes.</p><AgreementDocument quote={quote} sender={quote.agreement.sender} recipient={quote.agreement.contact} /></section>}
+      {agreement && !requestingSignature && !frozenAgreement && <section className="space-y-4 rounded-lg border p-4" aria-label="Sender agreement signature">
+        <details><summary className="cursor-pointer text-sm font-semibold">Review the full agreement before signing</summary><div className="mt-4"><AgreementDocument quote={quote} sender={{ name: senderName, role: senderRole, email: senders.find(sender => sender.key === senderKey)?.email, signature: senderSignature }} recipient={{ name: contactName, role: contactRole, email: recipient }} /></div></details>
+        <div className="grid gap-4 sm:grid-cols-2"><div className="space-y-1.5"><Label htmlFor="agreement-sender-name">Your full name</Label><Input id="agreement-sender-name" disabled={busy} value={senderName} onChange={event => edit(setSenderName, event.target.value)} /></div><div className="space-y-1.5"><Label htmlFor="agreement-sender-role">Your role / job title</Label><Input id="agreement-sender-role" disabled={busy} value={senderRole} onChange={event => edit(setSenderRole, event.target.value)} /></div></div>
+        <Label>Your signature</Label><SignatureField fieldId="sales-sender" allowUpload disabled={busy} value={senderSignature} onChange={value => edit(setSenderSignature, value)} />
+        <label className="flex items-start gap-3 text-sm"><Checkbox disabled={busy} checked={senderConsent} onCheckedChange={checked => edit(setSenderConsent, checked === true)} /><span>I have reviewed this complete agreement, am authorised to sign on behalf of the sender, and consent to using my electronic signature. I am signing as myself, not as a colleague.</span></label>
+        <p className="text-xs text-muted-foreground">Sending signs this exact version. The customer must verify their email and add their own signature.</p>
+      </section>}
+      {!requestingSignature && <section aria-label="Email preview" className="min-w-0 rounded-lg border bg-muted/30 p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3"><h3 className="text-sm font-semibold">Email preview</h3><Button type="button" variant="outline" size="sm" disabled={!valid || busy || previewLoading} onClick={previewEmail}><Eye className="mr-2 h-4 w-4" />{previewLoading ? "Preparing preview…" : "Preview email"}</Button></div>
         {previewLoading ? <div role="status" className="space-y-3"><span className="text-sm text-muted-foreground">Preparing your email preview…</span><div className="h-4 w-3/4 animate-pulse rounded bg-muted" /><div className="h-40 animate-pulse rounded bg-muted" /></div> :
           previewError ? <div role="alert" className="text-sm text-destructive"><p>{previewError}</p><Button type="button" variant="outline" size="sm" className="mt-3" disabled={!valid || busy} onClick={previewEmail}>Retry preview</Button></div> :
@@ -175,9 +214,9 @@ function SendQuoteForm({ open, onOpenChange, pending, onSend, request, quoteId, 
               <iframe title={`${singular} email preview`} sandbox="" referrerPolicy="no-referrer" tabIndex={0} srcDoc={previewHtml} className="h-80 w-full border-0" />
             </div>
           </div> : <p className="py-5 text-center text-sm text-muted-foreground">Preview the email to check your message and enable sending. Any changes require a new preview.</p>}
-      </section>
+      </section>}
       {sendError && <p role="alert" className="text-sm text-destructive">{sendError}</p>}
-      <DialogFooter className="gap-2"><Button type="button" variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>Cancel</Button><Button type="button" disabled={!valid || !freshPreview || busy || previewLoading} onClick={send}><Send className="mr-2 h-4 w-4" />{busy ? "Sending…" : `Send ${singular}`}</Button></DialogFooter>
+      <DialogFooter className="gap-2"><Button type="button" variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>Cancel</Button>{requestingSignature ? <Button type="button" disabled={!deliveryValid || busy || !onRequestSignature} onClick={requestSignature}>{busy ? "Requesting signature…" : "Request colleague signature"}</Button> : <Button type="button" disabled={!valid || !freshPreview || busy || previewLoading} onClick={send}><Send className="mr-2 h-4 w-4" />{busy ? "Sending…" : `Send ${singular}`}</Button>}</DialogFooter>
     </DialogContent>
   </Dialog>;
 }

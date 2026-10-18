@@ -23,6 +23,11 @@ import QuoteEventSelect from "./QuoteEventSelect";
 import QuoteSalespersonSelect from "./QuoteSalespersonSelect";
 import QuoteContactSelect from "./QuoteContactSelect";
 import SendQuoteDialog from "./SendQuoteDialog";
+import AgreementLegalEditor from "./AgreementLegalEditor";
+import AgreementDocument from "./AgreementDocument";
+import AgreementSignatureRequests from "./AgreementSignatureRequests";
+import AgreementFinalizationPanel from "./AgreementFinalizationPanel";
+import { legalHtmlOf } from "./agreementSignature";
 import AcceptQuoteButton from "./AcceptQuoteButton";
 import { refreshSavedQuoteDraft } from "./quoteDraftRefresh";
 import QuoteVersionDocuments, { uniqueQuoteVersions } from "./QuoteVersionDocuments";
@@ -99,7 +104,7 @@ const blankQuote = (opportunityId = "") => ({
   validUntil: "", purchaseOrderReference: "", customerReference: "", notes: "", currency: "GBP",
   taxTreatment: "exclusive", paymentTerms: "30 days", salespersonId: "", address: {
     addressee: "", line1: "", line2: "", city: "", region: "", postalCode: "", country: "United Kingdom",
-  }, lines: [], scheduledBilling: false, remainderPaymentTermsId: "",
+  }, lines: [], scheduledBilling: false, remainderPaymentTermsId: "", legalHtml: "",
 });
 
 function normalizeLine(line, index) {
@@ -137,7 +142,8 @@ export function normalizeQuote(payload, opportunityId = "") {
     purchaseOrderReference: pick(quote, "purchaseOrderReference", "purchase_order_reference"),
     customerReference: pick(quote, "customerReference", "customer_reference"),
     taxTreatment: pick(quote, "taxTreatment", "tax_treatment", "exclusive"),
-    paymentTerms: pick(quote, "paymentTerms", "payment_terms", "30 days"),
+    paymentTerms: quote.terms_snapshot?.text || quote.terms?.text || pick(quote, "paymentTerms", "payment_terms", "30 days"),
+    legalHtml: legalHtmlOf(quote),
     scheduledBilling: pick(quote, "scheduledBilling", "scheduled_billing", Boolean(billingScheduleOf(quote))),
     remainderPaymentTermsId: pick(quote, "remainderPaymentTermsId", "remainder_payment_terms_id"),
     billingSchedule: billingScheduleOf(quote),
@@ -342,6 +348,7 @@ function QuoteEditor() {
   const [loadedId, setLoadedId] = useState(null);
   const [savedFingerprint, setSavedFingerprint] = useState("");
   const [sendOpen, setSendOpen] = useState(false);
+  const [signingRequest, setSigningRequest] = useState(null);
   useEffect(() => {
     if (!isNew && detail.data && loadedId !== id) { const next = normalizeQuote(detail.data); setForm(next); setSavedFingerprint(JSON.stringify(next)); setLoadedId(id); }
   }, [detail.data, id, isNew, loadedId]);
@@ -372,6 +379,7 @@ function QuoteEditor() {
     address: form.address, event: form.eventId ? { id: form.eventId, kind: form.eventKind || "simple" } : null, issueDate: form.issueDate || null, validUntil: form.validUntil || null,
     purchaseOrderReference: form.purchaseOrderReference || null, customerReference: form.customerReference || null, notes: form.notes,
     currency: form.currency, taxTreatment: form.taxTreatment, paymentTerms: form.paymentTerms, terms: form.paymentTerms, salespersonId: form.salespersonId || null,
+    legalHtml: form.legalHtml || "",
     scheduledBilling: Boolean(form.scheduledBilling), remainderPaymentTermsId: form.scheduledBilling ? form.remainderPaymentTermsId || null : null,
     lines: form.lines.map((line) => ({ ...quoteLineIdentityForSaving(line), kind: line.type, catalogueId: line.type === "product" ? line.productId || null : line.type === "bundle" ? line.bundleId || null : null, description: line.description, quantity: String(line.quantity || "0"), quotedUnitPriceMinor: quotePriceMinor(line, "quotedUnitPriceMinor"), ...(line.type === "free_text" ? { standardUnitPriceMinor: quotePriceMinor(line, "standardUnitPriceMinor") } : {}), discountBps: minor(line.discountBps), ...quoteLineTaxForSaving(line, providerTaxOptions(taxOptions.data), !taxOptions.isPending && !taxOptions.isError) })),
     expectedVersion: quote.rowVersion,
@@ -422,8 +430,11 @@ function QuoteEditor() {
       qc.invalidateQueries({ queryKey: ["sales-quotes"] });
       qc.invalidateQueries({ queryKey: ["sales-quote", id] });
       qc.invalidateQueries({ queryKey: ["quote-delivery-history", id] });
+      qc.invalidateQueries({ queryKey: ["quote-signing-requests", id] });
       if (variables.action === "send") setSendOpen(false);
-      toast({ title: variables.action === "send" ? `${naming.singular} sent` : "Customer link revoked" });
+      if (variables.action === "request-signature") setSendOpen(false);
+      if (["send", "request-signature"].includes(variables.action)) setSigningRequest(null);
+      toast({ title: variables.action === "send" ? `${naming.singular} sent` : variables.action === "request-signature" ? "Colleague signature requested" : "Customer link revoked" });
     },
     onError: (error) => toast({ title: "Delivery action failed", description: error.message, variant: "destructive" }),
   });
@@ -457,7 +468,9 @@ function QuoteEditor() {
       {!isNew && status === "accepted" && allowed(["canTransition", "can_transition", "transition"], false) && <Button variant="outline" onClick={() => action.mutate({ action: "transition", extra: { status: "converted" } })}>Convert</Button>}
     </div></div>
     {!isNew && status === "draft" && <p className="rounded border bg-slate-50 p-3 text-sm">Save draft → preview the draft PDF → Issue {naming.singular} → Send. Issuing locks this version for delivery.{!allowed(["canIssue"], false) && ` Your role does not have permission to issue ${naming.plural}.`}{isDirty && " Save your latest changes first."}</p>}
-    {!isNew && <SendQuoteDialog request={request} quoteId={id} version={quote.versionNumber || quote.version_number || quote.version} contacts={contacts} open={sendOpen} onOpenChange={setSendOpen} pending={deliveryAction.isPending} initialRecipient={contacts.find(contact => contact.id === form.billingContactId)?.email || contacts.find(contact => contact.id === form.customerContactId)?.email || quote.recipient || quote.customerEmail || quote.customer_email || ""} onSend={(extra) => deliveryAction.mutateAsync({ action: "send", extra })} />}
+    {!isNew && <SendQuoteDialog quote={quote} signingRequest={signingRequest} onRequestSignature={extra => deliveryAction.mutateAsync({ action: "request-signature", extra })} request={request} quoteId={id} version={quote.versionNumber || quote.version_number || quote.version} contacts={contacts} open={sendOpen} onOpenChange={value => { setSendOpen(value); if (!value) setSigningRequest(null); }} pending={deliveryAction.isPending} initialRecipient={signingRequest?.draft?.recipient || quote.agreement?.contact?.email || contacts.find(contact => contact.id === form.billingContactId)?.email || contacts.find(contact => contact.id === form.customerContactId)?.email || quote.recipient || quote.customerEmail || quote.customer_email || ""} onSend={(extra) => deliveryAction.mutateAsync({ action: "send", extra })} />}
+    {!isNew && form.legalHtml && status !== "draft" && <AgreementSignatureRequests quoteId={id} request={request} requestedId={new URLSearchParams(location.search).get("signingRequest")} onSign={item => { setSigningRequest(item); setSendOpen(true); }} />}
+    {!isNew && form.legalHtml && ["accepted", "converted"].includes(status) && <AgreementFinalizationPanel agreement={quote.agreement || detail.data?.agreement} onFinalize={() => request(`/api/sales/quotes/${id}?action=finalize-agreement`, { method: "POST", body: JSON.stringify({ version: quote.versionNumber || quote.version_number }) })} onRefresh={() => detail.refetch()} onDownload={() => pdf.mutate({ preview: false })} />}
     {!isNew && (["accepted", "converted"].includes(status) || Boolean(quote.saleId)) && <InvoiceStatusPanel scheduledBilling={quote.scheduledBilling || Boolean(quote.billingSchedule)} saleId={quote.saleId} invoice={quote.invoice} invoices={quote.invoices} activeProvider={quote.activeProvider} permissions={permissions} error={action.error} onCreate={(command) => invoiceAction("create-invoice", command)} onRetry={(command) => invoiceAction("create-invoice", command)} onRefresh={quote.invoice ? () => invoiceAction("refresh-invoice-status") : undefined} />}
     {isNew && !form.opportunityId && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Choose an active opportunity below. Its organisation, currency and primary contact will be used for this {naming.singular}.</div>}
     {form.opportunityId && opportunity.isError && <Failure error={opportunity.error} retry={opportunity.refetch} />}
@@ -484,6 +497,7 @@ function QuoteEditor() {
         })}</CardContent></Card>
         <LinesEditor form={form} setForm={setForm} products={list(products.data)} bundles={list(bundles.data)} readOnly={readOnly} canOverride={canOverride} />
         <QuoteBillingSettings form={form} setForm={setForm} readOnly={readOnly} />
+        <Card><CardHeader><CardTitle>Agreement terms and signatures</CardTitle><p className="text-sm text-muted-foreground">Review the quote first, add legal terms, then save and issue this version before signing and sending.</p></CardHeader><CardContent className="space-y-5"><AgreementLegalEditor value={form.legalHtml} onChange={value => patch("legalHtml", value)} disabled={readOnly} fields={[{ label: "Customer", value: form.address.addressee }, { label: "Payment terms", value: form.paymentTerms }, { label: "Customer reference", value: form.customerReference }]} />{form.legalHtml && <details className="rounded-lg border p-3"><summary className="cursor-pointer text-sm font-semibold">Full agreement preview{isDirty ? " · Unsaved draft" : ""}</summary><div className="mt-4"><AgreementDocument draft={isDirty || isNew} quote={isDirty || isNew ? { ...form, totals: { netMinor: totals.net, taxMinor: totals.tax, grossMinor: totals.gross } } : quote} sender={quote.agreement?.sender} recipient={quote.agreement?.customer || quote.agreement?.contact} /></div></details>}</CardContent></Card>
         {form.scheduledBilling && <BillingSchedule schedule={isDirty ? schedulePreview?.schedule || form.billingSchedule : quote.billingSchedule || schedulePreview?.schedule} pending={isDirty && schedulePreview?.fingerprint !== JSON.stringify(form)} />}
         {form.scheduledBilling && !form.billingSchedule && !schedulePreview?.schedule && <p className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm text-slate-600">Recalculate to preview group contents, exact amounts and relative issue dates before acceptance. The server derives the schedule from this version’s line economics.</p>}
         <Card><CardContent className="flex flex-col items-end gap-1 p-5 text-sm"><p className="mb-2 w-full text-xs text-slate-500">{serverTotals ? "Server-calculated totals" : "Local estimate — save or recalculate for final server totals"}</p><div className="flex w-full max-w-xs justify-between"><span>Net</span><strong>{money(serverTotals?.netMinor ?? serverTotals?.net_minor ?? serverTotals?.netTotalMinor ?? serverTotals?.net_total_minor ?? totals.net, form.currency)}</strong></div><div className="flex w-full max-w-xs justify-between"><span>Tax</span><strong>{money(serverTotals?.taxMinor ?? serverTotals?.tax_minor ?? serverTotals?.taxTotalMinor ?? serverTotals?.tax_total_minor ?? totals.tax, form.currency)}</strong></div><div className="mt-2 flex w-full max-w-xs justify-between border-t pt-2 text-lg"><span>Gross total</span><strong>{money(serverTotals?.grossMinor ?? serverTotals?.gross_minor ?? serverTotals?.grossTotalMinor ?? serverTotals?.gross_total_minor ?? totals.gross, form.currency)}</strong></div></CardContent></Card>

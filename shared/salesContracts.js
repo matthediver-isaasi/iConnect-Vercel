@@ -215,7 +215,7 @@ export function validateQuoteDraft(value, { existing = false } = {}) {
     'expectedVersion', 'currency', 'opportunityId', 'organisationId', 'customerContactId', 'billingContactId',
     'address', 'event', 'eventId', 'terms', 'paymentTerms', 'salesperson', 'salespersonId',
     'validUntil', 'issueDate', 'purchaseOrderReference', 'customerReference', 'taxTreatment', 'notes', 'lines',
-    'scheduledBilling', 'remainderPaymentTermsId',
+    'scheduledBilling', 'remainderPaymentTermsId', 'legalHtml',
   ]);
   const errors = Object.keys(value).filter((key) => !allowed.has(key)).map((key) => `Unknown quote field: ${key}`);
   if ('scheduledBilling' in value && typeof value.scheduledBilling !== 'boolean') errors.push('scheduledBilling must be a boolean');
@@ -230,6 +230,7 @@ export function validateQuoteDraft(value, { existing = false } = {}) {
     if (value[key] != null && !isObject(value[key])) errors.push(`${key} must be an object or null`);
   }
   optionalText(errors, value.terms, 'terms', 20000);
+  optionalText(errors, value.legalHtml, 'legalHtml', 100000);
   optionalText(errors, value.notes, 'notes', 20000);
   if (!Array.isArray(value.lines) || value.lines.length === 0) errors.push('lines must be a non-empty array');
   else value.lines.forEach((line, index) => {

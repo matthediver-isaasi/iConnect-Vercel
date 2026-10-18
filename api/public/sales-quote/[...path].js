@@ -1,6 +1,9 @@
 import { supabase } from '../../_lib/database.js';
 import { hashQuoteToken } from '../../_lib/salesQuoteDelivery.js';
 import { buildBrandedSalesQuotePdf } from '../../_lib/salesQuotePdf.js';
+import { SalesHttpError } from '../../_lib/salesAccess.js';
+import { hasSalesAgreement, getSalesAgreement, agreementDto, agreementPdf, validateAgreementSignature,
+  agreementOtp, finalizeAndNotifySalesAgreement, downloadSalesAgreement } from '../../_lib/salesAgreement.js';
 
 const buckets = new Map();
 function limited(key, maximum) {
@@ -61,6 +64,7 @@ function publicQuoteDto(quote, version) {
       city: address.city || null, region: address.region || null, postalCode: address.postalCode || address.postal_code || null, country: address.country || null },
     event: { name: version.event_snapshot?.name || version.event_snapshot?.title || null },
     terms: { text: version.terms_snapshot?.text || null }, issueDate: version.issue_date || null,
+    legalHtml: version.terms_snapshot?.legalHtml || '',
     validUntil: version.valid_until || null,
     billingSchedule: version.billing_schedule ? { timezone: version.billing_schedule.timezone,
       timezoneFallback: version.billing_schedule.timezoneFallback, groups: version.billing_schedule.groups } : null,
@@ -143,10 +147,14 @@ export function createPublicSalesQuoteHandler(dependencies = {}) {
         return res.status(429).json({ outcome: 'rate_limited', error: 'Too many requests' });
       }
       if (req.method === 'GET') {
-        const found = await resolveToken(db, token, action === 'download' ? 'downloaded' : 'viewed', metadata(req));
+        const found = await resolveToken(db, token, ['download', 'agreement-download'].includes(action) ? 'downloaded' : 'viewed', metadata(req));
         if (!found.version) return res.status(found.outcome === 'not_found' ? 404 : 410).json({ outcome: found.outcome });
-        if (action === 'download') {
-          const pdf = await buildBrandedSalesQuotePdf(found);
+        const envelope = hasSalesAgreement(found.version) ? await getSalesAgreement(db, found.version.id) : null;
+        if (action === 'download' || action === 'agreement-download') {
+          if (hasSalesAgreement(found.version) && !envelope) throw new SalesHttpError(409, 'Agreement has not been signed by the sender');
+          const pdf = action === 'agreement-download' || envelope?.customer
+            ? await downloadSalesAgreement(db, envelope)
+            : envelope ? await agreementPdf(envelope) : await buildBrandedSalesQuotePdf(found);
           res.setHeader('Content-Type', 'application/pdf');
           res.setHeader('Content-Disposition', `attachment; filename="quote-${found.quote.quote_number}.pdf"`);
           res.setHeader('Cache-Control', 'private, no-store');
@@ -156,7 +164,17 @@ export function createPublicSalesQuoteHandler(dependencies = {}) {
           outcome: found.outcome,
           quote: publicQuoteDto(found.quote, found.version),
           branding: publicBrandingDto(found.tenant),
+          agreement: agreementDto(envelope),
         });
+      }
+      if (req.method === 'POST' && ['send-otp', 'verify-otp', 'finalize'].includes(action)) {
+        const found = await resolveToken(db, token, null, metadata(req));
+        if (!found.version) return res.status(found.outcome === 'not_found' ? 404 : 410).json({ outcome: found.outcome });
+        if (action === 'finalize') {
+          const envelope = await finalizeAndNotifySalesAgreement(db, await getSalesAgreement(db, found.version.id), dependencies);
+          return res.status(envelope.finalization_status === 'complete' ? 200 : 503).json({ agreement: agreementDto(envelope) });
+        }
+        return res.status(200).json(await agreementOtp(db, found, token, action, req.body?.code, dependencies));
       }
       if (req.method === 'POST' && ['accept', 'decline'].includes(action)) {
         const body = req.body || {};
@@ -169,6 +187,21 @@ export function createPublicSalesQuoteHandler(dependencies = {}) {
         if (typeof body.idempotencyKey !== 'string' || !body.idempotencyKey.trim() || body.idempotencyKey.length > 200) {
           return res.status(400).json({ outcome: 'invalid', error: 'idempotencyKey is required' });
         }
+        let found; let agreementEvidence;
+        // The database trigger rejects agreement acceptances without evidence;
+        // legacy quotes keep their existing single-RPC path.
+        if (action === 'accept' && (body.signature || body.consent !== undefined)) {
+          found = await resolveToken(db, token, null, metadata(req));
+          if (!found.version) return res.status(found.outcome === 'not_found' ? 404 : 410).json({ outcome: found.outcome });
+          if (hasSalesAgreement(found.version)) {
+            if (body.consent !== true) throw new SalesHttpError(400, 'Explicit electronic signing consent is required');
+            if (typeof body.verificationProof !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(body.verificationProof)) {
+              throw new SalesHttpError(400, 'Verify your email in this signing session before accepting');
+            }
+            agreementEvidence = { consent: true, signature: await validateAgreementSignature(body.signature),
+              verificationProofHash: hashQuoteToken(`${token}:${body.verificationProof}`) };
+          }
+        }
         const { data, error } = await db.rpc('decide_sales_quote_public', {
           p_token_hash_hex: digest,
           p_decision: action === 'accept' ? 'accepted' : 'declined',
@@ -180,7 +213,7 @@ export function createPublicSalesQuoteHandler(dependencies = {}) {
             ? body.reason || body.declineReason || body.customerReference || null : null,
           p_agreement: body.agreement === true,
           p_idempotency_key: body.idempotencyKey.trim(),
-          p_request_metadata: metadata(req),
+          p_request_metadata: { ...metadata(req), ...(agreementEvidence ? { agreementEvidence } : {}) },
         });
         if (error) {
           if (error.code === '22023') return res.status(400).json({ outcome: 'invalid', error: error.message });
@@ -193,11 +226,16 @@ export function createPublicSalesQuoteHandler(dependencies = {}) {
         const result = Array.isArray(data) ? data[0] : data;
         const status = result?.outcome === 'not_found' ? 404
           : ['expired', 'revoked', 'superseded'].includes(result?.outcome) ? 410 : 200;
+        if (agreementEvidence && ['accepted', 'already_accepted'].includes(result?.outcome)) {
+          const envelope = await finalizeAndNotifySalesAgreement(db, await getSalesAgreement(db, found.version.id), dependencies);
+          return res.status(status).json({ ...result, agreement: agreementDto(envelope) });
+        }
         return res.status(status).json(result);
       }
       res.setHeader('Allow', 'GET, POST');
       return res.status(405).json({ error: 'Method not allowed' });
-    } catch {
+    } catch (error) {
+      if (error instanceof SalesHttpError) return res.status(error.status).json({ error: error.message });
       return res.status(500).json({ error: 'Failed to handle public quote' });
     }
   };

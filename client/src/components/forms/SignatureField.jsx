@@ -2,7 +2,7 @@ import { useRef, useState, useEffect, useCallback } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Eraser, Check, PenLine, Type } from 'lucide-react';
+import { Eraser, Check, PenLine, Type, Upload } from 'lucide-react';
 
 export default function SignatureField({ 
   fieldId, 
@@ -10,14 +10,21 @@ export default function SignatureField({
   onChange, 
   disabled = false,
   required = false,
-  label = 'Signature'
+  label = 'Signature',
+  allowUpload = false
 }) {
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  const uploadId = useRef(0);
+  const [uploadError, setUploadError] = useState('');
+  const [uploading, setUploading] = useState(false);
   const canvasRef = useRef(null);
   const canvasWrapperRef = useRef(null);
   const cachedWidthRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [hasSignature, setHasSignature] = useState(false);
   const [mode, setMode] = useState(() => {
+    if (allowUpload && value?.mode === 'uploaded') return 'upload';
     if (value && typeof value === 'object' && value.mode === 'typed') {
       return 'type';
     }
@@ -57,7 +64,9 @@ export default function SignatureField({
   }, []);
 
   useEffect(() => {
+    let active = true;
     setupCanvas(true);
+    setHasSignature(Boolean(value));
     
     if (value && canvasRef.current && canvasWrapperRef.current) {
       const canvas = canvasRef.current;
@@ -66,15 +75,24 @@ export default function SignatureField({
       
       const img = new Image();
       img.onload = () => {
+        if (!active) return;
         ctx.drawImage(img, 0, 0, width, 150);
         setHasSignature(true);
       };
       img.src = value.data || value;
     }
 
-    const handleResize = () => setupCanvas(true);
+    const handleResize = () => {
+      const saved = canvasRef.current?.toDataURL('image/png');
+      setupCanvas(true);
+      if (saved && canvasRef.current) {
+        const img = new Image();
+        img.onload = () => canvasRef.current?.getContext('2d').drawImage(img, 0, 0, cachedWidthRef.current, 150);
+        img.src = saved;
+      }
+    };
     window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    return () => { active = false; window.removeEventListener('resize', handleResize); };
   }, [value, setupCanvas]);
 
   const renderTypedSignature = useCallback((name) => {
@@ -94,19 +112,19 @@ export default function SignatureField({
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     
-    ctx.fillText(name, width / 2, 75);
+    ctx.fillText(name.trim(), width / 2, 75, Math.max(100, width - 24));
     
     setHasSignature(true);
     
     const dataUrl = canvas.toDataURL('image/png');
-    onChange({
+    onChangeRef.current({
       type: 'signature',
       mode: 'typed',
       typedName: name,
       data: dataUrl,
       signed_at: new Date().toISOString()
     });
-  }, [onChange]);
+  }, []);
 
   useEffect(() => {
     if (mode === 'type' && typedName.trim()) {
@@ -148,6 +166,8 @@ export default function SignatureField({
     
     ctx.beginPath();
     ctx.moveTo(x, y);
+    ctx.lineTo(x + 0.1, y + 0.1);
+    ctx.stroke();
     setIsDrawing(true);
     setHasSignature(true);
   };
@@ -179,6 +199,9 @@ export default function SignatureField({
   };
 
   const clearSignature = () => {
+    uploadId.current += 1;
+    setUploading(false);
+    setUploadError('');
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
     
@@ -204,6 +227,8 @@ export default function SignatureField({
 
   const handleTypedNameChange = (e) => {
     const name = e.target.value;
+    onChangeRef.current(null);
+    setHasSignature(false);
     setTypedName(name);
     
     if (!name.trim()) {
@@ -211,10 +236,47 @@ export default function SignatureField({
     }
   };
 
+  const uploadSignature = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    clearSignature();
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 2 * 1024 * 1024) {
+      setUploadError('Choose a PNG, JPEG or WebP image smaller than 2 MB.');
+      return;
+    }
+    const id = ++uploadId.current;
+    setUploading(true);
+    const url = URL.createObjectURL(file);
+    try {
+      const image = new Image();
+      await new Promise((resolve, reject) => { image.onload = resolve; image.onerror = reject; image.src = url; });
+      if (!image.naturalWidth || !image.naturalHeight || image.naturalWidth * image.naturalHeight > 24000000) throw new Error('Image is too large.');
+      const output = document.createElement('canvas');
+      output.width = 1000;
+      output.height = 300;
+      const context = output.getContext('2d');
+      const ratio = Math.min(1000 / image.naturalWidth, 300 / image.naturalHeight);
+      const width = image.naturalWidth * ratio;
+      const height = image.naturalHeight * ratio;
+      context.drawImage(image, (1000 - width) / 2, (300 - height) / 2, width, height);
+      if (id !== uploadId.current) return;
+      onChangeRef.current({ type: 'signature', mode: 'uploaded', data: output.toDataURL('image/png'), signed_at: new Date().toISOString() });
+      setHasSignature(true);
+    } catch {
+      if (id === uploadId.current) setUploadError('This image could not be read. Choose another signature image.');
+    } finally {
+      URL.revokeObjectURL(url);
+      if (id === uploadId.current) setUploading(false);
+    }
+  };
+
+  useEffect(() => () => { uploadId.current += 1; }, []);
+
   return (
     <div className="space-y-3 w-full max-w-full overflow-hidden">
       {!disabled && (
-        <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit">
+        <div className="flex flex-wrap gap-1 p-1 bg-muted rounded-lg w-fit" aria-label={label}>
           <Button
             type="button"
             variant={mode === 'draw' ? 'default' : 'ghost'}
@@ -235,8 +297,10 @@ export default function SignatureField({
             <Type className="w-4 h-4 mr-2" />
             Type
           </Button>
+          {allowUpload && <Button type="button" variant={mode === 'upload' ? 'default' : 'ghost'} size="sm" onClick={() => handleModeChange('upload')} data-testid={`button-signature-mode-upload-${fieldId}`}><Upload className="w-4 h-4 mr-2" />Upload</Button>}
         </div>
       )}
+      {mode === 'upload' && !disabled && <div className="space-y-2"><label htmlFor={`signature-upload-${fieldId}`} className="text-sm">Upload your signature (PNG, JPEG or WebP, up to 2 MB)</label><Input id={`signature-upload-${fieldId}`} type="file" accept="image/png,image/jpeg,image/webp" disabled={uploading} onChange={uploadSignature} />{uploading && <p role="status" className="text-sm text-muted-foreground">Preparing signature image…</p>}{uploadError && <p role="alert" className="text-sm text-destructive">{uploadError}</p>}</div>}
 
       {mode === 'type' && !disabled && (
         <Input
@@ -273,7 +337,7 @@ export default function SignatureField({
         {!hasSignature && !disabled && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <p className="text-slate-400 dark:text-slate-500 text-sm">
-              {mode === 'draw' ? 'Sign here' : 'Type your name above'}
+              {mode === 'draw' ? 'Sign here' : mode === 'upload' ? 'Upload your signature above' : 'Type your name above'}
             </p>
           </div>
         )}

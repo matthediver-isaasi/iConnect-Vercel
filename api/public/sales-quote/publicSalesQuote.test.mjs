@@ -229,6 +229,14 @@ test('authenticated send ignores hostile request origins and uses the canonical 
         return builder;
       }
       if (table === 'tenant') return query({ name: 'Seller', slug: 'seller' });
+      // Sending now resolves an authenticated opportunity sender before mail.
+      if (table === 'opportunity') return query({ owner_kind: 'tenant_user', owner_id: 'actor-id' });
+      if (table === 'opportunity_collaborator') return {
+        select() { return this; }, eq() { return this; }, order() { return this; },
+        range: async () => ({ data: [], error: null }),
+      };
+      if (table === 'organization') return query(null);
+      if (table === 'tenant_user') return query({ id: 'actor-id', first_name: 'Seller', email: 'seller@example.org' });
       if (table === 'sales_quote_delivery_token') return {
         insert(row) {
           tokenInsert = row;
@@ -250,6 +258,7 @@ test('authenticated send ignores hostile request origins and uses the canonical 
     db,
     getTenantContext: async () => ({ isAuthenticated: true, tenantId: 'tenant-id', tenantUserId: 'actor-id' }),
     hasFeatureAccess: async () => true,
+    getTenantEmailConfig: async () => ({ fromEmail: 'sales@example.org' }),
     sendEmail: async (message) => {
       assert.match(message.html, /https:\/\/seller\.iconn\.app\/quote\//);
       assert.doesNotMatch(message.html, /attacker\.example/);
