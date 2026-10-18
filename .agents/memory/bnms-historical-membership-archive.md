@@ -8,3 +8,9 @@ BNMS's original membership history is to be retained as a basic historical Custo
 **Why:** The user explicitly requested an archive only, not a migration into the operational membership system.
 
 **How to apply:** Keep archive records separate from live membership history, status, billing, renewals, eligibility and automation. Linking an archive record to an existing member does not authorize changing that member or treating an old membership label/date as current authority.
+
+Remove only exact duplicate source rows; retain distinct membership entries, including future dates and blank end dates. Do not add source-filename or spreadsheet-row fields to the object.
+
+**Why:** The user approved deduplication only for exact duplicates and explicitly said source filename and spreadsheet row number were unnecessary.
+
+**How to apply:** Compare all original columns before deduplication, without trimming or merging membership labels. Preserve the remaining values as archive evidence, not current membership authority.
