@@ -9,10 +9,13 @@ import {
   validateMoney,
   validateSalesSettingsPatch,
 } from '../../shared/salesContracts.js';
-import { requireSalesContext, salesActor } from './salesAccess.js';
-import { allocateSalesNumber } from './salesFoundation.js';
-import { createSalesSettingsHandler } from '../sales/settings.js';
-import { createSalesNumberHandler } from '../sales/numbers.js';
+process.env.ROLE_ACCESS_OVERLAY_SKIP_PRIME = '1';
+const { __setRoleAccessOverlayForTests } = await import('./roleVisibility.js');
+__setRoleAccessOverlayForTests([]);
+const { requireSalesContext, salesActor } = await import('./salesAccess.js');
+const { allocateSalesNumber } = await import('./salesFoundation.js');
+const { createSalesSettingsHandler } = await import('../sales/settings.js');
+const { createSalesNumberHandler } = await import('../sales/numbers.js');
 
 function response() {
   return {
@@ -24,6 +27,17 @@ function response() {
 }
 
 test('Sales settings contract rejects unknown, malformed, and stale-shape values', () => {
+  assert.equal(DEFAULT_SALES_SETTINGS.showInternalCode, true);
+  assert.equal(DEFAULT_SALES_SETTINGS.showSku, true);
+  for (const key of ['showInternalCode', 'showSku']) {
+    for (const value of [true, false]) {
+      assert.equal(validateSalesSettingsPatch({ expectedVersion: 1, [key]: value }).ok, true);
+    }
+    for (const value of [null, undefined, 'true', 'false', 0, 1, [], {}]) {
+      assert.equal(validateSalesSettingsPatch({ expectedVersion: 1, [key]: value }).ok, false,
+        `${key} must reject ${JSON.stringify(value)}`);
+    }
+  }
   assert.equal(validateSalesSettingsPatch({ expectedVersion: 1, quoteTaskListName: " Delivery " }).ok, true);
   for (const quoteTaskListName of ["", "  ", "a".repeat(101), null, 17]) {
     assert.equal(validateSalesSettingsPatch({ expectedVersion: 1, quoteTaskListName }).ok, false);
@@ -177,4 +191,68 @@ test('number API rejects an unsupported kind before exposing a number', async ()
   const res = response();
   await handler({ method: 'POST', body: { kind: 'invoice' } }, res);
   assert.equal(res.statusCode, 400);
+});
+
+test('visibility PATCH maps both false values without adding unrelated settings', async () => {
+  let args;
+  const handler = createSalesSettingsHandler({
+    db: { async rpc(name, value) {
+      assert.equal(name, 'patch_sales_settings'); args = value;
+      return { data: [{ show_internal_code: false, show_sku: false, version: 7,
+        quote_task_list_name: 'Delivery' }], error: null };
+    } },
+    getTenantContext: async () => ({ isAuthenticated: true, tenantId: 't1', memberId: 'm1', roleId: 'r1' }),
+    hasFeatureAccess: async () => true,
+  });
+  const res = response();
+  await handler({ method: 'PATCH', body: { expectedVersion: 6, showInternalCode: false, showSku: false } }, res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.showInternalCode, false);
+  assert.equal(res.body.showSku, false);
+  assert.equal(res.body.quoteTaskListName, 'Delivery');
+  assert.equal(res.body.version, 7);
+  assert.deepEqual(args, { p_tenant_id: 't1', p_expected_version: 6,
+    p_patch: { showInternalCode: false, showSku: false }, p_actor_id: 'm1', p_actor_type: 'member' });
+});
+
+test('settings permissions distinguish view from management and reject exclusions before persistence', async () => {
+  const context = { isAuthenticated: true, tenantId: 't1', memberId: 'm1', roleId: 'r1' };
+  for (const memberExcludedFeatures of [[], [SALES_CAPABILITIES.MANAGE_SETTINGS], ['sales']]) {
+    const res = response();
+    await createSalesSettingsHandler({
+      db: { rpc: () => assert.fail('denied patch must not persist') },
+      getTenantContext: async () => ({ ...context, memberExcludedFeatures }),
+      hasFeatureAccess: async (_role, key) => memberExcludedFeatures.length > 0 || key === SALES_CAPABILITIES.VIEW,
+    })({ method: 'PATCH', body: { expectedVersion: 1, showSku: false } }, res);
+    assert.equal(res.statusCode, 403);
+  }
+  const res = response();
+  await createSalesSettingsHandler({
+    db: { from: () => ({ select() { return this; }, eq() { return this; },
+      maybeSingle: async () => ({ data: { show_internal_code: false, show_sku: true, version: 2 }, error: null }) }) },
+    getTenantContext: async () => context,
+    hasFeatureAccess: async (_role, key) => key === SALES_CAPABILITIES.VIEW,
+  })({ method: 'GET' }, res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.showInternalCode, false);
+  assert.equal(res.body.showSku, true);
+});
+
+test('settings validation and RPC errors surface safely', async () => {
+  const getTenantContext = async () => ({ isAuthenticated: true, tenantId: 't1', tenantUserId: 'a1' });
+  for (const showSku of ['false', null, 0]) {
+    const res = response();
+    await createSalesSettingsHandler({ getTenantContext, db: { rpc: () => assert.fail('invalid patch reached RPC') } })(
+      { method: 'PATCH', body: { expectedVersion: 1, showSku } }, res);
+    assert.equal(res.statusCode, 400);
+    assert.ok(res.body.details.length);
+  }
+  for (const [code, status] of [['40001', 409], ['22023', 500], ['XX000', 500]]) {
+    const res = response();
+    await createSalesSettingsHandler({ getTenantContext,
+      db: { rpc: async () => ({ data: null, error: { code, message: 'private database detail' } }) },
+    })({ method: 'PATCH', body: { expectedVersion: 1, showSku: false } }, res);
+    assert.equal(res.statusCode, status);
+    assert.doesNotMatch(res.body.error, /private database detail/);
+  }
 });

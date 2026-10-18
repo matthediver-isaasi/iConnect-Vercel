@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { resolveSalesTaxCode } from './salesCatalogueTaxOptions.js';
 import { SalesHttpError } from './salesAccess.js';
 
@@ -17,8 +18,18 @@ export const throwDb = (error) => {
     throw new SalesHttpError(409, 'Catalogue code or SKU already exists');
   }
   if (error.code === '23503') throw new SalesHttpError(409, 'Catalogue record is still referenced');
+  if (error.code === '22023') throw new SalesHttpError(400, error.message);
   throw error;
 };
+
+export const generateCatalogueCode = (type) => `${type === 'bundles' ? 'BND' : 'PRD'}_${randomUUID().replaceAll('-', '').toUpperCase()}`;
+
+// PostgREST supplies the constraint in message, whereas pg supplies constraint.
+// Never retry SKU, component, audit, or unrelated uniqueness failures.
+const isCodeCollision = (error, type) => error?.code === '23505' && (
+  error.constraint === `sales_catalogue_${type.slice(0, -1)}_code_unique`
+  || String(error.message || '').includes(`"sales_catalogue_${type.slice(0, -1)}_code_unique"`)
+);
 
 export function delegateCapacityFromTicket(ticket) {
   return ticket?.is_group_ticket === true && Number.isInteger(Number(ticket.group_size))
@@ -239,30 +250,41 @@ async function audit(db, tenantId, actor, action, type, id, before, after) {
   throwDb(result.error);
 }
 
-export async function createCatalogueRecord(db, tenantId, actor, type, value) {
+export async function createCatalogueRecord(db, tenantId, actor, type, value, options = {}) {
+  let eventReference;
   if (type === 'products') {
-    const taxCode = await resolveSalesTaxCode(db, tenantId, value.taxCode);
+    const taxCode = await resolveSalesTaxCode(db, tenantId, value.taxCode, options);
     value = { ...value, taxCode, taxRateBps: taxCode.rateBps };
     await ensureCategory(db, tenantId, value.categoryId);
-    await resolveEventTicketReference(db, tenantId, value.eventReference);
+    eventReference = await resolveEventTicketReference(db, tenantId, value.eventReference);
   }
   if (type === 'bundles') await ensureBundleProducts(db, tenantId, value.items);
   const toRow = { categories: categoryRow, products: productRow, bundles: bundleRow }[type];
+  if (type !== 'categories') {
+    const row = toRow(value);
+    const generateCode = options.generateCode || generateCatalogueCode;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const result = await db.rpc('create_sales_catalogue_record', {
+        p_tenant_id: tenantId, p_type: type, p_record: row,
+        p_items: type === 'bundles' ? value.items : null,
+        p_actor_id: actor.actorId, p_actor_type: actor.actorType,
+      });
+      if (options.generatedCode && isCodeCollision(result.error, type) && attempt < 2) {
+        row.code = generateCode(type);
+        continue;
+      }
+      throwDb(result.error);
+      if (!result.data) throw new Error('Catalogue creation returned no record');
+      return type === 'products'
+        ? mapProduct({ ...result.data, delegateCapacity: eventReference?.delegateCapacity })
+        : mapBundle(result.data);
+    }
+  }
   const result = await db.from(TABLES[type]).insert({
     tenant_id: tenantId, ...toRow(value), created_by: actor.actorId, updated_by: actor.actorId,
   }).select('*').single();
   throwDb(result.error);
-  if (type === 'bundles') {
-    try {
-      await replaceBundleItems(db, tenantId, result.data.id, value.items);
-    } catch (error) {
-      await db.from(TABLES.bundles).delete().eq('tenant_id', tenantId).eq('id', result.data.id);
-      throw error;
-    }
-  }
   await audit(db, tenantId, actor, `${type.slice(0, -1)}.created`, type, result.data.id, null, result.data);
-  if (type === 'products') return hydrateProduct(db, tenantId, result.data);
-  if (type === 'bundles') return (await hydrateBundles(db, tenantId, [result.data]))[0];
   return mapCategory(result.data);
 }
 

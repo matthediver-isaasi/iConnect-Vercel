@@ -6,8 +6,9 @@ import {
   validateCatalogueProduct, validateCatalogueReorder,
 } from '../../../shared/salesContracts.js';
 import { requireSalesContext, SalesHttpError } from '../../_lib/salesAccess.js';
+import { getSalesSettings } from '../../_lib/salesFoundation.js';
 import {
-  createCatalogueRecord, listCatalogue, listCatalogueEventOptions, reorderCatalogue, setCatalogueActive,
+  createCatalogueRecord, generateCatalogueCode, listCatalogue, listCatalogueEventOptions, reorderCatalogue, setCatalogueActive,
   updateCatalogueRecord,
 } from '../../_lib/salesCatalogue.js';
 
@@ -66,9 +67,22 @@ export function createSalesCatalogueHandler(dependencies = {}) {
         return res.status(200).json(await setCatalogueActive(db, actor.tenantId, actor, type, id, false));
       }
       if (req.method === 'POST' && !id) {
-        const validation = validators[type](req.body);
+        let body = req.body;
+        let generatedCode = false;
+        const generateCode = dependencies.generateCatalogueCode || generateCatalogueCode;
+        if (type !== 'categories' && body && typeof body === 'object' && !Array.isArray(body)
+          && (body.code === undefined || body.code === null || body.code === '')) {
+          const settings = await (dependencies.getSalesSettings || getSalesSettings)(db, actor.tenantId);
+          if (settings.showInternalCode === false) {
+            body = { ...body, code: generateCode(type) };
+            generatedCode = true;
+          }
+        }
+        const validation = validators[type](body);
         if (!validation.ok) return res.status(400).json({ error: `Invalid catalogue ${type.slice(0, -1)}`, details: validation.errors });
-        return res.status(201).json(await createCatalogueRecord(db, actor.tenantId, actor, type, req.body));
+        return res.status(201).json(await createCatalogueRecord(db, actor.tenantId, actor, type, body, {
+          generatedCode, generateCode, getActiveAccountingProvider: dependencies.getActiveAccountingProvider,
+        }));
       }
       if (req.method === 'PATCH' && id && !action) {
         const validation = validators[type](req.body, { patch: true });

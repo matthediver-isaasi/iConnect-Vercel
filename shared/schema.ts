@@ -66,6 +66,8 @@ export type CanvasFooter = typeof canvasFooter.$inferSelect;
 // minor units and each commercial document owns one ISO-4217 currency.
 export const salesSettings = pgTable("sales_settings", {
   tenant_id: uuid("tenant_id").primaryKey(),
+  show_internal_code: boolean("show_internal_code").notNull().default(true),
+  show_sku: boolean("show_sku").notNull().default(true),
   quote_prefix: varchar("quote_prefix", { length: 16 }).notNull().default("Q"),
   quote_number_padding: integer("quote_number_padding").notNull().default(6),
   default_currency: varchar("default_currency", { length: 3 }).notNull().default("GBP"),

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { decimalToMinor, minorToDecimal, productPricesForEditing, productPricesForSaving, productTaxForSaving, taxPercent } from "./catalogueProductForm.js";
+import { catalogueCopyForEditing, selectableCopyTaxId, decimalToMinor, minorToDecimal, productPricesForEditing, productPricesForSaving, productTaxForSaving, taxPercent } from "./catalogueProductForm.js";
 import { taxCodeKey } from "../../lib/salesTaxCodes.js";
 
 test("decimal inputs convert exactly, retaining blank versus zero", () => {
@@ -44,4 +44,34 @@ test("edits retain saved tax unchanged when unavailable, but cannot save an inva
   assert.equal(taxPercent(0), "0%");
   assert.equal(taxPercent(725), "7.25%");
   assert.equal(taxPercent(null), "Not set");
+});
+
+test("copy allowlist drops identity/lifecycle/tax snapshots, clears SKU, bounds name and preserves exact money and metadata", () => {
+  const source = { id: "source", name: "N".repeat(255), code: "SOURCE", sku: "unique", isActive: false, archivedAt: "yesterday", taxRateBps: 2000, taxCode: { provider: "xero", id: "vat" }, standardPriceMinor: Number.MAX_SAFE_INTEGER, minimumPriceMinor: null, costMinor: 0, eventReference: { kind: "complex", eventId: "event", ticketTypeId: "ticket" }, capacityMetadata: { nested: { keep: true } }, createTaskOnAcceptance: true };
+  const copy = catalogueCopyForEditing("products", source, "FRESH");
+  assert.equal(copy.name.length, 255);
+  assert.equal(copy.code, "FRESH");
+  assert.equal(copy.sku, "");
+  for (const key of ["id", "isActive", "archivedAt", "taxRateBps", "taxCode"]) assert.equal(key in copy, false);
+  assert.deepEqual(productPricesForSaving(copy), { standardPriceMinor: Number.MAX_SAFE_INTEGER, minimumPriceMinor: null, costMinor: 0 });
+  assert.deepEqual(copy.capacityMetadata, source.capacityMetadata);
+  copy.capacityMetadata.nested.keep = false;
+  assert.equal(source.capacityMetadata.nested.keep, true);
+  assert.equal(copy.createTaskOnAcceptance, true);
+});
+
+test("bundle copy preserves ordered unavailable references but not component identity", () => {
+  const source = { name: "Bundle", sellingPriceMinor: 29, minimumPriceMinor: 0, items: [{ id: "component", productId: "missing", quantity: 4 }, { productId: "active", quantity: 2 }] };
+  const copy = catalogueCopyForEditing("bundles", source, "COPY");
+  assert.deepEqual(copy.items, [{ productId: "missing", quantity: 4 }, { productId: "active", quantity: 2 }]);
+  assert.equal(copy.sellingPriceMinor, "0.29");
+});
+
+test("copy preselects only current selectable source tax and validates as a new product", () => {
+  const source = { taxCode: { provider: "xero", id: "vat" } };
+  const code = { ...source.taxCode, selectable: true };
+  assert.equal(selectableCopyTaxId(source, [code]), taxCodeKey(code));
+  assert.equal(selectableCopyTaxId(source, [{ ...code, selectable: false }]), "");
+  assert.equal(selectableCopyTaxId({}, [code]), "");
+  assert.throws(() => productTaxForSaving(undefined, "", []));
 });

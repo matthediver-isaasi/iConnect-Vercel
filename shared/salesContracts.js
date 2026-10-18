@@ -49,6 +49,8 @@ export const SALES_INVOICE_STATUSES = Object.freeze([
 ]);
 
 export const DEFAULT_SALES_SETTINGS = Object.freeze({
+  showInternalCode: true,
+  showSku: true,
   quoteTaskListName: 'Quote tasks',
   quotePrefix: 'Q',
   quoteNumberPadding: 6,
@@ -283,8 +285,12 @@ export function validateSalesSettingsPatch(value) {
   const allowed = new Set([
     'quotePrefix', 'quoteNumberPadding', 'defaultCurrency',
     'defaultTaxRateBps', 'defaultTerms', 'moduleEnabled', 'expectedVersion', 'quoteTaskListName',
+    'showInternalCode', 'showSku',
   ]);
   const errors = [];
+  for (const key of ['showInternalCode', 'showSku']) {
+    if (key in value && typeof value[key] !== 'boolean') errors.push(`${key} must be boolean`);
+  }
   for (const key of Object.keys(value)) {
     if (!allowed.has(key)) errors.push(`Unknown setting: ${key}`);
   }
@@ -323,6 +329,8 @@ export function validateSalesSettingsPatch(value) {
 
 export function mapSalesSettingsRow(row) {
   return {
+    showInternalCode: row.show_internal_code ?? true,
+    showSku: row.show_sku ?? true,
     quoteTaskListName: row.quote_task_list_name ?? 'Quote tasks',
     quotePrefix: row.quote_prefix,
     quoteNumberPadding: row.quote_number_padding,

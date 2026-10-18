@@ -222,6 +222,7 @@ change the job's response or retry behaviour.
 Preferred communication style: Simple, everyday language.
 
 ## Pointers
+- **Catalogue identifier visibility and duplication:** DEST migration status and isolated/live verification boundaries are in `docs/sales-catalogue-visibility-rollout.md`. Settings changes share one scoped discovery/version; preserve installed settings RPC fields during merges.
 -   **React:** `https://react.dev/` · **Tailwind:** `https://tailwindcss.com/docs` · **Drizzle:** `https://orm.drizzle.team/docs/overview`
 -   **Vercel Functions:** `https://vercel.com/docs/functions/overview` · **Supabase:** `https://supabase.com/docs`
 -   **Stripe:** `https://stripe.com/docs/api` · **Mailgun:** `https://documentation.mailgun.com/en/latest/api_reference.html`

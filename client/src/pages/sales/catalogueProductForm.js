@@ -1,4 +1,31 @@
-import { selectedProviderTaxCode } from "../../lib/salesTaxCodes.js";
+import { selectedProviderTaxCode, taxCodeKey } from "../../lib/salesTaxCodes.js";
+
+export const CATALOGUE_FIELDS = {
+  categories: ["name", "code", "description"],
+  products: ["name", "code", "sku", "categoryId", "currency", "standardPriceMinor", "minimumPriceMinor", "costMinor", "shortDescription", "description", "availableFrom", "availableTo", "eventReference", "capacityMetadata", "createTaskOnAcceptance"],
+  bundles: ["name", "code", "currency", "sellingPriceMinor", "minimumPriceMinor", "presentationMode", "availableFrom", "availableTo", "description", "items"],
+};
+
+// Copy only createable fields, never identity, lifecycle or accounting snapshots.
+export function catalogueCopyForEditing(type, source, freshCode) {
+  const copy = Object.fromEntries(CATALOGUE_FIELDS[type].filter((key) => key in source).map((key) => [key, structuredClone(source[key])]));
+  copy.name = `${String(source.name || "").slice(0, 248)} (copy)`;
+  copy.code = freshCode;
+  if (type === "products") {
+    copy.sku = "";
+    Object.assign(copy, productPricesForEditing(source));
+  }
+  if (type === "bundles") {
+    Object.assign(copy, bundlePricesForEditing(source));
+    copy.items = (source.items || []).map(({ productId, quantity }) => ({ productId, quantity }));
+  }
+  return copy;
+}
+
+export function selectableCopyTaxId(source, items) {
+  const key = taxCodeKey(source?.taxCode);
+  return items.some((item) => item.selectable && taxCodeKey(item) === key) ? key : "";
+}
 
 const PRICE_FIELDS = ["standardPriceMinor", "minimumPriceMinor", "costMinor"];
 const MAX_MINOR = BigInt(Number.MAX_SAFE_INTEGER);

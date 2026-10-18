@@ -1,24 +1,28 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useSalesSettings } from "./useSalesSettings";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { refreshSalesProjects } from "./useSalesProjectTasks";
 
-function SettingsForm({ settings, canManage, request }) {
-  const [name, setName] = useState(settings.quoteTaskListName || "Quote tasks");
+function SettingsForm({ settings, canManage, request, query }) {
+  const [draftName, setName] = useState(null);
+  const name = draftName ?? settings.quoteTaskListName ?? "Quote tasks";
   const qc = useQueryClient();
   const save = useMutation({
-    mutationFn: () => request("/api/sales/settings", { method: "PATCH", body: JSON.stringify({
+    mutationFn: () => query.patch({
       expectedVersion: settings.version, quoteTaskListName: name.trim(),
-    }) }),
-    onSuccess: result => {
-      qc.setQueryData(["sales-quote-task-settings"], result);
+    }),
+    onSuccess: async result => {
+      await query.accept(result);
+      setName(null);
       refreshSalesProjects(qc);
     },
+    onError: error => { if (error.status === 409) query.refetch(); },
   });
-  return <form className="space-y-3" onSubmit={event => { event.preventDefault(); if (!save.isPending && name.trim()) save.mutate(); }}>
+  return <form className="space-y-3" onSubmit={event => { event.preventDefault(); if (canManage && !save.isPending && name.trim()) save.mutate(); }}>
     <Label htmlFor="quote-task-list-name">Project task list name</Label>
     <Input id="quote-task-list-name" maxLength={100} value={name} disabled={!canManage || save.isPending}
       onChange={event => setName(event.target.value)} />
@@ -30,10 +34,11 @@ function SettingsForm({ settings, canManage, request }) {
 }
 
 export default function QuoteTaskSettings({ canManage, request }) {
-  const query = useQuery({ queryKey: ["sales-quote-task-settings"], queryFn: () => request("/api/sales/settings") });
+  const query = useSalesSettings(request);
+  const settings = query.data || query.lastConfirmedData;
   return <Card><CardHeader><CardTitle>Quote acceptance tasks</CardTitle></CardHeader><CardContent>
-    {query.isLoading ? <p role="status">Loading task settings…</p>
-      : query.error ? <div role="alert"><p>{query.error.message}</p><Button variant="outline" onClick={() => query.refetch()}>Retry</Button></div>
-        : query.data && <SettingsForm key={query.data.version} settings={query.data} canManage={canManage} request={request} />}
+    {query.error && <div role="alert"><p>{query.error.message}</p><Button variant="outline" onClick={() => query.refetch()}>Retry</Button></div>}
+    {!settings ? !query.error && <p role="status">Loading task settings…</p>
+      : <SettingsForm key={query.scopeKey} query={query} settings={settings} canManage={canManage && !query.isError} request={request} />}
   </CardContent></Card>;
 }

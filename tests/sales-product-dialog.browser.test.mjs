@@ -33,7 +33,7 @@ before(async () => {
       const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
       createRoot(document.getElementById('root')).render(
         <MemoryRouter><QueryClientProvider client={client}>
-          <EditDialog config={config} categories={[{id:'category',name:'Training'}]} categoriesLoading={false}
+          <EditDialog showInternalCode showSku config={config} categories={[{id:'category',name:'Training'}]} categoriesLoading={false}
             products={[]} events={{items:[{id:'event',name:'Fixture event',kind:'complex',ticketOptions:[{id:'ticket',name:'Group place',delegateCapacity:4}]}]}}
             saving={false} onClose={()=>{}} onSave={data=>{window.savedProduct=data}} />
         </QueryClientProvider></MemoryRouter>);
@@ -44,6 +44,10 @@ before(async () => {
     plugins: [{
       name: 'fixture-api-only',
       setup(builder) {
+        builder.onResolve({ filter: /\/useSalesSettings$/ }, () => ({ path: 'settings', namespace: 'settings-fixture' }));
+        builder.onLoad({ filter: /.*/, namespace: 'settings-fixture' }, () => ({
+          contents: "export const useSalesSettings=()=>({data:{showInternalCode:true,showSku:true},isPending:false,isError:false}); export const useSalesSettingsScope=()=>({scopeKey:'fixture',ready:true});",
+        }));
         builder.onResolve({ filter: /base44Client$/ }, () => ({ path: 'api', namespace: 'fixture' }));
         builder.onLoad({ filter: /.*/, namespace: 'fixture' }, () => ({
           contents: `export const base44={_apiRequest:async(path,options)=>{const r=await fetch(path,options);const b=await r.json();if(!r.ok)throw Error(b.error);return b}};`,

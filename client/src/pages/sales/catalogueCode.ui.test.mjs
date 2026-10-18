@@ -12,6 +12,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const React = (await import("react")).default;
 const { act } = React;
 const { createRoot } = await import("react-dom/client");
+const { MemoryRouter } = await import("react-router-dom");
 const built = await build({
   entryPoints: ["client/src/pages/sales/Catalogue.jsx"], bundle: true, write: false,
   packages: "external", platform: "node", format: "cjs", jsx: "automatic",
@@ -20,15 +21,230 @@ const built = await build({
     name: "isolated-catalogue-data",
     setup(b) {
       b.onResolve({ filter: /^\.\/useCatalogue$/ }, () => ({ path: "catalogue-hooks", namespace: "fixture" }));
-      b.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({ contents: "export const useCatalogueTaxOptions=()=>({data:{provider:'xero',items:[{id:'OUTPUT2',name:'VAT',rateBps:2000,selectable:true}]},isPending:false}); export const useCatalogue=()=>({}); export const useEventOptions=()=>({});" }));
+      b.onResolve({ filter: /\/useSalesSettings$/ }, () => ({ path: "settings", namespace: "settings-fixture" }));
+      b.onLoad({ filter: /.*/, namespace: "settings-fixture" }, () => ({ contents: "export const useSalesSettings=()=>globalThis.catalogueSettingsFixture; export const useSalesSettingsScope=()=>({scopeKey:'fixture',ready:true});" }));
+      b.onResolve({ filter: /\/useMemberAccess$/ }, () => ({ path: "access", namespace: "access-fixture" }));
+      b.onLoad({ filter: /.*/, namespace: "access-fixture" }, () => ({ contents: "export const useMemberAccess=()=>({isAccessReady:true,isFeatureExcluded:()=>false});" }));
+      b.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({ contents: "export const useCatalogueTaxOptions=()=>({data:{provider:'xero',items:[{id:'OUTPUT2',name:'VAT',rateBps:2000,selectable:true}]},isPending:false}); export const useCatalogue=(type)=>({data:globalThis.catalogueRowsFixture?.[type]||[],create:{},update:{}}); export const useEventOptions=()=>({});" }));
     },
   }],
 });
 const mod = new Module(`${process.cwd()}/catalogue-code-fixture.cjs`);
 mod.paths = Module._nodeModulePaths(process.cwd());
 mod._compile(built.outputFiles[0].text, `${process.cwd()}/catalogue-code-fixture.cjs`);
-const { EditDialog } = mod.exports;
+const { EditDialog: RawEditDialog, CatalogueTable, default: Catalogue } = mod.exports;
+const EditDialog = (props) => React.createElement(RawEditDialog, { showInternalCode: true, showSku: true, ...props });
+globalThis.catalogueSettingsFixture = { data: { showInternalCode: true, showSku: true }, isPending: false, isError: false };
 after(() => dom.window.close());
+
+async function renderFixture(Component, props, check) {
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const wrappedRoot = { render(element) { root.render(React.createElement(MemoryRouter, null, element)); } };
+  await act(async () => wrappedRoot.render(React.createElement(Component, props)));
+  try { await check(wrappedRoot); } finally { await act(async () => root.unmount()); host.remove(); }
+}
+const submitForm = async () => act(async () => document.querySelector("form").dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })));
+const enterInput = async (label, value) => act(async () => {
+  const input = document.querySelector(`[aria-label="${label}"]`);
+  Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value").set.call(input, value);
+  input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+});
+
+for (const showInternalCode of [false, true]) for (const showSku of [false, true]) {
+  for (const mode of ["create", "edit", "copy"]) {
+    test(`identifier visibility ${showInternalCode}/${showSku} ${mode}: fields and payload`, async () => {
+      const source = { id: "source", name: "Workshop", code: "SOURCE", sku: "SOURCE-SKU", standardPriceMinor: 29, minimumPriceMinor: null, costMinor: 0, capacityMetadata: { keep: true }, taxCode: { provider: "xero", id: "OUTPUT2" } };
+      const saved = [];
+      await renderFixture(RawEditDialog, {
+        config: { type: "products", ...(mode === "edit" ? { row: source } : mode === "copy" ? { copySource: source } : {}) },
+        showInternalCode, showSku, categories: [], products: [], events: {}, onClose() {}, onSave(data) { saved.push(data); },
+      }, async () => {
+        assert.equal(Boolean(document.querySelector('[aria-label="Internal code"]')), showInternalCode);
+        assert.equal(Boolean(document.querySelector('[aria-label="SKU"]')), showSku);
+        if (mode === "create") {
+          if (showInternalCode) await enterInput("Internal code", "NEW");
+          await enterInput("Standard price", "0.29");
+          await act(async () => {
+            const tax = document.querySelector('[aria-label="Synced VAT code"]');
+            tax.value = JSON.stringify(["xero", "OUTPUT2"]);
+            tax.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+          });
+        }
+        if (mode === "copy") {
+          assert.equal(document.querySelector('[aria-label="Name"]').value, "Workshop (copy)");
+          assert.equal(document.querySelector('[aria-label="Synced VAT code"]').value, JSON.stringify(["xero", "OUTPUT2"]));
+          if (showSku) assert.equal(document.querySelector('[aria-label="SKU"]').value, "");
+          if (showInternalCode) assert.notEqual(document.querySelector('[aria-label="Internal code"]').value, source.code);
+        }
+        await submitForm();
+        assert.equal(saved.length, 1);
+        assert.equal("code" in saved[0], showInternalCode);
+        assert.equal("sku" in saved[0], showSku);
+        assert.equal(saved[0].standardPriceMinor, 29);
+        assert.equal(saved[0].id, undefined);
+        if (mode === "copy") {
+          assert.deepEqual(saved[0].taxCode, source.taxCode);
+          assert.deepEqual(saved[0].capacityMetadata, { keep: true });
+          if (showSku) assert.equal(saved[0].sku, null);
+        }
+      });
+    });
+  }
+  for (const type of ["products", "bundles"]) {
+    test(`table ${type} visibility ${showInternalCode}/${showSku} and permission`, async () => {
+      const row = { id: "source", name: "Workshop", code: "PRIVATE-CODE", sku: "PRIVATE-SKU", standardPriceMinor: 29, sellingPriceMinor: 29 };
+      const copies = [];
+      const props = { type, rows: [row], products: [], categories: [], showInternalCode, showSku, canManage: true, onDuplicate: item => copies.push(item), onEdit() {}, onArchive() {} };
+      await renderFixture(CatalogueTable, props, async root => {
+        assert.equal(document.body.textContent.includes(row.code), showInternalCode);
+        assert.equal(document.body.textContent.includes(row.sku), type === "products" && showSku);
+        await act(async () => document.querySelector('[aria-label="Duplicate Workshop"]').click());
+        assert.equal(copies[0], row);
+        await act(async () => root.render(React.createElement(CatalogueTable, { ...props, canManage: false })));
+        assert.equal(document.querySelector('[aria-label="Duplicate Workshop"]'), null);
+        assert.equal(document.querySelector('[aria-label="Edit Workshop"]'), null);
+      });
+    });
+  }
+  test(`bundle copy visibility ${showInternalCode}/${showSku} saves a fresh create payload`, async () => {
+    const saved = [];
+    await renderFixture(RawEditDialog, {
+      config: { type: "bundles", copySource: { id: "source", name: "Bundle", code: "SOURCE", sku: "NOT-A-BUNDLE-FIELD", sellingPriceMinor: 29, minimumPriceMinor: 0, presentationMode: "itemised", items: [{ productId: "missing", quantity: 3 }, { productId: "active", quantity: 2 }], archivedAt: "yesterday" } },
+      showInternalCode, showSku, categories: [], products: [], events: {}, onClose() {}, onSave(data) { saved.push(data); },
+    }, async () => {
+      assert.equal(Boolean(document.querySelector('[aria-label="Internal code"]')), showInternalCode);
+      assert.equal(document.querySelector('[aria-label="SKU"]'), null);
+      await submitForm();
+      assert.equal(saved.length, 1);
+      assert.equal("code" in saved[0], showInternalCode);
+      if (showInternalCode) assert.notEqual(saved[0].code, "SOURCE");
+      assert.equal(saved[0].sellingPriceMinor, 29);
+      assert.equal(saved[0].minimumPriceMinor, 0);
+      assert.equal(saved[0].presentationMode, "itemised");
+      assert.deepEqual(saved[0].items, [{ productId: "missing", quantity: 3 }, { productId: "active", quantity: 2 }]);
+      for (const key of ["id", "sku", "archivedAt"]) assert.equal(key in saved[0], false);
+    });
+  });
+}
+
+test("copy cancellation performs no save; reopening starts fresh", async () => {
+  let closes = 0; let saves = 0;
+  const source = { name: "Source", code: "SOURCE", standardPriceMinor: 29 };
+  const props = { config: { type: "products", copySource: source }, categories: [], products: [], events: {}, onClose() { closes++; }, onSave() { saves++; } };
+  await renderFixture(EditDialog, props, async root => {
+    const firstCode = document.querySelector('[aria-label="Internal code"]').value;
+    await enterInput("Name", "Changed copy");
+    await act(async () => [...document.querySelectorAll("button")].find(button => button.textContent === "Cancel").click());
+    assert.equal(closes, 1);
+    assert.equal(saves, 0);
+    await act(async () => root.render(React.createElement(EditDialog, { ...props, config: null })));
+    await act(async () => root.render(React.createElement(EditDialog, { ...props, config: { type: "products", copySource: source } })));
+    assert.equal(document.querySelector('[aria-label="Name"]').value, "Source (copy)");
+    assert.notEqual(document.querySelector('[aria-label="Internal code"]').value, firstCode);
+  });
+});
+
+test("copy with legacy/unavailable tax cannot retain source tax", async () => {
+  await renderFixture(EditDialog, {
+    config: { type: "products", copySource: { name: "Legacy", code: "LEGACY", standardPriceMinor: 29, taxRateBps: 0, taxCode: { provider: "xero", id: "UNAVAILABLE" } } },
+    categories: [], products: [], events: {}, onClose() {}, onSave() { assert.fail("must require new tax"); },
+  }, async () => {
+    assert.equal(document.querySelector('[aria-label="Synced VAT code"]').value, "");
+    assert.equal(document.body.textContent.includes("Keep saved"), false);
+    await submitForm();
+    assert.match(document.querySelector('[role="alert"]').textContent, /Select a synced provider VAT code/);
+  });
+});
+
+test("synchronous guard blocks duplicate submits until async save settles; failure retains form and allows retry", async () => {
+  let calls = 0; let reject;
+  await renderFixture(EditDialog, {
+    config: { type: "bundles", copySource: { name: "Bundle", code: "SOURCE", sellingPriceMinor: 29, items: [{ productId: "missing", quantity: 3 }, { productId: "active", quantity: 2 }] } },
+    categories: [], products: [{ id: "active", name: "Available" }], events: {}, onClose() {},
+    onSave() { calls++; return new Promise((_, fail) => { reject = fail; }); },
+  }, async () => {
+    assert.match(document.querySelector('[aria-label="Included product 1"]').textContent, /Unavailable product/);
+    const form = document.querySelector("form");
+    await act(async () => {
+      form.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
+      form.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
+    });
+    assert.equal(calls, 1);
+    await act(async () => reject(new Error("Fixture save rejected")));
+    assert.match(document.querySelector('[role="alert"]').textContent, /Fixture save rejected/);
+    assert.equal(document.querySelector('[aria-label="Selling price"]').value, "0.29");
+    await submitForm();
+    assert.equal(calls, 2);
+    await act(async () => reject(new Error("Retry rejected")));
+  });
+});
+
+test("non-category catalogue fails closed while settings load or fail", async () => {
+  globalThis.catalogueSettingsFixture = { isPending: true };
+  try {
+    await renderFixture(Catalogue, { section: "products" }, async root => {
+      assert.equal(document.body.textContent.includes("New product"), false);
+      globalThis.catalogueSettingsFixture = { isError: true, refetch() {} };
+      await act(async () => root.render(React.createElement(Catalogue, { section: "products" })));
+      assert.match(document.body.textContent, /Sales settings could not be loaded/);
+      assert.equal(document.body.textContent.includes("New product"), false);
+    });
+  } finally {
+    globalThis.catalogueSettingsFixture = { data: { showInternalCode: true, showSku: true }, isPending: false, isError: false };
+  }
+});
+
+for (const action of ["new", "edit", "copy"]) {
+  test(`tenant scope change closes ${action} dialog and clears search before reopening`, async () => {
+    const settings = { data: { showInternalCode: true, showSku: true }, isPending: false, isError: false, scopeKey: "tenant-a" };
+    globalThis.catalogueSettingsFixture = settings;
+    globalThis.catalogueRowsFixture = { products: [{ id: "source", name: "Old tenant product", code: "OLD_TENANT", standardPriceMinor: 29 }] };
+    try {
+      await renderFixture(Catalogue, { section: "products" }, async root => {
+        await act(async () => {
+          const search = document.querySelector('[placeholder="Search products"]');
+          Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value").set.call(search, "Old search");
+          search.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+        });
+        await act(async () => {
+          const trigger = action === "new" ? [...document.querySelectorAll("button")].find(button => button.textContent === "New product") : document.querySelector(`[aria-label="${action === "edit" ? "Edit" : "Duplicate"} Old tenant product"]`);
+          trigger.click();
+        });
+        assert.ok(document.querySelector('[role="dialog"]'));
+        globalThis.catalogueSettingsFixture = { ...settings, scopeKey: "tenant-b" };
+        globalThis.catalogueRowsFixture = { products: [] };
+        await act(async () => root.render(React.createElement(Catalogue, { section: "products" })));
+        assert.equal(document.querySelector('[role="dialog"]'), null);
+        assert.equal(document.querySelector('[placeholder="Search products"]').value, "");
+        await act(async () => [...document.querySelectorAll("button")].find(button => button.textContent === "New product").click());
+        assert.equal(document.querySelector('[aria-label="Name"]').value, "");
+        assert.equal(document.querySelector('[aria-label="Internal code"]').value, "");
+      });
+    } finally {
+      globalThis.catalogueRowsFixture = undefined;
+      globalThis.catalogueSettingsFixture = { data: { showInternalCode: true, showSku: true }, isPending: false, isError: false };
+    }
+  });
+}
+
+for (const eventReference of [{ kind: "complex" }, { eventId: "event" }, { ticketTypeId: "ticket" }, { kind: "complex", eventId: "event" }]) {
+  test(`partial copied event link ${JSON.stringify(eventReference)} requires correction or removal`, async () => {
+    const saved = [];
+    await renderFixture(EditDialog, {
+      config: { type: "products", copySource: { name: "Partial event", code: "PARTIAL", standardPriceMinor: 29, eventReference, taxCode: { provider: "xero", id: "OUTPUT2" } } },
+      categories: [], products: [], events: {}, onClose() {}, onSave(data) { saved.push(data); },
+    }, async () => {
+      await submitForm();
+      assert.equal(saved.length, 0);
+      assert.match(document.querySelector('[role="alert"]').textContent, /Complete the event and ticket type selection, or remove the event link/);
+      await act(async () => [...document.querySelectorAll("button")].find(button => button.textContent === "Remove event link").click());
+      await submitForm();
+      assert.equal(saved.length, 1);
+      assert.equal(saved[0].eventReference, null);
+    });
+  });
+}
 
 for (const initial of [undefined, false, true]) {
   test(`product automation preserves ${initial ?? "legacy default"} and submits a boolean on edit`, async () => {

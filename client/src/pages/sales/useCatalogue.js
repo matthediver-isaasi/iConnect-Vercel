@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
+import { useSalesSettingsScope } from "@/components/sales/useSalesSettings";
 
 const ROOT = "/api/sales/catalogue";
 const request = (path, options) => base44._apiRequest(`${ROOT}${path}`, options);
@@ -7,12 +8,14 @@ const unwrap = (response) => response?.data ?? response;
 
 export function useCatalogue(resource, search = "") {
   const queryClient = useQueryClient();
-  const queryKey = ["sales-catalogue", resource, search];
+  const { scopeKey, ready } = useSalesSettingsScope();
+  const queryKey = ["sales-catalogue", resource, scopeKey, search];
   const params = new URLSearchParams({ includeInactive: "true" });
   if (search && resource !== "categories") params.set("q", search);
   const endpoint = `/${resource}?${params.toString()}`;
   const query = useQuery({
     queryKey,
+    enabled: ready,
     queryFn: async () => unwrap(await request(endpoint)),
   });
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["sales-catalogue", resource] });
@@ -25,13 +28,15 @@ export function useCatalogue(resource, search = "") {
 }
 
 export function useEventOptions() {
-  return useQuery({ queryKey: ["sales-catalogue", "event-options"], queryFn: async () => unwrap(await request("/event-options")) });
+  const { scopeKey, ready } = useSalesSettingsScope();
+  return useQuery({ queryKey: ["sales-catalogue", "event-options", scopeKey], enabled: ready, queryFn: async () => unwrap(await request("/event-options")) });
 }
 
 export function useCatalogueTaxOptions(enabled = false) {
+  const { scopeKey, ready } = useSalesSettingsScope();
   return useQuery({
-    queryKey: ["sales-catalogue", "tax-options"],
+    queryKey: ["sales-catalogue", "tax-options", scopeKey],
     queryFn: async () => unwrap(await request("/tax-options")),
-    enabled,
+    enabled: enabled && ready,
   });
 }
