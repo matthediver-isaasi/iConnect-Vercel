@@ -52,6 +52,8 @@ test('real Sales migration chain: draft, issue, amendment, staff/public acceptan
       '202610130002_sales_catalogue_atomic_create', '202610180001_sales_catalogue_visibility',
       '202610180002_sales_quote_naming', '202610180003_sales_grouped_billing',
       '202610180004_sales_billing_configuration',
+      '202610180007_sales_quote_line_ticket_snapshot', '202610180008_sales_customer_fulfilment',
+      '202610180009_sales_ticket_value_attribution',
     ];
     for (const name of migrations) {
       try { await db.query(readFileSync(`supabase/migrations/${name}.sql`, 'utf8')); }
@@ -108,6 +110,75 @@ test('real Sales migration chain: draft, issue, amendment, staff/public acceptan
     const decision = [token, 'accepted', 'Customer', 'Director', null, null, null, true, 'public-key', {}];
     assert.equal((await rpc('decide_sales_quote_public', decision)).outcome, 'accepted');
     assert.equal(await count(), 2);
+    // Complete ticket chain, including proposal-only event override: the live
+    // catalogue product deliberately has NO event identity and a different price.
+    const event = randomUUID(), product = randomUUID(), organization = randomUUID(), opportunity = randomUUID();
+    await db.query(`INSERT INTO organization(id,tenant_id,name) VALUES($1,$2,'Accepted customer')`, [organization, tenant]);
+    await db.query(`INSERT INTO opportunity_stage(tenant_id,name,position,is_won) VALUES($1,'Won',0,true)`, [tenant]);
+    await db.query('INSERT INTO tenant_user(id,tenant_id) VALUES($1,$2)', [actor, tenant]);
+    await db.query(`INSERT INTO opportunity(id,tenant_id,name,organization_id,stage_id,owner_kind,owner_id,created_by_kind,created_by_id)
+      VALUES($1,$2,'Ticket sale',$3,(SELECT id FROM opportunity_stage WHERE tenant_id=$2 LIMIT 1),'tenant_user',$4,'tenant_user',$4)`,
+      [opportunity, tenant, organization, actor]);
+    await db.query(`INSERT INTO event VALUES($1,$2,'{"ticket_classes":[{"id":"delegate","name":"Delegate","capacity":20,"is_unlimited":true}]}')`,
+      [event, tenant]);
+    await db.query(`INSERT INTO sales_catalogue_product(id,tenant_id,code,name,currency,standard_price_minor,tax_treatment)
+      VALUES($1,$2,'DIRECT','Catalogue without event','GBP',9900,'zero_rated')`, [product, tenant]);
+    const ticketPayload = { currency: 'GBP', opportunityId: opportunity, termsSnapshot: {},
+      customerContactSnapshot: { email: 'accepted-customer@example.test', name: 'Accepted Customer' },
+      lines: [{ kind: 'product', catalogueId: product, description: 'Four proposal tickets', quantity: '4',
+        standardUnitPriceMinor: 9900, quotedUnitPriceMinor: 10000, priceOverridden: true,
+        discountBps: 0, taxRateBps: 0, netMinor: 40000, taxMinor: 0, grossMinor: 40000,
+        catalogueSnapshot: { name: 'Frozen delegate ticket', event_reference_kind: 'simple', event_id: event,
+          ticket_type_id: 'delegate', standard_price_minor: 9900, capacity_metadata: { delegate_capacity: 1 } }, components: [] }],
+      totals: { netMinor: 40000, taxMinor: 0, grossMinor: 40000 } };
+    const ticketDraft = await rpc('save_sales_quote_draft', [tenant, null, null, ticketPayload, actor, 'tenant_user']);
+    const ticketIssued = await issue(ticketDraft);
+    await db.query('UPDATE sales_catalogue_product SET standard_price_minor=12345 WHERE id=$1', [product]);
+    const ticketAccepted = await rpc('transition_sales_quote', [tenant, ticketDraft.id, ticketIssued.row_version,
+      'accepted', 'Accepted direct override', actor, 'tenant_user']);
+    assert.equal(ticketAccepted.status, 'converted');
+    const allocation = (await db.query(`SELECT a.* FROM sales_commercial_allocation a JOIN sales_commercial_sale s ON s.id=a.sale_id
+      WHERE s.quote_id=$1`, [ticketDraft.id])).rows[0];
+    assert.equal(allocation.event_id, event);
+    assert.equal(allocation.allocated_places, 4);
+    assert.equal(allocation.proposal_value_snapshot.grossMinor, 40000);
+    const delivery = (await db.query('SELECT * FROM sales_customer_fulfilment WHERE sale_id=$1', [allocation.sale_id])).rows[0];
+    assert.equal(delivery.status, 'pending');
+    assert.equal(delivery.customer_email, 'accepted-customer@example.test');
+    const rootHash = 'e'.repeat(64), lease = randomUUID();
+    await rpc('claim_sales_customer_fulfilment', [delivery.id, rootHash, lease]);
+    await assert.rejects(rpc('resolve_sales_customer_fulfilment', [tenant, rootHash]), /unavailable/);
+    await rpc('finish_sales_customer_fulfilment', [delivery.id, lease, 'sent']);
+    for (let i = 0; i < 4; i++) {
+      const inviteHash = String(i+1).repeat(64), booking = randomUUID(), email = `delegate${i}@example.test`;
+      const invitation = await rpc('reserve_sales_customer_delegate', [tenant, rootHash, allocation.id,
+        inviteHash, email, 'Delegate', String(i), `delegate-${i}`]);
+      assert.ok(invitation.invitationId);
+      await db.query(`INSERT INTO booking(id,tenant_id,event_id,ticket_class_id,status,attendee_email,organization_id,created_at)
+        VALUES($1,$2,$3,'delegate','confirmed',$4,$5,now())`, [booking, tenant, event, email, organization]);
+      await rpc('claim_sales_allocation_invitation', [inviteHash, 'simple', booking]);
+    }
+    const values = (await db.query('SELECT gross_minor FROM sales_allocation_ticket_value WHERE allocation_id=$1 ORDER BY place_index',
+      [allocation.id])).rows;
+    assert.deepEqual(values.map(v => Number(v.gross_minor)), [10000,10000,10000,10000], '£400/4 yields £100 per delegate');
+    await assert.rejects(rpc('reserve_sales_customer_delegate', [tenant, rootHash, allocation.id,
+      'f'.repeat(64), 'fifth@example.test', 'Fifth', 'Delegate', 'fifth']), /no remaining places/);
+    const publicTickets = await rpc('save_sales_quote_draft', [tenant, null, null, ticketPayload, actor, 'tenant_user']);
+    await issue(publicTickets);
+    const publicHash = '7'.repeat(64);
+    await db.query(`INSERT INTO sales_quote_delivery_token(tenant_id,quote_id,quote_version_id,token_hash,
+      recipient_email,expires_at,activated_at,created_by)
+      VALUES($1,$2,$3,decode($4,'hex'),'actual-acceptor@example.test',now()+interval '1 day',now(),$5)`,
+      [tenant, publicTickets.id, publicTickets.version_id, publicHash, actor]);
+    assert.equal((await rpc('decide_sales_quote_public', [publicHash, 'accepted', 'Actual Acceptor', 'Director',
+      null, null, null, true, 'public-tickets', {}])).outcome, 'accepted');
+    const publicFulfilment = (await db.query(`SELECT f.*,a.proposal_value_snapshot FROM sales_customer_fulfilment f
+      JOIN sales_commercial_sale s ON s.id=f.sale_id JOIN sales_commercial_allocation a ON a.sale_id=s.id
+      WHERE s.quote_id=$1`, [publicTickets.id])).rows[0];
+    assert.equal(publicFulfilment.status, 'pending');
+    assert.equal(publicFulfilment.customer_email, 'actual-acceptor@example.test');
+    assert.equal(publicFulfilment.customer_name, 'Actual Acceptor');
+    assert.equal(publicFulfilment.proposal_value_snapshot.grossMinor, 40000);
     const scheduleRow = (await db.query('SELECT * FROM sales_invoice_schedule LIMIT 1')).rows[0];
     await assert.rejects(db.query(`INSERT INTO sales_invoice_schedule
       (tenant_id,sale_id,quote_version_id,group_id,snapshot,planned_issue_date,timezone)

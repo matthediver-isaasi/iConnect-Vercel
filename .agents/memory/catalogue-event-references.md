@@ -13,4 +13,10 @@ Proposal ticket fulfilment must support simple and complex events, event-specifi
 
 **Why:** The user explicitly described the required purchase-to-registration flow and asked for an audit before implementation.
 
-**How to apply:** Registrations must enter ordinary event registration records, with the agreed proposal amount attributed per ticket: four tickets sold for £400 means £100 per ticket. Keep attributed sales value separate from any additional amount payable during registration so the customer is not charged twice. This requirement does not by itself prove the complete flow is implemented.
+**How to apply:** Registrations must enter ordinary event registration records, with the agreed proposal amount attributed per ticket: four tickets sold for £400 means £100 per ticket. Keep attributed sales value separate from any additional amount payable during registration so the customer is not charged twice.
+
+Preserve the distinction between proposal-attributed ticket value and cash collected during registration. Never infer historical allocations' negotiated value from today's catalogue, or assign an entire mixed bundle's price only to its ticket components.
+
+**Why:** A prepaid registration owes zero at checkout without being a zero-value sale. Mixed bundles include non-ticket benefits; assigning their entire price to tickets overstates event revenue.
+
+**How to apply:** Freeze accepted commercial evidence for new allocations, apportion exact pennies using frozen component weights, and leave historical records unchanged. Ambiguous old ticket snapshots require an amended proposal rather than silently using live ticket capacity.

@@ -14,6 +14,13 @@ export function normalizeGroupPricePaid(bookings) {
   const roundCents = (value) => Math.round((value + Number.EPSILON) * 100);
 
   const normalized = (bookings || []).map((booking) => {
+    if (booking._proposal_ticket_value) {
+      return {
+        price_paid: null,
+        price_paid_status: 'proposal_attributed',
+        rawCents: Number(booking._proposal_ticket_value.gross_minor),
+      };
+    }
     const isComplex = booking._report_booking_source === 'complex';
     const base = money(isComplex ? booking.ticket_price : booking.total_cost);
     // The import writer supplies zero as a default, not as a checkout
@@ -144,6 +151,24 @@ const complexDiscountCentsByRow = (rows) => {
  */
 export function normalizeGroupPayment(bookings) {
   const rows = bookings || [];
+  const attributed = rows.filter(booking => booking._proposal_ticket_value);
+  if (attributed.length) {
+    const ordinary = rows.filter(booking => !booking._proposal_ticket_value);
+    const base = ordinary.length ? normalizeGroupPayment(ordinary) : {
+      ticketTotal: 0, totalAfterDiscount: 0, discount: 0,
+      offerDiscount: 0, codeDiscount: 0, totalsStatus: 'available',
+    };
+    const value = attributed.reduce((sum, booking) =>
+      sum + Number(booking._proposal_ticket_value.gross_minor), 0) / 100;
+    return {
+      ...base,
+      ticketTotal: base.ticketTotal === null ? null : base.ticketTotal + value,
+      totalAfterDiscount: base.totalAfterDiscount === null ? null : base.totalAfterDiscount + value,
+      proposalAttributedTotal: value,
+      proposalAttributedNet: attributed.reduce((sum, booking) => sum + Number(booking._proposal_ticket_value.net_minor), 0) / 100,
+      proposalAttributedTax: attributed.reduce((sum, booking) => sum + Number(booking._proposal_ticket_value.tax_minor), 0) / 100,
+    };
+  }
   const isComplex = rows.some(booking => booking._report_booking_source === 'complex');
   // Import defaults (including a zero ticket_price) are not evidence of a
   // free purchase. Do not let one such row turn a whole group into £0.
@@ -307,6 +332,7 @@ export function normalizeGroupPayment(bookings) {
 
 /** Gross attendee ticket value for display; complex ticket_price is net. */
 export function grossTicketPrice(booking) {
+  if (booking?._proposal_ticket_value) return Number(booking._proposal_ticket_value.gross_minor) / 100;
   if (knownMoney(booking?.ticket_price) === null
     || (booking?.payment_method === 'admin_import' && knownMoney(booking.ticket_price) === 0)) return null;
   if (booking?._report_booking_source !== 'complex') return booking.ticket_price;
@@ -329,6 +355,7 @@ export function normalizeGroupTicketPrices(bookings) {
       && booking.purchaser_context?.financial_snapshot,
   )?.purchaser_context.financial_snapshot.gross_ticket_unit_amount;
   return rows.map((booking, index) => {
+    if (booking._proposal_ticket_value) return Number(booking._proposal_ticket_value.gross_minor) / 100;
     if (booking?.payment_method === 'admin_import'
       && knownMoney(booking.ticket_price) === 0) return null;
     if (booking?._report_booking_source !== 'complex') {

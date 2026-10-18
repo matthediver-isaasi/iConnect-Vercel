@@ -31,6 +31,7 @@ async function runRoute(context, admin, feature, { fixtures = {}, query = {}, fa
   let source = await readFile(new URL('./event-registration-report.js', import.meta.url), 'utf8');
   source = source.replace(/^import .*;\r?$/gm, '');
   const prelude = `
+    import { attachSalesTicketValues } from ${JSON.stringify(new URL('../_lib/salesTicketValue.js', import.meta.url).href)};
     import { registrationMemberLinks } from ${JSON.stringify(new URL('../_lib/eventRegistrationMemberLinks.js', import.meta.url).href)};
     import { summarizeRegistrationRevenue } from ${JSON.stringify(new URL('../../shared/eventRegistrationRevenue.mjs', import.meta.url).href)};
     const isPublicInvoicePo = ${isPublicInvoicePo.toString()};

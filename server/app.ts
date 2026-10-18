@@ -68,7 +68,8 @@ app.use((req, res, next) => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
+      // Registration responses contain bearer links and delegate details.
+      if (capturedJsonResponse && path !== "/api/public/sales-ticket-registration") {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
 

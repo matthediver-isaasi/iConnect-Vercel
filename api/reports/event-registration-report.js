@@ -3,6 +3,7 @@ import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tena
 import { isPublicInvoicePo, publicInvoicePurchaser } from './_publicInvoicePo.js';
 import { buildEventCheckinFlagMap } from '../_lib/checkinService.js';
 import { normalizeGroupPayment, normalizeGroupPricePaid, normalizeGroupTicketPrices } from './_pricePaid.js';
+import { attachSalesTicketValues } from '../_lib/salesTicketValue.js';
 import { attachReportCredits } from './_credits.js';
 import { summarizeRegistrationRevenue } from '../../shared/eventRegistrationRevenue.mjs';
 import { registrationMemberLinks } from '../_lib/eventRegistrationMemberLinks.js';
@@ -381,6 +382,8 @@ export default async function handler(req, res, publicPoOnly = false) {
           allBookings.push(...normalizedComplexBookings);
         }
       }
+
+      await attachSalesTicketValues(supabase, tenantId, allBookings);
 
       const complexEventIds = Object.entries(eventMap)
         .filter(([, ev]) => ev.is_complex)
@@ -871,6 +874,9 @@ export default async function handler(req, res, publicPoOnly = false) {
             offerDiscount: canonicalPayment.offerDiscount,
             codeDiscount: canonicalPayment.codeDiscount,
             totalsStatus: canonicalPayment.totalsStatus,
+            proposalAttributedTotal: canonicalPayment.proposalAttributedTotal || 0,
+            proposalAttributedNet: canonicalPayment.proposalAttributedNet || 0,
+            proposalAttributedTax: canonicalPayment.proposalAttributedTax || 0,
             discountCode: groupDiscountCode,
             voucherAmount: groupVoucher,
             trainingFundAmount: groupTrainingFund,

@@ -7,6 +7,7 @@ import { quoteSalespersonSnapshot } from './quoteSalespeople.js';
 import { randomUUID } from 'node:crypto';
 import { buildBillingSchedule, resolveBillingTimezone } from '../../shared/salesBilling.js';
 import { sanitizeAgreementHtml } from './salesAgreementHtml.js';
+import { resolveEventTicketReference } from './salesCatalogue.js';
 
 const VERSION_SELECT = '*,sales_quote_line(*,sales_quote_bundle_component(*))';
 
@@ -43,6 +44,28 @@ async function snapshotReferences(db, tenantId, actor, draft, previousSalesperso
     salespersonSnapshot: salesperson,
   };
 }
+
+export async function freezeQuoteTicketProduct(db, tenantId, product, reference, quantity, previousSnapshot) {
+  if (reference && (!['simple', 'complex'].includes(reference.kind) || !reference.eventId || !reference.ticketTypeId)) {
+    throw new SalesHttpError(400, 'Select an event and ticket type for the product line');
+  }
+  const resolved = await resolveEventTicketReference(db, tenantId, reference);
+  const sameReference = resolved && previousSnapshot?.event_reference_kind === resolved.kind
+    && previousSnapshot.event_id === resolved.eventId && previousSnapshot.ticket_type_id === resolved.ticketTypeId;
+  const delegateCapacity = sameReference && previousSnapshot.capacity_metadata?.delegate_capacity
+    ? previousSnapshot.capacity_metadata.delegate_capacity : resolved?.delegateCapacity || 1;
+  if (resolved && (!Number.isSafeInteger(Number(quantity)) || Number(quantity) <= 0
+    || Number(quantity) * delegateCapacity > 2147483647)) {
+    throw new SalesHttpError(400, 'Ticket quantity must be a positive whole number of tickets');
+  }
+  return { ...product, event_reference_kind: resolved?.kind || null,
+    event_id: resolved?.eventId || null, ticket_type_id: resolved?.ticketTypeId || null,
+    capacity_metadata: { ...product.capacity_metadata, delegate_capacity: delegateCapacity } };
+}
+
+const productTicketReference = product => product?.event_reference_kind ? {
+  kind: product.event_reference_kind, eventId: product.event_id, ticketTypeId: product.ticket_type_id,
+} : null;
 
 async function resolveLine(db, tenantId, line, index, allowPriceOverride, previous) {
   const preserveTax = previous && previous.catalogue_kind === line.kind
@@ -95,18 +118,29 @@ async function resolveLine(db, tenantId, line, index, allowPriceOverride, previo
   }
   const amounts = calculateQuoteLine({ quantity: line.quantity, quotedUnitPriceMinor: quoted, discountBps: line.discountBps || 0, taxRateBps });
   let components = [];
+  let snapshot = item;
+  if (line.kind === 'product') {
+    const previousProduct = previous?.catalogue_kind === 'product' && previous.catalogue_id === item.id
+      ? previous.catalogue_snapshot : null;
+    const reference = line.eventReference !== undefined ? line.eventReference
+      : productTicketReference(previousProduct || item);
+    snapshot = await freezeQuoteTicketProduct(db, tenantId, item, reference, amounts.quantity, previousProduct);
+  }
   if (line.kind === 'bundle') {
     const { data, error } = await db.from('sales_catalogue_bundle_item').select('*')
       .eq('tenant_id', tenantId).eq('bundle_id', item.id).order('display_order');
     if (error) throw error;
-    components = await Promise.all((data || []).map(async (component) => ({
-      productId: component.product_id,
-      quantity: component.quantity,
-      productSnapshot: await one(db, 'sales_catalogue_product', tenantId, component.product_id, 'Bundle product'),
-    })));
+    components = await Promise.all((data || []).map(async (component) => {
+      const product = await one(db, 'sales_catalogue_product', tenantId, component.product_id, 'Bundle product');
+      return {
+        productId: component.product_id, quantity: component.quantity,
+        productSnapshot: await freezeQuoteTicketProduct(db, tenantId, product, productTicketReference(product),
+          Number(amounts.quantity) * Number(component.quantity)),
+      };
+    }));
   }
   return {
-    kind: line.kind, catalogueId: item.id, catalogueSnapshot: { ...item, tax_code: taxCode },
+    kind: line.kind, catalogueId: item.id, catalogueSnapshot: { ...snapshot, tax_code: taxCode },
     description: line.description ?? item.description ?? item.name,
     quantity: amounts.quantity, standardUnitPriceMinor: standard, quotedUnitPriceMinor: quoted,
     priceOverridden: overridden, discountBps: line.discountBps || 0, taxRateBps, ...amounts, components,

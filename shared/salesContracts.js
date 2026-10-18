@@ -244,7 +244,16 @@ export function validateQuoteDraft(value, { existing = false } = {}) {
   if (!Array.isArray(value.lines) || value.lines.length === 0) errors.push('lines must be a non-empty array');
   else value.lines.forEach((line, index) => {
     if (!isObject(line)) return errors.push(`lines[${index}] must be an object`);
-    const lineAllowed = new Set(['id', 'kind', 'catalogueId', 'quantity', 'standardUnitPriceMinor', 'quotedUnitPriceMinor', 'discountBps', 'description', 'taxRateBps', 'taxCode']);
+    const lineAllowed = new Set(['id', 'kind', 'catalogueId', 'quantity', 'standardUnitPriceMinor', 'quotedUnitPriceMinor', 'discountBps', 'description', 'taxRateBps', 'taxCode', 'eventReference']);
+    if (line.eventReference != null) {
+      const ref = line.eventReference;
+      if (line.kind !== 'product' || !['simple', 'complex'].includes(ref.kind)
+        || !UUID_RE.test(ref.eventId || '') || typeof ref.ticketTypeId !== 'string' || !ref.ticketTypeId.trim()
+        || (ref.kind === 'complex' && !UUID_RE.test(ref.ticketTypeId))
+        || Object.keys(ref).some(key => !['kind', 'eventId', 'ticketTypeId'].includes(key))) {
+        errors.push(`lines[${index}].eventReference must identify an event and ticket type on a product line`);
+      }
+    }
     if (line.id != null && !UUID_RE.test(line.id)) errors.push(`lines[${index}].id is invalid`);
     for (const key of Object.keys(line)) if (!lineAllowed.has(key)) errors.push(`Unknown lines[${index}] field: ${key}`);
     if (!['product', 'bundle', 'free_text'].includes(line.kind) || (line.kind !== 'free_text' && !UUID_RE.test(line.catalogueId || '')) || (line.kind === 'free_text' && line.catalogueId != null)) errors.push(`lines[${index}] must identify a product, bundle, or free_text item`);
@@ -271,7 +280,7 @@ export function normaliseQuoteInput(input) {
       const normalized = { id: line.id, kind, catalogueId: line.catalogueId ?? line.catalogue_id ?? (kind === 'bundle' ? line.bundleId ?? line.bundle_id : line.productId ?? line.product_id) ?? null,
         quantity: typeof line.quantity === 'number' ? String(line.quantity) : line.quantity, standardUnitPriceMinor: line.standardUnitPriceMinor ?? line.standard_unit_price_minor,
         quotedUnitPriceMinor: line.quotedUnitPriceMinor ?? line.quoted_unit_price_minor, discountBps: line.discountBps ?? line.discount_bps ?? 0,
-        taxRateBps: line.taxRateBps ?? line.tax_rate_bps, taxCode: line.taxCode, description: line.description };
+        taxRateBps: line.taxRateBps ?? line.tax_rate_bps, taxCode: line.taxCode, description: line.description, eventReference: line.eventReference };
       return Object.fromEntries(Object.entries(normalized).filter(([, fieldValue]) => fieldValue !== undefined));
     }),
   };

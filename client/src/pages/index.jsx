@@ -437,6 +437,7 @@ import MemberDemo from "./MemberDemo";
 
 import BnmsMemberDemo from "./BnmsMemberDemo";
 import PublicSalesQuote from "./PublicSalesQuote";
+import PublicSalesTicketRegistration from "./PublicSalesTicketRegistration";
 
 import PhotoGalleries from "./PhotoGalleries";
 
@@ -1474,6 +1475,7 @@ function StandaloneRoutes() {
             <Route path="/membership-fees/:token" element={<MembershipFeePage />} />
             <Route path="/submit-po/:token" element={<SubmitPOPage />} />
             <Route path="/quote/:token" element={<PublicSalesQuote />} />
+            <Route path="/sales-ticket-registration" element={<PublicSalesTicketRegistration />} />
             <Route path="/group-booking/:token" element={<GroupBookingPage />} />
             <Route path="/guest-approval/:token" element={<GuestApprovalPage />} />
             <Route path="/group-role-invite/:token" element={<MemberGroupRoleInvitePage />} />
@@ -1572,7 +1574,7 @@ function AppRoutes() {
         return <SaasRoutes />;
     }
     
-    const standalonePages = ['/signup', '/register', '/signup-verify', '/email-preferences', '/casestudyupload', '/quote/'];
+    const standalonePages = ['/signup', '/register', '/signup-verify', '/email-preferences', '/casestudyupload', '/quote/', '/sales-ticket-registration'];
     const isStandalonePage = standalonePages.some(path => 
         location.pathname.toLowerCase() === path.toLowerCase()
     );
