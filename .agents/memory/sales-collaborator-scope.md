@@ -13,3 +13,9 @@ Quote salesperson eligibility uses this same primary-organisation team boundary.
 **Why:** There is no separate salesperson eligibility model; using the existing Sales team rule avoids treating customer contacts or every tenant member as staff. Existing quote snapshots remain historical evidence, not new eligibility grants.
 
 **How to apply:** Reuse the team eligibility rule for new selections, while retaining unchanged server-loaded salesperson snapshots when colleagues leave or become ineligible.
+
+Proposal sender selection should offer the opportunity's collaborators and default to the authenticated user.
+
+**Why:** The user requested selectable collaborator senders rather than a fixed tenant sender identity.
+
+**How to apply:** Treat this as a requested behavior, not an existing access guarantee. Clarify owner/admin eligibility and visible From versus Reply-To before implementation; do not assume Sales permission alone proves collaborator membership.
