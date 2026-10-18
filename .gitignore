@@ -60,6 +60,7 @@ private/bnms-renewal-policy-2026-10-04/
 
 # Private session-log uploads: retain locally, exclude from published source.
 /generated-artifacts/
+/screenshots/task-5178-preview.jpg
 private/bnms-test-submission-cleanup/
 attached_assets/Publications_data_import_file_Q4_1791263571378.xlsx
 private/gfi-q4-publications/
