@@ -53,7 +53,7 @@ export async function finishPreparedCampaignBatch({
       submitted = false;
       if (result.incompatible) return { sent: 0, failed: 0, fallback: ready };
       await release(ready);
-      return { sent: 0, failed: 0, stopReason: 'deadline' };
+      return { sent: 0, failed: 0, stopReason: result.provenanceError ? 'provenance_error' : 'deadline', error: result.error };
     }
     if (result.success) {
       await persist(ready, { status: 'sent', sent_at: new Date().toISOString(), mailgun_message_id: result.messageId });

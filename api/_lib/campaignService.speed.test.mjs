@@ -58,10 +58,19 @@ function fixture({ providerResult = { success: true, messageId: '<accepted>' }, 
     getMemberEmsAccess: async () => ({ groups: [], error: 'Group authority revoked' }),
     requireGroupAccess: () => null,
     replacePlaceholders, sanitizeSlotHtml, htmlSlotToPlainText, isStandaloneCampaignPreferencePlaceholder: () => false,
-    sendEmail: async payload => {
+    sendEmail: async (payload, dependencies) => {
+      // The real boundary invokes this only after durable provenance succeeds.
+      // This suite isolates rendering/worker behavior; provenance has its own
+      // boundary integration tests.
+      if (dependencies?.beforeSubmit) {
+        await dependencies.beforeSubmit(payload.testMode ? { 'o:testmode': 'yes' } : {});
+      }
       providerCalls++; payloads.push(payload);
       if (providerThrow) throw new Error('Unknown transport outcome');
       return providerResult;
+    },
+    persistCampaignDeliveryProvenance: async (_db, _id, entries, data) => {
+      for (const entry of entries) entry.recipient.delivery_is_test = data['o:testmode'] === 'yes';
     },
   });
   return { campaign, row, payloads, releases, stops, functions,

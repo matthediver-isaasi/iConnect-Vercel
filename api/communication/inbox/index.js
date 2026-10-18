@@ -1,4 +1,5 @@
 import { supabase } from '../../_lib/database.js';
+import { campaignInboxRecipients, verifyCampaignInboxRecipients } from '../../_lib/campaignInbox.js';
 import { getTenantContext, hasFeatureAccess } from '../../_lib/tenantContext.js';
 import { resolveTransactionalInboxLabel } from '../../_lib/transactionalInbox.js';
 import { fetchProjectMessages, projectInboxScope, verifyProjectMessages, updateProjectMessages } from '../../_lib/projectMainInbox.js';
@@ -13,27 +14,21 @@ async function memberHasInboxAccess(roleId) {
   return hasFeatureAccess(roleId, INBOX_FEATURE);
 }
 
-// A recipient row was actually delivered/attempted once sent_at is populated.
-function recipientIsDelivered(r) {
-  return !!r.sent_at;
-}
-
 // Fetch every row for a member across the 1000-row PostgREST page cap.
 async function fetchAllRecipients(memberId, tenantId) {
   const pageSize = 1000;
   let from = 0;
   const all = [];
   for (;;) {
-    const { data, error } = await supabase
-      .from('email_campaign_recipient')
+    const { data, error } = await campaignInboxRecipients(supabase)
       .select(
         'id, campaign_id, email, first_name, last_name, status, sent_at, open_count, click_count, ' +
         'email_campaign!inner(id, tenant_id, name, subject, from_name, from_email, sent_at, status, member_group_id, communication_category_id, deleted_category_name, preheader)'
       )
       .eq('member_id', memberId)
       .eq('email_campaign.tenant_id', tenantId)
-      .not('sent_at', 'is', null)
       .order('sent_at', { ascending: false })
+      .order('id', { ascending: true })
       .range(from, from + pageSize - 1);
     if (error) throw error;
     const batch = data || [];
@@ -54,6 +49,7 @@ async function fetchAllStates(memberId, tenantId) {
       .select('recipient_id, is_read, is_pinned, is_archived, is_favourite, folder_id, read_at')
       .eq('tenant_id', tenantId)
       .eq('member_id', memberId)
+      .order('recipient_id', { ascending: true })
       .range(from, from + pageSize - 1);
     if (error) throw error;
     const batch = data || [];
@@ -201,7 +197,7 @@ export default async function handler(req, res) {
         fetchProjectMessages(supabase, ctx),
       ]);
 
-      const deliveredRecipients = recipients.filter(recipientIsDelivered);
+      const deliveredRecipients = recipients;
 
       // Resolve all referenced Communication Category names in one query so
       // both campaign and transactional messages can show a human label.
@@ -283,20 +279,7 @@ export default async function handler(req, res) {
       // Confirm every campaign recipient row belongs to this member/tenant.
       let ownedIds = [];
       if (ids.length > 0) {
-        const { data: ownedRows, error: recErr } = await supabase
-          .from('email_campaign_recipient')
-          .select('id, member_id, email_campaign!inner(tenant_id)')
-          .in('id', ids)
-          .eq('member_id', memberId)
-          .eq('email_campaign.tenant_id', tenantId);
-        if (recErr) {
-          console.error('[Inbox] recipient lookup error:', recErr);
-          return res.status(500).json({ error: 'Failed to verify message' });
-        }
-        ownedIds = (ownedRows || []).map((r) => r.id);
-        if (ownedIds.length !== ids.length) {
-          return res.status(404).json({ error: 'Message not found' });
-        }
+        ownedIds = await verifyCampaignInboxRecipients(supabase, ids, memberId, tenantId);
       }
 
       // Confirm every transactional message row belongs to this member/tenant.

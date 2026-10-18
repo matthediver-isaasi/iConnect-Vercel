@@ -1,4 +1,5 @@
 import { supabase } from '../../_lib/database.js';
+import { campaignInboxRecipients } from '../../_lib/campaignInbox.js';
 import { getTenantContext, hasFeatureAccess } from '../../_lib/tenantContext.js';
 import { stripHiddenDynamicRegions, applyDynamicSlotValues } from '../../_lib/campaignService.js';
 import { fetchProjectMessages } from '../../_lib/projectMainInbox.js';
@@ -76,15 +77,14 @@ async function fetchMemberRecipientsForSearch(memberId, tenantId) {
   let from = 0;
   const all = [];
   for (;;) {
-    const { data, error } = await supabase
-      .from('email_campaign_recipient')
+    const { data, error } = await campaignInboxRecipients(supabase)
       .select(
         'id, first_name, last_name, email, sent_at, ' +
         'email_campaign!inner(id, tenant_id, html_content, design_json)'
       )
       .eq('member_id', memberId)
       .eq('email_campaign.tenant_id', tenantId)
-      .not('sent_at', 'is', null)
+      .order('id', { ascending: true })
       .range(from, from + pageSize - 1);
     if (error) throw error;
     const batch = data || [];

@@ -130,10 +130,17 @@ test('actual send adapter resolves current sponsors before tracking, rejects sta
     .replace(/export (async )?function /g, '$1function ');
   const { sendToRecipient } = vm.runInNewContext(`${source}\n;({sendToRecipient})`, {
     process: { env: {} }, crypto, Buffer, supabase: f.db, isStandaloneCampaignPreferencePlaceholder,
+    campaignAddressSuppressed: async () => false,
+    persistCampaignDeliveryProvenance: async () => {},
+    verifyCampaignDeliveryProvenance: async () => {},
     resolveCampaignEventSurvey, replaceEventSurvey, resolveCampaignEventSponsors, replaceEventSponsors, resolveCampaignAttendeeContent,
     prepareCampaignSurveyDelivery, finishCampaignSurveyDelivery,
     replacePlaceholders: text => text,
-    sendEmail: async payload => { submissions.push(payload); return { success: true }; },
+    sendEmail: async (payload, dependencies) => {
+      await dependencies?.beforeSubmit?.(payload.testMode ? { 'o:testmode': 'yes' } : {});
+      submissions.push(payload);
+      return { success: true };
+    },
     console: { error() {}, warn() {}, log() {} },
   });
   for (const n of [1, 2]) {

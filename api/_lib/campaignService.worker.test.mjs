@@ -37,9 +37,11 @@ test('actual worker splits oversized newsletters and later drains untouched reci
         html: 'Large newsletter '.repeat(6500), text: 'Plain text', 'o:testmode': 'yes',
       } } };
     },
-    submitBulk: async (id, messages) => {
+    submitBulk: async (id, messages, _deadline, dependencies) => {
       const { messageData } = buildBulkEnvelope(id, messages);
+      await dependencies.beforeSubmit(messageData);
       assert.equal(messageData['o:testmode'], 'yes');
+      assert.ok(rows.filter(row => messageData.to.includes(row.email)).every(row => row.delivery_is_test === true));
       for (const address of messageData.to) {
         assert.ok(!submitted.has(address), 'No duplicate submission');
         submitted.add(address);
@@ -72,7 +74,7 @@ function install(t, size) {
   };
   const rows = Array.from({ length: size }, (_, index) => ({
     id: `recipient-${index}`, campaign_id: 'campaign', status: 'pending',
-    email: `attendee-${index}@example.test`,
+    email: `attendee-${index}@example.test`, delivery_is_test: null,
   }));
   const originalFrom = supabase.from;
   supabase.from = table => {
@@ -120,7 +122,11 @@ test('real worker drains multiple 100-recipient bulk requests without a 100-per-
       assert.equal(args.at(-1).prepareOnly, true);
       return { recipient, prepared: { messageData: { to: [recipient.email] } } };
     },
-    submitBulk: async (_id, messages) => { sizes.push(messages.length); return { success: true, messageId: 'batch' }; },
+    submitBulk: async (_id, messages, _deadline, dependencies) => {
+      await dependencies.beforeSubmit({});
+      sizes.push(messages.length);
+      return { success: true, messageId: 'batch' };
+    },
   });
   assert.deepEqual(sizes, [100, 100, 50]);
   assert.equal(result.batchSent, 250);

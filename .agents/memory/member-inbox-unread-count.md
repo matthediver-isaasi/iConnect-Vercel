@@ -1,45 +1,42 @@
 ---
-name: Member inbox unread count without row enumeration
-description: How the inbox derives delivered/unread counts from campaign recipients + a sparse state table, and why the badge count uses arithmetic instead of scanning rows.
+name: Member inbox eligibility and unread authority
+description: Preserve historical delivery classification, count only eligible unread messages, and avoid auto-read query invalidation loops.
 ---
 
-# Member inbox model
+# Eligibility must govern counts as well as reads
 
-The member-facing inbox has NO messages table of its own. "Messages" are
-`email_campaign_recipient` rows (delivered when `sent_at` is not null) joined to
-`email_campaign`. Read/pin/archive/folder state lives in a SEPARATE sparse table
-`member_inbox_message_state` keyed by `(member_id, recipient_id)`. A delivered
-recipient with NO state row is treated as unread / not-pinned / not-archived /
-no-folder.
+Never subtract unqualified read/archive state counts from delivered totals.
+Retained states can belong to excluded test messages, unsent rows or missing
+recipients. Stateless eligible deliveries still count as unread.
 
-**source** = `'group'` when `email_campaign.member_group_id` is set, else `'admin'`.
-`email_campaign_recipient` is deliberately NOT exposed via the generic entity API.
+**Why:** hiding historical campaign tests while retaining their state exposes
+the false assumption that every state row represents an eligible message.
 
-## Unread badge count is arithmetic, not a scan
+**How to apply:** count unread and choose latest previews from the same eligible,
+tenant/member-scoped message relation used by detail and mutation authorization.
+Keep aggregation database-side rather than enumerating all deliveries on every
+badge poll.
 
-Because "no state row = unread", you cannot count unread with a single filter.
-The lightweight nav/dashboard badge endpoint uses three `head:true` count
-queries instead of pulling rows:
+# Campaign test mode is historical, not a mutable display preference
 
-```
-unread = deliveredTotal - archivedStateCount - readNonArchivedStateCount
-```
+Later campaign-setting edits must not reclassify already recorded test/live
+submissions. Explicit test-destination sends are real emails to that chosen
+destination and must not alter the audience recipient's delivery history.
 
-- deliveredTotal: count of the member's recipients with `sent_at` not null (inner-join filtered on `email_campaign.tenant_id`).
-- archivedStateCount: state rows `is_archived = true`.
-- readNonArchivedStateCount: state rows `is_read = true AND is_archived = false`.
+**Why:** the campaign flag is editable after sending; current flags cannot prove
+historical Mailgun mode. Old flag edits cannot be reconstructed from names or
+subjects. Unknown future submission evidence must not expose a message.
 
-**Why:** avoids enumerating every recipient just to show a number, and correctly
-counts stateless-delivered rows as unread. Assumes every state row maps to a
-delivered recipient (true in practice; the UI only acts on delivered messages).
+**How to apply:** preserve submission evidence across retries and ambiguous
+outcomes. Quiesce old sender workers during schema/code rollout; a one-time
+backfill cannot safely classify later old-worker sends.
 
-## Opening a message auto-marks read — invalidate with EXACT keys
+# Opening messages must not invalidate their own body query
 
-`GET /api/communication/inbox/[id]` renders the body AND upserts the state row to
-read. The client query keys share the `["inbox", ...]` prefix
-(`["inbox"]` list, `["inbox","unread"]` badge, `["inbox","message",id]` body).
-After a body loads, invalidate the list + badge with `exact: true`, or a plain
-`["inbox"]` invalidation also re-fires the body query and loops.
+Use exact-key invalidation for the list and badge after auto-read.
 
-**How to apply:** any new inbox surface that reads a message must refresh the list
-and badge with exact-key invalidation, never a prefix invalidation.
+**Why:** a prefix invalidation also refetches the body that auto-marks read,
+creating a repeated fetch/invalidation loop.
+
+**How to apply:** when adding an auto-read surface, refresh list and count without
+invalidating the currently displayed message body.

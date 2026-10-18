@@ -1,4 +1,5 @@
 import { supabase } from '../../_lib/database.js';
+import { campaignInboxRecipients } from '../../_lib/campaignInbox.js';
 import { getTenantContext, hasFeatureAccess } from '../../_lib/tenantContext.js';
 import { stripHiddenDynamicRegions, applyDynamicSlotValues } from '../../_lib/campaignService.js';
 import { resolveTransactionalInboxLabel } from '../../_lib/transactionalInbox.js';
@@ -152,8 +153,7 @@ export default async function handler(req, res) {
       });
     }
 
-    const { data: recipient, error } = await supabase
-      .from('email_campaign_recipient')
+    const { data: recipient, error } = await campaignInboxRecipients(supabase)
       .select(
         'id, campaign_id, email, first_name, last_name, sent_at, ' +
         'email_campaign!inner(id, tenant_id, name, subject, from_name, from_email, sent_at, html_content, design_json, member_group_id, preheader)'

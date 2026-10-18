@@ -263,6 +263,16 @@ export async function deliverMailgunMessage(client, domain, messageData) {
   return client.messages.create(domain, messageData);
 }
 
+async function beforeMailgunSubmission(dependencies, messageData) {
+  if (!dependencies.beforeSubmit) return;
+  try {
+    await dependencies.beforeSubmit(messageData);
+  } catch (error) {
+    throw Object.assign(new Error(`Campaign delivery provenance failed: ${error.message || error}`),
+      { code: 'CAMPAIGN_PROVENANCE_NOT_PERSISTED' });
+  }
+}
+
 export async function sendPreparedCampaignBatch(campaignId, messages, deadline, dependencies = {}) {
   // Invalid/incompatible payloads are rejected before any provider submission.
   let envelope;
@@ -274,10 +284,15 @@ export async function sendPreparedCampaignBatch(campaignId, messages, deadline, 
   try {
     const client = dependencies.client || getMailgunClient(5000);
     if (!client) return { success: false, notSubmitted: true };
+    await beforeMailgunSubmission(dependencies, envelope.messageData);
+    if (deadline != null && deadline - Date.now() < 8000) return { success: false, notSubmitted: true };
     const response = await deliverMailgunMessage(client, envelope.domain, envelope.messageData);
     if (!response?.id) return { success: false, ambiguousEffect: true };
     return { success: true, messageId: response.id.replace(/^<|>$/g, '') };
   } catch (error) {
+    if (error.code === 'CAMPAIGN_PROVENANCE_NOT_PERSISTED') {
+      return { success: false, notSubmitted: true, provenanceError: true, error: error.message };
+    }
     const status = Number(error?.status || error?.statusCode || error?.response?.status);
     // Never retry a timeout or server failure as an individual send.
     return { success: false, rateLimited: status === 429,
@@ -530,6 +545,10 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
       }
       attemptedDomain = domain;
       attemptedFromAddress = messageData.from;
+      await beforeMailgunSubmission(dependencies, messageData);
+      if (campaignDeadlineAt != null && campaignDeadlineAt - Date.now() < campaignTimeout * 2 + 2000) {
+        return { success: false, notSubmitted: true, error: 'Campaign deadline exhausted while persisting delivery provenance' };
+      }
       const response = await deliverMailgunMessage(client, domain, messageData);
       console.log(`[Email Service] Email sent successfully. Message ID: ${response.id}`);
       await maybeRecordInbox();
@@ -555,6 +574,10 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
         attemptedDomain = fallbackDomain;
         attemptedFromAddress = messageData.from;
 
+        await beforeMailgunSubmission(dependencies, messageData);
+        if (campaignDeadlineAt != null && campaignDeadlineAt - Date.now() < campaignTimeout + 2000) {
+          return { success: false, notSubmitted: true, error: 'Campaign deadline exhausted while persisting fallback provenance' };
+        }
         const fallbackResponse = await deliverMailgunMessage(client, fallbackDomain, messageData);
         console.log(`[Email Service] Email sent via fallback domain. Message ID: ${fallbackResponse.id}`);
         await maybeRecordInbox();
@@ -579,6 +602,8 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
     );
     return {
       success: false,
+      ...(error.code === 'CAMPAIGN_PROVENANCE_NOT_PERSISTED'
+        ? { notSubmitted: true, provenanceError: true } : {}),
       error: status ? `${status}: ${errMsg}` : errMsg,
       status: status || null,
       domain: attemptedDomain,

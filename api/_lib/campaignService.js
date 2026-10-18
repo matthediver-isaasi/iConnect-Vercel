@@ -13,6 +13,7 @@ import { discoverAudienceCustomObjects, resolveCustomObjectConditions, validateC
 import { sendEmail, replacePlaceholders, sendPreparedCampaignBatch } from './emailService.js';
 import { BULK_TRANSPORT, bulkCampaignCompatible, newCampaignTransport } from './campaignBulkTransport.js';
 import { finishPreparedCampaignBatch } from './campaignBulkDrain.js';
+import { persistCampaignDeliveryProvenance, verifyCampaignDeliveryProvenance } from './campaignDeliveryProvenance.js';
 import { bulkRecipientEligibility } from './campaignBulkEligibility.js';
 import { fittingCampaignBatchSize } from './campaignBulkTransport.js';
 import { drainCampaignRecipients as drainRecipients, campaignSendConcurrency } from './campaignDrain.js';
@@ -3683,6 +3684,12 @@ export function campaignNeedsRecipientOrganization(html, subject) {
   return /(?:\[\[|\{\{)(?:organization(?:[._]|\]\]|\}\})|member\.organization|record\.organization|(?:(?:member|record)\.)?(?:name|phone|invoicing_email)(?:\]\]|\}\}))/i.test(`${subject || ''}\n${html || ''}`);
 }
 
+// Retries use the original envelope's mode, never a later campaign edit.
+export function campaignRecipientTestMode(recipient, campaign) {
+  return typeof recipient.delivery_is_test === 'boolean'
+    ? recipient.delivery_is_test : campaign.is_test_mode === true;
+}
+
 export async function sendToRecipient(recipient, campaign, tenantId, tenantSlug, requestHost, designInfo, testDestination = null, options = {}) {
   const timingStartedAt = Date.now();
   let timingStage = 'renderMs';
@@ -3697,7 +3704,7 @@ export async function sendToRecipient(recipient, campaign, tenantId, tenantSlug,
   let providerAccepted = false;
   let deliveryUncertain = false;
   let providerSubmitted = false;
-  const budget = options.recheckBeforeProvider && options.deadline != null
+  const budget = !testDestination && options.recheckBeforeProvider && options.deadline != null
     ? campaignReadBudget(supabase, options.deadline) : null;
   const recipientDb = budget?.db || supabase;
   try {
@@ -3717,9 +3724,11 @@ export async function sendToRecipient(recipient, campaign, tenantId, tenantSlug,
     }
     surveyDelivery = await prepareCampaignSurveyDelivery({
       db: recipientDb, campaign: { ...campaign, html_content: html, subject }, tenantId, recipient,
-      destination: testDestination || recipient.email, test: Boolean(testDestination || campaign.is_test_mode),
+      destination: testDestination || recipient.email, test: Boolean(testDestination || campaignRecipientTestMode(recipient, campaign)),
     });
     if (surveyDelivery?.alreadyAccepted) {
+      if (testDestination) return { success: true, alreadyAccepted: true };
+      await verifyCampaignDeliveryProvenance(supabase, campaign.id, recipient.id);
       const { error } = await supabase.from('email_campaign_recipient')
         .update({ status: 'sent', sent_at: new Date().toISOString() })
         .eq('id', recipient.id).eq('status', 'processing');
@@ -3885,7 +3894,7 @@ export async function sendToRecipient(recipient, campaign, tenantId, tenantSlug,
       await releaseClaimedRecipients([recipient]);
       return 'stopped';
     }
-    providerSubmitted = !options.prepareOnly;
+    providerSubmitted = Boolean(testDestination && !options.prepareOnly);
     nextTimingStage('providerMs');
     const result = await sendEmail({
       to: testDestination || recipient.email,
@@ -3903,11 +3912,17 @@ export async function sendToRecipient(recipient, campaign, tenantId, tenantSlug,
       },
       resolveTransactionalPreferences: false,
       campaignDeadlineAt: testDestination ? null : options.deadline,
-      testMode: testDestination ? false : !!campaign.is_test_mode
-    }, options.prepareOnly ? { prepareOnly: true } : {});
+      testMode: testDestination ? false : campaignRecipientTestMode(recipient, campaign)
+    }, options.prepareOnly ? { prepareOnly: true } : testDestination ? {} : {
+      beforeSubmit: async messageData => {
+        await persistCampaignDeliveryProvenance(supabase, campaign.id, [{ recipient }], messageData);
+        providerSubmitted = true;
+      },
+    });
     if (options.prepareOnly && result.prepared) return { recipient, prepared: result.prepared };
     nextTimingStage('persistenceMs');
 
+    if (result.provenanceError && !testDestination) options.stop?.('provenance_error');
     if (result.rateLimited && !testDestination) options.stop?.('rate_limit');
     if (result.notSubmitted || (result.rateLimited && !result.ambiguousEffect)) {
       if (testDestination) {
@@ -4358,7 +4373,9 @@ export async function sendBatch(campaignId, tenantId, campaign, tenantSlug, requ
             }
           },
           release,
-          submit: entries => (options.submitBulk || sendPreparedCampaignBatch)(campaignId, entries.map(e => e.prepared), options.deadline),
+          submit: entries => (options.submitBulk || sendPreparedCampaignBatch)(campaignId, entries.map(e => e.prepared), options.deadline, {
+            beforeSubmit: messageData => persistCampaignDeliveryProvenance(supabase, campaignId, entries, messageData),
+          }),
           persist: async (entries, values) => {
             const { error } = await supabase.from('email_campaign_recipient').update(values)
               .eq('campaign_id', campaignId).eq('status', 'processing').in('id', entries.map(e => e.recipient.id));
@@ -4368,6 +4385,10 @@ export async function sendBatch(campaignId, tenantId, campaign, tenantSlug, requ
         sentCount += bulkResult.sent;
         failedCount += bulkResult.failed;
         stoppedGate ||= bulkResult.stoppedGate;
+        if (bulkResult.stopReason === 'provenance_error') {
+          stoppedGate ||= { allowed: false, code: 'CAMPAIGN_DELIVERY_PROVENANCE_FAILED', error: bulkResult.error };
+          console.error('[Campaign Service] Bulk delivery provenance failed:', bulkResult.error);
+        }
         Object.assign(metrics, { transport: BULK_TRANSPORT, bulkRequests: bulkResult.bulkRequests || 0,
           sent: sentCount, failed: failedCount, stopReason: bulkResult.stopReason || metrics.stopReason });
         // Incompatible envelopes have never reached Mailgun. Use the normal,

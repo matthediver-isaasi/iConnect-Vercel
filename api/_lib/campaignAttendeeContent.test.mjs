@@ -11,6 +11,14 @@ import { prepareCampaignSurveyDelivery, finishCampaignSurveyDelivery, replaceCam
 import surveyAssignmentHandler from '../public/survey-assignment/[token].js';
 import submissionHandler from '../public/form-submission.js';
 
+// These content fixtures isolate the provider/provenance dependencies; durable
+// provenance and reconciliation are exercised by campaignDeliveryProvenance tests.
+const recipientDeliveryMocks = {
+  campaignAddressSuppressed: async () => false,
+  persistCampaignDeliveryProvenance: async () => {},
+  verifyCampaignDeliveryProvenance: async () => {},
+};
+
 function fixture() {
   const rows = {
     survey_invitation_attendee: [],
@@ -136,11 +144,16 @@ test('actual real and source-test send paths deliver identical populated attende
     .replace(/export (async )?function /g, '$1function ');
   const { sendToRecipient } = vm.runInNewContext(`${source}\n;({sendToRecipient})`, {
     process: { env: {} }, crypto, Buffer, supabase: f.db, console,
+    ...recipientDeliveryMocks,
     resolveCampaignAttendeeContent, resolveCampaignEventSurvey, replaceEventSurvey,
     prepareCampaignSurveyDelivery, finishCampaignSurveyDelivery,
     resolveCampaignEventSponsors, replaceEventSponsors, isStandaloneCampaignPreferencePlaceholder,
     replacePlaceholders: text => text,
-    sendEmail: async payload => { sent.push(payload); return { success: true }; },
+    sendEmail: async (payload, dependencies) => {
+      await dependencies?.beforeSubmit?.(payload.testMode ? { 'o:testmode': 'yes' } : {});
+      sent.push(payload);
+      return { success: true };
+    },
   });
   const campaign = { ...f.campaign, id: 'campaign', track_clicks: false, track_opens: false };
   assert.equal(await sendToRecipient({ ...f.recipient, id: 'recipient' }, campaign,
@@ -194,13 +207,17 @@ test('actual send failures, uncertain acceptance and retries preserve the delive
     let sends = 0;
     const { sendToRecipient } = vm.runInNewContext(`${source}\n;({sendToRecipient})`, {
       process: { env: {} }, crypto, Buffer, supabase: f.db,
+      ...recipientDeliveryMocks,
       console: { log() {}, error() {}, warn() {} },
       resolveCampaignAttendeeContent, resolveCampaignEventSurvey, replaceEventSurvey,
       prepareCampaignSurveyDelivery, finishCampaignSurveyDelivery,
       resolveCampaignEventSponsors, replaceEventSponsors, isStandaloneCampaignPreferencePlaceholder,
       replacePlaceholders: text => text,
-      sendEmail: async () => { sends++; return sends === 1
-        ? { success: false, ambiguousEffect } : { success: true }; },
+      sendEmail: async (payload, dependencies) => {
+        await dependencies?.beforeSubmit?.(payload.testMode ? { 'o:testmode': 'yes' } : {});
+        sends++;
+        return sends === 1 ? { success: false, ambiguousEffect } : { success: true };
+      },
     });
     const send = () => sendToRecipient({ ...f.recipient, id: 'recipient' },
       { ...f.campaign, id: 'campaign' }, 'tenant', 'fixture', null, {});
@@ -242,12 +259,17 @@ test('real survey personalization aborts a slow read, releases pending and never
   let sends = 0;
   const { sendToRecipient } = vm.runInNewContext(`${source}\n;({sendToRecipient})`, {
     process: { env: {} }, crypto, Buffer, supabase: f.db, console,
+    ...recipientDeliveryMocks,
     AbortController, setTimeout, clearTimeout,
     resolveCampaignAttendeeContent, resolveCampaignEventSurvey, replaceEventSurvey,
     prepareCampaignSurveyDelivery, finishCampaignSurveyDelivery,
     resolveCampaignEventSponsors, replaceEventSponsors, isStandaloneCampaignPreferencePlaceholder,
     replacePlaceholders: text => text,
-    sendEmail: async () => { sends++; return { success: true }; },
+    sendEmail: async (payload, dependencies) => {
+      await dependencies?.beforeSubmit?.(payload.testMode ? { 'o:testmode': 'yes' } : {});
+      sends++;
+      return { success: true };
+    },
   });
   const result = await sendToRecipient(
     { ...f.recipient, id: 'slow-recipient' }, { ...f.campaign, id: 'campaign' },
