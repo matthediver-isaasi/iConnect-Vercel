@@ -8,7 +8,7 @@ import { accountingQueueEnabled } from './accountingQueueIntegration.js';
 export function productAccountingQueueEnabled(sourceType) {
   return accountingQueueEnabled()
     && (process.env.ACCOUNTING_REQUEST_QUEUE_SOURCES || '').split(',').map(value => value.trim()).includes(sourceType)
-    && sourceType === 'sales_commercial_sale';
+    && ['sales_commercial_sale', 'sales_invoice_schedule'].includes(sourceType);
 }
 
 // Pure preparation only. Both builders enforce representability of accepted
@@ -19,10 +19,12 @@ export function prepareSalesAccountingEnvelope({ provider, payload, environment 
     : provider === 'quickbooks' ? buildQuickBooksSalesInvoicePayload(payload) : null;
   if (!body) throw new Error('Unsupported sales accounting provider');
   const fields = provider === 'xero' ? {
+    ...(body.Date ? { Date: body.Date, DueDate: body.DueDate } : {}),
     Type: body.Type, Status: body.Status, LineAmountTypes: body.LineAmountTypes,
     LineItems: body.LineItems,
     SubTotal: payload.netMinor / 100, TotalTax: payload.taxMinor / 100,
   } : {
+    ...(body.TxnDate ? { TxnDate: body.TxnDate, DueDate: body.DueDate } : {}),
     GlobalTaxCalculation: body.GlobalTaxCalculation,
     Line: body.Line,
     TxnTaxDetail: { TotalTax: payload.taxMinor / 100 },

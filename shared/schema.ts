@@ -66,6 +66,7 @@ export type CanvasFooter = typeof canvasFooter.$inferSelect;
 // minor units and each commercial document owns one ISO-4217 currency.
 export const salesSettings = pgTable("sales_settings", {
   tenant_id: uuid("tenant_id").primaryKey(),
+  billing_presets: jsonb("billing_presets").notNull().default({ issueDelays: [], paymentTerms: [] }),
   show_internal_code: boolean("show_internal_code").notNull().default(true),
   show_sku: boolean("show_sku").notNull().default(true),
   quote_singular_name: text("quote_singular_name").notNull().default("Quote"),
@@ -139,6 +140,7 @@ export const salesCatalogueProduct = pgTable("sales_catalogue_product", {
 }, (table) => ({ tenantCodeUnique: uniqueIndex("sales_catalogue_product_code_unique").on(table.tenant_id, table.code), tenantActiveIdx: index("idx_sales_catalogue_product_list").on(table.tenant_id, table.is_active, table.name) }));
 
 export const salesCatalogueBundle = pgTable("sales_catalogue_bundle", {
+  billing_groups: jsonb("billing_groups").notNull().default([]),
   id: uuid("id").primaryKey().defaultRandom(), tenant_id: uuid("tenant_id").notNull(), code: varchar("code", { length: 64 }).notNull(),
   name: varchar("name", { length: 255 }).notNull(), description: text("description"), currency: varchar("currency", { length: 3 }).notNull(),
   selling_price_minor: bigint("selling_price_minor", { mode: "number" }).notNull(), minimum_price_minor: bigint("minimum_price_minor", { mode: "number" }),
@@ -182,6 +184,7 @@ export const salesQuoteVersion = pgTable("sales_quote_version", {
   organisation_snapshot: jsonb("organisation_snapshot"), customer_contact_snapshot: jsonb("customer_contact_snapshot"), billing_contact_snapshot: jsonb("billing_contact_snapshot"),
   address_snapshot: jsonb("address_snapshot"), event_snapshot: jsonb("event_snapshot"),
   terms_snapshot: jsonb("terms_snapshot").notNull().default({}),
+  billing_schedule: jsonb("billing_schedule"),
   salesperson_snapshot: jsonb("salesperson_snapshot"), issue_date: date("issue_date"), purchase_order_reference: text("purchase_order_reference"), customer_reference: text("customer_reference"), tax_treatment: varchar("tax_treatment", { length: 30 }), payment_terms: text("payment_terms"), notes: text("notes"),
   valid_until: timestamp("valid_until", { withTimezone: true }),
   net_minor: bigint("net_minor", { mode: "number" }).notNull().default(0),
@@ -194,6 +197,28 @@ export const salesQuoteVersion = pgTable("sales_quote_version", {
   tenantIdUnique: uniqueIndex("sales_quote_version_tenant_id_unique").on(table.tenant_id, table.id),
   quoteVersionUnique: uniqueIndex("sales_quote_version_number_unique").on(table.tenant_id, table.quote_id, table.version_number),
 }));
+
+export const salesInvoiceSchedule = pgTable("sales_invoice_schedule", {
+  id: uuid("id").primaryKey().defaultRandom(), tenant_id: uuid("tenant_id").notNull(),
+  sale_id: uuid("sale_id").notNull(), quote_version_id: uuid("quote_version_id").notNull(),
+  group_id: uuid("group_id").notNull(), snapshot: jsonb("snapshot").notNull(),
+  planned_issue_date: date("planned_issue_date").notNull(), timezone: text("timezone").notNull(),
+  status: text("status").notNull().default("pending"),
+  issue_date: date("issue_date"), due_date: date("due_date"),
+  accounting_request_id: uuid("accounting_request_id"), provider: text("provider"), provider_company_id: text("provider_company_id"),
+  customer_resolution: jsonb("customer_resolution"), dispatch_claim_token: uuid("dispatch_claim_token"),
+  dispatch_claimed_at: timestamp("dispatch_claimed_at", { withTimezone: true }),
+  last_error: jsonb("last_error"), next_attempt_at: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+  delivery_status: text("delivery_status").notNull().default("pending"), delivery_claim_token: uuid("delivery_claim_token"),
+  delivery_claimed_at: timestamp("delivery_claimed_at", { withTimezone: true }), delivery_message_id: text("delivery_message_id"),
+  delivered_at: timestamp("delivered_at", { withTimezone: true }),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  tenantIdUnique: uniqueIndex("sales_invoice_schedule_tenant_id_id_key").on(table.tenant_id, table.id),
+  groupUnique: uniqueIndex("sales_invoice_schedule_tenant_id_quote_version_id_group_id_key").on(table.tenant_id, table.quote_version_id, table.group_id),
+}));
+export type SalesInvoiceSchedule = typeof salesInvoiceSchedule.$inferSelect;
 
 export const salesQuoteLine = pgTable("sales_quote_line", {
   id: uuid("id").primaryKey().defaultRandom(), tenant_id: uuid("tenant_id").notNull(),
@@ -522,6 +547,7 @@ export const salesAccountingCustomerMapping = pgTable("sales_accounting_customer
 export const salesAccountingInvoiceLink = pgTable("sales_accounting_invoice_link", {
   id: uuid("id").primaryKey().defaultRandom(), tenant_id: uuid("tenant_id").notNull(),
   sale_id: uuid("sale_id").notNull(), quote_version_id: uuid("quote_version_id").notNull(),
+  schedule_id: uuid("schedule_id"),
   provider: text("provider").notNull(), provider_invoice_id: text("provider_invoice_id").notNull(),
   provider_invoice_number: text("provider_invoice_number"), provider_invoice_url: text("provider_invoice_url"),
   provider_status: text("provider_status").notNull().default("unknown"), provider_status_raw: text("provider_status_raw"),
@@ -532,7 +558,9 @@ export const salesAccountingInvoiceLink = pgTable("sales_accounting_invoice_link
   updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({
   saleProviderUnique: uniqueIndex("sales_accounting_invoice_link_sale_unique")
-    .on(table.tenant_id, table.sale_id, table.provider),
+    .on(table.tenant_id, table.sale_id, table.provider).where(sql`${table.schedule_id} IS NULL`),
+  scheduleUnique: uniqueIndex("sales_invoice_schedule_identity")
+    .on(table.tenant_id, table.schedule_id).where(sql`${table.schedule_id} IS NOT NULL`),
   providerInvoiceUnique: uniqueIndex("sales_accounting_invoice_link_provider_invoice_unique")
     .on(table.tenant_id, table.provider, table.provider_invoice_id),
 }));

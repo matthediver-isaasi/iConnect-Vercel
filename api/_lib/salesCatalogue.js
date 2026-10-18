@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { resolveSalesTaxCode } from './salesCatalogueTaxOptions.js';
 import { SalesHttpError } from './salesAccess.js';
+import { getSalesSettings } from './salesFoundation.js';
+import { bundleBillingGroupErrors, resolveBillingGroups } from '../../shared/salesBillingConfiguration.js';
 
 const TABLES = {
   categories: 'sales_catalogue_category',
@@ -19,6 +21,7 @@ export const throwDb = (error) => {
   }
   if (error.code === '23503') throw new SalesHttpError(409, 'Catalogue record is still referenced');
   if (error.code === '22023') throw new SalesHttpError(400, error.message);
+  if (error.code === '40001') throw new SalesHttpError(409, 'Bundle changed elsewhere; reload and retry');
   throw error;
 };
 
@@ -85,6 +88,7 @@ const mapProduct = (row) => ({
   isActive: row.is_active, archivedAt: row.archived_at, createdAt: row.created_at, updatedAt: row.updated_at,
 });
 const mapBundle = (row) => ({
+  billingGroups: row.billing_groups || [],
   id: row.id, code: row.code, name: row.name, description: row.description, currency: row.currency,
   sellingPriceMinor: Number(row.selling_price_minor),
   minimumPriceMinor: row.minimum_price_minor == null ? null : Number(row.minimum_price_minor),
@@ -208,6 +212,8 @@ const productRow = (value) => ({
   ticket_type_id: value.eventReference?.ticketTypeId ?? null,
 });
 const bundleRow = (value) => ({
+  ...(value.copySourceId ? { copy_source_id: value.copySourceId } : {}),
+  billing_groups: value.billingGroups || [],
   code: value.code, name: value.name.trim(), description: value.description ?? null,
   currency: value.currency, selling_price_minor: value.sellingPriceMinor,
   minimum_price_minor: value.minimumPriceMinor ?? null, presentation_mode: value.presentationMode,
@@ -258,7 +264,22 @@ export async function createCatalogueRecord(db, tenantId, actor, type, value, op
     await ensureCategory(db, tenantId, value.categoryId);
     eventReference = await resolveEventTicketReference(db, tenantId, value.eventReference);
   }
-  if (type === 'bundles') await ensureBundleProducts(db, tenantId, value.items);
+  if (type === 'bundles') {
+    await ensureBundleProducts(db, tenantId, value.items);
+    let previous = [];
+    if (value.copySourceId) {
+      const source = await db.from(TABLES.bundles).select('billing_groups').eq('tenant_id', tenantId).eq('id', value.copySourceId).maybeSingle();
+      throwDb(source.error);
+      if (!source.data) throw new SalesHttpError(400, 'Bundle copy source is unavailable');
+      previous = (value.billingGroups || []).flatMap(group => {
+        if (!group.sourceGroupId) return [];
+        const saved = (source.data.billing_groups || []).find(item => item.id === group.sourceGroupId);
+        if (!saved || saved.id === group.id) throw new SalesHttpError(400, 'Copied groups require a valid source and fresh identities');
+        return [{ ...saved, id: group.id }];
+      });
+    }
+    value = { ...value, billingGroups: await prepareBillingGroups(db, tenantId, value.billingGroups || [], value.items, value.sellingPriceMinor, previous) };
+  }
   const toRow = { categories: categoryRow, products: productRow, bundles: bundleRow }[type];
   if (type !== 'categories') {
     const row = toRow(value);
@@ -321,6 +342,18 @@ export async function updateCatalogueRecord(db, tenantId, actor, type, id, value
     const to = 'availableTo' in value ? value.availableTo : current.data.available_to;
     if (minimum != null && minimum > selling) throw new SalesHttpError(400, 'minimumPriceMinor must not exceed sellingPriceMinor');
     if (from && to && Date.parse(from) > Date.parse(to)) throw new SalesHttpError(400, 'availableFrom must not be after availableTo');
+    const hydrated = (await hydrateBundles(db, tenantId, [current.data]))[0];
+    const merged = { ...hydrated, ...value };
+    merged.billingGroups = (await prepareBillingGroups(db, tenantId, merged.billingGroups, merged.items, selling, hydrated.billingGroups))
+      .map(({ sourceGroupId, ...group }) => group);
+    const result = await db.rpc('update_sales_catalogue_bundle', {
+      p_tenant_id: tenantId, p_bundle_id: id, p_expected_updated_at: current.data.updated_at,
+      p_record: bundleRow(merged), p_items: merged.items,
+      p_actor_id: actor.actorId, p_actor_type: actor.actorType,
+    });
+    throwDb(result.error);
+    if (!result.data) throw new Error('Bundle update returned no record');
+    return mapBundle(result.data);
   }
   const complete = type === 'categories' ? categoryRow({ ...mapCategory(current.data), ...value })
     : type === 'products' ? productRow({ ...mapProduct(current.data), ...value })
@@ -335,6 +368,15 @@ export async function updateCatalogueRecord(db, tenantId, actor, type, id, value
   if (type === 'products') return hydrateProduct(db, tenantId, result.data);
   if (type === 'bundles') return (await hydrateBundles(db, tenantId, [result.data]))[0];
   return mapCategory(result.data);
+}
+
+async function prepareBillingGroups(db, tenantId, groups, items, selling, previous = []) {
+  const errors = bundleBillingGroupErrors(groups, items, selling);
+  if (errors.length) throw new SalesHttpError(400, errors.join('; '));
+  if (!groups.length) return [];
+  const settings = await getSalesSettings(db, tenantId);
+  try { return resolveBillingGroups(groups, settings.billingPresets, previous); }
+  catch (error) { throw new SalesHttpError(400, error.message); }
 }
 
 export async function setCatalogueActive(db, tenantId, actor, type, id, active) {

@@ -21,6 +21,57 @@ import { createSalesQuotesHandler } from '../sales/quotes/[...path].js';
 import { prepareQuoteDraft } from './salesQuote.js';
 
 const uuid = '123e4567-e89b-12d3-a456-426614174000';
+test('billing recipient falls through an empty billing contact to the customer contact', async () => {
+  const customerId = '123e4567-e89b-12d3-a456-426614174001';
+  const terms = { id: uuid, name: '14 days', days: 14, isActive: true };
+  const db = { from(table) {
+    let id;
+    const row = () => table === 'member' ? (id === customerId ? { email: 'customer@example.test', name: 'Customer' } : { name: 'No email' })
+      : table === 'tenant' ? {} : { billing_presets: { paymentTerms: [terms] } };
+    return { select() { return this; }, eq(key, value) { if (key === 'id') id = value; return this; },
+      single: async () => ({ data: row() }), maybeSingle: async () => ({ data: row() }) };
+  } };
+  const result = await prepareQuoteDraft(db, uuid, { actorId: 'actor' }, { currency: 'GBP',
+    scheduledBilling: true, remainderPaymentTermsId: uuid, billingContactId: uuid, customerContactId: customerId,
+    lines: [{ kind: 'free_text', description: 'Service', quantity: '1', standardUnitPriceMinor: 100, quotedUnitPriceMinor: 100 }] });
+  assert.deepEqual(result.billingSchedule.recipient, { email: 'customer@example.test', name: 'Customer' });
+});
+test('scheduled preparation uses authoritative timezone and recipient snapshots; legacy stays unscheduled', async () => {
+  const terms = { id: uuid, name: '14 calendar days', days: 14, isActive: true };
+  const queries = [];
+  const db = { from(table) {
+    queries.push(table);
+    const data = table === 'tenant' ? { settings: { timezone: 'Pacific/Auckland' } }
+      : table === 'member' ? { email: 'billing@example.test', first_name: 'Billing' }
+      : { default_terms: '', billing_presets: { paymentTerms: [terms] } };
+    return { select() { return this; }, eq() { return this; }, single: async () => ({ data }),
+      maybeSingle: async () => ({ data }) };
+  } };
+  const draft = { currency: 'GBP', billingContactId: uuid, lines: [{ kind: 'free_text', description: 'Extra',
+    quantity: '1', standardUnitPriceMinor: 100, quotedUnitPriceMinor: 100, taxRateBps: 0 }] };
+  const legacy = await prepareQuoteDraft(db, uuid, { actorId: 'actor' }, draft);
+  assert.equal(legacy.billingSchedule, null);
+  assert.equal(queries.includes('tenant'), false);
+  const result = await prepareQuoteDraft(db, uuid, { actorId: 'actor' }, {
+    ...draft, scheduledBilling: true, remainderPaymentTermsId: uuid,
+  });
+  assert.equal(result.billingSchedule.timezone, 'Pacific/Auckland');
+  assert.equal(result.billingSchedule.timezoneFallback, false);
+  assert.equal(result.billingSchedule.recipient.email, 'billing@example.test');
+  assert.equal(result.billingSchedule.groups[0].paymentTerms.days, 14);
+  assert.equal(result.billingSchedule.remainderPaymentTerms.id, uuid);
+  terms.isActive = false;
+  terms.days = 30;
+  const resaved = await prepareQuoteDraft(db, uuid, { actorId: 'actor' }, {
+    ...draft, scheduledBilling: true, remainderPaymentTermsId: uuid,
+  }, false, new Map(), undefined, result.billingSchedule);
+  assert.equal(resaved.billingSchedule.remainderPaymentTerms.days, 14);
+  await assert.rejects(prepareQuoteDraft(db, uuid, { actorId: 'actor' }, {
+    ...draft, scheduledBilling: true, remainderPaymentTermsId: uuid,
+  }), /active payment/);
+  await assert.rejects(prepareQuoteDraft(db, uuid, { actorId: 'actor' },
+    { ...draft, scheduledBilling: true }), /remainder/);
+});
 test('manual billing address overrides and deliberate clearing reach the persisted snapshot payload', async () => {
   const db = { from() { return { select() { return this; }, eq() { return this; },
     maybeSingle: async () => ({ data: { default_terms: '' }, error: null }) }; } };

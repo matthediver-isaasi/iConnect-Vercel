@@ -18,6 +18,8 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { providerTaxOptions, taxCodeKey, taxCodeLabel } from "@/lib/salesTaxCodes";
 import { getSalesCataloguePath } from "@/lib/salesNavigation";
 import { catalogueCodeError, normaliseCatalogueCode, suggestedCatalogueCategoryCode } from "../../../../shared/salesContracts.js";
+import BundleBillingGroups from "@/components/sales/BundleBillingGroups";
+import { groupsForEditing, groupsForSaving } from "@/components/sales/billingGroups";
 
 const icon = { categories: FolderTree, products: Package, bundles: Boxes };
 const title = { categories: "Categories", products: "Products", bundles: "Bundles" };
@@ -136,7 +138,7 @@ export function EditDialog({ config, categories, categoriesLoading, products, ev
     if (config) {
       const source = config.copySource;
       const copy = source ? catalogueCopyForEditing(config.type, source, `COPY-${crypto.randomUUID().replaceAll("-", "").toUpperCase()}`) : null;
-      setForm(copy ? { ...blank[config.type], ...copy } : { ...blank[config.type], ...config.row, ...(config.type === "products" ? productPricesForEditing(config.row) : config.type === "bundles" ? bundlePricesForEditing(config.row) : {}), items: config.row?.items || [] });
+      setForm(copy ? { ...blank[config.type], ...copy, ...(config.type === "bundles" ? { billingGroups: groupsForEditing(copy.billingGroups) } : {}) } : { ...blank[config.type], ...config.row, ...(config.type === "products" ? productPricesForEditing(config.row) : config.type === "bundles" ? { ...bundlePricesForEditing(config.row), billingGroups: groupsForEditing(config.row?.billingGroups) } : {}), items: config.row?.items || [] });
       setCategoryCodeEdited(Boolean(config.row));
       setSelectedTaxId("");
       setFormError("");
@@ -189,6 +191,8 @@ export function EditDialog({ config, categories, categoriesLoading, products, ev
     if (type === "bundles") {
       try {
         Object.assign(data, bundlePricesForSaving(form));
+        data.billingGroups = groupsForSaving(form.billingGroups, form.items, data.sellingPriceMinor, { copying: Boolean(config.copySource) });
+        if (config.copySource) data.copySourceId = config.copySource.id;
       } catch (error) {
         setFormError(error.message);
         return;
@@ -217,6 +221,7 @@ export function EditDialog({ config, categories, categoriesLoading, products, ev
     {type === "products" && <ProductFields form={form} update={update} categories={categories} events={events} existing={config.row} showSku={showSku} taxOptions={taxOptions} selectedTaxId={selectedTaxId} onTaxChange={(value) => { copyTaxInitialized.current = true; setSelectedTaxId(value); }} />}
      {type === "bundles" && <BundleFields form={form} update={update} />}
      {type === "bundles" && <BundleItems form={form} update={update} products={products} />}
+      {type === "bundles" && <BundleBillingGroups key={config.row?.id || config.copySource?.id || "new"} form={form} update={update} products={products} />}
     {type === "bundles" && <Field label="Description" wide><Textarea value={form.description || ""} onChange={(e) => update("description", e.target.value)} /></Field>}
    </div>{formError && <p role="alert" className="mt-4 text-sm font-medium text-red-600">{formError}</p>}<DialogFooter className="mt-7"><Button type="button" variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={saving || submittingNow || Boolean(categoryError) || (type === "categories" && categoriesLoading)} type="submit" className="bg-blue-600 text-white hover:bg-blue-700">{saving || submittingNow ? "Saving…" : categoriesLoading && type === "categories" ? "Checking codes…" : "Save catalogue item"}</Button></DialogFooter></form></DialogContent></Dialog>;
 }

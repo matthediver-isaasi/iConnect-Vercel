@@ -29,11 +29,13 @@ const groups = [
   },
   {
     name: '2. catalogue and event references',
-    files: ['api/_lib/salesCatalogue.test.mjs'],
+    files: ['api/_lib/salesCatalogue.test.mjs', 'shared/salesBillingConfiguration.test.mjs',
+      'api/_lib/salesBillingConfiguration.postgres.test.mjs'],
   },
   {
     name: '3. quote contract and lifecycle',
-    files: ['api/_lib/salesQuote.test.mjs'],
+    files: ['api/_lib/salesQuote.test.mjs', 'shared/salesBilling.test.mjs',
+      'api/_lib/salesBilling.postgres.test.mjs', 'api/_lib/salesBillingLifecycle.postgres.test.mjs'],
   },
   {
     name: '4. delivery and public acceptance',
@@ -59,6 +61,9 @@ const groups = [
     name: '6. accounting boundary',
     files: [
       'api/_lib/salesAccounting.test.mjs',
+      'api/_lib/salesInvoiceSchedule.test.mjs',
+      'api/_lib/salesInvoiceScheduleRoute.test.mjs',
+      'api/_lib/salesInvoiceSchedule.postgres.test.mjs',
       'client/src/lib/salesAccountingConfiguration.test.mjs',
     ],
   },

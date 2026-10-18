@@ -33,6 +33,11 @@ export function normalizeOpportunityDetail(response) {
     permissions: value.permissions || value.capabilities
       || opportunity.permissions || opportunity.capabilities || {},
     invoice: invoiceSource ? invoiceSource.invoice : null,
+    saleId: value.saleId ?? value.sale_id ?? value.sale?.id ?? opportunity.saleId ?? opportunity.sale_id ?? opportunity.sale?.id ?? null,
+    scheduledBilling: value.scheduledBilling ?? value.scheduled_billing ?? value.sale?.scheduled_billing
+      ?? opportunity.scheduledBilling ?? opportunity.scheduled_billing
+      ?? Boolean(value.billingSchedule || value.billing_schedule || opportunity.billingSchedule || opportunity.billing_schedule),
+    schedules: value.schedules ?? opportunity.schedules ?? [],
     activeProvider: value.activeProvider ?? value.active_provider ?? opportunity.activeProvider ?? opportunity.active_provider ?? null,
     invoices: value.invoices ?? value.invoiceHistory ?? value.invoice_history
       ?? opportunity.invoices ?? opportunity.invoiceHistory ?? opportunity.invoice_history ?? [],

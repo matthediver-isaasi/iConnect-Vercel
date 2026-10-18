@@ -115,11 +115,18 @@ export function validateAccountingRequestResult(row, kind, record) {
   // summaries, not additional accepted financial lines. Ignore only those rows:
   // unexpected discounts, groups or other financial line types must still fail
   // the exact count/order/item/tax/amount comparison below.
-  const actualFields = !xero && !payment && Array.isArray(e.expected.fields.Line)
+  let actualFields = !xero && !payment && Array.isArray(e.expected.fields.Line)
     && e.expected.fields.Line.every(line => line.DetailType === 'SalesItemLineDetail')
     ? { ...record, Line: Array.isArray(record?.Line)
       ? record.Line.filter(line => line?.DetailType !== 'SubTotalLineDetail') : record?.Line }
     : record;
+  if (xero && !payment && e.expected.fields.Date) {
+    const calendarDate = raw => {
+      const match = typeof raw === 'string' && raw.match(/^\/Date\((\d+)(?:[+-]\d{4})?\)\/$/);
+      return match ? new Date(Number(match[1])).toISOString().slice(0, 10) : String(raw || '').slice(0, 10);
+    };
+    actualFields = { ...actualFields, Date: calendarDate(record.Date), DueDate: calendarDate(record.DueDate) };
+  }
   if (!nonempty(id) || !String(record?.[markerField] || '').split('\n').includes(e.marker)
       || contact !== e.expected.contactId || currency !== e.expected.currency
       || minor(amount) !== e.expected.totalMinor || !subset(actualFields, e.expected.fields)
@@ -151,6 +158,14 @@ export function validateAccountingRequestResult(row, kind, record) {
   return { id, provider: row.provider, ...(payment ? { paymentId: id, payment_recorded: true } : {
     invoiceId: id, invoice_id: id, invoiceNumber: record.InvoiceNumber || record.DocNumber || null,
     invoice_number: record.InvoiceNumber || record.DocNumber || null,
+    ...(['sales_invoice_schedule', 'sales_commercial_sale'].includes(row.source_type) ? {
+      status: xero ? record.Status : record.Balance == null ? 'unknown' : Number(record.Balance) === 0 ? 'paid' : 'open',
+      createdAt: xero ? record.DateString || null : record.MetaData?.CreateTime || null,
+      // These links are for authorised staff only. Scheduled recipient delivery
+      // always obtains the invoice PDF and never emails these admin URLs.
+      url: xero ? `https://go.xero.com/AccountsReceivable/View.aspx?InvoiceID=${encodeURIComponent(id)}`
+        : record.InvoiceLink || `https://app.qbo.intuit.com/app/invoice?txnId=${encodeURIComponent(id)}`,
+    } : {}),
   }) };
 }
 

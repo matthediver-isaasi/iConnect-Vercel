@@ -392,6 +392,7 @@ export function buildXeroSalesInvoiceLine(line) {
 
 export function buildXeroSalesInvoicePayload(invoice) {
   return { Invoices: [{
+    ...(invoice.issueDate ? { Date: invoice.issueDate, DueDate: invoice.dueDate } : {}),
     Type: 'ACCREC', Contact: { ContactID: invoice.customerId },
     Status: 'AUTHORISED', CurrencyCode: invoice.currency,
     Reference: [invoice.purchaseOrderReference, invoice.customerReference].filter(Boolean).join(' / ') || undefined,

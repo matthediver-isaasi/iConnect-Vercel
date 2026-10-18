@@ -9,6 +9,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import BillingSchedule from "@/components/sales/BillingSchedule";
+import { billingScheduleOf } from "@/components/sales/billingGroups";
 
 const pick = (value, camel, snake, fallback = "") => value?.[camel] ?? value?.[snake] ?? fallback;
 const items = (value) => Array.isArray(value) ? value : value?.items || value?.data || [];
@@ -131,6 +133,7 @@ export default function PublicSalesQuote() {
         <div className="ml-auto mt-6 max-w-sm space-y-2 text-sm"><div className="flex justify-between"><span>Net</span><span>{currencyText(totals.netMinor ?? totals.net_minor ?? quote.netMinor ?? quote.net_minor ?? quote.netTotalMinor ?? quote.net_total_minor, currency)}</span></div><div className="flex justify-between"><span>Tax</span><span>{currencyText(totals.taxMinor ?? totals.tax_minor ?? quote.taxMinor ?? quote.tax_minor ?? quote.taxTotalMinor ?? quote.tax_total_minor, currency)}</span></div><div className="flex justify-between border-t pt-3 text-xl font-bold"><span>Total</span><span>{currencyText(total, currency)}</span></div></div>
         {(quote.terms || quote.paymentTerms || quote.payment_terms || quote.notes) && <div className="mt-8 rounded-lg bg-slate-50 p-4"><p className="font-semibold">Terms</p><p className="mt-1 whitespace-pre-wrap text-sm text-slate-600">{typeof quote.terms === "string" ? quote.terms : quote.terms?.text || quote.terms?.paymentTerms || quote.terms?.payment_terms || quote.paymentTerms || quote.payment_terms || ""}{quote.notes ? `\n\n${quote.notes}` : ""}</p></div>}
       </CardContent></Card>
+      <BillingSchedule schedule={billingScheduleOf(quote)} />
       {submit.error && <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800"><AlertTriangle className="mr-2 inline h-4 w-4" />{submit.error.message}</div>}
       {decision ? <DecisionForm decision={decision} pending={submit.isPending} onCancel={() => setDecision("")} onSubmit={(form) => submit.mutate(form)} /> : <div className="flex flex-col gap-3 sm:flex-row sm:justify-end"><Button size="lg" variant="outline" className="border-rose-300 text-rose-700" onClick={() => setDecision("decline")}>Decline</Button><Button size="lg" style={{ backgroundColor: primary }} onClick={() => setDecision("accept")}>Accept quote</Button></div>}
     </div>

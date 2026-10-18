@@ -10,6 +10,7 @@ const SETTINGS_COLUMNS = [
   'default_tax_rate_bps', 'default_terms', 'module_enabled', 'version', 'updated_at', 'quote_task_list_name',
   'show_internal_code', 'show_sku',
   'quote_singular_name', 'quote_plural_name', 'quote_url_segment',
+  'billing_presets',
 ].join(',');
 
 export async function getSalesSettings(db, tenantId) {
@@ -25,6 +26,7 @@ export async function patchSalesSettings(db, tenantId, actor, patch) {
     p_tenant_id: tenantId,
     p_expected_version: patch.expectedVersion,
     p_patch: {
+      ...(patch.billingPresets !== undefined ? { billingPresets: patch.billingPresets } : {}),
       ...(patch.showInternalCode !== undefined ? { showInternalCode: patch.showInternalCode } : {}),
       ...(patch.showSku !== undefined ? { showSku: patch.showSku } : {}),
       ...(patch.quoteSingularName !== undefined ? { quoteSingularName: patch.quoteSingularName.trim() } : {}),
@@ -43,6 +45,7 @@ export async function patchSalesSettings(db, tenantId, actor, patch) {
   });
   if (error) {
     if (error.code === '40001') throw new SalesHttpError(409, 'Sales settings were changed; reload and retry');
+    if (error.code === '22023' && patch.billingPresets !== undefined) throw new SalesHttpError(400, 'Invalid billing presets; refresh settings and check names, defaults and whole calendar days');
     throw error;
   }
   const row = Array.isArray(data) ? data[0] : data;

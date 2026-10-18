@@ -86,6 +86,15 @@ export function scanSalesReconciliationData(data = {}, { now = Date.now() } = {}
     }
   }
   const sales = new Map((data.sales || []).map((row) => [id(row.id), row]));
+  for (const schedule of data.schedules || []) {
+    if (schedule.status === 'attention' || schedule.delivery_status === 'attention') {
+      findings.push(finding('error', 'SCHEDULE_OUTCOME_REQUIRES_REVIEW', 'invoice_schedule', schedule.id,
+        'Invoice or email outcome is uncertain. Reconcile provider evidence; do not recreate or resend.'));
+    } else if (schedule.status === 'blocked' || schedule.delivery_status === 'rejected') {
+      findings.push(finding('warning', 'SCHEDULE_BLOCKED', 'invoice_schedule', schedule.id,
+        schedule.last_error?.message || 'Scheduled invoice requires accounting configuration or delivery repair'));
+    }
+  }
   for (const invoice of data.invoices || []) {
     const sale = sales.get(id(invoice.sale_id));
     if (!sale || id(invoice.quote_version_id) !== id(sale.quote_version_id)) {
@@ -124,6 +133,7 @@ export async function loadSalesReconciliationData(db, tenantId) {
     invoices: 'sales_accounting_invoice_link',
     invoiceAttempts: 'sales_accounting_invoice_attempt',
     customerMappings: 'sales_accounting_customer_mapping',
+    schedules: 'sales_invoice_schedule',
   };
   const entries = await Promise.all(Object.entries(sources).map(async ([key, table]) => [
     key, await readSalesReportSource(db, table, tenantId),

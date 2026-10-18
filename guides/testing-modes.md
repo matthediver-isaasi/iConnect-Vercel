@@ -75,6 +75,24 @@ indexes, so no production migration was applied for this feature.
 
 ## 2. Disposable-database integration tests
 
+### Sales grouped billing
+
+`node scripts/run-isolated-tests.mjs --allow-local-postgres node scripts/test-sales-hardening.mjs`
+includes grouped configuration, immutable quote/acceptance lifecycle and
+per-group accounting/delivery database tests alongside existing Sales regressions.
+These use temporary UNIX-socket clusters and mocked providers, never configured
+external databases or live invoices/emails.
+
+`node --test client/src/components/sales/InvoiceSchedulesPanel.browser.test.mjs`
+is a separate Chromium fixture with all browser requests intercepted. It tests
+the real panel, explicit customer confirmation, provider-refresh request shape
+and responsive layout. It is deliberately outside the Node network boundary
+because that boundary prohibits browser processes. It does not access a running
+tenant session or prove live provider/PDF/email delivery.
+
+See `guides/sales-grouped-billing.md` for pending destination migrations and
+explicitly approved production/sandbox rollout checks.
+
 These create their own temporary PostgreSQL cluster, apply fixture schemas,
 test real SQL behavior, then stop and remove the cluster. They do not target
 the application's configured database. The relevant named suites explicitly

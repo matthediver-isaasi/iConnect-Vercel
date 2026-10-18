@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf';
 import { toWinAnsi } from './pdfWinAnsi.js';
 import sharp from 'sharp';
+import { billingTimingLabel } from '../../shared/salesBilling.js';
 
 export async function buildBrandedSalesQuotePdf(input) {
   const tenant = { ...input.tenant };
@@ -95,6 +96,15 @@ export function buildSalesQuotePdf({ quote, version, tenant }) {
   doc.setFontSize(13); text(`Total: ${money(version.gross_minor, version.currency)}`, 125);
   doc.setFontSize(10);
   const terms = version.terms_snapshot?.text || version.payment_terms;
+  if (version.billing_schedule) {
+    page(25); text(`Billing schedule (${version.billing_schedule.timezone}${version.billing_schedule.timezoneFallback ? ' - UTC fallback' : ''})`);
+    for (const group of version.billing_schedule.groups) {
+      page(30); text(`${group.name}: ${money(group.grossMinor, group.currency)}${group.grossMinor === 0 ? ' - No invoice required' : ''}`);
+      if (group.bundleLineLabel) text(group.bundleLineLabel);
+      text(`${billingTimingLabel(group.timing)}. Payment due ${group.paymentTerms.days} calendar days after invoice issue (${group.paymentTerms.name}).`);
+      for (const item of group.contents) { page(8); text(`  ${item.name} x ${item.quantity}`); }
+    }
+  }
   if (terms) { page(25); y += 5; text('Terms'); doc.setFont('helvetica', 'normal'); text(terms); }
   const business = tenant?.settings?.business_details || tenant?.settings?.businessDetails
     || tenant?.branding_config?.business_details;

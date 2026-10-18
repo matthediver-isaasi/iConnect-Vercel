@@ -16,6 +16,8 @@ test('direct codes preserve distinct zero treatments and reject provider/rate su
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { __setRoleAccessOverlayForTests } from './roleVisibility.js';
+__setRoleAccessOverlayForTests([]);
 import {
   normalizeSalesInvoiceStatus, validateSalesInvoiceCommand,
 } from '../../shared/salesContracts.js';
@@ -83,7 +85,7 @@ function configurationDb(state) {
         return { data: null, error: null };
       };
       const query = {
-        select() { return query; }, eq() { return query; }, in() { return query; },
+        select() { return query; }, eq() { return query; }, is() { return query; }, in() { return query; },
         order() { return query; }, limit() { return query; },
         async maybeSingle() {
           if (table === 'sales_settings') return { data: { default_tax_rate_bps: state.defaultRate }, error: null };
@@ -596,6 +598,7 @@ test('persisted accepted line assembly carries exact amounts into mocked Xero cr
       const query = {
         select() { return query; }, eq() { return query; }, in() { return query; },
         order() { return query; }, limit() { return query; },
+        is() { return query; },
         insert() { mode = 'insert'; return query; },
         update() { mode = 'update'; return query; },
         async maybeSingle() {

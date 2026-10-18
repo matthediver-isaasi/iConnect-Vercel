@@ -45,6 +45,10 @@
   },
   "crons": [
     {
+      "path": "/api/cron/sales-invoice-schedule",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/form-submission-alerts",
       "schedule": "* * * * *"
     },

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ambiguousCustomerCandidates, historicalInvoices, invoiceErrorText, invoicePermissions, invoiceReference, normalizeInvoice } from "@/lib/invoiceStatus";
 import { accountingErrorGuidance } from "@/lib/salesAccountingConfiguration";
+import InvoiceSchedulesPanel from "./InvoiceSchedulesPanel";
 
 const detailText = (value) => {
   if (!value) return "";
@@ -13,7 +14,7 @@ const detailText = (value) => {
   return value.name || value.displayName || value.display_name || "";
 };
 
-export default function InvoiceStatusPanel({ saleId, invoice, invoices, activeProvider, permissions, error, onCreate, onRetry, onRefresh }) {
+export default function InvoiceStatusPanel({ saleId, invoice, invoices, activeProvider, permissions, error, onCreate, onRetry, onRefresh, scheduledBilling = false, schedules }) {
   const access = invoicePermissions(permissions);
   const normalized = normalizeInvoice(invoice);
   const history = access.canViewInvoice ? historicalInvoices(invoices, invoice) : [];
@@ -24,6 +25,7 @@ export default function InvoiceStatusPanel({ saleId, invoice, invoices, activePr
   const canRetry = access.canRetryInvoice && Boolean(onRetry || onCreate);
   const canCreate = access.canCreateInvoice && !normalized && Boolean(onCreate);
   const externalGuidance = accountingErrorGuidance(error) || accountingErrorGuidance({ payload: visibleInvoice?.raw });
+  if (scheduledBilling || schedules?.length) return <InvoiceSchedulesPanel key={saleId || "missing-sale"} saleId={saleId} access={access} schedules={schedules} />;
   if (!visibleInvoice && !history.length && !canCreate && !canRetry && !externalGuidance) return null;
 
   const run = async (name, action, command = {}) => {

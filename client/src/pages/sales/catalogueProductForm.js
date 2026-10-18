@@ -3,7 +3,7 @@ import { selectedProviderTaxCode, taxCodeKey } from "../../lib/salesTaxCodes.js"
 export const CATALOGUE_FIELDS = {
   categories: ["name", "code", "description"],
   products: ["name", "code", "sku", "categoryId", "currency", "standardPriceMinor", "minimumPriceMinor", "costMinor", "shortDescription", "description", "availableFrom", "availableTo", "eventReference", "capacityMetadata", "createTaskOnAcceptance"],
-  bundles: ["name", "code", "currency", "sellingPriceMinor", "minimumPriceMinor", "presentationMode", "availableFrom", "availableTo", "description", "items"],
+  bundles: ["name", "code", "currency", "sellingPriceMinor", "minimumPriceMinor", "presentationMode", "availableFrom", "availableTo", "description", "items", "billingGroups"],
 };
 
 // Copy only createable fields, never identity, lifecycle or accounting snapshots.
@@ -16,8 +16,15 @@ export function catalogueCopyForEditing(type, source, freshCode) {
     Object.assign(copy, productPricesForEditing(source));
   }
   if (type === "bundles") {
+    copy.copySourceId = source.id;
     Object.assign(copy, bundlePricesForEditing(source));
     copy.items = (source.items || []).map(({ productId, quantity }) => ({ productId, quantity }));
+    copy.billingGroups = (source.billingGroups || []).map((group, position) => ({
+      id: crypto.randomUUID(), sourceGroupId: group.id, name: group.name, position,
+      productIds: [...group.productIds], allocatedMinor: group.allocatedMinor,
+      timing: structuredClone(group.timing), paymentTerms: structuredClone(group.paymentTerms),
+      ...(group.issueDelayPreset ? { issueDelayPreset: structuredClone(group.issueDelayPreset) } : {}),
+    }));
   }
   return copy;
 }

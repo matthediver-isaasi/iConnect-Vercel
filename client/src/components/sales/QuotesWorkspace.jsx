@@ -31,6 +31,10 @@ import { clearOpportunityContacts, opportunityContacts, useQuoteOpportunity } fr
 import { calculateQuoteLine } from "@shared/salesContracts.js";
 import { useCatalogueTaxOptions } from "@/pages/sales/useCatalogue";
 import { persistedQuoteLineId, providerTaxOptions, quoteLineIdentityForSaving, quoteLineTaxForSaving, savedLineTaxCode, taxCodeKey, taxCodeLabel } from "@/lib/salesTaxCodes";
+import QuoteBillingSettings from "./QuoteBillingSettings";
+import BillingSchedule from "./BillingSchedule";
+import { billingScheduleOf } from "./billingGroups";
+import { useSalesSettingsScope } from "./useSalesSettings";
 
 const list = (value) => Array.isArray(value) ? value : value?.items || value?.data || value?.results || value?.quotes || [];
 const idOf = (value) => value?.id || value?._id;
@@ -95,7 +99,7 @@ const blankQuote = (opportunityId = "") => ({
   validUntil: "", purchaseOrderReference: "", customerReference: "", notes: "", currency: "GBP",
   taxTreatment: "exclusive", paymentTerms: "30 days", salespersonId: "", address: {
     addressee: "", line1: "", line2: "", city: "", region: "", postalCode: "", country: "United Kingdom",
-  }, lines: [],
+  }, lines: [], scheduledBilling: false, remainderPaymentTermsId: "",
 });
 
 function normalizeLine(line, index) {
@@ -134,6 +138,9 @@ export function normalizeQuote(payload, opportunityId = "") {
     customerReference: pick(quote, "customerReference", "customer_reference"),
     taxTreatment: pick(quote, "taxTreatment", "tax_treatment", "exclusive"),
     paymentTerms: pick(quote, "paymentTerms", "payment_terms", "30 days"),
+    scheduledBilling: pick(quote, "scheduledBilling", "scheduled_billing", Boolean(billingScheduleOf(quote))),
+    remainderPaymentTermsId: pick(quote, "remainderPaymentTermsId", "remainder_payment_terms_id"),
+    billingSchedule: billingScheduleOf(quote),
     salespersonId: idOf(quote.salesperson) || idOf(quote.salesperson_snapshot) || pick(quote, "salespersonId", "salesperson_id"),
     address: {
       addressee: address.addressee || address.name || "", line1: address.line1 || address.line_1 || "",
@@ -313,6 +320,7 @@ function Comparison({ data }) {
 }
 
 function QuoteEditor() {
+  const scope = useSalesSettingsScope();
   const naming = useQuoteNaming();
   const { id } = useParams();
   const location = useLocation();
@@ -321,13 +329,13 @@ function QuoteEditor() {
   const { toast } = useToast();
   const opportunityId = new URLSearchParams(location.search).get("opportunityId") || "";
   const isNew = !id || id === "new";
-  const detail = useQuery({ queryKey: ["sales-quote", id], queryFn: async () => {
+  const detail = useQuery({ queryKey: ["sales-quote", id, scope.scopeKey], queryFn: async () => {
     const data = await request(`/api/sales/quotes/${id}`);
     if (!data?.id || (!data.currentVersion && !data.versions?.length)) throw new Error(`The ${naming.singular} details were not returned. Please retry loading this ${naming.singular}.`);
     return data;
-  }, enabled: !isNew, refetchOnMount: "always" });
-  const products = useQuery({ queryKey: ["quote-products"], queryFn: () => request("/api/sales/catalogue/products") });
-  const bundles = useQuery({ queryKey: ["quote-bundles"], queryFn: () => request("/api/sales/catalogue/bundles") });
+  }, enabled: scope.ready && !isNew, refetchOnMount: "always" });
+  const products = useQuery({ queryKey: ["quote-products", scope.scopeKey], enabled: scope.ready, queryFn: () => request("/api/sales/catalogue/products") });
+  const bundles = useQuery({ queryKey: ["quote-bundles", scope.scopeKey], enabled: scope.ready, queryFn: () => request("/api/sales/catalogue/bundles") });
   const taxOptions = useCatalogueTaxOptions(true);
   const [form, setForm] = useState(() => blankQuote(opportunityId));
   const opportunity = useQuoteOpportunity({ opportunityId: form.opportunityId, isNew, setForm, request });
@@ -358,17 +366,22 @@ function QuoteEditor() {
   const opportunityName = opportunity.data?.name || nameOf(quote.opportunity || quote.opportunity_snapshot) || quote.opportunity_name || "";
   const totals = useMemo(() => form.lines.reduce((sum, line) => { const values = lineTotals(line); return { net: sum.net + values.net, tax: sum.tax + values.tax, gross: sum.gross + values.gross }; }, { net: 0, tax: 0, gross: 0 }), [form.lines]);
   const invalidPrices = form.lines.some(line => Boolean(quotePriceError(line)));
+  const [schedulePreview, setSchedulePreview] = useState(null);
   const payload = () => ({
     opportunityId: form.opportunityId, customerContactId: form.customerContactId || null, billingContactId: form.billingContactId || null,
     address: form.address, event: form.eventId ? { id: form.eventId, kind: form.eventKind || "simple" } : null, issueDate: form.issueDate || null, validUntil: form.validUntil || null,
     purchaseOrderReference: form.purchaseOrderReference || null, customerReference: form.customerReference || null, notes: form.notes,
     currency: form.currency, taxTreatment: form.taxTreatment, paymentTerms: form.paymentTerms, terms: form.paymentTerms, salespersonId: form.salespersonId || null,
+    scheduledBilling: Boolean(form.scheduledBilling), remainderPaymentTermsId: form.scheduledBilling ? form.remainderPaymentTermsId || null : null,
     lines: form.lines.map((line) => ({ ...quoteLineIdentityForSaving(line), kind: line.type, catalogueId: line.type === "product" ? line.productId || null : line.type === "bundle" ? line.bundleId || null : null, description: line.description, quantity: String(line.quantity || "0"), quotedUnitPriceMinor: quotePriceMinor(line, "quotedUnitPriceMinor"), ...(line.type === "free_text" ? { standardUnitPriceMinor: quotePriceMinor(line, "standardUnitPriceMinor") } : {}), discountBps: minor(line.discountBps), ...quoteLineTaxForSaving(line, providerTaxOptions(taxOptions.data), !taxOptions.isPending && !taxOptions.isError) })),
     expectedVersion: quote.rowVersion,
   });
   const preview = useMutation({
     mutationFn: () => request(`/api/sales/quotes${isNew ? "" : `/${id}`}?action=preview`, { method: "POST", body: JSON.stringify(payload()) }),
-    onSuccess: (data) => setServerTotals(data?.quote?.totals || data?.totals || data?.preview?.totals || data?.currentVersion?.totals || data),
+    onSuccess: (data) => {
+      setServerTotals(data?.quote?.totals || data?.totals || data?.preview?.totals || data?.currentVersion?.totals || data);
+      setSchedulePreview({ schedule: billingScheduleOf(data?.preview || data), fingerprint: JSON.stringify(form) });
+    },
     onError: (error) => toast({ title: `Could not recalculate ${naming.singular}`, description: error.message, variant: "destructive" }),
   });
   const [serverTotals, setServerTotals] = useState(null);
@@ -445,7 +458,7 @@ function QuoteEditor() {
     </div></div>
     {!isNew && status === "draft" && <p className="rounded border bg-slate-50 p-3 text-sm">Save draft → preview the draft PDF → Issue {naming.singular} → Send. Issuing locks this version for delivery.{!allowed(["canIssue"], false) && ` Your role does not have permission to issue ${naming.plural}.`}{isDirty && " Save your latest changes first."}</p>}
     {!isNew && <SendQuoteDialog request={request} quoteId={id} version={quote.versionNumber || quote.version_number || quote.version} contacts={contacts} open={sendOpen} onOpenChange={setSendOpen} pending={deliveryAction.isPending} initialRecipient={contacts.find(contact => contact.id === form.billingContactId)?.email || contacts.find(contact => contact.id === form.customerContactId)?.email || quote.recipient || quote.customerEmail || quote.customer_email || ""} onSend={(extra) => deliveryAction.mutateAsync({ action: "send", extra })} />}
-    {!isNew && (["accepted", "converted"].includes(status) || Boolean(quote.saleId)) && <InvoiceStatusPanel saleId={quote.saleId} invoice={quote.invoice} invoices={quote.invoices} activeProvider={quote.activeProvider} permissions={permissions} error={action.error} onCreate={(command) => invoiceAction("create-invoice", command)} onRetry={(command) => invoiceAction("create-invoice", command)} onRefresh={quote.invoice ? () => invoiceAction("refresh-invoice-status") : undefined} />}
+    {!isNew && (["accepted", "converted"].includes(status) || Boolean(quote.saleId)) && <InvoiceStatusPanel scheduledBilling={quote.scheduledBilling || Boolean(quote.billingSchedule)} saleId={quote.saleId} invoice={quote.invoice} invoices={quote.invoices} activeProvider={quote.activeProvider} permissions={permissions} error={action.error} onCreate={(command) => invoiceAction("create-invoice", command)} onRetry={(command) => invoiceAction("create-invoice", command)} onRefresh={quote.invoice ? () => invoiceAction("refresh-invoice-status") : undefined} />}
     {isNew && !form.opportunityId && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Choose an active opportunity below. Its organisation, currency and primary contact will be used for this {naming.singular}.</div>}
     {form.opportunityId && opportunity.isError && <Failure error={opportunity.error} retry={opportunity.refetch} />}
     {isNew && form.opportunityId && !opportunity.ready && !opportunity.isError && <p role="status" className="animate-pulse rounded-lg bg-slate-100 p-3 text-sm text-slate-500">Loading the selected opportunity’s customer details…</p>}
@@ -470,6 +483,9 @@ function QuoteEditor() {
           return <Field key={key} label={label}><AddressInput aria-label={label} disabled={readOnly || (isNew && !opportunity.ready)} value={form.address[key]} onChange={(e) => setForm((old) => ({ ...old, address: { ...old.address, [key]: e.target.value } }))} /></Field>;
         })}</CardContent></Card>
         <LinesEditor form={form} setForm={setForm} products={list(products.data)} bundles={list(bundles.data)} readOnly={readOnly} canOverride={canOverride} />
+        <QuoteBillingSettings form={form} setForm={setForm} readOnly={readOnly} />
+        {form.scheduledBilling && <BillingSchedule schedule={isDirty ? schedulePreview?.schedule || form.billingSchedule : quote.billingSchedule || schedulePreview?.schedule} pending={isDirty && schedulePreview?.fingerprint !== JSON.stringify(form)} />}
+        {form.scheduledBilling && !form.billingSchedule && !schedulePreview?.schedule && <p className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm text-slate-600">Recalculate to preview group contents, exact amounts and relative issue dates before acceptance. The server derives the schedule from this version’s line economics.</p>}
         <Card><CardContent className="flex flex-col items-end gap-1 p-5 text-sm"><p className="mb-2 w-full text-xs text-slate-500">{serverTotals ? "Server-calculated totals" : "Local estimate — save or recalculate for final server totals"}</p><div className="flex w-full max-w-xs justify-between"><span>Net</span><strong>{money(serverTotals?.netMinor ?? serverTotals?.net_minor ?? serverTotals?.netTotalMinor ?? serverTotals?.net_total_minor ?? totals.net, form.currency)}</strong></div><div className="flex w-full max-w-xs justify-between"><span>Tax</span><strong>{money(serverTotals?.taxMinor ?? serverTotals?.tax_minor ?? serverTotals?.taxTotalMinor ?? serverTotals?.tax_total_minor ?? totals.tax, form.currency)}</strong></div><div className="mt-2 flex w-full max-w-xs justify-between border-t pt-2 text-lg"><span>Gross total</span><strong>{money(serverTotals?.grossMinor ?? serverTotals?.gross_minor ?? serverTotals?.grossTotalMinor ?? serverTotals?.gross_total_minor ?? totals.gross, form.currency)}</strong></div></CardContent></Card>
       </TabsContent>
       {!isNew && <TabsContent value="delivery"><DeliveryHistory quoteId={id} /></TabsContent>}
@@ -483,5 +499,6 @@ function Failure({ error, retry }) { return <Card className="border-rose-200"><C
 
 export default function QuotesWorkspace() {
   const { id } = useParams();
-  return id ? <QuoteEditor /> : <QuotesList />;
+  const scope = useSalesSettingsScope();
+  return id ? <QuoteEditor key={`${id}-${scope.scopeKey}`} /> : <QuotesList />;
 }

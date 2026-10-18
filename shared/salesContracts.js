@@ -1,4 +1,5 @@
 import { DEFAULT_QUOTE_NAMING, quoteNamingErrors } from './salesNaming.js';
+import { billingPresetErrors, bundleBillingGroupErrors } from './salesBillingConfiguration.js';
 
 export const SALES_CAPABILITIES = Object.freeze({
   VIEW: 'sales.view',
@@ -44,6 +45,7 @@ export const SALES_INVOICE_STATUSES = Object.freeze([
 ]);
 
 export const DEFAULT_SALES_SETTINGS = Object.freeze({
+  billingPresets: Object.freeze({ issueDelays: Object.freeze([]), paymentTerms: Object.freeze([]) }),
   showInternalCode: true,
   showSku: true,
   quoteSingularName: DEFAULT_QUOTE_NAMING.singular,
@@ -213,8 +215,11 @@ export function validateQuoteDraft(value, { existing = false } = {}) {
     'expectedVersion', 'currency', 'opportunityId', 'organisationId', 'customerContactId', 'billingContactId',
     'address', 'event', 'eventId', 'terms', 'paymentTerms', 'salesperson', 'salespersonId',
     'validUntil', 'issueDate', 'purchaseOrderReference', 'customerReference', 'taxTreatment', 'notes', 'lines',
+    'scheduledBilling', 'remainderPaymentTermsId',
   ]);
   const errors = Object.keys(value).filter((key) => !allowed.has(key)).map((key) => `Unknown quote field: ${key}`);
+  if ('scheduledBilling' in value && typeof value.scheduledBilling !== 'boolean') errors.push('scheduledBilling must be a boolean');
+  if (value.remainderPaymentTermsId != null && !UUID_RE.test(value.remainderPaymentTermsId)) errors.push('remainderPaymentTermsId must be a UUID');
   if (existing && (!Number.isInteger(value.expectedVersion) || value.expectedVersion < 1)) errors.push('expectedVersion must be a positive integer');
   if (!existing && 'expectedVersion' in value) errors.push('expectedVersion is not valid when creating a quote');
   if (!validateCurrency(value.currency)) errors.push('currency must be a three-letter uppercase ISO-4217 code');
@@ -282,11 +287,13 @@ export function validateSalesSettingsPatch(value) {
   }
   const allowed = new Set([
     'quotePrefix', 'quoteNumberPadding', 'defaultCurrency',
+    'billingPresets',
     'defaultTaxRateBps', 'defaultTerms', 'moduleEnabled', 'expectedVersion', 'quoteTaskListName',
     'showInternalCode', 'showSku',
     'quoteSingularName', 'quotePluralName', 'quoteUrlSegment',
   ]);
   const errors = [...quoteNamingErrors(value)];
+  if ('billingPresets' in value) errors.push(...billingPresetErrors(value.billingPresets));
   for (const key of ['showInternalCode', 'showSku']) {
     if (key in value && typeof value[key] !== 'boolean') errors.push(`${key} must be boolean`);
   }
@@ -328,6 +335,7 @@ export function validateSalesSettingsPatch(value) {
 
 export function mapSalesSettingsRow(row) {
   return {
+    billingPresets: row.billing_presets ?? { issueDelays: [], paymentTerms: [] },
     showInternalCode: row.show_internal_code ?? true,
     showSku: row.show_sku ?? true,
     quoteSingularName: row.quote_singular_name ?? DEFAULT_QUOTE_NAMING.singular,
@@ -451,8 +459,10 @@ export function validateCatalogueProduct(value, { patch = false } = {}) {
 
 export function validateCatalogueBundle(value, { patch = false } = {}) {
   if (!isObject(value)) return { ok: false, errors: ['Body must be an object'] };
-  const allowed = new Set(['code', 'name', 'description', 'currency', 'sellingPriceMinor', 'minimumPriceMinor', 'presentationMode', 'availableFrom', 'availableTo', 'displayOrder', 'items']);
+  const allowed = new Set(['code', 'name', 'description', 'currency', 'sellingPriceMinor', 'minimumPriceMinor', 'presentationMode', 'availableFrom', 'availableTo', 'displayOrder', 'items', 'billingGroups', ...(!patch ? ['copySourceId'] : [])]);
   const errors = Object.keys(value).filter((key) => !allowed.has(key)).map((key) => `Unknown bundle field: ${key}`);
+  if ('copySourceId' in value && !UUID_RE.test(value.copySourceId || '')) errors.push('copySourceId must identify a tenant bundle');
+  if ('billingGroups' in value) errors.push(...bundleBillingGroupErrors(value.billingGroups, value.items, value.sellingPriceMinor));
   if ((!patch || 'code' in value) && (typeof value.code !== 'string' || !CATALOGUE_CODE_RE.test(value.code))) errors.push('code must be a valid stable catalogue code');
   if ((!patch || 'name' in value) && (typeof value.name !== 'string' || !value.name.trim() || value.name.length > 255)) errors.push('name must be a non-empty string of at most 255 characters');
   optionalText(errors, value.description, 'description', 20000);

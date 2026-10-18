@@ -54,8 +54,17 @@ test('product rollout requires shared switch and explicit supported source opt-i
   }
 });
 
-test('accepted pending sale resumes without reading current quote, claiming again or calling direct writer', async () => {
-  const db = { from() { throw new Error('Unexpected current source read'); }, rpc() { throw new Error('Unexpected claim'); } };
+function legacyAuthorityDb() {
+  return { from(table) {
+    assert.ok(['sales_commercial_sale', 'sales_quote_version'].includes(table), 'only immutable ownership classification may be read before resume');
+    const query = { select() { return query; }, eq() { return query; },
+      async maybeSingle() { return { data: table === 'sales_commercial_sale'
+        ? { id: 'sale', quote_version_id: 'version' } : { id: 'version', billing_schedule: null } }; } };
+    return query;
+  }, rpc() { throw new Error('Unexpected claim'); } };
+}
+test('accepted pending sale checks scheduled ownership then resumes without economics reads, new claim or direct writer', async () => {
+  const db = legacyAuthorityDb();
   let resumes = 0;
   await assert.rejects(createSalesInvoice(db, 'tenant', { actorId: 'actor' }, 'sale', {}, {
     getAccountingProvider() { throw new Error('Unexpected provider lookup'); },
@@ -74,7 +83,7 @@ test('accepted pending sale resumes without reading current quote, claiming agai
 
 test('OFF sale still resumes an accepted durable owner without any legacy writer or live catalogue read', async () => {
   let lookup;
-  await assert.rejects(createSalesInvoice({}, 'tenant', { actorId: 'actor' }, 'sale', {}, {
+  await assert.rejects(createSalesInvoice(legacyAuthorityDb(), 'tenant', { actorId: 'actor' }, 'sale', {}, {
     getAccountingProvider() { throw new Error('Legacy fallback forbidden'); },
     accountingQueue: {
       enabled: () => false,
@@ -89,7 +98,7 @@ test('OFF sale still resumes an accepted durable owner without any legacy writer
 
 test('OFF ownership lookup failure is not permission to use legacy writer', async () => {
   const failure = new Error('ACCOUNTING_QUEUE_LOOKUP_FAILED');
-  await assert.rejects(createSalesInvoice({}, 'tenant', { actorId: 'actor' }, 'sale', {}, {
+  await assert.rejects(createSalesInvoice(legacyAuthorityDb(), 'tenant', { actorId: 'actor' }, 'sale', {}, {
     getAccountingProvider() { throw new Error('Legacy fallback forbidden'); },
     accountingQueue: { enabled: () => false, resume: async () => { throw failure; } },
   }), error => error === failure);
@@ -101,9 +110,11 @@ test('fresh OFF source and missing-table OFF install retain legacy path; other D
     const db = {
       from(table) {
         const query = {
-          select() { return query; }, eq() { return query; },
+          select() { return query; }, eq() { return query; }, is() { return query; },
           async maybeSingle() {
             if (table === 'accounting_request_queue') return { data: null, error: lookupError };
+            if (table === 'sales_commercial_sale') return { data: { id: 'sale', quote_version_id: 'version' } };
+            if (table === 'sales_quote_version') return { data: { id: 'version', billing_schedule: null } };
             assert.equal(table, 'sales_accounting_invoice_link');
             return { data: { id: 'link', provider: 'xero', provider_invoice_id: 'invoice' }, error: null };
           },
@@ -145,7 +156,7 @@ for (const providerName of ['xero', 'quickbooks']) {
       from(table) {
         const result = () => ({ data: records[table] || null, error: null });
         const query = {
-          select() { return query; }, eq() { return query; }, in() { return query; }, order() { return query; },
+          select() { return query; }, eq() { return query; }, is() { return query; }, in() { return query; }, order() { return query; },
           update(value) { writes.push({ table, value }); return query; },
           async maybeSingle() { return result(); },
           then(resolve, reject) { return Promise.resolve(result()).then(resolve, reject); },

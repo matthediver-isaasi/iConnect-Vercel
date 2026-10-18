@@ -86,6 +86,7 @@ export async function sendTenantEmail({
   replyTo, 
   cc, 
   bcc,
+  attachments = [],
   footer,
   inboxDelivery = null,
   // Server-side callers do not supply this. It allows focused transport tests
@@ -152,6 +153,7 @@ export async function sendTenantEmail({
       subject,
       html: finalHtml,
       text: text || finalHtml.replace(/<[^>]*>/g, ''),
+      ...(attachments.length ? { attachment: attachments } : {}),
     };
 
     if (replyTo) {

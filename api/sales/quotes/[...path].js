@@ -95,12 +95,15 @@ export function createSalesQuotesHandler(dependencies = {}) {
             ...salesInvoicePermissions({
               canManageAccounting, canView: true, saleId: accounting.saleId,
               activeProvider: accounting.activeProvider, invoice: accounting.invoice,
+              schedules: accounting.schedules,
             }),
           },
           saleId: accounting.saleId,
           activeProvider: accounting.activeProvider,
           invoice: accounting.invoice,
           invoices: accounting.invoices,
+          schedules: accounting.schedules,
+          scheduledBilling: accounting.scheduledBilling || Boolean(quote.currentVersion?.billingSchedule),
         });
       }
       if (read && action === 'history') return res.status(200).json({ items: await getQuoteHistory(db, actor.tenantId, id) });
@@ -158,12 +161,12 @@ export function createSalesQuotesHandler(dependencies = {}) {
         const body = normaliseQuoteInput(req.body || {});
         const validation = validateQuoteDraft(body, { existing: Boolean(id) });
         if (!validation.ok) return res.status(400).json({ error: 'Invalid quote preview', details: validation.errors });
-        const { previousLines, previousSalesperson } = await loadQuoteDraftState(db, actor.tenantId, id);
-        try { return res.status(200).json({ quote: await prepareQuoteDraft(db, actor.tenantId, actor, body, false, previousLines, previousSalesperson), permissions: { canOverridePrices: false } }); }
+        const { previousLines, previousSalesperson, previousBillingSchedule } = await loadQuoteDraftState(db, actor.tenantId, id);
+        try { return res.status(200).json({ quote: await prepareQuoteDraft(db, actor.tenantId, actor, body, false, previousLines, previousSalesperson, previousBillingSchedule), permissions: { canOverridePrices: false } }); }
         catch (error) {
           if (!(error instanceof SalesHttpError) || error.status !== 403) throw error;
           await requireSalesContext(context, SALES_CAPABILITIES.MANAGE_CATALOGUE_PRICES, dependencies);
-          return res.status(200).json({ quote: await prepareQuoteDraft(db, actor.tenantId, actor, body, true, previousLines, previousSalesperson), permissions: { canOverridePrices: true } });
+          return res.status(200).json({ quote: await prepareQuoteDraft(db, actor.tenantId, actor, body, true, previousLines, previousSalesperson, previousBillingSchedule), permissions: { canOverridePrices: true } });
         }
       }
       if ((req.method === 'POST' && !id) || (req.method === 'PATCH' && id && !action)) {
@@ -171,8 +174,8 @@ export function createSalesQuotesHandler(dependencies = {}) {
         const validation = validateQuoteDraft(body, { existing: Boolean(id) });
         if (!validation.ok) return res.status(400).json({ error: 'Invalid quote draft', details: validation.errors });
         let allowOverride = false;
-        const { previousLines, previousSalesperson } = await loadQuoteDraftState(db, actor.tenantId, id);
-        try { await prepareQuoteDraft(db, actor.tenantId, actor, body, false, previousLines, previousSalesperson); } catch (error) {
+        const { previousLines, previousSalesperson, previousBillingSchedule } = await loadQuoteDraftState(db, actor.tenantId, id);
+        try { await prepareQuoteDraft(db, actor.tenantId, actor, body, false, previousLines, previousSalesperson, previousBillingSchedule); } catch (error) {
           if (!(error instanceof SalesHttpError) || error.status !== 403) throw error;
           await requireSalesContext(context, SALES_CAPABILITIES.MANAGE_CATALOGUE_PRICES, dependencies);
           allowOverride = true;

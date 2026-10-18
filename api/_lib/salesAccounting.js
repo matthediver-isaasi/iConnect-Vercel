@@ -21,7 +21,7 @@ const one = async (query, message) => {
   if (!data) throw new SalesHttpError(404, message);
   return data;
 };
-const customerFrom = (version) => {
+export const customerFrom = (version) => {
   const org = version.organisation_snapshot || {};
   const contact = version.billing_contact_snapshot || version.customer_contact_snapshot || {};
   const addressValue = version.address_snapshot || org.address || org.address_line_1 || null;
@@ -60,6 +60,7 @@ const externalError = (error, provider) => {
 };
 export const mapSalesInvoiceLink = (row) => ({
   id: row.id, saleId: row.sale_id, quoteVersionId: row.quote_version_id,
+  scheduleId: row.schedule_id || null,
   provider: row.provider, invoiceId: row.provider_invoice_id,
   invoiceNumber: row.provider_invoice_number, invoiceUrl: row.provider_invoice_url,
   status: row.provider_status, statusRaw: row.provider_status_raw,
@@ -71,13 +72,13 @@ export function selectSalesInvoiceForProvider(links, activeProvider) {
   return (links || []).find((link) => link.provider === activeProvider) || null;
 }
 
-export function salesInvoicePermissions({ canManageAccounting, canView, saleId, activeProvider, invoice }) {
-  const canUseActiveProvider = Boolean(canManageAccounting && saleId && activeProvider && activeProvider !== PROVIDER_NONE);
+export function salesInvoicePermissions({ canManageAccounting, canView, saleId, activeProvider, invoice, schedules = [] }) {
+  const canUseActiveProvider = Boolean(!schedules.length && canManageAccounting && saleId && activeProvider && activeProvider !== PROVIDER_NONE);
   return {
     canCreateInvoice: canUseActiveProvider && !invoice,
     // Retrying is the same idempotent conversion command; it is only useful
     // while the active provider has no completed linkage.
-    canRetryInvoice: canUseActiveProvider && !invoice,
+    canRetryInvoice: schedules.length ? Boolean(canManageAccounting && saleId) : canUseActiveProvider && !invoice,
     canViewInvoice: Boolean(canView && saleId),
   };
 }
@@ -119,16 +120,17 @@ export async function getSalesInvoicePresentation(db, tenantId, {
   const [{ data: links, error: linkError }, { data: version, error: versionError }] = await Promise.all([
     db.from('sales_accounting_invoice_link').select('*').eq('tenant_id', tenantId)
       .eq('sale_id', sale.id).order('created_at'),
-    db.from('sales_quote_version').select('id,quote_id,version_number,status').eq('tenant_id', tenantId)
+    db.from('sales_quote_version').select('id,quote_id,version_number,status,billing_schedule').eq('tenant_id', tenantId)
       .eq('id', sale.quote_version_id).maybeSingle(),
   ]);
   if (linkError) throw linkError;
   if (versionError) throw versionError;
   const invoices = (links || []).map(mapSalesInvoiceLink);
+  const schedules = await (await import('./salesInvoiceSchedule.js')).getSalesSchedules(db, tenantId, sale.id);
   return {
     sale, saleId: sale.id, activeProvider: active,
     invoice: selectSalesInvoiceForProvider(invoices, active),
-    invoices, acceptedQuote: version ? {
+    invoices, schedules, scheduledBilling: Boolean(version?.billing_schedule), acceptedQuote: version ? {
       id: version.quote_id, versionId: version.id, versionNumber: version.version_number,
     } : null,
   };
@@ -224,7 +226,7 @@ export async function saveSalesAccountingConfiguration(db, tenantId, input, depe
 
 async function existingLink(db, tenantId, saleId, provider) {
   const { data, error } = await db.from('sales_accounting_invoice_link').select('*')
-    .eq('tenant_id', tenantId).eq('sale_id', saleId).eq('provider', provider).maybeSingle();
+    .eq('tenant_id', tenantId).eq('sale_id', saleId).eq('provider', provider).is('schedule_id', null).maybeSingle();
   if (error) throw error;
   return data || null;
 }
@@ -415,10 +417,24 @@ export async function prepareQueuedSalesRequest({ row, db, transport }, dependen
       (await import('./quickbooks.js')).createQuickBooksSalesCustomer(tenant, customer, providerDependencies),
   });
   let customerId;
+  let command = frozen.command;
+  if (row.source_type === 'sales_invoice_schedule') {
+    const schedule = await one(db.from('sales_invoice_schedule').select('customer_resolution')
+      .eq('tenant_id', row.tenant_id).eq('id', row.source_id), 'Invoice schedule not found');
+    if (schedule.customer_resolution?.providerCustomerId) command = {
+      providerCustomerId: schedule.customer_resolution.providerCustomerId, confirmCustomerMatch: true,
+    };
+  }
   try {
     customerId = await resolveCustomer(db, provider, row.tenant_id,
-      { actorId: snapshot.linkage.actorId }, frozen.customer, frozen.command);
+      { actorId: snapshot.linkage.actorId }, frozen.customer, command);
   } catch (error) {
+    if (row.source_type === 'sales_invoice_schedule') {
+      const { error: saveError } = await db.from('sales_invoice_schedule').update({
+        last_error: { code: error.code || 'ACCOUNTING_PREPARATION_FAILED', message: error.message, details: error.details || {} },
+      }).eq('tenant_id', row.tenant_id).eq('id', row.source_id).eq('accounting_request_id', row.id);
+      if (saveError) throw saveError;
+    }
     if (error.code === 'ACCOUNTING_CUSTOMER_IN_PROGRESS') error.retry = true;
     throw error;
   }
@@ -430,6 +446,17 @@ export async function prepareQueuedSalesRequest({ row, db, transport }, dependen
 }
 
 export async function createSalesInvoice(db, tenantId, actor, saleId, command = {}, dependencies = {}) {
+  // Before even resuming a legacy request: a scheduled sale has only per-group
+  // ownership. Manual retries must not sneak through the old whole-sale path.
+  const sale = await one(db.from('sales_commercial_sale').select('*').eq('tenant_id', tenantId).eq('id', saleId),
+    'Confirmed commercial sale not found');
+  const version = await one(db.from('sales_quote_version').select('*').eq('tenant_id', tenantId).eq('id', sale.quote_version_id),
+    'Accepted quote version not found');
+  if (version.billing_schedule) {
+    const error = new SalesHttpError(409, 'This sale uses scheduled group invoices; retry the individual due group instead');
+    error.code = 'SALES_SCHEDULE_OWNS_INVOICING';
+    throw error;
+  }
   const queue = dependencies.accountingQueue || {
     enabled: productAccountingQueueEnabled,
     resume: resumeAccountingSource,
@@ -466,10 +493,6 @@ export async function createSalesInvoice(db, tenantId, actor, saleId, command = 
   if (!provider || provider.name === PROVIDER_NONE) throw new SalesHttpError(409, 'No active accounting provider is configured');
   const found = await existingLink(db, tenantId, saleId, provider.name);
   if (found) return { invoice: mapSalesInvoiceLink(found), existing: true };
-  const sale = await one(db.from('sales_commercial_sale').select('*').eq('tenant_id', tenantId).eq('id', saleId),
-    'Confirmed commercial sale not found');
-  const version = await one(db.from('sales_quote_version').select('*').eq('tenant_id', tenantId).eq('id', sale.quote_version_id),
-    'Accepted quote version not found');
   if (!['accepted', 'converted'].includes(version.status)) throw new SalesHttpError(409, 'Sale source quote version is not accepted');
   const { data: lines, error: lineError } = await db.from('sales_quote_line').select('*')
     .eq('tenant_id', tenantId).eq('quote_version_id', version.id).order('display_order');
@@ -560,11 +583,15 @@ export async function getSalesInvoices(db, tenantId, saleId) {
   const { data, error } = await db.from('sales_accounting_invoice_link').select('*')
     .eq('tenant_id', tenantId).eq('sale_id', saleId).order('created_at');
   if (error) throw error;
-  return { items: (data || []).map(mapSalesInvoiceLink) };
+  const schedules = await (await import('./salesInvoiceSchedule.js')).getSalesSchedules(db, tenantId, saleId);
+  return { items: (data || []).map(mapSalesInvoiceLink), schedules };
 }
 
 export async function refreshSalesInvoiceStatus(db, tenantId, saleId, providerName, dependencies = {}) {
-  const link = await existingLink(db, tenantId, saleId, providerName);
+  const link = dependencies.scheduleId
+    ? await one(db.from('sales_accounting_invoice_link').select('*').eq('tenant_id', tenantId)
+      .eq('sale_id', saleId).eq('schedule_id', dependencies.scheduleId).eq('provider', providerName), 'Sales invoice linkage not found')
+    : await existingLink(db, tenantId, saleId, providerName);
   if (!link) throw new SalesHttpError(404, 'Sales invoice linkage not found');
   const activeProvider = await (dependencies.getActiveAccountingProvider || getActiveAccountingProvider)(tenantId);
   if (activeProvider !== providerName) {
@@ -573,6 +600,16 @@ export async function refreshSalesInvoiceStatus(db, tenantId, saleId, providerNa
     disconnected.code = 'ACCOUNTING_PROVIDER_HISTORICAL';
     disconnected.details = { invoice: mapSalesInvoiceLink(link), activeProvider, retryable: false };
     throw disconnected;
+  }
+  if (dependencies.scheduleId) {
+    const schedule = dependencies.schedule || await one(db.from('sales_invoice_schedule').select('provider_company_id')
+      .eq('tenant_id', tenantId).eq('id', dependencies.scheduleId), 'Invoice schedule not found');
+    const binding = await (dependencies.resolveBinding || resolveAccountingQueueBinding)({ db, tenantId, provider: providerName });
+    if (binding.companyId !== schedule.provider_company_id) {
+      const changed = new SalesHttpError(409, 'Reconnect the original accounting company before refreshing this group invoice');
+      changed.code = 'ACCOUNTING_QUEUE_BINDING_CHANGED';
+      throw changed;
+    }
   }
   const provider = (dependencies.getAccountingProviderByName || getAccountingProviderByName)(providerName);
   try {

@@ -4,6 +4,8 @@ import {
 import { SalesHttpError } from './salesAccess.js';
 import { resolveSalesTaxCode } from './salesCatalogueTaxOptions.js';
 import { quoteSalespersonSnapshot } from './quoteSalespeople.js';
+import { randomUUID } from 'node:crypto';
+import { buildBillingSchedule, resolveBillingTimezone } from '../../shared/salesBilling.js';
 
 const VERSION_SELECT = '*,sales_quote_line(*,sales_quote_bundle_component(*))';
 
@@ -110,12 +112,47 @@ async function resolveLine(db, tenantId, line, index, allowPriceOverride, previo
   };
 }
 
-export async function prepareQuoteDraft(db, tenantId, actor, draft, allowPriceOverride = false, previousLines = new Map(), previousSalesperson) {
+export async function prepareQuoteDraft(db, tenantId, actor, draft, allowPriceOverride = false, previousLines = new Map(), previousSalesperson, previousBillingSchedule) {
   const snapshots = await snapshotReferences(db, tenantId, actor, draft, previousSalesperson);
   const lines = await Promise.all(draft.lines.map((line, index) => resolveLine(
     db, tenantId, { ...line, currency: draft.currency }, index, allowPriceOverride, previousLines.get(line.id),
   )));
+  let billingSchedule = null;
+  if (draft.scheduledBilling === true) {
+    const [settings, tenant] = await Promise.all([
+      db.from('sales_settings').select('billing_presets').eq('tenant_id', tenantId).maybeSingle(),
+      db.from('tenant').select('*').eq('id', tenantId).single(),
+    ]);
+    if (settings.error) throw settings.error;
+    if (tenant.error) throw tenant.error;
+    const previousTerms = previousBillingSchedule?.remainderPaymentTerms
+      || previousBillingSchedule?.groups?.find(g => g.linePosition === null)?.paymentTerms;
+    const presets = settings.data?.billing_presets?.paymentTerms || [];
+    const terms = previousTerms && previousTerms.id === draft.remainderPaymentTermsId ? previousTerms
+      : presets.find(p => p.id === draft.remainderPaymentTermsId && p.isActive);
+    if (draft.remainderPaymentTermsId && !terms) throw new SalesHttpError(400, 'Select active payment terms for the remainder group');
+    const contact = [snapshots.billingContactSnapshot, snapshots.customerContactSnapshot]
+      .find(c => c?.email || c?.email_address) || {};
+    const org = snapshots.organisationSnapshot || {};
+    try {
+      billingSchedule = buildBillingSchedule({ lines, currency: draft.currency, newId: randomUUID,
+        ...resolveBillingTimezone(tenant.data?.settings?.timezone || tenant.data?.timezone),
+        recipient: { email: contact.email || contact.email_address || org.email || null,
+          name: contact.name || [contact.first_name, contact.last_name].filter(Boolean).join(' ') || org.name || null },
+        remainderPaymentTerms: terms ? { id: terms.id, name: terms.name, days: terms.days } : null });
+      // Keep group identity through ordinary edits/reordering of an existing
+      // draft. Never identify repeated bundles by catalogue ID alone.
+      for (const group of billingSchedule.groups) {
+        const oldPosition = group.linePosition === null ? null
+          : previousLines.get(draft.lines[group.linePosition]?.id)?.display_order;
+        const oldGroup = previousBillingSchedule?.groups?.find(g => g.linePosition === oldPosition
+          && (group.linePosition === null || g.sourceGroupId === group.sourceGroupId));
+        if (oldGroup) group.id = oldGroup.id;
+      }
+    } catch (error) { throw new SalesHttpError(400, error.message); }
+  }
   return {
+    billingSchedule,
     currency: draft.currency, opportunityId: draft.opportunityId || null,
     issueDate: draft.issueDate || null, validUntil: draft.validUntil || null, notes: draft.notes || null,
     purchaseOrderReference: draft.purchaseOrderReference || null, customerReference: draft.customerReference || null,
@@ -140,26 +177,28 @@ async function quoteRpc(db, name, args) {
 export async function loadQuoteDraftState(db, tenantId, id) {
   const previousLines = new Map();
   let previousSalesperson;
+  let previousBillingSchedule;
   if (id) {
-    const { data: version, error } = await db.from('sales_quote_version').select('id,salesperson_snapshot')
+    const { data: version, error } = await db.from('sales_quote_version').select('id,salesperson_snapshot,billing_schedule')
       .eq('tenant_id', tenantId).eq('quote_id', id).eq('status', 'draft').maybeSingle();
     if (error) throw error;
     if (version) {
       previousSalesperson = version.salesperson_snapshot;
+      previousBillingSchedule = version.billing_schedule;
       const result = await db.from('sales_quote_line').select('*').eq('tenant_id', tenantId).eq('quote_version_id', version.id);
       if (result.error) throw result.error;
       for (const line of result.data || []) previousLines.set(line.id, line);
     }
   }
-  return { previousLines, previousSalesperson };
+  return { previousLines, previousSalesperson, previousBillingSchedule };
 }
 
 export async function saveQuoteDraft(db, tenantId, actor, id, expectedVersion, draft, allowOverride) {
-  const { previousLines, previousSalesperson } = await loadQuoteDraftState(db, tenantId, id);
+  const { previousLines, previousSalesperson, previousBillingSchedule } = await loadQuoteDraftState(db, tenantId, id);
   for (const line of draft.lines) if (line.id && !previousLines.has(line.id)) {
     throw new SalesHttpError(409, 'A quote line is no longer part of this draft. Reload before saving.');
   }
-  const payload = await prepareQuoteDraft(db, tenantId, actor, draft, allowOverride, previousLines, previousSalesperson);
+  const payload = await prepareQuoteDraft(db, tenantId, actor, draft, allowOverride, previousLines, previousSalesperson, previousBillingSchedule);
   for (let i = 0; i < payload.lines.length; i++) {
     if (!previousLines.has(draft.lines[i].id) && !payload.lines[i].catalogueSnapshot?.tax_code) {
       throw new SalesHttpError(400, `Select a provider tax code for new quote line ${i + 1}${draft.lines[i].kind === 'product' ? ' on its catalogue product' : ''}.`);
@@ -231,7 +270,11 @@ export async function getQuote(db, tenantId, id) {
     .select(VERSION_SELECT).eq('tenant_id', tenantId).eq('quote_id', id)
     .order('version_number', { ascending: false });
   if (versionError) throw versionError;
-  return { ...root, currentVersion: versions?.find((v) => v.version_number === root.current_version), versions: versions || [] };
+  const hydrated = (versions || []).map(version => ({ ...version,
+    scheduledBilling: Boolean(version.billing_schedule),
+    remainderPaymentTermsId: version.billing_schedule?.remainderPaymentTerms?.id
+      || version.billing_schedule?.groups?.find(g => g.linePosition === null)?.paymentTerms?.id || null }));
+  return { ...root, currentVersion: hydrated.find((v) => v.version_number === root.current_version), versions: hydrated };
 }
 
 export async function getQuoteHistory(db, tenantId, id) {

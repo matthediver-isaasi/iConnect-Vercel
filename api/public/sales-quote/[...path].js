@@ -62,6 +62,8 @@ function publicQuoteDto(quote, version) {
     event: { name: version.event_snapshot?.name || version.event_snapshot?.title || null },
     terms: { text: version.terms_snapshot?.text || null }, issueDate: version.issue_date || null,
     validUntil: version.valid_until || null,
+    billingSchedule: version.billing_schedule ? { timezone: version.billing_schedule.timezone,
+      timezoneFallback: version.billing_schedule.timezoneFallback, groups: version.billing_schedule.groups } : null,
     purchaseOrderReference: version.purchase_order_reference || null,
     customerReference: version.customer_reference || null,
     notes: version.notes || null, netMinor: version.net_minor,

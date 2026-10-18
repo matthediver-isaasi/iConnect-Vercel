@@ -16,6 +16,14 @@ export async function linkAccountingProductSource({ db, row }) {
   const result = row?.invoice_result;
   if (!row?.tenant_id || !row.source_id || !link || !result?.id
       || !['xero', 'quickbooks'].includes(row.provider)) fail('invalid authority');
+  if (row.source_type === 'sales_invoice_schedule') {
+    const { data, error } = await db.rpc('link_sales_invoice_schedule', {
+      p_tenant: row.tenant_id, p_schedule: row.source_id, p_request: row.id,
+    });
+    if (error) throw error;
+    if (!data?.linked) fail('schedule linkage not persisted');
+    return data;
+  }
   if (row.source_type === 'sales_commercial_sale') {
     if (link.saleId !== row.source_id || !link.quoteVersionId || !link.attemptId || !link.actorId) fail('invalid sale authority');
     const sale = await single(db.from('sales_commercial_sale').select('*')

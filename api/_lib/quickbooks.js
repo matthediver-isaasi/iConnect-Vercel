@@ -503,6 +503,7 @@ export function buildQuickBooksSalesInvoicePayload(invoice) {
     CurrencyRef: { value: invoice.currency },
     CustomerMemo: { value: invoice.customerReference || invoice.purchaseOrderReference || '' },
     PONumber: invoice.purchaseOrderReference || undefined,
+    ...(invoice.issueDate ? { TxnDate: invoice.issueDate, DueDate: invoice.dueDate } : {}),
     GlobalTaxCalculation: 'TaxExcluded',
     Line: invoice.lines.map((line, index) => ({
       DetailType: 'SalesItemLineDetail', Description: line.description,

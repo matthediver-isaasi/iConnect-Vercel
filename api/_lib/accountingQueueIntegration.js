@@ -33,6 +33,19 @@ function membershipQuery(db, row) {
     .eq('tenant_id', row.tenant_id).eq(ownerColumn, link.ownerId);
 }
 export async function assertAccountingSource({ db, row }) {
+  if (row.source_type === 'sales_invoice_schedule') {
+    const link = row.snapshot?.linkage;
+    const schedule = await one(db.from('sales_invoice_schedule').select('*')
+      .eq('tenant_id', row.tenant_id).eq('id', row.source_id));
+    if (link?.scheduleId !== schedule.id || link.saleId !== schedule.sale_id
+      || link.quoteVersionId !== schedule.quote_version_id || schedule.accounting_request_id !== row.id
+      || schedule.provider !== row.provider || schedule.provider_company_id !== row.company_id
+      || !['queued', 'invoiced'].includes(schedule.status)) fail('ACCOUNTING_QUEUE_SCHEDULE_AUTHORITY_CHANGED');
+    const version = await one(db.from('sales_quote_version').select('status,billing_schedule')
+      .eq('tenant_id', row.tenant_id).eq('id', schedule.quote_version_id));
+    if (!['accepted', 'converted'].includes(version.status) || !version.billing_schedule) fail('ACCOUNTING_QUEUE_SCHEDULE_NOT_ACCEPTED');
+    return schedule;
+  }
   if (isAccountingEventSource(row.source_type)) return assertAccountingEventSource({ db, row });
   if (row.source_type === GO_CARDLESS_ACCOUNTING_SOURCE) return assertGoCardlessAccountingSource({ db, row });
   if (memberTables.has(row.source_type)) {
@@ -75,6 +88,9 @@ export async function assertAccountingSource({ db, row }) {
     && link.attemptId && link.actorId) {
     const sale = await one(db.from('sales_commercial_sale').select('*').eq('id', row.source_id)
       .eq('tenant_id', row.tenant_id).eq('quote_version_id', link.quoteVersionId));
+    const version = await one(db.from('sales_quote_version').select('billing_schedule')
+      .eq('tenant_id', row.tenant_id).eq('id', link.quoteVersionId));
+    if (version.billing_schedule) fail('ACCOUNTING_QUEUE_SCHEDULE_OWNS_SALE');
     await one(db.from('sales_accounting_invoice_attempt').select('*').eq('tenant_id', row.tenant_id)
       .eq('id', link.attemptId).eq('sale_id', row.source_id).eq('provider', row.provider));
     const { data: existing, error } = await db.from('sales_accounting_invoice_link').select('*')
@@ -154,7 +170,7 @@ export async function getAccountingQueueAdapter(row, controls = {}, dependencies
       discoverInvoice: candidate => runBnmsOctoberInvoice({ db, row: candidate, adapter, discover: true }),
     } : {}),
     ...((isAccountingEventSource(row.source_type) || row.source_type === GO_CARDLESS_ACCOUNTING_SOURCE || memberTables.has(row.source_type)
-      || row.source_type === 'sales_commercial_sale' || row.source_type === 'training_fund_purchase') ? {
+      || row.source_type === 'sales_commercial_sale' || row.source_type === 'sales_invoice_schedule' || row.source_type === 'training_fund_purchase') ? {
       prepare: async candidate => {
         // Provider transport constrains preparation to bound reads/contacts;
         // financial writes cannot masquerade as an unfenced preparation call.

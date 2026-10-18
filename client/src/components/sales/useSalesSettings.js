@@ -13,8 +13,10 @@ export async function salesSettingsRequest(path, options = {}) {
   });
   const data = await response.json();
   if (!response.ok) {
-    const error = new Error(data?.details?.join(" ") || data?.error || "Could not load Sales settings. Please retry.");
+    const details = Array.isArray(data?.details) ? data.details.map(item => typeof item === "string" ? item : item?.message).filter(Boolean).join(" ") : "";
+    const error = new Error(details || data?.message || (typeof data?.error === "string" ? data.error : data?.error?.message) || "The Sales request failed. Please retry.");
     error.status = response.status;
+    error.payload = data;
     throw error;
   }
   return data;
@@ -56,7 +58,7 @@ export function useSalesSettings(request = salesSettingsRequest, { enabled = tru
     qc.setQueryData(queryKey, old => !old || result.version >= old.version ? result : old);
   };
   return {
-    ...query, scopeKey, queryKey, ready: ready && query.isSuccess,
+    ...query, scopeKey, queryKey, ready: ready && query.isSuccess && !query.isError,
     lastConfirmedData: ready ? query.data : undefined,
     data: ready && !query.isError ? query.data : undefined,
     patch: patch => {
