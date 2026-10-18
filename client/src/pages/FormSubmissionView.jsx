@@ -1,11 +1,17 @@
-import { useState } from "react";
-import { useParams, Link, useSearchParams } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { useParams, Link, useSearchParams, useNavigate } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, ArrowLeft, FileText, Calendar, User, Building2, ChevronDown, ChevronUp, Pencil, AlertTriangle, Info } from "lucide-react";
+import { Loader2, ArrowLeft, FileText, Calendar, User, Building2, ChevronDown, ChevronUp, Pencil, AlertTriangle, Info, Trash2 } from "lucide-react";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { reconcileDeletedSubmission, submissionDeletionRestriction } from "@/lib/formSubmissionDeletion";
+import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { toast } from "sonner";
 import FormRenderer from "../components/forms/FormRenderer";
 import SubmissionOrganisationValue from "../components/forms/SubmissionOrganisationValue";
@@ -96,9 +102,14 @@ const SUBMISSION_STATUSES = [
 ];
 
 export default function FormSubmissionView() {
+  const { memberInfo, sessionValidated, isAccessReady, isFeatureExcluded } = useMemberAccess();
   const { submissionId } = useParams();
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleted, setDeleted] = useState(false);
+  const deleteInFlight = useRef(false);
   const [expandedSections, setExpandedSections] = useState({});
   const [editField, setEditField] = useState(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
@@ -123,10 +134,10 @@ export default function FormSubmissionView() {
     queryFn: async () => {
       return await base44.entities.FormSubmission.get(submissionId);
     },
-    enabled: !!submissionId
+    enabled: !!submissionId && !deleted
   });
 
-  const { data: form, isLoading: formLoading } = useQuery({
+  const { data: form, isLoading: formLoading, isSuccess: formLoaded, isFetching: formFetching, error: formError, refetch: refetchForm } = useQuery({
     queryKey: ['form-for-submission', submission?.form_id],
     queryFn: async () => {
       return await base44.entities.Form.get(submission.form_id);
@@ -207,6 +218,45 @@ export default function FormSubmissionView() {
   const handleStatusChange = (newStatus) => {
     updateStatusMutation.mutate(newStatus);
   };
+
+  const canManageSubmissions = !!memberInfo && sessionValidated && isAccessReady
+    && !isFeatureExcluded('page_FormSubmissions');
+  const deleteRestriction = !canManageSubmissions
+    ? 'Form Submissions management access is required to delete this submission.'
+    : submissionDeletionRestriction({
+    submission,
+    form,
+    formReady: formLoaded && !formFetching && !formError,
+  });
+  const deleteMutation = useMutation({
+    mutationFn: id => base44.entities.FormSubmission.delete(id),
+    retry: false,
+    onSuccess: async (_, id) => {
+      await queryClient.cancelQueries({ queryKey: ['form-submission', id], exact: true });
+      await reconcileDeletedSubmission(queryClient, id);
+      setDeleted(true);
+    },
+    onError: () => {
+      deleteInFlight.current = false;
+    },
+  });
+  // Wait for the disabled detail query to render before evicting it, avoiding
+  // a refetch/not-found flash while the successful deletion leaves this page.
+  useEffect(() => {
+    if (!deleted) return;
+    queryClient.removeQueries({ queryKey: ['form-submission', submissionId], exact: true });
+    toast.success('Submission deleted');
+    navigate(backPath, { replace: true });
+  }, [deleted, queryClient, submissionId, navigate, backPath]);
+
+  const confirmDelete = (event) => {
+    event.preventDefault(); // Keep the confirmation open for pending/error states.
+    if (deleteRestriction || deleteInFlight.current || updateStatusMutation.isPending) return;
+    deleteInFlight.current = true; // Synchronous guard, including clicks before React renders.
+    deleteMutation.mutate(submissionId);
+  };
+
+  if (deleted) return <div role="status" className="p-8">Returning to submissions…</div>;
 
   if (submissionLoading || formLoading) {
     return (
@@ -449,10 +499,11 @@ export default function FormSubmissionView() {
                 <p className="text-slate-600 dark:text-slate-400 mt-1">{form.description}</p>
               )}
             </div>
+            <div className="flex flex-wrap items-center gap-2">
             <Select
               value={submission.status || 'new'}
               onValueChange={handleStatusChange}
-              disabled={updateStatusMutation.isPending}
+              disabled={updateStatusMutation.isPending || deleteMutation.isPending}
             >
               <SelectTrigger 
                 className="w-[140px]" 
@@ -472,8 +523,64 @@ export default function FormSubmissionView() {
                 ))}
               </SelectContent>
             </Select>
+            <Button
+              variant="destructive"
+              disabled={!!deleteRestriction || deleteMutation.isPending || updateStatusMutation.isPending}
+              aria-describedby={deleteRestriction ? 'submission-delete-restriction' : undefined}
+              onClick={() => { deleteMutation.reset(); setDeleteOpen(true); }}
+              data-testid="button-delete-submission"
+            >
+              <Trash2 className="w-4 h-4 mr-2" aria-hidden="true" />
+              Delete
+            </Button>
+            </div>
           </div>
+          {deleteRestriction && (
+            <p id="submission-delete-restriction" className="text-sm text-slate-600 dark:text-slate-400 mt-3">
+              {deleteRestriction}
+              {formError && (
+                <Button variant="link" size="sm" onClick={() => refetchForm()} disabled={formFetching}>
+                  Retry loading form
+                </Button>
+              )}
+            </p>
+          )}
         </div>
+
+        <AlertDialog open={deleteOpen} onOpenChange={open => {
+          if (!deleteInFlight.current) setDeleteOpen(open);
+        }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete submission?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Delete the submission for “{form?.name || submission.form_name || 'Form Submission'}”
+                {submission.submitted_by_name ? ` from ${submission.submitted_by_name}` : ''}?
+                {' '}This permanently deletes the submission and cannot be undone.
+                {' '}It does not refund payments or undo processing, or delete linked member or organisation records.
+                <span className="block mt-2 break-all">Submission ID: {submissionId}</span>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            {deleteRestriction && <p role="alert" className="text-sm">{deleteRestriction}</p>}
+            {deleteMutation.isError && (
+              <p role="alert" className="text-sm text-red-700 dark:text-red-400">
+                Failed to delete submission: {deleteMutation.error?.message || 'Please try again.'}
+                {' '}You can retry or cancel.
+              </p>
+            )}
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={deleteMutation.isPending}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={confirmDelete}
+                disabled={!!deleteRestriction || deleteMutation.isPending || updateStatusMutation.isPending}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                {deleteMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" aria-hidden="true" />}
+                {deleteMutation.isPending ? 'Deleting…' : deleteMutation.isError ? 'Retry deletion' : 'Delete submission'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         <Card className="mb-6 border-slate-200 dark:border-slate-700">
           <CardContent className="p-4">

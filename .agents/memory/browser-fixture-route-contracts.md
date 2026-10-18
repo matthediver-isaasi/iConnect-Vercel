@@ -44,3 +44,14 @@ Scope modal assertions by accessible dialog name, not every dialog on the page.
 **Why:** Multiple unrelated dialogs may legitimately coexist; counting every dialog cannot establish whether a particular editor closed.
 
 **How to apply:** Select the editor's named dialog for reopen/close assertions; unrelated site notices should not decide whether a save succeeded.
+
+For bundled generic-entity handler fixtures, isolate the session bootstrap graph
+as well as database transport, while retaining the authorization policy under test.
+
+**Why:** Loading the full bundled session graph can terminate with Node exit 13
+(unsettled top-level await) before any tests register, even with a synthetic
+database. That is fixture bootstrap failure, not an endpoint assertion failure.
+
+**How to apply:** Inject a synthetic tenant context and stub session dependencies;
+keep the actual permission decision, role hierarchy and tenant-filter-aware
+database behavior in the test.

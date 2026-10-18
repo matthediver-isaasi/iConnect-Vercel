@@ -24,6 +24,7 @@ import { stripMemberPauseFields } from '../../_lib/memberPause.js';
 import { hasGenericCommitmentFields, constrainGenericCommitmentMutation } from '../../_lib/rollingCommitmentEntityBoundary.js';
 import { isAdminOnlyEntity } from '../../_lib/adminOnlyEntities.js';
 import { updateFormArchive } from '../../_lib/formArchive.js';
+import { authorizeFormSubmissionDelete } from '../../_lib/formSubmissionDeleteAccess.js';
 import { rejectGenericCpdPointsEntity } from '../../_lib/cpdPointsEntityBoundary.js';
 import {
   rejectGenericServerOwnedEntity,
@@ -362,6 +363,11 @@ export default async function handler(req, res, dependencies = {}) {
       error: 'Your browser session has switched to a different organisation. Reload this tab to continue.',
       code: 'TENANT_CONTEXT_CHANGED',
     });
+  }
+
+  if (entityNorm === 'formsubmission' && req.method === 'DELETE') {
+    const denied = await authorizeFormSubmissionDelete(requestDatabase, tenantCtx);
+    if (denied) return res.status(denied.status).json({ error: denied.error });
   }
 
   // Repository deletion owns storage removal as well as the metadata row.
