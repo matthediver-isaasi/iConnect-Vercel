@@ -19,6 +19,19 @@ badge poll.
 
 # Campaign test mode is historical, not a mutable display preference
 
+The GFI cleanup request is specifically to remove these three test campaigns
+from members' inboxes: “Fast Track - Audience Preparation Test - 13 October
+2026”, “Fast Track - Bulk Speed Test - 12 October 2026”, and “Fast Track –
+Speed Test – 12 October 2026”.
+
+**Why:** The user explicitly narrowed the request after the broader rollout and
+history investigation became disproportionate to the requested inbox cleanup.
+
+**How to apply:** Treat member-inbox visibility as the requested outcome.
+Verify the deployed reader, not just database classification. Keep unrelated
+history reconciliation and sender-resumption decisions separate from hiding
+these messages; do not delete delivery evidence to compensate for stale readers.
+
 Later campaign-setting edits must not reclassify already recorded test/live
 submissions. Explicit test-destination sends are real emails to that chosen
 destination and must not alter the audience recipient's delivery history.
