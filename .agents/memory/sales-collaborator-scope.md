@@ -18,4 +18,10 @@ Proposal sender selection should offer the opportunity's collaborators and defau
 
 **Why:** The user requested selectable collaborator senders rather than a fixed tenant sender identity.
 
-**How to apply:** Treat this as a requested behavior, not an existing access guarantee. Clarify owner/admin eligibility and visible From versus Reply-To before implementation; do not assume Sales permission alone proves collaborator membership.
+**How to apply:** Include owners as well as collaborators, default only when the authenticated principal is eligible, and require an explicit selection otherwise. Preserve existing Sales sending permissions; do not assume Sales permission alone proves collaborator membership.
+
+Use the tenant sending address with the selected person's display name and Reply-To, not their personal address as From.
+
+**Why:** The user approved implementing the recommended approach after the sender/access investigation; this preserves existing sending-domain authority without narrowing administrator access.
+
+**How to apply:** Revalidate sender eligibility at preview and send time and distinguish the acting user from the selected sender in delivery evidence.

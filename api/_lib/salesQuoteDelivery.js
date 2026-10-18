@@ -79,6 +79,7 @@ export async function previewQuoteEmail(input, dependencies = {}) {
     html: message.html + (footer ? wrapEmailFooter(constrainFooterForEmail(footer)) : ''),
     recipient: input.recipient, expiresAt, attachPdf: input.attachPdf !== false,
     version: input.version.version_number,
+    from: input.sender?.from, replyTo: input.sender?.replyTo,
   };
 }
 
@@ -92,7 +93,8 @@ export async function sendQuote(db, input) {
   });
   const url = quotePublicUrl(minted.token, baseUrl);
   const baseAudit = { tenant_id: quote.tenant_id, quote_id: quote.id, quote_version_id: version.id,
-    token_id: minted.tokenId, recipient_email: recipient, actor_id: actor.actorId };
+    token_id: minted.tokenId, recipient_email: recipient, actor_id: actor.actorId,
+    request_metadata: { actor_type: actor.actorType, ...(input.sender ? { sender: input.sender } : {}) } };
   const revokeInactive = async () => {
     const { error } = await db.from('sales_quote_delivery_token').update({
       revoked_at: new Date().toISOString(), revoked_by: actor.actorId,
@@ -106,6 +108,7 @@ export async function sendQuote(db, input) {
   try {
     result = await deliver({
       to: recipient, tenantId: quote.tenant_id,
+      ...(input.sender ? { from: input.sender.from, replyTo: input.sender.replyTo } : {}),
       ...renderQuoteEmail({ quote, personalMessage: input.personalMessage, url }),
       attachments: attachPdf ? [{ filename: `${quote.quote_number}.pdf`, data: pdf, contentType: 'application/pdf' }] : null,
     });

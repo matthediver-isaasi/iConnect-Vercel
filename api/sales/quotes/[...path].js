@@ -6,6 +6,7 @@ import {
 } from '../../../shared/salesContracts.js';
 import { requireSalesContext, SalesHttpError } from '../../_lib/salesAccess.js';
 import { quoteSalespersonOptions } from '../../_lib/quoteSalespeople.js';
+import { quoteSenderOptions, resolveQuoteSender } from '../../_lib/salesQuoteSenders.js';
 import {
   amendQuote, compareQuoteVersions, confirmQuoteSale, getQuote, getQuoteHistory, issueQuote, listQuotes, prepareQuoteDraft,
   saveQuoteDraft, transitionQuote, loadQuoteDraftState,
@@ -71,6 +72,12 @@ export function createSalesQuotesHandler(dependencies = {}) {
         await requireSalesContext(context, SALES_CAPABILITIES.MANAGE_QUOTES, dependencies);
         res.setHeader('Cache-Control', 'private, no-store');
         return res.status(200).json(await quoteSalespersonOptions(db, actor.tenantId, req.query?.offset));
+      }
+      if (read && id && action === 'sender-options') {
+        await requireSalesContext(context, SALES_CAPABILITIES.MANAGE_QUOTES, dependencies);
+        const quote = await getQuote(db, actor.tenantId, id);
+        res.setHeader('Cache-Control', 'private, no-store');
+        return res.status(200).json(await quoteSenderOptions(db, quote, actor));
       }
       if (read && !id) return res.status(200).json(await listQuotes(db, actor.tenantId, req.query || {}));
       if (read && id && !action) {
@@ -228,8 +235,9 @@ export function createSalesQuotesHandler(dependencies = {}) {
         const requested = req.body?.version ? Number(req.body.version) : quote.current_version;
         const version = quote.versions.find((item) => item.version_number === requested);
         if (!version) throw new SalesHttpError(404, 'Quote version not found');
+        const sender = await resolveQuoteSender(db, quote, actor, req.body?.senderKey, dependencies);
         const emailInput = {
-          quote, version, recipient, personalMessage: req.body?.personalMessage,
+          quote, version, recipient, sender, personalMessage: req.body?.personalMessage,
           attachPdf: req.body?.attachPdf !== false, expiresInDays: Number(req.body?.expiresInDays),
         };
         validateQuoteEmail(emailInput);
@@ -243,7 +251,7 @@ export function createSalesQuotesHandler(dependencies = {}) {
         const pdf = req.body?.attachPdf === false ? null : await buildBrandedSalesQuotePdf({ quote, version, tenant });
         const expiresInDays = Number(req.body?.expiresInDays);
         return res.status(200).json(await sendQuote(db, {
-          quote, version, tenant, actor, recipient,
+          quote, version, tenant, actor, recipient, sender,
           personalMessage: emailInput.personalMessage,
           attachPdf: req.body?.attachPdf !== false, pdf, expiresInDays,
           baseUrl: (dependencies.canonicalQuoteBaseUrl || canonicalQuoteBaseUrl)(tenant),

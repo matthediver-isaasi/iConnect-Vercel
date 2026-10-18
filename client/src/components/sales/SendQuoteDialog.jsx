@@ -19,6 +19,26 @@ export default function SendQuoteDialog(props) {
 function SendQuoteForm({ open, onOpenChange, pending, onSend, request, quoteId, version, initialRecipient = "", contacts = [] }) {
   const { singular } = useQuoteNaming();
   const [recipient, setRecipient] = useState(initialRecipient);
+  const [senderKey, setSenderKey] = useState("");
+  const [senders, setSenders] = useState([]);
+  const [senderError, setSenderError] = useState("");
+  const [senderLoading, setSenderLoading] = useState(true);
+  const [senderRetry, setSenderRetry] = useState(0);
+  useEffect(() => {
+    let active = true;
+    setSenderLoading(true);
+    setSenderError("");
+    setSenderKey("");
+    setSenders([]);
+    request(`/api/sales/quotes/${encodeURIComponent(quoteId)}?action=sender-options`, { method: "GET", credentials: "include" })
+      .then(data => {
+        if (!active) return;
+        setSenders(data.items);
+        setSenderKey(data.defaultSenderKey || "");
+      }).catch(error => { if (active) setSenderError(error.message || "Could not load senders."); })
+      .finally(() => { if (active) setSenderLoading(false); });
+    return () => { active = false; };
+  }, [quoteId, senderRetry]);
   const [expiresInDays, setExpiresInDays] = useState("30");
   const [attachPdf, setAttachPdf] = useState(true);
   const [personalMessage, setPersonalMessage] = useState("");
@@ -30,12 +50,12 @@ function SendQuoteForm({ open, onOpenChange, pending, onSend, request, quoteId, 
   const requestId = useRef(0);
   const sendLock = useRef(false);
   const recipientEdited = useRef(false);
-  const payload = { recipient: recipient.trim(), expiresInDays: Number(expiresInDays), attachPdf, personalMessage, version };
+  const payload = { recipient: recipient.trim(), expiresInDays: Number(expiresInDays), attachPdf, personalMessage, version, senderKey };
   const fingerprint = JSON.stringify([quoteId, payload]);
   const currentFingerprint = useRef(fingerprint);
   currentFingerprint.current = fingerprint;
   const busy = pending || sending;
-  const valid = Boolean(quoteId && version != null && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.recipient) && personalMessage.length <= 5000);
+  const valid = Boolean(!senderLoading && !senderError && senders.some(item => item.key === senderKey) && quoteId && version != null && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.recipient) && personalMessage.length <= 5000);
   const freshPreview = preview?.fingerprint === fingerprint ? preview.data : null;
   // Sanitize only the displayed copy. The server-rendered/sent email and plain
   // text draft remain unchanged. Retain email layout/styles, but strip every
@@ -119,6 +139,15 @@ function SendQuoteForm({ open, onOpenChange, pending, onSend, request, quoteId, 
       </DialogHeader>
       <div className="grid gap-4 py-2 sm:grid-cols-2">
         <div className="space-y-1.5 sm:col-span-2">
+          <Label htmlFor="quote-sender">Sender</Label>
+          <select id="quote-sender" disabled={busy || senderLoading} className="w-full rounded-md border bg-background p-2 text-sm" value={senderKey} onChange={event => edit(setSenderKey, event.target.value)}>
+            <option value="">{senderLoading ? "Loading senders…" : "Choose a sender"}</option>
+            {senders.map(sender => <option key={sender.key} value={sender.key}>{sender.name} — {sender.email}</option>)}
+          </select>
+          <p className="text-xs text-muted-foreground">Sent using the tenant’s sending address and this person’s name. Replies go to this person.</p>
+          {senderError ? <div role="alert" className="text-sm text-destructive">{senderError} <Button variant="outline" size="sm" onClick={() => setSenderRetry(value => value + 1)}>Retry senders</Button></div> : !senderLoading && !senders.length ? <p role="alert" className="text-sm text-destructive">No eligible owner or collaborator has a valid email address.</p> : null}
+        </div>
+        <div className="space-y-1.5 sm:col-span-2">
           <Label htmlFor="quote-recipient-contact">Opportunity contact</Label>
           <select id="quote-recipient-contact" aria-label={`${singular} recipient contact`} disabled={busy} className="w-full rounded-md border bg-background p-2 text-sm" value={contacts.some(contact => contact.email === recipient) ? recipient : ""} onChange={event => edit(setRecipient, event.target.value)}>
             <option value="">Enter an email address below</option>
@@ -139,6 +168,7 @@ function SendQuoteForm({ open, onOpenChange, pending, onSend, request, quoteId, 
         {previewLoading ? <div role="status" className="space-y-3"><span className="text-sm text-muted-foreground">Preparing your email preview…</span><div className="h-4 w-3/4 animate-pulse rounded bg-muted" /><div className="h-40 animate-pulse rounded bg-muted" /></div> :
           previewError ? <div role="alert" className="text-sm text-destructive"><p>{previewError}</p><Button type="button" variant="outline" size="sm" className="mt-3" disabled={!valid || busy} onClick={previewEmail}>Retry preview</Button></div> :
           freshPreview ? <div className="space-y-3">
+            <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm"><dt>From</dt><dd className="break-words">{freshPreview.from}</dd><dt>Reply-To</dt><dd className="break-words">{freshPreview.replyTo}</dd></dl>
             <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm"><dt className="text-muted-foreground">Subject</dt><dd className="break-words font-medium">{freshPreview.subject}</dd><dt className="text-muted-foreground">To</dt><dd className="break-words">{freshPreview.recipient}</dd><dt className="text-muted-foreground">PDF attachment</dt><dd>{freshPreview.attachPdf ? "Yes" : "No"}</dd></dl>
             <p className="text-xs text-muted-foreground">Preview links are disabled. Previewing does not send an email or create a live {singular} link.</p>
             <div className="overflow-hidden rounded-md border bg-background">

@@ -55,6 +55,15 @@ export function isDeliveryRateLimit(error) {
   return Number(error?.status || error?.statusCode || error?.response?.status) === 429;
 }
 
+export async function quoteSenderHeaders(tenantId, sender, dependencies = {}) {
+  const config = await (dependencies.getTenantEmailConfig || getTenantEmailConfig)(tenantId);
+  const fallback = dependencies.defaultFrom || DEFAULT_FROM;
+  const email = config?.fromEmail || (fallback.match(/<([^<>]+)>/)?.[1] || fallback).trim();
+  if (!/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(email)) throw new Error('Invalid tenant sending address');
+  const name = String(sender.name).replace(/[\r\n]/g, ' ').replace(/["\\]/g, '');
+  return { from: `"${name}" <${email}>`, replyTo: sender.email };
+}
+
 async function getTenantEmailConfig(tenantId) {
   if (!tenantId) {
     return null;

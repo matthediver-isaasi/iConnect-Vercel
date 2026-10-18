@@ -71,6 +71,13 @@ async function mount(extra = {}) {
   document.body.append(container);
   const root = createRoot(container);
   let props = { open: true, quoteId: "quote-18", version: 3, initialRecipient: "client@example.test", onOpenChange() {}, onSend: async () => {}, request: async (_, options) => response(JSON.parse(options.body)), ...extra };
+  const originalRequest = props.request;
+  props.request = (url, options) => url.includes("sender-options")
+    ? Promise.resolve(extra.senderOptions || { items: [
+      { key: "member:self", name: "Current User", email: "self@example.test" },
+      { key: "member:other", name: "Colleague", email: "other@example.test" },
+    ], defaultSenderKey: "member:self" })
+    : originalRequest(url, options);
   const render = async changes => {
     props = { ...props, ...changes };
     await act(async () => root.render(React.createElement(Dialog, props)));
@@ -78,6 +85,33 @@ async function mount(extra = {}) {
   await render();
   return { render, cleanup: async () => { await act(async () => root.unmount()); container.remove(); } };
 }
+
+test("sender defaults to self; changing it invalidates preview and sends the selected key", async () => {
+  const sends = [];
+  const view = await mount({ onSend: async body => sends.push(body) });
+  try {
+    const select = document.getElementById("quote-sender");
+    assert.equal(select.value, "member:self");
+    await click("Preview email");
+    assert.equal(button("Send quote").disabled, false);
+    await act(async () => {
+      select.value = "member:other";
+      select.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    assert.equal(button("Send quote").disabled, true);
+    await click("Preview email");
+    await click("Send quote");
+    assert.equal(sends[0].senderKey, "member:other");
+  } finally { await view.cleanup(); }
+});
+
+test("outsiders must explicitly choose a sender; empty lists prevent preview", async () => {
+  const view = await mount({ senderOptions: { items: [], defaultSenderKey: null } });
+  try {
+    assert.equal(button("Preview email").disabled, true);
+    assert.match(document.body.textContent, /No eligible owner/);
+  } finally { await view.cleanup(); }
+});
 
 test("configured internal naming preserves the public email subject/body and API identity", async () => {
   globalThis.__sendQuoteNaming = { singular: "Training Proposal", plural: "Training Proposals", slug: "training-proposals" };
@@ -111,7 +145,7 @@ test("preview uses the authenticated preview endpoint only; safe iframe and comp
     assert.equal(requests[0].options.method, "POST");
     assert.equal(requests[0].options.credentials, "include");
     const body = JSON.parse(requests[0].options.body);
-    assert.deepEqual(body, { recipient: "client@example.test", expiresInDays: 30, attachPdf: true, personalMessage: "Hello <script>alert(1)</script>\nThank you & see you soon.", version: 3 });
+    assert.deepEqual(body, { recipient: "client@example.test", expiresInDays: 30, attachPdf: true, personalMessage: "Hello <script>alert(1)</script>\nThank you & see you soon.", version: 3, senderKey: "member:self" });
     const iframe = document.querySelector("iframe");
     assert.equal(iframe.getAttribute("sandbox"), "");
     assert.equal(iframe.tabIndex, 0);

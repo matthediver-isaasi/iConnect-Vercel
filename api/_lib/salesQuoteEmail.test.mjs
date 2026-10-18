@@ -42,17 +42,20 @@ test('preview endpoint is tenant-scoped, read-only and requires authenticated qu
   const reads = [];
   let authorized = true;
   const db = { from(table) {
-    assert.ok(['sales_quote', 'sales_quote_version'].includes(table), `Unexpected table: ${table}`);
+    assert.ok(['sales_quote', 'sales_quote_version', 'opportunity', 'opportunity_collaborator', 'organization', 'tenant_user'].includes(table), `Unexpected table: ${table}`);
     const filters = {};
     reads.push({ table, filters });
     return { select() { return this; }, eq(key, value) { filters[key] = value; return this; },
-      maybeSingle: async () => ({ data: quote, error: null }),
-      order: async () => ({ data: [version], error: null }),
+      maybeSingle: async () => ({ data: table === 'opportunity' ? { owner_kind: 'tenant_user', owner_id: 'actor' }
+        : table === 'tenant_user' ? { id: 'actor', first_name: 'Actor', email: 'actor@example.org' } : quote, error: null }),
+      order() { return table === 'sales_quote_version' ? Promise.resolve({ data: [version], error: null }) : this; },
+      range: async () => ({ data: [], error: null }),
     };
   } };
   const handler = createSalesQuotesHandler({
     db, getTenantContext: async () => authorized ? { isAuthenticated: true, tenantId: 'tenant-server', tenantUserId: 'actor' } : { isAuthenticated: false },
     getEmailFooterForPreview: async tenantId => { assert.equal(tenantId, 'tenant-server'); return null; },
+    getTenantEmailConfig: async () => ({ fromEmail: 'sales@example.org' }),
     sendEmail: async () => { assert.fail('Preview must never send'); },
   });
   const req = { method: 'POST', url: '/api/sales/quotes/quote-1?action=preview-email',
@@ -63,6 +66,11 @@ test('preview endpoint is tenant-scoped, read-only and requires authenticated qu
   assert.equal(res.headers['Cache-Control'], 'no-store');
   assert.ok(reads.every(read => read.filters.tenant_id === 'tenant-server'));
   assert.equal(res.body.version, 2);
+  assert.equal(res.body.from, '"Actor" <sales@example.org>');
+  assert.equal(res.body.replyTo, 'actor@example.org');
+  const forged = response();
+  await handler({ ...req, body: { ...req.body, senderKey: 'member:attacker' } }, forged);
+  assert.equal(forged.statusCode, 400);
   const missing = response();
   await handler({ ...req, body: { ...req.body, version: 999 } }, missing);
   assert.equal(missing.statusCode, 404);
