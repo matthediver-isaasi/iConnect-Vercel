@@ -1,5 +1,65 @@
 # Campaign test-mode inbox exclusion
 
+## Latest status — 2026-10-18: applied, verification exception outstanding
+
+The user explicitly confirmed that scheduled, manual and resume/recovery campaign
+sending were stopped. This was an operator attestation, not an independently
+implemented or verified infrastructure freeze.
+
+The unchanged approved migration (SHA-256
+`7aa06876a6a97368713d9aa274bcee38d33701826441e65a186499766fa27fa3`)
+was applied with the pinned runner to DEST `lvmzliemqnieeoruhkik`.
+The immediate preflight reported zero active sending/preparing campaigns.
+SOURCE was not queried or changed. No deployment, campaign resume, provider send,
+or changes to the freeze were performed.
+
+**The migration committed. Do not interpret the subsequent verification failure
+as a rollback or as evidence that the migration is still outstanding.**
+
+Post-commit checks completed at 2026-10-18 15:47:48 UTC:
+
+- Delivery provenance column, enabled immutable trigger, valid partial index,
+  security-invoker inbox view and summary RPC are installed.
+- View and summary are accessible to service_role, not anon/authenticated/PUBLIC.
+  The trigger function also has no browser/PUBLIC execution grants.
+- Service-role REST reads returned HTTP 200 for the inbox view with
+  `email_campaign!inner(tenant_id)` and the summary RPC with nonexistent UUIDs.
+- 15,732 rows classified test; 202,132 classified live; 1,716 remain unclassified.
+  Classification matches current campaign flags for all evidence rows.
+- 15,730 sent test rows are excluded; 202,128 sent live rows are in the view.
+  No NULL-mode, test-mode or unsent rows are in the eligibility view.
+- Ten member/tenant pairs matched independently calculated unread counts and
+  latest-recipient IDs.
+- Counts remain 145 campaigns, 219,580 recipients, 1,404 inbox state rows,
+  217,858 provider identifiers and 217,858 sent timestamps.
+- Full-row campaign and inbox-state fingerprints match the immediate baseline.
+
+### Recipient-history verification exception
+
+The full-row recipient fingerprint, excluding only `delivery_is_test`, changed
+from `447ee1d2d8af56558d75dc4982a88fe0` to
+`c13de4aca453c9caac49e82109814c3f`. Therefore **complete preservation of recipient
+history beyond the new field has not been established**.
+
+Inspection found the pre-existing `guard_email_delivery_status` trigger runs
+on every UPDATE, including this backfill. Its function can rewrite `status`,
+`delivered_at`, `bounced_at` and `error_message` from delivery-outcome evidence.
+This is a concrete possible cause of the difference, not a row-level attribution:
+the immediate baseline retained checksums, not full before-images, so the exact
+affected rows/fields cannot be identified from those checksums alone. Concurrent
+provider events were not independently excluded by the sending-freeze attestation.
+Do not claim that only provenance changed, attempt speculative restoration, or
+rerun the backfill as a repair.
+
+**Sending must remain frozen.** Reconcile this exception using available
+pre-migration backup/audit/provider evidence, verify the matching production and
+scheduled-worker code, and complete controlled signed-in inbox checks before
+an operator authorizes resume. The migration itself is no longer outstanding.
+Historical current-flag classification limitations remain unchanged.
+
+The following earlier sections retain the original implementation and safe-stop
+evidence; their unapplied status statements describe those earlier attempts only.
+
 ## Change
 
 Campaign recipient submission mode is recorded before Mailgun is called, using

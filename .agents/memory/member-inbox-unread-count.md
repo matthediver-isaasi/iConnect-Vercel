@@ -31,6 +31,21 @@ subjects. Unknown future submission evidence must not expose a message.
 outcomes. Quiesce old sender workers during schema/code rollout; a one-time
 backfill cannot safely classify later old-worker sends.
 
+# Provenance backfills can invoke unrelated delivery guards
+
+Capture recoverable before-images as well as aggregate checksums before a
+recipient provenance backfill; inspect all UPDATE triggers, not only triggers
+on the new field.
+
+**Why:** A production backfill committed but its recipient checksum excluding the
+new field changed. An existing all-UPDATE delivery-status guard can normalize
+historical status/error/timestamp fields; checksums alone cannot identify the
+exact changed rows or distinguish trigger effects from concurrent provider events.
+
+**How to apply:** Do not equate retained row counts with unchanged history. Report
+post-commit verification failures as committed-with-exception, never as rolled
+back; do not guess restoration values or resume senders without reconciliation.
+
 # Opening messages must not invalidate their own body query
 
 Use exact-key invalidation for the list and badge after auto-read.
