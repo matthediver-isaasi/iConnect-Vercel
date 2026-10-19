@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import CampaignDeliverySummary from "./communications/CampaignDeliverySummary";
+import CampaignTimingDialog from "./CampaignTimingDialog";
 import { campaignRecipientLabel, isExcludedCampaignRecipient } from "../../../shared/campaignDeliverySummary.js";
 import { Label } from "@/components/ui/label";
 import { 
@@ -43,6 +44,7 @@ export default function EmailCampaigns() {
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
   const [previewData, setPreviewData] = useState(null);
   const [showStatsDialog, setShowStatsDialog] = useState(false);
+  const [timingCampaign, setTimingCampaign] = useState(null);
   const [statsData, setStatsData] = useState(null);
   const [sending, setSending] = useState(false);
   const [testSending, setTestSending] = useState(false);
@@ -1089,6 +1091,15 @@ export default function EmailCampaigns() {
 
   return (
     <div className="space-y-6">
+      {timingCampaign && (
+        <CampaignTimingDialog
+          key={timingCampaign.id}
+          campaign={timingCampaign}
+          open
+          onOpenChange={(open) => { if (!open) setTimingCampaign(null); }}
+          onInspect={handleViewStats}
+        />
+      )}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Email Campaigns</h1>
@@ -1257,6 +1268,19 @@ export default function EmailCampaigns() {
                           <div className="flex flex-col gap-1">
                             <div className="flex items-center gap-1 flex-wrap">
                               {getStatusBadge(campaign.status)}
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
+                                aria-label={`View timings and status details for ${campaign.name}`}
+                                aria-haspopup="dialog"
+                                title="Campaign timings and status details"
+                                data-testid={`button-campaign-timings-${campaign.id}`}
+                                onClick={() => setTimingCampaign(campaign)}
+                              >
+                                <Clock className="h-3.5 w-3.5" aria-hidden="true" />
+                              </Button>
                               {campaign.archived_at && <Badge variant="secondary" data-testid={`badge-archived-${campaign.id}`}>Archived</Badge>}
                               {completedFailureCount > 0 && (
                                 <Badge
@@ -1294,28 +1318,6 @@ export default function EmailCampaigns() {
                                 </Badge>
                               )}
                             </div>
-                            <CampaignDeliverySummary summary={campaign.delivery_summary} onInspect={() => handleViewStats(campaign)} />
-                            {!campaign.delivery_summary && ['sending', 'paused', 'sent', 'failed', 'cancelled'].includes(campaign.status) && (
-                              <span className="text-xs text-muted-foreground">Delivery breakdown unavailable. Open statistics to refresh.</span>
-                            )}
-                            {campaign.preparation?.phase === 'failed' && campaign.status === 'failed' && (
-                              <span className="text-xs text-destructive block max-w-[320px] whitespace-normal break-words" data-testid={`text-preparation-error-${campaign.id}`}>
-                                Audience preparation failed: {campaign.preparation.last_error || 'No further details available.'}
-                                {campaign.preparation.last_error === 'No recipients found for this campaign' && (
-                                  <> This older preparation did not retain exclusion counts. Review a fresh campaign recipient preview; a failed preparation cannot be resumed. If appropriate, duplicate it as a new draft without overriding consent.</>
-                                )}
-                              </span>
-                            )}
-                            {campaign.status === 'scheduled' && campaign.scheduled_at && (
-                              <span className="text-xs text-muted-foreground">
-                                {formatDate(campaign.scheduled_at)}
-                              </span>
-                            )}
-                            {campaign.status === 'sent' && campaign.sent_at && (
-                              <span className="text-xs text-muted-foreground">
-                                {formatDate(campaign.sent_at)}
-                              </span>
-                            )}
                           </div>
                         </TableCell>
                         <TableCell>

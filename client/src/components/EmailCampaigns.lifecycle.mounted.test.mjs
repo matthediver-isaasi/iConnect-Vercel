@@ -81,6 +81,12 @@ async function mount({ records = [campaign], ready = true, mutationError = null,
       const view = parsed.searchParams.get('archive');
       return json(items.filter(item => view === 'all' || (view === 'archived' ? !!item.archived_at : !item.archived_at)));
     }
+    if (parsed.searchParams.get('timings') === 'true' && parsed.pathname === '/api/email-campaigns/campaign-1') {
+      return json({
+        campaign: items[0],
+        timings: { scheduled_at: items[0].scheduled_at, started_at: null, completed_at: null, notes: [] },
+      });
+    }
     if (parsed.pathname === '/api/email-campaigns/campaign-1') return json({ ...items[0], html_content: '<p>Preview retained</p>' });
     if (parsed.pathname.includes('footer')) return json({});
     assert.fail(`Unexpected request ${url}`);
@@ -127,6 +133,32 @@ test('archive preserves independent headline totals, archived preview and restor
     const mutations = view.calls.filter(call => call.options.method);
     assert.deepEqual(mutations.map(call => JSON.parse(call.options.body)), [{ action: 'archive' }, { action: 'restore' }]);
     assert.ok(view.calls.filter(call => call.url.includes('summary=true')).length >= 3);
+  } finally { await view.cleanup(); }
+});
+
+test('clock beside status lazily opens timings and moved notes without mutating campaigns', async () => {
+  const view = await mount({ records: [{
+    ...campaign, status: 'failed',
+    preparation: { phase: 'failed', last_error: 'No recipients found for this campaign' },
+  }] });
+  try {
+    const row = byId('row-campaign-campaign-1');
+    assert.ok(row);
+    assert.doesNotMatch(row.textContent, /Audience preparation failed|Delivery breakdown unavailable/);
+    assert.equal(view.calls.filter(call => call.url.includes('timings=true')).length, 0);
+    const clock = byId('button-campaign-timings-campaign-1');
+    assert.match(clock.getAttribute('aria-label'), /Spring briefing/);
+    assert.equal(clock.getAttribute('aria-haspopup'), 'dialog');
+    await click(clock);
+    await waitFor(() => document.body.textContent.includes('Campaign finish'), 'timing evidence');
+    const dialog = byId('campaign-timing-dialog');
+    assert.match(dialog.textContent, /Audience preparation failed/);
+    assert.match(dialog.textContent, /failed preparation cannot be resumed/);
+    assert.match(dialog.textContent, /Delivery breakdown unavailable/);
+    assert.equal(view.calls.filter(call => call.url.includes('timings=true')).length, 1);
+    await click([...dialog.querySelectorAll('button')].find(button => button.textContent === 'Close'));
+    await waitFor(() => !byId('campaign-timing-dialog'), 'timing dialog closed');
+    assert.equal(view.calls.filter(call => call.options.method).length, 0);
   } finally { await view.cleanup(); }
 });
 
@@ -250,7 +282,7 @@ test('restore remains disabled when readiness fails but all view is readable', a
 });
 
 test('archived pending records cannot be resumed even in all view', async () => {
-  const view = await mount({ records: [{ ...campaign, archived_at: '2026-05-18T12:00:00Z', status: 'sent', pending_count: 2 }] });
+  const view = await mount({ records: [{ ...campaign, archived_at: '2026-05-18T12:00:00Z', status: 'sent', pending_count: 2, queued_count: 2 }] });
   try {
     await click(byId('campaign-view-all'));
     await waitFor(() => byId('button-resume-stuck-campaign-1'), 'archived recovery action');

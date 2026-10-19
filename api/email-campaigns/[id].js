@@ -1,6 +1,7 @@
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { supabase } from '../_lib/database.js';
 import { campaignLifecycle } from '../_lib/campaignLifecycle.js';
+import { readCampaignTimings } from '../_lib/campaignTimings.js';
 import { getCampaign, updateCampaign, confirmCampaignCategoryReconfiguration, deleteCampaign, duplicateCampaign, cancelCampaign, pauseCampaign, resumeCampaign, getCampaignStats, getClickHeatmapData, getCampaignRecipients } from '../_lib/campaignService.js';
 
 export default async function handler(req, res) {
@@ -25,6 +26,19 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'GET') {
+    if (req.query.timings === 'true') {
+      if (!tenantContext.isAuthenticated) return res.status(401).json({ error: 'Authentication required' });
+      if (tenantContext.tenantMismatch || !await hasAdminAccess(tenantContext)) {
+        return res.status(403).json({ error: 'Tenant administrator access required' });
+      }
+      try {
+        const result = await readCampaignTimings(supabase, id, tenantId);
+        return result ? res.status(200).json(result) : res.status(404).json({ error: 'Campaign not found' });
+      } catch (error) {
+        console.error('[Campaign timings] Read failed:', error.code || 'unknown');
+        return res.status(500).json({ error: 'Unable to load campaign timings.' });
+      }
+    }
     const { stats, heatmap } = req.query;
 
     if (stats === 'true') {
