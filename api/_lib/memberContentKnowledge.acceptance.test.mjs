@@ -25,6 +25,7 @@ function database(canonical) {
   return {
     published,
     rpc(name, args) {
+      if (name === 'read_member_content_embedding_checkpoints') return Promise.resolve({ data: [] });
       if (name === 'claim_member_content_generation') return Promise.resolve({ data: { generation: 8, claim_token: 'claim' } });
       if (name === 'publish_member_content_knowledge') {
         if (!args.p_tenant_id) return Promise.resolve({ data: false });

@@ -154,6 +154,17 @@ test('deadline continuation retains ownership; fatal error releases without comp
   assert.notEqual(fatal.calls.complete[0].completed,true);
 });
 
+test('durably checkpointed batches continue under the same approved per-slice allowance', async () => {
+  const cursor = { type: 'iedit_page', lastId: null };
+  const f = fixture({ results: { items: 0, chunks: 0, embedded: 100, reused: 0,
+    errors: 0, done: false, nextCursor: cursor, stopReason: 'embedding_progress' } });
+  const result = await f.invoke({ tenantId: TENANT, contentType: 'iedit_page', maxEmbeddingChunks: 100 });
+  assert.equal(result.body.paused, false);
+  assert.equal(result.body.done, false);
+  assert.deepEqual(result.body.nextCursor, cursor);
+  assert.equal(f.calls.complete.length, 0);
+});
+
 test('UI explicitly stops budget loops, offers bounded GFI scope and displays source coverage/errors',()=>{
   assert.match(ui,/setMemberReindexTenant\('fd82da65-aab7-4a5c-85b8-b2febeb2003d'\)/);
   assert.match(ui,/max="100"/);

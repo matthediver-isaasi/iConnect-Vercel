@@ -11,8 +11,8 @@ import { IEDIT_COMPONENT_POLICIES } from './memberContentIEditExtraction.js';
 import {
   writeMemberContentGeneration,
   MEMBER_CONTENT_GENERATION_STALE,
-  MEMBER_CONTENT_EMBEDDING_BUDGET,
 } from './memberContentGenerationWriter.js';
+import { reindexAllMemberContent } from './memberContentIndexer.js';
 import { PUBLIC_CANVAS_LAYOUT_TYPES } from './memberContentVisibility.js';
 import { isChunkVisibleToMember } from './memberContentVisibility.js';
 import * as contentAccess from './memberContentAccess.js';
@@ -48,15 +48,16 @@ function database({ source = page(), elements = [element()], microsites = [], ta
   const operations = [];
   const state = {
     tables: { i_edit_page: source ? [source] : [], i_edit_page_element: elements, microsite: microsites, member_content_chunk: [], ...tables },
-    generation: 1, claimToken: null, claimSerial: 0, published: [], publicationAttempts: [],
+    generation: 1, claimToken: null, claimSerial: 0, published: [], publicationAttempts: [], checkpoints: {},
   };
   const db = {
     state, operations,
     from(table) {
-      const call = { table, filters: {}, inFilters: {}, orders: [], operation: 'select' };
+      const call = { table, filters: {}, inFilters: {}, gtFilters: {}, orders: [], operation: 'select' };
       const query = {
         select(columns, options) { call.columns = columns; call.selectOptions = options; return query; },
         eq(key, value) { call.filters[key] = value; return query; },
+        gt(key, value) { call.gtFilters[key] = value; return query; },
         in(key, values) { call.inFilters[key] = values; return query; },
         order(key, options) { call.orders.push([key, options]); return query; },
         range(start, end) { call.range = [start, end]; return query; },
@@ -78,6 +79,7 @@ function database({ source = page(), elements = [element()], microsites = [], ta
             assert.ok(Object.hasOwn(state.tables, table), `Unexpected table ${table}`);
             let rows = state.tables[table].filter(row =>
               Object.entries(call.filters).every(([key, value]) => row[key] === value) &&
+               Object.entries(call.gtFilters).every(([key, value]) => row[key] > value) &&
               Object.entries(call.inFilters).every(([key, values]) => values.includes(row[key])));
             for (const [key, options] of [...call.orders].reverse()) {
               rows = [...rows].sort((a, b) => (a[key] === b[key] ? 0 : a[key] < b[key] ? -1 : 1) * (options.ascending ? 1 : -1));
@@ -104,11 +106,21 @@ function database({ source = page(), elements = [element()], microsites = [], ta
         state.claimToken = `claim-${++state.claimSerial}`;
         return { data: [{ generation: state.generation, claim_token: state.claimToken }], error: null };
       }
+      if (name === 'read_member_content_embedding_checkpoints' || name === 'save_member_content_embedding_checkpoints') {
+        assert.equal(args.p_claim_token, state.claimToken);
+        assert.equal(args.p_generation, state.generation);
+        if (name === 'read_member_content_embedding_checkpoints') {
+          return { data: structuredClone(state.checkpoints[args.p_source_id] || []), error: null };
+        }
+        (state.checkpoints[args.p_source_id] ||= []).push(...structuredClone(args.p_rows));
+        return { data: true, error: null };
+      }
       if (name === 'publish_member_content_knowledge') {
         state.publicationAttempts.push(structuredClone(args));
         if (args.p_generation !== state.generation || args.p_claim_token !== state.claimToken) return { data: false, error: null };
         state.published = structuredClone(args.p_rows);
         state.tables.member_content_chunk = structuredClone(args.p_rows);
+        delete state.checkpoints[args.p_source_id];
         state.claimToken = null;
         return { data: true, error: null };
       }
@@ -516,15 +528,108 @@ test('writer acceptance: unknown blocks and incomplete reads never embed or atte
   }
 });
 
-test('writer acceptance: missing/draft pages publish an empty generation without embedding; zero budget fails before provider', async () => {
+test('writer acceptance: missing/draft pages publish empty; zero budget returns partial without provider', async () => {
   const missing = database({ source: null });
   assert.equal((await write(missing, { embedTexts: async () => { throw new Error('Must not embed'); } })).removed, true);
   assert.deepEqual(missing.state.publicationAttempts[0].p_rows, []);
   const draft = database({ source: page({ status: 'draft' }) });
   assert.equal((await write(draft, { embedTexts: async () => { throw new Error('Must not embed'); } })).removed, true);
   const budget = database();
-  await assert.rejects(write(budget, { embeddingBudget: { maxEmbeddingChunks: 0 }, embedTexts: async () => { throw new Error('Must not embed'); } }), error => error.code === MEMBER_CONTENT_EMBEDDING_BUDGET);
+  const result = await write(budget, {
+    embeddingBudget: { maxEmbeddingChunks: 0 },
+    embedTexts: async () => { throw new Error('Must not embed'); },
+  });
+  assert.equal(result.partial, true);
+  assert.equal(result.embeddingChunksSpent, 0);
+  assert.equal(result.chunks, 0);
+  assert.ok(result.pendingChunks > 0);
   assert.deepEqual(budget.state.publicationAttempts, []);
+});
+
+test('actual dispatcher resumes same page, reuses20 at increased100 budget, then advances to next page', async () => {
+  const firstId = 'page-a';
+  const secondId = 'page-b';
+  const db = database({
+    tables: {
+      i_edit_page: [page({ id: firstId }), page({ id: secondId, title: 'Next page' })],
+      member_content_source: [],
+    },
+    elements: [
+      // The canonical page heading contributes one additional chunk.
+      ...Array.from({ length: 74 }, (_, index) => element(`first-${index}`, {
+        page_id: firstId, display_order: index, content: { text: `First page canonical block ${index}` },
+      })),
+      element('second-block', { page_id: secondId, content: { text: 'Next page canonical copy' } }),
+    ],
+  });
+  const batches = [];
+  const openai = {
+    embeddings: {
+      create: async ({ input }) => {
+        batches.push([...input]);
+        return { data: input.map(() => ({ embedding: Array(1536).fill(0.25) })) };
+      },
+    },
+  };
+  const run = (maxEmbeddingChunks, cursor = null) => reindexAllMemberContent({
+    supabase: db, openai, tenantId: TENANT, contentType: 'iedit_page',
+    maxItems: 1, maxEmbeddingChunks, cursor,
+  });
+  const sameSourceCursor = { type: 'iedit_page', lastId: null };
+  const zero = await run(0);
+  assert.equal(zero.done, false);
+  assert.equal(zero.items, 0);
+  assert.equal(zero.errors, 0);
+  assert.equal(zero.stopReason, 'embedding_budget');
+  assert.equal(zero.embeddingChunksSpent, 0);
+  assert.deepEqual(zero.nextCursor, sameSourceCursor);
+  assert.equal(batches.length, 0);
+
+  const partial = await run(20, zero.nextCursor);
+  assert.equal(partial.stopReason, 'embedding_progress');
+  assert.equal(partial.items, 0);
+  assert.equal(partial.chunks, 0);
+  assert.equal(partial.embedded, 20);
+  assert.equal(partial.embeddingChunksSpent, 20);
+  assert.deepEqual(partial.nextCursor, sameSourceCursor);
+  assert.equal(db.state.publicationAttempts.length, 0);
+  assert.equal(db.state.checkpoints[firstId].length, 20);
+  assert.equal(db.state.claimToken, null);
+
+  const paused = await run(0, partial.nextCursor);
+  assert.equal(paused.stopReason, 'embedding_budget');
+  assert.equal(paused.items, 0);
+  assert.equal(paused.embeddingChunksSpent, 0);
+  assert.deepEqual(paused.nextCursor, sameSourceCursor);
+  assert.equal(batches.length, 1);
+
+  const completed = await run(100, paused.nextCursor);
+  assert.equal(completed.done, false);
+  assert.equal(completed.items, 1);
+  assert.equal(completed.errors, 0);
+  assert.equal(completed.chunks, 75);
+  assert.equal(completed.embedded, 55);
+  assert.equal(completed.reused, 20);
+  assert.equal(completed.embeddingChunksSpent, 55);
+  assert.deepEqual(completed.nextCursor, { type: 'iedit_page', lastId: firstId });
+  assert.equal(db.state.publicationAttempts[0].p_source_id, firstId);
+  assert.equal(db.state.publicationAttempts[0].p_rows.length, 75);
+  assert.equal(db.state.checkpoints[firstId], undefined);
+  assert.ok(batches[1].every(input => !batches[0].includes(input)));
+
+  const next = await run(100, completed.nextCursor);
+  assert.equal(next.items, 1);
+  assert.equal(next.chunks, 2);
+  assert.equal(next.embedded, 2);
+  assert.equal(next.errors, 0);
+  assert.deepEqual(next.nextCursor, { type: 'iedit_page', lastId: secondId });
+  assert.equal(db.state.publicationAttempts[1].p_source_id, secondId);
+  assert.deepEqual(batches.map(batch => batch.length), [20, 55, 2]);
+  const final = await run(100, next.nextCursor);
+  assert.equal(final.done, true);
+  assert.equal(final.items, 0);
+  assert.equal(final.errors, 0);
+  assert.equal(batches.length, 3);
 });
 
 function registry(type = 'iedit_page', id = SOURCE) {

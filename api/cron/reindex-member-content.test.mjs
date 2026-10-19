@@ -217,3 +217,19 @@ test('explicit zero budget is forwarded and remains bounded', async () => {
     assert.equal(calls.dispatch.length, 0);
   });
 });
+
+test('checkpoint progress does not replenish the scheduled chain embedding allowance', async () => {
+  await withCronSecret(async () => {
+    const { handler, calls } = makeHandler({
+      reindex: async () => ({
+        done: false, nextCursor: { type: 'iedit_page', lastId: null },
+        errors: 0, embedded: 20, embeddingChunksSpent: 20, stopReason: 'embedding_progress',
+      }),
+    });
+    const res = responseRecorder();
+    await handler(request(), res);
+    assert.equal(calls.dispatch.length, 0);
+    assert.equal(res.body.embeddingChunksRemaining, 0);
+    assert.equal(calls.complete[0].completed, false);
+  });
+});

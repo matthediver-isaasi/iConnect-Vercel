@@ -124,11 +124,13 @@ After release of the matching application:
 1. Confirm the tenant's saved knowledge sources include `iedit_page`; do not
    silently overwrite deliberate exclusions.
 2. Use the protected platform reindex operation scoped to GFI and `iedit_page`.
-   Choose an explicit embedding allowance sufficient for a complete page
-   (up to 100 chunks per slice); the default 20 may pause on this page. Keep the
+   Choose an explicit embedding allowance (up to 100 chunks per slice).
+   Large pages now checkpoint each batch privately and continue automatically
+   while making progress; the default 20 is supported. Keep the
    returned run identity, cursor and fixed scope/allowance together when resuming.
    A paused run needs a new explicit operation; allowance is per slice, not a
    lifetime provider-spend ledger.
+
 3. Inspect per-source chunk counts, coverage/exclusions and failures. A failed
    or paused slice is not a successful completed backfill.
 4. Verify direct board retrieval and the original two-turn exchange in an
@@ -136,6 +138,28 @@ After release of the matching application:
    `/our-people` citation. Revalidate after a source/access change.
 5. Only then run wider resumable reconciliation with an explicit allowance.
    Retain provider failures and remaining work rather than reporting success.
+
+### Resumable embedding batches
+
+`202612310008_member_content_embedding_checkpoints.sql` and
+`202612310009_member_content_large_page_publication.sql` were applied to verified
+DEST on 2026-10-19. SOURCE was unchanged. The server-role write/read roundtrip,
+browser grant denial and generation-invalidation cleanup were verified using
+a rolled-back fixture. No provider calls or live backfill were performed.
+
+The publisher's page-only row cap is now 2000 (other sources remain 100), with
+the existing 512000-byte and authority checks unchanged. The rollback-only
+`scripts/verify-member-content-large-page-rollback.mjs` verified real service-role
+100/100/84 staging, zero searchable partial rows, stale-token rejection, atomic
+284-row publication, and preservation of the prior snapshot after an invalid
+final row. Independent cleanup checks found no remaining fixture rows.
+
+Deploy the matching writer before resuming the scoped GFI rebuild. Checkpoints
+are not searchable; publication still atomically checks the current generation
+and publishes the entire source. Manual continuation retains the approved
+per-slice allowance; scheduled continuation never replenishes its chain budget.
+Active work renews its expiry, while source invalidation/publication/deletion
+cleans checkpoints and bounded opportunistic cleanup removes expired work.
 
 The workspace has no OpenAI embedding key; source inspection and isolated
 fixtures cannot substitute for the deployed provider-backed checks above.

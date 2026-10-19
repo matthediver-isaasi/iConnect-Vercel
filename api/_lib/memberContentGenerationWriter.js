@@ -16,6 +16,11 @@ import {
 } from './memberContentVisibility.js';
 import { isPublicSimpleEventStatus } from '../../shared/eventTiming.js';
 import { buildCanvasGenerationSnapshot } from './memberContentCanvasGeneration.js';
+import {
+  readEmbeddingCheckpoints,
+  saveEmbeddingCheckpoints,
+  validatedCheckpointVector,
+} from './memberContentEmbeddingCheckpoints.js';
 
 export const GENERATION_MEMBER_CONTENT_TYPES = CONTENT_TYPES;
 export const MAX_GENERATION_CHUNKS = 100;
@@ -507,8 +512,8 @@ async function publishRows(
   return true;
 }
 
-function validateBuiltChunks(chunks) {
-  if (chunks.length > MAX_GENERATION_CHUNKS) {
+function validateBuiltChunks(chunks, resumable = false) {
+  if (chunks.length > MAX_GENERATION_CHUNKS && !resumable) {
     throw errorWithCode(
       MEMBER_CONTENT_UNSUPPORTED,
       `generation writer accepts at most ${MAX_GENERATION_CHUNKS} chunks`
@@ -757,7 +762,10 @@ export async function writeMemberContentGeneration(
     }
 
     const built = chunks || chunkMemberContent(canonical, contentType);
-    validateBuiltChunks(built);
+    // Large page snapshots are staged privately across bounded invocations;
+    // the authored repair contract and its historical limits stay unchanged.
+    const resumablePage = !!buildSnapshot || contentType === 'canvas_page';
+    validateBuiltChunks(built, resumablePage);
     if (!built.length) {
       await publishRows(
         supabase,
@@ -803,7 +811,38 @@ export async function writeMemberContentGeneration(
     ) {
       embeddingBudget.maxEmbeddingChunks = maxEmbeddings;
     }
-    if (generated.toEmbed.length > maxEmbeddings) {
+    const checkpointIdentity = {
+      p_tenant_id: tenantId,
+      p_content_type: contentType,
+      p_source_id: item.id,
+      p_generation: generation,
+      p_claim_token: claimToken,
+    };
+    const resumable = resumablePage &&
+      (built.length > MAX_GENERATION_CHUNKS ||
+        (['iedit_page', 'canvas_page'].includes(contentType) &&
+          generated.toEmbed.length > maxEmbeddings));
+    const discoverCheckpoints = resumable ||
+      (resumablePage && ['iedit_page', 'canvas_page'].includes(contentType) &&
+        generated.toEmbed.length > 0);
+    if (discoverCheckpoints) {
+      // Discover durable staging for page snapshots needing embeddings, even
+      // when an increased allowance could now embed the entire page. Rebuild
+      // canonical text above first; metadata/provenance are NEVER restored.
+      const checkpoints = await readEmbeddingCheckpoints(supabase, checkpointIdentity);
+      const byKey = new Map(checkpoints.map((row) => [
+        JSON.stringify([row.chunk_index, row.content_hash, row.embedding_model]), row,
+      ]));
+      const rowsByIndex = new Map(generated.rows.map((row) => [row.chunk_index, row]));
+      generated.toEmbed = generated.toEmbed.filter((entry) => {
+        const row = rowsByIndex.get(entry.chunkIndex);
+        const saved = byKey.get(JSON.stringify([row.chunk_index, row.content_hash, row.embedding_model]));
+        if (!saved) return true;
+        row.embedding = validatedCheckpointVector(saved.embedding);
+        return false;
+      });
+    }
+    if (!resumable && generated.toEmbed.length > maxEmbeddings) {
       throw errorWithCode(
         MEMBER_CONTENT_EMBEDDING_BUDGET,
         `embedding budget ${maxEmbeddings} is smaller than ${generated.toEmbed.length} new chunks`
@@ -811,7 +850,8 @@ export async function writeMemberContentGeneration(
     }
 
     let embedded = 0;
-    if (generated.toEmbed.length) {
+    const batch = resumable ? generated.toEmbed.slice(0, maxEmbeddings) : generated.toEmbed;
+    if (batch.length) {
       if (!openai) {
         throw new Error(
           'writeMemberContentGeneration needs an OpenAI client to embed new/changed chunks'
@@ -821,25 +861,42 @@ export async function writeMemberContentGeneration(
       // publication error must not make this bounded invocation spend the same
       // allowance again on its next item.
       if (embeddingBudget && typeof embeddingBudget === 'object') {
-        embeddingBudget.maxEmbeddingChunks -= generated.toEmbed.length;
+        embeddingBudget.maxEmbeddingChunks -= batch.length;
       }
-      embeddingChunksSpent = generated.toEmbed.length;
+      embeddingChunksSpent = batch.length;
       const embeddings = await embedTextsFn(
         openai,
-        generated.toEmbed.map((entry) => entry.input)
+        batch.map((entry) => entry.input)
       );
-      if (!Array.isArray(embeddings) || embeddings.length !== generated.toEmbed.length) {
+      if (!Array.isArray(embeddings) || embeddings.length !== batch.length) {
         throw new Error(
-          `embedding provider returned ${embeddings?.length ?? 0} vectors for ${generated.toEmbed.length} chunks`
+          `embedding provider returned ${embeddings?.length ?? 0} vectors for ${batch.length} chunks`
         );
       }
-      generated.toEmbed.forEach((entry, index) => {
+      batch.forEach((entry, index) => {
         const row = generated.rows.find(
           (candidate) => candidate.chunk_index === entry.chunkIndex
         );
-        row.embedding = vectorForRpc(embeddings[index]);
+        row.embedding = resumable
+          ? validatedCheckpointVector(embeddings[index])
+          : vectorForRpc(embeddings[index]);
       });
       embedded = embeddings.length;
+      if (resumable) {
+        const indices = new Set(batch.map((entry) => entry.chunkIndex));
+        await saveEmbeddingCheckpoints(supabase, checkpointIdentity,
+          generated.rows.filter((row) => indices.has(row.chunk_index)));
+      }
+    }
+    const pendingChunks = generated.toEmbed.length - embedded;
+    if (resumable && pendingChunks > 0) {
+      await releaseClaim(supabase, contentType, tenantId, item.id, generation, claimToken);
+      return {
+        contentType, sourceId: item.id, tenantId,
+        partial: true, chunks: 0, embedded, reused: 0,
+        embeddingChunksSpent, pendingChunks,
+        removed: false, deferred: false,
+      };
     }
 
     await publishRows(
@@ -1039,10 +1096,20 @@ export async function reindexAllMemberContentGeneration({
             embedTexts: embedTextsFn,
             publisherReady: true,
           });
-          results.items += 1;
           results.chunks += summary.chunks;
           results.embedded += summary.embedded;
           results.reused += summary.reused;
+          if (summary.partial) {
+            return withBudgetSpent({
+              ...results,
+              partial: true,
+              pendingChunks: summary.pendingChunks,
+              nextCursor: { type, lastId },
+              done: false,
+              stopReason: budget - sharedBudget.maxEmbeddingChunks > 0 ? 'embedding_progress' : 'embedding_budget',
+            });
+          }
+          results.items += 1;
           if (summary.removed) results.removed += 1;
           if (summary.deferred) results.deferred += 1;
           lastId = source.id;

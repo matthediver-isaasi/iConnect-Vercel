@@ -121,6 +121,7 @@ function makeSupabase({
         const claim = claims[Math.min(claimIndex++, claims.length - 1)];
         return { data: [claim], error: null };
       }
+      if (name === 'read_member_content_embedding_checkpoints') return { data: [], error: null };
       if (name === 'publish_member_content_repair' || name === 'publish_member_content_knowledge') {
         if (onPublish) return onPublish(args);
         return { data: publish, error: null };
@@ -373,6 +374,44 @@ test('Canvas generation publishes the guest projection and dependency provenance
   assert.match(publishedRows[0].content, /Guest-visible canvas text/);
   assert.equal(publishedRows[0].access_scope, 'public');
   assert.deepEqual(publishedRows[0].provenance.dependencies, []);
+});
+
+test('generation bulk retains the same source cursor on partial embedding progress', async () => {
+  const supabase = makeSupabase({
+    canvasPage: {
+      id: 'page-1', tenant_id: 'tenant-1', title: 'Large Canvas',
+      slug: 'large-canvas', status: 'published', builder_type: 'canvas',
+      layout_type: 'public', microsite_id: null,
+      canvas_design: {
+        root: { sections: [{ children: [
+          { type: 'text', content: { text: 'First paragraph. '.repeat(65) } },
+          { type: 'text', content: { text: 'Second paragraph. '.repeat(65) } },
+          { type: 'text', content: { text: 'Third paragraph. '.repeat(65) } },
+        ] }] },
+      },
+    },
+  });
+  const rpc = supabase.rpc;
+  supabase.rpc = async (name, args) => {
+    if (name === 'read_member_content_embedding_checkpoints') return { data: [], error: null };
+    if (name === 'save_member_content_embedding_checkpoints') return { data: true, error: null };
+    return rpc(name, args);
+  };
+  const result = await reindexAllMemberContentGeneration({
+    supabase, contentType: 'canvas_page', openai: {}, maxEmbeddingChunks: 1,
+    embedTexts: async (_provider, inputs) => inputs.map(() => Array(1536).fill(0.1)),
+  });
+  assert.equal(result.done, false);
+  assert.equal(result.partial, true);
+  assert.equal(result.stopReason, 'embedding_progress');
+  assert.deepEqual(result.nextCursor, { type: 'canvas_page', lastId: null });
+  assert.equal(result.chunks, 0);
+  assert.equal(result.embedded, 1);
+  assert.equal(result.reused, 0);
+  assert.equal(result.embeddingChunksSpent, 1);
+  assert.equal(result.errors, 0);
+  assert.equal(result.items, 0);
+  assert.ok(result.pendingChunks > 0);
 });
 
 test('generation bulk runs the bounded tombstone phase after source indexing', async () => {

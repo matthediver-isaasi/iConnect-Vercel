@@ -283,7 +283,8 @@ export function createReindexMemberContentHandler({
       const consumed = embeddingChunksConsumed(results);
       const remaining = Math.max(0, budget.value - consumed);
       const stoppedForEmbeddingBudget =
-        results.stopReason === 'embedding_budget';
+        results.stopReason === 'embedding_budget'
+        || (results.stopReason === 'embedding_progress' && remaining === 0);
 
       let continuation = null;
       // A budget stop is deliberately terminal for this chain. The returned

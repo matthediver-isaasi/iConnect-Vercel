@@ -611,10 +611,11 @@ export async function processDueMemberContentReindexJobs({
       const { data: item, error: itemError } = await query.maybeSingle();
       if (itemError) throw itemError;
       if (item) {
-        await reindexMemberContentItem(job.content_type, {
+        const summary = await reindexMemberContentItem(job.content_type, {
           ...item,
           _reindexAttempts: job.attempts,
         }, { supabase, openai, embeddingBudget });
+        if (summary.partial || summary.busy) continue;
       } else {
         await deleteMemberContentChunks(job.content_type, job.source_id, {
           supabase,
@@ -748,6 +749,18 @@ export async function reindexAllMemberContent({
         for (const item of rows) {
           try {
             const summary = await reindexMemberContentItem(type, item, { supabase, openai, embeddingBudget: budget });
+            if (summary.partial) {
+              results.embedded += summary.embedded || 0;
+              results.details.push({
+                contentType: type, sourceId: item.id, title: item.title,
+                pendingChunks: summary.pendingChunks, partial: true,
+              });
+              // Do not advance past or count an unpublished page. Only durable
+              // progress authorizes another automatic slice with the same scope.
+              return finish({ ...results, nextCursor: { type, lastId }, done: false,
+                stopReason: initialBudget > budget.maxEmbeddingChunks
+                  ? 'embedding_progress' : 'embedding_budget' });
+            }
             results.items++;
             results.chunks += summary.chunks;
             results.embedded += summary.embedded;
@@ -761,6 +774,14 @@ export async function reindexAllMemberContent({
             results.errors++;
             results.items++;
             if (err.code === 'MEMBER_CONTENT_EMBEDDING_BUDGET') {
+              if (initialBudget > budget.maxEmbeddingChunks) {
+                // Completed earlier work used this slice's allowance. A new
+                // manual slice may continue; cron retains its chain-wide cap.
+                results.errors--;
+                results.items--;
+                return finish({ ...results, nextCursor: { type, lastId }, done: false,
+                  stopReason: 'embedding_progress' });
+              }
               results.details.push({
                 contentType: type, sourceId: item.id, title: item.title,
                 error: err.message,

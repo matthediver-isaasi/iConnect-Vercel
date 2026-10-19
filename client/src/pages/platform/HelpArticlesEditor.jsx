@@ -558,7 +558,8 @@ export default function HelpArticlesEditor() {
           <CardTitle className="text-base">Member AI rebuild scope</CardTitle>
           <CardDescription>
             Optional tenant and source limits. The embedding allowance is per slice, not a total-run cap.
-            Default 20; choose up to 100 explicitly for larger pages. Exhausted slices pause for review.
+            Default 20; choose up to 100. Large pages save progress between batches and become
+            searchable only when complete. Rebuilds continue while progress is being made.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -671,6 +672,13 @@ export default function HelpArticlesEditor() {
           <Badge variant="secondary">{memberReindexProgress.chunks} chunks</Badge>
           <Badge variant="secondary">{memberReindexProgress.embedded} embedded</Badge>
           <Badge variant="secondary">{memberReindexProgress.reused} reused</Badge>
+          {memberReindexProgress.details?.at(-1)?.partial && (
+            <span className="text-sm text-muted-foreground">
+              Saving batches for {memberReindexProgress.details.at(-1).title || 'current page'}
+              {' · '}{memberReindexProgress.details.at(-1).pendingChunks} chunks remaining;
+              not searchable until complete.
+            </span>
+          )}
           {memberReindexProgress.errors > 0 && (
             <Badge variant="warning">{memberReindexProgress.errors} failed</Badge>
           )}
