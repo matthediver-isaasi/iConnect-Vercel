@@ -15,6 +15,24 @@ publishing stale content or silently increasing embedding spend.
   label it a timeout without request/log evidence.
 
 ## Work
+### Read-only recheck, 19 October 2026
+- DEST still has 1,515 iEdit chunks, but none of its 55 GFI iEdit source
+  generations is current. Saved source settings still enable iEdit.
+- People retains 35 chunks at generation 190, 11 mentioning Board. Its source
+  registry is now generation 309 with no active generation.
+- Fresh guest extraction still yields 35 People chunks at `/our-people`.
+  Extraction and source enablement are not the immediate blocker.
+- The installed trigger still invalidates all tenant iEdit pages for every
+  insert/update/delete on dependency tables, including member, organization,
+  system_settings and tenant. The exact triggering write remains unproven.
+- The global rebuild marker retains a run with its last heartbeat at
+  14:52:57 UTC and no completed timestamp. This is stale progress evidence,
+  not proof of why the request stopped. The 55 queued iEdit jobs have zero
+  attempts and no recorded error.
+- No claims, model/provider calls, writes or migrations were performed by
+  this recheck. Signed-in model response verification remains outstanding.
+
+### Implementation
 1. Audit installed DEST triggers and extractor dependencies. Identify which
    writes actually caused invalidation where evidence permits. Map relevant
    content, eligibility and permission fields; do not assume every member change
