@@ -1519,10 +1519,12 @@ export const BLOCK_DEFAULTS = {
     geom: { w: 800, h: 420 },
     style: { background: '#ffffff', borderWidth: 1, borderRadius: 8 },
     content: {
+      source: 'dynamic',
+      directoryId: '',
       directorySlug: '',
       title: '',
       headingLevel: 2,
-      perView: 3,
+      perView: { desktop: 3, tablet: 2, mobile: 1 },
       gap: 16,
       innerPaddingTop: 16,
       innerPaddingRight: 32,
@@ -1544,7 +1546,7 @@ export const BLOCK_DEFAULTS = {
       fullBleed: false,
       nameFontSize: null,
       descFontSize: null,
-      emptyText: 'No organisations to show yet.',
+      emptyText: 'No directory records to show yet.',
     },
   },
   [BLOCK_TYPES.ARTICLE_LIST]: {
@@ -3917,7 +3919,9 @@ export function validateBlock(block) {
       if (!c.eventId) errors.push('Sponsor carousel requires an event.');
       break;
     case BLOCK_TYPES.DIRECTORY_CAROUSEL:
-      if (!c.directorySlug) errors.push('Directory carousel requires an organisation directory.');
+      if (!['primary-member', 'primary-organization'].includes(c.source) && !c.directoryId && !c.directorySlug) {
+        errors.push('Directory carousel requires a directory source.');
+      }
       break;
     case BLOCK_TYPES.FORM_EMBED:
       if (!c.formSlug) errors.push('Form embed requires a form.');

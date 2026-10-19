@@ -49,6 +49,7 @@ const NO_PADDING_PANEL_BLOCK_TYPES = new Set([
   BLOCK_TYPES.VIDEO,
   BLOCK_TYPES.MAP,
   BLOCK_TYPES.BUTTON,
+  BLOCK_TYPES.DIRECTORY_CAROUSEL,
 ]);
 
 function NumberField({ id, label, value, onChange, min, max, step = 1, testId, override, disabled }) {
@@ -438,7 +439,7 @@ function SingleBlockInspector({ block, breakpoint, blockIssues, onUpdate, onTogg
           <div className="flex items-center justify-between gap-2 mb-2">
             <div className="flex items-center gap-1.5 text-xs text-slate-600">
               <Maximize2 className="w-3.5 h-3.5" />
-              <span>Full width</span>
+              <span>{block.type === BLOCK_TYPES.DIRECTORY_CAROUSEL ? 'Stage full width' : 'Full width'}</span>
             </div>
             <Button
               size="sm"

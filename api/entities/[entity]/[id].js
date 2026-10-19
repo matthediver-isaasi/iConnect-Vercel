@@ -1,5 +1,6 @@
 import { validateSurveyCompletionUpdate } from '../../_lib/surveyCompletionConfiguration.js';
 import { validateDirectoryConfiguration, canManageDirectoryConfiguration } from '../../_lib/directoryExpression.js';
+import { authorizeCarouselConsentWrite } from '../../_lib/directoryCarouselConsent.js';
 import { validateTicketRelease } from '../../../shared/ticketRelease.js';
 import { validateTicketAudienceWrite } from '../../_lib/ticketAudienceWrite.js';
 import { assertGenericPrivateTicketBooking } from '../../_lib/privateTicketAccess.js';
@@ -340,6 +341,12 @@ export default async function handler(req, res, dependencies = {}) {
     return res.status(403).json({ error: 'Private group fields cannot be queried through generic projections.' });
   }
   if (['membergroup', 'systemsettings'].includes(entityNorm) && req.method === 'GET') delete req.query.expand;
+
+  const carouselConsentError = await authorizeCarouselConsentWrite({
+    entity: entityNorm, method: req.method, body: req.body, id, context: tenantCtx,
+    db: requestDatabase, hasAdminAccess: dependencies.hasAdminAccess || hasAdminAccess,
+  });
+  if (carouselConsentError) return res.status(carouselConsentError.status).json({ error: carouselConsentError.error });
 
   if (entityNorm === 'dynamicdirectory' && ['PATCH', 'PUT'].includes(req.method)) {
     if (!await canManageDirectoryConfiguration(tenantCtx, { hasAdminAccess, hasFeatureAccess })) {

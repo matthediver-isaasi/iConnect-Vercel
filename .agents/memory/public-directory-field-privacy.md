@@ -5,6 +5,12 @@ description: Privacy boundary for public features that reuse member-directory da
 
 Public member projections must enforce two separate policies on the server: whether a member may appear at all, and which front-facing profile fields the tenant allows.
 
+Public carousel display requires its own administrator-approved, default-off source permission, for both primary and dynamic directories. Active flags, unrestricted role lists, guest introduction copy and field publication switches do not constitute this consent. Do not automatically opt in existing directories or change legacy full-directory/embed access while extending carousels.
+
+**Why:** The owner explicitly approved guest carousel access only for directories separately permitted for public display.
+
+**How to apply:** Keep page authors unable to grant consent, project only permitted safe fields, and recheck consent before long reads return. Live permission changes require separate approval.
+
 **Why:** A current, directory-visible member may still have profile photo, job title, organisation, or other fields disabled by tenant directory settings. Hiding those fields only in React still exposes them in the browser response.
 
 **How to apply:** For any public directory-derived presentation, filter row eligibility first, then project only fields whose front visibility is enabled. Return the narrowest response shape needed by that presentation.

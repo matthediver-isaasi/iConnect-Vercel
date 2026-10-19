@@ -14,6 +14,7 @@ import { createPageUrl } from "@/utils";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { CORE_FIELDS, normalizeFieldVisibility, reorderCoreFieldOrder, MEMBER_BACK_DEFAULT_ORDER, resolveBackFieldOrder, getOrderedCustomFields, isCustomFieldVisibleOnBack, isVisibleOnBack } from "@/utils/directorySettings";
 import BackFieldOrderList from "@/components/directory/BackFieldOrderList";
+import PublicCarouselPermission from "@/components/directory/PublicCarouselPermission";
 
 function migrateSettings(raw) {
   const migrated = { field_order: raw.field_order || [], back_field_order: Array.isArray(raw.back_field_order) ? raw.back_field_order : [], custom_fields: {}, visible_role_ids: raw.visible_role_ids || [], custom_fields_label: typeof raw.custom_fields_label === 'string' ? raw.custom_fields_label : '' };
@@ -41,7 +42,7 @@ function buildDefaultFieldOrder() {
 }
 
 export default function MemberDirectorySettingsPage() {
-  const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isAdmin, isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [settings, setSettings] = useState(null);
   const queryClient = useQueryClient();
@@ -248,6 +249,7 @@ export default function MemberDirectorySettingsPage() {
           <p className="text-slate-600">Configure what information displays on member directory cards and detail views. Drag to reorder.</p>
         </div>
 
+        <PublicCarouselPermission source="primary-member" tenantId={memberInfo?.tenant_id} isAdmin={isAdmin} />
         <Card className="border-slate-200 mb-6">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">

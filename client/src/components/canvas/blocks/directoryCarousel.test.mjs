@@ -19,10 +19,15 @@ test('directory carousel defaults persist randomiseOrder as false', () => {
   );
   const created = createBlock(BLOCK_TYPES.DIRECTORY_CAROUSEL);
   assert.equal(created.content.randomiseOrder, false);
+  assert.deepEqual(created.content.perView, { desktop: 3, tablet: 2, mobile: 1 });
   const persisted = createBlock(BLOCK_TYPES.DIRECTORY_CAROUSEL, {
     content: { randomiseOrder: true },
   });
   assert.equal(persisted.content.randomiseOrder, true);
+  const legacy = createBlock(BLOCK_TYPES.DIRECTORY_CAROUSEL, { content: { perView: 4, directorySlug: 'legacy' } });
+  assert.equal(legacy.content.perView, 4);
+  const authored = createBlock(BLOCK_TYPES.DIRECTORY_CAROUSEL, { content: { perView: { desktop: 5, tablet: 3, mobile: 2 } } });
+  assert.deepEqual(authored.content.perView, { desktop: 5, tablet: 3, mobile: 2 });
 });
 
 test('directory carousel query is bounded and only sends seed for random order', () => {
@@ -118,11 +123,36 @@ test('directory carousel rejects unsafe website protocols', () => {
   assert.equal(resolveUrl('https://example.com/org'), 'https://example.com/org');
 });
 
-test('directory carousel inspector uses active organisation directories', () => {
+test('directory carousel inspector uses complete searchable source discovery and shared geometry', () => {
   const inspectorStart = source.indexOf('function DirectoryCarouselInspector(');
   const inspectorEnd = source.indexOf('\n// ============================================================================\n// SHOWCASE CARD SETTINGS', inspectorStart);
   const inspector = source.slice(inspectorStart, inspectorEnd);
-  assert.match(inspector, /entityType="organization"/);
-  assert.match(inspector, /activeOnly/);
+  assert.match(inspector, /DirectoryCarouselSourceField/);
+  assert.match(inspector, /setBlockBp/);
+  assert.match(inspector, /setBlockContentFullBleed/);
   assert.match(inspector, /toggle-directory-carousel-randomise-order/);
+});
+
+test('directory carousel supports explicit source queries without stale legacy parameters', () => {
+  const start = source.indexOf('export function buildDirectoryCarouselQuery(');
+  const end = source.indexOf('\n}\n\n// Directory carousel indicator helper.', start);
+  const buildQuery = new Function(`${source.slice(start, end + 2).replace('export function', 'function')}; return buildDirectoryCarouselQuery;`)();
+  for (const kind of ['primary-member', 'primary-organization']) {
+    const query = buildQuery({ source: kind, directorySlug: 'old', directoryId: 'old' });
+    assert.equal(query.get('source'), kind);
+    assert.equal(query.has('directory_id'), false);
+    assert.equal(query.has('slug'), false);
+  }
+  const dynamic = buildQuery({ source: 'dynamic', directoryId: 'immutable-id', directorySlug: 'old-slug' });
+  assert.equal(dynamic.get('directory_id'), 'immutable-id');
+  assert.equal(dynamic.has('slug'), false);
+});
+
+test('directory carousel query isolates viewer and disables unauthorized retry loops', () => {
+  const hook = source.slice(source.indexOf('function useDirectoryCarouselRecords('), source.indexOf('function DirectoryPickerField('));
+  assert.match(hook, /viewerIdentity \|\| ''/);
+  assert.match(hook, /directoryId \|\| directorySlug/);
+  assert.match(hook, /retry: false/);
+  assert.match(hook, /refetchOnWindowFocus: false/);
+  assert.match(hook, /visitIdentity \|\| ''/);
 });

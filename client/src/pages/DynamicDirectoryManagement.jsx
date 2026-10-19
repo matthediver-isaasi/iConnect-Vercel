@@ -23,6 +23,7 @@ import { normalizeDirectoryExpression } from "../../../shared/directoryExpressio
 import BackFieldOrderList from "@/components/directory/BackFieldOrderList";
 import { useDirectoryObjectSources } from "@/hooks/useDirectoryObjectSources";
 import DirectoryObjectSourcesGuidance from "@/components/directory/DirectoryObjectSourcesGuidance";
+import { PUBLIC_CAROUSEL_PERMISSION_DESCRIPTION } from "@/components/directory/PublicCarouselPermission";
 
 const ENTITY_TYPES = [
   { value: 'member', label: 'Member', icon: User },
@@ -39,7 +40,7 @@ function generateSlug(name) {
 }
 
 export default function DynamicDirectoryManagementPage() {
-  const { isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
+  const { isAdmin, isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
   const activeTenantId = useSyncExternalStore(subscribeToActiveTenantId, getActiveTenantId, getActiveTenantId);
   const tenantId = activeTenantId || memberInfo?.tenant_id || null;
   const [accessChecked, setAccessChecked] = useState(false);
@@ -54,6 +55,7 @@ export default function DynamicDirectoryManagementPage() {
   const [savedExpressionError, setSavedExpressionError] = useState('');
   const [ruleError, setRuleError] = useState('');
   const [isActive, setIsActive] = useState(true);
+  const [publicCarouselEnabled, setPublicCarouselEnabled] = useState(false);
   // null = use all filterable fields (backward compat), [] = explicitly none, [...ids] = specific selection
   const [selectedFilterFields, setSelectedFilterFields] = useState(null);
   const [allowedRoleIds, setAllowedRoleIds] = useState([]);
@@ -346,6 +348,7 @@ export default function DynamicDirectoryManagementPage() {
     setSavedExpressionError('');
     setRuleError('');
     setIsActive(true);
+    setPublicCarouselEnabled(false);
     setSelectedFilterFields([]);  // Default to empty array for new directories (no filters)
     setAllowedRoleIds([]);
     setEmailSourceType('');
@@ -379,6 +382,7 @@ export default function DynamicDirectoryManagementPage() {
     }
     setRuleError('');
     setIsActive(directory.is_active !== false);
+    setPublicCarouselEnabled(directory.public_carousel_enabled === true);
     // Preserve null/undefined to distinguish between "not configured" and "explicitly empty"
     setSelectedFilterFields(directory.selected_filter_fields ?? null);
     setAllowedRoleIds(directory.allowed_role_ids || []);
@@ -467,6 +471,7 @@ export default function DynamicDirectoryManagementPage() {
       entity_type: entityType,
       ...directoryExpressionSaveFields(filterExpression, selectedFilterFields),
       is_active: isActive,
+      ...(isAdmin ? { public_carousel_enabled: publicCarouselEnabled } : {}),
       allowed_role_ids: allowedRoleIds,
       email_source_type: emailSourceType || null,
       email_source_field: emailSourceField || null,
@@ -942,7 +947,7 @@ export default function DynamicDirectoryManagementPage() {
               <div>
                 <Label htmlFor="isActive" className="cursor-pointer">Active</Label>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Whether this directory is publicly accessible
+                  Whether this directory is available. This does not permit public carousel display.
                 </p>
               </div>
               <Switch
@@ -952,6 +957,18 @@ export default function DynamicDirectoryManagementPage() {
                 data-testid="switch-is-active"
               />
             </div>
+
+            {isAdmin && (
+              <div className="p-3 bg-slate-50 rounded-lg border space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <Label htmlFor="publicCarouselEnabled">Permit public carousel display</Label>
+                  <Switch id="publicCarouselEnabled" checked={publicCarouselEnabled}
+                    onCheckedChange={setPublicCarouselEnabled} data-testid="switch-public-carousel" />
+                </div>
+                <p className="text-xs text-slate-500">{PUBLIC_CAROUSEL_PERMISSION_DESCRIPTION}</p>
+                <p className="text-xs text-slate-500">Administrator-only. Saved with this directory.</p>
+              </div>
+            )}
 
             <div className="p-4 bg-blue-50 rounded-lg border border-blue-200 space-y-3">
               <div className="flex items-center gap-2">

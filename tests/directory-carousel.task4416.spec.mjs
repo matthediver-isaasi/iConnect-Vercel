@@ -323,6 +323,7 @@ async function installFixtures(page, {
       return json(route, [{ id: MEMBER.organization_id, name: "Directory Carousel Org" }]);
     }
     if (path === "/api/entities/DynamicDirectory") {
+      if (Number(query.offset || 0) > 0) return json(route, []);
       return json(route, [{
         id: "directory-carousel-browser-directory",
         slug: DIRECTORY_SLUG,

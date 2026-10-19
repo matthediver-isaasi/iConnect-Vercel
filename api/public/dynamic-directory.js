@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
-import { directoryEligibleIds, revalidateDirectoryInclusion } from '../_lib/directoryExpression.js';
+import { renderSecureDirectoryCarousel } from '../_lib/secureDirectoryCarousel.js';
+import { directoryEligibleIds, revalidateDirectoryInclusion, readDirectoryPages } from '../_lib/directoryExpression.js';
 import { createHmac } from 'node:crypto';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { getTenantContext, hasFeatureAccess } from '../_lib/tenantContext.js';
@@ -98,7 +99,7 @@ export async function dynamicDirectoryHandler(req, res, dependencies = {}) {
     search,
     filters,
   } = req.query;
-  if (!slug) return res.status(400).json({ error: 'slug is required' });
+  if (!slug && mode !== 'carousel') return res.status(400).json({ error: 'slug is required' });
 
   const resolveTenant = dependencies.resolveTenant || resolveTenantFromRequest;
   // `resolveTenantFromRequest` normally accepts `?slug=` as a legacy tenant
@@ -107,7 +108,7 @@ export async function dynamicDirectoryHandler(req, res, dependencies = {}) {
   // Explicit ?tenant= remains supported for embedded contexts; otherwise the
   // resolver uses the request host.
   const tenantRequest = mode === 'carousel'
-    ? { ...req, query: { ...req.query, slug: undefined } }
+    ? Object.assign(Object.create(req), { query: { ...req.query, slug: undefined } })
     : req;
   let tenant;
   try {
@@ -128,7 +129,7 @@ export async function dynamicDirectoryHandler(req, res, dependencies = {}) {
   // responses.
   if (mode === 'carousel') {
     try {
-      return await renderOrganizationCarousel({
+      return await renderSecureDirectoryCarousel({
         supabase,
         tenantId,
         req: tenantRequest,
@@ -139,6 +140,13 @@ export async function dynamicDirectoryHandler(req, res, dependencies = {}) {
         resolveTenantContext: dependencies.getTenantContext || getTenantContext,
         featureCheck: dependencies.hasFeatureAccess || hasFeatureAccess,
         exclusionsResolver: dependencies.resolveMemberExclusions || resolveMemberExclusions,
+        helpers: {
+          parseCarouselPagination, normalizeCarouselSeed, parseCarouselAllowedRoleIds,
+          resolveCarouselAuthority, seededOrganizationOrder, projectCarouselOrganization,
+          loadCarouselDirectorySettings, loadCarouselFilterAuthority,
+          loadCarouselVerifiedDomainAuthority, loadCarouselEligibilityAuthority,
+          fetchCarouselOrganizations, stableAuthorityValue,
+        },
         res,
       });
     } catch (err) {
@@ -262,6 +270,7 @@ async function resolveCarouselAuthority({
   db,
   featureCheck,
   exclusionsResolver,
+  feature = 'membership.organisation-directory',
 }) {
   const contextTenantId = context?.tenantId || context?.tenantFromHost?.id || null;
   if (!context || context.tenantMismatch || !contextTenantId || contextTenantId !== tenantId) {
@@ -280,7 +289,7 @@ async function resolveCarouselAuthority({
   }
   const featureAllowed = await featureCheck(
     context.roleId,
-    'membership.organisation-directory',
+    feature,
     context.memberExcludedFeatures,
   );
   if (!featureAllowed) {
@@ -291,7 +300,7 @@ async function resolveCarouselAuthority({
     memberExcludedFeatures: context.memberExcludedFeatures,
   }, db);
   const hierarchyAllowsFeature = makeFeatureAccessChecker(exclusions)
-    .canAccessFeature('membership.organisation-directory');
+    .canAccessFeature(feature);
   return authorizeCarouselDirectory({
     context,
     tenantId,
@@ -775,7 +784,7 @@ async function resolveCarouselFilterOrganizationIds({
       organizationOffset,
       organizationOffset + CAROUSEL_QUERY_BATCH_SIZE,
     );
-    for (let offset = 0; ; offset += CAROUSEL_QUERY_BATCH_SIZE) {
+    for (let offset = 0; ;) {
       const { data, error } = await supabase
         .from('organization_preference_value')
         .select('organization_id, value')
@@ -794,7 +803,8 @@ async function resolveCarouselFilterOrganizationIds({
           ids.add(String(row.organization_id));
         }
       }
-      if (batch.length < CAROUSEL_QUERY_BATCH_SIZE) break;
+      if (!batch.length) break;
+      offset += batch.length;
     }
   }
   return ids;
@@ -811,7 +821,7 @@ async function loadCarouselEligibilityValues({ supabase, organizationIds, fields
         organizationOffset,
         organizationOffset + CAROUSEL_QUERY_BATCH_SIZE,
       );
-      for (let offset = 0; ; offset += CAROUSEL_QUERY_BATCH_SIZE) {
+      for (let offset = 0; ;) {
         const { data, error } = await supabase
           .from('organization_preference_value')
           .select('organization_id, value')
@@ -830,7 +840,8 @@ async function loadCarouselEligibilityValues({ supabase, organizationIds, fields
           const normalized = normalizeOrganizationPreferenceValues(row.value) || [];
           values.set(key, [...(values.get(key) || []), ...normalized]);
         }
-        if (batch.length < CAROUSEL_QUERY_BATCH_SIZE) break;
+        if (!batch.length) break;
+        offset += batch.length;
       }
     }
   }
@@ -892,16 +903,14 @@ function safeVerifiedDomainUrl(value) {
 }
 
 async function loadCarouselVerifiedDomainAuthority({ supabase, tenantId }) {
-  const { data: fields, error: fieldError } = await supabase
+  const fields = await readDirectoryPages(() => supabase
     .from('preference_field')
     .select('id, tenant_id, entity_scope, name, is_active')
     .eq('tenant_id', tenantId)
     .eq('entity_scope', 'organization')
     .eq('name', 'verified_domains')
     .eq('is_active', true)
-    .order('id', { ascending: true })
-    .limit(CAROUSEL_QUERY_BATCH_SIZE + 1);
-  if (fieldError) throw new Error('Failed to load verified organisation domain authority');
+    .order('id', { ascending: true }));
   if (!fields?.length) return [];
   if (fields.length > CAROUSEL_QUERY_BATCH_SIZE) {
     throw new Error('Verified organisation field inventory exceeds supported size');
@@ -912,7 +921,7 @@ async function loadCarouselVerifiedDomainAuthority({ supabase, tenantId }) {
 async function loadCarouselEligibilityAuthority({ supabase, tenantId }) {
   const fields = [];
   const fieldIds = new Set();
-  for (let offset = 0; ; offset += CAROUSEL_QUERY_BATCH_SIZE) {
+  for (let offset = 0; ;) {
     const { data: batch, error } = await supabase
       .from('preference_field')
       .select('id, tenant_id, entity_scope, name, is_active')
@@ -937,7 +946,8 @@ async function loadCarouselEligibilityAuthority({ supabase, tenantId }) {
     if (fields.length > MAX_CAROUSEL_CANDIDATES) {
       throw new Error('Organisation eligibility field inventory exceeds supported size');
     }
-    if (page.length < CAROUSEL_QUERY_BATCH_SIZE) break;
+    if (!page.length) break;
+    offset += page.length;
   }
   return fields;
 }
@@ -950,7 +960,7 @@ async function loadCarouselVerifiedDomains({ supabase, organizationIds, fields }
   for (const field of fields) {
     for (let offset = 0; offset < organizationIds.length; offset += CAROUSEL_QUERY_BATCH_SIZE) {
       const ids = organizationIds.slice(offset, offset + CAROUSEL_QUERY_BATCH_SIZE);
-      for (let preferenceOffset = 0; ; preferenceOffset += CAROUSEL_QUERY_BATCH_SIZE) {
+      for (let preferenceOffset = 0; ;) {
         const { data, error } = await supabase
           .from('organization_preference_value')
           .select('organization_id, value')
@@ -975,7 +985,8 @@ async function loadCarouselVerifiedDomains({ supabase, organizationIds, fields }
             }
           }
         }
-        if (batch.length < CAROUSEL_QUERY_BATCH_SIZE) break;
+        if (!batch.length) break;
+        preferenceOffset += batch.length;
       }
     }
   }
@@ -997,7 +1008,7 @@ async function fetchCarouselOrganizations({
   // Supabase commonly caps a response at 1,000 rows.  Read the complete
   // eligible inventory in bounded server-side batches, then seed and paginate
   // only after the inventory is complete.
-  for (let offset = 0; ; offset += CAROUSEL_QUERY_BATCH_SIZE) {
+  for (let offset = 0; ;) {
     const { data, error } = await supabase
       .from('organization')
       .select(CAROUSEL_ORGANIZATION_SELECT)
@@ -1021,7 +1032,8 @@ async function fetchCarouselOrganizations({
     if (organizations.length > MAX_CAROUSEL_CANDIDATES) {
       throw new Error('Carousel organization inventory exceeds supported size');
     }
-    if (batch.length < CAROUSEL_QUERY_BATCH_SIZE) break;
+    if (!batch.length) break;
+    offset += batch.length;
   }
 
   const organizationIds = organizations.map((organization) => String(organization.id));

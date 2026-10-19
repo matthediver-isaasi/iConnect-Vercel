@@ -20,6 +20,7 @@ import { useDirectoryObjectSources } from "@/hooks/useDirectoryObjectSources";
 import DirectoryObjectSourcesGuidance from "@/components/directory/DirectoryObjectSourcesGuidance";
 import DirectoryFilterToggle from "@/components/directory/DirectoryFilterToggle";
 import DirectoryFilterMode from "@/components/directory/DirectoryFilterMode";
+import PublicCarouselPermission from "@/components/directory/PublicCarouselPermission";
 import { ORG_PUBLICATION_FIELDS, parseOrganisationCorePublication } from "../../../shared/organisationDirectoryCore.js";
 import { useOrganisationDirectoryFilterSettings } from "@/hooks/useOrganisationDirectoryFilterSettings";
 import { useOrganisationDirectoryCsvSettings } from "@/hooks/useOrganisationDirectoryCsvSettings";
@@ -31,7 +32,7 @@ import {
 } from "@/lib/organisationDirectoryGuestSettings";
 
 export default function OrganisationDirectorySettingsPage() {
-  const { isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
+  const { isAdmin, isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const queryClient = useQueryClient();
   const [directoryHeader, setDirectoryHeader] = useState("Organisation Directory");
@@ -621,6 +622,7 @@ export default function OrganisationDirectorySettingsPage() {
           </p>
         </div>
 
+        <PublicCarouselPermission source="primary-organization" tenantId={tenantId} isAdmin={isAdmin} />
         <Card className="border-slate-200 shadow-sm">
           <CardHeader>
             <CardTitle>Display Settings</CardTitle>

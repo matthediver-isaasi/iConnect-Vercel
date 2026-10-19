@@ -27,7 +27,7 @@ function organizations(count, tenantId = TENANT_ID) {
   }));
 }
 
-function database(seed, failures = {}, hooks = {}) {
+function database(seed, failures = {}, hooks = {}, serverCap = Infinity) {
   class Query {
     constructor(table) {
       this.table = table;
@@ -56,8 +56,8 @@ function database(seed, failures = {}, hooks = {}) {
 
     not(column, operator, value) {
       if (operator === 'ilike') {
-        const pattern = String(value).replaceAll('%', '').toLowerCase();
-        this.predicates.push((row) => !String(row[column] || '').toLowerCase().includes(pattern));
+        const pattern = new RegExp(`^${String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replaceAll('%', '.*').replaceAll('_', '.')}$`, 'i');
+        this.predicates.push((row) => !pattern.test(String(row[column] || '')));
       }
       return this;
     }
@@ -104,7 +104,7 @@ function database(seed, failures = {}, hooks = {}) {
           return (a < b ? -1 : a > b ? 1 : 0) * (ascending ? 1 : -1);
         });
       }
-      return rows.slice(this.start, Math.min(this.end + 1, this.start + this.max));
+      return rows.slice(this.start, Math.min(this.end + 1, this.start + this.max, this.start + serverCap));
     }
 
     then(resolve, reject) {
@@ -1103,7 +1103,7 @@ test('handler denies malformed private policy and inactive directories', async (
   assert.equal(inactive.statusCode, 404);
 });
 
-test('handler rejects a member directory in carousel mode', async () => {
+test('handler supports a member directory in carousel mode', async () => {
   const res = response();
   await dynamicDirectoryHandler(
     { method: 'GET', query: { mode: 'carousel', slug: 'members' } },
@@ -1118,5 +1118,241 @@ test('handler rejects a member directory in carousel mode', async () => {
       resolveMemberExclusions: async () => [],
     },
   );
-  assert.equal(res.statusCode, 400);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.payload.entityType, 'member');
+});
+
+async function publicCarousel(state, query, hooks = {}, failures = {}) {
+  const res = response();
+  await dynamicDirectoryHandler({ method: 'GET', query: { mode: 'carousel', ...query } }, res, {
+    supabase: database(state, failures, hooks),
+    resolveTenant: async () => ({ id: TENANT_ID }),
+    getTenantContext: async () => ({ tenantId: TENANT_ID, isAuthenticated: false }),
+  });
+  return res;
+}
+
+for (const entity of ['member', 'organization']) {
+  for (const source of ['dynamic', `primary-${entity}`]) {
+    test(`public ${source}/${entity} requires exact consent and supports bounded global pages`, async () => {
+      const key = entity === 'member' ? 'member_directory_public_carousel_enabled' : 'org_directory_public_carousel_enabled';
+      const state = {
+        dynamic_directory: [directory({ entity_type: entity, public_carousel_enabled: true })],
+        system_settings: [{ tenant_id: TENANT_ID, setting_key: key, setting_value: 'true' }],
+        [entity]: organizations(1205).map(row => ({ ...row, first_name: row.name, last_name: 'Member',
+          email: 'private@example.test', mobile: 'private-phone', biography: 'private-biography',
+          profile_photo_url: 'https://example.test/photo.png', job_title: 'Title' })),
+      };
+      const query = { source, ...(source === 'dynamic' ? { directory_id: 'directory-orgs' } : {}),
+        seed: 'visit-seed', limit: '50' };
+      const first = await publicCarousel(state, query);
+      const second = await publicCarousel(state, { ...query, page: '2' });
+      assert.equal(first.statusCode, 200);
+      assert.equal(first.payload.total, 1205);
+      assert.equal(first.payload.records.length, 50);
+      const expected = seededOrganizationOrder(state[entity], 'visit-seed').map(row => row.id);
+      assert.deepEqual([...first.payload.records, ...second.payload.records].map(row => row.id), expected.slice(0, 100));
+      assert.equal(JSON.stringify(first.payload).includes('private'), false);
+      for (const consent of [undefined, false, 'true', {}, 1]) {
+        if (source === 'dynamic') state.dynamic_directory[0].public_carousel_enabled = consent;
+        else state.system_settings[0].setting_value = consent === 'true' ? true : consent;
+        const denied = await publicCarousel(state, query);
+        assert.notEqual(denied.statusCode, 200);
+        assert.equal(denied.payload.records, undefined);
+      }
+    });
+  }
+}
+
+test('public member opt-outs, disabled/deleted suppression and field visibility precede pagination', async () => {
+  const state = {
+    dynamic_directory: [directory({ entity_type: 'member', public_carousel_enabled: true })],
+    system_settings: [{ tenant_id: TENANT_ID, setting_key: 'member_directory_display',
+      setting_value: JSON.stringify({ show_profile_photo: false, show_job_title: { front: false } }) }],
+    member: [
+      { id: 'allowed', tenant_id: TENANT_ID, first_name: 'Allowed', profile_photo_url: 'secret-photo', job_title: 'secret-job' },
+      { id: 'optout', tenant_id: TENANT_ID, show_in_directory: false },
+      { id: 'disabled', tenant_id: TENANT_ID, login_enabled: false },
+      { id: 'deleted', tenant_id: TENANT_ID, email: 'deleted_123@deleted.local' },
+    ],
+  };
+  const result = await publicCarousel(state, { slug: 'organisations' });
+  assert.equal(result.statusCode, 200);
+  assert.equal(result.payload.total, 1);
+  assert.deepEqual(result.payload.records[0], { id: 'allowed', name: 'Allowed', profile_photo_url: null,
+    job_title: null, organization_name: null, linkedin_url: null, bio: null });
+});
+
+test('public consent revoked during scan never returns records', async () => {
+  const state = { dynamic_directory: [directory({ public_carousel_enabled: true })], organization: organizations(1200) };
+  const result = await publicCarousel(state, { slug: 'organisations' }, {
+    organization: db => { db.dynamic_directory[0].public_carousel_enabled = false; },
+  });
+  assert.notEqual(result.statusCode, 200);
+  assert.equal(result.payload.records, undefined);
+});
+
+test('member opt-out after first inventory invalidates the entire response', async () => {
+  const state = { dynamic_directory: [directory({ entity_type: 'member', public_carousel_enabled: true })],
+    member: [{ id: 'm', tenant_id: TENANT_ID, first_name: 'Member' }] };
+  let reads = 0;
+  const result = await publicCarousel(state, { slug: 'organisations' }, {
+    member: db => { if (++reads === 2) db.member[0].show_in_directory = false; },
+  });
+  assert.equal(result.statusCode, 409);
+  assert.equal(result.payload.records, undefined);
+});
+
+test('member scan errors never become successful empty inventories', async () => {
+  const result = await publicCarousel({
+    dynamic_directory: [directory({ entity_type: 'member', public_carousel_enabled: true })],
+  }, { slug: 'organisations' }, {}, { member: { message: 'scan unavailable' } });
+  assert.equal(result.statusCode, 500);
+  assert.equal(result.payload.records, undefined);
+});
+
+test('server row caps below requested batch size do not truncate the inventory', async () => {
+  const state = { dynamic_directory: [directory({ public_carousel_enabled: true })], organization: organizations(1205) };
+  const res = response();
+  await dynamicDirectoryHandler({ method: 'GET', query: { mode: 'carousel', slug: 'organisations', seed: 'capped' } }, res, {
+    supabase: database(state, {}, {}, 137),
+    resolveTenant: async () => ({ id: TENANT_ID }),
+    getTenantContext: async () => ({ tenantId: TENANT_ID, isAuthenticated: false }),
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.payload.total, 1205);
+});
+
+test('primary member consent revocation during inventory fails closed', async () => {
+  const state = {
+    system_settings: [{ tenant_id: TENANT_ID, setting_key: 'member_directory_public_carousel_enabled', setting_value: 'true' }],
+    member: [{ id: 'm', tenant_id: TENANT_ID, first_name: 'Member' }],
+  };
+  const result = await publicCarousel(state, { source: 'primary-member' }, {
+    member: db => { db.system_settings[0].setting_value = 'false'; },
+  });
+  assert.notEqual(result.statusCode, 200);
+  assert.equal(result.payload.records, undefined);
+});
+
+test('duplicate primary publication settings fail closed', async () => {
+  const row = { tenant_id: TENANT_ID, setting_key: 'org_directory_public_carousel_enabled', setting_value: 'true' };
+  const result = await publicCarousel({ system_settings: [row, row], organization: organizations(2) },
+    { source: 'primary-organization' });
+  assert.equal(result.statusCode, 401);
+});
+
+test('primary member role visibility is authoritative, but does not restrict dynamic members', async () => {
+  const state = {
+    dynamic_directory: [directory({ entity_type: 'member', public_carousel_enabled: true })],
+    system_settings: [
+      { tenant_id: TENANT_ID, setting_key: 'member_directory_public_carousel_enabled', setting_value: 'true' },
+      { tenant_id: TENANT_ID, setting_key: 'member_directory_display', setting_value: '{"visible_role_ids":["visible"]}' },
+    ],
+    member: [
+      { id: 'visible', tenant_id: TENANT_ID, role_id: 'visible' },
+      { id: 'other', tenant_id: TENANT_ID, role_id: 'other' },
+      { id: 'paused', tenant_id: TENANT_ID, role_id: 'visible', membership_paused: true },
+    ],
+  };
+  const primary = await publicCarousel(state, { source: 'primary-member' });
+  assert.equal(primary.statusCode, 200);
+  assert.deepEqual(primary.payload.records.map(row => row.id), ['visible']);
+  const dynamic = await publicCarousel(state, { source: 'dynamic', slug: 'organisations' });
+  assert.equal(dynamic.statusCode, 200);
+  assert.deepEqual(new Set(dynamic.payload.records.map(row => row.id)), new Set(['visible', 'other']));
+  assert.equal('role_id' in primary.payload.records[0], false);
+  assert.equal('email' in primary.payload.records[0], false);
+  assert.equal('membership_paused' in primary.payload.records[0], false);
+});
+
+test('missing consent column preserves authenticated legacy slug reads and denies guests without metadata', async () => {
+  const state = { dynamic_directory: [directory({ name: 'SECRET DIRECTORY', internal_notes: 'SECRET FILTER' })],
+    organization: organizations(1) };
+  const base = database(state);
+  const compatible = { from(table) {
+    const query = base.from(table);
+    const originalSelect = query.select;
+    query.select = function(selection) {
+      if (table === 'dynamic_directory' && selection.includes('public_carousel_enabled')) {
+        this.failure = { code: '42703', message: 'column missing' };
+      }
+      return originalSelect.call(this, selection);
+    };
+    return query;
+  } };
+  const result = response();
+  await dynamicDirectoryHandler({ method: 'GET', query: { mode: 'carousel', slug: 'organisations' } }, result, {
+    supabase: compatible, resolveTenant: async () => ({ id: TENANT_ID }),
+    getTenantContext: async () => publicContext(), hasFeatureAccess: async () => true,
+    resolveMemberExclusions: async () => [],
+  });
+  assert.equal(result.statusCode, 200);
+  const guest = await publicCarousel(state, { slug: 'organisations' });
+  assert.equal(guest.statusCode, 401);
+  assert.equal(JSON.stringify(guest.payload).includes('SECRET'), false);
+  assert.deepEqual(Object.keys(guest.payload), ['error']);
+});
+
+test('carousel request adapter preserves inherited headers and host context while removing directory slug', async () => {
+  const headers = { authorization: 'Bearer fixture', host: 'tenant.example.test', cookie: 'fixture' };
+  const request = Object.assign(Object.create({ get headers() { return headers; } }), {
+    method: 'GET', query: { mode: 'carousel', slug: 'organisations' },
+  });
+  const result = response();
+  let checked = 0;
+  const check = req => {
+    assert.equal(req.headers, headers);
+    assert.equal(req.query.slug, undefined);
+    checked++;
+  };
+  await dynamicDirectoryHandler(request, result, {
+    supabase: database({ dynamic_directory: [directory()], organization: organizations(1) }),
+    resolveTenant: async req => { check(req); return { id: TENANT_ID }; },
+    getTenantContext: async req => { check(req); return publicContext(); },
+    hasFeatureAccess: async () => true, resolveMemberExclusions: async () => [],
+  });
+  assert.equal(result.statusCode, 200);
+  assert.ok(checked >= 3);
+  assert.equal(request.query.slug, 'organisations');
+});
+
+test('primary organization exclusions override own-org status/type bypass', async () => {
+  const state = {
+    organization: [{ id: 'own', tenant_id: TENANT_ID, name: 'Own' }],
+    system_settings: [{ tenant_id: TENANT_ID, setting_key: 'org_directory_excluded_orgs', setting_value: '["own"]' }],
+  };
+  const result = response();
+  await dynamicDirectoryHandler({ method: 'GET', query: { mode: 'carousel', source: 'primary-organization' } }, result, {
+    supabase: database(state), resolveTenant: async () => ({ id: TENANT_ID }),
+    getTenantContext: async () => ({ ...publicContext(), organizationId: 'own' }),
+    hasFeatureAccess: async () => true, resolveMemberExclusions: async () => [],
+  });
+  assert.equal(result.statusCode, 200);
+  assert.equal(result.payload.total, 0);
+});
+
+test('member pause during a long inventory revokes the result', async () => {
+  const state = { dynamic_directory: [directory({ entity_type: 'member', public_carousel_enabled: true })],
+    member: [{ id: 'm', tenant_id: TENANT_ID, first_name: 'Member' }] };
+  let reads = 0;
+  const result = await publicCarousel(state, { slug: 'organisations' }, {
+    member: db => { if (++reads === 2) db.member[0].membership_paused = true; },
+  });
+  assert.equal(result.statusCode, 409);
+});
+
+test('primary member role visibility revocation during inventory fails closed', async () => {
+  const state = {
+    system_settings: [
+      { tenant_id: TENANT_ID, setting_key: 'member_directory_public_carousel_enabled', setting_value: 'true' },
+      { tenant_id: TENANT_ID, setting_key: 'member_directory_display', setting_value: '{"visible_role_ids":["visible"]}' },
+    ],
+    member: [{ id: 'm', tenant_id: TENANT_ID, role_id: 'visible' }],
+  };
+  const result = await publicCarousel(state, { source: 'primary-member' }, {
+    member: db => { db.system_settings[1].setting_value = '{"visible_role_ids":["other"]}'; },
+  });
+  assert.equal(result.statusCode, 409);
+  assert.equal(result.payload.records, undefined);
 });

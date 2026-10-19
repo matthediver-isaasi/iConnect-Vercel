@@ -1,5 +1,6 @@
 import { isOwnBookingHistoryRead, scopeOwnBookingHistory } from '../../_lib/ownBookingHistory.js';
 import { validateDirectoryConfiguration, canManageDirectoryConfiguration } from '../../_lib/directoryExpression.js';
+import { authorizeCarouselConsentWrite } from '../../_lib/directoryCarouselConsent.js';
 import { sendEmail, replacePlaceholders } from '../../_lib/emailService.js';
 import { sendSessionUnavailable } from '../../_lib/sessionAvailability.js';
 import { withoutEnhancedSurveyAnswers } from '../../_lib/surveyCompletionOutputs.js';
@@ -498,6 +499,12 @@ export default async function handler(req, res) {
       return res.status(roleAccess.status).json({ error: roleAccess.error });
     }
   }
+
+  const carouselConsentError = await authorizeCarouselConsentWrite({
+    entity: entityNorm, method: req.method, body: req.body, context: tenantCtx,
+    db: supabase, hasAdminAccess,
+  });
+  if (carouselConsentError) return res.status(carouselConsentError.status).json({ error: carouselConsentError.error });
 
   if (entityNorm === 'dynamicdirectory' && req.method === 'POST') {
     if (!await canManageDirectoryConfiguration(tenantCtx, { hasAdminAccess, hasFeatureAccess })) {
