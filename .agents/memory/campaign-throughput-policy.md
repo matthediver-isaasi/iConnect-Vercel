@@ -31,8 +31,8 @@ preparation by resuming the paused test campaign without resetting its rows.
 
 Native bulk sending must use a fresh campaign with a creation-time transport
 pin; never repurpose a running individual-send campaign for bulk benchmarking.
-The user has explicitly deferred audience-resolution optimisation until the
-bulk submission speed has been measured.
+Audience-resolution optimisation is now open for investigation alongside bulk
+submission performance, including scheduled precomputation of audience lists.
 
 **Why:** Mixing transports mid-send obscures the comparison and complicates
 recovery of uncertain provider acceptance. A no-delivery speed test cannot
