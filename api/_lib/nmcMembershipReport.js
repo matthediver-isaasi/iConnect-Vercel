@@ -1,4 +1,5 @@
 import { isAttestedExpiryOnlyHistory } from './expiryOnlyRenewalPolicy.js';
+import { isBnmsExpiryGapEvidence } from './bnmsExpiryGapEvidence.js';
 import { isBnmsUnexpiredAttestation } from './bnmsUnexpiredAttestation.js';
 import { isBnmsCorrectedExpiryAttestation } from './bnmsCorrectedExpiryAttestation.js';
 import { isBnmsIndividualHistoricalAttestation } from './bnmsIndividualHistoricalAttestation.js';
@@ -127,7 +128,7 @@ function membershipEvidence(history, agreements, plans, recognitions, today) {
     if (recognition.length > 1) {
       unresolved.push({ record, reason: 'ambiguous_membership_evidence' }); continue;
     }
-    const legacy = isAttestedExpiryOnlyHistory(observed, NMC_TENANT)
+    const legacy = isAttestedExpiryOnlyHistory(observed, NMC_TENANT) || isBnmsExpiryGapEvidence(observed)
       || isBnmsUnexpiredAttestation(observed) || isBnmsCorrectedExpiryAttestation(observed)
       || isBnmsIndividualHistoricalAttestation(observed) || isBnmsHistoricalEntitlement(observed);
     const paid = ['active', 'paid', 'expired'].includes(record.status) && record.payment_status === 'paid';

@@ -2,6 +2,7 @@ import { supabase } from '../_lib/database.js';
 import { handleManualCardApproval } from '../_lib/manualCardMembershipApproval.js';
 import { loadMemberGraceWarning } from '../_lib/memberGraceWarning.js';
 import { attachAlphaMembershipRecognition, currentMembershipRecognition } from '../_lib/alphaMembershipRecognition.js';
+import { isBnmsExpiryGapEvidence } from '../_lib/bnmsExpiryGapEvidence.js';
 import { getSessionMember } from '../_lib/session.js';
 import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tenantContext.js';
 import {
@@ -60,7 +61,7 @@ function parsedNotes(value) {
 export function shapeLegacyCurrentMembership(record, tenantId, now = new Date()) {
   if (tenantId !== BNMS_TENANT_ID || record?.tenant_id !== BNMS_TENANT_ID
       || record?.membership_source !== 'personal'
-      || record?.membership_year !== '2025/2026'
+      || !['2025/2026', '2026/2027'].includes(record?.membership_year)
       || record?.status !== 'active' || record?.payment_status !== 'paid'
       || record?.payment_method !== 'upfront' || record?.billing_period !== 'annual'
       || record?.currency !== 'GBP' || !hasValue(record?.tier_label)
@@ -71,7 +72,12 @@ export function shapeLegacyCurrentMembership(record, tenantId, now = new Date())
     return null;
   }
   const notes = parsedNotes(record.notes);
-  if (notes?.source !== 'bnms_non_dd_current_backfill') return null;
+  const extended = isBnmsExpiryGapEvidence(record);
+  if (!extended && (notes?.source !== 'bnms_non_dd_current_backfill'
+      || record.membership_year !== '2025/2026')) return null;
+  if (extended && (record.membership_year !== '2026/2027'
+      || record.final_cost !== null || record.total_with_vat !== null
+      || record.accounting_invoice_id != null || record.xero_invoice_id != null)) return null;
 
   const expiry = String(record.term_end_date || '');
   const today = new Date(now);
@@ -81,7 +87,8 @@ export function shapeLegacyCurrentMembership(record, tenantId, now = new Date())
       || !Number.isFinite(expiryValue)
       || new Date(expiryValue).toISOString().slice(0, 10) !== expiry
       || expiryValue < today.getTime()
-      || expiry > BNMS_LEGACY_CURRENT_CUTOFF) {
+      || expiry > (extended ? '2027-10-19' : BNMS_LEGACY_CURRENT_CUTOFF)
+      || (extended && expiry < '2027-01-01')) {
     return null;
   }
   const finalCostMissing = record.final_cost === null || record.final_cost === undefined;

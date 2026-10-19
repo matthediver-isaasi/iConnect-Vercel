@@ -1545,3 +1545,17 @@ mtime_ms = 1792062543879
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/b78bc9fb-b24f-441c-9c5b-dd0bfab850eb/621b0850-6dfd-4b03-8e97-59de0cca71bc"
 storage_version_token = "1792062597866545"
 content_type = "text/csv"
+
+[[outputs]]
+id = "M50Xl1OGjPiDuZoiWcaRk"
+uri = "file://generated-artifacts/bnms-2027-correction/BNMS-2027-membership-correction.csv"
+type = "table"
+title = "BNMS membership correction results"
+description = "18 corrected memberships and two cases held for Direct Debit review."
+logical_id = "be7c5538-568c-444e-8458-39e20f672930"
+content_hash = "sha256:611436877852ed8e0b8b72572c92d7728338ed8fbde34fe52014a69125cf0ed7"
+size = 4128
+mtime_ms = 1792423134699
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/be7c5538-568c-444e-8458-39e20f672930/4dbcec54-64f0-4270-a4cc-6f5326ae6797"
+storage_version_token = "1792423230377727"
+content_type = "text/csv"

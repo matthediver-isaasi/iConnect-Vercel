@@ -121,6 +121,20 @@ BNMS students do not need fee history.
 **How to apply:** Do not treat absent student fee history as something that must
 be reconstructed. Keep any review of student eligibility separate from fee history.
 
+The owner authorised correction of the missing-current-membership gap for
+eligible BNMS members with current 2027 expiries. Keep imported paid invoice
+evidence distinct from provider-verified settlement, and retain unknown start
+dates and membership prices rather than copying event-package totals.
+
+**Why:** The earlier year-bounded recovery omitted genuine current memberships;
+the correction must establish retained entitlement without inventing financial
+history or future collection consent.
+
+**How to apply:** Keep students/former members and conflicting existing billing
+outside this correction. Historical DD invoice descriptions require separate
+review even when no operational agreement exists. Recognition of these records
+does not authorise renewal-policy assignment or automatic collection.
+
 BNMS journal exclusions must be resolved through the underlying membership
 records, not a hard-coded journal inclusion list.
 
