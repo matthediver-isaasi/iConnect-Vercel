@@ -104,6 +104,78 @@ function roleDb(roles) {
   };
 }
 
+function existingAssignmentFixture(overrides = {}) {
+  const member = {
+    id: 'member-1', tenant_id: 'tenant-1', organization_id: 'org-1',
+    role_id: 'role-1', role_effective_from: '2026-09-24', ...overrides,
+  };
+  const roles = ['role-1', 'role-2'].map(id => ({
+    id, tenant_id: 'tenant-1', requires_effective_from_date: true, max_members: null,
+  }));
+  const rolesDb = roleDb(roles);
+  const supabase = {
+    from(table) {
+      if (table !== 'member') return rolesDb.from(table);
+      const filters = {};
+      const builder = {
+        select(columns) {
+          assert.ok(columns.split(', ').includes('role_effective_from'));
+          return builder;
+        },
+        eq(key, value) { filters[key] = value; return builder; },
+        async maybeSingle() {
+          assert.deepEqual(filters, { id: 'member-1', tenant_id: 'tenant-1' });
+          return { data: { ...member }, error: null };
+        },
+      };
+      return builder;
+    },
+  };
+  return {
+    supabase, memberId: member.id, destinationRoleId: member.role_id,
+    tenantCtx: { tenantId: 'tenant-1', tenantUserId: 'admin-1' },
+    hasAdminAccess: async () => false, hasFeatureAccess: async () => false,
+  };
+}
+
+test('organisation-only edit with unchanged role and omitted date uses tenant-scoped persisted date', async () => {
+  // Both member editors include unchanged role_id in organisation-removal saves.
+  const result = await authorizeAndCheckTeamRoleAssignment(existingAssignmentFixture());
+  assert.equal(result.ok, true);
+  assert.equal(result.unchanged, true);
+  assert.equal(result.targetMember.role_effective_from, '2026-09-24');
+});
+
+test('unchanged role still rejects explicit clearing or invalid effective dates', async () => {
+  for (const effectiveFrom of [null, '', '2026-02-30']) {
+    const result = await authorizeAndCheckTeamRoleAssignment({
+      ...existingAssignmentFixture(), effectiveFrom,
+    });
+    assert.equal(result.status, 400);
+  }
+  assert.equal((await authorizeAndCheckTeamRoleAssignment({
+    ...existingAssignmentFixture(), effectiveFrom: '2026-10-19',
+  })).ok, true);
+});
+
+test('new role cannot inherit the old roles date and unchanged missing dates are not fabricated', async () => {
+  assert.equal((await authorizeAndCheckTeamRoleAssignment({
+    ...existingAssignmentFixture(), destinationRoleId: 'role-2',
+  })).status, 400);
+  assert.equal((await authorizeAndCheckTeamRoleAssignment({
+    ...existingAssignmentFixture(), destinationRoleId: 'role-2', effectiveFrom: '2026-10-19',
+  })).ok, true);
+  assert.equal((await authorizeAndCheckTeamRoleAssignment(
+    existingAssignmentFixture({ role_effective_from: null }),
+  )).status, 400);
+});
+
+test('unchanged assignment with persisted date does not bypass caller authorization', async () => {
+  const fixture = existingAssignmentFixture();
+  fixture.tenantCtx = { tenantId: 'tenant-1', roleId: 'caller', organizationId: 'org-1' };
+  assert.equal((await authorizeAndCheckTeamRoleAssignment(fixture)).status, 403);
+});
+
 test('member creation requires Login Access and a configured destination role', async () => {
   const roles = [
     { id: 'leader', tenant_id: 'tenant-1', assignable_role_ids: ['allowed'] },

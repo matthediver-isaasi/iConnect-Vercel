@@ -95,7 +95,7 @@ export async function authorizeAndCheckTeamRoleAssignment({
   if (!targetMember) {
     const { data, error: memberError } = await supabase
       .from('member')
-      .select('id, tenant_id, organization_id, role_id')
+      .select('id, tenant_id, organization_id, role_id, role_effective_from')
       .eq('id', memberId)
       .eq('tenant_id', tenantCtx.tenantId)
       .maybeSingle();
@@ -141,7 +141,12 @@ export async function authorizeAndCheckTeamRoleAssignment({
     targetMember,
     callerRole,
     destinationRole,
-    effectiveFrom,
+    // PATCH omission preserves the saved date only for the same assignment.
+    // Explicit clearing remains invalid where required; new roles must supply
+    // their own date rather than inheriting another role's effective date.
+    effectiveFrom: !roleChanged && effectiveFrom === undefined
+      ? targetMember.role_effective_from
+      : effectiveFrom,
     privileged,
   });
   if (!policy.ok) return policy;
