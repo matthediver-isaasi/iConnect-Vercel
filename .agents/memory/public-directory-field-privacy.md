@@ -48,3 +48,13 @@ does not accept empty placeholders while each next slide loads.
 consent, projection checks, or tenant/viewer isolation. Keep already permitted
 cards visible during same-source loading; never carry them across access or
 source changes.
+
+Reduce carousel read latency by batching server-only inputs into fresh atomic
+snapshots, not by dropping final visibility checks or caching permissions.
+
+**Why:** Improving only the eligibility step left the complete request dominated
+by repeated remote metadata reads. Full-handler timing exposed the real delay.
+
+**How to apply:** Keep raw snapshot inputs service-role-only and never include
+them in public responses. Preserve fresh tenant/role checks and comparisons
+between snapshots; measure complete responses and compare their contents.

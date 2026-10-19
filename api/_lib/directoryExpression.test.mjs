@@ -57,7 +57,9 @@ test('unfiltered legacy directories remain unrestricted in config, embeds, carou
   }
 });
 function database(state, failure) {
-  return { from(table) {
+  return {
+    rpc: async () => ({ data: null, error: { code: 'PGRST202', message: 'Could not find public.organization_carousel_snapshot' } }),
+    from(table) {
     const predicates = []; let offset = 0; let end = Infinity;
     return {
       select() { return this; }, order() { return this; }, like() { return this; }, or() { return this; }, not() { return this; }, is() { return this; },

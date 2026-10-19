@@ -116,7 +116,8 @@ function database(seed, failures = {}, hooks = {}, serverCap = Infinity) {
     }
   }
 
-  return { from: (table) => new Query(table) };
+  return { from: (table) => new Query(table),
+    rpc: async () => ({ data: null, error: { code: 'PGRST202', message: 'Could not find public.organization_carousel_snapshot' } }) };
 }
 
 function response() {
@@ -1351,7 +1352,7 @@ test('missing consent column preserves authenticated legacy slug reads and denie
   const state = { dynamic_directory: [directory({ name: 'SECRET DIRECTORY', internal_notes: 'SECRET FILTER' })],
     organization: organizations(1) };
   const base = database(state);
-  const compatible = { from(table) {
+  const compatible = { rpc: base.rpc, from(table) {
     const query = base.from(table);
     const originalSelect = query.select;
     query.select = function(selection) {
@@ -1436,4 +1437,126 @@ test('primary member role visibility revocation during inventory fails closed', 
   });
   assert.equal(result.statusCode, 409);
   assert.equal(result.payload.records, undefined);
+});
+
+// Snapshot fixtures model the SQL transport's minimal rows, not an alternate
+// eligibility implementation. All actual filtering/projection helpers still run.
+function snapshotTransport(state, onSnapshot = () => {}) {
+  const columns = {
+    dynamic_directory: 'id tenant_id slug entity_type is_active allowed_role_ids public_carousel_enabled filter_expression filter_field_id filter_value',
+    system_settings: 'id tenant_id setting_key setting_value',
+    preference_field: 'id tenant_id entity_scope is_active name field_type',
+    organization: 'id tenant_id name logo_url',
+    organization_preference_value: 'id organization_id field_id value',
+  };
+  const base = database(state);
+  let snapshots = 0, reads = 0;
+  return {
+    get snapshots() { return snapshots; }, get reads() { return reads; },
+    from(table) { reads++; return base.from(table); },
+    async rpc(name, args) {
+      assert.equal(name, 'organization_carousel_snapshot');
+      assert.equal(args.p_tenant_id, TENANT_ID);
+      onSnapshot(state, ++snapshots);
+      const data = { version: 1, tenant_id: TENANT_ID };
+      for (const [table, selection] of Object.entries(columns)) {
+        data[table] = (state[table] || []).filter(row => table === 'organization_preference_value'
+          || row.tenant_id === TENANT_ID).map(row => Object.fromEntries(
+          selection.split(' ').filter(key => row[key] !== undefined).map(key => [key, row[key]])));
+      }
+      return { data: structuredClone(data), error: null };
+    },
+  };
+}
+
+async function snapshotRequest(db, query = {}, context = publicContext()) {
+  const result = response();
+  await dynamicDirectoryHandler({ method: 'GET', query: { mode: 'carousel', slug: 'organisations', ...query } }, result, {
+    supabase: db, resolveTenant: async () => ({ id: TENANT_ID }),
+    getTenantContext: async () => context, hasFeatureAccess: async () => true,
+    resolveMemberExclusions: async () => [],
+  });
+  return result;
+}
+
+test('full handler snapshot path matches slow path with three RPCs and one discovery read', async () => {
+  const state = {
+    dynamic_directory: [directory({ filter_expression: { version: 1, root: {
+      op: 'and', children: [{ field_id: 'partner', value: 'Partner' }],
+    } } })],
+    organization: organizations(20),
+    preference_field: [
+      { id: 'partner', tenant_id: TENANT_ID, entity_scope: 'organization', is_active: true, field_type: 'dropdown' },
+      { id: 'domain', tenant_id: TENANT_ID, entity_scope: 'organization', is_active: true, name: 'verified_domains' },
+    ],
+    organization_preference_value: [
+      { id: 'v1', organization_id: 'org-0001', field_id: 'partner', value: 'Partner' },
+      { id: 'v2', organization_id: 'org-0001', field_id: 'domain', value: 'verified.example.test' },
+    ],
+  };
+  const slow = await snapshotRequest(database(state));
+  const fastDb = snapshotTransport(state);
+  const fast = await snapshotRequest(fastDb);
+  assert.equal(fast.statusCode, 200);
+  assert.deepEqual(fast.payload, slow.payload);
+  assert.equal(fastDb.snapshots, 3);
+  assert.equal(fastDb.reads, 1, 'only dynamic source discovery may use REST helpers');
+  assert.equal(JSON.stringify(fast.payload).includes('filter_expression'), false);
+  assert.equal(JSON.stringify(fast.payload).includes('field_id'), false);
+});
+
+test('primary organisation snapshot matches eligibility/exclusions with no helper REST reads', async () => {
+  const state = {
+    organization: organizations(3),
+    system_settings: [
+      { tenant_id: TENANT_ID, setting_key: 'org_directory_allowed_application_statuses', setting_value: '["Approved"]' },
+      { tenant_id: TENANT_ID, setting_key: 'org_directory_excluded_orgs', setting_value: '["org-0002"]' },
+    ],
+    preference_field: [{ id: 'status', tenant_id: TENANT_ID, entity_scope: 'organization', is_active: false, name: 'application_status' }],
+    organization_preference_value: organizations(3).map(org => ({ id: org.id, organization_id: org.id, field_id: 'status', value: 'Approved' })),
+  };
+  const query = { source: 'primary-organization' };
+  const fastDb = snapshotTransport(state);
+  const fast = await snapshotRequest(fastDb, query);
+  assert.equal(fast.statusCode, 200);
+  assert.deepEqual(fast.payload, (await snapshotRequest(database(state), query)).payload);
+  assert.equal(fast.payload.total, 2);
+  assert.equal(fastDb.snapshots, 3);
+  assert.equal(fastDb.reads, 0);
+});
+
+test('snapshot passes reject concurrent publication, exclusion, field and value revocation including final pass', async () => {
+  for (const pass of [2, 3]) {
+    for (const revoke of [
+      state => { state.dynamic_directory[0].public_carousel_enabled = false; },
+      state => { state.system_settings[0].setting_value = '["org-0000"]'; },
+      state => { state.preference_field[0].is_active = false; },
+      state => { state.organization_preference_value[0].value = 'Other'; },
+      state => { state.organization.length = 0; state.organization_preference_value.length = 0; },
+    ]) {
+      const state = {
+        dynamic_directory: [directory({ public_carousel_enabled: true, filter_expression: {
+          version: 1, root: { op: 'and', children: [{ field_id: 'partner', value: 'Partner' }] },
+        } })],
+        organization: organizations(1),
+        preference_field: [{ id: 'partner', tenant_id: TENANT_ID, entity_scope: 'organization', is_active: true, field_type: 'dropdown' }],
+        organization_preference_value: [{ id: 'v', organization_id: 'org-0000', field_id: 'partner', value: 'Partner' }],
+        system_settings: [{ tenant_id: TENANT_ID, setting_key: 'org_directory_excluded_orgs', setting_value: '[]' }],
+      };
+      const db = snapshotTransport(state, (current, count) => { if (count === pass) revoke(current); });
+      const result = await snapshotRequest(db, {}, { tenantId: TENANT_ID, isAuthenticated: false });
+      assert.ok([401, 403, 409].includes(result.statusCode), `revocation at pass ${pass} must deny`);
+      assert.equal(result.payload.records, undefined);
+    }
+  }
+});
+
+test('snapshot path preserves unavailable expression-field errors and does not fall back', async () => {
+  const state = { dynamic_directory: [directory({ filter_expression: { version: 1,
+    root: { op: 'and', children: [{ field_id: 'missing', value: 'Partner' }] } } })], organization: organizations(1) };
+  const db = snapshotTransport(state);
+  const result = await snapshotRequest(db);
+  assert.equal(result.statusCode, 500);
+  assert.equal(db.reads, 1);
+  assert.deepEqual(result.payload, (await snapshotRequest(database(state))).payload);
 });

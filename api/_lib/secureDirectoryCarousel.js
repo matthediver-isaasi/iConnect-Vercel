@@ -2,6 +2,7 @@ import { directoryEligibleIds, directoryMatchingCandidateIds, readDirectoryPages
 import { applyCoreFieldVisibility, isMemberFieldVisibleOnFront } from './directoryConfig.js';
 import { isMemberPaused } from './memberPause.js';
 import { isDeletedRelationshipMember } from './customObjectMemberEligibility.js';
+import { loadOrganizationCarouselSnapshot } from './organizationCarouselSnapshot.js';
 
 const MEMBER_SELECT = 'id, first_name, last_name, profile_photo_url, job_title, role_id, email, membership_paused';
 
@@ -46,6 +47,8 @@ export async function renderSecureDirectoryCarousel({
   const { pageNum, pageSize } = h.parseCarouselPagination(page, limit);
   const embedded = req.query.embed === 'true' || req.headers?.['x-embed-context'] === 'true'
     || /\/embed(?:\/|[?#]|$)/i.test(String(req.headers?.referer || req.headers?.referrer || ''));
+  const snapshotReaders = new WeakMap();
+  let organizationSource = source === 'primary-organization';
 
   async function authority() {
     const context = await resolveTenantContext(req);
@@ -53,22 +56,42 @@ export async function renderSecureDirectoryCarousel({
       && (context.tenantId || context.tenantFromHost.id) !== tenantId)) {
       return { error: 'Tenant context mismatch', status: 409 };
     }
-    let directory;
-    if (source === 'dynamic') {
-      // SELECT * tolerates the not-yet-applied consent migration. Undefined
-      // consent remains off, while legacy private readers keep working.
+    // Discover a dynamic source once using the original scoped lookup. Member
+    // sources keep their original path, with no snapshot RPC calls.
+    let discovered;
+    if (source === 'dynamic' && !organizationSource) {
       let query = db.from('dynamic_directory').select('*')
         .eq('tenant_id', tenantId).eq('is_active', true);
       query = directoryId ? query.eq('id', directoryId) : query.eq('slug', selectedSlug);
       const { data, error } = await query.limit(2);
       if (error) throw new Error('Unable to read carousel publication authority');
       if (data?.length !== 1) return { error: 'Directory not found', status: 404 };
-      directory = data[0];
+      discovered = data[0];
+      organizationSource = discovered.entity_type === 'organization';
+    }
+    const snapshot = !organizationSource ? null : await loadOrganizationCarouselSnapshot(db, {
+      tenantId, source, directoryId, slug: selectedSlug,
+    });
+    const reader = snapshot?.db || db;
+    let directory;
+    if (source === 'dynamic') {
+      // SELECT * tolerates the not-yet-applied consent migration. Undefined
+      // consent remains off, while legacy private readers keep working.
+      if (discovered && !snapshot) directory = discovered;
+      else {
+        let query = reader.from('dynamic_directory').select('*')
+          .eq('tenant_id', tenantId).eq('is_active', true);
+        query = directoryId ? query.eq('id', directoryId) : query.eq('slug', selectedSlug);
+        const { data, error } = await query.limit(2);
+        if (error) throw new Error('Unable to read carousel publication authority');
+        if (data?.length !== 1) return { error: 'Directory not found', status: 404 };
+        directory = data[0];
+      }
     } else {
       directory = { id: 'main', entity_type: source === 'primary-member' ? 'member' : 'organization', is_active: true, allowed_role_ids: [] };
       const key = directory.entity_type === 'member'
         ? 'member_directory_public_carousel_enabled' : 'org_directory_public_carousel_enabled';
-      const { data, error } = await db.from('system_settings').select('setting_value')
+      const { data, error } = await reader.from('system_settings').select('setting_value')
         .eq('tenant_id', tenantId).eq('setting_key', key).limit(2);
       if (error) throw new Error('Unable to read carousel publication authority');
       directory.public_carousel_enabled = data?.length === 1 && data[0].setting_value === 'true';
@@ -107,22 +130,26 @@ export async function renderSecureDirectoryCarousel({
       // These independent reads still run in each authority pass, but need
       // not add four sequential network round trips to every pass.
       const [displaySettings, filterAuthority, verifiedDomainAuthority, eligibilityAuthority] = await Promise.all([
-        h.loadCarouselDirectorySettings(db, tenantId),
-        h.loadCarouselFilterAuthority({ supabase: db, tenantId,
+        h.loadCarouselDirectorySettings(reader, tenantId),
+        h.loadCarouselFilterAuthority({ supabase: reader, tenantId,
           fieldId: directory.filter_expression != null ? null : directory.filter_field_id, filterValue: directory.filter_value }),
-        h.loadCarouselVerifiedDomainAuthority({ supabase: db, tenantId }),
-        h.loadCarouselEligibilityAuthority({ supabase: db, tenantId }),
+        h.loadCarouselVerifiedDomainAuthority({ supabase: reader, tenantId }),
+        h.loadCarouselEligibilityAuthority({ supabase: reader, tenantId }),
       ]);
       settings = displaySettings;
       organizationAuthority = {
         filterAuthority, verifiedDomainAuthority, eligibilityAuthority,
       };
     }
-    return { context, directory, settings, publicView: guest || embedded, organizationAuthority };
+    const result = { context, directory, settings, publicView: guest || embedded, organizationAuthority,
+      ...(snapshot ? { snapshotRevision: snapshot.revision } : {}) };
+    if (snapshot) snapshotReaders.set(result, snapshot.db);
+    return result;
   }
 
   async function inventory(a) {
     const { directory, settings, context, publicView } = a;
+    const reader = snapshotReaders.get(a) || db;
     let rows;
     let candidateIds = null;
     if (directory.entity_type === 'member') {
@@ -135,7 +162,7 @@ export async function renderSecureDirectoryCarousel({
       rows = rows.filter(row => !isMemberPaused(row) && !isDeletedRelationshipMember(row)
         && (!visibleRoles.length || visibleRoles.includes(row.role_id)));
     } else {
-      candidateIds = await directoryMatchingCandidateIds(db, tenantId, directory);
+      candidateIds = await directoryMatchingCandidateIds(reader, tenantId, directory);
       const { filterAuthority, verifiedDomainAuthority, eligibilityAuthority } = a.organizationAuthority;
       // Dynamic directories own their inclusion expression. The main directory's
       // status/type selectors must not narrow a separately configured directory
@@ -146,7 +173,7 @@ export async function renderSecureDirectoryCarousel({
         allowedApplicationStatuses: new Set(),
         visibleOrgTypes: new Set(),
       } : settings;
-      rows = await h.fetchCarouselOrganizations({ supabase: db, tenantId, filterAuthority,
+      rows = await h.fetchCarouselOrganizations({ supabase: reader, tenantId, filterAuthority,
         verifiedDomainAuthority, eligibilityAuthority, displaySettings: populationSettings,
         candidateIds,
         requesterOrganizationId: publicView ? null : context?.organizationId });
@@ -154,7 +181,7 @@ export async function renderSecureDirectoryCarousel({
       // own organisation. Keep the legacy dynamic-carousel exception separate.
       if (source === 'primary-organization') rows = rows.filter(row => !settings.excludedOrgIds.has(String(row.id)));
     }
-    const ids = candidateIds ?? await directoryEligibleIds(db, tenantId, directory, rows.map(row => row.id));
+    const ids = candidateIds ?? await directoryEligibleIds(reader, tenantId, directory, rows.map(row => row.id));
     const eligible = ids === null ? null : new Set(ids);
     const projectionSettings = directory.entity_type === 'organization'
       && organizationNameDisplay !== 'inherit'

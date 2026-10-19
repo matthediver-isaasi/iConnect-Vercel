@@ -95,7 +95,8 @@ function database(seed, calls) {
     }
   }
 
-  return { from: (table) => new Query(table) };
+  return { from: (table) => new Query(table),
+    rpc: async () => ({ data: null, error: { code: 'PGRST202', message: 'Could not find public.organization_carousel_snapshot' } }) };
 }
 
 function response() {
