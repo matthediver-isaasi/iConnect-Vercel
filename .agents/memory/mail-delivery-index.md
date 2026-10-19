@@ -10,3 +10,4 @@ description: Focused pointers for Mailgun readiness, correspondence, delivery ev
 - [Email bounce authority](email-bounce-authority.md) — address-scoped suppression, chronological outcomes and provider-checked resolution.
 - [Campaign click authority](campaign-click-authority.md) — iConnect requests own counts; provider evidence and historical totals do not prove human clicks.
 - [Recipient history evidence](recipient-history-evidence-boundaries.md) — sender freezes do not freeze event writers; checksums and trigger assignments cannot reconstruct before-images.
+- [Campaign removal policy](campaign-removal-policy.md) — removal is not permission to cancel delivery or reconcile uncertain provider work automatically.

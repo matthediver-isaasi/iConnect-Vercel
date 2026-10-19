@@ -1,4 +1,5 @@
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
+import { beginCampaignTestSend, finishCampaignTestSend } from '../_lib/campaignLifecycle.js';
 import {
   getCampaign,
   rewriteLinksForTracking,
@@ -146,6 +147,9 @@ export default async function handler(req, res) {
     if (!success || !campaign) {
       return res.status(404).json({ error: error || 'Campaign not found' });
     }
+    if (campaign.archived_at) {
+      return res.status(409).json({ error: 'This campaign is archived. Restore it before sending a test email.', code: 'CAMPAIGN_ARCHIVED' });
+    }
     let sourceRecipient = null;
     if (sourceRecipientEmail !== undefined && sourceRecipientEmail !== null) {
       try {
@@ -202,6 +206,8 @@ export default async function handler(req, res) {
       campaignContentWidth,
     };
 
+    const reservation = await beginCampaignTestSend(supabase, campaignId, tenantId);
+    if (!reservation.success) return res.status(reservation.statusCode || 503).json(reservation);
     const results = [];
     for (let i = 0; i < valid.length; i++) {
       // eslint-disable-next-line no-await-in-loop
@@ -213,6 +219,7 @@ export default async function handler(req, res) {
 
     const succeeded = results.filter((r) => r.success);
     const failed = results.filter((r) => !r.success);
+    const { reconciliationRequired } = await finishCampaignTestSend(supabase, campaignId, tenantId, reservation.lease, results);
 
     let message;
     if (failed.length === 0) {
@@ -227,7 +234,9 @@ export default async function handler(req, res) {
       message = `Test email sent to ${succeeded.length} of ${results.length} recipients (${failed.length} failed)`;
     }
 
+    if (reconciliationRequired) message += '. Test delivery needs administrator reconciliation before this campaign can be archived or deleted.';
     const responseBody = {
+      reconciliationRequired,
       success: succeeded.length > 0,
       message,
       total: results.length,

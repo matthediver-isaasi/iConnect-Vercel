@@ -1,4 +1,5 @@
 import { supabase } from '../_lib/database.js';
+import { beginCampaignTestSend, finishCampaignTestSend } from '../_lib/campaignLifecycle.js';
 import { getCallerEmsAccess, requireGroupAccess, validateStoredMemberCampaign } from '../_lib/memberGroupEmsAccess.js';
 import {
   rewriteLinksForTracking,
@@ -56,6 +57,7 @@ export default async function handler(req, res) {
   if (!requireGroupAccess(access.groups, row.member_group_id)) {
     return res.status(403).json({ error: 'You do not have access to this campaign.' });
   }
+  if (row.archived_at) return res.status(409).json({ error: 'This campaign is archived. Ask a tenant administrator to restore it before sending.', code: 'CAMPAIGN_ARCHIVED' });
 
   const { tenantContext, memberId } = access;
   const callerEmail = tenantContext.member?.email || null;
@@ -108,6 +110,8 @@ export default async function handler(req, res) {
     const campaignRichSlots = composition.richSlots;
 
     const surveyUrl = await resolveCampaignEventSurvey(supabase, campaign, tenantContext.tenantId);
+    const reservation = await beginCampaignTestSend(supabase, campaignId, tenantContext.tenantId);
+    if (!reservation.success) return res.status(reservation.statusCode || 503).json(reservation);
     const results = [];
 
     for (let i = 0; i < valid.length; i++) {
@@ -155,6 +159,7 @@ export default async function handler(req, res) {
 
     const succeeded = results.filter((r) => r.success);
     const failed = results.filter((r) => !r.success);
+    const { reconciliationRequired } = await finishCampaignTestSend(supabase, campaignId, tenantContext.tenantId, reservation.lease, results);
     let message;
     if (failed.length === 0) {
       message = succeeded.length === 1 ? `Test email sent to ${succeeded[0].email}` : `Test email sent to ${succeeded.length} recipients`;
@@ -164,7 +169,9 @@ export default async function handler(req, res) {
       message = `Test email sent to ${succeeded.length} of ${results.length} recipients (${failed.length} failed)`;
     }
 
+    if (reconciliationRequired) message += '. Test delivery needs administrator reconciliation before this campaign can be archived or deleted.';
     const responseBody = {
+      reconciliationRequired,
       success: succeeded.length > 0,
       message,
       total: results.length,

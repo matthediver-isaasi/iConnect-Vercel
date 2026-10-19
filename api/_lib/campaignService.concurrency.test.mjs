@@ -7,7 +7,24 @@ const { supabase } = await import('./database.js');
 const {
   updateCampaign, deleteCampaign, sendCampaign, scheduleCampaign,
   returnScheduledCampaignToDraft, processScheduledCampaigns, resumeCampaign, pauseCampaign, cancelCampaign,
+  duplicateCampaign,
 } = await import('./campaignService.js');
+
+test('archived campaigns cannot send, schedule, resume or edit through service entry points', async (t) => {
+  const state = database(t, { archived_at: '2026-10-01T00:00:00Z' });
+  for (const operation of [
+    () => sendCampaign('campaign', 'tenant'),
+    () => scheduleCampaign('campaign', 'tenant', new Date('2099-01-01')),
+    () => resumeCampaign('campaign', 'tenant'),
+    () => updateCampaign('campaign', { archived_at: null, subject: 'Changed' }, 'tenant'),
+  ]) {
+    const result = await operation();
+    assert.equal(result.code, 'CAMPAIGN_ARCHIVED');
+  }
+  assert.equal(state.claims.length, 0);
+  assert.equal(state.childWrites, 0);
+  assert.equal(state.submissionClaims, 0);
+});
 
 // Execute filters against the current row at mutation time, not read time.
 // Hooks deterministically place the competing request at the race boundary.
@@ -118,9 +135,15 @@ function database(t, overrides = {}) {
           if (operation === 'update' && values.status === 'sending' && state.beforeResume) {
             const hook = state.beforeResume; state.beforeResume = null; await hook();
           }
+          if (operation === 'update' && state.beforeEdit) {
+            const hook = state.beforeEdit; state.beforeEdit = null; await hook();
+          }
           const matches = state.row && filters.every(filter => filter(state.row));
           let data = matches ? structuredClone(state.row) : null;
-          if (matches && operation === 'update') {
+          if (operation === 'insert') {
+            state.inserted = structuredClone(values);
+            data = { id: 'copy', archived_at: null, scheduled_at: null, ...values };
+          } else if (matches && operation === 'update') {
             Object.assign(state.row, values);
             data = structuredClone(state.row);
             if (values.status === 'preparing') {
@@ -143,6 +166,40 @@ function database(t, overrides = {}) {
 }
 
 const draft = { expectedStatus: 'draft' };
+
+test('archive winning after editor read prevents the content write', async t => {
+  const state = database(t);
+  state.beforeEdit = () => { state.row.archived_at = '2026-10-19T12:00:00Z'; };
+  const result = await updateCampaign('campaign', { subject: 'Changed' }, 'tenant');
+  assert.equal(result.code, 'CAMPAIGN_STATE_CONFLICT');
+  assert.equal(state.row.subject, 'Original');
+  assert.ok(state.row.archived_at);
+});
+
+test('legacy group draft delete cannot remove an archived campaign', async t => {
+  const state = database(t, { archived_at: '2026-10-19T12:00:00Z' });
+  const result = await deleteCampaign('campaign', 'tenant', draft);
+  assert.equal(result.code, 'CAMPAIGN_STATE_CONFLICT');
+  assert.ok(state.row);
+  assert.equal(state.childWrites, 0);
+});
+
+test('duplicate of archived sent campaign is an unarchived unscheduled draft without preparation authority', async t => {
+  const state = database(t, {
+    status: 'sent', archived_at: '2026-01-01', preparation_generation: 'old-generation',
+    preparation_actor_member_id: 'old-actor', scheduled_at: '2026-01-01',
+    completed_at: '2026-01-01', sent_at: '2026-01-01', total_recipients: 10,
+  });
+  const result = await duplicateCampaign('campaign', 'tenant', 'admin');
+  assert.equal(result.success, true);
+  assert.equal(result.campaign.status, 'draft');
+  assert.equal(result.campaign.archived_at, null);
+  assert.equal(result.campaign.scheduled_at, null);
+  assert.equal(result.campaign.sent_count, 0);
+  for (const key of ['preparation_generation', 'preparation_actor_member_id', 'completed_at', 'sent_at', 'total_recipients']) {
+    assert.equal(Object.hasOwn(state.inserted, key), false, key);
+  }
+});
 
 for (const timing of ['before reload', 'at transition']) {
   for (const field of ['status', 'updated_at']) {

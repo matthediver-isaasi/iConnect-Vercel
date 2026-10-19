@@ -254,6 +254,9 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'DELETE') {
+    if (row.archived_at) {
+      return res.status(403).json({ error: 'Archived campaigns can only be permanently deleted by a tenant administrator in Communications Management.', code: 'CAMPAIGN_ARCHIVED' });
+    }
     if (row.status !== 'draft') {
       return res.status(400).json({ error: 'Only draft campaigns can be deleted.' });
     }

@@ -1,4 +1,5 @@
 import { supabase as rawSupabase } from './database.js';
+import { campaignLifecycle, archivedCampaignConflict } from './campaignLifecycle.js';
 import { recordedAudienceAttendance } from './campaignRecordedAttendance.js';
 import { loadCampaignEngagement } from './campaignEngagement.js';
 import { campaignAddressSuppressed } from './emailBounceService.js';
@@ -205,23 +206,28 @@ export async function getCampaigns(tenantId, options = {}) {
   }
 
   try {
+    const archive = options.archive || 'active';
+    if (!['active', 'archived', 'all'].includes(archive)) {
+      return { success: false, error: 'Invalid archive filter', statusCode: 400 };
+    }
+    const data = await fetchAllRows((offset, size) => {
     let query = supabase
       .from('email_campaign')
       .select('*')
       .eq('tenant_id', tenantId)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false });
+    if (archive === 'active') query = query.is('archived_at', null);
+    if (archive === 'archived') query = query.not('archived_at', 'is', null);
 
     if (options.status) {
       query = query.eq('status', options.status);
     }
 
-    if (options.limit) {
-      query = query.limit(options.limit);
-    }
-
-    const { data, error } = await query;
-
-    if (error) throw error;
+    const remaining = options.limit ? Math.max(0, options.limit - offset) : size;
+    if (!remaining) return Promise.resolve({ data: [] });
+    return query.range(offset, offset + Math.min(size, remaining) - 1);
+    });
 
     const campaigns = data || [];
     const enriched = await Promise.all(campaigns.map(c => enrichCampaignCounts(c)));
@@ -494,6 +500,7 @@ export async function createCampaign(campaignData, tenantId, createdBy) {
 
   try {
     const cleanedData = { ...campaignData };
+    delete cleanedData.archived_at;
     delete cleanedData.delivery_transport;
     if (newCampaignTransport(cleanedData) === BULK_TRANSPORT) cleanedData.delivery_transport = BULK_TRANSPORT;
     await validateAudienceCustomObjects(supabase, tenantId, cleanedData.target_audiences);
@@ -562,6 +569,10 @@ export async function updateCampaign(campaignId, updates, tenantId, options = {}
 
   try {
     const cleanedUpdates = { ...updates };
+    delete cleanedUpdates.archived_at;
+    delete cleanedUpdates.status;
+    delete cleanedUpdates.tenant_id;
+    delete cleanedUpdates.id;
     delete cleanedUpdates.delivery_transport;
     await validateAudienceCustomObjects(supabase, tenantId, cleanedUpdates.target_audiences);
     await validateSpeakerAudienceSegments(supabase, tenantId, cleanedUpdates.target_audiences);
@@ -588,6 +599,7 @@ export async function updateCampaign(campaignId, updates, tenantId, options = {}
       .eq('tenant_id', tenantId)
       .single();
     if (existingError) throw existingError;
+    if (existing.archived_at) return archivedCampaignConflict(existing);
     if (cleanedUpdates.event_survey_context?.event_id) {
       await resolveEventEmailContext(supabase, cleanedUpdates.event_survey_context, tenantId);
     }
@@ -606,7 +618,8 @@ export async function updateCampaign(campaignId, updates, tenantId, options = {}
         updated_at: nextCampaignUpdatedAt(existing.updated_at)
       })
       .eq('id', campaignId)
-      .eq('tenant_id', tenantId);
+      .eq('tenant_id', tenantId)
+      .is('archived_at', null);
     if (options.expectedStatus) updateQuery = updateQuery.eq('status', options.expectedStatus);
     const { data, error } = await updateQuery.select().maybeSingle();
 
@@ -647,7 +660,9 @@ export async function duplicateCampaign(campaignId, tenantId, createdBy) {
     const listValidation = await validateCampaignAudienceLists(original, tenantId);
 
     const {
-      id, created_at, updated_at, status, sent_at, scheduled_at,
+      id, created_at, updated_at, status, sent_at, scheduled_at, archived_at,
+      preparation_generation, preparation_actor_member_id, completed_at,
+      cancelled_at, cancelled_by, paused_at, paused_by, total_recipients,
       sent_count, delivered_count, opened_count, clicked_count,
       bounced_count, complained_count, unsubscribed_count,
       ...cloneFields
@@ -879,6 +894,7 @@ export async function resumeCampaign(campaignId, tenantId, resumedBy = null, opt
     if (fetchError || !campaign) {
       return { success: false, error: 'Campaign not found' };
     }
+    if (campaign.archived_at) return archivedCampaignConflict(campaign);
     if ((Object.hasOwn(options, 'expectedStatus') && campaign.status !== options.expectedStatus) ||
         (Object.hasOwn(options, 'expectedUpdatedAt') && campaign.updated_at !== options.expectedUpdatedAt)) {
       return campaignConflict();
@@ -1021,56 +1037,14 @@ export async function deleteCampaign(campaignId, tenantId, options = {}) {
       const { data, error } = await supabase.from('email_campaign').delete()
         .eq('id', campaignId)
         .eq('tenant_id', tenantId)
+        .is('archived_at', null)
         .eq('status', options.expectedStatus)
         .select('id')
         .maybeSingle();
       if (error) throw error;
       return data ? { success: true } : campaignConflict();
     }
-    const BATCH_SIZE = 200;
-    let deletedTotal = 0;
-    let hasMore = true;
-
-    while (hasMore) {
-      const { data: batch, error: fetchErr } = await supabase
-        .from('email_campaign_recipient')
-        .select('id')
-        .eq('campaign_id', campaignId)
-        .limit(BATCH_SIZE);
-
-      if (fetchErr) throw fetchErr;
-
-      if (!batch || batch.length === 0) {
-        hasMore = false;
-        break;
-      }
-
-      const ids = batch.map(r => r.id);
-      const { error: delErr } = await supabase
-        .from('email_campaign_recipient')
-        .delete()
-        .in('id', ids);
-
-      if (delErr) throw delErr;
-      deletedTotal += ids.length;
-
-      if (batch.length < BATCH_SIZE) {
-        hasMore = false;
-      }
-    }
-
-    if (deletedTotal > 0) {
-      console.log(`[Campaign Service] Deleted ${deletedTotal} recipient records for campaign ${campaignId}`);
-    }
-
-    const { error } = await supabase
-      .from('email_campaign')
-      .delete()
-      .eq('id', campaignId)
-      .eq('tenant_id', tenantId);
-
-    if (error) throw error;
-    return { success: true };
+    return await campaignLifecycle(supabase, campaignId, tenantId, 'delete');
   } catch (err) {
     console.error('[Campaign Service] Error deleting campaign:', err);
     return { success: false, error: err.message };
@@ -2909,6 +2883,7 @@ export async function scheduleCampaign(campaignId, tenantId, scheduledAt, option
     if (!success || !campaign) {
       return { success: false, error: error || 'Campaign not found' };
     }
+    if (campaign.archived_at) return archivedCampaignConflict(campaign);
     await resolveCampaignEventSurvey(supabase, campaign, tenantId);
     if (Object.hasOwn(options, 'expectedUpdatedAt') && campaign.updated_at !== options.expectedUpdatedAt) {
       return campaignConflict();
@@ -2983,6 +2958,7 @@ export async function processScheduledCampaigns(options = {}) {
       .from('email_campaign')
       .select('id, tenant_id, name, scheduled_at, updated_at')
       .eq('status', 'scheduled')
+      .is('archived_at', null)
       .eq('category_review_required', false)
       .lte('scheduled_at', now);
 
@@ -3051,7 +3027,8 @@ export function shouldMarkCampaignSent({ pendingCount, processingCount, anyRowCo
 export async function processPreparingCampaigns(options = {}) {
   const deadline = options.deadline ?? Date.now() + PREPARATION_BUDGET_MS;
   const { data: campaigns, error } = await supabase.from('campaign_preparation')
-    .select('id,campaign_id,tenant_id,email_campaign!inner(status,preparation_generation)')
+    .select('id,campaign_id,tenant_id,email_campaign!inner(status,preparation_generation,archived_at)')
+    .is('email_campaign.archived_at', null)
     .eq('email_campaign.status', 'preparing').neq('phase', 'complete')
     .order('updated_at').limit(20);
   if (error) return { success: false, error: error.message };
@@ -3156,6 +3133,7 @@ export async function processSendingCampaigns(options = {}) {
       .from('email_campaign')
       .select('*')
       .eq('status', 'sending')
+      .is('archived_at', null)
       .eq('category_review_required', false)
       // The last worked campaign moves to the back after its progress update.
       .order('updated_at', { ascending: true });
@@ -4123,6 +4101,9 @@ async function checkCampaignBatchGate(campaignId, tenantId, campaign, preparing 
       error: 'Campaign could not be verified before sending. No recipients were claimed or submitted; try again after confirming the campaign still exists.',
     };
   }
+  if (currentCampaign.archived_at) {
+    return { allowed: false, blocked: true, ...archivedCampaignConflict(currentCampaign) };
+  }
 
   try {
     await resolveCampaignEventSurvey(supabase, currentCampaign, tenantId);
@@ -4470,6 +4451,7 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null, opt
     if (!success || !campaign) {
       return { success: false, error: error || 'Campaign not found' };
     }
+    if (campaign.archived_at) return archivedCampaignConflict(campaign);
     if (options.expectedStatus && campaign.status !== options.expectedStatus) return campaignConflict();
     if (Object.hasOwn(options, 'expectedUpdatedAt') && campaign.updated_at !== options.expectedUpdatedAt) {
       return campaignConflict();

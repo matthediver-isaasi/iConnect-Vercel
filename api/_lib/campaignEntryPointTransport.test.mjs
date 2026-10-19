@@ -265,6 +265,16 @@ function fixtureDatabase(initialCampaign, extraTables = {}) {
     return query;
   };
   supabase.rpc = async (name, args) => {
+    if (name === 'campaign_test_send_begin') {
+      if (state.campaign.archived_at) return { error: { code: '55000', message: 'Archived campaign cannot send tests' } };
+      state.testLease = 'fixture-test-lease';
+      return { data: state.testLease };
+    }
+    if (name === 'campaign_test_send_end') {
+      assert.equal(args.p_lease, state.testLease);
+      state.testLease = null;
+      return { data: true };
+    }
     if (name === 'campaign_preparation_begin') {
       Object.assign(state.campaign, { status: 'preparing', preparation_generation: args.p_generation });
       return { data: structuredClone(state.campaign), error: null };
@@ -291,6 +301,18 @@ function request(body = {}) {
     headers: { host: 'fixture.example.test' },
   };
 }
+
+test('both test-send entry points refuse archived campaigns before reaching the provider', async () => {
+  for (const handler of [tenantTestHandler, groupTestHandler]) {
+    const state = fixtureDatabase(campaign('sent', 'campaign-fixture', { archived_at: '2026-10-01' }));
+    const before = transportCalls.length;
+    const res = responseRecorder();
+    await handler(request({ campaignId: 'campaign-fixture', testEmail: 'test@example.test' }), res);
+    assert.equal(res.statusCode, 409);
+    assert.equal(transportCalls.length, before);
+    assert.equal(state.testLease, undefined);
+  }
+});
 
 test('source lookup is paginated and test envelope uses source content without delivery state', async () => {
   const saved = campaign('draft', 'campaign-fixture', {

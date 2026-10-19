@@ -34,6 +34,10 @@ export default function EmailCampaigns() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [campaignToDelete, setCampaignToDelete] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [archiveView, setArchiveView] = useState('active');
+  const [campaignSearch, setCampaignSearch] = useState('');
+  const [lifecycleError, setLifecycleError] = useState('');
+  const lifecycleBusy = useRef(false);
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
   const [previewData, setPreviewData] = useState(null);
   const [showStatsDialog, setShowStatsDialog] = useState(false);
@@ -74,13 +78,33 @@ export default function EmailCampaigns() {
   const PAGE_SIZE = 20;
   const [currentPage, setCurrentPage] = useState(1);
 
-  const { data: campaigns = [], isLoading: campaignsLoading } = useQuery({
-    queryKey: ['email-campaigns'],
+  const readCampaignResponse = async (response, fallback) => {
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || fallback);
+    return data;
+  };
+  const { data: lifecycle, error: readinessError, isLoading: readinessLoading } = useQuery({
+    queryKey: ['email-campaigns', 'lifecycle'],
     queryFn: async () => {
-      const response = await fetch('/api/email-campaigns', { credentials: 'include' });
-      if (!response.ok) throw new Error('Failed to fetch campaigns');
-      return response.json();
+      const data = await readCampaignResponse(
+        await fetch('/api/email-campaigns?lifecycle=ready', { credentials: 'include' }),
+        'Campaign archive/delete schema is not ready.'
+      );
+      if (data.ready !== true) throw new Error('Campaign archive/delete schema is not ready.');
+      return data;
     },
+    retry: false
+  });
+  const lifecycleReady = lifecycle?.ready === true && !readinessError;
+  const { data: campaigns = [], isLoading: campaignsLoading, error: campaignsError } = useQuery({
+    queryKey: ['email-campaigns', 'list', archiveView],
+    queryFn: async () => {
+      return readCampaignResponse(
+        await fetch(`/api/email-campaigns?archive=${archiveView}`, { credentials: 'include' }),
+        'Failed to fetch campaigns'
+      );
+    },
+    enabled: lifecycleReady,
     staleTime: 30000,
     refetchInterval: (query) => {
       const data = query.state.data;
@@ -155,48 +179,52 @@ export default function EmailCampaigns() {
     return map;
   }, [memberGroups]);
 
-  const stats = useMemo(() => {
-    const sentCampaigns = campaigns.filter(c => c.status === 'sent');
-    const totalSent = sentCampaigns.reduce((sum, c) => sum + (c.sent_count || 0), 0);
-    const totalOpened = sentCampaigns.reduce((sum, c) => sum + (c.opened_count || 0), 0);
-    const totalClicked = sentCampaigns.reduce((sum, c) => sum + (c.clicked_count || 0), 0);
-    const avgOpenRate = totalSent > 0 ? ((totalOpened / totalSent) * 100).toFixed(1) : 0;
-    const avgClickRate = totalSent > 0 ? ((totalClicked / totalSent) * 100).toFixed(1) : 0;
-    const draftCount = campaigns.filter(c => c.status === 'draft').length;
-    const scheduledCount = campaigns.filter(c => c.status === 'scheduled').length;
+  const { data: stats, error: summaryError } = useQuery({
+    queryKey: ['email-campaigns', 'summary'],
+    queryFn: async () => readCampaignResponse(
+      await fetch('/api/email-campaigns?summary=true', { credentials: 'include' }),
+      'Failed to fetch campaign totals'
+    ),
+    enabled: lifecycleReady,
+    refetchInterval: campaigns.some(c => ['sending', 'preparing', 'paused'].includes(c.status)) ? 5000 : false
+  });
+  const removalBlocked = (campaign) => campaign && (
+    ['scheduled', 'preparing', 'sending', 'paused'].includes(campaign.status) || Number(campaign.pending_count) > 0
+  );
+  const archivedGuard = (campaign) => {
+    if (!campaign?.archived_at) return false;
+    toast.error('Archived campaigns are read-only. Restore or duplicate as a draft first.');
+    return true;
+  };
+  const handleLifecycleAction = async (action, campaign = campaignToDelete) => {
+    if (!campaign || lifecycleBusy.current || !lifecycleReady) return;
+    if (action !== 'restore' && removalBlocked(campaign)) return;
 
-    return {
-      totalCampaigns: campaigns.length,
-      sentCampaigns: sentCampaigns.length,
-      totalSent,
-      totalOpened,
-      totalClicked,
-      avgOpenRate,
-      avgClickRate,
-      draftCount,
-      scheduledCount
-    };
-  }, [campaigns]);
-
-  const handleDeleteCampaign = async () => {
-    if (!campaignToDelete || isDeleting) return;
-
+    lifecycleBusy.current = true;
     setIsDeleting(true);
+    setLifecycleError('');
     try {
-      const response = await fetch(`/api/email-campaigns/${campaignToDelete.id}`, {
-        method: 'DELETE',
-        credentials: 'include'
+      const response = await fetch(`/api/email-campaigns/${campaign.id}`, {
+        method: action === 'delete' ? 'DELETE' : 'POST',
+        credentials: 'include',
+        ...(action === 'delete' ? {} : {
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action })
+        })
       });
 
-      if (!response.ok) throw new Error('Failed to delete campaign');
+      await readCampaignResponse(response, `Failed to ${action} campaign`);
 
-      toast.success('Campaign deleted');
+      toast.success(action === 'restore' ? 'Campaign restored. No emails scheduled or sent.' : action === 'archive' ? 'Campaign archived. Statistics retained.' : 'Campaign permanently deleted');
       queryClient.invalidateQueries({ queryKey: ['email-campaigns'] });
+      queryClient.invalidateQueries({ queryKey: ['email-campaign', campaign.id] });
       setShowDeleteConfirm(false);
       setCampaignToDelete(null);
     } catch (error) {
+      setLifecycleError(error.message);
       toast.error(error.message);
     } finally {
+      lifecycleBusy.current = false;
       setIsDeleting(false);
     }
   };
@@ -313,6 +341,7 @@ export default function EmailCampaigns() {
   // dialog first because resuming a "completed" campaign is unusual and
   // operators should explicitly acknowledge what they're doing.
   const handleResumeClick = (campaign) => {
+    if (archivedGuard(campaign)) return;
     if (campaign.category_review_required) {
       toast.error('Review and save this campaign’s audience and subscription category before resuming.');
       return;
@@ -326,6 +355,7 @@ export default function EmailCampaigns() {
   };
 
   const doResumeCampaign = async (campaign) => {
+    if (archivedGuard(campaign)) return;
     if (resuming) return;
     setResuming(campaign.id);
     setShowResumeStuckConfirm(false);
@@ -354,6 +384,7 @@ export default function EmailCampaigns() {
   };
 
   const handlePreviewRecipients = async (campaign) => {
+    if (archivedGuard(campaign)) return;
     if (campaign.category_review_required) {
       toast.error('Review and save this campaign’s audience and subscription category before sending or scheduling.');
       return;
@@ -376,6 +407,7 @@ export default function EmailCampaigns() {
   };
 
   const handleTestSend = async (campaign, recipients) => {
+    if (archivedGuard(campaign)) return;
     if (testSending) return;
     const list = Array.isArray(recipients) ? recipients : [recipients];
     if (list.length === 0) return;
@@ -418,6 +450,7 @@ export default function EmailCampaigns() {
   };
 
   const handleSendCampaign = async (campaign) => {
+    if (archivedGuard(campaign)) return;
     if (sending) return;
     if (campaign?.category_review_required) {
       toast.error('Review and save this campaign’s audience and subscription category before sending.');
@@ -452,6 +485,7 @@ export default function EmailCampaigns() {
   };
 
   const handleScheduleCampaign = async (campaign, scheduledAtLocal) => {
+    if (archivedGuard(campaign)) return;
     if (sending) return;
     if (campaign?.category_review_required) {
       toast.error('Review and save this campaign’s audience and subscription category before scheduling.');
@@ -1029,9 +1063,10 @@ export default function EmailCampaigns() {
     });
   };
 
-  const totalPages = Math.max(1, Math.ceil(campaigns.length / PAGE_SIZE));
+  const filteredCampaigns = campaigns.filter(c => `${c.name || ''} ${c.subject || ''}`.toLowerCase().includes(campaignSearch.toLowerCase()));
+  const totalPages = Math.max(1, Math.ceil(filteredCampaigns.length / PAGE_SIZE));
   const safePage = Math.min(currentPage, totalPages);
-  const pagedCampaigns = campaigns.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const pagedCampaigns = filteredCampaigns.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
   useEffect(() => {
     setCurrentPage(prev => {
@@ -1059,7 +1094,11 @@ export default function EmailCampaigns() {
         </Button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      {readinessError && <p role="alert">Campaign archive/delete is unavailable: {readinessError.message} No archive or delete actions are enabled.</p>}
+      {lifecycleError && !showDeleteConfirm && <p role="alert">{lifecycleError}</p>}
+      {summaryError && <p role="alert">Campaign totals unavailable: {summaryError.message}</p>}
+      <p className="text-sm text-muted-foreground">Statistics include active and archived campaigns. Permanent deletion removes a campaign from these totals.</p>
+      {stats && !summaryError && <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card data-testid="stat-campaigns-sent">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Campaigns Sent</CardTitle>
@@ -1111,26 +1150,37 @@ export default function EmailCampaigns() {
             </p>
           </CardContent>
         </Card>
-      </div>
+      </div>}
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-4">
           <div>
-            <CardTitle>All Campaigns</CardTitle>
+            <CardTitle>{archiveView === 'all' ? 'All' : archiveView === 'archived' ? 'Archived' : 'Active'} Campaigns ({campaigns.length})</CardTitle>
             <p className="text-sm text-muted-foreground mt-1">
               Your email campaigns and their performance
             </p>
           </div>
         </CardHeader>
         <CardContent>
-          {campaignsLoading ? (
+          <div className="flex gap-2 flex-wrap mb-4">
+            {['active', 'archived', 'all'].map(view => (
+              <Button key={view} variant={archiveView === view ? 'default' : 'outline'} aria-pressed={archiveView === view}
+                data-testid={`campaign-view-${view}`} disabled={!lifecycleReady}
+                onClick={() => { setArchiveView(view); setCurrentPage(1); setLifecycleError(''); }}>
+                {view === 'active' ? 'Active' : view === 'archived' ? 'Archived' : 'All'}
+              </Button>
+            ))}
+            <Input aria-label="Search campaigns" placeholder="Search campaigns" value={campaignSearch}
+              onChange={event => { setCampaignSearch(event.target.value); setCurrentPage(1); }} className="max-w-xs" />
+          </div>
+          {campaignsError ? <p role="alert">{campaignsError.message}</p> : readinessError ? null : campaignsLoading || readinessLoading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
             </div>
-          ) : campaigns.length === 0 ? (
+          ) : filteredCampaigns.length === 0 ? (
             <div className="text-center py-12 border-2 border-dashed rounded-lg">
               <Mail className="w-12 h-12 text-muted-foreground/50 mx-auto mb-4" />
-              <h3 className="text-lg font-medium mb-2">No Campaigns Yet</h3>
+              <h3 className="text-lg font-medium mb-2">No {archiveView === 'all' ? '' : `${archiveView} `}campaigns{campaignSearch ? ' match your search' : ''}</h3>
               <p className="text-muted-foreground mb-4 max-w-sm mx-auto">
                 Create your first email campaign to start engaging with your members
               </p>
@@ -1194,6 +1244,7 @@ export default function EmailCampaigns() {
                           <div className="flex flex-col gap-1">
                             <div className="flex items-center gap-1 flex-wrap">
                               {getStatusBadge(campaign.status)}
+                              {campaign.archived_at && <Badge variant="secondary" data-testid={`badge-archived-${campaign.id}`}>Archived</Badge>}
                               {completedFailureCount > 0 && (
                                 <Badge
                                   variant="outline"
@@ -1296,6 +1347,7 @@ export default function EmailCampaigns() {
                                   variant="ghost"
                                   size="icon"
                                   onClick={() => navigate(`/EmailCampaignEdit/${campaign.id}`)}
+                                  disabled={!!campaign.archived_at}
                                   title="Edit"
                                   data-testid={`button-edit-${campaign.id}`}
                                 >
@@ -1308,7 +1360,7 @@ export default function EmailCampaigns() {
                                     setTestEmailCampaign(campaign);
                                     setShowTestEmailDialog(true);
                                   }}
-                                  disabled={testSending}
+                                  disabled={testSending || !!campaign.archived_at}
                                   title="Send Test"
                                   data-testid={`button-test-${campaign.id}`}
                                 >
@@ -1318,7 +1370,7 @@ export default function EmailCampaigns() {
                                   variant="ghost"
                                   size="icon"
                                   onClick={() => handlePreviewRecipients(campaign)}
-                                  disabled={campaign.category_review_required}
+                                  disabled={campaign.category_review_required || !!campaign.archived_at}
                                   title="Preview & Send"
                                   data-testid={`button-preview-${campaign.id}`}
                                 >
@@ -1331,7 +1383,7 @@ export default function EmailCampaigns() {
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => handlePauseCampaign(campaign)}
-                                disabled={pausing === campaign.id}
+                                  disabled={pausing === campaign.id || !!campaign.archived_at}
                                 title="Pause Campaign"
                                 data-testid={`button-pause-${campaign.id}`}
                               >
@@ -1347,7 +1399,7 @@ export default function EmailCampaigns() {
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => handleResumeClick(campaign)}
-                                disabled={resuming === campaign.id || campaign.category_review_required}
+                                disabled={resuming === campaign.id || campaign.category_review_required || !!campaign.archived_at}
                                 title={campaign.category_review_required ? "Review audience and category before resuming" : "Resume Campaign"}
                                 data-testid={`button-resume-${campaign.id}`}
                               >
@@ -1367,7 +1419,7 @@ export default function EmailCampaigns() {
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => handleResumeClick(campaign)}
-                                disabled={resuming === campaign.id || campaign.category_review_required}
+                                disabled={resuming === campaign.id || campaign.category_review_required || !!campaign.archived_at}
                                 title={campaign.category_review_required ? "Review audience and category before resuming" : `Resume sending (${campaign.pending_count} recipients still pending)`}
                                 className="text-warning hover:text-warning"
                                 data-testid={`button-resume-stuck-${campaign.id}`}
@@ -1384,7 +1436,7 @@ export default function EmailCampaigns() {
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => handleOpenCancelDialog(campaign)}
-                                disabled={cancelling === campaign.id}
+                                disabled={cancelling === campaign.id || !!campaign.archived_at}
                                 title="Stop Campaign"
                                 className="text-destructive hover:text-destructive"
                                 data-testid={`button-cancel-${campaign.id}`}
@@ -1396,7 +1448,7 @@ export default function EmailCampaigns() {
                                 )}
                               </Button>
                             )}
-                            {(campaign.status === 'sent' || campaign.status === 'failed' || campaign.status === 'cancelled') && (
+                            {(campaign.archived_at || campaign.status === 'sent' || campaign.status === 'failed' || campaign.status === 'cancelled') && (
                               <Button
                                 variant="ghost"
                                 size="icon"
@@ -1423,7 +1475,7 @@ export default function EmailCampaigns() {
                               size="icon"
                               onClick={() => handleDuplicateCampaign(campaign)}
                               disabled={duplicating === campaign.id || campaign.category_review_required}
-                              title={campaign.category_review_required ? "Review audience and category before duplicating" : "Duplicate"}
+                              title={campaign.category_review_required ? "Review audience and category before duplicating" : "Duplicate as draft"}
                               data-testid={`button-duplicate-${campaign.id}`}
                             >
                               {duplicating === campaign.id ? (
@@ -1432,14 +1484,21 @@ export default function EmailCampaigns() {
                                 <Copy className="w-4 h-4" />
                               )}
                             </Button>
+                            {campaign.archived_at && <Button variant="ghost" size="icon"
+                              onClick={() => handleLifecycleAction('restore', campaign)} disabled={isDeleting || !lifecycleReady}
+                              title="Restore (does not schedule or send)" data-testid={`button-restore-${campaign.id}`}>
+                              <RefreshCw className="w-4 h-4" />
+                            </Button>}
                             <Button
                               variant="ghost"
                               size="icon"
                               onClick={() => {
                                 setCampaignToDelete(campaign);
+                                setLifecycleError('');
                                 setShowDeleteConfirm(true);
                               }}
-                              title="Delete"
+                              disabled={!lifecycleReady || isDeleting}
+                              title="Archive or delete"
                               className="text-destructive hover:text-destructive"
                               data-testid={`button-delete-${campaign.id}`}
                             >
@@ -1453,10 +1512,10 @@ export default function EmailCampaigns() {
                 </TableBody>
               </Table>
             </div>
-            {campaigns.length > PAGE_SIZE && (
+            {filteredCampaigns.length > PAGE_SIZE && (
               <div className="flex items-center justify-between pt-4 gap-2 flex-wrap" data-testid="campaigns-pagination">
                 <p className="text-sm text-muted-foreground" data-testid="text-pagination-range">
-                  Showing {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, campaigns.length)} of {campaigns.length}
+                  Showing {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, filteredCampaigns.length)} of {filteredCampaigns.length}
                 </p>
                 <div className="flex items-center gap-1">
                   <Button
@@ -1513,17 +1572,24 @@ export default function EmailCampaigns() {
       <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete Campaign</DialogTitle>
+            <DialogTitle>Archive or delete campaign</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete "{campaignToDelete?.name}"? This action cannot be undone.
+              Choose what to do with "{campaignToDelete?.name}". Archive hides it from the active list while retaining its preview, recipient history and statistics, including headline totals. You can restore it later without scheduling or sending email.
             </DialogDescription>
           </DialogHeader>
+          <p className="text-sm">Delete permanently cannot be undone. It removes this campaign, its recipient history, tracking statistics and campaign inbox entries. It does not recall emails already delivered to recipients’ inboxes. Headline statistics will decrease.</p>
+          {removalBlocked(campaignToDelete) && <p role="alert" className="text-sm text-destructive">Archive and permanent deletion are blocked while delivery is active, scheduled or paused, or recipients remain pending ({campaignToDelete?.pending_count || 0}). Stop the campaign and wait for delivery to finish before trying again.</p>}
+          {lifecycleError && <p role="alert" className="text-sm text-destructive">{lifecycleError}</p>}
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowDeleteConfirm(false)} disabled={isDeleting}>
               Cancel
             </Button>
-            <Button variant="destructive" onClick={handleDeleteCampaign} disabled={isDeleting} data-testid="button-confirm-delete">
-              {isDeleting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Deleting...</> : 'Delete'}
+            {!campaignToDelete?.archived_at && <Button variant="outline" onClick={() => handleLifecycleAction('archive')}
+              disabled={isDeleting || !lifecycleReady || removalBlocked(campaignToDelete)} data-testid="button-confirm-archive">
+              Archive
+            </Button>}
+            <Button variant="destructive" onClick={() => handleLifecycleAction('delete')} disabled={isDeleting || !lifecycleReady || removalBlocked(campaignToDelete)} data-testid="button-confirm-delete">
+              {isDeleting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Working...</> : 'Delete permanently'}
             </Button>
           </DialogFooter>
         </DialogContent>

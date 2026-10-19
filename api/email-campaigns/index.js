@@ -1,6 +1,7 @@
-import { getTenantContext } from '../_lib/tenantContext.js';
+import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { getCampaigns, createCampaign } from '../_lib/campaignService.js';
 import { supabase } from '../_lib/database.js';
+import { campaignSummary, campaignLifecycleReady } from '../_lib/campaignLifecycle.js';
 
 export default async function handler(req, res) {
   const tenantContext = await getTenantContext(req);
@@ -11,10 +12,29 @@ export default async function handler(req, res) {
   const { tenantId, memberId } = tenantContext;
 
   if (req.method === 'GET') {
-    const { status, limit } = req.query;
+    const { status, limit, archive } = req.query;
+    if (!tenantContext.isAuthenticated) return res.status(401).json({ error: 'Authentication required' });
+    if (tenantContext.tenantMismatch || !await hasAdminAccess(tenantContext)) {
+      return res.status(403).json({ error: 'Tenant administrator access required' });
+    }
+    if (req.query.lifecycle === 'ready') {
+      const result = await campaignLifecycleReady(supabase);
+      return res.status(result.success ? 200 : result.statusCode || 503).json(result);
+    }
+    if (req.query.summary === 'true') {
+      const result = await campaignSummary(supabase, tenantId);
+      return res.status(result.success ? 200 : result.statusCode || 500).json(result.success ? result.summary : result);
+    }
+    if (archive && !['active', 'archived', 'all'].includes(archive)) {
+      return res.status(400).json({ error: 'Invalid archive filter' });
+    }
+    const parsedLimit = limit == null ? undefined : Number(limit);
+    if (parsedLimit != null && (!Number.isSafeInteger(parsedLimit) || parsedLimit < 1)) {
+      return res.status(400).json({ error: 'Invalid campaign limit' });
+    }
     const result = await getCampaigns(tenantId, { 
-      status, 
-      limit: limit ? parseInt(limit, 10) : undefined 
+      status, archive,
+      limit: parsedLimit,
     });
 
     if (!result.success) {

@@ -1,4 +1,6 @@
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
+import { supabase } from '../_lib/database.js';
+import { campaignLifecycle } from '../_lib/campaignLifecycle.js';
 import { getCampaign, updateCampaign, confirmCampaignCategoryReconfiguration, deleteCampaign, duplicateCampaign, cancelCampaign, pauseCampaign, resumeCampaign, getCampaignStats, getClickHeatmapData, getCampaignRecipients } from '../_lib/campaignService.js';
 
 export default async function handler(req, res) {
@@ -9,6 +11,14 @@ export default async function handler(req, res) {
 
   const { tenantId } = tenantContext;
   const { id } = req.query;
+  const lifecycleRequest = req.method === 'DELETE'
+    || (req.method === 'POST' && ['archive', 'restore'].includes(req.body?.action));
+  if (lifecycleRequest) {
+    if (!tenantContext.isAuthenticated) return res.status(401).json({ error: 'Authentication required' });
+    if (tenantContext.tenantMismatch || !await hasAdminAccess(tenantContext)) {
+      return res.status(403).json({ error: 'Tenant administrator access required to archive, restore or delete campaigns.' });
+    }
+  }
 
   if (!id) {
     return res.status(400).json({ error: 'Campaign ID required' });
@@ -51,6 +61,11 @@ export default async function handler(req, res) {
 
   if (req.method === 'POST') {
     const { action } = req.body || {};
+    if (action === 'archive' || action === 'restore') {
+      const result = await campaignLifecycle(supabase, id, tenantId, action);
+      if (!result.success) return res.status(result.statusCode || 500).json(result);
+      return res.json(result);
+    }
     if (action === 'duplicate') {
       const result = await duplicateCampaign(id, tenantId, tenantContext.memberId);
       if (!result.success) {
@@ -86,7 +101,7 @@ export default async function handler(req, res) {
       }
       const result = await resumeCampaign(id, tenantId, tenantContext.memberId);
       if (!result.success) {
-        const statusCode = result.error?.includes('Cannot resume') || result.error?.includes('Nothing to resume') || result.error?.includes('changed before') ? 400 : result.error?.includes('not found') ? 404 : 500;
+        const statusCode = result.statusCode || (result.error?.includes('Cannot resume') || result.error?.includes('Nothing to resume') || result.error?.includes('changed before') ? 400 : result.error?.includes('not found') ? 404 : 500);
         return res.status(statusCode).json({ error: result.error });
       }
       return res.json(result);
@@ -99,6 +114,7 @@ export default async function handler(req, res) {
     // Delivery status is server-owned; accepting it here would bypass send,
     // schedule, resume, and category-review claim gates.
     delete updates.status;
+    delete updates.archived_at;
     const confirmsCategoryReview = updates.category_review_confirmed === true;
     const deliberatelySavedCategory = Object.prototype.hasOwnProperty.call(updates, 'communication_category_id');
     const deliberatelySavedAudience = ['target_audiences', 'target_type', 'target_ids']
@@ -127,7 +143,7 @@ export default async function handler(req, res) {
     const result = await updateCampaign(id, updates, tenantId);
 
     if (!result.success) {
-      return res.status(result.code === 'AUDIENCE_LIST_REPLACEMENT_REQUIRED' ? 400 : 500)
+      return res.status(result.statusCode || (result.code === 'AUDIENCE_LIST_REPLACEMENT_REQUIRED' ? 400 : 500))
         .json({ error: result.error, code: result.code });
     }
 
@@ -149,7 +165,7 @@ export default async function handler(req, res) {
     const result = await deleteCampaign(id, tenantId);
 
     if (!result.success) {
-      return res.status(500).json({ error: result.error });
+      return res.status(result.statusCode || 500).json({ error: result.error, code: result.code });
     }
 
     return res.json({ success: true });

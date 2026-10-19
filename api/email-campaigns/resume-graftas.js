@@ -61,7 +61,7 @@ export default async function handler(req, res) {
     // Verify campaign exists, name matches, and pending count is sane.
     const { data: campaign, error: fetchError } = await supabase
       .from('email_campaign')
-      .select('id, tenant_id, name, status, completed_at, total_recipients, sent_count, category_review_required')
+      .select('id, tenant_id, name, status, completed_at, total_recipients, sent_count, category_review_required, archived_at')
       .eq('id', CAMPAIGN_ID)
       .eq('tenant_id', TENANT_ID)
       .single();
@@ -85,6 +85,9 @@ export default async function handler(req, res) {
         error: 'Campaign requires audience and category review before it can resume.',
         code: 'CATEGORY_REVIEW_REQUIRED',
       });
+    }
+    if (campaign.archived_at) {
+      return res.status(409).json({ error: 'Restore this archived campaign before resuming.', code: 'CAMPAIGN_ARCHIVED' });
     }
 
     const pending = await countRows(q => q.eq('status', 'pending'));

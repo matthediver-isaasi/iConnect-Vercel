@@ -289,6 +289,7 @@ const entityTableByNormalizedName = new Map(
 const getTableName = (entity) => entityTableByNormalizedName.get(normalizeEntityName(entity)) || null;
 
 import { organizationNameError } from '../../../shared/organizationNameValidation.js';
+import { guardArchivedCampaignWrite } from '../../_lib/campaignLifecycle.js';
 
 export default async function handler(req, res, dependencies = {}) {
   const requestNow = Date.now();
@@ -453,8 +454,17 @@ export default async function handler(req, res, dependencies = {}) {
   // Email-campaign delivery/review state is server-owned. Campaign content can
   // still use the legacy generic API, but it cannot clear the deleted-category
   // marker (or force a send status) around the dedicated campaign endpoint.
+  if (entityNorm === 'emailcampaign' && req.method === 'DELETE') {
+    return res.status(403).json({ error: 'Use campaign removal in Communications Management so lifecycle and retention checks are enforced.' });
+  }
+  if (entityNorm === 'emailcampaignrecipient' && req.method !== 'GET') {
+    return res.status(403).json({ error: 'Campaign delivery history is managed by the campaign service.' });
+  }
   if (entityNorm === 'emailcampaign' && (req.method === 'PATCH' || req.method === 'PUT')) {
+    const denied = await guardArchivedCampaignWrite(requestDatabase, id, tenantCtx);
+    if (denied) return res.status(denied.statusCode || 500).json(denied);
     for (const field of [
+      'archived_at',
       'category_review_required',
       'category_review_reason',
       'category_review_marked_at',

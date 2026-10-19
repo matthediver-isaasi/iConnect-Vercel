@@ -83,6 +83,8 @@ async function fixture(options = {}) {
     };
   };
   const dependencies = {
+    beginCampaignTestSend: async () => ({ success: true, lease: 'fixture-lease' }),
+    finishCampaignTestSend: async () => ({ reconciliationRequired: false }),
     enrichCampaignPreparationList,
     getCampaignEmailComposition,
     resolveCampaignEventSurvey, replaceEventSurvey, resolveCampaignEventSponsors, replaceEventSponsors,
@@ -122,6 +124,15 @@ test('another current group admin can list, read, inspect stats/recipients, and 
   assert.equal('created_by_member_id' in update.args[1], false);
   assert.equal(update.args[1].from_email, 'verified@example.org');
   assert.equal(update.args[3].expectedStatus, 'draft');
+});
+
+test('group administrator cannot permanently delete an archived draft', async () => {
+  const f = await fixture({ campaign: { status: 'draft', archived_at: '2026-10-19T12:00:00Z' } });
+  const res = await f.request('[id]', 'DELETE');
+  assert.equal(res.statusCode, 403);
+  assert.equal(res.body.code, 'CAMPAIGN_ARCHIVED');
+  assert.match(res.body.error, /tenant administrator/);
+  assert.equal(f.calls.some(call => call.name === 'deleteCampaign'), false);
 });
 
 const protectedRequests = [

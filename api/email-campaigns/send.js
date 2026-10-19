@@ -109,7 +109,7 @@ export default async function handler(req, res) {
 
     const result = await scheduleCampaign(campaignId, tenantId, scheduleDate);
     if (!result.success) {
-      return res.status(500).json({ error: result.error });
+      return res.status(result.statusCode || 500).json({ error: result.error, code: result.code });
     }
     return res.json(result);
   }
@@ -123,7 +123,7 @@ export default async function handler(req, res) {
     if (result.quota) {
       return res.status(402).json({ error: result.error, code: 'PLAN_QUOTA_EXCEEDED', quota: result.quota });
     }
-    return res.status(500).json({ error: result.error });
+    return res.status(result.statusCode || 500).json({ error: result.error, code: result.code });
   }
 
   return res.status(result.status === 'preparing' ? 202 : 200).json(result);
