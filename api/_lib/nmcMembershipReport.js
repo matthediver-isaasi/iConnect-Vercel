@@ -194,7 +194,8 @@ export function projectNmcReport({ members, fields, preferences, history, organi
   const primaryOrganizationId = primaryOrganizations[0].id;
   const agreementMap = new Map(agreements.filter(a => a.tenant_id === NMC_TENANT).map(a => [a.id, a]));
   const scopedPlans = plans.filter(p => p.tenant_id === NMC_TENANT);
-  const rows = [], reviewCounts = {}, excludedCounts = {}, pendingCounts = {}, seen = new Set();
+  const rows = [], excludedCounts = {}, seen = new Set();
+  const diagnostics = { review: {}, pending: {} };
   const count = (target, key) => { target[key] = (target[key] || 0) + 1; };
   for (const member of members) {
     if (member.tenant_id !== NMC_TENANT || seen.has(member.id)) throw new Error('Member scope or uniqueness mismatch');
@@ -208,10 +209,23 @@ export function projectNmcReport({ members, fields, preferences, history, organi
     if (member.is_sample || member.is_test) { count(excludedCounts, 'test_record'); continue; }
     if (member.is_guest) { count(excludedCounts, 'nonmember_contact'); continue; }
     const values = name => prefs.get(`${member.id}|${fieldMap.get(name).id}`) || [];
-    if (NMC_FIELDS.some(name => values(name).length > 1)) { count(reviewCounts, 'duplicate_custom_values'); continue; }
+    // Capture identity at the classification branch, never re-evaluate eligibility
+    // in a separate list query. Counts below are derived from these exact lists.
+    const diagnose = (group, reason) => {
+      const classes = values('member_class');
+      const displayText = value => typeof value === 'string' && value.trim() ? value.trim() : null;
+      (diagnostics[group][reason] ||= []).push({
+        memberId: member.id,
+        firstName: displayText(member.first_name),
+        lastName: displayText(member.last_name),
+        email: displayText(member.email),
+        memberClass: classes.length === 1 && allowed.has(classes[0]) ? classLabels.get(classes[0]) : null,
+      });
+    };
+    if (NMC_FIELDS.some(name => values(name).length > 1)) { diagnose('review', 'duplicate_custom_values'); continue; }
     const value = name => text(values(name)[0]);
     const klass = value('member_class'), sheet = nmcSheet(klass, allowed, settings);
-    if (!allowed.has(klass)) { count(reviewCounts, klass ? 'unknown_class' : 'missing_class'); continue; }
+    if (!allowed.has(klass)) { diagnose('review', klass ? 'unknown_class' : 'missing_class'); continue; }
     if (!sheet) { count(excludedCounts, 'class_not_selected_for_journal'); continue; }
     const records = histories.get(member.id) || [];
     if (['Department contact', 'CPD Guest'].includes(klass) && !records.length) {
@@ -222,18 +236,20 @@ export function projectNmcReport({ members, fields, preferences, history, organi
     const evidence = honorary ? { status: 'Active', months: 0 }
       : membershipEvidence(records, agreementMap, scopedPlans, recognitions, reportDate);
     if (evidence.pending) {
-      if (member.organization_id && !orgs.has(member.organization_id)) count(reviewCounts, 'unresolved_organisation');
-      else count(pendingCounts, evidence.pending);
+      if (member.organization_id && !orgs.has(member.organization_id)) diagnose('review', 'unresolved_organisation');
+      else diagnose('pending', evidence.pending);
       continue;
     }
     if (evidence.review) {
       const reason = !records.length && ['Initial enquiry', 'Full application received'].includes(value('membership_status'))
         ? 'applicant_only' : evidence.review;
-      count(reason === 'applicant_only' ? excludedCounts : reviewCounts, reason); continue;
+      if (reason === 'applicant_only') count(excludedCounts, reason);
+      else diagnose('review', reason);
+      continue;
     }
     if (evidence.excluded) { count(excludedCounts, evidence.excluded); continue; }
     if (member.organization_id && !orgs.has(member.organization_id)) {
-      count(reviewCounts, 'unresolved_organisation'); continue;
+      diagnose('review', 'unresolved_organisation'); continue;
     }
     rows.push({ memberId: member.id, memberClass: klass, sheet, cells: [
       value('title'), text(member.first_name), text(member.last_name),
@@ -245,10 +261,18 @@ export function projectNmcReport({ members, fields, preferences, history, organi
   }
   rows.sort((a, b) => a.cells[2].localeCompare(b.cells[2], 'en-GB')
     || a.cells[1].localeCompare(b.cells[1], 'en-GB') || a.memberId.localeCompare(b.memberId));
+  for (const group of Object.values(diagnostics)) {
+    for (const members of Object.values(group)) members.sort((a, b) =>
+      (a.lastName || '').localeCompare(b.lastName || '', 'en-GB')
+      || (a.firstName || '').localeCompare(b.firstName || '', 'en-GB')
+      || a.memberId.localeCompare(b.memberId));
+  }
+  const diagnosticCounts = group => Object.fromEntries(Object.entries(group).map(([reason, members]) => [reason, members.length]));
+  const reviewCounts = diagnosticCounts(diagnostics.review), pendingCounts = diagnosticCounts(diagnostics.pending);
   const classCounts = Object.fromEntries([['printed', 'printedClasses', NMC_SHEETS[0]], ['online', 'onlineClasses', NMC_SHEETS[1]]]
     .map(([group, key, sheet]) => [group, settings[key].map(value => ({
       value, label: classLabels.get(value) || value, count: rows.filter(r => r.sheet === sheet && r.memberClass === value).length,
     }))]));
   return { reportDate, settings, classOptions, classCounts, sheets: NMC_SHEETS.map(name => ({ name, count: rows.filter(r => r.sheet === name).length })),
-    total: rows.length, reviewCounts, excludedCounts, pendingCounts, rows };
+    total: rows.length, reviewCounts, excludedCounts, pendingCounts, diagnostics, rows };
 }

@@ -45,8 +45,19 @@ export function createNmcReportHandler(deps = {}) {
         res.setHeader('Content-Disposition', `attachment; filename="bnms-nmc-membership-${reportDate}.xlsx"`);
         return res.status(200).send(buffer);
       }
-      const { rows, ...summary } = report;
-      return res.status(200).json(summary);
+      // Explicit response allowlist: future projection additions must not expose
+      // workbook cells, addresses, history or provider metadata in JSON.
+      const { reportDate: date, settings, classOptions, classCounts, sheets, total,
+        reviewCounts, excludedCounts, pendingCounts } = report;
+      const diagnostics = report.diagnostics && Object.fromEntries(['review', 'pending'].map(group => [
+        group, Object.fromEntries(Object.entries(report.diagnostics[group] || {}).map(([reason, members]) => [
+          reason, members.map(({ memberId, firstName, lastName, email, memberClass }) => ({
+            memberId, firstName, lastName, email, memberClass,
+          })),
+        ])),
+      ]));
+      return res.status(200).json({ reportDate: date, settings, classOptions, classCounts, sheets,
+        total, reviewCounts, excludedCounts, pendingCounts, diagnostics });
     } catch (error) {
       if ([400, 409].includes(error?.status) && error.publicMessage) return res.status(error.status).json({ error: error.publicMessage });
       // Never log raw rows, database errors or PII on the report's error path.

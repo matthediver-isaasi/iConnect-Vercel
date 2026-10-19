@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Navigate } from "react-router-dom";
 import { AlertCircle, BookOpen, Download, FileSpreadsheet, RefreshCw, ShieldCheck } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
+import NMCDiagnosticDialog from "@/components/NMCDiagnosticDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -16,6 +16,7 @@ import "./NMCMembershipReport.css";
 const count = value => Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value) : 0;
 const displayCount = value => count(value).toLocaleString("en-GB");
 const reasonEntries = values => Object.entries(values || {}).filter(([, value]) => count(value) > 0);
+const diagnosticEntries = (report, group) => [...new Set([...Object.keys(report?.[`${group}Counts`] || {}), ...Object.keys(report?.diagnostics?.[group] || {})])].map(reason => [reason, report?.[`${group}Counts`]?.[reason]]);
 const sameClasses = (a, b) => a.length === b.length && [...a].sort().every((value, index) => value === [...b].sort()[index]);
 const validSettings = settings => settings && Array.isArray(settings.printedClasses) && Array.isArray(settings.onlineClasses) && Number.isInteger(settings.revision);
 
@@ -49,6 +50,7 @@ export default function NMCMembershipReport() {
   const [settingsError, setSettingsError] = useState("");
   const [settingsSuccess, setSettingsSuccess] = useState("");
   const [conflict, setConflict] = useState(false);
+  const [selection, setSelection] = useState(null);
   const queryClient = useQueryClient();
   const dirty = !!(draft && savedSettings && (!sameClasses(draft.printedClasses, savedSettings.printedClasses) || !sameClasses(draft.onlineClasses, savedSettings.onlineClasses)));
   const dirtyRef = useRef(dirty);
@@ -83,6 +85,34 @@ export default function NMCMembershipReport() {
     refetchOnReconnect: false,
   });
 
+  // The update counter changes even when React Query structurally shares an
+  // identical response, and is not subject to timestamp collisions.
+  const snapshotVersion = useSyncExternalStore(
+    listener => queryClient.getQueryCache().subscribe(listener),
+    () => {
+      const state = queryClient.getQueryState(["nmc-membership-report", branding?.id, access.memberInfo?.id]);
+      return state ? `${state.dataUpdateCount}:${state.fetchStatus}:${state.errorUpdateCount}` : "";
+    },
+  );
+  const snapshotState = queryClient.getQueryState(["nmc-membership-report", branding?.id, access.memberInfo?.id]);
+  const diagnosticReady = allowed && tab === "report" && !saving && snapshotState?.fetchStatus === "idle"
+    && snapshotState?.status === "success" && !query.isFetching && !query.isError && !!query.data;
+  const currentSelection = diagnosticReady && selection?.report === query.data
+    && selection?.version === snapshotVersion && selection?.tenant === branding?.id
+    && selection?.member === access.memberInfo?.id ? selection : null;
+  useEffect(() => {
+    if (!currentSelection) setSelection(previous => previous === null ? previous : null);
+  }, [currentSelection]);
+  const diagnosticButton = (group, reason, value) => <Button type="button" variant="outline" size="sm"
+    className="shrink-0 tabular-nums" disabled={!diagnosticReady}
+    aria-haspopup="dialog"
+    aria-label={`View ${nmcReasonLabel(reason)} members (${Number.isInteger(value) && value >= 0 ? displayCount(value) : "count unavailable"})`}
+    data-testid={`nmc-drilldown-${group}-${reason}`}
+    onClick={event => {
+      if (!diagnosticReady) return;
+      setSelection({ group, reason, trigger: event.currentTarget, report: query.data, version: snapshotVersion, tenant: branding?.id, member: access.memberInfo?.id });
+    }}>{Number.isInteger(value) && value >= 0 ? displayCount(value) : "Unavailable"}</Button>;
+
   useEffect(() => {
     if (validSettings(query.data?.settings) && !dirtyRef.current && !settingsController.current) {
       setSavedSettings(query.data.settings);
@@ -105,6 +135,7 @@ export default function NMCMembershipReport() {
   const saveSettings = async () => {
     if (!accessRef.current || !dirty || conflict || settingsController.current || exporting || query.isFetching || draft.printedClasses.some(value => draft.onlineClasses.includes(value))) return;
     const controller = new AbortController();
+    setSelection(null);
     settingsController.current = controller;
     setSaving(true);
     setSettingsError("");
@@ -204,8 +235,8 @@ export default function NMCMembershipReport() {
   if (!allowed) return <Navigate to={createPageUrl("Events")} replace />;
 
   const report = query.data;
-  const reviews = reasonEntries(report?.reviewCounts);
-  const pending = reasonEntries(report?.pendingCounts);
+  const reviews = diagnosticEntries(report, "review");
+  const pending = diagnosticEntries(report, "pending");
   const excluded = reasonEntries(report?.excludedCounts);
   const options = report?.classOptions || [];
   const unknownValues = draft ? [...new Set([...draft.printedClasses, ...draft.onlineClasses])].filter(value => !options.some(option => option.value === value)) : [];
@@ -220,14 +251,14 @@ export default function NMCMembershipReport() {
           <p className="mt-2 text-sm text-muted-foreground max-w-xl">Journal fulfilment counts and delivery settings, with separate diagnostics for membership evidence requiring review.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" onClick={() => { if (!dirtyRef.current && !settingsController.current && !conflict) query.refetch(); }} disabled={query.isFetching || exporting || dirty || saving || conflict} aria-label="Refresh NMC membership report" data-testid="button-refresh-nmc-report"><RefreshCw className="h-4 w-4 mr-2" aria-hidden="true" />Refresh</Button>
+          <Button variant="outline" onClick={() => { if (!dirtyRef.current && !settingsController.current && !conflict) { setSelection(null); query.refetch(); } }} disabled={query.isFetching || exporting || dirty || saving || conflict} aria-label="Refresh NMC membership report" data-testid="button-refresh-nmc-report"><RefreshCw className="h-4 w-4 mr-2" aria-hidden="true" />Refresh</Button>
           <Button className="nmc-download" onClick={downloadExcel} disabled={exporting || !report || query.isError || query.isFetching || dirty || saving || conflict} data-testid="button-download-nmc-report"><Download className="h-4 w-4 mr-2" aria-hidden="true" />{exporting ? "Preparing Excel…" : "Download Excel"}</Button>
         </div>
       </header>
 
       <div className="nmc-tabs" aria-label="Report views">
         <Button variant={tab === "report" ? "secondary" : "ghost"} aria-pressed={tab === "report"} onClick={() => setTab("report")}>Report</Button>
-        <Button variant={tab === "settings" ? "secondary" : "ghost"} aria-pressed={tab === "settings"} onClick={() => setTab("settings")} data-testid="tab-nmc-settings">Settings</Button>
+        <Button variant={tab === "settings" ? "secondary" : "ghost"} aria-pressed={tab === "settings"} onClick={() => { setSelection(null); setTab("settings"); }} data-testid="tab-nmc-settings">Settings</Button>
       </div>
       {(dirty || saving) && <p role="status" className="text-sm">{saving ? "Saving journal settings and refreshing the report…" : "You have unsaved journal settings. Save or discard your changes before refreshing or downloading."}</p>}
       {settingsError && <Alert variant="destructive" role="alert"><AlertTitle>Journal settings need attention</AlertTitle><AlertDescription data-testid="text-nmc-settings-error">{settingsError}</AlertDescription></Alert>}
@@ -281,11 +312,11 @@ export default function NMCMembershipReport() {
                 {pending.length > 0 && <section className="mb-4 border-b nmc-rule pb-4" aria-label="First payment progress">
                   <h3 className="font-semibold text-sm mb-2">First payment progress</h3>
                   <ul className="divide-y divide-current/10" data-testid="list-nmc-payment-progress">{pending.map(([reason, value]) => <li className="py-3 first:pt-0" key={reason}>
-                    <div className="flex items-start justify-between gap-3"><h4 className="font-semibold text-sm">{nmcReasonLabel(reason)}</h4><Badge variant="outline" className="shrink-0 tabular-nums">{displayCount(value)}</Badge></div>
+                    <div className="flex items-start justify-between gap-3"><h4 className="font-semibold text-sm">{nmcReasonLabel(reason)}</h4>{diagnosticButton("pending", reason, value)}</div>
                     <p className="text-sm mt-2 leading-relaxed">{nmcReviewGuidance(reason)}</p>
                   </li>)}</ul>
                 </section>}
-                {reviews.length ? <ul className="divide-y divide-current/10" data-testid="list-nmc-review-reasons">{reviews.map(([reason, value]) => <li className="py-3 first:pt-0" key={reason}><div className="flex items-start justify-between gap-3"><h3 className="font-semibold text-sm">{nmcReasonLabel(reason)}</h3><Badge variant="outline" className="shrink-0 tabular-nums">{displayCount(value)}</Badge></div><p className="text-sm mt-2 leading-relaxed">{nmcReviewGuidance(reason)}</p></li>)}</ul> : <p className="text-sm py-3" data-testid="text-nmc-no-review">No review reasons reported for this snapshot.</p>}
+                {reviews.length ? <ul className="divide-y divide-current/10" data-testid="list-nmc-review-reasons">{reviews.map(([reason, value]) => <li className="py-3 first:pt-0" key={reason}><div className="flex items-start justify-between gap-3"><h3 className="font-semibold text-sm">{nmcReasonLabel(reason)}</h3>{diagnosticButton("review", reason, value)}</div><p className="text-sm mt-2 leading-relaxed">{nmcReviewGuidance(reason)}</p></li>)}</ul> : <p className="text-sm py-3" data-testid="text-nmc-no-review">No review reasons reported for this snapshot.</p>}
                 <p className="text-xs mt-4 text-muted-foreground">Reason counts are shown as returned by the report; do not assume they are mutually exclusive.</p>
               </CardContent>
             </Card>
@@ -312,6 +343,7 @@ export default function NMCMembershipReport() {
         </CardContent>
       </Card>
       </div>
+      {currentSelection && <NMCDiagnosticDialog key={`${currentSelection.group}:${currentSelection.reason}`} selection={currentSelection} report={report} onClose={() => setSelection(null)} />}
     </div>
   );
 }

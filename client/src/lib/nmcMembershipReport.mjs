@@ -2,6 +2,46 @@ export const BNMS_TENANT_ID = "ff2df806-b321-4254-b651-3af11fccf1db";
 export const NMC_REPORT_FEATURE = "membership.nmc-membership-report";
 export const NMC_REPORT_ENDPOINT = "/api/admin/nmc-membership-report";
 
+export const NMC_DIAGNOSTIC_PAGE_SIZE = 25;
+
+// A missing list is not evidence of zero records. Validate the complete bucket
+// before exposing any identities (including rows outside the current page).
+export function nmcDiagnosticRows(report, group, reason) {
+  if (!["review", "pending"].includes(group)) return null;
+  const counts = report?.[`${group}Counts`];
+  const buckets = report?.diagnostics?.[group];
+  if (!counts || !Object.hasOwn(counts, reason) || !buckets || !Object.hasOwn(buckets, reason)) return null;
+  const total = counts[reason];
+  const rows = buckets[reason];
+  if (!Number.isInteger(total) || total < 0 || !Array.isArray(rows) || rows.length !== total) return null;
+  const ids = new Set();
+  for (const row of rows) {
+    if (!row || typeof row.memberId !== "string" || !row.memberId.trim() || ids.has(row.memberId)) return null;
+    if (!["firstName", "lastName", "email", "memberClass"].every(field =>
+      Object.hasOwn(row, field) && (row[field] === null || typeof row[field] === "string"))) return null;
+    ids.add(row.memberId);
+  }
+  // Do not use locale-dependent sorting or mutate the cached report.
+  const compare = (a, b) => a < b ? -1 : a > b ? 1 : 0;
+  return [...rows].sort((a, b) => {
+    for (const field of ["lastName", "firstName", "memberId"]) {
+      const result = compare(a[field] || "", b[field] || "");
+      if (result) return result;
+    }
+    return 0;
+  });
+}
+
+export function nmcDiagnosticIdentity(row) {
+  const first = row.firstName?.trim();
+  const last = row.lastName?.trim();
+  return {
+    name: first && last ? `${first} ${last}` : first || last ? `${first || last} (partial name)` : "Name unavailable",
+    email: row.email?.trim() || "Email unavailable",
+    memberClass: row.memberClass?.trim() || "Class missing or ambiguous",
+  };
+}
+
 export function isNmcReportDestination(item) {
   const feature = item?.featureId || item?.feature_id || item?.value || "";
   if ([NMC_REPORT_FEATURE, "page_NMCMembershipReport", "page_admin_NMCMembershipReport", "NMCMembershipReport"].includes(feature)) return true;

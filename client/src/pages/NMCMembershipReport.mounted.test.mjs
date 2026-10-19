@@ -11,9 +11,12 @@ import { BNMS_TENANT_ID, NMC_REPORT_ENDPOINT, NMC_REPORT_FEATURE } from "../lib/
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   url: "https://isolated.example.test/NMCMembershipReport",
 });
-for (const key of ["window", "document", "navigator", "HTMLElement", "HTMLAnchorElement", "Element", "Node", "DocumentFragment", "MutationObserver", "Event", "MouseEvent"]) {
+for (const key of ["window", "document", "navigator", "HTMLElement", "HTMLAnchorElement", "HTMLInputElement", "Element", "Node", "DocumentFragment", "MutationObserver", "Event", "MouseEvent", "KeyboardEvent", "CustomEvent", "NodeFilter"]) {
   Object.defineProperty(globalThis, key, { configurable: true, value: key === "window" ? dom.window : dom.window[key] });
 }
+globalThis.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
+globalThis.requestAnimationFrame = callback => setTimeout(callback, 0);
+globalThis.cancelAnimationFrame = clearTimeout;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const React = (await import("react")).default;
 globalThis.React = React;
@@ -130,12 +133,24 @@ async function mount({ access = accessFixture, loadingBranding = false, branding
         h(Routes, null,
           h(Route, { path: "/NMCMembershipReport", element: h(Page) }),
           h(Route, { path: "/Events", element: h("p", { "data-testid": "safe-destination" }, "Events") }),
+          h(Route, { path: "/members/:id", element: h("p", { "data-testid": "member-destination" }, "Member detail") }),
         ),
       ),
     ),
   ));
   return {
-    container, calls,
+    container, calls, client,
+    async rerenderAccess(nextAccess) {
+      globalThis.__nmcReportFixture.access = nextAccess;
+      await act(async () => root.render(h(QueryClientProvider, { client },
+        h(MemoryRouter, { initialEntries: ["/NMCMembershipReport"], future: { v7_startTransition: true, v7_relativeSplatPath: true } },
+          h(Routes, null,
+            h(Route, { path: "/NMCMembershipReport", element: h(Page) }),
+            h(Route, { path: "/Events", element: h("p", { "data-testid": "safe-destination" }, "Events") }),
+          ),
+        ),
+      )));
+    },
     async close() {
       await act(async () => root.unmount());
       client.clear();
@@ -458,4 +473,217 @@ test("saved settings with a failed report refresh block export until report retr
     await waitFor(() => !byTestId(view, "button-download-nmc-report").disabled, "report recovery");
     assert.equal(byTestId(view, "nmc-printedClasses-trainee").checked, true);
   } finally { await view.close(); }
+});
+
+const reviewReasons = ["first_collection_failed", "missing_membership_evidence", "missing_class", "unknown_class", "duplicate_custom_values", "unresolved_organisation", "invalid_expiry_or_term", "missing_expiry", "unproven_membership_evidence", "ambiguous_membership_evidence", "new_backend_reason"];
+const pendingReasons = ["awaiting_mandate_setup", "first_collection_submitted", "awaiting_first_payment"];
+const diagnosticRow = (id, overrides = {}) => ({ memberId: id, firstName: "Leah", lastName: "Shaw", email: "leah@example.test", memberClass: "Full member", ...overrides });
+const drillReport = (rows = [diagnosticRow("m-001")]) => ({
+  ...report,
+  reviewCounts: Object.fromEntries(reviewReasons.map(reason => [reason, rows.length])),
+  pendingCounts: Object.fromEntries(pendingReasons.map(reason => [reason, rows.length])),
+  diagnostics: {
+    review: Object.fromEntries(reviewReasons.map(reason => [reason, rows])),
+    pending: Object.fromEntries(pendingReasons.map(reason => [reason, rows])),
+  },
+});
+const dialog = () => document.querySelector('[data-testid="nmc-diagnostic-dialog"]');
+const dialogButton = name => [...dialog().querySelectorAll("button")].find(button => button.textContent === name);
+async function openDrill(view, group = "review", reason = "missing_class") {
+  await waitFor(() => byTestId(view, `nmc-drilldown-${group}-${reason}`), "drilldown count");
+  await click(view, `nmc-drilldown-${group}-${reason}`);
+  await waitFor(dialog, "diagnostic dialog");
+}
+async function closeDrill() {
+  await act(async () => dialogButton("Close").click());
+  await waitFor(() => !dialog(), "closed dialog");
+}
+
+test("every review and pending reason opens the shared read-only dialog with guidance and member routing", async () => {
+  const view = await mount({ transport: () => jsonResponse(drillReport()) });
+  try {
+    for (const [group, reasons] of [["review", reviewReasons], ["pending", pendingReasons]]) {
+      for (const reason of reasons) {
+        await openDrill(view, group, reason);
+        assert.match(dialog().querySelector("h2").textContent, /1 members/);
+        assert.ok(dialog().getAttribute("aria-describedby"));
+        assert.match(dialog().textContent, /Leah Shaw/);
+        assert.equal(dialog().querySelector("a").getAttribute("href"), "/members/m-001");
+        await closeDrill();
+        await waitFor(() => document.activeElement === byTestId(view, `nmc-drilldown-${group}-${reason}`), "restored trigger focus");
+      }
+    }
+    assert.equal(view.calls.length, 1, "opening and closing never fetch or write");
+    await openDrill(view);
+    // Dispatch rather than the test harness's download-only anchor .click override.
+    await act(async () => dialog().querySelector("a").dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 })));
+    await waitFor(() => byTestId(view, "member-destination"), "established member route");
+    assert.equal(dialog(), null);
+    assert.ok(view.calls.every(call => !call.options.method));
+  } finally { await view.close(); }
+});
+
+test("native count buttons support keyboard activation, Escape closes and restores focus", async () => {
+  const view = await mount({ transport: () => jsonResponse(drillReport()) });
+  try {
+    await waitFor(() => byTestId(view, "nmc-drilldown-review-missing_class"), "count");
+    const trigger = byTestId(view, "nmc-drilldown-review-missing_class");
+    assert.equal(trigger.tagName, "BUTTON");
+    assert.equal(trigger.disabled, false);
+    trigger.focus();
+    // JSDOM has no native keyboard default actions; emulate the browser's
+    // Enter/Space-generated click after checking the native button semantics.
+    for (const key of ["Enter", " "]) {
+      await act(async () => {
+        trigger.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+        trigger.click();
+        trigger.dispatchEvent(new KeyboardEvent("keyup", { key, bubbles: true }));
+      });
+      await waitFor(dialog, "keyboard-opened dialog");
+      assert.ok(dialog().contains(document.activeElement), "Radix moves focus into the modal");
+      const close = dialogButton("Close");
+      close.focus();
+      await act(async () => close.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })));
+      assert.ok(dialog().contains(document.activeElement), "Tab cannot leave the modal");
+      await act(async () => document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+      await waitFor(() => !dialog(), "Escape close");
+      await waitFor(() => document.activeElement === trigger, "focus restoration");
+    }
+  } finally { await view.close(); }
+});
+
+test("deterministic 25-row pagination, partial identity fallbacks, zero and unavailable lists", async () => {
+  const rows = Array.from({ length: 53 }, (_, i) => diagnosticRow(`m-${String(52 - i).padStart(3, "0")}`));
+  rows.push(diagnosticRow("missing", { firstName: null, lastName: null, email: null, memberClass: null }));
+  rows.push(diagnosticRow("partial", { firstName: null, lastName: "Zed", email: "", memberClass: null }));
+  const snapshot = drillReport(rows);
+  snapshot.reviewCounts.zero_reason = 0;
+  snapshot.diagnostics.review.zero_reason = [];
+  snapshot.reviewCounts.unavailable_reason = 2;
+  snapshot.diagnostics.review.unavailable_reason = [diagnosticRow("duplicate"), diagnosticRow("duplicate")];
+  const view = await mount({ transport: () => jsonResponse(snapshot) });
+  try {
+    await openDrill(view);
+    assert.equal(dialog().querySelectorAll("tbody tr").length, 25);
+    assert.match(dialog().textContent, /Name unavailable.*Email unavailable.*Class missing or ambiguous/);
+    assert.match(dialog().textContent, /1–25 of 55/);
+    assert.equal(dialogButton("Previous").disabled, true);
+    assert.equal(dialog().querySelector("tbody a").getAttribute("href"), "/members/missing");
+    await act(async () => dialogButton("Next").click());
+    assert.equal(dialog().querySelectorAll("tbody tr").length, 25);
+    assert.match(dialog().textContent, /26–50 of 55/);
+    await act(async () => dialogButton("Next").click());
+    assert.equal(dialog().querySelectorAll("tbody tr").length, 5);
+    assert.match(dialog().textContent, /Zed \(partial name\)/);
+    assert.equal(dialogButton("Next").disabled, true);
+    await act(async () => dialogButton("Previous").click());
+    assert.match(dialog().textContent, /26–50 of 55/);
+    await closeDrill();
+    await openDrill(view, "pending", "awaiting_first_payment");
+    assert.match(dialog().textContent, /1–25 of 55/);
+    await closeDrill();
+    await openDrill(view, "review", "zero_reason");
+    assert.match(dialog().textContent, /0 members.*No members have this reason/s);
+    await closeDrill();
+    await openDrill(view, "review", "unavailable_reason");
+    assert.match(dialog().textContent, /2 members.*details are unavailable/s);
+    assert.equal(dialog().querySelector("table"), null);
+    assert.equal(view.calls.length, 1);
+  } finally { await view.close(); }
+});
+
+test("absent, malformed and incomplete lists never render a misleading empty or partial table", async () => {
+  const variants = [
+    undefined, null, {}, [], [diagnosticRow("m", { memberId: null })],
+    [diagnosticRow("m", { email: 7 })],
+  ];
+  for (const rows of variants) {
+    const snapshot = drillReport();
+    snapshot.diagnostics.review.missing_class = rows;
+    const view = await mount({ transport: () => jsonResponse(snapshot) });
+    try {
+      await openDrill(view);
+      assert.match(dialog().textContent, /details are unavailable/);
+      assert.doesNotMatch(dialog().textContent, /No members have/);
+      assert.equal(dialog().querySelector("a"), null);
+    } finally { await view.close(); }
+  }
+});
+
+test("refresh closes immediately and never reopens after equal-data success or failure", async () => {
+  for (const fail of [false, true]) {
+    let resolveRefresh;
+    let reads = 0;
+    const snapshot = drillReport();
+    const view = await mount({ transport: () => ++reads === 1 ? jsonResponse(snapshot) : new Promise(resolve => { resolveRefresh = resolve; }) });
+    try {
+      await openDrill(view);
+      // External refetch is important: it does not use the page's reset handler.
+      await act(async () => { void view.client.refetchQueries({ queryKey: ["nmc-membership-report"] }); });
+      assert.equal(dialog(), null, "stale identities disappear during fetching");
+      assert.equal(byTestId(view, "nmc-drilldown-review-missing_class").disabled, true);
+      await act(async () => resolveRefresh(fail ? jsonResponse({ error: "Snapshot unavailable" }, 503) : jsonResponse(snapshot)));
+      await waitFor(() => fail ? byTestId(view, "text-report-error") : !byTestId(view, "nmc-drilldown-review-missing_class").disabled, "refresh settled");
+      assert.equal(dialog(), null);
+      if (!fail) {
+        await openDrill(view);
+        assert.match(dialog().textContent, /Leah Shaw/);
+      }
+      assert.equal(view.calls.length, 2);
+      assert.ok(view.calls.every(call => !call.options.method));
+    } finally { await view.close(); }
+  }
+});
+
+test("cache snapshot changes reset selection even when structural sharing retains identical data", async () => {
+  const snapshot = drillReport();
+  const view = await mount({ transport: () => jsonResponse(snapshot) });
+  try {
+    await openDrill(view);
+    const key = ["nmc-membership-report", BNMS_TENANT_ID, accessFixture.memberInfo.id];
+    const before = view.client.getQueryData(key);
+    await act(async () => view.client.setQueryData(key, structuredClone(snapshot)));
+    assert.equal(view.client.getQueryData(key), before, "React Query retained equal-data reference");
+    assert.equal(dialog(), null, "update counter invalidated selection");
+    await openDrill(view);
+    await act(async () => view.client.setQueryData(key, drillReport([diagnosticRow("other", { firstName: "Ravi" })])));
+    assert.equal(dialog(), null);
+    await openDrill(view);
+    assert.match(dialog().textContent, /Ravi Shaw/);
+  } finally { await view.close(); }
+});
+
+test("tab departure, settings save, access loss and unmount clear diagnostic identities", async () => {
+  let settings = report.settings;
+  const view = await mount({ transport: (_url, options) => {
+    if (options.method === "PUT") {
+      settings = { ...JSON.parse(options.body), revision: 4 };
+      return jsonResponse({ settings });
+    }
+    return jsonResponse({ ...drillReport(), settings });
+  } });
+  let closed = false;
+  try {
+    await openDrill(view);
+    await click(view, "tab-nmc-settings");
+    assert.equal(dialog(), null);
+    await click(view, "nmc-printedClasses-trainee");
+    await click(view, "button-save-nmc-settings");
+    await waitFor(() => byTestId(view, "text-nmc-settings-success"), "settings saved");
+    assert.equal(dialog(), null);
+    const reportTab = [...view.container.querySelectorAll("button")].find(button => button.textContent === "Report");
+    await act(async () => reportTab.click());
+    assert.equal(dialog(), null);
+    await openDrill(view);
+    await view.rerenderAccess({ ...accessFixture, isAdmin: false });
+    assert.equal(dialog(), null);
+    await waitFor(() => byTestId(view, "safe-destination"), "access-loss redirect");
+    assert.equal(view.calls.filter(call => call.options.method === "PUT").length, 1, "only explicit save writes");
+    await view.close(); closed = true;
+    assert.equal(dialog(), null);
+  } finally { if (!closed) await view.close(); }
+  const unmounted = await mount({ transport: () => jsonResponse(drillReport()) });
+  await openDrill(unmounted);
+  await unmounted.close();
+  assert.equal(dialog(), null);
 });

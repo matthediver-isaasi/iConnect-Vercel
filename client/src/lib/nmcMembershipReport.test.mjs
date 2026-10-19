@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
-import { BNMS_TENANT_ID, NMC_REPORT_FEATURE, canAccessNmcReport, formatNmcReportDate, isNmcReportDestination, nmcExportFilename, nmcReviewGuidance } from "./nmcMembershipReport.mjs";
+import { BNMS_TENANT_ID, NMC_REPORT_FEATURE, canAccessNmcReport, formatNmcReportDate, isNmcReportDestination, nmcExportFilename, nmcReviewGuidance, nmcDiagnosticRows, nmcDiagnosticIdentity, NMC_DIAGNOSTIC_PAGE_SIZE } from "./nmcMembershipReport.mjs";
 
 const permitted = {
   brandingId: BNMS_TENANT_ID,
@@ -9,6 +9,39 @@ const permitted = {
   isAccessReady: true, sessionValidated: true, isAdmin: true,
   isFeatureExcluded: () => false,
 };
+
+test("diagnostics fail closed for missing, incomplete, malformed and duplicate identities", () => {
+  const row = { memberId: "m1", firstName: null, lastName: null, email: null, memberClass: null };
+  const snapshot = (rows, total = 1) => ({ reviewCounts: { missing_class: total }, diagnostics: { review: { missing_class: rows } } });
+  for (const bad of [
+    {}, { reviewCounts: { missing_class: 0 } }, snapshot(null), snapshot({}), snapshot([]),
+    snapshot([row], 2), snapshot([row], "1"), snapshot([row], -1),
+    snapshot([row, row], 2), snapshot([{ ...row, memberId: "" }]),
+    snapshot([{ ...row, memberId: null }]), snapshot([{ ...row, memberId: 42 }]),
+    snapshot([{ ...row, memberId: " " }]), snapshot([null]),
+    ...["firstName", "lastName", "email", "memberClass"].flatMap(field => {
+      const missing = { ...row }; delete missing[field];
+      return [snapshot([missing]), snapshot([{ ...row, [field]: ["ambiguous"] }]), snapshot([{ ...row, [field]: {} }])];
+    }),
+  ]) assert.equal(nmcDiagnosticRows(bad, "review", "missing_class"), null);
+  assert.deepEqual(nmcDiagnosticRows(snapshot([], 0), "review", "missing_class"), []);
+  assert.deepEqual(nmcDiagnosticRows(snapshot([row]), "review", "missing_class"), [row]);
+  assert.equal(nmcDiagnosticRows(snapshot([row]), "excluded", "missing_class"), null);
+});
+
+test("diagnostics sort deterministically without changing cached data and preserve honest fallbacks", () => {
+  const base = { firstName: "Leah", lastName: "Shaw", email: null, memberClass: null };
+  const rows = [{ ...base, memberId: "z" }, { ...base, memberId: "a" }, { ...base, firstName: "Abel", memberId: "b" }, { ...base, lastName: "Abbot", memberId: "c" }];
+  const snapshot = { pendingCounts: { awaiting_first_payment: 4 }, diagnostics: { pending: { awaiting_first_payment: rows } } };
+  assert.deepEqual(nmcDiagnosticRows(snapshot, "pending", "awaiting_first_payment").map(row => row.memberId), ["c", "b", "a", "z"]);
+  assert.equal(rows[0].memberId, "z");
+  assert.deepEqual(nmcDiagnosticIdentity({ firstName: null, lastName: " ", email: "", memberClass: null }), {
+    name: "Name unavailable", email: "Email unavailable", memberClass: "Class missing or ambiguous",
+  });
+  assert.equal(nmcDiagnosticIdentity({ ...base, firstName: null }).name, "Shaw (partial name)");
+  assert.equal(nmcDiagnosticIdentity({ ...base, memberClass: "Full member" }).memberClass, "Full member");
+  assert.equal(NMC_DIAGNOSTIC_PAGE_SIZE, 25);
+});
 
 test("access fails closed for every trust boundary", () => {
   assert.equal(canAccessNmcReport(permitted), true);

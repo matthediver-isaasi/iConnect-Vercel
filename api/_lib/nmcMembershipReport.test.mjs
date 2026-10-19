@@ -21,7 +21,23 @@ function fixture(overrides = {}) {
       { id: 'bnms-primary', tenant_id, name: 'BNMS', is_primary: true }],
     preferences: [pref('member_class', 'Full with NMC'), pref('nmc_address_zip', '00120')], ...overrides };
 }
-const report = overrides => projectNmcReport(fixture(overrides));
+function assertDiagnostics(result) {
+  for (const [group, counts] of [['review', result.reviewCounts], ['pending', result.pendingCounts]]) {
+    assert.deepEqual(Object.keys(result.diagnostics[group]).sort(), Object.keys(counts).sort());
+    for (const [reason, count] of Object.entries(counts)) {
+      const members = result.diagnostics[group][reason];
+      assert.equal(members.length, count, `${group}/${reason}`);
+      assert.equal(new Set(members.map(m => m.memberId)).size, count);
+      for (const member of members) assert.deepEqual(Object.keys(member).sort(),
+        ['memberId', 'firstName', 'lastName', 'email', 'memberClass'].sort());
+    }
+  }
+}
+const report = overrides => {
+  const result = projectNmcReport(fixture(overrides));
+  assertDiagnostics(result);
+  return result;
+};
 function pendingFixture(provider = 'gocardless') {
   return {
     history: [{ ...term, billing_agreement_id: 'a1', membership_year: '2026/2027',
@@ -424,4 +440,109 @@ test('JSON and workbook authenticate, enforce tenant/admin/feature, never trust 
   const failed = response();
   await createNmcReportHandler({ ...deps, loadReport: async () => { throw new Error('secret PII'); } })({ method: 'GET', query: { format: 'xlsx' } }, failed);
   assert.equal(failed.statusCode, 500); assert.ok(!JSON.stringify(failed).includes('secret PII')); assert.equal(failed.headers['Content-Disposition'], undefined);
+});
+
+test('every review and first-payment branch retains the exact minimal member identity', () => {
+  const base = pendingFixture();
+  const cases = [
+    ['review', 'missing_class', { preferences: [] }, null],
+    ['review', 'unknown_class', { preferences: [pref('member_class', 'not-known')] }, null],
+    ['review', 'duplicate_custom_values', { preferences: [pref('member_class', 'Full'), pref('member_class', 'Full')] }, null],
+    ['review', 'duplicate_custom_values', { preferences: [pref('member_class', 'Full'), pref('title', 'A'), pref('title', 'B')] }, 'Full'],
+    ['review', 'unresolved_organisation', { members: [{ ...member, organization_id: 'missing' }] }],
+    ['review', 'unresolved_organisation', { ...base, members: [{ ...member, organization_id: 'missing' }] }],
+    ['review', 'missing_membership_evidence', { history: [] }],
+    ['review', 'invalid_expiry_or_term', { history: [{ ...term, term_end_date: 'bad' }] }],
+    ['review', 'missing_expiry', { history: [{ ...term, term_end_date: null }] }],
+    ['review', 'unproven_membership_evidence', { history: [{ ...term, payment_status: 'unpaid' }] }],
+    ['review', 'ambiguous_membership_evidence', { history: [term, { ...term, id: 'h2' }] }],
+    ['review', 'first_collection_failed', { ...base, plans: [{ ...base.plans[0], last_payment_status: 'failed' }] }],
+    ['pending', 'awaiting_first_payment', base],
+    ['pending', 'first_collection_submitted', { ...base, plans: [{ ...base.plans[0], last_payment_status: 'submitted' }] }],
+    ['pending', 'awaiting_mandate_setup', { ...base, agreements: [{ ...base.agreements[0], status: 'mandate_pending' }], plans: [] }],
+  ];
+  for (const [group, reason, overrides, memberClass = 'Full with NMC'] of cases) {
+    const result = report(overrides);
+    assert.deepEqual(result[`${group}Counts`], { [reason]: 1 }, reason);
+    assert.deepEqual(result.diagnostics[group][reason], [{
+      memberId: 'm1', firstName: 'Synthetic', lastName: 'Member',
+      email: 'fixture@example.invalid', memberClass,
+    }], reason);
+    assert.deepEqual(result.diagnostics[group === 'review' ? 'pending' : 'review'], {});
+    assert.equal(result.total, 0);
+  }
+});
+
+test('diagnostic names and labels use honest missing values, without leaking raw unknown classes', () => {
+  const result = report({ members: [{ ...member, first_name: null, last_name: '  ', email: null }],
+    preferences: [pref('member_class', 'raw-unknown-value')] });
+  assert.deepEqual(result.diagnostics.review.unknown_class, [{
+    memberId: 'm1', firstName: null, lastName: null, email: null, memberClass: null,
+  }]);
+  const labelled = report({ history: [], fields: fields.map(f => f.name === 'member_class'
+    ? { ...f, options: options.map(value => ({ value, label: value === 'Full with NMC' ? 'Printed full member' : value })) } : f) });
+  assert.equal(labelled.diagnostics.review.missing_membership_evidence[0].memberClass, 'Printed full member');
+});
+
+test('complete diagnostic loading beyond 1000 members is stable by last name, first name and ID; staff/foreign rows stay absent', async () => {
+  const members = Array.from({ length: 1207 }, (_, i) => ({
+    ...member, id: `m${String(i).padStart(5, '0')}`, last_name: i % 2 ? 'Alpha' : 'Zulu',
+    first_name: i % 3 ? 'Bea' : 'Ada',
+  }));
+  const staff = { ...member, id: 'staff', organization_id: 'bnms-primary' };
+  const tables = {
+    member: [...members, staff, { ...member, id: 'foreign', tenant_id: 'foreign' }],
+    preference_field: fields, organization: fixture().organizations,
+    member_preference_value: [...members, staff].map(m => pref('member_class', 'Full', m.id)),
+  };
+  const expected = [...members].sort((a, b) => a.last_name.localeCompare(b.last_name, 'en-GB')
+    || a.first_name.localeCompare(b.first_name, 'en-GB') || a.id.localeCompare(b.id)).map(m => m.id);
+  const loaded = await loadNmcReport(fakeDatabase(tables, { cap: 113 }), '2026-10-07');
+  assertDiagnostics(loaded);
+  assert.deepEqual(loaded.reviewCounts, { missing_membership_evidence: 1207 });
+  const ids = loaded.diagnostics.review.missing_membership_evidence.map(m => m.memberId);
+  assert.deepEqual(ids, expected);
+  const reversed = projectNmcReport(fixture({ members: [...members].reverse(), history: [],
+    preferences: tables.member_preference_value }));
+  assert.deepEqual(reversed.diagnostics, loaded.diagnostics);
+  const pages = Array.from({ length: Math.ceil(ids.length / 25) }, (_, page) => ids.slice(page * 25, (page + 1) * 25));
+  assert.deepEqual(pages.flat(), expected);
+  assert.equal(pages.at(-1).length, 7);
+  assert.equal(loaded.total, 0);
+});
+
+test('staff with pending or failed collections never enter diagnostics', () => {
+  const base = pendingFixture();
+  for (const last_payment_status of [null, 'submitted', 'failed']) {
+    const result = report({ ...base, members: [{ ...member, organization_id: 'bnms-primary' }],
+      plans: [{ ...base.plans[0], last_payment_status }] });
+    assert.deepEqual(result.diagnostics, { review: {}, pending: {} });
+    assert.deepEqual(result.reviewCounts, {});
+    assert.deepEqual(result.pendingCounts, {});
+  }
+});
+
+test('JSON allowlists diagnostic fields and projection fields; workbook ignores diagnostics entirely', async () => {
+  const projected = report({ history: [] });
+  const contaminated = { ...projected, rawHistory: 'PRIVATE_HISTORY', addresses: 'PRIVATE_ADDRESS',
+    diagnostics: { ...projected.diagnostics, excluded: { private: ['PRIVATE_EXCLUDED'] },
+      review: { missing_membership_evidence: projected.diagnostics.review.missing_membership_evidence.map(m => ({
+        ...m, cells: ['PRIVATE_CELLS'], history: ['PRIVATE_HISTORY'], metadata: 'PRIVATE_PAYMENT',
+        address: 'PRIVATE_ADDRESS', mobile: 'PRIVATE_PHONE',
+      })) } } };
+  const deps = { db: {}, getTenantContext: async () => ctx, hasAdminAccess: async () => true,
+    hasFeatureAccess: async () => true, loadReport: async () => contaminated };
+  const res = response();
+  await createNmcReportHandler(deps)({ method: 'GET' }, res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.headers['Cache-Control'], 'private, no-store');
+  assert.equal(res.headers['X-Content-Type-Options'], 'nosniff');
+  assert.deepEqual(res.body.diagnostics, projected.diagnostics);
+  assert.doesNotMatch(JSON.stringify(res.body), /PRIVATE_|"rows"|"cells"/);
+  assert.deepEqual(Object.keys(res.body).sort(), ['reportDate', 'settings', 'classOptions', 'classCounts',
+    'sheets', 'total', 'reviewCounts', 'excludedCounts', 'pendingCounts', 'diagnostics'].sort());
+  const original = XLSX.read(nmcMembershipWorkbook(projected), { type: 'buffer' });
+  const withDiagnostics = XLSX.read(nmcMembershipWorkbook(contaminated), { type: 'buffer' });
+  assert.deepEqual(withDiagnostics, original);
+  for (const sheet of Object.values(withDiagnostics.Sheets)) assert.doesNotMatch(JSON.stringify(sheet), /PRIVATE_|fixture@example/);
 });
