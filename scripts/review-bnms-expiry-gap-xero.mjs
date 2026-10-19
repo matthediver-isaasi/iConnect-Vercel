@@ -71,9 +71,29 @@ const results=rows.map(row=>{
     legacyAccountMatches:!!contact?.AccountNumber&&contact.AccountNumber===row.legacy_account,
     explicitAccountConflict:!!contact?.AccountNumber&&contact.AccountNumber!==row.legacy_account,lines};
 });
+const paymentEvidence=[];
+for(const result of results.filter(r=>r.emailMatches&&!r.explicitAccountConflict)) {
+  const invoice=invoices.find(i=>i.InvoiceID===result.invoiceId);
+  const verified=[];
+  let reason=null;
+  for(const p of invoice.Payments||[]) {
+    try {
+      const response=await get(`Payments/${p.PaymentID}`);
+      const actual=response.Payments?.[0];
+      assert.equal(response.Payments?.length,1);
+      assert.equal(actual.Invoice?.InvoiceID,invoice.InvoiceID);
+      assert.equal(actual.Status,'AUTHORISED');
+      assert.equal(actual.Amount,p.Amount);
+      verified.push(actual);
+    } catch {reason='Payment detail could not be verified';break;}
+  }
+  const total=verified.reduce((n,p)=>n+Number(p.Amount),0);
+  if(!verified.length||Math.abs(total-invoice.AmountPaid)>0.01)reason='Payment evidence incomplete';
+  paymentEvidence.push({memberId:result.member_id,invoiceId:invoice.InvoiceID,verified:!reason,reason,payments:verified});
+}
 fs.mkdirSync(dir,{recursive:true,mode:0o700});
 const path=`${dir}/xero-evidence-${Date.now()}.json`;
-fs.writeFileSync(path,JSON.stringify({capturedAt:new Date().toISOString(),rows:results,invoices,contacts,membershipWrites:0},null,2),{flag:'wx',mode:0o600});
+fs.writeFileSync(path,JSON.stringify({capturedAt:new Date().toISOString(),rows:results,invoices,contacts,paymentEvidence,membershipWrites:0},null,2),{flag:'wx',mode:0o600});
 console.log(JSON.stringify({evidence:path,members:18,invoiceReferences:rows.length,found:invoices.length,
   paidInvoices:invoices.filter(i=>i.Status==='PAID').length,
   results:results.map(({member_id,invoice_number,proposedStart,term_end_date,xeroStatus,currency,lineAmountTypes,subTotal,totalTax,total,paid,due,credited,

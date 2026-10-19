@@ -1,5 +1,34 @@
 # BNMS 2027-expiry membership correction
 
+## Subsequent reconstruction (19 October 2026)
+The owner subsequently authorised repairing as much missing detail as possible:
+18 existing rows now have annual start dates derived from retained expiry and
+current-member-class-mapped structures. Expiries and member classes are unchanged.
+
+- Seven have separately priced membership lines and individually verified
+  authorised Xero payments; financial amounts and invoice identities are populated.
+- Two have verified paid event-package invoices linked, with membership amounts
+  still unknown because the package does not allocate them separately.
+- Nine retain unknown financial amounts and no invoice links pending identity
+  checks; dates and structures are repaired.
+- All nine linked invoices have individually verified payments matching the
+  invoice identity and total paid, not just imported paid status.
+- Seven complete-price terms use ordinary immutable rolling commitments. The
+  eleven unknown-price terms remain dated legacy entitlements: no fake zero
+  amounts, partial rolling snapshots or relaxed database guards.
+- No provider financial writes, emails, new invoices, collections or mandates.
+
+Applied to DEST; exact replay performed zero writes. No schema migrations.
+The amended legacy display/structure-name handling still requires application
+deployment. The authenticated UI was not verified in the SOURCE-based preview.
+139 focused test cases passed across the full run and final history-handler
+rerun; the saved-record projections recognise all 18 repaired current terms.
+
+Runner: `scripts/complete-bnms-expiry-gap.mjs`.
+Private evidence, before/after journals and commit marker remain in the ignored
+`generated-artifacts/bnms-2027-correction/` directory.
+Latest report: `BNMS-membership-reconstruction-results.csv`.
+
 ## Scope and outcome
 On 19 October 2026 the owner authorised correcting missing current memberships
 like the reported BNMS member and identifying other members with the same condition.

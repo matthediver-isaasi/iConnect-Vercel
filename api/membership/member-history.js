@@ -285,7 +285,18 @@ export function createMemberHistoryHandler(dependencies = {}) {
         tenantId, memberId, history: personalRows, loadPolicy: loadExpiryPolicy,
       });
       // Approval/backfill evidence is service-side only on this portal endpoint.
-      for (const record of personalRows) delete record.notes;
+      for (const record of personalRows) {
+        try {
+          const notes = typeof record.notes === 'string' ? JSON.parse(record.notes) : record.notes;
+          if (tenantId === 'ff2df806-b321-4254-b651-3af11fccf1db'
+              && notes?.source === 'bnms_expiry_gap_reconstruction'
+              && notes?.structureAuthority === 'current_member_class_mapping_not_original_purchase_configuration'
+              && typeof notes.reconstructedStructureName === 'string') {
+            record.reconstructed_structure_name = notes.reconstructedStructureName;
+          }
+        } catch { /* Ordinary history notes need not be JSON. */ }
+        delete record.notes;
+      }
       const records = [...personalRows, ...organisationRows];
 
       const bandIds = [...new Set(records.map((record) => record.band_id).filter(Boolean))];

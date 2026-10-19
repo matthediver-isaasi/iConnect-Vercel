@@ -1444,7 +1444,9 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
               </div>
             </dl>
             <p className="text-xs text-muted-foreground mt-4">
-              Persisted paid membership. No start date, renewal date, or future commitment was recorded.
+              {legacyCurrentMembership.startDate
+                ? 'Retained membership. Start date and structure reconstructed with administrator approval. No future collection commitment was created.'
+                : 'Persisted paid membership. No start date, renewal date, or future commitment was recorded.'}
             </p>
             <ExpiryRenewalPolicy record={legacyCurrentMembership} />
           </CardContent>
@@ -1798,6 +1800,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                           <div className="text-xs text-muted-foreground mt-1">
                             {record.commitment_snapshot?.config?.name
                               || record.commitment_snapshot?.structure_name
+                              || record.reconstructed_structure_name
                               || (record.config_id ? `Structure ${record.config_id}` : 'Structure unknown')}
                           </div>
                           <ExpiryRenewalPolicy record={record} />

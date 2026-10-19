@@ -84,6 +84,22 @@ const member = {
   role_id: 'role-member',
 };
 
+test('reconstruction structure label survives provenance redaction without exposing notes', async () => {
+  const tenant = 'ff2df806-b321-4254-b651-3af11fccf1db';
+  const db = mockedDb({rows:{member_membership_history:[{
+    id:'reconstructed',tenant_id:tenant,member_id:'member-1',
+    notes:JSON.stringify({source:'bnms_expiry_gap_reconstruction',
+      structureAuthority:'current_member_class_mapping_not_original_purchase_configuration',
+      reconstructedStructureName:'Full member',privateEvidence:'not public'}),
+  }]}});
+  const handler=historyHandler({db,sessionMember:{...member,tenant_id:tenant,organization_id:null}});
+  const res=response();
+  await handler({method:'GET',query:{}},res);
+  assert.equal(res.statusCode,200);
+  assert.equal(res.payload[0].reconstructed_structure_name,'Full member');
+  assert.equal(res.payload[0].notes,undefined);
+});
+
 function historyHandler({
   db,
   sessionMember = member,

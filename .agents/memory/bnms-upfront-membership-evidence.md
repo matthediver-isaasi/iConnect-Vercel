@@ -138,6 +138,18 @@ outside this correction. Historical DD invoice descriptions require separate
 review even when no operational agreement exists. Recognition of these records
 does not authorise renewal-policy assignment or automatic collection.
 
+An annual term may have reconstructable dates and structure while its price
+remains unproven. Do not fabricate zero amounts or weaken rolling-commitment
+constraints to make that term display.
+
+**Why:** The installed rolling contract requires complete financial amounts;
+bundled event consideration and unresolved invoice identity cannot supply them.
+
+**How to apply:** Preserve dated legacy entitlement and explicit reconstruction
+provenance for unknown-price cases; only verified membership-line amounts justify
+conversion to the normal financial commitment. Display the retained structure
+without exposing private approval or provider evidence.
+
 BNMS journal exclusions must be resolved through the underlying membership
 records, not a hard-coded journal inclusion list.
 

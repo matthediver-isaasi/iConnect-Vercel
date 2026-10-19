@@ -1559,3 +1559,17 @@ mtime_ms = 1792423134699
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/be7c5538-568c-444e-8458-39e20f672930/4dbcec54-64f0-4270-a4cc-6f5326ae6797"
 storage_version_token = "1792423230377727"
 content_type = "text/csv"
+
+[[outputs]]
+id = "6LPBIT1KmBQNXh0Pe7jkW"
+uri = "file://generated-artifacts/bnms-2027-correction/BNMS-membership-reconstruction-results.csv"
+type = "table"
+title = "BNMS membership reconstruction results"
+description = "All 18 repaired terms, verified financial amounts and invoice links, plus outstanding identity and package-price limitations."
+logical_id = "065212c8-8e98-467d-bb6b-49eb06deddab"
+content_hash = "sha256:8272f1d8e289992ad17c2029f2e10261b5f663311565dbb33a79d3895dea81b0"
+size = 3444
+mtime_ms = 1792429177559
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/065212c8-8e98-467d-bb6b-49eb06deddab/2a556efc-5c62-41fa-a184-1b492bf707ce"
+storage_version_token = "1792429267176249"
+content_type = "text/csv"

@@ -59,6 +59,33 @@ function parsedNotes(value) {
  * commitments: their unknown start and renewal dates must remain unknown.
  */
 export function shapeLegacyCurrentMembership(record, tenantId, now = new Date()) {
+  const reconstructed = parsedNotes(record?.notes);
+  if (tenantId === BNMS_TENANT_ID && record?.tenant_id === BNMS_TENANT_ID
+      && record.membership_source === 'personal'
+      && reconstructed?.source === 'bnms_expiry_gap_reconstruction'
+      && reconstructed.approval === 'owner_approved_repair_as_much_as_possible_2026_10_19'
+      && reconstructed.termAuthority === 'owner_approved_annual_start_derived_from_retained_expiry'
+      && reconstructed.structureAuthority === 'current_member_class_mapping_not_original_purchase_configuration'
+      && typeof reconstructed.reconstructedStructureName === 'string'
+      && record.config_id && record.term_key == null && record.commitment_snapshot == null
+      && record.status === 'active' && record.payment_status === 'paid' && record.payment_method === 'upfront'
+      && record.billing_agreement_id == null && record.final_cost === null && record.total_with_vat === null
+      && Number.isFinite(dateValue(record.term_start_date))
+      && Number.isFinite(dateValue(record.term_end_date))
+      && record.term_start_date <= new Date(now).toISOString().slice(0,10)
+      && record.term_end_date >= new Date(now).toISOString().slice(0,10)) {
+    const renewal = new Date(`${record.term_end_date}T00:00:00Z`);
+    renewal.setUTCDate(renewal.getUTCDate()+1);
+    const start = new Date(renewal);
+    start.setUTCFullYear(start.getUTCFullYear()-1);
+    if (start.toISOString().slice(0,10) !== record.term_start_date) return null;
+    return {id:record.id,source:'personal',membershipYear:record.membership_year,
+      tierLabel:record.tier_label,startDate:record.term_start_date,endDate:record.term_end_date,
+      renewalDate:null,paidAmount:null,currency:record.currency,paymentMethod:record.payment_method,
+      paymentStatus:'paid',readOnly:true,
+      historicalStructureName:reconstructed.reconstructedStructureName,
+      ...legacyRenewalPolicyDisplay(record)};
+  }
   if (tenantId !== BNMS_TENANT_ID || record?.tenant_id !== BNMS_TENANT_ID
       || record?.membership_source !== 'personal'
       || !['2025/2026', '2026/2027'].includes(record?.membership_year)
