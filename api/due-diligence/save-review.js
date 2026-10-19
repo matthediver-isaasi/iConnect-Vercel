@@ -1,5 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { getSessionMember } from '../_lib/session.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { executeStageActions } from './_stageActions.js';
@@ -81,24 +82,20 @@ export default async function handler(req, res) {
         originalSubmissionValues,
         ddSubmission.reviewed_form_values || {},
       );
-      const mergedReviewedFormValues = {
-        ...(ddSubmission.reviewed_form_values
-          && typeof ddSubmission.reviewed_form_values === 'object'
-          && !Array.isArray(ddSubmission.reviewed_form_values)
-          ? ddSubmission.reviewed_form_values
-          : {}),
-        ...(reviewedFormValues
-          && typeof reviewedFormValues === 'object'
-          && !Array.isArray(reviewedFormValues)
-          ? reviewedFormValues
-          : {}),
-      };
+      if (!reviewedFormValues || typeof reviewedFormValues !== 'object'
+          || Array.isArray(reviewedFormValues)) {
+        return res.status(400).json({ error: 'Reviewed form values must be an object' });
+      }
       const submissionData = effectiveReviewSubmissionValues(
         form,
         originalSubmissionValues,
-        mergedReviewedFormValues,
+        reviewedFormValues,
       );
-      try {
+      // The UI includes unchanged answers even for note-only saves. Historical
+      // answers must not be reinterpreted as fresh selections in that case.
+      // Compare the exact replacement persisted below, not a merged patch that
+      // could conceal a removed override reverting to an original answer.
+      if (!isDeepStrictEqual(previousReviewedFormValues, submissionData)) try {
         const visibilityOptions = {};
         if (rulesUseLmicOperators(form.visibility_rules)) {
           visibilityOptions.lmicCodes = await loadTenantLmicCodes(
