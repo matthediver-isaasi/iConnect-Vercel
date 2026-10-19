@@ -2,14 +2,18 @@
 
 ## Rollout status
 
-Implementation and isolated verification are complete. **No live migration was
-applied. No SOURCE or DEST campaign was archived, restored, deleted or sent as
-verification. No deployment was performed.**
+Implementation and isolated verification are complete. **The migration was
+applied to verified DEST on 2026-10-19 following the user's request to enable
+archive/delete. No SOURCE or DEST campaign was archived, restored, deleted or
+sent as verification. No deployment was performed.**
 
 Required migration: `supabase/migrations/202612310006_campaign_lifecycle.sql`.
 Its intended application target is **DEST only**, project
 `lvmzliemqnieeoruhkik`. The workspace's legacy SOURCE database is not a substitute.
-The migration has only been applied to disposable, local PostgreSQL test databases.
+Live REST readiness returned true and campaign summary reads succeeded. GFI's
+99 campaigns and 196,468 recipient records remained present, with no archived
+campaigns. SOURCE was untouched. The migration also passed disposable PostgreSQL
+tests for atomic deletion, preservation, delivery guards and permissions.
 
 Review the migration and obtain explicit approval before applying it. The
 offline runner prints the current SHA-256 without opening a connection:
@@ -26,8 +30,9 @@ The reviewed implementation SHA is
 Re-review if the offline hash differs.
 
 **Apply the schema before enabling/deploying the matching application code.**
-Archive management explicitly checks readiness; it does not pretend an absent
-column/RPC is an unarchived campaign or a successful operation. Workers also
+Archive mutations explicitly check readiness; absent database support never
+authorizes a successful lifecycle operation. Ordinary list/statistic reads
+remain independently available through narrowly scoped legacy compatibility. Workers also
 require the archive column. A normal source merge/deployment does not install
 this external database migration.
 
