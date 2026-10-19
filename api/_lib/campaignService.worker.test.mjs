@@ -134,26 +134,24 @@ test('real worker drains multiple 100-recipient bulk requests without a 100-per-
   assert.ok(rows.every(row => row.status === 'sent'));
 });
 
-test('pinned bulk campaigns claim nothing when the switch is disabled', async t => {
+test('live bulk works without either legacy opt-in flag', async t => {
   const { campaign, rows } = install(t, 3);
-  campaign.delivery_transport = 'mailgun_batch_v1';
-  const result = await sendBatch('campaign', 'tenant', campaign, 'tenant', null, 100);
-  assert.equal(result.success, false);
-  assert.ok(rows.every(row => row.status === 'pending'));
-});
-
-test('test-only rollout cannot submit a bulk campaign after its test flag is cleared', async t => {
-  const { campaign, rows } = install(t, 3);
-  const previous = process.env.CAMPAIGN_MAILGUN_BATCH_ENABLED;
-  process.env.CAMPAIGN_MAILGUN_BATCH_ENABLED = 'true';
-  t.after(() => { if (previous == null) delete process.env.CAMPAIGN_MAILGUN_BATCH_ENABLED;
-    else process.env.CAMPAIGN_MAILGUN_BATCH_ENABLED = previous; });
   campaign.delivery_transport = 'mailgun_batch_v1';
   campaign.is_test_mode = false;
-  const result = await sendBatch('campaign', 'tenant', campaign, 'tenant', null, 100);
-  assert.equal(result.success, false);
-  assert.match(result.error, /Live bulk delivery/);
-  assert.ok(rows.every(row => row.status === 'pending'));
+  let requests = 0;
+  const result = await sendBatch('campaign', 'tenant', campaign, 'tenant', null, 100, {
+    deadline: Date.now() + 38000,
+    sendRecipient: async recipient => ({ recipient, prepared: { messageData: { to: [recipient.email] } } }),
+    submitBulk: async (_id, messages, _deadline, dependencies) => {
+      await dependencies.beforeSubmit({});
+      assert.equal(messages.length, 3);
+      requests++;
+      return { success: true, messageId: 'live-batch' };
+    },
+  });
+  assert.equal(result.batchSent, 3);
+  assert.equal(requests, 1);
+  assert.ok(rows.every(row => row.status === 'sent'));
 });
 
 test('actual service batch stops after two slow personalized sends and leaves 98 rows unclaimed', async t => {

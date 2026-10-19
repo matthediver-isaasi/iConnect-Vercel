@@ -211,6 +211,7 @@ test('worker invocation stops at first rate-limited campaign instead of admittin
     let status;
     const q = {
       select() { return this; }, order() { return this; },
+      is() { return this; },
       eq(key, value) { if (key === 'status') status = value; return this; },
       async single() { return { data: { slug: 'fixture' } }; },
       then(resolve) { return resolve({ data: table === 'email_campaign' ? campaigns : null,

@@ -487,7 +487,7 @@ export async function createCampaign(campaignData, tenantId, createdBy) {
     const cleanedData = { ...campaignData };
     delete cleanedData.archived_at;
     delete cleanedData.delivery_transport;
-    if (newCampaignTransport(cleanedData) === BULK_TRANSPORT) cleanedData.delivery_transport = BULK_TRANSPORT;
+    delete cleanedData.delivery_transport_pinned_at;
     await validateAudienceCustomObjects(supabase, tenantId, cleanedData.target_audiences);
     await validateSpeakerAudienceSegments(supabase, tenantId, cleanedData.target_audiences);
     if (cleanedData.event_survey_context?.event_id) {
@@ -559,6 +559,7 @@ export async function updateCampaign(campaignId, updates, tenantId, options = {}
     delete cleanedUpdates.tenant_id;
     delete cleanedUpdates.id;
     delete cleanedUpdates.delivery_transport;
+    delete cleanedUpdates.delivery_transport_pinned_at;
     await validateAudienceCustomObjects(supabase, tenantId, cleanedUpdates.target_audiences);
     await validateSpeakerAudienceSegments(supabase, tenantId, cleanedUpdates.target_audiences);
     delete cleanedUpdates.category_review_required;
@@ -653,7 +654,7 @@ export async function duplicateCampaign(campaignId, tenantId, createdBy) {
       ...cloneFields
     } = original;
     delete cloneFields.delivery_transport;
-    if (newCampaignTransport(cloneFields) === BULK_TRANSPORT) cloneFields.delivery_transport = BULK_TRANSPORT;
+    delete cloneFields.delivery_transport_pinned_at;
 
     const { data: newCampaign, error: insertError } = await supabase
       .from('email_campaign')
@@ -4266,12 +4267,6 @@ export async function sendBatch(campaignId, tenantId, campaign, tenantSlug, requ
   const designInfo = getCampaignEmailComposition(campaign);
   const batchRender = prepareCampaignBatchRender(campaign, designInfo);
   const bulkPinned = campaign.delivery_transport === BULK_TRANSPORT;
-  if (bulkPinned && process.env.CAMPAIGN_MAILGUN_BATCH_ENABLED !== 'true') {
-    return { success: false, remaining: null, error: 'Bulk campaign sending is disabled; no recipients were claimed.' };
-  }
-  if (bulkPinned && campaign.is_test_mode !== true && process.env.CAMPAIGN_MAILGUN_BATCH_LIVE_ENABLED !== 'true') {
-    return { success: false, remaining: null, error: 'Live bulk delivery has not been enabled; no recipients were claimed.' };
-  }
   const useBulk = bulkPinned && bulkCampaignCompatible(campaign);
   const prepared = [];
   const setupMs = Math.max(0, Date.now() - batchStartedAt);
@@ -4473,6 +4468,8 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null, opt
       p_scheduled: Object.hasOwn(options, 'expectedScheduledAt') ? options.expectedScheduledAt : campaign.scheduled_at,
       p_generation: crypto.randomUUID(),
       p_actor: options.initiatingMemberId || (campaign.status === 'scheduled' ? campaign.preparation_actor_member_id : null) || null,
+      // Atomic first-send selection; old drafts qualify, active sends do not.
+      p_transport: newCampaignTransport(campaign),
     });
     if (beginError) {
       if (/preparation conflict/i.test(beginError.message)) return campaignConflict();

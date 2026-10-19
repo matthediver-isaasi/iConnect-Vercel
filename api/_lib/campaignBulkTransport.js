@@ -1,10 +1,9 @@
 // Only ordinary newsletters enter the first bulk transport. Event and survey
 // messages keep their existing recipient-by-recipient delivery authority.
 export const BULK_TRANSPORT = 'mailgun_batch_v1';
-export function newCampaignTransport(campaign, env = process.env) {
-  return env.CAMPAIGN_MAILGUN_BATCH_ENABLED === 'true' &&
-    (campaign.is_test_mode === true || env.CAMPAIGN_MAILGUN_BATCH_LIVE_ENABLED === 'true')
-    ? BULK_TRANSPORT : 'individual';
+// Internal first-send policy, not a campaign option or environment rollout.
+export function newCampaignTransport(campaign) {
+  return bulkCampaignCompatible(campaign) ? BULK_TRANSPORT : 'individual';
 }
 export function bulkCampaignCompatible(campaign) {
   const content = `${campaign.subject || ''}\n${campaign.html_content || ''}\n${JSON.stringify(campaign.design_json || {})}`;

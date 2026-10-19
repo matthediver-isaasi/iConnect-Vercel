@@ -29,18 +29,23 @@ reducing request count alone is not proof of a safe transport migration.
 checks as concurrency increases. Benchmark submission speed separately from
 preparation by resuming the paused test campaign without resetting its rows.
 
-Native bulk sending must use a fresh campaign with a creation-time transport
-pin; never repurpose a running individual-send campaign for bulk benchmarking.
+Eligible live and test campaigns must select batch sending automatically at
+first send, not through a campaign opt-in or separate live-rollout flag.
+Tokenised survey sends remain individual. The transport pin is internal
+duplicate-safety evidence, not a user setting. Never repurpose a running
+individual-send campaign for bulk benchmarking.
 Audience-resolution optimisation is now open for investigation alongside bulk
 submission performance, including scheduled precomputation of audience lists.
 
-**Why:** Mixing transports mid-send obscures the comparison and complicates
+**Why:** The user explicitly required default batching after test-only rollout
+left ordinary live campaigns on individual delivery. Mixing transports mid-send obscures the comparison and complicates
 recovery of uncertain provider acceptance. A no-delivery speed test cannot
 validate the final received message's rendering or personalised headers.
 
-**How to apply:** Keep rollout disabled until the additive migration and worker
-code are deployed. Verify actual controlled-recipient rendering before live
-bulk rollout; retain uncertain rows for reconciliation, not blind retry.
+**How to apply:** Apply the additive first-send migration before deploying the
+worker. Untouched drafts may select transport once; existing preparation or
+recipient evidence must block reselection. Preserve complex-message authority
+exclusions and consent checks. Retain uncertain rows for reconciliation, not blind retry.
 
 Bulk-worker tests must model realistic database latency across both preparation
 and final eligibility checks, and prove forward progress within the *combined*

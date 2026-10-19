@@ -12,12 +12,16 @@ const message = i => ({ domain: 'mail.example.invalid', messageData: {
   'h:List-Unsubscribe-Post': 'List-Unsubscribe=One-Click', 'o:testmode': 'yes',
 }});
 
-test('rollout is default-off and the benchmark switch does not opt live campaigns in', () => {
-  assert.equal(newCampaignTransport({ is_test_mode: true }, {}), 'individual');
+test('compatible live and test campaigns automatically batch regardless of legacy rollout flags', () => {
+  assert.equal(newCampaignTransport({ is_test_mode: true }, {}), 'mailgun_batch_v1');
   const env = { CAMPAIGN_MAILGUN_BATCH_ENABLED: 'true' };
   assert.equal(newCampaignTransport({ is_test_mode: true }, env), 'mailgun_batch_v1');
-  assert.equal(newCampaignTransport({ is_test_mode: false }, env), 'individual');
+  assert.equal(newCampaignTransport({ is_test_mode: false }, env), 'mailgun_batch_v1');
   assert.equal(newCampaignTransport({}, { ...env, CAMPAIGN_MAILGUN_BATCH_LIVE_ENABLED: 'true' }), 'mailgun_batch_v1');
+  assert.equal(newCampaignTransport({}, { CAMPAIGN_MAILGUN_BATCH_ENABLED: 'false', CAMPAIGN_MAILGUN_BATCH_LIVE_ENABLED: 'false' }), 'mailgun_batch_v1');
+  for (const html_content of ['{{survey_url}}', '[[survey_link]]', '{{event_survey_list}}']) {
+    assert.equal(newCampaignTransport({ html_content }), 'individual');
+  }
 });
 
 test('100 recipients use one private envelope with separate bodies and unsubscribe destinations', async () => {

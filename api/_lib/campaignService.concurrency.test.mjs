@@ -53,6 +53,7 @@ function database(t, overrides = {}) {
         return { error: { message: 'Campaign preparation conflict' } };
       }
       Object.assign(row, { status: 'preparing', preparation_generation: args.p_generation,
+        delivery_transport: args.p_transport,
         updated_at: new Date().toISOString() });
       const claimed = structuredClone(row);
       state.claims.push(claimed);
@@ -164,6 +165,24 @@ function database(t, overrides = {}) {
   };
   return state;
 }
+
+for (const status of ['draft', 'scheduled']) {
+  test(`untouched legacy ${status} chooses automatic transport at first send`, async t => {
+    const state = database(t, { status, delivery_transport: 'individual' });
+    const result = await sendCampaign('campaign', 'tenant');
+    assert.equal(result.success, true, result.error);
+    assert.equal(state.claims.length, 1);
+    assert.equal(state.claims[0].delivery_transport, 'mailgun_batch_v1');
+    assert.equal(state.childWrites, 0);
+  });
+}
+
+test('tokenised survey first send selects individual authority path', async t => {
+  const state = database(t, { delivery_transport: 'mailgun_batch_v1', html_content: '<a href="{{survey_url}}">Survey</a>' });
+  const result = await sendCampaign('campaign', 'tenant');
+  assert.equal(result.success, true, result.error);
+  assert.equal(state.claims[0].delivery_transport, 'individual');
+});
 
 const draft = { expectedStatus: 'draft' };
 
