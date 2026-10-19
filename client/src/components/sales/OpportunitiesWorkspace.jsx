@@ -36,6 +36,7 @@ import { useToast } from "@/components/ui/use-toast";
 import InvoiceStatusPanel from "@/components/sales/InvoiceStatusPanel";
 import OpportunityProjectTasksPanel from "@/components/sales/OpportunityProjectTasksPanel";
 import CollaboratorPicker from "@/components/sales/CollaboratorPicker";
+import { showOpportunitySettingsError } from "./opportunitySettingsFeedback";
 
 const FALLBACK_STAGES = [];
 const opportunityValue = (value) => value?.value ?? (value?.value_minor == null ? 0 : Number(value.value_minor) / 100);
@@ -320,16 +321,11 @@ function SettingsPage() {
       });
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["opportunity-settings"] }); qc.invalidateQueries({ queryKey: ["opportunities"] }); toast({ title: "Opportunity settings saved" }); },
-    onError: async (error) => {
-      if (error.status === 409) {
-        // Refetch rather than merely marking stale so the draft useEffect
-        // receives and renders the authoritative server ordering immediately.
-        await qc.refetchQueries({ queryKey: ["opportunity-settings"] });
-        toast({ title: "Stage order changed elsewhere", description: "Settings were reloaded. Review the latest order and try again.", variant: "destructive" });
-        return;
-      }
-      toast({ title: "Could not save settings", description: error.message, variant: "destructive" });
-    },
+    onError: (error) => showOpportunitySettingsError(error, {
+      // Reload genuine ordering conflicts, but keep the draft for validation errors.
+      reloadSettings: () => qc.refetchQueries({ queryKey: ["opportunity-settings"] }),
+      toast,
+    }),
   });
   if (settings.isLoading || !draft) return <div className="grid h-52 place-items-center"><Loader2 className="h-6 w-6 animate-spin" /></div>;
   if (settings.error) return <Card className="border-rose-200"><CardContent className="p-5 text-rose-700">{settings.error.message}</CardContent></Card>;
