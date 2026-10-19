@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, Download, FileText, Loader2, XCircle } from "lucide-react";
 import { useParams } from "react-router-dom";
@@ -14,10 +14,13 @@ import { billingScheduleOf } from "@/components/sales/billingGroups";
 import AgreementDecisionForm from "@/components/sales/AgreementDecisionForm";
 import AgreementDocument from "@/components/sales/AgreementDocument";
 import { legalHtmlOf } from "@/components/sales/agreementSignature";
+import { persistedLineAmounts, persistedQuoteAmounts } from "@/components/sales/quoteDisplayAmounts";
+import { savedLineTaxCode, taxCodeLabel } from "@/lib/salesTaxCodes";
 
 const pick = (value, camel, snake, fallback = "") => value?.[camel] ?? value?.[snake] ?? fallback;
 const items = (value) => Array.isArray(value) ? value : value?.items || value?.data || [];
 const currencyText = (value, currency = "GBP") => {
+  if (value == null) return "—";
   try { return new Intl.NumberFormat("en-GB", { style: "currency", currency }).format(Math.round(Number(value || 0)) / 100); }
   catch { return `${currency} ${(Math.round(Number(value || 0)) / 100).toFixed(2)}`; }
 };
@@ -113,14 +116,13 @@ export default function PublicSalesQuote() {
   });
   const branding = root.tenant || root.branding || quote.branding || {};
   const lines = items(quote.lines || quote.lineItems || quote.line_items);
-  const totals = quote.totals || {};
+  const totals = persistedQuoteAmounts(quote, lines);
   const currency = quote.currency || "GBP";
   const status = outcomeKey(result?.status || result?.outcome || (result ? (decision === "accept" ? "accepted" : "declined") : "") || quote.linkStatus || quote.link_status || quote.status);
   const decisionErrorStatus = outcomeKey(submit.error?.payload?.outcome || submit.error?.payload?.status || submit.error?.payload?.code);
   const actionable = ["issued", "sent", "viewed", ""].includes(status);
   const address = quote.address || quote.addressSnapshot || quote.address_snapshot || {};
   const primary = branding.primaryColor || branding.primary_color || "#2563eb";
-  const total = useMemo(() => totals.grossMinor ?? totals.gross_minor ?? quote.grossMinor ?? quote.gross_minor ?? quote.grossTotalMinor ?? quote.gross_total_minor ?? lines.reduce((sum, line) => sum + Number(line.grossMinor ?? line.gross_minor ?? 0), 0), [lines, quote, totals]);
 
   if (query.isLoading) return <main className="grid min-h-screen place-items-center bg-slate-50"><Loader2 className="h-9 w-9 animate-spin text-blue-600" /></main>;
   if (query.error) {
@@ -141,8 +143,12 @@ export default function PublicSalesQuote() {
       {!hasAgreement && <Card><CardContent className="p-5 sm:p-8">
         <div className="flex flex-col justify-between gap-5 border-b pb-6 sm:flex-row"><div><p className="text-sm font-semibold uppercase tracking-wider" style={{ color: primary }}>{hasAgreement ? "Agreement" : "Quote"}</p><h1 className="mt-1 text-2xl font-bold text-slate-950 sm:text-3xl">{quote.number || quote.quoteNumber || quote.quote_number || "Sales quote"}</h1><Badge className="mt-3">Version {quote.versionNumber || quote.version_number || 1}</Badge></div><dl className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm"><dt className="text-slate-500">Issued</dt><dd>{dateText(pick(quote, "issueDate", "issue_date"))}</dd><dt className="text-slate-500">Valid until</dt><dd>{dateText(pick(quote, "validUntil", "valid_until"))}</dd></dl></div>
         <div className="grid gap-5 border-b py-6 sm:grid-cols-2"><div><p className="text-xs font-semibold uppercase text-slate-500">Prepared for</p><p className="mt-2 font-semibold">{quote.customerName || quote.customer_name || quote.organisationName || quote.organisation_name || quote.organisation?.name || address.addressee || "Customer"}</p>{[address.line1 || address.line_1, address.line2 || address.line_2, address.city, address.region, address.postalCode || address.postal_code, address.country].filter(Boolean).map((part) => <p key={part} className="text-sm text-slate-600">{part}</p>)}</div><div><p className="text-xs font-semibold uppercase text-slate-500">References</p><p className="mt-2 text-sm">PO: {pick(quote, "purchaseOrderReference", "purchase_order_reference", "—")}</p><p className="text-sm">Customer: {pick(quote, "customerReference", "customer_reference", "—")}</p></div></div>
-        <div className="-mx-5 overflow-x-auto sm:-mx-8"><table className="w-full min-w-[620px] text-sm"><thead className="bg-slate-50 text-left text-xs uppercase text-slate-500"><tr><th className="px-5 py-3 sm:px-8">Description</th><th className="px-3 py-3 text-right">Qty</th><th className="px-3 py-3 text-right">Unit price</th><th className="px-5 py-3 text-right sm:px-8">Total</th></tr></thead><tbody>{lines.map((line, index) => <tr key={line.id || index} className="border-t"><td className="px-5 py-4 sm:px-8"><strong>{line.description || line.name || "Item"}</strong>{line.detail && <p className="text-xs text-slate-500">{line.detail}</p>}</td><td className="px-3 py-4 text-right">{line.quantity}</td><td className="px-3 py-4 text-right">{currencyText(line.quotedUnitPriceMinor ?? line.quoted_unit_price_minor ?? line.unitPriceMinor ?? line.unit_price_minor, currency)}</td><td className="px-5 py-4 text-right font-semibold sm:px-8">{currencyText(line.grossMinor ?? line.gross_minor ?? line.totalMinor ?? line.total_minor, currency)}</td></tr>)}</tbody></table></div>
-        <div className="ml-auto mt-6 max-w-sm space-y-2 text-sm"><div className="flex justify-between"><span>Net</span><span>{currencyText(totals.netMinor ?? totals.net_minor ?? quote.netMinor ?? quote.net_minor ?? quote.netTotalMinor ?? quote.net_total_minor, currency)}</span></div><div className="flex justify-between"><span>Tax</span><span>{currencyText(totals.taxMinor ?? totals.tax_minor ?? quote.taxMinor ?? quote.tax_minor ?? quote.taxTotalMinor ?? quote.tax_total_minor, currency)}</span></div><div className="flex justify-between border-t pt-3 text-xl font-bold"><span>Total</span><span>{currencyText(total, currency)}</span></div></div>
+        <div className="-mx-5 overflow-x-auto sm:-mx-8"><table className="w-full min-w-[800px] text-sm"><thead className="bg-slate-50 text-left text-xs uppercase text-slate-500"><tr><th className="px-5 py-3 sm:px-8">Description</th><th className="px-3 py-3 text-right">Qty</th><th className="px-3 py-3 text-right">Unit price (net)</th><th className="px-3 py-3 text-right">Discount</th><th className="px-3 py-3 text-right">Net</th><th className="px-3 py-3 text-right">Tax/VAT</th><th className="px-5 py-3 text-right sm:px-8">Gross</th></tr></thead><tbody>{lines.map((line, index) => {
+          const amounts = persistedLineAmounts(line);
+          const code = savedLineTaxCode(line);
+          return <tr key={line.id || index} className="border-t"><td className="px-5 py-4 sm:px-8"><strong>{line.description || line.name || "Item"}</strong>{line.detail && <p className="text-xs text-slate-500">{line.detail}</p>}{code && <p className="text-xs text-slate-500">{taxCodeLabel(code)}</p>}</td><td className="px-3 py-4 text-right">{line.quantity}</td><td className="px-3 py-4 text-right tabular-nums">{currencyText(line.quotedUnitPriceMinor ?? line.quoted_unit_price_minor ?? line.unitPriceMinor ?? line.unit_price_minor, currency)}</td><td className="px-3 py-4 text-right">{Number(line.discountBps ?? line.discount_bps ?? 0) / 100}%</td><td className="px-3 py-4 text-right tabular-nums">{currencyText(amounts.net, currency)}</td><td className="px-3 py-4 text-right tabular-nums">{currencyText(amounts.tax, currency)}</td><td className="px-5 py-4 text-right font-semibold tabular-nums sm:px-8">{currencyText(amounts.gross, currency)}</td></tr>;
+        })}</tbody></table></div>
+        <div className="ml-auto mt-6 max-w-sm space-y-2 text-sm tabular-nums"><div className="flex justify-between"><span>Net</span><span>{currencyText(totals.net, currency)}</span></div><div className="flex justify-between"><span>Tax/VAT</span><span>{currencyText(totals.tax, currency)}</span></div><div className="flex justify-between border-t pt-3 text-xl font-bold"><span>Gross total</span><span>{currencyText(totals.gross, currency)}</span></div></div>
         {(quote.terms || quote.paymentTerms || quote.payment_terms || quote.notes) && <div className="mt-8 rounded-lg bg-slate-50 p-4"><p className="font-semibold">Terms</p><p className="mt-1 whitespace-pre-wrap text-sm text-slate-600">{typeof quote.terms === "string" ? quote.terms : quote.terms?.text || quote.terms?.paymentTerms || quote.terms?.payment_terms || quote.paymentTerms || quote.payment_terms || ""}{quote.notes ? `\n\n${quote.notes}` : ""}</p></div>}
       </CardContent></Card>}
       {!hasAgreement && <BillingSchedule schedule={billingScheduleOf(quote)} />}

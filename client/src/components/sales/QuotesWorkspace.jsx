@@ -36,6 +36,7 @@ import QuoteVersionDocuments, { uniqueQuoteVersions } from "./QuoteVersionDocume
 import { quotePriceText, quotePriceMinor, quotePriceError } from "./quoteFormValues";
 import { clearOpportunityContacts, opportunityContacts, useQuoteOpportunity } from "./useQuoteOpportunity";
 import { calculateQuoteLine } from "@shared/salesContracts.js";
+import { persistedLineAmounts, persistedQuoteAmounts } from "./quoteDisplayAmounts";
 import { useCatalogueTaxOptions } from "@/pages/sales/useCatalogue";
 import { persistedQuoteLineId, providerTaxOptions, quoteLineIdentityForSaving, quoteLineTaxForSaving, savedLineTaxCode, taxCodeKey, taxCodeLabel } from "@/lib/salesTaxCodes";
 import QuoteBillingSettings from "./QuoteBillingSettings";
@@ -49,6 +50,7 @@ const pick = (value, camel, snake, fallback = "") => value?.[camel] ?? value?.[s
 const nameOf = (value) => value?.name || value?.title || value?.displayName || value?.display_name || [value?.first_name, value?.last_name].filter(Boolean).join(" ") || "";
 const minor = (value) => Math.round(Number(value || 0));
 const money = (value, currency = "GBP") => {
+  if (value == null) return "—";
   try { return new Intl.NumberFormat("en-GB", { style: "currency", currency }).format(minor(value) / 100); }
   catch { return `${currency} ${(minor(value) / 100).toFixed(2)}`; }
 };
@@ -204,7 +206,7 @@ export function QuotesList({ opportunityId = "" }) {
       <Button onClick={() => navigate(`${quotePath(naming, "new")}${opportunityId ? `?opportunityId=${encodeURIComponent(opportunityId)}` : ""}`)}><Plus className="mr-2 h-4 w-4" />Create {naming.singular}</Button>
     </div>
     {query.isLoading ? <Loading /> : query.error ? <Failure error={query.error} retry={query.refetch} /> : !rows.length ? <Card><CardContent className="py-16 text-center"><PackagePlus className="mx-auto h-9 w-9 text-slate-300" /><h3 className="mt-3 font-semibold">No {naming.plural} found</h3><p className="mt-1 text-sm text-slate-500">Create a {naming.singular} from an opportunity to start building your offer.</p></CardContent></Card> :
-      <Card className="overflow-hidden"><div className="overflow-x-auto"><table className="w-full min-w-[760px] text-sm"><thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-4 py-3">{naming.singular}</th><th className="px-4 py-3">Customer / opportunity</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Valid until</th><th className="px-4 py-3 text-right">Total</th></tr></thead><tbody>{rows.map((raw) => { const row = normalizeQuote(raw); return <tr key={idOf(row)} onClick={() => navigate(quotePath(naming, idOf(row)))} className="cursor-pointer border-t hover:bg-blue-50/40"><td className="px-4 py-3"><p className="font-semibold text-slate-900">{row.number || row.quoteNumber || row.quote_number || `Draft ${naming.singular}`}</p><p className="text-xs text-slate-500">Version {row.versionNumber || row.version_number || row.version || 1}</p></td><td className="px-4 py-3"><p>{nameOf(row.organisation_snapshot || row.customer || row.organization) || row.customer_name || "—"}</p><p className="text-xs text-slate-500">{nameOf(row.opportunity) || row.opportunity_name || "—"}</p></td><td className="px-4 py-3">{statusBadge(row.status)}</td><td className="px-4 py-3">{dateText(row.validUntil || row.valid_until)}</td><td className="px-4 py-3 text-right font-semibold">{money(row.grossTotalMinor ?? row.gross_total_minor ?? row.gross_minor ?? row.totalMinor ?? row.total_minor, row.currency)}</td></tr>; })}</tbody></table></div></Card>}
+      <Card className="overflow-hidden"><div className="overflow-x-auto"><table className="w-full min-w-[900px] text-sm"><thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-4 py-3">{naming.singular}</th><th className="px-4 py-3">Customer / opportunity</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Valid until</th><th className="px-4 py-3 text-right">Net</th><th className="px-4 py-3 text-right">Tax/VAT</th><th className="px-4 py-3 text-right">Gross</th></tr></thead><tbody>{rows.map((raw) => { const row = normalizeQuote(raw); const amounts = persistedQuoteAmounts(row); return <tr key={idOf(row)} onClick={() => navigate(quotePath(naming, idOf(row)))} className="cursor-pointer border-t hover:bg-blue-50/40"><td className="px-4 py-3"><p className="font-semibold text-slate-900">{row.number || row.quoteNumber || row.quote_number || `Draft ${naming.singular}`}</p><p className="text-xs text-slate-500">Version {row.versionNumber || row.version_number || row.version || 1}</p></td><td className="px-4 py-3"><p>{nameOf(row.organisation_snapshot || row.customer || row.organization) || row.customer_name || "—"}</p><p className="text-xs text-slate-500">{nameOf(row.opportunity) || row.opportunity_name || "—"}</p></td><td className="px-4 py-3">{statusBadge(row.status)}</td><td className="px-4 py-3">{dateText(row.validUntil || row.valid_until)}</td><td className="px-4 py-3 text-right tabular-nums">{money(amounts.net, row.currency)}</td><td className="px-4 py-3 text-right tabular-nums">{money(amounts.tax, row.currency)}</td><td className="px-4 py-3 text-right font-semibold tabular-nums">{money(amounts.gross, row.currency)}</td></tr>; })}</tbody></table></div></Card>}
     {pages > 1 && <div className="flex items-center justify-between text-sm text-slate-500"><span>{total} {naming.plural} · Page {page} of {pages}</span><div className="flex gap-2"><Button variant="outline" size="icon" disabled={page === 1} onClick={() => setPage(page - 1)}><ChevronLeft className="h-4 w-4" /></Button><Button variant="outline" size="icon" disabled={page === pages} onClick={() => setPage(page + 1)}><ChevronRight className="h-4 w-4" /></Button></div></div>}
   </div>;
 }
@@ -239,19 +241,23 @@ export function LinesEditor({ form, setForm, products, bundles, readOnly, canOve
     patch(index, { [`${type}Id`]: id, eventReference: type === "product" ? source?.eventReference || null : undefined, description: source?.name || "", standardUnitPriceMinor: price, quotedUnitPriceMinor: price, standardUnitPriceMinorInput: undefined, quotedUnitPriceMinorInput: undefined, ...(type === "product" ? { taxRateBps: pick(source, "taxRateBps", "tax_rate_bps", 0), taxCode: source?.taxCode || null, legacyTax: false, taxChanged: false } : {}) });
   };
   const move = (index, direction) => setForm((old) => { const lines = [...old.lines]; [lines[index], lines[index + direction]] = [lines[index + direction], lines[index]]; return { ...old, lines }; });
-  return <Card><CardHeader className="flex-row flex-wrap items-center justify-between gap-2"><div><CardTitle>{singular} lines</CardTitle><p className="mt-1 text-sm text-slate-500">Add catalogue items, bundles or a custom line. Enter prices in {form.currency}, e.g. 40.00.</p></div>{!readOnly && <div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => add("product")}><Plus className="mr-1 h-3.5 w-3.5" />Product</Button><Button size="sm" variant="outline" onClick={() => add("bundle")}><Plus className="mr-1 h-3.5 w-3.5" />Bundle</Button><Button size="sm" variant="outline" onClick={() => add("free_text")}><Plus className="mr-1 h-3.5 w-3.5" />Free text</Button></div>}</CardHeader><CardContent>
+  return <Card><CardHeader className="flex-row flex-wrap items-center justify-between gap-2"><div><CardTitle>{singular} lines</CardTitle><p className="mt-1 text-sm text-slate-500">Add catalogue items, bundles or a custom line. Unit prices are net, before Tax/VAT, in {form.currency}, e.g. 40.00.</p></div>{!readOnly && <div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => add("product")}><Plus className="mr-1 h-3.5 w-3.5" />Product</Button><Button size="sm" variant="outline" onClick={() => add("bundle")}><Plus className="mr-1 h-3.5 w-3.5" />Bundle</Button><Button size="sm" variant="outline" onClick={() => add("free_text")}><Plus className="mr-1 h-3.5 w-3.5" />Free text</Button></div>}</CardHeader><CardContent>
     {!form.lines.length ? <p className="rounded-lg border border-dashed py-10 text-center text-sm text-slate-500">No lines yet.</p> : <div className="space-y-3">{form.lines.map((line, index) => {
-      const totals = lineTotals(line);
+      const totals = readOnly ? persistedLineAmounts(line) : lineTotals(line);
       return <div key={line.key} className="min-w-0 rounded-xl border bg-slate-50/50 p-3">
         {line.type === "product" && <QuoteLineTicketSelect line={line} disabled={readOnly} request={request} onChange={eventReference => patch(index, { eventReference })} />}
         <div className="grid gap-3 [&>div]:min-w-0" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 180px), 1fr))" }}>
           <div><Label>Description / item</Label>{line.type === "product" || line.type === "bundle" ? <Select disabled={readOnly} value={String(line[`${line.type}Id`] || "")} onValueChange={(id) => choose(index, line.type, id)}><SelectTrigger className="bg-white"><SelectValue placeholder={`Choose ${line.type}`} /></SelectTrigger><SelectContent>{(line.type === "product" ? products : bundles).map((item) => <SelectItem key={idOf(item)} value={String(idOf(item))}>{nameOf(item)}</SelectItem>)}</SelectContent></Select> : <Input disabled={readOnly} value={line.description} onChange={(e) => patch(index, { description: e.target.value })} placeholder="Description" />}</div>
           <div><Label>Quantity</Label><Input disabled={readOnly} type="number" min="0" step="0.01" value={line.quantity} onChange={(e) => patch(index, { quantity: e.target.value })} /></div>
-          <div><Label>Standard ({form.currency})</Label><Input aria-label={`Line ${index + 1} standard price`} disabled={readOnly || line.type !== "free_text"} type="text" inputMode="decimal" value={quotePriceText(line, "standardUnitPriceMinor")} onChange={(e) => patch(index, { standardUnitPriceMinorInput: e.target.value, quotedUnitPriceMinorInput: e.target.value })} /></div>
-          <div><Label>Quoted ({form.currency})</Label><Input aria-label={`Line ${index + 1} quoted price`} disabled={readOnly || !canOverride} title={!canOverride ? "You do not have permission to override prices" : ""} type="text" inputMode="decimal" value={quotePriceText(line, "quotedUnitPriceMinor")} onChange={(e) => patch(index, { quotedUnitPriceMinorInput: e.target.value })} /></div>
+          <div><Label>Standard unit net ({form.currency})</Label><Input aria-label={`Line ${index + 1} standard price`} disabled={readOnly || line.type !== "free_text"} type="text" inputMode="decimal" value={quotePriceText(line, "standardUnitPriceMinor")} onChange={(e) => patch(index, { standardUnitPriceMinorInput: e.target.value, quotedUnitPriceMinorInput: e.target.value })} /></div>
+          <div><Label>Quoted unit net ({form.currency})</Label><Input aria-label={`Line ${index + 1} quoted price`} disabled={readOnly || !canOverride} title={!canOverride ? "You do not have permission to override prices" : ""} type="text" inputMode="decimal" value={quotePriceText(line, "quotedUnitPriceMinor")} onChange={(e) => patch(index, { quotedUnitPriceMinorInput: e.target.value })} /></div>
           <div><Label>Discount %</Label><Input disabled={readOnly || !canOverride} title={!canOverride ? "You do not have permission to apply discounts" : ""} type="number" min="0" max="100" step=".01" value={Number(line.discountBps || 0) / 100} onChange={(e) => patch(index, { discountBps: Math.round(Number(e.target.value) * 100) })} /></div>
-          <div><Label>Tax %</Label><Input readOnly aria-label={`Line ${index + 1} tax rate`} value={Number(line.taxRateBps || 0) / 100} /></div>
-          <div className="break-words text-right"><Label>Gross</Label><p className="pt-2 font-semibold">{money(totals.gross, form.currency)}</p><p className="text-[11px] text-slate-500">net {money(totals.net, form.currency)} · tax {money(totals.tax, form.currency)}</p></div>
+          <div><Label>Tax/VAT %</Label><Input readOnly aria-label={`Line ${index + 1} tax rate`} value={Number(line.taxRateBps || 0) / 100} /></div>
+          <dl className="space-y-1 break-words text-sm tabular-nums">
+            <div className="flex justify-between gap-3"><dt>Net</dt><dd>{money(totals.net, form.currency)}</dd></div>
+            <div className="flex justify-between gap-3"><dt>Tax/VAT</dt><dd>{money(totals.tax, form.currency)}</dd></div>
+            <div className="flex justify-between gap-3 border-t pt-1 font-semibold"><dt>Gross</dt><dd>{money(totals.gross, form.currency)}</dd></div>
+          </dl>
           {!readOnly && <div className="flex flex-wrap items-end justify-end gap-1"><Button variant="ghost" size="icon" aria-label={`Move line ${index + 1} up`} disabled={!index} onClick={() => move(index, -1)}><ArrowUp className="h-4 w-4" /></Button><Button variant="ghost" size="icon" aria-label={`Move line ${index + 1} down`} disabled={index === form.lines.length - 1} onClick={() => move(index, 1)}><ArrowDown className="h-4 w-4" /></Button><Button variant="ghost" size="icon" aria-label={`Delete line ${index + 1}`} onClick={() => setForm((old) => ({ ...old, lines: old.lines.filter((_, i) => i !== index) }))}><Trash2 className="h-4 w-4 text-rose-600" /></Button></div>}
         </div>
         {quotePriceError(line) && <p role="alert" className="mt-2 text-sm text-rose-700">{quotePriceError(line)}</p>}
@@ -380,7 +386,7 @@ function QuoteEditor() {
   const contactsLoading = !savedContacts.length && Boolean(form.opportunityId) && opportunity.isPending;
   const contactsError = !savedContacts.length && opportunity.isError;
   const opportunityName = opportunity.data?.name || nameOf(quote.opportunity || quote.opportunity_snapshot) || quote.opportunity_name || "";
-  const totals = useMemo(() => form.lines.reduce((sum, line) => { const values = lineTotals(line); return { net: sum.net + values.net, tax: sum.tax + values.tax, gross: sum.gross + values.gross }; }, { net: 0, tax: 0, gross: 0 }), [form.lines]);
+  const totals = useMemo(() => readOnly ? persistedQuoteAmounts(form) : form.lines.reduce((sum, line) => { const values = lineTotals(line); return { net: sum.net + values.net, tax: sum.tax + values.tax, gross: sum.gross + values.gross }; }, { net: 0, tax: 0, gross: 0 }), [form, readOnly]);
   const invalidPrices = form.lines.some(line => Boolean(quotePriceError(line)));
   const [schedulePreview, setSchedulePreview] = useState(null);
   const payload = () => ({
@@ -396,14 +402,22 @@ function QuoteEditor() {
     expectedVersion: quote.rowVersion,
   });
   const preview = useMutation({
-    mutationFn: () => request(`/api/sales/quotes${isNew ? "" : `/${id}`}?action=preview`, { method: "POST", body: JSON.stringify(payload()) }),
-    onSuccess: (data) => {
+    mutationFn: async () => {
+      const submittedFingerprint = JSON.stringify(form);
+      const data = await request(`/api/sales/quotes${isNew ? "" : `/${id}`}?action=preview`, { method: "POST", body: JSON.stringify(payload()) });
+      return { data, submittedFingerprint };
+    },
+    onSuccess: ({ data, submittedFingerprint }) => {
+      setServerTotalsFingerprint(submittedFingerprint);
       setServerTotals(data?.quote?.totals || data?.totals || data?.preview?.totals || data?.currentVersion?.totals || data);
-      setSchedulePreview({ schedule: billingScheduleOf(data?.preview || data), fingerprint: JSON.stringify(form) });
+      setSchedulePreview({ schedule: billingScheduleOf(data?.preview || data), fingerprint: submittedFingerprint });
     },
     onError: (error) => toast({ title: `Could not recalculate ${naming.singular}`, description: error.message, variant: "destructive" }),
   });
   const [serverTotals, setServerTotals] = useState(null);
+  const [serverTotalsFingerprint, setServerTotalsFingerprint] = useState("");
+  const displayTotals = !readOnly && serverTotals && serverTotalsFingerprint === JSON.stringify(form)
+    ? persistedQuoteAmounts(serverTotals) : totals;
   const isDirty = JSON.stringify(form) !== savedFingerprint;
   const save = useMutation({
     mutationFn: async () => {
@@ -414,6 +428,7 @@ function QuoteEditor() {
     onSuccess: async ({ data, submittedFingerprint }) => {
       const saved = normalizeQuote(data);
       setSavedFingerprint(submittedFingerprint);
+      setServerTotalsFingerprint(submittedFingerprint);
       setServerTotals(data?.totals || data?.currentVersion?.totals || null);
       qc.invalidateQueries({ queryKey: ["sales-quotes"] });
       if (isNew && saved.id) {
@@ -532,7 +547,7 @@ function QuoteEditor() {
         <Card><CardHeader><CardTitle>Agreement terms and signatures</CardTitle><p className="text-sm text-muted-foreground">Review the quote first, add legal terms, then save and issue this version before signing and sending.</p></CardHeader><CardContent className="space-y-5"><AgreementLegalEditor value={form.legalHtml} onChange={value => patch("legalHtml", value)} disabled={readOnly} fields={[{ label: "Customer", value: form.address.addressee }, ...(!form.scheduledBilling ? [{ label: "Payment terms", value: form.paymentTerms }] : []), { label: "Customer reference", value: form.customerReference }]} />{form.legalHtml && <details className="rounded-lg border p-3"><summary className="cursor-pointer text-sm font-semibold">Full agreement preview{isDirty ? " · Unsaved draft" : ""}</summary><div className="mt-4"><AgreementDocument draft={isDirty || isNew} quote={isDirty || isNew ? { ...form, totals: { netMinor: totals.net, taxMinor: totals.tax, grossMinor: totals.gross } } : quote} sender={quote.agreement?.sender} recipient={quote.agreement?.customer || quote.agreement?.contact} /></div></details>}</CardContent></Card>
         {form.scheduledBilling && <BillingSchedule schedule={isDirty ? schedulePreview?.schedule || form.billingSchedule : quote.billingSchedule || schedulePreview?.schedule} pending={isDirty && schedulePreview?.fingerprint !== JSON.stringify(form)} />}
         {form.scheduledBilling && !form.billingSchedule && !schedulePreview?.schedule && <p className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm text-slate-600">Recalculate to preview group contents, exact amounts and relative issue dates before acceptance. The server derives the schedule from this version’s line economics.</p>}
-        <Card><CardContent className="flex flex-col items-end gap-1 p-5 text-sm"><p className="mb-2 w-full text-xs text-slate-500">{serverTotals ? "Server-calculated totals" : "Local estimate — save or recalculate for final server totals"}</p><div className="flex w-full max-w-xs justify-between"><span>Net</span><strong>{money(serverTotals?.netMinor ?? serverTotals?.net_minor ?? serverTotals?.netTotalMinor ?? serverTotals?.net_total_minor ?? totals.net, form.currency)}</strong></div><div className="flex w-full max-w-xs justify-between"><span>Tax</span><strong>{money(serverTotals?.taxMinor ?? serverTotals?.tax_minor ?? serverTotals?.taxTotalMinor ?? serverTotals?.tax_total_minor ?? totals.tax, form.currency)}</strong></div><div className="mt-2 flex w-full max-w-xs justify-between border-t pt-2 text-lg"><span>Gross total</span><strong>{money(serverTotals?.grossMinor ?? serverTotals?.gross_minor ?? serverTotals?.grossTotalMinor ?? serverTotals?.gross_total_minor ?? totals.gross, form.currency)}</strong></div></CardContent></Card>
+        <Card><CardContent className="flex flex-col items-end gap-1 p-5 text-sm"><p className="mb-2 w-full text-xs text-slate-500">{readOnly ? "Saved proposal totals" : displayTotals !== totals ? "Server-calculated totals" : "Local estimate — save or recalculate for final server totals"}</p><div className="flex w-full max-w-xs justify-between"><span>Net</span><strong>{money(displayTotals.net, form.currency)}</strong></div><div className="flex w-full max-w-xs justify-between"><span>Tax/VAT</span><strong>{money(displayTotals.tax, form.currency)}</strong></div><div className="mt-2 flex w-full max-w-xs justify-between border-t pt-2 text-lg"><span>Gross total</span><strong>{money(displayTotals.gross, form.currency)}</strong></div></CardContent></Card>
       </TabsContent>
       {!isNew && <TabsContent value="delivery"><DeliveryHistory quoteId={id} /></TabsContent>}
       {!isNew && <TabsContent value="history" className="space-y-4"><QuoteVersionDocuments versions={uniqueQuoteVersions(detail.data?.versions || [])} currentVersion={quote.versionNumber || quote.version_number || quote.version} onPdf={pdf.mutate} pending={pdf.isPending} dirty={isDirty} /><HistoryPanel quoteId={id} version={quote.versionNumber || quote.version_number || quote.version} versions={detail.data?.versions || []} /></TabsContent>}

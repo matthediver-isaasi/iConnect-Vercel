@@ -77,14 +77,24 @@ export function buildSalesQuotePdf({ quote, version, tenant }) {
   text([addr.addressee, addr.line1, addr.line2, addr.city, addr.region, addr.postalCode || addr.postcode || addr.postal_code, addr.country].filter(Boolean).join(', '));
   y += 5;
   doc.setFont('helvetica', 'bold'); text('Description', margin);
-  doc.text('Qty', 120, y - 5); doc.text('Net', 145, y - 5); doc.text('Gross', 175, y - 5);
+  doc.text('Qty', 105, y - 5, { align: 'right' });
+  doc.text('Net', 135, y - 5, { align: 'right' });
+  doc.text('Tax/VAT', 163, y - 5, { align: 'right' });
+  doc.text('Gross', 192, y - 5, { align: 'right' });
   doc.setFont('helvetica', 'normal');
   for (const line of version.sales_quote_line || []) {
     page(18);
-    const lineY = y; text(line.description, margin, { width: 95 });
-    doc.text(safe(line.quantity), 120, lineY);
-    doc.text(safe(money(line.net_minor, version.currency)), 145, lineY);
-    doc.text(safe(money(line.gross_minor, version.currency)), 175, lineY);
+    const lineY = y; text(line.description, margin, { width: 78 });
+    doc.text(safe(line.quantity), 105, lineY, { align: 'right' });
+    doc.text(safe(money(line.net_minor, version.currency)), 135, lineY, { align: 'right' });
+    doc.text(safe(money(line.tax_minor, version.currency)), 163, lineY, { align: 'right' });
+    doc.text(safe(money(line.gross_minor, version.currency)), 192, lineY, { align: 'right' });
+    const taxName = line.catalogue_snapshot?.tax_code?.name;
+    if (taxName) {
+      doc.setFontSize(8);
+      text(`Tax/VAT: ${taxName}`, margin, { width: 78, leading: 4 });
+      doc.setFontSize(10);
+    }
     for (const component of line.sales_quote_bundle_component || []) {
       text(`  - ${component.product_snapshot?.name || 'Bundle item'} x ${component.quantity}`, margin + 3, { width: 90, leading: 4 });
     }
@@ -92,8 +102,8 @@ export function buildSalesQuotePdf({ quote, version, tenant }) {
   }
   page(25); y += 4; doc.setFont('helvetica', 'bold');
   text(`Net: ${money(version.net_minor, version.currency)}`, 125);
-  text(`Tax: ${money(version.tax_minor, version.currency)}`, 125);
-  doc.setFontSize(13); text(`Total: ${money(version.gross_minor, version.currency)}`, 125);
+  text(`Tax/VAT: ${money(version.tax_minor, version.currency)}`, 125);
+  doc.setFontSize(13); text(`Gross total: ${money(version.gross_minor, version.currency)}`, 125);
   doc.setFontSize(10);
   const terms = version.terms_snapshot?.text || version.payment_terms;
   if (version.billing_schedule) {

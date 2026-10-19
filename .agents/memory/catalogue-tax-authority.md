@@ -20,6 +20,15 @@ Do not reintroduce a quote-level Tax Treatment selector.
 
 **How to apply:** Keep catalogue VAT authoritative while preserving historical quote metadata on unrelated saves.
 
+Sales proposals should show Net values, the Tax/VAT amount required by each
+item's VAT coding, and Gross totals.
+
+**Why:** The user explicitly requested this breakdown rather than ambiguous totals.
+
+**How to apply:** Keep the breakdown consistent across internal and customer-facing
+views and PDFs. Issued proposals display their saved amounts, not recalculated
+amounts from current catalogue prices or tax rates.
+
 VAT dropdown labels show the provider's natural-language name only, not internal codes. Sales accounting settings supply an optional default for new products, with per-product overrides.
 
 **Why:** The user found combined names/internal codes confusing and requested pre-populated VAT for new products.
