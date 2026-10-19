@@ -13,3 +13,12 @@ Temporary failures must not override later successful delivery. Require the matc
 **Why:** Historical events can be imported out of order. A temporary timeout arrived in storage after successful delivery and incorrectly won the old status-priority rule.
 
 **How to apply:** Compare provider event times, retain original history, distinguish retry exhaustion from an invalid address, and treat clicks/opens as tracking evidence rather than proof of delivery or human reading.
+
+The Hard-bounced addresses report must allow addresses to be hidden, found through
+a Hidden filter, and unhidden.
+
+**Why:** The user reiterated that this was an expected feature.
+
+**How to apply:** Treat hiding as report visibility, separate from bounce
+resolution. Hiding or unhiding must not resume email delivery, change consent,
+remove provider suppression or delete bounce evidence.
