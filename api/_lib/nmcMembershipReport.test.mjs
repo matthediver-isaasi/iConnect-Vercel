@@ -61,8 +61,8 @@ test('live first-payment waits are separate from review and never exported; paym
       assert.equal(pending.total, 0);
       assert.ok(pending.sheets.every(s => s.count === 0));
       const wb = XLSX.read(nmcMembershipWorkbook(pending), { type: 'buffer' });
-      assert.equal(wb.Sheets[NMC_SHEETS[0]]['!ref'], 'A1:J1');
-      assert.equal(wb.Sheets['Online-only']['!ref'], 'A1:D1');
+      assert.equal(wb.Sheets[NMC_SHEETS[0]]['!ref'], 'A1:K1');
+      assert.equal(wb.Sheets['Online-only']['!ref'], 'A1:E1');
       const paid = { ...input,
         plans: [{ ...input.plans[0], status: 'active', instalments_paid: 1, last_payment_status: 'confirmed' }],
         agreements: [{ ...input.agreements[0], status: 'active' }],
@@ -251,11 +251,77 @@ test('two recipient sheets use exact reduced headers and literal text; class cou
     assert.equal(sheet[cell].t, 's'); assert.equal(sheet[cell].f, undefined);
   }
   assert.equal(sheet.H2.v, '00120');
-  assert.equal(sheet.E2.v, ''); assert.equal(sheet.K2, undefined);
+  assert.equal(sheet.E2.v, ''); assert.equal(sheet.K2.v, ''); assert.equal(sheet.L2, undefined);
   assert.equal(wb.Sheets['Class counts'].B5.v, 1);
   const empty = XLSX.read(nmcMembershipWorkbook(report({ members: [] })), { type: 'buffer' });
-  assert.equal(empty.Sheets[NMC_SHEETS[0]]['!ref'], 'A1:J1');
-  assert.equal(empty.Sheets['Online-only']['!ref'], 'A1:D1');
+  assert.equal(empty.Sheets[NMC_SHEETS[0]]['!ref'], 'A1:K1');
+  assert.equal(empty.Sheets['Online-only']['!ref'], 'A1:E1');
+  assert.equal(empty.Sheets[NMC_SHEETS[0]].K1.v, 'NMC Customer Number');
+  assert.equal(empty.Sheets['Online-only'].E1.v, 'NMC Customer Number');
+});
+
+test('customer numbers append to both recipient sheets as literal text without changing existing report data', () => {
+  const numbers = ['0000123', '=1+1', '+00123', '-00123', '@SUM(A1:A2)', ' \t=HYPERLINK("https://example.invalid")', null, undefined];
+  const members = NMC_SHEETS.flatMap((sheet, group) => numbers.map((_, index) => ({
+    ...member, id: `g${group}-${index}`, last_name: `Recipient ${numbers.length - index}`, group,
+  })));
+  const input = {
+    members,
+    history: members.map(m => ({ ...term, id: `h-${m.id}`, member_id: m.id })),
+    preferences: members.flatMap(m => [
+      pref('member_class', m.group === 0 ? 'Full with NMC' : 'Full', m.id),
+      pref('title', 'Dr', m.id), pref('nmc_address_zip', '00120', m.id),
+    ]),
+  };
+  const baseline = report(input);
+  const result = report({ ...input, preferences: [...input.preferences, ...members.flatMap(m => {
+    const number = numbers[Number(m.id.split('-')[1])];
+    return number === undefined ? [] : [pref('nmc_customer_number', number, m.id)];
+  })] });
+  assert.deepEqual({ ...result, rows: result.rows.map(row => ({ ...row, cells: [...row.cells.slice(0, 16), ''] })) }, baseline,
+    'sorting, eligibility, routing, counts, diagnostics and all existing cells remain unchanged');
+  const wb = XLSX.read(nmcMembershipWorkbook(result), { type: 'buffer', cellNF: true, cellStyles: true });
+  const before = XLSX.read(nmcMembershipWorkbook(baseline), { type: 'buffer', cellNF: true, cellStyles: true });
+  assert.deepEqual(wb.SheetNames, ['Full and Full Junior', 'Online-only', 'Class counts']);
+  assert.deepEqual(wb.Sheets['Class counts'], before.Sheets['Class counts']);
+  const expectedHeaders = [
+    ['Title', 'First name', 'Last name', 'NMC address line 1', 'NMC address line 2', 'NMC address line 3',
+      'NMC address city', 'NMC address post/zip code', 'NMC address country', 'Email address', 'NMC Customer Number'],
+    ['Title', 'First name', 'Last name', 'Email address', 'NMC Customer Number'],
+  ];
+  NMC_SHEETS.forEach((name, group) => {
+    const sheet = wb.Sheets[name], grid = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+    assert.deepEqual(grid[0], expectedHeaders[group]);
+    assert.equal(grid.length, numbers.length + 1);
+    const lastColumn = expectedHeaders[group].length - 1;
+    assert.ok(sheet['!cols'][lastColumn].wch >= 20);
+    assert.equal(sheet['!autofilter'].ref, sheet['!ref']);
+    result.rows.filter(row => row.sheet === name).forEach((row, index) => {
+      const expected = numbers[Number(row.memberId.split('-')[1])] ?? '';
+      assert.equal(row.cells[16], expected);
+      const address = XLSX.utils.encode_cell({ r: index + 1, c: lastColumn });
+      const cell = sheet[address];
+      assert.equal(cell.v, expected); assert.equal(cell.t, 's'); assert.equal(cell.z, '@');
+      assert.equal(cell.f, undefined); assert.equal(cell.l, undefined);
+      for (let c = 0; c < lastColumn; c++) {
+        const original = XLSX.utils.encode_cell({ r: index + 1, c });
+        assert.deepEqual(sheet[original], before.Sheets[name][original]);
+      }
+    });
+  });
+});
+
+test('customer-number definitions retain unique active member authority and duplicate values stay review-only', () => {
+  const definition = fields.find(f => f.name === 'nmc_customer_number');
+  const otherFields = fields.filter(f => f !== definition);
+  for (const definitions of [
+    [], [{ ...definition, tenant_id: 'foreign' }], [{ ...definition, entity_scope: 'organization' }],
+    [{ ...definition, is_active: false }], [definition, { ...definition, id: 'second-definition' }],
+  ]) assert.throws(() => report({ fields: [...otherFields, ...definitions] }), /Required report field is missing or ambiguous/);
+  const result = report({ preferences: [...fixture().preferences,
+    pref('nmc_customer_number', '0001'), { ...pref('nmc_customer_number', '0001'), id: 'duplicate' }] });
+  assert.equal(result.total, 0);
+  assert.deepEqual(result.reviewCounts, { duplicate_custom_values: 1 });
 });
 
 test('class labels and tenant-scoped RBAC role names are literal text and do not affect eligibility', () => {
@@ -266,7 +332,7 @@ test('class labels and tenant-scoped RBAC role names are literal text and do not
   });
   assert.equal(result.total, 1);
   assert.equal(result.rows[0].sheet, NMC_SHEETS[0]);
-  assert.deepEqual(result.rows[0].cells.slice(14), ['Full membership with journal', '=Super Admin']);
+  assert.deepEqual(result.rows[0].cells.slice(14, 16), ['Full membership with journal', '=Super Admin']);
   const sheet = XLSX.read(nmcMembershipWorkbook(result), { type: 'buffer' }).Sheets[NMC_SHEETS[0]];
   assert.equal(sheet.O2, undefined);
   assert.equal(sheet.P2, undefined);
@@ -303,20 +369,88 @@ function fakeDatabase(tables, { cap = 317, failTable, calls = [] } = {}) {
 }
 test('full loader/export passes 1000-row limit and smaller provider caps, with unique rows and scoped preferences', async () => {
   const members = Array.from({ length: 1207 }, (_, i) => ({ ...member, role_id: 'report-role', id: `m${String(i).padStart(5, '0')}` }));
+  const customerField = fields.find(f => f.name === 'nmc_customer_number');
+  const customerFieldId = 'customer-definition-id';
+  const calls = [];
   const db = fakeDatabase({
-    member: [...members, { ...member, id: 'foreign', tenant_id: 'foreign' }], preference_field: fields,
+    member: [...members, { ...member, id: 'foreign', tenant_id: 'foreign' }],
+    preference_field: [...fields.map(f => f === customerField ? { ...f, id: customerFieldId } : f),
+      { ...customerField, id: 'foreign-field', tenant_id: 'foreign' },
+      { ...customerField, id: 'org-field', entity_scope: 'organization' },
+      { ...customerField, id: 'inactive-field', is_active: false },
+      { ...customerField, id: 'unrelated-field', name: 'unrelated' }],
     member_membership_history: members.map(m => ({ ...term, id: `h-${m.id}`, member_id: m.id })),
     organization: fixture().organizations,
     role: [{ id: 'report-role', tenant_id, name: 'Super Admin' }, { id: 'foreign-role', tenant_id: 'foreign', name: 'Other tenant' }],
-    member_preference_value: members.flatMap(m => [pref('member_class', 'Full', m.id), pref('nmc_address_zip', '00001', m.id)]),
-  });
+    member_preference_value: [
+      ...members.flatMap((m, i) => [pref('member_class', i % 2 ? 'Full' : 'Full with NMC', m.id),
+        pref('nmc_address_zip', '00001', m.id),
+        ...(i % 3 ? [pref(customerFieldId, `00${i}`, m.id)] : []),
+        ...['foreign-field', 'org-field', 'inactive-field', 'unrelated-field'].map(f => pref(f, 'wrong value', m.id))]),
+      pref(customerFieldId, 'foreign member value', 'foreign'),
+    ],
+  }, { cap: 73, calls });
   const result = await loadNmcReport(db, '2026-10-07');
   assert.equal(result.total, 1207); assert.equal(new Set(result.rows.map(r => r.memberId)).size, 1207);
-  assert.ok(result.rows.every(r => r.cells[14] === 'Full' && r.cells[15] === 'Super Admin'));
+  result.rows.forEach(row => {
+    const index = Number(row.memberId.slice(1));
+    assert.equal(row.cells[14], index % 2 ? 'Full' : 'Full with NMC');
+    assert.equal(row.cells[15], 'Super Admin');
+    assert.equal(row.cells[16], index % 3 ? `00${index}` : '');
+  });
+  assert.ok(calls.filter(table => table === 'member_preference_value').length > 39, 'preferences span multiple pages within member batches');
   const wb = XLSX.read(nmcMembershipWorkbook(result), { type: 'buffer' });
-  assert.equal(XLSX.utils.sheet_to_json(wb.Sheets['Online-only']).length, 1207);
+  assert.equal(XLSX.utils.sheet_to_json(wb.Sheets['Online-only']).length, 603);
+  assert.equal(XLSX.utils.sheet_to_json(wb.Sheets[NMC_SHEETS[0]]).length, 604);
+  for (const name of NMC_SHEETS) {
+    const grid = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: '' });
+    assert.deepEqual(grid.slice(1).map(row => row.at(-1)), result.rows.filter(row => row.sheet === name).map(row => row.cells[16]));
+  }
   await assert.rejects(loadNmcReport(fakeDatabase({}, { failTable: 'member' }), '2026-10-07'));
   await assert.rejects(nmcReadAll(() => ({ order() { return this; }, limit() { return Promise.resolve({ data: [], count: 1 }); } })));
+});
+
+test('customer-number loading fails closed on read errors and out-of-scope values', async () => {
+  const tables = { member: [member], preference_field: fields, organization: fixture().organizations,
+    member_membership_history: [term],
+    member_preference_value: [...fixture().preferences, pref('nmc_customer_number', '000123')] };
+  for (const failTable of ['preference_field', 'member_preference_value']) {
+    await assert.rejects(loadNmcReport(fakeDatabase(tables, { failTable }), '2026-10-07'),
+      /Report data could not be loaded completely/);
+  }
+  for (const patch of [{ member_id: 'foreign-member' }, { field_id: 'foreign-field' }]) {
+    const db = fakeDatabase(tables);
+    const from = db.from;
+    db.from = table => {
+      const query = from(table);
+      if (table === 'member_preference_value') {
+        const then = query.then;
+        query.then = (resolve, reject) => then(result => resolve({ ...result, data: result.data.map(row =>
+          row.field_id === 'nmc_customer_number' ? { ...row, ...patch } : row) }), reject);
+      }
+      return query;
+    };
+    await assert.rejects(loadNmcReport(db, '2026-10-07'), /Preference ownership mismatch/);
+  }
+  const duplicate = await loadNmcReport(fakeDatabase({ ...tables, member_preference_value: [
+    ...tables.member_preference_value, { ...pref('nmc_customer_number', '000123'), id: 'second-value' },
+  ] }, { cap: 1 }), '2026-10-07');
+  assert.equal(duplicate.total, 0);
+  assert.deepEqual(duplicate.reviewCounts, { duplicate_custom_values: 1 });
+});
+
+test('complete-read safeguards reject changing totals, repeated keys and truncated pages', async () => {
+  for (const pages of [
+    [{ data: [{ id: 'a' }], count: 2 }, { data: [{ id: 'b' }], count: 2 }],
+    [{ data: [{ id: 'a' }], count: 2 }, { data: [{ id: 'a' }], count: 1 }],
+    [{ data: [{ id: 'a' }], count: 2 }, { data: [], count: 1 }],
+  ]) {
+    let page = 0;
+    await assert.rejects(nmcReadAll(() => ({
+      order() { return this; }, limit() { return this; }, gt() { return this; },
+      then(resolve) { return Promise.resolve(pages[page++]).then(resolve); },
+    })), /Report data changed|Report pagination ambiguous|Report pagination incomplete/);
+  }
 });
 
 function response() {

@@ -2,8 +2,8 @@ import * as XLSX from 'xlsx';
 import { NMC_HEADERS, NMC_SHEETS } from './nmcMembershipReport.js';
 
 export const NMC_EXPORT_COLUMNS = {
-  'Full and Full Junior': [0, 1, 2, 4, 5, 6, 7, 8, 9, 10],
-  'Online-only': [0, 1, 2, 10],
+  'Full and Full Junior': [0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 16],
+  'Online-only': [0, 1, 2, 10, 16],
 };
 
 export function nmcMembershipWorkbook(report) {

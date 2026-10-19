@@ -13,8 +13,8 @@ export const NMC_TENANT = 'ff2df806-b321-4254-b651-3af11fccf1db';
 export const NMC_FEATURE = 'membership.nmc-membership-report';
 export const NMC_SHEETS = ['Full and Full Junior', 'Online-only'];
 export const NMC_ADDRESS_FIELDS = ['nmc_address_line_1', 'nmc_address_line_2', 'nmc_address_line_3', 'nmc_address_city', 'nmc_address_zip', 'nmc_address_country'];
-export const NMC_FIELDS = ['member_class', 'membership_status', 'ym_date_membership_expires', 'title', ...NMC_ADDRESS_FIELDS];
-export const NMC_HEADERS = ['Title', 'First name', 'Last name', 'Organisation', 'NMC address line 1', 'NMC address line 2', 'NMC address line 3', 'NMC address city', 'NMC address post/zip code', 'NMC address country', 'Email address', 'Phone number', 'Membership status', 'Number of months expired', 'Member Class', 'RBAC Role'];
+export const NMC_FIELDS = ['member_class', 'membership_status', 'ym_date_membership_expires', 'title', ...NMC_ADDRESS_FIELDS, 'nmc_customer_number'];
+export const NMC_HEADERS = ['Title', 'First name', 'Last name', 'Organisation', 'NMC address line 1', 'NMC address line 2', 'NMC address line 3', 'NMC address city', 'NMC address post/zip code', 'NMC address country', 'Email address', 'Phone number', 'Membership status', 'Number of months expired', 'Member Class', 'RBAC Role', 'NMC Customer Number'];
 const text = value => value == null ? '' : String(value);
 export function nmcDate(value) {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
@@ -258,6 +258,7 @@ export function projectNmcReport({ members, fields, preferences, history, organi
       text(member.email), text(member.mobile || member.landline), evidence.status, evidence.months,
       classLabels.get(klass) || klass,
       member.role_id ? (roleNames.get(member.role_id) || 'Role unavailable') : 'No role assigned',
+      value('nmc_customer_number'),
     ] });
   }
   rows.sort((a, b) => a.cells[2].localeCompare(b.cells[2], 'en-GB')

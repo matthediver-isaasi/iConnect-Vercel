@@ -28,7 +28,13 @@ BNMS NMC fulfilment is classified by the member-scoped `member_class`, never rol
 
 **Why:** The owner found the “with NMC” naming rule too rigid and requested independent persisted class choices for each delivery group.
 
-**How to apply:** Keep membership evidence and tenant-staff exclusions independent of journal routing. Default printed choices retain the Full/Full junior and overseas equivalents; other classes require explicit print selection. The owner removed Associate/Honorary/Retired and Trainee/LMIC print sheets. Export only delivery-required columns, with online-only restricted to title, first name, last name and email.
+**How to apply:** Keep membership evidence and tenant-staff exclusions independent of journal routing. Default printed choices retain the Full/Full junior and overseas equivalents; other classes require explicit print selection. The owner removed Associate/Honorary/Retired and Trainee/LMIC print sheets. Export only delivery-required columns.
+
+Customer numbers are fulfilment identifiers, not membership evidence. Missing member values must not exclude otherwise eligible recipients or be replaced with other identifiers. Keep customer numbers off the on-screen report.
+
+**Why:** The owner requested existing NMC customer numbers in both recipient downloads only, with no import, backfill or eligibility changes.
+
+**How to apply:** Preserve the delivery-only export scope; the online-only download may include the customer number alongside title, first name, last name and email.
 
 Normal new monthly first-collection waits should be distinguished from
 membership evidence problems inside Review before fulfilment, not a separate
