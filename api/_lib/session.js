@@ -873,12 +873,14 @@ async function readSessionMember(req, existingSession) {
   }
 }
 
-export async function getSessionTenantUser(req) {
-  return boundedSessionLookup(() => readSessionTenantUser(req));
+export async function getSessionTenantUser(req, existingSession = SESSION_NOT_PROVIDED) {
+  return boundedSessionLookup(() => readSessionTenantUser(req, existingSession));
 }
 
-async function readSessionTenantUser(req) {
-  const session = await getSession(req);
+async function readSessionTenantUser(req, existingSession) {
+  const session = existingSession === SESSION_NOT_PROVIDED
+    ? await getSession(req)
+    : existingSession;
   
   console.log('[Session] getSessionTenantUser called, session data:', JSON.stringify({
     hasSession: !!session,

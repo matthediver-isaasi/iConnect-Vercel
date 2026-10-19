@@ -44,9 +44,16 @@ source = source.replace(/from '([^']+)'/g, (_, path) => {
     : path === 'crypto' ? 'node:crypto' : `file://${require.resolve(path)}`;
   return `from '${url}'`;
 });
-const { getSession, getSessionMember } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+const { getSession, getSessionMember, getSessionTenantUser } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 delete globalThis.__sessionContinuityDb;
 const req = { headers: { cookie: 'iconnect.sid=fixture-only' } };
+
+test('tenant-user lookup accepts an explicitly checked absent session without reading again', async () => {
+  failure = 'session';
+  assert.equal(await getSessionTenantUser(req, null), null);
+  await assert.rejects(getSessionTenantUser(req), { code: 'SESSION_UNAVAILABLE' });
+  failure = undefined;
+});
 
 test('session/member/fence outages deny without deleting the session; valid state recovers', async () => {
   for (const table of ['session', 'member', 'member_login_session_revocation']) {

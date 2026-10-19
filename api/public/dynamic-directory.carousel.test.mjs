@@ -199,6 +199,12 @@ test('filtered carousel reads only matching organisation rows, including capped 
   assert.equal(result.statusCode, 200);
   assert.equal(result.payload.total, 13);
   assert.equal(readRows, 26, 'two safety passes, each reading only the 13 matches');
+  const timings = result.headers['Server-Timing'];
+  for (const name of ['carousel_context', 'carousel_access', 'carousel_inventory', 'carousel_snapshot', 'carousel_total']) {
+    assert.match(timings, new RegExp(`${name};dur=\\d+\\.\\d`));
+  }
+  assert.ok(timings.split(', ').every(value => /^carousel_[a-z]+;dur=\d+\.\d$/.test(value)),
+    'timings expose only fixed metric names and durations');
 });
 
 test('different seeds produce different global orders for large inventories', () => {

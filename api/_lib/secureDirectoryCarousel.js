@@ -49,9 +49,21 @@ export async function renderSecureDirectoryCarousel({
     || /\/embed(?:\/|[?#]|$)/i.test(String(req.headers?.referer || req.headers?.referrer || ''));
   const snapshotReaders = new WeakMap();
   let organizationSource = source === 'primary-organization';
+  const timings = new Map();
+  const started = performance.now();
+  const timed = async (name, run) => {
+    const start = performance.now();
+    try { return await run(); }
+    finally {
+      timings.set(name, (timings.get(name) || 0) + performance.now() - start);
+      // Durations only: no identities, policy contents or database values.
+      res.setHeader?.('Server-Timing', [...timings, ['carousel_total', performance.now() - started]]
+        .map(([key, duration]) => `${key};dur=${duration.toFixed(1)}`).join(', '));
+    }
+  };
 
   async function authority() {
-    const context = await resolveTenantContext(req);
+    const context = await timed('carousel_context', () => resolveTenantContext(req));
     if (context?.tenantMismatch || ((context?.tenantId || context?.tenantFromHost?.id)
       && (context.tenantId || context.tenantFromHost.id) !== tenantId)) {
       return { error: 'Tenant context mismatch', status: 409 };
@@ -69,9 +81,9 @@ export async function renderSecureDirectoryCarousel({
       discovered = data[0];
       organizationSource = discovered.entity_type === 'organization';
     }
-    const snapshot = !organizationSource ? null : await loadOrganizationCarouselSnapshot(db, {
+    const snapshot = !organizationSource ? null : await timed('carousel_snapshot', () => loadOrganizationCarouselSnapshot(db, {
       tenantId, source, directoryId, slug: selectedSlug,
-    });
+    }));
     const reader = snapshot?.db || db;
     let directory;
     if (source === 'dynamic') {
@@ -105,10 +117,10 @@ export async function renderSecureDirectoryCarousel({
         error: embedded ? 'Embed access denied' : 'Authentication required', status: embedded ? 403 : 401,
       };
     } else {
-      const access = await h.resolveCarouselAuthority({
+      const access = await timed('carousel_access', () => h.resolveCarouselAuthority({
         context, tenantId, allowedRoleIds: policy.ids, db, featureCheck, exclusionsResolver,
         feature: directory.entity_type === 'member' ? 'membership.member-directory' : 'membership.organisation-directory',
-      });
+      }));
       if (!access.allowed) return { error: 'Directory access denied', status: 403 };
     }
     let settings;
@@ -198,7 +210,7 @@ export async function renderSecureDirectoryCarousel({
   if (initial.error) return res.status(initial.status).json({ error: initial.error });
   let records;
   try {
-    records = await inventory(initial);
+    records = await timed('carousel_inventory', () => inventory(initial));
   } catch (error) {
     const latest = await authority();
     if (latest.error) return res.status(latest.status).json({ error: latest.error });
@@ -212,7 +224,7 @@ export async function renderSecureDirectoryCarousel({
   if (fingerprint(initial) !== fingerprint(refreshed)) {
     return res.status(409).json({ error: 'Directory authority changed; retry' });
   }
-  const current = await inventory(refreshed);
+  const current = await timed('carousel_inventory', () => inventory(refreshed));
   const final = await authority();
   if (final.error) return res.status(final.status).json({ error: final.error });
   if (fingerprint(initial) !== fingerprint(refreshed)

@@ -239,7 +239,7 @@ export function getEntityTenantScope(entity) {
  * @param {Request} req - Express/Vercel request object
  * @returns {Promise<{tenantId: string|null, organizationId: string|null, memberId: string|null, isAuthenticated: boolean, isSuperAdmin: boolean, tenantFromHost: object|null}>}
  */
-export async function getTenantContext(req) {
+export async function getTenantContext(req, { reuseSessionWithinPass = false } = {}) {
   // Try hostname-based tenant resolution for public access
   let tenantFromHost = null;
   try {
@@ -261,8 +261,9 @@ export async function getTenantContext(req) {
   //   - Bearer / mobile sessions  (authMethod === 'bearer')
   //   - No intended tenant can be determined (public host with no header)
   // -------------------------------------------------------------------------
+  let rawSession;
   try {
-    const rawSession = await getSession(req);
+    rawSession = await getSession(req);
     if (rawSession?.data && rawSession.data.authMethod !== 'bearer') {
       const sessionTenantId = rawSession.data.tenantId || null;
 
@@ -294,7 +295,11 @@ export async function getTenantContext(req) {
 
   // Check for tenant_user session first (admin dashboard users)
   console.log('[TenantContext] About to call getSessionTenantUser');
-  const tenantUser = await getSessionTenantUser(req);
+  // Carousel authority invokes this function afresh for each pass. Reuse only
+  // the session already checked in THIS invocation, never across passes or requests.
+  const tenantUser = reuseSessionWithinPass && rawSession !== undefined
+    ? await getSessionTenantUser(req, rawSession)
+    : await getSessionTenantUser(req);
   console.log('[TenantContext] getSessionTenantUser returned:', tenantUser ? 'tenant_user found' : 'null');
   if (tenantUser) {
     // Tenant users may also have an associated member identity (for portal access)
@@ -304,7 +309,9 @@ export async function getTenantContext(req) {
     let associatedRoleId = null;
     
     // Try to get member from session if available (tenant owner accessing portal)
-    const member = await getSessionMember(req);
+    const member = reuseSessionWithinPass && rawSession !== undefined
+      ? await getSessionMember(req, rawSession)
+      : await getSessionMember(req);
     if (member) {
       associatedMemberId = member.id;
       associatedOrganizationId = member.organization_id;
@@ -328,7 +335,9 @@ export async function getTenantContext(req) {
   
   // Check for member session (portal users)
   console.log('[TenantContext] Checking for member session...');
-  const member = await getSessionMember(req);
+  const member = reuseSessionWithinPass && rawSession !== undefined
+    ? await getSessionMember(req, rawSession)
+    : await getSessionMember(req);
   
   if (!member) {
     console.log('[TenantContext] No member found, returning unauthenticated context');

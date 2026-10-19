@@ -137,7 +137,8 @@ export async function dynamicDirectoryHandler(req, res, dependencies = {}) {
         page,
         limit,
         seed,
-        resolveTenantContext: dependencies.getTenantContext || getTenantContext,
+        resolveTenantContext: dependencies.getTenantContext
+          || (request => getTenantContext(request, { reuseSessionWithinPass: true })),
         featureCheck: dependencies.hasFeatureAccess || hasFeatureAccess,
         exclusionsResolver: dependencies.resolveMemberExclusions || resolveMemberExclusions,
         helpers: {

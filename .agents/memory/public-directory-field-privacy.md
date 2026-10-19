@@ -58,3 +58,13 @@ by repeated remote metadata reads. Full-handler timing exposed the real delay.
 **How to apply:** Keep raw snapshot inputs service-role-only and never include
 them in public responses. Preserve fresh tenant/role checks and comparisons
 between snapshots; measure complete responses and compare their contents.
+
+Include real session resolution when assessing authenticated carousel latency.
+An injected tenant context measures data work, not the complete authenticated request.
+
+**Why:** A successful data-handler benchmark missed repeated session/fence reads;
+the user's subsequent browser evidence showed a 12.90-second server wait.
+
+**How to apply:** Share a checked session only within one authority pass, never
+between passes or requests. Retain fresh revocation checks and use response
+phase timings before claiming the deployed authenticated delay is resolved.
