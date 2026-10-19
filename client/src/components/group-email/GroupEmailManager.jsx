@@ -7,6 +7,9 @@ import { dispatchCampaignSendFeedback } from "@/lib/campaignSendFeedback";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import CampaignDeliverySummary from "@/components/communications/CampaignDeliverySummary";
+import RecipientDeliveryStatus from "@/components/communications/RecipientDeliveryStatus";
+import { isExcludedCampaignRecipient } from "../../../../shared/campaignDeliverySummary.js";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -749,6 +752,7 @@ export default function GroupEmailManager({ group, heading = "Email campaigns", 
                 <TableCell>
                   <div className="flex flex-col gap-1">
                     <Badge variant={STATUS_VARIANTS[c.status] || "outline"}>{c.status}</Badge>
+                    <CampaignDeliverySummary summary={c.delivery_summary} onInspect={() => setStatsCampaign(c)} />
                     {c.status === "failed" && c.preparation?.phase === "failed" && (
                       <span className="text-xs text-destructive whitespace-normal break-words max-w-[320px]" data-testid={`text-member-preparation-error-${c.id}`}>
                         Audience preparation failed: {c.preparation.last_error || "No further details available."}
@@ -762,7 +766,7 @@ export default function GroupEmailManager({ group, heading = "Email campaigns", 
                     )}
                   </div>
                 </TableCell>
-                <TableCell className="text-right">{c.sent_count || 0}/{c.total_recipients || 0}</TableCell>
+                <TableCell className="text-right">{c.delivery_summary?.sent ?? c.sent_count ?? 0}</TableCell>
                 <TableCell className="text-right">{c.opened_count || 0}</TableCell>
                 <TableCell className="text-right">{c.clicked_count || 0}</TableCell>
                 <TableCell className="text-right">{c.bounced_count || 0}</TableCell>
@@ -1052,7 +1056,7 @@ function StatsDialog({ campaign, onClose }) {
 
   const filteredRecipients = useMemo(() => {
     return recipients.filter((r) => {
-      if (filter !== "all" && r.status !== filter) return false;
+      if (filter === "excluded" ? !isExcludedCampaignRecipient(r) : filter !== "all" && r.status !== filter) return false;
       if (search.trim() && !(r.email || "").toLowerCase().includes(search.trim().toLowerCase())) return false;
       return true;
     });
@@ -1073,6 +1077,10 @@ function StatsDialog({ campaign, onClose }) {
             {[
               ["Recipients", stats.total ?? campaign?.total_recipients ?? 0],
               ["Sent", stats.sent ?? campaign?.sent_count ?? 0],
+              ["Excluded", stats.excluded ?? 'Unavailable'],
+              ["Failed", stats.failed ?? 'Unavailable'],
+              ["Awaiting reconciliation", stats.processing ?? 'Unavailable'],
+              ["Queued", stats.queued ?? 'Unavailable'],
               ["Delivered", stats.delivered ?? campaign?.delivered_count ?? 0],
               ["Opened", stats.opened ?? campaign?.opened_count ?? 0],
               ["Clicked", stats.clicked ?? campaign?.clicked_count ?? 0],
@@ -1088,6 +1096,7 @@ function StatsDialog({ campaign, onClose }) {
           </div>
         )}
 
+        {!loadingStats && stats.excluded != null && <CampaignDeliverySummary summary={stats} />}
         <Card className="mt-4">
           <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
             <CardTitle className="text-sm">Per-recipient detail</CardTitle>
@@ -1114,6 +1123,9 @@ function StatsDialog({ campaign, onClose }) {
                   <SelectItem value="clicked">Clicked</SelectItem>
                   <SelectItem value="bounced">Bounced</SelectItem>
                   <SelectItem value="failed">Failed</SelectItem>
+                  <SelectItem value="excluded">Excluded (skipped)</SelectItem>
+                  <SelectItem value="processing">Awaiting reconciliation</SelectItem>
+                  <SelectItem value="pending">Queued</SelectItem>
                   <SelectItem value="unsubscribed">Unsubscribed</SelectItem>
                   <SelectItem value="complained">Complained</SelectItem>
                 </SelectContent>
@@ -1142,7 +1154,7 @@ function StatsDialog({ campaign, onClose }) {
                       <TableRow key={r.id} data-testid={`row-recipient-${r.id}`}>
                         <TableCell className="font-mono text-xs">{r.email}</TableCell>
                         <TableCell>
-                          <Badge variant={RECIPIENT_STATUS_VARIANTS[r.status] || "outline"}>{r.status || "pending"}</Badge>
+                          <RecipientDeliveryStatus recipient={r} />
                           {r.error_message && (
                             <div className="text-xs text-destructive mt-1 truncate max-w-[260px]" title={r.error_message}>
                               {r.error_message}

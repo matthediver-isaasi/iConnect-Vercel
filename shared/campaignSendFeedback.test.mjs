@@ -52,7 +52,7 @@ test('reports preparing and queued responses with zero acceptance truthfully', (
   );
   assert.equal(
     getCampaignSendFeedback({ status: 'processing', queued: 2, processing: 1 }).message,
-    'Campaign sending has started; no emails have been accepted by the provider yet. 3 emails still queued.',
+    'Campaign delivery update. 0 emails accepted by the provider. 0 excluded (skipped, not sent). 2 queued. 1 awaiting reconciliation. Check provider delivery evidence with an administrator before any resend; uncertain deliveries must not be retried.',
   );
 });
 

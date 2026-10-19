@@ -87,6 +87,10 @@ function install(t, size) {
       eq(key, expected) { filters.push(row => row[key] === expected); return this; },
       is(key, expected) { filters.push(row => row[key] === expected); return this; },
       in(key, expected) { filters.push(row => expected.includes(row[key])); return this; },
+      or(expression) {
+        assert.equal(expression, 'sent_at.not.is.null,mailgun_message_id.not.is.null');
+        filters.push(row => row.sent_at != null || row.mailgun_message_id != null); return this;
+      },
       not(key, _op, expected) { filters.push(row => row[key] !== expected); return this; },
       order() { return this; },
       limit(n) { limit = n; return this; },

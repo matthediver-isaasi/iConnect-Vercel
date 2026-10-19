@@ -56,8 +56,16 @@ const seed = () => [
   html_content: '<h2>Retained campaign preview</h2><p>Member news remains available after archiving.</p>'
 }));
 
-async function fixture(page, { schemaReady = true } = {}) {
+async function fixture(page, { schemaReady = true, deliveryOutcomes = false } = {}) {
   let campaigns = seed();
+  const deliverySummary = {
+    sent: 4826, excluded: 150, failed: 0, queued: 0, processing: 15,
+    reconciliationAlert: { count: 15, message: '15 recipients await reconciliation. Campaign started 2026-10-19T09:00:00.000Z; individual processing start times are not recorded.' }
+  };
+  if (deliveryOutcomes) Object.assign(campaigns[0], {
+    status: 'failed', sent_count: 4826, total_recipients: 4991, pending_count: 15,
+    queued_count: 0, processing_count: 15, delivery_summary: deliverySummary,
+  });
   let conflict = '';
   const mutations = [];
   const requests = [];
@@ -111,10 +119,16 @@ async function fixture(page, { schemaReady = true } = {}) {
       if (url.searchParams.has('heatmap')) return reply({ heatmapData: [] });
       if (url.searchParams.has('stats')) return reply({
         campaign,
-        stats: { sent: 100, delivered: 100, opened: 50, clicked: 10, total: 1, totalTrackedClicks: 10 }
+        stats: { sent: 100, delivered: 100, opened: 50, clicked: 10, total: 1, totalTrackedClicks: 10,
+          ...(deliveryOutcomes ? { ...deliverySummary, total: 4991, pending: 15 } : {}) }
       });
       if (url.searchParams.has('recipients')) return reply({
-        recipients: [{ id: 'recipient-a', email: 'reader@example.test', status: 'sent', opened_at: '2026-05-18T12:00:00Z', clicked_at: null }]
+        recipients: deliveryOutcomes ? [
+          { id: 'suppressed', email: 'suppressed@example.test', status: 'cancelled', error_message: 'Hard-bounced address: campaign sends are paused' },
+          { id: 'consent', email: 'optout@example.test', status: 'unsubscribed' },
+          { id: 'processing', email: 'uncertain@example.test', status: 'processing' },
+          { id: 'accepted', email: 'accepted@example.test', status: 'sent' },
+        ] : [{ id: 'recipient-a', email: 'reader@example.test', status: 'sent', opened_at: '2026-05-18T12:00:00Z', clicked_at: null }]
       });
       return reply(campaign);
     }
@@ -135,6 +149,30 @@ function assertIsolated(state) {
   expect(state.unexpected).toEqual([]);
   expect(state.browserErrors).toEqual([]);
 }
+
+test('outcomes separate exclusions and uncertain sends, offer inspection not retry, and filter details', async ({ page }) => {
+  const state = await fixture(page, { deliveryOutcomes: true });
+  const row = page.getByTestId('row-campaign-sent-a');
+  await expect(row).toContainText('4,826 sent · 150 excluded (skipped) · 0 failed · 15 awaiting reconciliation · 0 queued');
+  await expect(row.getByRole('button', { name: /Resume/ })).toHaveCount(0);
+  await expect(row.getByTestId('campaign-reconciliation-alert')).toContainText('before any resend');
+  await row.getByRole('button', { name: 'Inspect delivery details' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByTestId('text-stats-excluded')).toHaveText('150');
+  await expect(dialog.getByTestId('text-stats-processing')).toHaveText('15');
+  await dialog.getByRole('button', { name: 'Inspect delivery details' }).click();
+  await expect(dialog.getByTestId('row-recipient-suppressed')).toContainText('Skipped — hard-bounce suppression');
+  await expect(dialog.getByTestId('row-recipient-consent')).toContainText('Skipped — consent exclusion');
+  await dialog.getByTestId('stat-card-excluded').click();
+  await expect(dialog.getByTestId('row-recipient-suppressed')).toBeVisible();
+  await expect(dialog.getByTestId('row-recipient-processing')).toHaveCount(0);
+  await dialog.getByTestId('stat-card-processing').click();
+  await expect(dialog.getByTestId('row-recipient-processing')).toContainText('Awaiting reconciliation');
+  await expect(dialog.getByTestId('row-recipient-suppressed')).toHaveCount(0);
+  await screenshot(page, 'delivery-outcomes');
+  expect(state.mutations).toEqual([]);
+  assertIsolated(state);
+});
 
 test('cancel makes no mutations; archive retains totals, preview/detail and restore never schedules', async ({ page }) => {
   const state = await fixture(page);
@@ -237,13 +275,14 @@ test('authoritative archive/delete conflicts stay in the dialog and do not remov
   assertIsolated(state);
 });
 
-test('missing schema explicitly fails closed without list fallback or mutations', async ({ page }) => {
+test('missing archive schema blocks removal but preserves ordinary campaign reads', async ({ page }) => {
   const state = await fixture(page, { schemaReady: false });
   await expect(page.getByRole('alert')).toContainText('Archive schema migration required');
   await expect(page.getByTestId('campaign-view-archived')).toBeDisabled();
-  await expect(page.getByTestId('button-delete-sent-a')).toHaveCount(0);
+  await expect(page.getByTestId('button-delete-sent-a')).toBeDisabled();
   expect(state.mutations).toEqual([]);
-  expect(state.requests.map(item => item.url)).toEqual(['/api/email-campaigns?lifecycle=ready']);
+  expect(state.requests.map(item => item.url)).toContain('/api/email-campaigns?archive=active');
+  expect(state.requests.some(item => item.url.includes('archive=archived'))).toBe(false);
   await screenshot(page, 'schema-unavailable');
   assertIsolated(state);
 });

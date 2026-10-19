@@ -62,6 +62,16 @@ export function getCampaignSendFeedback(result = {}) {
     : count(explicitRemaining);
   const detail = failureDetail(result);
   const acceptedText = `${accepted} ${plural(accepted, 'email')} accepted by the provider`;
+  const processing = count(result.processing ?? result.awaitingReconciliation);
+  const excluded = count(result.excluded);
+  if (processing > 0 || excluded > 0) {
+    const queued = result.queued == null ? Math.max(0, remaining - processing) : count(result.queued);
+    const state = status === 'cancelled' ? 'Campaign stopped.' : status === 'paused' ? 'Campaign paused.' : 'Campaign delivery update.';
+    return {
+      type: processing > 0 || failed > 0 ? 'warning' : 'info',
+      message: withFailures(`${state} ${acceptedText}. ${excluded} excluded (skipped, not sent). ${queued} queued. ${processing} awaiting reconciliation.${processing ? ' Check provider delivery evidence with an administrator before any resend; uncertain deliveries must not be retried.' : ''}`, failed, detail),
+    };
+  }
 
   if (status === 'cancelled' || result.cancelled === true) {
     const message = accepted > 0

@@ -10,6 +10,8 @@ import { matchesDeliveryOutcome } from "@/components/communications/bounceModel.
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
+import CampaignDeliverySummary from "./communications/CampaignDeliverySummary";
+import { campaignRecipientLabel, isExcludedCampaignRecipient } from "../../../shared/campaignDeliverySummary.js";
 import { Label } from "@/components/ui/label";
 import { 
   Mail, Plus, Pencil, Trash2, Send, Eye, BarChart3, Copy,
@@ -808,6 +810,8 @@ export default function EmailCampaigns() {
         pending: stats.pending || 0,
         queued: stats.queued || 0,
         processing: stats.processing || 0,
+        excluded: stats.excluded ?? null,
+        reconciliationAlert: stats.reconciliationAlert || null,
         cancelled: stats.cancelled || 0,
         errors: Array.isArray(stats.errors) ? stats.errors : [],
         openRate: stats.openRate || 0,
@@ -850,7 +854,8 @@ export default function EmailCampaigns() {
       filtered = filtered.filter(r => {
         switch (statsFilter) {
           case 'sent':
-            return r.status === 'sent' || r.status === 'delivered' || r.status === 'opened' || r.status === 'clicked';
+            return ['sent', 'delivered', 'opened', 'clicked', 'bounced', 'complained'].includes(r.status) ||
+              (r.status === 'unsubscribed' && !isExcludedCampaignRecipient(r));
           case 'delivered':
             return r.status === 'delivered' || r.status === 'opened' || r.status === 'clicked';
           case 'opened':
@@ -867,6 +872,12 @@ export default function EmailCampaigns() {
             return r.status === 'failed';
           case 'pending':
             return r.status === 'pending' || r.status === 'processing';
+          case 'queued':
+            return r.status === 'pending';
+          case 'processing':
+            return r.status === 'processing';
+          case 'excluded':
+            return isExcludedCampaignRecipient(r);
           case 'cancelled':
             return r.status === 'cancelled';
           default:
@@ -914,8 +925,9 @@ export default function EmailCampaigns() {
     rows.push(['Unsubscribed', statsData.unsubscribed]);
     rows.push(['Complaints', statsData.complained]);
     rows.push(['Failed', statsData.failed]);
-    rows.push(['Pending', statsData.pending]);
-    rows.push(['Cancelled', statsData.cancelled]);
+    rows.push(['Queued', statsData.queued]);
+    rows.push(['Awaiting reconciliation', statsData.processing]);
+    rows.push(['Excluded (skipped, not sent)', statsData.excluded ?? 'Unavailable']);
 
     if (statsData.heatmapData && statsData.heatmapData.length > 0) {
       rows.push([]);
@@ -937,7 +949,7 @@ export default function EmailCampaigns() {
       recipients.forEach(r => {
         rows.push([
           r.email,
-          r.status,
+          campaignRecipientLabel(r),
           r.open_count || 0,
           r.click_count || 0,
           r.estimated_click_count ?? 'Unavailable',
@@ -1282,10 +1294,9 @@ export default function EmailCampaigns() {
                                 </Badge>
                               )}
                             </div>
-                            {campaign.status === 'sending' && campaign.total_recipients > 0 && (
-                              <span className="text-xs text-warning" data-testid={`text-sending-progress-${campaign.id}`}>
-                                {campaign.sent_count || 0} / {campaign.total_recipients} accepted
-                              </span>
+                            <CampaignDeliverySummary summary={campaign.delivery_summary} onInspect={() => handleViewStats(campaign)} />
+                            {!campaign.delivery_summary && ['sending', 'paused', 'sent', 'failed', 'cancelled'].includes(campaign.status) && (
+                              <span className="text-xs text-muted-foreground">Delivery breakdown unavailable. Open statistics to refresh.</span>
                             )}
                             {campaign.preparation?.phase === 'failed' && campaign.status === 'failed' && (
                               <span className="text-xs text-destructive block max-w-[320px] whitespace-normal break-words" data-testid={`text-preparation-error-${campaign.id}`}>
@@ -1316,9 +1327,7 @@ export default function EmailCampaigns() {
                           </div>
                         </TableCell>
                         <TableCell className="text-right font-medium">
-                          {campaign.status === 'sending' && campaign.total_recipients > 0
-                            ? `${campaign.sent_count || 0} / ${campaign.total_recipients}`
-                            : (campaign.sent_count ?? 0)}
+                          {campaign.delivery_summary?.sent ?? campaign.sent_count ?? 0}
                         </TableCell>
                         <TableCell className="text-right">
                           {campaign.status === 'sent' ? (
@@ -1395,7 +1404,7 @@ export default function EmailCampaigns() {
                                 )}
                               </Button>
                             )}
-                            {campaign.status === 'paused' && (
+                            {campaign.status === 'paused' && (campaign.queued_count > 0 || (campaign.preparation && !['complete', 'failed'].includes(campaign.preparation.phase))) && (
                               <Button
                                 variant="ghost"
                                 size="icon"
@@ -1415,13 +1424,13 @@ export default function EmailCampaigns() {
                                 that still has pending recipients (e.g. the
                                 GRAFTAs incident or any future race/timeout)
                                 gets a Resume button to drain the remainder. */}
-                            {(campaign.status === 'sent' || campaign.status === 'failed' || campaign.status === 'cancelled') && campaign.preparation?.phase !== 'failed' && (campaign.pending_count || 0) > 0 && (
+                            {(campaign.status === 'sent' || campaign.status === 'failed' || campaign.status === 'cancelled') && campaign.preparation?.phase !== 'failed' && (campaign.queued_count || 0) > 0 && (
                               <Button
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => handleResumeClick(campaign)}
                                 disabled={resuming === campaign.id || campaign.category_review_required || !!campaign.archived_at}
-                                title={campaign.category_review_required ? "Review audience and category before resuming" : `Resume sending (${campaign.pending_count} recipients still pending)`}
+                                title={campaign.category_review_required ? "Review audience and category before resuming" : `Resume sending (${campaign.queued_count} recipients still queued)`}
                                 className="text-warning hover:text-warning"
                                 data-testid={`button-resume-stuck-${campaign.id}`}
                               >
@@ -1606,10 +1615,10 @@ export default function EmailCampaigns() {
             <DialogDescription asChild>
               <div className="space-y-3">
                 <p>
-                  "{campaignToResume?.name}" is marked as <span className="font-medium">{campaignToResume?.status}</span>, but {campaignToResume?.pending_count} recipient{campaignToResume?.pending_count === 1 ? '' : 's'} never received the email.
+                  "{campaignToResume?.name}" is marked as <span className="font-medium">{campaignToResume?.status}</span>, but {campaignToResume?.queued_count} recipient{campaignToResume?.queued_count === 1 ? '' : 's'} remain queued and have not been submitted.
                 </p>
                 <div className="rounded-md border border-warning/50 bg-warning/10 dark:bg-warning/20 p-3 text-sm">
-                  Resuming will send to those remaining recipients only. Anyone who already received the email will not be emailed again.
+                  Resuming sends only queued recipients after fresh eligibility checks. Recipients awaiting reconciliation will not be retried.
                 </div>
                 <p className="text-sm text-muted-foreground">
                   Estimated time: ~{Math.max(1, Math.ceil((campaignToResume?.pending_count || 0) / 100))} minute{((campaignToResume?.pending_count || 0) > 100) ? 's' : ''} (sent in batches of 100 per minute by the background worker).
@@ -1984,8 +1993,9 @@ export default function EmailCampaigns() {
                 {[
                   { key: 'bounced', label: 'Bounced', value: statsData.bounced, color: 'text-red-600', ring: 'ring-red-400' },
                   { key: 'failed', label: 'Failed', value: statsData.failed, color: 'text-red-600', ring: 'ring-red-400' },
-                  { key: 'pending', label: 'Pending', value: statsData.pending, color: 'text-warning', ring: 'ring-amber-400' },
-                  { key: 'cancelled', label: 'Cancelled', value: statsData.cancelled, color: 'text-muted-foreground', ring: 'ring-slate-400' },
+                  { key: 'queued', label: 'Queued', value: statsData.queued, color: 'text-warning', ring: 'ring-amber-400' },
+                  { key: 'processing', label: 'Awaiting reconciliation', value: statsData.processing, color: 'text-warning', ring: 'ring-amber-400' },
+                  { key: 'excluded', label: 'Excluded (skipped)', value: statsData.excluded ?? 'Unavailable', color: 'text-muted-foreground', ring: 'ring-slate-400' },
                   { key: 'unsubscribed', label: 'Unsubscribed', value: statsData.unsubscribed, color: 'text-warning', ring: 'ring-orange-400' },
                   { key: 'complained', label: 'Complaints', value: statsData.complained, color: 'text-rose-600', ring: 'ring-rose-400' },
                 ].map(({ key, label, value, color, ring }) => (
@@ -2003,13 +2013,14 @@ export default function EmailCampaigns() {
                 ))}
               </div>
 
+              {statsData.excluded !== null && <CampaignDeliverySummary summary={statsData} onInspect={statsDetailView ? undefined : handleShowDetails} />}
               {statsData.pending > 0 && (
                 <div className="flex items-start gap-3 p-3 bg-warning/10 border border-warning/30 rounded-lg" data-testid="notice-pending-recipients">
                   <Clock className="w-4 h-4 text-warning mt-0.5 flex-shrink-0" />
                   <div className="text-sm">
                     <span className="font-medium">{statsData.pending} recipient{statsData.pending === 1 ? '' : 's'} pending.</span>
                     <span className="text-muted-foreground ml-1">
-                      {statsData.queued} queued and {statsData.processing} processing.
+                      {statsData.queued} queued and {statsData.processing} awaiting reconciliation. Uncertain deliveries must not be retried.
                     </span>
                   </div>
                 </div>

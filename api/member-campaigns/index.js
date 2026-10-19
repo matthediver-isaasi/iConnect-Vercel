@@ -2,6 +2,7 @@ import { supabase } from '../_lib/database.js';
 import { getCallerEmsAccess, requireGroupAccess, normalizeAudienceRoles, resolveMemberCampaignSender } from '../_lib/memberGroupEmsAccess.js';
 import { createCampaign, resolveMemberCampaignTemplateContent } from '../_lib/campaignService.js';
 import { enrichCampaignPreparationList } from '../_lib/campaignPreparationList.js';
+import { readCampaignDeliverySummary } from '../_lib/campaignDeliverySummary.js';
 
 /**
  * /api/member-campaigns
@@ -45,6 +46,11 @@ export default async function handler(req, res) {
 
     try {
       const campaigns = await enrichCampaignPreparationList(supabase, access.tenantContext.tenantId, data || []);
+      await Promise.all(campaigns.map(async campaign => {
+        if (['sent', 'sending', 'preparing', 'paused', 'failed', 'cancelled'].includes(campaign.status)) {
+          campaign.delivery_summary = await readCampaignDeliverySummary(supabase, campaign);
+        }
+      }));
       return res.json({ success: true, campaigns });
     } catch (preparationError) {
       console.error('[MemberCampaigns] preparation list error:', preparationError);

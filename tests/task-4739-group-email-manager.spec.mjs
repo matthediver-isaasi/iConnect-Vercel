@@ -41,6 +41,16 @@ test.beforeAll(async () => {
   script = result.outputFiles[0].text;
 });
 
+test("group campaign outcomes expose skipped and uncertain deliveries without sending", async ({ page }) => {
+  const state = await mount(page);
+  const row = page.getByTestId("row-member-campaign-sent");
+  await expect(row).toContainText("150 excluded (skipped)");
+  await row.getByRole("button", { name: "Inspect delivery details" }).click();
+  await expect(page.getByRole("dialog")).toContainText("15 awaiting reconciliation");
+  await expect(page.getByTestId("row-recipient-excluded")).toContainText("Skipped — hard-bounce suppression");
+  await expect(page.getByTestId("row-recipient-processing")).toContainText("Awaiting reconciliation");
+});
+
 async function mount(page, { duplicateFailure = false } = {}) {
   await page.route("**/*", async route => {
     const url = new URL(route.request().url());
@@ -60,6 +70,11 @@ async function mount(page, { duplicateFailure = false } = {}) {
     if (request.method() === "GET" && url.pathname === "/api/member-campaigns") {
       return json({ campaigns: url.searchParams.get("groupId") === "group-b" ? [] : windowState.campaigns });
     }
+    if (request.method() === "GET" && url.searchParams.has("stats")) return json({ stats: deliverySummary });
+    if (request.method() === "GET" && url.searchParams.has("recipients")) return json({ recipients: [
+      { id: "excluded", status: "cancelled", email: "skipped@example.test", error_message: "Hard-bounced address: campaign sends are paused" },
+      { id: "processing", status: "processing", email: "uncertain@example.test" },
+    ] });
     if (request.method() === "GET") return json(windowState.full[id]);
     const body = JSON.parse(request.postData() || "{}");
     windowState.writes.push({ id, method: request.method(), body });
@@ -72,13 +87,15 @@ async function mount(page, { duplicateFailure = false } = {}) {
     if (request.method() === "DELETE") return json({ ok: true });
     return json({ ok: true });
   });
+  const deliverySummary = { sent: 4826, excluded: 150, failed: 0, processing: 15, queued: 0,
+    reconciliationAlert: { message: "15 recipients await reconciliation; individual processing start times are not recorded." } };
   const windowState = {
     writes: [],
     duplicateFailure,
     campaigns: [
       { id: "draft", name: "Other admin draft", subject: "Draft", status: "draft" },
       { id: "scheduled", name: "Scheduled update", subject: "Schedule", status: "scheduled", scheduled_at: "2030-01-01T10:00:00Z" },
-      { id: "sent", name: "Already sent", subject: "Sent", status: "sent", sent_count: 0 },
+      { id: "sent", name: "Already sent", subject: "Sent", status: "sent", sent_count: 4826, delivery_summary: deliverySummary },
       { id: "failed", name: "Failed campaign", subject: "Failed", status: "failed", sent_count: 0,
         preparation: { phase: "failed", last_error: "Audience quota exceeded" } },
     ],

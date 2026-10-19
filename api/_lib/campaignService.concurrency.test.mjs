@@ -208,6 +208,8 @@ test('duplicate of archived sent campaign is an unarchived unscheduled draft wit
     status: 'sent', archived_at: '2026-01-01', preparation_generation: 'old-generation',
     preparation_actor_member_id: 'old-actor', scheduled_at: '2026-01-01',
     completed_at: '2026-01-01', sent_at: '2026-01-01', total_recipients: 10,
+    cancelled_at: '2026-01-02', cancelled_by: 'old-admin',
+    paused_at: '2026-01-01', paused_by: 'old-admin', pause_reason: 'Obsolete reason',
   });
   const result = await duplicateCampaign('campaign', 'tenant', 'admin');
   assert.equal(result.success, true);
@@ -215,7 +217,7 @@ test('duplicate of archived sent campaign is an unarchived unscheduled draft wit
   assert.equal(result.campaign.archived_at, null);
   assert.equal(result.campaign.scheduled_at, null);
   assert.equal(result.campaign.sent_count, 0);
-  for (const key of ['preparation_generation', 'preparation_actor_member_id', 'completed_at', 'sent_at', 'total_recipients']) {
+  for (const key of ['preparation_generation', 'preparation_actor_member_id', 'completed_at', 'sent_at', 'total_recipients', 'cancelled_at', 'cancelled_by', 'paused_at', 'paused_by', 'pause_reason']) {
     assert.equal(Object.hasOwn(state.inserted, key), false, key);
   }
 });

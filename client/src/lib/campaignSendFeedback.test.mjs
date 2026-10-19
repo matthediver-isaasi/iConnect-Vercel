@@ -103,7 +103,7 @@ test('EmailCampaigns closes Send Now on queued success and polls active progress
   assert.match(sendNow, /setShowPreviewDialog\(false\)/);
   assert.doesNotMatch(sendNow, /(?:result\.)?(?:sent|sent_count)\s*>\s*0/);
   assert.match(source, /refetchInterval: \(query\) => \{[\s\S]*?c\.status === 'sending'[\s\S]*?return 5000/);
-  assert.match(source, /campaign\.status === 'sending' && campaign\.total_recipients > 0/);
+  assert.match(source, /CampaignDeliverySummary summary=\{campaign\.delivery_summary\}/);
   assert.match(schedule, /setScheduleMode\(false\)/);
   assert.doesNotMatch(schedule, /getCampaignSendFeedback/);
 });

@@ -1,3 +1,5 @@
+import { campaignRecipientLabel, isExcludedCampaignRecipient } from '../../../../shared/campaignDeliverySummary.js';
+
 export const BOUNCE_QUERY_KEY = "communication-bounces";
 export const bounceListKey = (view, page, search) => [BOUNCE_QUERY_KEY, "list", view, page, search];
 export const memberBounceKey = (memberId, email) => [BOUNCE_QUERY_KEY, "member", memberId, email || ""];
@@ -41,6 +43,9 @@ export const DELIVERY_OUTCOME_FILTERS = [
 ];
 
 export function recipientDeliveryStatus(recipient) {
+  if (isExcludedCampaignRecipient(recipient) || ['processing', 'pending'].includes(recipient.status)) {
+    return { label: campaignRecipientLabel(recipient), className: 'text-muted-foreground' };
+  }
   const outcome = DELIVERY_OUTCOME_FILTERS.find(({ value }) => value === recipient.delivery_outcome);
   if (outcome) return { label: outcome.label, className: outcome.value === "soft_bounce" ? "border-amber-300 bg-amber-50 text-amber-800" : "border-red-300 bg-red-50 text-red-700" };
   const status = recipient.status;

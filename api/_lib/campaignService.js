@@ -20,6 +20,7 @@ import { bulkRecipientEligibility } from './campaignBulkEligibility.js';
 import { fittingCampaignBatchSize } from './campaignBulkTransport.js';
 import { drainCampaignRecipients as drainRecipients, campaignSendConcurrency } from './campaignDrain.js';
 import { createCampaignRecipientClaimer } from './campaignRecipientClaims.js';
+import { readCampaignDeliverySummary } from './campaignDeliverySummary.js';
 import { replaceBookingPlaceholders } from './eventConfirmationEmail.js';
 import { resolveCampaignAttendeeContent } from './campaignAttendeeContent.js';
 import { prepareCampaignSurveyDelivery, finishCampaignSurveyDelivery } from './campaignSurveyDelivery.js';
@@ -132,7 +133,7 @@ async function enrichCampaignCounts(campaign) {
   if (!['sent', 'sending', 'preparing', 'paused', 'failed', 'cancelled'].includes(campaign.status)) return campaign;
 
   try {
-    const [sentResult, openedResult, clickedResult, deliveredResult, pendingSentResult, pendingResult, failedResult] = await Promise.all([
+    const [sentResult, openedResult, clickedResult, deliveredResult, pendingSentResult, pendingResult, failedResult, deliverySummary] = await Promise.all([
       supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true })
         .eq('campaign_id', campaign.id).in('status', ['sent', 'delivered', 'opened', 'clicked']),
       supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true })
@@ -152,6 +153,7 @@ async function enrichCampaignCounts(campaign) {
         .eq('campaign_id', campaign.id).in('status', ['pending', 'processing']),
       supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true })
         .eq('campaign_id', campaign.id).eq('status', 'failed'),
+      readCampaignDeliverySummary(supabase, campaign),
     ]);
 
     if (sentResult.error) throw sentResult.error;
@@ -193,7 +195,10 @@ async function enrichCampaignCounts(campaign) {
       delivered_count: liveDeliveredCount,
       likely_delivered_count: likelyDeliveredCount,
       pending_count: livePendingCount,
-      failed_count: liveFailedCount
+      queued_count: deliverySummary.queued,
+      processing_count: deliverySummary.processing,
+      failed_count: liveFailedCount,
+      delivery_summary: deliverySummary
     };
   } catch (err) {
     console.warn('[Campaign Service] Failed to enrich campaign counts:', campaign.id, err.message);
@@ -648,7 +653,7 @@ export async function duplicateCampaign(campaignId, tenantId, createdBy) {
     const {
       id, created_at, updated_at, status, sent_at, scheduled_at, archived_at,
       preparation_generation, preparation_actor_member_id, completed_at,
-      cancelled_at, cancelled_by, paused_at, paused_by, total_recipients,
+      cancelled_at, cancelled_by, paused_at, paused_by, pause_reason, total_recipients,
       sent_count, delivered_count, opened_count, clicked_count,
       bounced_count, complained_count, unsubscribed_count,
       ...cloneFields
@@ -3987,14 +3992,13 @@ export async function sendToRecipient(recipient, campaign, tenantId, tenantSlug,
   }
 }
 
-const SENT_RECIPIENT_STATUSES = ['sent', 'delivered', 'opened', 'clicked'];
-
 export function determineCampaignSendOutcome({
   campaignStatus = 'sending',
   sent = 0,
   failed = 0,
   queued = 0,
   processing = 0,
+  excluded = 0,
   errors = [],
 } = {}) {
   const pending = queued + processing;
@@ -4005,6 +4009,8 @@ export function determineCampaignSendOutcome({
     pending,
     queued,
     processing,
+    awaitingReconciliation: processing,
+    excluded,
     errors,
     complete: pending === 0,
   };
@@ -4026,26 +4032,8 @@ export function determineCampaignSendOutcome({
   return { ...result, status: 'sent' };
 }
 
-async function getCampaignSendOutcome(campaignId, campaignStatus = 'sending') {
-  const countStatus = statusFilter => {
-    let query = supabase
-      .from('email_campaign_recipient')
-      .select('*', { count: 'exact', head: true })
-      .eq('campaign_id', campaignId);
-    query = Array.isArray(statusFilter)
-      ? query.in('status', statusFilter)
-      : query.eq('status', statusFilter);
-    return query.then(({ count, error }) => {
-      if (error) throw error;
-      return count || 0;
-    });
-  };
-
-  const [sent, failed, queued, processing, failureResult] = await Promise.all([
-    countStatus(SENT_RECIPIENT_STATUSES),
-    countStatus('failed'),
-    countStatus('pending'),
-    countStatus('processing'),
+export async function getCampaignSendOutcome(campaignId, campaignStatus = 'sending') {
+  const [failureResult, deliverySummary] = await Promise.all([
     supabase
       .from('email_campaign_recipient')
       .select('email, error_message')
@@ -4053,6 +4041,7 @@ async function getCampaignSendOutcome(campaignId, campaignStatus = 'sending') {
       .eq('status', 'failed')
       .not('error_message', 'is', null)
       .limit(20),
+    readCampaignDeliverySummary(supabase, { id: campaignId, status: campaignStatus }),
   ]);
   if (failureResult.error) throw failureResult.error;
 
@@ -4062,10 +4051,11 @@ async function getCampaignSendOutcome(campaignId, campaignStatus = 'sending') {
   }));
   return determineCampaignSendOutcome({
     campaignStatus,
-    sent,
-    failed,
-    queued,
-    processing,
+    sent: deliverySummary.sent,
+    failed: deliverySummary.failed,
+    queued: deliverySummary.queued,
+    processing: deliverySummary.processing,
+    excluded: deliverySummary.excluded,
     errors,
   });
 }
@@ -4235,11 +4225,11 @@ async function checkCampaignBatchGate(campaignId, tenantId, campaign, preparing 
   return { allowed: true, campaign: currentCampaign };
 }
 
-async function releaseClaimedRecipients(claimedRecipients, status = 'pending') {
+async function releaseClaimedRecipients(claimedRecipients, status = 'pending', reason = null) {
   if (!claimedRecipients.length) return;
   const { error } = await supabase
     .from('email_campaign_recipient')
-    .update({ status })
+    .update({ status, ...(reason ? { error_message: reason } : {}) })
     .in('id', claimedRecipients.map(r => r.id))
     .eq('status', 'processing');
   if (error) throw error;
@@ -4307,7 +4297,7 @@ export async function sendBatch(campaignId, tenantId, campaign, tenantSlug, requ
   });
 
   if (useBulk && prepared.length) {
-    const release = (entries, status = 'pending') => releaseClaimedRecipients(entries.map(e => e.recipient), status);
+    const release = (entries, status = 'pending', reason = null) => releaseClaimedRecipients(entries.map(e => e.recipient), status, reason);
     if (metrics.stopReason && !['batch_cap', 'empty_or_contended', 'deadline'].includes(metrics.stopReason)) {
       await release(prepared, stoppedGate?.cancelled ? 'cancelled' : 'pending');
     } else {
@@ -4537,10 +4527,14 @@ export async function getCampaignStats(campaignId, tenantId) {
     if (failureResult.error) throw failureResult.error;
 
     const { events: engagementEvents, ...engagement } = await loadCampaignEngagement(supabase, campaignId, tenantId);
+    const deliverySummary = await readCampaignDeliverySummary(supabase, campaign);
     const stats = {
       ...engagement,
       total: totalCount,
-      sent: statusSentCount + statusDeliveredCount + statusOpenedCount + statusClickedCount,
+      sent: deliverySummary.sent,
+      excluded: deliverySummary.excluded,
+      awaitingReconciliation: deliverySummary.awaitingReconciliation,
+      reconciliationAlert: deliverySummary.reconciliationAlert,
       sent_only: statusSentCount,
       delivered: statusDeliveredCount + statusOpenedCount + statusClickedCount,
       opened: hasOpensCount,
@@ -4627,7 +4621,7 @@ export async function getCampaignRecipients(campaignId, tenantId) {
     const recipients = await fetchAllRows((offset, limit) =>
       supabase
         .from('email_campaign_recipient')
-        .select('id, email, status, delivery_outcome, delivery_reason, delivery_outcome_at, open_count, click_count, error_message, sent_at')
+        .select('id, email, status, delivery_outcome, delivery_reason, delivery_outcome_at, open_count, click_count, error_message, sent_at, mailgun_message_id')
         .eq('campaign_id', campaignId)
         .order('email', { ascending: true })
         .order('id', { ascending: true })

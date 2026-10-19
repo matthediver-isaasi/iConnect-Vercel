@@ -90,10 +90,10 @@ test('stats API returns estimates and dialog preserves them; audience resolution
       then(resolve) { return Promise.resolve({ data: [], count: 4 }).then(resolve); } };
     return q;
   } };
-  const getStats = new Function('supabase', 'loadCampaignEngagement',
+  const getStats = new Function('supabase', 'loadCampaignEngagement', 'readCampaignDeliverySummary',
     `${statsFunction}; return getCampaignStats;`)(db, async (_db, campaign, tenant) => {
       assert.equal(campaign, 'campaign'); assert.equal(tenant, 'tenant'); return fixture;
-    });
+    }, async () => ({ sent: 4, excluded: 0, queued: 0, processing: 0, awaitingReconciliation: 0, reconciliationAlert: null }));
   const result = await getStats('campaign', 'tenant');
   assert.equal(result.success, true);
   // Execute the actual dialog mapping, not a duplicate hand-written mapping.

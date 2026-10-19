@@ -18,7 +18,8 @@ export async function finishPreparedCampaignBatch({
       }
       for (const state of ['unsubscribed', 'cancelled']) {
         const excluded = entries.filter(e => states.get(e.recipient.id) === state);
-        if (excluded.length) await release(excluded, state);
+        if (excluded.length) await release(excluded, state,
+          state === 'cancelled' ? 'Hard-bounced address: campaign sends are paused' : null);
       }
     } else {
     for (let offset = 0; offset < entries.length; offset += 8) {
@@ -26,7 +27,8 @@ export async function finishPreparedCampaignBatch({
       const outcomes = await Promise.allSettled(entries.slice(offset, offset + 8).map(async entry => {
         const state = await revalidate(entry);
         if (state === 'ready') ready.push(entry);
-        else await release([entry], state);
+        else await release([entry], state,
+          state === 'cancelled' ? 'Hard-bounced address: campaign sends are paused' : null);
       }));
       if (outcomes.some(outcome => outcome.status === 'rejected')) throw new Error('Batch eligibility could not be verified');
     }

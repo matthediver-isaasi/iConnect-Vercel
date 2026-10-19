@@ -57,7 +57,7 @@ test("delivery outcome overrides protected engagement status without mutating it
   }
   for (const outcome of [null, "delivered"]) {
     for (const status of ["clicked", "opened", "delivered", "unsubscribed"]) {
-      assert.equal(recipientDeliveryStatus({ status, delivery_outcome: outcome }).label, status);
+      assert.equal(recipientDeliveryStatus({ status, delivery_outcome: outcome, sent_at: '2026-10-19T09:00:00Z' }).label, status);
     }
   }
 });

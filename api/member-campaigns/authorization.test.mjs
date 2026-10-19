@@ -6,6 +6,7 @@ import { resolveCampaignEventSurvey, replaceEventSurvey } from '../_lib/campaign
 import { resolveCampaignEventSponsors, replaceEventSponsors } from '../_lib/eventEmailSponsors.js';
 import { getCampaignEmailComposition } from '../_lib/campaignEmailComposition.js';
 import { enrichCampaignPreparationList } from '../_lib/campaignPreparationList.js';
+import { readCampaignDeliverySummary } from '../_lib/campaignDeliverySummary.js';
 
 // Execute the actual endpoint/access code with hermetic dependencies: no service
 // module imports, database connections, or email transports are loaded.
@@ -86,6 +87,7 @@ async function fixture(options = {}) {
     beginCampaignTestSend: async () => ({ success: true, lease: 'fixture-lease' }),
     finishCampaignTestSend: async () => ({ reconciliationRequired: false }),
     enrichCampaignPreparationList,
+    readCampaignDeliverySummary,
     getCampaignEmailComposition,
     resolveCampaignEventSurvey, replaceEventSurvey, resolveCampaignEventSponsors, replaceEventSponsors,
     supabase, ...access, ...services,
