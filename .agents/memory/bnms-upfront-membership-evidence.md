@@ -123,8 +123,11 @@ be reconstructed. Keep any review of student eligibility separate from fee histo
 
 The owner authorised correction of the missing-current-membership gap for
 eligible BNMS members with current 2027 expiries. Keep imported paid invoice
-evidence distinct from provider-verified settlement, and retain unknown start
-dates and membership prices rather than copying event-package totals.
+evidence distinct from provider-verified settlement. For this cohort the owner
+expects annual start dates reconstructed from the retained end date and
+structures mapped from current member class, rather than leaving both unknown.
+Keep those reconstruction assumptions separate from financial evidence; never
+copy event-package totals into membership prices.
 
 **Why:** The earlier year-bounded recovery omitted genuine current memberships;
 the correction must establish retained entitlement without inventing financial
