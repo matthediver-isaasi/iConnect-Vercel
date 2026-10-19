@@ -8,6 +8,7 @@ import {
   MEMBER_CONTENT_GENERATION_STALE,
   MEMBER_CONTENT_PROVENANCE_CONFLICT,
   MEMBER_CONTENT_UNSUPPORTED,
+  isMemberContentGenerationStale,
 } from './memberContentGenerationWriter.js';
 import { reindexAllMemberContent } from './memberContentIndexer.js';
 
@@ -57,14 +58,20 @@ function makeSupabase({
         state.limit = value;
         return b;
       },
+      gt(column, value) {
+        state.after = { column, value };
+        return b;
+      },
       maybeSingle() { state.single = true; return b; },
       then(resolve, reject) {
         operations.push({ ...state, filters: { ...state.filters } });
         try {
           if (state.table === 'blog_post') {
-            const rows = state.filters.id
+            let rows = state.filters.id
               ? sources.filter((row) => row.id === state.filters.id)
               : sources;
+            if (state.after) rows = rows.filter((row) => row[state.after.column] > state.after.value);
+            if (state.limit) rows = rows.slice(0, state.limit);
             resolve({ data: state.single ? rows[0] || null : rows, error: null });
             return;
           }
@@ -628,6 +635,107 @@ test('stale publish never falls back to direct chunk mutation', async () => {
     claim_started_at: null,
   });
 });
+
+test('database stale exceptions are typed as fresh-claim recovery, not generic RPC errors', async () => {
+  for (const error of [
+    { code: 'P0001', message: 'MEMBER_CONTENT_GENERATION_STALE: checkpoint write rejected' },
+    new Error('MEMBER_CONTENT_GENERATION_STALE: claim expired'),
+  ]) {
+    const supabase = makeSupabase({ source: blog(), onPublish: () => ({ data: null, error }) });
+    const budget = { maxEmbeddingChunks: 3 };
+    await assert.rejects(writeMemberContentGeneration('blog_post', blog(), {
+      supabase, openai: {}, embeddingBudget: budget, embedTexts: async () => [[1]],
+    }), failure => failure.code === MEMBER_CONTENT_GENERATION_STALE &&
+      failure.retryable === true && failure.recovery === 'fresh_claim' &&
+      failure.embeddingChunksSpent === 1 && failure.cause === error);
+    assert.equal(budget.maxEmbeddingChunks, 2);
+    assert.equal(supabase.operations.filter(op => op.rpc === 'claim_member_content_generation').length, 1);
+  }
+  assert.equal(isMemberContentGenerationStale({ code: 'P0001', message: 'permission denied' }), false);
+  assert.equal(isMemberContentGenerationStale(new Error('provider failed with a stale claim')), false);
+});
+
+for (const [name, rebuild] of [
+  ['knowledge', reindexAllMemberContent],
+  ['authored', reindexAllMemberContentGeneration],
+]) {
+  test(`${name} rebuild defers stale publication without skipping the page or retrying in-slice`, async () => {
+    const first = blog({ id: 'blog-0', title: 'Completed source' });
+    const changed = blog();
+    let stale = true;
+    const published = [];
+    const supabase = makeSupabase({
+      source: [first, changed],
+      claims: [
+        { generation: 1, claim_token: 'first-claim' },
+        { generation: 1, claim_token: 'lost-claim' },
+        { generation: 2, claim_token: 'fresh-claim' },
+      ],
+      onPublish: args => {
+        if (args.p_source_id === changed.id && stale) {
+          return { data: null, error: { code: 'P0001',
+            message: 'MEMBER_CONTENT_GENERATION_STALE: publish rejected' } };
+        }
+        published.push(args);
+        return { data: true, error: null };
+      },
+    });
+    const inputs = [];
+    const embed = async (_provider, batch) => {
+      inputs.push(...batch);
+      return batch.map(() => [1]);
+    };
+    const options = {
+      supabase, tenantId: 'tenant-1', contentType: 'blog_post', maxItems: 2,
+      maxEmbeddingChunks: 5, embedTexts: embed,
+      openai: { embeddings: { create: async ({ input }) => ({
+        data: (await embed(null, input)).map(embedding => ({ embedding })),
+      }) } },
+    };
+    const deferred = await rebuild(options);
+    assert.equal(deferred.done, false);
+    assert.equal(deferred.stopReason, 'source_deferred');
+    assert.equal(deferred.deferred, 1);
+    assert.equal(deferred.errors, 0);
+    assert.equal(deferred.items, 1, 'unpublished page is not counted');
+    assert.equal(deferred.embeddingChunksSpent, 2, 'rejected work still spends allowance');
+    assert.deepEqual(deferred.nextCursor, { type: 'blog_post', lastId: first.id });
+    assert.equal(deferred.details.at(-1).sourceId, changed.id);
+    assert.equal(deferred.details.at(-1).code, MEMBER_CONTENT_GENERATION_STALE);
+    assert.equal(supabase.operations.filter(op => op.rpc === 'claim_member_content_generation').length, 2);
+    stale = false;
+    changed.title = 'Current title after invalidation';
+    changed.content = 'Current content after invalidation';
+    const resumed = await rebuild({ ...options, cursor: deferred.nextCursor });
+    assert.equal(resumed.errors, 0);
+    assert.equal(resumed.items, 1);
+    const final = published.at(-1);
+    assert.equal(final.p_generation, 2);
+    assert.equal(final.p_claim_token, 'fresh-claim');
+    assert.ok(final.p_rows.every(row => row.title === changed.title));
+    assert.match(inputs.at(-1), /Current title after invalidation/);
+    assert.match(inputs.at(-1), /Current content after invalidation/);
+  });
+
+  test(`${name} rebuild treats busy claims as bounded contention, not completion`, async () => {
+    const supabase = makeSupabase({
+      source: blog(), claims: [{ generation: 2, claim_token: null }],
+    });
+    const result = await rebuild({
+      supabase, tenantId: 'tenant-1', contentType: 'blog_post',
+      maxEmbeddingChunks: 5, openai: {},
+      embedTexts: () => assert.fail('busy claim called provider'),
+    });
+    assert.equal(result.stopReason, 'source_deferred');
+    assert.equal(result.errors, 0);
+    assert.equal(result.items, 0);
+    assert.equal(result.deferred, 1);
+    assert.equal(result.embeddingChunksSpent, 0);
+    assert.deepEqual(result.nextCursor, { type: 'blog_post', lastId: null });
+    assert.equal(supabase.operations.filter(op => op.rpc === 'claim_member_content_generation').length, 1);
+    assert.equal(supabase.operations.some(op => op.table === 'blog_post' && op.single), false);
+  });
+}
 
 test('embedding and publish errors release only the matching claim', async () => {
   for (const mode of ['embedding', 'publish']) {

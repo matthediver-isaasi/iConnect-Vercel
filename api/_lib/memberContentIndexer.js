@@ -16,7 +16,12 @@ import { chunkMemberContent } from './memberContentChunker.js';
 import { getDefaultOpenAIClient, EMBEDDING_MODEL } from './helpArticleIndexer.js';
 import { CONTENT_TYPES, PUBLIC_CANVAS_LAYOUT_TYPES } from './memberContentVisibility.js';
 import { isPublicSimpleEventStatus } from '../../shared/eventTiming.js';
-import { writeMemberContentGeneration } from './memberContentGenerationWriter.js';
+import {
+  writeMemberContentGeneration,
+  isMemberContentGenerationStale,
+  MEMBER_CONTENT_GENERATION_STALE,
+  MEMBER_CONTENT_CLAIM_BUSY,
+} from './memberContentGenerationWriter.js';
 import {
   sweepMemberContentGenerationTombstones,
   deleteMemberContentGenerationTombstone,
@@ -594,7 +599,7 @@ export async function processDueMemberContentReindexJobs({
     selected.push(job);
     if (selected.length >= limit) break;
   }
-  const result = { processed: 0, errors: 0 };
+  const result = { processed: 0, errors: 0, deferred: 0, details: [] };
   for (const job of selected) {
     if (deadlineMs != null && Date.now() >= deadlineMs) break;
     const cfg = CONTENT_TYPE_CONFIG[job.content_type];
@@ -610,26 +615,49 @@ export async function processDueMemberContentReindexJobs({
       }
       const { data: item, error: itemError } = await query.maybeSingle();
       if (itemError) throw itemError;
+      let summary;
       if (item) {
-        const summary = await reindexMemberContentItem(job.content_type, {
+        summary = await reindexMemberContentItem(job.content_type, {
           ...item,
           _reindexAttempts: job.attempts,
         }, { supabase, openai, embeddingBudget });
-        if (summary.partial || summary.busy) continue;
       } else {
-        await deleteMemberContentChunks(job.content_type, job.source_id, {
+        summary = await deleteMemberContentChunks(job.content_type, job.source_id, {
           supabase,
           tenantId: job.tenant_id,
         });
       }
+      if (summary?.busy || summary?.deferred) {
+        result.deferred++;
+        result.stopReason = 'source_deferred';
+        result.details.push({
+          contentType: job.content_type, sourceId: job.source_id,
+          code: summary.code || MEMBER_CONTENT_CLAIM_BUSY,
+          deferred: true, retryable: true, error: 'Source claim is busy; retry under a fresh claim',
+        });
+        break;
+      }
+      if (summary?.partial) continue;
       result.processed++;
     } catch (err) {
-      result.errors++;
+      const stale = isMemberContentGenerationStale(err);
+      if (stale) result.deferred++;
+      else result.errors++;
       await deferMemberContentReindexJob(job.content_type, {
         tenant_id: job.tenant_id,
         id: job.source_id,
         _reindexAttempts: job.attempts,
       }, err, { supabase });
+      if (stale) {
+        result.stopReason = 'source_deferred';
+        result.details.push({
+          contentType: job.content_type, sourceId: job.source_id,
+          code: MEMBER_CONTENT_GENERATION_STALE,
+          deferred: true, retryable: true, error: err.message,
+          embeddingChunksSpent: err.embeddingChunksSpent || 0,
+        });
+        break;
+      }
       console.error(
         `[processDueMemberContentReindexJobs] ${job.content_type}/${job.source_id} error:`,
         err?.message || err
@@ -681,6 +709,7 @@ export async function reindexAllMemberContent({
     embedded: 0,
     reused: 0,
     removed: 0,
+    deferred: 0,
     errors: 0,
     details: [],
   };
@@ -705,6 +734,12 @@ export async function reindexAllMemberContent({
     results.items += retries.processed;
     results.items += retries.errors;
     results.errors += retries.errors;
+    results.deferred += retries.deferred || 0;
+    results.details.push(...(retries.details || []));
+    if (retries.stopReason === 'source_deferred') {
+      return finish({ ...results, nextCursor: { type: allTypes[0], lastId: null },
+        done: false, stopReason: 'source_deferred' });
+    }
   }
 
   // Resume state derived from the incoming cursor.
@@ -749,6 +784,17 @@ export async function reindexAllMemberContent({
         for (const item of rows) {
           try {
             const summary = await reindexMemberContentItem(type, item, { supabase, openai, embeddingBudget: budget });
+            if (summary.deferred || summary.busy) {
+              results.deferred++;
+              results.details.push({
+                contentType: type, sourceId: item.id, title: item.title,
+                code: summary.code || MEMBER_CONTENT_CLAIM_BUSY,
+                deferred: true, retryable: true,
+                error: 'Source claim is busy; resume under a fresh claim',
+              });
+              return finish({ ...results, nextCursor: { type, lastId }, done: false,
+                stopReason: 'source_deferred' });
+            }
             if (summary.partial) {
               results.embedded += summary.embedded || 0;
               results.details.push({
@@ -771,6 +817,19 @@ export async function reindexAllMemberContent({
               chunks: summary.chunks, coverage: summary.coverage,
             });
           } catch (err) {
+            if (isMemberContentGenerationStale(err)) {
+              results.deferred++;
+              results.details.push({
+                contentType: type, sourceId: item.id, title: item.title,
+                code: MEMBER_CONTENT_GENERATION_STALE,
+                deferred: true, retryable: true, error: err.message,
+                embeddingChunksSpent: err.embeddingChunksSpent || 0,
+              });
+              // Retain the last COMPLETED source. Neither provider spend nor a
+              // rejected checkpoint is durable publication/progress.
+              return finish({ ...results, nextCursor: { type, lastId }, done: false,
+                stopReason: 'source_deferred' });
+            }
             results.errors++;
             results.items++;
             if (err.code === 'MEMBER_CONTENT_EMBEDDING_BUDGET') {

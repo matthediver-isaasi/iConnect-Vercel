@@ -189,7 +189,8 @@ export default async function handler(req, res) {
     // the top of this slice, so it stays fresh — and the browser drives the next
     // slice. If the browser stops (tab closed), the marker ages out after the
     // stale threshold and the 6h cron reclaims and finishes the run.
-    const paused = results.stopReason === 'embedding_budget';
+    const sourceDeferred = results.stopReason === 'source_deferred';
+    const paused = results.stopReason === 'embedding_budget' || sourceDeferred;
     if (results.done || paused) {
       // A scoped pass is not evidence that the full global corpus was rebuilt.
       await completeReindexRun({ supabase, runId,
@@ -205,7 +206,9 @@ export default async function handler(req, res) {
       runId,
       scope,
       paused,
-      ...(paused ? { pauseMessage: 'Embedding allowance exhausted. Automatic continuation stopped. Review the source coverage, then explicitly resume with an allowance up to 100 chunks per slice.' } : {}),
+      ...(paused ? { pauseMessage: sourceDeferred
+        ? 'Source content changed or its claim is busy. Automatic continuation stopped without advancing past the source. Explicitly resume to take a fresh claim and reread current content.'
+        : 'Embedding allowance exhausted. Automatic continuation stopped. Review the source coverage, then explicitly resume with an allowance up to 100 chunks per slice.' } : {}),
     });
   } catch (err) {
     console.error('[Platform Member Reindex] fatal:', err);

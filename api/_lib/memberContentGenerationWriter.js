@@ -29,6 +29,23 @@ export const DEFAULT_SINGLE_ITEM_EMBEDDING_CHUNKS = 10;
 export const DEFAULT_BULK_EMBEDDING_CHUNKS = 100;
 
 export const MEMBER_CONTENT_GENERATION_STALE = 'MEMBER_CONTENT_GENERATION_STALE';
+export const MEMBER_CONTENT_CLAIM_BUSY = 'MEMBER_CONTENT_CLAIM_BUSY';
+
+// Postgres exception codes (e.g. P0001) are not domain error codes. Match only
+// our explicit marker, never arbitrary RPC/provider failures mentioning a claim.
+export function isMemberContentGenerationStale(error) {
+  return error?.code === MEMBER_CONTENT_GENERATION_STALE ||
+    /^MEMBER_CONTENT_GENERATION_STALE(?::|$)/.test(error?.message || '');
+}
+
+function generationError(error) {
+  if (!isMemberContentGenerationStale(error)) return error;
+  const stale = errorWithCode(MEMBER_CONTENT_GENERATION_STALE, error.message);
+  stale.cause = error;
+  stale.retryable = true;
+  stale.recovery = 'fresh_claim';
+  return stale;
+}
 export const MEMBER_CONTENT_UNSUPPORTED = 'MEMBER_CONTENT_UNSUPPORTED';
 export const MEMBER_CONTENT_PROVENANCE_CONFLICT =
   'MEMBER_CONTENT_PROVENANCE_CONFLICT';
@@ -285,7 +302,7 @@ async function claimGeneration(supabase, tenantId, contentType, sourceId) {
       p_source_id: sourceId,
     }
   );
-  if (error) throw error;
+  if (error) throw generationError(error);
   const claim = normaliseClaim(data);
   if (!claim || claim.claim_token == null) {
     return {
@@ -626,6 +643,7 @@ export async function writeMemberContentGeneration(
       removed: false,
       deferred: true,
       busy: true,
+      code: MEMBER_CONTENT_CLAIM_BUSY,
       claim: claimed.claim,
       embeddingChunksSpent: 0,
     };
@@ -921,6 +939,9 @@ export async function writeMemberContentGeneration(
       embeddingChunksSpent,
     };
   } catch (error) {
+    // Never retry within this invocation: a replacement claim must rebuild the
+    // canonical snapshot, and failed embeddings still consume the shared cap.
+    error = generationError(error);
     if (error && (typeof error === 'object' || typeof error === 'function')) {
       error.embeddingChunksSpent = embeddingChunksSpent;
     }
@@ -1099,6 +1120,17 @@ export async function reindexAllMemberContentGeneration({
           results.chunks += summary.chunks;
           results.embedded += summary.embedded;
           results.reused += summary.reused;
+          if (summary.deferred || summary.busy) {
+            results.deferred += 1;
+            results.details.push({
+              contentType: type, sourceId: source.id,
+              code: summary.code || MEMBER_CONTENT_CLAIM_BUSY,
+              deferred: true, retryable: true,
+              error: 'Source claim is busy; resume under a fresh claim',
+            });
+            return withBudgetSpent({ ...results, nextCursor: { type, lastId },
+              done: false, stopReason: 'source_deferred' });
+          }
           if (summary.partial) {
             return withBudgetSpent({
               ...results,
@@ -1114,6 +1146,17 @@ export async function reindexAllMemberContentGeneration({
           if (summary.deferred) results.deferred += 1;
           lastId = source.id;
         } catch (error) {
+          if (isMemberContentGenerationStale(error)) {
+            results.deferred += 1;
+            results.details.push({
+              contentType: type, sourceId: source.id,
+              code: MEMBER_CONTENT_GENERATION_STALE,
+              deferred: true, retryable: true, error: errorMessage(error),
+              embeddingChunksSpent: error.embeddingChunksSpent || 0,
+            });
+            return withBudgetSpent({ ...results, nextCursor: { type, lastId },
+              done: false, stopReason: 'source_deferred' });
+          }
           if (error?.code === MEMBER_CONTENT_EMBEDDING_BUDGET) {
             // This source was not started from the caller's point of view:
             // releaseClaim has already run, so resume at the same id.

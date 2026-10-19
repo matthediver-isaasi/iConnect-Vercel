@@ -36,3 +36,17 @@ more than 100 rows. That independent guard prevented any large page publication.
 
 **How to apply:** Retain explicit row/byte bounds and verify full publication,
 stale rejection and rollback using isolated transactional fixtures before rollout.
+
+Dependency invalidation must distinguish operational updates from source or
+access changes. Narrow by renderer presence, not only previously indexed
+dependencies; unknown fields and renderer types must remain fail-closed.
+
+**Why:** Broad dependency updates repeatedly invalidated every GFI iEdit page,
+including successfully rebuilt Board content. Saved dependencies alone miss
+newly eligible automatic-list entries.
+
+**How to apply:** Audit changed fields against extraction and visibility inputs.
+Keep both old/new identities and insert/delete coverage. Recover unchanged
+content through the normal fresh-claim publisher with a zero-embedding budget,
+never by reactivating old generations directly. Stale claims are deferred work,
+not permission to replenish a scheduled embedding allowance.

@@ -360,8 +360,9 @@ export default function HelpArticlesEditor() {
           // Explicit resume starts a NEW protected operation, permitting a reviewed
           // budget change without mutating a running operation's authorization.
           setMemberReindexResume(cursor ? { cursor, scope } : null);
-          toast({ title: 'Rebuild paused at embedding limit',
-            description: 'Review coverage and raise the allowance if needed (maximum 100), then explicitly resume.' });
+          toast({ title: data.stopReason === 'source_deferred'
+            ? 'Rebuild paused: source changed or busy' : 'Rebuild paused at embedding limit',
+            description: data.pauseMessage || 'Review coverage and explicitly resume.' });
           return;
         }
 

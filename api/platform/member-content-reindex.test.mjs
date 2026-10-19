@@ -143,6 +143,35 @@ test('embedding pause releases authority, retains cursor, and requires a new exp
   assert.equal(resumed.calls.acquire.length,1);
 });
 
+test('stale/claim contention pauses manual continuation and retains exact completed progress', async () => {
+  for (const code of ['MEMBER_CONTENT_GENERATION_STALE', 'MEMBER_CONTENT_CLAIM_BUSY']) {
+    const cursor = { type: 'iedit_page', lastId: PAGE };
+    const details = [{ contentType: 'iedit_page', sourceId: RUN, code,
+      deferred: true, retryable: true, error: 'Fresh claim required' }];
+    const f = fixture({ results: { items: 2, chunks: 15, embedded: 10, reused: 5,
+      embeddingChunksSpent: 20, deferred: 1, errors: 0, done: false,
+      nextCursor: cursor, stopReason: 'source_deferred', details } });
+    const res = await f.invoke({ runId: RUN, cursor });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.paused, true, 'browser must not auto-loop on lost staging');
+    assert.equal(res.body.done, false);
+    assert.equal(res.body.items, 2);
+    assert.equal(res.body.embeddingChunksSpent, 20);
+    assert.deepEqual(res.body.nextCursor, cursor);
+    assert.deepEqual(res.body.details, details);
+    assert.match(res.body.pauseMessage, /fresh claim/i);
+    assert.equal(f.calls.complete.length, 1);
+    assert.equal(f.calls.complete[0].completed, false);
+    assert.equal(f.calls.index.length, 1);
+    const resumed = fixture();
+    await resumed.invoke({ tenantId: TENANT, contentType: 'iedit_page',
+      maxEmbeddingChunks: 50, cursor: res.body.nextCursor });
+    assert.equal(resumed.calls.acquire.length, 1, 'explicit resume takes new authority');
+    assert.deepEqual(resumed.calls.index[0].cursor, cursor);
+  }
+});
+
 test('deadline continuation retains ownership; fatal error releases without completion',async()=>{
   const partial=fixture({results:{errors:0,done:false,nextCursor:{type:'iedit_page',lastId:PAGE}}});
   const res=await partial.invoke({tenantId:TENANT,contentType:'iedit_page'});

@@ -290,7 +290,12 @@ export function createReindexMemberContentHandler({
       // A budget stop is deliberately terminal for this chain. The returned
       // cursor is for the next scheduled repair pass, not a self-trigger:
       // retrying it immediately would repeatedly pay for the same blocked item.
-      if (stoppedForEmbeddingBudget) {
+      if (results.stopReason === 'source_deferred') {
+        // A lost generation/claim is contention, not durable progress. The next
+        // scheduled pass (or explicit operator resume) must take a fresh claim;
+        // never create a self-trigger loop which replenishes work on this page.
+        continuation = { dispatched: false, reason: 'source_deferred' };
+      } else if (stoppedForEmbeddingBudget) {
         continuation = { dispatched: false, reason: 'embedding_budget' };
       } else if (!results.done && results.nextCursor) {
         if (hop + 1 >= MAX_HOPS) {

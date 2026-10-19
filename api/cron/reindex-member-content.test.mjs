@@ -105,6 +105,35 @@ test('reindex cron fails closed when CRON_SECRET is absent', async () => {
   }
 });
 
+test('stale or busy source pauses the cron chain without refunding spend or dispatching a retry', async () => {
+  await withCronSecret(async () => {
+    for (const spent of [0, 7, 20]) {
+      const cursor = { type: 'iedit_page', lastId: null };
+      const detail = { sourceId: 'page', code: spent ? 'MEMBER_CONTENT_GENERATION_STALE' : 'MEMBER_CONTENT_CLAIM_BUSY',
+        deferred: true, retryable: true, error: 'Fresh claim required' };
+      const { handler, calls } = makeHandler({
+        reindex: async () => ({ done: false, errors: 0, items: 0, deferred: 1,
+          nextCursor: cursor, stopReason: 'source_deferred',
+          embeddingChunksSpent: spent, embedded: 0, details: [detail] }),
+      });
+      const res = responseRecorder();
+      await handler(request(), res);
+      assert.equal(res.statusCode, 200);
+      assert.equal(res.body.ok, true, 'expected contention is not a failed request');
+      assert.equal(res.body.done, false);
+      assert.deepEqual(res.body.nextCursor, cursor);
+      assert.deepEqual(res.body.details, [detail]);
+      assert.equal(res.body.embeddingChunksRemaining, 20 - spent);
+      assert.equal(res.body.embeddingChunksSpent, spent);
+      assert.deepEqual(res.body.continuation, { dispatched: false, reason: 'source_deferred' });
+      assert.equal(calls.dispatch.length, 0);
+      assert.equal(calls.reindex.length, 1);
+      assert.equal(calls.complete.length, 1);
+      assert.equal(calls.complete[0].completed, false);
+    }
+  });
+});
+
 test('reindex cron rejects malformed or over-ceiling incoming budgets before indexing', async () => {
   await withCronSecret(async () => {
     for (const value of [Number.NaN, Number.POSITIVE_INFINITY, -1, 21, 1.5, '2', null]) {

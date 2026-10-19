@@ -31,5 +31,9 @@ export async function saveEmbeddingCheckpoints(supabase, identity, rows) {
     })),
   });
   if (error) throw error;
-  if (data !== true) throw new Error('Embedding checkpoint write rejected');
+  if (data !== true) {
+    const stale = new Error('MEMBER_CONTENT_GENERATION_STALE: checkpoint write rejected');
+    stale.code = 'MEMBER_CONTENT_GENERATION_STALE';
+    throw stale;
+  }
 }

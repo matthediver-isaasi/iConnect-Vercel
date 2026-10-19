@@ -206,11 +206,39 @@ test('stale worker after provider call cannot save vectors or publish; budget is
         return inputs.map(vector);
       },
     }), (error) => /MEMBER_CONTENT_GENERATION_STALE/.test(error.message) &&
-      error.embeddingChunksSpent === 100);
+      error.code === 'MEMBER_CONTENT_GENERATION_STALE' &&
+      error.retryable === true && error.embeddingChunksSpent === 100);
     assert.equal(state.published.length, 0);
     assert.equal(state.checkpoints.length, 0);
     if (mode === 'claim takeover') assert.equal(state.token, 'new-worker');
   }
+});
+
+test('explicit recovery after rejected checkpoint claims and rereads the new generation', async () => {
+  const { state, run, invalidate } = fixture(2);
+  const budget = { maxEmbeddingChunks: 1 };
+  await assert.rejects(run(1, {
+    embeddingBudget: budget,
+    embedTexts: async (_provider, inputs) => {
+      invalidate();
+      state.title = 'Fresh title';
+      state.chunks[0].content = 'Fresh canonical text';
+      return inputs.map(vector);
+    },
+  }), { code: 'MEMBER_CONTENT_GENERATION_STALE', embeddingChunksSpent: 1 });
+  assert.equal(budget.maxEmbeddingChunks, 0);
+  assert.equal(state.serial, 1, 'no automatic retry');
+  assert.equal(state.checkpoints.length, 0);
+  assert.equal(state.published.length, 0);
+  const resumedInputs = [];
+  const recovered = await run(2, {
+    embedTexts: async (_provider, inputs) => { resumedInputs.push(...inputs); return inputs.map(vector); },
+  });
+  assert.equal(recovered.chunks, 2);
+  assert.equal(state.serial, 2);
+  assert.equal(state.published.length, 2);
+  assert.ok(state.published.every(row => row.source_generation === 2 && row.title === 'Fresh title'));
+  assert.match(resumedInputs[0], /Fresh canonical text/);
 });
 
 test('stale snapshot worker cannot read checkpoints after a claim takeover', async () => {
