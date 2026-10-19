@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { publicClient } from '@/api/publicClient';
 import { readPublicPage, DYNAMIC_PAGE_PENDING_TIMEOUT_MS } from '@/pages/dynamicPageRequest';
@@ -48,7 +48,8 @@ export function PublicPageNavigationProvider({ children, scope, enabled, resolve
   const navigate = useNavigate();
   const location = useLocation();
   const handoff = useRef(createPublicPageHandoff());
-  const epoch = useRef({ scope, enabled, path: location.key, sequence: 0 });
+  const routeIdentity = location.pathname + location.search;
+  const epoch = useRef({ scope, enabled, path: location.key, route: routeIdentity, sequence: 0 });
   const pool = useRef(null);
   if (!pool.current) pool.current = createPublicPageIntentPool((request, signal) =>
     readPublicPage(() => publicClient.getPage(request.slug, request.micrositePrefix, { signal })));
@@ -58,11 +59,11 @@ export function PublicPageNavigationProvider({ children, scope, enabled, resolve
   const [pending, setPending] = useState(null);
   if (epoch.current.scope !== scope) blockedScope.current = null;
   if (epoch.current.scope !== scope || epoch.current.enabled !== enabled
-    || epoch.current.path !== location.key) {
+    || epoch.current.path !== location.key || epoch.current.route !== routeIdentity) {
     clearTimeout(intentTimer.current);
     pool.current.clear();
     activation.current = null;
-    epoch.current = { scope, enabled, path: location.key, sequence: epoch.current.sequence + 1 };
+    epoch.current = { scope, enabled, path: location.key, route: routeIdentity, sequence: epoch.current.sequence + 1 };
     // Microsite branding readiness may close at the destination. Preserve
     // its exact one-use transport, not any rendering/authorization decision.
     // Scope changes fence auth/tenant/role; DynamicPage still waits for *all*
@@ -70,9 +71,18 @@ export function PublicPageNavigationProvider({ children, scope, enabled, resolve
     handoff.current.retain(scope, location.pathname + location.hash);
     if (pending) setPending(null);
   }
+  // Visit ownership survives child layout remounts, but never
+  // an actual navigation or audience epoch (including Back to the same URL).
+  const carouselVisits = useMemo(() => new Map(), [epoch.current, epoch.current.sequence]);
+  useEffect(() => () => {
+    for (const visit of carouselVisits.values()) visit.dispose?.();
+    carouselVisits.clear();
+  }, [carouselVisits]);
   useEffect(() => {
     const onStorage = event => {
       if (!isRelevantAccountStorageTransition(event)) return;
+      for (const visit of carouselVisits.values()) visit.dispose?.();
+      carouselVisits.clear();
       epoch.current.sequence += 1;
       blockedScope.current = epoch.current.scope;
       handoff.current.clear();
@@ -83,7 +93,7 @@ export function PublicPageNavigationProvider({ children, scope, enabled, resolve
     };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
-  }, []);
+  }, [carouselVisits]);
   useEffect(() => () => {
     epoch.current.sequence += 1;
     handoff.current.clear();
@@ -157,6 +167,7 @@ export function PublicPageNavigationProvider({ children, scope, enabled, resolve
       take: request => blockedScope.current !== scope ? handoff.current.take(scope, request) : null,
       pending: visiblePending,
       cancel,
+      carouselVisits,
     }}>
       {children}
     </PublicPageNavigationContext.Provider>

@@ -27,6 +27,25 @@ responses still need their existing session/audience isolation.
 branding/session/route policy and retain host/tenant/audience metadata partitions.
 Verify that changing branding from unresolved to an id does not restart discovery.
 
+Carousel prefetch and rendering must share one navigation/audience-scoped
+visit identity and shuffle seed, while a new visit rechecks publication authority.
+
+**Why:** A mount-unique query key defeats an earlier prefetch, whereas sharing
+cookie-bearing projections across visits can reuse outdated permissions.
+
+**How to apply:** Hand off the current visit's request to the renderer; do not
+replace this with a long-lived cross-visitor or cross-navigation data cache.
+
+Verify cold entry and browser Back independently, including denied responses.
+Sharing a seed/key does not by itself prove that only one request ran.
+
+**Why:** Cold-entry handoff passed while Back still made a duplicate request,
+even after visit identity was shared and the bootstrap attempt retained.
+
+**How to apply:** Count network requests across actual layout remounts and
+permission revocation; preserve the denial check rather than relaxing the
+test to accept duplicate traffic.
+
 Use matched built assets for first-content comparisons and report the request
 interval separately from document/JavaScript bootstrap.
 

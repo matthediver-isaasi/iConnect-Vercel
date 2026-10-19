@@ -428,6 +428,7 @@ async function installFixtures(page, {
     writes,
     pageErrors,
     consoleErrors,
+    denyDirectory() { deniedPage = 1; },
     releaseDirectoryPage() {
       while (delayedPageResolvers.length) delayedPageResolvers.shift()();
     },
@@ -503,6 +504,72 @@ function directoryContentFromSavedBody(body) {
 }
 
 test.describe("DirectoryCarousel published renderer", () => {
+  test("Back starts a new permission-checked visit instead of reusing granted cards", async ({ page }) => {
+    const state = await installFixtures(page, { directoryContent: { randomiseOrder: true } });
+    await page.goto(`/${PAGE_SLUG}`);
+    await expect(page.getByText("Stable Alpha", { exact: true })).toBeVisible();
+    const requests = () => state.requests.filter(request => request.path === "/api/public/dynamic-directory");
+    const oldSeed = requests()[0].query.seed;
+    expect(requests()).toHaveLength(1);
+    state.denyDirectory();
+    await page.evaluate(() => {
+      history.pushState({}, "", "/directory-carousel-other-fixture");
+      dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await expect(carousel(page)).toHaveCount(0);
+    expect(requests()).toHaveLength(1);
+    await page.goBack();
+    await expect(page.getByText("This directory is not available to this visitor.")).toBeVisible();
+    await expect(page.getByText("Stable Alpha", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("Private metadata", { exact: true })).toHaveCount(0);
+    expect(requests()).toHaveLength(2);
+    expect(requests()[1].query.seed).not.toBe(oldSeed);
+  });
+
+  test("dispatches before the delayed lazy renderer and hands off one visit request", async ({ page }) => {
+    const startedAt = Date.now();
+    const logos = [];
+    let releaseLogos;
+    const logoGate = new Promise(resolve => { releaseLogos = resolve; });
+    const state = await installFixtures(page, {
+      directoryContent: { randomiseOrder: true, perView: { desktop: 3, mobile: 1 } },
+      records: STABLE_RECORDS.map((record, index) => ({ ...record, logo_url: `/early-carousel-logo-${index}.svg` })),
+    });
+    await page.route("**/early-carousel-logo-*.svg", async route => {
+      logos.push({ url: route.request().url(), elapsedMs: Date.now() - startedAt });
+      await logoGate;
+      await route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="#3b82f6"/></svg>' });
+    });
+    let releaseRenderer;
+    const rendererGate = new Promise(resolve => { releaseRenderer = resolve; });
+    await page.route("**/CanvasPageRenderer.jsx*", async route => {
+      await rendererGate;
+      await route.continue();
+    });
+    await page.goto(`/${PAGE_SLUG}`, { waitUntil: "domcontentloaded" });
+    const requests = () => state.requests.filter(request => request.path === "/api/public/dynamic-directory");
+    try {
+      await expect.poll(() => requests().length).toBe(1);
+      const dispatchObservedMs = Date.now() - startedAt;
+      await expect.poll(() => logos.length).toBe(3);
+      await expect(carousel(page)).toHaveCount(0);
+      expect(requests()[0].query.limit).toBe("50");
+      expect(requests()[0].query.seed).toBeTruthy();
+      console.info(JSON.stringify({ fixtureOnly: true, dispatchObservedMs, firstVisibleLogoRequestMs: logos[0].elapsedMs, rendererStillBlocked: true }));
+    } finally {
+      releaseLogos();
+      releaseRenderer();
+    }
+    await expect(page.getByText("Stable Alpha", { exact: true })).toBeVisible();
+    await carouselNext(carousel(page)).click();
+    await expect(page.getByText("Stable Delta", { exact: true })).toBeVisible();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(carouselCards(carousel(page))).toHaveCount(1);
+    expect(requests()).toHaveLength(1);
+    expect(state.pageErrors).toEqual([]);
+    await page.screenshot({ path: '/tmp/directory-carousel-early-mobile.png', fullPage: true });
+  });
+
   test("renders the stable seed on desktop, navigates by controls/keyboard/swipe, and preserves SponsorCarousel", async ({ page }) => {
     const state = await installFixtures(page, {
       directoryContent: {

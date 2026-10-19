@@ -12,6 +12,15 @@ const source = fs.readFileSync(
   new URL('./dynamicBlocks.jsx', import.meta.url),
   'utf8',
 );
+const bootstrapSource = fs.readFileSync(new URL('../directoryCarouselBootstrap.jsx', import.meta.url), 'utf8');
+function queryBuilder() {
+  const start = bootstrapSource.indexOf('export function buildDirectoryCarouselQuery(');
+  const end = bootstrapSource.indexOf('\n}\n\nexport function directoryCarouselQueryOptions', start);
+  assert.notEqual(start, -1);
+  assert.notEqual(end, -1);
+  return new Function('resolveDirectoryCarouselOrganisationNameDisplay',
+    `${bootstrapSource.slice(start, end + 2).replace('export function', 'function')}; return buildDirectoryCarouselQuery;`)(resolveDirectoryCarouselOrganisationNameDisplay);
+}
 
 test('directory carousel defaults persist randomiseOrder as false', () => {
   assert.equal(
@@ -39,14 +48,7 @@ test('directory carousel defaults persist randomiseOrder as false', () => {
 });
 
 test('directory carousel query is bounded and only sends seed for random order', () => {
-  const start = source.indexOf('export function buildDirectoryCarouselQuery(');
-  const end = source.indexOf('\n}\n\n// Directory carousel indicator helper.', start);
-  assert.notEqual(start, -1);
-  assert.notEqual(end, -1);
-  const buildQuery = new Function(
-    'resolveDirectoryCarouselOrganisationNameDisplay',
-    `${source.slice(start, end + 2).replace('export function', 'function')}; return buildDirectoryCarouselQuery;`,
-  )(resolveDirectoryCarouselOrganisationNameDisplay);
+  const buildQuery = queryBuilder();
 
   const normal = buildQuery({ directorySlug: 'orgs', tenant: 'association', page: 1, limit: 3 });
   assert.equal(normal.get('mode'), 'carousel');
@@ -148,9 +150,7 @@ test('directory carousel inspector uses complete searchable source discovery and
 });
 
 test('directory carousel supports explicit source queries without stale legacy parameters', () => {
-  const start = source.indexOf('export function buildDirectoryCarouselQuery(');
-  const end = source.indexOf('\n}\n\n// Directory carousel indicator helper.', start);
-  const buildQuery = new Function('resolveDirectoryCarouselOrganisationNameDisplay', `${source.slice(start, end + 2).replace('export function', 'function')}; return buildDirectoryCarouselQuery;`)(resolveDirectoryCarouselOrganisationNameDisplay);
+  const buildQuery = queryBuilder();
   for (const kind of ['primary-member', 'primary-organization']) {
     const query = buildQuery({ source: kind, directorySlug: 'old', directoryId: 'old' });
     assert.equal(query.get('source'), kind);
@@ -182,6 +182,27 @@ test('directory carousel batches are responsive-independent, bounded and identit
   assert.match(hook, /retained\.current\?\.identity === identity/);
   assert.match(hook, /\[401, 403, 404\]\.includes\(query\.error\?\.status\)/);
   assert.match(hook, /data: failed \? undefined : data/);
-  assert.match(hook, /new Image\(\)/);
-  assert.match(hook, /signal/);
+  assert.match(hook, /warmDirectoryCarouselImages/);
+  assert.match(bootstrapSource, /new Image\(\)/);
+  assert.match(bootstrapSource, /credentials: 'include', signal/);
+});
+
+test('visible logos have priority and background warming waits, with bounded concurrency and cancellation', async () => {
+  const start = bootstrapSource.indexOf('export function warmDirectoryCarouselImages(');
+  const end = bootstrapSource.indexOf('\n}\n\nexport function useDirectoryCarouselBootstrap', start);
+  const started = [];
+  class FixtureImage {
+    set src(url) { started.push(this); this.url = url; }
+  }
+  const warm = new Function('Image', 'presentDirectoryCarouselRecord',
+    `${bootstrapSource.slice(start, end + 2).replace('export function', 'function')}; return warmDirectoryCarouselImages;`)(FixtureImage, record => record);
+  const stop = warm([{ records: Array.from({ length: 8 }, (_, i) => ({ logo_url: `logo-${i}` })) }], 'dynamic', 0, 3);
+  assert.deepEqual(started.map(image => [image.url, image.fetchPriority]), [['logo-0', 'high'], ['logo-1', 'high'], ['logo-2', 'high']]);
+  started.forEach(image => image.onload());
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(started.slice(3).map(image => [image.url, image.fetchPriority]), [['logo-3', 'low'], ['logo-4', 'low']]);
+  stop();
+  started.slice(3).forEach(image => image.onload());
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(started.length, 5);
 });

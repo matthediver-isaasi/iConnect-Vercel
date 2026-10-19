@@ -5,6 +5,7 @@ import { getTenantSlugFromLocation, publicClient } from "@/api/publicClient";
 import { useQuery } from "@tanstack/react-query";
 import IEditElementRenderer from "../components/iedit/IEditElementRenderer";
 import CanvasPageRenderer from "../components/canvas/LazyCanvasPageRenderer";
+import { DirectoryCarouselBootstrapContext, useDirectoryCarouselBootstrap } from "../components/canvas/directoryCarouselBootstrap";
 import StaticHtmlPageRenderer from "../components/staticpage/StaticHtmlPageRenderer";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { usePageLayoutDecision, useLayoutContext } from "@/contexts/LayoutContext";
@@ -467,6 +468,13 @@ export default function DynamicPage() {
   const pageLoading = !publicProjection && projectedPageLoading;
   const pageFetched = !!publicProjection || projectedPageFetched;
   const page = pageData?.page;
+  const directoryCarouselBootstrap = useDirectoryCarouselBootstrap({
+    page,
+    navigationIdentity: `${location.key}|${location.pathname}|${audienceGeneration}`,
+    enabled: pageQueryEnabled && page?.slug === effectiveSlug && !audienceTransitionPending && !storageInvalidationPending && authResolved
+      && (!memberInfo || isAccessReady) && (canPreviewDrafts || page?.status === 'published')
+      && (page?.layout_type !== 'member' || (sessionValidated && !!memberInfo && isAccessReady)),
+  });
   const elements = pageData?.elements || [];
   const elementsLoading = pageLoading;
   const pageQueryPending = pageQueryEnabled && !pageFetched;
@@ -886,11 +894,13 @@ export default function DynamicPage() {
   if (page.builder_type === 'canvas') {
     return (
       <div className="w-full" data-testid={`dynamic-page-${slug}`}>
+        <DirectoryCarouselBootstrapContext.Provider value={directoryCarouselBootstrap}>
         <CanvasPageRenderer
           page={page}
           symbols={pageData?.symbols}
           editorPreview={canPreviewDrafts && !forcePublicPreview}
         />
+        </DirectoryCarouselBootstrapContext.Provider>
       </div>
     );
   }

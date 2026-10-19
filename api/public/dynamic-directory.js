@@ -1001,6 +1001,7 @@ async function fetchCarouselOrganizations({
   eligibilityAuthority,
   requesterOrganizationId,
   displaySettings,
+  candidateIds = null,
 }) {
   const organizations = [];
   let scanned = 0;
@@ -1008,13 +1009,17 @@ async function fetchCarouselOrganizations({
   // Supabase commonly caps a response at 1,000 rows.  Read the complete
   // eligible inventory in bounded server-side batches, then seed and paginate
   // only after the inventory is complete.
-  for (let offset = 0; ;) {
-    const { data, error } = await supabase
+  const candidateBatches = candidateIds === null ? [null]
+    : Array.from({ length: Math.ceil(candidateIds.length / 100) }, (_, index) => candidateIds.slice(index * 100, index * 100 + 100));
+  for (const candidates of candidateBatches) {
+   for (let offset = 0; ;) {
+    let query = supabase
       .from('organization')
       .select(CAROUSEL_ORGANIZATION_SELECT)
       .eq('tenant_id', tenantId)
-      .order('id', { ascending: true })
-      .range(offset, offset + CAROUSEL_QUERY_BATCH_SIZE - 1);
+      .order('id', { ascending: true });
+    if (candidates !== null) query = query.in('id', candidates);
+    const { data, error } = await query.range(offset, offset + CAROUSEL_QUERY_BATCH_SIZE - 1);
     if (error) {
       console.error('[PublicDynamicDirectory] Carousel organization fetch error:', error);
       throw new Error('Failed to fetch carousel organizations');
@@ -1034,6 +1039,7 @@ async function fetchCarouselOrganizations({
     }
     if (!batch.length) break;
     offset += batch.length;
+   }
   }
 
   const organizationIds = organizations.map((organization) => String(organization.id));

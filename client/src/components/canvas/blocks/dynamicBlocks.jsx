@@ -4,7 +4,9 @@
 // using TanStack Query. The same renderer is used in the editor and on the
 // public page; in the editor we add `data-canvas-editor` to suppress link
 // navigation. Skeleton/empty states and accessibility metadata are baked in.
-import { useMemo, useState, useEffect, useRef, useId, lazy, Suspense } from 'react';
+import { useMemo, useState, useEffect, useRef, useId, useContext, lazy, Suspense } from 'react';
+import { DirectoryCarouselBootstrapContext, directoryCarouselBlockKey, directoryCarouselViewerIdentity, directoryCarouselQueryOptions, warmDirectoryCarouselImages, createDirectoryCarouselVisitSeed, buildDirectoryCarouselQuery } from '../directoryCarouselBootstrap';
+export { createDirectoryCarouselVisitSeed, buildDirectoryCarouselQuery } from '../directoryCarouselBootstrap';
 import { useQuery } from '@tanstack/react-query';
 import {
   Calendar, MapPin, FileText, Newspaper, Heart, Users, Layers,
@@ -4130,7 +4132,8 @@ function DirectoryCarouselImage({ record, className = 'w-8 h-8' }) {
       src={record.logo_url}
       alt={record.name || ''}
       className={`max-w-full max-h-full object-contain ${member ? 'rounded-full' : ''}`}
-      loading="lazy"
+      loading="eager"
+      fetchPriority="high"
       onError={() => setFailedUrl(record.logo_url)}
     />
   ) : <Fallback className={`${className} text-slate-300`} aria-hidden="true" />;
@@ -4242,19 +4245,15 @@ function DirectoryCarouselRender({ block, asEditor, breakpoint }) {
   const c = block.content || {};
   const { source, directoryId, directorySlug, configured, identity: sourceIdentity } = resolveDirectoryCarouselSource(c);
   const organisationNameDisplay = resolveDirectoryCarouselOrganisationNameDisplay(c.organisationNameDisplay);
-  const visitIdentity = useId();
+  const localVisitIdentity = useId();
+  const bootstrap = useContext(DirectoryCarouselBootstrapContext);
+  const bootstrapEntry = !asEditor ? bootstrap?.entries.get(directoryCarouselBlockKey(block)) : null;
   const [focusWithin, setFocusWithin] = useState(false);
   const { memberInfo, memberRole, sessionValidated, authResolved } = useLayoutContext();
   const tenant = publicClient.getTenantSlug() || '';
-  const viewerIdentity = [
-    authResolved ? 'resolved' : 'pending',
-    sessionValidated ? 'validated' : 'unvalidated',
-    memberInfo?.id || '',
-    memberInfo?.tenant_id || '',
-    memberRole?.id || '',
-    JSON.stringify(memberRole?.excluded_features || []),
-    JSON.stringify(memberInfo?.member_excluded_features || []),
-  ].join(':');
+  const viewerIdentity = directoryCarouselViewerIdentity({ authResolved, sessionValidated, memberInfo, memberRole });
+  const sharedVisit = bootstrapEntry?.viewerIdentity === viewerIdentity && bootstrapEntry?.tenant === tenant ? bootstrapEntry : null;
+  const visitIdentity = sharedVisit?.visitIdentity || localVisitIdentity;
   const randomiseOrder = c.randomiseOrder === true;
   const websiteNewTab = resolveNewTab({ newTab: c.websiteNewTab }, true);
   const effBreakpoint = useCarouselBreakpoint(breakpoint);
@@ -4272,7 +4271,7 @@ function DirectoryCarouselRender({ block, asEditor, breakpoint }) {
   if (randomiseOrder && !visitSeedRef.current) {
     visitSeedRef.current = createDirectoryCarouselVisitSeed();
   }
-  const visitSeed = randomiseOrder ? visitSeedRef.current : null;
+  const visitSeed = randomiseOrder ? sharedVisit?.seed || visitSeedRef.current : null;
 
   const [currentPage, setCurrentPage] = useState(1);
   const [direction, setDirection] = useState(1);
@@ -7014,31 +7013,6 @@ function useDirectoryRecords({ directorySlug, page, limit, sort, search, filterO
 // full directory embed. The API returns only the requested page of its
 // allow-listed public organisation fields; never fetch all directory records
 // to sort or randomise them in the browser.
-export function createDirectoryCarouselVisitSeed() {
-  if (typeof globalThis !== 'undefined' && globalThis.crypto?.getRandomValues) {
-    const bytes = new Uint32Array(2);
-    globalThis.crypto.getRandomValues(bytes);
-    return `${bytes[0].toString(36)}-${bytes[1].toString(36)}`;
-  }
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-}
-
-export function buildDirectoryCarouselQuery({ source = 'dynamic', directoryId, directorySlug, tenant, page = 1, limit, randomiseOrder = false, seed, organisationNameDisplay } = {}) {
-  const params = new URLSearchParams();
-  params.set('mode', 'carousel');
-  if (tenant) params.set('tenant', tenant);
-  params.set('source', source);
-  params.set('organization_name_display', resolveDirectoryCarouselOrganisationNameDisplay(organisationNameDisplay));
-  if (source === 'dynamic') {
-    if (directoryId) params.set('directory_id', String(directoryId));
-    else params.set('slug', String(directorySlug || ''));
-  }
-  params.set('page', String(Math.max(1, Number(page) || 1)));
-  params.set('limit', String(Math.max(1, Math.min(Number(limit) || 1, 50))));
-  if (randomiseOrder && seed) params.set('seed', String(seed));
-  return params;
-}
-
 // Directory carousel indicator helper.
 // A directory may have hundreds or thousands of server pages. Rendering one
 // indicator per page makes the controls overflow and creates an enormous
@@ -7114,37 +7088,7 @@ function useDirectoryCarouselRecords({ source, directoryId, directorySlug, viewe
   const previous = retained.current?.identity === identity ? retained.current : null;
   const available = (source === 'primary-member' || source === 'primary-organization' || !!directoryId || !!directorySlug) && enabled !== false;
   const options = (apiPage, active) => ({
-    queryKey: [
-      'canvas',
-      'public-dynamic-directory-carousel',
-      tenant || '',
-      viewerIdentity || '',
-      visitIdentity || '',
-      source || 'dynamic',
-      directoryId || directorySlug || '',
-      resolveDirectoryCarouselOrganisationNameDisplay(organisationNameDisplay),
-      apiPage,
-      batchSize,
-      randomiseOrder ? String(seed || '') : '',
-    ],
-    queryFn: async ({ signal }) => {
-      const query = buildDirectoryCarouselQuery({
-        source, directoryId, directorySlug, tenant, page: apiPage,
-        organisationNameDisplay, limit: batchSize, randomiseOrder, seed,
-      });
-      const res = await fetch(`/api/public/dynamic-directory?${query.toString()}`, { credentials: 'include', signal });
-      if (!res.ok) {
-        let message = 'Directory carousel fetch failed';
-        try {
-          const body = await res.json();
-          if (body?.error && ![401, 403, 404].includes(res.status)) message = body.error;
-        } catch {}
-        const error = new Error(message);
-        error.status = res.status;
-        throw error;
-      }
-      return res.json();
-    },
+    ...directoryCarouselQueryOptions({ source, directoryId, directorySlug, tenant, viewerIdentity, visitIdentity, organisationNameDisplay, randomiseOrder, seed }, apiPage),
     enabled: available && active,
     retry: false,
     refetchOnWindowFocus: false,
@@ -7186,15 +7130,8 @@ function useDirectoryCarouselRecords({ source, directoryId, directorySlug, viewe
   // arrives, rather than starting image downloads on each slide transition.
   useEffect(() => {
     if (denied || !available || typeof Image === 'undefined') return;
-    const images = [current.data, next.data].flatMap((batch) => (batch?.records || []).map((record) => {
-      const presented = presentDirectoryCarouselRecord(record, batch.entityType || (source === 'primary-member' ? 'member' : 'organization'));
-      if (!presented.logo_url) return null;
-      const image = new Image();
-      image.src = presented.logo_url;
-      return image;
-    })).filter(Boolean);
-    return () => { images.forEach((image) => { image.onload = null; image.onerror = null; }); };
-  }, [identity, current.data, next.data, denied, available, source]);
+    return warmDirectoryCarouselImages([current.data, next.data], source, localOffset, limit);
+  }, [identity, current.data, next.data, denied, available, source, localOffset, limit]);
 
   return {
     data: failed ? undefined : data,

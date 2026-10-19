@@ -1,4 +1,4 @@
-import { directoryEligibleIds, readDirectoryPages } from './directoryExpression.js';
+import { directoryEligibleIds, directoryMatchingCandidateIds, readDirectoryPages } from './directoryExpression.js';
 import { applyCoreFieldVisibility, isMemberFieldVisibleOnFront } from './directoryConfig.js';
 import { isMemberPaused } from './memberPause.js';
 import { isDeletedRelationshipMember } from './customObjectMemberEligibility.js';
@@ -124,6 +124,7 @@ export async function renderSecureDirectoryCarousel({
   async function inventory(a) {
     const { directory, settings, context, publicView } = a;
     let rows;
+    let candidateIds = null;
     if (directory.entity_type === 'member') {
       rows = await readDirectoryPages(() => db.from('member').select(MEMBER_SELECT)
         .eq('tenant_id', tenantId)
@@ -134,6 +135,7 @@ export async function renderSecureDirectoryCarousel({
       rows = rows.filter(row => !isMemberPaused(row) && !isDeletedRelationshipMember(row)
         && (!visibleRoles.length || visibleRoles.includes(row.role_id)));
     } else {
+      candidateIds = await directoryMatchingCandidateIds(db, tenantId, directory);
       const { filterAuthority, verifiedDomainAuthority, eligibilityAuthority } = a.organizationAuthority;
       // Dynamic directories own their inclusion expression. The main directory's
       // status/type selectors must not narrow a separately configured directory
@@ -146,12 +148,13 @@ export async function renderSecureDirectoryCarousel({
       } : settings;
       rows = await h.fetchCarouselOrganizations({ supabase: db, tenantId, filterAuthority,
         verifiedDomainAuthority, eligibilityAuthority, displaySettings: populationSettings,
+        candidateIds,
         requesterOrganizationId: publicView ? null : context?.organizationId });
       // Primary canonical search never bypasses explicit exclusions for one's
       // own organisation. Keep the legacy dynamic-carousel exception separate.
       if (source === 'primary-organization') rows = rows.filter(row => !settings.excludedOrgIds.has(String(row.id)));
     }
-    const ids = await directoryEligibleIds(db, tenantId, directory, rows.map(row => row.id));
+    const ids = candidateIds ?? await directoryEligibleIds(db, tenantId, directory, rows.map(row => row.id));
     const eligible = ids === null ? null : new Set(ids);
     const projectionSettings = directory.entity_type === 'organization'
       && organizationNameDisplay !== 'inherit'

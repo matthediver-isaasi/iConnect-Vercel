@@ -108,7 +108,7 @@ function database(seed, failures = {}, hooks = {}, serverCap = Infinity) {
     }
 
     then(resolve, reject) {
-      hooks[this.table]?.(seed);
+      hooks[this.table]?.(seed, this);
       if (this.failure) {
         return Promise.resolve({ data: null, error: this.failure }).then(resolve, reject);
       }
@@ -164,6 +164,40 @@ test('carousel ordering is deterministic for a 1,200-organisation inventory', ()
   assert.equal(first.length, 1200);
   assert.deepEqual(first, second);
   assert.equal(new Set(first).size, 1200);
+});
+
+test('filtered carousel reads only matching organisation rows, including capped preference pages', async () => {
+  const all = organizations(1200);
+  const matching = all.slice(0, 13);
+  const state = {
+    dynamic_directory: [directory({ filter_expression: { version: 1, root: {
+      op: 'and', children: [{ field_id: 'partner', value: 'Partner' }],
+    } } })],
+    organization: all,
+    preference_field: [{ id: 'partner', tenant_id: TENANT_ID, entity_scope: 'organization', is_active: true, field_type: 'dropdown' }],
+    organization_preference_value: all.map((org, index) => ({
+      id: `value-${org.id}`, organization_id: org.id, field_id: 'partner', value: index < 13 ? 'Partner' : 'Other',
+    })),
+  };
+  let readRows = 0;
+  const result = response();
+  await dynamicDirectoryHandler(
+    { method: 'GET', query: { mode: 'carousel', slug: 'organisations', limit: '50' } },
+    result, {
+      supabase: database(state, {}, { organization: (_state, query) => {
+        const rows = query.rows();
+        readRows += rows.length;
+        assert.ok(rows.every(row => matching.some(match => match.id === row.id)), 'unrelated organisations must not be read');
+      } }, 200),
+      resolveTenant: async () => ({ id: TENANT_ID }),
+      getTenantContext: async () => publicContext(),
+      hasFeatureAccess: async () => true,
+      resolveMemberExclusions: async () => [],
+    },
+  );
+  assert.equal(result.statusCode, 200);
+  assert.equal(result.payload.total, 13);
+  assert.equal(readRows, 26, 'two safety passes, each reading only the 13 matches');
 });
 
 test('different seeds produce different global orders for large inventories', () => {
@@ -831,7 +865,7 @@ test('carousel returns 409 when the saved filter authority mutates during the sc
       entity_scope: 'organization',
       is_active: true,
     }],
-    organization_preference_value: [],
+    organization_preference_value: [{ id: 'match', organization_id: 'org-0000', field_id: 'sector', value: 'listed' }],
   };
   let mutated = false;
   const res = response();

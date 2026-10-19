@@ -81,3 +81,27 @@ export async function directoryEligibleIds(db, tenantId, directory, candidateIds
   }
   return eligible;
 }
+
+// Expressions contain only positive equality leaves joined by AND/OR. An
+// entity without any of the referenced values therefore cannot match. Start
+// with those field-indexed rows instead of scanning every tenant entity and
+// then issuing preference reads for every hundred IDs.
+// Field ownership is verified before reading values (which have no tenant
+// column); callers must still tenant-scope the final entity fetch.
+export async function directoryMatchingCandidateIds(db, tenantId, directory) {
+  const expression = await validateDirectoryConfiguration(db, tenantId, directory);
+  if (!expression) return null;
+  const entityKey = `${directory.entity_type}_id`;
+  const fields = expressionFieldIds(expression);
+  const values = await readDirectoryPages(() => db.from(`${directory.entity_type}_preference_value`)
+    .select(`id, ${entityKey}, field_id, value`).in('field_id', fields).order('id'));
+  const byEntity = new Map();
+  for (const row of values) {
+    if (!row[entityKey]) continue;
+    if (!byEntity.has(row[entityKey])) byEntity.set(row[entityKey], new Map());
+    const map = byEntity.get(row[entityKey]);
+    map.set(row.field_id, [...(map.get(row.field_id) || []), row.value]);
+  }
+  return [...byEntity].filter(([, entries]) => matchesDirectoryExpression(expression, entries))
+    .map(([id]) => id).sort();
+}

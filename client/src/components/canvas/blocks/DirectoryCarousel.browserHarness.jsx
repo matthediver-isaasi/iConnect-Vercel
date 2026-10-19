@@ -4,7 +4,7 @@ import { createElement, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import LayoutContext from '@/contexts/LayoutContext';
-import { DYNAMIC_BLOCK_DEFINITIONS } from './dynamicBlocks';
+import { getBlockDefinition } from './registry';
 import { useTypographyStyles } from '@/components/iedit/TypographyStyleSelector';
 
 export function mountDirectoryCarouselTest(host, initialBlock, { typography = false } = {}) {
@@ -21,7 +21,7 @@ export function mountDirectoryCarouselTest(host, initialBlock, { typography = fa
     const [viewer, setViewer] = useState({ authResolved: true, sessionValidated: false, memberInfo: null, memberRole: null });
     changeViewer = setViewer;
     changeContent = (patch) => setBlock((current) => ({ ...current, content: { ...current.content, ...patch } }));
-    const Renderer = DYNAMIC_BLOCK_DEFINITIONS['directory-carousel'].Renderer;
+    const Renderer = getBlockDefinition('directory-carousel').Renderer;
     return createElement(QueryClientProvider, { client: queryClient },
       createElement(LayoutContext.Provider, { value: viewer },
         createElement('div', { style: { width: 1000, height: 420 } },
