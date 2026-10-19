@@ -83,7 +83,7 @@ export default function EmailCampaigns() {
     if (!response.ok) throw new Error(data.error || fallback);
     return data;
   };
-  const { data: lifecycle, error: readinessError, isLoading: readinessLoading } = useQuery({
+  const { data: lifecycle, error: readinessError } = useQuery({
     queryKey: ['email-campaigns', 'lifecycle'],
     queryFn: async () => {
       const data = await readCampaignResponse(
@@ -96,7 +96,7 @@ export default function EmailCampaigns() {
     retry: false
   });
   const lifecycleReady = lifecycle?.ready === true && !readinessError;
-  const { data: campaigns = [], isLoading: campaignsLoading, error: campaignsError } = useQuery({
+  const { data: campaigns = [], isSuccess: campaignsLoaded, error: campaignsError } = useQuery({
     queryKey: ['email-campaigns', 'list', archiveView],
     queryFn: async () => {
       return readCampaignResponse(
@@ -104,7 +104,8 @@ export default function EmailCampaigns() {
         'Failed to fetch campaigns'
       );
     },
-    enabled: lifecycleReady,
+    // Ordinary reads remain available even before the archive migration is ready.
+    enabled: archiveView !== 'archived' || lifecycleReady,
     staleTime: 30000,
     refetchInterval: (query) => {
       const data = query.state.data;
@@ -179,13 +180,12 @@ export default function EmailCampaigns() {
     return map;
   }, [memberGroups]);
 
-  const { data: stats, error: summaryError } = useQuery({
+  const { data: stats, error: summaryError, isLoading: summaryLoading } = useQuery({
     queryKey: ['email-campaigns', 'summary'],
     queryFn: async () => readCampaignResponse(
       await fetch('/api/email-campaigns?summary=true', { credentials: 'include' }),
       'Failed to fetch campaign totals'
     ),
-    enabled: lifecycleReady,
     refetchInterval: campaigns.some(c => ['sending', 'preparing', 'paused'].includes(c.status)) ? 5000 : false
   });
   const removalBlocked = (campaign) => campaign && (
@@ -1097,6 +1097,7 @@ export default function EmailCampaigns() {
       {readinessError && <p role="alert">Campaign archive/delete is unavailable: {readinessError.message} No archive or delete actions are enabled.</p>}
       {lifecycleError && !showDeleteConfirm && <p role="alert">{lifecycleError}</p>}
       {summaryError && <p role="alert">Campaign totals unavailable: {summaryError.message}</p>}
+      {summaryLoading && <p role="status">Loading campaign totals…</p>}
       <p className="text-sm text-muted-foreground">Statistics include active and archived campaigns. Permanent deletion removes a campaign from these totals.</p>
       {stats && !summaryError && <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card data-testid="stat-campaigns-sent">
@@ -1155,7 +1156,7 @@ export default function EmailCampaigns() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-4">
           <div>
-            <CardTitle>{archiveView === 'all' ? 'All' : archiveView === 'archived' ? 'Archived' : 'Active'} Campaigns ({campaigns.length})</CardTitle>
+            <CardTitle>{archiveView === 'all' ? 'All' : archiveView === 'archived' ? 'Archived' : 'Active'} Campaigns{campaignsLoaded && !campaignsError ? ` (${campaigns.length})` : ''}</CardTitle>
             <p className="text-sm text-muted-foreground mt-1">
               Your email campaigns and their performance
             </p>
@@ -1165,7 +1166,7 @@ export default function EmailCampaigns() {
           <div className="flex gap-2 flex-wrap mb-4">
             {['active', 'archived', 'all'].map(view => (
               <Button key={view} variant={archiveView === view ? 'default' : 'outline'} aria-pressed={archiveView === view}
-                data-testid={`campaign-view-${view}`} disabled={!lifecycleReady}
+                data-testid={`campaign-view-${view}`} disabled={view === 'archived' && !lifecycleReady}
                 onClick={() => { setArchiveView(view); setCurrentPage(1); setLifecycleError(''); }}>
                 {view === 'active' ? 'Active' : view === 'archived' ? 'Archived' : 'All'}
               </Button>
@@ -1173,8 +1174,8 @@ export default function EmailCampaigns() {
             <Input aria-label="Search campaigns" placeholder="Search campaigns" value={campaignSearch}
               onChange={event => { setCampaignSearch(event.target.value); setCurrentPage(1); }} className="max-w-xs" />
           </div>
-          {campaignsError ? <p role="alert">{campaignsError.message}</p> : readinessError ? null : campaignsLoading || readinessLoading ? (
-            <div className="flex items-center justify-center py-12">
+          {campaignsError ? <p role="alert">Campaign list unavailable: {campaignsError.message}</p> : !campaignsLoaded ? (
+            <div role="status" aria-label="Loading campaigns" className="flex items-center justify-center py-12">
               <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
             </div>
           ) : filteredCampaigns.length === 0 ? (

@@ -1,3 +1,5 @@
+import { isMissingCampaignSummary, readLegacyCampaignSummary } from './campaignReads.js';
+
 // Service-only SQL operations. Never fall back to child-first deletion or
 // pretend a missing archive migration means a successful lifecycle change.
 export function campaignLifecycleError(error) {
@@ -36,7 +38,17 @@ export async function campaignLifecycleReady(db) {
 export async function campaignSummary(db, tenantId) {
   if (!db || !tenantId) return { success: false, statusCode: 503, error: 'Database not configured or missing tenant' };
   const { data, error } = await db.rpc('campaign_summary', { p_tenant: tenantId });
-  if (error) return campaignLifecycleError(error);
+  if (error) {
+    if (!isMissingCampaignSummary(error)) return campaignLifecycleError(error);
+    try {
+      return { success: true, summary: await readLegacyCampaignSummary(db, tenantId) };
+    } catch (readError) {
+      return {
+        success: false, statusCode: 500, code: readError?.code,
+        error: readError?.message || 'Campaign summary read failed.',
+      };
+    }
+  }
   if (!data) return { success: false, statusCode: 503, error: 'Campaign summary is unavailable.' };
   return { success: true, summary: data };
 }

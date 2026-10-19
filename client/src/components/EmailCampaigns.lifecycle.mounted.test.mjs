@@ -50,15 +50,21 @@ async function waitFor(predicate, label) {
 }
 const click = async element => { assert.ok(element); await act(async () => element.click()); };
 const byId = id => document.querySelector(`[data-testid="${id}"]`);
-async function mount({ records = [campaign], ready = true, mutationError = null } = {}) {
+async function mount({ records = [campaign], ready = true, mutationError = null, listError = null, summaryError = null, dataGate = null, readinessGate = null } = {}) {
   let items = records.map(item => ({ ...item }));
   const calls = [];
   globalThis.fetch = async (url, options = {}) => {
     calls.push({ url, options });
     assert.equal(options.credentials, 'include');
     const parsed = new URL(url, dom.window.location.origin);
-    if (parsed.searchParams.has('lifecycle')) return ready ? json({ ready: true }) : json({ error: 'Archive schema migration required' }, 503);
-    if (parsed.searchParams.has('summary')) return json(totals);
+    if (parsed.searchParams.has('lifecycle')) {
+      if (readinessGate) await readinessGate;
+      return ready ? json({ ready: true }) : json({ error: 'Archive schema migration required' }, 503);
+    }
+    if (parsed.searchParams.has('summary')) {
+      if (dataGate) await dataGate;
+      return summaryError ? json({ error: summaryError }, 503) : json(totals);
+    }
     if (options.method === 'DELETE' || options.method === 'POST') {
       if (mutationError) return json({ error: mutationError }, 409);
       const action = options.body && JSON.parse(options.body).action;
@@ -70,6 +76,8 @@ async function mount({ records = [campaign], ready = true, mutationError = null 
       return json({ success: true });
     }
     if (parsed.searchParams.has('archive')) {
+      if (dataGate) await dataGate;
+      if (listError) return json({ error: listError }, 503);
       const view = parsed.searchParams.get('archive');
       return json(items.filter(item => view === 'all' || (view === 'archived' ? !!item.archived_at : !item.archived_at)));
     }
@@ -162,13 +170,82 @@ test('server conflict remains visible in dialog without removing campaign or cla
   } finally { await view.cleanup(); }
 });
 
-test('schema readiness failure is explicit and never falls back to archive or delete', async () => {
-  const view = await mount({ ready: false });
+test('missing archive migration still loads 99 campaigns and independent totals; lifecycle controls fail closed', async () => {
+  const records = Array.from({ length: 99 }, (_, index) => ({ ...campaign, id: index === 0 ? campaign.id : `item-${index}` }));
+  const view = await mount({ ready: false, records });
   try {
+    await waitFor(() => byId('row-campaign-campaign-1') && byId('stat-emails-delivered'), 'ordinary reads despite missing migration');
     assert.match(view.container.textContent, /Archive schema migration required/);
+    assert.match(view.container.textContent, /Active Campaigns \(99\)/);
+    assert.match(byId('stat-emails-delivered').textContent, /1,234/);
+    assert.match(byId('stat-campaigns-sent').textContent, /7/);
+    assert.doesNotMatch(view.container.textContent, /No active campaigns|Active Campaigns \(0\)/);
     assert.equal(byId('campaign-view-archived').disabled, true);
-    assert.equal(view.calls.length, 1);
+    assert.equal(byId('campaign-view-active').disabled, false);
+    assert.equal(byId('campaign-view-all').disabled, false);
+    assert.equal(byId('button-delete-campaign-1').disabled, true);
+    await click(byId('button-delete-campaign-1'));
     assert.equal(byId('button-confirm-archive'), null);
+    assert.equal(byId('button-confirm-delete'), null);
+    await click(byId('campaign-view-archived'));
+    assert.equal(view.calls.some(call => call.url.includes('archive=archived')), false);
+    await click(byId('campaign-view-all'));
+    await waitFor(() => view.container.textContent.includes('All Campaigns (99)'), 'ordinary all view');
+    assert.equal(view.calls.filter(call => call.options.method).length, 0);
+    assert.ok(view.calls.some(call => call.url.includes('summary=true')));
+    assert.ok(view.calls.some(call => call.url.includes('archive=active')));
+  } finally { await view.cleanup(); }
+});
+
+test('list and summary failures show separate errors, never empty state or zero count', async () => {
+  const view = await mount({ ready: false, listError: 'Campaign database unavailable', summaryError: 'Totals database unavailable' });
+  try {
+    await waitFor(() => view.container.textContent.includes('Campaign list unavailable') && view.container.textContent.includes('Campaign totals unavailable'), 'read errors');
+    assert.match(view.container.textContent, /Archive schema migration required/);
+    assert.match(view.container.textContent, /Campaign database unavailable/);
+    assert.match(view.container.textContent, /Totals database unavailable/);
+    assert.doesNotMatch(view.container.textContent, /Active Campaigns \(0\)|No active campaigns|Create First Campaign/);
+    assert.equal(byId('stat-campaigns-sent'), null);
+    assert.equal(byId('stat-emails-delivered'), null);
+    assert.equal(view.calls.filter(call => call.options.method).length, 0);
+  } finally { await view.cleanup(); }
+});
+
+test('unloaded reads never claim zero; pending readiness does not block successful reads', async () => {
+  let releaseData;
+  let releaseReadiness;
+  const dataGate = new Promise(resolve => { releaseData = resolve; });
+  const readinessGate = new Promise(resolve => { releaseReadiness = resolve; });
+  const view = await mount({ dataGate, readinessGate });
+  try {
+    assert.ok(view.container.querySelector('[aria-label="Loading campaigns"]'));
+    assert.match(view.container.textContent, /Loading campaign totals/);
+    assert.doesNotMatch(view.container.textContent, /Active Campaigns \(0\)|No active campaigns|Create First Campaign/);
+    assert.equal(byId('stat-emails-delivered'), null);
+    assert.equal(byId('campaign-view-archived').disabled, true);
+    await act(async () => releaseData());
+    await waitFor(() => byId('row-campaign-campaign-1') && byId('stat-emails-delivered'), 'reads before readiness');
+    assert.match(view.container.textContent, /Active Campaigns \(1\)/);
+    assert.equal(byId('button-delete-campaign-1').disabled, true);
+    assert.equal(byId('campaign-view-archived').disabled, true);
+    await click(byId('button-delete-campaign-1'));
+    assert.equal(byId('button-confirm-archive'), null);
+    assert.equal(view.calls.filter(call => call.options.method).length, 0);
+  } finally {
+    await act(async () => { releaseData(); releaseReadiness(); });
+    await view.cleanup();
+  }
+});
+
+test('restore remains disabled when readiness fails but all view is readable', async () => {
+  const view = await mount({ ready: false, records: [{ ...campaign, archived_at: '2026-05-18T12:00:00Z' }] });
+  try {
+    await click(byId('campaign-view-all'));
+    await waitFor(() => byId('button-restore-campaign-1'), 'archived row in ordinary all view');
+    assert.equal(byId('button-restore-campaign-1').disabled, true);
+    assert.equal(byId('button-delete-campaign-1').disabled, true);
+    await click(byId('button-restore-campaign-1'));
+    assert.equal(view.calls.filter(call => call.options.method).length, 0);
   } finally { await view.cleanup(); }
 });
 

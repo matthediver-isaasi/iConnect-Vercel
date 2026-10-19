@@ -1,5 +1,6 @@
 import { supabase as rawSupabase } from './database.js';
-import { campaignLifecycle, archivedCampaignConflict } from './campaignLifecycle.js';
+import { campaignLifecycle, archivedCampaignConflict, campaignLifecycleError } from './campaignLifecycle.js';
+import { readCampaignList, isMissingCampaignArchiveColumn } from './campaignReads.js';
 import { recordedAudienceAttendance } from './campaignRecordedAttendance.js';
 import { loadCampaignEngagement } from './campaignEngagement.js';
 import { campaignAddressSuppressed } from './emailBounceService.js';
@@ -210,24 +211,7 @@ export async function getCampaigns(tenantId, options = {}) {
     if (!['active', 'archived', 'all'].includes(archive)) {
       return { success: false, error: 'Invalid archive filter', statusCode: 400 };
     }
-    const data = await fetchAllRows((offset, size) => {
-    let query = supabase
-      .from('email_campaign')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .order('created_at', { ascending: false })
-      .order('id', { ascending: false });
-    if (archive === 'active') query = query.is('archived_at', null);
-    if (archive === 'archived') query = query.not('archived_at', 'is', null);
-
-    if (options.status) {
-      query = query.eq('status', options.status);
-    }
-
-    const remaining = options.limit ? Math.max(0, options.limit - offset) : size;
-    if (!remaining) return Promise.resolve({ data: [] });
-    return query.range(offset, offset + Math.min(size, remaining) - 1);
-    });
+    const data = await readCampaignList(supabase, tenantId, { ...options, archive });
 
     const campaigns = data || [];
     const enriched = await Promise.all(campaigns.map(c => enrichCampaignCounts(c)));
@@ -236,7 +220,8 @@ export async function getCampaigns(tenantId, options = {}) {
     return { success: true, campaigns: withPreparation };
   } catch (err) {
     console.error('[Campaign Service] Error fetching campaigns:', err);
-    return { success: false, error: err.message };
+    if (isMissingCampaignArchiveColumn(err)) return campaignLifecycleError(err);
+    return { success: false, error: err.message, code: err.code, statusCode: 500 };
   }
 }
 

@@ -17,3 +17,14 @@ success.
 example a saved/seed marker). Throw or return a non-success response for all
 ambiguous load failures, and have consumers retain their previous snapshot on
 that failure. Test both confirmed-empty and backend-error paths end to end.
+
+Optional mutation-capability readiness must not gate existing read-only lists
+or statistics. Missing archive/delete support should disable those actions,
+not show an unloaded campaign list as zero.
+
+**Why:** An archive rollout made retained campaigns appear lost because list
+and summary queries depended on the unapplied mutation migration.
+
+**How to apply:** Keep read availability independent, with narrowly identified
+legacy-schema compatibility. Preserve errors for unrelated failures and keep
+destructive operations fail-closed until their database authority is installed.
