@@ -1,11 +1,11 @@
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../../_lib/tenantContext.js';
-import { loadBounces, resolveBounce } from '../../_lib/emailBounceService.js';
+import { loadBounces, resolveBounce, setBounceVisibility } from '../../_lib/emailBounceService.js';
 
 export function createBounceHandler(deps = {}) {
   return async (req, res) => {
     res.setHeader('Cache-Control', 'private, no-store');
-    if (!['GET','POST'].includes(req.method)) return res.status(405).json({ error: 'Method not allowed' });
+    if (!['GET','POST','PATCH'].includes(req.method)) return res.status(405).json({ error: 'Method not allowed' });
     try {
       const ctx = await (deps.getTenantContext || getTenantContext)(req);
       if (!ctx?.isAuthenticated) return res.status(401).json({ error: 'Authentication required' });
@@ -17,6 +17,8 @@ export function createBounceHandler(deps = {}) {
       const db = deps.db || supabase;
       const result = req.method === 'GET'
         ? await (deps.loadBounces || loadBounces)(db, ctx.tenantId, req.query || {})
+        : req.method === 'PATCH'
+        ? await (deps.setBounceVisibility || setBounceVisibility)(db, ctx, req.body || {})
         : await (deps.resolveBounce || resolveBounce)(db, ctx, req.body || {});
       return res.status(200).json(result);
     } catch (error) {

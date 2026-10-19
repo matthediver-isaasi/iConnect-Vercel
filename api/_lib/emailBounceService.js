@@ -20,8 +20,12 @@ export async function loadBounces(db, tenantId, query) {
   }
   const page = Math.max(1, Math.min(100000, Number.parseInt(query.page, 10) || 1));
   let q = db.from('email_address_bounce').select('*', { count: 'exact' }).eq('tenant_id', tenantId);
-  if (query.view === 'resolved') q = q.not('resolved_at', 'is', null);
-  else if (query.view !== 'all') q = q.is('resolved_at', null);
+  if (query.view === 'hidden') q = q.not('hidden_at', 'is', null);
+  else if (query.view !== 'all') {
+    q = q.is('hidden_at', null);
+    if (query.view === 'resolved') q = q.not('resolved_at', 'is', null);
+    else q = q.is('resolved_at', null);
+  }
   if (query.search) q = q.filter('email', 'imatch', literal(String(query.search).slice(0, 200)));
   const { data, count, error } = await q.order('last_bounced_at', { ascending: false }).order('id').range((page - 1) * 50, page * 50 - 1);
   if (error) throw error;
@@ -35,6 +39,23 @@ export async function loadBounces(db, tenantId, query) {
       members: (members.data || []).map(m => ({ id: m.id, name: [m.first_name, m.last_name].filter(Boolean).join(' ') })) };
   }));
   return { items, total: count, page, pageSize: 50 };
+}
+
+export async function setBounceVisibility(db, context, body) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.id || '')
+    || typeof body.hidden !== 'boolean') {
+    throw Object.assign(new Error('Supply a bounce ID and a boolean hidden value'), { status: 400 });
+  }
+  const actor = context.tenantUserId || context.memberId;
+  if (!actor) throw Object.assign(new Error('An authenticated actor is required'), { status: 403 });
+  // Only visibility columns are writable here, even if additional fields were submitted.
+  const { data, error } = await db.from('email_address_bounce').update({
+    hidden_at: body.hidden ? new Date().toISOString() : null,
+    hidden_by: body.hidden ? `${context.tenantUserId ? 'tenant_user' : 'member'}:${actor}` : null,
+  }).eq('tenant_id', context.tenantId).eq('id', body.id).select('*').maybeSingle();
+  if (error) throw error;
+  if (!data) throw Object.assign(new Error('Bounce not found'), { status: 404 });
+  return { item: data };
 }
 
 // GET only: do not remove a provider suppression, send a test, or change consent.

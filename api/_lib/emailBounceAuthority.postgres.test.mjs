@@ -34,6 +34,18 @@ test('bounce authority: chronological outcomes, address isolation, stale replay 
  assert.equal((await db.query('select * from email_address_bounce')).rowCount,0);
  await event('failed','permanent',550,'2026-10-06T13:34:19Z');
  const b=(await db.query('select * from email_address_bounce')).rows[0];
+ await db.query(readFileSync('supabase/migrations/202612080003_email_bounce_visibility.sql','utf8'));
+ assert.equal((await db.query('select hidden_at from email_address_bounce')).rows[0].hidden_at,null);
+ await db.query(`UPDATE email_address_bounce SET hidden_at=now(),hidden_by='member:test' WHERE id=$1`,[b.id]);
+ const hidden=(await db.query('select * from email_address_bounce')).rows[0];
+ assert.ok(hidden.hidden_at);
+ assert.equal(hidden.resolved_at,null);
+ assert.deepEqual(hidden.last_bounced_at,b.last_bounced_at);
+ assert.equal((await db.query('select count(*)::int n from email_bounce_resolution')).rows[0].n,0);
+ await event('failed','permanent',550,'2026-10-06T13:34:19Z');
+ assert.ok((await db.query('select hidden_at from email_address_bounce')).rows[0].hidden_at);
+ await db.query(`UPDATE email_address_bounce SET hidden_at=null,hidden_by=null WHERE id=$1`,[b.id]);
+ assert.equal((await db.query('select resolved_at from email_address_bounce')).rows[0].resolved_at,null);
  await db.query(`UPDATE email_campaign_recipient SET status='clicked',clicked_at=now()`);
  assert.equal((await row()).status,'bounced');
  const resolve=async(last,tenant=b.tenant_id)=> (await db.query(`select resolve_email_address_bounce($1,$2,$3,'admin','Address confirmed','example.invalid',now()) as ok`,[tenant,b.id,last])).rows[0].ok;
@@ -49,6 +61,7 @@ test('bounce authority: chronological outcomes, address isolation, stale replay 
  await db.query(readFileSync('supabase/migrations/202612080002_email_bounce_history.sql','utf8'));
  await db.query('SET ROLE authenticated');
  await assert.rejects(db.query('select * from email_address_bounce'),/permission denied/);
+ await assert.rejects(db.query('update email_address_bounce set hidden_at=now()'),/permission denied/);
  await assert.rejects(db.query(`select resolve_email_address_bounce(null,null,null,null,null,null,null)`),/permission denied/);
  } finally {if(db)await db.end();if(started)spawnSync('pg_ctl',['-D',h.data,'-m','immediate','-w','stop']);await h.cleanup();}
 });

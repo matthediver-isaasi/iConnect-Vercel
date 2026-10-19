@@ -36,3 +36,17 @@ export function useResolveBounce() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: [BOUNCE_QUERY_KEY] }),
   });
 }
+
+export function useSetBounceHidden() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, hidden }) => readBounceResponse(await fetch(ENDPOINT, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, hidden }),
+    }), { visibility: true }),
+    // Both report and member bounce queries share this prefix.
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: [BOUNCE_QUERY_KEY] }),
+  });
+}

@@ -13,11 +13,13 @@ export function resolutionPayload(item, reason) {
   return { id: item.id, expectedLastBouncedAt: item.last_bounced_at, reason: reason.trim() };
 }
 
-export async function readBounceResponse(response) {
+export async function readBounceResponse(response, { visibility = false } = {}) {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     const message = typeof data.error === "string" ? data.error : typeof data.message === "string" ? data.message : "";
-    const error = new Error(response.status === 409
+    const error = new Error(visibility
+      ? message || "Bounce visibility could not be updated. Please try again."
+      : response.status === 409
       ? `The address could not be resolved. If the email provider still suppresses it, an administrator must resolve that suppression with the provider first. Refresh this report before trying again.${message ? ` ${message}` : ""}`
       : message || "Bounce information could not be loaded. Please try again.");
     error.status = response.status;

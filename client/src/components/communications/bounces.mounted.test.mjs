@@ -9,6 +9,9 @@ for (const key of ["window", "document", "navigator", "HTMLElement", "HTMLInputE
   Object.defineProperty(globalThis, key, { configurable: true, value: key === "window" ? dom.window : dom.window[key] });
 }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+dom.window.HTMLElement.prototype.scrollIntoView = function () {};
+dom.window.HTMLElement.prototype.hasPointerCapture = () => false;
+dom.window.HTMLElement.prototype.releasePointerCapture = function () {};
 const React = (await import("react")).default;
 const { act } = React;
 const { createRoot } = await import("react-dom/client");
@@ -42,9 +45,14 @@ async function mount(Component, props = {}) {
   const root = createRoot(container);
   const render = async (next) => act(async () => root.render(h(QueryClientProvider, { client }, h(MemoryRouter, {}, h(Component, next)))));
   await render(props);
-  return { container, render, async cleanup() { await act(async () => root.unmount()); client.clear(); container.remove(); } };
+  return { container, render, client, async cleanup() { await act(async () => root.unmount()); client.clear(); container.remove(); } };
 }
 const click = async (element) => { assert.ok(element); await act(async () => element.click()); };
+async function selectView(container, label) {
+  await act(async () => container.querySelector("#bounce-view").dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+  await waitFor(() => document.querySelector('[role="option"]'), "view options");
+  await click([...document.querySelectorAll('[role="option"]')].find((option) => option.textContent === label));
+}
 async function input(element, value) {
   await act(async () => {
     const proto = element.tagName === "TEXTAREA" ? dom.window.HTMLTextAreaElement.prototype : dom.window.HTMLInputElement.prototype;
@@ -136,6 +144,120 @@ test("inactive report never requests data", async () => {
   const view = await mount(Report, { active: false });
   try { await settle(); assert.equal(count, 0); assert.equal(view.container.textContent, ""); }
   finally { await view.cleanup(); }
+});
+
+test("hide and unhide use PATCH, show pending state, reset pagination and invalidate member/report caches", async () => {
+  const calls = [];
+  let hidden = false;
+  let release;
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url, options });
+    if (options.method === "PATCH") return new Promise((resolve) => {
+      release = () => {
+        hidden = JSON.parse(options.body).hidden;
+        resolve(json({ item: { ...item, hidden_at: hidden ? "2026-05-18T12:00:00Z" : null } }));
+      };
+    });
+    const filter = new URL(url, dom.window.location.origin).searchParams.get("view");
+    const included = filter === "all" || (filter === "hidden" ? hidden : filter === "active" && !hidden);
+    return json({ items: included ? [{ ...item, hidden_at: hidden ? "2026-05-18T12:00:00Z" : null }] : [], total: included ? 57 : 0, pageSize: 50 });
+  };
+  const view = await mount(Report);
+  try {
+    const memberKey = ["communication-bounces", "member", "member-17", item.email];
+    view.client.setQueryDefaults(memberKey, { gcTime: Infinity });
+    view.client.setQueryData(memberKey, { item });
+    await waitFor(() => view.container.querySelector("tbody"), "rows");
+    assert.match(view.container.textContent, /Hidden unresolved addresses remain blocked/);
+    await click([...view.container.querySelectorAll("button")].find((button) => button.textContent === "Next"));
+    await waitFor(() => view.container.textContent.includes("Page 2 of"), "second page");
+    await click(view.container.querySelector('[aria-label^="Hide "]'));
+    await waitFor(() => view.container.querySelector('[aria-label^="Hide "]')?.disabled, "hide pending");
+    const pending = view.container.querySelector('[aria-label^="Hide "]');
+    assert.equal(pending.disabled, true);
+    assert.equal(pending.textContent, "Hiding…");
+    await click(pending);
+    assert.equal(calls.filter(({ options }) => options.method === "PATCH").length, 1);
+    await act(async () => release());
+    await waitFor(() => view.container.textContent.includes("No active hard bounces"), "active removes hidden row");
+    assert.match(view.container.querySelector('[role="status"]').textContent, /Address hidden/);
+    assert.equal(view.client.getQueryState(memberKey).isInvalidated, true);
+    await selectView(view.container, "Hidden");
+    await waitFor(() => view.container.querySelector('[aria-label^="Unhide "]'), "hidden row");
+    assert.ok(calls.some(({ url }) => url.includes("view=hidden") && url.includes("page=1")));
+    assert.match(view.container.querySelector("tbody").textContent, /Hidden/);
+    assert.match(view.container.querySelector("tbody").textContent, /Campaign emails paused/);
+    await selectView(view.container, "All addresses");
+    await waitFor(() => calls.some(({ url }) => url.includes("view=all")), "all filter");
+    await waitFor(() => view.container.querySelector("tbody"), "all row");
+    assert.match(view.container.querySelector("tbody").textContent, /Hidden/);
+    await selectView(view.container, "Hidden");
+    await waitFor(() => view.container.querySelector('[aria-label^="Unhide "]'), "hidden unhide");
+    await click(view.container.querySelector('[aria-label^="Unhide "]'));
+    await waitFor(() => view.container.querySelector('[aria-label^="Unhide "]')?.disabled, "unhide pending");
+    assert.equal(view.container.querySelector('[aria-label^="Unhide "]').textContent, "Unhiding…");
+    await act(async () => release());
+    await waitFor(() => !view.container.querySelector("tbody"), "hidden row removed");
+    assert.match(view.container.querySelector('[role="status"]').textContent, /Address unhidden/);
+    await selectView(view.container, "Active — paused");
+    await waitFor(() => view.container.querySelector('[aria-label^="Hide "]'), "unhidden active row");
+    const patches = calls.filter(({ options }) => options.method === "PATCH");
+    assert.deepEqual(patches.map(({ options }) => JSON.parse(options.body)), [{ id: item.id, hidden: true }, { id: item.id, hidden: false }]);
+    assert.ok(patches.every(({ options }) => options.credentials === "include" && options.headers["Content-Type"] === "application/json"));
+    assert.equal(calls.some(({ options }) => options.method === "POST"), false);
+  } finally { await view.cleanup(); }
+});
+
+test("visibility errors are visible and retryable without resolution-specific 409 guidance", async () => {
+  const patches = [];
+  globalThis.fetch = async (url, options = {}) => {
+    if (options.method === "PATCH") {
+      patches.push(JSON.parse(options.body));
+      return json({ error: "Visibility update conflict. Refresh and try again." }, 409);
+    }
+    assert.notEqual(options.method, "POST");
+    return json({ items: [item], total: 1, pageSize: 50 });
+  };
+  const view = await mount(Report);
+  try {
+    await waitFor(() => view.container.querySelector('[aria-label^="Hide "]'), "hide action");
+    await click(view.container.querySelector('[aria-label^="Hide "]'));
+    await waitFor(() => view.container.querySelector('[role="alert"]'), "visibility failure");
+    assert.equal(view.container.querySelector('[role="alert"]').textContent, "Visibility update conflict. Refresh and try again.");
+    assert.doesNotMatch(view.container.querySelector('[role="alert"]').textContent, /provider|resolved|suppression/);
+    assert.equal(view.container.querySelector('[aria-label^="Hide "]').disabled, false);
+    await click(view.container.querySelector('[aria-label^="Hide "]'));
+    await waitFor(() => patches.length === 2, "retry PATCH");
+    assert.ok(view.container.querySelector("tbody"));
+    assert.equal(document.querySelector('[role="dialog"]'), null);
+  } finally { await view.cleanup(); }
+});
+
+test("Hidden view includes resolved and unresolved rows while Resolved requests its own view", async () => {
+  const calls = [];
+  const resolvedHidden = { ...item, id: "bounce-18", email: "resolved@example.test", hidden_at: "2026-05-18T12:00:00Z", resolved_at: "2026-05-17T12:00:00Z" };
+  globalThis.fetch = async (url, options = {}) => {
+    assert.equal(options.method, undefined);
+    const filter = new URL(url, dom.window.location.origin).searchParams.get("view");
+    calls.push(filter);
+    const items = filter === "hidden" || filter === "all" ? [{ ...item, hidden_at: "2026-05-18T12:00:00Z" }, resolvedHidden] : [];
+    return json({ items, total: items.length, pageSize: 50 });
+  };
+  const view = await mount(Report);
+  try {
+    await waitFor(() => view.container.textContent.includes("No active hard bounces"), "active excludes hidden");
+    await selectView(view.container, "Hidden");
+    await waitFor(() => view.container.querySelectorAll("tbody tr").length === 2, "hidden rows regardless of resolution");
+    const rows = view.container.querySelectorAll("tbody tr");
+    assert.match(rows[0].textContent, /Campaign emails paused/);
+    assert.match(rows[1].textContent, /Resolved/);
+    assert.ok(rows[1].querySelector('[aria-label^="Unhide "]'));
+    assert.equal(rows[1].querySelector('[aria-label^="Review resuming"]'), null);
+    await selectView(view.container, "Resolved");
+    await waitFor(() => calls.includes("resolved") && !view.container.querySelector("tbody"), "resolved excludes hidden");
+    await selectView(view.container, "All addresses");
+    await waitFor(() => view.container.querySelectorAll("tbody tr").length === 2, "all includes both hidden statuses");
+  } finally { await view.cleanup(); }
 });
 
 test("report exposes loading, error with retry, and composed empty state", async () => {

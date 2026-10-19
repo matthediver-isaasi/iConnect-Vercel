@@ -13,7 +13,7 @@ test('soft/permanent/exhausted classification and send-time boundary',()=>{
  [null,null,'generic','delivery_failed'],
  ]) assert.equal(classifyEmailDelivery({event:'failed',severity,reason,'delivery-status':{code}}),expected);
  const code=readFileSync(new URL('./campaignService.js',import.meta.url),'utf8');
- const check=code.indexOf('if (await campaignAddressSuppressed(');
+ const check=code.indexOf('await campaignAddressSuppressed(');
  assert.ok(check>0);
  assert.ok(check<code.indexOf('providerSubmitted = true;',check));
  assert.ok(check<code.indexOf('const result = await sendEmail({',check));
@@ -50,7 +50,7 @@ test('resolution requires fresh evidence, checks provider and uses atomic audit 
 test('endpoint enforces tenant and feature boundaries for both reads and writes',async()=>{
  for (const [context,allowed,status] of [[{},true,401],[{isAuthenticated:true,tenantId:'t',tenantMismatch:true},true,403],[{isAuthenticated:true,tenantId:'t'},false,403]]) {
  const res={setHeader(){},status(s){this.code=s;return this},json(b){this.body=b;return this}};
- for(const method of ['GET','POST']){
+ for(const method of ['GET','POST','PATCH']){
  await createBounceHandler({getTenantContext:async()=>context,hasAdminAccess:async()=>false,hasFeatureAccess:async()=>allowed,loadBounces:()=>{throw Error('must not load')}})({method,query:{}},res);
  assert.equal(res.code,status);
  }

@@ -38,6 +38,15 @@ test("409 explains provider resolution first without claiming provider state was
   assert.deepEqual(await readBounceResponse(new Response('{"item":null}')), { item: null });
 });
 
+test("visibility errors never apply resolution-specific conflict guidance", async () => {
+  await assert.rejects(readBounceResponse(new Response(JSON.stringify({ error: "Visibility conflict" }), { status: 409 }), { visibility: true }), (error) => {
+    assert.equal(error.status, 409);
+    assert.equal(error.message, "Visibility conflict");
+    return true;
+  });
+  await assert.rejects(readBounceResponse(new Response("not json", { status: 503 }), { visibility: true }), /visibility could not be updated/);
+});
+
 test("delivery outcome overrides protected engagement status without mutating it", () => {
   for (const [outcome, label] of [["hard_bounce", "Hard bounce"], ["soft_bounce", "Soft bounce · retrying"], ["delivery_failed", "Delivery failed after retries"]]) {
     const recipient = Object.freeze({ status: "clicked", delivery_outcome: outcome });
