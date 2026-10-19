@@ -43,6 +43,18 @@ test("PDF controls require both list permission and record availability", () => 
   assert.doesNotMatch(render(true, false), /View invoice|Download invoice/);
   assert.doesNotMatch(render(true, undefined), /View invoice|Download invoice/);
 });
+test("verified Xero payment observation is separate from imported status and shows stale checks", () => {
+  const html = renderToStaticMarkup(<HistoricalInvoicesTable records={[{
+    ...record, record_kind: "invoice", status: "Unpaid in workbook",
+    accounting_payment_status: "paid", accounting_status: "PAID",
+    accounting_status_checked_at: "2026-01-02T12:00:00Z",
+    accounting_status_refresh_pending: true,
+  }]} canAccessInvoices={false} />);
+  assert.match(html, /paid/);
+  assert.match(html, /Xero checked 02\/01\/2026/);
+  assert.match(html, /refresh pending/);
+  assert.match(html, /Imported status: Unpaid in workbook/);
+});
 
 test("PDF URL uses persisted record id and explicit inline flag; filename is sanitized", () => {
   assert.equal(historicalInvoiceUrl("record-1", true), "/api/membership/historical-invoice?recordId=record-1&inline=true");

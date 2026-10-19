@@ -141,7 +141,25 @@ export function HistoricalInvoicesTable({ records, canAccessInvoices, tenantId, 
               </td>
               <td className="p-3">
                 <p>{({ invoice: "Invoice", credit: "Credit", overpayment: "Overpayment" })[record.record_kind] || "Unknown kind"}</p>
-                <Badge variant="outline" className="mt-1">{record.status || "Unknown status"}</Badge>
+                <Badge variant="outline" className="mt-1">
+                  {record.accounting_status_checked_at
+                    ? record.accounting_payment_status || record.accounting_status || "Unknown status"
+                    : record.status || "Unknown status"}
+                </Badge>
+                {record.accounting_status_checked_at && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Xero checked {formatHistoricalInvoiceDate(record.accounting_status_checked_at.slice(0, 10))}
+                    {record.accounting_status_refresh_pending ? " · refresh pending" : ""}
+                  </p>
+                )}
+                {record.status && record.accounting_status_checked_at && (
+                  <p className="mt-1 text-xs text-muted-foreground">Imported status: {record.status}</p>
+                )}
+                {!record.accounting_status_checked_at && record.record_kind === "invoice" && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Xero status not yet verified{record.accounting_status_refresh_pending ? " · refresh pending" : ""}
+                  </p>
+                )}
               </td>
               <td className="p-3 text-right">{formatHistoricalInvoiceAmount(record.amount_minor, record.currency)}</td>
               <td className="p-3 min-w-[175px]">

@@ -10,6 +10,7 @@
 import { supabase } from '../_lib/database.js';
 import { reconcileRow } from '../_lib/membershipPaymentReconciliation.js';
 import { createHeartbeatReporter, HEARTBEAT_ENV_VARS } from '../_lib/heartbeat.js';
+import { refreshHistoricalInvoiceStatuses } from '../_lib/historicalInvoiceStatusRefresh.js';
 
 const MAX_ROWS_PER_RUN = 500;
 const ORG_TABLE = 'organisation_membership_history';
@@ -28,11 +29,13 @@ function isRateLimitError(err) {
   return /\b429\b|rate.?limit/i.test(String(err?.message || err));
 }
 
-export default async function handler(req, res) {
-  const authHeader = req.headers.authorization;
-  const cronSecret = process.env.CRON_SECRET;
+export function isAuthorizedMembershipInvoiceCron(req, secret = process.env.CRON_SECRET) {
+  return typeof secret === 'string' && secret.trim().length > 0 &&
+    req.headers?.authorization === `Bearer ${secret}`;
+}
 
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+export default async function handler(req, res) {
+  if (!isAuthorizedMembershipInvoiceCron(req)) {
     console.log('[cron/reconcile-membership-invoice-payments] Unauthorized request');
     return res.status(401).json({ error: 'Unauthorized' });
   }
@@ -65,6 +68,15 @@ export default async function handler(req, res) {
   };
 
   try {
+    // Separate archival observation only. Never feed historical rows to reconcileRow,
+    // accounting recovery, or any payment/membership transition.
+    try {
+      results.historical_status_refresh = await refreshHistoricalInvoiceStatuses(supabase);
+      results.errors += results.historical_status_refresh.errors;
+    } catch (err) {
+      results.errors++;
+      results.historical_status_refresh = { error: err.message };
+    }
     // Backstop pre-pass (Task #3278): retry pending stripe-membership
     // webhook events (e.g. the webhook arrived before the confirm flow
     // created the history row, and Stripe's own redelivery window has

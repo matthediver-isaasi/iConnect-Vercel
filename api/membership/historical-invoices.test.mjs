@@ -53,6 +53,20 @@ test('other member list is denied before database access', async () => {
   await createHistoricalInvoicesHandler(deps)({ method: 'GET', query: { memberId: otherId } }, res);
   assert.equal(res.code, 403); assert.equal(calls.length, 0);
 });
+test('list returns verified accounting provenance without exposing raw refresh errors', async () => {
+  const { deps, builder } = setup();
+  builder.range = async () => ({ data: [{
+    ...baseRow, status: 'Imported unpaid', accounting_payment_status: 'paid',
+    accounting_status: 'PAID', accounting_status_checked_at: '2026-01-01T00:00:00Z',
+    accounting_status_error: 'private provider error',
+  }], count: 1 });
+  const res = response();
+  await createHistoricalInvoicesHandler(deps)({ method: 'GET', query: { memberId } }, res);
+  assert.equal(res.body.records[0].status, 'Imported unpaid');
+  assert.equal(res.body.records[0].accounting_payment_status, 'paid');
+  assert.equal(res.body.records[0].accounting_status_refresh_pending, true);
+  assert.equal(Object.hasOwn(res.body.records[0], 'accounting_status_error'), false);
+});
 test('anonymous, wrong tenant and missing history permission fail closed', async () => {
   for (const [overrides, expected] of [
     [{ getSessionMember: async () => null, getTenantContext: async () => ({}) },401],

@@ -16,13 +16,17 @@ export function createHistoricalInvoicesHandler(dependencies = {}) {
       if (!access.isAdmin && memberId !== access.memberId) throw accessError(403, 'Not authorized to view these invoices');
       const offset = Number(page) * 50;
       const { data, error, count } = await db.from('historical_member_invoice')
-        .select('id,invoice_number,invoice_date,amount_minor,currency,description,record_kind,status', { count: 'exact' })
+        .select('id,invoice_number,invoice_date,amount_minor,currency,description,record_kind,status,accounting_status,accounting_payment_status,accounting_status_checked_at,accounting_status_error', { count: 'exact' })
         .eq('tenant_id', access.tenantId).eq('member_id', memberId)
         .order('invoice_date', { ascending: false }).order('id', { ascending: false })
         .range(offset, offset + 49);
       if (error) throw error;
       return res.json({
-        records: data.map(row => ({ ...row, can_download: access.canAccessInvoices && row.record_kind !== 'overpayment' })),
+        records: data.map(({ accounting_status_error, ...row }) => ({
+          ...row,
+          accounting_status_refresh_pending: Boolean(accounting_status_error),
+          can_download: access.canAccessInvoices && row.record_kind !== 'overpayment',
+        })),
         total: count, canAccessInvoices: access.canAccessInvoices,
       });
     } catch (error) {

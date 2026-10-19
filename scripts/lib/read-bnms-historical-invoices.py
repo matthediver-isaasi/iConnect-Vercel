@@ -15,6 +15,9 @@ schemas = {
 assert worksheet in schemas, "Unauthorised worksheet"
 sheet = book[worksheet]
 expected = schemas[worksheet]
+with_status = "--status" in sys.argv[3:]
+if with_status:
+    expected = expected + ["Payment status"]
 assert list(next(sheet.iter_rows(values_only=True))) == expected, "Unexpected worksheet headers"
 rows = []
 for index, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), 2):
@@ -30,7 +33,13 @@ for index, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), 2):
     assert abs(amount) < 9007199254740991, f"Amount too large at row {index}"
     number = str(number).strip() if number is not None else ""
     assert number, f"Missing reference at row {index}"
+    status = {}
+    if with_status:
+        raw_status = values["Payment status"]
+        if raw_status not in ("Paid", "Outstanding"):
+            raise ValueError(f"Invalid Payment status at row {index}")
+        status = dict(status=raw_status.lower(), source_status=raw_status)
     rows.append(dict(source_row=index, member_id=str(member).strip(),
                      invoice_number=number, invoice_date=date.strftime("%Y-%m-%d"),
-                     amount_minor=int(amount), description=str(description or "").strip()))
+                     amount_minor=int(amount), description=str(description or "").strip(), **status))
 print(json.dumps(dict(source_sha256=digest, worksheet=sheet.title, rows=rows)))
