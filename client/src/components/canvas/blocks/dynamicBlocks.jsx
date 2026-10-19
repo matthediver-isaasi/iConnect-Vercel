@@ -22,7 +22,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { ColorField } from './ColorField';
 import { DirectoryCarouselSourceField } from './DirectoryCarouselSourceField';
-import { resolveDirectoryCarouselSource, presentDirectoryCarouselRecord, resolveDirectoryCarouselPerView } from './directoryCarouselSource.mjs';
+import { resolveDirectoryCarouselSource, presentDirectoryCarouselRecord, resolveDirectoryCarouselPerView, resolveDirectoryCarouselOrganisationNameDisplay } from './directoryCarouselSource.mjs';
 import { FormPickerField } from './FormPickerField';
 import { Button } from '@/components/ui/button';
 import {
@@ -4210,7 +4210,7 @@ function DirectoryCarouselCard({
         {record.name ? (
           <div
             className="text-sm font-semibold text-slate-900"
-            style={nameStyle}
+            style={record.entity_type === 'organization' ? { ...nameStyle, textAlign: 'center' } : nameStyle}
             data-testid={`text-directory-carousel-name-${record.id}`}
           >
             {record.name}
@@ -4241,6 +4241,7 @@ function DirectoryCarouselCard({
 function DirectoryCarouselRender({ block, asEditor, breakpoint }) {
   const c = block.content || {};
   const { source, directoryId, directorySlug, configured, identity: sourceIdentity } = resolveDirectoryCarouselSource(c);
+  const organisationNameDisplay = resolveDirectoryCarouselOrganisationNameDisplay(c.organisationNameDisplay);
   const visitIdentity = useId();
   const [focusWithin, setFocusWithin] = useState(false);
   const { memberInfo, memberRole, sessionValidated, authResolved } = useLayoutContext();
@@ -4279,11 +4280,11 @@ function DirectoryCarouselRender({ block, asEditor, breakpoint }) {
   const [autoplayPausedAt, setAutoplayPausedAt] = useState(0);
   const [selected, setSelected] = useState(null);
   const touchStartRef = useRef(null);
-  const pageIdentity = `${tenant}|${viewerIdentity}|${sourceIdentity}|${randomiseOrder ? visitSeed || '' : ''}`;
-  const previousPageIdentityRef = useRef(pageIdentity);
+  const pageIdentity = `${tenant}|${viewerIdentity}|${sourceIdentity}|${organisationNameDisplay}|${randomiseOrder ? visitSeed || '' : ''}`;
+  const [previousPageIdentity, setPreviousPageIdentity] = useState(pageIdentity);
   const previousPerViewRef = useRef(perView);
   const pageTotalsRef = useRef(new Map());
-  const identityChanged = previousPageIdentityRef.current !== pageIdentity;
+  const identityChanged = previousPageIdentity !== pageIdentity;
   const perViewChanged = !identityChanged && previousPerViewRef.current !== perView;
   const requestPage = identityChanged
     ? 1
@@ -4297,6 +4298,7 @@ function DirectoryCarouselRender({ block, asEditor, breakpoint }) {
     directorySlug,
     viewerIdentity,
     visitIdentity,
+    organisationNameDisplay,
     page: requestPage,
     limit: perView,
     randomiseOrder,
@@ -4340,8 +4342,8 @@ function DirectoryCarouselRender({ block, asEditor, breakpoint }) {
   // translating the old server page offset into the new page size.
   useEffect(() => {
     const identity = pageIdentity;
-    if (previousPageIdentityRef.current !== identity) {
-      previousPageIdentityRef.current = identity;
+    if (previousPageIdentity !== identity) {
+      setPreviousPageIdentity(identity);
       previousPerViewRef.current = perView;
       setCurrentPage(1);
       setSelected(null);
@@ -4354,7 +4356,7 @@ function DirectoryCarouselRender({ block, asEditor, breakpoint }) {
         Math.max(1, Math.floor(((page - 1) * previousPerView) / perView) + 1)
       ));
     }
-  }, [pageIdentity, perView]);
+  }, [pageIdentity, perView, previousPageIdentity]);
 
   useEffect(() => {
     // Do not clamp from the temporary one-page fallback while a new query has
@@ -4604,7 +4606,7 @@ function DirectoryCarouselRender({ block, asEditor, breakpoint }) {
         ) : null}
       </div>
 
-      <Dialog open={showDetails && !!selected} onOpenChange={(open) => { if (!open) setSelected(null); }}>
+      <Dialog open={!identityChanged && showDetails && !!selected} onOpenChange={(open) => { if (!open) setSelected(null); }}>
         <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto" data-testid="dialog-directory-carousel-detail">
           <DialogHeader>
             <DialogTitle>{selected?.entity_type === 'member' ? 'Member' : 'Organisation'}</DialogTitle>
@@ -4628,6 +4630,17 @@ function DirectoryCarouselInspector({ block, update, breakpoint }) {
   return (
     <>
       <DirectoryCarouselSourceField content={c} onChange={set} />
+      <SelectField
+        label="Organisation name"
+        value={resolveDirectoryCarouselOrganisationNameDisplay(c.organisationNameDisplay)}
+        onChange={(value) => set({ organisationNameDisplay: value })}
+        options={[
+          { value: 'inherit', label: 'Use directory setting' },
+          { value: 'show', label: 'Show' },
+          { value: 'hide', label: 'Hide' },
+        ]}
+        testId="select-directory-carousel-organisation-name-display"
+      />
       <TextField
         label="Heading"
         value={c.title}
@@ -7010,11 +7023,12 @@ export function createDirectoryCarouselVisitSeed() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
-export function buildDirectoryCarouselQuery({ source = 'dynamic', directoryId, directorySlug, tenant, page = 1, limit, randomiseOrder = false, seed } = {}) {
+export function buildDirectoryCarouselQuery({ source = 'dynamic', directoryId, directorySlug, tenant, page = 1, limit, randomiseOrder = false, seed, organisationNameDisplay } = {}) {
   const params = new URLSearchParams();
   params.set('mode', 'carousel');
   if (tenant) params.set('tenant', tenant);
   params.set('source', source);
+  params.set('organization_name_display', resolveDirectoryCarouselOrganisationNameDisplay(organisationNameDisplay));
   if (source === 'dynamic') {
     if (directoryId) params.set('directory_id', String(directoryId));
     else params.set('slug', String(directorySlug || ''));
@@ -7082,7 +7096,7 @@ export function resolveDirectoryCarouselWebsiteUrl(value) {
   }
 }
 
-function useDirectoryCarouselRecords({ source, directoryId, directorySlug, viewerIdentity, visitIdentity, page, limit, randomiseOrder, seed, enabled }) {
+function useDirectoryCarouselRecords({ source, directoryId, directorySlug, viewerIdentity, visitIdentity, page, limit, randomiseOrder, seed, enabled, organisationNameDisplay }) {
   const tenant = publicClient.getTenantSlug();
   const query = buildDirectoryCarouselQuery({
     source,
@@ -7090,6 +7104,7 @@ function useDirectoryCarouselRecords({ source, directoryId, directorySlug, viewe
     directorySlug,
     tenant,
     page,
+    organisationNameDisplay,
     limit,
     randomiseOrder,
     seed,
@@ -7103,6 +7118,7 @@ function useDirectoryCarouselRecords({ source, directoryId, directorySlug, viewe
       visitIdentity || '',
       source || 'dynamic',
       directoryId || directorySlug || '',
+      resolveDirectoryCarouselOrganisationNameDisplay(organisationNameDisplay),
       Math.max(1, Number(page) || 1),
       Math.max(1, Math.min(Number(limit) || 1, 50)),
       randomiseOrder ? String(seed || '') : '',
@@ -7130,6 +7146,9 @@ function useDirectoryCarouselRecords({ source, directoryId, directorySlug, viewe
     // appear before the server revalidates directory publication consent.
     staleTime: 60_000,
     gcTime: 60_000,
+    // Never retain another option/source's projection while its request runs,
+    // even if the shared query client enables placeholder data globally.
+    placeholderData: () => undefined,
   });
 }
 

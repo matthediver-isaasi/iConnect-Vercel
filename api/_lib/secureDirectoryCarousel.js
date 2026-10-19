@@ -28,6 +28,12 @@ export async function renderSecureDirectoryCarousel({
   if (!['dynamic', 'primary-member', 'primary-organization'].includes(source)) {
     return res.status(400).json({ error: 'Invalid carousel source' });
   }
+  // Presentation override only: never affects source access/public consent or
+  // the full directory's stored display settings.
+  const organizationNameDisplay = req.query.organization_name_display ?? 'inherit';
+  if (!['inherit', 'show', 'hide'].includes(organizationNameDisplay)) {
+    return res.status(400).json({ error: 'Invalid organisation name display option' });
+  }
   const directoryId = req.query.directory_id;
   const slug = req.query.slug;
   // The caller strips slug only for tenant resolution; restore it separately.
@@ -140,8 +146,12 @@ export async function renderSecureDirectoryCarousel({
     }
     const ids = await directoryEligibleIds(db, tenantId, directory, rows.map(row => row.id));
     const eligible = ids === null ? null : new Set(ids);
+    const projectionSettings = directory.entity_type === 'organization'
+      && organizationNameDisplay !== 'inherit'
+      ? { ...settings, showTitle: organizationNameDisplay === 'show' }
+      : settings;
     return rows.filter(row => !eligible || eligible.has(row.id)).map(row =>
-      directory.entity_type === 'member' ? projectCarouselMember(row, settings) : h.projectCarouselOrganization(row, settings));
+      directory.entity_type === 'member' ? projectCarouselMember(row, settings) : h.projectCarouselOrganization(row, projectionSettings));
   }
   // Re-read the full eligible projection, not merely the returned page. This
   // catches consent/opt-out/deletion and preference changes during long scans.

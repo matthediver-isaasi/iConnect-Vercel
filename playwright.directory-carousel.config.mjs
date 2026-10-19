@@ -6,8 +6,11 @@ const baseURL = process.env.PLAYWRIGHT_BASE_URL
     : "http://127.0.0.1:5000");
 
 export default defineConfig({
-  testDir: "./tests",
-  testMatch: /directory-carousel\.task4416\.spec\.mjs/,
+  testDir: ".",
+  testMatch: [
+    /tests\/directory-carousel\.task4416\.spec\.mjs/,
+    /client\/src\/components\/canvas\/directoryCarousel\.browser\.mjs/,
+  ],
   outputDir: "/tmp/directory-carousel-task4416-results",
   timeout: 120_000,
   expect: { timeout: 20_000 },

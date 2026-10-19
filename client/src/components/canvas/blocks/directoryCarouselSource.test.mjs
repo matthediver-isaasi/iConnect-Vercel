@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { discoverDirectoryCarouselSources, presentDirectoryCarouselRecord, resolveDirectoryCarouselSource, resolveDirectoryCarouselPerView } from './directoryCarouselSource.mjs';
+import { discoverDirectoryCarouselSources, presentDirectoryCarouselRecord, resolveDirectoryCarouselSource, resolveDirectoryCarouselPerView, resolveDirectoryCarouselOrganisationNameDisplay } from './directoryCarouselSource.mjs';
 
 test('explicit source identity isolates primary sources and retains legacy slugs', () => {
   assert.equal(resolveDirectoryCarouselSource({}).configured, false);
@@ -67,6 +67,23 @@ test('presentation only uses returned projection and has entity-specific fallbac
   assert.equal(member.entity_type, 'member');
   assert.equal(member.email, undefined);
   const org = presentDirectoryCarouselRecord({ id: '2' }, 'organization');
-  assert.equal(org.name, 'Organisation');
+  assert.equal(org.name, null);
   assert.equal(org.logo_url, null);
+});
+
+test('organisation name display defaults to inherit for existing and malformed content', () => {
+  for (const value of [undefined, null, '', 'invalid', 'inherit']) {
+    assert.equal(resolveDirectoryCarouselOrganisationNameDisplay(value), 'inherit');
+  }
+  for (const value of ['show', 'hide']) {
+    assert.equal(resolveDirectoryCarouselOrganisationNameDisplay(value), value);
+  }
+});
+
+test('withheld organisation names cannot be replaced by display_name or generic visible text', () => {
+  for (const name of [undefined, null, '']) {
+    assert.equal(presentDirectoryCarouselRecord({ name, display_name: 'Withheld name' }, 'organization').name, null);
+  }
+  assert.equal(presentDirectoryCarouselRecord({ name: 'Westhaven Society' }, 'organization').name, 'Westhaven Society');
+  assert.equal(presentDirectoryCarouselRecord({ display_name: 'Alex Mercer' }, 'member').name, 'Alex Mercer');
 });

@@ -1522,6 +1522,7 @@ export const BLOCK_DEFAULTS = {
       source: 'dynamic',
       directoryId: '',
       directorySlug: '',
+      organisationNameDisplay: 'inherit',
       title: '',
       headingLevel: 2,
       perView: { desktop: 3, tablet: 2, mobile: 1 },

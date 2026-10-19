@@ -1129,6 +1129,56 @@ async function publicCarousel(state, query, hooks = {}, failures = {}) {
   return res;
 }
 
+test('organisation carousel name overrides are isolated from directory settings and require publication consent', async () => {
+  for (const source of ['dynamic', 'primary-organization']) {
+    for (const showTitle of [true, false]) {
+      const state = {
+        dynamic_directory: [directory({ public_carousel_enabled: true })],
+        organization: organizations(1),
+        system_settings: [
+          { tenant_id: TENANT_ID, setting_key: 'org_directory_public_carousel_enabled', setting_value: 'true' },
+          { tenant_id: TENANT_ID, setting_key: 'org_directory_show_title', setting_value: String(showTitle) },
+          { tenant_id: TENANT_ID, setting_key: 'org_directory_show_logo', setting_value: 'false' },
+        ],
+      };
+      const before = structuredClone(state);
+      for (const option of [undefined, 'inherit', 'show', 'hide']) {
+        const res = await publicCarousel(state, {
+          source, slug: 'organisations',
+          ...(option ? { organization_name_display: option } : {}),
+        });
+        assert.equal(res.statusCode, 200);
+        assert.equal(res.payload.records[0].name,
+          (option === 'show' || ((!option || option === 'inherit') && showTitle))
+            ? 'Organisation 0' : null);
+        assert.equal(res.payload.records[0].logo_url, null);
+      }
+      assert.deepEqual(state, before, 'display override must not persist policy changes');
+      const invalid = await publicCarousel(state, { source, slug: 'organisations', organization_name_display: 'invalid' });
+      assert.equal(invalid.statusCode, 400);
+      state.dynamic_directory[0].public_carousel_enabled = false;
+      state.system_settings[0].setting_value = 'false';
+      const denied = await publicCarousel(state, { source, slug: 'organisations', organization_name_display: 'show' });
+      assert.equal(denied.statusCode, 401);
+      assert.equal(denied.payload.records, undefined);
+    }
+  }
+});
+
+test('organisation-name override does not suppress or expose member profile fields', async () => {
+  const state = {
+    dynamic_directory: [directory({ entity_type: 'member', public_carousel_enabled: true })],
+    member: [{ id: 'member', tenant_id: TENANT_ID, first_name: 'Alex', last_name: 'Example', job_title: 'Private' }],
+    system_settings: [{ tenant_id: TENANT_ID, setting_key: 'member_directory_display', setting_value: '{"show_job_title":false}' }],
+  };
+  for (const option of ['inherit', 'show', 'hide']) {
+    const res = await publicCarousel(state, { slug: 'organisations', organization_name_display: option });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.payload.records[0].name, 'Alex Example');
+    assert.equal(res.payload.records[0].job_title, null);
+  }
+});
+
 for (const entity of ['member', 'organization']) {
   for (const source of ['dynamic', `primary-${entity}`]) {
     test(`public ${source}/${entity} requires exact consent and supports bounded global pages`, async () => {

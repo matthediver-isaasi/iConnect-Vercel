@@ -1,3 +1,8 @@
+// Missing/legacy content follows the directory setting; reject unknown modes.
+export function resolveDirectoryCarouselOrganisationNameDisplay(value) {
+  return ['show', 'hide'].includes(value) ? value : 'inherit';
+}
+
 // Explicit identity wins over the legacy slug. Do not infer a primary source
 // from an empty slug: existing unconfigured blocks must stay unconfigured.
 export function resolveDirectoryCarouselSource(content = {}) {
@@ -22,7 +27,7 @@ export function presentDirectoryCarouselRecord(record, entityType) {
   return {
     ...record,
     entity_type: member ? 'member' : 'organization',
-    name: record.name || record.display_name || (member ? 'Member' : 'Organisation'),
+    name: member ? (record.name || record.display_name || 'Member') : (record.name || null),
     logo_url: member ? (record.photo_url || record.profile_photo_url || record.image_url || null) : (record.logo_url || null),
   };
 }

@@ -4,7 +4,7 @@ const slug = 'directory-carousel-task5186-fixture';
 const member = { id: 'viewer5186', first_name: 'Alex', last_name: 'Mercer', tenant_id: 'tenant5186', role_id: 'role5186', is_team_member: true };
 const role = { id: member.role_id, name: 'Canvas administrator', excluded_features: [] };
 
-async function fixture(page, content, { denied = false, records, directories, guest = false, entityType, allowSave = false, delaySource } = {}) {
+async function fixture(page, content, { denied = false, records, directories, guest = false, entityType, allowSave = false, delaySource, delayNameDisplay, inheritNames = true } = {}) {
   page.on('pageerror', (error) => console.error('Fixture page error:', error.message));
   const requests = [];
   const writes = [];
@@ -74,12 +74,18 @@ async function fixture(page, content, { denied = false, records, directories, gu
       if (delaySource && url.searchParams.get('source') === delaySource) {
         await new Promise((resolve) => pending.push(resolve));
       }
+      const nameDisplay = url.searchParams.get('organization_name_display') || 'inherit';
+      if (delayNameDisplay && nameDisplay === delayNameDisplay) {
+        await new Promise((resolve) => pending.push(resolve));
+      }
       if (denied) return json(route, { error: 'Private directory metadata must not leak' }, 403);
       const type = entityType || (url.searchParams.get('source') === 'primary-member' ? 'member' : 'organization');
-      const entries = records || Array.from({ length: 5 }, (_, i) => ({
+      const entries = (records || Array.from({ length: 5 }, (_, i) => ({
         id: `${type}-${i}`, name: `${type === 'member' ? 'Member' : 'Organisation'} ${i + 1}`,
         profile_photo_url: null, logo_url: null, job_title: type === 'member' ? 'Programme coordinator' : null,
-      }));
+      }))).map((entry) => type === 'organization' && (nameDisplay === 'hide' || (nameDisplay === 'inherit' && !inheritNames))
+        ? { ...entry, name: null }
+        : entry);
       const size = Number(url.searchParams.get('limit') || 3);
       const current = Number(url.searchParams.get('page') || 1);
       return json(route, { entityType: type, records: entries.slice((current - 1) * size, current * size), total: entries.length, page: current, pageSize: size });
@@ -100,6 +106,7 @@ for (const [source, entityType] of [['primary-member', 'member'], ['primary-orga
     await expect(carousel).toBeVisible();
     await expect.poll(() => state.requests.at(-1)?.source).toBe(source);
     const first = state.requests.at(-1);
+    expect(first.organization_name_display).toBe('inherit');
     expect(first.slug).toBeUndefined();
     expect(first.directory_id).toBe(source === 'dynamic' ? 'stable-directory-id' : undefined);
     expect(first.seed).toBeTruthy();
@@ -175,6 +182,9 @@ test('editor persists and reopens independent presentation controls and shared a
   const state = await fixture(page, { source: 'primary-member', randomiseOrder: true }, { allowSave: true });
   await page.goto('/CanvasPageEditor?pageId=page5186');
   await page.getByTestId('canvas-block-carousel5186').click();
+  await expect(page.getByTestId('select-directory-carousel-organisation-name-display')).toContainText('Use directory setting');
+  await page.getByTestId('select-directory-carousel-organisation-name-display').click();
+  await page.getByRole('option', { name: 'Hide', exact: true }).click();
   for (const [device, count, height, gap, padding, nameSize, descSize] of [
     ['desktop', '4', '460', '21', '25', '23', '15'],
     ['tablet', '2', '410', '15', '18', '20', '14'],
@@ -211,6 +221,7 @@ test('editor persists and reopens independent presentation controls and shared a
   await page.getByTestId('button-save').click();
   await expect.poll(() => state.saved.length).toBeGreaterThan(0);
   const savedBlock = state.saved.at(-1).canvas_design.root.sections[0].children[0];
+  expect(savedBlock.content.organisationNameDisplay).toBe('hide');
   expect(savedBlock.content.perView).toEqual({ desktop: 4, tablet: 2, mobile: 1 });
   expect(savedBlock.content.gap).toEqual({ desktop: 21, tablet: 15, mobile: 9 });
   expect(savedBlock.content.nameFontSize).toEqual({ desktop: 23, tablet: 20, mobile: 18 });
@@ -226,6 +237,7 @@ test('editor persists and reopens independent presentation controls and shared a
   expect(savedBlock.bp.mobile.h).toBe(350);
   await page.reload();
   await page.getByTestId('canvas-block-carousel5186').click();
+  await expect(page.getByTestId('select-directory-carousel-organisation-name-display')).toContainText('Hide');
   await page.getByTestId('button-breakpoint-mobile').click();
   await expect(page.getByTestId('input-directory-carousel-per-view')).toHaveValue('1');
   await expect(page.getByTestId('input-directory-carousel-height')).toHaveValue('350');
@@ -239,6 +251,68 @@ test('editor persists and reopens independent presentation controls and shared a
   await expect(wrapper).toHaveCSS('border-top-width', '3px');
   await expect(carousel.getByTestId('text-directory-carousel-name-member-0')).toHaveCSS('font-size', '18px');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  expect(state.writes).toEqual([]);
+});
+
+for (const [mode, inherited, visible] of [
+  ['show', false, true],
+  ['hide', true, false],
+  ['inherit', true, true],
+  ['inherit', false, false],
+]) {
+  test(`organisation names: ${mode}, directory names ${inherited ? 'shown' : 'hidden'}`, async ({ page }) => {
+    const state = await fixture(page, { source: 'primary-organization', organisationNameDisplay: mode }, { inheritNames: inherited });
+    await page.goto(`/${slug}`);
+    const carousel = page.getByTestId('directory-carousel');
+    await expect(carousel).toBeVisible();
+    await expect.poll(() => state.requests.at(-1)?.organization_name_display).toBe(mode);
+    const names = carousel.locator('[data-testid^="text-directory-carousel-name-"]');
+    await expect(names).toHaveCount(visible ? 3 : 0);
+    if (visible) {
+      await expect(names.first()).toHaveCSS('text-align', 'center');
+    } else {
+      await expect(carousel.getByRole('button', { name: 'View details for organisation', exact: true })).toHaveCount(3);
+      await expect(carousel.getByText('Organisation', { exact: true })).toHaveCount(0);
+    }
+    expect(state.writes).toEqual([]);
+  });
+}
+
+test('name display replacement clears cards and open details while the new projection is pending', async ({ page }) => {
+  const state = await fixture(page, { source: 'primary-organization', organisationNameDisplay: 'show' }, { delayNameDisplay: 'hide', inheritNames: false });
+  await page.goto(`/${slug}`);
+  await expect(page.getByTestId('directory-carousel')).toBeVisible();
+  await page.evaluate(async (block) => {
+    const { mountDirectoryCarouselTest } = await import('/src/components/canvas/blocks/DirectoryCarousel.browserHarness.jsx');
+    const host = document.createElement('div');
+    host.id = 'isolated-carousel';
+    host.style.cssText = 'position:fixed;inset:0;background:#f8fafc;z-index:9999;padding:16px';
+    document.body.append(host);
+    window.carouselTest = mountDirectoryCarouselTest(host, block);
+  }, state.block);
+  const surface = page.locator('#isolated-carousel');
+  await expect(surface.getByText('Organisation 1', { exact: true })).toBeVisible();
+  await surface.getByTestId('button-directory-carousel-next').click();
+  await surface.getByRole('button', { name: 'View details for Organisation 4', exact: true }).click();
+  await expect(page.getByTestId('dialog-directory-carousel-detail')).toBeVisible();
+  await page.evaluate(() => window.carouselTest.changeContent({ organisationNameDisplay: 'hide' }));
+  await expect(page.getByTestId('dialog-directory-carousel-detail')).toHaveCount(0);
+  await expect(surface.getByText(/Organisation [1-5]/)).toHaveCount(0);
+  await expect.poll(() => state.requests.at(-1)?.organization_name_display).toBe('hide');
+  expect(state.requests.at(-1).page).toBe('1');
+  state.release();
+  await expect(surface.getByTestId('button-directory-carousel-organization-0')).toBeVisible();
+  await expect(surface.locator('[data-testid^="text-directory-carousel-name-"]')).toHaveCount(0);
+  // Inherit is a separate request/cache identity, even when the resulting
+  // directory projection also withholds names.
+  await page.evaluate(() => window.carouselTest.changeContent({ organisationNameDisplay: 'inherit' }));
+  await expect.poll(() => state.requests.at(-1)?.organization_name_display).toBe('inherit');
+  await expect(surface.getByTestId('button-directory-carousel-organization-0')).toBeVisible();
+  await expect(surface.locator('[data-testid^="text-directory-carousel-name-"]')).toHaveCount(0);
+  await page.evaluate(() => window.carouselTest.changeContent({ organisationNameDisplay: 'show' }));
+  await expect(surface.getByText('Organisation 1', { exact: true })).toBeVisible();
+  await expect(surface.getByTestId('directory-carousel-page-status')).toContainText('Page 1 of 2');
+  await page.evaluate(() => window.carouselTest.unmount());
   expect(state.writes).toEqual([]);
 });
 

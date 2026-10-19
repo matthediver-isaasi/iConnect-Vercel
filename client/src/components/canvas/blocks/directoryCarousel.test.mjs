@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { resolveDirectoryCarouselOrganisationNameDisplay } from './directoryCarouselSource.mjs';
 import {
   BLOCK_DEFAULTS,
   BLOCK_TYPES,
@@ -19,6 +20,7 @@ test('directory carousel defaults persist randomiseOrder as false', () => {
   );
   const created = createBlock(BLOCK_TYPES.DIRECTORY_CAROUSEL);
   assert.equal(created.content.randomiseOrder, false);
+  assert.equal(created.content.organisationNameDisplay, 'inherit');
   assert.deepEqual(created.content.perView, { desktop: 3, tablet: 2, mobile: 1 });
   const persisted = createBlock(BLOCK_TYPES.DIRECTORY_CAROUSEL, {
     content: { randomiseOrder: true },
@@ -26,6 +28,12 @@ test('directory carousel defaults persist randomiseOrder as false', () => {
   assert.equal(persisted.content.randomiseOrder, true);
   const legacy = createBlock(BLOCK_TYPES.DIRECTORY_CAROUSEL, { content: { perView: 4, directorySlug: 'legacy' } });
   assert.equal(legacy.content.perView, 4);
+  assert.equal(legacy.content.organisationNameDisplay, 'inherit');
+  for (const mode of ['inherit', 'show', 'hide']) {
+    assert.equal(createBlock(BLOCK_TYPES.DIRECTORY_CAROUSEL, {
+      content: { organisationNameDisplay: mode },
+    }).content.organisationNameDisplay, mode);
+  }
   const authored = createBlock(BLOCK_TYPES.DIRECTORY_CAROUSEL, { content: { perView: { desktop: 5, tablet: 3, mobile: 2 } } });
   assert.deepEqual(authored.content.perView, { desktop: 5, tablet: 3, mobile: 2 });
 });
@@ -36,8 +44,9 @@ test('directory carousel query is bounded and only sends seed for random order',
   assert.notEqual(start, -1);
   assert.notEqual(end, -1);
   const buildQuery = new Function(
+    'resolveDirectoryCarouselOrganisationNameDisplay',
     `${source.slice(start, end + 2).replace('export function', 'function')}; return buildDirectoryCarouselQuery;`,
-  )();
+  )(resolveDirectoryCarouselOrganisationNameDisplay);
 
   const normal = buildQuery({ directorySlug: 'orgs', tenant: 'association', page: 1, limit: 3 });
   assert.equal(normal.get('mode'), 'carousel');
@@ -46,6 +55,11 @@ test('directory carousel query is bounded and only sends seed for random order',
   assert.equal(normal.get('page'), '1');
   assert.equal(normal.get('limit'), '3');
   assert.equal(normal.has('seed'), false);
+  assert.equal(normal.get('organization_name_display'), 'inherit');
+  for (const mode of ['inherit', 'show', 'hide']) {
+    assert.equal(buildQuery({ organisationNameDisplay: mode }).get('organization_name_display'), mode);
+  }
+  assert.equal(buildQuery({ organisationNameDisplay: 'invalid' }).get('organization_name_display'), 'inherit');
 
   const random = buildQuery({
     directorySlug: 'orgs',
@@ -136,7 +150,7 @@ test('directory carousel inspector uses complete searchable source discovery and
 test('directory carousel supports explicit source queries without stale legacy parameters', () => {
   const start = source.indexOf('export function buildDirectoryCarouselQuery(');
   const end = source.indexOf('\n}\n\n// Directory carousel indicator helper.', start);
-  const buildQuery = new Function(`${source.slice(start, end + 2).replace('export function', 'function')}; return buildDirectoryCarouselQuery;`)();
+  const buildQuery = new Function('resolveDirectoryCarouselOrganisationNameDisplay', `${source.slice(start, end + 2).replace('export function', 'function')}; return buildDirectoryCarouselQuery;`)(resolveDirectoryCarouselOrganisationNameDisplay);
   for (const kind of ['primary-member', 'primary-organization']) {
     const query = buildQuery({ source: kind, directorySlug: 'old', directoryId: 'old' });
     assert.equal(query.get('source'), kind);
@@ -155,4 +169,6 @@ test('directory carousel query isolates viewer and disables unauthorized retry l
   assert.match(hook, /retry: false/);
   assert.match(hook, /refetchOnWindowFocus: false/);
   assert.match(hook, /visitIdentity \|\| ''/);
+  assert.match(hook, /resolveDirectoryCarouselOrganisationNameDisplay\(organisationNameDisplay\)/);
+  assert.match(hook, /placeholderData: \(\) => undefined/);
 });

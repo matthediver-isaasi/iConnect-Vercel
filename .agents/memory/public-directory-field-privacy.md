@@ -26,3 +26,14 @@ Organisation profile permissions are not directory publication consent. Website,
 **Why:** The user explicitly separated profile permissions from directory publication and required existing tenants not to publish new core values automatically.
 
 **How to apply:** Preserve default-off publication and directory-specific inheritance; never infer website consent from verified-domain visibility or extend these values to front cards, carousel contracts or CSV exports.
+
+Organisation names have an owner-approved carousel-only presentation override:
+each element may inherit the directory setting, show names, or hide them.
+Do not change full-directory settings when an author changes this option.
+
+**Why:** The user explicitly requested an element-level option so tenants can
+align with their directory or override it for that carousel only.
+
+**How to apply:** Keep source access, public-carousel consent and all other field
+permissions intact. Never replace a withheld organisation name with generic
+visible “Organisation” text. The override does not apply to member-profile fields.
