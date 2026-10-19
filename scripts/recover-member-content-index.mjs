@@ -77,7 +77,7 @@ export function createDestinationRestClient({
 
 function assertTransportSupportsType(options) {
   const transport = options.transport || 'pg';
-  if (transport === 'pg' && (options.type === 'all' || options.type === 'canvas_page')) {
+  if (transport === 'pg' && ['all', 'canvas_page', 'iedit_page'].includes(options.type)) {
     throw usageError('RECOVERY_REST_TRANSPORT_REQUIRED');
   }
 }
@@ -564,7 +564,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
     if (code === 'RECOVERY_HELP') {
       console.log(
         'Usage: node scripts/recover-member-content-index.mjs ' +
-          '--tenant=<uuid> --type=<all|resource|event|complex_event|news_post|blog_post|canvas_page> ' +
+          '--tenant=<uuid> --type=<all|resource|event|complex_event|news_post|blog_post|canvas_page|iedit_page> ' +
           '[--transport=pg|rest] ' +
           '[--apply] [--max-items=1..5] [--seconds=1..30] [--cursor=<json>] [--repeat] [--report=<path>]',
       );

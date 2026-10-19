@@ -39,6 +39,109 @@ async function readResponse(response, fallback) {
   return data;
 }
 
+export const MEMBER_AI_SOURCE_OPTIONS = [
+  ["resource", "Resources"],
+  ["event", "Events"],
+  ["complex_event", "Complex events"],
+  ["news_post", "News"],
+  ["blog_post", "Articles"],
+  ["canvas_page", "Canvas pages"],
+  ["iedit_page", "iEdit pages"],
+];
+
+export function MemberAiSourceSettings({ tenantId }) {
+  const [settings, setSettings] = useState(null);
+  const [selected, setSelected] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
+  useEffect(() => {
+    if (!tenantId) return;
+    let cancelled = false;
+    setLoading(true);
+    setSettings(null);
+    setError("");
+    setSuccess("");
+    adminFetch("/api/admin/member-ai-settings", { credentials: "include" })
+      .then(response => readResponse(response, "Could not load knowledge sources."))
+      .then(data => {
+        if (!Array.isArray(data.settings?.allowed_content_types)) {
+          throw new Error("Knowledge source settings are incomplete.");
+        }
+        if (cancelled) return;
+        setSettings(data.settings);
+        // Do not union in new types: an existing tenant's exclusions are deliberate.
+        setSelected([...data.settings.allowed_content_types]);
+      })
+      .catch(err => { if (!cancelled) setError(err.message); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [tenantId, reloadKey]);
+
+  const dirty = settings && JSON.stringify([...selected].sort()) !==
+    JSON.stringify([...settings.allowed_content_types].sort());
+  const save = async () => {
+    if (!settings || !selected.length || saving) return;
+    setSaving(true);
+    setError("");
+    setSuccess("");
+    try {
+      const data = await readResponse(await adminFetch("/api/admin/member-ai-settings", {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...settings, allowed_content_types: selected }),
+      }), "Could not save knowledge sources.");
+      if (!Array.isArray(data.settings?.allowed_content_types)) {
+        throw new Error("Saved knowledge source settings are incomplete. Reload to verify.");
+      }
+      setSettings(data.settings);
+      setSelected([...data.settings.allowed_content_types]);
+      setSuccess("Knowledge sources saved.");
+    } catch (err) {
+      setError(err.message || "Could not save knowledge sources.");
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <section className="space-y-3 rounded-lg border border-slate-600 bg-slate-900/50 p-4" aria-labelledby="ai-knowledge-sources">
+      <h3 id="ai-knowledge-sources" className="font-medium text-slate-200">Knowledge sources</h3>
+      <p className="text-sm text-slate-400">Choose the content the assistant can use. Sources still follow each visitor's access permissions. Save these choices separately.</p>
+      {loading ? <p className="text-sm text-slate-400" role="status">Loading knowledge sources...</p> : settings && (
+        <>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {MEMBER_AI_SOURCE_OPTIONS.map(([type, label]) => (
+              <label key={type} className="flex items-center gap-2 text-sm text-slate-200">
+                <input type="checkbox" checked={selected.includes(type)} disabled={saving}
+                  onChange={event => {
+                    const checked = event.target.checked;
+                    setSelected(previous => checked
+                      ? [...previous, type] : previous.filter(value => value !== type));
+                    setError("");
+                    setSuccess("");
+                  }} />
+                {label}
+              </label>
+            ))}
+          </div>
+          {!selected.length && <p className="text-sm text-rose-300" role="alert">Choose at least one knowledge source.</p>}
+          <Button type="button" variant="outline" className={outlineButtonClass}
+            disabled={!dirty || !selected.length || saving} onClick={save}>
+            {saving ? "Saving..." : "Save knowledge sources"}
+          </Button>
+        </>
+      )}
+      {error && <p className="text-sm text-rose-300" role="alert">{error}</p>}
+      {!loading && !settings && <Button type="button" variant="outline" className={outlineButtonClass}
+        onClick={() => setReloadKey(value => value + 1)}>Retry knowledge sources</Button>}
+      {success && <p className="text-sm text-emerald-300" role="status">{success}</p>}
+    </section>
+  );
+}
+
 export default function MemberAiAssistantSettings({ tenantId }) {
   const queryClient = useQueryClient();
   const fileInput = useRef(null);
@@ -313,6 +416,7 @@ export default function MemberAiAssistantSettings({ tenantId }) {
               <p className="mt-3 whitespace-pre-wrap break-words text-sm text-slate-300" data-testid="text-ai-assistant-description-preview">{draft.description.trim() || DEFAULT_DESCRIPTION}</p>
             </div>
 
+            <MemberAiSourceSettings key={tenantId} tenantId={tenantId} />
             <MemberAiResponsePolicy value={draft.responsePolicy ?? DEFAULT_RESPONSE_POLICY} onChange={updatePolicy} disabled={saving || uploading} />
             {policyError && <p className="text-sm text-rose-300" role="alert">{policyError}</p>}
 

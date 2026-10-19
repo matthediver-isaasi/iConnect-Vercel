@@ -22,12 +22,19 @@ import {
   deleteMemberContentGenerationTombstone,
 } from './memberContentGenerationTombstones.js';
 import { buildCanvasGenerationSnapshot } from './memberContentCanvasGeneration.js';
+import { buildIEditGenerationSnapshot, IEDIT_PAGE_COLUMNS, isIndexableIEditPage } from './memberContentIEditGeneration.js';
 
 export { getDefaultOpenAIClient, EMBEDDING_MODEL };
 
 // Per-type config: the source table, its RBAC feature key, and the columns we
 // need to build text + visibility metadata.
 export const CONTENT_TYPE_CONFIG = {
+  iedit_page: {
+    table: 'i_edit_page',
+    feature: null,
+    columns: IEDIT_PAGE_COLUMNS,
+    filterEq: { builder_type: 'iedit' },
+  },
   resource: {
     table: 'resource',
     feature: 'content.resources',
@@ -388,6 +395,7 @@ export function buildMemberContentLink(contentType, item) {
       return `/NewsView?slug=${encodeURIComponent(slug || id)}`;
     case 'blog_post':
       return `/ArticleView?slug=${encodeURIComponent(slug || id)}`;
+    case 'iedit_page':
     case 'canvas_page':
       // Microsite pages never resolve at a bare tenant-root slug.
       if (item._micrositePrefix) {
@@ -411,6 +419,8 @@ export function buildMemberContentLink(contentType, item) {
 export function isIndexable(contentType, item) {
   if (!item) return false;
   switch (contentType) {
+    case 'iedit_page':
+      return isIndexableIEditPage(item);
     case 'resource':
       return item.status === 'active';
     case 'event':
@@ -512,9 +522,15 @@ export async function reindexMemberContentItem(contentType, item, { supabase, op
   if (!sourceId) throw new Error('reindexMemberContentItem requires item.id');
   if (!item?.tenant_id) throw new Error('reindexMemberContentItem requires item.tenant_id');
 
-  return writeMemberContentGeneration(contentType, item, {
+  let coverage;
+  const result = await writeMemberContentGeneration(contentType, item, {
     supabase, openai, embeddingBudget,
     buildSnapshot: async ({ tenantId, sourceId, claim }) => {
+      if (contentType === 'iedit_page') {
+        const snapshot = await buildIEditGenerationSnapshot({ supabase, tenantId, sourceId, claim });
+        coverage = snapshot.coverage;
+        return snapshot;
+      }
       let canonical;
       let canvas;
       if (contentType === 'canvas_page') {
@@ -545,6 +561,7 @@ export async function reindexMemberContentItem(contentType, item, { supabase, op
       };
     },
   });
+  return coverage ? { ...result, coverage } : result;
 }
 
 /**
@@ -736,10 +753,18 @@ export async function reindexAllMemberContent({
             results.embedded += summary.embedded;
             results.reused += summary.reused;
             if (summary.removed) results.removed++;
+            if (summary.coverage) results.details.push({
+              contentType: type, sourceId: item.id, title: item.title,
+              chunks: summary.chunks, coverage: summary.coverage,
+            });
           } catch (err) {
             results.errors++;
             results.items++;
             if (err.code === 'MEMBER_CONTENT_EMBEDDING_BUDGET') {
+              results.details.push({
+                contentType: type, sourceId: item.id, title: item.title,
+                error: err.message,
+              });
               return finish({ ...results, nextCursor: { type, lastId }, done: false,
                 stopReason: 'embedding_budget', errorCode: err.code });
             }

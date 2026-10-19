@@ -34,6 +34,12 @@ export const MEMBER_CONTENT_PUBLISHER_UNAVAILABLE =
   'MEMBER_CONTENT_PUBLISHER_UNAVAILABLE';
 
 const SOURCE_CONFIG = {
+  iedit_page: {
+    table: 'i_edit_page',
+    feature: null,
+    columns: 'id,tenant_id,title,slug,status,layout_type,builder_type,microsite_id',
+    filterEq: { builder_type: 'iedit' },
+  },
   resource: {
     table: 'resource',
     feature: 'content.resources',
@@ -554,6 +560,12 @@ export async function writeMemberContentGeneration(
 ) {
   if (!supabase) {
     throw new Error('writeMemberContentGeneration requires a supabase client');
+  }
+  // iEdit has no authored-repair fallback: it requires the complete dynamic
+  // snapshot and protected knowledge publisher, including during bulk repair.
+  if (contentType === 'iedit_page' && !buildSnapshot) {
+    const { reindexMemberContentItem } = await import('./memberContentIndexer.js');
+    return reindexMemberContentItem(contentType, item, { supabase, openai, embeddingBudget });
   }
   if (!SOURCE_CONFIG[contentType] || !GENERATION_MEMBER_CONTENT_TYPES.includes(contentType)) {
     throw errorWithCode(

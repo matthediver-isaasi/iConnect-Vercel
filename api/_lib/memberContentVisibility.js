@@ -20,6 +20,7 @@ export const CONTENT_TYPES = [
   'news_post',
   'blog_post',
   'canvas_page',
+  'iedit_page',
 ];
 
 // Canvas Builder page layout_types that are publicly viewable — the exact set
@@ -119,9 +120,9 @@ export function isChunkVisibleToMember(chunk, ctx) {
     return true;
   }
 
-  if (type === 'canvas_page') {
+  if (type === 'canvas_page' || type === 'iedit_page') {
     // Mirror the public page renderer (api/public/page/[slug].js): only
-    // published pages surface. Canvas pages carry no role/group columns
+    // published pages surface. Portal pages carry no role/group columns
     // (i_edit_page has none), so there is no per-role/per-group gating; the
     // layout/scope is assigned by the indexer per projection; no feature key
     // applies to portal pages themselves.

@@ -179,14 +179,24 @@ test('REST client factory pins destination hostname without logging credentials'
   );
 });
 
-test('PG transport rejects Canvas and all before opening a database', async () => {
+test('recovery accepts iEdit only with REST transport', () => {
+  assert.equal(parseRecoveryArgs([
+    `--tenant=${TENANT}`, '--type=iedit_page', '--transport=rest',
+  ]).type, 'iedit_page');
+  assert.equal(parseRecoveryArgs([
+    `--tenant=${TENANT}`, '--type=iedit_page',
+  ]).transport, 'pg');
+});
+
+test('PG transport rejects both page builders and all before opening a database', async () => {
   let connected = false;
+  for (const type of ['canvas_page', 'iedit_page', 'all']) {
   await assert.rejects(
     runRecovery(
       {
         transport: 'pg',
         tenant: TENANT,
-        type: 'canvas_page',
+        type,
         apply: true,
         repeat: false,
         maxItems: 1,
@@ -202,5 +212,6 @@ test('PG transport rejects Canvas and all before opening a database', async () =
     ),
     { code: 'RECOVERY_REST_TRANSPORT_REQUIRED' },
   );
+  }
   assert.equal(connected, false);
 });

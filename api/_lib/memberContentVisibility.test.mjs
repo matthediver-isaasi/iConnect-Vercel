@@ -28,11 +28,23 @@ test('CONTENT_TYPES covers the member content kinds', () => {
     'news_post',
     'blog_post',
     'canvas_page',
+    'iedit_page',
   ]);
 });
 
 test('null chunk is never visible', () => {
   assert.equal(isChunkVisibleToMember(null, memberCtx()), false);
+});
+
+test('iedit_page requires publication, same tenant and the matching authentication scope', () => {
+  const chunk = { tenant_id: TENANT, content_type: 'iedit_page', status: 'published', access_scope: 'public' };
+  assert.equal(isChunkVisibleToMember(chunk, memberCtx({ isAuthenticated: false })), true);
+  assert.equal(isChunkVisibleToMember({ ...chunk, status: 'draft' }, memberCtx()), false);
+  assert.equal(isChunkVisibleToMember({ ...chunk, tenant_id: 'other' }, memberCtx()), false);
+  assert.equal(isChunkVisibleToMember({ ...chunk, access_scope: 'authenticated' },
+    memberCtx({ isAuthenticated: false })), false);
+  assert.equal(isChunkVisibleToMember({ ...chunk, access_scope: 'authenticated' },
+    memberCtx({ roleId: null })), true);
 });
 
 test('cross-tenant chunk is never visible (defence in depth)', () => {

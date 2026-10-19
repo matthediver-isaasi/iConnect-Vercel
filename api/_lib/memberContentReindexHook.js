@@ -24,10 +24,8 @@ const ENTITY_TO_CONTENT_TYPE = {
   complexevent: 'complex_event',
   newspost: 'news_post',
   blogpost: 'blog_post',
-  // Canvas Builder pages (entity name IEditPage). Non-canvas iEdit pages are
-  // filtered out by isIndexable (builder_type !== 'canvas'), so a save of an
-  // element-based iEdit page just no-ops (drops any chunks it never had).
-  ieditpage: 'canvas_page',
+  // The canonical builder_type selects the actual page corpus after reread.
+  ieditpage: 'iedit_page',
 };
 
 function resolveContentType(entity) {
@@ -94,24 +92,38 @@ export async function reindexMemberContentEntitySafe(entity, row) {
       }
       return;
     }
-    const contentType = resolveContentType(entity);
+    let contentType = resolveContentType(entity);
     if (!contentType || !row || !row.id) return;
     if (!row.tenant_id) return;
 
     // Re-fetch the canonical columns so metadata is complete even when the
     // caller returned a partial row.
+    const isPage = contentType === 'iedit_page';
     const cfg = CONTENT_TYPE_CONFIG[contentType];
+    const columns = isPage
+      ? [...new Set([
+          ...CONTENT_TYPE_CONFIG.canvas_page.columns.split(',').map(value => value.trim()),
+          ...cfg.columns.split(',').map(value => value.trim()),
+        ])].join(', ')
+      : cfg.columns;
     let item = row;
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from(cfg.table)
-        .select(cfg.columns)
+        .select(columns)
         .eq('id', row.id)
+        .eq('tenant_id', row.tenant_id)
         .maybeSingle();
+      if (error) throw error;
+      // A supplied partial/stale builder_type must never choose the corpus.
+      // On deletion races the delete hook / registry tombstone sweep owns cleanup.
+      if (isPage && !data) return;
       if (data) item = data;
-    } catch {
-      // fall back to the row we were given
+    } catch (error) {
+      if (isPage) throw error;
+      // Non-page saves retain the legacy best-effort fallback.
     }
+    if (isPage) contentType = item.builder_type === 'canvas' ? 'canvas_page' : 'iedit_page';
 
     const openai = getDefaultOpenAIClient();
     // Without a key we can still remove chunks for now-hidden content; we just
@@ -147,7 +159,14 @@ export async function deleteMemberContentEntitySafe(entity, sourceId) {
   try {
     const contentType = resolveContentType(entity);
     if (!contentType || !sourceId || !supabase) return;
-    await deleteMemberContentChunks(contentType, sourceId, { supabase });
+    // A page may have changed builders before deletion. Retire both registry
+    // identities; never infer the former builder from the caller's partial row.
+    const contentTypes = contentType === 'iedit_page'
+      ? ['canvas_page', 'iedit_page']
+      : [contentType];
+    await Promise.all(contentTypes.map(type =>
+      deleteMemberContentChunks(type, sourceId, { supabase })
+    ));
   } catch (err) {
     console.error(
       '[memberContentReindex] delete failed:',

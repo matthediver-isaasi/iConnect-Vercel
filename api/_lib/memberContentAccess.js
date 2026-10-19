@@ -15,6 +15,7 @@ import {
   isResourceHiddenByCategories,
 } from './resourceCategoryAccess.js';
 import { evaluateGalleryAccessPolicy } from './galleryAccessPolicy.js';
+import { buildIEditGenerationSnapshot, isCurrentIEditChunk } from './memberContentIEditGeneration.js';
 
 const MAX_PRE_RANK_PDF_CHUNKS = 400;
 const MAX_PRE_RANK_PDF_SOURCES = 200;
@@ -555,7 +556,7 @@ export async function revalidateMemberContentCandidates({
       .filter((microsite) => microsite.is_active === true)
       .map((microsite) => [microsite.id, microsite]));
     for (const [key, source] of sourceRows) {
-      if (!key.startsWith('canvas_page:') || !source.microsite_id) continue;
+      if ((!key.startsWith('canvas_page:') && !key.startsWith('iedit_page:')) || !source.microsite_id) continue;
       const site = activeSites.get(source.microsite_id);
       // Availability is an access rule, including for members/admins and
       // history replay. Never trust an old active generation or stored prefix.
@@ -569,6 +570,37 @@ export async function revalidateMemberContentCandidates({
       .map((candidate) => candidate.provenance.fileId)
       .filter(Boolean)
   );
+  const ieditSnapshots = new Map();
+  const ieditReadBudget = { remaining: 200, deadlineMs: Date.now() + 8000 };
+  for (const id of idsByType.get('iedit_page') || []) {
+    const source = sourceRows.get(`iedit_page:${id}`);
+    const generation = currentGenerations.get(`iedit_page:${id}`)?.active_generation;
+    if (!source || !generation) continue;
+    try {
+      ieditSnapshots.set(id, await buildIEditGenerationSnapshot({
+        supabase, tenantId: visibilityCtx.tenantId, sourceId: id,
+        claim: { generation }, visibilityCtx, readBudget: ieditReadBudget,
+      }));
+    } catch {
+      // A partial/failed dependency read is not a complete or empty page.
+      // Deny that page's evidence; never retain an older display snapshot.
+    }
+  }
+  if (ieditSnapshots.size) {
+    // A mutation may commit while dynamic sources are being read. Recheck the
+    // parent fence after all those reads so a mixed snapshot cannot validate
+    // an answer against the registry value fetched before resolution.
+    const latest = await resolveCurrentSourceGenerations({
+      supabase, tenantId: visibilityCtx.tenantId,
+      candidates: candidates.filter(c => c.content_type === 'iedit_page'),
+    });
+    for (const [id] of ieditSnapshots) {
+      if (!isSourceGenerationCurrent(
+        currentGenerations.get(`iedit_page:${id}`)?.active_generation,
+        latest?.get(`iedit_page:${id}`)?.active_generation,
+      )) ieditSnapshots.delete(id);
+    }
+  }
   const pdfFilesById = new Map();
   if (pdfFileIds.size) {
     const { data, error } = await supabase
@@ -639,6 +671,8 @@ export async function revalidateMemberContentCandidates({
       // row itself is public/hybrid.
       access_scope: candidate.access_scope || 'public',
     };
+    if (candidate.content_type === 'iedit_page' &&
+        !isCurrentIEditChunk(candidate, ieditSnapshots.get(candidate.source_id))) continue;
     if (candidate?.provenance?.kind === 'resource_pdf') {
       const file = pdfFilesById.get(candidate.provenance.fileId);
       if (

@@ -11,7 +11,7 @@ export const MEMBER_AI_DEFAULTS = Object.freeze({
   per_ip_hourly_limit: 10,
   tenant_monthly_limit: 2000,
   max_concurrent_requests: 4,
-  allowed_content_types: ['resource', 'event', 'complex_event', 'news_post', 'blog_post', 'canvas_page'],
+  allowed_content_types: ['resource', 'event', 'complex_event', 'news_post', 'blog_post', 'canvas_page', 'iedit_page'],
 });
 
 export function memberAiRequestHash(question) {

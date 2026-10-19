@@ -98,6 +98,7 @@ const CONTENT_TYPE_LABEL = {
   news_post: 'News',
   blog_post: 'Article',
   canvas_page: 'Portal page',
+  iedit_page: 'iEdit page',
 };
 const MEMBER_AI_SOURCE_TYPES = Object.freeze(Object.keys(CONTENT_TYPE_LABEL));
 

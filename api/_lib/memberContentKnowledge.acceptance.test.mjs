@@ -10,7 +10,7 @@ function fixture(type, tenant) {
     status: type === 'resource' ? 'active' : 'published', resource_type: 'article',
     description: `${tenant} permitted description`, content: `${tenant} permitted article`,
     start_date: '2026-10-16T12:00:00Z', is_public: true,
-    builder_type: 'canvas', layout_type: 'hybrid', slug: 'approved-guide',
+    builder_type: type === 'iedit_page' ? 'iedit' : 'canvas', layout_type: 'hybrid', slug: 'approved-guide',
     canvas_design: { root: { sections: [{ children: [
       { type: 'text', content: { text: `${tenant} public introduction` } },
       { type: 'custom-html', content: {
@@ -37,13 +37,17 @@ function database(canonical) {
       const filters = {};
       let single = false;
       const q = {
-        select() { return q; }, limit() { return q; },
+        select() { return q; }, limit() { return q; }, order() { return q; }, range() { return q; },
         eq(key,value) { filters[key]=value; return q; }, in() { return q; },
         maybeSingle() { single=true; return q; },
         then(resolve) {
           assert.equal(filters.tenant_id,canonical.tenant_id,'every canonical read is tenant scoped');
-          const rows = table === 'member_content_chunk' ? [] : [canonical];
-          resolve({ data: single ? rows[0] || null : rows, error: null });
+          const rows = table === 'member_content_chunk' ? [] :
+            table === 'i_edit_page_element' ? [{
+              id: `${canonical.id}-text`, page_id: canonical.id, tenant_id: canonical.tenant_id,
+              display_order: 0, element_type: 'text_block', content: { text: 'Eligible iEdit copy' },
+            }] : [canonical];
+          resolve({ data: single ? rows[0] || null : rows, count: rows.length, error: null });
         },
       };
       return q;
@@ -54,7 +58,7 @@ const provider = { embeddings: { create: async ({ input }) => ({
   data: input.map(()=>({embedding:[0.1,0.2]})),
 }) } };
 
-test('two-tenant six-adapter generation acceptance preserves public/protected projections and multi-source evidence', async () => {
+test('two-tenant seven-adapter generation acceptance preserves public/protected projections and multi-source evidence', async () => {
   const corpus = [];
   for (const tenant of ['tenant-a','tenant-b']) {
     for (const type of CONTENT_TYPES) {

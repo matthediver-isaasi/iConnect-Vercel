@@ -72,6 +72,10 @@ export function buildMemberContentText(item, contentType) {
   const title = item.title || '';
 
   switch (contentType) {
+    case 'iedit_page':
+      // Element pages require ordered element rows plus freshly authorized
+      // dynamic sources; a page-row-only fallback would silently omit them.
+      throw new Error('iEdit pages require buildIEditGenerationSnapshot');
     case 'resource': {
       const meta = [];
       if (item.author_name) meta.push(`Author: ${item.author_name}`);

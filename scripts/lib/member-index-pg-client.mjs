@@ -22,6 +22,7 @@ export const MEMBER_CONTENT_TYPES = Object.freeze([
   'news_post',
   'blog_post',
   'canvas_page',
+  'iedit_page',
 ]);
 
 const SOURCE_TABLES = Object.freeze({
@@ -31,6 +32,7 @@ const SOURCE_TABLES = Object.freeze({
   news_post: 'news_post',
   blog_post: 'blog_post',
   canvas_page: 'i_edit_page',
+  iedit_page: 'i_edit_page',
 });
 
 const SOURCE_COLUMNS = Object.freeze({

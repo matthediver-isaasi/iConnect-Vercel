@@ -72,3 +72,15 @@ Distinguish an unavailable dev server from a blank fixture before changing tests
 **Why:** Restored Vite dependency metadata can reference files from an older installed package layout. A page may initially render and then lose the server during dependency optimization, making unrelated Canvas fixtures all report zero embeds.
 
 **How to apply:** Check workflow termination and cached dependency paths against the installed package exports when logs show optimizer ENOENT errors. Regenerate generated caches rather than changing application imports or weakening fixture assertions.
+
+The generic JavaScript isolation runner does not permit a native PostgREST
+fixture, even when its PostgreSQL exception is enabled.
+
+**Why:** Its local-PostgreSQL allowance covers Unix-socket database tools, not
+another native HTTP server; a transport rejection can appear as a fixture
+readiness timeout.
+
+**How to apply:** Do not weaken the shared isolation guard. For an audited,
+disposable native REST fixture, remove inherited production credentials, bind
+only loopback and a temporary Unix-socket database, and report this separate
+test mode explicitly. Do not use this exception for application/provider tests.

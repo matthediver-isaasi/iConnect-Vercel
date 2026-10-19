@@ -351,6 +351,7 @@ test('full-type sweep allowlists authored and Canvas sources, excluding symbol d
       registryRow('blog-1', 'tenant-1', 'blog_post'),
       registryRow('deleted-blog', 'tenant-1', 'blog_post'),
       registryRow('canvas-1', 'tenant-1', 'canvas_page'),
+      registryRow('iedit-1', 'tenant-1', 'iedit_page'),
       registryRow('symbol-1', 'tenant-1', 'canvas_symbol'),
     ],
     sources: [source('blog-1'), source('canvas-1')],
@@ -359,7 +360,7 @@ test('full-type sweep allowlists authored and Canvas sources, excluding symbol d
   const writeGeneration = async (type, item) => {
     calls.push({ type, item });
     return {
-      removed: item.id === 'deleted-blog',
+      removed: ['deleted-blog', 'iedit-1'].includes(item.id),
       deferred: false,
     };
   };
@@ -383,13 +384,22 @@ test('full-type sweep allowlists authored and Canvas sources, excluding symbol d
     maxItems: 2,
     writeGeneration,
   });
-  assert.equal(second.done, true);
+  assert.equal(second.done, false);
   assert.equal(second.errors, 0);
   assert.equal(second.deferred, 0);
+  assert.equal(second.tombstoned, 1);
+  const third = await sweepMemberContentGenerationTombstones({
+    supabase,
+    cursor: second.nextCursor,
+    maxItems: 2,
+    writeGeneration,
+  });
+  assert.equal(third.done, true);
   assert.deepEqual(calls, [
     { type: 'blog_post', item: { id: 'blog-1', tenant_id: 'tenant-1' } },
     { type: 'blog_post', item: { id: 'deleted-blog', tenant_id: 'tenant-1' } },
     { type: 'canvas_page', item: { id: 'canvas-1', tenant_id: 'tenant-1' } },
+    { type: 'iedit_page', item: { id: 'iedit-1', tenant_id: 'tenant-1' } },
   ]);
   assert.equal(calls.some(({ item }) => item.id === 'symbol-1'), false);
   const registryQuery = supabase.operations.find(
@@ -402,6 +412,7 @@ test('full-type sweep allowlists authored and Canvas sources, excluding symbol d
     'news_post',
     'blog_post',
     'canvas_page',
+    'iedit_page',
   ]);
 });
 

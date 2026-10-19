@@ -27,13 +27,14 @@ export const MEMBER_CONTENT_TOMBSTONE_INVALID_OPTIONS =
 export const MEMBER_CONTENT_TOMBSTONE_KEYSET_INVALID =
   'MEMBER_CONTENT_TOMBSTONE_KEYSET_INVALID';
 
-// Keep Canvas in the same generation-safe tombstone sweep as authored content.
-// Its writer performs the public guest projection and dependency fencing before
+// Keep both portal page builders in the generation-safe tombstone sweep.
+// Their writers perform the public guest projection and dependency fencing before
 // publishing an empty snapshot for a missing or non-public page.
-const ALL_MEMBER_CONTENT_TYPES = Object.freeze([
+const ALL_MEMBER_CONTENT_TYPES = Object.freeze([...new Set([
   ...GENERATION_MEMBER_CONTENT_TYPES,
   'canvas_page',
-]);
+  'iedit_page',
+])]);
 
 const SOURCE_TABLES = Object.freeze({
   resource: 'resource',
@@ -42,6 +43,7 @@ const SOURCE_TABLES = Object.freeze({
   news_post: 'news_post',
   blog_post: 'blog_post',
   canvas_page: 'i_edit_page',
+  iedit_page: 'i_edit_page',
 });
 
 const DEFERRED_WRITER_CODES = new Set([

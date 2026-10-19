@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
@@ -93,6 +93,10 @@ export default function HelpArticlesEditor() {
   const [memberReindexing, setMemberReindexing] = useState(false);
   const [memberReindexStatus, setMemberReindexStatus] = useState(null);
   const [memberReindexProgress, setMemberReindexProgress] = useState(null);
+  const [memberReindexTenant, setMemberReindexTenant] = useState('');
+  const [memberReindexType, setMemberReindexType] = useState('all');
+  const [memberEmbeddingAllowance, setMemberEmbeddingAllowance] = useState('20');
+  const [memberReindexResume, setMemberReindexResume] = useState(null);
 
   // Guided AI generation review flow (Task #2304).
   const [buildOpen, setBuildOpen] = useState(false);
@@ -276,13 +280,31 @@ export default function HelpArticlesEditor() {
   // the super-admin is watching this tab, the browser keeps the run's heartbeat
   // fresh across slices so the "may have stalled" warning never appears on a
   // normal run. If the tab is closed mid-run, the 6h cron reclaims and finishes.
-  const rebuildMemberIndex = async () => {
+  const rebuildMemberIndex = async (resume = false) => {
     // Safety cap so a bug (not-done with no cursor) can't loop forever. Progress
     // is monotonic, so any real catalog finishes well within this many slices.
     const MAX_SLICES = 1000;
     const totals = { items: 0, chunks: 0, embedded: 0, reused: 0, errors: 0 };
     let runId = null;
-    let cursor = null;
+    let cursor = resume ? memberReindexResume?.cursor || null : null;
+    const scope = {
+      tenantId: memberReindexTenant.trim() || null,
+      contentType: memberReindexType === 'all' ? null : memberReindexType,
+      maxEmbeddingChunks: Number(memberEmbeddingAllowance),
+    };
+    if (!/^\d+$/.test(memberEmbeddingAllowance) || !Number.isInteger(scope.maxEmbeddingChunks) ||
+        scope.maxEmbeddingChunks < 0 || scope.maxEmbeddingChunks > 100 ||
+        (scope.tenantId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(scope.tenantId))) {
+      toast({ title: 'Invalid rebuild scope', description: 'Use a tenant UUID (or leave blank) and an embedding allowance from 0 to 100.', variant: 'destructive' });
+      return;
+    }
+    if (resume && (memberReindexResume?.scope.tenantId !== scope.tenantId ||
+        memberReindexResume?.scope.contentType !== scope.contentType)) {
+      toast({ title: 'Scope changed', description: 'Start a new rebuild for the selected tenant and source type.', variant: 'destructive' });
+      return;
+    }
+    let details = [];
+    setMemberReindexResume(null);
 
     setMemberReindexing(true);
     setMemberReindexProgress({ ...totals, state: 'running' });
@@ -292,7 +314,7 @@ export default function HelpArticlesEditor() {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ runId, cursor }),
+          body: JSON.stringify({ runId, cursor, ...scope }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
@@ -326,9 +348,22 @@ export default function HelpArticlesEditor() {
         totals.embedded += data.embedded || 0;
         totals.reused += data.reused || 0;
         totals.errors += data.errors || 0;
-        setMemberReindexProgress({ ...totals, state: data.done ? 'done' : 'running' });
+        details = [...details, ...(Array.isArray(data.details) ? data.details : [])].slice(-200);
+        setMemberReindexProgress({ ...totals, details, scope,
+          state: data.paused ? 'paused' : data.done ? 'done' : 'running',
+          error: data.paused ? data.pauseMessage : null });
         // Keep the status readout (in progress / last completed) in step.
         loadMemberReindexStatus();
+
+        if (data.paused || data.stopReason === 'embedding_budget') {
+          // Never auto-resubmit the same oversized source with the same allowance.
+          // Explicit resume starts a NEW protected operation, permitting a reviewed
+          // budget change without mutating a running operation's authorization.
+          setMemberReindexResume(cursor ? { cursor, scope } : null);
+          toast({ title: 'Rebuild paused at embedding limit',
+            description: 'Review coverage and raise the allowance if needed (maximum 100), then explicitly resume.' });
+          return;
+        }
 
         if (data.done) {
           const description =
@@ -352,11 +387,10 @@ export default function HelpArticlesEditor() {
       }
 
       // Hit the safety cap (or a missing cursor) without a done signal.
-      toast({
-        title: 'Rebuild still running',
-        description:
-          'The rebuild is taking longer than expected. The scheduled job will finish the rest.',
-      });
+      setMemberReindexProgress(p => ({ ...p, state: 'paused',
+        error: 'Automatic continuation stopped before completion. Review the operation before restarting.' }));
+      toast({ title: 'Rebuild stopped before completion',
+        description: 'No automatic completion is promised. Review the current status before restarting.' });
     } catch (err) {
       toast({ title: 'Error', description: err.message, variant: 'destructive' });
       setMemberReindexProgress((p) =>
@@ -501,7 +535,7 @@ export default function HelpArticlesEditor() {
           </Button>
           <Button
             variant="outline"
-            onClick={rebuildMemberIndex}
+            onClick={() => rebuildMemberIndex()}
             disabled={memberReindexing}
             data-testid="button-rebuild-member-ai-index"
           >
@@ -518,6 +552,58 @@ export default function HelpArticlesEditor() {
           </Button>
         </div>
       </div>
+
+      <Card data-testid="member-reindex-scope">
+        <CardHeader className="py-3">
+          <CardTitle className="text-base">Member AI rebuild scope</CardTitle>
+          <CardDescription>
+            Optional tenant and source limits. The embedding allowance is per slice, not a total-run cap.
+            Default 20; choose up to 100 explicitly for larger pages. Exhausted slices pause for review.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="space-y-1">
+              <Label htmlFor="member-reindex-tenant">Tenant ID (blank = all tenants)</Label>
+              <Input id="member-reindex-tenant" value={memberReindexTenant} disabled={memberReindexing}
+                onChange={e => { setMemberReindexTenant(e.target.value); setMemberReindexResume(null); }}
+                placeholder="Tenant UUID" />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="member-reindex-type">Source type</Label>
+              <Select value={memberReindexType} disabled={memberReindexing}
+                onValueChange={value => { setMemberReindexType(value); setMemberReindexResume(null); }}>
+                <SelectTrigger id="member-reindex-type"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All enabled source types</SelectItem>
+                  <SelectItem value="iedit_page">iEdit pages</SelectItem>
+                  <SelectItem value="canvas_page">Canvas pages</SelectItem>
+                  <SelectItem value="resource">Resources</SelectItem>
+                  <SelectItem value="event">Events</SelectItem>
+                  <SelectItem value="complex_event">Complex events</SelectItem>
+                  <SelectItem value="news_post">News posts</SelectItem>
+                  <SelectItem value="blog_post">Blog posts</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="member-reindex-budget">Embedding chunks per slice (0–100)</Label>
+              <Input id="member-reindex-budget" type="number" min="0" max="100" step="1"
+                value={memberEmbeddingAllowance} disabled={memberReindexing}
+                onChange={e => setMemberEmbeddingAllowance(e.target.value)} />
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" disabled={memberReindexing} onClick={() => {
+              setMemberReindexTenant('fd82da65-aab7-4a5c-85b8-b2febeb2003d');
+              setMemberReindexType('iedit_page');
+              setMemberReindexResume(null);
+            }}>Select GFI iEdit scope</Button>
+            {memberReindexResume && <Button disabled={memberReindexing} onClick={() => rebuildMemberIndex(true)}
+              data-testid="button-resume-member-reindex">Resume saved position with selected allowance</Button>}
+          </div>
+        </CardContent>
+      </Card>
 
       {memberReindexStatus && (
         <div
@@ -542,8 +628,8 @@ export default function HelpArticlesEditor() {
               </span>
               {memberReindexStatus.heartbeatAt && (
                 <span className="text-muted-foreground">
-                  · last activity {formatWhen(memberReindexStatus.heartbeatAt)} · the next
-                  scheduled run will resume it
+                  · last activity {formatWhen(memberReindexStatus.heartbeatAt)} · a new
+                  rebuild can reclaim this operation
                 </span>
               )}
             </>
@@ -576,7 +662,7 @@ export default function HelpArticlesEditor() {
           {memberReindexProgress.state === 'done' && (
             <CheckCircle2 className="h-4 w-4 shrink-0 text-muted-foreground" />
           )}
-          {memberReindexProgress.state === 'error' && (
+          {['error', 'paused'].includes(memberReindexProgress.state) && (
             <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" />
           )}
           <Badge variant="secondary" data-testid="badge-member-reindex-items">
@@ -592,6 +678,31 @@ export default function HelpArticlesEditor() {
             <span className="text-destructive">{memberReindexProgress.error}</span>
           )}
         </div>
+      )}
+
+      {memberReindexProgress?.details?.length > 0 && (
+        <Card data-testid="member-reindex-coverage">
+          <CardHeader className="py-3">
+            <CardTitle className="text-base">Source coverage and failures</CardTitle>
+            <CardDescription>Latest 200 source reports from this operation. Exclusions are not indexed content.</CardDescription>
+          </CardHeader>
+          <CardContent className="max-h-96 space-y-3 overflow-y-auto">
+            {memberReindexProgress.details.map((detail, index) => (
+              <div key={`${detail.sourceId}-${index}`} className="rounded border p-3 text-sm">
+                <p className="font-medium">{detail.title || detail.sourceId || 'Source maintenance'} · {detail.contentType}</p>
+                {detail.sourceId && <p className="break-all text-xs text-muted-foreground">{detail.sourceId}</p>}
+                {detail.error && <p className="text-destructive">{detail.error}</p>}
+                {detail.chunks != null && <p>{detail.chunks} chunks</p>}
+                {Array.isArray(detail.coverage) && detail.coverage.map((item, i) => (
+                  <p key={i} className="text-muted-foreground">
+                    {item.elementType || item.type || 'Page'}: {item.code || item.policy || 'Coverage'}
+                    {item.detail ? ` — ${item.detail}` : ''}
+                  </p>
+                ))}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
       )}
 
       <Card data-testid="help-coverage-section">

@@ -56,6 +56,7 @@ const TYPE_ICON = {
   news_post: Newspaper,
   blog_post: BookOpen,
   canvas_page: FileText,
+  iedit_page: FileText,
 };
 
 const TITLE_MAX = 80;

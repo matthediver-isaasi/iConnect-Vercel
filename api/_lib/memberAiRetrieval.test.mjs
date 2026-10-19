@@ -7,6 +7,8 @@ import * as ranking from './memberAiRanking.js';
 import * as contentAccess from './memberContentAccess.js';
 import * as answerHelpers from './memberAiAnswer.js';
 import { fetchCategoriesWithAccess, computeHiddenSubcategories } from './resourceCategoryAccess.js';
+import { buildResponsePolicyInstructions, noEvidenceResponse } from './tenantAiAssistant.js';
+import { normalizeResponsePolicy } from '../../shared/memberAiResponsePolicy.js';
 
 function database(tables, reads = []) {
   return { from(table) {
@@ -41,7 +43,7 @@ test('14-argument contract retains all established types and server-derived perm
   assert.deepEqual(args.p_hidden_subcategories, ['secret']);
   assert.equal(args.p_is_admin, false);
   assert.equal(args.p_allowed_feature_keys.includes('content.news'), false);
-  assert.deepEqual(args.p_allowed_content_types, ['resource', 'event', 'complex_event', 'news_post', 'blog_post', 'canvas_page']);
+  assert.deepEqual(args.p_allowed_content_types, ['resource', 'event', 'complex_event', 'news_post', 'blog_post', 'canvas_page', 'iedit_page']);
   assert.deepEqual(args.p_eligible_pdf_chunk_ids, []);
   assert.equal(args.p_query_text, 'Question');
   assert.throws(() => memberAiRetrievalArguments(context, [0], 'Question'), /embedding/);
@@ -82,6 +84,8 @@ function handler(dependencies) {
   const injected = {
     ...contentAccess, ...answerHelpers,
     fetchCategoriesWithAccess, computeHiddenSubcategories,
+    buildResponsePolicyInstructions, noEvidenceResponse,
+    loadTenantAiAssistant: async () => ({ enabled: true, responsePolicy: normalizeResponsePolicy(null) }),
     getSessionTenantUser: async () => null,
     ...dependencies,
   };

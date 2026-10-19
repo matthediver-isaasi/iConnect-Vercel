@@ -8,17 +8,24 @@ import { getTenantContext } from '../_lib/tenantContext.js';
 import { MEMBER_AI_DEFAULTS } from '../_lib/memberAiUsage.js';
 
 const ALLOWED_CONTENT_TYPES = new Set(
-  ['resource', 'event', 'complex_event', 'news_post', 'blog_post', 'canvas_page']
+  ['resource', 'event', 'complex_event', 'news_post', 'blog_post', 'canvas_page', 'iedit_page']
 );
 
 function validLimit(value, min, max) {
   return Number.isInteger(value) && value >= min && value <= max;
 }
 
-export default async function handler(req, res) {
-  if (!supabase) return res.status(503).json({ error: 'Database not configured' });
-  const ctx = await getTenantContext(req);
-  const tenantUser = await getSessionTenantUser(req);
+export function createMemberAiSettingsHandler(deps = {}) {
+  const db = deps.supabase ?? supabase;
+  const tenantContext = deps.getTenantContext ?? getTenantContext;
+  const sessionTenantUser = deps.getSessionTenantUser ?? getSessionTenantUser;
+  return (req, res) => handleMemberAiSettings(req, res, { db, tenantContext, sessionTenantUser });
+}
+
+async function handleMemberAiSettings(req, res, { db, tenantContext, sessionTenantUser }) {
+  if (!db) return res.status(503).json({ error: 'Database not configured' });
+  const ctx = await tenantContext(req);
+  const tenantUser = await sessionTenantUser(req);
   const userTenantId = tenantUser?._sessionTenantId || tenantUser?.tenant_id;
   if (!ctx?.isAuthenticated || !ctx.tenantId || !tenantUser || userTenantId !== ctx.tenantId) {
     return res.status(403).json({ error: 'Tenant administrator access required.' });
@@ -28,7 +35,7 @@ export default async function handler(req, res) {
   }
   try {
     if (req.method === 'GET') {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from('member_ai_settings')
         .select('enabled, public_enabled, per_member_hourly_limit, per_ip_hourly_limit, tenant_monthly_limit, max_concurrent_requests, allowed_content_types, updated_at')
         .eq('tenant_id', ctx.tenantId)
@@ -70,7 +77,7 @@ export default async function handler(req, res) {
       allowed_content_types: [...new Set(allowedContentTypes)],
       updated_at: new Date().toISOString(),
     };
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('member_ai_settings')
       .upsert(row, { onConflict: 'tenant_id' })
         .select('enabled, public_enabled, per_member_hourly_limit, per_ip_hourly_limit, tenant_monthly_limit, max_concurrent_requests, allowed_content_types, updated_at')
@@ -82,3 +89,5 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Unable to update Member AI settings.' });
   }
 }
+
+export default createMemberAiSettingsHandler();

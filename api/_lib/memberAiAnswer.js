@@ -16,6 +16,7 @@ const ALLOWED_TYPES = new Set([
   'news_post',
   'blog_post',
   'canvas_page',
+  'iedit_page',
 ]);
 
 function secret() {
@@ -83,6 +84,25 @@ function safeProvenance(provenance) {
     : [];
   // Keep only the fields the current reauthorizer evaluates. This makes the
   // signed envelope both small and an explicit dependency fence.
+  if (provenance.adapter === 'iedit_page') {
+    const proof = provenance.iedit;
+    if (
+      provenance.kind !== 'knowledge' ||
+      !proof ||
+      typeof proof.sectionKey !== 'string' ||
+      proof.sectionKey.length !== 64 ||
+      !/^[a-f0-9]{64}$/.test(proof.sectionKey) ||
+      typeof proof.contentHash !== 'string' ||
+      proof.contentHash.length !== 64 ||
+      !/^[a-f0-9]{64}$/.test(proof.contentHash)
+    ) return null;
+    return {
+      kind: 'knowledge',
+      adapter: 'iedit_page',
+      iedit: { sectionKey: proof.sectionKey, contentHash: proof.contentHash },
+      dependencies,
+    };
+  }
   if (provenance.kind === 'resource_pdf') {
     if (typeof provenance.fileId !== 'string' || !provenance.fileId) return null;
     if (!dependencies.some(
