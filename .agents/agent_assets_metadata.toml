@@ -1573,3 +1573,45 @@ mtime_ms = 1792429177559
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/065212c8-8e98-467d-bb6b-49eb06deddab/2a556efc-5c62-41fa-a184-1b492bf707ce"
 storage_version_token = "1792429267176249"
 content_type = "text/csv"
+
+[[outputs]]
+id = "z3yhghe7TVN5I_bUZn6lE"
+uri = "file://generated-artifacts/campaign-incident/Fast-Track-19-October-2026-Incident-Report.pdf"
+type = "pdf"
+title = "Fast Track — 19 October incident report"
+description = "Full timeline, evidence limitations, historical bounce analysis, all 149 suppressed addresses and all 15 unresolved recipients. Confidential."
+logical_id = "4c8c8258-ed73-4c21-8cc5-c2bb63ba865a"
+content_hash = "sha256:fd6fc9de5533cb9a5fcf324331b77d65475310658cf80a80211c61f42639942a"
+size = 215384
+mtime_ms = 1792433567841
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/4c8c8258-ed73-4c21-8cc5-c2bb63ba865a/463bfe56-b6cf-4907-9501-7fa193b6ffd8"
+storage_version_token = "1792433593917745"
+content_type = "application/pdf"
+
+[[outputs]]
+id = "lzDHuFuY8NrLktupk7xuo"
+uri = "file://generated-artifacts/campaign-incident/recipient-exceptions-165.csv"
+type = "table"
+title = "All 165 recipient exceptions"
+description = "149 historically suppressed recipients, 15 unresolved processing records and one unsubscribe, including exact recorded bounce reasons and dates."
+logical_id = "f84ba294-60ab-48bc-aceb-11fa09fad629"
+content_hash = "sha256:048f361ecc8260819e7f2ee35f477e5a8671a015beafd5f0c921a7fa409c85ed"
+size = 68861
+mtime_ms = 1792433450026
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/f84ba294-60ab-48bc-aceb-11fa09fad629/f41f3540-c565-40c1-b38c-794e6f67d28e"
+storage_version_token = "1792433594902954"
+content_type = "text/csv"
+
+[[outputs]]
+id = "9NnfWcg1mWzshZ8-Zvq8S"
+uri = "file://generated-artifacts/campaign-incident/unresolved-recipients-15.csv"
+type = "table"
+title = "15 recipients requiring reconciliation"
+description = "Recipient IDs, names and addresses for provider reconciliation. These are not confirmed failed deliveries."
+logical_id = "39d0d41e-046b-48c7-b3cb-57e55827b045"
+content_hash = "sha256:8a3019b59064fd8df7a033d5c26398bb58071385facc2ff465d46102d78a1522"
+size = 2712
+mtime_ms = 1792433450029
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/39d0d41e-046b-48c7-b3cb-57e55827b045/5582b3c5-4481-45c4-afd6-0189a883c0c2"
+storage_version_token = "1792433595715060"
+content_type = "text/csv"
