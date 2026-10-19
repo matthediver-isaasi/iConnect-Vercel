@@ -20,16 +20,12 @@ export function classifyEmptyMappingSource(mapping, value, {
     candidate.id, candidate.name, candidate.key,
   ].includes(mapping?.source_field_id) && mapping?.source_field_id);
   if (!field) return attention('Source field definition is missing');
-  // Match the persisted-form requiredness contract: unknown flags and future
-  // conditional-required metadata fail closed, never imply optional.
-  const conditional = ['conditional_required', 'required_if', 'required_when',
-    'required_conditions', 'required_rules'].some((key) => field[key] != null);
-  if (conditional) return attention('Conditional source requiredness cannot be confirmed');
+  // Requiredness belongs to form validation/stage conditions, not copying.
+  // A blank saved answer (including one inherited through a form swap) is a
+  // no-op regardless of requiredness; never erase the destination or flag a
+  // failed workflow merely because no source data was supplied.
   const hidden = computeHiddenFieldIds(sourceForm, answers).has(field.id);
-  const required = [field.required, field.is_required]
-    .some((flag) => flag != null && flag !== false);
-  if (required && !hidden) return attention('Required source value is empty');
-  return { status: 'skipped', reason: hidden ? 'Hidden source value is empty' : 'Optional source value is empty' };
+  return { status: 'skipped', reason: hidden ? 'Hidden source value is empty' : 'Source value is empty' };
 }
 
 export function summarizeMappingResults(mappings) {

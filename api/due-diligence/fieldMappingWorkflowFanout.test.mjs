@@ -276,7 +276,7 @@ test('organization optional blanks preserve destinations and produce no workflow
   });
 });
 
-test('organization all optional blank versus required, missing definition and invalid target', async () => {
+test('organization blank answers skip regardless of requiredness; missing definitions and invalid targets still fail', async () => {
   for (const scenario of ['optional', 'required', 'missing', 'invalid']) {
     const state = {
       organization: { id: 'organization', tenant_id: 'tenant', name: 'Retained' },
@@ -289,7 +289,7 @@ test('organization all optional blank versus required, missing definition and in
     };
     await withFieldMappingClient(state, async () => {
       const results = await executeFieldMappingActions('approved', ddSubmission, 'tenant', 'system');
-      assert.equal(results[0].status, scenario === 'optional' ? 'success' : 'partial');
+      assert.equal(results[0].status, ['optional', 'required'].includes(scenario) ? 'success' : 'partial');
       assert.equal(state.organization.name, 'Retained');
       assert.equal(state.outbox.length, 0);
     });

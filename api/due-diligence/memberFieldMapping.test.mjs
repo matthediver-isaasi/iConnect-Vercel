@@ -26,7 +26,7 @@ test('member core values retain their string storage representation', () => {
   assert.equal(__testables.coerceMemberCoreMappingValue('2026-10-25', 'job_title'), '2026-10-25');
 });
 
-test('member optional blank never clears or fans out; required and missing remain attention; explicit clear is retained', async () => {
+test('member blank answers never clear or fan out even when required; missing definitions still fail; explicit clear is retained', async () => {
   const originalFrom = supabase.from;
   const originalRpc = supabase.rpc;
   const rpcCalls = [];
@@ -81,13 +81,13 @@ test('member optional blank never clears or fans out; required and missing remai
       if (scenario === 'missing') {
         assert.equal(result[0].status, 'error');
       } else {
-        assert.equal(result[0].status, scenario === 'required' ? 'partial' : 'success');
+        assert.equal(result[0].status, 'success');
       }
       assert.equal(rpcCalls.length, ['clear', 'amended'].includes(scenario) ? 1 : 0);
       if (rpcCalls.length) {
         assert.deepEqual(rpcCalls[0].p_mutation, { first_name: null });
         assert.equal(rpcCalls[0].p_event_key, 'core:member:occurrence:action:0');
-      } else if (['optional', 'hidden'].includes(scenario)) {
+      } else if (['optional', 'required', 'hidden'].includes(scenario)) {
         assert.equal(history.at(-1).details.skipped_count, 1);
         assert.equal(history.at(-1).details.applied_count, 0);
       }

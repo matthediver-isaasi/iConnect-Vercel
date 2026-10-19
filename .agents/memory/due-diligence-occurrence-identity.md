@@ -27,8 +27,8 @@ Incident reconciliation may acknowledge already-satisfied static database assign
 
 **How to apply:** Fence the exact event cohort, current stage occurrence, workflow configuration, claim ownership and current values in one transaction. Preserve an explicit reconciliation audit reason. Never generalize this exception to email/provider actions or use a lack of logs as proof of no effects.
 
-Optional empty mapping answers are no-ops, not failed deliveries or clearing instructions.
+Empty form-answer mappings are no-ops, even when the source question is required; they must not cause a stage-action warning.
 
-**Why:** A completed outbox cohort can coexist with an attention response caused solely by optional blank source fields. Historical `mappings_count` counted attention outcomes as well as successful writes, so it cannot prove completion.
+**Why:** The user explicitly requested no warning for blank mapping data. Form swaps can legitimately leave required destination questions unanswered; mapping should copy supplied answers, not enforce form completeness. Historical `mappings_count` counted attention outcomes as well as successful writes, so it cannot prove completion.
 
-**How to apply:** Resolve persisted source definitions and requiredness/visibility before classifying absence; keep missing definitions and genuinely required blanks in attention. Preserve explicit member clears, false and zero. Report applied, skipped, attention and unchanged counts separately, and never replay a saved stage just to remove an optional-blank warning.
+**How to apply:** Skip blank answers without mutating destinations or creating workflow effects, regardless of requiredness or conditional-required metadata. Keep missing definitions, invalid targets and actual write/delivery failures in attention. Preserve explicit member clears, false and zero. Report applied, skipped, attention and unchanged counts separately, and never replay a saved stage just to remove a blank-answer warning.

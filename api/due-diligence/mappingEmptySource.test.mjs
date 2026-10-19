@@ -18,10 +18,12 @@ test('optional empty scalars and collections skip; false and zero remain values'
   }
 });
 
-test('required, unknown definitions and unknown conditional requirements fail closed', () => {
+test('required and conditional-required blank answers skip; broken configuration still needs attention', () => {
   for (const field of [{ required: true }, { is_required: true }, { required: 'true' },
     { required_if: {} }, { required_rules: [] }]) {
-    assert.equal(classifyEmptyMappingSource(mapping, '', context(field)).status, 'requires_attention');
+    for (const value of [undefined, null, '', '  ', [], {}]) {
+      assert.equal(classifyEmptyMappingSource(mapping, value, context(field)).status, 'skipped');
+    }
   }
   assert.equal(classifyEmptyMappingSource(mapping, '', {}).reason, 'Source field definition is missing');
   assert.equal(classifyEmptyMappingSource({ source_type: 'static' }, '', {}).status, 'requires_attention');
@@ -39,17 +41,17 @@ test('canonical visibility and hidden pages exclude otherwise-required empty sou
     }],
   });
   assert.equal(classifyEmptyMappingSource(mapping, '', { ...config, answers: { gate: 'hide' } }).status, 'skipped');
-  assert.equal(classifyEmptyMappingSource(mapping, '', { ...config, answers: { gate: 'show' } }).status, 'requires_attention');
+  assert.equal(classifyEmptyMappingSource(mapping, '', { ...config, answers: { gate: 'show' } }).status, 'skipped');
 });
 
 test('explicit clearing remains distinct from an absent optional answer', () => {
   assert.equal(classifyEmptyMappingSource(mapping, '', { ...context(), explicitEmpty: true }), null);
 });
 
-test('33 mapping / 4 optional blank shape reports accurate totals and does not hide failures', () => {
+test('33 mapping / 4 required blank shape reports accurate totals and does not hide failures', () => {
   const mappings = Array.from({ length: 33 }, (_, index) => (
     [1, 6, 20, 28].includes(index)
-      ? classifyEmptyMappingSource(mapping, '', context())
+      ? classifyEmptyMappingSource(mapping, '', context({ required: true }))
       : { status: 'updated' }
   ));
   assert.deepEqual(summarizeMappingResults(mappings), {
