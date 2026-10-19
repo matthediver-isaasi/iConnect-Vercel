@@ -20,3 +20,17 @@ old row. Retain exact checksum SQL and snapshot times. Do not derive repairs
 from current delivery outcomes or from unverified/email-only event matches.
 Require independently reviewed before/after evidence and explicit approval for
 repairs; never replay a backfill to investigate it.
+
+For legacy sends without provider campaign variables, recover exact campaign and
+recipient identity from links inside the provider's authenticated stored message,
+then bind acceptance/delivery events by that message ID and envelope recipient.
+Email address, subject, an empty history, or a “verified provider” marker alone
+does not establish campaign ownership or permission to retry.
+
+**Why:** Live incident evidence included a genuine delivered event filed under an
+unrelated campaign by historical synchronization. Its verified-provider marker
+proved the event's source, not the correctness of its campaign attribution.
+
+**How to apply:** Check for cross-campaign event collisions before repair. Preserve
+unrelated records unless separately authorized to fix them, retain exact private
+before/after evidence, and use a zero-write verification after committing recovery.
