@@ -18,6 +18,7 @@ const compiled = await build({
     export {default as Groups} from "./BundleBillingGroups.jsx";
     export {default as Schedule} from "./BillingSchedule.jsx";
     export {default as QuoteBilling} from "./QuoteBillingSettings.jsx";
+    export {default as AgreementDocument} from "./AgreementDocument.jsx";
     export {default as Invoices} from "./InvoiceSchedulesPanel.jsx";`,
   resolveDir: `${process.cwd()}/client/src/components/sales`, loader: "jsx" },
   bundle: true, write: false, packages: "external", platform: "node", format: "cjs", jsx: "automatic",
@@ -45,7 +46,7 @@ const compiled = await build({
 const mod = new Module(`${process.cwd()}/billing-mounted-test.cjs`);
 mod.paths = Module._nodeModulePaths(process.cwd());
 mod._compile(compiled.outputFiles[0].text, `${process.cwd()}/billing-mounted-test.cjs`);
-const { Settings, Groups, Schedule, QuoteBilling, Invoices } = mod.exports;
+const { Settings, Groups, Schedule, QuoteBilling, Invoices, AgreementDocument } = mod.exports;
 const settle = () => new Promise(resolve => setTimeout(resolve, 30));
 const settings = () => ({ version: 4, showSku: false, quoteTaskListName: "Production tasks", billingPresets: {
   issueDelays: [{ id: "delay", name: "After a week", days: 7, isActive: true, isDefault: true }],
@@ -214,11 +215,81 @@ test("quote scheduling is opt-in and suggests an active default only for a new r
     assert.equal(latest.remainderPaymentTermsId, "");
     await click(fixture.host.querySelector('input[type="checkbox"]'));
     assert.equal(latest.remainderPaymentTermsId, "terms");
-    await change(fixture.host.querySelector("select"), "");
+    await change(fixture.host.querySelector('[aria-label="Remainder payment terms"]'), "");
     assert.equal(latest.remainderPaymentTermsId, "");
     assert.match(fixture.host.textContent, /Choose remainder payment terms/);
     await fixture.render(React.createElement(Harness));
     assert.equal(latest.remainderPaymentTermsId, "", "Re-rendering must not replace a deliberate empty selection");
+  } finally { await fixture.close(); }
+});
+
+test("percentage editor adds, removes and toggles without losing terms, values or mode; read-only versions cannot edit", async () => {
+  let latest;
+  function Harness({ readOnly = false }) {
+    const [form, setForm] = React.useState({ scheduledBilling: true, billingMode: "groups", paymentTerms: "Manual 30 days", percentageInstalments: [] });
+    latest = form;
+    return React.createElement(QuoteBilling, { form, setForm, readOnly });
+  }
+  const fixture = await mounted(React.createElement(Harness));
+  const select = label => fixture.host.querySelector(`[aria-label="${label}"]`);
+  try {
+    await change(select("Billing method"), "percentage");
+    assert.deepEqual(latest.percentageInstalments.map(row => row.name), ["Deposit", "Balance"]);
+    assert.deepEqual(latest.percentageInstalments.map(row => row.percentage), ["50", "50"]);
+    assert.equal(select("Remainder payment terms"), null);
+    await change(select("Instalment 1 percentage"), "33.33");
+    await change(select("Instalment 2 percentage"), "66.67");
+    assert.equal(fixture.host.querySelector('[role="alert"]'), null);
+    await click(button(fixture.host, "Add instalment"));
+    assert.equal(latest.percentageInstalments.length, 3);
+    await click(button(fixture.host, "Remove instalment 3"));
+    const saved = structuredClone(latest.percentageInstalments);
+    await change(select("Billing method"), "groups");
+    await change(select("Billing method"), "percentage");
+    await click(fixture.host.querySelector('input[type="checkbox"]'));
+    assert.equal(latest.scheduledBilling, false);
+    assert.equal(latest.paymentTerms, "Manual 30 days");
+    await click(fixture.host.querySelector('input[type="checkbox"]'));
+    assert.deepEqual(latest.percentageInstalments, saved);
+    await fixture.render(React.createElement(Harness, { readOnly: true }));
+    assert.equal(select("Billing method").disabled, true);
+    assert.equal(select("Instalment 1 percentage").closest("fieldset").disabled, true);
+    await click(button(fixture.host, "Remove instalment 1"));
+    assert.deepEqual(latest.percentageInstalments, saved);
+  } finally { await fixture.close(); }
+});
+
+test("deferred preset discovery preserves hydrated percentage rows and explicit missing selections", async () => {
+  let latest, resolve;
+  const pending = new Promise(done => { resolve = done; });
+  const saved = [{ id: "saved", name: "Balance", percentage: "100.00", issueDelayPreset: { id: "archived-delay", name: "Saved delay", days: 21 }, paymentTerms: { id: "archived-terms", name: "Saved terms", days: 30 } }];
+  function Harness() {
+    const [form, setForm] = React.useState({ scheduledBilling: true, billingMode: "percentage", percentageInstalments: structuredClone(saved) });
+    latest = form; return React.createElement(QuoteBilling, { form, setForm });
+  }
+  const fixture = await mounted(React.createElement(Harness), { load: () => pending });
+  try {
+    assert.equal(fixture.host.querySelector('[aria-label="Instalment 1 payment terms"]').disabled, true);
+    assert.deepEqual(latest.percentageInstalments, saved);
+    await act(async () => { resolve(settings()); await settle(); });
+    await act(settle);
+    assert.deepEqual(latest.percentageInstalments, saved);
+    assert.equal(fixture.host.querySelector('[aria-label="Instalment 1 payment terms"]').value, "archived-terms");
+    await change(fixture.host.querySelector('[aria-label="Instalment 1 payment terms"]'), "");
+    await fixture.render(React.createElement(Harness));
+    assert.equal(latest.percentageInstalments[0].paymentTerms, null);
+    assert.deepEqual(latest.percentageInstalments[0].issueDelayPreset, saved[0].issueDelayPreset);
+  } finally { await fixture.close(); }
+});
+
+test("scheduled agreements hide manual terms without rewriting saved legal content", async () => {
+  const quote = { scheduledBilling: true, paymentTerms: "Manual thirty days", legalHtml: "<p>Saved legal wording</p>", lines: [] };
+  const fixture = await mounted(React.createElement(AgreementDocument, { quote }));
+  try {
+    assert.doesNotMatch(fixture.host.textContent, /Manual thirty days/);
+    assert.match(fixture.host.textContent, /Saved legal wording/);
+    await fixture.render(React.createElement(AgreementDocument, { quote: { ...quote, scheduledBilling: false } }));
+    assert.match(fixture.host.textContent, /Manual thirty days/);
   } finally { await fixture.close(); }
 });
 
@@ -283,7 +354,7 @@ test("existing remainder terms survive preset refresh and failed discovery never
     return settings();
   } });
   try {
-    assert.equal(fixture.host.querySelector("select").value, "archived-terms");
+    assert.equal(fixture.host.querySelector('[aria-label="Remainder payment terms"]').value, "archived-terms");
     fail = true;
     await act(async () => { await fixture.client.refetchQueries({ queryKey: ["sales-settings"] }); await settle(); });
     assert.match(fixture.host.textContent, /Payment terms could not be loaded/);

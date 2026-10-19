@@ -6,6 +6,7 @@ import { resolveSalesTaxCode } from './salesCatalogueTaxOptions.js';
 import { quoteSalespersonSnapshot } from './quoteSalespeople.js';
 import { randomUUID } from 'node:crypto';
 import { buildBillingSchedule, resolveBillingTimezone } from '../../shared/salesBilling.js';
+import { resolvePercentageInstalments } from '../../shared/salesBillingConfiguration.js';
 import { sanitizeAgreementHtml } from './salesAgreementHtml.js';
 import { resolveEventTicketReference } from './salesCatalogue.js';
 
@@ -40,7 +41,9 @@ async function snapshotReferences(db, tenantId, actor, draft, previousSalesperso
     customerContactSnapshot: customer, billingContactSnapshot: billing,
     addressSnapshot: draft.address || null,
     eventSnapshot: event,
-    termsSnapshot: { text: draft.terms ?? settings.data?.default_terms ?? '', legalHtml: sanitizeAgreementHtml(draft.legalHtml) },
+    termsSnapshot: { text: draft.scheduledBilling === true
+      ? 'Payment terms are specified per invoice in the billing schedule.'
+      : draft.terms ?? settings.data?.default_terms ?? '', legalHtml: sanitizeAgreementHtml(draft.legalHtml) },
     salespersonSnapshot: salesperson,
   };
 }
@@ -166,12 +169,16 @@ export async function prepareQuoteDraft(db, tenantId, actor, draft, allowPriceOv
     const presets = settings.data?.billing_presets?.paymentTerms || [];
     const terms = previousTerms && previousTerms.id === draft.remainderPaymentTermsId ? previousTerms
       : presets.find(p => p.id === draft.remainderPaymentTermsId && p.isActive);
-    if (draft.remainderPaymentTermsId && !terms) throw new SalesHttpError(400, 'Select active payment terms for the remainder group');
+    if (draft.billingMode !== 'percentage' && draft.remainderPaymentTermsId && !terms) throw new SalesHttpError(400, 'Select active payment terms for the remainder group');
     const contact = [snapshots.billingContactSnapshot, snapshots.customerContactSnapshot]
       .find(c => c?.email || c?.email_address) || {};
     const org = snapshots.organisationSnapshot || {};
     try {
       billingSchedule = buildBillingSchedule({ lines, currency: draft.currency, newId: randomUUID,
+        billingMode: draft.billingMode || 'groups',
+        percentageInstalments: draft.billingMode === 'percentage'
+          ? resolvePercentageInstalments(draft.percentageInstalments, settings.data?.billing_presets,
+            previousBillingSchedule?.mode === 'percentage' ? previousBillingSchedule.percentageInstalments : []) : undefined,
         ...resolveBillingTimezone(tenant.data?.settings?.timezone || tenant.data?.timezone),
         recipient: { email: contact.email || contact.email_address || org.email || null,
           name: contact.name || [contact.first_name, contact.last_name].filter(Boolean).join(' ') || org.name || null },
@@ -179,6 +186,7 @@ export async function prepareQuoteDraft(db, tenantId, actor, draft, allowPriceOv
       // Keep group identity through ordinary edits/reordering of an existing
       // draft. Never identify repeated bundles by catalogue ID alone.
       for (const group of billingSchedule.groups) {
+        if (draft.billingMode === 'percentage' || previousBillingSchedule?.mode === 'percentage') continue;
         const oldPosition = group.linePosition === null ? null
           : previousLines.get(draft.lines[group.linePosition]?.id)?.display_order;
         const oldGroup = previousBillingSchedule?.groups?.find(g => g.linePosition === oldPosition
@@ -192,7 +200,7 @@ export async function prepareQuoteDraft(db, tenantId, actor, draft, allowPriceOv
     currency: draft.currency, opportunityId: draft.opportunityId || null,
     issueDate: draft.issueDate || null, validUntil: draft.validUntil || null, notes: draft.notes || null,
     purchaseOrderReference: draft.purchaseOrderReference || null, customerReference: draft.customerReference || null,
-    taxTreatment: draft.taxTreatment || null, paymentTerms: draft.paymentTerms || null,
+    taxTreatment: draft.taxTreatment || null, paymentTerms: billingSchedule ? null : draft.paymentTerms || null,
     ...snapshots, lines, totals: calculateQuoteTotals(lines),
   };
 }

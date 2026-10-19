@@ -72,6 +72,34 @@ test('scheduled preparation uses authoritative timezone and recipient snapshots;
   await assert.rejects(prepareQuoteDraft(db, uuid, { actorId: 'actor' },
     { ...draft, scheduledBilling: true }), /remainder/);
 });
+test('percentage preparation resolves tenant presets, neutralises manual terms and preserves saved identities', async () => {
+  const terms = { id: uuid, name: '14 days', days: 14, isActive: true };
+  const delay = { id: uuid, name: 'Acceptance', days: 0, isActive: true };
+  const db = { from(table) {
+    const data = table === 'tenant' ? { timezone: 'UTC' }
+      : { default_terms: 'Pay within 90 days', billing_presets: { paymentTerms: [terms], issueDelays: [delay] } };
+    return { select() { return this; }, eq() { return this; },
+      single: async () => ({ data }), maybeSingle: async () => ({ data }) };
+  } };
+  const draft = { currency: 'GBP', scheduledBilling: true, billingMode: 'percentage',
+    terms: 'Pay within 60 days', paymentTerms: '30 days',
+    percentageInstalments: [{ id: uuid, name: 'All', percentageBps: 10000,
+      paymentTerms: { id: uuid, name: 'Forged', days: 999 },
+      issueDelayPreset: { id: uuid, name: 'Forged', days: 999 } }],
+    lines: [{ kind: 'free_text', description: 'Discounted service', quantity: '2',
+      standardUnitPriceMinor: 100, quotedUnitPriceMinor: 100, discountBps: 5000, taxRateBps: 0 }] };
+  const prepared = await prepareQuoteDraft(db, uuid, { actorId: 'actor' }, draft, true);
+  assert.equal(prepared.paymentTerms, null);
+  assert.equal(prepared.termsSnapshot.text, 'Payment terms are specified per invoice in the billing schedule.');
+  assert.equal(prepared.billingSchedule.groups[0].grossMinor, 100);
+  assert.equal(prepared.billingSchedule.groups[0].timing.days, 0);
+  assert.equal(prepared.billingSchedule.groups[0].paymentTerms.days, 14);
+  terms.isActive = delay.isActive = false;
+  const saved = await prepareQuoteDraft(db, uuid, { actorId: 'actor' },
+    { ...draft, percentageInstalments: prepared.billingSchedule.percentageInstalments },
+    true, new Map(), undefined, prepared.billingSchedule);
+  assert.deepEqual(saved.billingSchedule, prepared.billingSchedule);
+});
 test('manual billing address overrides and deliberate clearing reach the persisted snapshot payload', async () => {
   const db = { from() { return { select() { return this; }, eq() { return this; },
     maybeSingle: async () => ({ data: { default_terms: '' }, error: null }) }; } };

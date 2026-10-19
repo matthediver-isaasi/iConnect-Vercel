@@ -1,5 +1,5 @@
 import { DEFAULT_QUOTE_NAMING, quoteNamingErrors } from './salesNaming.js';
-import { billingPresetErrors, bundleBillingGroupErrors } from './salesBillingConfiguration.js';
+import { billingPresetErrors, bundleBillingGroupErrors, percentageInstalmentErrors } from './salesBillingConfiguration.js';
 
 export const SALES_CAPABILITIES = Object.freeze({
   VIEW: 'sales.view',
@@ -224,10 +224,12 @@ export function validateQuoteDraft(value, { existing = false } = {}) {
     'expectedVersion', 'currency', 'opportunityId', 'organisationId', 'customerContactId', 'billingContactId',
     'address', 'event', 'eventId', 'terms', 'paymentTerms', 'salesperson', 'salespersonId',
     'validUntil', 'issueDate', 'purchaseOrderReference', 'customerReference', 'taxTreatment', 'notes', 'lines',
-    'scheduledBilling', 'remainderPaymentTermsId', 'legalHtml',
+    'scheduledBilling', 'remainderPaymentTermsId', 'legalHtml', 'billingMode', 'percentageInstalments',
   ]);
   const errors = Object.keys(value).filter((key) => !allowed.has(key)).map((key) => `Unknown quote field: ${key}`);
   if ('scheduledBilling' in value && typeof value.scheduledBilling !== 'boolean') errors.push('scheduledBilling must be a boolean');
+  if (value.billingMode !== undefined && !['groups', 'percentage'].includes(value.billingMode)) errors.push('billingMode must be groups or percentage');
+  if (value.scheduledBilling === true && value.billingMode === 'percentage') errors.push(...percentageInstalmentErrors(value.percentageInstalments));
   if (value.remainderPaymentTermsId != null && !UUID_RE.test(value.remainderPaymentTermsId)) errors.push('remainderPaymentTermsId must be a UUID');
   if (existing && (!Number.isInteger(value.expectedVersion) || value.expectedVersion < 1)) errors.push('expectedVersion must be a positive integer');
   if (!existing && 'expectedVersion' in value) errors.push('expectedVersion is not valid when creating a quote');

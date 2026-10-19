@@ -1,4 +1,5 @@
 import { parseQuoteQuantity } from './salesContracts.js';
+import { percentageInstalmentErrors } from './salesBillingConfiguration.js';
 
 function componentQuantity(quantity, multiplier) {
   const { units, scale } = parseQuoteQuantity(quantity);
@@ -43,7 +44,49 @@ export function billingCalendarDate(timestamp, timezone, days = 0) {
   return date.toISOString().slice(0, 10);
 }
 
-export function buildBillingSchedule({ lines, currency, recipient, timezone, timezoneFallback, remainderPaymentTerms, newId }) {
+export function buildBillingSchedule({ lines, currency, recipient, timezone, timezoneFallback, remainderPaymentTerms, newId,
+  billingMode = 'groups', percentageInstalments }) {
+  if (billingMode === 'percentage') {
+    const errors = percentageInstalmentErrors(percentageInstalments);
+    if (errors.length) throw new Error(errors.join('; '));
+    const weights = percentageInstalments.map(item => item.percentageBps);
+    // First allocate whole-proposal totals, then distribute each authoritative
+    // line against remaining column capacities. This avoids accumulating a
+    // rounding penny per source line in the first instalment.
+    const remainingNet = allocateBillingMinor(lines.reduce((n, line) => n + line.netMinor, 0), weights);
+    const grossTargets = allocateBillingMinor(lines.reduce((n, line) => n + line.grossMinor, 0), weights);
+    const remainingTax = grossTargets.map((gross, index) => gross - remainingNet[index]);
+    if (remainingTax.some(tax => tax < 0)) throw new Error('Percentage instalment tax rounding cannot be represented by the provider; adjust percentages');
+    const allocations = lines.map((line, linePosition) => {
+      if (!Number.isSafeInteger(line.taxRateBps) || line.taxRateBps < 0
+        || line.grossMinor !== line.netMinor + line.taxMinor) throw new Error('Invalid authoritative line tax amounts');
+      const nets = allocateBillingMinor(line.netMinor, remainingNet);
+      const taxes = allocateBillingMinor(line.taxMinor, remainingTax);
+      nets.forEach((amount, index) => { remainingNet[index] -= amount; });
+      taxes.forEach((amount, index) => { remainingTax[index] -= amount; });
+      return { line, linePosition, nets, taxes };
+    });
+    const groups = percentageInstalments.map((item, position) => {
+      const invoiceLines = allocations.map(({ line, linePosition, nets, taxes }) => {
+        const netMinor = nets[position], taxMinor = taxes[position];
+        if (Number((BigInt(netMinor) * BigInt(line.taxRateBps) + 5000n) / 10000n) !== taxMinor) {
+          throw new Error('Percentage instalment tax rounding cannot be represented by the provider; adjust percentages');
+        }
+        return { linePosition, name: line.description, description: line.description, quantity: '1',
+          netMinor, taxMinor, grossMinor: netMinor + taxMinor,
+          taxCode: line.catalogueSnapshot?.tax_code || null, taxRateBps: line.taxRateBps };
+      });
+      const netMinor = invoiceLines.reduce((n, line) => n + line.netMinor, 0);
+      const taxMinor = invoiceLines.reduce((n, line) => n + line.taxMinor, 0);
+      return { ...structuredClone(item), position, linePosition: null,
+        timing: { kind: 'acceptance', days: item.issueDelayPreset.days },
+        invoiceLines, contents: invoiceLines, netMinor, taxMinor, grossMinor: netMinor + taxMinor,
+        currency, taxCode: null, taxRateBps: null };
+    });
+    return { mode: 'percentage', percentageInstalments: structuredClone(percentageInstalments),
+      timezone, timezoneFallback, recipient, remainderPaymentTerms: null, groups };
+  }
+  if (billingMode !== 'groups') throw new Error('Invalid billing mode');
   const groups = [];
   const remainder = [];
   lines.forEach((line, linePosition) => {

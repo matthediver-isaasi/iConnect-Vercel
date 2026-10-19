@@ -12,6 +12,16 @@ const mod = new Module(`${process.cwd()}/quote-billing-hydration-fixture.cjs`);
 mod.paths = Module._nodeModulePaths(process.cwd());
 mod._compile(result.outputFiles[0].text, `${process.cwd()}/quote-billing-hydration-fixture.cjs`);
 const { normalizeQuote } = mod.exports;
+test("percentage mode and exact editable percentages hydrate from immutable schedule snapshots", () => {
+  const percentageInstalments = [{ id: "deposit", name: "Deposit", percentageBps: 3333, issueDelayPreset: { id: "delay", name: "Acceptance", days: 0 }, paymentTerms: { id: "terms", name: "Two weeks", days: 14 } }];
+  const schedule = { mode: "percentage", percentageInstalments, groups: [] };
+  const quote = normalizeQuote({ id: "percentage", currentVersion: { billing_schedule: schedule, lines: [] } });
+  assert.equal(quote.billingMode, "percentage");
+  assert.equal(quote.percentageInstalments[0].percentage, "33.33");
+  assert.deepEqual(quote.percentageInstalments[0].paymentTerms, percentageInstalments[0].paymentTerms);
+  quote.percentageInstalments[0].paymentTerms.days = 30;
+  assert.equal(percentageInstalments[0].paymentTerms.days, 14);
+});
 
 test("legacy draft hydration never opts into scheduled billing or picks remainder payment terms", () => {
   const quote = normalizeQuote({ id: "legacy", currentVersion: { version_number: 2, lines: [] } });

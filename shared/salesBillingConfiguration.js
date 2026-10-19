@@ -64,13 +64,48 @@ export function bundleBillingGroupErrors(groups, items, sellingPriceMinor) {
 // A saved selection survives deactivation or later preset edits. A changed/new
 // selection must resolve from this tenant's current active presets, never from
 // the client-supplied label or day count.
-export function resolveBillingGroups(groups, presets, previousGroups = []) {
-  const resolve = (selection, kind, previous) => {
+function resolveBillingPreset(selection, kind, previous, presets) {
     if (previous && selection?.id === previous.id && selection.name === previous.name && selection.days === previous.days) return structuredClone(previous);
     const found = presets?.[kind]?.find(item => item.id === selection?.id && item.isActive);
     if (!found) throw new Error(`Select an active ${kind === 'paymentTerms' ? 'payment-term' : 'issue-delay'} preset belonging to this tenant`);
     return { id: found.id, name: found.name.trim(), days: found.days };
-  };
+}
+
+export function percentageInstalmentErrors(instalments) {
+  if (!Array.isArray(instalments) || !instalments.length || instalments.length > 100) return ['Choose 1–100 percentage instalments'];
+  const errors = [], ids = new Set();
+  let total = 0;
+  for (const item of instalments) {
+    if (!object(item)) { errors.push('Invalid percentage instalment'); continue; }
+    if (Object.keys(item).some(key => !['id', 'name', 'percentageBps', 'issueDelayPreset', 'paymentTerms'].includes(key))) errors.push('Unknown percentage instalment field');
+    if (!UUID.test(item.id || '') || ids.has(item.id)) errors.push('Instalment identities must be unique UUIDs');
+    ids.add(item.id);
+    if (!name(item.name)) errors.push('Instalment names must contain 1–100 characters');
+    if (!Number.isInteger(item.percentageBps) || item.percentageBps < 1 || item.percentageBps > 10000) errors.push('Instalment percentage must be 1–10000 basis points');
+    else total += item.percentageBps;
+    for (const key of ['issueDelayPreset', 'paymentTerms']) {
+      const preset = item[key];
+      if (!object(preset) || !UUID.test(preset.id || '') || !name(preset.name) || !days(preset.days)
+        || Object.keys(preset).some(k => !['id', 'name', 'days'].includes(k))) errors.push(`Select named ${key} separately for every instalment`);
+    }
+  }
+  if (total !== 10000) errors.push('Instalment percentages must total exactly 100%');
+  return errors;
+}
+
+export function resolvePercentageInstalments(instalments, presets, previousInstalments = []) {
+  const errors = percentageInstalmentErrors(instalments);
+  if (errors.length) throw new Error(errors.join('; '));
+  return instalments.map(item => {
+    const previous = previousInstalments.find(p => p.id === item.id);
+    return { id: item.id, name: item.name.trim(), percentageBps: item.percentageBps,
+      issueDelayPreset: resolveBillingPreset(item.issueDelayPreset, 'issueDelays', previous?.issueDelayPreset, presets),
+      paymentTerms: resolveBillingPreset(item.paymentTerms, 'paymentTerms', previous?.paymentTerms, presets) };
+  });
+}
+
+export function resolveBillingGroups(groups, presets, previousGroups = []) {
+  const resolve = (selection, kind, previous) => resolveBillingPreset(selection, kind, previous, presets);
   return groups.map((group, position) => {
     const previous = previousGroups.find(item => item.id === group.id);
     const paymentTerms = resolve(group.paymentTerms, 'paymentTerms', previous?.paymentTerms);

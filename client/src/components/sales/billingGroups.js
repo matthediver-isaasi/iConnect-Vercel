@@ -1,6 +1,27 @@
 import { decimalToMinor, minorToDecimal } from "../../pages/sales/catalogueProductForm.js";
 
 export const presetSnapshot = (preset) => preset ? { id: preset.id, name: preset.name, days: Number(preset.days) } : null;
+export function percentageToBps(value) {
+  const text = String(value ?? "").trim();
+  if (!/^\d+(?:\.\d{1,2})?$/.test(text)) throw new Error("Enter a percentage with up to two decimal places.");
+  const [whole, fraction = ""] = text.split(".");
+  const bps = Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
+  if (!Number.isSafeInteger(bps) || bps < 1 || bps > 10000) throw new Error("Each percentage must be greater than 0 and at most 100.");
+  return bps;
+}
+export const percentageInstalmentsForEditing = (rows = []) => rows.map(row => ({ ...structuredClone(row), percentage: minorToDecimal(row.percentageBps) }));
+export function percentageInstalmentsForSaving(rows = []) {
+  if (!rows.length) throw new Error("Add at least one instalment.");
+  const saved = rows.map(row => {
+    if (!row.name?.trim()) throw new Error("Give every instalment a name.");
+    for (const [key, label] of [["issueDelayPreset", "issue delay"], ["paymentTerms", "payment terms"]]) {
+      if (!row[key]?.id || !Number.isSafeInteger(row[key].days) || row[key].days < 0) throw new Error(`Choose ${label} for ${row.name}.`);
+    }
+    return { id: row.id, name: row.name.trim(), percentageBps: percentageToBps(row.percentage ?? minorToDecimal(row.percentageBps)), issueDelayPreset: presetSnapshot(row.issueDelayPreset), paymentTerms: presetSnapshot(row.paymentTerms) };
+  });
+  if (saved.reduce((sum, row) => sum + row.percentageBps, 0) !== 10000) throw new Error("Instalment percentages must total exactly 100%.");
+  return saved;
+}
 export const groupsForEditing = (groups = []) => groups.map(group => ({ ...structuredClone(group), allocatedAmount: minorToDecimal(group.allocatedMinor) }));
 
 export function groupsForSaving(groups = [], items = [], sellingMinor, { copying = false } = {}) {

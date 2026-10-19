@@ -1,9 +1,22 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { billingScheduleOf, billingTimingText, groupsForEditing, groupsForSaving, suggestedGroupAmounts } from "./billingGroups.js";
+import { billingScheduleOf, billingTimingText, groupsForEditing, groupsForSaving, suggestedGroupAmounts, percentageToBps, percentageInstalmentsForEditing, percentageInstalmentsForSaving } from "./billingGroups.js";
 import { catalogueCopyForEditing } from "../../pages/sales/catalogueProductForm.js";
 
 const term = { id: "terms", name: "Fourteen days", days: 14 };
+test("percentage editing and serialization use exact basis points and require separate presets", () => {
+  assert.equal(percentageToBps("33.33"), 3333);
+  assert.equal(percentageToBps("0.01"), 1);
+  for (const value of ["", "0", "100.01", "33.333", "1e2", "-1", "NaN"]) assert.throws(() => percentageToBps(value));
+  const rows = [3333, 3333, 3334].map((percentageBps, index) => ({ id: `row-${index}`, name: `Instalment ${index}`, percentageBps, paymentTerms: term, issueDelayPreset: { id: "delay", name: "Acceptance", days: 0 } }));
+  assert.deepEqual(percentageInstalmentsForSaving(percentageInstalmentsForEditing(rows)), rows);
+  assert.throws(() => percentageInstalmentsForSaving([]), /at least one/);
+  const edited = percentageInstalmentsForEditing(rows);
+  edited[0].percentage = "33.32";
+  assert.throws(() => percentageInstalmentsForSaving(edited), /exactly 100/);
+  edited[0].issueDelayPreset = null;
+  assert.throws(() => percentageInstalmentsForSaving(edited), /issue delay/);
+});
 const group = (id, productIds, allocatedMinor) => ({ id, name: id, position: 0, productIds, allocatedMinor, timing: { kind: "acceptance", days: 7 }, paymentTerms: term });
 
 test("group editing uses exact decimals, validates membership and reconciles independent selling price", () => {

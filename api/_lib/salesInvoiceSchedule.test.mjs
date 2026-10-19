@@ -10,6 +10,8 @@ import { validateAccountingRequestResult } from './accountingRequestProviders.js
 import { salesInvoiceScheduleHandler } from '../cron/sales-invoice-schedule.js';
 import { createSalesInvoice, prepareQueuedSalesRequest } from './salesAccounting.js';
 import { getAccountingQueueAdapter, assertAccountingSource } from './accountingQueueIntegration.js';
+import { randomUUID } from 'node:crypto';
+import { buildBillingSchedule } from '../../shared/salesBilling.js';
 
 const frozen = { name: 'Deposit', netMinor: 1000, taxMinor: 200, grossMinor: 1200, currency: 'GBP',
   taxRateBps: 2000, taxCode: { provider: 'xero', id: 'OUTPUT2', rateBps: 2000 },
@@ -130,6 +132,47 @@ test('explicit audited customer resolution is revalidated against provider candi
   assert.equal(prepared.invoice.envelope.expected.totalMinor, 1200);
 });
 for (const provider of ['xero', 'quickbooks']) {
+  test(`${provider} percentage mixed VAT instalments issue only through a fake provider with exact readback`, async () => {
+    const terms = { id: randomUUID(), name: '14 days', days: 14 };
+    const source = [2000, 0].map(taxRateBps => ({ description: 'Service', netMinor: 1000,
+      taxMinor: taxRateBps ? 200 : 0, grossMinor: taxRateBps ? 1200 : 1000, taxRateBps,
+      catalogueSnapshot: { tax_code: { provider, id: taxRateBps ? 'OUTPUT2' : 'ZERO', rateBps: taxRateBps } } }));
+    const built = buildBillingSchedule({ lines: source, currency: 'GBP', billingMode: 'percentage',
+      timezone: 'UTC', timezoneFallback: false, recipient: { email: 'no-send@example.test' },
+      percentageInstalments: [0, 30].map(days => ({ id: randomUUID(), name: 'Instalment', percentageBps: 5000,
+        issueDelayPreset: { id: randomUUID(), name: `${days} days`, days }, paymentTerms: terms })) });
+    const invoices = [];
+    for (const group of built.groups) {
+      const payload = { ...invoicePayload(provider), idempotencyKey: group.id, netMinor: group.netMinor,
+        taxMinor: group.taxMinor, grossMinor: group.grossMinor,
+        lines: group.invoiceLines.map(l => ({ ...l, unitPriceMinor: l.netMinor, discountBps: 0,
+          taxCode: provider === 'xero' ? l.taxCode.id : 'tax', accountCode: '200', itemId: 'item' })) };
+      const envelope = prepareSalesAccountingEnvelope({ provider, payload, environment: 'sandbox' });
+      const row = { id: group.id, tenant_id: 'tenant', provider, company_id: 'company', connection_id: 'connection',
+        source_type: 'sales_invoice_schedule', source_id: group.id, invoice_status: 'writing',
+        snapshot: { invoice: { envelope }, linkage: { scheduleId: group.id, saleId: 'sale', quoteVersionId: 'version' } } };
+      const owned = { ...schedule, id: group.id, snapshot: group, status: 'queued',
+        accounting_request_id: row.id, provider, provider_company_id: 'company' };
+      const db = dbFor({ sales_invoice_schedule: owned, sales_quote_version: { status: 'accepted', billing_schedule: built } });
+      const methods = [];
+      const adapter = await getAccountingQueueAdapter(row, { beforeRequest: async () => {} }, {
+        db, resolveConnection: async () => ({ tenantId: 'tenant', provider, connectionId: 'connection',
+          companyId: 'company', environment: 'sandbox', accessToken: 'fake-only' }),
+        fetchImpl: async (_url, init) => {
+          methods.push(init.method);
+          const document = provider === 'xero' ? { ...envelope.payload, InvoiceID: group.id,
+            Total: 11, SubTotal: 10, TotalTax: 1 } : { ...envelope.payload, Id: group.id,
+            TotalAmt: 11, TxnTaxDetail: { TotalTax: 1 } };
+          return new Response(JSON.stringify(provider === 'xero' ? { Invoices: [document] } : { Invoice: document }));
+        },
+      });
+      invoices.push(await adapter.createInvoice(row));
+      assert.deepEqual(methods, ['POST', 'GET']);
+      assert.equal(envelope.expected.totalMinor, 1100);
+    }
+    assert.equal(invoices.length, 2);
+    assert.notEqual(invoices[0].id, invoices[1].id);
+  });
   test(`${provider} frozen dates survive envelope creation and readback rejects altered dates`, () => {
     const envelope = prepareSalesAccountingEnvelope({ provider, payload: invoicePayload(provider), environment: 'sandbox' });
     const record = provider === 'xero' ? { ...envelope.payload, InvoiceID: 'invoice', Total: 12,

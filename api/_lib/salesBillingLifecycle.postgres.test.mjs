@@ -6,6 +6,8 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import pg from 'pg';
 import { createLocalPostgresHarness } from '../../scripts/test-support/local-postgres-harness.mjs';
+import { buildBillingSchedule } from '../../shared/salesBilling.js';
+import { scheduleInvoiceLines } from './salesInvoiceSchedule.js';
 
 test('real Sales migration chain: draft, issue, amendment, staff/public acceptance and immutable schedules', { timeout: 120000 }, async () => {
   const h = await createLocalPostgresHarness('sales-billing-lifecycle-');
@@ -217,6 +219,48 @@ test('real Sales migration chain: draft, issue, amendment, staff/public acceptan
       has_table_privilege('service_role','sales_invoice_schedule','TRUNCATE') AS can_truncate`)).rows[0];
     assert.deepEqual(rights, { can_delete: false, can_truncate: false });
     assert.equal(await count(), 2);
+    // Use the actual percentage builder through the installed save/issue/accept
+    // RPCs. Provider work is deliberately local: no network or invoice sends.
+    const percentageLines = [2000, 0].map(taxRateBps => ({
+      ...payload.lines[0], catalogueSnapshot: { tax_code: { provider: 'xero',
+        id: taxRateBps ? 'OUTPUT2' : 'ZERORATEDOUTPUT', rateBps: taxRateBps } },
+      standardUnitPriceMinor: 1000, quotedUnitPriceMinor: 1000,
+      netMinor: 1000, taxMinor: taxRateBps ? 200 : 0, grossMinor: taxRateBps ? 1200 : 1000, taxRateBps,
+    }));
+    const percentageSchedule = buildBillingSchedule({ lines: percentageLines, currency: 'GBP',
+      recipient: { email: 'never-send@example.test' }, timezone: 'UTC', timezoneFallback: false,
+      billingMode: 'percentage', percentageInstalments: [0, 30].map((days, i) => ({
+        id: randomUUID(), name: i ? 'Balance' : 'Deposit', percentageBps: 5000,
+        issueDelayPreset: { id: randomUUID(), name: `${days} days`, days }, paymentTerms: terms,
+      })) });
+    const percentageDraft = await rpc('save_sales_quote_draft', [tenant, null, null, {
+      ...payload, billingSchedule: percentageSchedule, lines: percentageLines,
+      totals: { netMinor: 2000, taxMinor: 200, grossMinor: 2200 },
+    }, actor, 'tenant_user']);
+    assert.equal(await count(), 2, 'saving percentages never activates schedules');
+    const percentageIssued = await issue(percentageDraft);
+    assert.equal(await count(), 2, 'issuing a proposal never creates invoices');
+    const percentageAccepted = await rpc('transition_sales_quote', [tenant, percentageDraft.id,
+      percentageIssued.row_version, 'accepted', null, actor, 'tenant_user']);
+    assert.equal(percentageAccepted.status, 'converted');
+    const percentageRows = (await db.query('SELECT * FROM sales_invoice_schedule WHERE quote_version_id=$1 ORDER BY planned_issue_date',
+      [percentageDraft.version_id])).rows;
+    assert.equal(percentageRows.length, 2);
+    const fakeInvoices = percentageRows.map(row => {
+      const lines = scheduleInvoiceLines(row.snapshot);
+      const net = lines.reduce((n, l) => n + l.net_minor, 0);
+      const tax = lines.reduce((n, l) => n + l.tax_minor, 0);
+      for (const l of lines) assert.equal(l.tax_minor, Math.round(l.net_minor * l.tax_rate_bps / 10000));
+      return { id: `fake-only-${row.id}`, net, tax, gross: net + tax };
+    });
+    assert.deepEqual(fakeInvoices.map(i => [i.net, i.tax, i.gross]), [[1000, 100, 1100], [1000, 100, 1100]]);
+    assert.equal(percentageRows[0].snapshot.timing.days, 0);
+    assert.equal(percentageRows[1].snapshot.timing.days, 30);
+    await rpc('confirm_sales_quote_sale', [tenant, percentageDraft.id, percentageAccepted.row_version,
+      `staff-scheduled-acceptance:${percentageDraft.version_id}`, 'tenant_user', actor]);
+    assert.equal(await count(), 4, 'repeated confirmation does not duplicate percentage schedules');
+    await assert.rejects(db.query(`UPDATE sales_quote_version SET billing_schedule=NULL WHERE id=$1`,
+      [percentageDraft.version_id]), /immutable/);
   } finally {
     await db?.end();
     if (started) command('pg_ctl', ['-D', h.data, '-m', 'immediate', '-w', 'stop']);

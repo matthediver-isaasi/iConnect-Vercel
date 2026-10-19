@@ -97,9 +97,9 @@ export function buildSalesQuotePdf({ quote, version, tenant }) {
   doc.setFontSize(10);
   const terms = version.terms_snapshot?.text || version.payment_terms;
   if (version.billing_schedule) {
-    page(25); text(`Billing schedule (${version.billing_schedule.timezone}${version.billing_schedule.timezoneFallback ? ' - UTC fallback' : ''})`);
+    page(25); text(`${version.billing_schedule.mode === 'percentage' ? 'Whole-proposal percentage schedule' : 'Billing schedule'} (${version.billing_schedule.timezone}${version.billing_schedule.timezoneFallback ? ' - UTC fallback' : ''})`);
     for (const group of version.billing_schedule.groups) {
-      page(30); text(`${group.name}: ${money(group.grossMinor, group.currency)}${group.grossMinor === 0 ? ' - No invoice required' : ''}`);
+      page(30); text(`${group.name}${version.billing_schedule.mode === 'percentage' ? ` (${group.percentageBps / 100}%)` : ''}: ${money(group.grossMinor, group.currency)}${group.grossMinor === 0 ? ' - No invoice required' : ''}`);
       if (group.bundleLineLabel) text(group.bundleLineLabel);
       text(`${billingTimingLabel(group.timing)}. Payment due ${group.paymentTerms.days} calendar days after invoice issue (${group.paymentTerms.name}).`);
       for (const item of group.contents) { page(8); text(`  ${item.name} x ${item.quantity}`); }

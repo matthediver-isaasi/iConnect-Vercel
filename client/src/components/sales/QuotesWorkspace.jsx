@@ -40,7 +40,7 @@ import { useCatalogueTaxOptions } from "@/pages/sales/useCatalogue";
 import { persistedQuoteLineId, providerTaxOptions, quoteLineIdentityForSaving, quoteLineTaxForSaving, savedLineTaxCode, taxCodeKey, taxCodeLabel } from "@/lib/salesTaxCodes";
 import QuoteBillingSettings from "./QuoteBillingSettings";
 import BillingSchedule from "./BillingSchedule";
-import { billingScheduleOf } from "./billingGroups";
+import { billingScheduleOf, percentageInstalmentsForEditing, percentageInstalmentsForSaving } from "./billingGroups";
 import { useSalesSettingsScope } from "./useSalesSettings";
 
 const list = (value) => Array.isArray(value) ? value : value?.items || value?.data || value?.results || value?.quotes || [];
@@ -106,7 +106,7 @@ const blankQuote = (opportunityId = "") => ({
   validUntil: "", purchaseOrderReference: "", customerReference: "", notes: "", currency: "GBP",
   taxTreatment: "exclusive", paymentTerms: "30 days", salespersonId: "", address: {
     addressee: "", line1: "", line2: "", city: "", region: "", postalCode: "", country: "United Kingdom",
-  }, lines: [], scheduledBilling: false, remainderPaymentTermsId: "", legalHtml: "",
+  }, lines: [], scheduledBilling: false, billingMode: "groups", percentageInstalments: [], remainderPaymentTermsId: "", legalHtml: "",
 });
 
 function normalizeLine(line, index) {
@@ -151,6 +151,8 @@ export function normalizeQuote(payload, opportunityId = "") {
     paymentTerms: quote.terms_snapshot?.text || quote.terms?.text || pick(quote, "paymentTerms", "payment_terms", "30 days"),
     legalHtml: legalHtmlOf(quote),
     scheduledBilling: pick(quote, "scheduledBilling", "scheduled_billing", Boolean(billingScheduleOf(quote))),
+    billingMode: pick(quote, "billingMode", "billing_mode", billingScheduleOf(quote)?.mode || "groups"),
+    percentageInstalments: percentageInstalmentsForEditing(quote.percentageInstalments ?? quote.percentage_instalments ?? billingScheduleOf(quote)?.percentageInstalments ?? []),
     remainderPaymentTermsId: pick(quote, "remainderPaymentTermsId", "remainder_payment_terms_id"),
     billingSchedule: billingScheduleOf(quote),
     salespersonId: idOf(quote.salesperson) || idOf(quote.salesperson_snapshot) || pick(quote, "salespersonId", "salesperson_id"),
@@ -388,6 +390,8 @@ function QuoteEditor() {
     currency: form.currency, taxTreatment: form.taxTreatment, paymentTerms: form.paymentTerms, terms: form.paymentTerms, salespersonId: form.salespersonId || null,
     legalHtml: form.legalHtml || "",
     scheduledBilling: Boolean(form.scheduledBilling), remainderPaymentTermsId: form.scheduledBilling ? form.remainderPaymentTermsId || null : null,
+    billingMode: form.billingMode || "groups",
+    percentageInstalments: form.scheduledBilling && form.billingMode === "percentage" ? percentageInstalmentsForSaving(form.percentageInstalments) : [],
     lines: form.lines.map((line) => ({ ...quoteLineIdentityForSaving(line), ...(line.type === "product" ? { eventReference: line.eventReference ?? null } : {}), kind: line.type, catalogueId: line.type === "product" ? line.productId || null : line.type === "bundle" ? line.bundleId || null : null, description: line.description, quantity: String(line.quantity || "0"), quotedUnitPriceMinor: quotePriceMinor(line, "quotedUnitPriceMinor"), ...(line.type === "free_text" ? { standardUnitPriceMinor: quotePriceMinor(line, "standardUnitPriceMinor") } : {}), discountBps: minor(line.discountBps), ...quoteLineTaxForSaving(line, providerTaxOptions(taxOptions.data), !taxOptions.isPending && !taxOptions.isError) })),
     expectedVersion: quote.rowVersion,
   });
@@ -516,7 +520,7 @@ function QuoteEditor() {
           <Field label="Customer reference"><Input disabled={readOnly} value={form.customerReference} onChange={(e) => patch("customerReference", e.target.value)} /></Field>
           <Field label="Salesperson"><QuoteSalespersonSelect disabled={readOnly} opportunityId={form.opportunityId} value={form.salespersonId} snapshot={form.salesperson_snapshot || form.salesperson} onChange={value => patch("salespersonId", value)} request={request} /></Field>
           <Field label="Currency"><Input disabled={readOnly || form.lines.length > 0} maxLength={3} value={form.currency} onChange={(e) => patch("currency", e.target.value.toUpperCase())} /></Field>
-          <Field label="Payment terms"><Input disabled={readOnly} value={form.paymentTerms} onChange={(e) => patch("paymentTerms", e.target.value)} /></Field>
+          <Field label="Payment terms"><Input disabled={readOnly || form.scheduledBilling} value={form.paymentTerms} onChange={(e) => patch("paymentTerms", e.target.value)} />{form.scheduledBilling && <p className="mt-1 text-xs text-slate-500">Scheduled invoices use their own payment terms. This manual value is preserved for use if scheduled billing is turned off.</p>}</Field>
           <Field label="Internal / customer notes" wide><Textarea disabled={readOnly} rows={3} value={form.notes} onChange={(e) => patch("notes", e.target.value)} /></Field>
         </CardContent></Card>
         <Card><CardHeader><CardTitle>Billing address snapshot</CardTitle><p className="text-sm text-slate-500">New {naming.plural} start with the organisation’s invoicing address, where available. You can change it here without changing the organisation. Free-text address lines are copied as saved; check the city, postcode and country before issuing.</p></CardHeader><CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{[["addressee", "Addressee"], ["line1", "Address line 1"], ["line2", "Address line 2 / remaining address"], ["city", "City"], ["region", "County / region"], ["postalCode", "Postcode"], ["country", "Country"]].map(([key, label]) => {
@@ -525,7 +529,7 @@ function QuoteEditor() {
         })}</CardContent></Card>
         <LinesEditor form={form} setForm={setForm} products={list(products.data)} bundles={list(bundles.data)} readOnly={readOnly} canOverride={canOverride} />
         <QuoteBillingSettings form={form} setForm={setForm} readOnly={readOnly} />
-        <Card><CardHeader><CardTitle>Agreement terms and signatures</CardTitle><p className="text-sm text-muted-foreground">Review the quote first, add legal terms, then save and issue this version before signing and sending.</p></CardHeader><CardContent className="space-y-5"><AgreementLegalEditor value={form.legalHtml} onChange={value => patch("legalHtml", value)} disabled={readOnly} fields={[{ label: "Customer", value: form.address.addressee }, { label: "Payment terms", value: form.paymentTerms }, { label: "Customer reference", value: form.customerReference }]} />{form.legalHtml && <details className="rounded-lg border p-3"><summary className="cursor-pointer text-sm font-semibold">Full agreement preview{isDirty ? " · Unsaved draft" : ""}</summary><div className="mt-4"><AgreementDocument draft={isDirty || isNew} quote={isDirty || isNew ? { ...form, totals: { netMinor: totals.net, taxMinor: totals.tax, grossMinor: totals.gross } } : quote} sender={quote.agreement?.sender} recipient={quote.agreement?.customer || quote.agreement?.contact} /></div></details>}</CardContent></Card>
+        <Card><CardHeader><CardTitle>Agreement terms and signatures</CardTitle><p className="text-sm text-muted-foreground">Review the quote first, add legal terms, then save and issue this version before signing and sending.</p></CardHeader><CardContent className="space-y-5"><AgreementLegalEditor value={form.legalHtml} onChange={value => patch("legalHtml", value)} disabled={readOnly} fields={[{ label: "Customer", value: form.address.addressee }, ...(!form.scheduledBilling ? [{ label: "Payment terms", value: form.paymentTerms }] : []), { label: "Customer reference", value: form.customerReference }]} />{form.legalHtml && <details className="rounded-lg border p-3"><summary className="cursor-pointer text-sm font-semibold">Full agreement preview{isDirty ? " · Unsaved draft" : ""}</summary><div className="mt-4"><AgreementDocument draft={isDirty || isNew} quote={isDirty || isNew ? { ...form, totals: { netMinor: totals.net, taxMinor: totals.tax, grossMinor: totals.gross } } : quote} sender={quote.agreement?.sender} recipient={quote.agreement?.customer || quote.agreement?.contact} /></div></details>}</CardContent></Card>
         {form.scheduledBilling && <BillingSchedule schedule={isDirty ? schedulePreview?.schedule || form.billingSchedule : quote.billingSchedule || schedulePreview?.schedule} pending={isDirty && schedulePreview?.fingerprint !== JSON.stringify(form)} />}
         {form.scheduledBilling && !form.billingSchedule && !schedulePreview?.schedule && <p className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm text-slate-600">Recalculate to preview group contents, exact amounts and relative issue dates before acceptance. The server derives the schedule from this version’s line economics.</p>}
         <Card><CardContent className="flex flex-col items-end gap-1 p-5 text-sm"><p className="mb-2 w-full text-xs text-slate-500">{serverTotals ? "Server-calculated totals" : "Local estimate — save or recalculate for final server totals"}</p><div className="flex w-full max-w-xs justify-between"><span>Net</span><strong>{money(serverTotals?.netMinor ?? serverTotals?.net_minor ?? serverTotals?.netTotalMinor ?? serverTotals?.net_total_minor ?? totals.net, form.currency)}</strong></div><div className="flex w-full max-w-xs justify-between"><span>Tax</span><strong>{money(serverTotals?.taxMinor ?? serverTotals?.tax_minor ?? serverTotals?.taxTotalMinor ?? serverTotals?.tax_total_minor ?? totals.tax, form.currency)}</strong></div><div className="mt-2 flex w-full max-w-xs justify-between border-t pt-2 text-lg"><span>Gross total</span><strong>{money(serverTotals?.grossMinor ?? serverTotals?.gross_minor ?? serverTotals?.grossTotalMinor ?? serverTotals?.gross_total_minor ?? totals.gross, form.currency)}</strong></div></CardContent></Card>
