@@ -321,8 +321,9 @@ class PublicClient {
   }
   
   // Typography Styles
-  async listTypographyStyles() {
-    return this._fetch('/api/public/typography-styles');
+  async listTypographyStyles(micrositePrefix = null) {
+    const suffix = micrositePrefix ? `?microsite=${encodeURIComponent(micrositePrefix)}` : '';
+    return this._fetch(`/api/public/typography-styles${suffix}`);
   }
   
   // Pages (IEdit CMS pages)

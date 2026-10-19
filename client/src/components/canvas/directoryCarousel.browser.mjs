@@ -142,7 +142,8 @@ test('denied source is metadata-safe and does not retry on focus or resize', asy
   expect(await page.evaluate(() => localStorage.getItem('agcas_member'))).toBeNull();
   expect(state.authRequests.length).toBeGreaterThan(0);
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect.poll(() => state.requests.at(-1)?.limit).toBe('1');
+  expect(state.requests.at(-1)?.limit).toBe('50');
+  expect(state.requests.length).toBe(count);
   const resizedCount = state.requests.length;
   await page.waitForTimeout(1500);
   expect(state.requests.length).toBe(resizedCount);
@@ -175,6 +176,62 @@ test('source replacement immediately clears selected details and cards before th
   state.release();
   await expect(surface.getByText('Member 1', { exact: true })).toBeVisible();
   await expect(surface.getByTestId('directory-carousel-page-status')).toContainText('Page 1 of 2');
+  await page.evaluate(() => window.carouselTest.unmount());
+});
+
+test('guest renderer typography uses only the public endpoint and leaves the carousel mounted', async ({ page }) => {
+  const state = await fixture(page, { source: 'primary-organization' }, { guest: true });
+  const typographyRequests = [];
+  page.on('request', (request) => {
+    if (/typography-styles|\/entities\/TypographyStyle/.test(request.url())) typographyRequests.push(new URL(request.url()).pathname);
+  });
+  await page.goto(`/${slug}`);
+  await page.evaluate(async (block) => {
+    const { mountDirectoryCarouselTest } = await import('/src/components/canvas/blocks/DirectoryCarousel.browserHarness.jsx');
+    const host = document.createElement('div');
+    host.id = 'isolated-carousel';
+    document.body.append(host);
+    window.carouselTest = mountDirectoryCarouselTest(host, block, { typography: true });
+  }, state.block);
+  const surface = page.locator('#isolated-carousel');
+  await expect(surface.getByTestId('typography-probe')).toHaveText('0 public styles');
+  await expect(surface.getByText('Organisation 1', { exact: true })).toBeVisible();
+  await page.waitForTimeout(800);
+  expect(typographyRequests).toContain('/api/public/typography-styles');
+  expect(typographyRequests).not.toContain('/api/entities/TypographyStyle');
+  await expect(page.getByTestId('directory-carousel').first()).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem('agcas_member'))).toBeNull();
+  await page.evaluate(() => window.carouselTest.unmount());
+});
+
+test('viewer replacement hides retained cards and details until the scoped request resolves', async ({ page }) => {
+  const state = await fixture(page, { source: 'primary-organization' });
+  await page.goto(`/${slug}`);
+  await page.evaluate(async (block) => {
+    const { mountDirectoryCarouselTest } = await import('/src/components/canvas/blocks/DirectoryCarousel.browserHarness.jsx');
+    const host = document.createElement('div');
+    host.id = 'isolated-carousel';
+    document.body.append(host);
+    window.carouselTest = mountDirectoryCarouselTest(host, block);
+  }, state.block);
+  const surface = page.locator('#isolated-carousel');
+  await expect(surface.getByText('Organisation 1', { exact: true })).toBeVisible();
+  await surface.getByRole('button', { name: 'View details for Organisation 1', exact: true }).click();
+  await expect(page.getByTestId('dialog-directory-carousel-detail')).toBeVisible();
+  let release;
+  await page.route('**/api/public/dynamic-directory?**', async (route) => {
+    await new Promise((resolve) => { release = resolve; });
+    return route.fallback();
+  });
+  await page.evaluate(() => window.carouselTest.changeViewer({
+    authResolved: true, sessionValidated: true,
+    memberInfo: { id: 'another-viewer', tenant_id: 'tenant5186' }, memberRole: { id: 'another-role', excluded_features: [] },
+  }));
+  await expect(surface.getByText(/Organisation [1-5]/)).toHaveCount(0);
+  await expect(page.getByTestId('dialog-directory-carousel-detail')).toHaveCount(0);
+  await expect.poll(() => typeof release).toBe('function');
+  release();
+  await expect(surface.getByText('Organisation 1', { exact: true })).toBeVisible();
   await page.evaluate(() => window.carouselTest.unmount());
 });
 

@@ -4327,11 +4327,8 @@ function DirectoryCarouselRender({ block, asEditor, breakpoint }) {
   const total = pageTotalsRef.current.has(pageIdentity)
     ? pageTotalsRef.current.get(pageIdentity)
     : (!identityChanged && Number.isFinite(Number(data?.total)) ? Math.max(0, Number(data.total)) : 0);
-  const pageSize = !identityChanged && !isFetching && Number.isFinite(Number(data?.pageSize)) && Number(data.pageSize) > 0
-      ? Number(data.pageSize)
-      : perView;
-  const pageCount = Math.max(1, Math.ceil(total / pageSize));
-  const safePage = Math.min(Math.max(1, requestPage), pageCount);
+  const pageCount = Math.max(1, Math.ceil(total / perView));
+  const safePage = Math.min(Math.max(1, data?.visiblePage || requestPage), pageCount);
   const hasMany = pageCount > 1;
   const transitionStyle = c.transition || 'slide';
   const transitionMs = Math.max(100, Number(c.transitionMs) || 400);
@@ -4368,6 +4365,9 @@ function DirectoryCarouselRender({ block, asEditor, breakpoint }) {
 
   useEffect(() => {
     if (asEditor || !c.autoplay || pageCount < 2) return undefined;
+    // A slow required batch must not let the timer advance past unseen cards
+    // or schedule a chain of later batches. Background prefetch is not busy.
+    if (isFetching) return undefined;
     if (selected) return undefined;
     if (focusWithin || (pauseOnHover && hovered)) return undefined;
     const ms = Math.max(1500, Number(c.autoplayMs) || 5000);
@@ -4378,7 +4378,7 @@ function DirectoryCarouselRender({ block, asEditor, breakpoint }) {
       setCurrentPage((page) => (page >= pageCount ? 1 : page + 1));
     }, ms);
     return () => clearInterval(timer);
-  }, [asEditor, c.autoplay, c.autoplayMs, pageCount, autoplayPausedAt, selected, pauseOnHover, hovered, focusWithin]);
+  }, [asEditor, c.autoplay, c.autoplayMs, pageCount, autoplayPausedAt, selected, pauseOnHover, hovered, focusWithin, isFetching]);
 
   const goPrev = () => {
     setDirection(-1);
@@ -7098,18 +7098,22 @@ export function resolveDirectoryCarouselWebsiteUrl(value) {
 
 function useDirectoryCarouselRecords({ source, directoryId, directorySlug, viewerIdentity, visitIdentity, page, limit, randomiseOrder, seed, enabled, organisationNameDisplay }) {
   const tenant = publicClient.getTenantSlug();
-  const query = buildDirectoryCarouselQuery({
-    source,
-    directoryId,
-    directorySlug,
-    tenant,
-    page,
-    organisationNameDisplay,
-    limit,
-    randomiseOrder,
-    seed,
-  });
-  return useQuery({
+  // API pages are fixed-size batches, independent of the responsive slide.
+  // Only the active batch and its immediate neighbour are scheduled; fetching
+  // the neighbour must never recursively schedule the rest of the directory.
+  const batchSize = 50;
+  const offset = (page - 1) * limit;
+  const batchPage = Math.floor(offset / batchSize) + 1;
+  const identity = JSON.stringify([
+    tenant || '', viewerIdentity || '', visitIdentity || '', source || 'dynamic',
+    directoryId || directorySlug || '',
+    resolveDirectoryCarouselOrganisationNameDisplay(organisationNameDisplay),
+    randomiseOrder ? String(seed || '') : '',
+  ]);
+  const retained = useRef(null);
+  const previous = retained.current?.identity === identity ? retained.current : null;
+  const available = (source === 'primary-member' || source === 'primary-organization' || !!directoryId || !!directorySlug) && enabled !== false;
+  const options = (apiPage, active) => ({
     queryKey: [
       'canvas',
       'public-dynamic-directory-carousel',
@@ -7119,12 +7123,16 @@ function useDirectoryCarouselRecords({ source, directoryId, directorySlug, viewe
       source || 'dynamic',
       directoryId || directorySlug || '',
       resolveDirectoryCarouselOrganisationNameDisplay(organisationNameDisplay),
-      Math.max(1, Number(page) || 1),
-      Math.max(1, Math.min(Number(limit) || 1, 50)),
+      apiPage,
+      batchSize,
       randomiseOrder ? String(seed || '') : '',
     ],
-    queryFn: async () => {
-      const res = await fetch(`/api/public/dynamic-directory?${query.toString()}`, { credentials: 'include' });
+    queryFn: async ({ signal }) => {
+      const query = buildDirectoryCarouselQuery({
+        source, directoryId, directorySlug, tenant, page: apiPage,
+        organisationNameDisplay, limit: batchSize, randomiseOrder, seed,
+      });
+      const res = await fetch(`/api/public/dynamic-directory?${query.toString()}`, { credentials: 'include', signal });
       if (!res.ok) {
         let message = 'Directory carousel fetch failed';
         try {
@@ -7137,7 +7145,7 @@ function useDirectoryCarouselRecords({ source, directoryId, directorySlug, viewe
       }
       return res.json();
     },
-    enabled: (source === 'primary-member' || source === 'primary-organization' || !!directoryId || !!directorySlug) && enabled !== false,
+    enabled: available && active,
     retry: false,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
@@ -7150,6 +7158,52 @@ function useDirectoryCarouselRecords({ source, directoryId, directorySlug, viewe
     // even if the shared query client enables placeholder data globally.
     placeholderData: () => undefined,
   });
+  const current = useQuery(options(batchPage, true));
+  const total = current.data?.total ?? previous?.data.total;
+  const next = useQuery(options(batchPage + 1, !!current.data && Number(total) > batchPage * batchSize && !current.isError));
+  const denied = [current, next].find((query) => query.isError && [401, 403, 404].includes(query.error?.status));
+  const localOffset = offset % batchSize;
+  const wanted = Math.max(0, Math.min(limit, Number(total) - offset));
+  const needsNext = localOffset + wanted > batchSize;
+  const failed = denied || (current.isError ? current : needsNext && next.isError ? next : null);
+  const ready = !!current.data && (!needsNext || !!next.data);
+  const data = ready ? {
+    ...current.data,
+    records: [...current.data.records, ...(needsNext ? next.data.records : [])].slice(localOffset, localOffset + wanted),
+    pageSize: limit,
+    visiblePage: page,
+  } : previous?.data;
+
+  useEffect(() => {
+    if (failed || !available) {
+      retained.current = null;
+    } else if (ready) {
+      retained.current = { identity, data };
+    }
+  }, [identity, current.data, next.data, page, limit, failed, available, ready]);
+
+  // Warm both logo and member-photo resources as soon as a bounded batch
+  // arrives, rather than starting image downloads on each slide transition.
+  useEffect(() => {
+    if (denied || !available || typeof Image === 'undefined') return;
+    const images = [current.data, next.data].flatMap((batch) => (batch?.records || []).map((record) => {
+      const presented = presentDirectoryCarouselRecord(record, batch.entityType || (source === 'primary-member' ? 'member' : 'organization'));
+      if (!presented.logo_url) return null;
+      const image = new Image();
+      image.src = presented.logo_url;
+      return image;
+    })).filter(Boolean);
+    return () => { images.forEach((image) => { image.onload = null; image.onerror = null; }); };
+  }, [identity, current.data, next.data, denied, available, source]);
+
+  return {
+    data: failed ? undefined : data,
+    isLoading: !failed && !data && available,
+    isFetching: !ready && !failed && available,
+    isError: !!failed,
+    error: failed?.error,
+    refetch: () => needsNext && next.isError ? next.refetch() : current.refetch(),
+  };
 }
 
 function DirectoryPickerField({ value, onChange, testId, entityType, activeOnly = false }) {

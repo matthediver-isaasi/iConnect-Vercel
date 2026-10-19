@@ -37,3 +37,14 @@ align with their directory or override it for that carousel only.
 **How to apply:** Keep source access, public-carousel consent and all other field
 permissions intact. Never replace a withheld organisation name with generic
 visible “Organisation” text. The override does not apply to member-profile fields.
+
+Treat carousel pagination as a front-end showcase interaction, not a directory
+search requiring a new network round trip for each slide.
+
+**Why:** The user explicitly requires fast partner/organisation transitions and
+does not accept empty placeholders while each next slide loads.
+
+**How to apply:** Load bounded batches and warm images without weakening source
+consent, projection checks, or tenant/viewer isolation. Keep already permitted
+cards visible during same-source loading; never carry them across access or
+source changes.

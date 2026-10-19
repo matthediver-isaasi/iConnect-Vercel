@@ -1,4 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { publicClient } from "@/api/publicClient";
+import { useMicrosite } from "@/contexts/MicrositeContext";
 
 const STYLE_TYPE_LABELS = {
   'h1': 'H1 - Main Heading',
@@ -50,15 +53,17 @@ export function invalidateTypographyCache() {
 
 // Hook to use typography styles in components
 export function useTypographyStyles() {
-  const [styles, setStyles] = useState(cachedStyles || []);
-  const [isLoading, setIsLoading] = useState(!cachedStyles);
-  
-  useEffect(() => {
-    fetchTypographyStyles().then(loadedStyles => {
-      setStyles(loadedStyles);
-      setIsLoading(false);
-    });
-  }, []);
+  const { micrositePrefix } = useMicrosite();
+  // Renderers also mount for guests. Never read the authenticated selector
+  // cache or probe its entity endpoint: a guest 401 can reset the whole page,
+  // including otherwise unrelated carousels.
+  const { data, isLoading } = useQuery({
+    queryKey: ['iedit-public-typography', publicClient.getTenantSlug() || '', micrositePrefix || ''],
+    queryFn: () => publicClient.listTypographyStyles(micrositePrefix),
+    staleTime: CACHE_TTL,
+    retry: false,
+  });
+  const styles = Array.isArray(data) ? data : [];
   
   const getStyleById = (styleId) => {
     if (!styleId) return null;

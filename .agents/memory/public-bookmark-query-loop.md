@@ -23,3 +23,13 @@ can use the protected endpoint in a separate tab, leaving the draft intact.
 **Why:** A private-file 401 during repeated-row rendering can activate global
 session rejection even though a guest's upload was permitted. Making the file
 public or suppressing genuine session invalidation is not a safe fix.
+
+Typography rendering follows the same rule: a public renderer must not use an
+editor-only entity lookup or its cached private results.
+
+**Why:** A typography 401 caused repeated page resets on a live page, making an
+unrelated directory carousel repeatedly restart its requests.
+
+**How to apply:** Keep public, tenant/microsite-scoped style reads separate from
+authoring selectors. Test public renderers alongside the carousel, not only in
+an isolated carousel fixture.

@@ -172,3 +172,16 @@ test('directory carousel query isolates viewer and disables unauthorized retry l
   assert.match(hook, /resolveDirectoryCarouselOrganisationNameDisplay\(organisationNameDisplay\)/);
   assert.match(hook, /placeholderData: \(\) => undefined/);
 });
+
+test('directory carousel batches are responsive-independent, bounded and identity-safe', () => {
+  const hook = source.slice(source.indexOf('function useDirectoryCarouselRecords('), source.indexOf('function DirectoryPickerField('));
+  assert.match(hook, /const batchSize = 50/);
+  assert.match(hook, /Math\.floor\(offset \/ batchSize\) \+ 1/);
+  assert.match(hook, /useQuery\(options\(batchPage \+ 1,/);
+  assert.equal((hook.match(/useQuery\(/g) || []).length, 2);
+  assert.match(hook, /retained\.current\?\.identity === identity/);
+  assert.match(hook, /\[401, 403, 404\]\.includes\(query\.error\?\.status\)/);
+  assert.match(hook, /data: failed \? undefined : data/);
+  assert.match(hook, /new Image\(\)/);
+  assert.match(hook, /signal/);
+});

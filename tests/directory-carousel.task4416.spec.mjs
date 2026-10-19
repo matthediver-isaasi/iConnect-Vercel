@@ -260,6 +260,7 @@ async function installFixtures(page, {
   directoryContent = {},
   records = undefined,
   delayPage = undefined,
+  deniedPage = undefined,
 } = {}) {
   const fixturePage = pageFixture({
     ...directoryContent,
@@ -372,6 +373,7 @@ async function installFixtures(page, {
       if (delayPage !== undefined && Number(query.page || 1) === Number(delayPage)) {
         await new Promise((resolve) => delayedPageResolvers.push(resolve));
       }
+      if (Number(query.page) === deniedPage) return json(route, { error: "Private metadata" }, 403);
       const selected = records || (state === "empty"
         ? []
         : state === "missing-logo"
@@ -558,11 +560,11 @@ test.describe("DirectoryCarousel published renderer", () => {
     expect(state.writes).toEqual([]);
   });
 
-  test("does not clamp an uncached page while loading and wraps at both ends", async ({ page }) => {
-    const state = await installFixtures(page, { delayPage: 2 });
+  test("keeps visible cards during a delayed next batch and wraps at both ends", async ({ page }) => {
+    const state = await installFixtures(page, { delayPage: 2, records: LARGE_RECORDS.slice(0, 63) });
     await page.goto(`/${PAGE_SLUG}`);
     const directory = carousel(page);
-    await expect(page.getByText("Stable Alpha", { exact: true })).toBeVisible();
+    await expect(page.getByText("Large Organisation 0001", { exact: true })).toBeVisible();
 
     const directoryRequests = () => state.requests.filter((request) => (
       request.path === "/api/public/dynamic-directory"
@@ -571,25 +573,85 @@ test.describe("DirectoryCarousel published renderer", () => {
     const initialPageOneRequests = directoryRequests()
       .filter((request) => request.query.page === "1").length;
 
-    await carouselNext(directory).click();
+    // The next bounded batch is prefetched, not all remaining API pages.
     await expect.poll(() => directoryRequests()
       .filter((request) => request.query.page === "2").length).toBe(1);
-    // A page-2 cache miss must not transiently reset currentPage to one while
-    // the response is pending. That regression can trigger an extra page-1
-    // request and loses the user's intended navigation.
+    await directory.getByRole("button", { name: "Show page 21 of 21", exact: true }).click();
     await page.waitForTimeout(250);
+    await expect(page.getByText("Large Organisation 0001", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("skeleton-list")).toHaveCount(0);
+    await expect(carouselPageStatus(directory)).toContainText("Page 1 of 21");
+    expect(directoryRequests()).toHaveLength(2);
+    expect(directoryRequests().every((request) => request.query.limit === "50")).toBe(true);
     expect(directoryRequests().filter((request) => request.query.page === "1").length)
       .toBe(initialPageOneRequests);
 
     state.releaseDirectoryPage();
-    await expect(page.getByText("Stable Delta", { exact: true })).toBeVisible();
+    await expect(page.getByText("Large Organisation 0061", { exact: true })).toBeVisible();
+    await expect(carouselPageStatus(directory)).toContainText("Page 21 of 21");
 
     // Directory navigation is circular rather than disabled at either end.
     await carouselNext(directory).click();
-    await expect(page.getByText("Stable Alpha", { exact: true })).toBeVisible();
+    await expect(page.getByText("Large Organisation 0001", { exact: true })).toBeVisible();
     await carouselPrev(directory).click();
-    await expect(page.getByText("Stable Delta", { exact: true })).toBeVisible();
+    await expect(page.getByText("Large Organisation 0061", { exact: true })).toBeVisible();
     expect(state.writes).toEqual([]);
+  });
+
+  test("traverses all 13 records locally, including partial slides and wrap, without another request", async ({ page }) => {
+    const images = new Set();
+    const state = await installFixtures(page, { records: LARGE_RECORDS.slice(0, 13).map((record, index) => ({ ...record, logo_url: `/carousel-logo-${index}.svg` })) });
+    await page.route("**/carousel-logo-*.svg", (route) => {
+      images.add(new URL(route.request().url()).pathname);
+      return route.fulfill({ contentType: "image/svg+xml", body: "<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32'><rect width='32' height='32' fill='#3b82f6'/></svg>" });
+    });
+    await page.goto(`/${PAGE_SLUG}`);
+    const directory = carousel(page);
+    await expect(page.getByText("Large Organisation 0001", { exact: true })).toBeVisible();
+    await expect.poll(() => images.size).toBe(13);
+    const requests = () => state.requests.filter((request) => request.path === "/api/public/dynamic-directory");
+    const initialCount = requests().length;
+    for (const first of [4, 7, 10, 13, 1]) {
+      await carouselNext(directory).click();
+      await expect(page.getByText(`Large Organisation ${String(first).padStart(4, "0")}`, { exact: true })).toBeVisible();
+      await expect(carouselCards(directory)).toHaveCount(first === 13 ? 1 : 3);
+      await expect(page.getByTestId("skeleton-list")).toHaveCount(0);
+      expect(requests()).toHaveLength(initialCount);
+    }
+    await page.waitForTimeout(450);
+    await page.screenshot({ path: "/tmp/carousel-performance.jpg", type: "jpeg", fullPage: true });
+  });
+
+  test("a denied prefetched batch immediately removes visible cards and selected details", async ({ page }) => {
+    const state = await installFixtures(page, { records: LARGE_RECORDS.slice(0, 63), delayPage: 2, deniedPage: 2 });
+    await page.goto(`/${PAGE_SLUG}`);
+    const directory = carousel(page);
+    await expect(directory).toBeVisible();
+    await directory.getByRole("button", { name: "View details for Large Organisation 0001", exact: true }).click();
+    await expect(page.getByTestId("dialog-directory-carousel-detail")).toBeVisible();
+    await expect.poll(() => state.requests.some((request) => request.path === "/api/public/dynamic-directory" && request.query.page === "2")).toBe(true);
+    state.releaseDirectoryPage();
+    await expect(page.getByText("This directory is not available to this visitor.")).toBeVisible();
+    await expect(carousel(page)).toHaveCount(0);
+    await expect(page.getByTestId("dialog-directory-carousel-detail")).toHaveCount(0);
+    await expect(page.getByText("Private metadata")).toHaveCount(0);
+  });
+  test("autoplay waits for the required batch instead of skipping unseen records", async ({ page }) => {
+    const state = await installFixtures(page, {
+      records: LARGE_RECORDS.slice(0, 120), delayPage: 2,
+      directoryContent: { autoplay: true, autoplayMs: 1500, perView: 50 },
+    });
+    await page.goto(`/${PAGE_SLUG}`);
+    const directory = carousel(page);
+    await expect(page.getByText("Large Organisation 0001", { exact: true })).toBeVisible();
+    await expect(carouselNext(directory)).toBeDisabled();
+    await page.waitForTimeout(3500);
+    const requests = state.requests.filter((request) => request.path === "/api/public/dynamic-directory");
+    expect(requests.map((request) => request.query.page)).toEqual(["1", "2"]);
+    await expect(carouselPageStatus(directory)).toContainText("Page 1 of 3");
+    state.releaseDirectoryPage();
+    await expect(page.getByText("Large Organisation 0051", { exact: true })).toBeVisible();
+    await expect(carouselPageStatus(directory)).toContainText("Page 2 of 3");
   });
 
   test("windows indicators for 1200 organisations while exposing the active page through status", async ({ page }) => {
@@ -628,7 +690,7 @@ test.describe("DirectoryCarousel published renderer", () => {
     expect(state.requests.filter((request) => (
       request.path === "/api/public/dynamic-directory"
       && request.query.mode === "carousel"
-    )).at(-1).query.page).toBe("400");
+    )).at(-1).query.page).toBe("24");
     expect(state.writes).toEqual([]);
   });
 
@@ -769,15 +831,16 @@ test.describe("DirectoryCarousel published renderer", () => {
 
     await carouselNext(directory).click();
     await expect(page.getByText("Stable Delta", { exact: true })).toBeVisible();
-    await expect.poll(() => firstVisitRequests().length).toBeGreaterThan(1);
+    expect(firstVisitRequests()).toHaveLength(1);
     expect(firstVisitRequests().at(-1).query.seed).toBe(firstSeed);
 
     await page.setViewportSize({ width: 390, height: 844 });
-    await expect.poll(() => firstVisitRequests().at(-1).query.limit).toBe("1");
+    expect(firstVisitRequests().at(-1).query.limit).toBe("50");
     // Resizing after advancing must preserve the first item's ordinal and
-    // mounted visit seed; only the request page size/page translation changes.
-    await expect.poll(() => firstVisitRequests().at(-1).query.page).toBe("4");
+    // mounted visit seed, without refetching the responsive local slice.
+    expect(firstVisitRequests().at(-1).query.page).toBe("1");
     expect(firstVisitRequests().at(-1).query.seed).toBe(firstSeed);
+    await expect(carouselCards(directory)).toHaveCount(1);
     await expect(page.getByText("Stable Delta", { exact: true })).toBeVisible();
     expect(new Set(firstVisitRequests().map((request) => request.query.seed)))
       .toEqual(new Set([firstSeed]));

@@ -101,14 +101,21 @@ export async function renderSecureDirectoryCarousel({
         throw new Error('Invalid member role visibility authority');
       }
       settings = applyCoreFieldVisibility(settings, directory.core_field_visibility);
-    } else settings = await h.loadCarouselDirectorySettings(db, tenantId);
+    }
     let organizationAuthority;
     if (directory.entity_type === 'organization') {
-      organizationAuthority = {
-        filterAuthority: await h.loadCarouselFilterAuthority({ supabase: db, tenantId,
+      // These independent reads still run in each authority pass, but need
+      // not add four sequential network round trips to every pass.
+      const [displaySettings, filterAuthority, verifiedDomainAuthority, eligibilityAuthority] = await Promise.all([
+        h.loadCarouselDirectorySettings(db, tenantId),
+        h.loadCarouselFilterAuthority({ supabase: db, tenantId,
           fieldId: directory.filter_expression != null ? null : directory.filter_field_id, filterValue: directory.filter_value }),
-        verifiedDomainAuthority: await h.loadCarouselVerifiedDomainAuthority({ supabase: db, tenantId }),
-        eligibilityAuthority: await h.loadCarouselEligibilityAuthority({ supabase: db, tenantId }),
+        h.loadCarouselVerifiedDomainAuthority({ supabase: db, tenantId }),
+        h.loadCarouselEligibilityAuthority({ supabase: db, tenantId }),
+      ]);
+      settings = displaySettings;
+      organizationAuthority = {
+        filterAuthority, verifiedDomainAuthority, eligibilityAuthority,
       };
     }
     return { context, directory, settings, publicView: guest || embedded, organizationAuthority };
