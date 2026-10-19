@@ -122,8 +122,17 @@ export async function renderSecureDirectoryCarousel({
         && (!visibleRoles.length || visibleRoles.includes(row.role_id)));
     } else {
       const { filterAuthority, verifiedDomainAuthority, eligibilityAuthority } = a.organizationAuthority;
+      // Dynamic directories own their inclusion expression. The main directory's
+      // status/type selectors must not narrow a separately configured directory
+      // (for example Partners when the main directory lists Universities).
+      // Keep display permissions and explicit exclusions unchanged.
+      const populationSettings = source === 'dynamic' ? {
+        ...settings,
+        allowedApplicationStatuses: new Set(),
+        visibleOrgTypes: new Set(),
+      } : settings;
       rows = await h.fetchCarouselOrganizations({ supabase: db, tenantId, filterAuthority,
-        verifiedDomainAuthority, eligibilityAuthority, displaySettings: settings,
+        verifiedDomainAuthority, eligibilityAuthority, displaySettings: populationSettings,
         requesterOrganizationId: publicView ? null : context?.organizationId });
       // Primary canonical search never bypasses explicit exclusions for one's
       // own organisation. Keep the legacy dynamic-carousel exception separate.

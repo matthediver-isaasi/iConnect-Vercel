@@ -478,7 +478,7 @@ test('handler applies organisation-directory display and exclusion settings', as
     row.name === null && row.logo_url === null && row.website_url === null), true);
 });
 
-test('carousel enforces global status/type eligibility after the saved filter, with own-org bypass', async () => {
+test('dynamic carousel does not inherit the primary directory status/type selectors', async () => {
   const rows = [
     { ...organizations(1)[0], id: 'own' },
     { ...organizations(1)[0], id: 'eligible' },
@@ -548,12 +548,11 @@ test('carousel enforces global status/type eligibility after the saved filter, w
   );
 
   assert.equal(res.statusCode, 200);
-  assert.deepEqual(new Set(res.payload.records.map((row) => row.id)), new Set(['own', 'eligible']));
-  assert.equal(res.payload.records.some((row) => row.id === 'wrong-status'), false);
-  assert.equal(res.payload.records.some((row) => row.id === 'wrong-type'), false);
+  assert.deepEqual(new Set(res.payload.records.map((row) => row.id)),
+    new Set(['own', 'eligible', 'wrong-status', 'wrong-type']));
 });
 
-test('carousel eligibility stays in parity with canonical directory population for inactive legacy fields', async () => {
+test('primary carousel eligibility stays in parity with canonical directory population for inactive legacy fields', async () => {
   const seed = {
     dynamic_directory: [directory()],
     organization: [
@@ -614,7 +613,7 @@ test('carousel eligibility stays in parity with canonical directory population f
 
   const res = response();
   await dynamicDirectoryHandler(
-    { method: 'GET', query: { mode: 'carousel', slug: 'organisations', limit: '20', seed: 'alpha' } },
+    { method: 'GET', query: { mode: 'carousel', source: 'primary-organization', limit: '20', seed: 'alpha' } },
     res,
     {
       supabase: database(seed),
@@ -625,11 +624,9 @@ test('carousel eligibility stays in parity with canonical directory population f
     },
   );
 
-  // The carousel's existing own-organisation exception differs from the
-  // canonical search exclusion list. Compare the shared population separately.
-  assert.deepEqual(res.payload.records.filter(row => row.id !== 'own').map((row) => row.id),
-    canonicalResult.organizations.filter(row => row.id !== 'own').map((row) => row.id));
-  assert.ok(res.payload.records.some(row => row.id === 'own'));
+  assert.deepEqual(res.payload.records.map((row) => row.id),
+    canonicalResult.organizations.map((row) => row.id));
+  assert.equal(res.payload.records.some(row => row.id === 'own'), false);
 });
 
 test('carousel returns 409 when status policy mutates during the organization scan', async () => {
