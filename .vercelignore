@@ -3,3 +3,8 @@
 api/**/*.test.mjs
 api/**/*.spec.mjs
 api/public/formSubmissionCompatibility.helpers.mjs
+
+# Private NMC import workbooks and recovery evidence.
+attached_assets/BNMS_NMC_UUID_Customer_Number_Import_1792392028632.xlsx
+attached_assets/BNMS_NMC_UUID_Customer_Number_Import_2_1792475399471.xlsx
+private/bnms-nmc-customer-import/

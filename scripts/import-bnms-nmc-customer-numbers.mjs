@@ -6,17 +6,32 @@ import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { connectDestination } from './lib/member-index-destination.mjs';
 
-const file = 'attached_assets/BNMS_NMC_UUID_Customer_Number_Import_1792392028632.xlsx';
-const hash = '4e6b3d0d0adbb8b57290fb5b4ee8f366402e97531d30229297e51d12740649de';
+// Independent pins: the second import must never replace the first run's evidence.
+const batches = {
+  first: {
+    file: 'attached_assets/BNMS_NMC_UUID_Customer_Number_Import_1792392028632.xlsx',
+    hash: '4e6b3d0d0adbb8b57290fb5b4ee8f366402e97531d30229297e51d12740649de',
+    count: 633,
+  },
+  second: {
+    file: 'attached_assets/BNMS_NMC_UUID_Customer_Number_Import_2_1792475399471.xlsx',
+    hash: '3a9400fd4d57c19e69b75ae0d4eeb5926d1da982186d9eab89a64ba16386697e',
+    count: 19,
+  },
+};
 const tenant = 'ff2df806-b321-4254-b651-3af11fccf1db';
 const field = 'dd82decb-16ac-4141-8f09-b303d66f212d';
 const args = process.argv.slice(2);
-if (args.length > 1 || args.some(a => !['--apply', '--dry-run'].includes(a))) throw Error('Use --dry-run or --apply');
+if (new Set(args).size !== args.length
+  || args.some(a => !['--apply', '--dry-run', '--batch-2'].includes(a))
+  || (args.includes('--apply') && args.includes('--dry-run'))) throw Error('Use [--batch-2] with --dry-run or --apply');
+const { file, hash, count } = batches[args.includes('--batch-2') ? 'second' : 'first'];
 const apply = args.includes('--apply');
 const bytes = readFileSync(file);
 if (createHash('sha256').update(bytes).digest('hex') !== hash) throw Error('Input hash mismatch');
 const book = XLSX.read(bytes, { type: 'buffer' });
-if (book.SheetNames.length !== 1) throw Error('Expected one sheet');
+if (book.SheetNames.length !== 1 || book.SheetNames[0] !== 'Sheet1') throw Error('Expected only Sheet1');
+if (Object.values(book.Sheets.Sheet1).some(cell => cell?.f)) throw Error('Formula cells are not permitted');
 const grid = XLSX.utils.sheet_to_json(book.Sheets[book.SheetNames[0]], { header: 1, raw: true, defval: null });
 if (JSON.stringify(grid.shift()) !== JSON.stringify(['UUID', 'Customer Number'])) throw Error('Header mismatch');
 const rows = grid.map((r, i) => {
@@ -24,7 +39,7 @@ const rows = grid.map((r, i) => {
     || typeof r[1] !== 'string' || !/^\d+$/.test(r[1])) throw Error(`Invalid data at sheet row ${i + 2}`);
   return { member_id: r[0].toLowerCase(), value: r[1] };
 });
-if (rows.length !== 633 || new Set(rows.map(r => r.member_id)).size !== rows.length) throw Error('Unexpected row count or duplicate UUIDs');
+if (rows.length !== count || new Set(rows.map(r => r.member_id)).size !== rows.length) throw Error('Unexpected row count or duplicate UUIDs');
 const db = await connectDestination();
 try {
   await db.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
@@ -40,6 +55,7 @@ try {
   const old = await db.query('select * from member_preference_value where field_id=$1 and member_id=any($2::uuid[]) for update',
     [field, rows.map(r => r.member_id)]);
   const before = new Map(old.rows.map(r => [r.member_id, r]));
+  if (before.size !== old.rowCount) throw Error('Ambiguous existing preference values');
   const summary = { total: rows.length, new: 0, changed: 0, unchanged: 0, existingNonblankReplaced: 0 };
   for (const r of rows) {
     const prev = before.get(r.member_id);
@@ -51,9 +67,11 @@ try {
   if (apply && summary.new + summary.changed) {
     const dir = 'private/bnms-nmc-customer-import';
     mkdirSync(dir, { recursive: true, mode: 0o700 });
-    writeFileSync(`${dir}/before-${Date.now()}.json`,
+    const recoveryPath = `${dir}/before-${hash.slice(0, 12)}-${Date.now()}.json`;
+    writeFileSync(recoveryPath,
       JSON.stringify({ sourceHash: hash, tenant, field, before: old.rows, desired: rows }, null, 2),
       { mode: 0o600, flag: 'wx' });
+    console.log(`Private recovery evidence: ${recoveryPath}`);
     const written = await db.query(`insert into member_preference_value (member_id,field_id,value)
       select r.member_id,$2::uuid,r.value from jsonb_to_recordset($1::jsonb) as r(member_id uuid,value text)
       join member m on m.id=r.member_id and m.tenant_id=$3
@@ -70,6 +88,12 @@ try {
     if (verified.rows[0].matches !== rows.length) throw Error('Post-import verification failed');
     await db.query('COMMIT');
     console.log(`Committed and verified ${rows.length} exact values in DEST.`);
+    const readback = await db.query(`select count(*)::int as matches from jsonb_to_recordset($1::jsonb) as r(member_id uuid,value text)
+      join member m on m.id=r.member_id and m.tenant_id=$3
+      join member_preference_value v on v.member_id=m.id and v.field_id=$2 and v.value=r.value`,
+    [JSON.stringify(rows), field, tenant]);
+    if (readback.rows[0].matches !== rows.length) throw Error('Committed, but independent readback failed; inspect private recovery evidence');
+    console.log(`Post-commit readback verified ${readback.rows[0].matches} exact values in DEST.`);
   } else await db.query('ROLLBACK');
 } catch (error) {
   await db.query('ROLLBACK');
