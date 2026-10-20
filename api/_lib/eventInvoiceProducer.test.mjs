@@ -4,7 +4,7 @@ import { prepareAccountingEventSource } from './accountingEventSource.js';
 import { readFile } from 'node:fs/promises';
 import {
   enqueueCheckoutEventInvoice, eventInvoiceContact, simpleEventInvoiceLines,
-  complexEventInvoiceLines, capturedEventSettlement,
+  complexEventInvoiceLines, capturedEventSettlement, invoiceBookerLabel,
 } from './eventInvoiceProducer.js';
 import { validRecoverySnapshot, validRecoveryTaxIntent } from './eventInvoiceRecovery.js';
 
@@ -400,11 +400,36 @@ test('missing durable result is never reported as queued', async () => {
   assert.equal(result.queued, false);
 });
 
+test('booker is frozen separately from invoice payer and attendees without changing money', async () => {
+  const f = fixture();
+  await enqueueCheckoutEventInvoice(f.input, f.deps);
+  const original = structuredClone(f.queued[0].snapshot);
+  f.input.booker = { first_name: 'Booking', last_name: 'Member', email: 'booker@example.test' };
+  await enqueueCheckoutEventInvoice(f.input, f.deps);
+  const changed = f.queued[1].snapshot;
+  assert.deepEqual(changed.contact, original.contact);
+  assert.deepEqual(changed.invoice.Contact, original.invoice.Contact);
+  const description = changed.invoice.LineItems[0].Description;
+  assert.equal(description, `Booked by: Booking Member — booker@example.test\n\n${original.invoice.LineItems[0].Description}`);
+  changed.invoice.LineItems[0].Description = original.invoice.LineItems[0].Description;
+  assert.deepEqual(changed, original);
+});
+
+test('booker label supports guest names and never invents identity from an attendee', () => {
+  assert.equal(invoiceBookerLabel(null), null);
+  assert.equal(invoiceBookerLabel({}), null);
+  assert.equal(invoiceBookerLabel({ email: 'guest@example.test' }), 'Booked by: guest@example.test');
+  assert.equal(invoiceBookerLabel({ firstName: 'Guest', lastName: 'Booker' }), 'Booked by: Guest Booker');
+  assert.equal(invoiceBookerLabel({ first_name: 'A\nB', email: 'x@example.test' }), 'Booked by: A B — x@example.test');
+});
+
 test('both checkout handlers have exactly one durable producer and no competing raw invoice/payment writer', async () => {
   const simpleFile = await readFile(new URL('../functions/[functionName].js', import.meta.url), 'utf8');
   const simple = simpleFile.slice(simpleFile.indexOf('async createOneOffEventBooking('), simpleFile.indexOf('async createOneOffEventBooking(') + 140000);
   const simpleCheckout = simple.slice(0, simple.indexOf('\n  async ', 10));
   const complex = await readFile(new URL('../public/complex-event-booking.js', import.meta.url), 'utf8');
+  assert.match(simpleCheckout, /booker: isGuestBooking \? guestInfo : bookingSessionMember/);
+  assert.match(complex, /booker: authenticatedMember \|\| purchaserInfo/);
   for (const source of [simpleCheckout, complex]) {
     assert.equal((source.match(/await enqueueCheckoutEventInvoice\(/g) || []).length, 1);
     assert.doesNotMatch(source, /api\.xero\.com\/api\.xro\/2\.0\/(?:Invoices|Payments)/);

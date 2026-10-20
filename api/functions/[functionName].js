@@ -3583,6 +3583,7 @@ const functionHandlers = {
       currency: event.pricing_config?.ticket_classes?.find(tc => tc.id === ticketClassId)?.currency || 'GBP',
       paymentMethod, paymentIntentId: stripePaymentIntentId, paymentIntent: invoicePaymentEvidence,
       contact: eventInvoiceContact({ source: 'booking', org, member, isGuestBooking, guestInfo }),
+      booker: isGuestBooking ? guestInfo : bookingSessionMember,
       purchaseOrderNumber, poToFollow,
       buildLines: accountCode => simpleEventInvoiceLines({
         event, bookingAttendees, ticketsRequired, ticketClassName, ticketClassPrice,

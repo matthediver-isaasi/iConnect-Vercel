@@ -3,6 +3,17 @@ name: Event invoice recovery authority
 description: Recovery snapshots, existing-invoice evidence, payment ownership and rollout constraints.
 ---
 
+Event invoices must identify the booker separately from attendees, even when
+the booker is also attending. Keep the invoice payer distinct.
+
+**Why:** BNMS clarified that the account/PO-to-follow hospital invoice was
+expected; the missing information was who made the booking, not a request to
+change the payer-selection policy.
+
+**How to apply:** Use authenticated checkout identity (or explicit guest
+purchaser details), never infer the booker from an attendee or organisation.
+Preserve that identity in the checkout invoice snapshot for later recovery.
+
 Event invoice retries must use the durable operation authority, not rerun checkout or reconstruct invoices from today's catalogue.
 
 **Why:** Historical booking rows can omit purchaser and tax provenance. Provider success can also precede failed local linkage. A missing local invoice is not proof that creation is safe. A captured Stripe intent must not acquire multiple accounting settlements through separate booking groups.

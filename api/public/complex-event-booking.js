@@ -1448,6 +1448,7 @@ export default async function handler(req, res) {
       currency: unifiedCurrency, paymentMethod: confirmedPaymentMethod,
       paymentIntentId: stripe_payment_intent_id, paymentIntent: invoicePaymentEvidence,
       contact: eventInvoiceContact({ source: 'complex_event_booking', org, member: authenticatedMember }),
+      booker: authenticatedMember || purchaserInfo,
       purchaseOrderNumber, poToFollow,
       buildLines: accountCode => complexEventInvoiceLines({ event, resolvedItems, actualVoucherApplied, actualTfApplied }, accountCode),
       }) : { status: 'not_applicable' };

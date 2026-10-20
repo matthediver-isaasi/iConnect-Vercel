@@ -195,13 +195,31 @@ async function loadContext(db, tenantId) {
  * enqueue failure explicit rather than falsely reporting a queued invoice.
  * Injectable enqueue is used by isolated tests, never a second writer.
  */
+export function invoiceBookerLabel(booker) {
+  const clean = value => typeof value === 'string' ? value.replace(/[\r\n\t]+/g, ' ').trim() : '';
+  if (!booker) return null;
+  const name = [clean(booker.first_name || booker.firstName), clean(booker.last_name || booker.lastName)]
+    .filter(Boolean).join(' ');
+  const email = clean(booker.email);
+  if (!name && !email) return null;
+  return `Booked by: ${name}${name && email ? ' — ' : ''}${email}`;
+}
+
 export async function enqueueCheckoutEventInvoice({
   db, tenantId, source, bookingGroupReference, event, amount, currency,
   paymentMethod, paymentIntentId, paymentIntent, contact, purchaseOrderNumber,
-  poToFollow, buildLines, now = new Date(),
+  poToFollow, buildLines, booker, now = new Date(),
 }, { enqueue, logger = console } = {}) {
   if (paymentMethod === 'public_invoice_po' || paymentMethod === 'free' || Number(amount) <= 0) {
     return { status: 'not_applicable' };
+  }
+  // Freeze the actual checkout booker in the invoice description independently
+  // of the payer/contact and attendees. Recovery reuses these stored lines.
+  const bookerLabel = invoiceBookerLabel(booker);
+  if (bookerLabel) {
+    const originalBuildLines = buildLines;
+    buildLines = accountCode => originalBuildLines(accountCode).map((line, index) =>
+      index === 0 ? { ...line, Description: `${bookerLabel}\n\n${line.Description || ''}` } : line);
   }
   const reviewReasons = [];
   let context;
