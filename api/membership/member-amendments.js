@@ -1,0 +1,46 @@
+import { supabase } from '../_lib/database.js';
+import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tenantContext.js';
+import { AMENDMENT_UUID, createMemberAmendmentsService } from '../_lib/memberAmendments.js';
+
+export function createMemberAmendmentsHandler({
+  db = supabase, getContext = getTenantContext, isAdmin = hasAdminAccess,
+  hasFinance = hasFeatureAccess, service = null,
+} = {}) {
+  return async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    if (!['GET', 'POST'].includes(req.method)) return res.status(405).json({ error: 'Method not allowed' });
+    if (!db) return res.status(503).json({ error: 'Database not configured' });
+    try {
+      const context = await getContext(req);
+      if (!context?.isAuthenticated) return res.status(401).json({ error: 'Authentication required' });
+      if (context.tenantMismatch) return res.status(409).json({ error: 'Tenant context mismatch' });
+      if (!context.tenantId || !await isAdmin(context)) return res.status(403).json({ error: 'Tenant admin access required' });
+      // Tenant-account administrators without a member role follow the existing
+      // monthly-finance gate; role-bearing accounts also need finance visibility.
+      if ((!context.tenantUserId && !context.roleId)
+          || (context.roleId && !await hasFinance(context.roleId, 'commerce.monthly-finance-report', context.memberExcludedFeatures || []))) {
+        return res.status(403).json({ error: 'Membership finance permission required' });
+      }
+      const actorId = context.tenantUserId || context.memberId;
+      if (!actorId) return res.status(403).json({ error: 'An authenticated audit identity is required' });
+      const amendments = service || createMemberAmendmentsService({ db });
+      if (req.method === 'GET') {
+        if (!AMENDMENT_UUID.test(req.query?.memberId || '')) return res.status(400).json({ error: 'A valid memberId is required' });
+        return res.json(await amendments.list(context.tenantId, req.query.memberId));
+      }
+      if (req.body?.action === 'preview') return res.json(await amendments.preview(context.tenantId, req.body));
+      if (req.body?.action === 'create') {
+        const result = await amendments.create(context.tenantId, actorId, req.body);
+        return res.status(result.replayed ? 200 : 201).json(result);
+      }
+      return res.status(400).json({ error: 'action must be preview or create; applying or settling amendments is not supported' });
+    } catch (error) {
+      return res.status(error.status || 500).json({
+        error: error.status ? error.message : 'Membership amendment request failed',
+        code: error.code || 'internal_error',
+      });
+    }
+  };
+}
+
+export default createMemberAmendmentsHandler();

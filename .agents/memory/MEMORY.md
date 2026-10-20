@@ -154,3 +154,4 @@
 - [Public bookmark query loops](public-bookmark-query-loop.md) — guest-only 401 loops can clear shared queries and blank unrelated public carousels.
 - [Public branding boundaries](public-branding-freshness.md) — fresh authority across serverless readers; linked favicon normalization and rollout constraints.
 - [Portable npm downloads](portable-npm-downloads.md) — dependency updates can record workspace-only registry URLs that break Vercel installs.
+- [Membership amendment policy](membership-amendment-policy.md) — approved mid-term changes cover collection, credit and refund, preserving purchase evidence and expiry by default.
