@@ -3,6 +3,7 @@ import { calculateMembershipYearWindow } from './membershipYear.js';
 import { upfrontRollingCommitment } from './upfrontRollingRenewal.js';
 import { commitmentFromQuote } from './rollingMembershipCommitment.js';
 import { invoiceReferenceFromRow } from './feeTokenInvoiceReference.js';
+import { resolveMemberAmendmentReadOverlay } from './membershipAmendmentReadOverlay.js';
 
 export const requestsReminderPaymentLink = template => /\{\{\s*payment_link\s*\}\}/.test(`${template?.subject || ''} ${template?.body || ''}`);
 
@@ -22,6 +23,16 @@ export function reminderRenewalSnapshot(quote, history) {
       config: pick(history.commitment_snapshot.config, CONFIG_FIELDS),
     };
   }
+  if (history.effective_commitment_snapshot) {
+    previousTerm.effective_config_id = history.effective_config_id;
+    previousTerm.effective_commitment_snapshot = {
+      authority: history.effective_commitment_snapshot.authority,
+      amendment_id: history.effective_commitment_snapshot.amendment_id,
+      config: pick(history.effective_commitment_snapshot.config, [
+        ...CONFIG_FIELDS, 'tenant_id', 'structure_scope_type', 'structure_field_id', 'structure_match_value',
+      ]),
+    };
+  }
   return {
     config: pick(quote.config, CONFIG_FIELDS),
     incentiveConfig: pick(quote.incentiveConfig || quote.config, [
@@ -36,6 +47,9 @@ export function reminderRenewalSnapshot(quote, history) {
 
 // No delivery or provider effects: the caller supplies simulation and token preparation.
 export async function resolveReminderPaymentQuote({ client, tenantId, history, histories, now = new Date(), simulate, prepare, recipients, loadAddonQuote, resolveStripeCredentials }) {
+  if (history.member_id) history = await resolveMemberAmendmentReadOverlay({
+    db: client, tenantId, history, asOf: new Date(now).toISOString().slice(0, 10), renewal: true,
+  });
   const memberId = history.member_id || null;
   const organizationId = memberId ? null : history.organization_id;
   const owner = { tenantId, memberId, organizationId };
@@ -43,7 +57,7 @@ export async function resolveReminderPaymentQuote({ client, tenantId, history, h
   if (!isAnnualNonRecurring(history) || await hasActiveMonthlyBillingAgreement(client, owner)) {
     return blocked('recurring', 'Renewal payment link suppressed: membership is managed by a recurring plan.');
   }
-  let config = history.commitment_snapshot?.config;
+  let config = history.effective_commitment_snapshot?.config || history.commitment_snapshot?.config;
   if (!config) {
     const loaded = await client.from('membership_tier_config').select('*').eq('tenant_id', tenantId).eq('id', history.config_id).maybeSingle();
     if (loaded.error || !loaded.data) throw new Error('Could not load renewal reminder configuration');

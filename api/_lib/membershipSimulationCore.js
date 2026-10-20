@@ -8,6 +8,7 @@ import { calculateMembershipYearWindow, calculateNextMembershipYearWindow, rolli
 import { loadExpiryOnlyRenewalPolicy } from './expiryOnlyRenewalPolicy.js';
 import { hasFormExpiryOnlyProvenance } from './formExpiryOnlyRenewal.js';
 import { addDays, toDateString } from './annualRenewalPolicy.js';
+import { resolveMemberAmendmentReadOverlay, effectiveMemberEntitlement } from './membershipAmendmentReadOverlay.js';
 
 // A saved usage amount is not evidence of the rate/entitlement that produced it.
 // In particular, never substitute the renewal schedule for the joining schedule.
@@ -175,7 +176,11 @@ async function resolveRollingSimulationContext(client, {
   const previousTerm = options.previousTerm
     ? (sorted.find(row => row.term_key === options.previousTerm.term_key) || options.previousTerm)
     : (needsNext ? current : null);
-  if (!previousTerm && (requested || current)) return { existing: requested || current };
+  if (!previousTerm && (requested || current)) return {
+    existing: memberId ? await resolveMemberAmendmentReadOverlay({
+      db: client, tenantId, history: requested || current, asOf: today,
+    }) : requested || current,
+  };
   if (previousTerm) {
     if (!options.previousTerm && (previousTerm.billing_agreement_id
       || previousTerm.commitment_snapshot?.payment_frequency === 'monthly')) {
@@ -204,13 +209,19 @@ function purchasedRollingSimulation(row, entity, steps, invoicingSettings) {
   if (!row.commitment_snapshot?.config || !row.membership_renewal_date || !row.term_start_date || !row.term_end_date) {
     throw new Error('Rolling membership requires review: the saved commitment is incomplete.');
   }
-  const config = row.commitment_snapshot.config;
+  const entitlement = effectiveMemberEntitlement(row);
+  const config = entitlement?.config || row.commitment_snapshot.config;
   return {
     success: true, ...entity, config, steps, invoicingSettings,
+    ...(entitlement ? {
+      originalPurchaseConfig: row.commitment_snapshot.config,
+      originalPurchaseBand: row.commitment_snapshot.band
+        || row.commitment_snapshot.pricing?.band || (row.band_id ? { id: row.band_id } : null),
+    } : {}),
     existingRecord: row, previousTerm: null, commitment: row,
     membershipYear: { label: row.term_key, start: new Date(`${row.term_start_date}T00:00:00.000Z`), end: new Date(`${row.term_end_date}T00:00:00.000Z`), ...row },
-    tierLabel: row.tier_label, fieldValue: row.field_value,
-    matchedBand: row.band_id ? { id: row.band_id } : null,
+    tierLabel: entitlement?.tierLabel || row.tier_label, fieldValue: row.field_value,
+    matchedBand: entitlement ? entitlement.band : row.band_id ? { id: row.band_id } : null,
     annualCost: Number(row.annual_cost), annualCostBeforeDiscounts: Number(row.annual_cost),
     finalCost: Number(row.final_cost), totalWithVat: Number(row.total_with_vat ?? row.final_cost),
     vatAmount: Number(row.vat_amount || 0), vatRatePercent: row.vat_rate_percent,
@@ -218,7 +229,7 @@ function purchasedRollingSimulation(row, entity, steps, invoicingSettings) {
     yearNumber: row.year_number, customDiscountTotal: Number(row.custom_discount_total || 0),
     customDiscountDetails: row.custom_discount_details || [], prorataCost: row.prorata_cost,
     freeDiscount: Number(row.free_period_discount || 0), rolloverDiscount: Number(row.rollover_discount || 0),
-    invoicePreview: null, nominalCode: config.nominal_code || null,
+    invoicePreview: null, nominalCode: row.commitment_snapshot.config.nominal_code || null,
   };
 }
 

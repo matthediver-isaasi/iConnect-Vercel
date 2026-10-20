@@ -1,10 +1,15 @@
+import { resolveMemberAmendmentReadOverlay } from './membershipAmendmentReadOverlay.js';
+
 export function createMembershipConfigResolver(supabase) {
 return { resolveRollingSuccessorConfig, findHistoricalMemberConfigs, getAllActiveConfigs, getAllActiveConfigsStrict, getConfigForOrganisation, resolveBasisFieldLabel, resolveBasisFieldLabels, getConfigByIdDirect, getConfigForMember };
 
 // A renewal stays in the purchased structure's scope; changing a member's
 // preferences or a cron's execution date must not move an existing commitment.
 async function resolveRollingSuccessorConfig(client, { tenantId, previousTerm }) {
-  const snapshot = previousTerm?.commitment_snapshot;
+  const predecessor = await resolveMemberAmendmentReadOverlay({
+    db: client, tenantId, history: previousTerm, renewal: true,
+  });
+  const snapshot = predecessor?.effective_commitment_snapshot || previousTerm?.commitment_snapshot;
   const priorConfig = snapshot?.config;
   const boundary = previousTerm?.membership_renewal_date;
   if (!priorConfig || !boundary) throw new Error('Rolling membership requires review: trusted commitment configuration and renewal date are missing.');

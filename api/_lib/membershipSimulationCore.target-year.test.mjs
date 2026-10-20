@@ -27,6 +27,7 @@ function fixture() {
     const q = {
       select() { return q; },
       eq(key, value) { filters.push(row => row[key] === value); return q; },
+      neq(key, value) { filters.push(row => row[key] !== value); return q; },
       or(expression) {
         const date = expression.match(/effective_(?:from|to)\.(?:lte|gte)\.(\d{4}-\d{2}-\d{2})/)?.[1];
         if (date && expression.startsWith('effective_from')) filters.push(row => !row.effective_from || row.effective_from <= date);

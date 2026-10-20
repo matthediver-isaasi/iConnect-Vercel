@@ -3,6 +3,12 @@
   "buildCommand": "npx vite build",
   "outputDirectory": "dist/public",
   "functions": {
+    "api/membership/member-amendments.js": {
+      "maxDuration": 300
+    },
+    "api/cron/member-amendments.js": {
+      "maxDuration": 90
+    },
     "api/cron/reconcile-event-invoices.js": {
       "maxDuration": 60
     },
@@ -187,6 +193,10 @@
     {
       "path": "/api/cron/gocardless-auto-retries",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/member-amendments",
+      "schedule": "*/10 * * * *"
     },
     {
       "path": "/api/cron/reconcile-stripe-card-plans",

@@ -8,6 +8,7 @@ import {
 } from '../_lib/tenantContext.js';
 import { enrichMembershipHistoryPrices } from '../_lib/membershipHistoryPrice.js';
 import { attachExpiryRenewalPolicyDisplay } from '../_lib/membershipRenewalPolicyDisplay.js';
+import { resolveMemberAmendmentReadOverlays } from '../_lib/membershipAmendmentReadOverlay.js';
 
 const HISTORY_PERMISSION = 'commerce.history';
 
@@ -271,10 +272,12 @@ export function createMemberHistoryHandler(dependencies = {}) {
         if (result?.error) throw result.error;
       }
 
-      const personalRows = (results[0]?.data || []).map((record) => ({
+      const personalRows = await resolveMemberAmendmentReadOverlays({
+        db, tenantId, history: (results[0]?.data || []).map((record) => ({
         ...record,
         membership_source: 'personal',
-      }));
+        })),
+      });
       const organisationRows = organizationId
         ? (results[1]?.data || []).map((record) => ({
           ...record,

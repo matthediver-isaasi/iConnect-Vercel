@@ -8,6 +8,7 @@ import { loadMigratedMandatePresentation, migratedMandatePresentation } from '..
 import { canvasDirectDebitCollection } from '../_lib/canvasDirectDebitCollection.js';
 import { isRetiredCanvasCheckout, loadCanvasRenewalEligibility } from '../_lib/canvasRenewalEligibility.js';
 import { signupMonthlyPriceFromAgreement, completedPendingBankActivation } from '../_lib/membershipSignupEvidence.js';
+import { resolveMemberAmendmentReadOverlays } from '../_lib/membershipAmendmentReadOverlay.js';
 
 // This endpoint is deliberately self-only, including for administrators. It
 // reads retained commitments and read-only dynamic pricing projections, never
@@ -262,7 +263,8 @@ async function readHistory(db, tenantId, column, ownerId, table, source) {
       throw new Error('Membership history ownership mismatch');
     }
     rows.push(...data.map(row => ({ ...row, membership_source: source })));
-    if (data.length < 500) return rows;
+    if (data.length < 500) return source === 'personal'
+      ? resolveMemberAmendmentReadOverlays({ db, tenantId, history: rows }) : rows;
   }
 }
 

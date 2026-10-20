@@ -158,6 +158,11 @@ export async function runAnnualOwnerRow({ db, tenantId, scope, setting, now, eff
   if (loaded.error) throw new Error(loaded.error.message);
   const record = loaded.data;
   if (!record) return skip('Existing membership history no longer exists');
+  // Current entitlement labels/scope may be amended, but an outstanding invoice
+  // for an already purchased term must retain that purchase's financial config.
+  const invoiceSim = sim.originalPurchaseConfig ? {
+    ...sim, config: sim.originalPurchaseConfig, matchedBand: sim.originalPurchaseBand,
+  } : sim;
   if (record.xero_invoice_id || record.accounting_invoice_id) {
     return skip(`Record for ${sim.membershipYear.label} already exists with invoice`);
   }
@@ -194,16 +199,16 @@ export async function runAnnualOwnerRow({ db, tenantId, scope, setting, now, eff
   const invoice = {
     appTenantId: tenantId, organizationName: ownerName,
     invoicingEmail: memberScope ? owner.email || null : owner.invoicing_email || null,
-    invoicingAddress: address || await resolveInvoiceAddress(db, sim.config, ownerId, memberScope ? 'member' : 'organization'),
+    invoicingAddress: address || await resolveInvoiceAddress(db, invoiceSim.config, ownerId, memberScope ? 'member' : 'organization'),
     membershipYear: record.membership_year, tierLabel: record.tier_label, finalCost: fee,
     currency: record.currency || 'GBP', reference: `Membership ${record.membership_year}${poNumber ? ` - PO: ${poNumber}` : ''}`,
-    vatRate, nominalCode: await resolveMembershipNominalCode(db, tenantId, sim),
-    invoiceDescription: sim.config?.invoice_description || null,
+    vatRate, nominalCode: await resolveMembershipNominalCode(db, tenantId, invoiceSim),
+    invoiceDescription: invoiceSim.config?.invoice_description || null,
     ...(!memberScope ? { extraLineItems: addonLines.map(line => ({ description: line.description, nominalCode: line.nominal_code || null,
       vatRate: line.vat_rate || null, unitCost: Number(line.unit_cost) || 0, quantity: Number(line.quantity) || 1 })) } : {}),
   };
   return operation('owner.annual_invoice', `Create invoice for ${scope} membership ${record.membership_year}.`,
-    { tenantId, scope, ownerId, sim, invoiceDue, invoice, record }, Math.round((Number(total) || fee) * 100), invoice.currency);
+    { tenantId, scope, ownerId, sim: invoiceSim, invoiceDue, invoice, record }, Math.round((Number(total) || fee) * 100), invoice.currency);
 }
 
 export async function runOwnerAnnualRenewals({ db, plan, agreement, now, effects, trace }) {

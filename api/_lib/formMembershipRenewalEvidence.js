@@ -61,7 +61,8 @@ export function assessFormMembershipRenewalEvidence({
     const { row, start, end, assigned } = current;
     const purchasedConfig = assigned ? {
       renewal_open_days: assigned.renewalOpenDays, renewal_grace_days: assigned.renewalGraceDays,
-    } : row.renewal_policy_snapshot || row.commitment_snapshot?.config || row.incentive_snapshot?.config;
+    } : row.effective_commitment_snapshot?.config
+      || row.renewal_policy_snapshot || row.commitment_snapshot?.config || row.incentive_snapshot?.config;
     if (!purchasedConfig || (purchasedConfig.tenant_id && purchasedConfig.tenant_id !== tenantId)) {
       return review('purchased_policy_unavailable');
     }

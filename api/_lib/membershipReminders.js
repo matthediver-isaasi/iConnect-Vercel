@@ -1,6 +1,7 @@
 import { assertRenewalBudget, renewalRows } from './membershipRenewalBudget.js';
 import { requestsReminderPaymentLink, resolveReminderPaymentQuote } from './reminderPaymentQuote.js';
 import { deriveAnnualTerm } from './annualRenewalPolicy.js';
+import { resolveMemberAmendmentReadOverlay, effectiveMemberEntitlement } from './membershipAmendmentReadOverlay.js';
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 const MEMBER_REMINDER_COLUMNS = 'id, email, first_name, last_name, role_id';
@@ -34,12 +35,16 @@ async function processPaymentLinkReminders(tenantId, results, today) {
     const memberScope = scope === 'member';
     const column = memberScope ? 'member_id' : 'organization_id';
     const table = memberScope ? 'member_membership_history' : 'organisation_membership_history';
-    for await (const history of reminderRows(() => ownerQuery(supabase.from(table).select('*').eq('tenant_id', tenantId), memberScope),
+    for await (const originalHistory of reminderRows(() => ownerQuery(supabase.from(table).select('*').eq('tenant_id', tenantId), memberScope),
       results, `payment-links:${scope}`)) {
+      const history = memberScope ? await resolveMemberAmendmentReadOverlay({
+        db: supabase, tenantId, history: originalHistory,
+        asOf: new Date(today).toISOString().slice(0, 10), renewal: true,
+      }) : originalHistory;
       if (['cancelled', 'void', 'expired_checkout'].includes(history.status)) { skipped(`Membership history ${history.id} is ${history.status}.`); continue; }
       const { data: histories, error } = await supabase.from(table).select('*').eq('tenant_id', tenantId).eq(column, history[column]);
       if (error) throw new Error(`Could not load reminder owner terms: ${error.message}`);
-      let config = history.commitment_snapshot?.config;
+      let config = history.effective_commitment_snapshot?.config || history.commitment_snapshot?.config;
       if (!config) {
         const loaded = await supabase.from('membership_tier_config').select('*').eq('tenant_id', tenantId).eq('id', history.config_id).maybeSingle();
         if (loaded.error) throw new Error(loaded.error.message);
@@ -52,7 +57,7 @@ async function processPaymentLinkReminders(tenantId, results, today) {
         continue;
       }
       if (term.start > today) { skipped(`Membership history ${history.id} has not started.`); continue; }
-      const reminders = await loadActiveReminders(tenantId, history.config_id);
+      const reminders = await loadActiveReminders(tenantId, history.effective_config_id || history.config_id);
       for (const reminder of reminders) {
         assertRenewalBudget(results?.__renewalControl);
         const template = await loadTemplate(tenantId, reminder.email_template_id);
@@ -213,7 +218,11 @@ async function processRollingReminders(tenantId, results, today) {
     const table = memberScope ? 'member_membership_history' : 'organisation_membership_history';
     const histories = reminderRows(() => ownerQuery(supabase.from(table).select('*')
       .eq('tenant_id', tenantId).not('term_key', 'is', null), memberScope), results, `rolling:${scope}`);
-    for await (const history of histories) {
+    for await (const originalHistory of histories) {
+      const history = memberScope ? await resolveMemberAmendmentReadOverlay({
+        db: supabase, tenantId, history: originalHistory,
+        asOf: new Date(today).toISOString().slice(0, 10), renewal: true,
+      }) : originalHistory;
       if (!rollingReminderCandidates([history], today).length) { skipped(`History ${history.id} is not a current trusted rolling reminder candidate.`); continue; }
       if (memberScope && (paused || await getPausedMemberIdSet(tenantId, supabase, [history.member_id])).has(history.member_id)) continue;
       // Successors may be beyond this page. A tenant/owner-scoped existence
@@ -231,7 +240,7 @@ async function processRollingReminders(tenantId, results, today) {
         .eq('tenant_id', tenantId).eq('id', memberScope ? history.member_id : history.organization_id).maybeSingle();
       if (ownerError) throw new Error(`Could not load rolling reminder recipient: ${ownerError.message}`);
       if (!owner) continue;
-      const reminders = await loadActiveReminders(tenantId, history.config_id);
+      const reminders = await loadActiveReminders(tenantId, history.effective_config_id || history.config_id);
       const renewalDate = new Date(`${history.membership_renewal_date}T00:00:00.000Z`);
       for (const reminder of reminders) {
         assertRenewalBudget(results?.__renewalControl);
@@ -257,7 +266,8 @@ async function processRollingReminders(tenantId, results, today) {
         const data = buildOrgContext({
           org: memberScope ? {} : owner, member: first,
           membershipYear: { label: `${history.term_start_date} – ${history.term_end_date}` },
-          simResult: { tierLabel: history.tier_label, finalCost: history.final_cost, currency: history.currency },
+          simResult: { tierLabel: effectiveMemberEntitlement(history)?.tierLabel || history.tier_label,
+            finalCost: history.final_cost, currency: history.currency },
           renewalDate, reminder,
         });
         Object.assign(data, { member_id: first.id, member_email: first.email });

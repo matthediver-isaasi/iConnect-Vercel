@@ -18,6 +18,36 @@ a request is not confirming that money was collected or refunded.
 
 ## Remaining settlement stages
 
+### Connected settlement implementation
+
+The upfront implementation now includes Xero adjustment invoices and online
+collection links, retained credit notes, and credit notes awaiting a separately
+recorded manual refund. Refund verification requires exact-reference,
+bank-reconciled payment evidence consuming the credit; the application does not
+transfer cash automatically. Original payer, invoice, payment, currency and tax
+ownership are checked before settlement. Unsupported accounting providers and
+ambiguous source evidence remain blocked.
+
+Provider operations are durably reserved before submission. Uncertain outcomes
+are reconciled by reads, not retried money calls. Application and notifications
+have separate evidence. The additive settlement migration must precede
+deployment of these actions; do not enable application without the operational
+membership-reader integration and its regression checks.
+
+The audited operational scope is personal twelve-month upfront rolling
+membership, with both original and target structures using immediate-start
+annual terms. Fixed-date, organisation and provider-linked scopes remain
+blocked before settlement and application. Current displays, rolling renewal,
+reminders and history consume applied entitlement while retaining original
+purchase/invoice economics. This is a scope-specific release, not permission to
+apply amendments to every membership.
+
+Monthly Stripe/fixed-DD adapters exist but are not an enabled amendment
+workflow. Immutable monthly authority, operation claims and collection holds
+are still required. Dynamic DD additionally needs effective-dated pricing
+revisions pinned atomically into collection reservations. Do not call these
+adapters directly to bypass the missing orchestration.
+
 1. Add source-linked adjustment invoices and payment attempts. Confirm payment
    through provider reconciliation, not a browser success redirect.
 2. Add credit-note orchestration for the original payer and invoice. A refund

@@ -1,4 +1,5 @@
 import { supabase } from '../../_lib/database.js';
+import { resolveMemberAmendmentReadOverlaysBatched } from '../../_lib/membershipAmendmentReadOverlay.js';
 import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../../_lib/tenantContext.js';
 import { PAYMENT_REPORT_METHODS, projectMembershipPaymentReport, isEligiblePaymentReportMember, sortPaymentReportRows } from '../../_lib/membershipPaymentReport.js';
 import { resolvePaymentReportSchedules } from '../../_lib/membershipPaymentReportSchedules.js';
@@ -105,10 +106,10 @@ export function createMembershipPaymentReportHandler(deps = {}) {
       }
       const tenantId = ctx.tenantId;
       const read = (table, columns, refine) => fetchPaymentReportRows(db, table, columns, tenantId, refine);
-      const [members, history, agreements, plans, payments, configs, fields, bands, overrides, vatRules, settings] = await Promise.all([
+      const [members, originalHistory, agreements, plans, payments, configs, fields, bands, overrides, vatRules, settings] = await Promise.all([
         // Core selectors vary by tenant configuration; only projected public fields leave the API.
         read('member', '*'),
-        read('member_membership_history', 'id,tenant_id,member_id,tier_label,status,payment_method,billing_period,term_start_date,term_end_date,membership_renewal_date,term_key,commitment_snapshot,billing_agreement_id,membership_year,payment_status,currency,config_id,term_duration_months,notes,final_cost,total_with_vat,previous_term_id'),
+        read('member_membership_history', 'id,tenant_id,member_id,tier_label,status,payment_method,billing_period,term_start_date,term_end_date,membership_renewal_date,term_key,term_anchor_date,commitment_snapshot,billing_agreement_id,membership_year,payment_status,currency,config_id,band_id,term_duration_months,notes,final_cost,total_with_vat,previous_term_id'),
         read('membership_billing_agreements', 'id,tenant_id,member_id,organization_id,provider,environment,status,gocardless_mandate_id,stripe_subscription_id,stripe_customer_id,metadata',
           query => query.is('organization_id', null)),
         read('membership_payment_plans', 'id,tenant_id,member_id,organization_id,billing_agreement_id,provider,environment,status,interval_unit,created_at,gocardless_mandate_id,gocardless_subscription_id,stripe_subscription_id,collection_stopped_at,dynamic_next_collection_date,metadata,amount_minor,currency',
@@ -123,6 +124,9 @@ export function createMembershipPaymentReportHandler(deps = {}) {
         read('membership_tier_vat_override', '*'),
         read('system_settings', '*', query => query.eq('setting_key', `xero_vat_rates_${tenantId}`)),
       ]);
+      const history = await resolveMemberAmendmentReadOverlaysBatched({
+        db, tenantId, history: originalHistory, asOf: deps.today || new Date().toISOString().slice(0, 10),
+      });
       const preferences = await fetchPaymentReportPreferences(db, tenantId, members, configs, fields, vatRules);
       const input = { tenantId, members: members.filter(row => isEligiblePaymentReportMember(row, tenantId)),
         history, agreements, plans, payments, configs, bands, vatRules, preferences, today: deps.today };

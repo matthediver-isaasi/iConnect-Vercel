@@ -32,7 +32,7 @@ test('zero delta remains pending_application, negative delta is pending credit, 
   const zero = quote(f, { config: { ...f.config, flat_cost: 100 } });
   assert.equal(zero.status, 'pending_application');
   assert.equal(zero.financialDirection, 'none');
-  assert.match(zero.blockers[0], /overlay/);
+  assert.match(zero.blockers[0], /explicit zero-difference settlement/);
   const credit = quote(f, { config: { ...f.config, flat_cost: 50 } });
   assert.equal(credit.financialDirection, 'credit');
   assert.equal(credit.status, 'pending_settlement');
@@ -96,6 +96,7 @@ function mockDb(tables) {
       const chain = {
         select() { return chain; },
         eq(field, value) { filters.push([field, value, 'eq']); return chain; },
+        in(field, value) { filters.push([field, value, 'in']); return chain; },
         lte(field, value) { filters.push([field, value, 'lte']); return chain; },
         order(field) { assert.equal(field, 'id'); ordered = true; return chain; },
         range(start, end) { range = [start, end]; return chain; },
@@ -103,7 +104,8 @@ function mockDb(tables) {
         then(resolve) {
           reads.push({ table, filters, ordered, range });
           if (!(table in tables)) return Promise.resolve(resolve({ data: null, error: { code: '42P01' } }));
-          let data = tables[table].filter((row) => filters.every(([field, value, op]) => op === 'eq' ? row[field] === value : row[field] <= value));
+          let data = tables[table].filter((row) => filters.every(([field, value, op]) =>
+            op === 'eq' ? row[field] === value : op === 'in' ? value.includes(row[field]) : row[field] <= value));
           if (ordered) data = data.toSorted((a, b) => a.id.localeCompare(b.id));
           if (range) data = data.slice(range[0], range[1] + 1);
           return Promise.resolve(resolve({ data, error: null }));
@@ -122,6 +124,8 @@ function serviceFixture() {
     member_membership_history: [f.current], membership_tier_config: [f.config],
     membership_tier_band: [], membership_tier_discount: [], membership_tier_vat_override: [],
     system_settings: [], member_membership_amendment: [],
+    member_membership_amendment_settlement: [], member_membership_amendment_application: [],
+    member_membership_amendment_notification: [],
   };
   const db = mockDb(tables);
   return { ...f, db, tables, service: createMemberAmendmentsService({ db, now: () => new Date(f.quotedAt) }) };
@@ -131,7 +135,8 @@ test('service tenant-scopes every read, lists immutable current-term history and
   const f = serviceFixture();
   const list = await f.service.list(f.tenantId, f.memberId);
   assert.equal(list.current.id, f.current.id);
-  assert.equal(list.capabilities.apply, false);
+  assert.equal(list.capabilities.apply, true);
+  assert.equal(list.capabilities.automatedCashRefund, false);
   const preview = await f.service.preview(f.tenantId, f.request);
   assert.equal(preview.canCreate, true);
   const created = await f.service.create(f.tenantId, uuid(7), { ...f.request, expectedQuote: preview.expectedQuote, idempotencyKey: 'request-123' });
@@ -140,6 +145,22 @@ test('service tenant-scopes every read, lists immutable current-term history and
   assert.equal(f.db.rpcCalls[0].name, 'propose_member_membership_amendment');
   for (const read of f.db.reads) assert.ok(read.filters.some(([key, value]) => key === 'tenant_id' && value === f.tenantId));
   await assert.rejects(f.service.list(uuid(99), f.memberId), /Member not found/);
+});
+
+test('preview and quote reject fixed-date or cadence-switch scope before proposal creation', async () => {
+  for (const change of [
+    f => { f.config.start_mode = 'fixed_date'; },
+    f => { f.config.billing_period = 'monthly'; },
+    f => { f.current.term_duration_months = 6; },
+    f => { f.current.term_key = 'fixed:2026'; },
+  ]) {
+    const f = serviceFixture();
+    change(f);
+    const preview = await f.service.preview(f.tenantId, f.request);
+    assert.equal(preview.canCreate, false);
+    assert.equal(preview.quote, null);
+    assert.equal(f.db.rpcCalls.length, 0);
+  }
 });
 
 test('create replays exact payload before loading changed current config; reused key differs => conflict', async () => {
@@ -237,4 +258,32 @@ test('endpoint requires authenticated matching tenant admin and finance permissi
   assert.equal((await callHandler(context)).res.statusCode, 200);
   assert.equal((await callHandler(context, { method: 'POST', body: { action: 'apply' } })).res.statusCode, 400);
   assert.equal((await callHandler(context, { method: 'DELETE' })).res.statusCode, 405);
+});
+
+test('every settlement/application/recovery action retains server finance gate and audit identity', async () => {
+  const context = { isAuthenticated: true, tenantId: uuid(1), tenantUserId: uuid(7), roleId: uuid(9) };
+  const calls = [];
+  const service = Object.fromEntries(['settle', 'reconcile', 'apply', 'notify'].map(action => [
+    action, async (tenant, actor, input) => {
+      calls.push({ action, tenant, actor, amendmentId: input.amendmentId });
+      return { settlement: null, application: null, notifications: [] };
+    },
+  ]));
+  const result = () => ({ statusCode: 200, setHeader() {}, status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; } });
+  for (const action of Object.keys(service)) {
+    const req = { method: 'POST', body: { action, amendmentId: uuid(60), tenantId: uuid(99), actorId: uuid(99) } };
+    const allowed = createMemberAmendmentsHandler({ db: {}, getContext: async () => context,
+      isAdmin: async () => true, hasFinance: async () => true, service });
+    const denied = createMemberAmendmentsHandler({ db: {}, getContext: async () => context,
+      isAdmin: async () => true, hasFinance: async () => false, service });
+    const deniedResponse = result();
+    await denied(req, deniedResponse);
+    assert.equal(deniedResponse.statusCode, 403);
+    const response = result();
+    await allowed(req, response);
+    assert.equal(response.statusCode, 200);
+  }
+  assert.equal(calls.length, 4);
+  assert.ok(calls.every(call => call.tenant === context.tenantId && call.actor === context.tenantUserId));
 });

@@ -1,7 +1,12 @@
 import { recoverRollingCommitment } from './rollingMembershipCommitment.js';
+import { assessMemberAmendmentOperationalScope } from './membershipAmendmentReadOverlay.js';
 
 export const AMENDMENT_CAPABILITIES = Object.freeze({
-  preview: true, create: true, apply: false, invoice: false, refund: false, providerAmendment: false,
+  preview: true, create: true, apply: true, invoice: true, refund: true, providerAmendment: false,
+  retainedCredit: true, reconcile: true, notifications: true,
+  collectionMode: 'xero_invoice_verified_payment',
+  refundMode: 'xero_bank_reconciled_manual_refund_only',
+  automatedCashRefund: false, repeatedAmendments: false,
 });
 
 export class AmendmentError extends Error {
@@ -73,6 +78,8 @@ export function buildMemberAmendmentQuote({
   amendmentDate(effectiveDate);
   const blockers = currentAmendmentBlockers(current, today);
   if (blockers.length) throw new AmendmentError(blockers.join(' '));
+  const operational = assessMemberAmendmentOperationalScope({ current, config });
+  if (!operational.supported) throw new AmendmentError(operational.blockers.join(' '), 422, 'operational_scope_unsupported');
   if (effectiveDate !== today) throw new AmendmentError('Only today is supported; backdated and scheduled changes require a separate policy.');
   if (!config || config.tenant_id !== current.tenant_id || config.structure_scope_type !== 'member'
       || config.is_active !== true || config.billing_period !== 'annual'
@@ -134,8 +141,8 @@ export function buildMemberAmendmentQuote({
   const financialChange = delta.netMinor !== 0 || delta.vatMinor !== 0;
   const status = financialChange ? 'pending_settlement' : 'pending_application';
   const applicationBlockers = financialChange
-    ? ['Settlement is not implemented: no invoice, payment, credit, refund or provider amendment has been created. Entitlements remain unchanged.']
-    : ['Zero-difference changes are tracked only: current membership readers do not yet support an explicit entitlement overlay.'];
+    ? ['Requires source-linked Xero invoice/payment evidence and an explicit settlement choice. Proposal creation alone does not collect, refund or change membership.']
+    : ['Requires an explicit zero-difference settlement and application decision; proposal creation alone does not change membership.'];
   return {
     version: 1, quotedAt, effectiveDate, currency: current.currency, minorUnit: 2,
     sourceRecordId: current.id,

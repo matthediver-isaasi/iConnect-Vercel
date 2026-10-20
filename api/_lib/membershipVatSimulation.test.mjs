@@ -199,6 +199,7 @@ before(async () => {
     'formExpiryOnlyRenewal.js',
     'annualRenewalPolicy.js',
     'membershipConfigResolverCore.js',
+    'membershipAmendmentReadOverlay.js',
     'discountHelperCore.js',
     'vatOverrideHelperCore.js',
     'discountHelper.js',

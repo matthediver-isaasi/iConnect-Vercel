@@ -46,6 +46,7 @@ function fixture({ history = [year1], config = original, overrides = [], extraCo
     let fieldListRead = false;
     const q = {
       select() { return q; }, eq(key, value) { filters.push(row => row[key] === value); return q; },
+      neq(key, value) { filters.push(row => row[key] !== value); return q; },
       in(key, values) { fieldListRead = true; filters.push(row => values.includes(row[key])); return q; },
       or(expression) {
         const year = expression.match(/^membership_year\.eq\.([^,]+),membership_year\.is\.null$/)?.[1];

@@ -141,7 +141,8 @@ export function classifyAnnualRenewal({
     };
   }
 
-  const policy = normalizeAnnualRenewalConfig(previousRecord.commitment_snapshot?.config || config);
+  const policy = normalizeAnnualRenewalConfig(previousRecord.effective_commitment_snapshot?.config
+    || previousRecord.commitment_snapshot?.config || config);
   const previousTerm = deriveAnnualTerm(previousRecord, config, now);
   const targetStart = addDays(previousTerm.end, 1);
   const rolling = !!previousRecord.term_key;
@@ -228,7 +229,13 @@ export async function resolveEntityAnnualRenewalEligibility(client, {
     .map((row) => ({ row, term: deriveAnnualTerm(row, config, now) }))
     .filter(({ term }) => !targetStart || term.start < targetStart)
     .sort((a, b) => b.term.end - a.term.end);
-  const previousRecord = candidates[0]?.row || null;
+  let previousRecord = candidates[0]?.row || null;
+  if (memberId && previousRecord) {
+    const { resolveMemberAmendmentReadOverlay } = await import('./membershipAmendmentReadOverlay.js');
+    previousRecord = await resolveMemberAmendmentReadOverlay({
+      db: client, tenantId, history: previousRecord, asOf: toDateString(now), renewal: true,
+    });
+  }
   const hasMonthly = previousRecord && !isAnnualNonRecurring(previousRecord)
     ? true
     : await hasActiveMonthlyBillingAgreement(client, { tenantId, memberId, organizationId });
@@ -262,14 +269,18 @@ export async function resolveEntityAnnualRenewalEligibility(client, {
 
 export async function resolveAnnualRenewal(client, { tenantId, history, config = null, now = new Date() }) {
   if (!history) throw new Error('A membership history record is required.');
-  let tier = history.commitment_snapshot?.config || config;
+  const { resolveMemberAmendmentReadOverlay } = await import('./membershipAmendmentReadOverlay.js');
+  history = await resolveMemberAmendmentReadOverlay({
+    db: client, tenantId, history, asOf: toDateString(now), renewal: true,
+  });
+  let tier = history.effective_commitment_snapshot?.config || history.commitment_snapshot?.config || config;
   if (!tier && history.config_id) {
     const { data, error } = await client.from('membership_tier_config')
       .select('*').eq('id', history.config_id).eq('tenant_id', tenantId).maybeSingle();
     if (error) throw new Error(`Could not load annual renewal configuration: ${error.message}`);
     tier = data;
   }
-  tier = history.commitment_snapshot?.config || tier;
+  tier = history.effective_commitment_snapshot?.config || history.commitment_snapshot?.config || tier;
   if (!tier || !isAnnualNonRecurring(history)) return { applicable: false };
   const policy = normalizeAnnualRenewalConfig(tier);
   const term = deriveAnnualTerm(history, tier, now);

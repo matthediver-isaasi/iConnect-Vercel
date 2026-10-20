@@ -109,7 +109,7 @@ test("loading, empty history, immutable snapshot and scope messaging", async () 
     await act(async () => resolve(json(fixture())));
     await waitFor(() => button("Preview"));
     assert.match(view.container.textContent, /No membership change requests recorded/);
-    assert.match(view.container.textContent, /Financial settlement and monthly amendments are not yet enabled/);
+    assert.match(view.container.textContent, /Monthly card, fixed Direct Debit and dynamic Direct Debit amendments are not connected/);
     assert.match(document.querySelector('[data-testid="amendment-original"]').textContent, /Read-only/);
     assert.equal(button("Preview").disabled, true);
   } finally { await view.cleanup(); }
@@ -433,5 +433,555 @@ test("quote_changed after a prior network failure does not clear an unresolved s
     const payloads = view.calls.filter(call => call.payload?.action === "create").map(call => call.payload);
     assert.deepEqual(payloads[0], payloads[1]);
     assert.match(view.container.textContent, /save outcome is unconfirmed/);
+  } finally { await view.cleanup(); }
+});
+
+test("nested server validation error preserves quote-change recovery", async () => {
+  const view = await mount({ post: body => body.action === "preview" ? json(quote()) : json({ error: { message: "Saved tax changed", code: "quote_changed" } }, 409) });
+  try {
+    await waitFor(() => button("Preview"));
+    await fill();
+    await click(button("Preview"));
+    await waitFor(() => button("Save change request"));
+    await click(button("Save change request"));
+    await waitFor(() => view.container.textContent.includes("Saved tax changed"));
+    assert.match(view.container.textContent, /rejected quote cannot be reused/);
+    assert.equal(document.querySelector("fieldset").disabled, false);
+    assert.ok(button("Preview"));
+  } finally { await view.cleanup(); }
+});
+
+test("unreadable create response retains immutable request and fingerprint on retry", async () => {
+  const view = await mount({ post: body => body.action === "preview" ? json(quote()) : new Response("<html>Gateway failure</html>", { status: 502 }) });
+  try {
+    await waitFor(() => button("Preview"));
+    await fill();
+    await click(button("Preview"));
+    await waitFor(() => button("Save change request"));
+    await click(button("Save change request"));
+    await waitFor(() => button("Retry save change request"));
+    await click(button("Retry save change request"));
+    await waitFor(() => button("Retry save change request")?.disabled === false);
+    const attempts = view.calls.filter(call => call.payload?.action === "create");
+    assert.equal(attempts.length, 2);
+    assert.deepEqual(attempts[0].payload, attempts[1].payload);
+    assert.equal(document.querySelector("fieldset").disabled, true);
+    assert.match(view.container.textContent, /No outcome has been confirmed/);
+    assert.doesNotMatch(view.container.textContent, /Change request saved/);
+  } finally { await view.cleanup(); }
+});
+
+// Shapes and capability keys mirror the production settlement contract/service.
+// This fixture transport is the only network boundary used by these mounted tests.
+const amendmentId = "53b617cc-9f28-4d37-bae3-f653c10e09d7";
+function financialFixture(direction = "charge") {
+  const data = fixture();
+  const sign = direction === "credit" ? -1 : direction === "none" ? 0 : 1;
+  const recordedQuote = {
+    ...quote().quote, effectiveDate: new Date().toISOString().slice(0, 10), financialDirection: direction,
+    delta: { netMinor: sign * 3606, vatMinor: sign * 721, grossMinor: sign * 4327 },
+    sourceSnapshot: { ...data.current, commitment_snapshot: { ...data.current.commitment_snapshot, payment_frequency: "upfront" } },
+    targetSnapshot: { config: { id: "config-advanced", name: "Professional" }, band: { id: "band-standard", label: "Standard" } },
+  };
+  if (direction === "credit") {
+    [recordedQuote.originalRemaining, recordedQuote.targetRemaining] = [recordedQuote.targetRemaining, recordedQuote.originalRemaining];
+  }
+  if (direction === "none") recordedQuote.targetRemaining = { ...recordedQuote.originalRemaining };
+  data.history = [{
+    id: amendmentId, source_record_id: data.current.id, status: sign ? "pending_settlement" : "pending_application",
+    settlement_status: "not_started", entitlement_applied: false, quote: recordedQuote,
+    idempotency_key: "unchanged-proposal-key",
+    request: { expectedQuote: "a".repeat(64), reason: "Qualification verified", effectiveDate: recordedQuote.effectiveDate },
+  }];
+  data.capabilities = {
+    preview: true, create: true, apply: true, invoice: true, refund: true, providerAmendment: false,
+    retainedCredit: true, reconcile: true, notifications: true,
+    collectionMode: "xero_invoice_verified_payment", refundMode: "xero_bank_reconciled_manual_refund_only",
+    automatedCashRefund: false, repeatedAmendments: false,
+  };
+  data.blockers = ["This purchase already has an amendment proposal. Use its settlement/application history."];
+  data.lifecycle = { [amendmentId]: { settlement: null, application: null, notifications: [] } };
+  return data;
+}
+function settlementFixture(choice = "collect", state = "awaiting_payment") {
+  return {
+    id: "settlement-record", amendment_id: amendmentId, choice, state, actor_id: "finance-operator",
+    context: { provider: choice === "none" ? "none" : "xero", reference: `MA:${amendmentId}`, sourceInvoiceId: "original-invoice" },
+    evidence: { provider: "xero", verified: true, documentId: "adjustment-document", reference: `MA:${amendmentId}`, paymentUrl: "https://in.xero.com/verified-invoice" },
+    updated_at: "2027-01-24T12:34:56Z", next_attempt_at: "2027-01-24T12:44:56Z",
+  };
+}
+function appliedFixture(data) {
+  return {
+    id: "application-record", amendment_id: amendmentId, source_record_id: data.current.id,
+    snapshot: data.history[0].quote, effective_date: data.history[0].quote.effectiveDate,
+    expires_on: "2027-04-18", created_at: "2027-01-24T12:36:00Z", applied_by: "finance-operator",
+  };
+}
+const financialPanel = () => document.querySelector(`[data-testid="amendment-lifecycle-${amendmentId}"]`);
+async function chooseTreatment(choice) {
+  await change(`select[id="amend-treatment-${amendmentId}"]`, choice);
+  await click(button("Review settlement"));
+  assert.ok(document.querySelector('[aria-label="Confirm financial treatment"]'));
+}
+
+test("invoice collection, verified reconciliation, application and notification use actual lifecycle, not immutable proposal flags", async () => {
+  const data = financialFixture();
+  const originalHistory = structuredClone(data.history);
+  const life = data.lifecycle[amendmentId];
+  const view = await mount({ data, post: body => {
+    if (body.action === "settle") life.settlement = settlementFixture();
+    if (body.action === "reconcile") life.settlement = { ...life.settlement, state: "settled", evidence: { ...life.settlement.evidence, kind: "collected", paymentIds: ["payment-verified"] } };
+    if (body.action === "apply") {
+      life.settlement.state = "applied";
+      life.application = appliedFixture(data);
+      life.notifications = [{ id: "delivery-applied", kind: "applied", state: "pending" }];
+    }
+    if (body.action === "notify") life.notifications[0] = { ...life.notifications[0], state: "sent", evidence: { messageId: "confirmed-email" } };
+    return json(life);
+  } });
+  try {
+    await waitFor(() => button("Review settlement"));
+    assert.equal(button("Review settlement").disabled, true);
+    assert.equal(button("Apply verified membership change"), undefined);
+    await chooseTreatment("collect");
+    await click(button("Cancel settlement review"));
+    assert.equal(button("Confirm settlement"), undefined);
+    await click(button("Review settlement"));
+    assert.equal(view.calls.filter(call => call.payload).length, 0);
+    await click(button("Confirm settlement"));
+    await waitFor(() => financialPanel().textContent.includes("additional payment is not yet verified"));
+    const link = financialPanel().querySelector("a");
+    assert.equal(link.textContent, "Open collection invoice");
+    assert.equal(link.href, "https://in.xero.com/verified-invoice");
+    assert.match(link.rel, /noopener/);
+    assert.equal(button("Apply verified membership change"), undefined);
+    assert.equal(button("Review settlement"), undefined);
+    await click(button("Reconcile provider status"));
+    await waitFor(() => button("Apply verified membership change"));
+    assert.match(financialPanel().textContent, /Additional invoice payment verified/);
+    await click(button("Apply verified membership change"));
+    await waitFor(() => financialPanel().textContent.includes("Applied membership history"));
+    assert.match(financialPanel().textContent, /Professional · Standard/);
+    assert.match(financialPanel().textContent, /finance-operator/);
+    assert.match(financialPanel().textContent, /2027-01-24T12:36:00.000Z/);
+    assert.equal(button("Apply verified membership change"), undefined);
+    await click(button("Retry pending notifications"));
+    await waitFor(() => financialPanel().textContent.includes("confirmed-email"));
+    assert.equal(button("Retry pending notifications"), undefined);
+    assert.deepEqual(data.history, originalHistory);
+    assert.match(view.container.textContent, /Proposal: Pending settlement/);
+    assert.match(view.container.textContent, /Quote fingerprint: a{64}/);
+    assert.match(view.container.textContent, /unchanged-proposal-key/);
+    assert.match(document.querySelector('[data-testid="amendment-original"]').textContent, /Associate/);
+    const writes = view.calls.filter(call => call.payload).map(call => call.payload);
+    assert.deepEqual(writes, [
+      { action: "settle", amendmentId, settlementChoice: "collect" },
+      { action: "reconcile", amendmentId }, { action: "apply", amendmentId }, { action: "notify", amendmentId },
+    ]);
+  } finally { await view.cleanup(); }
+});
+
+test("retained credit is an explicit irreversible choice, not a refund or inferred payment", async () => {
+  const data = financialFixture("credit");
+  const life = data.lifecycle[amendmentId];
+  const view = await mount({ data, post: () => {
+    life.settlement = { ...settlementFixture("credit", "settled"), evidence: { kind: "retained_credit", verified: true, documentId: "credit-note" } };
+    return json(life);
+  } });
+  try {
+    await waitFor(() => button("Review settlement"));
+    const select = document.querySelector(`#amend-treatment-${amendmentId}`);
+    assert.deepEqual([...select.options].map(item => item.value), ["", "credit", "refund"]);
+    await chooseTreatment("credit");
+    assert.match(financialPanel().textContent, /cannot later be switched to refund/);
+    await click(button("Confirm settlement"));
+    await waitFor(() => financialPanel().textContent.includes("Retained credit verified"));
+    assert.match(financialPanel().textContent, /This is not a cash refund/);
+    assert.equal(document.querySelector(`#amend-treatment-${amendmentId}`), null);
+    assert.ok(button("Apply verified membership change"));
+    assert.equal(view.calls.find(call => call.payload)?.payload.settlementChoice, "credit");
+  } finally { await view.cleanup(); }
+});
+
+test("manual refund requires bank reconciliation and never claims an automatic cash transfer", async () => {
+  const data = financialFixture("credit");
+  const life = data.lifecycle[amendmentId];
+  const view = await mount({ data, post: body => {
+    life.settlement = {
+      ...settlementFixture("refund", body.action === "settle" ? "awaiting_payment" : "settled"),
+      evidence: body.action === "settle"
+        ? { kind: "awaiting_recorded_manual_refund", instruction: "Record and bank-reconcile the cash refund against this credit note in Xero. No automatic cash transfer was made." }
+        : { kind: "recorded_manual_refund", paymentIds: ["bank-verified"], retainedCreditMinor: 0 },
+    };
+    return json(life);
+  } });
+  try {
+    await waitFor(() => button("Review settlement"));
+    await chooseTreatment("refund");
+    assert.match(financialPanel().textContent, /not a bank transfer/);
+    await click(button("Confirm settlement"));
+    await waitFor(() => financialPanel().textContent.includes("Awaiting a recorded manual refund"));
+    assert.match(financialPanel().textContent, /No automatic cash transfer/);
+    assert.match(financialPanel().textContent, new RegExp(`Required Xero refund payment reference: MA:${amendmentId}:refund`));
+    assert.equal(financialPanel().querySelector("a"), null);
+    assert.equal(button("Apply verified membership change"), undefined);
+    await click(button("Reconcile provider status"));
+    await waitFor(() => button("Apply verified membership change"));
+    assert.match(financialPanel().textContent, /Bank-reconciled manual refund verified/);
+    assert.equal(view.calls.filter(call => call.payload?.action === "settle").length, 1);
+  } finally { await view.cleanup(); }
+});
+
+test("exact zero delta requires a recorded none settlement before application", async () => {
+  const data = financialFixture("none");
+  const life = data.lifecycle[amendmentId];
+  const view = await mount({ data, post: () => {
+    life.settlement = { ...settlementFixture("none", "settled"), evidence: { kind: "zero_difference", verified: true } };
+    return json(life);
+  } });
+  try {
+    await waitFor(() => button("Review settlement"));
+    assert.equal(button("Apply verified membership change"), undefined);
+    assert.deepEqual([...document.querySelector(`#amend-treatment-${amendmentId}`).options].map(item => item.value), ["", "none"]);
+    await chooseTreatment("none");
+    await click(button("Confirm settlement"));
+    await waitFor(() => button("Apply verified membership change"));
+    assert.match(financialPanel().textContent, /Zero financial difference verified/);
+    assert.deepEqual(view.calls.find(call => call.payload).payload, { action: "settle", amendmentId, settlementChoice: "none" });
+  } finally { await view.cleanup(); }
+});
+
+test("ambiguous money response locks choice and permits only read-only reconciliation, with retryable reconciliation errors", async () => {
+  const data = financialFixture("credit");
+  const life = data.lifecycle[amendmentId];
+  let reconciles = 0;
+  const view = await mount({ data, post: body => {
+    if (body.action === "settle") {
+      life.settlement = { ...settlementFixture("credit", "uncertain"), error_code: "provider_outcome_uncertain" };
+      throw new Error("Response lost after reservation");
+    }
+    if (++reconciles === 1) return json({ error: "Accounting provider temporarily unavailable", code: "accounting_request_failed" }, 502);
+    life.settlement.state = "settled";
+    life.settlement.evidence = { kind: "retained_credit", verified: true };
+    return json(life);
+  } });
+  try {
+    await waitFor(() => button("Review settlement"));
+    await chooseTreatment("credit");
+    await click(button("Confirm settlement"));
+    await waitFor(() => financialPanel().textContent.includes("Response lost after reservation"));
+    assert.match(financialPanel().textContent, /outcome is unconfirmed/);
+    assert.equal(button("Review settlement"), undefined);
+    assert.equal(button("Confirm settlement"), undefined);
+    assert.equal(button("Apply verified membership change"), undefined);
+    await click(button("Reconcile provider status"));
+    await waitFor(() => financialPanel().textContent.includes("accounting_request_failed"));
+    await click(button("Reconcile provider status"));
+    await waitFor(() => button("Apply verified membership change"));
+    assert.equal(view.calls.filter(call => call.payload?.action === "settle").length, 1);
+    assert.deepEqual(view.calls.filter(call => call.payload?.action === "reconcile").map(call => call.payload), [
+      { action: "reconcile", amendmentId }, { action: "reconcile", amendmentId },
+    ]);
+  } finally { await view.cleanup(); }
+});
+
+test("unresolved settlement error and missing reservation show exact errors, never a success or a new financial attempt", async () => {
+  const data = financialFixture();
+  const view = await mount({ data, post: body => body.action === "settle"
+    ? json({ error: "Accounting provider outcome could not be read.", code: "accounting_request_failed" }, 502)
+    : json({ error: "No settlement reservation exists.", code: "settlement_not_started" }, 409) });
+  try {
+    await waitFor(() => button("Review settlement"));
+    await chooseTreatment("collect");
+    await click(button("Confirm settlement"));
+    await waitFor(() => financialPanel().textContent.includes("accounting_request_failed"));
+    assert.equal(button("Apply verified membership change"), undefined);
+    assert.equal(button("Review settlement"), undefined);
+    await click(button("Reconcile provider status"));
+    await waitFor(() => financialPanel().textContent.includes("settlement_not_started"));
+    assert.doesNotMatch(financialPanel().textContent, /Applied membership history|Additional invoice payment verified/);
+  } finally { await view.cleanup(); }
+});
+
+test("application conflicts preserve money evidence and block further application", async () => {
+  const data = financialFixture();
+  const life = data.lifecycle[amendmentId];
+  life.settlement = settlementFixture("collect", "settled");
+  const view = await mount({ data, post: () => {
+    life.settlement.state = "conflict";
+    life.settlement.error_code = "source_changed";
+    return json({ error: "Settlement arrived after the membership changed, paused or renewed. Funds remain recorded; entitlement was not applied.", code: "source_changed" }, 409);
+  } });
+  try {
+    await waitFor(() => button("Apply verified membership change"));
+    await click(button("Apply verified membership change"));
+    await waitFor(() => financialPanel().textContent.includes("source_changed"));
+    assert.match(financialPanel().textContent, /Funds remain recorded/);
+    assert.match(financialPanel().textContent, /adjustment-document/);
+    assert.match(financialPanel().textContent, /Review required/);
+    assert.equal(button("Apply verified membership change"), undefined);
+    assert.equal(button("Reconcile provider status"), undefined);
+    assert.doesNotMatch(financialPanel().textContent, /Applied membership history/);
+  } finally { await view.cleanup(); }
+});
+
+test("returned capabilities, lifecycle availability, source ownership and exact signs gate every financial treatment", async () => {
+  for (const variant of ["capabilities", "missing-life", "source", "monthly", "mixed-tax", "tax-adjustment", "status", "date"]) {
+    const data = financialFixture();
+    if (variant === "capabilities") data.capabilities = { preview: true, create: true };
+    if (variant === "missing-life") delete data.lifecycle;
+    if (variant === "source") data.history[0].source_record_id = "previous-purchase";
+    if (variant === "monthly") data.history[0].quote.sourceSnapshot.commitment_snapshot.payment_frequency = "monthly";
+    if (variant === "mixed-tax") data.history[0].quote.delta = { netMinor: -17, vatMinor: 34, grossMinor: 17 };
+    if (variant === "tax-adjustment") data.history[0].quote.financialDirection = "tax_adjustment";
+    if (variant === "status") data.history[0].status = "unexpected-status";
+    if (variant === "date") data.history[0].quote.effectiveDate = "2001-01-17";
+    const view = await mount({ data });
+    try {
+      await waitFor(() => financialPanel());
+      assert.equal(button("Review settlement"), undefined, variant);
+      assert.equal(button("Apply verified membership change"), undefined, variant);
+      assert.equal(button("Reconcile provider status"), undefined, variant);
+      assert.equal(button("Retry pending notifications"), undefined, variant);
+      assert.equal(view.calls.filter(call => call.payload).length, 0);
+      if (variant === "date") assert.match(financialPanel().textContent, /Initial settlement requires the proposal effective date to be today/);
+      assert.match(view.container.textContent, /Monthly card, fixed Direct Debit and dynamic Direct Debit amendments are not connected/);
+    } finally { await view.cleanup(); }
+  }
+  const data = financialFixture("credit");
+  data.capabilities.refund = false;
+  const view = await mount({ data });
+  try {
+    await waitFor(() => button("Review settlement"));
+    assert.deepEqual([...document.querySelector(`#amend-treatment-${amendmentId}`).options].map(item => item.value), ["", "credit"]);
+  } finally { await view.cleanup(); }
+});
+
+test("unsafe collection links are not navigable and provider audit evidence remains visible", async () => {
+  for (const paymentUrl of ["javascript:alert(1)", "http://unsafe.example.test/pay", "https://user:secret@example.test/pay", "/relative-invoice", null]) {
+    const data = financialFixture();
+    data.lifecycle[amendmentId].settlement = { ...settlementFixture(), evidence: { documentId: "invoice-exact", paymentUrl } };
+    const view = await mount({ data });
+    try {
+      await waitFor(() => financialPanel());
+      assert.equal(financialPanel().querySelector("a"), null);
+      assert.match(financialPanel().textContent, /No secure payment link was returned/);
+      assert.match(financialPanel().textContent, /invoice-exact|2027-01-24T12:34:56.000Z/);
+    } finally { await view.cleanup(); }
+  }
+});
+
+test("notification sending and uncertain outcomes remain visible without offering unsafe resend", async () => {
+  const data = financialFixture();
+  data.lifecycle[amendmentId].settlement = settlementFixture("collect", "applied");
+  data.lifecycle[amendmentId].application = appliedFixture(data);
+  data.lifecycle[amendmentId].notifications = [
+    { kind: "settlement", state: "uncertain", evidence: { reason: "delivery_not_confirmed" } },
+    { kind: "applied", state: "sending", updated_at: "2027-01-24T12:37:00Z" },
+  ];
+  const view = await mount({ data });
+  try {
+    await waitFor(() => financialPanel());
+    assert.match(financialPanel().textContent, /Delivery is not confirmed/);
+    assert.match(financialPanel().textContent, /delivery not confirmed/);
+    assert.equal(button("Retry pending notifications"), undefined);
+    assert.equal(button("Apply verified membership change"), undefined);
+    assert.equal(view.calls.filter(call => call.payload).length, 0);
+  } finally { await view.cleanup(); }
+});
+
+test("unconfirmed lifecycle response cannot imply successful collection or application", async () => {
+  const data = financialFixture();
+  const view = await mount({ data, post: () => json({ success: true }) });
+  try {
+    await waitFor(() => button("Review settlement"));
+    await chooseTreatment("collect");
+    await click(button("Confirm settlement"));
+    await waitFor(() => financialPanel().textContent.includes("did not confirm the action outcome"));
+    assert.equal(button("Review settlement"), undefined);
+    assert.ok(button("Reconcile provider status"));
+    assert.doesNotMatch(financialPanel().textContent, /Applied membership history|Additional invoice payment verified/);
+  } finally { await view.cleanup(); }
+});
+
+test("failed application remains retryable with the same amendment identity and never rewrites the quote", async () => {
+  const data = financialFixture();
+  const life = data.lifecycle[amendmentId];
+  life.settlement = settlementFixture("collect", "settled");
+  let applies = 0;
+  const view = await mount({ data, post: () => {
+    if (++applies === 1) throw new Error("Application response unavailable");
+    life.application = appliedFixture(data);
+    life.settlement.state = "applied";
+    return json(life);
+  } });
+  try {
+    await waitFor(() => button("Apply verified membership change"));
+    await click(button("Apply verified membership change"));
+    await waitFor(() => financialPanel().textContent.includes("Application response unavailable"));
+    assert.doesNotMatch(financialPanel().textContent, /Applied membership history/);
+    await click(button("Apply verified membership change"));
+    await waitFor(() => financialPanel().textContent.includes("Applied membership history"));
+    const payloads = view.calls.filter(call => call.payload).map(call => call.payload);
+    assert.deepEqual(payloads, [{ action: "apply", amendmentId }, { action: "apply", amendmentId }]);
+    assert.equal(data.history[0].request.expectedQuote, "a".repeat(64));
+    assert.equal(data.history[0].idempotency_key, "unchanged-proposal-key");
+  } finally { await view.cleanup(); }
+});
+
+test("notification recipient failure exposes exact error and retries only server-pending delivery", async () => {
+  const data = financialFixture();
+  const life = data.lifecycle[amendmentId];
+  life.settlement = settlementFixture();
+  life.notifications = [{ kind: "settlement", state: "pending" }];
+  let sends = 0;
+  const view = await mount({ data, post: () => {
+    if (++sends === 1) return json({ error: "No verified member or original payer email is available for notification.", code: "notification_recipient_missing" }, 422);
+    life.notifications[0] = { kind: "settlement", state: "uncertain", evidence: { reason: "delivery_not_confirmed" } };
+    return json(life);
+  } });
+  try {
+    await waitFor(() => button("Retry pending notifications"));
+    await click(button("Retry pending notifications"));
+    await waitFor(() => financialPanel().textContent.includes("notification_recipient_missing"));
+    await click(button("Retry pending notifications"));
+    await waitFor(() => financialPanel().textContent.includes("delivery not confirmed"));
+    assert.equal(button("Retry pending notifications"), undefined);
+    assert.match(financialPanel().textContent, /Automatic resend is withheld/);
+    assert.deepEqual(view.calls.filter(call => call.payload).map(call => call.payload), [
+      { action: "notify", amendmentId }, { action: "notify", amendmentId },
+    ]);
+  } finally { await view.cleanup(); }
+});
+
+test("failed refresh preserves audit history with a stale-data warning and retry restores available actions", async () => {
+  const data = financialFixture();
+  data.lifecycle[amendmentId].settlement = settlementFixture("collect", "settled");
+  let gets = 0;
+  const view = await mount({ get: () => ++gets === 2 ? json({ error: "Lifecycle database unavailable" }, 503) : json(data) });
+  try {
+    await waitFor(() => button("Refresh amendment history")?.disabled === false);
+    await click(button("Refresh amendment history"));
+    await waitFor(() => button("Retry loading"));
+    assert.match(view.container.textContent, /History could not be refreshed/);
+    assert.match(view.container.textContent, /latest outcome is not confirmed/);
+    assert.match(financialPanel().textContent, /adjustment-document/);
+    assert.equal(button("Apply verified membership change"), undefined);
+    await click(button("Retry loading"));
+    await waitFor(() => button("Apply verified membership change"));
+    assert.doesNotMatch(view.container.textContent, /History could not be refreshed/);
+    assert.equal(view.calls.filter(call => call.payload).length, 0);
+  } finally { await view.cleanup(); }
+});
+
+test("double confirmation submits only once and late lifecycle results cannot populate another member", async () => {
+  const data = financialFixture();
+  let resolve;
+  const gate = new Promise(done => { resolve = done; });
+  const view = await mount({ data, post: () => gate });
+  try {
+    await waitFor(() => button("Review settlement"));
+    await chooseTreatment("collect");
+    const confirm = button("Confirm settlement");
+    await act(async () => { confirm.click(); confirm.click(); });
+    assert.equal(view.calls.filter(call => call.payload?.action === "settle").length, 1);
+    assert.ok(button("Submitting settlement…")?.disabled);
+    await act(async () => view.render("other-member"));
+    await waitFor(() => button("Review settlement"));
+    await act(async () => resolve(json({ settlement: settlementFixture("collect", "settled"), application: null, notifications: [] })));
+    assert.equal(button("Apply verified membership change"), undefined);
+    assert.doesNotMatch(financialPanel().textContent, /Additional invoice payment verified/);
+    assert.ok(button("Review settlement"));
+  } finally { await view.cleanup(); }
+});
+
+test("a settled record grants no application, reconciliation or delivery action without each returned capability", async () => {
+  const data = financialFixture();
+  data.capabilities = { invoice: true };
+  data.lifecycle[amendmentId].settlement = settlementFixture("collect", "settled");
+  data.lifecycle[amendmentId].notifications = [{ kind: "settlement", state: "pending" }];
+  const view = await mount({ data });
+  try {
+    await waitFor(() => financialPanel());
+    assert.equal(button("Apply verified membership change"), undefined);
+    assert.equal(button("Reconcile provider status"), undefined);
+    assert.equal(button("Retry pending notifications"), undefined);
+    assert.equal(button("Review settlement"), undefined);
+  } finally { await view.cleanup(); }
+});
+
+test("an applied settlement flag without application evidence is not presented as applied membership", async () => {
+  const data = financialFixture();
+  data.lifecycle[amendmentId].settlement = settlementFixture("collect", "applied");
+  const view = await mount({ data });
+  try {
+    await waitFor(() => financialPanel());
+    assert.match(financialPanel().textContent, /Application not confirmed/);
+    assert.match(financialPanel().textContent, /no membership application record was returned/);
+    assert.doesNotMatch(financialPanel().textContent, /Applied membership history/);
+    assert.equal(button("Apply verified membership change"), undefined);
+  } finally { await view.cleanup(); }
+});
+
+test("malformed application evidence fails closed instead of rendering a success", async () => {
+  const data = financialFixture();
+  data.lifecycle[amendmentId].settlement = settlementFixture("collect", "settled");
+  const view = await mount({ data, post: () => json({
+    settlement: settlementFixture("collect", "applied"), application: { id: "not-enough-evidence" }, notifications: [],
+  }) });
+  try {
+    await waitFor(() => button("Apply verified membership change"));
+    await click(button("Apply verified membership change"));
+    await waitFor(() => financialPanel().textContent.includes("did not confirm the action outcome"));
+    assert.doesNotMatch(financialPanel().textContent, /Applied membership history/);
+  } finally { await view.cleanup(); }
+});
+
+test("definitive finance evidence rejection can retry only the same amendment and locked treatment after review", async () => {
+  const data = financialFixture("credit");
+  const life = data.lifecycle[amendmentId];
+  let attempts = 0;
+  const view = await mount({ data, post: () => {
+    if (++attempts === 1) return json({
+      error: "Connected settlement currently requires Xero; this accounting provider is unsupported.", code: "finance_evidence_required",
+    }, 422);
+    life.settlement = { ...settlementFixture("credit", "settled"), evidence: { kind: "retained_credit", verified: true } };
+    return json(life);
+  } });
+  try {
+    await waitFor(() => button("Review settlement"));
+    await chooseTreatment("credit");
+    await click(button("Confirm settlement"));
+    await waitFor(() => button("Review settlement retry"));
+    assert.match(financialPanel().textContent, /accounting provider is unsupported/);
+    assert.match(financialPanel().textContent, /no success is confirmed/);
+    assert.equal(document.querySelector(`#amend-treatment-${amendmentId}`).disabled, true);
+    assert.equal(document.querySelector(`#amend-treatment-${amendmentId}`).value, "credit");
+    assert.equal(button("Apply verified membership change"), undefined);
+    assert.equal(view.calls.filter(call => call.payload).length, 1);
+    await click(button("Review settlement retry"));
+    await click(button("Confirm settlement"));
+    await waitFor(() => button("Apply verified membership change"));
+    const writes = view.calls.filter(call => call.payload).map(call => call.payload);
+    assert.deepEqual(writes, [
+      { action: "settle", amendmentId, settlementChoice: "credit" },
+      { action: "settle", amendmentId, settlementChoice: "credit" },
+    ]);
+  } finally { await view.cleanup(); }
+});
+
+test("incomplete audit data never invents GBP currency or a flat price band", async () => {
+  const data = financialFixture();
+  delete data.current.currency;
+  delete data.history[0].quote.currency;
+  data.history[0].quote.targetSnapshot = { config: { name: "Professional", pricing_model: "tiered" } };
+  const view = await mount({ data });
+  try {
+    await waitFor(() => financialPanel());
+    assert.match(view.container.textContent, /43.27 \(currency not supplied\)/);
+    assert.match(view.container.textContent, /Target: Professional · Band not supplied/);
+    assert.doesNotMatch(view.container.textContent, /£|Professional · Flat price/);
+    assert.equal(button("Review settlement"), undefined);
   } finally { await view.cleanup(); }
 });

@@ -22,6 +22,7 @@ import { enrichMembershipHistoryPrices } from '../_lib/membershipHistoryPrice.js
 import { signupMonthlyPriceFromAgreement, completedPendingBankActivation } from '../_lib/membershipSignupEvidence.js';
 import { loadCanvasRenewalEligibility } from '../_lib/canvasRenewalEligibility.js';
 import { attachExpiryRenewalPolicyDisplay, legacyRenewalPolicyDisplay } from '../_lib/membershipRenewalPolicyDisplay.js';
+import { resolveMemberAmendmentReadOverlays, effectiveMemberEntitlement } from '../_lib/membershipAmendmentReadOverlay.js';
 
 const INSTALMENT_PAGE_SIZE = 25;
 const INSTALMENT_MAX_PAGE = 1000;
@@ -162,6 +163,7 @@ export function findLegacyCurrentMembership(history, tenantId, now = new Date())
  * continue to describe the structure and price agreed at commencement.
  */
 export function shapePersistedCommitment(record, now = new Date()) {
+  const entitlement = effectiveMemberEntitlement(record);
   const legacyDirectDebit = record?.billing_agreement_id
     && ['direct_debit', 'gocardless'].includes(record?.payment_method);
   if (!record?.term_key && !record?.membership_renewal_date && !record?.commitment_snapshot && !legacyDirectDebit) {
@@ -207,13 +209,19 @@ export function shapePersistedCommitment(record, now = new Date()) {
     renewalDate,
     durationMonths: firstPresent(record.term_duration_months, snapshot.term_duration_months),
     anchorDate: firstPresent(record.term_anchor_date, snapshot.term_anchor_date),
-    structureId: firstPresent(record.config_id, snapshot.config_id, configSnapshot.id),
+    structureId: entitlement?.configId || firstPresent(record.config_id, snapshot.config_id, configSnapshot.id),
     structureName: firstPresent(
+      entitlement?.config?.name,
       snapshot.structure_name,
       configSnapshot.name,
       record.tier_label,
     ),
-    tierLabel: firstPresent(record.tier_label, pricing.tier_label, snapshot.tier_label),
+    tierLabel: entitlement?.tierLabel || firstPresent(record.tier_label, pricing.tier_label, snapshot.tier_label),
+    ...(entitlement ? {
+      amendmentId: record.effective_membership_amendment.amendment_id,
+      originalStructureId: record.config_id,
+      originalTierLabel: record.tier_label || null,
+    } : {}),
     billingPeriod: firstPresent(snapshot.billing_period, configSnapshot.billing_period),
     agreedPrice: dynamic ? null : firstPresent(
       amounts.total_with_vat,
@@ -1218,6 +1226,9 @@ async function handleGet(req, res, tenantId, db = supabase, {
     if (!HISTORY_TABLE_MISSING_CODES.has(err?.code)) throw err;
     console.log('[Member Membership] Personal history table may not exist yet:', err.message);
   }
+  personalHistory = await resolveMemberAmendmentReadOverlays({
+    db, tenantId, history: personalHistory, asOf: new Date(now).toISOString().slice(0, 10),
+  });
 
   // A member can have both a personal ledger and a ledger owned by their
   // current organisation. Keep both rows in the member tab, but tag the
@@ -1465,7 +1476,7 @@ async function handleGet(req, res, tenantId, db = supabase, {
       renewalDate: currentYearRecord.membership_renewal_date || null,
       endDate: currentYearRecord.term_end_date || null,
       durationMonths: currentYearRecord.term_duration_months || null,
-      tierLabel: currentYearRecord.tier_label || null,
+      tierLabel: effectiveMemberEntitlement(currentYearRecord)?.tierLabel || currentYearRecord.tier_label || null,
       fieldValue: currentYearRecord.field_value,
       annualCost: recAnnual,
       annualCostBeforeDiscounts: recCustomTotal > 0 ? parseFloat((recAnnual + recCustomTotal).toFixed(2)) : recAnnual,

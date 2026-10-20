@@ -1,4 +1,110 @@
-# Member amendment first-slice API
+# Member amendment API — settlement extension (migration required)
+
+## Settlement extension / integration contract
+
+Existing preview/create remains compatible: proposals use settlementChoice defer.
+New POST actions use `{action,amendmentId}` (UUID), never a client-supplied amount,
+payer, invoice ID or settlement claim:
+
+- `settle`: also `settlementChoice:"collect"|"credit"|"refund"`. Choice is locked
+  on first reservation and cannot subsequently switch from retained credit to
+  refund. Unsupported providers/evidence return explicit 422 blockers.
+- `reconcile`: provider reads only after an uncertain mutation; never blindly
+  repeats a money mutation. Returns current lifecycle.
+- `apply`: only verified settlement (or exact zero delta), current unchanged
+  purchase, unexpired original term, no overlapping successor or pause.
+- `notify`: retries durable pending delivery; ambiguous delivery remains visible.
+
+GET adds `lifecycle` keyed by amendment ID and runtime `capabilities`. Existing
+proposal status/settlement_status/entitlement_applied remain immutable historical
+facts; **use lifecycle**, not those old fields, to show current state. Lifecycle
+states: reserved, awaiting_payment, uncertain, settled, applied, conflict.
+Financial direction tax_adjustment and mixed-sign net/VAT deltas block settlement.
+Initial connected provider implementation is Xero; unsupported domains fail closed.
+**Release operational scope:** quote/preview, settlement (including historical
+proposals) and application require assessMemberAmendmentOperationalScope from
+membershipAmendmentReadOverlay.js. Only evidenced personal twelve-month annual
+upfront rolling immediate-start → immediate-start changes are enabled. Original
+rolling term key/anchor, annual cadence and tenant/member ownership must be
+explicit. Fixed-date source/target, cadence changes and other reader-unsupported
+scopes fail with operational_scope_unsupported BEFORE provider preparation,
+money calls or lifecycle writes. SQL settlement reservation/application RPCs
+independently enforce equivalent source AND target scope checks.
+`none` is the fourth settlement choice, for exact zero net/VAT/gross only.
+`refund` creates an exact credit note and waits for a **recorded manual** cash
+refund, not a bank transfer or automated Stripe refund. Finance must record
+credit-note Payments in Xero using reference `MA:<amendmentId>:refund`,
+exact amount, AUTHORISED status, IsReconciled=true, and no invoice allocations.
+RemainingCredit must be zero before settlement/application. Choosing retained
+credit permanently excludes refund for that proposal.
+
+Capabilities currently returned:
+`preview,create,apply,invoice,refund,retainedCredit,reconcile,notifications:true`;
+`providerAmendment,automatedCashRefund,repeatedAmendments:false`.
+`refundMode:"xero_bank_reconciled_manual_refund_only"`,
+`collectionMode:"xero_invoice_verified_payment"`.
+These advertise connected implementation, not per-record eligibility. Settlement
+preflight independently checks provider, payer, original paid invoice and payments,
+credit coverage, tax regime, source/purchase linkage and card refund capacity.
+For Stripe-funded amendments the original saved payment intent and its charge
+must be readable, fully paid and without any prior refund or dispute.
+Existing/unattributed payer credit notes, mixed revenue/tax, provider switches,
+partial source refunds, tax-regime changes, organisation and monthly purchases
+are explicit blockers. No amount is silently capped or approximated.
+
+### Shared reader overlay
+
+Compatibility export in api/_lib/memberAmendmentSettlement.js (delegates to the
+dependency-light resolveMemberAmendmentReadOverlay, no financial rewrite):
+`resolveMemberAmendmentOverlay({db,tenantId,history,asOf})`, async, returns
+`{...history, effective_membership_amendment, effective_config_id,
+effective_band_id, effective_commitment_snapshot}`. Original config_id, band_id,
+commitment_snapshot, purchased economics and dates remain untouched, including
+amounts inside effective_commitment_snapshot. Consumers must explicitly use
+effective_* for entitlement/display/renewal scope. Pre-rollout missing overlay
+table returns the original purchase; other read/evidence failures throw. The
+renewal option carries the final effective scope after expiry without granting
+expired access. SQL table member_membership_amendment_application is service-only.
+
+### Monthly worker seam
+
+Monthly worker owns memberAmendmentMonthly* and adapters. Its actual factory
+exposes `quote(input),prepare(input),apply(prepared),reconcile(prepared)` as
+documented in member-amendments-monthly.contract.md. These adapters are NOT
+dispatched by this endpoint: no immutable monthly financial authority or shared
+collection/cancellation hold exists yet in the core. ProviderAmendment remains
+false and upfront settlement rejects provider-linked purchases. Do not connect
+adapter writes before all documented cross-path locks and revisions exist.
+
+### Durable recovery
+
+New file-based cron handler api/cron/member-amendments.js uses fail-closed
+CRON_SECRET, bounded due-row reconciliation and notification attempts. It is
+scheduled every ten minutes in vercel.json; normal local file routing discovers
+it. It does not make new money mutations or apply entitlement without an
+administrator's separate apply action. Missing/ambiguous provider documents
+stay uncertain and NEVER trigger resubmission. Interrupted notification sends
+become uncertain after 15 minutes; only definitely not-submitted/pending delivery
+is retried automatically. Notification kinds are settlement, settled and applied.
+No migration or provider mutations should be run as implementation verification.
+
+Apply re-verifies live settlement before its transactional purchase/paused/
+successor/expiry checks. A late payment after a pause, renewal, overlapping
+purchase or source edit is persisted as conflict; recorded financial evidence
+is retained and no entitlement is granted. Late unchanged current terms may
+apply with the original quoted effective date and original renewal boundary.
+Repeat proposals for a source purchase stay blocked, including after application,
+until cumulative revision pricing is implemented (never re-credit original basis).
+
+Required additive migration:
+supabase/migrations/202612310021_member_amendment_settlement.sql after 020.
+Service-only RPCs reserve, finish and apply under member/source locks; original
+proposals and purchase history remain immutable. No migration has been applied
+as part of implementation.
+
+---
+
+## Historical proposal contract (unchanged)
 
 `/api/membership/member-amendments` requires authenticated tenant admin access and
 `commerce.monthly-finance-report` visibility for role-bearing accounts. Tenant

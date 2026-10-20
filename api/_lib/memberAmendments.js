@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import {
   AMENDMENT_CAPABILITIES, AmendmentError, buildMemberAmendmentQuote, currentAmendmentBlockers,
 } from './memberAmendmentQuote.js';
+import { createMemberAmendmentSettlementService } from './memberAmendmentSettlement.js';
 
 export const AMENDMENT_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PAGE_SIZE = 500;
@@ -57,7 +58,8 @@ export function normalizeAmendmentRequest(input) {
   };
 }
 
-export function createMemberAmendmentsService({ db, now = () => new Date() }) {
+export function createMemberAmendmentsService({ db, now = () => new Date(), settlementService = null }) {
+  const settlement = settlementService || createMemberAmendmentSettlementService({ db, now });
   const rows = async (table, tenantId, memberId) => allPages(() => db.from(table).select('*')
     .eq('tenant_id', tenantId).eq('member_id', memberId));
   const one = async (table, tenantId, id) => checkResult(await db.from(table).select('*')
@@ -81,12 +83,29 @@ export function createMemberAmendmentsService({ db, now = () => new Date() }) {
     const bands = await allPages(() => db.from('membership_tier_band').select('*').eq('tenant_id', tenantId));
     const history = (await rows('member_membership_amendment', tenantId, memberId))
       .sort((a, b) => b.created_at.localeCompare(a.created_at));
+    const settlements = await allPages(() => db.from('member_membership_amendment_settlement').select('*')
+      .eq('tenant_id', tenantId).eq('member_id', memberId));
+    const applications = await allPages(() => db.from('member_membership_amendment_application').select('*')
+      .eq('tenant_id', tenantId).eq('member_id', memberId));
+    const notifications = [];
+    for (let offset = 0; offset < history.length; offset += 100) {
+      notifications.push(...await allPages(() => db.from('member_membership_amendment_notification').select('*')
+        .eq('tenant_id', tenantId).in('amendment_id', history.slice(offset, offset + 100).map(row => row.id))));
+    }
+    const lifecycle = Object.fromEntries(history.map(row => [row.id, {
+      settlement: settlements.find(s => s.amendment_id === row.id) || null,
+      application: applications.find(a => a.amendment_id === row.id) || null,
+      notifications: notifications.filter(n => n.amendment_id === row.id),
+    }]));
+    if (history.some(row => row.source_record_id === state.current?.id)) {
+      state.blockers.push('This purchase already has an amendment proposal. Use its settlement/application history; repeated amendments require cumulative-commitment support and are blocked.');
+    }
     return {
       current: state.current,
       structures: configs.filter((config) => !config.effective_to || config.effective_to >= state.today)
         .map((config) => ({ ...config, bands: bands.filter((band) => band.config_id === config.id) })),
       history, currentTermHistory: history.filter((row) => row.source_record_id === state.current?.id),
-      capabilities: AMENDMENT_CAPABILITIES, blockers: state.blockers,
+      capabilities: AMENDMENT_CAPABILITIES, blockers: state.blockers, lifecycle,
     };
   }
   async function preview(tenantId, request) {
@@ -141,5 +160,6 @@ export function createMemberAmendmentsService({ db, now = () => new Date() }) {
       p_idempotency_key: key, p_request: request, p_quote: result.quote,
     }));
   }
-  return { list, preview: async (tenantId, input) => preview(tenantId, normalizeAmendmentRequest(input)), create };
+  return { list, preview: async (tenantId, input) => preview(tenantId, normalizeAmendmentRequest(input)), create,
+    settle: settlement.settle, reconcile: settlement.reconcile, apply: settlement.apply, notify: settlement.notify };
 }

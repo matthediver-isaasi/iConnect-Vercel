@@ -64,6 +64,7 @@ before(async () => {
   await writeFile(path.join(root, 'package.json'), '{"type":"module"}');
   for (const file of [
     'membershipSimulationCore.js', 'membershipConfigResolverCore.js',
+    'membershipAmendmentReadOverlay.js',
     'discountHelperCore.js', 'vatOverrideHelperCore.js', 'selectionMatcher.js',
     'invoiceAddressResolver.js', 'tierBandMatcher.js', 'membershipYear.js',
     'annualRenewalPolicy.js', 'membershipIncentiveSnapshot.js',

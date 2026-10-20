@@ -14,7 +14,7 @@ before(async () => {
   await mkdir(lib, { recursive: true });
   await mkdir(path.join(root, 'shared'));
   await writeFile(path.join(root, 'package.json'), '{"type":"module"}');
-  for (const file of ['annualMembershipExpiryEnforcement.js', 'annualRenewalPolicy.js', 'membershipYear.js', 'expiryOnlyRenewalPolicy.js']) {
+  for (const file of ['membershipAmendmentReadOverlay.js', 'annualMembershipExpiryEnforcement.js', 'annualRenewalPolicy.js', 'membershipYear.js', 'expiryOnlyRenewalPolicy.js']) {
     await cp(new URL(file, import.meta.url), path.join(lib, file));
   }
   await cp(new URL('../../shared/rollingMembershipTerm.js', import.meta.url), path.join(root, 'shared/rollingMembershipTerm.js'));

@@ -33,7 +33,11 @@ export function createMemberAmendmentsHandler({
         const result = await amendments.create(context.tenantId, actorId, req.body);
         return res.status(result.replayed ? 200 : 201).json(result);
       }
-      return res.status(400).json({ error: 'action must be preview or create; applying or settling amendments is not supported' });
+      if (['settle', 'reconcile', 'apply', 'notify'].includes(req.body?.action)) {
+        if (!AMENDMENT_UUID.test(req.body.amendmentId || '')) return res.status(400).json({ error: 'A valid amendmentId is required' });
+        return res.json(await amendments[req.body.action](context.tenantId, actorId, req.body));
+      }
+      return res.status(400).json({ error: 'action must be preview, create, settle, reconcile, apply or notify' });
     } catch (error) {
       return res.status(error.status || 500).json({
         error: error.status ? error.message : 'Membership amendment request failed',

@@ -263,6 +263,17 @@ export function createGocardlessClient(creds) {
       return json.subscriptions;
     },
 
+    // Amount-only amendment: never changes dates/count or existing payments.
+    async updateSubscriptionAmount(subscriptionId, { amountMinor, idempotencyKey }) {
+      if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0 || !idempotencyKey) {
+        throw new Error('A positive exact amount and idempotency key are required');
+      }
+      const json = await request('PUT', `/subscriptions/${subscriptionId}`, {
+        body: { subscriptions: { amount: amountMinor } }, idempotencyKey,
+      });
+      return json.subscriptions;
+    },
+
     async cancelSubscription(subscriptionId) {
       const json = await request('POST', `/subscriptions/${subscriptionId}/actions/cancel`, { body: {} });
       logGc(`cancelled subscription ${subscriptionId}`);
@@ -349,6 +360,15 @@ export function createGocardlessClient(creds) {
       if (mandateId) query.mandate = mandateId;
       const json = await request('GET', '/payments', { query });
       return json.payments || [];
+    },
+
+    // Unlike listPayments, preserves the provider cursor for exhaustive reads.
+    async listPaymentsPage({ subscriptionId, mandateId, after, limit = 100 } = {}) {
+      const json = await request('GET', '/payments', {
+        query: { subscription: subscriptionId, mandate: mandateId, after, limit },
+      });
+      if (!Array.isArray(json.payments)) throw new Error('Invalid GoCardless payment page');
+      return { payments: json.payments, after: json.meta?.cursors?.after || null };
     },
 
     // --- Refunds (Phase 4) ---

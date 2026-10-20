@@ -139,6 +139,133 @@ test('isolated PostgreSQL: additive repeatable migration, immutable tracked prop
     assert.equal(zero.amendment.entitlement_applied, false);
     // Replays remain stable after the live target config changes.
     assert.equal((await invoke(first, 'concurrent-key')).amendment.id, saved.amendment.id);
+    // Settlement is an additive service-only lifecycle, never a purchase edit.
+    const settlementMigration = readFileSync(new URL('../../supabase/migrations/202612310021_member_amendment_settlement.sql', import.meta.url), 'utf8');
+    await admin.query(settlementMigration);
+    await admin.query(settlementMigration);
+    const supportedScope = async (source, target) => (await first.query(
+      'SELECT member_amendment_operational_scope_supported($1,$2) AS supported', [source, target],
+    )).rows[0].supported;
+    assert.equal(await supportedScope(q.sourceSnapshot, q.targetSnapshot.config), true);
+    for (const change of [
+      (source) => { source.commitment_snapshot.config.start_mode = 'fixed_date'; },
+      (source) => { source.commitment_snapshot.start_mode = 'fixed_date'; },
+      (source) => { source.term_key = 'fixed:2026'; },
+      (source) => { source.term_duration_months = 6; },
+      (source) => { source.term_anchor_date = null; },
+      (source, target) => { target.start_mode = 'fixed_date'; },
+      (source, target) => { target.billing_period = 'monthly'; },
+    ]) {
+      const source = structuredClone(q.sourceSnapshot);
+      const target = structuredClone(q.targetSnapshot.config);
+      change(source, target);
+      assert.equal(await supportedScope(source, target), false);
+    }
+    const reserve = (connection, a, choice, tenant = f.tenantId) => connection.query(
+      'SELECT reserve_member_amendment_settlement($1,$2,$3,$4,$5) AS result',
+      [tenant, a.id, uuid(7), choice, { provider: 'isolated-fixture' }],
+    ).then(r => r.rows[0].result);
+    const finish = (a, state = 'settled') => first.query(
+      'SELECT finish_member_amendment_settlement($1,$2,$3,$4,$5,NULL) AS result',
+      [f.tenantId, a.id, uuid(7), state, { verified: true, kind: 'isolated-test-only' }],
+    );
+    const apply = (a, tenant = f.tenantId) => first.query(
+      'SELECT apply_member_membership_amendment($1,$2,$3) AS result', [tenant, a.id, uuid(7)],
+    ).then(r => r.rows[0].result);
+    await assert.rejects(reserve(first, saved.amendment, 'collect'), /Target pricing/);
+    const zr = await reserve(first, zero.amendment, 'none');
+    assert.equal(zr.claimed, true);
+    await assert.rejects(apply(zero.amendment), /Verified settlement/);
+    await finish(zero.amendment);
+    const [za, secondApplication] = await Promise.all([
+      apply(zero.amendment),
+      second.query('SELECT apply_member_membership_amendment($1,$2,$3) AS result',
+        [f.tenantId, zero.amendment.id, uuid(7)]).then(r => r.rows[0].result),
+    ]);
+    assert.equal(secondApplication.id, za.id);
+    assert.equal(za.source_record_id, zeroFixture.current.id);
+    assert.equal((await apply(zero.amendment)).id, za.id);
+    assert.equal(za.expires_on, zeroFixture.current.membership_renewal_date);
+    await assert.rejects(admin.query('UPDATE member_membership_amendment_application SET snapshot=\'{}\''), /immutable/);
+    await admin.query('UPDATE membership_tier_config SET flat_cost=200 WHERE id=$1', [f.config.id]);
+    await first.query('BEGIN');
+    const claimed = await reserve(first, saved.amendment, 'collect');
+    let reserveFinished = false;
+    const concurrentReserve = reserve(second, saved.amendment, 'collect').then(r => { reserveFinished = true; return r; });
+    await new Promise(resolve => setTimeout(resolve, 25));
+    assert.equal(reserveFinished, false);
+    await first.query('COMMIT');
+    assert.equal(claimed.claimed, true);
+    assert.equal((await concurrentReserve).claimed, false);
+    await assert.rejects(reserve(first, saved.amendment, 'refund'), /choice is already locked/);
+    await assert.rejects(reserve(first, saved.amendment, 'collect', uuid(99)), /Amendment not found/);
+    await finish(saved.amendment);
+    // A pause arriving after collection is a persisted conflict, not lost money
+    // or applied membership. Subsequent application cannot override the guard.
+    await admin.query('ALTER TABLE member ADD COLUMN membership_paused boolean DEFAULT false');
+    await admin.query('UPDATE member SET membership_paused=true WHERE id=$1', [f.memberId]);
+    assert.equal((await apply(saved.amendment)).code, 'late_settlement_conflict');
+    assert.equal((await admin.query('SELECT state FROM member_membership_amendment_settlement WHERE amendment_id=$1', [saved.amendment.id])).rows[0].state, 'conflict');
+    const extraProposal = async (n) => {
+      const fixture = amendmentFixture(today);
+      fixture.memberId = uuid(n);
+      fixture.current.member_id = fixture.memberId;
+      fixture.current.id = uuid(n + 1);
+      fixture.request.memberId = fixture.memberId;
+      await admin.query('INSERT INTO member(id,tenant_id) VALUES($1,$2)', [fixture.memberId, f.tenantId]);
+      fixture.current = await insert('member_membership_history', fixture.current);
+      fixture.config = (await admin.query('SELECT to_jsonb(c) AS value FROM membership_tier_config c WHERE id=$1', [f.config.id])).rows[0].value;
+      const quoted = buildMemberAmendmentQuote({ ...fixture, effectiveDate: today, quotedAt: new Date().toISOString() });
+      fixture.request.expectedQuote = memberAmendmentQuoteFingerprint(quoted);
+      const proposed = (await first.query('SELECT propose_member_membership_amendment($1,$2,$3,$4,$5,$6) AS result',
+        [f.tenantId, fixture.memberId, uuid(7), `late-change-${n}`, fixture.request, quoted])).rows[0].result;
+      await reserve(first, proposed.amendment, 'collect');
+      await finish(proposed.amendment);
+      return { fixture, amendment: proposed.amendment };
+    };
+    const renewalRace = await extraProposal(30);
+    await insert('member_membership_history', { ...renewalRace.fixture.current, id: uuid(32),
+      term_start_date: renewalRace.fixture.current.membership_renewal_date,
+      membership_renewal_date: `${Number(today.slice(0, 4)) + 2}-01-01` });
+    assert.equal((await apply(renewalRace.amendment)).conflict, true);
+    const expiryRace = await extraProposal(40);
+    await admin.query('UPDATE member_membership_history SET membership_renewal_date=$1 WHERE id=$2',
+      [today, expiryRace.fixture.current.id]);
+    assert.equal((await apply(expiryRace.amendment)).conflict, true);
+    const sourceRace = await extraProposal(50);
+    await admin.query("UPDATE member_membership_history SET payment_status='unpaid' WHERE id=$1", [sourceRace.fixture.current.id]);
+    assert.equal((await apply(sourceRace.amendment)).conflict, true);
+    const historical = amendmentFixture(today);
+    historical.memberId = uuid(60);
+    historical.current.member_id = historical.memberId;
+    historical.current.id = uuid(61);
+    historical.request.memberId = historical.memberId;
+    await admin.query('INSERT INTO member(id,tenant_id) VALUES($1,$2)', [historical.memberId, f.tenantId]);
+    historical.current = await insert('member_membership_history', historical.current);
+    historical.config = (await admin.query('SELECT to_jsonb(c) AS value FROM membership_tier_config c WHERE id=$1', [f.config.id])).rows[0].value;
+    const historicQuote = buildMemberAmendmentQuote({ ...historical, effectiveDate: today, quotedAt: new Date().toISOString() });
+    // Simulate a first-slice fixed-date proposal, created before the reader
+    // scope release guard. The immutable old proposal remains readable.
+    await admin.query("UPDATE membership_tier_config SET start_mode='fixed_date' WHERE id=$1", [f.config.id]);
+    historicQuote.targetSnapshot.config.start_mode = 'fixed_date';
+    historical.request.expectedQuote = memberAmendmentQuoteFingerprint(historicQuote);
+    const historicProposal = (await first.query('SELECT propose_member_membership_amendment($1,$2,$3,$4,$5,$6) AS result',
+      [f.tenantId, historical.memberId, uuid(7), 'historical-fixed-date', historical.request, historicQuote])).rows[0].result.amendment;
+    await assert.rejects(reserve(first, historicProposal, 'collect'), /Unsupported operational amendment scope/);
+    await assert.rejects(apply(historicProposal), /Unsupported operational amendment scope/);
+    assert.equal((await admin.query('SELECT count(*)::integer AS n FROM member_membership_amendment_settlement WHERE amendment_id=$1', [historicProposal.id])).rows[0].n, 0);
+    assert.equal((await admin.query('SELECT count(*)::integer AS n FROM member_membership_amendment_event WHERE amendment_id=$1', [historicProposal.id])).rows[0].n, 0);
+    await admin.query("UPDATE membership_tier_config SET start_mode='immediate' WHERE id=$1", [f.config.id]);
+    const sourceScopeRace = await extraProposal(70);
+    await admin.query(`UPDATE member_membership_history SET commitment_snapshot=
+      jsonb_set(commitment_snapshot,'{config,start_mode}','"fixed_date"') WHERE id=$1`, [sourceScopeRace.fixture.current.id]);
+    assert.equal((await apply(sourceScopeRace.amendment)).conflict, true);
+    await admin.query('SET ROLE authenticated');
+    await assert.rejects(reserve(admin, zero.amendment, 'none'), /permission denied/);
+    await assert.rejects(admin.query('SELECT * FROM member_membership_amendment_application'), /permission denied/);
+    await admin.query('RESET ROLE');
+    await assert.rejects(first.query("UPDATE member_membership_amendment_settlement SET state='applied'"), /permission denied/);
+    assert.equal(JSON.stringify((await admin.query('SELECT to_jsonb(h) AS value FROM member_membership_history h WHERE id=$1', [f.current.id])).rows[0].value), sourceBefore);
   } finally {
     for (const connection of clients) await connection.end().catch(() => {});
     if (started) command('pg_ctl', ['-D', h.data, '-m', 'immediate', '-w', 'stop']);

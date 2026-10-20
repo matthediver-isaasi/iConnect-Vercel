@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { FileText, History, Lock } from "lucide-react";
 import { adminFetch } from "@/lib/adminFetch";
+import MemberMembershipAmendmentLifecycle from "./MemberMembershipAmendmentLifecycle";
 
 const endpoint = "/api/membership/member-amendments";
 const dateLabel = value => {
@@ -15,10 +16,16 @@ const dateLabel = value => {
   const date = new Date(`${String(value).slice(0, 10)}T00:00:00`);
   return Number.isNaN(date.getTime()) ? "Not supplied" : date.toLocaleDateString("en-GB");
 };
+const timestampLabel = value => {
+  if (!value) return "Not supplied";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "Not supplied" : `${date.toISOString()} (UTC)`;
+};
 const money = (value, currency) => {
   if (value == null || value === "" || !Number.isFinite(Number(value))) return "Not supplied";
+  if (!currency) return `${Number(value).toFixed(2)} (currency not supplied)`;
   try {
-    return new Intl.NumberFormat("en-GB", { style: "currency", currency: currency || "GBP" }).format(Number(value));
+    return new Intl.NumberFormat("en-GB", { style: "currency", currency }).format(Number(value));
   } catch {
     return `${Number(value).toFixed(2)} ${currency}`;
   }
@@ -44,9 +51,9 @@ async function readResponse(response) {
   let body;
   try { body = await response.json(); } catch { throw new Error("The server returned an unreadable response. No outcome has been confirmed."); }
   if (!response.ok) {
-    const error = new Error(body?.error?.message || body?.error || body?.message || `Request failed (${response.status}).`);
+    const error = new Error(body?.error?.message || (typeof body?.error === "string" ? body.error : null) || body?.message || `Request failed (${response.status}).`);
     error.status = response.status;
-    error.code = body?.code;
+    error.code = body?.code || body?.error?.code;
     throw error;
   }
   return body;
@@ -91,10 +98,11 @@ function AmendmentPanel({ memberId, tenantId }) {
     setRequestError("");
   }
   async function submit(action) {
-    if (pending || saved || !valid || !canPreview) return;
+    const retryingCreate = action === "create" && !!attempt.current;
+    if (pending || saved || (!retryingCreate && (!valid || !canPreview))) return;
     // `blockers` also describe deferred settlement/application. The server's
     // canCreate grant, not absence of those advisory blockers, permits saving.
-    if (action === "create" && (data?.capabilities?.create !== true || preview?.canCreate !== true || !preview?.quote || !preview?.expectedQuote)) return;
+    if (action === "create" && !retryingCreate && (data?.capabilities?.create !== true || preview?.canCreate !== true || !preview?.quote || !preview?.expectedQuote)) return;
     const token = ++generation.current;
     setPending(action);
     setRequestError("");
@@ -146,28 +154,42 @@ function AmendmentPanel({ memberId, tenantId }) {
   }
   const current = data?.current;
   const quote = preview?.quote;
+  function updateLifecycle(id, lifecycle) {
+    queryClient.setQueryData(queryKey, previous => previous ? {
+      ...previous, lifecycle: { ...(previous.lifecycle || {}), [id]: lifecycle },
+    } : previous);
+    void refetch();
+  }
   return <Card data-testid="member-amendments">
     <CardHeader>
       <CardTitle className="text-base flex items-center gap-2"><FileText className="w-4 h-4" />Membership change requests</CardTitle>
-      <p className="text-sm text-muted-foreground">Preview and record an upfront personal membership change. Saving does not change entitlement, collect a payment, or issue a refund.</p>
+       <p className="text-sm text-muted-foreground">Preview and record an upfront personal membership change, then follow its separate settlement and application history. Saving a proposal does not collect payment, issue a refund, or change entitlement.</p>
     </CardHeader>
     <CardContent className="space-y-5">
       <div className="rounded-md border bg-muted/50 p-3 text-sm flex items-start gap-2">
         <Lock className="w-4 h-4 shrink-0 mt-0.5" />
-        <p>Financial settlement and monthly amendments are not yet enabled. The original paid commitment stays immutable and expiry stays unchanged.</p>
+         <div className="space-y-1">
+           <p>The original paid commitment and consent stay immutable. Settlement evidence and applied membership revisions are recorded separately; the original term and renewal boundary are preserved.</p>
+           {data && <p>{data.capabilities?.invoice === true ? "Additional payment uses a Xero invoice and verified payment evidence." : "Invoice collection is unavailable for this server or your current capabilities."} {data.capabilities?.refund === true ? "Refund support records a manual, bank-reconciled Xero refund; it does not send cash automatically." : "Refund processing is unavailable for this server or your current capabilities."}</p>}
+           {data && data.capabilities?.providerAmendment !== true && <p>Monthly card, fixed Direct Debit and dynamic Direct Debit amendments are not connected to this workflow. No provider change or monthly amendment can be completed here.</p>}
+         </div>
       </div>
       {isLoading ? <div role="status" aria-label="Loading membership change requests" className="space-y-2">
         <div className="h-5 w-2/3 rounded bg-muted" /><div className="h-16 rounded bg-muted" />
-      </div> : isError ? <div role="alert" className="space-y-2">
+       </div> : isError && !data ? <div role="alert" className="space-y-2">
         <p className="text-sm">Change requests could not be loaded: {error?.message}</p>
         <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>Retry loading</Button>
       </div> : <>
+         {isError && <div role="alert" className="rounded-md border p-3 text-sm space-y-2">
+           <p>History could not be refreshed: {error?.message}. Previously loaded records are shown; their latest outcome is not confirmed.</p>
+           <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>Retry loading</Button>
+         </div>}
         <Blockers items={blockers} />
         {current && <div className="rounded-md border p-3 text-sm space-y-1" data-testid="amendment-original">
           <p className="font-medium">{current.payment_status === "paid" ? "Original paid commitment" : "Original purchase record"} <Badge variant="outline">Read-only</Badge></p>
           <p>{current.commitment_snapshot?.config?.name || current.structureName || "Historical structure"}{current.tier_label ? ` · ${current.tier_label}` : ""}</p>
           <p>Recorded payment status: {current.payment_status === "paid" ? "Paid" : current.payment_status ? String(current.payment_status).replaceAll("_", " ") : "Not supplied"}.</p>
-          <p>Expiry: {dateLabel(current.term_end_date)} · unchanged. Renewal: {dateLabel(current.membership_renewal_date)}.</p>
+           <p>Original expiry: {dateLabel(current.term_end_date)}. Original renewal: {dateLabel(current.membership_renewal_date)}.</p>
           <dl className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
             <div><dt className="text-muted-foreground">Recorded net</dt><dd>{money(current.final_cost, current.currency)}</dd></div>
             <div><dt className="text-muted-foreground">Recorded VAT</dt><dd>{money(current.vat_amount, current.currency)}</dd></div>
@@ -221,7 +243,7 @@ function AmendmentPanel({ memberId, tenantId }) {
             <p className="text-sm font-medium">{preview.canCreate ? "Limitations after saving" : "Request blocked"}</p>
             <Blockers items={preview.blockers} />
           </div>}
-          <Button type="button" disabled={!!pending || data?.capabilities?.create !== true || preview.canCreate !== true || !preview.expectedQuote} onClick={() => submit("create")}>
+           <Button type="button" disabled={!!pending || (!attempt.current && (data?.capabilities?.create !== true || preview.canCreate !== true || !preview.expectedQuote))} onClick={() => submit("create")}>
             {pending === "create" ? "Saving request…" : attempt.current ? "Retry save change request" : "Save change request"}
           </Button>
           {!preview.expectedQuote && <p className="text-xs text-muted-foreground">The server did not supply a quote fingerprint. Preview again before saving.</p>}
@@ -233,19 +255,19 @@ function AmendmentPanel({ memberId, tenantId }) {
         </div>}
         {saved && <div role="status" className="rounded-md border p-3 text-sm space-y-1">
           <p className="font-medium">Change request saved · {saved.id}</p>
-          <p>{saved.status === "pending_settlement" ? "Pending settlement — no payment or refund has been processed." : saved.status === "pending_application" ? "Pending application — no entitlement has changed." : `Server status: ${saved.status || "Not supplied"}.`}</p>
-          <p>Membership entitlement and original paid records have not been changed by this save.</p>
+           <p>Proposal state at creation: {saved.status === "pending_settlement" ? "Pending settlement — no payment or refund has been processed by saving." : saved.status === "pending_application" ? "Pending application — no entitlement has changed by saving." : saved.status || "Not supplied"}.</p>
+           <p>Saving does not change membership entitlement or original paid records. Check current settlement and application evidence below, including on a replayed save.</p>
         </div>}
         <section className="space-y-3" aria-label="Amendment history">
           <h3 className="font-medium text-sm flex items-center gap-2"><History className="w-4 h-4" />Amendment history</h3>
           {!history.length ? <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">No membership change requests recorded. Original fee and payment history remains below.</div> :
             <ol className="space-y-3">{history.map(item => <li key={item.id} className="rounded-md border p-3 space-y-2 text-sm">
-              <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-medium">Request {item.id}</span><Badge variant="outline">{item.status === "pending_settlement" ? "Pending settlement" : item.status === "pending_application" ? "Pending application" : item.status || "Status not supplied"}</Badge></div>
-              <p>Effective: {dateLabel(item.effective_date || item.request?.effectiveDate)}{item.created_at ? ` · Recorded: ${dateLabel(item.created_at)}` : ""}</p>
+               <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-medium">Request {item.id}</span><Badge variant="outline">Proposal: {item.status === "pending_settlement" ? "Pending settlement" : item.status === "pending_application" ? "Pending application" : item.status || "Status not supplied"}</Badge></div>
+               <p>Effective: {dateLabel(item.effective_date || item.request?.effectiveDate)}{item.created_at ? ` · Recorded: ${dateLabel(item.created_at)}` : ""}</p>
               <p className="whitespace-pre-wrap break-words">{item.reason || item.request?.reason || "No reason supplied"}</p>
               {item.quote && <>
                 <p>Original: {item.quote.sourceSnapshot?.commitment_snapshot?.config?.name || "Historical structure"}{item.quote.sourceSnapshot?.tier_label ? ` · ${item.quote.sourceSnapshot.tier_label}` : ""}</p>
-                <p>Target: {item.quote.targetSnapshot?.config?.name || "Not supplied"} · {item.quote.targetSnapshot?.band?.label || "Flat price"}</p>
+                 <p>Target: {item.quote.targetSnapshot?.config?.name || "Not supplied"} · {item.quote.targetSnapshot?.band?.label || item.quote.targetSnapshot?.band?.name || (item.quote.targetSnapshot?.config?.pricing_model === "flat" ? "Flat price" : "Band not supplied")}</p>
                 <Amounts title="Recorded remaining-term delta" amounts={item.quote.delta} currency={item.quote.currency} />
                 <p>Expiry: {dateLabel(item.quote.term?.endDate)} · unchanged by this request.</p>
                 <details className="rounded-md bg-muted/50 p-3">
@@ -257,12 +279,27 @@ function AmendmentPanel({ memberId, tenantId }) {
                     <p>Remaining days: {item.quote.proration?.remainingDays ?? "Not supplied"} of {item.quote.proration?.totalDays ?? "Not supplied"}.</p>
                     <p className="break-all">Original purchase: {item.source_record_id || item.quote.sourceRecordId || "Not supplied"}</p>
                     <p className="break-all">Recorded by: {item.actor_id || "Not supplied"}</p>
-                    <p>Settlement: {item.settlement_status === "not_started" ? "Not started — no payment or refund processed" : "Not confirmed by this record"}.</p>
-                    <p>Entitlement application: {item.entitlement_applied === false ? "Not applied" : "Not confirmed by this record"}.</p>
+                     <p className="break-all">Recorded at: {timestampLabel(item.created_at)}</p>
+                     <p className="break-all">Quote fingerprint: {item.request?.expectedQuote || "Not supplied"}</p>
+                     <p className="break-all">Request key: {item.idempotency_key || item.request?.idempotencyKey || "Not supplied"}</p>
+                     <p>Proposal snapshot — Settlement: {item.settlement_status === "not_started" ? "Not started — no payment or refund processed at creation" : "Not confirmed by this record"}.</p>
+                     <p>Entitlement application: {item.entitlement_applied === false ? "Not applied at creation" : "Not confirmed by this record"}. See separate current lifecycle evidence below.</p>
                   </div>
                 </details>
               </>}
-              <p className="text-xs text-muted-foreground">{item.status === "pending_settlement" ? "Settlement outstanding; this request is not a payment receipt." : item.status === "pending_application" ? "Awaiting application; this request does not confirm changed entitlement." : "Recorded request status is separate from payment and entitlement status."}</p>
+               <p className="text-xs text-muted-foreground">Recorded proposal status is immutable; this request is not a payment receipt or evidence of applied entitlement.</p>
+               <MemberMembershipAmendmentLifecycle
+                 amendment={item}
+                 lifecycle={data?.lifecycle?.[item.id]}
+                 capabilities={data?.capabilities}
+                 eligibleSource={!!current?.id && item.source_record_id === current.id && !item.quote?.sourceSnapshot?.billing_agreement_id && item.quote?.sourceSnapshot?.commitment_snapshot?.payment_frequency === "upfront"}
+                 tenantId={tenantId}
+                 refreshing={isFetching}
+                 actionsEnabled={!isError}
+                 readResponse={readResponse}
+                 onUpdate={updateLifecycle}
+                 onRefresh={refetch}
+               />
             </li>)}</ol>}
         </section>
       </>}

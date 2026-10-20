@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { membershipSuccessorElectionsEnabled } from './membershipSuccessorElection.js';
 import { loadExpiryOnlyRenewalPolicy } from './expiryOnlyRenewalPolicy.js';
 import { hasFormExpiryOnlyProvenance } from './formExpiryOnlyRenewal.js';
+import { resolveMemberAmendmentReadOverlays } from './membershipAmendmentReadOverlay.js';
 
 async function allRows(query) {
   const rows = [];
@@ -28,11 +29,14 @@ export async function loadFormMembershipRenewalContext(db, {
   const ownerId = organizationId || memberId;
   const historyTable = organizationId ? 'organisation_membership_history' : 'member_membership_history';
   const scope = { tenantId, ...(organizationId ? { organizationId } : { memberId }) };
-  const [histories, agreements, owners] = await Promise.all([
+  const [savedHistories, agreements, owners] = await Promise.all([
     allRows(db.from(historyTable).select('*').eq('tenant_id', tenantId).eq(ownerColumn, ownerId)),
     allRows(db.from('membership_billing_agreements').select('*').eq('tenant_id', tenantId).eq(ownerColumn, ownerId)),
     allRows(db.from(organizationId ? 'organization' : 'member').select('*').eq('tenant_id', tenantId).eq('id', ownerId)),
   ]);
+  const histories = organizationId ? savedHistories : await resolveMemberAmendmentReadOverlays({
+    db, tenantId, history: savedHistories, asOf: toDateString(now), renewal: true,
+  });
   if (owners.length !== 1) throw new Error('Membership owner cannot be verified');
   const evidence = { ...scope, histories, agreements, now, paused: owners[0].membership_paused === true };
   if (evidence.paused) return { renewal: { state: 'paused', eligible: false }, simulation: null };
@@ -51,7 +55,8 @@ export async function loadFormMembershipRenewalContext(db, {
     .sort((a, b) => b.term_start_date.localeCompare(a.term_start_date))[0]
     || retained.find(row => evidence.expiryOnlyPolicies[row.id]);
   const assigned = evidence.expiryOnlyPolicies[previous?.id];
-  const priorConfig = previous?.renewal_policy_snapshot || previous?.commitment_snapshot?.config || previous?.incentive_snapshot?.config;
+  const priorConfig = previous?.effective_commitment_snapshot?.config
+    || previous?.renewal_policy_snapshot || previous?.commitment_snapshot?.config || previous?.incentive_snapshot?.config;
   let successorConfig = null;
   if (previous?.term_end_date && (priorConfig || assigned)) {
     const start = toDateString(addDays(previous.term_end_date, 1));
