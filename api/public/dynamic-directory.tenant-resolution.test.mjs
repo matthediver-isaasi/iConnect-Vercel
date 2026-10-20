@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { schemaCheckedDatabase } from './directory-schema-contract.mjs';
 
 const TENANT_ID = 'tenant-from-param';
 const TENANT_SLUG = 'shared-host-tenant';
@@ -95,8 +96,8 @@ function database(seed, calls) {
     }
   }
 
-  return { from: (table) => new Query(table),
-    rpc: async () => ({ data: null, error: { code: 'PGRST202', message: 'Could not find public.organization_carousel_snapshot' } }) };
+  return schemaCheckedDatabase({ from: (table) => new Query(table),
+    rpc: async () => ({ data: null, error: { code: 'PGRST202', message: 'Could not find public.organization_carousel_snapshot' } }) });
 }
 
 function response() {

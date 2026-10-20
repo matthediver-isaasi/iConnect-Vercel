@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { schemaCheckedDatabase } from './directory-schema-contract.mjs';
 
 import { PUBLIC_DIRECTORY_SELECT, buildPublicDirectoryPayload, dynamicDirectoryHandler } from './dynamic-directory.js';
 import { resolveBackFieldOrder, MEMBER_BACK_DEFAULT_ORDER } from '../_lib/directoryConfig.js';
@@ -45,8 +46,7 @@ test('public payload defaults: no override, members list shown', () => {
 
 // Explicit schema contract: unlike permissive row mocks, reject unknown
 // organization columns even when no rows would match the query.
-function organizationDatabase({ onRead } = {}) {
-  const columns = new Set('id tenant_id name logo_url description city country website_url phone'.split(' '));
+function organizationDatabase({ onRead, member = false } = {}) {
   const directory = {
     id: 'dir-1', tenant_id: 'tenant-1', slug: 'partners', name: 'Partners',
     entity_type: 'organization', is_active: true, allowed_role_ids: [],
@@ -56,11 +56,11 @@ function organizationDatabase({ onRead } = {}) {
     dynamic_directory: [directory, { ...directory, id: 'other-dir', tenant_id: 'tenant-2' }],
     organization: [
       ...['Alpha', 'Beta', 'Gamma', 'Excluded'].map((name, index) => ({
-        id: `org-${index}`, tenant_id: 'tenant-1', name, city: 'London', country: 'UK',
+        id: `org-${index}`, tenant_id: 'tenant-1', name,
         logo_url: 'https://example.test/logo.png', description: 'Private description',
         website_url: 'https://example.test', phone: 'private phone',
       })),
-      { id: 'foreign', tenant_id: 'tenant-2', name: 'Foreign', city: 'London' },
+      { id: 'foreign', tenant_id: 'tenant-2', name: 'Foreign' },
     ],
     preference_field: [{ id: 'eligible', tenant_id: 'tenant-1', entity_scope: 'organization', is_active: true, field_type: 'dropdown' }],
     organization_preference_value: ['org-0', 'org-1', 'org-2', 'foreign'].map((id, index) => ({
@@ -69,6 +69,21 @@ function organizationDatabase({ onRead } = {}) {
     system_settings: [],
   };
   const calls = [];
+  if (member) {
+    directory.entity_type = 'member';
+    seed.preference_field[0].entity_scope = 'member';
+    seed.preference_field[0].directory_visibility = ['dir-1'];
+    seed.member = ['Ada', 'Bea', 'Cara'].map((first_name, i) => ({
+      id: `member-${i}`, tenant_id: 'tenant-1', first_name, last_name: 'Example',
+      job_title: 'Engineer', email: `member-${i}@example.invalid`,
+      linkedin_url: 'https://linkedin.com/in/example', organization_id: 'org-0',
+      show_in_directory: true, login_enabled: true,
+    }));
+    seed.member_preference_value = seed.member.map((m, i) => ({
+      id: `mpv-${i}`, member_id: m.id, field_id: 'eligible', value: 'yes',
+    }));
+    seed.role = [];
+  }
   class Query {
     constructor(table) {
       this.table = table;
@@ -79,18 +94,21 @@ function organizationDatabase({ onRead } = {}) {
     }
     select(selection) {
       this.selection = selection;
-      if (this.table === 'organization') {
-        const invalid = selection.split(',').map(x => x.trim()).find(x => !columns.has(x));
-        if (invalid) this.error = { code: '42703', message: `column organization.${invalid} does not exist` };
-      }
       return this;
     }
     eq(key, value) { this.predicates.push(row => row[key] === value); return this; }
     in(key, values) { this.predicates.push(row => values.includes(row[key])); return this; }
     like(key, pattern) { this.predicates.push(row => String(row[key]).startsWith(pattern.replace(/%$/, ''))); return this; }
+    not(key, operator, pattern) {
+      assert.equal(operator, 'ilike');
+      this.predicates.push(row => !new RegExp(`^${pattern.replaceAll('%', '.*').replaceAll('_', '.')}$`, 'i').test(row[key] || ''));
+      return this;
+    }
     or(expression) {
       this.predicates.push(row => expression.split(',').some(clause => {
         const [key, operator, pattern] = clause.split('.');
+        if (operator === 'is') return row[key] == null;
+        if (operator === 'neq') return row[key] !== false;
         assert.equal(operator, 'ilike');
         return String(row[key] || '').toLowerCase().includes(pattern.replaceAll('%', '').toLowerCase());
       }));
@@ -114,7 +132,7 @@ function organizationDatabase({ onRead } = {}) {
       return Promise.resolve({ data: rows, error: null, count }).then(resolve, reject);
     }
   }
-  return { from: table => new Query(table), calls };
+  return schemaCheckedDatabase({ from: table => new Query(table), calls });
 }
 
 async function organizationRequest(query = {}, options = {}) {
@@ -135,7 +153,7 @@ async function organizationRequest(query = {}, options = {}) {
 
 test('schema fixture rejects organization.slug but permits the directory slug', async () => {
   const db = organizationDatabase();
-  assert.equal((await db.from('organization').select('id, slug')).error.code, '42703');
+  assert.throws(() => db.from('organization').select('id, slug'), /does not exist/);
   assert.equal((await db.from('dynamic_directory').select('slug')).data[0].slug, 'partners');
 });
 
@@ -145,7 +163,7 @@ test('guest organization list uses supported columns, eligible tenant IDs and pu
   assert.equal(res.payload.total, 3);
   assert.deepEqual(res.payload.records.map(row => row.id), ['org-0', 'org-1', 'org-2']);
   assert.deepEqual(res.payload.records[0], {
-    id: 'org-0', name: 'Alpha', subtitle: 'London, UK',
+    id: 'org-0', name: 'Alpha', subtitle: null,
     logo_url: 'https://example.test/logo.png', image_url: 'https://example.test/logo.png', slug: null,
   });
   assert.equal(res.payload.config.directory.slug, 'partners');
@@ -154,7 +172,7 @@ test('guest organization list uses supported columns, eligible tenant IDs and pu
 });
 
 test('organization list preserves search, descending sort, exact count and pagination', async () => {
-  const { res } = await organizationRequest({ search: 'london', sort: 'name-desc', page: '2', limit: '1' });
+  const { res } = await organizationRequest({ search: 'a', sort: 'name-desc', page: '2', limit: '1' });
   assert.equal(res.statusCode, 200);
   assert.equal(res.payload.total, 3);
   assert.equal(res.payload.page, 2);
@@ -177,5 +195,45 @@ test('organization list still rejects publication and inclusion changes during l
     } });
     assert.equal(res.statusCode, 409);
     assert.equal(res.payload.records, undefined);
+  }
+});
+
+test('invalid references fail before empty-row evaluation across every query clause', () => {
+  const db = schemaCheckedDatabase({ from: () => ({ select() { return this; }, eq() { return this; },
+    in() { return this; }, not() { return this; }, or() { return this; }, order() { return this; } }) });
+  for (const table of ['organization', 'member', 'dynamic_directory', 'preference_field', 'role',
+    'system_settings', 'member_preference_value', 'organization_preference_value']) {
+    for (const clause of [
+      q => q.select('invented'), q => q.eq('invented', 'x'), q => q.in('invented', []),
+      q => q.not('invented', 'is', null), q => q.or('invented.ilike.%x%'), q => q.order('invented'),
+    ]) assert.throws(() => clause(db.from(table)), /does not exist/);
+  }
+  for (const field of ['city', 'country', 'slug']) {
+    assert.throws(() => db.from('organization').select(field), /does not exist/);
+    assert.throws(() => db.from('organization').or(`name.ilike.%a%,${field}.ilike.%a%`), /does not exist/);
+  }
+  assert.doesNotThrow(() => db.from('member').select('linkedin_url'));
+});
+
+test('member list keeps verified LinkedIn, helpers, custom filters, counts and pagination', async () => {
+  const { res } = await organizationRequest({
+    search: 'Engineer', sort: 'name-desc', page: '2', limit: '1', filters: '{"eligible":"yes"}',
+  }, { member: true });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.payload.total, 3);
+  assert.equal(res.payload.records[0].id, 'member-1');
+  assert.equal(res.payload.records[0].linkedin_url, 'https://linkedin.com/in/example');
+  assert.equal(res.payload.records[0].organization_name, 'Alpha');
+  assert.equal(res.payload.records[0].customValues.eligible, 'yes');
+});
+
+test('both entity lists return successful empty searches and custom-filter results', async () => {
+  for (const member of [false, true]) {
+    for (const query of [{ search: 'No match' }, { filters: '{"eligible":"no"}' }]) {
+      const { res } = await organizationRequest(query, { member });
+      assert.equal(res.statusCode, 200);
+      assert.equal(res.payload.total, 0);
+      assert.deepEqual(res.payload.records, []);
+    }
   }
 });

@@ -1204,12 +1204,12 @@ async function renderOrganizations({ supabase, tenantId, directory, pageNum, pag
   }
   let q = supabase
     .from('organization')
-    .select('id, name, logo_url, description, city, country, website_url, phone', { count: 'exact' })
+    .select('id, name, logo_url, description, website_url, phone', { count: 'exact' })
     .eq('tenant_id', tenantId);
   if (orgIds) q = q.in('id', orgIds);
   if (search) {
     const p = `%${search}%`;
-    q = q.or(`name.ilike.${p},city.ilike.${p},country.ilike.${p}`);
+    q = q.or(`name.ilike.${p}`);
   }
   q = sort === 'name-desc' ? q.order('name', { ascending: false }) : q.order('name', { ascending: true });
   const { data, error, count } = await q.range(offset, offset + pageSize - 1);
@@ -1220,7 +1220,8 @@ async function renderOrganizations({ supabase, tenantId, directory, pageNum, pag
   const records = (data || []).map((o) => ({
     id: o.id,
     name: o.name,
-    subtitle: [o.city, o.country].filter(Boolean).join(', ') || null,
+    // No public location columns exist; invoicing addresses are not substitutes.
+    subtitle: null,
     image_url: o.logo_url || null,
     logo_url: o.logo_url || null,
     // Organizations are identified by id; only the directory has a slug.

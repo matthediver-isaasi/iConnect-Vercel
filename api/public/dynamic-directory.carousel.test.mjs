@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { schemaCheckedDatabase } from './directory-schema-contract.mjs';
 
 import {
   authorizeCarouselDirectory,
@@ -27,7 +28,7 @@ function organizations(count, tenantId = TENANT_ID) {
   }));
 }
 
-function database(seed, failures = {}, hooks = {}, serverCap = Infinity) {
+function database(seed, failures = {}, hooks = {}, serverCap = Infinity, checkSchema = true) {
   class Query {
     constructor(table) {
       this.table = table;
@@ -116,8 +117,9 @@ function database(seed, failures = {}, hooks = {}, serverCap = Infinity) {
     }
   }
 
-  return { from: (table) => new Query(table),
+  const db = { from: (table) => new Query(table),
     rpc: async () => ({ data: null, error: { code: 'PGRST202', message: 'Could not find public.organization_carousel_snapshot' } }) };
+  return checkSchema ? schemaCheckedDatabase(db) : db;
 }
 
 function response() {
@@ -641,7 +643,9 @@ test('primary carousel eligibility stays in parity with canonical directory popu
     ],
   };
   const canonical = createOrganisationDirectoryFilters({
-    db: database(seed),
+    // Canonical portal comparison has additional Custom Object dependencies,
+    // outside this Dynamic Directory loading contract.
+    db: database(seed, {}, {}, Infinity, false),
     context: { tenantId: TENANT_ID, roleId: 'role-directory', organizationId: 'own' },
   });
   const canonicalResult = await canonical.search({

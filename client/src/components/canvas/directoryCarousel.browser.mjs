@@ -4,7 +4,7 @@ const slug = 'directory-carousel-task5186-fixture';
 const member = { id: 'viewer5186', first_name: 'Alex', last_name: 'Mercer', tenant_id: 'tenant5186', role_id: 'role5186', is_team_member: true };
 const role = { id: member.role_id, name: 'Canvas administrator', excluded_features: [] };
 
-async function fixture(page, content, { denied = false, records, directories, guest = false, entityType, allowSave = false, delaySource, delayNameDisplay, inheritNames = true } = {}) {
+async function fixture(page, content, { denied = false, records, directories, guest = false, entityType, allowSave = false, delaySource, delayNameDisplay, inheritNames = true, blockType = 'directory-carousel' } = {}) {
   page.on('pageerror', (error) => console.error('Fixture page error:', error.message));
   const requests = [];
   const writes = [];
@@ -12,7 +12,7 @@ async function fixture(page, content, { denied = false, records, directories, gu
   const authRequests = [];
   const pending = [];
   const block = {
-    id: 'carousel5186', type: 'directory-carousel', name: 'Directory carousel',
+    id: 'carousel5186', type: blockType, name: 'Directory carousel',
     geom: { x: 0, y: 0, w: 1200, h: 420 },
     bp: { desktop: { x: 0, y: 0, w: 1200, h: 420 }, mobile: { x: 0, y: 0, w: 375, h: 360 } },
     style: { background: '#f8fafc', borderWidth: 2, borderColor: '#64748b', borderRadius: 12 },
@@ -93,6 +93,29 @@ async function fixture(page, content, { denied = false, records, directories, gu
     return json(route, url.pathname.includes('/branding') || url.pathname.includes('/settings') ? { tenant: { id: member.tenant_id }, branding: {} } : []);
   });
   return { requests, writes, saved, authRequests, block, release() { while (pending.length) pending.shift()(); } };
+}
+
+for (const entityType of ['member', 'organization']) {
+  for (const editor of [false, true]) {
+    test(`full dynamic directory ${entityType} loads and searches in ${editor ? 'editor' : 'guest page'}`, async ({ page }) => {
+      const records = entityType === 'member'
+        ? [{ id: 'member-schema', first_name: 'Ada', last_name: 'Example', name: 'Ada Example', job_title: 'Engineer', linkedin_url: 'https://linkedin.com/in/example' }]
+        : [{ id: 'org-schema', name: 'Schema Partner', subtitle: null, slug: null, logo_url: null }];
+      const state = await fixture(page, { directorySlug: 'verified-directory', limit: 12 }, {
+        blockType: 'dynamic-directory-embed', guest: !editor, entityType, records,
+      });
+      await page.goto(editor ? '/CanvasPageEditor?pageId=page5186' : `/${slug}`);
+      const card = page.getByTestId(entityType === 'member' ? 'card-member-member-schema' : 'card-organisation-org-schema');
+      await expect(card).toBeVisible();
+      await page.getByTestId('input-directory-search').fill('Schema');
+      await expect.poll(() => state.requests.some(request => request.search === 'Schema')).toBe(true);
+      await expect(card).toBeVisible();
+      expect(state.requests.every(request => request.slug === 'verified-directory' && !request.mode)).toBe(true);
+      // Full guest cards are deliberately not detail-popup actions; carousel
+      // identity/detail actions are covered separately below.
+      expect(state.writes).toEqual([]);
+    });
+  }
 }
 
 for (const [source, entityType] of [['primary-member', 'member'], ['primary-organization', 'organization'], ['dynamic', 'member'], ['dynamic', 'organization']]) {
