@@ -1204,7 +1204,7 @@ async function renderOrganizations({ supabase, tenantId, directory, pageNum, pag
   }
   let q = supabase
     .from('organization')
-    .select('id, name, slug, logo_url, description, city, country, website_url, phone', { count: 'exact' })
+    .select('id, name, logo_url, description, city, country, website_url, phone', { count: 'exact' })
     .eq('tenant_id', tenantId);
   if (orgIds) q = q.in('id', orgIds);
   if (search) {
@@ -1223,7 +1223,8 @@ async function renderOrganizations({ supabase, tenantId, directory, pageNum, pag
     subtitle: [o.city, o.country].filter(Boolean).join(', ') || null,
     image_url: o.logo_url || null,
     logo_url: o.logo_url || null,
-    slug: o.slug || null,
+    // Organizations are identified by id; only the directory has a slug.
+    slug: null,
     ...projectOrganisationCoreValues(o, displaySettings.corePublication, directory.core_field_visibility),
   }));
   if (!await revalidateOrganisationPublication({ db: supabase, tenantId, directory, settings: displaySettings, context })) {
