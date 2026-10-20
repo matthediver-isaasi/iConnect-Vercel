@@ -156,6 +156,7 @@ export function projectMembershipPaymentReport({
   }
   const candidates = new Map();
   for (const record of history) {
+    if (record.payment_status === 'unverified') continue;
     const member = memberMap.get(record.member_id);
     if (!member || record.tenant_id !== tenantId || record.organization_id
       || record.membership_source === 'organisation' || ['cancelled', 'canceled', 'expired'].includes(record.status)) continue;
@@ -212,6 +213,7 @@ export function projectMembershipPaymentReport({
   for (const record of [...history].sort((a, b) =>
     String(b.term_end_date || '').localeCompare(String(a.term_end_date || ''))
     || String(a.id).localeCompare(String(b.id)))) {
+    if (record.payment_status === 'unverified') continue;
     const member = memberMap.get(record.member_id);
     if (!member || record.tenant_id !== tenantId || included.has(member.id) || record.organization_id
       || record.membership_source === 'organisation') continue;

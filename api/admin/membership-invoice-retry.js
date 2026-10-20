@@ -56,6 +56,10 @@ export default async function handler(req, res) {
   }
   if (!row) return res.status(404).json({ error: 'Record not found' });
   if (row.tenant_id !== appTenantId) return res.status(403).json({ error: 'Cross-tenant access denied' });
+  if (table === 'member_membership_history' && row.payment_status === 'unverified') {
+    return res.status(409).json({ code: 'MEMBERSHIP_PAYMENT_UNVERIFIED',
+      error: 'Payment unverified. Financial evidence must be reviewed before creating or retrying an invoice.' });
+  }
   // An accepted operation owns its original economics even if today's
   // configuration, payment status or selected provider has changed.
   {

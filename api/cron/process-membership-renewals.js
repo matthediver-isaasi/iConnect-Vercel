@@ -1120,6 +1120,7 @@ async function invoiceExistingMemberRecord(tenantId, memberId, simResult, result
 
   if (!record) return;
 
+  if (record.payment_status === 'unverified') return;
   if (!prepared && record.payment_status === 'paid' && !record.xero_invoice_id && !record.accounting_invoice_id
     && isZeroDueExistingMembership(record)) {
     await fireNewZeroDueMembershipPaidWorkflow({

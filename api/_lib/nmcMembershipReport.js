@@ -108,6 +108,7 @@ function membershipEvidence(history, agreements, plans, recognitions, today) {
   const unresolved = [];
   let tests = 0, future = 0;
   for (const record of history) {
+    if (record.payment_status === 'unverified') continue;
     const start = nmcDate(record.term_start_date), expiry = nmcDate(record.term_end_date);
     if ((record.term_start_date != null && !start) || (record.term_end_date != null && !expiry)
       || (start && expiry && start > expiry)) {

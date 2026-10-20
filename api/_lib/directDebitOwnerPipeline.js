@@ -65,6 +65,7 @@ export async function runScheduledActivation({ row, tenantId, scope, now, effect
   const memberScope = scope === 'member';
   const table = memberScope ? 'member_membership_history' : 'organisation_membership_history';
   const skip = reason => { trace({ stage, status: 'skipped', reason }); return { skipped: true, reason }; };
+  if (memberScope && row.payment_status === 'unverified') return skip('Payment unverified — not activated');
   const total = row.total_with_vat ?? row.final_cost;
   const zeroDue = total != null && Number.isFinite(Number(total)) && Math.round(Number(total) * 100) === 0;
   const invoiceLessZeroDue = !row.xero_invoice_id && !row.accounting_invoice_id

@@ -108,6 +108,17 @@ export default async function handler(req, res) {
     // Direct Debit option all branch on this flag.
     const isMemberToken = !!feeToken.member_id;
     const { resolveFeeTokenInvoiceReference } = await import('../../_lib/feeTokenInvoiceReference.js');
+    if (isMemberToken && feeToken.history_record_id) {
+      const { data: historicalPayment, error: historicalPaymentError } = await supabase
+        .from('member_membership_history').select('payment_status')
+        .eq('id', feeToken.history_record_id).eq('tenant_id', feeToken.tenant_id)
+        .eq('member_id', feeToken.member_id).maybeSingle();
+      if (historicalPaymentError) return res.status(503).json({ error: 'Could not verify historical payment evidence. No payment was initiated.' });
+      if (historicalPayment?.payment_status === 'unverified') return res.status(409).json({
+        code: 'MEMBERSHIP_PAYMENT_UNVERIFIED',
+        error: 'Payment unverified. Historical membership requires financial review before payment or invoicing.',
+      });
+    }
     // Never route historical debt through the tenant's current provider.
     const invoiceReference = await resolveFeeTokenInvoiceReference(supabase, feeToken);
     const isReminderToken = !!feeToken.cost_breakdown?.renewalQuote && !feeToken.cost_breakdown?.isFeeQuote;
@@ -186,7 +197,7 @@ export default async function handler(req, res) {
           .eq(isMemberToken ? 'member_id' : 'organization_id', feeToken.member_id || feeToken.organization_id)
           .eq('membership_year', feeToken.membership_year).maybeSingle();
         if (error) throw new Error(`Could not verify the linked renewal: ${error.message}`);
-        if (linked && linked.payment_status !== 'paid' && !linked.paid_at
+        if (linked && linked.payment_status !== 'unverified' && linked.payment_status !== 'paid' && !linked.paid_at
             && !linked.billing_agreement_id && !['cancelled', 'void'].includes(linked.status)
             && (linked.xero_invoice_id || linked.accounting_invoice_id || linked.term_key)) {
           const { classifyAnnualRenewal, hasActiveMonthlyBillingAgreement } = await import('../../_lib/annualRenewalPolicy.js');

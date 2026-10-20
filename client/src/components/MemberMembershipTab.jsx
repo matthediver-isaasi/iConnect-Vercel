@@ -58,8 +58,8 @@ import MemberMembershipInstalments, {
 
 function PaymentStatusBadge({ paymentStatus }) {
   const status = paymentStatus || 'unpaid';
-  const variantMap = { paid: 'secondary', partial: 'warning', voided: 'destructive', unpaid: 'outline' };
-  const labelMap = { paid: 'Paid', partial: 'Partial', voided: 'Voided', unpaid: 'Unpaid' };
+  const variantMap = { paid: 'secondary', partial: 'warning', voided: 'destructive', unpaid: 'outline', unverified: 'outline' };
+  const labelMap = { paid: 'Paid', partial: 'Partial', voided: 'Voided', unpaid: 'Unpaid', unverified: 'Payment unverified' };
   return (
     <Badge variant={variantMap[status] || 'outline'} data-testid={`badge-payment-${status}`}>
       {labelMap[status] || status}
@@ -1760,7 +1760,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                     const membershipSource = getMembershipSource(record);
                     const membershipRecordKey = `${membershipSource}:${record.id}`;
                     const hasAdjustments = (record.free_period_discount > 0) || (record.prorata_cost !== null) || (record.rollover_discount > 0);
-                    const invoiceId = record.accounting_invoice_id || record.xero_invoice_id;
+                    const invoiceId = record.payment_status === 'unverified' ? null : record.accounting_invoice_id || record.xero_invoice_id;
                     const invoiceNumber = record.accounting_invoice_number || record.xero_invoice_number;
                     const canInspectSettlement = !!invoiceId
                       && record.payment_method === 'stripe'
@@ -1874,7 +1874,9 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                               />
                             </div>
                           )}
-                          {!invoiceId && record.accounting_sync_status === 'failed' ? (
+                          {record.payment_status === 'unverified' ? (
+                            <span className="text-xs text-muted-foreground">Payment evidence unavailable</span>
+                          ) : !invoiceId && record.accounting_sync_status === 'failed' ? (
                             <div className="flex items-center justify-center gap-2" data-testid={`cell-invoice-failed-${record.id}`}>
                               <Badge variant="warning" title={record.accounting_sync_error || 'Invoice creation failed'}>
                                 <AlertTriangle className="w-3 h-3 mr-1" />

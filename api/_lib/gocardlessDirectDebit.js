@@ -718,11 +718,12 @@ export async function activateMembershipForAgreement(agreement, { trigger, db: d
 
   const { data: row, error } = await db
     .from(table)
-    .select('id, status')
+    .select('id, status, payment_status')
     .eq('billing_agreement_id', agreement.id)
     .maybeSingle();
   if (error) throw new Error(`load membership history for agreement failed: ${error.message}`);
   if (!row) return { updated: false, detail: 'no membership history row linked to agreement' };
+  if (row.payment_status === 'unverified') return { updated: false, detail: 'Payment unverified; activation withheld' };
   if (row.status === 'active') return { updated: false, detail: 'membership already active' };
 
   const activate = decideMembershipActivation({ activationRule: snapshot.activation_rule, trigger });
@@ -761,7 +762,7 @@ export async function recordDdPaymentProgress(agreement, { db: dbArg } = {}) {
   const completesPlan = snapshot?.billing_request_payment?.included === true
     && remainingSubscriptionInstalments(snapshot) === 0;
   const nextPaymentStatus = completesPlan ? 'paid' : 'partial';
-  if (!row || row.payment_status === 'paid' || row.payment_status === nextPaymentStatus) {
+  if (!row || row.payment_status === 'unverified' || row.payment_status === 'paid' || row.payment_status === nextPaymentStatus) {
     return { updated: false };
   }
   const { error } = await db

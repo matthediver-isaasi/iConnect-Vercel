@@ -63,6 +63,7 @@ export async function enrichMembershipHistoryPrices(records, {
   if (!Array.isArray(records) || !db || !tenantId) return records;
   const today = new Date(now).toISOString().slice(0, 10);
   const eligibleRows = records.filter((row) => row?.tenant_id === tenantId
+      && row.payment_status !== 'unverified'
       && row?.billing_agreement_id
       && DIRECT_DEBIT_METHODS.has(row.payment_method));
   for (const record of eligibleRows.filter(rowDeclaresDynamic)) {

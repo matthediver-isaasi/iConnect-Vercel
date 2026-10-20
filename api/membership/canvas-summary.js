@@ -64,7 +64,7 @@ function dated(record, today) {
 
 export function selectCanvasCommitment(personal, organisation, today) {
   const sources = [personal, organisation].map(rows =>
-    rows.filter(row => !isRetiredCanvasCheckout(row)).map(row => dated(row, today)));
+    rows.filter(row => row.payment_status !== 'unverified' && !isRetiredCanvasCheckout(row)).map(row => dated(row, today)));
   const descending = (a, b) => (b.start || '').localeCompare(a.start || '')
     || String(a.record.id).localeCompare(String(b.record.id));
   // Source priority applies to today's term, not the newest recorded row.

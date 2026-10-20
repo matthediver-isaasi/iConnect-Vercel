@@ -16,6 +16,7 @@ const PROVIDER_ERROR_MESSAGE = 'Unable to download this invoice right now. Pleas
 const COMMON_INVOICE_COLUMNS = [
   'id',
   'tenant_id',
+  'payment_status',
   'xero_invoice_id',
   'xero_invoice_number',
   'accounting_provider',
@@ -26,6 +27,7 @@ const COMMON_INVOICE_COLUMNS = [
 const INSTALMENT_COMMON_COLUMNS = [
   'id',
   'tenant_id',
+  'payment_status',
   'membership_year',
   'billing_period',
   'billing_agreement_id',
@@ -404,6 +406,10 @@ export function createMembershipInvoiceHandler(dependencies = {}) {
       }
 
       const record = recordsBySource[candidateSource];
+      if (candidateSource === PERSONAL_SOURCE && record.payment_status === 'unverified') {
+        return res.status(409).json({ code: 'MEMBERSHIP_PAYMENT_UNVERIFIED',
+          error: 'Payment unverified. No invoice is available for this historical membership.' });
+      }
       if (instalmentRequest) {
         const instalment = await fetchInstalmentInvoiceRow({
           db,

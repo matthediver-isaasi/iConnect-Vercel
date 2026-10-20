@@ -1,5 +1,6 @@
 import { calculateMembershipYearWindow } from './membershipYear.js';
 import { buildRollingTerm } from '../../shared/rollingMembershipTerm.js';
+import { findUnresolvedUnverifiedHistory } from '../../shared/unverifiedMembershipHistory.js';
 
 const DAY = 86_400_000;
 const MONTHLY_PERIODS = new Set(['monthly', 'monthly_card', 'monthly_direct_debit']);
@@ -109,6 +110,11 @@ export function classifyAnnualRenewal({
   hasActiveMonthlyAgreement = false,
   existingTargetRecord = null,
 } = {}) {
+  if (previousRecord?.payment_status === 'unverified' || existingTargetRecord?.payment_status === 'unverified') {
+    return { applicable: true, eligible: false, state: 'review_required',
+      code: 'MEMBERSHIP_PAYMENT_UNVERIFIED',
+      message: 'Payment unverified. Financial review is required before renewal.' };
+  }
   const targetWindow = targetMembershipYear?.start
     ? { start: dateOnly(targetMembershipYear.start), end: dateOnly(targetMembershipYear.end) }
     : null;
@@ -223,8 +229,13 @@ export async function resolveEntityAnnualRenewalEligibility(client, {
   const rows = await loadEntityHistory(client, { tenantId, memberId, organizationId });
   const targetLabel = membershipYear?.label || null;
   const existingTargetRecord = rows.find((row) => row.membership_year === targetLabel) || null;
+  const unresolved = memberId && findUnresolvedUnverifiedHistory(rows, { targetYear: targetLabel });
+  if (unresolved) return classifyAnnualRenewal({
+    previousRecord: unresolved, existingTargetRecord, targetMembershipYear: membershipYear, config, now,
+  });
   const targetStart = dateOnly(membershipYear?.start);
   const candidates = rows
+    .filter((row) => !memberId || row.payment_status !== 'unverified')
     .filter((row) => row.membership_year !== targetLabel)
     .map((row) => ({ row, term: deriveAnnualTerm(row, config, now) }))
     .filter(({ term }) => !targetStart || term.start < targetStart)

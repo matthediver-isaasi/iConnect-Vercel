@@ -158,6 +158,7 @@ export async function runAnnualOwnerRow({ db, tenantId, scope, setting, now, eff
   if (loaded.error) throw new Error(loaded.error.message);
   const record = loaded.data;
   if (!record) return skip('Existing membership history no longer exists');
+  if (memberScope && record.payment_status === 'unverified') return skip('Payment unverified; no invoice created');
   // Current entitlement labels/scope may be amended, but an outstanding invoice
   // for an already purchased term must retain that purchase's financial config.
   const invoiceSim = sim.originalPurchaseConfig ? {

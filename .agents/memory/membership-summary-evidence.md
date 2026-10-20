@@ -9,6 +9,19 @@ Keep membership access, invoice settlement and recurring-payment setup as separa
 
 **How to apply:** Use distinct “paid in full” wording for confirmed upfront settlement, never recurring-setup wording. Missing or partial settlement evidence and a paid monthly instalment do not establish upfront settlement. Require commitment-matched plan evidence for setup-success wording and next planned collection dates. Show a known renewal anniversary explicitly as renewal, never as an automatic collection date. Do not borrow unrelated plans or infer organisation billing from an employee's personal agreement.
 
+Historical membership dates may be retained with **Payment unverified** when
+settlement evidence is missing. This is neither paid membership nor a debt.
+
+**Why:** The user approved this distinction rather than falsely marking
+legacy history paid or unpaid. Original source-system dates can establish
+history without establishing the price, payment, or recurring consent.
+
+**How to apply:** Preserve unknown amounts and invoice links as unknown; do not
+collect, renew, reactivate, or infer a purchased commitment from these records.
+Keep expired/former members unchanged. Older uncertain history must not block
+a later independently verified membership. Resolving uncertainty requires a
+reviewed evidence correction, not changing the status merely to enable billing.
+
 For migrated Direct Debits, distinguish verified existing mandate readiness, imported historical payments, source-system current entitlement, and the new collection term.
 
 **Why:** A pilot retained paid historical collections separately from an unpaid future term. Its internal pending setup status was misleading on screen despite an active legacy mandate; relabelling the term active would instead falsely grant financial entitlement.

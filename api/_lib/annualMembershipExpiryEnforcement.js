@@ -31,6 +31,7 @@ export async function hasSuccessfulNextTerm(client, table, tenantId, idColumn, i
 }
 
 function isAnnualPaid(row) {
+  if (row.payment_status === 'unverified') return false;
   return isAnnualNonRecurring(row)
     && (row.term_key ? hasSettledRollingPayment(row)
       : row.payment_status === 'paid' || !!row.paid_at || hasExplicitZeroAmount(row));
@@ -54,6 +55,7 @@ function hasSettledRollingPayment(row) {
 }
 
 export function isCurrentMembershipProtection(row, now = new Date()) {
+  if (row.payment_status === 'unverified') return false;
   const today = now.toISOString().slice(0, 10);
   if (row.term_key || row.commitment_snapshot?.start_mode === 'immediate') {
     return row.status === 'active' && hasSettledRollingPayment(row)
@@ -291,6 +293,7 @@ export async function processTenantAnnualExpirySweep(client, tenantId, results =
     return true;
   }
   async function processHistory(history) {
+    if (history.payment_status === 'unverified') { skip(`History ${history.id} payment is unverified; no expiry inferred.`); return; }
     if (!candidate(history)) { skip(`History ${history.id} is not an expired annual non-recurring candidate.`); return; }
     if (cursor.historyType === 'member' && isAttestedExpiryOnlyHistory(history, tenantId)
         && !assignedPolicies.has(history.id)) {

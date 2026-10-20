@@ -9,6 +9,7 @@ import { loadExpiryOnlyRenewalPolicy } from './expiryOnlyRenewalPolicy.js';
 import { hasFormExpiryOnlyProvenance } from './formExpiryOnlyRenewal.js';
 import { addDays, toDateString } from './annualRenewalPolicy.js';
 import { resolveMemberAmendmentReadOverlay, effectiveMemberEntitlement } from './membershipAmendmentReadOverlay.js';
+import { findUnresolvedUnverifiedHistory } from '../../shared/unverifiedMembershipHistory.js';
 
 // A saved usage amount is not evidence of the rate/entitlement that produced it.
 // In particular, never substitute the renewal schedule for the joining schedule.
@@ -135,7 +136,15 @@ async function resolveRollingSimulationContext(client, {
   const { data: rows, error } = await client.from(memberId ? 'member_membership_history' : 'organisation_membership_history')
     .select('*').eq('tenant_id', tenantId).eq(memberId ? 'member_id' : 'organization_id', memberId || organizationId);
   if (error) throw new Error(`Could not load purchased membership terms: ${error.message}`);
-  const histories = (rows || []).filter(row => !['cancelled', 'void', 'expired_checkout'].includes(row.status));
+  let histories = (rows || []).filter(row => !['cancelled', 'void', 'expired_checkout'].includes(row.status));
+  if (memberId && findUnresolvedUnverifiedHistory(histories, {
+    previousTerm: options.previousTerm, targetYear: options.targetYear, historyId: options.expiryOnlyHistoryId,
+  })) {
+    throw new Error('Payment unverified. Historical membership requires financial review before renewal or collection.');
+  }
+  // A superseded unknown entry remains in the ledger, never in predecessor
+  // selection or calculations based on purchased commitment evidence.
+  if (memberId) histories = histories.filter(row => row.payment_status !== 'unverified');
   if (options.expiryOnlyHistoryId) {
     const history = histories.find(row => row.id === options.expiryOnlyHistoryId);
     const policy = memberId && options.source === 'form-renewal'
@@ -1365,6 +1374,20 @@ async function simulateMembershipForMember(tenantId, memberId, options = {}) {
   }
   const memberName = `${member.first_name || ''} ${member.last_name || ''}`.trim() || member.email;
   log('Lookup Member', `Found: ${memberName} (${member.email || 'no email'})`);
+
+  // Do not turn an uncertain legacy price/year into a quote, invoice or
+  // automatic renewal. Independently evidenced later purchases remain usable.
+  const { data: unverifiedHistory, error: historyVerificationError } = await supabase
+    .from('member_membership_history').select('id, tenant_id, member_id, organization_id, membership_year, payment_status, status, term_start_date, term_end_date, billing_agreement_id, previous_term_id')
+    .eq('tenant_id', tenantId).eq('member_id', memberId);
+  if (historyVerificationError || findUnresolvedUnverifiedHistory(unverifiedHistory || [], {
+    previousTerm: options.previousTerm, targetYear, historyId: options.expiryOnlyHistoryId,
+  })) {
+    return { success: false, steps, code: 'MEMBERSHIP_PAYMENT_UNVERIFIED',
+      error: historyVerificationError
+        ? 'Could not verify historical membership payment evidence. No payment quote was created.'
+        : 'Payment unverified. Historical membership requires financial review before payment, invoicing or renewal.' };
+  }
 
   const { data: allInvoicingSettings } = await supabase
     .from('member_membership_invoicing')

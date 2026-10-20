@@ -41,6 +41,7 @@ function fixture() {
       const q = {
         select() { return q; }, order() { return q; },
         eq(key, value) { rows = rows.filter(row => row[key] === value); return q; },
+        neq(key, value) { rows = rows.filter(row => row[key] !== value); return q; },
         in(key, values) { rows = rows.filter(row => values.includes(row[key])); return q; },
         or() { return q; }, limit() { return q; },
         single() { return q.maybeSingle(); },

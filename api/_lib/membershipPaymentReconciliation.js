@@ -67,6 +67,9 @@ export async function reconcileRow({ table, row, baseUrl = '' }, deps = {}) {
   const fireWorkflow = deps.fireWorkflow || fireWorkflowForPaidRow;
   const fetchStatus = deps.fetchStatus || null;
   if (!row) return skipped(table, null, 'row-not-found');
+  if (table === 'member_membership_history' && row.payment_status === 'unverified') {
+    return skipped(table, row.id, 'payment-unverified');
+  }
 
   const recordId = row.id;
   const invoiceReference = invoiceReferenceFromRow(row);
@@ -312,6 +315,10 @@ export async function recordSucceededMembershipPaymentIntent(
       .maybeSingle();
     row = data || null;
   }
+  if (table === 'member_membership_history' && row?.payment_status === 'unverified') {
+    return { status: 'conflict', table, recordId: row.id, workflowFired: false,
+      detail: 'Payment unverified; historical membership cannot be settled or reactivated automatically' };
+  }
   let reconstructed = false;
   if (!row) {
     // No history row exists — the confirm flow failed BEFORE inserting it
@@ -475,6 +482,10 @@ export async function recordSucceededMembershipPaymentIntent(
         } catch {}
       }
     }
+  }
+  if (table === 'member_membership_history' && row.payment_status === 'unverified') {
+    return { status: 'conflict', table, recordId: row.id, workflowFired: false,
+      detail: 'Payment unverified; historical membership requires financial review' };
   }
   if (row.stripe_payment_intent_id && row.stripe_payment_intent_id !== pi.id) {
     console.error(`[MEMBERSHIP-RECONCILE] CONFLICT: ${table}#${row.id} already references a DIFFERENT PI (${row.stripe_payment_intent_id}) than succeeded ${pi.id} — refusing to overwrite, admin attention required`);

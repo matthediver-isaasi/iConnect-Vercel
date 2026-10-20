@@ -23,6 +23,7 @@ import { signupMonthlyPriceFromAgreement, completedPendingBankActivation } from 
 import { loadCanvasRenewalEligibility } from '../_lib/canvasRenewalEligibility.js';
 import { attachExpiryRenewalPolicyDisplay, legacyRenewalPolicyDisplay } from '../_lib/membershipRenewalPolicyDisplay.js';
 import { resolveMemberAmendmentReadOverlays, effectiveMemberEntitlement } from '../_lib/membershipAmendmentReadOverlay.js';
+import { findUnresolvedUnverifiedHistory } from '../../shared/unverifiedMembershipHistory.js';
 
 const INSTALMENT_PAGE_SIZE = 25;
 const INSTALMENT_MAX_PAGE = 1000;
@@ -163,6 +164,8 @@ export function findLegacyCurrentMembership(history, tenantId, now = new Date())
  * continue to describe the structure and price agreed at commencement.
  */
 export function shapePersistedCommitment(record, now = new Date()) {
+  // A historical ledger entry is not a purchased term or collection authority.
+  if (record?.payment_status === 'unverified') return null;
   const entitlement = effectiveMemberEntitlement(record);
   const legacyDirectDebit = record?.billing_agreement_id
     && ['direct_debit', 'gocardless'].includes(record?.payment_method);
@@ -1330,6 +1333,19 @@ async function handleGet(req, res, tenantId, db = supabase, {
       && ['direct_debit', 'gocardless'].includes(commitment.paymentMethod))
   ));
 
+  if (findUnresolvedUnverifiedHistory(personalHistory)) {
+    return res.json({
+      canApproveCardMembership: false,
+      member: { id: member.id, name: `${member.first_name || ''} ${member.last_name || ''}`.trim(), email: member.email || null },
+      config: null, currentYearCost: null, nextYearPreview: null,
+      legacyCurrentMembership, graceWarning, graceWarningUnavailable,
+      history, commitments, currentCommitments, pause,
+      pricingCapability: {
+        mode: 'unavailable', status: 'payment_unverified', readOnly: true,
+        canSimulate: false, canEmail: false, canOverride: false, canRenew: false, canInvoice: false,
+      },
+    });
+  }
   const liveConfig = await resolveConfig(tenantId, memberId);
   let config = liveConfig;
   let historicalSnapshot = null;
@@ -1459,7 +1475,7 @@ async function handleGet(req, res, tenantId, db = supabase, {
   const currentYearRecord = legacyCurrentMembership
     ? null
     : personalRollingRecord || historicalSnapshot?.record
-      || personalHistory.find(h => h.membership_year === currentYear.label
+      || personalHistory.find(h => h.payment_status !== 'unverified' && h.membership_year === currentYear.label
         && (!h.term_end_date || h.term_end_date >= today));
 
   if (currentYearRecord) {

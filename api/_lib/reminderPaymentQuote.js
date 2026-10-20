@@ -47,6 +47,10 @@ export function reminderRenewalSnapshot(quote, history) {
 
 // No delivery or provider effects: the caller supplies simulation and token preparation.
 export async function resolveReminderPaymentQuote({ client, tenantId, history, histories, now = new Date(), simulate, prepare, recipients, loadAddonQuote, resolveStripeCredentials }) {
+  if (history.payment_status === 'unverified') return {
+    success: false, code: 'MEMBERSHIP_PAYMENT_UNVERIFIED',
+    message: 'Payment unverified. No renewal payment link can be prepared from this history.',
+  };
   if (history.member_id) history = await resolveMemberAmendmentReadOverlay({
     db: client, tenantId, history, asOf: new Date(now).toISOString().slice(0, 10), renewal: true,
   });
@@ -70,6 +74,7 @@ export async function resolveReminderPaymentQuote({ client, tenantId, history, h
     : calculateMembershipYearWindow(config, term.nextStart);
   const successor = histories.find(row => row.id !== history.id && !['cancelled', 'void', 'expired_checkout'].includes(row.status)
     && (row.term_start_date === start || row.membership_year === window.label));
+  if (successor?.payment_status === 'unverified') return blocked('MEMBERSHIP_PAYMENT_UNVERIFIED', 'Successor payment is unverified; financial review is required.');
   if (successor && (successor.payment_status === 'paid' || successor.paid_at || Number(successor.total_with_vat ?? successor.final_cost) === 0)) {
     return blocked('paid', 'Renewal payment link suppressed: successor term is already paid.');
   }

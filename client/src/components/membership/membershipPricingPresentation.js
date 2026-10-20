@@ -100,6 +100,12 @@ function monthlyPrice(record, dynamic, fallbackCurrency) {
 }
 
 export function getMembershipPricingPresentation(record) {
+  if (record?.payment_status === 'unverified') {
+    const unknown = () => ({ amount: null, text: 'Unknown' });
+    return { dynamic: false, currency: record.currency || null,
+      agreed: unknown(), net: unknown(), vat: unknown(), gross: unknown(),
+      monthly: null, signupMonthly: null };
+  }
   const snapshotAmounts = record?.commitment_snapshot?.amounts || {};
   const currency = firstPresent(
     record?.monthly_price?.currency,
