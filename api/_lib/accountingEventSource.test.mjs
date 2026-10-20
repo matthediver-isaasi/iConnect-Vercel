@@ -68,3 +68,58 @@ test('event schedule processes accepted QBO requests independently of rollout fl
     process: async args => calls.push(args.requestId) });
   assert.deepEqual(calls, ['q']);
 });
+
+test('new QBO customer and invoice retain captured address lines, folding overflow without guessing locality', async () => {
+  const f = fixture();
+  f.row.snapshot.invoice.contact.address = ' 1 Personal Road \n\nFlat 2\nTown\nCounty\nAA1 1AA\nUnited Kingdom';
+  const original = structuredClone(f.row.snapshot);
+  const expected = { Line1: '1 Personal Road', Line2: 'Flat 2', Line3: 'Town', Line4: 'County', Line5: 'AA1 1AA, United Kingdom' };
+  const fetch = f.transport.fetch;
+  let customerPayload;
+  f.transport.fetch = async (url, init) => {
+    if (url.includes('/query?')) return Response.json({ QueryResponse: { Customer: [] } });
+    if (url.includes('/customer?')) {
+      customerPayload = JSON.parse(init.body);
+      return Response.json({ Customer: { Id: 'new-customer', ...customerPayload } });
+    }
+    return fetch(url, init);
+  };
+  const s = await prepareAccountingEventSource(f);
+  assert.deepEqual(customerPayload.BillAddr, expected);
+  assert.deepEqual(s.invoice.envelope.payload.BillAddr, expected);
+  assert.deepEqual(s.invoice.envelope.expected.fields.BillAddr, expected);
+  assert.deepEqual(f.row.snapshot, original);
+});
+
+test('existing QBO customer billing address is preserved without customer writes', async () => {
+  const f = fixture();
+  f.row.snapshot.invoice.contact.address = 'Different captured road\nTown';
+  const providerAddress = { Id: 'address-id', Line1: 'Provider-held road', City: 'Existing town', PostalCode: 'AA1 1AA' };
+  const fetch = f.transport.fetch;
+  f.transport.fetch = async (url, init) => url.includes('/query?')
+    ? Response.json({ QueryResponse: { Customer: [{ Id: 'customer', PrimaryEmailAddr: { Address: 'buyer@example.test' }, BillAddr: providerAddress }] } })
+    : fetch(url, init);
+  const s = await prepareAccountingEventSource(f);
+  const { Id, ...expected } = providerAddress;
+  assert.deepEqual(s.invoice.envelope.payload.BillAddr, expected);
+  assert.ok(f.calls.every(([, init]) => init.method === 'GET'));
+});
+
+test('existing QBO customer without a billing address uses captured address on invoice only', async () => {
+  const f = fixture();
+  f.row.snapshot.invoice.contact.address = 'Captured road\nTown\nAA1 1AA';
+  const s = await prepareAccountingEventSource(f);
+  assert.deepEqual(s.invoice.envelope.payload.BillAddr, { Line1: 'Captured road', Line2: 'Town', Line3: 'AA1 1AA' });
+  assert.ok(f.calls.every(([, init]) => init.method === 'GET'));
+});
+
+for (const address of [undefined, ' \n\t ', { line1: 'Unsupported structured address' }]) {
+  test(`QBO does not invent billing address for ${JSON.stringify(address)}`, async () => {
+    const f = fixture();
+    f.row.snapshot.invoice.contact.address = address;
+    const s = await prepareAccountingEventSource(f);
+    assert.equal(s.invoice.envelope.payload.BillAddr, undefined);
+    assert.equal(s.invoice.envelope.expected.fields.BillAddr, undefined);
+    assert.ok(f.calls.every(([, init]) => init.method === 'GET'));
+  });
+}

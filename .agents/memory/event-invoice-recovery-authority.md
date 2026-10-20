@@ -14,6 +14,19 @@ not their organisation's details. Keep organisation/on-account billing separate.
 This policy does not itself establish an unidentified guest's identity or supply
 missing addresses.
 
+For an issued-invoice detail repair, re-read the live provider invoice before
+choosing invariants: accountants may have changed tax treatment, descriptions
+and payments since the recovery snapshot. Preserve those live financial values
+unless their correction is separately authorised.
+
+**Why:** A historical recovery snapshot no longer matched the live invoice's
+total, tax treatment or payment ID during a customer-name repair.
+
+**How to apply:** Pin the invoice/contact IDs, compare pre/post financial and
+payment evidence, and record a provider audit note. Xero contact names must be
+unique; inspect same-name collisions rather than merging by name. A
+name-plus-verified-email display label can distinguish separate contacts.
+
 Event invoices must identify the booker separately from attendees, even when
 the booker is also attending. Keep the invoice payer distinct.
 

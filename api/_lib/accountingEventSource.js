@@ -7,6 +7,17 @@ const fail = (code, retry = false) => { throw Object.assign(new Error(code), { c
 const minor = value => Math.round(Number(value) * 100);
 const settingsKeys = ['quickbooks_event_item_id', 'quickbooks_event_tax_code_id', 'quickbooks_event_stripe_bank_account_id'];
 
+function capturedBillAddress(addressText) {
+  if (typeof addressText !== 'string') return null;
+  const lines = addressText.split('\n').map(line => line.trim()).filter(Boolean);
+  if (!lines.length) return null;
+  // Match quickbooks.js: preserve entered order rather than guessing which
+  // free-text line is City/Country. Fold overflow into Line5 without data loss.
+  const address = Object.fromEntries(lines.slice(0, 5).map((line, index) => [`Line${index + 1}`, line]));
+  if (lines.length > 5) address.Line5 = lines.slice(4).join(', ');
+  return address;
+}
+
 async function rpc(db, name, args) {
   let query = db.rpc(`accounting_event_${name}`, args);
   if (typeof query.abortSignal === 'function') query = query.abortSignal(AbortSignal.timeout(5000));
@@ -24,6 +35,7 @@ export async function enqueueQuickBooksEventInvoice(input, context) {
     version: 1, preparation: true, environment: context.provider.environment,
     invoice: {
       amount: Number(input.amount), currency, paymentMethod, contact: structuredClone(contact),
+      booker: input.booker ? structuredClone(input.booker) : null,
       capturedAt: now.toISOString(), eventId: event.id, eventTitle: event.title || 'Event',
       date: now.toISOString().slice(0, 10),
       dueDate: new Date(now.getTime() + 30 * 86400000).toISOString().slice(0, 10),
@@ -176,6 +188,7 @@ export async function prepareAccountingEventSource({ db, row, transport }) {
     .QueryResponse?.Customer || [];
   if (!Array.isArray(customers) || customers.length > 1) fail('ACCOUNTING_EVENT_PURCHASER_AMBIGUOUS');
   let customer = customers[0];
+  const capturedAddress = capturedBillAddress(intent.contact.address);
   if (customer && (!intent.contact.email || String(customer.PrimaryEmailAddr?.Address || '').toLowerCase() !== intent.contact.email.toLowerCase())) {
     fail('ACCOUNTING_EVENT_PURCHASER_MISMATCH');
   }
@@ -184,6 +197,7 @@ export async function prepareAccountingEventSource({ db, row, transport }) {
     const key = accountingOperationIdentity(`${row.tenant_id}:${row.source_type}:${row.source_id}`, 'cust', 50);
     customer = (await request(`customer?requestid=${encodeURIComponent(key)}`, {
       DisplayName: intent.contact.name, PrimaryEmailAddr: { Address: intent.contact.email },
+      ...(capturedAddress ? { BillAddr: capturedAddress } : {}),
     })).Customer;
   }
   if (!customer?.Id || customer.Active === false
@@ -191,11 +205,22 @@ export async function prepareAccountingEventSource({ db, row, transport }) {
   const payload = { CustomerRef: { value: String(customer.Id) }, CurrencyRef: { value: intent.currency },
     TxnDate: intent.date, DueDate: intent.dueDate, CustomerMemo: { value: intent.reference },
     GlobalTaxCalculation: inclusive ? 'TaxInclusive' : 'TaxExcluded', Line: lines };
+  // Never rewrite an existing customer's address. Preserve their provider-held
+  // billing address on the invoice; use captured evidence only if none is held.
+  const billAddress = customer.BillAddr && Object.keys(customer.BillAddr).some(key =>
+    key !== 'Id' && typeof customer.BillAddr[key] === 'string' && customer.BillAddr[key].trim())
+    ? customer.BillAddr : capturedAddress;
+  if (billAddress) {
+    // Address IDs belong to the customer record, not the new invoice address.
+    const { Id: _addressId, ...addressFields } = billAddress;
+    payload.BillAddr = structuredClone(addressFields);
+  }
   const operationKey = `${row.tenant_id}:${row.source_type}:${row.source_id}`;
   snapshot.invoice = { envelope: prepareAccountingRequestEnvelope({
     provider: row.provider, environment: snapshot.environment, operationKey,
     payload, expected: { contactId: String(customer.Id), currency: intent.currency, totalMinor,
-      fields: { TxnDate: payload.TxnDate, DueDate: payload.DueDate, GlobalTaxCalculation: payload.GlobalTaxCalculation, Line: lines } },
+      fields: { TxnDate: payload.TxnDate, DueDate: payload.DueDate, GlobalTaxCalculation: payload.GlobalTaxCalculation, Line: lines,
+        ...(payload.BillAddr ? { BillAddr: payload.BillAddr } : {}) } },
   }) };
   if (snapshot.payment) {
     const date = snapshot.payment.paidAt.slice(0, 10);

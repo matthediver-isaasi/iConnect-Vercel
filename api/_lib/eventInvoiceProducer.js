@@ -35,7 +35,7 @@ function freezeLineTax(line, ticket) {
   return line;
 }
 
-function invoiceContactPayload(contact) {
+export function invoiceContactPayload(contact) {
   if (!contact?.name) return null;
   const payload = { Name: contact.name, ...(contact.email ? { EmailAddress: contact.email } : {}) };
   // Same address mapping as the historical complex-event Xero contact helper.
@@ -53,21 +53,24 @@ function invoiceContactPayload(contact) {
   return payload;
 }
 
-export function eventInvoiceContact({ source, org, member, isGuestBooking, guestInfo }) {
-  if (org) return {
+export function eventInvoiceContact({ source, org, member, isGuestBooking, guestInfo, paymentMethod }) {
+  // A member's organisation (or their card's owner) is not the purchaser for
+  // personal Stripe payments. Keep on-account/organisation billing unchanged.
+  const personalPayment = ['card', 'stripe'].includes(paymentMethod);
+  if (org && !personalPayment) return {
     name: org.name,
     email: org.invoicing_email || null,
-    ...(source === 'complex_event_booking' ? { address: org.address || null } : {}),
+    address: org.address || null,
     isOrganization: true,
     provenance: { kind: 'organization', id: org.id },
   };
-  // Complex checkout never historically identified a guest purchaser. In
-  // particular, the first attendee must NOT become the invoice recipient.
-  if (source === 'booking' && isGuestBooking && guestInfo) {
-    const organization = typeof guestInfo.organization === 'string' ? guestInfo.organization.trim() : null;
+  // Only explicit purchaser details, never an arbitrary attendee.
+  if (isGuestBooking && guestInfo) {
+    const organization = !personalPayment && typeof guestInfo.organization === 'string' ? guestInfo.organization.trim() : null;
     return {
       name: organization || `${guestInfo.first_name || ''} ${guestInfo.last_name || ''}`.trim() || guestInfo.email,
       email: guestInfo.email,
+      ...(typeof guestInfo.address === 'string' ? { address: guestInfo.address } : {}),
       isOrganization: !!organization,
       provenance: { kind: 'guest_purchaser', guestInfo: {
         first_name: guestInfo.first_name, last_name: guestInfo.last_name,
@@ -78,6 +81,7 @@ export function eventInvoiceContact({ source, org, member, isGuestBooking, guest
   if (member) return {
     name: `${member.first_name || ''} ${member.last_name || ''}`.trim() || member.email,
     email: member.email,
+    ...(typeof member.address === 'string' ? { address: member.address } : {}),
     isOrganization: false,
     provenance: { kind: 'member', id: member.id },
   };
@@ -205,6 +209,17 @@ export function invoiceBookerLabel(booker) {
   return `Booked by: ${name}${name && email ? ' — ' : ''}${email}`;
 }
 
+export function eventInvoiceBooker(booker) {
+  if (!invoiceBookerLabel(booker)) return null;
+  // Do not persist the full session/member row (which may contain credentials).
+  return {
+    ...(booker.id ? { id: booker.id } : {}),
+    first_name: booker.first_name || booker.firstName || null,
+    last_name: booker.last_name || booker.lastName || null,
+    email: booker.email || null,
+  };
+}
+
 export async function enqueueCheckoutEventInvoice({
   db, tenantId, source, bookingGroupReference, event, amount, currency,
   paymentMethod, paymentIntentId, paymentIntent, contact, purchaseOrderNumber,
@@ -215,6 +230,7 @@ export async function enqueueCheckoutEventInvoice({
   }
   // Freeze the actual checkout booker in the invoice description independently
   // of the payer/contact and attendees. Recovery reuses these stored lines.
+  booker = eventInvoiceBooker(booker);
   const bookerLabel = invoiceBookerLabel(booker);
   if (bookerLabel) {
     const originalBuildLines = buildLines;
@@ -225,6 +241,7 @@ export async function enqueueCheckoutEventInvoice({
   let context;
   let snapshot = {
     version: 1, contact: contact ? clone(contact) : null,
+    booker: booker ? clone(booker) : null,
     currency: String(currency || '').toUpperCase(), amount: Number(amount),
     paymentMethod: paymentMethod === 'card' ? 'stripe' : 'invoice',
     checkoutPaymentMethod: paymentMethod,
@@ -239,7 +256,7 @@ export async function enqueueCheckoutEventInvoice({
       try {
         return await (await import('./accountingEventSource.js')).enqueueQuickBooksEventInvoice({
           db, tenantId, source, bookingGroupReference, event, amount, currency,
-          paymentMethod, paymentIntentId, paymentIntent, contact, purchaseOrderNumber, poToFollow, buildLines, now,
+          paymentMethod, paymentIntentId, paymentIntent, contact, purchaseOrderNumber, poToFollow, buildLines, booker, now,
         }, context);
       } catch (error) {
         // Never hand accepted/uncertain QuickBooks work to the Xero writer.

@@ -13,6 +13,7 @@ const input = () => ({
   tickets: [{ id: 'ticket', name: 'Early bird', price: 300, early_bird_price: 200,
     vat_rate_key: 'NONE', vat_rate_percentage: 0, currency: 'GBP' }],
   organization: { id: 'buyer', tenant_id: 'tenant', name: 'Purchaser organization' },
+  member: { id: 'booker', tenant_id: 'tenant', first_name: 'Original', last_name: 'Booker', email: 'booker@example.test' },
   providers: [{ id: 'connection', tenant_id: 'xero-org' }],
 });
 
@@ -27,7 +28,22 @@ test('automatic original-row reconstruction preserves early bird amount and orga
   assert.equal(s.invoice.Date, '2026-01-01');
   assert.equal(s.invoice.DueDate, '2026-01-31');
   assert.equal(s.invoice.InvoiceNumber, undefined);
+  assert.match(s.invoice.LineItems[0].Description, /^Booked by: Original Booker — booker@example.test\n/);
+  assert.match(s.invoice.LineItems[0].Description, /Attendee: not-the-buyer@example.test/);
+  assert.equal(s.booker.id, 'booker');
+  assert.equal(s.contact.address, undefined);
   assert.deepEqual(original, copy);
+});
+
+test('historical personal payer preserves available details and contact linkage without company substitution', () => {
+  const i = input();
+  i.bookings[0].organization_id = null;
+  Object.assign(i.member, { address: 'Personal road\nTown\nAA1 1AA', xero_contact_id: 'existing-person' });
+  const s = reconstructHistoricalEventInvoice(i);
+  assert.equal(s.invoice.Contact.ContactID, 'existing-person');
+  assert.equal(s.invoice.Contact.Name, 'Original Booker');
+  assert.equal(s.invoice.Contact.EmailAddress, 'booker@example.test');
+  assert.equal(s.invoice.Contact.Addresses[0].AddressLine1, 'Personal road');
 });
 
 test('explicit Inclusive 20% ticket reconstructs booked gross 200 as net 166.67 plus VAT 33.33, never catalogue 300', () => {
@@ -51,6 +67,8 @@ for (const [label, change, reason] of [
   ['invalid amount policy', i => { i.tickets[0].invoice_line_amount_type = 'gross'; }, 'line_amount_policy_invalid'],
   ['inclusive without VAT rate', i => { i.tickets[0].invoice_line_amount_type = 'Inclusive'; i.tickets[0].vat_rate_percentage = null; }, 'tax_evidence_missing'],
   ['missing buyer', i => { i.organization = null; }, 'purchaser_missing'],
+  ['missing booker', i => { i.member = null; }, 'booker_missing'],
+  ['unrelated member', i => { i.member.id = 'attendee'; }, 'booker_missing'],
   ['missing currency', i => { delete i.tickets[0].currency; }, 'currency_missing'],
   ['missing account', i => { delete i.event.xero_account_code; }, 'sales_account_missing'],
   ['discount allocation', i => { i.bookings[0].voucher_amount = 10; }, 'credit_allocation_requires_review'],

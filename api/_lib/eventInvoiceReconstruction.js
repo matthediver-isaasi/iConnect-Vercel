@@ -1,5 +1,6 @@
 import { recoveryRpc, validRecoverySnapshot, EventInvoiceRecoveryError } from './eventInvoiceRecovery.js';
-import { eventTicketLineAmountType, eventTicketTaxAmount } from './eventInvoiceProducer.js';
+import { eventTicketLineAmountType, eventTicketTaxAmount, eventInvoiceBooker, invoiceBookerLabel,
+  invoiceContactPayload } from './eventInvoiceProducer.js';
 
 const fail = code => { throw new EventInvoiceRecoveryError(`historical_${code}`); };
 const unique = (rows, key) => {
@@ -34,8 +35,17 @@ export function reconstructHistoricalEventInvoice(input) {
   const name = orgId ? buyer.name : `${buyer.first_name || ''} ${buyer.last_name || ''}`.trim();
   if (!name) fail('purchaser_missing');
   const email = orgId ? buyer.invoicing_email : buyer.email;
-  const contact = { name, email: email || null, provenance: { kind: orgId ? 'organization' : 'member', id: buyer.id } };
-  const Contact = buyer.xero_contact_id ? { ContactID: buyer.xero_contact_id } : { Name: name, ...(email ? { EmailAddress: email } : {}) };
+  // The original booking member FK establishes the booker independently of the
+  // invoice organisation. Never substitute an attendee or today's org contact.
+  if (!memberId || !member || member.id !== memberId || member.tenant_id !== candidate.tenantId) fail('booker_missing');
+  const booker = eventInvoiceBooker(member);
+  if (!booker) fail('booker_missing');
+  const contact = { name, email: email || null,
+    ...(typeof buyer.address === 'string' ? { address: buyer.address } : {}),
+    provenance: { kind: orgId ? 'organization' : 'member', id: buyer.id } };
+  // Include known customer fields even for an existing contact; a contact ID
+  // alone does not preserve the personal/customer evidence in the snapshot.
+  const Contact = { ...invoiceContactPayload(contact), ...(buyer.xero_contact_id ? { ContactID: buyer.xero_contact_id } : {}) };
   const lines = [];
   const currencies = [];
   const policies = [];
@@ -64,7 +74,8 @@ export function reconstructHistoricalEventInvoice(input) {
     if (!/^[A-Z]{3}$/.test(String(currency || '').toUpperCase())) fail('currency_missing');
     currencies.push(String(currency).toUpperCase());
     total += amount;
-    lines.push({ Description: `Event: ${event.title}\nTicket: ${ticket.name}\nBooking: ${candidate.bookingGroupReference}`,
+    const attendee = `${b.attendee_first_name || ''} ${b.attendee_last_name || ''}`.trim() || b.attendee_email;
+    lines.push({ Description: `${lines.length === 0 ? `${invoiceBookerLabel(booker)}\n\n` : ''}Event: ${event.title}\nTicket: ${ticket.name}\nBooking: ${candidate.bookingGroupReference}${attendee ? `\nAttendee: ${attendee}` : ''}`,
       Quantity: 1, UnitAmount: amount, TaxAmount: eventTicketTaxAmount(amount, ticket.vat_rate_percentage, policy),
       TaxType: ticket.vat_rate_key, AccountCode: event.xero_account_code.trim() });
   }
@@ -76,7 +87,7 @@ export function reconstructHistoricalEventInvoice(input) {
   const due = new Date(`${date}T00:00:00Z`); due.setUTCDate(due.getUTCDate() + 30);
   const searchEnd = new Date(`${date}T00:00:00Z`); searchEnd.setUTCDate(searchEnd.getUTCDate() + 365);
   const currency = currencies[0];
-  const snapshot = { version: 1, contact, paymentMethod: 'invoice', amount: Number(total.toFixed(2)), currency,
+  const snapshot = { version: 1, contact, booker, paymentMethod: 'invoice', amount: Number(total.toFixed(2)), currency,
     reconstruction: { policy: 'original-ticket-v1', bookingFingerprint: candidate.bookingFingerprint,
       eventId: event.id, ticketEvidence: structuredClone(tickets.filter(t => bookings.some(b => String(b.ticket_class_id) === String(t.id)))),
       purchaser: contact.provenance },

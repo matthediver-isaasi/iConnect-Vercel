@@ -84,6 +84,7 @@ function paymentIntent(overrides = {}) {
 
 for (const enabled of [undefined, 'false']) test(`QuickBooks checkout ignores Xero enable flag (${enabled}) and maps Xero VAT evidence to explicit QBO code`, async () => {
   const f = fixture({ enabled, provider: 'quickbooks' });
+  f.input.booker = { id: 'booker', first_name: 'Actual', last_name: 'Booker', email: 'booker@example.test', password_hash: 'private' };
   const originalFrom = f.input.db.from;
   f.input.db.from = table => {
     if (table !== 'system_settings') return originalFrom(table);
@@ -109,6 +110,8 @@ for (const enabled of [undefined, 'false']) test(`QuickBooks checkout ignores Xe
   assert.equal(f.queued.length, 0, 'Xero writer is never selected');
   assert.equal(snapshot.invoice.lines[0].TaxType, 'OUTPUT2');
   assert.equal(snapshot.invoice.lines[0]._checkoutTaxPercentage, 20);
+  assert.deepEqual(snapshot.invoice.booker, { id: 'booker', first_name: 'Actual', last_name: 'Booker', email: 'booker@example.test' });
+  assert.match(snapshot.invoice.lines[0].Description, /^Booked by: Actual Booker — booker@example.test/);
   const urls = [];
   const transport = { async fetch(url) {
     urls.push(url);
@@ -211,6 +214,37 @@ test('explicit guest purchaser is preserved; complex attendee is never invented 
   assert.equal(contact.name, 'Guest company');
   assert.equal(contact.provenance.kind, 'guest_purchaser');
   assert.equal(eventInvoiceContact({ source: 'complex_event_booking', guestInfo, attendees: [guestInfo] }), null);
+});
+
+for (const source of ['booking', 'complex_event_booking']) test(`${source}: Stripe member uses personal details even with an organisation/company card`, async () => {
+  const f = fixture();
+  const member = { id: 'member-a', first_name: 'Personal', last_name: 'Payer', email: 'payer@example.test',
+    address: 'Personal street\nPersonal town\nPP1 1PP' };
+  const org = { id: 'org-a', name: 'Employer', invoicing_email: 'employer@example.test', address: 'Company street' };
+  f.input.source = source;
+  f.input.contact = eventInvoiceContact({ source, member, org, paymentMethod: 'card' });
+  Object.assign(f.input, { paymentMethod: 'card', paymentIntentId: 'pi_original', paymentIntent: {
+    ...paymentIntent(), latest_charge: { ...paymentIntent().latest_charge,
+      billing_details: { name: 'Employer company card', address: { line1: 'Card office' } } },
+  }, booker: { ...member, password_hash: 'must-not-persist' } });
+  assert.equal((await enqueueCheckoutEventInvoice(f.input, f.deps)).status, 'pending');
+  const s = f.queued[0].snapshot;
+  assert.equal(s.contact.provenance.kind, 'member');
+  assert.equal(s.invoice.Contact.Name, 'Personal Payer');
+  assert.equal(s.invoice.Contact.EmailAddress, member.email);
+  assert.equal(s.invoice.Contact.Addresses[0].AddressLine1, 'Personal street');
+  assert.equal(s.booker.password_hash, undefined);
+  assert.equal(s.settlement.paymentIntentId, 'pi_original');
+  assert.equal(eventInvoiceContact({ source, member, org, paymentMethod: 'account' }).name, 'Employer');
+  assert.equal(eventInvoiceContact({ source, org, paymentMethod: 'card' }), null);
+});
+
+test('explicit complex guest payer is personal for card and has no invented address', () => {
+  const guestInfo = { first_name: 'Guest', last_name: 'Payer', email: 'guest@example.test', organization: 'Employer' };
+  const c = eventInvoiceContact({ source: 'complex_event_booking', isGuestBooking: true, guestInfo, paymentMethod: 'card' });
+  assert.equal(c.name, 'Guest Payer');
+  assert.equal(c.isOrganization, false);
+  assert.equal(c.address, undefined);
 });
 
 test('captured Stripe settlement is exact, uses charge date and never PI initiation/retry date', async () => {
@@ -411,6 +445,10 @@ test('booker is frozen separately from invoice payer and attendees without chang
   assert.deepEqual(changed.invoice.Contact, original.invoice.Contact);
   const description = changed.invoice.LineItems[0].Description;
   assert.equal(description, `Booked by: Booking Member — booker@example.test\n\n${original.invoice.LineItems[0].Description}`);
+  assert.deepEqual(changed.booker, f.input.booker);
+  f.input.booker.first_name = 'Changed after checkout';
+  assert.equal(changed.booker.first_name, 'Booking');
+  changed.booker = original.booker;
   changed.invoice.LineItems[0].Description = original.invoice.LineItems[0].Description;
   assert.deepEqual(changed, original);
 });

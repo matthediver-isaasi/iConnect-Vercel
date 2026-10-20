@@ -3582,7 +3582,7 @@ const functionHandlers = {
       bookingGroupReference: bookingReference, event, amount: validatedRemainingBalance,
       currency: event.pricing_config?.ticket_classes?.find(tc => tc.id === ticketClassId)?.currency || 'GBP',
       paymentMethod, paymentIntentId: stripePaymentIntentId, paymentIntent: invoicePaymentEvidence,
-      contact: eventInvoiceContact({ source: 'booking', org, member, isGuestBooking, guestInfo }),
+      contact: eventInvoiceContact({ source: 'booking', org, member, isGuestBooking, guestInfo, paymentMethod }),
       booker: isGuestBooking ? guestInfo : bookingSessionMember,
       purchaseOrderNumber, poToFollow,
       buildLines: accountCode => simpleEventInvoiceLines({
