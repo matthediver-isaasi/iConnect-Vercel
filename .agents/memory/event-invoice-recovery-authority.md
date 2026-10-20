@@ -3,6 +3,17 @@ name: Event invoice recovery authority
 description: Recovery snapshots, existing-invoice evidence, payment ownership and rollout constraints.
 ---
 
+Individual members paying through Stripe must be invoiced using their personal
+details, even if they use a company card.
+
+**Why:** The user explicitly confirmed this billing policy; card ownership does
+not change the invoice customer.
+
+**How to apply:** Use the paying member's personal details for these invoices,
+not their organisation's details. Keep organisation/on-account billing separate.
+This policy does not itself establish an unidentified guest's identity or supply
+missing addresses.
+
 Event invoices must identify the booker separately from attendees, even when
 the booker is also attending. Keep the invoice payer distinct.
 
