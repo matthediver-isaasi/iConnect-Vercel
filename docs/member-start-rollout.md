@@ -19,9 +19,15 @@ The link is still shared manually using **Copy member authorization link**.
 This extension requires
 `supabase/migrations/202612310024_member_start_member_choice.sql` before use,
 after the already-deployed `202612310022` and `202612310023` migrations.
-It has **not been applied to a live database during this implementation**.
-Deploy the API and client together only after applying and verifying the migration;
-existing explicitly selected payment requests must remain unchanged.
+Applied with owner approval on 2026-10-21 to verified live DEST
+(`lvmzliemqnieeoruhkik`).
+SHA256: `c7f3f4801b2b1fc4c50b748f8942e85e323bea8f9047faa732f2a0fba5ea6800`.
+Verified capability version 2 with `memberChoice: true`, selection-table RLS,
+service-only selection RPC access, and no browser table reads or direct
+service-role inserts. The selection table is empty after migration. No live
+memberships, provider objects or payments were changed; SOURCE was untouched.
+No further migration is pending for this extension. Deploy the matching API and
+client together; existing explicitly selected payment requests remain unchanged.
 
 The service-only readiness RPC must return version 2 and `memberChoice: true`.
 Until then, the new option is visibly unavailable; existing explicit modes remain
