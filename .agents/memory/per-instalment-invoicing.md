@@ -3,6 +3,21 @@ name: Per-instalment monthly membership invoicing
 description: Invariants of the opt-in invoice-per-instalment mode for monthly membership plans (GC DD + Stripe card).
 ---
 
+Test Stripe instalments must never become real accounting invoices or payments.
+Anonymised member identities must not be used as invoice customers, and a
+shared placeholder name must never establish contact identity.
+
+**Why:** Read-only production investigation verified test Stripe subscriptions
+feeding paid Xero invoices under one shared “Deleted Member” contact. Name-only
+contact reuse also overwrote its email, so a PDF's deletion-placeholder ID did
+not identify that invoice's actual linked member.
+
+**How to apply:** Verify provider mode before accounting writes; preserve
+original purchaser evidence separately from mutable member profiles. For repair,
+trace invoice → instalment ledger → agreement → provider payment, not the shared
+contact's current email. Test-origin invoices need accounting reversal review,
+not relabelling as genuine customer purchases.
+
 # Per-instalment monthly membership invoicing
 
 One tier-level invoicing mode ('annual' default | 'per_instalment') applies to BOTH GC DD and Stripe monthly card plans, and is **snapshotted at consent** into the billing-agreement terms — tier changes never affect running plans.
