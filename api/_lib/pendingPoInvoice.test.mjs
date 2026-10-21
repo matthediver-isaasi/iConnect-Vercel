@@ -16,6 +16,11 @@ import {
 function createPendingPoClient({
   organizations = [{ id: 'org-1', name: 'Example Org' }],
   members = [{ id: 'member-1', organization_id: 'org-1', email: 'member@example.org' }],
+  groups = [],
+  bookings = [],
+  transactions = [],
+  lookupError = null,
+  strictFilters = false,
   organisationMembershipHistory = [],
   memberMembershipHistory = [],
   organisationMembershipInvoicing = [],
@@ -26,8 +31,9 @@ function createPendingPoClient({
   const rowsByTable = {
     organization: organizations,
     member: members,
-    booking: [],
-    program_ticket_transaction: [],
+    organization_group: groups,
+    booking: bookings,
+    program_ticket_transaction: transactions,
     training_fund_purchase: [],
     event: [],
     organisation_membership_history: organisationMembershipHistory,
@@ -39,7 +45,19 @@ function createPendingPoClient({
   };
 
   const execute = (query) => {
-    const rows = rowsByTable[query.table] || [];
+    let rows = rowsByTable[query.table] || [];
+    if (lookupError?.table === query.table && (!lookupError.from || query.from >= lookupError.from)) {
+      return { data: null, error: { message: 'Lookup unavailable' } };
+    }
+    if (strictFilters) {
+      rows = rows.filter((row) => query.filters.every(({ method, column, value }) => {
+        if (method === 'eq') return row[column] === value;
+        if (method === 'in') return value.includes(row[column]);
+        if (method === 'is') return (row[column] ?? null) === value;
+        if (method === 'neq') return row[column] !== value;
+        return true;
+      }));
+    }
     if (query.operation === 'update') {
       calls.push({
         operation: 'update',
@@ -74,8 +92,9 @@ function createPendingPoClient({
       table: query.table,
       columns: query.columns,
       filters: query.filters,
+      from: query.from,
     });
-    return { data: rows, error: null };
+    return { data: query.from == null ? rows : rows.slice(query.from, query.to + 1), error: null };
   };
 
   class Query {
@@ -151,7 +170,9 @@ function createPendingPoClient({
       });
     }
 
-    range() {
+    range(from, to) {
+      this.from = from;
+      this.to = to;
       return Promise.resolve(execute(this));
     }
 
@@ -172,6 +193,147 @@ test('extractPoFromReference extracts PO from our membership reference conventio
   assert.equal(extractPoFromReference('Membership 2025/2026 - PO: test2407'), 'test2407');
   assert.equal(extractPoFromReference('Membership 2026/27 - PO: PO-00123'), 'PO-00123');
   assert.equal(extractPoFromReference('PO: ABC123'), 'ABC123');
+});
+
+const displayBooking = (id, memberId, organizationId = null, invoice = id) => ({
+  id, member_id: memberId, organization_id: organizationId,
+  xero_invoice_number: invoice, payment_method: 'account',
+  purchase_order_number: null, status: 'active', ticket_price: 25,
+});
+const tenantRow = (row) => ({ tenant_id: 'tenant-1', ...row });
+const bedfordshire = 'Bedfordshire Hospitals NHS Foundation Trust';
+
+test('compute display uses member organisation, then direct group, then exact unknown without changing ownership', async () => {
+  const client = createPendingPoClient({
+    strictFilters: true,
+    organizations: [
+      tenantRow({ id: 'billing', name: 'Billing Organisation' }),
+      tenantRow({ id: 'member-org', name: 'Member Organisation' }),
+    ],
+    groups: [tenantRow({ id: 'trust', name: bedfordshire })],
+    members: [
+      tenantRow({ id: 'kathryn', organization_id: null, organization_group_id: 'trust', first_name: 'Kathryn' }),
+      tenantRow({ id: 'both', organization_id: 'member-org', organization_group_id: 'trust' }),
+      tenantRow({ id: 'neither', organization_id: null, organization_group_id: null, first_name: 'Individual' }),
+    ],
+    bookings: [
+      displayBooking('group', 'kathryn'),
+      displayBooking('both', 'both', 'billing'),
+      displayBooking('neither', 'neither'),
+      displayBooking('billing', null, 'billing'),
+    ],
+  });
+  const result = await computePendingPoInvoices({ client, tenantId: 'tenant-1' });
+  const byId = Object.fromEntries(result.records.map((r) => [r.id, r]));
+  assert.equal(byId['num:group'].organization_display_name, bedfordshire);
+  assert.equal(byId['num:group'].organization_id, null);
+  assert.equal(byId['num:both'].organization_display_name, 'Member Organisation');
+  assert.equal(byId['num:both'].organization_id, 'billing');
+  assert.equal(byId['num:neither'].organization_display_name, 'Unknown Organisation');
+  assert.equal(byId['num:billing'].organization_display_name, 'Billing Organisation');
+  assert.equal(byId['num:billing'].organization_id, 'billing');
+  assert.equal(client.calls.some((c) => c.operation !== 'select'), false);
+  for (const table of ['member', 'organization', 'organization_group']) {
+    assert.ok(client.calls.filter((c) => c.table === table).every((c) =>
+      c.filters.some((f) => f.method === 'eq' && f.column === 'tenant_id' && f.value === 'tenant-1')));
+  }
+});
+
+test('compute display lookup failures and unresolved tenant associations fail rather than become unknown', async () => {
+  for (const table of ['member', 'organization', 'organization_group']) {
+    const client = createPendingPoClient({
+      members: [{ id: 'm', organization_group_id: 'g' }],
+      lookupError: { table },
+    });
+    await assert.rejects(computePendingPoInvoices({ client, tenantId: 'tenant-1' }), /Lookup unavailable/);
+  }
+  for (const member of [
+    tenantRow({ id: 'm', organization_id: 'missing' }),
+    tenantRow({ id: 'm', organization_group_id: 'missing' }),
+    tenantRow({ id: 'other' }),
+  ]) {
+    const client = createPendingPoClient({
+      strictFilters: true,
+      organizations: [tenantRow({ id: 'billing', name: 'Billing' })],
+      members: [member],
+      bookings: [displayBooking('broken', 'm', 'billing')],
+    });
+    await assert.rejects(computePendingPoInvoices({ client, tenantId: 'tenant-1' }), /Failed to resolve/);
+  }
+});
+
+test('transaction billing organisation cannot be reclassified by a matching member email', async () => {
+  const client = createPendingPoClient({
+    strictFilters: true,
+    organizations: [
+      tenantRow({ id: 'billing', name: 'Authoritative Billing Organisation' }),
+      tenantRow({ id: 'member-org', name: 'Unrelated Member Organisation' }),
+    ],
+    members: [tenantRow({
+      id: 'member', organization_id: 'member-org', email: 'matching@example.org',
+    })],
+    transactions: [{
+      id: 'transaction', organization_id: 'billing', member_email: 'matching@example.org',
+      transaction_type: 'purchase', status: 'active', purchase_order_number: null,
+      xero_invoice_number: 'BILLING-ONLY', quantity: 1, total_cost_before_discount: 50,
+    }],
+  });
+  const { records } = await computePendingPoInvoices({ client, tenantId: 'tenant-1' });
+  assert.equal(records.length, 1);
+  assert.equal(records[0].organization_display_name, 'Authoritative Billing Organisation');
+  assert.equal(records[0].organization_id, 'billing');
+  assert.equal(records[0].member_email, 'matching@example.org');
+});
+
+test('compute display fully paginates member and organisation lookups and chunks direct group lookups', async () => {
+  const organizations = Array.from({ length: 1001 }, (_, i) => tenantRow({ id: `o${i}`, name: `Org ${i}` }));
+  const members = Array.from({ length: 1001 }, (_, i) => tenantRow({
+    id: `m${i}`, organization_id: i === 1000 ? 'o1000' : null,
+    organization_group_id: i === 1000 ? null : `g${i}`,
+  }));
+  const client = createPendingPoClient({
+    strictFilters: true, organizations, members,
+    groups: members.slice(0, 1000).map((m, i) => tenantRow({ id: `g${i}`, name: `Group ${i}` })),
+    bookings: [displayBooking('late-org', 'm1000'), displayBooking('late-group', 'm999')],
+  });
+  const result = await computePendingPoInvoices({ client, tenantId: 'tenant-1' });
+  assert.equal(result.records.find((r) => r.id === 'num:late-org').organization_display_name, 'Org 1000');
+  assert.equal(result.records.find((r) => r.id === 'num:late-group').organization_display_name, 'Group 999');
+  for (const table of ['member', 'organization']) {
+    assert.ok(client.calls.some((c) => c.table === table && c.from === 1000));
+  }
+  const groupCalls = client.calls.filter((c) => c.table === 'organization_group');
+  assert.equal(groupCalls.length, 2);
+  assert.ok(groupCalls.every((c) => c.filters.find((f) => f.method === 'in').value.length <= 500));
+  const failing = createPendingPoClient({ organizations, lookupError: { table: 'organization', from: 1000 } });
+  await assert.rejects(computePendingPoInvoices({ client: failing, tenantId: 'tenant-1' }), /Lookup unavailable/);
+});
+
+test('consolidation displays all distinct associations deterministically, including genuine unknowns', async () => {
+  const bookings = [
+    displayBooking('a', 'unknown', null, 'shared'),
+    displayBooking('b', 'group', null, 'shared'),
+    displayBooking('c', 'org', null, 'shared'),
+    displayBooking('d', 'group', null, 'shared'),
+  ];
+  for (const ordered of [bookings, [...bookings].reverse()]) {
+    const client = createPendingPoClient({
+      strictFilters: true,
+      organizations: [tenantRow({ id: 'org', name: 'Member Organisation' })],
+      members: [
+        tenantRow({ id: 'unknown' }),
+        tenantRow({ id: 'group', organization_group_id: 'trust' }),
+        tenantRow({ id: 'org', organization_id: 'org' }),
+      ],
+      groups: [tenantRow({ id: 'trust', name: bedfordshire })],
+      bookings: ordered,
+    });
+    const { records } = await computePendingPoInvoices({ client, tenantId: 'tenant-1' });
+    assert.equal(records.length, 1);
+    assert.equal(records[0].organization_display_name, `${bedfordshire}; Member Organisation; Unknown Organisation`);
+    assert.equal(records[0].quantity, 4);
+    assert.equal(records[0].total_cost, 100);
+  }
 });
 
 test('extractPoFromReference rejects placeholder junk values', () => {
@@ -546,6 +708,7 @@ test('organisation-less tenant member membership invoices remain visible and rem
   const computed = await computePendingPoInvoices({ client, tenantId: 'tenant-1' });
   assert.equal(computed.records.length, 1);
   assert.equal(computed.records[0].organization_id, null);
+  assert.equal(computed.records[0].organization_display_name, 'Unknown Organisation');
   assert.equal(computed.records[0].member_email, 'individual@example.org');
 
   const prepared = await prepareReminderForInvoice({

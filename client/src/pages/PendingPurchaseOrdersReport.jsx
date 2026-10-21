@@ -25,6 +25,7 @@ import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 
 const HIDE_PAID_STORAGE_KEY = 'pendingPOReport.hidePaidInvoices';
+const organizationDisplayName = (record) => record?.organization_display_name || 'Unknown Organisation';
 
 const DAYS_OF_WEEK = [
   { value: 0, label: 'Sun' },
@@ -135,7 +136,6 @@ export default function PendingPurchaseOrdersReport() {
   }, [reminderSettings]);
 
   const pendingPORecords = reportData?.records || [];
-  const organizations = reportData?.organizations || {};
   const xeroCheckPerformed = reportData?.xeroCheckPerformed || false;
   const xeroError = reportData?.xeroError || null;
   const paidInXero = reportData?.paidInXero || 0;
@@ -205,7 +205,7 @@ export default function PendingPurchaseOrdersReport() {
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(r => {
-        const orgName = organizations[r.organization_id] || '';
+        const orgName = organizationDisplayName(r);
         return (
           orgName.toLowerCase().includes(query) ||
           (r.xero_invoice_number || '').toLowerCase().includes(query) ||
@@ -222,13 +222,13 @@ export default function PendingPurchaseOrdersReport() {
         case 'date_asc':
           return new Date(a.created_date || 0) - new Date(b.created_date || 0);
         case 'org_asc': {
-          const orgA = organizations[a.organization_id] || '';
-          const orgB = organizations[b.organization_id] || '';
+          const orgA = organizationDisplayName(a);
+          const orgB = organizationDisplayName(b);
           return orgA.localeCompare(orgB);
         }
         case 'org_desc': {
-          const orgA = organizations[a.organization_id] || '';
-          const orgB = organizations[b.organization_id] || '';
+          const orgA = organizationDisplayName(a);
+          const orgB = organizationDisplayName(b);
           return orgB.localeCompare(orgA);
         }
         case 'invoice_asc':
@@ -241,7 +241,7 @@ export default function PendingPurchaseOrdersReport() {
     });
 
     return filtered;
-  }, [pendingPORecords, organizations, searchQuery, selectedSource, sortBy, hidePaidInvoices, xeroCheckPerformed]);
+  }, [pendingPORecords, searchQuery, selectedSource, sortBy, hidePaidInvoices, xeroCheckPerformed]);
 
   // Reset to page 1 when filters change
   useEffect(() => {
@@ -322,7 +322,7 @@ export default function PendingPurchaseOrdersReport() {
     const headers = ['Organisation', 'Type', 'Event/Program', 'Invoice Number', 'Invoice Date', 'Quantity', 'Total Cost', 'Member Email'];
     const rows = filteredAndSortedData.map(r => {
       return [
-        organizations[r.organization_id] || 'Unknown',
+        organizationDisplayName(r),
         r.source_type,
         r.source_name || '',
         r.xero_invoice_number || '',
@@ -496,7 +496,7 @@ export default function PendingPurchaseOrdersReport() {
       }
 
       const preview = await response.json();
-      const orgName = organizations[record.organization_id] || 'the organisation';
+      const orgName = organizationDisplayName(record);
       setReminderPreview({
         record,
         recordKey,
@@ -1007,7 +1007,7 @@ export default function PendingPurchaseOrdersReport() {
               </p>
             <div className="space-y-3">
               {paginatedData.map((record) => {
-                const orgName = organizations[record.organization_id] || 'Unknown Organisation';
+                const orgName = organizationDisplayName(record);
                 const TypeIcon = record.source_type === 'Event'
                   ? Ticket
                   : record.source_type === 'Mixed'
@@ -1231,7 +1231,7 @@ export default function PendingPurchaseOrdersReport() {
           {editingRecord && (
             <div className="space-y-4 py-4">
               <div className="text-sm text-muted-foreground">
-                <p><strong>Organisation:</strong> {organizations[editingRecord.organization_id] || 'Unknown'}</p>
+                <p><strong>Organisation:</strong> {organizationDisplayName(editingRecord)}</p>
                 <p><strong>Invoice:</strong> {editingRecord.xero_invoice_number}</p>
                 <p><strong>{editingRecord.source_type}:</strong> {editingRecord.source_name}</p>
               </div>

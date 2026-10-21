@@ -1076,22 +1076,6 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
     pagination: {},
   };
 
-  const { data: tenantOrgs, error: orgsError } = await client
-    .from('organization')
-    .select('id, name')
-    .eq('tenant_id', tenantId);
-
-  if (orgsError) {
-    console.error('[PendingPO] computePendingPoInvoices org fetch error:', orgsError);
-    throw new Error(`Failed to fetch organizations: ${orgsError.message}`);
-  }
-
-  const orgMap = {};
-  const tenantOrgIds = (tenantOrgs || []).map((o) => {
-    orgMap[o.id] = o.name;
-    return o.id;
-  });
-
   const PAGE_SIZE = 1000;
   const paginationStats = {};
   const fetchAllPages = async (label, buildQuery) => {
@@ -1104,7 +1088,7 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
       if (error) {
         console.error(`[PendingPO] Error paginating ${label} (page ${pageCount}):`, error);
         paginationStats[label] = { pagesFetched: pageCount, scannedRows: all.length, error: error.message };
-        throw error;
+        throw new Error(`Failed to load ${label}: ${error.message}`);
       }
       pageCount += 1;
       if (!data || data.length === 0) break;
@@ -1115,6 +1099,14 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
     paginationStats[label] = { pagesFetched: pageCount, scannedRows: all.length };
     return all;
   };
+
+  const tenantOrgs = await fetchAllPages('organization', () => client
+    .from('organization')
+    .select('id, name')
+    .eq('tenant_id', tenantId)
+    .order('id', { ascending: true }));
+  const orgMap = Object.fromEntries(tenantOrgs.map((o) => [o.id, o.name]));
+  const tenantOrgIds = tenantOrgs.map((o) => o.id);
 
   const HAS_INVOICE_OR = 'xero_invoice_id.not.is.null,xero_invoice_number.not.is.null';
   // Training fund purchases billed via QuickBooks store their invoice only in
@@ -1173,16 +1165,11 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
       .order('id', { ascending: true }))
     : [];
 
-  let membersInTenant = [];
-  try {
-    membersInTenant = await fetchAllPages('member (tenant org members)', () => client
+  const membersInTenant = await fetchAllPages('member (tenant org members)', () => client
       .from('member')
-      .select('id, organization_id')
+      .select('id, email, organization_id, organization_group_id')
       .eq('tenant_id', tenantId)
       .order('id', { ascending: true }));
-  } catch (memberError) {
-    membersInTenant = [];
-  }
 
   const memberIdsInTenant = membersInTenant.map((m) => m.id);
   const memberMembershipHistory = [];
@@ -1245,22 +1232,42 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
     }, {});
   }
 
-  const memberIds = [...new Set([
-    ...(bookings || []).map((b) => b.member_id),
-    ...(trainingFundPurchases || []).map((p) => p.created_by),
-    ...(memberMembershipHistory || []).map((h) => h.member_id),
-  ].filter(Boolean))];
-  let memberMap = {};
-  if (memberIds.length > 0) {
-    const { data: members } = await client
-      .from('member')
-      .select('id, email, organization_id')
-      .in('id', memberIds);
-    memberMap = (members || []).reduce((acc, m) => {
-      acc[m.id] = m;
-      return acc;
-    }, {});
+  const memberMap = Object.fromEntries(membersInTenant.map((m) => [m.id, m]));
+  const groupIds = [...new Set(membersInTenant
+    .filter((m) => !m.organization_id)
+    .map((m) => m.organization_group_id).filter(Boolean))];
+  const groupMap = {};
+  for (let i = 0; i < groupIds.length; i += 500) {
+    const groups = await fetchAllPages(`organization_group (display chunk ${i / 500})`, () => client
+      .from('organization_group')
+      .select('id, name')
+      .eq('tenant_id', tenantId)
+      .in('id', groupIds.slice(i, i + 500))
+      .order('id', { ascending: true }));
+    groups.forEach((group) => { groupMap[group.id] = group.name; });
   }
+
+  // Display only: never use this association to change billing ownership or
+  // reminder routing. A dangling/foreign reference is not a genuine absence.
+  const requireName = (map, id, label) => {
+    const name = map[id];
+    if (typeof name !== 'string' || !name.trim()) {
+      throw new Error(`Failed to resolve ${label} for pending PO display`);
+    }
+    return name.trim();
+  };
+  const memberDisplay = (member) => {
+    if (member.organization_id) return requireName(orgMap, member.organization_id, 'member organisation');
+    if (member.organization_group_id) return requireName(groupMap, member.organization_group_id, 'member organisation group');
+    return 'Unknown Organisation';
+  };
+  const displayName = (memberId, organizationId) => {
+    if (memberId) {
+      if (!memberMap[memberId]) throw new Error('Failed to resolve tenant member for pending PO display');
+      return memberDisplay(memberMap[memberId]);
+    }
+    return organizationId ? requireName(orgMap, organizationId, 'billing organisation') : 'Unknown Organisation';
+  };
 
   const records = [];
 
@@ -1276,6 +1283,7 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
         id: t.id,
         entityType: 'transaction',
         organization_id: t.organization_id,
+        organization_display_name: displayName(null, t.organization_id),
         source_name: t.program_name || 'Program',
         source_type: 'Program',
         xero_invoice_id: t.xero_invoice_id,
@@ -1305,6 +1313,7 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
         id: b.id,
         entityType: 'booking',
         organization_id: orgId,
+        organization_display_name: displayName(b.member_id, b.organization_id),
         source_name: eventMap[b.event_id] || 'Event',
         source_type: 'Event',
         xero_invoice_id: b.xero_invoice_id,
@@ -1335,6 +1344,7 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
         id: p.id,
         entityType: 'training_fund_purchase',
         organization_id: p.organization_id,
+        organization_display_name: displayName(p.created_by, p.organization_id),
         source_name: 'Training Fund top-up',
         source_type: 'Training Fund',
         // xero_invoice_id stays strictly Xero — it is used to batch-query the
@@ -1356,13 +1366,19 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
   (organisationMembershipHistory || [])
     .filter(isPendingMembershipPoRow)
     .forEach((row) => {
-      records.push(membershipHistoryRecord(row, 'organisation_membership_history'));
+      records.push({
+        ...membershipHistoryRecord(row, 'organisation_membership_history'),
+        organization_display_name: displayName(null, row.organization_id),
+      });
     });
 
   (memberMembershipHistory || [])
     .filter(isPendingMembershipPoRow)
     .forEach((row) => {
-      records.push(membershipHistoryRecord(row, 'member_membership_history', memberMap[row.member_id]));
+      records.push({
+        ...membershipHistoryRecord(row, 'member_membership_history', memberMap[row.member_id]),
+        organization_display_name: displayName(row.member_id, null),
+      });
     });
 
   let xeroCheckPerformed = false;
@@ -1684,6 +1700,7 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
         _sourceNames: new Set(),
         _sourceTypes: new Set(),
         _orgIds: new Set(),
+        _displayNames: new Set(),
       };
       grouped.set(key, g);
     }
@@ -1700,6 +1717,7 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
     if (r.source_name) g._sourceNames.add(r.source_name);
     if (r.source_type) g._sourceTypes.add(r.source_type);
     if (r.organization_id) g._orgIds.add(r.organization_id);
+    g._displayNames.add(r.organization_display_name);
     g.attendees.push({
       email: r.member_email || null,
       source_name: r.source_name || null,
@@ -1711,6 +1729,8 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
 
   const consolidatedRecords = [];
   grouped.forEach((g) => {
+    g.organization_display_name = [...g._displayNames].sort().join('; ');
+    delete g._displayNames;
     if (g._sourceNames.size > 1) {
       g.source_name = `${g._sourceNames.size} items`;
     }
