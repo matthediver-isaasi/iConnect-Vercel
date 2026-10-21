@@ -16,7 +16,7 @@
 
 import { supabase } from '../_lib/database.js';
 
-const TENANT_PREFIXED_BUCKETS = ['public-assets', 'private-uploads'];
+const TENANT_PREFIXED_BUCKETS = ['public-assets', 'private-uploads', 'badge-instructions'];
 const PROJECT_ATTACHMENTS_BUCKET = 'file-repository';
 const PAGE_SIZE = 1000;
 const TIME_BUDGET_MS = 50_000;

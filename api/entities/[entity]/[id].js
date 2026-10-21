@@ -585,6 +585,11 @@ export default async function handler(req, res, dependencies = {}) {
             error: 'Relationship panel preferences must be managed through their dedicated endpoint',
           });
     }
+    if (req.method !== 'GET'
+      && (req.body?.setting_key === 'tenant_badge_instructions'
+        || existingPersonalSetting?.setting_key === 'tenant_badge_instructions')) {
+      return res.status(403).json({ error: 'Badge instructions require /api/badge-instructions' });
+    }
   }
 
   // Protect the server-owned organisation member disclosure policy on update.

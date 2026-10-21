@@ -618,6 +618,10 @@ export default async function handler(req, res) {
   // This JSON map is merge-updated and validated against the caller's current
   // directory metadata by its dedicated endpoint. Generic SystemSettings
   // writes would bypass both field authorization and lost-update protection.
+  if (req.method !== 'GET' && entityNorm === 'systemsettings'
+    && req.body?.setting_key === 'tenant_badge_instructions') {
+    return res.status(403).json({ error: 'Badge instructions require /api/badge-instructions' });
+  }
   if (
     req.method === 'POST'
     && entityNorm === 'systemsettings'

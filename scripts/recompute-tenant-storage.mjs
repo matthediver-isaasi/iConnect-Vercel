@@ -44,7 +44,7 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-const TENANT_PREFIXED_BUCKETS = ['public-assets', 'private-uploads'];
+const TENANT_PREFIXED_BUCKETS = ['public-assets', 'private-uploads', 'badge-instructions'];
 const PROJECT_ATTACHMENTS_BUCKET = 'file-repository';
 const PAGE_SIZE = 1000;
 

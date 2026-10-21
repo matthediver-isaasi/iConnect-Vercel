@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import BadgeInstructionsHelpLink from "@/components/BadgeInstructionsHelpLink";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/api/supabaseClient"; // or your actual client path
 import { base44 } from "@/api/base44Client";
@@ -2281,12 +2282,7 @@ export default function PreferencesPage() {
               </CardTitle>
               <CardDescription>
                 Your membership badges that you can download and share.{' '}
-                <Link
-                  to="/help/sharing-your-membership-badge"
-                  className="text-indigo-600 hover:text-indigo-700 underline-offset-2 hover:underline font-medium"
-                >
-                  How to share your badge
-                </Link>
+                <BadgeInstructionsHelpLink memberTenantId={freshMemberData?.tenant_id} />
               </CardDescription>
             </CardHeader>
             <CardContent>

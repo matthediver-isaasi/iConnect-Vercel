@@ -31,6 +31,8 @@ declare module 'http' {
     rawBody: unknown
   }
 }
+// Only this endpoint accepts base64 PDF payloads (2 MB decoded, <3 MB JSON).
+app.use('/api/badge-instructions', express.json({ limit: '3mb' }));
 app.use(express.json({
   verify: (req, _res, buf) => {
     req.rawBody = buf;

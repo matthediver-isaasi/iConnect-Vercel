@@ -156,3 +156,4 @@
 - [Public branding boundaries](public-branding-freshness.md) — fresh authority across serverless readers; linked favicon normalization and rollout constraints.
 - [Portable npm downloads](portable-npm-downloads.md) — dependency updates can record workspace-only registry URLs that break Vercel installs.
 - [Membership amendment policy](membership-amendment-policy.md) — approved mid-term changes cover collection, credit and refund, preserving purchase evidence and expiry by default.
+- [Badge instructions lifecycle](badge-instructions-lifecycle.md) — removal retains private guidance; failed deletion requires recoverable, fenced storage disposal.

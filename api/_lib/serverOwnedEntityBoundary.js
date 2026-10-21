@@ -15,6 +15,7 @@ const SERVER_OWNED_ENTITY_NAMES = new Set([
   // (whose table fallback would otherwise expose an unlisted table).
   'stagefieldmappingaction',
   'membershipexpirypolicyassignment',
+  'badgeinstructionobject',
 ]);
 
 const GENERIC_SERVER_OWNED_FIELDS = new Map([
