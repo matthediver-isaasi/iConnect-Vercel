@@ -3,11 +3,16 @@
 ## Approval and application status
 
 Migration required: `supabase/migrations/202611100001_tenant_badge_instructions.sql`.
-No live database has been inspected or changed, and no deployment has been performed.
-The migration remains **unapplied to all shared/live databases**. Its only application
-during development is to a newly initialized, disposable local PostgreSQL test cluster.
+Applied with owner approval on 2026-10-21 to verified DEST
+(`lvmzliemqnieeoruhkik`); SOURCE was not changed.
+SHA256: `df4d686f836da4f812ac86c69b6ebbc6b152ac0c0183feb3874564badfc33125`.
+Verified private bucket, ledger RLS, denied authenticated RPC execution and
+allowed service-role RPC execution. The disposable PostgreSQL suite passed.
+Graduate Futures Institute had no saved instructions, ledger objects or retained
+PDF in the badge-instructions bucket after application; a fresh upload and explicit
+PDF-mode save are required. No files were deleted or replaced.
 
-After approval, apply the migration to the intended environment before deploying the
+For other environments, apply the migration after approval before deploying the
 API and UI together. It requires existing `tenant`, `plan`, `system_settings`,
 `storage.buckets`, `storage.objects`, and the existing `storage_used_bytes` counter.
 The private `badge-instructions` bucket is created by the migration; no public
