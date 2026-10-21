@@ -62,13 +62,14 @@ async function waitFor(predicate) {
   assert.fail("Timed out waiting for fee page");
 }
 const byId = id => document.querySelector(`[data-testid="${id}"]`);
-async function mount(data, search = "") {
+async function mount(data, search = "", transport) {
   dom.window.history.replaceState({}, "", `/membership-fees/saved-token${search}`);
   const calls = [];
   globalThis.fetch = async (url, options = {}) => {
     assert.equal(url, "/api/public/membership-fees/saved-token");
     const payload = options.body ? JSON.parse(options.body) : null;
     calls.push(payload);
+    if (transport) return transport(payload);
     return new Response(JSON.stringify(payload ? {} : data), { status: 200, headers: { "Content-Type": "application/json" } });
   };
   const container = document.createElement("div");
@@ -78,6 +79,64 @@ async function mount(data, search = "") {
   await waitFor(() => container.textContent.includes("Membership Fee") || container.textContent.includes("Payment Complete"));
   return { calls, container, async cleanup() { await act(async () => root.unmount()); container.remove(); } };
 }
+
+const choiceFixture = () => {
+  const data = fixture("member_choice");
+  data.memberStart.paymentOptions = ["stripe_upfront", "stripe_monthly", "direct_debit"].map(mode => ({
+    mode, available: true, quote: { paymentMode: mode, currency: "GBP", totalWithVat: 138.11, paymentOffer: mode === "stripe_upfront" ? null : offer() },
+  }));
+  return data;
+};
+test("member choice offers only saved methods and does not start a provider before confirmation", async () => {
+  const data = choiceFixture();
+  data.memberStart.paymentOptions = data.memberStart.paymentOptions.filter(option => option.mode !== "direct_debit");
+  const view = await mount(data);
+  try {
+    assert.ok(byId("choose-stripe_upfront"));
+    assert.ok(byId("choose-stripe_monthly"));
+    assert.equal(byId("choose-direct_debit"), null);
+    for (const id of ["button-pay-now", "button-setup-monthly-card", "button-setup-direct-debit", "button-submit-po"]) assert.equal(byId(id), null);
+    assert.match(view.container.textContent, /See payment options below/);
+    assert.match(view.container.textContent, /7 monthly payments of £19.73/);
+    assert.equal(view.calls.filter(Boolean).length, 0);
+  } finally { await view.cleanup(); }
+});
+test("member confirms a choice once then sees only the server-selected provider flow", async () => {
+  let selected = false;
+  let release;
+  const gate = new Promise(done => { release = done; });
+  const data = choiceFixture();
+  const view = await mount(data, "", async payload => {
+    if (payload) { await gate; selected = true; }
+    return new Response(JSON.stringify(payload ? { success: true } : selected ? fixture("direct_debit") : data), { status: 200 });
+  });
+  try {
+    await act(async () => byId("choose-direct_debit").click());
+    assert.equal(byId("choose-stripe_upfront").disabled, true);
+    assert.equal(byId("choose-direct_debit").disabled, true);
+    await act(async () => release());
+    await waitFor(() => byId("button-setup-direct-debit"));
+    assert.deepEqual(view.calls.filter(Boolean), [{ action: "select_payment_method", paymentMode: "direct_debit" }]);
+    assert.equal(byId("member-payment-choice"), null);
+    assert.equal(byId("button-pay-now"), null);
+    assert.equal(byId("button-setup-monthly-card"), null);
+  } finally { await view.cleanup(); }
+});
+test("unavailable or incomplete choices cannot be selected, and conflicts do not unlock providers", async () => {
+  const data = choiceFixture();
+  data.memberStart.paymentOptions[0].available = false;
+  data.memberStart.paymentOptions[0].reason = "Provider temporarily unavailable";
+  data.memberStart.paymentOptions[1].quote.paymentOffer = null;
+  const view = await mount(data, "", payload => new Response(JSON.stringify(payload ? { error: "A method has already been selected. Reload to continue." } : data), { status: payload ? 409 : 200 }));
+  try {
+    assert.equal(byId("choose-stripe_upfront").disabled, true);
+    assert.equal(byId("choose-stripe_monthly").disabled, true);
+    await act(async () => byId("choose-direct_debit").click());
+    await waitFor(() => view.container.textContent.includes("No payment has been confirmed."));
+    assert.equal(byId("button-setup-direct-debit"), null);
+    assert.match(view.container.textContent, /already been selected/);
+  } finally { await view.cleanup(); }
+});
 
 test("saved member-start payment mode is the only offered rail, regardless of legacy capability flags", async () => {
   const ids = { stripe_upfront: "button-pay-now", stripe_monthly: "button-setup-monthly-card", direct_debit: "button-setup-direct-debit", invoice: "button-submit-po" };

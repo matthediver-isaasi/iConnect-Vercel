@@ -80,7 +80,7 @@ test('zero-due resume dispatches existing paid workflow and reports failed deliv
   assert.equal(result.request.status, 'notification_pending');
   assert.equal(result.record.payment_status, 'paid');
 });
-for (const paymentMode of ['stripe_upfront', 'stripe_monthly', 'direct_debit']) test(`${paymentMode}: admin resume/reload returns the same canonical member link without initiating any provider effect`, async () => {
+for (const paymentMode of ['stripe_upfront', 'stripe_monthly', 'direct_debit', 'member_choice']) test(`${paymentMode}: admin resume/reload returns the same canonical member link without initiating any provider effect`, async () => {
   const { db, saved, record } = fixture();
   saved.request.paymentMode = paymentMode;
   const link = { token: 'stable-member-link' };
@@ -96,6 +96,10 @@ for (const paymentMode of ['stripe_upfront', 'stripe_monthly', 'direct_debit']) 
   assert.equal(reloaded.request.paymentUrl, first.paymentUrl);
   assert.equal(first.request.paymentMode, paymentMode);
   assert.equal(first.request.status, 'awaiting_member_authorization');
+  if (paymentMode === 'member_choice') {
+    link.cost_breakdown = { memberStart: { quote: { paymentMode: 'stripe_monthly' } } };
+    assert.equal((await service.resume(id(1), { memberId: id(4), requestId: id(5) })).request.paymentMode, 'stripe_monthly');
+  }
   assert.equal(record.payment_status, 'unpaid');
   record.billing_agreement_id = id(7);
   const inFlight = await service.resume(id(1), { memberId: id(4), requestId: id(5) });
@@ -119,7 +123,7 @@ test('list/preview require versioned database payment authority and show explici
   const db = {
     async rpc(name) {
       if (name === 'member_start_payment_capabilities') return ready
-        ? { data: { version: 1 }, error: null } : { error: { code: 'PGRST202' } };
+        ? { data: { version: ready === 2 ? 2 : 1, memberChoice: ready === 2 }, error: null } : { error: { code: 'PGRST202' } };
       assert.equal(name, 'member_start_state');
       return { data: { member: { id: id(4), email: 'member@example.test' }, blockers: [], fingerprint: 'unchanged' }, error: null };
     },
@@ -143,4 +147,23 @@ test('list/preview require versioned database payment authority and show explici
   const available = await service.list(id(1), id(4));
   assert.deepEqual(available.structures[0].paymentModes, ['stripe_upfront', 'stripe_monthly', 'direct_debit', 'invoice']);
   assert.equal(available.capabilities.paymentAuthorityVersion, 1);
+  const input = { memberId: id(4), configId: id(3), paymentMode: 'member_choice', startDate: today, reason: 'Member chooses a frozen payment quote' };
+  await assert.rejects(service.preview(id(1), input), { code: 'migration_required' });
+  ready = 2;
+  const choicePreview = await service.preview(id(1), input);
+  assert.equal(choicePreview.canCreate, true, JSON.stringify(choicePreview));
+  assert.equal(choicePreview.quote.paymentMode, 'member_choice');
+  assert.deepEqual(choicePreview.quote.paymentChoices.map(p => p.mode), ['stripe_upfront', 'stripe_monthly', 'direct_debit']);
+  assert.deepEqual(choicePreview.quote.paymentChoices.map(p => p.quote.totalWithVat), [100, 100, 100]);
+  const originalFingerprint = choicePreview.expectedQuote;
+  config.dd_monthly_amount = 15;
+  const changed = await service.preview(id(1), input);
+  assert.notEqual(changed.expectedQuote, originalFingerprint);
+  assert.deepEqual(changed.quote.paymentChoices.map(p => p.quote.totalWithVat), [100, 150, 150]);
+  config.online_card_payment = false;
+  config.card_monthly_enabled = false;
+  const ddOnly = await service.preview(id(1), input);
+  assert.deepEqual(ddOnly.quote.paymentChoices.map(p => p.mode), ['direct_debit']);
+  config.dd_enabled = false;
+  assert.equal((await service.preview(id(1), input)).canCreate, false);
 });

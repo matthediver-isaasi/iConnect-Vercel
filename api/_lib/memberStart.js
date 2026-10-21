@@ -4,7 +4,7 @@ import { accountingMembershipQueueEnabled, queueMembershipInvoice } from './acco
 import { resolveInvoiceAddress } from './invoiceAddressResolver.js';
 import { resolveMembershipNominalCode } from './membershipNominalCode.js';
 import { fireNewZeroDueMembershipPaidWorkflow } from './zeroDueMembership.js';
-import { startPaymentOptions, startQuoteSimulation } from './memberStartPayment.js';
+import { startPaymentOptions, startQuoteSimulation, SELF_SERVICE_START_MODES } from './memberStartPayment.js';
 import { getStripeCredentials } from './stripeCredentials.js';
 import { getGocardlessCredentials } from './gocardlessCredentials.js';
 
@@ -46,22 +46,24 @@ export function createMemberStartService({
       read(async () => {
         const result = await db.rpc('member_start_payment_capabilities');
         if (result.error) throw result.error;
-        return result.data?.version === 1;
+        return result.data;
       }, 'The reviewed member-start payment authority migration is required before provider payment links can be created.'),
     ]);
-    const ready = authority.value === true;
+    const ready = authority.value?.version >= 1;
     const migrationReason = ready ? null : authority.reason || 'The reviewed member-start payment authority migration is required.';
     return { stripe: ready && !!(stripe.value?.is_enabled && stripe.value?.secret_key && stripe.value?.publishable_key),
       directDebit: ready && !!dd.value?.accessToken, invoice: queueEnabled() && ['xero', 'quickbooks'].includes(provider.value?.name),
       stripeUnavailableReason: migrationReason || stripe.reason, directDebitUnavailableReason: migrationReason || dd.reason,
-      paymentAuthorityVersion: ready ? 1 : null };
+      memberChoice: authority.value?.memberChoice === true,
+      paymentAuthorityVersion: ready ? authority.value.version : null };
   }
   async function paymentLink(saved) {
-    if (!['stripe_upfront', 'stripe_monthly', 'direct_debit'].includes(saved.request.paymentMode)) return null;
-    const token = checked(await db.from('membership_fee_token').select('token,status,expires_at')
+    if (![...SELF_SERVICE_START_MODES, 'member_choice'].includes(saved.request.paymentMode)) return null;
+    const token = checked(await db.from('membership_fee_token').select('token,status,expires_at,cost_breakdown')
       .eq('tenant_id', saved.tenant_id).eq('history_record_id', saved.record_id).maybeSingle());
     if (!token?.token) throw startError('Saved member payment link is missing; reconciliation is required.', 409, 'payment_link_missing');
     return { url: `/membership-fees/${encodeURIComponent(token.token)}`, status: token.status,
+      paymentMode: token.cost_breakdown?.memberStart?.quote?.paymentMode || saved.request.paymentMode,
       expired: token.expires_at ? Date.parse(token.expires_at) <= now().getTime() : false };
   }
   async function describe(saved) {
@@ -82,7 +84,7 @@ export function createMemberStartService({
         && (payment.expired || ['expired', 'cancelled'].includes(payment.status))) status = 'reconciliation_required';
     return { id: saved.id, record_id: saved.record_id, created_at: saved.created_at, quote: saved.quote,
       reason: saved.request.reason, status, payment_status: record?.payment_status || null,
-      paymentMode: saved.request.paymentMode, paymentUrl,
+      paymentMode: payment?.paymentMode || saved.request.paymentMode, paymentUrl,
       paymentLinkExpired: !!payment?.expired,
       accounting_request_id: accounting?.id || null, canResume: true,
       accounting_pending: !!accounting && accounting.state !== 'complete', reconciliation_required: status === 'reconciliation_required' };
@@ -120,6 +122,29 @@ export function createMemberStartService({
     const s = await state(tenantId, request.memberId);
     if (!s.member) throw startError('Member not found in tenant.', 404, 'member_not_found');
     if (s.blockers.length) return { canCreate: false, quote: null, expectedQuote: null, blockers: s.blockers };
+    if (request.paymentMode === 'member_choice') {
+      const available = await availability(tenantId);
+      if (!available.memberChoice) throw startError('The reviewed member-choice database migration is required.', 503, 'migration_required');
+      const choices = [];
+      const reasons = [];
+      for (const mode of SELF_SERVICE_START_MODES) {
+        const result = await preview(tenantId, { ...input, paymentMode: mode });
+        if (result.canCreate) choices.push({ mode, quote: result.quote });
+        else reasons.push(...result.blockers);
+      }
+      if (!choices.length) return { canCreate: false, quote: null, expectedQuote: null,
+        blockers: reasons.length ? [...new Set(reasons)] : ['No enabled self-service payment methods can quote this purchase.'] };
+      // All alternatives must describe the same owner state and term. Never
+      // freeze prices spanning different concurrent configuration/state reads.
+      const base = choices[0].quote;
+      if (choices.some(({ quote: q }) => q.ownerState !== base.ownerState
+          || q.termStart !== base.termStart || q.termEnd !== base.termEnd || q.membershipYear !== base.membershipYear
+          || startFingerprint(q.targetSnapshot) !== startFingerprint(base.targetSnapshot))) {
+        throw startError('Membership state or configuration changed. Preview again.', 409, 'quote_changed');
+      }
+      const quote = { ...base, paymentMode: 'member_choice', paymentChoices: choices };
+      return { canCreate: true, quote, expectedQuote: startFingerprint({ request, quote }), blockers: [] };
+    }
     try {
       const config = await one('membership_tier_config', tenantId, request.configId);
       const band = request.bandId ? await one('membership_tier_band', tenantId, request.bandId) : null;
@@ -178,7 +203,7 @@ export function createMemberStartService({
     saved = { ...saved, paymentMode: saved.request.paymentMode, paymentUrl: null };
     let record = await one('member_membership_history', saved.tenant_id, saved.record_id);
     if (!record) throw startError('Saved membership history is missing; reconciliation is required.', 409, 'history_missing');
-    if (['stripe_upfront', 'stripe_monthly', 'direct_debit'].includes(saved.request.paymentMode)) {
+    if ([...SELF_SERVICE_START_MODES, 'member_choice'].includes(saved.request.paymentMode)) {
       const description = await describe(saved);
       return { request: { ...saved, ...description }, paymentUrl: description.paymentUrl, record, replayed,
         reconciliation_required: description.reconciliation_required,

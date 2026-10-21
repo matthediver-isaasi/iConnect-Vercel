@@ -2,7 +2,8 @@ import { resolveDdOffer } from './ddOfferCore.js';
 import { buildRollingCommitment } from './rollingMembershipCommitment.js';
 import { isDeepStrictEqual } from 'node:util';
 
-export const START_PAYMENT_MODES = ['stripe_upfront', 'stripe_monthly', 'direct_debit', 'invoice', 'free'];
+export const SELF_SERVICE_START_MODES = ['stripe_upfront', 'stripe_monthly', 'direct_debit'];
+export const START_PAYMENT_MODES = [...SELF_SERVICE_START_MODES, 'invoice', 'free', 'member_choice'];
 export const startPaymentMethod = mode => ({ stripe_upfront: 'stripe', stripe_monthly: 'card_monthly', direct_debit: 'direct_debit', invoice: 'invoice', free: null })[mode];
 
 export function startPaymentOptions(config, band, availability = {}) {
@@ -26,13 +27,17 @@ export function startPaymentOptions(config, band, availability = {}) {
     invoice: !availability.invoice ? 'The durable accounting queue and a connected accounting provider are required.' : null,
     free: price !== 0 ? 'Free is available only when nothing is due.' : null,
   };
-  return START_PAYMENT_MODES.map(mode => {
+  const options = START_PAYMENT_MODES.filter(mode => mode !== 'member_choice').map(mode => {
     const reason = scopeReason || (['stripe_upfront', 'invoice'].includes(mode) && price === 0 ? 'Nothing is due: choose free.'
       : !availability.stripe && mode.startsWith('stripe_') && availability.stripeUnavailableReason ? availability.stripeUnavailableReason
         : !availability.directDebit && mode === 'direct_debit' && availability.directDebitUnavailableReason ? availability.directDebitUnavailableReason
           : reasons[mode]);
     return { mode, available: !reason, reason };
   });
+  const choiceAvailable = availability.memberChoice === true && options.some(p => SELF_SERVICE_START_MODES.includes(p.mode) && p.available);
+  return [...options, { mode: 'member_choice', available: choiceAvailable,
+    reason: choiceAvailable ? null : availability.memberChoice !== true
+      ? 'The reviewed member-choice database migration is required.' : 'No enabled self-service payment method is available.' }];
 }
 
 export function startMonthlyOffer(config, band, mode) {
@@ -67,6 +72,33 @@ export function simulationFromMemberStart(token) {
   const saved = token?.cost_breakdown?.memberStart;
   if (!saved) return null;
   const q = saved.quote;
+  if (q?.paymentMode === 'member_choice') {
+    const fail = () => { throw Object.assign(new Error('The saved member-choice purchase is incomplete or inconsistent; administrator review is required.'),
+      { status: 409, code: 'member_start_snapshot_invalid' }); };
+    if (!Array.isArray(q.paymentChoices) || !q.paymentChoices.length || q.paymentChoices.length > 3
+        || q.paymentChoices.some(p => !p || typeof p !== 'object')
+        || new Set(q.paymentChoices.map(p => p.mode)).size !== q.paymentChoices.length) fail();
+    for (const choice of q.paymentChoices) {
+      const cq = choice.quote;
+      if (!SELF_SERVICE_START_MODES.includes(choice.mode) || cq?.paymentMode !== choice.mode
+          || cq.termStart !== q.termStart || cq.termEnd !== q.termEnd || cq.membershipYear !== q.membershipYear
+          || !isDeepStrictEqual(cq.targetSnapshot, q.targetSnapshot)) fail();
+      simulationFromMemberStart({ ...token, final_cost: cq.finalCost, cost_breakdown: {
+        ...token.cost_breakdown, memberStart: { ...saved, quote: cq },
+      } });
+    }
+    const base = q.paymentChoices[0].quote;
+    if (!isDeepStrictEqual({ ...q, paymentMode: base.paymentMode, paymentChoices: undefined }, { ...base, paymentChoices: undefined })) fail();
+    if ((token.final_cost == null ? null : Number(token.final_cost)) !== q.finalCost) fail();
+    const sim = simulationFromMemberStart({ ...token, cost_breakdown: {
+      ...token.cost_breakdown, memberStart: { ...saved, quote: base },
+    } });
+    sim.memberStart.paymentMode = 'member_choice';
+    sim.memberStart.paymentOptions = q.paymentChoices.map(({ mode, quote }) => ({
+      mode, available: true, reason: null, quote: publicStartQuote(quote),
+    }));
+    return sim;
+  }
   const config = q?.targetSnapshot?.config;
   const band = q?.targetSnapshot?.band;
   const dynamic = q?.paymentMode === 'direct_debit' && q?.paymentOffer?.collectionPolicy?.pricing_policy === 'dynamic';
@@ -125,7 +157,9 @@ export function startQuoteSimulation(q, memberStart = { paymentMode: q.paymentMo
 export function assertMemberStartAction(token, action) {
   const sim = simulationFromMemberStart(token);
   if (!sim) return;
-  const allowed = { stripe_upfront: ['create_payment', 'confirm_payment'], stripe_monthly: ['start_monthly_card'], direct_debit: ['start_direct_debit'] };
+  const choice = token.cost_breakdown.memberStart.selectionRequired === true || sim.memberStart.paymentMode === 'member_choice';
+  const allowed = { member_choice: ['select_payment_method'], stripe_upfront: ['create_payment', 'confirm_payment'], stripe_monthly: ['start_monthly_card'], direct_debit: ['start_direct_debit'] };
+  if (choice && action === 'select_payment_method') return;
   if (!allowed[sim.memberStart.paymentMode]?.includes(action)) {
     const error = new Error('This membership purchase must use its saved payment method. Contact your administrator to review a different method.');
     error.status = 409;
@@ -137,7 +171,8 @@ export function assertMemberStartAction(token, action) {
 export function assertMemberStartHistory(token, row) {
   const sim = simulationFromMemberStart(token);
   if (!sim) return null;
-  const q = token.cost_breakdown.memberStart.quote;
+  const authority = token.cost_breakdown.memberStart.quote;
+  const q = authority.paymentMode === 'member_choice' ? authority.paymentChoices[0].quote : authority;
   const sameAmount = (value, expected) => expected === null ? value === null : value != null && Number(value) === expected;
   if (!row || row.id !== sim.memberStart.recordId || row.tenant_id !== token.tenant_id || row.member_id !== token.member_id
       || row.organization_id || row.config_id !== q.configId || (row.band_id || null) !== q.bandId
@@ -149,4 +184,13 @@ export function assertMemberStartHistory(token, row) {
     throw new Error('The saved membership Start history does not match its immutable purchase; administrator review is required.');
   }
   return sim;
+}
+
+// Only quoted display/consent terms cross the public bearer boundary. Never
+// expose internal config, VAT caches, member overrides or accounting addresses.
+export function publicStartQuote(q) {
+  const keys = ['paymentMode', 'termStart', 'termEnd', 'membershipYear', 'annualCost', 'finalCost',
+    'vatAmount', 'totalWithVat', 'currency', 'tierLabel', 'vatRatePercent', 'prorataDays', 'initialQuotedAmounts'];
+  return { ...Object.fromEntries(keys.filter(k => Object.hasOwn(q, k)).map(k => [k, q[k]])),
+    ...(q.paymentOffer ? { paymentOffer: q.paymentOffer } : {}) };
 }

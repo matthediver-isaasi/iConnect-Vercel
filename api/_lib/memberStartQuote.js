@@ -39,6 +39,7 @@ const date = ms => new Date(ms).toISOString().slice(0, 10);
  */
 export function buildStartQuote({ request, config, band, discounts = [], vatOverrides = [], overrides = [], vatSetting, today }) {
   const { startDate, paymentMode } = request;
+  if (paymentMode === 'member_choice') throw startError('Member choice requires complete per-method quotes from the Start preview service.');
   if (startDate < today) throw startError('Backdating is not supported. Choose today or a future start date.');
   if (!config || config.id !== request.configId || config.structure_scope_type !== 'member' || config.is_active !== true
       || config.billing_period !== 'annual' || !['immediate', 'fixed_date'].includes(config.start_mode)

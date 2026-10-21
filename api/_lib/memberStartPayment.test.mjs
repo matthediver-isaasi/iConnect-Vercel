@@ -71,6 +71,42 @@ test('invalid or unsupported snapshot versions fail closed instead of rematching
   }
   assert.equal(simulationFromMemberStart({}), null);
 });
+test('unselected member choice validates every complete frozen quote and blocks all provider actions', () => {
+  const { token } = fixture('stripe_upfront');
+  const paymentChoices = ['stripe_upfront', 'stripe_monthly', 'direct_debit'].map(mode => ({ mode, quote: fixture(mode).q }));
+  const quote = { ...paymentChoices[0].quote, paymentMode: 'member_choice', paymentChoices };
+  token.cost_breakdown.memberStart.quote = quote;
+  token.cost_breakdown.memberStart.selectionRequired = true;
+  const sim = simulationFromMemberStart(token);
+  assert.equal(sim.memberStart.paymentMode, 'member_choice');
+  assert.deepEqual(sim.memberStart.paymentOptions.map(p => p.mode), paymentChoices.map(p => p.mode));
+  assert.equal(sim.memberStart.paymentOptions[0].quote.targetSnapshot, undefined);
+  for (const action of ['create_payment', 'confirm_payment', 'start_monthly_card', 'start_direct_debit', 'submit_po']) {
+    assert.throws(() => assertMemberStartAction(token, action), { code: 'member_start_payment_mode_locked' });
+  }
+  assert.doesNotThrow(() => assertMemberStartAction(token, 'select_payment_method'));
+  for (const mutate of [
+    q => { q.paymentChoices[1].mode = 'invoice'; },
+    q => { q.paymentChoices.push(q.paymentChoices[0]); },
+    q => { q.paymentChoices[1].quote.termEnd = '2030-01-01'; },
+    q => { q.paymentChoices[1].quote.targetSnapshot.config.flat_cost = 999; },
+    q => { q.paymentChoices[1].quote.totalWithVat = 999; },
+    q => { q.totalWithVat = 999; },
+    q => { q.paymentChoices = []; },
+  ]) {
+    const corrupted = structuredClone(token);
+    mutate(corrupted.cost_breakdown.memberStart.quote);
+    assert.throws(() => simulationFromMemberStart(corrupted), /incomplete or inconsistent/);
+  }
+  const selected = structuredClone(token);
+  const q = paymentChoices[1].quote;
+  selected.cost_breakdown.memberStart.quote = q;
+  selected.final_cost = q.finalCost;
+  assert.equal(simulationFromMemberStart(selected).memberStart.paymentMode, 'stripe_monthly');
+  assert.doesNotThrow(() => assertMemberStartAction(selected, 'select_payment_method'));
+  assert.doesNotThrow(() => assertMemberStartAction(selected, 'start_monthly_card'));
+  assert.throws(() => assertMemberStartAction(selected, 'create_payment'), { code: 'member_start_payment_mode_locked' });
+});
 test('structure and selected-band options explain disabled modes and never borrow a flat monthly price', () => {
   const available = { stripe: true, directDebit: true, invoice: true };
   const flat = startPaymentOptions(config, null, available);

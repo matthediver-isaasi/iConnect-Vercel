@@ -1,5 +1,35 @@
 # Individual membership Start / Renew
 
+## Member-selected payment method
+
+The admin payment dropdown now also supports **Allow member to choose**.
+Explicit selections retain their existing single-method behavior. Choice mode
+offers only the selected structure/band's available self-service methods:
+upfront Stripe, monthly Stripe and Direct Debit. Invoice and zero-value
+membership remain explicit administrative options, not public checkout choices.
+
+Each offered method has its own saved quote, including monthly collection and
+activation policy. The member link first shows these offers, then asks the member
+to confirm one before opening that method's existing provider setup/payment flow.
+The selection is persisted before provider setup; it does not itself authorize
+collection, prove settlement or activate membership. A different confirmed method
+requires administrator review rather than creating competing payment arrangements.
+The link is still shared manually using **Copy member authorization link**.
+
+This extension requires
+`supabase/migrations/202612310024_member_start_member_choice.sql` before use,
+after the already-deployed `202612310022` and `202612310023` migrations.
+It has **not been applied to a live database during this implementation**.
+Deploy the API and client together only after applying and verifying the migration;
+existing explicitly selected payment requests must remain unchanged.
+
+The service-only readiness RPC must return version 2 and `memberChoice: true`.
+Until then, the new option is visibly unavailable; existing explicit modes remain
+available under their original guards. The migration stores the original offers
+immutably and binds a selected quote transactionally with token/history updates.
+It rejects concurrent different-method selection and supports same-method retries.
+It aborts rather than overriding unexpected changes to existing database guards.
+
 ## Provider-payment extension — database applied, application deployment required
 
 The extension in `202612310023_member_start_payment_authority.sql` was applied

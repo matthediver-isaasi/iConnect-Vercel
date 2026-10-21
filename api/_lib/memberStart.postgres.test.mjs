@@ -64,7 +64,7 @@ for (const hasDdApproval of [false, true]) test(`isolated PostgreSQL start (DD a
         term_key text,quote jsonb);
       CREATE TABLE membership_fee_token(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),tenant_id uuid,member_id uuid,organization_id uuid,status text,
         token text UNIQUE,membership_year text,final_cost numeric,currency text,tier_label text,cost_breakdown jsonb,history_record_id uuid,recipient_email text,
-        expires_at timestamptz,stripe_payment_intent_id text);
+        expires_at timestamptz,stripe_payment_intent_id text,stripe_payment_attempted_at timestamptz);
       CREATE TABLE membership_successor_election(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),tenant_id uuid,member_id uuid,status text,term_end_date date);
     `);
     // Real deployed completeness constraint, including the dated-DD exception:
@@ -87,6 +87,7 @@ for (const hasDdApproval of [false, true]) test(`isolated PostgreSQL start (DD a
     prerequisiteSql.slice(prerequisiteSql.indexOf('CREATE OR REPLACE FUNCTION'), prerequisiteSql.indexOf('REVOKE ALL')).trim(),
     'Missing-DD prerequisite must be the unchanged reviewed canonical definition');
     await db.query(paymentAuthoritySql);
+    await db.query(readFileSync(new URL('../../supabase/migrations/202612310024_member_start_member_choice.sql', import.meta.url), 'utf8'));
     assert.equal((await db.query(`SELECT to_regprocedure('public.approve_manual_dd_membership_activation(uuid,uuid,text)')::text signature`)).rows[0].signature,
       'approve_manual_dd_membership_activation(uuid,uuid,text)');
     assert.equal((await db.query(`SELECT has_function_privilege('service_role','public.approve_manual_dd_membership_activation(uuid,uuid,text)','EXECUTE') allowed`)).rows[0].allowed, true);
@@ -107,7 +108,7 @@ for (const hasDdApproval of [false, true]) test(`isolated PostgreSQL start (DD a
       await db.query(`CREATE TRIGGER rolling_commitment_guard BEFORE INSERT OR UPDATE ON ${table} FOR EACH ROW EXECUTE FUNCTION enforce_rolling_membership_commitment()`);
     }
     await db.query('INSERT INTO tenant VALUES($1),($2)', [id(1), id(2)]);
-    for (let n = 10; n < 35; n++) await db.query('INSERT INTO member(id,tenant_id) VALUES($1,$2)', [id(n), id(1)]);
+    for (let n = 10; n < 40; n++) await db.query('INSERT INTO member(id,tenant_id) VALUES($1,$2)', [id(n), id(1)]);
     await db.query(`INSERT INTO membership_tier_config(id,tenant_id,structure_scope_type,is_active,billing_period,start_mode,effective_from,currency,pricing_model,flat_cost)
       VALUES($1,$2,'member',true,'annual','immediate','2020-01-01','GBP','flat',100)`, [id(3), id(1)]);
     const cfg = (await db.query('SELECT to_jsonb(t) AS value FROM membership_tier_config t')).rows[0].value;
@@ -119,7 +120,7 @@ for (const hasDdApproval of [false, true]) test(`isolated PostgreSQL start (DD a
     const invoke = (client, member, key, q, r = request(member)) => client.query('SELECT create_member_start($1,$2,$3,$4,$5,$6) result',
       [id(1), id(member), id(4), key, r, q]).then(result => result.rows[0].result);
     await a.query('SET ROLE service_role'); await b.query('SET ROLE service_role');
-    assert.equal((await a.query('SELECT member_start_payment_capabilities() c')).rows[0].c.version, 1);
+    assert.equal((await a.query('SELECT member_start_payment_capabilities() c')).rows[0].c.version, 2);
     const q = await quote(10);
     const concurrent = await Promise.all([invoke(a, 10, 'same-key-0001', q), invoke(b, 10, 'same-key-0001', q)]);
     assert.equal(concurrent.filter(r => r.replayed).length, 1);
@@ -305,12 +306,113 @@ for (const hasDdApproval of [false, true]) test(`isolated PostgreSQL start (DD a
     for (const [table, key] of [['membership_fee_token', 502], ['membership_billing_agreements', 503], ['membership_payment_plans', 504]]) {
       await assert.rejects(db.query(`DELETE FROM ${table} WHERE id=$1`, [id(key)]), /cannot be deleted/);
     }
+    // Member choice freezes multiple real quotes, then binds one under the same
+    // member lock. No payment or recurring authority is possible beforehand.
+    await db.query(`UPDATE membership_tier_config SET start_mode='immediate',flat_cost=100,
+      dd_activation_rule='first_payment',dd_pricing_policy='fixed',dd_invoicing_mode='annual'`);
+    for (const [member, chosen] of [[30, 'stripe_upfront'], [31, 'stripe_monthly'], [32, 'direct_debit']]) {
+      const config = (await db.query('SELECT to_jsonb(t) v FROM membership_tier_config t')).rows[0].v;
+      const r = { ...request(member), paymentMode: 'member_choice' };
+      const ownerState = (await state(member)).fingerprint;
+      const paymentChoices = ['stripe_upfront', 'stripe_monthly', 'direct_debit'].map(mode => ({
+        mode, quote: { ...buildStartQuote({ request: { ...r, paymentMode: mode }, config, today }), ownerState },
+      }));
+      const q = { ...paymentChoices[0].quote, paymentMode: 'member_choice', paymentChoices };
+      const saved = await invoke(a, member, `choice-${member}`, q, r);
+      const original = structuredClone(saved.request);
+      const readToken = async () => (await db.query('SELECT to_jsonb(t) v FROM membership_fee_token t WHERE history_record_id=$1', [saved.request.record_id])).rows[0].v;
+      let token = await readToken();
+      assert.equal(simulationFromMemberStart(token).memberStart.paymentMode, 'member_choice');
+      await assert.rejects(db.query("UPDATE membership_fee_token SET stripe_payment_intent_id='pi-before-choice' WHERE id=$1", [token.id]), /Select one/);
+      await assert.rejects(db.query("UPDATE member_membership_history SET payment_status='paid' WHERE id=$1", [saved.request.record_id]), /Select one/);
+      await assert.rejects(db.query("INSERT INTO membership_billing_agreements(tenant_id,member_id,status) VALUES($1,$2,'payment_setup_required')",
+        [id(1), id(member)]), /Select one/);
+      const choose = (client, mode) => client.query('SELECT select_member_start_payment_method($1,$2) v', [token.id, mode]).then(r => r.rows[0].v);
+      await assert.rejects(choose(a, 'invoice'), /self-service/);
+      const parallel = await Promise.allSettled([choose(a, chosen), choose(b, chosen === 'stripe_upfront' ? 'stripe_monthly' : 'stripe_upfront')]);
+      assert.equal(parallel.filter(p => p.status === 'fulfilled').length, 1);
+      const winner = parallel.find(p => p.status === 'fulfilled').value.paymentMode;
+      assert.equal((await choose(a, winner)).replayed, true);
+      token = await readToken();
+      const sim = simulationFromMemberStart(token);
+      assert.equal(sim.memberStart.paymentMode, winner);
+      const selected = paymentChoices.find(p => p.mode === winner).quote;
+      assert.deepEqual(token.cost_breakdown.memberStart.quote, selected);
+      assert.deepEqual((await db.query('SELECT to_jsonb(s) v FROM member_membership_start s WHERE id=$1', [saved.request.id])).rows[0].v, original);
+      await assert.rejects(db.query("UPDATE member_membership_history SET final_cost=999 WHERE id=$1", [saved.request.record_id]), /immutable/);
+      await assert.rejects(db.query("UPDATE membership_fee_token SET cost_breakdown=jsonb_set(cost_breakdown,'{memberStart,quote}', $1) WHERE id=$2", [q, token.id]), /immutable/);
+      await assert.rejects(db.query('DELETE FROM member_start_payment_selection WHERE start_id=$1', [saved.request.id]), /immutable/);
+      assert.equal((await invoke(a, member, `choice-${member}`, q, r)).request.id, saved.request.id);
+      // Current pricing changes are irrelevant after admin confirmation.
+      await db.query('UPDATE membership_tier_config SET flat_cost=777');
+      assert.equal((await choose(b, winner)).paymentMode, winner);
+      if (winner === 'stripe_upfront') {
+        await db.query("UPDATE member_membership_history SET stripe_payment_intent_id='pi-selected',payment_status='paid',status='active' WHERE id=$1", [saved.request.record_id]);
+      } else {
+        const card = winner === 'stripe_monthly';
+        const offer = card ? resolveCardMonthlyOffer(sim) : resolveDdOffer(sim);
+        const snapshot = card ? buildCardAgreementSnapshot({ offer, simResult: sim }) : buildAgreementSnapshot({ offer, simResult: sim });
+        const agreementId = id(800 + member);
+        const agreement = { id: agreementId, ...selected.commitment, tenant_id: id(1), member_id: id(member), agreement_type: 'member',
+          provider: card ? 'stripe' : 'gocardless', status: 'payment_setup_required',
+          metadata: { [card ? 'card' : 'dd']: snapshot, commitment: selected.commitment, member_start: sim.memberStart } };
+        await db.query('INSERT INTO membership_billing_agreements SELECT * FROM jsonb_populate_record(NULL::membership_billing_agreements,$1)', [agreement]);
+        await a.query('SELECT attach_member_start_agreement($1,$2)', [saved.request.id, agreementId]);
+        await assert.rejects(db.query('INSERT INTO membership_billing_agreements SELECT * FROM jsonb_populate_record(NULL::membership_billing_agreements,$1)',
+          [{ ...agreement, id: id(900 + member) }]), /purchased payment authority/);
+      }
+      await db.query('UPDATE membership_tier_config SET flat_cost=100');
+    }
+    // Fixed-date and dynamic choices use the selected immutable commitment,
+    // including null (not invented fixed) dynamic term totals.
+    for (const [member, mode, dynamic] of [[33, 'direct_debit', true], [34, 'stripe_monthly', false], [35, 'stripe_upfront', false]]) {
+      await db.query(`UPDATE membership_tier_config SET start_mode='fixed_date',dd_pricing_policy=$1,dd_invoicing_mode=$2`,
+        [dynamic ? 'dynamic' : 'fixed', dynamic ? 'per_instalment' : 'annual']);
+      const config = (await db.query('SELECT to_jsonb(t) v FROM membership_tier_config t')).rows[0].v;
+      const startDate = `${Number(today.slice(0, 4)) + 1}-01-01`;
+      const r = { ...request(member), startDate, paymentMode: 'member_choice' };
+      const ownerState = (await state(member)).fingerprint;
+      const paymentChoices = ['stripe_upfront', 'stripe_monthly', 'direct_debit'].map(mode => ({
+        mode, quote: { ...buildStartQuote({ request: { ...r, paymentMode: mode }, config, today }), ownerState },
+      }));
+      const q = { ...paymentChoices[0].quote, paymentMode: 'member_choice', paymentChoices };
+      const saved = await invoke(a, member, `fixed-choice-${member}`, q, r);
+      const token = (await db.query('SELECT to_jsonb(t) v FROM membership_fee_token t WHERE history_record_id=$1', [saved.request.record_id])).rows[0].v;
+      if (member === 33) {
+        // A failure of either write rolls back the witness AND history change.
+        await db.query(`CREATE FUNCTION fail_choice_token_update() RETURNS trigger LANGUAGE plpgsql AS $$
+          BEGIN RAISE EXCEPTION 'Injected token persistence failure'; END $$;
+          CREATE TRIGGER aaa_fail_choice BEFORE UPDATE ON membership_fee_token FOR EACH ROW EXECUTE FUNCTION fail_choice_token_update()`);
+        await assert.rejects(a.query('SELECT select_member_start_payment_method($1,$2)', [token.id, mode]), /Injected/);
+        assert.equal((await db.query('SELECT count(*)::int n FROM member_start_payment_selection WHERE start_id=$1', [saved.request.id])).rows[0].n, 0);
+        assert.equal((await db.query('SELECT final_cost FROM member_membership_history WHERE id=$1', [saved.request.record_id])).rows[0].final_cost, '100');
+        await db.query('DROP TRIGGER aaa_fail_choice ON membership_fee_token; DROP FUNCTION fail_choice_token_update()');
+      }
+      await a.query('SELECT select_member_start_payment_method($1,$2)', [token.id, mode]);
+      const selected = paymentChoices.find(p => p.mode === mode).quote;
+      const read = (await db.query('SELECT to_jsonb(t) v FROM membership_fee_token t WHERE id=$1', [token.id])).rows[0].v;
+      assert.deepEqual(read.cost_breakdown.memberStart.quote, selected);
+      assert.equal(simulationFromMemberStart(read).memberStart.paymentMode, mode);
+      const history = (await db.query('SELECT to_jsonb(t) v FROM member_membership_history t WHERE id=$1', [saved.request.record_id])).rows[0].v;
+      assert.equal(history.final_cost, selected.finalCost);
+      assert.equal(history.total_with_vat, selected.totalWithVat);
+      assert.equal(history.term_start_date, startDate);
+      assert.equal(history.term_end_date, selected.termEnd);
+      assert.equal(history.payment_status, 'unpaid');
+      if (mode === 'stripe_upfront') {
+        await db.query("UPDATE membership_fee_token SET stripe_payment_attempted_at=now() WHERE id=$1", [token.id]);
+      } else {
+        await assert.rejects(db.query("UPDATE membership_fee_token SET stripe_payment_attempted_at=now() WHERE id=$1", [token.id]), /upfront card/);
+      }
+    }
     // Legacy expiry-only/unverified evidence is never converted to paid history.
     await db.query("INSERT INTO member_membership_history(tenant_id,member_id,payment_status) VALUES($1,$2,'unverified')", [id(1), id(15)]);
     assert.ok((await state(15)).blockers.length);
     await db.query('SET ROLE authenticated');
     await assert.rejects(db.query('SELECT member_start_payment_capabilities()'), /permission denied/);
     await assert.rejects(db.query('SELECT member_start_state($1,$2)', [id(1), id(16)]), /permission denied/);
+    await assert.rejects(db.query("SELECT select_member_start_payment_method($1,'stripe_upfront')", [id(999)]), /permission denied/);
+    assert.equal((await db.query("SELECT member_start_selection_transition('member_membership_history','{}','{}') v")).rows[0].v, false);
     await db.query('RESET ROLE');
     await assert.rejects(a.query('DELETE FROM member_membership_start'), /permission denied/);
     await assert.rejects(a.query('SELECT create_member_start($1,$2,$3,$4,$5,$6)', [id(2), id(16), id(4), 'wrong-tenant', request(16), q13]), /not found in tenant/);

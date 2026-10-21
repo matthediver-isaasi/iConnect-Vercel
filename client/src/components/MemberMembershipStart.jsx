@@ -21,8 +21,8 @@ const money = (value, currency) => {
   try { return new Intl.NumberFormat("en-GB", { style: "currency", currency }).format(Number(value)); }
   catch { return `${Number(value).toFixed(2)} ${currency || "(currency not supplied)"}`; }
 };
-const modeLabel = mode => ({ stripe_upfront: "Card — one-off payment", stripe_monthly: "Card — monthly payments", direct_debit: "Direct Debit — monthly payments", invoice: "Invoice — payment remains outstanding", free: "Free — zero-value membership" })[mode] || mode;
-const supportedModes = ["stripe_upfront", "stripe_monthly", "direct_debit", "invoice", "free"];
+const modeLabel = mode => ({ member_choice: "Allow member to choose", stripe_upfront: "Card — one-off payment", stripe_monthly: "Card — monthly payments", direct_debit: "Direct Debit — monthly payments", invoice: "Invoice — payment remains outstanding", free: "Free — zero-value membership" })[mode] || mode;
+const supportedModes = ["member_choice", "stripe_upfront", "stripe_monthly", "direct_debit", "invoice", "free"];
 const monthlyMode = mode => ["stripe_monthly", "direct_debit"].includes(mode);
 const dynamicOffer = (offer, mode) => mode === "direct_debit" && directDebitCollectionPolicy(offer)?.pricing_policy === "dynamic";
 const completeOffer = (offer, mode) => {
@@ -62,6 +62,13 @@ function RequestState({ request }) {
 }
 function QuoteDetails({ quote }) {
   if (!quote) return null;
+  if (quote.paymentMode === "member_choice") return <div className="space-y-3 text-sm">
+    <p className="font-medium">Allow member to choose</p>
+    <p>The member will choose from these saved payment options using their authorization link. No payment method is selected or charged now.</p>
+    {(quote.paymentChoices || []).map(choice => <div key={choice.mode} className="rounded-md border p-3">
+      <QuoteDetails quote={choice.quote} />
+    </div>)}
+  </div>;
   const dynamic = dynamicOffer(quote.paymentOffer, quote.paymentMode);
   return <div className="space-y-3 text-sm">
     <p>Tier: {quote.tierLabel || (quote.bandId == null ? "Flat price" : "Not supplied")}</p>
@@ -163,13 +170,18 @@ function StartPanel({ memberId, tenantId }) {
   const valid = !!(form.configId && (isFlat || form.bandId) && form.startDate && form.reason.trim() && modes.includes(paymentMode));
   const locked = !!pending || !!attempt || !!saved;
   const quote = preview?.quote;
-  const completeQuote = !!quote && ["annualCost", "finalCost", "vatAmount", "totalWithVat"].every(key =>
-    (dynamicOffer(quote.paymentOffer, paymentMode) && quote[key] == null) ||
-    (quote[key] != null && quote[key] !== "" && Number.isFinite(Number(quote[key])) && Number(quote[key]) >= 0)
-  ) && /^[A-Z]{3}$/.test(quote.currency || "") && /^\d{4}-\d{2}-\d{2}$/.test(quote.termStart || "") && /^\d{4}-\d{2}-\d{2}$/.test(quote.termEnd || "") &&
-    quote.configId === form.configId && (quote.bandId || null) === (isFlat ? null : form.bandId) &&
-    quote.paymentMode === paymentMode && (paymentMode !== "free" || Number(quote.totalWithVat) === 0) &&
-    (!monthlyMode(paymentMode) || completeOffer(quote.paymentOffer, paymentMode));
+  const completeSingleQuote = (item, mode) => !!item && ["annualCost", "finalCost", "vatAmount", "totalWithVat"].every(key =>
+    (dynamicOffer(item.paymentOffer, mode) && item[key] == null) ||
+    (item[key] != null && item[key] !== "" && Number.isFinite(Number(item[key])) && Number(item[key]) >= 0)
+  ) && /^[A-Z]{3}$/.test(item.currency || "") && /^\d{4}-\d{2}-\d{2}$/.test(item.termStart || "") && /^\d{4}-\d{2}-\d{2}$/.test(item.termEnd || "") &&
+    item.configId === form.configId && (item.bandId || null) === (isFlat ? null : form.bandId) &&
+    item.paymentMode === mode && (mode !== "free" || Number(item.totalWithVat) === 0) &&
+    (!monthlyMode(mode) || completeOffer(item.paymentOffer, mode));
+  const completeQuote = paymentMode === "member_choice"
+    ? quote?.paymentMode === paymentMode && Array.isArray(quote.paymentChoices) && quote.paymentChoices.length > 0 &&
+      new Set(quote.paymentChoices.map(item => item.mode)).size === quote.paymentChoices.length &&
+      quote.paymentChoices.every(item => ["stripe_upfront", "stripe_monthly", "direct_debit"].includes(item.mode) && completeSingleQuote(item.quote, item.mode))
+    : completeSingleQuote(quote, paymentMode);
   const canCreate = canPreview && valid && preview?.canCreate === true && !!preview?.expectedQuote && completeQuote &&
     (paymentMode !== "invoice" || data?.capabilities?.invoiceAvailable !== false);
 

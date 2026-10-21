@@ -53,3 +53,14 @@ constraint, and the live database lacked a manual-approval prerequisite.
 
 **How to apply:** Inspect actual column ownership and function signatures read-only,
 use realistic fixtures, and preserve atomic rollback on unknown migration drift.
+
+Admins may either choose a payment method explicitly or let the member choose
+from the selected schedule's enabled self-service methods.
+
+**Why:** The owner requested both workflows; an administrative selection must
+not force every new member into a single rail, and allowing choice must not
+permit duplicate payment arrangements.
+
+**How to apply:** Preserve each offered method's quote and collection policy.
+Bind one method atomically before provider setup, retain the member's own consent
+step, and never treat the method selection itself as payment.

@@ -25,7 +25,7 @@ function isBelowStripeMinimum(amount, currency) {
   const min = STRIPE_MINIMUMS[currency] || 0.50;
   return parseFloat(amount || 0) < min;
 }
-const savedModeLabel = mode => ({ stripe_upfront: 'One-off card payment', stripe_monthly: 'Monthly card payments', direct_debit: 'Monthly Direct Debit', invoice: 'Invoice', free: 'Free membership' })[mode] || 'Unavailable payment method';
+const savedModeLabel = mode => ({ member_choice: 'Choose your payment method', stripe_upfront: 'One-off card payment', stripe_monthly: 'Monthly card payments', direct_debit: 'Monthly Direct Debit', invoice: 'Invoice', free: 'Free membership' })[mode] || 'Unavailable payment method';
 const completeMonthlyOffer = (offer, mode) => {
   if (!offer || !/^[A-Z]{3}$/.test(offer.currency || '') || !offer.activationRule) return false;
   const dynamic = mode === 'direct_debit' && directDebitCollectionPolicy(offer)?.pricing_policy === 'dynamic';
@@ -39,7 +39,11 @@ export default function MembershipFeePage() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [selectingMethod, setSelectingMethod] = useState(null);
+  const [selectionError, setSelectionError] = useState(null);
+  const selectingMethodRef = useRef(false);
   const isMemberStart = data?.memberStart != null;
+  const awaitingMethod = data?.memberStart?.paymentMode === 'member_choice';
   const allowsMode = mode => !isMemberStart || data.memberStart.paymentMode === mode;
   const monthlyOfferReady = offer => !isMemberStart || completeMonthlyOffer(offer, data.memberStart.paymentMode);
   const dynamicMemberStart = isMemberStart && data.memberStart.paymentMode === 'direct_debit' && directDebitCollectionPolicy(data.ddOffer)?.pricing_policy === 'dynamic';
@@ -70,6 +74,33 @@ export default function MembershipFeePage() {
   const elementsRef = useRef(null);
   const cardRef = useRef(null);
   const redirectHandled = useRef(false);
+
+  async function selectMemberMethod(mode) {
+    if (!awaitingMethod || selectingMethodRef.current ||
+        !data.memberStart.paymentOptions?.some(option => option.mode === mode && option.available)) return;
+    selectingMethodRef.current = true;
+    setSelectingMethod(mode);
+    setSelectionError(null);
+    try {
+      const response = await fetch(`/api/public/membership-fees/${token}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'select_payment_method', paymentMode: mode }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(typeof result.error === 'string' ? result.error : result.error?.message || 'Unable to confirm your payment method.');
+      const refreshed = await fetch(`/api/public/membership-fees/${token}`);
+      const next = await refreshed.json();
+      if (!refreshed.ok || !['stripe_upfront', 'stripe_monthly', 'direct_debit'].includes(next.memberStart?.paymentMode)) {
+        throw new Error('Your selection may have been saved. Reload this page to confirm it before proceeding.');
+      }
+      setData(next);
+    } catch (err) {
+      setSelectionError(`${err.message} No payment has been confirmed.`);
+    } finally {
+      selectingMethodRef.current = false;
+      setSelectingMethod(null);
+    }
+  }
 
   useEffect(() => {
     if (!token) return;
@@ -561,9 +592,9 @@ export default function MembershipFeePage() {
             <Separator className="my-3" />
 
             <div className="flex items-center justify-between">
-              <span className="font-medium">{dynamicMemberStart ? 'Current monthly price (variable)' : <>Total Due{data?.vatAmount > 0 ? ' (incl. VAT)' : ''}</>}</span>
+              <span className="font-medium">{awaitingMethod ? 'Payment amount' : dynamicMemberStart ? 'Current monthly price (variable)' : <>Total Due{data?.vatAmount > 0 ? ' (incl. VAT)' : ''}</>}</span>
               <span className="text-2xl font-bold" style={{ color: primaryColor }} data-testid="text-total">
-                {dynamicMemberStart ? (data.ddOffer?.monthlyAmount != null ? formatCurrency(data.ddOffer.monthlyAmount, data.ddOffer.currency || data.currency) : 'Not supplied') : formatCurrency(data?.totalWithVat || data?.finalCost, data?.currency)}
+                {awaitingMethod ? 'See payment options below' : dynamicMemberStart ? (data.ddOffer?.monthlyAmount != null ? formatCurrency(data.ddOffer.monthlyAmount, data.ddOffer.currency || data.currency) : 'Not supplied') : formatCurrency(data?.totalWithVat || data?.finalCost, data?.currency)}
               </span>
             </div>
           </CardContent>
@@ -582,13 +613,46 @@ export default function MembershipFeePage() {
           <div className="rounded-md border bg-white p-3 text-sm space-y-2" data-testid="member-start-payment-authority">
             <p>Saved payment method: {savedModeLabel(data.memberStart.paymentMode)}.</p>
             <p>Membership term: {data.memberStart.termStart} to {data.memberStart.termEnd}.</p>
-            <p>This request uses the saved payment method, term and pricing policy. No alternative payment method is offered. Payment authorization or plan set-up alone is not confirmation of payment.</p>
+            <p>{awaitingMethod ? 'Choose from the payment options saved for your membership below. Once confirmed, your choice is reserved for this request to prevent duplicate payment arrangements.' : 'This request uses the saved payment method, term and pricing policy. No alternative payment method is offered.'} Payment authorization or plan set-up alone is not confirmation of payment.</p>
             {dynamicMemberStart && <p>No guaranteed plan total or fixed instalment count is quoted. Dynamic monthly collections use current prices under the saved collection policy.</p>}
             {data.memberStart.paymentMode === 'invoice' && <p>Your invoice remains outstanding until payment is verified.</p>}
             {data.memberStart.paymentMode === 'free' && <p>No payment authorization is required for this zero-value membership.</p>}
             {['stripe_monthly', 'direct_debit'].includes(data.memberStart.paymentMode) && !monthlyOfferReady(data.memberStart.paymentMode === 'stripe_monthly' ? data.cardMonthly : data.ddOffer) && <p role="alert">The saved monthly payment terms are incomplete. Contact your membership administrator before authorizing payment.</p>}
           </div>
         )}
+
+        {awaitingMethod && <Card>
+          <CardContent className="pt-6 space-y-4" data-testid="member-payment-choice">
+            <h2 className="font-medium">Choose how to pay</h2>
+            <p className="text-sm">Confirm a method below, then complete payment or setup securely with the provider. To change a confirmed method, contact your membership administrator.</p>
+            {(data.memberStart.paymentOptions || []).filter(option => ['stripe_upfront', 'stripe_monthly', 'direct_debit'].includes(option.mode)).map(option => {
+              const quote = option.quote;
+              const offer = quote?.paymentOffer;
+              const monthly = ['stripe_monthly', 'direct_debit'].includes(option.mode);
+              const dynamic = option.mode === 'direct_debit' && directDebitCollectionPolicy(offer)?.pricing_policy === 'dynamic';
+              const complete = quote && /^[A-Z]{3}$/.test(quote.currency || '') &&
+                (monthly ? completeMonthlyOffer(offer, option.mode) : quote.totalWithVat != null && Number.isFinite(Number(quote.totalWithVat)) && Number(quote.totalWithVat) > 0);
+              return <div key={option.mode} className="rounded-md border p-3 space-y-2">
+                <h3 className="font-medium">{savedModeLabel(option.mode)}</h3>
+                {complete && <div className="text-sm space-y-1">
+                  {monthly ? dynamic
+                    ? <p>Current monthly price (variable): {formatCurrency(offer.monthlyAmount, offer.currency)}. No guaranteed term total.</p>
+                    : <p>{offer.instalmentCount} monthly payments of {formatCurrency(offer.monthlyAmount, offer.currency)} · Plan total: {formatCurrency(offer.planTotal, offer.currency)}</p>
+                    : <p>One-off payment: {formatCurrency(quote.totalWithVat, quote.currency)}</p>}
+                  {monthly && <p>Activation rule: {offer.activationRule}</p>}
+                  {option.mode === 'direct_debit' && <><p>{directDebitPolicyText(offer)}</p><p>First collection: {directDebitFirstCollectionText(offer)}.</p></>}
+                </div>}
+                {(!option.available || !complete) && <p className="text-sm" role="status">{option.reason || 'Complete payment terms are unavailable. Contact your membership administrator.'}</p>}
+                <Button type="button" variant="outline" disabled={!!selectingMethod || !option.available || !complete}
+                  data-testid={`choose-${option.mode}`} onClick={() => selectMemberMethod(option.mode)}>
+                  {selectingMethod === option.mode ? 'Confirming choice…' : `Choose ${savedModeLabel(option.mode).toLowerCase()}`}
+                </Button>
+              </div>;
+            })}
+            {!data.memberStart.paymentOptions?.length && <p role="alert">No saved payment options are available. Contact your membership administrator.</p>}
+            {selectionError && <p role="alert">{selectionError}</p>}
+          </CardContent>
+        </Card>}
 
         {allowsMode('invoice') && !renewalBlocked && data?.poAvailable !== false && !poSubmitted && paymentMode !== 'stripe' && (
           <Card>

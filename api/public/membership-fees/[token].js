@@ -3,7 +3,7 @@ import { membershipIncentiveSnapshot } from '../../_lib/membershipIncentiveSnaps
 import { resolveEntityAnnualRenewalEligibility } from '../../_lib/annualRenewalPolicy.js';
 import { resolveMemberFeeApproval } from '../../_lib/membershipFeeApproval.js';
 import { feeTokenCommitment, simulationFromFeeCommitment, reserveRollingFeePayment, reserveRollingMonthlyHistory } from '../../_lib/rollingFeeCommitment.js';
-import { simulationFromMemberStart, assertMemberStartAction, assertMemberStartHistory } from '../../_lib/memberStartPayment.js';
+import { simulationFromMemberStart, assertMemberStartAction, assertMemberStartHistory, SELF_SERVICE_START_MODES } from '../../_lib/memberStartPayment.js';
 
 // Reminder quotes are consent-time snapshots, not a request to reprice at
 // checkout. Rolling tokens already carry the richer commitment snapshot.
@@ -57,6 +57,7 @@ export function renewalQuoteActivationFields(token, now = new Date()) {
 
 export function createPublicMembershipFeeHandler(deps = {}) {
 return async function handler(req, res) {
+  res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -128,6 +129,29 @@ return async function handler(req, res) {
     // A PO alone cannot buy an unrecorded successor; invoice-backed tokens may
     // still attach a PO to the existing debt through the established path.
     const memberStart = simulationFromMemberStart(feeToken)?.memberStart || null;
+    const choiceOptions = async () => {
+      if (memberStart?.paymentMode !== 'member_choice') return [];
+      const [stripe, dd] = await Promise.all([
+        (async () => {
+          try {
+            const { getStripeCredentials } = await import('../../_lib/stripeCredentials.js');
+            const c = await (deps.getStripeCredentials || getStripeCredentials)(feeToken.tenant_id, 'membership');
+            return !!(c?.is_enabled && c?.secret_key && c?.publishable_key);
+          } catch { return false; }
+        })(),
+        (async () => {
+          try {
+            const { getGocardlessCredentials } = await import('../../_lib/gocardlessCredentials.js');
+            const c = await (deps.getGocardlessCredentials || getGocardlessCredentials)(feeToken.tenant_id);
+            return !!c?.accessToken;
+          } catch { return false; }
+        })(),
+      ]);
+      return memberStart.paymentOptions.map(option => {
+        const available = option.mode === 'direct_debit' ? dd : stripe;
+        return { ...option, available, reason: available ? null : 'This payment provider is currently unavailable. Please retry or contact your administrator.' };
+      });
+    };
     const poAvailable = !memberStart && (!isReminderToken || !!(feeToken.history_record_id && invoiceReference));
     let tokenMember = null;
     if (isMemberToken) {
@@ -477,7 +501,8 @@ return async function handler(req, res) {
       }
 
       return res.json({
-        memberStart,
+        memberStart: memberStart?.paymentMode === 'member_choice'
+          ? { ...memberStart, paymentOptions: await choiceOptions() } : memberStart,
         status: feeToken.status,
         isMember: isMemberToken,
         memberName: memberDisplayName,
@@ -548,6 +573,29 @@ return async function handler(req, res) {
       const { action } = req.body;
       try { assertMemberStartAction(feeToken, action); } catch (error) {
         return res.status(error.status || 409).json({ error: error.message, code: error.code || 'member_start_snapshot_invalid' });
+      }
+      if (action === 'select_payment_method') {
+        const paymentMode = req.body.paymentMode;
+        if (!memberStart || !SELF_SERVICE_START_MODES.includes(paymentMode)) {
+          return res.status(400).json({ error: 'Select an offered self-service payment method.', code: 'invalid_payment_method' });
+        }
+        if (memberStart.paymentMode === 'member_choice') {
+          const option = (await choiceOptions()).find(p => p.mode === paymentMode);
+          if (!option) return res.status(409).json({ error: 'This payment method was not offered in the confirmed purchase.', code: 'payment_method_not_offered' });
+          if (!option.available) return res.status(503).json({ error: option.reason, code: 'payment_method_unavailable' });
+          if (await checkApprovalBlocked()) return res.status(403).json({ error: 'Membership fee approval is required before selecting a payment method.' });
+          const eligibility = await annualRenewalGate();
+          if (!eligibility.eligible) return res.status(409).json({ error: eligibility.message, code: eligibility.code });
+        }
+        const { data, error } = await supabase.rpc('select_member_start_payment_method', {
+          p_token_id: feeToken.id, p_payment_mode: paymentMode,
+        });
+        if (error) return res.status(['42883', 'PGRST202', '42P01'].includes(error.code) ? 503 : 409).json({
+          error: ['42883', 'PGRST202', '42P01'].includes(error.code)
+            ? 'The reviewed member-choice database migration is required.' : error.message,
+          code: ['42883', 'PGRST202', '42P01'].includes(error.code) ? 'migration_required' : 'member_start_selection_conflict',
+        });
+        return res.json({ success: true, ...data, reload: true });
       }
       if (isReminderToken && ['start_direct_debit', 'start_monthly_card'].includes(action)) {
         return res.status(409).json({ code: 'renewal_upfront_only', error: 'This renewal link supports upfront payment only. Please contact your administrator about monthly payment plans.' });

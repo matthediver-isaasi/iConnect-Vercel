@@ -107,6 +107,102 @@ function providers(f) {
     retrieveTenantPaymentIntent: async () => ({ paymentIntent: intent, stripe }) };
   return { calls, stripe, gc, deps };
 }
+for (const chosen of ['stripe_upfront', 'stripe_monthly', 'direct_debit']) test(`member choice public link freezes quotes, binds ${chosen}, reloads and authorizes only that rail`, async () => {
+  const f = fixture('stripe_upfront');
+  const paymentChoices = ['stripe_upfront', 'stripe_monthly', 'direct_debit'].map(mode => ({ mode, quote: fixture(mode).quote }));
+  f.token.cost_breakdown.memberStart.quote = { ...paymentChoices[0].quote, paymentMode: 'member_choice', paymentChoices };
+  f.token.cost_breakdown.memberStart.selectionRequired = true;
+  const originalRpc = f.db.rpc;
+  let selected = null, selections = 0;
+  f.db.rpc = async (name, args) => {
+    if (name !== 'select_member_start_payment_method') return originalRpc(name, args);
+    selections++;
+    assert.equal(args.p_token_id, f.token.id);
+    if (selected && selected !== args.p_payment_mode) return { error: { code: 'P0001', message: 'Already bound to another payment method' } };
+    const replayed = !!selected;
+    selected = args.p_payment_mode;
+    const q = paymentChoices.find(p => p.mode === selected).quote;
+    f.token.cost_breakdown.memberStart.quote = structuredClone(q);
+    f.token.final_cost = q.finalCost;
+    Object.assign(f.history, fixture(selected).history);
+    return { data: { paymentMode: selected, selected: true, replayed }, error: null };
+  };
+  const p = providers(f);
+  const handler = createPublicMembershipFeeHandler(p.deps);
+  const get = async () => {
+    const res = response();
+    await handler({ method: 'GET', query: { token: f.token.token } }, res);
+    assert.equal(res.code, 200, JSON.stringify(res.body));
+    return res.body;
+  };
+  let page = await get();
+  assert.equal(page.memberStart.paymentMode, 'member_choice');
+  assert.equal(page.poAvailable, false);
+  assert.equal(page.stripeEnabled, false);
+  assert.equal(page.cardMonthlyEnabled, false);
+  assert.equal(page.ddEnabled, false);
+  assert.deepEqual(page.memberStart.paymentOptions.map(p => p.quote.totalWithVat), [100, 120, 120]);
+  assert.ok(page.memberStart.paymentOptions.every(p => p.available));
+  assert.equal(page.memberStart.paymentOptions[0].quote.accounting, undefined);
+  assert.equal(page.memberStart.paymentOptions[0].quote.targetSnapshot, undefined);
+  for (const action of ['create_payment', 'confirm_payment', 'start_monthly_card', 'start_direct_debit', 'submit_po']) {
+    const res = response();
+    await handler({ method: 'POST', query: { token: f.token.token }, body: { action } }, res);
+    assert.equal(res.code, 409);
+  }
+  const invalid = response();
+  await handler({ method: 'POST', query: { token: f.token.token }, body: { action: 'select_payment_method', paymentMode: 'invoice' } }, invalid);
+  assert.equal(invalid.code, 400);
+  assert.equal(selections, 0);
+  const credentialKey = chosen === 'direct_debit' ? 'getGocardlessCredentials' : 'getStripeCredentials';
+  const credentials = p.deps[credentialKey];
+  p.deps[credentialKey] = async () => null;
+  const unavailable = response();
+  await handler({ method: 'POST', query: { token: f.token.token },
+    body: { action: 'select_payment_method', paymentMode: chosen } }, unavailable);
+  assert.equal(unavailable.code, 503);
+  assert.equal(selections, 0);
+  const unavailablePage = await get();
+  assert.equal(unavailablePage.memberStart.paymentOptions.find(p => p.mode === chosen).available, false);
+  p.deps[credentialKey] = credentials;
+  const bound = await call(handler, 'select_payment_method', { paymentMode: chosen });
+  assert.equal(bound.paymentMode, chosen);
+  assert.equal(bound.reload, true);
+  assert.deepEqual(Object.values(p.calls).map(c => c.length), [0, 0, 0, 0, 0]);
+  assert.equal((await call(handler, 'select_payment_method', { paymentMode: chosen })).replayed, true);
+  page = await get();
+  assert.equal(page.memberStart.paymentMode, chosen);
+  const other = response();
+  await handler({ method: 'POST', query: { token: f.token.token },
+    body: { action: 'select_payment_method', paymentMode: chosen === 'stripe_upfront' ? 'stripe_monthly' : 'stripe_upfront' } }, other);
+  assert.equal(other.code, 409);
+  const action = { stripe_upfront: 'create_payment', stripe_monthly: 'start_monthly_card', direct_debit: 'start_direct_debit' }[chosen];
+  await call(handler, action, { acceptedTerms: true });
+  assert.equal(p.calls.intents.length, chosen === 'stripe_upfront' ? 1 : 0);
+  assert.equal(p.calls.checkouts.length, chosen === 'stripe_monthly' ? 1 : 0);
+  assert.equal(p.calls.billingRequests.length, chosen === 'direct_debit' ? 1 : 0);
+});
+test('member selection cannot introduce an unoffered method or bind an expired bearer', async () => {
+  const f = fixture('stripe_upfront');
+  const base = f.token.cost_breakdown.memberStart.quote;
+  f.token.cost_breakdown.memberStart.quote = { ...base, paymentMode: 'member_choice',
+    paymentChoices: [{ mode: 'stripe_upfront', quote: structuredClone(base) }] };
+  f.token.cost_breakdown.memberStart.selectionRequired = true;
+  const p = providers(f);
+  f.db.rpc = () => assert.fail('selection must not reach database for an unoffered or expired method');
+  const handler = createPublicMembershipFeeHandler(p.deps);
+  const unoffered = response();
+  await handler({ method: 'POST', query: { token: f.token.token },
+    body: { action: 'select_payment_method', paymentMode: 'direct_debit' } }, unoffered);
+  assert.equal(unoffered.code, 409);
+  assert.equal(unoffered.body.code, 'payment_method_not_offered');
+  f.token.expires_at = '2000-01-01T00:00:00Z';
+  const expired = response();
+  await handler({ method: 'POST', query: { token: f.token.token },
+    body: { action: 'select_payment_method', paymentMode: 'stripe_upfront' } }, expired);
+  assert.equal(expired.code, 410);
+  assert.deepEqual(Object.values(p.calls).map(c => c.length), [0, 0, 0, 0, 0]);
+});
 for (const startMode of ['immediate', 'fixed_date']) test(`real public ${startMode} handler creates one upfront intent and confirms/reconciles the saved purchase and saved invoice address`, async () => {
   const f = fixture('stripe_upfront', false, startMode);
   const p = providers(f);

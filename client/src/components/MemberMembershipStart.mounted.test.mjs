@@ -559,3 +559,46 @@ test("tenant/member switch resets the form and ignores late creation result", as
     assert.ok(sessionStorage.getItem("membership-start:tenant-safe:member-personal"));
   } finally { await view.cleanup(); }
 });
+
+test("admin can leave the payment method to the member and preview every saved offer", async () => {
+  const data = fixture();
+  data.structures[0].paymentOptions = [{ mode: "member_choice", available: true }, { mode: "stripe_upfront", available: true }];
+  const choice = { ...quote("member_choice"), quote: {
+    ...quote("member_choice").quote,
+    paymentChoices: [
+      { mode: "stripe_upfront", quote: quote("stripe_upfront").quote },
+      { mode: "stripe_monthly", quote: { ...quote("stripe_monthly").quote, paymentOffer: {
+        monthlyAmount: 19.73, instalmentCount: 7, planTotal: 138.11, currency: "GBP", activationRule: "first_payment",
+      } } },
+    ],
+  } };
+  const view = await mount({ data, post: payload => json(payload.action === "preview" ? choice : {
+    request: { id: "choice-request", paymentMode: "member_choice", status: "awaiting_member_authorization", paymentUrl: "/membership-fees/choice-token" },
+  }) });
+  try {
+    await preview("member_choice");
+    assert.equal(button("Review and confirm membership").disabled, false);
+    assert.match(view.container.textContent, /Allow member to choose/);
+    assert.match(view.container.textContent, /7 monthly payments of £19.73/);
+    await confirm();
+    await waitFor(() => button("Copy member authorization link"));
+    assert.equal(view.calls.find(call => call.payload?.action === "create").payload.paymentMode, "member_choice");
+    assert.equal(document.querySelector("a").getAttribute("href"), "/membership-fees/choice-token");
+  } finally { await view.cleanup(); }
+});
+
+test("admin choice preview cannot confirm missing, duplicate or incomplete per-method quotes", async () => {
+  for (const paymentChoices of [
+    [],
+    [{ mode: "stripe_monthly", quote: quote("stripe_monthly").quote }],
+    [{ mode: "stripe_upfront", quote: quote("stripe_upfront").quote }, { mode: "stripe_upfront", quote: quote("stripe_upfront").quote }],
+  ]) {
+    const data = fixture();
+    data.structures[0].paymentOptions = [{ mode: "member_choice", available: true }];
+    const view = await mount({ data, post: () => json({ ...quote("member_choice"), quote: { ...quote("member_choice").quote, paymentChoices } }) });
+    try {
+      await preview("member_choice");
+      assert.equal(button("Review and confirm membership").disabled, true);
+    } finally { await view.cleanup(); }
+  }
+});
