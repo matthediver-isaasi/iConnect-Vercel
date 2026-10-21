@@ -14,6 +14,17 @@ not their organisation's details. Keep organisation/on-account billing separate.
 This policy does not itself establish an unidentified guest's identity or supply
 missing addresses.
 
+For individual Stripe ticket purchases, use Stripe's payment-time billing
+address in preference to any stored member invoice address, and update the
+member's invoice address only. Never update the organisation's invoice address.
+
+**Why:** The user explicitly requires individual purchasers not to overwrite
+their shared organisation's billing address.
+
+**How to apply:** Keep the member's name/email as the purchaser identity and
+retain the transaction address for accounting/recovery independently of later
+member-address changes.
+
 For an issued-invoice detail repair, re-read the live provider invoice before
 choosing invariants: accountants may have changed tax treatment, descriptions
 and payments since the recovery snapshot. Preserve those live financial values
