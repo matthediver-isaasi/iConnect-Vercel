@@ -1624,8 +1624,10 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
         </Card>
       )}
 
-      {config && !legacyCurrentMembership && !hasCurrentPersistedCommitment && !hasDynamicMonthlyCommitment && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* Rolling personal memberships never use fixed-year previews, even when
+          imported history has no purchased commitment or renewal snapshot. */}
+      {config && config.start_mode !== 'immediate' && !legacyCurrentMembership && !hasCurrentPersistedCommitment && !hasDynamicMonthlyCommitment && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4" data-testid="member-fixed-year-previews">
           <Card>
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">

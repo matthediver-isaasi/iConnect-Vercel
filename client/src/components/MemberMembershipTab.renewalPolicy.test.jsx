@@ -35,7 +35,7 @@ const historical = {
   status: "active", currency: "GBP",
 };
 
-async function mounted({ projection = {}, grace = true, paidAmount = null } = {}, callback) {
+async function mounted({ projection = {}, grace = true, paidAmount = null, dataOverrides = {} } = {}, callback) {
   const client = new QueryClient({ defaultOptions: {
     queries: { retry: false, staleTime: Infinity, gcTime: 0 },
     mutations: { retry: false, gcTime: 0 },
@@ -51,11 +51,13 @@ async function mounted({ projection = {}, grace = true, paidAmount = null } = {}
       ...projection,
     },
     history: [{ ...historical, ...projection }],
+    ...dataOverrides,
   });
   client.setQueryData(["membership-settings"], { require_approval: false });
   client.setQueryData(["member-membership-invoicing-settings", "member"], { settings: {} });
   client.setQueryData(["member-membership-override", "member", null], {});
   client.setQueryData(["historical-dd-payments", null, "member"], []);
+  client.setQueryData(["member-amendments", null, "member"], { history: [], structures: [], capabilities: {} });
   const container = document.createElement("div");
   document.body.append(container);
   const root = createRoot(container);
@@ -96,6 +98,37 @@ test("approved policy is distinct from historical structure, amount, start and y
     assert.match(current.textContent, /Paid recorded term · read-only/);
     assert.equal(container.querySelector('[data-testid="button-member-simulate-current-year"]'), null);
     assert.deepEqual(calls, []);
+  });
+});
+
+for (const previews of [false, true]) {
+  test(`individual rolling history hides year cards without a commitment (preview data: ${previews})`, async () => {
+    await mounted({ dataOverrides: {
+      config: { name: "Individual membership", start_mode: "immediate", structure_scope_type: "member", currency: "GBP" },
+      legacyCurrentMembership: null,
+      currentYearCost: previews ? { membershipYear: "rolling:2026-01-14", yearNumber: 1 } : null,
+      nextYearPreview: previews ? { membershipYear: "rolling:2027-01-14", yearNumber: 2 } : null,
+    } }, (container, calls) => {
+      assert.equal(container.querySelector('[data-testid="member-fixed-year-previews"]'), null);
+      assert.doesNotMatch(container.textContent, /Year 1|Year 2|Current Year|Next Year/);
+      assert.ok(container.querySelector('[data-testid="row-member-history-paid-history"]'));
+      assert.match(container.textContent, /Membership Fee History/);
+      assert.equal(container.querySelector('[data-testid="text-member-structure-name"]').textContent, "Individual membership");
+      assert.equal(calls.length, 0);
+    });
+  });
+}
+
+test("fixed-year member structures retain their preview cards", async () => {
+  await mounted({ dataOverrides: {
+    config: { name: "Fixed membership", start_mode: "fixed_date", structure_scope_type: "member", currency: "GBP" },
+    legacyCurrentMembership: null,
+  } }, (container, calls) => {
+    assert.ok(container.querySelector('[data-testid="member-fixed-year-previews"]'));
+    assert.match(container.textContent, /Current Year/);
+    assert.match(container.textContent, /Next Year/);
+    assert.ok(container.querySelector('[data-testid="row-member-history-paid-history"]'));
+    assert.equal(calls.length, 0);
   });
 });
 
