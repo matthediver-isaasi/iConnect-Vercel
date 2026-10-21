@@ -1,6 +1,7 @@
 import { Fragment, useState, useEffect, useSyncExternalStore } from "react";
 import ApproveCardMembership from "@/components/membership/ApproveCardMembership";
 import MemberMembershipAmendments from "@/components/MemberMembershipAmendments";
+import MemberMembershipStart from "@/components/MemberMembershipStart";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -1388,6 +1389,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
   return (
     <div className="space-y-4">
       {pauseControls}
+      <MemberMembershipStart memberId={memberId} tenantId={activeTenantId} />
       <MemberMembershipAmendments memberId={memberId} tenantId={activeTenantId} />
       {legacyCurrentMembership && (
         <Card className="border-green-200 dark:border-green-900" data-testid="card-member-legacy-current">

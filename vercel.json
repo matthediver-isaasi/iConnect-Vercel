@@ -3,6 +3,9 @@
   "buildCommand": "npx vite build",
   "outputDirectory": "dist/public",
   "functions": {
+    "api/membership/member-start.js": {
+      "maxDuration": 300
+    },
     "api/membership/member-amendments.js": {
       "maxDuration": 300
     },
