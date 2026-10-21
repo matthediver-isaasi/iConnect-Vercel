@@ -6,17 +6,20 @@ import { recordSucceededMembershipPaymentIntent } from '../../_lib/membershipPay
 import { resolveFeeTokenInvoiceReference } from '../../_lib/feeTokenInvoiceReference.js';
 import { membershipIncentiveSnapshot } from '../../_lib/membershipIncentiveSnapshot.js';
 import { calculateOriginalIncentiveRollover } from '../../_lib/membershipSimulationCore.js';
+import { simulationFromMemberStart, assertMemberStartAction, assertMemberStartHistory } from '../../_lib/memberStartPayment.js';
 
 // Evaluate the actual handler with all imported effects supplied explicitly.
 // No configured DB, Stripe account, accounting system or mailer is reachable.
 const source = readFileSync(new URL('./[token].js', import.meta.url), 'utf8')
   .replace(/^import .*;\r?$/gm, '')
   .replace(/export default async function handler/, 'async function handler')
+  .replace(/^export default createPublicMembershipFeeHandler\(\);$/m, '')
   .replace(/export function /g, 'function ')
-  .replace(/import\(([^)]+)\)/g, 'deps($1)');
+  .replace(/import\(([^)]+)\)/g, 'loadDependency($1)');
 const load = new Function('createClient', 'resolveEntityAnnualRenewalEligibility', 'resolveMemberFeeApproval',
-  'feeTokenCommitment', 'simulationFromFeeCommitment', 'reserveRollingFeePayment', 'reserveRollingMonthlyHistory', 'deps', 'membershipIncentiveSnapshot',
-  `${source}\nreturn {handler, simulationFromRenewalQuote, renewalQuoteActivationFields};`);
+  'feeTokenCommitment', 'simulationFromFeeCommitment', 'reserveRollingFeePayment', 'reserveRollingMonthlyHistory', 'loadDependency', 'membershipIncentiveSnapshot',
+  'simulationFromMemberStart', 'assertMemberStartAction', 'assertMemberStartHistory',
+  `${source}\nreturn {handler: createPublicMembershipFeeHandler(), simulationFromRenewalQuote, renewalQuoteActivationFields};`);
 
 function setup(member, rolling = false) {
   const owner = member ? { member_id: 'owner' } : { organization_id: 'owner' };
@@ -121,7 +124,8 @@ function setup(member, rolling = false) {
   };
   const commitment = rolling ? { term_key: 'rolling:2099', term_start_date: '2099-01-01', term_end_date: '2099-12-31' } : null;
   const api = load(() => db, async () => eligibility, async () => ({ required: false }),
-    () => commitment, () => null, async () => null, async () => null, deps, membershipIncentiveSnapshot);
+    () => commitment, () => null, async () => null, async () => null, deps, membershipIncentiveSnapshot,
+    simulationFromMemberStart, assertMemberStartAction, assertMemberStartHistory);
   async function request(method, body = {}) {
     const res = { code: 200, setHeader() {}, status(code) { this.code = code; return this; }, json(body) { this.body = body; return this; }};
     await api.handler({ method, query: { token: 'bearer' }, body, headers: {} }, res);

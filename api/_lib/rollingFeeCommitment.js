@@ -1,5 +1,6 @@
 import { buildRollingCommitment, commitmentFromQuote } from './rollingMembershipCommitment.js';
 import { upfrontRollingCommitment } from './upfrontRollingRenewal.js';
+import { simulationFromMemberStart, assertMemberStartHistory } from './memberStartPayment.js';
 
 export function workflowRollingCommitment(simResult, { zeroDue = false, addonTotals } = {}) {
   const commitment = upfrontRollingCommitment(simResult, {
@@ -31,6 +32,8 @@ export async function hasRollingMonthlyArrangement(client, { tenantId, memberId,
 
 // A fee link is a quote, not permission to re-price the member when it is opened.
 export function feeTokenCommitment(token) {
+  const start = simulationFromMemberStart(token);
+  if (start) return start.commitment;
   const commitment = commitmentFromQuote({ commitment: token?.cost_breakdown?.commitment });
   if (!commitment && (token?.cost_breakdown?.commitment || String(token?.membership_year).startsWith('rolling:'))) {
     throw new Error('This fee quote has no complete verified membership commitment; administrator review is required');
@@ -42,6 +45,8 @@ export function feeTokenCommitment(token) {
 }
 
 export function simulationFromFeeCommitment(token) {
+  const start = simulationFromMemberStart(token);
+  if (start) return start;
   const commitment = feeTokenCommitment(token);
   if (!commitment) return null;
   const snapshot = commitment.commitment_snapshot;
@@ -133,6 +138,14 @@ export async function snapshotRollingFeeQuote(client, {
 // The INSERT's database overlap/ownership guard is the financial reservation.
 // It must succeed before any chargeable Stripe object is created.
 export async function reserveRollingFeePayment(client, token) {
+  const start = simulationFromMemberStart(token);
+  if (start) {
+    const { data, error } = await client.from('member_membership_history').select('*')
+      .eq('tenant_id', token.tenant_id).eq('member_id', token.member_id).eq('id', start.memberStart.recordId).maybeSingle();
+    if (error || !data || data.payment_status === 'paid') throw new Error('The saved Start payment reservation needs review.');
+    assertMemberStartHistory(token, data);
+    return data;
+  }
   const commitment = feeTokenCommitment(token);
   if (!commitment) {
     if (String(token.membership_year).startsWith('rolling:')) {
@@ -182,6 +195,13 @@ export async function reserveRollingFeePayment(client, token) {
 }
 
 export async function reserveRollingMonthlyHistory(client, agreement, snapshot, simResult) {
+  if (simResult?.memberStart) {
+    const { data, error } = await client.rpc('attach_member_start_agreement', {
+      p_start_id: simResult.memberStart.requestId, p_agreement_id: agreement.id,
+    });
+    if (error || !data) throw new Error(`Could not attach the purchased membership payment agreement: ${error?.message || 'missing history'}`);
+    return data;
+  }
   const commitment = commitmentFromQuote(snapshot);
   if (!commitment) return null;
   const table = agreement.member_id ? 'member_membership_history' : 'organisation_membership_history';

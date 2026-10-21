@@ -3,6 +3,7 @@ import { membershipIncentiveSnapshot } from '../../_lib/membershipIncentiveSnaps
 import { resolveEntityAnnualRenewalEligibility } from '../../_lib/annualRenewalPolicy.js';
 import { resolveMemberFeeApproval } from '../../_lib/membershipFeeApproval.js';
 import { feeTokenCommitment, simulationFromFeeCommitment, reserveRollingFeePayment, reserveRollingMonthlyHistory } from '../../_lib/rollingFeeCommitment.js';
+import { simulationFromMemberStart, assertMemberStartAction, assertMemberStartHistory } from '../../_lib/memberStartPayment.js';
 
 // Reminder quotes are consent-time snapshots, not a request to reprice at
 // checkout. Rolling tokens already carry the richer commitment snapshot.
@@ -54,7 +55,8 @@ export function renewalQuoteActivationFields(token, now = new Date()) {
   };
 }
 
-export default async function handler(req, res) {
+export function createPublicMembershipFeeHandler(deps = {}) {
+return async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -66,11 +68,11 @@ export default async function handler(req, res) {
   const supabaseUrl = process.env.SUPABASE_URL;
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
 
-  if (!supabaseUrl || !supabaseServiceKey) {
+  if (!deps.db && (!supabaseUrl || !supabaseServiceKey)) {
     return res.status(503).json({ error: 'Database not configured' });
   }
 
-  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+  const supabase = deps.db || createClient(supabaseUrl, supabaseServiceKey);
   const { token } = req.query;
 
   if (!token) {
@@ -125,7 +127,8 @@ export default async function handler(req, res) {
     // Reminder checkout is an upfront renewal, not a new recurring agreement.
     // A PO alone cannot buy an unrecorded successor; invoice-backed tokens may
     // still attach a PO to the existing debt through the established path.
-    const poAvailable = !isReminderToken || !!(feeToken.history_record_id && invoiceReference);
+    const memberStart = simulationFromMemberStart(feeToken)?.memberStart || null;
+    const poAvailable = !memberStart && (!isReminderToken || !!(feeToken.history_record_id && invoiceReference));
     let tokenMember = null;
     if (isMemberToken) {
       const { data: m } = await supabase
@@ -176,6 +179,17 @@ export default async function handler(req, res) {
       }
     };
     const annualRenewalGate = async () => {
+      if (memberStart) {
+        const { data: purchase, error } = await supabase.from('member_membership_history').select('*')
+          .eq('tenant_id', feeToken.tenant_id).eq('member_id', feeToken.member_id).eq('id', memberStart.recordId).maybeSingle();
+        try {
+          if (error || purchase?.payment_status === 'voided') throw new Error('Purchase unavailable');
+          assertMemberStartHistory(feeToken, purchase);
+        } catch {
+          return { eligible: false, code: 'member_start_purchase_conflict', message: 'The saved membership purchase requires administrator review. No new payment has been started.' };
+        }
+        return { eligible: true, lifecycle: 'new_purchase' };
+      }
       const { simulateMembershipForOrg, simulateMembershipForMember } = await import('../../_lib/membershipSimulation.js');
       const simulation = savedFeeSimulation(feeToken) || (isMemberToken
         ? await simulateMembershipForMember(feeToken.tenant_id, feeToken.member_id, { source: 'fee-token-renewal-gate', mode: 'manual', targetYear: feeToken.membership_year })
@@ -244,7 +258,7 @@ export default async function handler(req, res) {
           : await getConfigForOrganisation(feeToken.tenant_id, feeToken.organization_id));
         if (tierConfig?.online_card_payment) {
           const { getStripeCredentials } = await import('../../_lib/stripeCredentials.js');
-          const creds = await getStripeCredentials(feeToken.tenant_id, 'membership');
+          const creds = await (deps.getStripeCredentials || getStripeCredentials)(feeToken.tenant_id, 'membership');
           if (creds?.is_enabled && creds?.publishable_key) {
             stripePublishableKey = creds.publishable_key;
           }
@@ -346,9 +360,9 @@ export default async function handler(req, res) {
         // Monthly card option (Task #3620): offered when the tier enables it
         // AND the tenant has usable Stripe membership credentials.
         try {
-          if (!isReminderToken && tierConfig?.card_monthly_enabled) {
+          if (!isReminderToken && (!memberStart || memberStart.paymentMode === 'stripe_monthly') && tierConfig?.card_monthly_enabled) {
             const { getStripeCredentials } = await import('../../_lib/stripeCredentials.js');
-            const stripeCreds = await getStripeCredentials(feeToken.tenant_id, 'membership');
+            const stripeCreds = await (deps.getStripeCredentials || getStripeCredentials)(feeToken.tenant_id, 'membership');
             if (stripeCreds?.secret_key) {
               const { simulateMembershipForMember } = await import('../../_lib/membershipSimulation.js');
               const { resolveCardMonthlyOffer } = await import('../../_lib/stripeMonthlyCard.js');
@@ -364,6 +378,7 @@ export default async function handler(req, res) {
                   instalmentCount: offer.instalmentCount,
                   planTotal: offer.planTotal,
                   currency: offer.currency,
+                  activationRule: offer.activationRule,
                 };
               }
             }
@@ -373,8 +388,8 @@ export default async function handler(req, res) {
         }
         try {
           const { getGocardlessCredentials } = await import('../../_lib/gocardlessCredentials.js');
-          const creds = await getGocardlessCredentials(feeToken.tenant_id);
-          if (!isReminderToken && creds?.accessToken && tierConfig?.dd_enabled) {
+          const creds = await (deps.getGocardlessCredentials || getGocardlessCredentials)(feeToken.tenant_id);
+          if (!isReminderToken && (!memberStart || memberStart.paymentMode === 'direct_debit') && creds?.accessToken && tierConfig?.dd_enabled) {
             const { simulateMembershipForMember } = await import('../../_lib/membershipSimulation.js');
             const { resolveDdOffer, publicDdConsentTerms } = await import('../../_lib/gocardlessDirectDebit.js');
             const ddSim = simulationFromFeeCommitment(feeToken) || await simulateMembershipForMember(feeToken.tenant_id, feeToken.member_id, {
@@ -394,6 +409,7 @@ export default async function handler(req, res) {
                 collectionDay: offer.collectionDay,
                 collectionPolicy: offer.collectionPolicy,
               });
+              ddOffer.activationRule = offer.activationRule;
             }
           }
           const { data: agreements } = await supabase
@@ -416,6 +432,7 @@ export default async function handler(req, res) {
           // (server-side create_payment guard remains authoritative).
           const { findOpenAgreementForYear } = await import('../../membership/monthly-card.js');
           const open = await findOpenAgreementForYear({
+            db: supabase,
             tenantId: feeToken.tenant_id,
             memberId: feeToken.member_id,
             yearLabel: feeToken.membership_year,
@@ -460,6 +477,7 @@ export default async function handler(req, res) {
       }
 
       return res.json({
+        memberStart,
         status: feeToken.status,
         isMember: isMemberToken,
         memberName: memberDisplayName,
@@ -492,12 +510,18 @@ export default async function handler(req, res) {
           description: line.description, quantity: line.quantity, line_total: line.line_total,
         })),
         poAvailable,
-        paymentMethodsMessage: isReminderToken
+        paymentMethodsMessage: memberStart
+          ? ((memberStart.paymentMode === 'stripe_upfront' && !stripePublishableKey)
+              || (memberStart.paymentMode === 'stripe_monthly' && !cardMonthly)
+              || (memberStart.paymentMode === 'direct_debit' && !ddEnabled)
+            ? 'The selected payment method is currently unavailable. Contact your administrator; this purchase cannot switch to another payment method.'
+            : null)
+          : isReminderToken
           ? 'This renewal link supports upfront card payment only. Monthly payment plans cannot be started here.'
             + (poAvailable ? ' You may add a purchase order number to the existing invoice.' : ' To renew by purchase order or invoice, please contact your administrator.')
           : null,
         poNumber: feeToken.po_number || null,
-        stripeEnabled: !!stripePublishableKey,
+        stripeEnabled: !!stripePublishableKey && (!memberStart || memberStart.paymentMode === 'stripe_upfront'),
         stripePublishableKey,
         invoiceProvider: invoiceReference?.provider || null,
         invoiceNumber: invoiceReference?.invoiceNumber || null,
@@ -522,6 +546,9 @@ export default async function handler(req, res) {
 
     if (req.method === 'POST') {
       const { action } = req.body;
+      try { assertMemberStartAction(feeToken, action); } catch (error) {
+        return res.status(error.status || 409).json({ error: error.message, code: error.code || 'member_start_snapshot_invalid' });
+      }
       if (isReminderToken && ['start_direct_debit', 'start_monthly_card'].includes(action)) {
         return res.status(409).json({ code: 'renewal_upfront_only', error: 'This renewal link supports upfront payment only. Please contact your administrator about monthly payment plans.' });
       }
@@ -753,6 +780,7 @@ export default async function handler(req, res) {
         if (isMemberToken) {
           const { annualPaymentBlockedByOpenPlan } = await import('../../membership/monthly-card.js');
           const blocked = await annualPaymentBlockedByOpenPlan({
+            db: supabase,
             tenantId: feeToken.tenant_id,
             memberId: feeToken.member_id,
             yearLabel: feeToken.membership_year,
@@ -769,19 +797,19 @@ export default async function handler(req, res) {
         const { getStripeCredentials, findOrCreateStripeCustomer } = await import('../../_lib/stripeCredentials.js');
         const Stripe = (await import('stripe')).default;
 
-        const stripeCredentials = await getStripeCredentials(feeToken.tenant_id, 'membership');
+        const stripeCredentials = await (deps.getStripeCredentials || getStripeCredentials)(feeToken.tenant_id, 'membership');
         if (!stripeCredentials?.secret_key) {
           return res.status(503).json({ error: 'Payment processing is not available' });
         }
 
-        const stripe = new Stripe(stripeCredentials.secret_key);
+        const stripe = deps.stripe || new Stripe(stripeCredentials.secret_key);
         const tokenBreakdown = feeToken.cost_breakdown || {};
         const chargeTotal = tokenBreakdown.totalWithVat || parseFloat(feeToken.final_cost);
         const amount = Math.round(chargeTotal * 100);
         if ((reservedTerm || feeToken.cost_breakdown?.renewalQuote)
             && (feeToken.stripe_payment_intent_id || reservedTerm?.stripe_payment_intent_id)) {
           const { retrieveTenantPaymentIntent } = await import('../../_lib/stripeCredentials.js');
-          const recovered = await retrieveTenantPaymentIntent(feeToken.tenant_id, 'membership',
+          const recovered = await (deps.retrieveTenantPaymentIntent || retrieveTenantPaymentIntent)(feeToken.tenant_id, 'membership',
             feeToken.stripe_payment_intent_id || reservedTerm?.stripe_payment_intent_id);
           const existingIntent = recovered?.paymentIntent || recovered?.payment_intent || recovered;
           if (!existingIntent?.id || existingIntent.status === 'canceled'
@@ -920,7 +948,7 @@ export default async function handler(req, res) {
           .eq(isMemberToken ? 'member_id' : 'organization_id', isMemberToken ? feeToken.member_id : feeToken.organization_id)
           .maybeSingle();
 
-        if (existingByPI?.payment_status === 'paid' && !isReminderToken) {
+        if (existingByPI?.payment_status === 'paid' && !isReminderToken && !memberStart) {
           console.log(`[Public Fee] Idempotent return: history row already exists for PI ${paymentIntentId}`);
           if (feeToken.status !== 'paid') {
             await supabase.from('membership_fee_token').update({ status: 'paid', paid_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', feeToken.id);
@@ -932,7 +960,7 @@ export default async function handler(req, res) {
         // history row. This is the stuck-token state. Surface it loudly
         // instead of silently re-driving Stripe verification + simulator
         // on every retry.
-        if (!isReminderToken && feeToken.status === 'paid' && feeToken.stripe_payment_intent_id === paymentIntentId) {
+        if (!isReminderToken && !memberStart && feeToken.status === 'paid' && feeToken.stripe_payment_intent_id === paymentIntentId) {
           console.error(`[Public Fee] STUCK TOKEN: token ${feeToken.id} is paid with PI ${paymentIntentId} but no history row exists. Manual recovery required (admin can run scripts/backfill-stuck-membership-fee-tokens.mjs).`);
           return res.status(409).json({
             error: 'This payment was received but the membership record was not created. The administrator has been notified and will resolve this within one business day; please do not retry.',
@@ -953,7 +981,7 @@ export default async function handler(req, res) {
         // card was charged.
         let retrieved;
         try {
-          retrieved = await retrieveTenantPaymentIntent(feeToken.tenant_id, 'membership', paymentIntentId);
+          retrieved = await (deps.retrieveTenantPaymentIntent || retrieveTenantPaymentIntent)(feeToken.tenant_id, 'membership', paymentIntentId);
         } catch (retrieveErr) {
           console.error(`[MEMBERSHIP-CONFIRM-FAILURE] [Public Fee] Could not retrieve PI ${paymentIntentId} in either Stripe mode (tenant ${feeToken.tenant_id}, token ${feeToken.id}): ${retrieveErr.message}`);
           return res.status(500).json({ error: 'We could not verify your payment with Stripe. If your card was charged (you received a Stripe receipt), your membership will be reconciled automatically — please do not pay again. Otherwise, please retry.' });
@@ -994,13 +1022,13 @@ export default async function handler(req, res) {
           return confirmFailure(`amount mismatch: expected ${expectedAmount}, PI charged ${paymentIntent.amount}`);
         }
 
-        if (isReminderToken) {
+        if (isReminderToken || memberStart) {
           const { recordSucceededMembershipPaymentIntent } = await import('../../_lib/membershipPaymentReconciliation.js');
           const result = await recordSucceededMembershipPaymentIntent({
             tenantId: feeToken.tenant_id, paymentIntent,
             baseUrl: req.headers.host ? `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}` : '',
             source: 'public_reminder_fee_confirm',
-          }, { db: supabase });
+          }, { db: supabase, ...deps.reconciliation });
           if (!['recorded', 'already-recorded', 'raced', 'accounting-pending'].includes(result.status)) {
             return confirmFailure(result.detail || 'The captured membership payment needs reconciliation');
           }
@@ -1495,7 +1523,7 @@ export default async function handler(req, res) {
         }
 
         const { getGocardlessCredentials } = await import('../../_lib/gocardlessCredentials.js');
-        const creds = await getGocardlessCredentials(feeToken.tenant_id);
+        const creds = await (deps.getGocardlessCredentials || getGocardlessCredentials)(feeToken.tenant_id);
         if (!creds?.accessToken) {
           return res.status(400).json({ error: 'Direct Debit is not available for this organisation' });
         }
@@ -1548,7 +1576,7 @@ export default async function handler(req, res) {
         // this year blocks starting a Direct Debit plan.
         {
           const { findOpenAgreementForYear } = await import('../../membership/monthly-card.js');
-          const openOther = await findOpenAgreementForYear({ tenantId: feeToken.tenant_id, memberId: feeToken.member_id, yearLabel });
+          const openOther = await findOpenAgreementForYear({ tenantId: feeToken.tenant_id, memberId: feeToken.member_id, yearLabel, db: supabase });
           if (openOther && openOther.provider === 'stripe') {
             return res.status(400).json({ error: 'A monthly card payment plan is already set up for this membership year' });
           }
@@ -1599,10 +1627,10 @@ export default async function handler(req, res) {
           }
         }
 
-        const gcClient = await gocardlessForTenant(feeToken.tenant_id);
+        const gcClient = deps.gc || await gocardlessForTenant(feeToken.tenant_id);
         const reusable = (staleAgreement || unstartedAgreement)
           ? null
-          : await findReusableMandate({ tenantId: feeToken.tenant_id, memberId: feeToken.member_id });
+          : await findReusableMandate({ tenantId: feeToken.tenant_id, memberId: feeToken.member_id, db: supabase });
         let snapshot = unstartedAgreement?.metadata?.dd || buildAgreementSnapshot({
             offer,
             simResult,
@@ -1620,7 +1648,7 @@ export default async function handler(req, res) {
           status: STATUS.PAYMENT_SETUP_REQUIRED,
           idempotency_key: idempotencyKey,
           environment: creds.environment || 'sandbox',
-          metadata: { dd: snapshot, ...(snapshot.commitment?.term_key ? { commitment: snapshot.commitment } : {}) },
+          metadata: { dd: snapshot, ...(memberStart ? { member_start: memberStart } : {}), ...(snapshot.commitment?.term_key ? { commitment: snapshot.commitment } : {}) },
         };
         if (reusable) {
           agreementInsert.gocardless_mandate_id = reusable.mandateId;
@@ -1757,16 +1785,16 @@ export default async function handler(req, res) {
           } catch {}
         }
 
-        await sendDdLifecycleEmail('setup_started', agreement, { db: supabase });
-        await markRenewalConfirmed({ tenantId: feeToken.tenant_id, memberId: feeToken.member_id, yearLabel, newAgreementId: agreement.id });
+        await (deps.sendDdLifecycleEmail || sendDdLifecycleEmail)('setup_started', agreement, { db: supabase });
+        if (!memberStart) await markRenewalConfirmed({ tenantId: feeToken.tenant_id, memberId: feeToken.member_id, yearLabel, newAgreementId: agreement.id });
 
         if (agreement.gocardless_mandate_id) {
           if (!await isAgreementMandateActive(agreement, { gc: gcClient })) {
             return res.json({ agreementId: agreement.id, status: agreement.status, resumed: true });
           }
-          const subResult = await ensureSubscriptionForAgreement(agreement, {});
-          const actResult = await activateMembershipForAgreement(agreement, { trigger: 'mandate_active' });
-          await sendDdLifecycleEmail('mandate_active', agreement, {
+          const subResult = await ensureSubscriptionForAgreement(agreement, { db: supabase, gc: gcClient });
+          const actResult = await activateMembershipForAgreement(agreement, { trigger: 'mandate_active', db: supabase });
+          await (deps.sendDdLifecycleEmail || sendDdLifecycleEmail)('mandate_active', agreement, {
             db: supabase,
             extraContext: { firstChargeDate: subResult.plan?.next_charge_date || subResult.plan?.start_date || null },
           });
@@ -1794,7 +1822,7 @@ export default async function handler(req, res) {
         }
 
         const { getStripeCredentials, findOrCreateStripeCustomer } = await import('../../_lib/stripeCredentials.js');
-        const stripeCredentials = await getStripeCredentials(feeToken.tenant_id, 'membership');
+        const stripeCredentials = await (deps.getStripeCredentials || getStripeCredentials)(feeToken.tenant_id, 'membership');
         if (!stripeCredentials?.secret_key) {
           return res.status(400).json({ error: 'Card payment is not available for this organisation' });
         }
@@ -1830,7 +1858,7 @@ export default async function handler(req, res) {
         // Double-payment guard: an open DD agreement for this year blocks card.
         {
           const { findOpenAgreementForYear } = await import('../../membership/monthly-card.js');
-          const openOther = await findOpenAgreementForYear({ tenantId: feeToken.tenant_id, memberId: feeToken.member_id, yearLabel });
+          const openOther = await findOpenAgreementForYear({ tenantId: feeToken.tenant_id, memberId: feeToken.member_id, yearLabel, db: supabase });
           if (openOther && openOther.provider !== 'stripe') {
             return res.status(400).json({ error: 'A monthly Direct Debit plan is already set up for this membership year' });
           }
@@ -1853,14 +1881,22 @@ export default async function handler(req, res) {
         }
 
         const snapshot = existingAgreement?.metadata?.card || buildCardAgreementSnapshot({ offer, simResult });
+        if (memberStart && existingAgreement && !existingAgreement.redirect_url
+            && Date.now() - Date.parse(existingAgreement.created_at || snapshot.accepted_at) >= 20 * 60 * 60 * 1000) {
+          return res.status(409).json({ code: 'member_start_checkout_reconciliation_required',
+            error: 'The previous card checkout has an unconfirmed outcome and requires reconciliation. No second checkout has been created.' });
+        }
         const Stripe = (await import('stripe')).default;
-        const stripe = new Stripe(stripeCredentials.secret_key);
+        const stripe = deps.stripe || new Stripe(stripeCredentials.secret_key);
         const environment = stripeCredentials.secret_key.startsWith('sk_test_') ? 'test' : 'live';
         let rollingAgreement = null;
         if (snapshot.commitment?.term_key) {
           try {
             const { assertMonthlyCollectionsWithinTerm } = await import('../../_lib/rollingMonthlyRenewal.js');
-            assertMonthlyCollectionsWithinTerm(snapshot, new Date(), snapshot.instalment_count || offer.instalmentCount);
+            assertMonthlyCollectionsWithinTerm(snapshot,
+              memberStart ? new Date(`${snapshot.deferred_billing?.first_charge_date || memberStart.termStart}T00:00:00Z`) > new Date()
+                ? `${snapshot.deferred_billing?.first_charge_date || memberStart.termStart}T00:00:00Z` : new Date() : new Date(),
+              snapshot.instalment_count || offer.instalmentCount);
           } catch (error) {
             return res.status(409).json({ error: error.message, code: 'monthly_collection_outside_commitment' });
           }
@@ -1879,7 +1915,7 @@ export default async function handler(req, res) {
               status: STATUS.PAYMENT_SETUP_REQUIRED,
               idempotency_key: idempotencyKey,
               environment,
-              metadata: { card: snapshot, commitment: snapshot.commitment },
+              metadata: { card: snapshot, commitment: snapshot.commitment, ...(memberStart ? { member_start: memberStart } : {}) },
             }).select('*').single();
             if (error) return res.status(409).json({ error: 'Another payment setup already reserves this term. Please reload to continue.' });
             rollingAgreement = data;
@@ -1902,12 +1938,18 @@ export default async function handler(req, res) {
         const origin = host ? `${proto}://${host}` : '';
 
         let session;
+        const { deferredCardCheckoutOptions } = await import('../../_lib/stripeDeferredCardTerms.js');
+        const deferredOptions = memberStart ? deferredCardCheckoutOptions(snapshot) : {};
         try {
           session = await stripe.checkout.sessions.create({
             mode: 'subscription',
             // Membership dues are not a Managed Payments digital product. Keep
             // this on the tenant's direct Stripe subscription integration.
             managed_payments: { enabled: false },
+            ...(memberStart && snapshot.deferred_billing ? {
+              payment_method_collection: deferredOptions.payment_method_collection,
+              payment_method_types: deferredOptions.payment_method_types,
+            } : {}),
             customer: customer?.id || undefined,
             customer_email: customer ? undefined : (tokenMember.email || undefined),
             line_items: [{
@@ -1922,19 +1964,21 @@ export default async function handler(req, res) {
                 },
               },
             }],
-            metadata: { kind: CARD_PLAN_KIND, tenant_id: feeToken.tenant_id, member_id: feeToken.member_id, membership_year: yearLabel || '' },
+            metadata: { kind: CARD_PLAN_KIND, tenant_id: feeToken.tenant_id, member_id: feeToken.member_id, membership_year: yearLabel || '',
+              ...(memberStart ? { agreement_id: rollingAgreement.id } : {}) },
             subscription_data: {
               // Stripe-side finite-billing boundary (see api/membership/monthly-card.js):
               // 15 days past the final (Nth) monthly invoice, safely before an N+1th.
-              cancel_at: snapshot.commitment?.membership_renewal_date
+              ...(!memberStart ? { cancel_at: snapshot.commitment?.membership_renewal_date
                 ? Math.floor(new Date(`${snapshot.commitment.membership_renewal_date}T00:00:00Z`).getTime() / 1000)
                 : (() => {
                 const d = new Date();
                 d.setUTCMonth(d.getUTCMonth() + (offer.instalmentCount - 1));
                 d.setUTCDate(d.getUTCDate() + 15);
                 return Math.floor(d.getTime() / 1000);
-              })(),
-              metadata: { kind: CARD_PLAN_KIND, tenant_id: feeToken.tenant_id, member_id: feeToken.member_id, membership_year: yearLabel || '' },
+              })() } : deferredOptions.subscription_data),
+              metadata: { kind: CARD_PLAN_KIND, tenant_id: feeToken.tenant_id, member_id: feeToken.member_id, membership_year: yearLabel || '',
+                ...(memberStart ? { agreement_id: rollingAgreement.id } : {}) },
             },
             success_url: `${origin}/membership-fees/${token}?card=success`,
             cancel_url: `${origin}/membership-fees/${token}?card=cancelled`,
@@ -2036,7 +2080,7 @@ export default async function handler(req, res) {
         // renewal year marks a pending 'notice_sent' renewal row confirmed.
         try {
           const { markRenewalConfirmed } = await import('../../_lib/gocardlessDdRenewals.js');
-          await markRenewalConfirmed({ tenantId: feeToken.tenant_id, memberId: feeToken.member_id, yearLabel, newAgreementId: agreement.id });
+          if (!memberStart) await markRenewalConfirmed({ tenantId: feeToken.tenant_id, memberId: feeToken.member_id, yearLabel, newAgreementId: agreement.id });
         } catch {}
 
         return res.json({ checkoutUrl: session.url, agreementId: agreement.id });
@@ -2048,6 +2092,9 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (error) {
     console.error('[Public Fee] Error:', error);
-    return res.status(500).json({ error: 'Internal server error' });
+    return res.status(error.status || 500).json({ error: error.status ? error.message : 'Internal server error',
+      ...(error.code && error.status ? { code: error.code } : {}) });
   }
+};
 }
+export default createPublicMembershipFeeHandler();

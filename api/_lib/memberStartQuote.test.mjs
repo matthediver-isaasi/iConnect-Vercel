@@ -42,7 +42,7 @@ test('legitimate free purchase only; complex pricing, backdating and unsupported
     assert.throws(() => quote(change), /does not approximate/);
   }
   assert.throws(() => quote({ today: '2026-03-02' }), /Backdating/);
-  assert.throws(() => normalizeStart({ ...request, paymentMode: 'direct_debit' }), /Only invoice or free/);
+  assert.throws(() => normalizeStart({ ...request, paymentMode: 'cash' }), /supported membership payment mode/);
   assert.throws(() => normalizeStart({ ...request, startDate: '2026-02-30' }), /valid effectiveDate/);
 });
 test('confirmation fingerprint includes structure snapshots, reason, dates and payment mode', () => {

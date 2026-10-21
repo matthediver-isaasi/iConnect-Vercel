@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { CalendarDays, Lock } from "lucide-react";
 import { adminFetch } from "@/lib/adminFetch";
+import { directDebitPolicyText, directDebitFirstCollectionText, directDebitCollectionPolicy } from "@/lib/directDebitConsentSummary";
 
 const endpoint = "/api/membership/member-start";
 const dateLabel = value => {
@@ -20,18 +21,71 @@ const money = (value, currency) => {
   try { return new Intl.NumberFormat("en-GB", { style: "currency", currency }).format(Number(value)); }
   catch { return `${Number(value).toFixed(2)} ${currency || "(currency not supplied)"}`; }
 };
-const modeLabel = mode => ({ invoice: "Invoice — payment remains outstanding", free: "Free — zero-value membership" })[mode] || mode;
+const modeLabel = mode => ({ stripe_upfront: "Card — one-off payment", stripe_monthly: "Card — monthly payments", direct_debit: "Direct Debit — monthly payments", invoice: "Invoice — payment remains outstanding", free: "Free — zero-value membership" })[mode] || mode;
+const supportedModes = ["stripe_upfront", "stripe_monthly", "direct_debit", "invoice", "free"];
+const monthlyMode = mode => ["stripe_monthly", "direct_debit"].includes(mode);
+const dynamicOffer = (offer, mode) => mode === "direct_debit" && directDebitCollectionPolicy(offer)?.pricing_policy === "dynamic";
+const completeOffer = (offer, mode) => {
+  if (!offer || !/^[A-Z]{3}$/.test(offer.currency || "") || !offer.activationRule) return false;
+  const dynamic = dynamicOffer(offer, mode);
+  const required = dynamic ? ["monthlyAmount"] : ["monthlyAmount", "instalmentCount", "planTotal"];
+  return required.every(key => offer[key] != null && offer[key] !== "" && Number.isFinite(Number(offer[key])) && Number(offer[key]) > 0) &&
+    (dynamic || Number.isInteger(Number(offer.instalmentCount)));
+};
+function paymentOptions(source) {
+  if (Array.isArray(source?.paymentOptions)) return source.paymentOptions.filter(item => supportedModes.includes(item.mode));
+  return (Array.isArray(source?.paymentModes) ? source.paymentModes : []).filter(mode => supportedModes.includes(mode)).map(mode => ({ mode, available: true, reason: null }));
+}
+function AuthorizationLink({ request, paymentUrl }) {
+  const [message, setMessage] = useState("");
+  const url = request?.paymentUrl || paymentUrl;
+  // Only server-issued local member links are accepted, never provider URLs.
+  if (!url || !/^\/(?:membership-fees\/[^/?#]+|MembershipFeePayment\?token=[^#]+)$/i.test(url)) return null;
+  return <div className="space-y-2">
+    <p>The member must open this saved authorization link and complete the selected payment method themselves. Creating this request does not collect payment or supply the member’s consent.</p>
+    <a className="underline break-all" href={url} target="_blank" rel="noreferrer">Open member authorization link</a>
+    <p className="break-all">{url}</p>
+    <Button type="button" variant="outline" onClick={async () => {
+      try { await navigator.clipboard.writeText(new URL(url, window.location.origin).href); setMessage("Authorization link copied."); }
+      catch { setMessage("Unable to copy the link. Select and copy the displayed link instead."); }
+    }}>Copy member authorization link</Button>
+    {message && <p role="status">{message}</p>}
+  </div>;
+}
+function RequestState({ request }) {
+  return <div className="space-y-1">
+    <p>Request status: {request?.status || "Not supplied"}{request?.paymentMode ? ` · ${modeLabel(request.paymentMode)}` : ""}</p>
+    {request?.status === "awaiting_member_authorization" && <p>Awaiting member authorization — no payment is confirmed. The member must authorize their saved payment choice.</p>}
+    {request?.status === "pending_payment" && <p>Payment is pending. Authorization or a saved payment plan is not evidence of settlement.</p>}
+    <p className="text-muted-foreground">The saved request is the immutable authority for its payment method, term and pricing policy. Dynamic collections follow the saved policy; the initial quote is not a fixed future charge.</p>
+  </div>;
+}
 function QuoteDetails({ quote }) {
   if (!quote) return null;
+  const dynamic = dynamicOffer(quote.paymentOffer, quote.paymentMode);
   return <div className="space-y-3 text-sm">
     <p>Tier: {quote.tierLabel || (quote.bandId == null ? "Flat price" : "Not supplied")}</p>
     <p>Term: {dateLabel(quote.termStart)} – {dateLabel(quote.termEnd)}</p>
     <p>Membership year: {quote.membershipYear || "Not supplied"}</p>
     <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
-      {[["annualCost", "Base fee"], ["finalCost", "Net fee for this term"], ["vatAmount", "VAT"], ["totalWithVat", "Total including VAT"]].map(([key, label]) => <div key={key}><dt className="text-muted-foreground">{label}</dt><dd className="font-medium">{money(quote[key], quote.currency)}</dd></div>)}
+      {[["annualCost", "Base fee"], ["finalCost", dynamic ? "Initial quoted net fee (not a fixed term total)" : "Net fee for this term"], ["vatAmount", "VAT"], ["totalWithVat", dynamic ? "Initial quote including VAT (not a guaranteed total)" : "Total including VAT"]].map(([key, label]) => <div key={key}><dt className="text-muted-foreground">{label}</dt><dd className="font-medium">{money(quote[key], quote.currency)}</dd></div>)}
     </dl>
     <p>Payment: {modeLabel(quote.paymentMode)}</p>
-    <p className="text-muted-foreground">{quote.paymentMode === "invoice" ? "Invoice does not mean paid. Accounting processing and verified settlement are separate; no card or Direct Debit payment is collected here." : "A free membership can be created only when the server confirms a zero total."}</p>
+    {monthlyMode(quote.paymentMode) && <div className="space-y-1">
+      {completeOffer(quote.paymentOffer, quote.paymentMode) ? <>
+        {dynamic ? <>
+          <p>Current monthly price (variable): {money(quote.paymentOffer.monthlyAmount, quote.paymentOffer.currency)}</p>
+          <p>No guaranteed plan total or fixed instalment count is quoted for dynamic collections.</p>
+        </> : <p>{quote.paymentOffer.instalmentCount} monthly payments of {money(quote.paymentOffer.monthlyAmount, quote.paymentOffer.currency)} · Plan total: {money(quote.paymentOffer.planTotal, quote.paymentOffer.currency)}</p>}
+        <p>Activation rule: {quote.paymentOffer.activationRule}</p>
+        {typeof quote.paymentOffer.autoRenew === "boolean" && <p>{quote.paymentOffer.autoRenew ? "Automatic renewal is enabled in the saved offer." : "Automatic renewal is not enabled in the saved offer."}</p>}
+        {quote.paymentMode === "direct_debit" && <>
+          <p>First collection: {quote.paymentOffer.firstCollectionRule ? directDebitFirstCollectionText(quote.paymentOffer) : "Not supplied"}.</p>
+          <p>{directDebitPolicyText(quote.paymentOffer)}</p>
+        </>}
+      </> : <p role="alert">The server has not supplied complete monthly payment terms. Request a fresh preview before continuing.</p>}
+    </div>}
+    <p className="text-muted-foreground">{quote.paymentMode === "invoice" ? "Invoice does not mean paid. Accounting processing and verified settlement are separate; no card or Direct Debit payment is collected here." : quote.paymentMode === "free" ? "A free membership can be created only when the server confirms a zero total." : "The member must authorize payment using their saved link. No card or Direct Debit consent is recorded here, and authorization alone does not mean paid."}</p>
   </div>;
 }
 function Blockers({ items = [] }) {
@@ -100,16 +154,22 @@ function StartPanel({ memberId, tenantId }) {
   const isFlat = selected?.pricing_model === "flat";
   const blockers = Array.isArray(data?.blockers) ? data.blockers : [];
   const requests = Array.isArray(data?.requests) ? data.requests : [];
-  const modes = (Array.isArray(data?.capabilities?.paymentModes) ? data.capabilities.paymentModes : []).filter(mode => ["invoice", "free"].includes(mode));
-  const canPreview = !isError && !!data && !blockers.length && !!modes.length;
+  const selectedBand = bands.find(item => String(item.id) === form.bandId);
+  const optionSource = selectedBand && (Array.isArray(selectedBand.paymentOptions) || Array.isArray(selectedBand.paymentModes)) ? selectedBand : selected;
+  const options = paymentOptions(optionSource);
+  const modes = options.filter(item => item.available && !(item.mode === "invoice" && data?.capabilities?.invoiceAvailable === false)).map(item => item.mode);
+  const hasOptions = structures.some(item => paymentOptions(item).length || item.bands?.some(band => paymentOptions(band).length));
+  const canPreview = !isError && !!data && !blockers.length && !!hasOptions;
   const valid = !!(form.configId && (isFlat || form.bandId) && form.startDate && form.reason.trim() && modes.includes(paymentMode));
   const locked = !!pending || !!attempt || !!saved;
   const quote = preview?.quote;
   const completeQuote = !!quote && ["annualCost", "finalCost", "vatAmount", "totalWithVat"].every(key =>
-    quote[key] != null && quote[key] !== "" && Number.isFinite(Number(quote[key])) && Number(quote[key]) >= 0
+    (dynamicOffer(quote.paymentOffer, paymentMode) && quote[key] == null) ||
+    (quote[key] != null && quote[key] !== "" && Number.isFinite(Number(quote[key])) && Number(quote[key]) >= 0)
   ) && /^[A-Z]{3}$/.test(quote.currency || "") && /^\d{4}-\d{2}-\d{2}$/.test(quote.termStart || "") && /^\d{4}-\d{2}-\d{2}$/.test(quote.termEnd || "") &&
     quote.configId === form.configId && (quote.bandId || null) === (isFlat ? null : form.bandId) &&
-    quote.paymentMode === paymentMode && (paymentMode !== "free" || Number(quote.totalWithVat) === 0);
+    quote.paymentMode === paymentMode && (paymentMode !== "free" || Number(quote.totalWithVat) === 0) &&
+    (!monthlyMode(paymentMode) || completeOffer(quote.paymentOffer, paymentMode));
   const canCreate = canPreview && valid && preview?.canCreate === true && !!preview?.expectedQuote && completeQuote &&
     (paymentMode !== "invoice" || data?.capabilities?.invoiceAvailable !== false);
 
@@ -119,6 +179,13 @@ function StartPanel({ memberId, tenantId }) {
     setPreview(null);
     setRequestError("");
   }
+  useEffect(() => {
+    if (paymentMode && !modes.includes(paymentMode)) {
+      generation.current += 1;
+      setPaymentMode("");
+      setPreview(null);
+    }
+  }, [JSON.stringify(modes), paymentMode]);
   function openConfirmation(target = null) {
     setRecoveryTarget(target);
     setAcknowledged(false);
@@ -163,7 +230,7 @@ function StartPanel({ memberId, tenantId }) {
         if (recovering && result.request.id !== recoveryTarget.id) throw new Error("The server returned a different request. Recovery has not been confirmed.");
         setOutcome(result);
         setConfirmOpen(false);
-        if (result.record?.id && !result.reconciliation_required) {
+        if ((result.record?.id || ["awaiting_member_authorization", "pending_payment", "completed"].includes(result.request.status)) && !result.reconciliation_required) {
           setSaved(result);
           setPreview(null);
           if (!recovering) {
@@ -189,7 +256,7 @@ function StartPanel({ memberId, tenantId }) {
       }
     } finally {
       sending.current = false;
-      if (generation.current === token) setPending(null);
+      setPending(null);
     }
   }
 
@@ -201,7 +268,7 @@ function StartPanel({ memberId, tenantId }) {
     <CardContent className="space-y-5">
       <div className="rounded-md border bg-muted/50 p-3 text-sm flex items-start gap-2">
         <Lock className="w-4 h-4 shrink-0 mt-0.5" />
-        <div className="space-y-1"><p>A preview does not create a membership or collect money. This workflow does not record card or Direct Debit consent on the member’s behalf.</p><p>Only invoice and server-confirmed free memberships are supported here. Card payment links and recurring Direct Debit or card payments are not available in this workflow.</p></div>
+        <div className="space-y-1"><p>A preview does not create a membership or collect money. This workflow does not record card or Direct Debit consent on the member’s behalf.</p><p>Payment options are enabled by the selected structure and tier. For card or Direct Debit, share the saved authorization link with the member after creation.</p></div>
       </div>
       {isLoading ? <div role="status" aria-label="Loading membership start options" className="space-y-2">
         <div className="h-5 w-2/3 rounded bg-muted" /><div className="h-20 rounded bg-muted" />
@@ -211,8 +278,9 @@ function StartPanel({ memberId, tenantId }) {
       </div> : <>
         {isError && <div role="alert" className="text-sm space-y-2"><p>Options could not be refreshed: {error?.message}. New requests are unavailable until refreshed.</p><Button variant="outline" onClick={() => refetch()} disabled={isFetching}>Retry loading options</Button></div>}
         <Blockers items={blockers} />
+        {!structures.length && <p className="text-sm text-muted-foreground">No eligible individual membership structures are available.</p>}
         {!canPreview && <p className="text-sm text-muted-foreground">Start / Renew preview is unavailable for this member or your current permissions.</p>}
-        {data && !modes.length && <p className="text-sm text-muted-foreground">The server has not enabled any supported invoice or free payment options.</p>}
+        {selected && !modes.length && <p className="text-sm text-muted-foreground">The server has not enabled any available payment options for this structure / tier.</p>}
         {data?.capabilities?.invoiceAvailable === false && <p role="alert" className="text-sm">Invoice creation is unavailable because the durable membership accounting queue is not enabled. A finance administrator must configure the supported accounting workflow before invoice memberships can be created.</p>}
         {canPreview && <form className="space-y-4" onSubmit={event => { event.preventDefault(); void submit("preview"); }}>
           <fieldset disabled={locked} className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -237,18 +305,18 @@ function StartPanel({ memberId, tenantId }) {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor={`start-payment-${memberId}`}>Payment option</Label>
-              <select id={`start-payment-${memberId}`} required value={paymentMode} onChange={event => { setPaymentMode(event.target.value); setPreview(null); setRequestError(""); }} className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+              <select id={`start-payment-${memberId}`} required value={paymentMode} onChange={event => { generation.current += 1; setPaymentMode(event.target.value); setPreview(null); setRequestError(""); }} className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
                 <option value="">Choose a supported payment option</option>
-                {modes.map(mode => <option key={mode} value={mode} disabled={mode === "invoice" && data?.capabilities?.invoiceAvailable === false}>{modeLabel(mode)}{mode === "invoice" && data?.capabilities?.invoiceAvailable === false ? " — unavailable" : ""}</option>)}
+                {options.map(item => <option key={item.mode} value={item.mode} disabled={!modes.includes(item.mode)}>{modeLabel(item.mode)}{!modes.includes(item.mode) ? ` — unavailable${item.reason ? `: ${item.reason}` : ""}` : ""}</option>)}
               </select>
-              <p className="text-xs text-muted-foreground">Free is eligible only for a zero total. A positive fee requires invoice.</p>
+              <p className="text-xs text-muted-foreground">Only server-enabled methods can be selected. Free is eligible only for a zero total.</p>
+              {options.filter(item => !item.available && item.reason).map(item => <p className="text-xs text-muted-foreground" key={item.mode}>{modeLabel(item.mode)}: {item.reason}</p>)}
             </div>
             <div className="space-y-1.5 md:col-span-2">
               <Label htmlFor={`start-reason-${memberId}`}>Reason for start / renewal</Label>
               <Textarea id={`start-reason-${memberId}`} required maxLength={2000} value={form.reason} onChange={event => edit("reason", event.target.value)} placeholder="Record why this membership is being started or renewed" />
             </div>
           </fieldset>
-          {!structures.length && <p className="text-sm text-muted-foreground">No eligible individual membership structures are available.</p>}
           {!attempt && !saved && <Button type="submit" variant="outline" disabled={!valid || !!pending || !structures.length}>{pending === "preview" ? "Preparing preview…" : "Preview membership"}</Button>}
         </form>}
         {preview && <div data-testid="member-start-preview" className="rounded-md border p-4 space-y-3" aria-live="polite">
@@ -275,10 +343,15 @@ function StartPanel({ memberId, tenantId }) {
         <p className="font-medium">Saved request · {outcome.request?.status || "Outcome unconfirmed"}</p>
         <p>{outcome.reconciliation_required ? "Reconciliation is required. Review and recover the same saved request below; do not create another membership." : "The request remains pending. This is not a payment receipt."}</p>
       </div>}
-      {saved && <div role="status" className="rounded-md border p-3 text-sm space-y-1">
+      {saved?.record && <div role="status" className="rounded-md border p-3 text-sm space-y-1">
         <p className="font-medium">Membership record created · {saved.record.id}</p>
         <p>{saved.record.payment_status === "paid" && saved.record.total_with_vat === 0 ? "Zero-value membership recorded — no payment collected." : "Creation is not a payment receipt. Review the recorded payment status in membership history below."}</p>
         <p>Recorded payment status: {saved.record.payment_status || "Not supplied"}.{saved.accounting_pending ? " Accounting processing is pending." : ""}</p>
+      </div>}
+      {saved && <div role="status" className="rounded-md border p-3 text-sm space-y-2">
+        {!saved.record && <p className="font-medium">Membership request saved · {saved.request.id}</p>}
+        <RequestState request={saved.request} />
+        <AuthorizationLink request={saved.request} paymentUrl={saved.paymentUrl} />
       </div>}
       {!isLoading && <section aria-label="Saved membership start requests" className="space-y-3">
         <h3 className="text-sm font-medium">Saved start / renewal requests</h3>
@@ -286,6 +359,8 @@ function StartPanel({ memberId, tenantId }) {
           <ol className="space-y-3">{requests.map(item => <li key={item.id} className="rounded-md border p-3 space-y-2 text-sm">
             <p className="font-medium break-all">Request {item.id}</p>
             <p>Request status: {item.status || "Not supplied"} · Payment status: {item.payment_status || "Not supplied"}</p>
+            <RequestState request={item} />
+            <AuthorizationLink request={item} />
             {item.quote && <QuoteDetails quote={item.quote} />}
             <p className="whitespace-pre-wrap break-words">Reason: {item.reason || "Not supplied"}</p>
             {item.record_id && <p className="break-all">Membership record: {item.record_id}</p>}

@@ -80,3 +80,67 @@ test('zero-due resume dispatches existing paid workflow and reports failed deliv
   assert.equal(result.request.status, 'notification_pending');
   assert.equal(result.record.payment_status, 'paid');
 });
+for (const paymentMode of ['stripe_upfront', 'stripe_monthly', 'direct_debit']) test(`${paymentMode}: admin resume/reload returns the same canonical member link without initiating any provider effect`, async () => {
+  const { db, saved, record } = fixture();
+  saved.request.paymentMode = paymentMode;
+  const link = { token: 'stable-member-link' };
+  const originalFrom = db.from;
+  db.from = table => table === 'membership_fee_token' ? {
+    select() { return this; }, eq() { return this; },
+    async maybeSingle() { return { data: link, error: null }; },
+  } : originalFrom(table);
+  const service = createMemberStartService({ db, invoice: () => assert.fail('member must authorize the provider payment') });
+  const first = await service.resume(id(1), { memberId: id(4), requestId: id(5) });
+  const reloaded = await service.resume(id(1), { memberId: id(4), requestId: id(5) });
+  assert.equal(first.paymentUrl, '/membership-fees/stable-member-link');
+  assert.equal(reloaded.request.paymentUrl, first.paymentUrl);
+  assert.equal(first.request.paymentMode, paymentMode);
+  assert.equal(first.request.status, 'awaiting_member_authorization');
+  assert.equal(record.payment_status, 'unpaid');
+  record.billing_agreement_id = id(7);
+  const inFlight = await service.resume(id(1), { memberId: id(4), requestId: id(5) });
+  assert.equal(inFlight.request.status, 'pending_payment');
+  record.payment_status = 'paid';
+  assert.equal((await service.resume(id(1), { memberId: id(4), requestId: id(5) })).request.status, 'completed');
+  record.payment_status = 'unpaid';
+  link.expires_at = '2020-01-01T00:00:00Z';
+  const expired = await service.resume(id(1), { memberId: id(4), requestId: id(5) });
+  assert.equal(expired.request.status, 'reconciliation_required');
+  assert.equal(expired.reconciliation_required, true);
+  assert.equal(expired.paymentUrl, first.paymentUrl);
+});
+test('list/preview require versioned database payment authority and show explicit unavailability without affecting invoice/free', async () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const config = { id: id(3), tenant_id: id(1), structure_scope_type: 'member', is_active: true,
+    billing_period: 'annual', start_mode: 'immediate', effective_from: '2020-01-01', pricing_model: 'flat',
+    currency: 'GBP', flat_cost: 100, online_card_payment: true, card_monthly_enabled: true,
+    dd_enabled: true, dd_monthly_amount: 10, dd_instalment_count: 10, dd_auto_renew: false };
+  let ready = false;
+  const db = {
+    async rpc(name) {
+      if (name === 'member_start_payment_capabilities') return ready
+        ? { data: { version: 1 }, error: null } : { error: { code: 'PGRST202' } };
+      assert.equal(name, 'member_start_state');
+      return { data: { member: { id: id(4), email: 'member@example.test' }, blockers: [], fingerprint: 'unchanged' }, error: null };
+    },
+    from(table) {
+      const rows = table === 'membership_tier_config' ? [config] : [];
+      const chain = { select() { return chain; }, eq() { return chain; }, order() { return chain; }, range() { return chain; },
+        async maybeSingle() { return { data: rows[0] || null, error: null }; },
+        then(resolve, reject) { return Promise.resolve({ data: rows, error: null }).then(resolve, reject); } };
+      return chain;
+    },
+  };
+  const service = createMemberStartService({ db, queueEnabled: () => true, getProvider: async () => ({ name: 'xero' }),
+    stripeCredentials: async () => ({ is_enabled: true, secret_key: 'isolated', publishable_key: 'isolated' }),
+    ddCredentials: async () => ({ accessToken: 'isolated' }), address: async () => null, nominal: async () => null });
+  const unavailable = await service.list(id(1), id(4));
+  assert.deepEqual(unavailable.structures[0].paymentModes, ['invoice']);
+  assert.match(unavailable.structures[0].paymentOptions.find(p => p.mode === 'stripe_upfront').reason, /migration is required/);
+  const preview = await service.preview(id(1), { memberId: id(4), configId: id(3), paymentMode: 'stripe_upfront', startDate: today, reason: 'Explicit new purchase' });
+  assert.equal(preview.canCreate, false);
+  ready = true;
+  const available = await service.list(id(1), id(4));
+  assert.deepEqual(available.structures[0].paymentModes, ['stripe_upfront', 'stripe_monthly', 'direct_debit', 'invoice']);
+  assert.equal(available.capabilities.paymentAuthorityVersion, 1);
+});

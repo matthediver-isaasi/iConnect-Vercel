@@ -9,6 +9,15 @@ import { reserveWorkerSuccessor } from './membershipSuccessorElection.js';
 export { monthlySnapshotCommitment, monthlyRenewalIdentity, assertTrustedMonthlyTerm } from './monthlyRenewalTerms.js';
 
 export function monthlyCommitmentFields({ offer, simResult, paymentMethod }) {
+  if (simResult?.memberStart) {
+    const c = simResult.commitment;
+    if (!c?.term_key || c.commitment_snapshot?.payment_method !== paymentMethod
+        || c.commitment_snapshot?.amounts?.monthly_amount !== offer.monthlyAmount
+        || c.commitment_snapshot?.amounts?.instalment_count !== offer.instalmentCount) {
+      throw new Error('The monthly offer does not match the immutable membership Start purchase.');
+    }
+    return c;
+  }
   const fixedDd = paymentMethod === 'direct_debit'
     && simResult?.config?.start_mode !== 'immediate' && simResult?.membershipYear?.end;
   if (simResult?.config?.start_mode !== 'immediate' && !fixedDd) return {};

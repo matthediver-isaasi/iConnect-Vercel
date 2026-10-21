@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
 import GoCardlessDropinFlow from "@/components/gocardless/GoCardlessDropinFlow";
-import { directDebitFirstCollectionText, directDebitPolicyText, directDebitHasFixedTermTotal } from "@/lib/directDebitConsentSummary";
+import { directDebitFirstCollectionText, directDebitPolicyText, directDebitHasFixedTermTotal, directDebitCollectionPolicy } from "@/lib/directDebitConsentSummary";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,12 +25,24 @@ function isBelowStripeMinimum(amount, currency) {
   const min = STRIPE_MINIMUMS[currency] || 0.50;
   return parseFloat(amount || 0) < min;
 }
+const savedModeLabel = mode => ({ stripe_upfront: 'One-off card payment', stripe_monthly: 'Monthly card payments', direct_debit: 'Monthly Direct Debit', invoice: 'Invoice', free: 'Free membership' })[mode] || 'Unavailable payment method';
+const completeMonthlyOffer = (offer, mode) => {
+  if (!offer || !/^[A-Z]{3}$/.test(offer.currency || '') || !offer.activationRule) return false;
+  const dynamic = mode === 'direct_debit' && directDebitCollectionPolicy(offer)?.pricing_policy === 'dynamic';
+  const required = dynamic ? ['monthlyAmount'] : ['monthlyAmount', 'instalmentCount', 'planTotal'];
+  return required.every(key => offer[key] != null && offer[key] !== '' && Number.isFinite(Number(offer[key])) && Number(offer[key]) > 0) &&
+    (dynamic || Number.isInteger(Number(offer.instalmentCount)));
+};
 
 export default function MembershipFeePage() {
   const { token } = useParams();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const isMemberStart = data?.memberStart != null;
+  const allowsMode = mode => !isMemberStart || data.memberStart.paymentMode === mode;
+  const monthlyOfferReady = offer => !isMemberStart || completeMonthlyOffer(offer, data.memberStart.paymentMode);
+  const dynamicMemberStart = isMemberStart && data.memberStart.paymentMode === 'direct_debit' && directDebitCollectionPolicy(data.ddOffer)?.pricing_policy === 'dynamic';
 
   const [poNumber, setPoNumber] = useState('');
   const [submittingPo, setSubmittingPo] = useState(false);
@@ -90,7 +102,7 @@ export default function MembershipFeePage() {
 
   // Handle 3D Secure redirect return
   useEffect(() => {
-    if (!token || redirectHandled.current) return;
+    if (!token || !data || redirectHandled.current) return;
 
     const urlParams = new URLSearchParams(window.location.search);
     const paymentIntentFromUrl = urlParams.get('payment_intent');
@@ -98,7 +110,7 @@ export default function MembershipFeePage() {
 
     // Direct Debit hosted-flow return (?dd=complete / ?dd=cancelled)
     const ddParam = urlParams.get('dd');
-    if (ddParam === 'complete' || ddParam === 'cancelled') {
+    if (allowsMode('direct_debit') && (ddParam === 'complete' || ddParam === 'cancelled')) {
       setDdBanner(ddParam);
       const cleaned = new URLSearchParams(window.location.search);
       cleaned.delete('dd');
@@ -108,7 +120,7 @@ export default function MembershipFeePage() {
 
     // Monthly card Checkout return (?card=success / ?card=cancelled)
     const cardParam = urlParams.get('card');
-    if (cardParam === 'success' || cardParam === 'cancelled') {
+    if (allowsMode('stripe_monthly') && (cardParam === 'success' || cardParam === 'cancelled')) {
       setCardBanner(cardParam);
       const cleaned = new URLSearchParams(window.location.search);
       cleaned.delete('card');
@@ -116,7 +128,7 @@ export default function MembershipFeePage() {
       window.history.replaceState({}, '', window.location.pathname + (s ? '?' + s : ''));
     }
 
-    if (!paymentIntentFromUrl) return;
+    if (!paymentIntentFromUrl || !allowsMode('stripe_upfront')) return;
 
     redirectHandled.current = true;
     console.log('[MembershipFeePage] Detected 3D Secure return:', { paymentIntentFromUrl, redirectStatus });
@@ -162,9 +174,10 @@ export default function MembershipFeePage() {
     };
 
     completePayment();
-  }, [token]);
+  }, [token, data]);
 
   const handleSubmitPo = async () => {
+    if (!allowsMode('invoice')) return;
     if (!poNumber.trim()) return;
     setSubmittingPo(true);
     try {
@@ -189,6 +202,7 @@ export default function MembershipFeePage() {
   };
 
   const handleStartDirectDebit = async () => {
+    if (!allowsMode('direct_debit') || !monthlyOfferReady(data?.ddOffer)) return;
     setStartingDd(true);
     setPaymentError(null);
     try {
@@ -225,6 +239,7 @@ export default function MembershipFeePage() {
   };
 
   const handleStartMonthlyCard = async () => {
+    if (!allowsMode('stripe_monthly') || !monthlyOfferReady(data?.cardMonthly)) return;
     setStartingCardMonthly(true);
     setPaymentError(null);
     try {
@@ -250,6 +265,7 @@ export default function MembershipFeePage() {
   };
 
   const initStripe = async () => {
+    if (!allowsMode('stripe_upfront')) return;
     if (!data?.stripePublishableKey) return;
     if (isBelowStripeMinimum(data?.totalWithVat || data?.finalCost, data?.currency)) return;
     setCreatingPayment(true);
@@ -303,6 +319,7 @@ export default function MembershipFeePage() {
   };
 
   const handleStripePayment = async () => {
+    if (!allowsMode('stripe_upfront')) return;
     if (!stripeRef.current || !elementsRef.current) return;
     setProcessingPayment(true);
     setPaymentError(null);
@@ -544,9 +561,9 @@ export default function MembershipFeePage() {
             <Separator className="my-3" />
 
             <div className="flex items-center justify-between">
-              <span className="font-medium">Total Due{data?.vatAmount > 0 ? ' (incl. VAT)' : ''}</span>
+              <span className="font-medium">{dynamicMemberStart ? 'Current monthly price (variable)' : <>Total Due{data?.vatAmount > 0 ? ' (incl. VAT)' : ''}</>}</span>
               <span className="text-2xl font-bold" style={{ color: primaryColor }} data-testid="text-total">
-                {formatCurrency(data?.totalWithVat || data?.finalCost, data?.currency)}
+                {dynamicMemberStart ? (data.ddOffer?.monthlyAmount != null ? formatCurrency(data.ddOffer.monthlyAmount, data.ddOffer.currency || data.currency) : 'Not supplied') : formatCurrency(data?.totalWithVat || data?.finalCost, data?.currency)}
               </span>
             </div>
           </CardContent>
@@ -561,8 +578,19 @@ export default function MembershipFeePage() {
         {data?.paymentMethodsMessage && (
           <p className="text-sm text-gray-600" data-testid="text-renewal-payment-methods">{data.paymentMethodsMessage}</p>
         )}
+        {isMemberStart && (
+          <div className="rounded-md border bg-white p-3 text-sm space-y-2" data-testid="member-start-payment-authority">
+            <p>Saved payment method: {savedModeLabel(data.memberStart.paymentMode)}.</p>
+            <p>Membership term: {data.memberStart.termStart} to {data.memberStart.termEnd}.</p>
+            <p>This request uses the saved payment method, term and pricing policy. No alternative payment method is offered. Payment authorization or plan set-up alone is not confirmation of payment.</p>
+            {dynamicMemberStart && <p>No guaranteed plan total or fixed instalment count is quoted. Dynamic monthly collections use current prices under the saved collection policy.</p>}
+            {data.memberStart.paymentMode === 'invoice' && <p>Your invoice remains outstanding until payment is verified.</p>}
+            {data.memberStart.paymentMode === 'free' && <p>No payment authorization is required for this zero-value membership.</p>}
+            {['stripe_monthly', 'direct_debit'].includes(data.memberStart.paymentMode) && !monthlyOfferReady(data.memberStart.paymentMode === 'stripe_monthly' ? data.cardMonthly : data.ddOffer) && <p role="alert">The saved monthly payment terms are incomplete. Contact your membership administrator before authorizing payment.</p>}
+          </div>
+        )}
 
-        {!renewalBlocked && data?.poAvailable !== false && !poSubmitted && paymentMode !== 'stripe' && (
+        {allowsMode('invoice') && !renewalBlocked && data?.poAvailable !== false && !poSubmitted && paymentMode !== 'stripe' && (
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center gap-2 mb-3">
@@ -649,10 +677,10 @@ export default function MembershipFeePage() {
             <CardContent className="pt-6">
               <div className="flex items-center gap-2 text-green-600">
                 <CheckCircle2 className="w-5 h-5" />
-                <span className="font-medium">Direct Debit Set-Up Complete</span>
+                <span className="font-medium">{isMemberStart ? 'Direct Debit Authorization Pending Confirmation' : 'Direct Debit Set-Up Complete'}</span>
               </div>
               <p className="text-sm text-gray-500 mt-1">
-                Thank you — your Direct Debit mandate is being confirmed by your bank. Your membership payments will be collected monthly and no further action is needed.
+                {isMemberStart ? 'Your authorization has been returned to the provider. Bank confirmation and payment settlement are still pending; this is not a payment receipt.' : 'Thank you — your Direct Debit mandate is being confirmed by your bank. Your membership payments will be collected monthly and no further action is needed.'}
               </p>
             </CardContent>
           </Card>
@@ -661,7 +689,7 @@ export default function MembershipFeePage() {
         {ddBanner === 'cancelled' && (
           <div className="flex items-start gap-2 p-3 rounded-md bg-amber-50 border border-amber-200">
             <AlertCircle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
-            <p className="text-sm text-amber-700">Direct Debit set-up was cancelled. You can try again below, or use another payment option.</p>
+            <p className="text-sm text-amber-700">Direct Debit set-up was cancelled. {isMemberStart ? 'You can retry the saved payment method below.' : 'You can try again below, or use another payment option.'}</p>
           </div>
         )}
 
@@ -673,7 +701,7 @@ export default function MembershipFeePage() {
                 <span className="font-medium">Direct Debit In Progress</span>
               </div>
               <p className="text-sm text-gray-500 mt-1">
-                Your existing Direct Debit mandate has been reused — your monthly payments have been scheduled.
+                {isMemberStart ? 'The provider has accepted the set-up request. Authorization and payment status must still be confirmed; no payment receipt is recorded here.' : 'Your existing Direct Debit mandate has been reused — your monthly payments have been scheduled.'}
               </p>
             </CardContent>
           </Card>
@@ -684,10 +712,10 @@ export default function MembershipFeePage() {
             <CardContent className="pt-6">
               <div className="flex items-center gap-2 text-green-600">
                 <CheckCircle2 className="w-5 h-5" />
-                <span className="font-medium">Monthly Card Payments Set Up</span>
+                <span className="font-medium">{isMemberStart ? 'Monthly Card Authorization Pending Confirmation' : 'Monthly Card Payments Set Up'}</span>
               </div>
               <p className="text-sm text-gray-500 mt-1">
-                Thank you — your card has been saved securely with Stripe and your membership will be collected in monthly instalments. No further action is needed.
+                {isMemberStart ? 'Your card set-up has returned from the provider. Authorization and payment settlement must still be confirmed; this is not a payment receipt.' : 'Thank you — your card has been saved securely with Stripe and your membership will be collected in monthly instalments. No further action is needed.'}
               </p>
             </CardContent>
           </Card>
@@ -696,7 +724,7 @@ export default function MembershipFeePage() {
         {cardBanner === 'cancelled' && (
           <div className="flex items-start gap-2 p-3 rounded-md bg-amber-50 border border-amber-200">
             <AlertCircle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
-            <p className="text-sm text-amber-700">Monthly card set-up was cancelled. You can try again below, or use another payment option.</p>
+            <p className="text-sm text-amber-700">Monthly card set-up was cancelled. {isMemberStart ? 'You can retry the saved payment method below.' : 'You can try again below, or use another payment option.'}</p>
           </div>
         )}
 
@@ -721,7 +749,7 @@ export default function MembershipFeePage() {
           </div>
         )}
 
-        {data?.cardMonthlyEnabled && !paymentComplete && cardBanner !== 'success' && !ddStarted && ddBanner !== 'complete' && !data?.cardStatus?.hasSubscription && (
+        {allowsMode('stripe_monthly') && monthlyOfferReady(data?.cardMonthly) && data?.cardMonthlyEnabled && !paymentComplete && cardBanner !== 'success' && !ddStarted && ddBanner !== 'complete' && !data?.cardStatus?.hasSubscription && (
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center gap-2 mb-3">
@@ -729,10 +757,11 @@ export default function MembershipFeePage() {
                 <h2 className="font-medium">Pay Monthly by Card</h2>
               </div>
               <p className="text-sm text-gray-500 mb-3">
-                Spread your membership fee over {data?.cardMonthly?.instalmentCount || 12} monthly card payments of{' '}
+                Spread your membership fee over {isMemberStart ? data.cardMonthly.instalmentCount : (data?.cardMonthly?.instalmentCount || 12)} monthly card payments of{' '}
                 <span className="font-medium text-gray-700">{formatCurrency(data?.cardMonthly?.monthlyAmount, data?.cardMonthly?.currency || data?.currency)}</span>
                 {data?.cardMonthly?.planTotal ? <> (total {formatCurrency(data.cardMonthly.planTotal, data?.cardMonthly?.currency || data?.currency)})</> : null}.
                 You'll be taken to a secure Stripe page to enter your card details — they never touch our servers.
+                {isMemberStart && data.cardMonthly.activationRule && <> Activation rule: {data.cardMonthly.activationRule}.</>}
               </p>
               <Button
                 onClick={handleStartMonthlyCard}
@@ -752,7 +781,7 @@ export default function MembershipFeePage() {
           </Card>
         )}
 
-        {data?.ddEnabled && !paymentComplete && !ddStarted && ddBanner !== 'complete' && cardBanner !== 'success' && !data?.cardStatus?.hasSubscription && (
+        {allowsMode('direct_debit') && monthlyOfferReady(data?.ddOffer) && data?.ddEnabled && !paymentComplete && !ddStarted && ddBanner !== 'complete' && cardBanner !== 'success' && !data?.cardStatus?.hasSubscription && (
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center gap-2 mb-3">
@@ -760,12 +789,13 @@ export default function MembershipFeePage() {
                 <h2 className="font-medium">Pay Monthly by Direct Debit</h2>
               </div>
               <p className="text-sm text-gray-500 mb-3">
-                {directDebitHasFixedTermTotal(data.ddOffer) ? <>Membership term: {data?.ddOffer?.instalmentCount || 12} monthly payments of{' '}</> : 'Current monthly price (variable): '}
+                {directDebitHasFixedTermTotal(data.ddOffer) ? <>Membership term: {isMemberStart ? data.ddOffer.instalmentCount : (data?.ddOffer?.instalmentCount || 12)} monthly payments of{' '}</> : 'Current monthly price (variable): '}
                 <span className="font-medium text-gray-700">{formatCurrency(data?.ddOffer?.monthlyAmount, data?.ddOffer?.currency || data?.currency)}</span>
                 {directDebitHasFixedTermTotal(data.ddOffer) && data?.ddOffer?.planTotal ? <> (total for this term {formatCurrency(data.ddOffer.planTotal, data?.ddOffer?.currency || data?.currency)})</> : null}.
-                 {' '}First collection: <span data-testid="text-dd-first-collection">{directDebitFirstCollectionText(data.ddOffer).toLowerCase()}</span>.
+                  {' '}First collection: <span data-testid="text-dd-first-collection">{isMemberStart && !data.ddOffer?.firstCollectionRule ? 'not supplied' : directDebitFirstCollectionText(data.ddOffer).toLowerCase()}</span>.
                 {' '}{directDebitPolicyText(data.ddOffer)}
                  {' '}You'll be taken to our secure Direct Debit provider to set up your mandate; no payment is taken during bank set-up.
+                {isMemberStart && data.ddOffer.activationRule && <> Activation rule: {data.ddOffer.activationRule}.</>}
               </p>
               <Button
                 onClick={handleStartDirectDebit}
@@ -785,7 +815,7 @@ export default function MembershipFeePage() {
           </Card>
         )}
 
-        {data?.stripeEnabled && !paymentComplete && data?.openPlan && (
+        {allowsMode('stripe_upfront') && data?.stripeEnabled && !paymentComplete && data?.openPlan && (
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-start gap-2">
@@ -798,7 +828,7 @@ export default function MembershipFeePage() {
           </Card>
         )}
 
-        {data?.stripeEnabled && !paymentComplete && !data?.openPlan && (
+        {allowsMode('stripe_upfront') && data?.stripeEnabled && !paymentComplete && !data?.openPlan && (
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center gap-2 mb-3">

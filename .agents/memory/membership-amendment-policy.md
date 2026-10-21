@@ -26,9 +26,12 @@ the administrator's chosen structure and commencement.
 not fabricated history to unlock amendments; existing fee links may recalculate
 from current matching rules.
 
-**How to apply:** Keep invoice/free creation distinct from recurring consent and
-card collection. Recover ambiguous creation from saved purchase authority rather
-than generating a fresh quote or payment request.
+**How to apply:** Admin creation reserves the selected purchase and a member
+authorisation link; it never supplies recurring consent or starts collection on
+the member's behalf. Offer structure-enabled payment methods. Recover ambiguous
+creation from saved purchase authority rather than generating a fresh quote or
+payment request. Dynamic Direct Debit preserves initial evidence and the agreed
+repricing policy, not a fictional guaranteed total for all future collections.
 
 Direct member-page links can have valid authenticated member data while the
 admin-dashboard tenant selector remains unset.
@@ -40,3 +43,13 @@ entirely on a tenant-host direct link, even though adjacent finance panels loade
 preserve explicit selector precedence and server mismatch checks. Missing tenant
 context should produce an explanation, not silently hide the action. Test the
 real parent page's context handoff as well as the isolated panel.
+
+Production schema parity must be verified before extending financial guards:
+member and organisation history do not share all ownership columns, and a
+canonical migration file does not prove its RPC was deployed.
+
+**Why:** A disposable fixture with both owner columns hid an invalid member-table
+constraint, and the live database lacked a manual-approval prerequisite.
+
+**How to apply:** Inspect actual column ownership and function signatures read-only,
+use realistic fixtures, and preserve atomic rollback on unknown migration drift.

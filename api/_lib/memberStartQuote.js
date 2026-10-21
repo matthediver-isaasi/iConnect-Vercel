@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
 import { buildRollingCommitment } from './rollingMembershipCommitment.js';
 import { amendmentDate, AmendmentError } from './memberAmendmentQuote.js';
+import { START_PAYMENT_MODES, startPaymentMethod, startMonthlyOffer, startMonthlyCommitment } from './memberStartPayment.js';
 
 export const START_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-export const START_CAPABILITIES = { paymentModes: ['invoice', 'free'], paymentLink: false, recurring: false };
+export const START_CAPABILITIES = { paymentModes: START_PAYMENT_MODES, paymentLink: true, recurring: true };
 export function startError(message, status = 422, code = 'start_not_supported') {
   return new AmendmentError(message, status, code);
 }
@@ -17,7 +18,7 @@ export function normalizeStart(input, create = false) {
   if (!START_UUID.test(input?.memberId || '') || !START_UUID.test(input?.configId || '')
       || (input.bandId != null && !START_UUID.test(input.bandId))) throw startError('Valid memberId, configId and optional bandId are required.', 400, 'invalid_request');
   amendmentDate(input.startDate);
-  if (!['invoice', 'free'].includes(input.paymentMode)) throw startError('Only invoice or free payment mode is supported. No recurring consent is collected.', 400, 'unsupported_payment_mode');
+  if (!START_PAYMENT_MODES.includes(input.paymentMode)) throw startError('Select a supported membership payment mode.', 400, 'unsupported_payment_mode');
   if (typeof input.reason !== 'string' || !input.reason.trim() || input.reason.trim().length > 2000) throw startError('A reason between 1 and 2000 characters is required.', 400, 'invalid_reason');
   if (create && (!/^[a-f0-9]{64}$/.test(input.expectedQuote || '')
       || !/^[A-Za-z0-9_.:-]{8,128}$/.test(input.idempotencyKey || ''))) throw startError('A preview expectedQuote and stable idempotencyKey are required.', 400, 'invalid_confirmation');
@@ -56,6 +57,9 @@ export function buildStartQuote({ request, config, band, discounts = [], vatOver
   if (!/^[A-Z]{3}$/.test(currency || '') || !Intl.supportedValuesOf('currency').includes(currency)
       || new Intl.NumberFormat('en', { style: 'currency', currency }).resolvedOptions().maximumFractionDigits !== 2) throw startError('A supported two-decimal currency is required.');
   const annualMinor = money(flat ? config.flat_cost : band.annual_cost);
+  if (paymentMode === 'stripe_upfront' && !config.online_card_payment) throw startError('Upfront card payment is not enabled on this structure.');
+  let paymentOffer;
+  try { paymentOffer = startMonthlyOffer(config, band, paymentMode); } catch (error) { throw startError(error.message); }
   const tax = flat ? config.flat_vat_rate : band.vat_rate;
   let taxType = null;
   let vatRatePercent = 0;
@@ -93,18 +97,34 @@ export function buildStartQuote({ request, config, band, discounts = [], vatOver
     const daily = Number((annualMinor / 100 / totalDays).toFixed(4));
     finalMinor = Math.round(Number((daily * prorataDays).toFixed(2)) * 100);
   }
-  const vatMinor = Math.round(finalMinor * vatRatePercent / 100);
+  const initialQuotedAmounts = { finalCost: finalMinor / 100, vatAmount: Math.round(finalMinor * vatRatePercent / 100) / 100,
+    totalWithVat: (finalMinor + Math.round(finalMinor * vatRatePercent / 100)) / 100 };
+  const dynamic = paymentMode === 'direct_debit' && paymentOffer?.collectionPolicy?.pricing_policy === 'dynamic';
+  const validationPlanMinor = paymentOffer ? dynamic ? paymentOffer.monthlyAmountMinor * paymentOffer.instalmentCount : Math.round(paymentOffer.planTotal * 100) : null;
+  if (paymentOffer) finalMinor = Math.round(validationPlanMinor / (1 + vatRatePercent / 100));
+  const vatMinor = paymentOffer ? validationPlanMinor - finalMinor : Math.round(finalMinor * vatRatePercent / 100);
   const totalMinor = finalMinor + vatMinor;
   if (!Number.isSafeInteger(totalMinor)) throw startError('Quoted total exceeds supported monetary bounds.');
   if ((paymentMode === 'free') !== (totalMinor === 0)) throw startError(totalMinor === 0 ? 'Nothing is due: choose free payment mode.' : 'Payment is due: choose invoice payment mode.');
   const amounts = { annual_cost: annualMinor / 100, final_cost: finalMinor / 100, vat_amount: vatMinor / 100, total_with_vat: totalMinor / 100, currency };
   const tierLabel = flat ? 'Flat Rate' : band.label;
   const pricingSnapshot = { band: band || null, tier_label: tierLabel, vat_rate_percent: vatRatePercent, taxType };
-  const commitment = config.start_mode === 'immediate'
-    ? buildRollingCommitment({ config, startDate, paymentMethod: paymentMode === 'free' ? 'free' : 'invoice', paymentFrequency: 'upfront', amounts, pricingSnapshot })
+  const commitment = paymentOffer
+    ? startMonthlyCommitment({ config, quote: { termStart: startDate, termEnd }, amounts: { ...amounts, monthly_amount: paymentOffer.monthlyAmount, instalment_count: paymentOffer.instalmentCount }, pricingSnapshot, mode: paymentMode })
+    : config.start_mode === 'immediate'
+    ? buildRollingCommitment({ config, startDate, paymentMethod: startPaymentMethod(paymentMode) || 'free', paymentFrequency: 'upfront', amounts, pricingSnapshot })
     : { term_start_date: startDate, term_end_date: termEnd, commitment_snapshot: { version: 1, start_mode: 'fixed_date', config_id: config.id,
-      config, billing_period: 'annual', payment_method: paymentMode === 'free' ? null : 'invoice', payment_frequency: 'upfront', amounts, pricing: pricingSnapshot } };
-  return { version: 1, configId: config.id, bandId: band?.id || null, paymentMode, termStart: startDate,
+      config, billing_period: 'annual', payment_method: startPaymentMethod(paymentMode), payment_frequency: 'upfront', amounts, pricing: pricingSnapshot } };
+  if (paymentMode === 'direct_debit') commitment.commitment_snapshot.collection_policy = paymentOffer.collectionPolicy;
+  if (dynamic) {
+    // The initial quote remains immutable evidence, not a promise of a fixed
+    // term total. Existing dynamic per-instalment pricing owns later amounts.
+    for (const key of ['final_cost', 'vat_amount', 'total_with_vat']) {
+      amounts[key] = null;
+      commitment.commitment_snapshot.amounts[key] = null;
+    }
+  }
+  return { version: 2, paymentOffer, initialQuotedAmounts, configId: config.id, bandId: band?.id || null, paymentMode, termStart: startDate,
     termEnd: commitment.term_end_date, membershipYear: membershipYear || commitment.term_key,
     annualCost: amounts.annual_cost, finalCost: amounts.final_cost, vatAmount: amounts.vat_amount,
     totalWithVat: amounts.total_with_vat, currency, tierLabel, vatRatePercent, taxType, prorataDays,

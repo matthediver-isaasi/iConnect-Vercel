@@ -1,6 +1,7 @@
 import { getAccountingProvider, getAccountingProviderByName } from './accountingProvider.js';
 import { invoiceReferenceFromRow, invoiceReferenceColumns } from './feeTokenInvoiceReference.js';
 import { accountingOperationIdentity } from './accountingOperationIdentity.js';
+import { simulationFromMemberStart } from './memberStartPayment.js';
 
 // Browser confirmation and Stripe recovery share this journal. No journal row
 // means creation is known not to have been attempted; finish local preflight
@@ -24,7 +25,10 @@ export async function completeReminderFeeAccounting({ client, token, history, pa
       if (!['xero', 'quickbooks'].includes(provider.name)) throw new Error('No accounting provider configured for renewal invoice');
       if (typeof provider.createMembershipInvoice !== 'function') throw new Error('Renewal invoice creation is unavailable');
       const cb = token.cost_breakdown || {};
-      const config = cb.renewalQuote?.config;
+      const start = simulationFromMemberStart(token);
+      const config = start?.config || cb.renewalQuote?.config;
+      const savedAccounting = start ? cb.memberStart.quote.accounting : null;
+      if (start && (!savedAccounting || !Object.hasOwn(savedAccounting, 'invoicingAddress'))) throw new Error('Saved Start invoice address evidence is incomplete; administrator review is required.');
       const { data: owner, error: ownerError } = await client.from(token.member_id ? 'member' : 'organization')
         .select('*').eq('id', token.member_id || token.organization_id).eq('tenant_id', tenantId).maybeSingle();
       if (ownerError || !owner) throw new Error('Renewal invoice owner could not be loaded');
@@ -33,15 +37,15 @@ export async function completeReminderFeeAccounting({ client, token, history, pa
       const { resolveInvoiceAddress } = await import('./invoiceAddressResolver.js');
       const invoiceArgs = {
         appTenantId: tenantId,
-        organizationName: owner.name || [owner.first_name, owner.last_name].filter(Boolean).join(' ') || owner.email,
-        invoicingEmail: owner.invoicing_email || owner.email || null,
-        invoicingAddress: await (deps.resolveInvoiceAddress || resolveInvoiceAddress)(client, config, owner.id, token.member_id ? 'member' : 'organization'),
+        organizationName: savedAccounting ? savedAccounting.organizationName : owner.name || [owner.first_name, owner.last_name].filter(Boolean).join(' ') || owner.email,
+        invoicingEmail: savedAccounting ? savedAccounting.invoicingEmail : owner.invoicing_email || owner.email || null,
+        invoicingAddress: savedAccounting ? savedAccounting.invoicingAddress : await (deps.resolveInvoiceAddress || resolveInvoiceAddress)(client, config, owner.id, token.member_id ? 'member' : 'organization'),
         membershipYear: token.membership_year, tierLabel: token.tier_label,
         finalCost: Math.round((Number(token.final_cost) - addonNet) * 100) / 100,
         currency: token.currency,
         reference: `Membership ${token.membership_year}${token.po_number ? ` - PO: ${token.po_number}` : ''}`,
         vatRate: cb.taxType || cb.matchedBand?.vat_rate || null,
-        nominalCode: cb.nominalCode || config?.nominal_code || null,
+        nominalCode: savedAccounting ? savedAccounting.nominalCode : cb.nominalCode || config?.nominal_code || null,
         invoiceDescription: config?.invoice_description || null,
         extraLineItems: addons.map(line => ({
           description: line.description, nominalCode: line.nominal_code || null,

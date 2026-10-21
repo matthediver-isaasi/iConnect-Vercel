@@ -25,6 +25,7 @@ const bundle = await build({
       builder.onResolve({ filter: /^react(?:\/.*)?$/ }, args => ({ path: args.path, external: true }));
       builder.onResolve({ filter: /^@\// }, args => {
         if (args.path === "@/components/ui/dialog") return { path: resolve("client/src/components/ui/dialog.jsx") };
+        if (args.path === "@/lib/directDebitConsentSummary") return { path: resolve("client/src/lib/directDebitConsentSummary.js") };
         return { path: args.path, namespace: "fixture" };
       });
       builder.onLoad({ filter: /.*/, namespace: "fixture" }, ({ path }) => ({
@@ -51,8 +52,8 @@ const json = (body, status = 200) => new Response(JSON.stringify(body), { status
 const fixture = () => ({
   member: { id: "member-personal" },
   structures: [
-    { id: "config-professional", name: "Professional", pricing_model: "tiered", bands: [{ id: "band-standard", label: "Standard" }, { id: "band-reduced", label: "Reduced" }] },
-    { id: "config-flat", name: "Affiliate", pricing_model: "flat", bands: [] },
+    { id: "config-professional", name: "Professional", pricing_model: "tiered", paymentModes: ["invoice", "free"], bands: [{ id: "band-standard", label: "Standard" }, { id: "band-reduced", label: "Reduced" }] },
+    { id: "config-flat", name: "Affiliate", pricing_model: "flat", paymentModes: ["invoice", "free"], bands: [] },
   ],
   capabilities: { paymentModes: ["invoice", "free"], paymentLink: false, invoiceAvailable: true }, blockers: [], requests: [],
 });
@@ -133,12 +134,13 @@ test("loading skeleton, required inputs, empty structures and unsupported modes 
     await act(async () => release(json(fixture())));
     await waitFor(() => button("Preview membership"));
     assert.equal(button("Preview membership").disabled, true);
-    assert.match(view.container.textContent, /Card payment links and recurring Direct Debit or card payments are not available/);
+    assert.match(view.container.textContent, /share the saved authorization link/);
     assert.equal(view.calls.filter(call => call.payload).length, 0);
   } finally { await view.cleanup(); }
   const empty = await mount({ data: { ...fixture(), structures: [] } });
   try {
-    await waitFor(() => button("Preview membership"));
+    await waitFor(() => empty.container.textContent.includes("No eligible individual membership structures"));
+    assert.equal(button("Preview membership"), undefined);
     assert.match(empty.container.textContent, /No eligible individual membership structures/);
   } finally { await empty.cleanup(); }
 });
@@ -158,7 +160,8 @@ test("load errors offer retry without showing a usable form", async () => {
 test("discovery blockers and absent supported payment modes fail closed", async () => {
   for (const data of [
     { ...fixture(), blockers: ["Existing recurring agreement must be resolved."] },
-    { ...fixture(), capabilities: { paymentModes: ["stripe"], paymentLink: true } },
+    { ...fixture(), structures: fixture().structures.map(item => ({ ...item, paymentModes: ["stripe"] })), capabilities: { paymentModes: ["stripe"], paymentLink: true } },
+    { ...fixture(), structures: fixture().structures.map(item => ({ ...item, paymentModes: undefined })) },
   ]) {
     const view = await mount({ data });
     try {
@@ -409,12 +412,133 @@ test("HTTP 202 saved recovery keeps reconciliation explicit without claiming cre
 test("invoice queue availability gates creation even if a preview grants canCreate", async () => {
   const view = await mount({ data: { ...fixture(), capabilities: { ...fixture().capabilities, invoiceAvailable: false } } });
   try {
-    await preview();
+    await waitFor(() => button("Preview membership"));
+    await fill();
     assert.match(view.container.textContent, /durable membership accounting queue is not enabled/);
     assert.equal(document.querySelector('option[value="invoice"]').disabled, true);
-    assert.equal(button("Review and confirm membership").disabled, true);
+    assert.equal(button("Preview membership").disabled, true);
     assert.equal(view.calls.filter(call => call.payload?.action === "create").length, 0);
   } finally { await view.cleanup(); }
+});
+
+test("structure and band options override global modes, expose unavailable reasons and clear invalid selections", async () => {
+  const data = fixture();
+  data.capabilities.paymentModes = ["invoice", "free"];
+  data.structures[0].paymentOptions = [
+    { mode: "stripe_upfront", available: true, reason: null },
+    { mode: "stripe_monthly", available: true, reason: null },
+    { mode: "direct_debit", available: false, reason: "Provider is not connected" },
+  ];
+  data.structures[0].bands[1].paymentOptions = [{ mode: "free", available: true, reason: null }];
+  data.structures[1].paymentOptions = [{ mode: "invoice", available: true, reason: null }];
+  const view = await mount({ data });
+  try {
+    await waitFor(() => button("Preview membership"));
+    await fill("stripe_upfront");
+    assert.equal(button("Preview membership").disabled, false);
+    assert.equal(document.querySelector('option[value="invoice"]'), null);
+    assert.equal(document.querySelector('option[value="direct_debit"]').disabled, true);
+    assert.match(view.container.textContent, /Provider is not connected/);
+    await change('select[id^="start-band-"]', "band-reduced");
+    assert.equal(document.querySelector('select[id^="start-payment-"]').value, "");
+    assert.equal(document.querySelector('option[value="stripe_upfront"]'), null);
+    await change('select[id^="start-payment-"]', "free");
+    await change('select[id^="start-config-"]', "config-flat");
+    assert.equal(document.querySelector('select[id^="start-payment-"]').value, "");
+    assert.equal(button("Preview membership").disabled, true);
+  } finally { await view.cleanup(); }
+});
+
+test("monthly preview uses only authoritative server offer and refuses missing terms", async () => {
+  for (const offer of [null, { monthlyAmount: 19.73, instalmentCount: 7, planTotal: 138.11, currency: "GBP", activationRule: "first_payment" }]) {
+    const data = fixture();
+    data.structures[0].paymentOptions = [{ mode: "stripe_monthly", available: true }];
+    const view = await mount({ data, post: () => json({ ...quote("stripe_monthly"), quote: { ...quote("stripe_monthly").quote, paymentOffer: offer } }) });
+    try {
+      await preview("stripe_monthly");
+      assert.equal(button("Review and confirm membership").disabled, !offer);
+      if (offer) {
+        assert.match(view.container.textContent, /7 monthly payments of £19.73/);
+        assert.match(view.container.textContent, /Plan total: £138.11/);
+        assert.match(view.container.textContent, /Activation rule: first_payment/);
+      } else assert.match(view.container.textContent, /not supplied complete monthly payment terms/);
+    } finally { await view.cleanup(); }
+  }
+});
+
+test("dynamic Direct Debit accepts the server offer without a fictional count or guaranteed total", async () => {
+  const data = fixture();
+  data.structures[0].paymentOptions = [{ mode: "direct_debit", available: true }];
+  const paymentOffer = {
+    monthlyAmount: 19.73, instalmentCount: null, planTotal: null, currency: "GBP",
+    activationRule: "first_payment", firstCollectionRule: "anniversary",
+    collectionPolicy: { end_policy: "continue", pricing_policy: "dynamic" },
+  };
+  const view = await mount({ data, post: payload => json(payload.action === "preview" ? {
+    ...quote("direct_debit"),
+    quote: { ...quote("direct_debit").quote, finalCost: null, vatAmount: null, totalWithVat: null, paymentOffer },
+  } : { request: { id: "dynamic-request", status: "awaiting_member_authorization", paymentMode: "direct_debit", paymentUrl: "/membership-fees/dynamic-token" } }) });
+  try {
+    await preview("direct_debit");
+    const previewText = document.querySelector('[data-testid="member-start-preview"]').textContent;
+    assert.equal(button("Review and confirm membership").disabled, false);
+    assert.match(previewText, /Current monthly price \(variable\): £19.73/);
+    assert.match(previewText, /No guaranteed plan total or fixed instalment count/);
+    assert.match(previewText, /Collections continue at the end of the billing period/);
+    assert.match(previewText, /Each monthly collection uses the current active membership structure price/);
+    assert.doesNotMatch(previewText, /Plan total:|12 monthly|£0.00|payments of/);
+    await confirm();
+    await waitFor(() => view.container.textContent.includes("Membership request saved"));
+    assert.equal(view.calls.find(call => call.payload?.action === "create").payload.paymentMode, "direct_debit");
+    assert.match(view.container.textContent, /Dynamic collections follow the saved policy/);
+    assert.doesNotMatch(view.container.textContent, /later structure changes do not re-price/);
+  } finally { await view.cleanup(); }
+});
+
+test("late preview cannot restore a quote after payment selection changes", async () => {
+  let release;
+  const gate = new Promise(done => { release = done; });
+  const view = await mount({ post: () => gate });
+  try {
+    await waitFor(() => button("Preview membership"));
+    await fill();
+    await click(button("Preview membership"));
+    await change('select[id^="start-payment-"]', "free");
+    await act(async () => release(json(quote())));
+    await waitFor(() => button("Preview membership"));
+    assert.equal(document.querySelector('[data-testid="member-start-preview"]'), null);
+    assert.equal(document.querySelector("fieldset").disabled, false);
+    assert.equal(document.querySelector('select[id^="start-payment-"]').value, "free");
+  } finally { await view.cleanup(); }
+});
+
+test("authorization request without a record resolves retained attempt and shows stable open/copy link, recovered on reload", async () => {
+  const request = { id: "request-authorize", status: "awaiting_member_authorization", paymentMode: "stripe_upfront", paymentUrl: "/membership-fees/saved-token" };
+  const data = fixture();
+  data.structures[0].paymentOptions = [{ mode: "stripe_upfront", available: true }];
+  let copied;
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async value => { copied = value; } } });
+  const view = await mount({ data, post: payload => json(payload.action === "preview" ? quote("stripe_upfront") : { request, paymentUrl: request.paymentUrl }) });
+  try {
+    await preview("stripe_upfront");
+    await confirm();
+    await waitFor(() => button("Copy member authorization link"));
+    assert.equal(document.querySelector('a').getAttribute("href"), request.paymentUrl);
+    assert.match(view.container.textContent, /Awaiting member authorization — no payment is confirmed/);
+    assert.match(view.container.textContent, /immutable authority/);
+    assert.doesNotMatch(view.container.textContent, /Membership record created|Payment received|Payment successful/);
+    assert.equal(button("Review retry"), undefined);
+    assert.equal(sessionStorage.getItem("membership-start:tenant-safe:member-personal"), null);
+    await click(button("Copy member authorization link"));
+    assert.equal(copied, `https://isolated.example.test${request.paymentUrl}`);
+  } finally { await view.cleanup(); }
+  const reloaded = await mount({ data: { ...data, requests: [request] } });
+  try {
+    await waitFor(() => button("Copy member authorization link"));
+    assert.equal(document.querySelector('a').getAttribute("href"), request.paymentUrl);
+    assert.equal(reloaded.calls.filter(call => call.payload).length, 0);
+    assert.match(reloaded.container.textContent, /Awaiting member authorization/);
+  } finally { await reloaded.cleanup(); }
 });
 
 test("tenant/member switch resets the form and ignores late creation result", async () => {

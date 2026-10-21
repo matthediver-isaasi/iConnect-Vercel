@@ -20,6 +20,7 @@ import { membershipIncentiveSnapshot } from './membershipIncentiveSnapshot.js';
 import { getAccountingProviderByName, PROVIDER_XERO } from './accountingProvider.js';
 import { triggerWorkflows } from './workflows.js';
 import { feeTokenCommitment } from './rollingFeeCommitment.js';
+import { simulationFromMemberStart, assertMemberStartHistory } from './memberStartPayment.js';
 import { invoiceReferenceFromRow, resolveFeeTokenInvoiceReference, invoiceReferenceColumns } from './feeTokenInvoiceReference.js';
 import { completeReminderFeeAccounting } from './reminderFeeAccounting.js';
 
@@ -251,6 +252,15 @@ export async function recordSucceededMembershipPaymentIntent(
       }
     }
   }
+  let startSimulation = null;
+  try {
+    startSimulation = simulationFromMemberStart(feeToken);
+    if (startSimulation && (startSimulation.memberStart.paymentMode !== 'stripe_upfront'
+        || Math.round(startSimulation.totalWithVat * 100) !== pi.amount
+        || startSimulation.currency.toLowerCase() !== pi.currency.toLowerCase())) {
+      return { status: 'conflict', detail: 'Captured payment does not match the saved membership Start purchase.' };
+    }
+  } catch (error) { return { status: 'conflict', detail: error.message }; }
   let tokenInvoiceReference = null;
   if (feeToken) {
     try {
@@ -288,9 +298,13 @@ export async function recordSucceededMembershipPaymentIntent(
     .eq('tenant_id', tenantId)
     .eq(entityCol, entityId)
     .maybeSingle();
+  if (startSimulation && existingByPI) {
+    try { assertMemberStartHistory(feeToken, existingByPI); }
+    catch (error) { return { status: 'conflict', table, detail: error.message }; }
+  }
   if (existingByPI && (existingByPI.payment_status === 'voided'
       || (existingByPI.payment_status === 'paid'
-        && (feeToken?.cost_breakdown?.renewalQuote
+        && (feeToken?.cost_breakdown?.renewalQuote || startSimulation
           ? existingByPI.accounting_sync_status == null && !!invoiceReferenceFromRow(existingByPI)
           : !['failed', 'retrying'].includes(existingByPI.accounting_sync_status))))) {
     return { status: 'already-recorded', table, recordId: existingByPI.id, workflowFired: false, detail: `history row ${existingByPI.id} already references PI ${pi.id} (payment_status=${existingByPI.payment_status})` };
@@ -320,6 +334,9 @@ export async function recordSucceededMembershipPaymentIntent(
       detail: 'Payment unverified; historical membership cannot be settled or reactivated automatically' };
   }
   let reconstructed = false;
+  if (!row && startSimulation) {
+    return { status: 'conflict', table, detail: 'The immutable Start purchase history is missing. Do not rematch or create another purchase; administrator review is required.' };
+  }
   if (!row) {
     // No history row exists — the confirm flow failed BEFORE inserting it
     // (e.g. form-flow confirm died between charge and insert). Reconstruct
@@ -502,6 +519,10 @@ export async function recordSucceededMembershipPaymentIntent(
     return { status: 'conflict', table, recordId: row.id, detail: 'Saved token and membership invoice identity differ' };
   }
 
+  if (startSimulation) {
+    try { assertMemberStartHistory(feeToken, row); }
+    catch (error) { return { status: 'conflict', table, detail: error.message }; }
+  }
   const amountMismatch = Number.isFinite(pi.amount) && row.total_with_vat != null
     && Math.round(Number(row.total_with_vat) * 100) !== pi.amount;
   if (row.term_key && (amountMismatch
@@ -522,7 +543,10 @@ export async function recordSucceededMembershipPaymentIntent(
   if (!wasPaid && !reconstructed) {
     const renewalWindow = feeToken?.cost_breakdown?.renewalQuote?.membershipYear;
     const renewalStart = renewalWindow?.start?.slice(0, 10);
-    const activation = row.term_key
+    const activation = startSimulation ? {
+      status: startSimulation.memberStart.termStart > new Date().toISOString().slice(0, 10) ? 'scheduled' : 'active',
+      scheduled_activation_date: startSimulation.memberStart.termStart > new Date().toISOString().slice(0, 10) ? startSimulation.memberStart.termStart : null,
+    } : row.term_key
       ? (await import('./formMembershipPaymentQuote.js')).formPaymentActivationFields(row)
       : feeToken?.cost_breakdown?.renewalQuote ? {
         term_start_date: renewalStart, term_end_date: renewalWindow?.end?.slice(0, 10),
@@ -536,7 +560,7 @@ export async function recordSucceededMembershipPaymentIntent(
       .from(table)
       .update({
         ...activation,
-        ...(invoiceReferenceFromRow(row) || tokenInvoiceReference || feeToken?.cost_breakdown?.renewalQuote ? { accounting_sync_status: 'retrying' } : {}),
+        ...(invoiceReferenceFromRow(row) || tokenInvoiceReference || feeToken?.cost_breakdown?.renewalQuote || startSimulation ? { accounting_sync_status: 'retrying' } : {}),
         payment_status: 'paid',
         paid_at: row.paid_at || paidAtIso,
         payment_method: row.term_key ? row.payment_method : 'stripe',
@@ -558,7 +582,7 @@ export async function recordSucceededMembershipPaymentIntent(
   let accountingApplied = false;
   let invoiceReference = invoiceReferenceFromRow(row) || tokenInvoiceReference;
   let invoiceId = invoiceReference?.invoiceId || null;
-  const reminderAccounting = !!feeToken?.cost_breakdown?.renewalQuote;
+  const reminderAccounting = !!feeToken?.cost_breakdown?.renewalQuote || !!startSimulation;
   if (!invoiceId && md.source === 'form-membership-payment') {
     try {
       await db.from(table).update({

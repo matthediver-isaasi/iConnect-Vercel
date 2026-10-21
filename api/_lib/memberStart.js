@@ -4,6 +4,9 @@ import { accountingMembershipQueueEnabled, queueMembershipInvoice } from './acco
 import { resolveInvoiceAddress } from './invoiceAddressResolver.js';
 import { resolveMembershipNominalCode } from './membershipNominalCode.js';
 import { fireNewZeroDueMembershipPaidWorkflow } from './zeroDueMembership.js';
+import { startPaymentOptions, startQuoteSimulation } from './memberStartPayment.js';
+import { getStripeCredentials } from './stripeCredentials.js';
+import { getGocardlessCredentials } from './gocardlessCredentials.js';
 
 function checked(result) {
   if (result.error) {
@@ -19,6 +22,7 @@ export function createMemberStartService({
   queueEnabled = () => accountingMembershipQueueEnabled('member_membership_history'),
   invoice = queueMembershipInvoice, fireFree = fireNewZeroDueMembershipPaidWorkflow,
   address = resolveInvoiceAddress, nominal = resolveMembershipNominalCode,
+  stripeCredentials = getStripeCredentials, ddCredentials = getGocardlessCredentials,
 } = {}) {
   const today = () => now().toISOString().slice(0, 10);
   const one = async (table, tenantId, id) => checked(await db.from(table).select('*').eq('tenant_id', tenantId).eq('id', id).maybeSingle());
@@ -33,9 +37,39 @@ export function createMemberStartService({
   async function state(tenantId, memberId) {
     return checked(await db.rpc('member_start_state', { p_tenant_id: tenantId, p_member_id: memberId }));
   }
+  async function availability(tenantId) {
+    const read = async (fn, reason) => { try { return { value: await fn() }; } catch { return { value: null, reason }; } };
+    const [stripe, dd, provider, authority] = await Promise.all([
+      read(() => stripeCredentials(tenantId, 'membership'), 'Stripe membership availability could not be verified; retry or review the integration.'),
+      read(() => ddCredentials(tenantId), 'Direct Debit availability could not be verified; retry or review the integration.'),
+      read(() => queueEnabled() ? getProvider(tenantId) : null, 'Accounting availability could not be verified.'),
+      read(async () => {
+        const result = await db.rpc('member_start_payment_capabilities');
+        if (result.error) throw result.error;
+        return result.data?.version === 1;
+      }, 'The reviewed member-start payment authority migration is required before provider payment links can be created.'),
+    ]);
+    const ready = authority.value === true;
+    const migrationReason = ready ? null : authority.reason || 'The reviewed member-start payment authority migration is required.';
+    return { stripe: ready && !!(stripe.value?.is_enabled && stripe.value?.secret_key && stripe.value?.publishable_key),
+      directDebit: ready && !!dd.value?.accessToken, invoice: queueEnabled() && ['xero', 'quickbooks'].includes(provider.value?.name),
+      stripeUnavailableReason: migrationReason || stripe.reason, directDebitUnavailableReason: migrationReason || dd.reason,
+      paymentAuthorityVersion: ready ? 1 : null };
+  }
+  async function paymentLink(saved) {
+    if (!['stripe_upfront', 'stripe_monthly', 'direct_debit'].includes(saved.request.paymentMode)) return null;
+    const token = checked(await db.from('membership_fee_token').select('token,status,expires_at')
+      .eq('tenant_id', saved.tenant_id).eq('history_record_id', saved.record_id).maybeSingle());
+    if (!token?.token) throw startError('Saved member payment link is missing; reconciliation is required.', 409, 'payment_link_missing');
+    return { url: `/membership-fees/${encodeURIComponent(token.token)}`, status: token.status,
+      expired: token.expires_at ? Date.parse(token.expires_at) <= now().getTime() : false };
+  }
   async function describe(saved) {
     const record = await one('member_membership_history', saved.tenant_id, saved.record_id);
-    let status = record?.payment_status === 'paid' ? 'completed' : 'pending_invoice';
+    const payment = await paymentLink(saved);
+    const paymentUrl = payment?.url || null;
+    let status = record?.payment_status === 'paid' ? 'completed'
+      : paymentUrl ? record?.billing_agreement_id || record?.stripe_payment_intent_id ? 'pending_payment' : 'awaiting_member_authorization' : 'pending_invoice';
     let accounting = null;
     if (saved.request.paymentMode === 'invoice') {
       accounting = checked(await db.from('accounting_request_queue').select('id,state,last_error')
@@ -44,8 +78,12 @@ export function createMemberStartService({
       if (record?.payment_status !== 'paid') status = accounting?.state === 'complete' ? 'pending_payment'
         : accounting?.state === 'review' ? 'reconciliation_required' : accounting ? 'accounting_pending' : 'pending_invoice';
     }
+    if (payment && record?.payment_status !== 'paid' && record?.payment_status !== 'partial'
+        && (payment.expired || ['expired', 'cancelled'].includes(payment.status))) status = 'reconciliation_required';
     return { id: saved.id, record_id: saved.record_id, created_at: saved.created_at, quote: saved.quote,
       reason: saved.request.reason, status, payment_status: record?.payment_status || null,
+      paymentMode: saved.request.paymentMode, paymentUrl,
+      paymentLinkExpired: !!payment?.expired,
       accounting_request_id: accounting?.id || null, canResume: true,
       accounting_pending: !!accounting && accounting.state !== 'complete', reconciliation_required: status === 'reconciliation_required' };
   }
@@ -56,10 +94,26 @@ export function createMemberStartService({
     const bands = [];
     for (const config of configs) bands.push(...await rows('membership_tier_band', tenantId, 'config_id', config.id));
     const requests = await rows('member_membership_start', tenantId, 'member_id', memberId);
+    const available = await availability(tenantId);
+    const options = (config, band) => {
+      const paymentOptions = startPaymentOptions(config, band, available);
+      return { paymentOptions, paymentModes: paymentOptions.filter(p => p.available).map(p => p.mode) };
+    };
     return { member: { id: s.member.id, first_name: s.member.first_name, last_name: s.member.last_name, email: s.member.email },
-      structures: configs.filter(c => c.is_active).map(c => ({ ...c, bands: bands.filter(b => b.config_id === c.id) })),
+      structures: configs.filter(c => c.is_active).map(c => {
+        const selectedBands = bands.filter(b => b.config_id === c.id).map(b => ({ ...b, ...options(c, b) }));
+        const structureOptions = options(c);
+        if (c.pricing_model === 'tiered' && selectedBands.length) {
+          structureOptions.paymentOptions = structureOptions.paymentOptions.map(option => {
+            const eligible = selectedBands.some(b => b.paymentModes.includes(option.mode));
+            return { ...option, available: eligible, reason: eligible ? null : selectedBands[0].paymentOptions.find(p => p.mode === option.mode)?.reason || option.reason };
+          });
+          structureOptions.paymentModes = structureOptions.paymentOptions.filter(p => p.available).map(p => p.mode);
+        }
+        return { ...c, ...structureOptions, bands: selectedBands };
+      }),
       blockers: s.blockers, requests: await Promise.all(requests.map(describe)),
-      capabilities: { ...START_CAPABILITIES, invoiceAvailable: queueEnabled() } };
+      capabilities: { ...START_CAPABILITIES, invoiceAvailable: available.invoice, paymentAuthorityVersion: available.paymentAuthorityVersion } };
   }
   async function preview(tenantId, input) {
     const request = normalizeStart(input);
@@ -75,6 +129,32 @@ export function createMemberStartService({
       const vatSetting = checked(await db.from('system_settings').select('*').eq('tenant_id', tenantId)
         .eq('setting_key', `xero_vat_rates_${tenantId}`).maybeSingle());
       const quote = buildStartQuote({ request, config, band, discounts, vatOverrides, overrides, vatSetting, today: today() });
+      const option = startPaymentOptions(config, band, await availability(tenantId)).find(p => p.mode === request.paymentMode);
+      if (!option?.available) throw startError(option?.reason || 'This payment mode is unavailable.');
+      if (request.paymentMode === 'stripe_upfront') {
+        quote.accounting = {
+          organizationName: `${s.member.first_name || ''} ${s.member.last_name || ''}`.trim() || s.member.email,
+          invoicingEmail: s.member.email || null,
+          invoicingAddress: await address(db, config, request.memberId, 'member'),
+          nominalCode: await nominal(db, tenantId, { config, matchedBand: band }),
+        };
+      }
+      if (quote.paymentOffer) {
+        const sim = startQuoteSimulation(quote);
+        if (request.paymentMode === 'direct_debit') {
+          const { buildAgreementSnapshot, newDdConsentScheduleError } = await import('./gocardlessDirectDebit.js');
+          const snapshot = buildAgreementSnapshot({ offer: quote.paymentOffer, simResult: sim, acceptedAt: now().toISOString() });
+          const error = newDdConsentScheduleError(snapshot, now());
+          if (error) throw startError(error.error, 422, error.code);
+        } else {
+          const { buildCardAgreementSnapshot } = await import('./stripeMonthlyCard.js');
+          const { assertMonthlyCollectionsWithinTerm } = await import('./rollingMonthlyRenewal.js');
+          try {
+            const snapshot = buildCardAgreementSnapshot({ offer: quote.paymentOffer, simResult: sim, acceptedAt: now().toISOString() });
+            assertMonthlyCollectionsWithinTerm(snapshot, quote.termStart, quote.paymentOffer.instalmentCount);
+          } catch (error) { throw startError(error.message); }
+        }
+      }
       if (request.paymentMode === 'invoice') {
         if (!queueEnabled()) throw startError('Safe invoice creation requires the membership accounting request queue to be enabled.', 503, 'accounting_queue_required');
         const provider = await getProvider(tenantId);
@@ -95,14 +175,21 @@ export function createMemberStartService({
     }
   }
   async function complete(saved, replayed) {
+    saved = { ...saved, paymentMode: saved.request.paymentMode, paymentUrl: null };
     let record = await one('member_membership_history', saved.tenant_id, saved.record_id);
     if (!record) throw startError('Saved membership history is missing; reconciliation is required.', 409, 'history_missing');
+    if (['stripe_upfront', 'stripe_monthly', 'direct_debit'].includes(saved.request.paymentMode)) {
+      const description = await describe(saved);
+      return { request: { ...saved, ...description }, paymentUrl: description.paymentUrl, record, replayed,
+        reconciliation_required: description.reconciliation_required,
+        ...(description.reconciliation_required ? { message: 'The saved payment link is expired or cancelled. Finance must reconcile this purchase before reissuing payment authority; no second purchase or payment has been created.' } : {}) };
+    }
     if (saved.request.paymentMode === 'free') {
       try {
         await fireFree({ table: 'member_membership_history', row: record, paidAt: record.paid_at, client: db, source: 'admin_member_start_free' });
-        return { request: { ...saved, status: 'completed' }, record, replayed };
+        return { request: { ...saved, status: 'completed' }, paymentUrl: null, record, replayed };
       } catch {
-        return { request: { ...saved, status: 'notification_pending' }, record, replayed, reconciliation_required: true,
+        return { request: { ...saved, status: 'notification_pending' }, paymentUrl: null, record, replayed, reconciliation_required: true,
           message: 'The zero-due purchase is saved. Retry this same confirmation to resume workflow delivery.' };
       }
     }
@@ -123,12 +210,12 @@ export function createMemberStartService({
       record = await one('member_membership_history', saved.tenant_id, saved.record_id);
       const review = result.accounting_state === 'review';
       return { request: { ...saved, status: review ? 'reconciliation_required' : result.accounting_pending ? 'accounting_pending' : 'pending_payment' },
-        record, replayed, accounting_pending: !!result.accounting_pending, reconciliation_required: review,
+        paymentUrl: null, record, replayed, accounting_pending: !!result.accounting_pending, reconciliation_required: review,
         accounting_request_id: result.accounting_request_id };
     } catch {
       // History and request deliberately survive any ambiguity. A same-key retry
       // resumes the queue; it cannot insert a second purchase or blindly reissue.
-      return { request: { ...saved, status: 'reconciliation_required' }, record, replayed, reconciliation_required: true,
+      return { request: { ...saved, status: 'reconciliation_required' }, paymentUrl: null, record, replayed, reconciliation_required: true,
         message: 'Purchase saved but invoice acceptance is unconfirmed. Retry the same confirmation to resume the durable accounting request; do not create another purchase.' };
     }
   }
