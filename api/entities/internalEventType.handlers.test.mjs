@@ -216,6 +216,7 @@ function createDatabase() {
 function response() {
   return {
     statusCode: 200,
+    setHeader() { return this; },
     status(code) { this.statusCode = code; return this; },
     json(body) { this.body = body; return this; },
     end() { return this; },
@@ -236,6 +237,27 @@ async function invoke(path, fixture, request) {
 
 const collectionPath = 'api/entities/[entity]/index.js';
 const recordPath = 'api/entities/[entity]/[id].js';
+// Exercise the real record handler and anonymiser, with only infrastructure
+// replaced. Lowercase aliases must never fall through to generic hard deletion.
+for (const entity of ['Member', 'member', 'MEMBER', 'Organization', 'organization', 'ORGANIZATION']) {
+  test(`${entity} deletion refuses active billing before any mutation`, async () => {
+    const db = createDatabase();
+    const isMember = entity.toLowerCase() === 'member';
+    const table = isMember ? 'member' : 'organization';
+    db.rows[table] = [{ id: 'owner', tenant_id: 'tenant-a', is_primary: false }];
+    db.rows.membership_billing_agreements = [{
+      id: 'agreement', tenant_id: 'tenant-a', status: 'active', provider: 'stripe',
+      [isMember ? 'member_id' : 'organization_id']: 'owner',
+    }];
+    const before = structuredClone(db.rows);
+    const res = await invoke(recordPath, { db, tenantContext: adminContext, groups: [] }, {
+      method: 'DELETE', query: { entity, id: 'owner' },
+    });
+    assert.equal(res.statusCode, 409, JSON.stringify(res.body));
+    assert.equal(res.body.code, 'RECURRING_BILLING_UNRESOLVED');
+    for (const [name, rows] of Object.entries(before)) assert.deepEqual(db.rows[name], rows);
+  });
+}
 const adminContext = {
   isAuthenticated: true,
   tenantId: 'tenant-a',

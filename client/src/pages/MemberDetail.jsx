@@ -606,6 +606,19 @@ export default function MemberDetail() {
     }
   });
 
+  const deletionBilling = useQuery({
+    queryKey: ['member-deletion-billing', id],
+    enabled: !!id && showDeleteDialog,
+    staleTime: 0,
+    retry: false,
+    queryFn: async () => {
+      const res = await fetch(`/api/entities/Member/${id}?deletionSafety=true`, { credentials: 'include' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Unable to check recurring payments');
+      return data;
+    },
+  });
+
   const deleteMemberMutation = useMutation({
     mutationFn: async () => {
       await base44.entities.Member.delete(id);
@@ -618,6 +631,7 @@ export default function MemberDetail() {
       navigate(listPath);
     },
     onError: (error) => {
+      deletionBilling.refetch();
       toast.error(error.message || `Could not delete ${memberLabel.toLowerCase()}. Please try again.`);
     }
   });
@@ -2925,6 +2939,23 @@ export default function MemberDetail() {
                 <strong>Warning:</strong> This action cannot be undone.
               </div>
               <p className="text-sm">
+                Deletion removes access and anonymises this member; it does not cancel Stripe or GoCardless payments.
+                Financial records are retained. Any cancellation must be separately authorised in the billing controls.
+              </p>
+              <div role="status" className="text-sm">
+                {deletionBilling.isFetching ? 'Checking recurring payment agreements…'
+                  : deletionBilling.isError ? deletionBilling.error.message
+                  : deletionBilling.data?.error || 'No unresolved recurring payment records found.'}
+                {deletionBilling.data?.blockers?.map((item) => (
+                  <p key={`${item.kind}-${item.id}`}>{item.provider} {item.kind}: {item.status} ({item.id})</p>
+                ))}
+                {(deletionBilling.isError || deletionBilling.data?.success === false) && (
+                  <Button variant="outline" size="sm" onClick={() => deletionBilling.refetch()} disabled={deletionBilling.isFetching}>
+                    Recheck after resolving billing
+                  </Button>
+                )}
+              </div>
+              <p className="text-sm">
                 To confirm, please type <strong>DELETE</strong> below:
               </p>
             </DialogDescription>
@@ -2948,7 +2979,7 @@ export default function MemberDetail() {
             <Button 
               variant="destructive"
               onClick={() => deleteMemberMutation.mutate()}
-              disabled={deleteConfirmText !== 'DELETE' || deleteMemberMutation.isPending}
+              disabled={deleteConfirmText !== 'DELETE' || deleteMemberMutation.isPending || deletionBilling.isFetching || deletionBilling.isError || deletionBilling.data?.success !== true}
               data-testid="button-confirm-member-delete"
             >
               {deleteMemberMutation.isPending ? (

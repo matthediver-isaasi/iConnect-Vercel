@@ -2272,6 +2272,11 @@ function OrganisationsListPageInner({ access }) {
                 <strong>Warning:</strong> This will also delete <strong>{selectedMemberCount} {selectedMemberCount === 1 ? memberLabel.toLowerCase() : memberLabelPlural.toLowerCase()}</strong> belonging to {singleDeleteOrg ? 'this organisation' : 'these organisations'}. This action cannot be undone.
               </div>
               <p className="text-sm">
+                Deleting an organisation or removing member access does not cancel Stripe or GoCardless payments.
+                Unresolved recurring agreements for the organisation or its members block deletion.
+                Resolve billing separately with explicit cancellation authority. Financial history is retained.
+              </p>
+              <p className="text-sm">
                 To confirm, please type <strong>DELETE</strong> below:
               </p>
             </DialogDescription>

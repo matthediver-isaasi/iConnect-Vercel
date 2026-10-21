@@ -2,6 +2,7 @@ import { getSessionMember } from '../../_lib/session.js';
 import { createClient } from '@supabase/supabase-js';
 import { isResourceExcluded } from '../../_lib/roleVisibility.js';
 import { anonymizeMember } from '../../_lib/memberAnonymize.js';
+import { checkMemberDeletionBilling } from '../../_lib/memberDeletionBillingSafety.js';
 import { isMemberSoftDeleted } from '../../_lib/memberLoginResolver.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -384,6 +385,11 @@ export async function performMerge({
 }) {
   const sourceId = source.id;
   const targetId = target.id;
+  // Check before copying or moving anything: a refusal must not leave a half merge.
+  if (sourceDisposal === 'anonymise' || sourceDisposal === 'reassign') {
+    const safety = await checkMemberDeletionBilling(db, { memberId: sourceId, tenantId: callerTenantId });
+    if (!safety.success) return { status: safety.status, body: safety };
+  }
   const warnings = [];
   const summary = {
     copiedCoreFields: [],

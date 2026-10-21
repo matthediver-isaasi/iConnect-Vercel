@@ -72,6 +72,7 @@ import {
 
 // Entity name to Supabase table mapping (singular names for Base44 compatibility)
 import { anonymizeMember } from '../../_lib/memberAnonymize.js';
+import { checkMemberDeletionBilling } from '../../_lib/memberDeletionBillingSafety.js';
 import { withoutEnhancedSurveyAnswers } from '../../_lib/surveyCompletionOutputs.js';
 import { isReservedPageSlug, reservedPageSlugMessage } from '../../../shared/memberAliases.js';
 import { validatePortalMenuRecord } from '../../../shared/portalMenuLinks.js';
@@ -332,6 +333,18 @@ export default async function handler(req, res, dependencies = {}) {
 
   // Get tenant context from session
   const tenantCtx = await (dependencies.getTenantContext || getTenantContext)(req);
+  if (entityNorm === 'member' && req.method === 'GET' && req.query.deletionSafety === 'true') {
+    if (!tenantCtx.isAuthenticated) return res.status(401).json({ error: 'Authentication required' });
+    if (tenantCtx.tenantMismatch || !tenantCtx.tenantId || !await (dependencies.hasAdminAccess || hasAdminAccess)(tenantCtx)) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    const { data: member, error } = await requestDatabase.from('member').select('id')
+      .eq('id', id).eq('tenant_id', tenantCtx.tenantId).maybeSingle();
+    if (error) return res.status(503).json({ error: 'Unable to verify member' });
+    if (!member) return res.status(404).json({ error: 'Member not found' });
+    const safety = await checkMemberDeletionBilling(requestDatabase, { memberId: id, tenantId: tenantCtx.tenantId });
+    return res.json(safety);
+  }
   if (req.method === 'GET') {
     const projectionError = ticketAudienceProjectionError(entityNorm, req.query);
     if (projectionError) return res.status(400).json({ error: projectionError });
@@ -3381,16 +3394,16 @@ export default async function handler(req, res, dependencies = {}) {
       // but keep the member record for financial audit trail (bookings, tickets, etc.)
       // The actual logic lives in api/_lib/memberAnonymize.js so the admin
       // merge flow (api/admin/members/merge.js) can reuse it unchanged.
-      if (entity === 'Member') {
+      if (entityNorm === 'member') {
         const result = await anonymizeMember(id);
         if (!result.success) {
-          return res.status(500).json({ error: result.error || 'Failed to anonymize member data' });
+          return res.status(result.status || 500).json({ ...result, error: result.error || 'Failed to anonymize member data' });
         }
         return res.json({ success: true, message: 'Member data anonymized and related records deleted' });
       }
 
       // Special handling for Organization: delete all members and their related data first
-      if (entity === 'Organization') {
+      if (entityNorm === 'organization') {
         console.log(`[Organization Delete] Starting cascade delete for organization ${id}`);
         
         // Check if this is a primary organization (created during tenant provisioning)
@@ -3426,6 +3439,14 @@ export default async function handler(req, res, dependencies = {}) {
         }
         
         const memberIds = (members || []).map(m => m.id);
+        // Organisation deletion also anonymises its members. Check all billing
+        // owners before invalidating any session or deleting any personal data.
+        const orgSafety = await checkMemberDeletionBilling(supabase, { organizationId: id, tenantId: tenantCtx.tenantId });
+        if (!orgSafety.success) return res.status(orgSafety.status).json(orgSafety);
+        for (const memberId of memberIds) {
+          const safety = await checkMemberDeletionBilling(supabase, { memberId, tenantId: tenantCtx.tenantId });
+          if (!safety.success) return res.status(safety.status).json(safety);
+        }
         const memberEmails = (members || [])
           .map(m => (m.email ? m.email.toLowerCase() : null))
           .filter(Boolean);

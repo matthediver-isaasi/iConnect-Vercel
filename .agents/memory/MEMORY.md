@@ -68,6 +68,7 @@
 - [Communication consent boundaries](communication-consent-index.md) — category deletion, global/category serialization, and member opt-in eligibility.
 - [Directory access and privacy topics](directory-access-privacy-index.md) — scope, eligibility, field visibility, export, file access, and deleted-member history.
 - [Member security and lifecycle topics](member-security-lifecycle-index.md) — tenant-scoped deletion, reset authorization, access revocation, and member-only context.
+- [Member deletion billing policy](member-deletion-billing-policy.md) — access removal is not payment cancellation authority; unresolved billing must block destructive disposal.
 - [Controlled composite pending state](controlled-composite-pending-state.md) — queued sibling edits must drive rendering as well as mutations until the parent acknowledges them.
 - [Catalogue event references](catalogue-event-references.md) — derive ticket delegate capacity live; revalidate links on restore, and replace bundle composition atomically.
 - [Catalogue tax-code authority](catalogue-tax-authority.md) — use direct provider identities for new Sales tax; freeze quote codes and preserve legacy tax without percentage inference.

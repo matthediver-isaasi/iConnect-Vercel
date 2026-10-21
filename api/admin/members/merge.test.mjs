@@ -9,7 +9,7 @@ import { REASSIGN_REFS, buildAuditNotePayload, performMerge } from './merge.js';
 
 // Minimal supabase-compatible fake. `failOn` maps "table.op" -> error object.
 // Records every terminal operation so tests can assert ordering/absence.
-function makeFakeDb({ failOn = {}, prefRows = [] } = {}) {
+function makeFakeDb({ failOn = {}, prefRows = [], billingRows = [] } = {}) {
   const ops = [];
   const ok = (data = null) => Promise.resolve({ data, error: null });
   const fail = (error) => Promise.resolve({ data: null, error });
@@ -35,7 +35,7 @@ function makeFakeDb({ failOn = {}, prefRows = [] } = {}) {
       return self;
     };
     return {
-      select: (cols) => chain('select', name === 'member_preference_value' ? prefRows : []),
+      select: (cols) => chain('select', name === 'member_preference_value' ? prefRows : name === 'membership_billing_agreements' ? billingRows : []),
       update: () => chain('update'),
       insert: () => chain('insert'),
       upsert: () => chain('upsert'),
@@ -61,6 +61,28 @@ const anonRan = (db) => db.ops.some(op => op.startsWith('ANONYMIZE:'));
 const admin = { id: 'admin-1', first_name: 'Ada', last_name: 'Admin', email: 'ada@example.com' };
 const baseSource = { id: '11111111-1111-4111-8111-111111111111', first_name: 'Old', last_name: 'Record', email: 'old@example.com', engagement_opening_balances: {} };
 const baseTarget = { id: '22222222-2222-4222-8222-222222222222', first_name: 'New', last_name: 'Record', email: 'new@example.com', engagement_opening_balances: {} };
+
+test('active billing refuses both destructive merge choices before any writes', async () => {
+  for (const sourceDisposal of ['anonymise', 'reassign']) {
+    const db = makeFakeDb({ billingRows: [{ id: 'agreement', status: 'active', provider: 'stripe' }] });
+    const result = await performMerge({ db, source: baseSource, target: baseTarget,
+      sourceDisposal, coreFields: ['first_name'], callerTenantId: 't1', adminMember: admin,
+      anonymize: makeFakeAnonymize(db) });
+    assert.equal(result.status, 409);
+    assert.equal(anonRan(db), false);
+    assert.ok(db.ops.every(op => op.endsWith('.select')));
+  }
+});
+
+test('failed billing read refuses disposal without hiding the partial check', async () => {
+  const db = makeFakeDb({ failOn: { 'membership_payment_plans.select': { message: 'offline' } } });
+  const result = await performMerge({ db, source: baseSource, target: baseTarget,
+    sourceDisposal: 'anonymise', callerTenantId: 't1', anonymize: makeFakeAnonymize(db) });
+  assert.equal(result.status, 503);
+  assert.ok(result.body.failures.includes('membership_payment_plans'));
+  assert.equal(anonRan(db), false);
+  assert.ok(db.ops.every(op => op.endsWith('.select')));
+});
 
 test('group limit refusal precedes every destructive merge reference and anonymisation', async () => {
   const db = makeFakeDb({ failOn: { 'rpc.merge_member_group_assignments': {

@@ -1,5 +1,6 @@
 import { supabase as defaultSupabase } from './database.js';
 import { invalidateMemberSessions } from './session.js';
+import { checkMemberDeletionBilling } from './memberDeletionBillingSafety.js';
 
 /**
  * Anonymise ("soft delete") a member row in place.
@@ -18,6 +19,8 @@ import { invalidateMemberSessions } from './session.js';
 export async function anonymizeMember(memberId, { supabase = defaultSupabase } = {}) {
   const id = memberId;
   if (!supabase) return { success: false, error: 'Database not configured' };
+  const billingSafety = await checkMemberDeletionBilling(supabase, { memberId: id });
+  if (!billingSafety.success) return billingSafety;
   console.log(`[Member Delete] Starting anonymization and cleanup for member ${id}`);
 
   // SECURITY: Invalidate all sessions for this member FIRST to force immediate logout

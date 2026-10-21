@@ -312,6 +312,14 @@ export default function MemberMergeDialog({ open, onOpenChange, currentMember, c
 
             <div className="space-y-2">
               <Label>What happens to the source (old) record?</Label>
+              <Alert>
+                <AlertTriangle className="w-4 h-4" />
+                <AlertDescription>
+                  Removing or anonymising the source does not cancel Stripe or GoCardless payments.
+                  Unresolved recurring agreements block these options. Resolve billing separately with
+                  explicit cancellation authority, or leave the source untouched. Financial history is retained.
+                </AlertDescription>
+              </Alert>
               {!sameOrg && (
                 <Alert>
                   <AlertTriangle className="w-4 h-4" />
