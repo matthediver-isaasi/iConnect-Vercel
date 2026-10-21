@@ -28,7 +28,7 @@ async function settle(fn = () => {}) {
   await act(async () => { await wait(); });
 }
 
-async function fixture() {
+async function fixture({ activeTenant = "tenant-a", layout = {} } = {}) {
   const originalFetch = globalThis.fetch;
   const states = new Map();
   const requests = [];
@@ -68,8 +68,9 @@ async function fixture() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false, gcTime: Infinity } } });
   const container = document.createElement("div"); document.body.appendChild(container);
   const root = createRoot(container);
-  setActiveTenantId("tenant-a");
-  await settle(() => root.render(<QueryClientProvider client={client}><MemoryRouter><Settings /><HelpLink /></MemoryRouter></QueryClientProvider>));
+  const { default: LayoutContext } = await import("../contexts/LayoutContext.jsx");
+  setActiveTenantId(activeTenant);
+  await settle(() => root.render(<QueryClientProvider client={client}><LayoutContext.Provider value={layout}><MemoryRouter><Settings /><HelpLink /></MemoryRouter></LayoutContext.Provider></QueryClientProvider>));
   const button = (text) => Array.from(document.querySelectorAll("button")).find((el) => el.textContent === text);
   const click = async (text) => { const el = button(text); assert.ok(el, text); assert.equal(el.disabled, false, text); await settle(() => el.click()); };
   const choose = async (file) => settle(() => {
@@ -88,6 +89,20 @@ async function fixture() {
     },
   };
 }
+
+test("settings use verified member tenant on direct links, but reject unverified or conflicting context", async () => {
+  for (const [activeTenant, sessionValidated, expected] of [[null, true, true], [null, false, false], ["tenant-b", true, false]]) {
+    const f = await fixture({ activeTenant, layout: { memberInfo: { tenant_id: "tenant-a" }, sessionValidated } });
+    try {
+      const panel = f.container.querySelector('[data-testid="badge-instructions-settings"]');
+      assert.equal(panel.textContent.includes("Select an active tenant"), !expected);
+      if (expected) {
+        assert.ok(f.requests.length > 0);
+        assert.ok(f.button("Save instructions"));
+      }
+    } finally { await f.cleanup(); }
+  }
+});
 
 test("badge instruction UI: complete lifecycle, retained file, confirmed deletion and unchanged standard link", async () => {
   const f = await fixture();

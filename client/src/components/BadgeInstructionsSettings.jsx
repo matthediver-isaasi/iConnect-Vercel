@@ -4,9 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useBadgeTenant, useBadgeInstructions, useSaveBadgeInstructions, readBadgePdf, previewBadgePdf, badgeDocumentUrl } from "@/hooks/useBadgeInstructions";
+import { useLayoutContext } from "@/contexts/LayoutContext";
 
 export default function BadgeInstructionsSettings() {
-  const tenantId = useBadgeTenant();
+  const { memberInfo, sessionValidated } = useLayoutContext();
+  const tenantId = useBadgeTenant(sessionValidated ? memberInfo?.tenant_id : null);
   return (
     <Card className="mb-6" data-testid="badge-instructions-settings">
       <CardHeader>
