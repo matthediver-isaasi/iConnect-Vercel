@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { workflowMemberFields, preserveWorkflowRoleValue } from "../lib/workflowRoleFields.mjs";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -15,7 +16,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { 
+import {
   Zap, Plus, Pencil, Trash2, AlertCircle, Mail, Play, Pause, 
   ChevronRight, ChevronLeft, Building2, User, Settings, Clock,
   CheckCircle2, XCircle, History, Filter, ArrowRight, Users, AlertTriangle, Check, ChevronsUpDown, Briefcase, FileSignature, Send, Copy, CreditCard
@@ -214,7 +215,7 @@ const MEMBER_CORE_FIELDS = [
   { id: 'job_title', label: 'Job Title', type: 'text' },
   { id: 'status', label: 'Status', type: 'text' },
   { id: 'organization_id', label: 'Organisation ID', type: 'text' },
-  { id: 'role_id', label: 'Role ID', type: 'text' },
+  { id: 'role_id', label: 'Role', type: 'dropdown' },
   { id: 'biography', label: 'Biography', type: 'text' },
   { id: 'profile_photo_url', label: 'Profile Photo URL', type: 'url' },
   { id: 'show_in_directory', label: 'Show in Directory', type: 'boolean' },
@@ -647,12 +648,13 @@ export default function WorkflowManagementPage() {
 
   const orgCustomFields = customFields.filter(f => f.entity_scope === 'organization');
   const memberCustomFields = customFields.filter(f => !f.entity_scope || f.entity_scope === 'member');
+  const memberCoreFields = workflowMemberFields(MEMBER_CORE_FIELDS, roles);
 
   // Returns all member, organization, and job posting fields (core and custom) for conditions
   // All entity types' fields are always available since workflows may need cross-entity conditions
   const getAvailableFields = () => {
     return {
-      memberCore: MEMBER_CORE_FIELDS.map(f => ({ ...f, field_type: 'member_core', entity: 'member', options: f.options || null })),
+      memberCore: memberCoreFields.map(f => ({ ...f, field_type: 'member_core', entity: 'member', options: f.options || null })),
       memberCustom: memberCustomFields.map(f => ({ 
         id: f.id, 
         label: f.label, 
@@ -693,7 +695,7 @@ export default function WorkflowManagementPage() {
       coreFields = JOB_POSTING_CORE_FIELDS;
       customFieldsList = []; // Job postings don't have custom fields
     } else {
-      coreFields = MEMBER_CORE_FIELDS;
+      coreFields = memberCoreFields;
       customFieldsList = memberCustomFields;
     }
     
@@ -1495,8 +1497,8 @@ export default function WorkflowManagementPage() {
                     </div>
 
                     {!['is_empty', 'is_not_empty'].includes(formData.trigger_config.operator) && (() => {
-                      const selectedField = getSelectedField(formData.trigger_config.field_type, formData.trigger_config.field_id);
-                      const hasOptions = selectedField?.options && selectedField.options.length > 0;
+                      const selectedField = preserveWorkflowRoleValue(getSelectedField(formData.trigger_config.field_type, formData.trigger_config.field_id), formData.trigger_config.value);
+                      const hasOptions = selectedField?.type === 'dropdown' || selectedField?.options?.length > 0;
                       
                       return (
                         <div className="space-y-2">
@@ -1504,7 +1506,7 @@ export default function WorkflowManagementPage() {
                           {hasOptions ? (
                             <Select
                               value={formData.trigger_config.value || ''}
-                              onValueChange={(val) => setFormData(prev => ({
+                              onValueChange={(val) => val && setFormData(prev => ({
                                 ...prev,
                                 trigger_config: { ...prev.trigger_config, value: val }
                               }))}
@@ -1513,7 +1515,7 @@ export default function WorkflowManagementPage() {
                                 <SelectValue placeholder="Select a value" />
                               </SelectTrigger>
                               <SelectContent>
-                                {selectedField.options.map((option) => (
+                                {(selectedField.options || []).map((option) => (
                                   <SelectItem key={option.value || option.label} value={option.value || option.label}>
                                     {option.label}
                                   </SelectItem>
@@ -1873,8 +1875,8 @@ export default function WorkflowManagementPage() {
                                 </SelectContent>
                               </Select>
                               {!NO_VALUE_OPERATORS.includes(condition.operator) && (() => {
-                                const conditionField = getSelectedField(condition.field_type, condition.field_id);
-                                const hasConditionOptions = conditionField?.options && conditionField.options.length > 0;
+                                const conditionField = preserveWorkflowRoleValue(getSelectedField(condition.field_type, condition.field_id), condition.value);
+                                const hasConditionOptions = conditionField?.type === 'dropdown' || conditionField?.options?.length > 0;
 
                                 if (RELATIVE_DATE_OPERATORS.includes(condition.operator)) {
                                   return (
@@ -1891,13 +1893,13 @@ export default function WorkflowManagementPage() {
                                 return hasConditionOptions ? (
                                   <Select
                                     value={condition.value || ''}
-                                    onValueChange={(val) => updateCondition(index, { value: val })}
+                                    onValueChange={(val) => val && updateCondition(index, { value: val })}
                                   >
                                     <SelectTrigger>
                                       <SelectValue placeholder="Select value" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                      {conditionField.options.map((option) => (
+                                      {(conditionField.options || []).map((option) => (
                                         <SelectItem key={option.value || option.label} value={option.value || option.label}>
                                           {option.label}
                                         </SelectItem>
@@ -2559,7 +2561,7 @@ export default function WorkflowManagementPage() {
                                 </Select>
                               </div>
                               {(() => {
-                                const selectedField = getSelectedField(action.config?.field_type, action.config?.field_id);
+                                const selectedField = preserveWorkflowRoleValue(getSelectedField(action.config?.field_type, action.config?.field_id), action.config?.value);
                                 const fieldType = selectedField?.type || 'text';
                                 const fieldOptions = selectedField?.options || null;
 
@@ -2621,13 +2623,13 @@ export default function WorkflowManagementPage() {
                                   );
                                 }
 
-                                if ((fieldType === 'dropdown' || fieldType === 'text') && fieldOptions && fieldOptions.length > 0) {
+                                if (fieldType === 'dropdown' || (fieldType === 'text' && fieldOptions?.length > 0)) {
                                   return (
                                     <div className="space-y-2">
                                       <Label>New Value</Label>
                                       <Select
                                         value={action.config?.value || ''}
-                                        onValueChange={(val) => updateAction(index, { 
+                                        onValueChange={(val) => val && updateAction(index, {
                                           config: { ...action.config, value: val } 
                                         })}
                                       >
@@ -2635,7 +2637,7 @@ export default function WorkflowManagementPage() {
                                           <SelectValue placeholder="Select value" />
                                         </SelectTrigger>
                                         <SelectContent>
-                                          {fieldOptions.map((opt) => (
+                                          {(fieldOptions || []).map((opt) => (
                                             <SelectItem key={opt.value} value={opt.value}>
                                               {opt.label}
                                             </SelectItem>
