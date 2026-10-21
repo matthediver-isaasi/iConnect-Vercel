@@ -10,3 +10,14 @@ description: Pattern for giving another entity the org-style CRM record treatmen
 
 **Why:** a completion review rejected relying on the generic API's tenant filter — any authenticated member could write group values/definitions until explicit gates were added.
 **How to apply:** any future entity wanting the CRM record treatment should copy this generalisation (scoped value table + guarded upsert + read-only generic API + coreFields-parameterised editors), not the org files.
+
+For on-account event purchases, the user expects a member's direct Organisation
+Group association to be considered, not treated as missing affiliation merely
+because there is no Organisation link.
+
+**Why:** The user corrected the assumption that an empty Organisation link
+means an individual has no institutional billing association.
+
+**How to apply:** Check direct group associations in customer/report resolution.
+Keep affiliation display separate from historical invoice ownership; inspect
+the original billing evidence before changing an existing provider invoice.
