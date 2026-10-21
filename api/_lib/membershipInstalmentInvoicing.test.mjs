@@ -16,8 +16,9 @@ import {
   postStripeInstalmentInvoice,
   buildInstalmentOutcomePatch,
   claimableStatuses,
+  resolveInstalmentInvoiceContext,
 } from './membershipInstalmentInvoicing.js';
-import { postDdInstalmentToAccounting } from './gocardlessAccounting.js';
+import { postDdInstalmentToAccounting, postDdArrearsPeriodToAccounting } from './gocardlessAccounting.js';
 import { BNMS_PILOT_ACCOUNTING } from './xero.js';
 import { betaAccountingMapping, BNMS_BETA_BATCH, BNMS_BETA_REVENUE } from './bnmsBetaAccounting.js';
 import { resolveDdOffer, buildAgreementSnapshot } from './gocardlessDirectDebit.js';
@@ -200,6 +201,7 @@ const perInstalmentAgreement = (extra = {}) => ({
   tenant_id: 't1',
   member_id: 'm1',
   provider: 'stripe',
+  environment: 'live',
   stripe_customer_id: 'cus_monthly',
   stripe_subscription_id: 'sub_monthly',
   metadata: {
@@ -399,7 +401,7 @@ function fakeProvider(calls, { paymentRecorded = true, applyCalls = [] } = {}) {
 
 function stripeEvidence(invoiceId, paymentIntentId = 'pi_monthly123') {
   return {
-    id: invoiceId, paid: true, status: 'paid', payment_intent: paymentIntentId,
+    id: invoiceId, livemode: true, paid: true, status: 'paid', payment_intent: paymentIntentId,
     amount_paid: 1000, currency: 'gbp', customer: 'cus_monthly', subscription: 'sub_monthly',
   };
 }
@@ -410,7 +412,7 @@ function stripeEvidenceClient(invoice, { invoicePayments = null } = {}) {
     paymentIntents: {
       async retrieve(id) {
         return {
-          id, status: 'succeeded', amount: invoice.amount_paid,
+          id, livemode: invoice.livemode, status: 'succeeded', amount: invoice.amount_paid,
           currency: invoice.currency, customer: invoice.customer,
         };
       },
@@ -482,14 +484,14 @@ test('resolveStripeInvoicePaymentIntent accepts only documented Stripe invoice p
     stripeInvoice: legacy, stripe: stripeEvidenceClient(legacy),
   }), 'pi_legacy123');
   const modern = {
-    id: 'in_new', paid: true, status: 'paid', amount_paid: 1000, currency: 'gbp', customer: 'cus_monthly',
+    id: 'in_new', livemode: true, paid: true, status: 'paid', amount_paid: 1000, currency: 'gbp', customer: 'cus_monthly',
     payments: { data: [{ payment: { type: 'payment_intent', payment_intent: 'pi_new123' } }] },
   };
   assert.equal(await resolveStripeInvoicePaymentIntent({
     stripeInvoiceId: 'in_new', stripeInvoice: modern, stripe: stripeEvidenceClient(modern),
   }), 'pi_new123');
   const expanded = {
-    id: 'in_expanded', paid: true, status: 'paid', amount_paid: 1000, currency: 'gbp', customer: 'cus_monthly',
+    id: 'in_expanded', livemode: true, paid: true, status: 'paid', amount_paid: 1000, currency: 'gbp', customer: 'cus_monthly',
     payment_intent: { id: 'pi_expanded123' },
   };
   assert.equal(await resolveStripeInvoicePaymentIntent({
@@ -498,13 +500,13 @@ test('resolveStripeInvoicePaymentIntent accepts only documented Stripe invoice p
 });
 
 test('resolveStripeInvoicePaymentIntent fails closed for missing or ambiguous evidence', async () => {
-  const missing = { id: 'in_missing', paid: true, status: 'paid', amount_paid: 1000, currency: 'gbp', customer: 'cus_monthly' };
+  const missing = { id: 'in_missing', livemode: true, paid: true, status: 'paid', amount_paid: 1000, currency: 'gbp', customer: 'cus_monthly' };
   await assert.rejects(
     resolveStripeInvoicePaymentIntent({ stripeInvoiceId: 'in_missing', stripeInvoice: missing, stripe: stripeEvidenceClient(missing) }),
     /evidence is missing/,
   );
   const ambiguous = {
-    id: 'in_ambiguous', paid: true, status: 'paid', amount_paid: 1000, currency: 'gbp', customer: 'cus_monthly',
+    id: 'in_ambiguous', livemode: true, paid: true, status: 'paid', amount_paid: 1000, currency: 'gbp', customer: 'cus_monthly',
     payment_intent: 'pi_one', payments: { data: [{ payment_intent: 'pi_two' }] },
   };
   await assert.rejects(
@@ -521,10 +523,10 @@ test('resolveStripeInvoicePaymentIntent retrieves tenant-scoped evidence for leg
     invoices: {
       async retrieve(id) {
         retrieved.push(id);
-        return { id, payment_intent: 'pi_recovered123', paid: true, status: 'paid', amount_paid: 1000, currency: 'gbp', customer: 'cus_monthly' };
+        return { id, livemode: true, payment_intent: 'pi_recovered123', paid: true, status: 'paid', amount_paid: 1000, currency: 'gbp', customer: 'cus_monthly' };
       },
     },
-    paymentIntents: { async retrieve(id) { return { id, status: 'succeeded', amount: 1000, currency: 'gbp', customer: 'cus_monthly' }; } },
+    paymentIntents: { async retrieve(id) { return { id, livemode: true, status: 'succeeded', amount: 1000, currency: 'gbp', customer: 'cus_monthly' }; } },
   };
   assert.equal(await resolveStripeInvoicePaymentIntent({
     stripeInvoiceId: 'in_legacy_failed',
@@ -558,8 +560,8 @@ test('Stripe PaymentIntent evidence binds paid invoice fields to the tenant plan
 test('resolveStripeInvoicePaymentIntent uses the tenant-scoped newer Invoice Payment API when needed', async () => {
   const requested = [];
   const stripe = {
-    invoices: { async retrieve(id) { return { id, paid: true, status: 'paid', amount_paid: 1000, currency: 'gbp', customer: 'cus_monthly' }; } },
-    paymentIntents: { async retrieve(id) { return { id, status: 'succeeded', amount: 1000, currency: 'gbp', customer: 'cus_monthly' }; } },
+    invoices: { async retrieve(id) { return { id, livemode: true, paid: true, status: 'paid', amount_paid: 1000, currency: 'gbp', customer: 'cus_monthly' }; } },
+    paymentIntents: { async retrieve(id) { return { id, livemode: true, status: 'succeeded', amount: 1000, currency: 'gbp', customer: 'cus_monthly' }; } },
     invoicePayments: {
       async list(args) {
         requested.push(args);
@@ -591,7 +593,7 @@ test('resolveStripeInvoicePaymentIntent re-reads and rejects a non-succeeded Pay
   const invoice = stripeEvidence('in_pi_failed');
   const stripe = stripeEvidenceClient(invoice);
   stripe.paymentIntents.retrieve = async (id) => ({
-    id, status: 'processing', amount: 1000, currency: 'gbp', customer: 'cus_monthly',
+    id, livemode: true, status: 'processing', amount: 1000, currency: 'gbp', customer: 'cus_monthly',
   });
   await assert.rejects(resolveStripeInvoicePaymentIntent({
     stripeInvoiceId: invoice.id, stripeInvoice: invoice, stripe,
@@ -744,7 +746,8 @@ test('annualInvoiceSuppressionDecision (public fee path): per-instalment row sup
 
 // gocardless_payments handler with CAS claim semantics over one row.
 function gcPaymentStore(initial) {
-  const store = { row: { ...initial } };
+  const store = { row: { tenant_id: 't1', environment: 'live', status: 'confirmed',
+    gocardless_mandate_id: 'MD1', amount_minor: 1000, currency: 'GBP', ...initial } };
   store.handler = (state) => {
     if (state.op === 'update') {
       if (state.ors.length > 0) {
@@ -766,12 +769,13 @@ function gcPaymentStore(initial) {
 
 const gcAgreement = {
   id: 'ba_1', tenant_id: 't1', member_id: 'm1',
+  provider: 'gocardless', environment: 'live', gocardless_mandate_id: 'MD1',
   metadata: { dd: { invoicing_mode: 'per_instalment', config_id: 'cfg1', tier_label: 'Standard', membership_year: '2026-27', currency: 'GBP' } },
 };
 
 test('postDdInstalmentToAccounting: per-instalment mode mints a paid invoice with a deterministic idempotency key', async () => {
   const providerCalls = [];
-  const store = gcPaymentStore({ id: 'pay_1', accounting_sync_status: null });
+  const store = gcPaymentStore({ id: 'pay_1', gocardless_payment_id: 'PM123', accounting_sync_status: null });
   const db = fakeDb({ ...contextHandlers, gocardless_payments: store.handler });
   const outcome = await postDdInstalmentToAccounting({
     agreement: gcAgreement,
@@ -806,8 +810,8 @@ test('postDdInstalmentToAccounting: posted row skipped; linked-but-unposted row 
   }, { db: fakeDb({}), getProvider: async () => provider });
   assert.equal(skipped.status, 'skipped');
 
-  const store = gcPaymentStore({ id: 'p2', accounting_sync_status: 'invoice_unpaid', accounting_invoice_id: 'INV-OLD' });
-  const db = fakeDb({ gocardless_payments: store.handler });
+  const store = gcPaymentStore({ id: 'p2', gocardless_payment_id: 'PM1', accounting_sync_status: 'invoice_unpaid', accounting_invoice_id: 'INV-OLD' });
+  const db = fakeDb({ ...contextHandlers, gocardless_payments: store.handler });
   const repaired = await postDdInstalmentToAccounting({
     agreement: gcAgreement,
     paymentRow: { id: 'p2', accounting_sync_status: 'invoice_unpaid', accounting_invoice_id: 'INV-OLD', amount_minor: 1000, gocardless_payment_id: 'PM1' },
@@ -823,7 +827,7 @@ test('postDdInstalmentToAccounting: posted row skipped; linked-but-unposted row 
 
 test('postDdInstalmentToAccounting: invoice created but payment NOT recorded → invoice_unpaid with linkage (not posted)', async () => {
   const providerCalls = [];
-  const store = gcPaymentStore({ id: 'p4', accounting_sync_status: 'failed' });
+  const store = gcPaymentStore({ id: 'p4', gocardless_payment_id: 'PM4', accounting_sync_status: 'failed' });
   const db = fakeDb({ ...contextHandlers, gocardless_payments: store.handler });
   const outcome = await postDdInstalmentToAccounting({
     agreement: gcAgreement,
@@ -837,7 +841,7 @@ test('postDdInstalmentToAccounting: invoice created but payment NOT recorded →
 
 test('postDdInstalmentToAccounting: concurrent callers — only the CAS winner talks to the provider', async () => {
   const providerCalls = [];
-  const store = gcPaymentStore({ id: 'p5', accounting_sync_status: null });
+  const store = gcPaymentStore({ id: 'p5', gocardless_payment_id: 'PM5', accounting_sync_status: null });
   const db = fakeDb({ ...contextHandlers, gocardless_payments: store.handler });
   const deps = { db, getProvider: async () => fakeProvider(providerCalls) };
   const paymentRow = { id: 'p5', amount_minor: 1000, gocardless_payment_id: 'PM5' };
@@ -852,7 +856,7 @@ test('postDdInstalmentToAccounting: concurrent callers — only the CAS winner t
 
 test('postDdInstalmentToAccounting: stale posting claim only reclaimable with reclaimStale', async () => {
   const providerCalls = [];
-  const store = gcPaymentStore({ id: 'p6', accounting_sync_status: 'posting' });
+  const store = gcPaymentStore({ id: 'p6', gocardless_payment_id: 'PM6', accounting_sync_status: 'posting' });
   const db = fakeDb({ ...contextHandlers, gocardless_payments: store.handler });
   const paymentRow = { id: 'p6', amount_minor: 1000, gocardless_payment_id: 'PM6', accounting_sync_status: 'posting' };
   const noReclaim = await postDdInstalmentToAccounting({ agreement: gcAgreement, paymentRow }, { db, getProvider: async () => fakeProvider(providerCalls) });
@@ -866,7 +870,7 @@ test('postDdInstalmentToAccounting: stale posting claim only reclaimable with re
 });
 
 test('postDdInstalmentToAccounting: provider failure stamps failed status with error', async () => {
-  const store = gcPaymentStore({ id: 'p3', accounting_sync_status: null });
+  const store = gcPaymentStore({ id: 'p3', gocardless_payment_id: 'PM9', accounting_sync_status: null });
   const db = fakeDb({ ...contextHandlers, gocardless_payments: store.handler });
   const outcome = await postDdInstalmentToAccounting({
     agreement: gcAgreement,
@@ -1036,4 +1040,252 @@ test('postStripeInstalmentInvoice: annual-mode agreement is skipped untouched', 
     amountMinor: 1000,
   }, { db: fakeDb({}), getProvider: async () => { throw new Error('should not be called'); } });
   assert.equal(outcome.status, 'skipped');
+});
+
+for (const providerName of ['xero', 'quickbooks']) {
+  for (const linked of [false, true]) {
+    test(`${providerName}: test Stripe agreement and provider evidence cannot create or pay real accounting (${linked ? 'retry' : 'new'})`, async () => {
+      const store = instalmentStore();
+      if (linked) store.row = { id: 'row1', accounting_sync_status: 'invoice_unpaid',
+        accounting_invoice_id: 'KEEP-AUDIT-INVOICE', external_payment_id: 'in_test' };
+      const calls = [], applyCalls = [];
+      const provider = { ...fakeProvider(calls, { applyCalls }), name: providerName,
+        getRawAccessToken: async () => ({ environment: 'production' }) };
+      const invoice = { ...stripeEvidence('in_test'), livemode: false };
+      const agreement = perInstalmentAgreement({ environment: 'test' });
+      const original = structuredClone(agreement);
+      const result = await postStripeInstalmentInvoice({
+        agreement, stripeInvoiceId: invoice.id, stripeInvoice: invoice, amountMinor: 1000,
+      }, { db: fakeDb({ ...contextHandlers, membership_instalment_invoices: store.handler }),
+        stripe: stripeEvidenceClient(invoice), getProvider: async () => provider, reclaimStale: true });
+      assert.equal(result.status, 'failed');
+      assert.match(result.reason, /mode does not match/);
+      assert.equal(calls.length + applyCalls.length, 0);
+      if (linked) assert.equal(store.row.accounting_invoice_id, 'KEEP-AUDIT-INVOICE');
+      assert.deepEqual(agreement, original, 'consent/provider evidence is not rewritten');
+    });
+  }
+}
+
+for (const variant of ['test invoice', 'test PI', 'missing invoice mode', 'missing PI mode', 'missing agreement mode', 'plan mismatch', 'webhook mismatch']) {
+  test(`Stripe mode authority fails closed: ${variant}`, async () => {
+    const invoice = stripeEvidence('in_modes');
+    const agreement = perInstalmentAgreement();
+    const plan = { environment: 'live' };
+    const webhook = { ...invoice };
+    if (variant === 'test invoice') invoice.livemode = false;
+    if (variant === 'missing invoice mode') delete invoice.livemode;
+    if (variant === 'missing agreement mode') delete agreement.environment;
+    if (variant === 'plan mismatch') plan.environment = 'test';
+    if (variant === 'webhook mismatch') webhook.livemode = false;
+    const stripe = stripeEvidenceClient(invoice);
+    if (variant === 'test PI' || variant === 'missing PI mode') {
+      const retrieve = stripe.paymentIntents.retrieve;
+      stripe.paymentIntents.retrieve = async id => {
+        const pi = await retrieve(id);
+        if (variant === 'test PI') pi.livemode = false;
+        else delete pi.livemode;
+        return pi;
+      };
+    }
+    const calls = [];
+    const store = instalmentStore();
+    const result = await postStripeInstalmentInvoice({
+      agreement, plan, stripeInvoiceId: invoice.id, stripeInvoice: webhook, amountMinor: 1000,
+    }, { db: fakeDb({ ...contextHandlers, membership_instalment_invoices: store.handler }),
+      stripe, getProvider: async () => fakeProvider(calls) });
+    assert.equal(result.status, 'failed');
+    assert.match(result.reason, /mode|environment/);
+    assert.equal(calls.length, 0);
+  });
+}
+
+test('test Stripe instalments can use genuine isolated QuickBooks sandbox, not live accounting', async () => {
+  const calls = [], store = instalmentStore();
+  const invoice = { ...stripeEvidence('in_sandbox'), livemode: false };
+  const result = await postStripeInstalmentInvoice({
+    agreement: perInstalmentAgreement({ environment: 'test' }),
+    stripeInvoiceId: invoice.id, stripeInvoice: invoice, amountMinor: 1000,
+  }, { db: fakeDb({ ...contextHandlers, membership_instalment_invoices: store.handler }),
+    stripe: stripeEvidenceClient(invoice), getProvider: async () => ({
+      ...fakeProvider(calls), name: 'quickbooks',
+      getRawAccessToken: async () => ({ environment: 'sandbox' }),
+    }) });
+  assert.equal(result.status, 'posted');
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].expectedProviderContext, { environment: 'sandbox', quickbooks_realm_id: undefined });
+});
+
+for (const accountingEnvironment of ['sandbox', undefined, 'unrecognised']) {
+  test(`live Stripe source fails closed on incompatible/unknown QuickBooks mode ${accountingEnvironment}`, async () => {
+    const calls = [], store = instalmentStore();
+    const result = await postStripeInstalmentInvoice({
+      agreement: perInstalmentAgreement(), stripeInvoiceId: 'in_destination_mode', amountMinor: 1000,
+    }, { db: fakeDb({ ...contextHandlers, membership_instalment_invoices: store.handler }),
+      stripe: stripeEvidenceClient(stripeEvidence('in_destination_mode')),
+      getProvider: async () => ({ ...fakeProvider(calls), name: 'quickbooks',
+        getRawAccessToken: async () => ({ environment: accountingEnvironment }) }) });
+    assert.equal(result.status, 'failed');
+    assert.match(result.reason, /mode does not match/);
+    assert.equal(calls.length, 0);
+  });
+}
+
+test('skipped test ledger cannot be reclaimed by reconciliation, even with live-looking caller evidence', async () => {
+  const store = instalmentStore();
+  store.row = { id: 'row1', accounting_sync_status: 'skipped', accounting_invoice_id: 'REVERSED-AUDIT-ID' };
+  const before = structuredClone(store.row);
+  const calls = [];
+  const result = await postStripeInstalmentInvoice({
+    agreement: perInstalmentAgreement(), stripeInvoiceId: 'in_skipped', amountMinor: 1000,
+  }, { db: fakeDb({ membership_instalment_invoices: store.handler }),
+    stripe: stripeEvidenceClient(stripeEvidence('in_skipped')),
+    getProvider: async () => fakeProvider(calls), reclaimStale: true });
+  assert.equal(result.status, 'skipped');
+  assert.equal(calls.length, 0);
+  assert.deepEqual(store.row, before);
+});
+
+for (const identity of [null,
+  { first_name: 'Deleted', last_name: 'Member', email: 'deleted_id@deleted.local' },
+  { first_name: 'Deleted', last_name: 'Member', email: 'otherwise-real@example.com' },
+  { first_name: 'Ada', last_name: 'Lovelace', email: 'DELETED_id@DELETED.LOCAL' },
+  { first_name: '', last_name: '', email: 'ada@example.com' },
+  { first_name: 'Ada', last_name: 'Lovelace', email: null },
+]) {
+  for (const linked of [false, true]) {
+    test(`missing/deleted member blocks both invoice and payment-only retry: ${JSON.stringify(identity)}, linked=${linked}`, async () => {
+      const store = instalmentStore();
+      if (linked) store.row = { id: 'row1', accounting_sync_status: 'invoice_unpaid',
+        accounting_invoice_id: 'KEEP', accounting_invoice_number: 'KEEP-NUMBER' };
+      const calls = [], applyCalls = [], log = [];
+      const db = fakeDb({ ...contextHandlers, member: () => ({ data: identity, error: null }),
+        membership_instalment_invoices: store.handler }, log);
+      const result = await postStripeInstalmentInvoice({
+        agreement: perInstalmentAgreement(), stripeInvoiceId: 'in_identity', amountMinor: 1000,
+      }, { db, stripe: stripeEvidenceClient(stripeEvidence('in_identity')),
+        getProvider: async () => fakeProvider(calls, { applyCalls }), reclaimStale: true });
+      assert.equal(result.status, 'failed');
+      assert.match(result.reason, /identity/);
+      assert.equal(calls.length + applyCalls.length, 0);
+      assert.deepEqual(log.find(row => row.table === 'member').filters, { id: 'm1', tenant_id: 't1' });
+      if (linked) {
+        assert.equal(store.row.accounting_invoice_id, 'KEEP');
+        assert.equal(store.row.accounting_invoice_number, 'KEEP-NUMBER');
+      }
+    });
+  }
+}
+
+test('missing tenant identity lookup fails before member query; organization lookup is tenant-scoped too', async () => {
+  const log = [], db = fakeDb({ organization: () => ({ data: null, error: null }) }, log);
+  await assert.rejects(resolveInstalmentInvoiceContext({
+    agreement: { member_id: 'm1' }, snapshot: {}, db,
+  }), /tenant is required/);
+  assert.equal(log.length, 0);
+  await assert.rejects(resolveInstalmentInvoiceContext({
+    agreement: { organization_id: 'org', tenant_id: 't1' }, snapshot: {}, db,
+  }), /identity not found/);
+  assert.deepEqual(log[0].filters, { id: 'org', tenant_id: 't1' });
+});
+
+for (const providerName of ['xero', 'quickbooks']) {
+  for (const variant of ['sandbox source', 'canonical sandbox', 'missing mode', 'missing canonical', 'deleted member', 'missing member', 'wrong tenant', 'wrong mandate']) {
+    test(`${providerName}: GC reconcile linked retry rejects ${variant} before accounting writes`, async () => {
+      const store = gcPaymentStore({ id: 'gc-safety', gocardless_payment_id: 'PMsafety',
+        accounting_sync_status: 'invoice_unpaid', accounting_invoice_id: 'KEEP-GC' });
+      const agreement = structuredClone(gcAgreement);
+      if (variant === 'sandbox source') { agreement.environment = 'sandbox'; store.row.environment = 'sandbox'; }
+      if (variant === 'canonical sandbox') store.row.environment = 'sandbox';
+      if (variant === 'missing mode') delete agreement.environment;
+      if (variant === 'wrong tenant') store.row.tenant_id = 'other-tenant';
+      if (variant === 'wrong mandate') store.row.gocardless_mandate_id = 'MDother';
+      const expectedPayment = { id: 'gc-safety', amount_minor: 1000, gocardless_payment_id: 'PMsafety' };
+      const calls = [], applyCalls = [];
+      const db = fakeDb({ ...contextHandlers,
+        ...(variant === 'deleted member' ? { member: () => ({ data: { first_name: 'Deleted', last_name: 'Member', email: 'deleted_x@deleted.local' } }) } : {}),
+        ...(variant === 'missing member' ? { member: () => ({ data: null }) } : {}),
+        gocardless_payments: variant === 'missing canonical'
+          ? state => state.op === 'select' ? { data: null } : store.handler(state) : store.handler,
+      });
+      const result = await postDdInstalmentToAccounting({ agreement, paymentRow: expectedPayment }, {
+        db, reclaimStale: true, getProvider: async () => ({
+          ...fakeProvider(calls, { applyCalls }), name: providerName,
+          getRawAccessToken: async () => ({ environment: 'production' }),
+        }),
+      });
+      assert.equal(result.status, 'failed');
+      assert.equal(calls.length + applyCalls.length, 0);
+      assert.equal(store.row.accounting_invoice_id, 'KEEP-GC');
+    });
+  }
+}
+
+test('GC explicitly skipped ledger is not revived by direct reconciliation', async () => {
+  const paymentRow = { id: 'skip-gc', accounting_sync_status: 'skipped', accounting_invoice_id: 'KEEP' };
+  const original = structuredClone(paymentRow);
+  const result = await postDdInstalmentToAccounting({
+    agreement: { ...gcAgreement, environment: 'sandbox' }, paymentRow,
+  }, { db: fakeDb({}), reclaimStale: true,
+    getProvider: () => assert.fail('explicitly skipped source cannot invoke provider') });
+  assert.equal(result.status, 'skipped');
+  assert.deepEqual(paymentRow, original);
+});
+
+test('GC sandbox app testing can post confirmed canonical payments to genuine QuickBooks sandbox', async () => {
+  const store = gcPaymentStore({ id: 'gc-sandbox', gocardless_payment_id: 'PMsandbox', environment: 'sandbox' });
+  const calls = [];
+  const result = await postDdInstalmentToAccounting({
+    agreement: { ...gcAgreement, environment: 'sandbox' }, paymentRow: { ...store.row },
+  }, { db: fakeDb({ ...contextHandlers, gocardless_payments: store.handler }),
+    getProvider: async () => ({ ...fakeProvider(calls), name: 'quickbooks',
+      getRawAccessToken: async () => ({ environment: 'sandbox', realmId: 'sandbox-company' }) }) });
+  assert.equal(result.status, 'posted');
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].expectedProviderContext, { environment: 'sandbox', quickbooks_realm_id: 'sandbox-company' });
+});
+
+for (const variant of ['live', 'test source', 'test canonical', 'missing canonical', 'deleted member', 'skipped ledger', 'excess amount']) {
+  test(`GC arrears per-period accounting validates original provider evidence: ${variant}`, async () => {
+    const store = gcPaymentStore({ id: 'gc-arrears', gocardless_payment_id: 'PMarrears' });
+    const agreement = structuredClone(gcAgreement);
+    if (variant === 'test source') agreement.environment = 'sandbox';
+    if (variant === 'test canonical') store.row.environment = 'sandbox';
+    if (variant === 'skipped ledger') store.row.accounting_sync_status = 'skipped';
+    const calls = [];
+    const db = fakeDb({ ...contextHandlers,
+      ...(variant === 'deleted member' ? { member: () => ({ data: {
+        first_name: 'Deleted', last_name: 'Member', email: 'deleted_x@deleted.local',
+      } }) } : {}),
+      gocardless_payments: variant === 'missing canonical' ? () => ({ data: null }) : store.handler,
+    });
+    const post = () => postDdArrearsPeriodToAccounting({
+      agreement, amountMinor: variant === 'excess amount' ? 1001 : 500,
+      externalReference: 'PMarrears:arrears:period1',
+    }, { db, getProvider: async () => fakeProvider(calls) });
+    if (variant === 'live') {
+      assert.equal((await post()).status, 'posted');
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0].finalCost, 5);
+      assert.equal(calls[0].idempotencyKey, 'mii-gc-arrears-PMarrears:arrears:period1');
+    } else {
+      await assert.rejects(post, /mode|identity|evidence|skipped|exceeds/);
+      assert.equal(calls.length, 0);
+    }
+  });
+}
+
+test('live linked Stripe retries do not depend on mutable/new invoice address configuration', async () => {
+  const store = instalmentStore(), calls = [], applyCalls = [];
+  store.row = { id: 'retry-address', accounting_sync_status: 'invoice_unpaid', accounting_invoice_id: 'KEEP' };
+  const agreement = perInstalmentAgreement();
+  delete agreement.metadata.stripe_billing_address;
+  const result = await postStripeInstalmentInvoice({
+    agreement, stripeInvoiceId: 'in_retry_address', amountMinor: 1000,
+  }, { db: fakeDb({ ...contextHandlers, membership_instalment_invoices: store.handler }),
+    stripe: stripeEvidenceClient(stripeEvidence('in_retry_address')),
+    getProvider: async () => fakeProvider(calls, { applyCalls }) });
+  assert.equal(result.status, 'posted');
+  assert.equal(calls.length, 0);
+  assert.equal(applyCalls.length, 1);
 });

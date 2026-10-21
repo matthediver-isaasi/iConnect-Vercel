@@ -30,6 +30,9 @@ import {
 } from './accountingProvider.js';
 import { membershipHistoryTableForAgreement } from './gocardlessDirectDebit.js';
 import {
+  assertDdInstalmentPaymentEvidence, assertInstalmentProviderMode, resolveInstalmentCustomerIdentity,
+} from './instalmentAccountingSafety.js';
+import {
   findGoCardlessAccountingRequest, goCardlessAccountingQueueEnabled,
   queueGoCardlessAccountingPayment, resumeGoCardlessAccountingRequest,
 } from './accountingQueueGoCardless.js';
@@ -55,6 +58,19 @@ export async function postDdArrearsPeriodToAccounting({
   const db = deps.db || supabase;
   const provider = await (deps.getProvider || getAccountingProvider)(agreement.tenant_id);
   if (!provider || provider.name === PROVIDER_NONE) return { status: 'skipped', reason: 'no accounting provider connected' };
+  await assertInstalmentProviderMode(agreement, provider);
+  const sourcePaymentId = /^(PM[A-Za-z0-9]+):arrears:[^:]+$/.exec(String(externalReference || ''))?.[1];
+  if (!sourcePaymentId) throw new Error('DD arrears requires an original GoCardless payment reference');
+  const { data: payment, error: paymentError } = await db.from('gocardless_payments').select('*')
+    .eq('tenant_id', agreement.tenant_id).eq('gocardless_payment_id', sourcePaymentId).maybeSingle();
+  if (paymentError) throw new Error(`DD arrears payment evidence lookup failed: ${paymentError.message}`);
+  if (payment?.accounting_sync_status === 'skipped') {
+    throw new Error('DD arrears accounting source is explicitly skipped');
+  }
+  assertDdInstalmentPaymentEvidence({ agreement, payment });
+  if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0 || amountMinor > payment.amount_minor) {
+    throw new Error('DD arrears allocation exceeds confirmed payment evidence');
+  }
   const snapshot = agreement.metadata?.dd;
   if (snapshot?.accounting_migration || (agreement.tenant_id === BNMS_BETA_TENANT && Object.hasOwn(BNMS_BETA_REVENUE, agreement.member_id))
     || await findAlphaAdoption(agreement, db)) {
@@ -100,6 +116,9 @@ export async function postDdInstalmentToAccounting({ agreement, paymentRow }, de
   }
   if (paymentRow.accounting_sync_status === 'posted') {
     return { status: 'skipped', reason: 'already posted' };
+  }
+  if (paymentRow.accounting_sync_status === 'skipped') {
+    return { status: 'skipped', reason: 'accounting posting is explicitly skipped' };
   }
 
   try {
@@ -152,6 +171,16 @@ export async function postDdInstalmentToAccounting({ agreement, paymentRow }, de
       await setSyncStatus(db, paymentRow.id, { accounting_sync_status: 'skipped', accounting_sync_error: 'no accounting provider connected' });
       return { status: 'skipped', reason: 'no accounting provider connected' };
     }
+    const { data: canonical, error: evidenceError } = await db.from('gocardless_payments').select('*')
+      .eq('id', paymentRow.id).eq('tenant_id', agreement.tenant_id).maybeSingle();
+    if (evidenceError) throw new Error(`DD instalment payment evidence lookup failed: ${evidenceError.message}`);
+    if (['posted', 'skipped'].includes(canonical?.accounting_sync_status)) {
+      return { status: 'skipped', reason: `accounting posting is already ${canonical.accounting_sync_status}` };
+    }
+    assertDdInstalmentPaymentEvidence({ agreement, payment: canonical, expectedPayment: paymentRow });
+    paymentRow = canonical;
+    const expectedProviderContext = await assertInstalmentProviderMode(agreement, provider);
+    await resolveInstalmentCustomerIdentity({ agreement, db });
 
     const instAmountMinor = paymentRow.amount_minor;
     const queued = await (deps.queueAccounting || queueGoCardlessAccountingPayment)({
@@ -182,6 +211,7 @@ export async function postDdInstalmentToAccounting({ agreement, paymentRow }, de
         .from('gocardless_payments')
         .update({ accounting_sync_status: 'posting', updated_at: new Date().toISOString() })
         .eq('id', paymentRow.id)
+        .eq('tenant_id', agreement.tenant_id)
         .or(`accounting_sync_status.is.null,accounting_sync_status.in.(${claimableStatuses({ reclaimStale: deps.reclaimStale === true }).join(',')})`)
         .select('id, accounting_invoice_id, accounting_invoice_number');
       if (claimErr) throw new Error(`claim payment row failed: ${claimErr.message}`);
@@ -278,6 +308,7 @@ export async function postDdInstalmentToAccounting({ agreement, paymentRow }, de
 
     const reference = `GoCardless DD: ${paymentRow.gocardless_payment_id}`;
     const result = await provider.applyStripePaymentToInvoice({
+      expectedProviderContext,
       appTenantId: agreement.tenant_id,
       invoiceId,
       xeroInvoiceId: invoiceId,

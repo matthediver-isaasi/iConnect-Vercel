@@ -20,11 +20,13 @@ function fixture(provider = 'xero', mode = 'per_instalment', persist = value => 
   const row = { id: 'queue', tenant_id: tenant, provider, source_type: 'gocardless_payment', source_id: payment.id,
     connection_id: 'connection', company_id: 'company', state: 'pending', operation: 'invoice',
     invoice_status: 'pending', payment_status: 'pending', link_status: 'pending',
-    snapshot: { version: 1, preparation: true, linkage: { paymentId: payment.id, agreementId: agreement.id },
+    snapshot: { version: 1, preparation: true, environment: provider === 'quickbooks' ? 'production' : null,
+      linkage: { paymentId: payment.id, agreementId: agreement.id },
       invoice: { args: {} }, payment: { collection: { amountMinor: 1200, currency: 'GBP' } },
       evidence: { agreement: structuredClone(agreement), payment: structuredClone(payment), snapshot: agreement.metadata.dd,
         context: { contactName: 'Original member', currency: 'GBP', nominalCode: '200', vatRate: 'NONE' } } } };
   const tables = { membership_billing_agreements: [agreement], gocardless_payments: [payment],
+    member: [{ id: 'member', tenant_id: tenant, first_name: 'Original', last_name: 'member', email: 'member@example.com' }],
     membership_payment_plans: [{ id: 'plan', tenant_id: tenant, billing_agreement_id: agreement.id }],
     membership_monthly_collection_intent: [], accounting_request_queue: [] };
   const writes = [];
@@ -47,7 +49,9 @@ function fixture(provider = 'xero', mode = 'per_instalment', persist = value => 
     }
     return query;
   } };
-  return { db, row, tables, writes, agreement, payment, provider: { name: provider } };
+  return { db, row, tables, writes, agreement, payment, provider: {
+    name: provider, getRawAccessToken: async () => ({ environment: 'production' }),
+  } };
 }
 
 test('source linkage accepts PostgreSQL timestamp formatting but rejects missing or changed timestamps', async () => {
@@ -83,6 +87,65 @@ test('JSONB object-key reordering preserves frozen GC authority', async () => {
     dates: ['2026-10-05', '2026-11-05'], details: { currency: 'GBP', amount: 1200 }, mode: 'monthly',
   };
   await assertGoCardlessAccountingSource({ db: f.db, row: f.row });
+  assert.equal(f.writes.length, 0);
+});
+
+for (const provider of ['xero', 'quickbooks']) {
+  for (const variant of ['test source', 'missing source mode', 'deleted member', 'missing member', 'other tenant member']) {
+    test(`${provider}: accepted GC queue reconciliation blocks ${variant} before provider preparation`, async () => {
+      const f = fixture(provider);
+      if (variant === 'test source') {
+        f.agreement.environment = 'sandbox';
+        f.payment.environment = 'sandbox';
+        f.row.snapshot.evidence.agreement.environment = 'sandbox';
+        f.row.snapshot.evidence.payment.environment = 'sandbox';
+      }
+      if (variant === 'missing source mode') {
+        delete f.agreement.environment;
+        delete f.payment.environment;
+        delete f.row.snapshot.evidence.agreement.environment;
+        delete f.row.snapshot.evidence.payment.environment;
+      }
+      if (variant === 'deleted member') Object.assign(f.tables.member[0],
+        { first_name: 'Deleted', last_name: 'Member', email: 'deleted_x@deleted.local' });
+      if (variant === 'missing member') f.tables.member.length = 0;
+      if (variant === 'other tenant member') f.tables.member[0].tenant_id = 'other';
+      const snapshot = structuredClone(f.row.snapshot);
+      await assert.rejects(prepareGoCardlessSourceRequest({ db: f.db, row: f.row }, {
+        prepare: () => assert.fail('provider must not be called'),
+      }), /mode|environment|identity/);
+      assert.equal(f.writes.length, 0);
+      assert.deepEqual(f.row.snapshot, snapshot, 'frozen audit evidence retained');
+    });
+  }
+}
+
+test('GC sandbox agreement/payment may reconcile only against isolated QuickBooks sandbox', async () => {
+  const f = fixture('quickbooks');
+  f.agreement.environment = f.payment.environment = 'sandbox';
+  f.row.snapshot.evidence.agreement.environment = 'sandbox';
+  f.row.snapshot.evidence.payment.environment = 'sandbox';
+  f.row.snapshot.environment = 'sandbox';
+  await assertGoCardlessAccountingSource({ db: f.db, row: f.row });
+  assert.equal(f.writes.length, 0);
+});
+
+test('accepted GC queue cannot resume an explicitly skipped accounting ledger', async () => {
+  const f = fixture();
+  f.payment.accounting_sync_status = 'skipped';
+  await assert.rejects(prepareGoCardlessSourceRequest({ db: f.db, row: f.row }, {
+    prepare: () => assert.fail('skipped ledger cannot call accounting provider'),
+  }), /SOURCE_EXPLICITLY_SKIPPED/);
+  assert.equal(f.writes.length, 0);
+});
+
+test('GC frozen placeholder contact evidence cannot be relabelled from a genuine current member', async () => {
+  const f = fixture('quickbooks');
+  Object.assign(f.row.snapshot.evidence.context,
+    { contactName: 'Deleted Member', invoicingEmail: 'deleted_x@deleted.local' });
+  await assert.rejects(prepareGoCardlessSourceRequest({ db: f.db, row: f.row }, {
+    prepare: () => assert.fail('frozen placeholder cannot call accounting provider'),
+  }), /identity/);
   assert.equal(f.writes.length, 0);
 });
 
@@ -135,7 +198,7 @@ for (const provider of ['xero', 'quickbooks']) {
     const result = await queueGoCardlessAccountingPayment({
       db: f.db, agreement: f.agreement, paymentRow: f.payment, provider: f.provider,
     }, {
-      enabled: true, resolveBinding: async () => ({ connectionId: 'connection', companyId: 'company' }),
+      enabled: true, resolveBinding: async () => ({ connectionId: 'connection', companyId: 'company', environment: 'production' }),
       resolveContext: async () => { throw new Error('contact/tax config failed'); },
       enqueue: async args => {
         accepted = args;
@@ -160,7 +223,7 @@ for (const provider of ['xero', 'quickbooks']) {
     await queueGoCardlessAccountingPayment({
       db: f.db, agreement: f.agreement, paymentRow: f.payment, provider: f.provider,
     }, {
-      enabled: true, resolveBinding: async () => ({ connectionId: 'connection', companyId: 'company' }),
+      enabled: true, resolveBinding: async () => ({ connectionId: 'connection', companyId: 'company', environment: 'production' }),
       resolveContext: () => assert.fail('annual must not rebuild invoice'),
       enqueue: async args => { accepted = args; return { ...f.row, operation: args.operation, snapshot: args.snapshot }; },
     });
@@ -300,11 +363,11 @@ test('webhook/accounting retry entrance resumes queue without resolving provider
 function combinedFixture(provider, annual, failure) {
   const f = fixture(provider, annual ? 'annual' : 'per_instalment');
   const xero = provider === 'xero';
-  f.tables.member = [{ id: 'member', first_name: 'Original', last_name: 'Member', email: null }];
+  f.tables.member = [{ id: 'member', tenant_id: tenant, first_name: 'Original', last_name: 'Member', email: 'member@example.com' }];
   f.tables.tenant_accounting_settings = [{ tenant_id: tenant, active_provider: provider }];
   f.tables[xero ? 'xero_token' : 'quickbooks_token'] = [{
     id: 'connection', app_tenant_id: tenant, tenant_id: 'company', realm_id: 'company',
-    environment: 'sandbox', access_token: 'isolated-fixture-token', expires_at: '2099-01-01T00:00:00Z',
+    environment: 'production', access_token: 'isolated-fixture-token', expires_at: '2099-01-01T00:00:00Z',
   }];
   f.tables.system_settings = [
     { tenant_id: tenant, setting_key: xero ? 'xero_gocardless_bank_account_code' : 'quickbooks_gocardless_bank_account_id',
@@ -386,11 +449,13 @@ function combinedFixture(provider, annual, failure) {
     }
     if (/\/Accounts$/.test(path)) return json({ Accounts: [{ AccountID: 'bank', Code: '090', Type: 'BANK', Status: 'ACTIVE' }] });
     if (/\/account\/bank$/.test(path)) return json({ Account: { Id: 'bank', Active: true, AccountType: 'Bank' } });
-    if (/\/Contacts$/.test(path)) return json({ Contacts: [{ ContactID: 'contact', Name: 'Original Member' }] });
+    if (/\/customer$/.test(path) && method === 'POST') return json({ Customer: { Id: 'contact' } });
+    if (/\/Contacts$/.test(path)) return json({ Contacts: [{ ContactID: 'contact', Name: 'Original Member', EmailAddress: 'member@example.com' }] });
     if (/\/item\/membership-item$/.test(path)) return json({ Item: { Id: 'membership-item', SalesTaxCodeRef: { value: 'NONE' } } });
     if (/\/query$/.test(path)) {
       const query = parsed.searchParams.get('query');
-      if (query.includes('FROM Customer')) return json({ QueryResponse: { Customer: [{ Id: 'contact', DisplayName: 'Original Member' }] } });
+      if (query.includes('FROM Customer')) return json({ QueryResponse: { Customer: [{ Id: 'contact', DisplayName: 'Original Member',
+        PrimaryEmailAddr: { Address: 'member@example.com' } }] } });
       if (query.includes('FROM Invoice')) return json({ QueryResponse: { Invoice: remote.invoice ? [remote.invoice] : [] } });
       if (query.includes('FROM Payment')) return json({ QueryResponse: { Payment: remote.payment ? [remote.payment] : [] } });
       assert.fail(`Unexpected QBO query ${query}`);

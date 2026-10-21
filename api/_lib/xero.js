@@ -7,6 +7,7 @@ import { BNMS_BETA_BANK, assertBnmsBetaAccountingContext } from './bnmsBetaAccou
 import { BNMS_ALPHA_BANK, assertBnmsAlphaAccountingContext } from './bnmsAlphaAccounting.js';
 import { MANUAL_BANK_SOURCE, assertManualAccountingContext } from './bnmsManualCohort.js';
 import { buildXeroCreditAmounts, assertXeroCreditTotal } from './xeroCreditNoteAmounts.js';
+import { assertAccountingCustomerIdentity } from './instalmentAccountingSafety.js';
 
 const usesExactImportedContact = context =>
   [BNMS_ALPHA_BANK.source, MANUAL_BANK_SOURCE].includes(context?.snapshot?.source);
@@ -236,6 +237,7 @@ export async function findOrCreateXeroContact(accessToken, xeroTenantId, contact
   const info = typeof contactInfo === 'string'
     ? { name: contactInfo, email: null, isOrganization: true, address: null }
     : contactInfo;
+  assertAccountingCustomerIdentity({ name: info?.name, email: info?.email });
 
   console.log(`[Xero] Finding/creating contact: ${info.name}`);
 
@@ -258,14 +260,22 @@ export async function findOrCreateXeroContact(accessToken, xeroTenantId, contact
 
   const contactData = await safeXeroJson(contactSearchResponse, 'contact-search');
   if (contactData.Contacts && contactData.Contacts.length > 0) {
-    const existingContact = contactData.Contacts[0];
+    // A display name is not identity. Never attach an invoice to a namesake
+    // (or overwrite their email) merely because Xero returned it first.
+    const email = String(info.email || '').trim().toLowerCase();
+    const matches = contactData.Contacts.filter(contact =>
+      email && String(contact.EmailAddress || '').trim().toLowerCase() === email
+      && contact.ContactStatus !== 'ARCHIVED');
+    if (matches.length !== 1) {
+      throw new Error('Xero contact name collision without a unique matching email; identity review required');
+    }
+    const existingContact = matches[0];
     console.log(`[Xero] Found existing contact: ${existingContact.ContactID}`);
 
-    if (parsedAddress || info.email) {
+    if (parsedAddress) {
       try {
         const updateContact = { ContactID: existingContact.ContactID };
         if (parsedAddress) updateContact.Addresses = [parsedAddress];
-        if (info.email) updateContact.EmailAddress = info.email;
         const updatePayload = { Contacts: [updateContact] };
         const updateResponse = await transportFetch('https://api.xero.com/api.xro/2.0/Contacts', {
           method: 'POST',

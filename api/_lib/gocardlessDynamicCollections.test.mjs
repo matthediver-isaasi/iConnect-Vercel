@@ -26,7 +26,8 @@ function fixture({ amount = 12.5, firstDate = '2027-04-02', providerDate = '2027
   const rows = { membership_tier_config: [config], membership_billing_agreements: [agreement],
     membership_payment_plans: [plan], membership_monthly_arrears_period: [],
     gocardless_collection_reservations: [], membership_tier_vat_override: [],
-    member: [{ id: 'member', tenant_id: 'tenant', country: 'GB' }], member_preference_value: [] };
+    member: [{ id: 'member', tenant_id: 'tenant', country: 'GB',
+      first_name: 'Ada', last_name: 'Lovelace', email: 'ada@example.com' }], member_preference_value: [] };
   const updates = [];
   const calls = [];
   const controls = {};

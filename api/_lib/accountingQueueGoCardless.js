@@ -3,6 +3,9 @@
 import { enqueueAccountingRequest, processAccountingRequest } from './accountingRequestQueue.js';
 import { isDeepStrictEqual } from 'node:util';
 import { assertBnmsOctoberPreparation } from './accountingBnmsOctoberRecovery.js';
+import {
+  assertInstalmentAccountingMode, assertAccountingCustomerIdentity, resolveInstalmentCustomerIdentity,
+} from './instalmentAccountingSafety.js';
 
 export const GO_CARDLESS_ACCOUNTING_SOURCE = 'gocardless_payment';
 export const goCardlessAccountingQueueEnabled = () =>
@@ -58,6 +61,7 @@ export async function assertGoCardlessAccountingSource({ db, row }) {
   const payment = await one(scope(db, 'gocardless_payments', row.source_id, row.tenant_id), 'GC_QUEUE_PAYMENT_UNAVAILABLE');
   const agreement = await one(scope(db, 'membership_billing_agreements', link.agreementId, row.tenant_id),
     'GC_QUEUE_AGREEMENT_UNAVAILABLE');
+  if (payment.accounting_sync_status === 'skipped') fail('GC_QUEUE_SOURCE_EXPLICITLY_SKIPPED');
   for (const key of ['gocardless_payment_id', 'plan_id', 'gocardless_mandate_id', 'amount_minor', 'currency', 'environment', 'charge_date']) {
     if (!same(payment[key], evidence.payment[key])) fail('GC_QUEUE_PAYMENT_AUTHORITY_CHANGED');
   }
@@ -68,6 +72,17 @@ export async function assertGoCardlessAccountingSource({ db, row }) {
   }
   if (agreement.provider !== 'gocardless' || payment.gocardless_mandate_id !== agreement.gocardless_mandate_id
     || payment.environment !== agreement.environment) fail('GC_QUEUE_PAYMENT_AGREEMENT_MISMATCH');
+  // This source validator runs again during reconciliation and before every
+  // provider request, including already-accepted payment-only retries.
+  assertInstalmentAccountingMode({
+    agreement, providerName: row.provider, accountingEnvironment: row.snapshot.environment,
+  });
+  await resolveInstalmentCustomerIdentity({ agreement, db });
+  if (evidence.context) {
+    assertAccountingCustomerIdentity({
+      name: evidence.context.contactName, email: evidence.context.invoicingEmail,
+    });
+  }
   const originalDd = evidence.agreement.metadata?.dd;
   if (originalDd?.currency && String(originalDd.currency).toUpperCase() !== payment.currency) {
     fail('GC_QUEUE_COLLECTION_CURRENCY_MISMATCH');

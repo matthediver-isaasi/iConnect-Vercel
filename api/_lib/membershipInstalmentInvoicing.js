@@ -40,6 +40,9 @@ import { supabase } from './database.js';
 import { getAccountingProvider, PROVIDER_NONE, PROVIDER_XERO } from './accountingProvider.js';
 import { resolveInvoiceAddress } from './invoiceAddressResolver.js';
 import { stripeInvoiceAddressFromMetadata } from './stripeInvoiceAddress.js';
+import {
+  instalmentSourceMode, assertInstalmentProviderMode, resolveInstalmentCustomerIdentity,
+} from './instalmentAccountingSafety.js';
 
 export const INVOICING_MODES = ['annual', 'per_instalment'];
 
@@ -152,36 +155,8 @@ export async function resolveInstalmentInvoiceContext({ agreement, snapshot, db:
   const db = dbArg || supabase;
   if (!agreement || !snapshot) throw new Error('agreement and snapshot are required');
 
-  // Contact: member (name/email) or organisation (name/invoicing_email).
-  let contactName = null;
-  let invoicingEmail = null;
-  let entityId = null;
-  let entityType = null;
-  if (agreement.member_id) {
-    const { data: m, error } = await db
-      .from('member')
-      .select('first_name, last_name, email')
-      .eq('id', agreement.member_id)
-      .maybeSingle();
-    if (error) throw new Error(`load member failed: ${error.message}`);
-    contactName = [m?.first_name, m?.last_name].filter(Boolean).join(' ') || 'Member';
-    invoicingEmail = m?.email || null;
-    entityId = agreement.member_id;
-    entityType = 'member';
-  } else if (agreement.organization_id) {
-    const { data: org, error } = await db
-      .from('organization')
-      .select('name, invoicing_email')
-      .eq('id', agreement.organization_id)
-      .maybeSingle();
-    if (error) throw new Error(`load organization failed: ${error.message}`);
-    contactName = org?.name || 'Organisation';
-    invoicingEmail = org?.invoicing_email || null;
-    entityId = agreement.organization_id;
-    entityType = 'organization';
-  } else {
-    throw new Error('agreement has neither member nor organisation');
-  }
+  const { contactName, invoicingEmail, entityId, entityType } =
+    await resolveInstalmentCustomerIdentity({ agreement, db });
 
   // Tier config referenced by the snapshot (VAT / nominal / description /
   // invoice-address field). Best-effort: a deleted config falls back to
@@ -331,6 +306,12 @@ export function assertStripeInvoicePaymentEvidence({
   if (!invoice || invoice.id !== stripeInvoiceId) {
     throw new Error(`Stripe payment evidence does not match invoice ${stripeInvoiceId}`);
   }
+  if (typeof invoice.livemode !== 'boolean'
+    || (agreement && agreement.provider !== 'stripe')
+    || (agreement && invoice.livemode !== (instalmentSourceMode(agreement.environment) === 'live'))
+    || (plan?.environment && invoice.livemode !== (instalmentSourceMode(plan.environment) === 'live'))) {
+    throw new Error(`Stripe invoice ${stripeInvoiceId} provider mode does not match the membership agreement`);
+  }
   if (agreement?.tenant_id && plan?.tenant_id && agreement.tenant_id !== plan.tenant_id) {
     throw new Error(`Stripe payment evidence plan tenant does not match the membership agreement`);
   }
@@ -414,6 +395,9 @@ export async function resolveStripeInvoicePaymentIntent({
   }
   const evidence = await stripe.invoices.retrieve(stripeInvoiceId);
   addInvoiceEvidence(evidence);
+  if (typeof stripeInvoice?.livemode === 'boolean' && stripeInvoice.livemode !== evidence.livemode) {
+    throw new Error(`Stripe webhook invoice provider mode does not match retrieved invoice ${stripeInvoiceId}`);
+  }
 
   // Stripe's newer Invoice Payment API keeps the PI below
   // invoice_payment.payment.payment_intent. It is tenant-scoped because it is
@@ -437,6 +421,9 @@ export async function resolveStripeInvoicePaymentIntent({
     throw new Error(`Stripe PaymentIntent evidence is missing for paid invoice ${stripeInvoiceId}; accounting posting can be retried after Stripe evidence is available`);
   }
   const paymentIntent = await stripe.paymentIntents.retrieve(ids[0]);
+  if (typeof paymentIntent?.livemode !== 'boolean' || paymentIntent.livemode !== evidence.livemode) {
+    throw new Error(`Stripe PaymentIntent ${ids[0]} provider mode does not match invoice ${stripeInvoiceId}`);
+  }
   if (!paymentIntent || paymentIntent.id !== ids[0] || paymentIntent.status !== 'succeeded') {
     throw new Error(`Stripe PaymentIntent ${ids[0]} is not confirmed succeeded for invoice ${stripeInvoiceId}`);
   }
@@ -458,9 +445,10 @@ export async function resolveStripeInvoicePaymentIntent({
   return ids[0];
 }
 
-export async function createInstalmentInvoice({ provider, tenantId, context, amount, reference, paymentReference = null, stripePaymentIntentId = null, bankAccountSettingKey = null, strictBankAccount = false, ddAccountingMigration = null, idempotencyKey = null }) {
+export async function createInstalmentInvoice({ provider, tenantId, context, amount, reference, paymentReference = null, stripePaymentIntentId = null, bankAccountSettingKey = null, strictBankAccount = false, ddAccountingMigration = null, idempotencyKey = null, expectedProviderContext = null }) {
   return provider.createMembershipInvoice({
     appTenantId: tenantId,
+    expectedProviderContext,
     organizationName: context.contactName,
     invoicingEmail: context.invoicingEmail,
     invoicingAddress: context.invoicingAddress || undefined,
@@ -500,7 +488,11 @@ export function invoicePaymentRecorded(result) {
  * { invoiceId, invoiceNumber, paymentRecorded }.
  */
 export async function mintOrPayInstalmentInvoice({ provider, agreement, snapshot, amountMinor, reference, paymentReference, stripePaymentIntentId = null, existingInvoiceId = null, existingInvoiceNumber = null, idempotencyKey, bankAccountSettingKey, strictBankAccount = false, ddAccountingMigration = null, db }) {
+  const expectedProviderContext = await assertInstalmentProviderMode(agreement, provider);
   if (existingInvoiceId) {
+    // A linked payment needs a genuine current customer, not a newly resolved
+    // address/tax configuration. Preserve legitimate historical retry behavior.
+    await resolveInstalmentCustomerIdentity({ agreement, db: db || supabase });
     const pilotContext = ddAccountingMigration
       ? await resolveInstalmentInvoiceContext({ agreement, snapshot, db }) : null;
     if (ddAccountingMigration?.snapshot.source === 'bnms_alpha_approved_existing_bank'
@@ -510,6 +502,7 @@ export async function mintOrPayInstalmentInvoice({ provider, agreement, snapshot
     }
     const result = await provider.applyStripePaymentToInvoice({
       appTenantId: agreement.tenant_id,
+      expectedProviderContext,
       invoiceId: existingInvoiceId,
       xeroInvoiceId: existingInvoiceId,
       amount: amountMinor / 100,
@@ -553,6 +546,7 @@ export async function mintOrPayInstalmentInvoice({ provider, agreement, snapshot
     strictBankAccount,
     ddAccountingMigration,
     idempotencyKey,
+    expectedProviderContext,
   });
   if (!invoice?.invoice_id) throw new Error('provider returned no invoice payload');
   return {
@@ -671,6 +665,8 @@ export async function postStripeInstalmentInvoice({
       .select('*')
       .eq('provider', 'stripe')
       .eq('external_payment_id', stripeInvoiceId)
+      .eq('tenant_id', agreement.tenant_id)
+      .eq('billing_agreement_id', agreement.id)
       .maybeSingle();
     if (existingErr) return { status: 'failed', reason: `load existing instalment row failed: ${existingErr.message}` };
     if (existing?.accounting_sync_status === 'posted') {
@@ -691,6 +687,8 @@ export async function postStripeInstalmentInvoice({
       .update({ accounting_sync_status: 'posting', updated_at: new Date().toISOString() })
       .eq('provider', 'stripe')
       .eq('external_payment_id', stripeInvoiceId)
+      .eq('tenant_id', agreement.tenant_id)
+      .eq('billing_agreement_id', agreement.id)
       .in('accounting_sync_status', claimableStatuses({ reclaimStale }))
       .select('*');
     if (claimErr) return { status: 'failed', reason: `claim failed: ${claimErr.message}` };
@@ -702,6 +700,8 @@ export async function postStripeInstalmentInvoice({
       .select('*')
       .eq('provider', 'stripe')
       .eq('external_payment_id', stripeInvoiceId)
+      .eq('tenant_id', agreement.tenant_id)
+      .eq('billing_agreement_id', agreement.id)
       .maybeSingle();
     if (selErr || !data) return { status: 'failed', reason: `load instalment row failed: ${selErr?.message || 'not found'}` };
     row = data;

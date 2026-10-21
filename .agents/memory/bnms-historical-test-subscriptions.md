@@ -26,5 +26,7 @@ test-mode invoices and subscriptions for this bounded cohort.
 **How to apply:** Do not ask again whether this cohort represents genuine
 applicants accidentally routed through test checkout. Resolve its records
 through the instalment-ledger and provider links, not the shared contact's
-mutable email. Confirmation of test purpose does not itself authorize
-subscription cancellation or accounting reversals, or classify other cohorts.
+mutable email. The user subsequently approved safeguards and scoped cleanup:
+cancelling these test subscriptions/local plans, reversing their recorded test
+payments and voiding their invoices, with locked/reconciled items held for review.
+That approval does not extend to other cohorts.

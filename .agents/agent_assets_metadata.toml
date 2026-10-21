@@ -1615,3 +1615,17 @@ mtime_ms = 1792433450029
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/39d0d41e-046b-48c7-b3cb-57e55827b045/5582b3c5-4481-45c4-afd6-0189a883c0c2"
 storage_version_token = "1792433595715060"
 content_type = "text/csv"
+
+[[outputs]]
+id = "KjnNxtyOLtknGMpCZwVJb"
+uri = "file://generated-artifacts/bnms-stripe-test-cleanup/2026-10-21T07-42-09.591Z/cleanup-summary.csv"
+type = "table"
+title = "BNMS confirmed test-invoice cleanup"
+description = "Invoice-by-invoice results for the 16 approved reversals, totalling £120.34, including subscription and ledger status."
+logical_id = "8fe388b0-b659-430b-a1b8-0d3902bb1f0e"
+content_hash = "sha256:71deaa79fa7a921023a946d07cbcb5ce6ac1aca15dd9164b1005a26758afc59a"
+size = 1804
+mtime_ms = 1792568871796
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/8fe388b0-b659-430b-a1b8-0d3902bb1f0e/afbdf701-e141-47f8-a25c-c4b2e3ed6c28"
+storage_version_token = "1792568957490726"
+content_type = "text/csv"
