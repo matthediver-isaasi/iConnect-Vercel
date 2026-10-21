@@ -4198,6 +4198,11 @@ function DirectoryCarouselCard({
 }) {
   const websiteUrl = resolveDirectoryCarouselWebsiteUrl(record.website_url);
   const Card = showDetails ? 'button' : 'div';
+  const hasContent = Boolean(
+    record.name ||
+    (showDescription && (record.description || (record.entity_type === 'member' && record.job_title))) ||
+    (showWebsite && websiteUrl && showDetails)
+  );
   return (
     <Card
       type={showDetails ? 'button' : undefined}
@@ -4206,10 +4211,13 @@ function DirectoryCarouselCard({
       data-testid={`button-directory-carousel-${record.id}`}
       aria-label={showDetails ? `View details for ${record.name || 'organisation'}` : (record.name || 'Organisation')}
     >
-      <div className="aspect-[16/9] max-h-[55%] min-h-0 shrink-0 bg-white flex items-center justify-center p-4 border-b border-slate-100">
+      <div
+        data-testid={`directory-carousel-image-${record.id}`}
+        className={`min-h-0 bg-white flex items-center justify-center p-4 ${hasContent ? 'aspect-[16/9] max-h-[55%] shrink-0 border-b border-slate-100' : 'flex-1'}`}
+      >
         <DirectoryCarouselImage record={record} />
       </div>
-      <div className="p-3 min-h-0 overflow-y-auto flex flex-col gap-1 break-words">
+      {hasContent && <div className="p-3 min-h-0 overflow-y-auto flex flex-col gap-1 break-words">
         {record.name ? (
           <div
             className="text-sm font-semibold text-slate-900"
@@ -4236,7 +4244,7 @@ function DirectoryCarouselCard({
             Visit website <ExternalLink className="w-3 h-3" aria-hidden="true" />
           </div>
         ) : null}
-      </div>
+      </div>}
     </Card>
   );
 }

@@ -4,6 +4,42 @@ const slug = 'directory-carousel-task5186-fixture';
 const member = { id: 'viewer5186', first_name: 'Alex', last_name: 'Mercer', tenant_id: 'tenant5186', role_id: 'role5186', is_team_member: true };
 const role = { id: member.role_id, name: 'Canvas administrator', excluded_features: [] };
 
+test('logo-only cards use the whole card and restore the split when details are shown', async ({ page }) => {
+  await fixture(page, {
+    source: 'primary-organization', organisationNameDisplay: 'hide',
+    showDescription: false, showWebsite: false, showDetails: false,
+  }, { records: [{
+    id: 'logo-only', name: 'Logo organisation', description: 'Visible description',
+    logo_url: 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400"><rect width="600" height="400" fill="navy"/></svg>'),
+  }] });
+  await page.goto(`/${slug}`);
+  const card = page.getByTestId('button-directory-carousel-logo-only');
+  const imageArea = page.getByTestId('directory-carousel-image-logo-only');
+  await expect(card).toBeVisible();
+  await expect.poll(async () => {
+    const outer = await card.boundingBox();
+    const image = await imageArea.boundingBox();
+    return image.height / outer.height;
+  }).toBeGreaterThan(0.95);
+  await expect(card.locator('img')).toHaveCSS('object-fit', 'contain');
+  await expect(card.locator(':scope > div')).toHaveCount(1);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect.poll(async () => (await imageArea.boundingBox()).height / (await card.boundingBox()).height).toBeGreaterThan(0.95);
+});
+
+test('cards with visible descriptions retain the split logo area', async ({ page }) => {
+  await fixture(page, {
+    source: 'primary-organization', organisationNameDisplay: 'hide',
+    showDescription: true, showWebsite: false, showDetails: false,
+  }, { records: [{ id: 'with-description', name: 'Organisation', description: 'Visible description' }] });
+  await page.goto(`/${slug}`);
+  const card = page.getByTestId('button-directory-carousel-with-description');
+  await expect(card.getByText('Visible description')).toBeVisible();
+  const image = await page.getByTestId('directory-carousel-image-with-description').boundingBox();
+  expect(image.height / (await card.boundingBox()).height).toBeLessThanOrEqual(0.56);
+  await expect(card.locator(':scope > div')).toHaveCount(2);
+});
+
 async function fixture(page, content, { denied = false, records, directories, guest = false, entityType, allowSave = false, delaySource, delayNameDisplay, inheritNames = true, blockType = 'directory-carousel' } = {}) {
   page.on('pageerror', (error) => console.error('Fixture page error:', error.message));
   const requests = [];
