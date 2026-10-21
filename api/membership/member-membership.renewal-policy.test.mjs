@@ -94,6 +94,23 @@ function handler(db, options = {}) {
   });
 }
 
+for (const start_mode of ['immediate', 'fixed_date']) {
+  test(`member API includes ${start_mode} mode used by year-card visibility`, async () => {
+    const db = database();
+    const res = response();
+    await handler(db, {
+      getConfigForMember: async () => ({
+        id: configId, tenant_id: tenantId, name: 'Individual',
+        structure_scope_type: 'member', start_mode, billing_period: 'annual',
+        membership_start_month: 1, membership_start_day: 1,
+      }),
+    })({ method: 'GET', query: { memberId } }, res);
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.payload.config.start_mode, start_mode);
+    assert.equal(res.payload.config.structure_scope_type, 'member');
+  });
+}
+
 test('authorized member API projects assigned renewal policy without restamping paid history or pricing', async () => {
   const db = database();
   const res = response();

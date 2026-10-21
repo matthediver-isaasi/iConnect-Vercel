@@ -15,6 +15,15 @@ reason to present fixed-year pricing.
 **How to apply:** Keep evidenced history visible without manufacturing renewal
 terms. Preserve genuine fixed-date preview behavior separately.
 
+Verify membership-card visibility against the actual API projection, not only
+component fixtures containing full database configuration objects.
+
+**Why:** A rolling-membership visibility fix passed mounted tests but failed
+live because its required configuration discriminator was omitted by the API.
+
+**How to apply:** Cover the API contract as well as the component, and do not
+treat an absent membership-mode discriminator as proof of fixed-year pricing.
+
 **Why:** Reusable member-facing cards use affirmative setup wording. Applying that wording to an annual invoice, or to a monthly history row whose matching plan is missing, would make an unsupported claim even though the term itself is genuine. Conversely, a confirmed upfront payment legitimately has no recurring plan; calling its payment details unavailable falsely suggests the complete membership record is missing.
 
 **How to apply:** Use distinct “paid in full” wording for confirmed upfront settlement, never recurring-setup wording. Missing or partial settlement evidence and a paid monthly instalment do not establish upfront settlement. Require commitment-matched plan evidence for setup-success wording and next planned collection dates. Show a known renewal anniversary explicitly as renewal, never as an automatic collection date. Do not borrow unrelated plans or infer organisation billing from an employee's personal agreement.

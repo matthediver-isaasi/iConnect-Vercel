@@ -1560,6 +1560,8 @@ async function handleGet(req, res, tenantId, db = supabase, {
       name: config.name,
       currency: config.currency || 'GBP',
       billing_period: config.billing_period || 'annual',
+      start_mode: config.start_mode || null,
+      structure_scope_type: config.structure_scope_type || null,
       effective_from: config.effective_from,
       membership_start_month: config.membership_start_month,
       membership_start_day: config.membership_start_day,

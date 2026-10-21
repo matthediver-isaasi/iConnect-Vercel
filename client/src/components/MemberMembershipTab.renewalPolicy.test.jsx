@@ -119,6 +119,18 @@ for (const previews of [false, true]) {
   });
 }
 
+test("missing API start mode does not imply fixed-year membership", async () => {
+  await mounted({ dataOverrides: {
+    config: { name: "Individual membership", currency: "GBP" },
+    legacyCurrentMembership: null,
+    currentYearCost: null,
+    nextYearPreview: null,
+  } }, container => {
+    assert.equal(container.querySelector('[data-testid="member-fixed-year-previews"]'), null);
+    assert.ok(container.querySelector('[data-testid="row-member-history-paid-history"]'));
+  });
+});
+
 test("fixed-year member structures retain their preview cards", async () => {
   await mounted({ dataOverrides: {
     config: { name: "Fixed membership", start_mode: "fixed_date", structure_scope_type: "member", currency: "GBP" },
