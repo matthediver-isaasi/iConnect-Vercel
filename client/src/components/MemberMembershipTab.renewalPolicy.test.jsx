@@ -19,6 +19,7 @@ const { act } = React;
 const { createRoot } = await import("react-dom/client");
 const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
 const { default: MemberMembershipTab } = await import("./MemberMembershipTab.jsx");
+const { setActiveTenantId } = await import("../api/base44Client.js");
 after(() => dom.window.close());
 
 const policy = {
@@ -35,7 +36,9 @@ const historical = {
   status: "active", currency: "GBP",
 };
 
-async function mounted({ projection = {}, grace = true, paidAmount = null, dataOverrides = {} } = {}, callback) {
+async function mounted({ projection = {}, grace = true, paidAmount = null, dataOverrides = {}, memberTenantId = null, selectedTenantId = null } = {}, callback) {
+  setActiveTenantId(selectedTenantId);
+  const tenantId = selectedTenantId || memberTenantId || null;
   const client = new QueryClient({ defaultOptions: {
     queries: { retry: false, staleTime: Infinity, gcTime: 0 },
     mutations: { retry: false, gcTime: 0 },
@@ -58,6 +61,12 @@ async function mounted({ projection = {}, grace = true, paidAmount = null, dataO
   client.setQueryData(["member-membership-override", "member", null], {});
   client.setQueryData(["historical-dd-payments", null, "member"], []);
   client.setQueryData(["member-amendments", null, "member"], { history: [], structures: [], capabilities: {} });
+  client.setQueryData(["member-amendments", tenantId, "member"], { history: [], structures: [], capabilities: {} });
+  client.setQueryData(["historical-dd-payments", tenantId, "member"], []);
+  client.setQueryData(["member-start", tenantId, "member"], {
+    structures: [{ id: "personal-structure", name: `Structure for ${tenantId}`, pricing_model: "flat", bands: [] }],
+    blockers: [], requests: [], capabilities: { paymentModes: ["free"] },
+  });
   const container = document.createElement("div");
   document.body.append(container);
   const root = createRoot(container);
@@ -69,16 +78,45 @@ async function mounted({ projection = {}, grace = true, paidAmount = null, dataO
   };
   try {
     await act(async () => root.render(
-      <QueryClientProvider client={client}><MemberMembershipTab memberId="member" /></QueryClientProvider>,
+      <QueryClientProvider client={client}><MemberMembershipTab memberId="member" memberTenantId={memberTenantId} /></QueryClientProvider>,
     ));
     await callback(container, calls);
   } finally {
     await act(async () => root.unmount());
+    setActiveTenantId(null);
     client.clear();
     container.remove();
     globalThis.fetch = originalFetch;
   }
 }
+
+test("direct member page shows start controls using member tenant without dashboard selector", async () => {
+  await mounted({ memberTenantId: "tenant-direct" }, (container, calls) => {
+    const panel = container.querySelector('[data-testid="member-membership-start"]');
+    assert.match(panel.textContent, /Start \/ Renew membership/);
+    assert.match(panel.textContent, /Structure for tenant-direct/);
+    assert.match(panel.textContent, /Preview membership/);
+    assert.equal(calls.length, 0);
+  });
+});
+
+test("explicit dashboard tenant remains authoritative instead of silently switching to member tenant", async () => {
+  await mounted({ memberTenantId: "tenant-member", selectedTenantId: "tenant-dashboard" }, (container, calls) => {
+    const panel = container.querySelector('[data-testid="member-membership-start"]');
+    assert.match(panel.textContent, /Structure for tenant-dashboard/);
+    assert.doesNotMatch(panel.textContent, /Structure for tenant-member/);
+    assert.equal(calls.length, 0);
+  });
+});
+
+test("missing tenant shows an explanation, not a silently absent start panel", async () => {
+  await mounted({}, (container, calls) => {
+    const panel = container.querySelector('[data-testid="member-membership-start"]');
+    assert.match(panel.textContent, /unavailable until the member’s tenant has loaded/);
+    assert.equal(panel.querySelector('button'), null);
+    assert.equal(calls.length, 0);
+  });
+});
 
 test("approved policy is distinct from historical structure, amount, start and year in current panel and ledger", async () => {
   await mounted({ projection: { expiry_renewal_policy: policy } }, (container, calls) => {

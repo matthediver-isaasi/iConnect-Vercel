@@ -29,3 +29,14 @@ from current matching rules.
 **How to apply:** Keep invoice/free creation distinct from recurring consent and
 card collection. Recover ambiguous creation from saved purchase authority rather
 than generating a fresh quote or payment request.
+
+Direct member-page links can have valid authenticated member data while the
+admin-dashboard tenant selector remains unset.
+
+**Why:** A start-membership panel gated solely on that selector disappeared
+entirely on a tenant-host direct link, even though adjacent finance panels loaded.
+
+**How to apply:** Use the loaded member's tenant when the selector is absent;
+preserve explicit selector precedence and server mismatch checks. Missing tenant
+context should produce an explanation, not silently hide the action. Test the
+real parent page's context handoff as well as the isolated panel.

@@ -2868,7 +2868,7 @@ export default function MemberDetail() {
 
           {shouldShowMemberMembershipTab({ member }) && (
             <TabsContent value="membership" className="space-y-6">
-              <MemberMembershipTab memberId={member?.id} memberEmail={member?.email} />
+              <MemberMembershipTab memberId={member?.id} memberEmail={member?.email} memberTenantId={member?.tenant_id} />
             </TabsContent>
           )}
           {relatedRecords.panels.map(({ definition, side }) => (

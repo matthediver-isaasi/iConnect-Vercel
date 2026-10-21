@@ -598,13 +598,16 @@ function MemberYearCostSection({
   );
 }
 
-export default function MemberMembershipTab({ memberId, memberEmail }) {
+export default function MemberMembershipTab({ memberId, memberEmail, memberTenantId }) {
   const queryClient = useQueryClient();
-  const activeTenantId = useSyncExternalStore(
+  const selectedTenantId = useSyncExternalStore(
     subscribeToActiveTenantId,
     getActiveTenantId,
     () => null,
   );
+  // Direct tenant-host member links need not initialize the dashboard selector.
+  // Keep an explicit selector authoritative so stale-tab mismatch checks remain.
+  const activeTenantId = selectedTenantId || memberTenantId || null;
   const [invoicingModes, setInvoicingModes] = useState({});
   const [invoiceDates, setInvoiceDates] = useState({});
   const [purchaseOrderNumbers, setPurchaseOrderNumbers] = useState({});

@@ -54,7 +54,11 @@ async function readResponse(response) {
 }
 
 export default function MemberMembershipStart({ memberId, tenantId }) {
-  if (!memberId || !tenantId) return null;
+  if (!memberId) return null;
+  if (!tenantId) return <Card data-testid="member-membership-start">
+    <CardHeader><CardTitle className="text-base">Start / Renew membership</CardTitle></CardHeader>
+    <CardContent role="status">Membership creation is unavailable until the member’s tenant has loaded. If this persists, reload the member page.</CardContent>
+  </Card>;
   return <StartPanel key={`${tenantId}:${memberId}`} memberId={memberId} tenantId={tenantId} />;
 }
 
