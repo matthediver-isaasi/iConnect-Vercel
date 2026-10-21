@@ -1629,3 +1629,17 @@ mtime_ms = 1792568871796
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/8fe388b0-b659-430b-a1b8-0d3902bb1f0e/afbdf701-e141-47f8-a25c-c4b2e3ed6c28"
 storage_version_token = "1792568957490726"
 content_type = "text/csv"
+
+[[outputs]]
+id = "SfHyPEewMQFrcxuDmj0rM"
+uri = "file://generated-artifacts/bnms-other-test-accounting/report.html"
+type = "html"
+title = "BNMS test-payment accounting audit"
+description = "Exact invoice list, Xero financial statuses, original signup evidence, Direct Debit discrepancies, and the complete accounting-link appendix."
+logical_id = "8d50898b-132d-43bb-9db8-4ad928cffad3"
+content_hash = "sha256:822b146ad84e0c5233ff2476d9015a2636eb1d0c6825ad1d6ee1061710c728d7"
+size = 76336
+mtime_ms = 1792569352261
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/8d50898b-132d-43bb-9db8-4ad928cffad3/95ee6034-1a0d-42c3-854a-e450e0a2e8be"
+storage_version_token = "1792569379713280"
+content_type = "text/html"

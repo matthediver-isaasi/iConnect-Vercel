@@ -7,6 +7,17 @@ Test Stripe instalments must never become real accounting invoices or payments.
 Anonymised member identities must not be used as invoice customers, and a
 shared placeholder name must never establish contact identity.
 
+Local GoCardless `sandbox` labels do not independently prove test settlement.
+
+**Why:** A read-only BNMS audit found sandbox-labelled payment mirrors whose
+exact payment IDs resolved successfully through the tenant-owned live
+GoCardless endpoint; their parent plan was also live. Reversing accounting on
+the mirror label alone would risk reversing genuine collections.
+
+**How to apply:** Trace the exact payment using tenant-owned provider credentials,
+separate provider environment from human test intent, and resolve contradictory
+evidence before proposing any financial cleanup.
+
 **Why:** Read-only production investigation verified test Stripe subscriptions
 feeding paid Xero invoices under one shared “Deleted Member” contact. Name-only
 contact reuse also overwrote its email, so a PDF's deletion-placeholder ID did

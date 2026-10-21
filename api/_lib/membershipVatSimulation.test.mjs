@@ -193,6 +193,7 @@ before(async () => {
   const membershipRoot = path.join(temporaryRoot, 'api', 'membership');
   await cp(new URL('./membershipSimulation.js', import.meta.url), path.join(libRoot, 'membershipSimulation.js'), { recursive: true });
   await cp(new URL('../../shared/rollingMembershipTerm.js', import.meta.url), path.join(temporaryRoot, 'shared', 'rollingMembershipTerm.js'), { recursive: true });
+  await cp(new URL('../../shared/unverifiedMembershipHistory.js', import.meta.url), path.join(temporaryRoot, 'shared', 'unverifiedMembershipHistory.js'));
   for (const file of [
     'membershipSimulationCore.js',
     'expiryOnlyRenewalPolicy.js',
