@@ -105,6 +105,25 @@ test('existing QBO customer billing address is preserved without customer writes
   assert.ok(f.calls.every(([, init]) => init.method === 'GET'));
 });
 
+test('Stripe address overrides existing QBO address on invoice without customer writes', async () => {
+  const f = fixture({ stripe: true });
+  f.row.snapshot.invoice.contact.stripeBillingAddress = {
+    line1: 'Payment road', line2: 'Flat 2', city: 'London', state: 'Region',
+    postal_code: 'SW1A 1AA', country: 'GB',
+  };
+  const fetch = f.transport.fetch;
+  f.transport.fetch = async (url, init) => url.includes('/query?')
+    ? Response.json({ QueryResponse: { Customer: [{ Id: 'customer', PrimaryEmailAddr: { Address: 'buyer@example.test' },
+      BillAddr: { Line1: 'Old provider address' } }] } })
+    : fetch(url, init);
+  const s = await prepareAccountingEventSource(f);
+  assert.deepEqual(s.invoice.envelope.payload.BillAddr, {
+    Line1: 'Payment road', Line2: 'Flat 2', City: 'London', CountrySubDivisionCode: 'Region',
+    PostalCode: 'SW1A 1AA', Country: 'GB',
+  });
+  assert.ok(f.calls.every(([, init]) => init.method === 'GET'));
+});
+
 test('existing QBO customer without a billing address uses captured address on invoice only', async () => {
   const f = fixture();
   f.row.snapshot.invoice.contact.address = 'Captured road\nTown\nAA1 1AA';

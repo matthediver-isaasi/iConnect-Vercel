@@ -1,5 +1,6 @@
 // Checkout captures evidence; the recovery worker is the only accounting writer.
 // No provider calls or credentials belong in a durable snapshot.
+import { normalizeStripeBillingAddress } from './stripeInvoiceAddress.js';
 const clone = value => JSON.parse(JSON.stringify(value));
 const minor = value => Math.round(Number(value) * 100);
 
@@ -38,6 +39,15 @@ function freezeLineTax(line, ticket) {
 export function invoiceContactPayload(contact) {
   if (!contact?.name) return null;
   const payload = { Name: contact.name, ...(contact.email ? { EmailAddress: contact.email } : {}) };
+  if (contact.stripeBillingAddress) {
+    const a = normalizeStripeBillingAddress(contact.stripeBillingAddress);
+    payload.Addresses = [{
+      AddressType: 'POBOX', AddressLine1: a.line1,
+      ...(a.line2 ? { AddressLine2: a.line2 } : {}),
+      City: a.city, Region: a.state || '', PostalCode: a.postal_code, Country: a.country,
+    }];
+    return payload;
+  }
   // Same address mapping as the historical complex-event Xero contact helper.
   const lines = typeof contact.address === 'string' ? contact.address.split('\n').map(l => l.trim()).filter(Boolean) : [];
   if (lines.length) {
@@ -86,6 +96,13 @@ export function eventInvoiceContact({ source, org, member, isGuestBooking, guest
     provenance: { kind: 'member', id: member.id },
   };
   return null;
+}
+
+// Only the verified charge is transaction-time address evidence. Never write
+// this address back to either the member or their organisation.
+export function stripeEventInvoiceContact(contact, paymentIntent) {
+  const stripeBillingAddress = normalizeStripeBillingAddress(paymentIntent?.latest_charge?.billing_details?.address);
+  return contact ? { ...contact, address: stripeBillingAddress.formatted, stripeBillingAddress } : null;
 }
 
 export function simpleEventInvoiceLines({
@@ -267,6 +284,10 @@ export async function enqueueCheckoutEventInvoice({
         if (markerError) logger.error('[Event invoice recovery] QuickBooks review marker unavailable');
         return { status: 'needs_review', queued: false, warning: 'Booking confirmed; invoice requires review.' };
       }
+    }
+    if (paymentMethod === 'card') {
+      contact = stripeEventInvoiceContact(contact, paymentIntent);
+      snapshot.contact = contact ? clone(contact) : null;
     }
     snapshot.provider = context.provider;
     const accountCode = event.xero_account_code?.trim() || context.settings.xero_sales_account_code || '200';

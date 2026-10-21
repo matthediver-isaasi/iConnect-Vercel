@@ -77,6 +77,7 @@ function paymentIntent(overrides = {}) {
       id: 'ch_original', status: 'succeeded', livemode: true, paid: true, captured: true,
       amount_captured: 2500, currency: 'gbp', created: 1767225900,
       payment_intent: 'pi_original', amount_refunded: 0,
+      billing_details: { address: { line1: 'Stripe road', city: 'London', postal_code: 'SW1A 1AA', country: 'GB' } },
     },
     ...overrides,
   };
@@ -225,14 +226,19 @@ for (const source of ['booking', 'complex_event_booking']) test(`${source}: Stri
   f.input.contact = eventInvoiceContact({ source, member, org, paymentMethod: 'card' });
   Object.assign(f.input, { paymentMethod: 'card', paymentIntentId: 'pi_original', paymentIntent: {
     ...paymentIntent(), latest_charge: { ...paymentIntent().latest_charge,
-      billing_details: { name: 'Employer company card', address: { line1: 'Card office' } } },
+      billing_details: { name: 'Employer company card', address: { line1: 'Card office', city: 'London', postal_code: 'SW1A 1AA', country: 'GB' } } },
   }, booker: { ...member, password_hash: 'must-not-persist' } });
   assert.equal((await enqueueCheckoutEventInvoice(f.input, f.deps)).status, 'pending');
   const s = f.queued[0].snapshot;
   assert.equal(s.contact.provenance.kind, 'member');
   assert.equal(s.invoice.Contact.Name, 'Personal Payer');
   assert.equal(s.invoice.Contact.EmailAddress, member.email);
-  assert.equal(s.invoice.Contact.Addresses[0].AddressLine1, 'Personal street');
+  assert.equal(s.invoice.Contact.Addresses[0].AddressLine1, 'Card office');
+  assert.equal(s.invoice.Contact.Addresses[0].City, 'London');
+  assert.equal(s.invoice.Contact.Addresses[0].Country, 'GB');
+  assert.equal(member.address, 'Personal street\nPersonal town\nPP1 1PP');
+  assert.equal(org.address, 'Company street');
+  assert.ok(!f.calls.some(call => call.update && ['member', 'organization'].includes(call.table)));
   assert.equal(s.booker.password_hash, undefined);
   assert.equal(s.settlement.paymentIntentId, 'pi_original');
   assert.equal(eventInvoiceContact({ source, member, org, paymentMethod: 'account' }).name, 'Employer');
@@ -369,7 +375,29 @@ for (const [label, change] of [
     assert.equal((await enqueueCheckoutEventInvoice(f.input, f.deps)).status, 'needs_review');
     assert.equal(f.queued[0].snapshot.invoice, null);
     assert.equal(f.queued[0].snapshot.settlement, null);
-    assert.ok(f.queued[0].snapshot.originalInvoice);
+    if (label !== 'missing charge date') assert.ok(f.queued[0].snapshot.originalInvoice);
+  });
+}
+
+for (const provider of ['xero', 'quickbooks']) {
+  for (const missing of [false, true]) test(`${provider}: Stripe address captured without profile writes; missing address blocks invoice (${missing})`, async () => {
+    const f = fixture({ provider });
+    let captured;
+    f.db.rpc = async (_name, args) => {
+      captured = args.p_snapshot;
+      return { data: { id: 'queued', state: captured.invoice.reviewReason ? 'review' : 'pending' } };
+    };
+    const pi = paymentIntent();
+    if (missing) delete pi.latest_charge.billing_details;
+    Object.assign(f.input, { paymentMethod: 'card', paymentIntentId: pi.id, paymentIntent: pi });
+    const result = await enqueueCheckoutEventInvoice(f.input, f.deps);
+    assert.equal(result.status, missing ? 'needs_review' : 'pending');
+    const contact = provider === 'quickbooks' ? captured.invoice.contact : f.queued[0].snapshot.contact;
+    if (!missing) {
+      assert.equal(contact.stripeBillingAddress.line1, 'Stripe road');
+      assert.equal(contact.address, 'Stripe road\nLondon\nSW1A 1AA\nGB');
+    }
+    assert.ok(!f.calls.some(c => c.update && ['member', 'organization'].includes(c.table)));
   });
 }
 

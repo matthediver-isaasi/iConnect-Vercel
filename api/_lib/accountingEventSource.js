@@ -1,5 +1,5 @@
 import { prepareAccountingRequestEnvelope } from './accountingRequestProviders.js';
-import { capturedEventSettlement } from './eventInvoiceProducer.js';
+import { capturedEventSettlement, stripeEventInvoiceContact } from './eventInvoiceProducer.js';
 import { accountingOperationIdentity } from './accountingOperationIdentity.js';
 
 export const isAccountingEventSource = source => ['booking', 'complex_event_booking'].includes(source);
@@ -51,6 +51,7 @@ export async function enqueueQuickBooksEventInvoice(input, context) {
   if (!['card', 'account', 'invoice'].includes(input.paymentMethod)) snapshot.invoice.reviewReason = 'unsupported_payment_method';
   if (paymentMethod === 'stripe') {
     try {
+      snapshot.invoice.contact = stripeEventInvoiceContact(contact, input.paymentIntent);
       snapshot.payment = capturedEventSettlement({
         paymentIntent: input.paymentIntent, paymentIntentId: input.paymentIntentId,
         amount: snapshot.invoice.amount, currency, accountCode: 'pending_event_mapping', eventId: event.id,
@@ -205,9 +206,14 @@ export async function prepareAccountingEventSource({ db, row, transport }) {
   const payload = { CustomerRef: { value: String(customer.Id) }, CurrencyRef: { value: intent.currency },
     TxnDate: intent.date, DueDate: intent.dueDate, CustomerMemo: { value: intent.reference },
     GlobalTaxCalculation: inclusive ? 'TaxInclusive' : 'TaxExcluded', Line: lines };
-  // Never rewrite an existing customer's address. Preserve their provider-held
-  // billing address on the invoice; use captured evidence only if none is held.
-  const billAddress = customer.BillAddr && Object.keys(customer.BillAddr).some(key =>
+  // Stripe's transaction address wins on this invoice only. Legacy/non-card
+  // snapshots retain their prior behavior; never rewrite an existing customer.
+  const stripeAddress = intent.contact.stripeBillingAddress;
+  const billAddress = stripeAddress ? {
+    Line1: stripeAddress.line1, ...(stripeAddress.line2 ? { Line2: stripeAddress.line2 } : {}),
+    City: stripeAddress.city, CountrySubDivisionCode: stripeAddress.state || '',
+    PostalCode: stripeAddress.postal_code, Country: stripeAddress.country,
+  } : customer.BillAddr && Object.keys(customer.BillAddr).some(key =>
     key !== 'Id' && typeof customer.BillAddr[key] === 'string' && customer.BillAddr[key].trim())
     ? customer.BillAddr : capturedAddress;
   if (billAddress) {

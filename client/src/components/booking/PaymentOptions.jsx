@@ -19,7 +19,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { loadStripe } from "@stripe/stripe-js";
-import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
+import { Elements, AddressElement, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import VoucherSelector from "./VoucherSelector";
 import { useBalancesRealtime } from "@/hooks/useBalancesRealtime";
 import { publicClient } from "@/api/publicClient";
@@ -385,7 +385,8 @@ function StripePaymentForm({ clientSecret, onSuccess, onCancel, amount, returnUr
       </div>
 
       <div>
-        <PaymentElement options={{ layout: "tabs" }} />
+        <AddressElement options={{ mode: "billing" }} />
+        <PaymentElement options={{ layout: "tabs", fields: { billingDetails: { address: "never" } } }} />
       </div>
 
       {error && (
