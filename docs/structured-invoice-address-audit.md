@@ -10,8 +10,16 @@ and `organization_group`: `invoicing_address_line1`, `invoicing_address_line2`,
 only in service-accessible `public.invoicing_address_private`, NOT on owner tables.
 The migration is additive, idempotent and has no backfill, browser grants,
 provider actions or transaction updates.
-Apply the migration through the normal reviewed deployment process before using
-the new editor fields. It has not been applied by this implementation.
+Applied with owner approval on 2026-10-22 to verified live DEST
+(`lvmzliemqnieeoruhkik`):
+`supabase/migrations/202612310025_structured_invoicing_addresses.sql`.
+SHA256: `0d62fcc29286bf52ae13b7b324c3ae9aebc01afb65e2f95f6257dd2d7edf1695`.
+Verified enabled/forced RLS, denied SELECT/INSERT/UPDATE/DELETE and patch RPC
+execution for anon/authenticated, and service-role access. Actual read-only
+queries under both browser roles failed with 42501; service-role read succeeded.
+Existing owner-table grants and RLS flags were unchanged. The new table is empty.
+No address data or invoices were changed; SOURCE was untouched. No migration
+remains pending for this foundation. Matching application code needs deployment.
 
 Verification on 2026-10-22: 55 isolated backend, disposable PostgreSQL, layout,
 editor-state and mounted-hook tests passed. The application starts and the new
@@ -32,7 +40,8 @@ all PUBLIC/anon/authenticated privileges revoked, explicit service_role DML and
 atomic patch RPC execution only. Existing owner grants remain unchanged.
 Owner type/id/tenant are validated by a database trigger. Deleting an owner,
 changing its tenant, or anonymizing a member clears the corresponding private
-address. No live schema, permissions, address data or invoices were changed.
+address. The approved live schema change creates this private storage only;
+existing owner permissions, address data and invoices were not changed.
 
 The admin UI fields and isolated tests are implemented but not live-ready.
 Existing saved layouts are preserved; the fields are available under Customize
