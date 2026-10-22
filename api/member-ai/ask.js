@@ -72,6 +72,7 @@ import {
   makeAnswerProvenance,
   makeStructuredAccessFingerprint,
 } from '../_lib/memberAiAnswer.js';
+import { createGfiAskDiagnostics, summarizeGfiContext } from '../_lib/memberAiGfiDiagnostics.js';
 
 // Re-export the pure ranking helpers for backwards compatibility (tests and
 // any other importers use api/_lib/memberAiRanking.js as the source of truth).
@@ -403,7 +404,14 @@ export async function handleMemberAiAsk(req, res, { publicOnly = false } = {}) {
         }),
       };
     };
-    const noEvidence = () => answerPayload(noEvidenceResponse(responsePolicy, question));
+    const diagnose = createGfiAskDiagnostics({
+      tenantId: ctx.tenantId,
+      mode: isAnonymous ? 'anonymous' : member ? 'member' : 'admin',
+    });
+    const noEvidence = (stage, counts) => {
+      diagnose(stage, counts);
+      return answerPayload(noEvidenceResponse(responsePolicy, question));
+    };
     if (member) {
       roleId = member.role_id || null;
       exclusions = await resolveMemberExclusions(
@@ -774,7 +782,7 @@ export async function handleMemberAiAsk(req, res, { publicOnly = false } = {}) {
           })
       );
       await finishUsage('succeeded');
-      return res.status(200).json(noEvidence());
+      return res.status(200).json(noEvidence('no_accessible_chunks'));
     }
 
     // --- Recency-aware re-rank (strictly AFTER the visibility filter) ---
@@ -794,8 +802,9 @@ export async function handleMemberAiAsk(req, res, { publicOnly = false } = {}) {
     const citeable = accessible.filter((chunk) => sourceCitationId(chunk, sourceByKey));
     if (!citeable.length) {
       await finishUsage('succeeded');
-      return res.status(200).json(noEvidence());
+      return res.status(200).json(noEvidence('no_citeable_chunks'));
     }
+    diagnose('context_selected', summarizeGfiContext(citeable, sources));
 
     // --- Ground the chat model on the accessible context only ---
     // Each excerpt carries its published/event date so the model can frame
@@ -820,6 +829,12 @@ export async function handleMemberAiAsk(req, res, { publicOnly = false } = {}) {
 
     let answer =
       completion.choices?.[0]?.message?.content?.trim() || noEvidenceResponse(responsePolicy, question).answer;
+    diagnose('synthesis_completed', {
+      inputTokens: completion.usage?.prompt_tokens,
+      outputTokens: completion.usage?.completion_tokens,
+      answerCharacters: answer.length,
+      matchesFallback: answer === noEvidenceResponse(responsePolicy, question).answer,
+    });
     // A source can be unpublished/restricted while the provider is generating.
     // Refresh viewer entitlements as well as sources before returning the
     // generated text or a citation card. A role/group/booking revocation that
@@ -831,7 +846,7 @@ export async function handleMemberAiAsk(req, res, { publicOnly = false } = {}) {
       const currentMember = await getSessionMember(req);
       if (!currentMember || currentMember.id !== member.id) {
         await finishUsage('succeeded');
-        return res.status(200).json(noEvidence());
+        return res.status(200).json(noEvidence('final_member_rejected'));
       }
       const [currentExclusions, currentGroups, currentEvents, currentSessions] = await Promise.all([
         resolveMemberExclusions({
@@ -863,7 +878,7 @@ export async function handleMemberAiAsk(req, res, { publicOnly = false } = {}) {
       const currentTenantId = currentTenantUser?._sessionTenantId || currentTenantUser?.tenant_id;
       if (!currentTenantUser || currentTenantId !== ctx.tenantId) {
         await finishUsage('succeeded');
-        return res.status(200).json(noEvidence());
+        return res.status(200).json(noEvidence('final_tenant_user_rejected'));
       }
     }
     const finalChunks = await revalidateMemberContentCandidates({
@@ -875,17 +890,21 @@ export async function handleMemberAiAsk(req, res, { publicOnly = false } = {}) {
     });
     if (finalChunks.length !== citeable.length) {
       await finishUsage('succeeded');
-      return res.status(200).json(noEvidence());
+      return res.status(200).json(noEvidence('final_sources_rejected', {
+        expectedChunks: citeable.length, remainingChunks: finalChunks.length,
+      }));
     }
     let citationCheck = validateAnswerCitations(answer, sources);
+    diagnose('citations_checked', { valid: citationCheck.ok });
     if (!citationCheck.ok) {
       const repaired = await repairAnswerCitations(openai, answer, sources, recordProviderUsage, requestDeadline);
       citationCheck = repaired ? validateAnswerCitations(repaired, sources) : { ok: false };
+      diagnose('citations_repaired', { valid: citationCheck.ok });
       if (citationCheck.ok) answer = repaired;
     }
     if (!citationCheck.ok) {
       await finishUsage('succeeded');
-      return res.status(200).json(noEvidence());
+      return res.status(200).json(noEvidence('citations_rejected'));
     }
     const response = answerPayload({
       answer,
@@ -894,6 +913,7 @@ export async function handleMemberAiAsk(req, res, { publicOnly = false } = {}) {
       citations: citationCheck.citationIds,
     });
     await finishUsage('succeeded');
+    diagnose('answer_returned', { sources: citationCheck.sources.length });
     return res.status(200).json(response);
   } catch (error) {
     if (usageReservationId) {

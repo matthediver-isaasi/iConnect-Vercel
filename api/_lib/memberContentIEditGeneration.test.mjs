@@ -18,6 +18,7 @@ import { isChunkVisibleToMember } from './memberContentVisibility.js';
 import * as contentAccess from './memberContentAccess.js';
 import * as ranking from './memberAiRanking.js';
 import * as answerHelpers from './memberAiAnswer.js';
+import { createGfiAskDiagnostics, summarizeGfiContext } from './memberAiGfiDiagnostics.js';
 import { fetchCategoriesWithAccess, computeHiddenSubcategories } from './resourceCategoryAccess.js';
 import { buildResponsePolicyInstructions, noEvidenceResponse } from './tenantAiAssistant.js';
 import { normalizeResponsePolicy } from '../../shared/memberAiResponsePolicy.js';
@@ -841,6 +842,7 @@ function askHandler(db, FakeOpenAI) {
     ...contentAccess, ...answerHelpers, ...ranking,
     fetchCategoriesWithAccess, computeHiddenSubcategories, buildResponsePolicyInstructions, noEvidenceResponse,
     OpenAI: FakeOpenAI, supabase: db, isChunkVisibleToMember,
+    createGfiAskDiagnostics, summarizeGfiContext,
     loadTenantAiAssistant: async () => ({ enabled: true, responsePolicy: normalizeResponsePolicy(null) }),
     getTenantContext: async () => ({ tenantId: TENANT, isAuthenticated: true }),
     getSessionMember: async () => member, getSessionTenantUser: async () => null,
