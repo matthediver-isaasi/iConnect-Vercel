@@ -61,5 +61,28 @@ test('context summaries count only the specific People source and do not expose 
   assert.deepEqual(summarizeGfiContext([
     { content_type: 'iedit_page', source_id: 'b1012823-fe46-4cc2-98a7-2e40e3c9ce89', content: 'private' },
     { content_type: 'iedit_page', source_id: 'other', content: 'private' },
-  ], [{ citationId: 'S1' }, { citationId: 'S2' }]), { chunks: 2, peopleChunks: 1, sources: 2 });
+  ], [{ citationId: 'S1' }, { citationId: 'S2' }]), { chunks: 2, peopleChunks: 1, peopleSectionKeys: [], sources: 2 });
+});
+
+test('citation reasons and section fingerprints are bounded and never accept arbitrary text', () => {
+  const entries = [];
+  const emit = createGfiAskDiagnostics({ tenantId, log: line => entries.push(JSON.parse(line.slice(line.indexOf('{')))) });
+  for (const reason of ['model_url', 'unknown_citation', 'missing_citation', 'repair_unavailable', 'PRIVATE']) {
+    emit('citations_checked', { reason, peopleSectionKeys: ['PRIVATE', 'a'.repeat(64), 'a'.repeat(64)] });
+  }
+  assert.equal(entries[0].reason, 'model_url');
+  assert.equal(entries[1].reason, 'unknown_citation');
+  assert.equal(entries[2].reason, 'missing_citation');
+  assert.equal(entries[3].reason, 'repair_unavailable');
+  assert.equal(entries[4].reason, undefined);
+  assert.ok(!JSON.stringify(entries).includes('PRIVATE'));
+  assert.deepEqual(entries[0].peopleSectionKeys, ['a'.repeat(64)]);
+  emit('context_selected', { peopleSectionKeys: Array.from({ length: 100 }, (_, i) => i.toString(16).padStart(64, '0')) });
+  assert.equal(entries.at(-1).peopleSectionKeys.length, 40);
+  const summary = summarizeGfiContext([{
+    content_type: 'iedit_page', source_id: 'b1012823-fe46-4cc2-98a7-2e40e3c9ce89',
+    provenance: { iedit: { sectionKey: 'b'.repeat(64) } }, content: 'PRIVATE',
+  }]);
+  assert.deepEqual(summary.peopleSectionKeys, ['b'.repeat(64)]);
+  assert.equal(summary.sources, 1);
 });

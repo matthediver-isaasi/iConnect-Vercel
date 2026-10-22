@@ -14,6 +14,7 @@ const COUNTS = new Set([
   'answerCharacters', 'expectedChunks', 'remainingChunks',
 ]);
 const FLAGS = new Set(['valid', 'matchesFallback']);
+const REASONS = new Set(['model_url', 'unknown_citation', 'missing_citation', 'repair_unavailable']);
 
 // Temporary incident diagnostics. No source text, questions, identity, request
 // headers or provider payloads enter logs. Correlation is server-generated, not
@@ -28,6 +29,11 @@ export function createGfiAskDiagnostics({ tenantId, mode, log = console.info }) 
     for (const [key, value] of Object.entries(values)) {
       if (COUNTS.has(key) && Number.isSafeInteger(value) && value >= 0) safe[key] = value;
       if (FLAGS.has(key) && typeof value === 'boolean') safe[key] = value;
+      if (key === 'reason' && REASONS.has(value)) safe.reason = value;
+      if (key === 'peopleSectionKeys' && Array.isArray(value)) {
+        safe.peopleSectionKeys = [...new Set(value.filter(item =>
+          typeof item === 'string' && /^[a-f0-9]{64}$/.test(item)))].slice(0, 40);
+      }
     }
     try {
       log('[Member AI GFI diagnostic] ' + JSON.stringify({ traceId, mode: sessionMode, stage, ...safe }));
@@ -37,11 +43,15 @@ export function createGfiAskDiagnostics({ tenantId, mode, log = console.info }) 
   };
 }
 
-export function summarizeGfiContext(chunks, sources = []) {
+export function summarizeGfiContext(chunks, sources) {
+  const people = chunks.filter(chunk =>
+    chunk.content_type === 'iedit_page' && chunk.source_id === PEOPLE_SOURCE_ID);
   return {
     chunks: chunks.length,
-    peopleChunks: chunks.filter(chunk =>
-      chunk.content_type === 'iedit_page' && chunk.source_id === PEOPLE_SOURCE_ID).length,
-    sources: sources.length,
+    peopleChunks: people.length,
+    peopleSectionKeys: [...new Set(people.map(chunk => chunk.provenance?.iedit?.sectionKey)
+      .filter(key => typeof key === 'string' && /^[a-f0-9]{64}$/.test(key)))].slice(0, 40),
+    sources: sources ? sources.length : new Set(chunks.map(chunk =>
+      `${chunk.content_type}:${chunk.source_id}`)).size,
   };
 }

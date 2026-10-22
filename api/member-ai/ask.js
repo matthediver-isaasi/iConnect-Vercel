@@ -914,11 +914,11 @@ export async function handleMemberAiAsk(req, res, { publicOnly = false } = {}) {
       }));
     }
     let citationCheck = validateAnswerCitations(answer, sources);
-    diagnose('citations_checked', { valid: citationCheck.ok });
+    diagnose('citations_checked', { valid: citationCheck.ok, reason: citationCheck.reason });
     if (!citationCheck.ok) {
       const repaired = await repairAnswerCitations(openai, answer, sources, recordProviderUsage, requestDeadline);
-      citationCheck = repaired ? validateAnswerCitations(repaired, sources) : { ok: false };
-      diagnose('citations_repaired', { valid: citationCheck.ok });
+      citationCheck = repaired ? validateAnswerCitations(repaired, sources) : { ok: false, reason: 'repair_unavailable' };
+      diagnose('citations_repaired', { valid: citationCheck.ok, reason: citationCheck.reason });
       if (citationCheck.ok) answer = repaired;
     }
     if (!citationCheck.ok) {
