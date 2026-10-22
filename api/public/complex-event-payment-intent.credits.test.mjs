@@ -9,6 +9,16 @@ const slot = '__complexEventCreditIntentFixture';
 async function loadHandler() {
   const entry = resolve('api/public/complex-event-payment-intent.js');
   const virtual = new Map([
+    ['../_lib/privateTicketAccess.js', `export const assertPrivateTicketsAccessible = async () => {};`],
+    ['../_lib/eventInvoiceAddressPolicy.js', `
+      export const prepareEventInvoiceAddressPolicy = async () => {
+        if (globalThis.${slot}.invoicePolicyError) throw Object.assign(new Error('Select invoice address'), {
+          statusCode: 400, code: 'EVENT_INVOICE_ADDRESS_REQUIRED',
+        });
+        return null;
+      };
+      export const createPolicyPaymentIntent = async () => { throw new Error('Not an invoice-policy test'); };
+    `],
     ['stripe', `export default class Stripe { constructor() { return globalThis.${slot}.stripe; } }`],
     ['@supabase/supabase-js', `export const createClient = () => globalThis.${slot}.db;`],
     ['../_lib/tenantResolver.js', `export const resolveTenantFromRequest = async () => ({ id: 'tenant-a' });`],
@@ -104,7 +114,7 @@ function response() {
 
 const handler = await loadHandler();
 
-async function invoke(body, dbOptions, { allowAfterExpiry = true } = {}) {
+async function invoke(body, dbOptions, { allowAfterExpiry = true, invoicePolicyError = false } = {}) {
   const stripeCalls = [];
   globalThis[slot] = {
     db: makeDb(dbOptions),
@@ -117,6 +127,7 @@ async function invoke(body, dbOptions, { allowAfterExpiry = true } = {}) {
       },
     },
     allowAfterExpiry,
+    invoicePolicyError,
   };
   process.env.SUPABASE_URL = 'https://fixture.invalid';
   process.env.SUPABASE_SERVICE_KEY = 'fixture';
@@ -148,6 +159,13 @@ for (const [label, credits, expectedMinor] of [
     assert.equal(stripeCalls[0].amount, expectedMinor);
   });
 }
+
+test('complex invoice address requirement has stable status/code before Stripe', async () => {
+  const { res, stripeCalls } = await invoke({}, undefined, { invoicePolicyError: true });
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.body.code, 'EVENT_INVOICE_ADDRESS_REQUIRED');
+  assert.equal(stripeCalls.length, 0);
+});
 
 test('binds authoritative credit deductions into Stripe metadata', async () => {
   const { stripeCalls } = await invoke({

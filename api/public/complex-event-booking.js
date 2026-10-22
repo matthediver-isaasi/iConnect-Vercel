@@ -27,6 +27,7 @@ import {
   isActiveMemberOfGroup
 } from '../_lib/ticketAccess.js';
 import { enqueueCheckoutEventInvoice, eventInvoiceContact, complexEventInvoiceLines } from '../_lib/eventInvoiceProducer.js';
+import { assertEventInvoicePaymentOwner } from '../_lib/eventInvoiceAddressPolicy.js';
 import { getAllowVoucherUseAfterExpiry, isVoucherUsableForEventDate } from '../_lib/voucherExpiryPolicy.js';
 import { orderVoucherIdsForRedemption } from '../_lib/voucherOrdering.js';
 import { sendConfirmationEmailsFromTemplate } from '../_lib/eventConfirmationEmail.js';
@@ -564,6 +565,14 @@ export default async function handler(req, res) {
             headers: { 'Authorization': `Bearer ${stripeSecretKey}` }
           });
           const paymentIntent = await stripeResponse.json();
+          if (paymentIntent.metadata?.event_invoice_policy_id || paymentIntent.metadata?.event_invoice_member_id) {
+            if (!authenticatedMember || paymentIntent.metadata.event_invoice_member_id !== authenticatedMember.id
+              || paymentIntent.metadata.tenant_id !== tenant.id || paymentIntent.metadata.event_id !== event_id) {
+              return res.status(403).json({ error: 'Payment does not belong to this authenticated purchaser' });
+            }
+            await assertEventInvoicePaymentOwner({ db: supabase, paymentIntent, tenantId: tenant.id,
+              eventId: event_id, source: 'complex', memberId: authenticatedMember.id });
+          }
           const refundInvalidIntent = async () => {
             if (paymentIntent.status !== 'succeeded') return;
             await refundBoundAllocationPayment(paymentIntent, allocationContext, async () => {

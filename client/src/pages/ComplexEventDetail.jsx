@@ -857,6 +857,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
         purchaser_email: data.purchaser_email,
         purchaser_info: data.purchaser_info || null,
         purchase_request_id: data.purchase_request_id,
+        ...(data.invoiceAddressSelection ? { invoiceAddressSelection: data.invoiceAddressSelection } : {}),
         items,
         selected_voucher_ids: data.selected_voucher_ids || [],
         voucher_order_manual: data.voucher_order_manual === true,

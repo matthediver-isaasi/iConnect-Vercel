@@ -3,8 +3,13 @@ import { requireAttendeeJobTitle, missingAttendeeJobTitle } from "../../../../sh
 import PurchaserIdentityFields from "@/components/booking/PurchaserIdentityFields";
 import { ticketMemberPolicy, purchaseIdentity, validatePurchaseIdentities } from "@/utils/publicTicketMembers";
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import { base44 } from "@/api/base44Client";
+import React, { useState, useEffect, useCallback, useRef, useSyncExternalStore } from "react";
+import { base44, getActiveTenantId, subscribeToActiveTenantId } from "@/api/base44Client";
+import { adminFetch } from "@/lib/adminFetch";
+import { useEventInvoiceAddress } from "./EventInvoiceAddressStep";
+import { invoiceAddressRequired, invoiceAddressSelectionPayload, invoiceAddressConflictMessage } from "@/lib/eventInvoiceAddress.mjs";
+import { eventPurchaseRequestFingerprint, resolveEventPurchaseRequest } from "@/lib/eventPurchaseRequest.mjs";
+import { getViewerProtectedWorkGeneration, subscribeToViewerProtectedWork, isViewerProtectedWorkPaused } from "@/lib/viewerProtectedWorkGate";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -476,6 +481,28 @@ export default function PaymentOptions({
   const [internalSubmitting, setInternalSubmitting] = useState(false);
   const isSubmitting = submitting !== undefined ? submitting : internalSubmitting;
   const doSetSubmitting = setSubmitting || setInternalSubmitting;
+  const activeTenant = useSyncExternalStore(subscribeToActiveTenantId, getActiveTenantId, () => null);
+  const viewerGeneration = useSyncExternalStore(subscribeToViewerProtectedWork,
+    getViewerProtectedWorkGeneration, getViewerProtectedWorkGeneration);
+  const checkoutIdentity = JSON.stringify([event?.id, memberInfo?.id, memberInfo?.email, memberInfo?.tenant_id,
+    activeTenant, viewerGeneration, isGuestCheckout, isComplexEvent]);
+  const checkoutEpoch = useRef({ identity: checkoutIdentity, epoch: 0 });
+  if (checkoutEpoch.current.identity !== checkoutIdentity) {
+    checkoutEpoch.current = { identity: checkoutIdentity, epoch: checkoutEpoch.current.epoch + 1 };
+  }
+  const checkoutScope = JSON.stringify([checkoutIdentity, checkoutEpoch.current.epoch]);
+  const liveCheckoutScope = useRef(checkoutScope);
+  liveCheckoutScope.current = checkoutScope;
+  const stripeAttempt = useRef(null);
+  const checkoutMounted = useRef(false);
+  useEffect(() => {
+    checkoutMounted.current = true;
+    return () => { checkoutMounted.current = false; };
+  }, []);
+  const invoiceAddress = useEventInvoiceAddress({
+    scopeKey: checkoutScope, eventId: event?.id, source: isComplexEvent ? "complex" : "simple",
+    request: (url, options) => adminFetch(url, options, memberInfo?.tenant_id || activeTenant),
+  });
 
   const [selectedVouchers, setSelectedVouchers] = useState([]);
   const [voucherOrderManual, setVoucherOrderManual] = useState(false);
@@ -490,23 +517,18 @@ export default function PaymentOptions({
   const purchaseRequestId = useRef(null);
   const purchaseRequestFingerprint = useRef(null);
   const getPurchaseRequestId = () => {
-    const fingerprint = JSON.stringify({
-      purchaser: requiresPurchaserIdentity ? purchaseIdentity(purchaserInfo) : purchaseIdentity(guestInfo || {}),
-      attendees: attendees.map(purchaseIdentity),
-      tickets: memberCreationTickets.map(ticket => [ticket.id, ticket.new_member_role_id]),
+    const resolved = resolveEventPurchaseRequest({
+      fingerprint: currentPurchaseFingerprint,
+      key: `purchase_request_id_${isComplexEvent ? 'complex' : 'standard'}_${event.id}`,
+      previous: { id: purchaseRequestId.current, fingerprint: purchaseRequestFingerprint.current },
+      storage: {
+        getItem: key => sessionStorage.getItem(key),
+        setItem: (key, value) => sessionStorage.setItem(key, value),
+      },
+      createId: uuidv4,
     });
-    if (!purchaseRequestId.current || purchaseRequestFingerprint.current !== fingerprint) {
-      const key = `purchase_request_id_${isComplexEvent ? 'complex' : 'standard'}_${event.id}`;
-      try {
-        purchaseRequestId.current = sessionStorage.getItem(`${key}_fingerprint`) === fingerprint
-          ? sessionStorage.getItem(key) || uuidv4() : uuidv4();
-        sessionStorage.setItem(key, purchaseRequestId.current);
-        sessionStorage.setItem(`${key}_fingerprint`, fingerprint);
-      } catch {
-        purchaseRequestId.current = uuidv4();
-      }
-      purchaseRequestFingerprint.current = fingerprint;
-    }
+    purchaseRequestId.current = resolved.id;
+    purchaseRequestFingerprint.current = resolved.fingerprint;
     return purchaseRequestId.current;
   };
   const [separatePurchaserInfo, setPurchaserInfo] = useState(() => requiresPurchaserIdentity ? purchaseIdentity() : ({
@@ -526,6 +548,11 @@ export default function PaymentOptions({
   const [showStripeModal, setShowStripeModal] = useState(false);
   const [stripeClientSecret, setStripeClientSecret] = useState(null);
   const [stripePaymentIntentId, setStripePaymentIntentId] = useState(null);
+  useEffect(() => {
+    setShowStripeModal(false);
+    setStripeClientSecret(null);
+    setStripePaymentIntentId(null);
+  }, [checkoutScope]);
   const [stripeAvailable, setStripeAvailable] = useState(false);
   const [poSupplyLater, setPoSupplyLater] = useState(true);
 
@@ -976,6 +1003,25 @@ export default function PaymentOptions({
 
   // Calculate remaining balance automatically (discount applied before vouchers/TF)
   const remainingBalance = Math.max(0, costAfterDiscount - voucherAmount - effectiveTrainingFundAmount);
+  const currentPurchaseFingerprint = eventPurchaseRequestFingerprint({
+    eventId: event.id, source: isComplexEvent ? "complex" : "simple",
+    tenantId: memberInfo?.tenant_id || activeTenant || event.tenant_id,
+    member: !isGuestCheckout ? memberInfo : null,
+    purchaser: purchaseIdentity((requiresPurchaserIdentity ? purchaserInfo : isGuestCheckout ? guestInfo : memberInfo) || {}),
+    attendees: attendees.map(attendee => ({ ...purchaseIdentity(attendee), job_title: attendee.job_title || "" })),
+    tickets: (checkoutTicketClasses || (selectedTicketClass ? [selectedTicketClass] : []))
+      .map(ticket => ({ id: ticket.id, price: ticket.price, new_member_role_id: ticket.new_member_role_id })),
+    selectedTicket: { id: selectedTicketClass?.id || null, price: ticketPrice },
+    cart: isComplexEvent ? complexEventApi?._getCartItems?.() || [] : null,
+    ticketCount: ticketsRequired, registrationMode,
+    paymentMethod: remainingBalancePaymentMethod, amount: remainingBalance, totalCost,
+    discount: appliedDiscount ? { code: appliedDiscount.code, id: appliedDiscount.discount_code_id, savings: discountCodeSavings } : null,
+    voucherIds: effectiveSelectedVouchers, voucherOrderManual: voucherOrderManual && effectiveSelectedVouchers.length > 1,
+    voucherAmount, trainingFundAmount: effectiveTrainingFundAmount,
+    allocationTicketId: allocationContext?.ticketTypeId,
+  });
+  const livePurchaseFingerprint = useRef(currentPurchaseFingerprint);
+  livePurchaseFingerprint.current = currentPurchaseFingerprint;
   const coveredPaymentMethod = resolveCoveredEventPaymentMethod({
     isComplexEvent,
     memberCreationEnabled: requiresPurchaserIdentity,
@@ -1251,18 +1297,35 @@ export default function PaymentOptions({
   };
 
   const proceedToStripePayment = async (paymentEmail) => {
+    if (stripeAttempt.current) return;
     if (!guardAttendeeJobTitles()) return;
     if (!guardTicketBooking()) return;
     if (!guardPurchaseIdentity()) return;
     if (requiresPurchaserIdentity) paymentEmail = purchaseIdentity(purchaserInfo).email;
     const chargeAmount = remainingBalance;
+    const attempt = {};
+    stripeAttempt.current = attempt;
+    const assertCurrent = () => {
+      if (!checkoutMounted.current || liveCheckoutScope.current !== checkoutScope ||
+        livePurchaseFingerprint.current !== currentPurchaseFingerprint || isViewerProtectedWorkPaused()) {
+        throw Object.assign(new Error("Checkout changed. Please retry."), { name: "AbortError" });
+      }
+    };
     console.log('[PaymentOptions] Creating Stripe payment intent for amount:', chargeAmount);
     doSetSubmitting(true);
     try {
       let clientSecret, paymentIntentId;
+      const needsInvoiceDiscovery = !isGuestCheckout && !!memberInfo && (isOneOffEvent || isComplexEvent);
+      let invoiceAddressSelection = needsInvoiceDiscovery ? await invoiceAddress.collect() : undefined;
+      assertCurrent();
+      // A server-side customer/provider change can introduce the requirement
+      // after discovery. Refresh and collect once, never blindly retry the PI.
+      for (let addressAttempt = 0; ; addressAttempt += 1) {
+      try {
 
       if (isComplexEvent && complexEventApi) {
         const piPayload = {
+          ...invoiceAddressSelectionPayload(invoiceAddressSelection),
           purchaser_info: purchaseIdentity(purchaserInfo),
           purchase_request_id: getPurchaseRequestId(),
           attendees: attendees.map(a => ({ ...purchaseIdentity(a), job_title: a.job_title || '' })),
@@ -1280,7 +1343,9 @@ export default function PaymentOptions({
         let piResponse;
         try {
           piResponse = await complexEventApi.createPaymentIntent(piPayload);
+          assertCurrent();
         } catch (piError) {
+          assertCurrent();
           const errMsg = piError?.message || piError?.error || '';
           if (errMsg.includes('zero') || errMsg.includes('free registration')) {
             console.log('[PaymentOptions] Discount reduced total to zero, routing to free booking');
@@ -1289,6 +1354,7 @@ export default function PaymentOptions({
           }
           throw piError;
         }
+        if (invoiceAddressRequired(piResponse) || invoiceAddressConflictMessage(piResponse)) throw piResponse;
         if (!piResponse.clientSecret || !piResponse.publishableKey) {
           const errMsg = piResponse?.error || '';
           if (errMsg.includes('zero') || errMsg.includes('free registration')) {
@@ -1310,6 +1376,7 @@ export default function PaymentOptions({
         
         if (!guardTicketBooking()) return;
         const response = await base44.functions.invoke('createStripePaymentIntent', {
+          ...invoiceAddressSelectionPayload(invoiceAddressSelection),
           purchaserInfo: requiresPurchaserIdentity ? purchaseIdentity(purchaserInfo) : (isGuestCheckout ? purchaseIdentity(guestInfo) : purchaseIdentity(memberInfo)),
           guestInfo: isGuestCheckout ? (requiresPurchaserIdentity ? purchaseIdentity(purchaserInfo) : guestInfo) : null,
           attendees: attendees.filter(a => a.isValid).map(a => ({ ...a, ...purchaseIdentity(a) })),
@@ -1336,16 +1403,27 @@ export default function PaymentOptions({
             member_email: paymentEmail
           }
         });
+        assertCurrent();
 
         console.log('[PaymentOptions] Stripe payment intent response:', response.data);
         if (!response.data.success) {
+          if (invoiceAddressRequired(response.data) || invoiceAddressConflictMessage(response.data)) throw response.data;
           toast.error("Failed to initialize payment: " + (response.data.error || "Unknown error"));
           return;
         }
         clientSecret = response.data.clientSecret;
         paymentIntentId = response.data.paymentIntentId;
       }
+      break;
+      } catch (error) {
+        assertCurrent();
+        if (invoiceAddressConflictMessage(error) || !needsInvoiceDiscovery || !invoiceAddressRequired(error) || addressAttempt >= 1) throw error;
+        invoiceAddressSelection = await invoiceAddress.collect({ forceRequired: true });
+        assertCurrent();
+      }
+      }
 
+      assertCurrent();
       if (!guardTicketBooking()) return;
       setStripeClientSecret(clientSecret);
       setStripePaymentIntentId(paymentIntentId);
@@ -1410,10 +1488,14 @@ export default function PaymentOptions({
       
       setShowStripeModal(true);
     } catch (error) {
+      if (error.name === "AbortError" || !checkoutMounted.current || liveCheckoutScope.current !== checkoutScope) return;
       console.error("[PaymentOptions] Error creating Stripe Payment Intent:", error);
-      toast.error(error.response?.data?.error || error.message || "Failed to initialize payment");
+      toast.error(invoiceAddressConflictMessage(error) || error.response?.data?.error || error.error || error.message || "Failed to initialize payment");
     } finally {
-      doSetSubmitting(false);
+      if (stripeAttempt.current === attempt) {
+        stripeAttempt.current = null;
+        if (checkoutMounted.current) doSetSubmitting(false);
+      }
     }
   };
 
@@ -2673,6 +2755,7 @@ export default function PaymentOptions({
       )}
 
       {/* Stripe Payment Drawer */}
+      {invoiceAddress.step}
       <Sheet open={showStripeModal} onOpenChange={setShowStripeModal}>
         <SheetContent side="right" className="w-full sm:max-w-md flex flex-col h-full">
           <SheetHeader className="flex-shrink-0 mb-6">

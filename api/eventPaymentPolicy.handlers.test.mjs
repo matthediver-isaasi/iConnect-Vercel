@@ -16,6 +16,7 @@ const synchronousDependencies = new Set([
   'resolveTicketPrice',
   'normalizeRequestedVoucherIds',
   'needsPublicTicketMemberCreation',
+  'isPrivateTicket',
 ]);
 
 async function loadHandler(path) {
@@ -186,6 +187,9 @@ function fixture({
       if (name === 'getSessionMember') return authenticatedMember;
       if (name === 'normalizeRequestedVoucherIds') return args[0] || [];
       if (name === 'needsPublicTicketMemberCreation') return false;
+      if (name === 'isPrivateTicket') return false;
+      if (['assertPrivateTicketsAccessible', 'assertSimplePrivateTicketsAccessible'].includes(name)) return;
+      if (name === 'prepareEventInvoiceAddressPolicy') return null;
       if (name === 'getTicketClassFromConfig') return null;
       if (name === 'isTicketVisibleToUser') return true;
       if (name === 'ticketHasAccessRestrictions') return false;
@@ -313,6 +317,9 @@ test('simple payment initiation binds tenant, purchaser and original credits in 
     tenant_id: 'tenant-a',
     member_email: 'member@example.test',
     public_ticket_purchase_id: '',
+    event_invoice_policy_id: '',
+    event_invoice_policy_version: '',
+    event_invoice_member_id: '',
     event_credit_voucher_ids: 'voucher-a,voucher-b',
     event_credit_voucher_order_manual: 'true',
     event_credit_training_fund_minor: '513',
@@ -330,6 +337,22 @@ test('complex payment initiation rejects disabled mixed credits before Stripe', 
   assert.match(res.body.error, /Voucher payment/);
   assert.equal(state.providerCalls, 0);
   assert.deepEqual(state.effects, []);
+});
+
+test('simple invoice address requirement has stable status/code before Stripe calls', async () => {
+  const state = fixture();
+  const dependency = state.dependency;
+  state.dependency = (name, args) => {
+    if (name === 'prepareEventInvoiceAddressPolicy') throw Object.assign(new Error('Select invoice address'), {
+      statusCode: 400, code: 'EVENT_INVOICE_ADDRESS_REQUIRED',
+    });
+    return dependency(name, args);
+  };
+  const res = await invoke('simple', state, { functionName: 'createStripePaymentIntent', amount: 10,
+    memberEmail: 'member@example.test', metadata: { event_id: 'event-a' } });
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.body.code, 'EVENT_INVOICE_ADDRESS_REQUIRED');
+  assert.equal(state.createdPaymentIntentParams, undefined);
 });
 
 test('no-credit bookings still require readable attendee requirements after authentication', async () => {

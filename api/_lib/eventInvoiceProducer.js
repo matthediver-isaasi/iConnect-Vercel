@@ -1,6 +1,7 @@
 // Checkout captures evidence; the recovery worker is the only accounting writer.
 // No provider calls or credentials belong in a durable snapshot.
 import { normalizeStripeBillingAddress } from './stripeInvoiceAddress.js';
+import { loadPaidEventInvoicePolicy, policyInvoiceContact } from './eventInvoiceAddressPolicy.js';
 const clone = value => JSON.parse(JSON.stringify(value));
 const minor = value => Math.round(Number(value) * 100);
 
@@ -286,7 +287,14 @@ export async function enqueueCheckoutEventInvoice({
       }
     }
     if (paymentMethod === 'card') {
-      contact = stripeEventInvoiceContact(contact, paymentIntent);
+      if (contact?.provenance?.kind === 'member') {
+        snapshot.invoiceAddressPolicy = await loadPaidEventInvoicePolicy({
+          db, tenantId, eventId: event.id, source, contact, paymentIntent, provider: context.provider,
+        });
+        contact = snapshot.invoiceAddressPolicy ? clone(snapshot.invoiceAddressPolicy.contact) : stripeEventInvoiceContact(contact, paymentIntent);
+      } else {
+        contact = stripeEventInvoiceContact(contact, paymentIntent);
+      }
       snapshot.contact = contact ? clone(contact) : null;
     }
     snapshot.provider = context.provider;
@@ -296,7 +304,7 @@ export async function enqueueCheckoutEventInvoice({
     dueDate.setDate(dueDate.getDate() + 30);
     snapshot.invoice = {
       Type: 'ACCREC',
-      Contact: invoiceContactPayload(contact),
+      Contact: snapshot.invoiceAddressPolicy ? policyInvoiceContact(snapshot.invoiceAddressPolicy) : invoiceContactPayload(contact),
       Date: invoiceDate.toISOString().split('T')[0], DueDate: dueDate.toISOString().split('T')[0],
       CurrencyCode: snapshot.currency,
       // Preserve the historical Exclusive convention unless the purchased

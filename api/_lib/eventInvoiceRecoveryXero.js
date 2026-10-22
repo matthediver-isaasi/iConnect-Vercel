@@ -1,5 +1,6 @@
 import { EventInvoiceRecoveryError, recoveryLineAmount } from './eventInvoiceRecovery.js';
 import { createDecipheriv, scryptSync } from 'node:crypto';
+import { lookupEventXeroContact, policyInvoiceContact } from './eventInvoiceAddressPolicy.js';
 
 const day = value => {
   const xero = /^\/Date\((\d+)(?:[+-]\d{4})?\)\/$/.exec(String(value || ''));
@@ -277,7 +278,39 @@ export async function createEventInvoiceRecoveryXero({
     }
     return { invoices: [...invoices.values()], payments };
   })();
+  let preparedContact = null;
+  const prepareInvoiceContact = async () => {
+    if (preparedContact) return preparedContact;
+    let contact = snapshot.invoice.Contact;
+    // Covers queued pre-selector member Stripe invoices too. Never rewrite an
+    // existing contact/address, even if the contact appeared after checkout.
+    if (snapshot.paymentMethod === 'stripe' && snapshot.contact?.provenance?.kind === 'member') {
+      const policy = snapshot.invoiceAddressPolicy;
+      if (policy && (policy.version !== 1 || policy.memberId !== snapshot.contact.provenance.id
+        || policy.tenantId !== row.tenant_id || policy.provider?.connectionId !== snapshot.provider.connectionId
+        || policy.provider?.xeroTenantId !== snapshot.provider.xeroTenantId)) {
+        throw new EventInvoiceRecoveryError('invoice_address_policy_binding_invalid');
+      }
+      let existing;
+      try {
+        existing = await lookupEventXeroContact(api, {
+          name: policy?.contact?.name || snapshot.contact.name,
+          email: policy?.contact?.email || snapshot.contact.email,
+          contactId: policy?.existingContactId || contact.ContactID,
+        });
+      } catch (error) {
+        if (error instanceof EventInvoiceRecoveryError) throw error;
+        throw new EventInvoiceRecoveryError('invoice_customer_identity_unverified');
+      }
+      if (existing) contact = { ContactID: existing.ContactID };
+      else if (policy) contact = policyInvoiceContact(policy);
+      // Legacy absent-customer work retains its original frozen evidence.
+    }
+    preparedContact = contact;
+    return contact;
+  };
   return {
+    prepareInvoice: prepareInvoiceContact,
     async resolveTaxIntent() {
       if (snapshot.taxResolution?.kind !== 'future_checkout_provider_tax' || discovery) {
         throw new EventInvoiceRecoveryError('tax_intent_invalid');
@@ -350,8 +383,23 @@ export async function createEventInvoiceRecoveryXero({
       if (row.invoice_id || row.payment_id) {
         throw new EventInvoiceRecoveryError('invoice_creation_ambiguous');
       }
+      let contact = await prepareInvoiceContact();
+      if (snapshot.paymentMethod === 'stripe' && snapshot.contact?.provenance?.kind === 'member' && !contact.ContactID) {
+        // Xero PUT Contacts is create-only (POST is upsert). Do not embed an
+        // address in an invoice's contact: a customer appearing after the last
+        // read must cause a unique-name create rejection, not an address update.
+        // This write is inside the existing ambiguous-write fence; a lost
+        // response never permits blindly repeating invoice creation.
+        const created = single(await api('Contacts', 'PUT', { Contacts: [contact] }, `${identity}-contact`), 'Contacts');
+        if (!created.ContactID || created.ContactStatus !== 'ACTIVE'
+          || String(created.EmailAddress || '').trim().toLowerCase() !== String(snapshot.contact.email || '').trim().toLowerCase()) {
+          throw new EventInvoiceRecoveryError('created_invoice_customer_unverified');
+        }
+        contact = { ContactID: created.ContactID };
+        preparedContact = contact;
+      }
       return single(await api('Invoices', 'POST', {
-        Invoices: [{ ...snapshot.invoice, LineItems: snapshot.invoice.LineItems.map((line, i) =>
+        Invoices: [{ ...snapshot.invoice, Contact: contact, LineItems: snapshot.invoice.LineItems.map((line, i) =>
           i === 0 ? { ...line, Description: String(line.Description || '') + marker } : { ...line }) }],
       }, `${identity}-invoice`), 'Invoices');
     },
@@ -367,7 +415,8 @@ export async function createEventInvoiceRecoveryXero({
         || Number(invoice.Total) !== snapshot.amount || !verifyRecoveryInvoiceFinancials(invoice, snapshot,
           { legacy, identity: marked(invoice) ? identity : null })
         || (snapshot.invoice.Contact.ContactID && invoice.Contact?.ContactID !== snapshot.invoice.Contact.ContactID)
-        || (!snapshot.invoice.Contact.ContactID
+        || (preparedContact?.ContactID && invoice.Contact?.ContactID !== preparedContact.ContactID)
+        || (!snapshot.invoice.Contact.ContactID && !preparedContact?.ContactID
           && (String(invoice.Contact?.Name || '').trim() !== snapshot.invoice.Contact.Name.trim()
             || (legacy && (!snapshot.contact?.email || String(invoice.Contact?.EmailAddress || '').trim().toLowerCase()
               !== snapshot.contact.email.trim().toLowerCase()))))) {

@@ -179,6 +179,9 @@ export async function processEventInvoiceRecovery({
     if (!invoice && payments.length) throw new EventInvoiceRecoveryError('payment_without_invoice');
     if (!invoice) {
       if (row.invoice_id || row.invoice_write_started_at) throw new EventInvoiceRecoveryError('invoice_creation_ambiguous');
+      // Read-only purchaser/address checks must finish before journaling a
+      // potentially ambiguous provider write.
+      if (provider.prepareInvoice) await provider.prepareInvoice();
       await guard();
       if (!await rpc('start_write', { p_id: row.id, p_token: row.lease_token, p_kind: 'invoice' })) {
         throw new EventInvoiceRecoveryError('invoice_creation_ambiguous');

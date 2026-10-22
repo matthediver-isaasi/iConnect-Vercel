@@ -1,4 +1,5 @@
 import Stripe from 'stripe';
+import { prepareEventInvoiceAddressPolicy, createPolicyPaymentIntent } from '../_lib/eventInvoiceAddressPolicy.js';
 import { enforceAttendeeJobTitles } from '../_lib/attendeeJobTitleRequirement.js';
 import { assertPublicTicketPurchaser } from '../_lib/publicTicketEmail.js';
 import { preparePublicTicketPurchase, bindPublicTicketPayment } from '../_lib/publicTicketMemberPurchase.js';
@@ -135,9 +136,12 @@ export default async function handler(req, res) {
           member = { ...member, ...memberData };
         }
       }
-    } catch (e) {}
+    } catch (e) {
+      return res.status(503).json({ error: 'Unable to verify purchasing member session' });
+    }
 
     const isMember = member && memberTenantId === tenant.id;
+    if (member && !isMember) return res.status(403).json({ error: 'Unable to verify purchasing member in this tenant' });
     const paymentEmail = String((isMember ? member.email : purchaserEmail) || '').trim().toLowerCase();
     if (paymentEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(paymentEmail)) {
       return res.status(400).json({ error: 'A valid purchaser email is required' });
@@ -384,6 +388,12 @@ export default async function handler(req, res) {
       });
     }
 
+    const invoiceAddressPolicy = isMember ? await prepareEventInvoiceAddressPolicy({
+      db: supabase, tenantId: tenant.id, memberId: member.id, eventId: event_id, source: 'complex',
+      selection: req.body.invoiceAddressSelection, requestId: req.body.purchase_request_id,
+      charge: { amount: creditQuote.remainingMinor, currency, items: normalizedItems,
+        requestedVoucherIds, voucherOrderManual, trainingFundAmount, allocationInvitationId: allocationContext?.invitationId || null },
+    }) : null;
     const creds = await getStripeCredentials(tenant.id, 'events');
     if (!creds?.secret_key || !creds.is_enabled) {
       return res.status(503).json({ error: 'Stripe not configured for this tenant' });
@@ -401,6 +411,9 @@ export default async function handler(req, res) {
     }
 
     const metadata = {
+      event_invoice_policy_id: invoiceAddressPolicy?.id || '',
+      event_invoice_policy_version: invoiceAddressPolicy ? '1' : '',
+      event_invoice_member_id: invoiceAddressPolicy ? member.id : '',
       event_id,
       ticket_class_ids: ticketClassIds.join(','),
       tenant_id: tenant.id,
@@ -436,12 +449,16 @@ export default async function handler(req, res) {
       metadata.attendee_count = String(normalizedItems[0].attendee_count);
     }
 
-    const paymentIntent = await stripe.paymentIntents.create({
+    const paymentParameters = {
       amount: creditQuote.remainingMinor,
       currency,
       metadata: { ...metadata, public_ticket_purchase_id: publicTicketPurchase?.id || '' },
       ...(paymentEmail ? { receipt_email: paymentEmail } : {})
-    }, publicTicketPurchase ? { idempotencyKey: `public-ticket:${tenant.id}:${publicTicketPurchase.id}` } : undefined);
+    };
+    const paymentIntent = invoiceAddressPolicy
+      ? await createPolicyPaymentIntent({ db: supabase, stripe, preparation: invoiceAddressPolicy, parameters: paymentParameters })
+      : await stripe.paymentIntents.create(paymentParameters,
+        publicTicketPurchase ? { idempotencyKey: `public-ticket:${tenant.id}:${publicTicketPurchase.id}` } : undefined);
     if (publicTicketPurchase) {
       await bindPublicTicketPayment(supabase, publicTicketPurchase.id, tenant.id, paymentIntent.id);
     }
@@ -460,6 +477,7 @@ export default async function handler(req, res) {
     console.error('[Complex Event Payment Intent] Error:', error);
     return res.status(error.statusCode || 500).json({
       error: error.statusCode ? error.message : 'Failed to create payment intent',
+      ...(error.code ? { code: error.code } : {}),
     });
   }
 }

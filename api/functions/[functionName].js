@@ -6,6 +6,7 @@ import { publicTicketSimpleBaseTotal, validatePublicTicketSimpleCharge } from '.
 import { preparePublicTicketPurchase, bindPublicTicketPayment, completePublicTicketMembers, assertPublicTicketPaymentEvidence, loadPublicTicketPurchase } from '../_lib/publicTicketMemberPurchase.js';
 import { needsPublicTicketMemberCreation } from '../_lib/publicTicketMemberCreation.js';
 import { enqueueCheckoutEventInvoice, eventInvoiceContact, simpleEventInvoiceLines } from '../_lib/eventInvoiceProducer.js';
+import { prepareEventInvoiceAddressPolicy, createPolicyPaymentIntent, assertEventInvoicePaymentOwner } from '../_lib/eventInvoiceAddressPolicy.js';
 import { PUBLIC_INVOICE_PO, validatePublicInvoicePo, requirePublicInvoicePoBalance } from '../_lib/publicInvoicePo.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { resolveTicketPrice, isTicketVisibleToUser } from '../_lib/complexEventPricing.js';
@@ -716,6 +717,8 @@ const functionHandlers = {
     const trainingFundRequested = Number(trainingFundAmount) > 0;
     let resolvedTicketId;
     let publicTicketPurchase = null;
+    let invoiceAddressPolicy = null;
+    let verifiedTicketMember = null;
     if (metadata?.event_id || voucherRequested || trainingFundRequested || metadata?.ticket_class_id) {
       const eventId = metadata?.event_id;
       if (!eventId) throw new Error('event_id is required');
@@ -764,6 +767,17 @@ const functionHandlers = {
           });
         }
         const ticketPurchaser = await getSessionMember(req);
+        if (ticketPurchaser) {
+          const verified = await supabase.from('member').select('id,email,tenant_id')
+            .eq('id', ticketPurchaser.id).eq('tenant_id', tenantId).maybeSingle();
+          if (verified.error || !verified.data) throw new Error('Unable to verify purchasing member');
+          verifiedTicketMember = verified.data;
+          invoiceAddressPolicy = await prepareEventInvoiceAddressPolicy({
+            db: supabase, tenantId, memberId: verified.data.id, eventId: event.id, source: 'simple',
+            selection: params.invoiceAddressSelection, requestId: params.purchase_request_id,
+            charge: { amount: Math.round(amount * 100), currency, metadata, selectedVoucherIds, voucherOrderManual, trainingFundAmount },
+          });
+        }
         if (!isPrivateTicket(ticket) && needsPublicTicketMemberCreation([ticket], ticketPurchaser, tenantId)) {
           await validatePublicTicketSimpleCharge({
             ticket, attendees: params.attendees, tenantId, eventId: event.id,
@@ -791,7 +805,8 @@ const functionHandlers = {
     const stripe = await getStripeClient(tenantId, 'events');
     if (!stripe) throw new Error('Stripe not configured for this tenant');
 
-    const paymentEmail = publicTicketPurchase?.snapshot.purchaser.email || memberEmail;
+    const paymentEmail = invoiceAddressPolicy?.policy.contact.email
+      || publicTicketPurchase?.snapshot.purchaser.email || memberEmail;
     let stripeCustomer = null;
     if (paymentEmail) {
       let customerName = publicTicketPurchase
@@ -815,7 +830,7 @@ const functionHandlers = {
       });
     }
 
-    const paymentIntent = await stripe.paymentIntents.create({
+    const paymentParameters = {
       amount: Math.round(amount * 100),
       currency,
       customer: stripeCustomer?.id || undefined,
@@ -826,6 +841,9 @@ const functionHandlers = {
           ? { ticket_class_id: String(resolvedTicketId) }
           : resolvedTicketId === null && metadata?.ticket_class_id === 'default' ? { ticket_class_id: '' } : {}),
         tenant_id: tenantId,
+        event_invoice_policy_id: invoiceAddressPolicy?.id || '',
+        event_invoice_policy_version: invoiceAddressPolicy ? '1' : '',
+        event_invoice_member_id: invoiceAddressPolicy ? verifiedTicketMember.id : '',
         member_email: String(paymentEmail || '').trim().toLowerCase(),
         public_ticket_purchase_id: publicTicketPurchase?.id || '',
         ...buildEventCreditSnapshotMetadata({
@@ -834,7 +852,11 @@ const functionHandlers = {
           trainingFundAmount,
         }),
       }
-    }, publicTicketPurchase ? { idempotencyKey: `public-ticket:${tenantId}:${publicTicketPurchase.id}` } : undefined);
+    };
+    const paymentIntent = invoiceAddressPolicy
+      ? await createPolicyPaymentIntent({ db: supabase, stripe, preparation: invoiceAddressPolicy, parameters: paymentParameters })
+      : await stripe.paymentIntents.create(paymentParameters,
+        publicTicketPurchase ? { idempotencyKey: `public-ticket:${tenantId}:${publicTicketPurchase.id}` } : undefined);
     if (publicTicketPurchase) {
       await bindPublicTicketPayment(supabase, publicTicketPurchase.id, tenantId, paymentIntent.id);
     }
@@ -2455,6 +2477,16 @@ const functionHandlers = {
         // The amount was already validated when the PaymentIntent was created, so we do a loose sanity check
         // rather than a strict recalculation (which is fragile due to voucher/discount server-side revalidation).
         const piMetadata = paymentIntent.metadata || {};
+        if (piMetadata.event_invoice_policy_id || piMetadata.event_invoice_member_id) {
+          const payingMember = await getSessionMember(req);
+          if (!payingMember || payingMember.id !== piMetadata.event_invoice_member_id
+            || payingMember.id !== member?.id || isGuestBooking
+            || piMetadata.tenant_id !== event.tenant_id || piMetadata.event_id !== eventId) {
+            return { success: false, error: 'Payment does not belong to this authenticated purchaser' };
+          }
+          await assertEventInvoicePaymentOwner({ db: supabase, paymentIntent, tenantId: event.tenant_id,
+            eventId, source: 'simple', memberId: payingMember.id });
+        }
         if (piMetadata.payment_type === 'donation'
             || (piMetadata.ticket_class_id
               && String(normalizeSimpleTicketId(event, piMetadata.ticket_class_id)) !== String(ticketClassId))) {
@@ -7000,6 +7032,7 @@ export default async function handler(req, res) {
     return res.json(result);
   } catch (error) {
     console.error(`Function ${functionName} error:`, error);
-    return res.status(500).json({ error: error.message || 'Function execution failed' });
+    return res.status(error.statusCode || 500).json({ error: error.message || 'Function execution failed',
+      ...(error.code ? { code: error.code } : {}) });
   }
 }

@@ -158,11 +158,93 @@ tables, verifies no owner columns/backfill, private table grants/RLS/RPC
 permissions, independent atomic partial updates, wrong-tenant/missing-owner
 rejection, cleanup, and unchanged legacy/saved financial evidence.
 
+## Member Xero event Stripe policy (implementation; migration NOT applied)
+
+New authenticated member ticket payments only use a pre-Stripe server policy.
+`POST /api/event-invoice-address` accepts `{eventId,source:"simple"|"complex"}`.
+The private, no-store response contains `applicable`, `required`,
+`personalAddress`, `organizationAddress`, and `organizationLabel`. Resolved
+addresses are `{source:"structured",address:{invoicing_*}}`, or the linked
+organization's own `{source:"legacy",address:string}`. No provider IDs or
+private policy tokens are returned by discovery.
+
+Both PI creation paths independently reevaluate the selected Xero company and
+verified member. Existing customers skip private address reads/collection and
+freeze their ContactID. For absent customers the PI request must include
+`invoiceAddressSelection:{mode:"personal",address:{invoicing_*}}` or
+`{mode:"organization"}`. Organization details are loaded using the member's
+current tenant-scoped organization link, never browser address/owner authority.
+The member remains the customer. Selection does not save any profile address.
+Optional legacy member `xero_contact_id` is not ignored: any stored company
+binding must match, then that exact contact is read inside the selected company
+and purchaser email verified. Invalid/archived/missing/wrong-company mappings
+stop checkout rather than falling through to absence. Existing immutable
+`bnms_dd_beta_invoice_link` / `bnms_dd_alpha_invoice_link` records are also
+checked with exact tenant/member/Xero-company scope and internally consistent
+invoice/contact evidence. A unique trusted mapping survives a changed email;
+conflicting/malformed mappings fail closed. Missing optional pilot tables are
+unsupported provenance, not a failed live contact lookup. Organization-only
+sales mappings are never used to identify the individual member.
+
+`202612310026_event_invoice_address_policy.sql` is **unapplied**. It adds
+service-only immutable snapshot storage with forced RLS, browser grants
+revoked, validated tenant/member/event/source bindings, and no backfill. Apply
+only with separate approval before enabling this checkout release. PI creation
+fails explicitly if policy storage or lookup is unavailable; a private snapshot
+ID and authenticated member ID are stamped into server-created PI metadata.
+`purchase_request_id` is mandatory for scoped member payments. The same key
+replays the immutable policy; changed selection or charge details is HTTP 409.
+Additional service-only immutable tables freeze the exact Stripe creation
+parameters and bind the returned actual PI ID to policy ownership. Identical
+retries use a deterministic Stripe idempotency key; a bound PI is retrieved,
+not recreated. Interrupted unbound requests cannot initiate another payment
+after a conservative 23-hour idempotency window. Accounting loads policy by this
+durable PI binding, not metadata alone. New PI metadata carries policy version
+1; pre-rollout PIs with neither binding nor marker retain original charge
+address evidence and the guarded legacy Xero writer. Missing authority on a
+new marked PI still fails closed.
+Required/invalid invoice selection has stable HTTP 400 code
+`EVENT_INVOICE_ADDRESS_REQUIRED` in both payment-intent HTTP contracts.
+Booking verification checks this ownership before using the payment. Invoice
+producers copy frozen policy evidence, not charge billing details or today's
+private address. Missing/inconsistent authority becomes durable review.
+
+The dedicated Xero writer also protects queued legacy member Stripe invoices:
+before a new invoice write it performs a company-bound, exhaustive bounded
+customer lookup, failing closed for ambiguous identities, archived contacts,
+incomplete results, and lookup errors. Existing customers receive ContactID
+only (no address or other contact fields). This also protects customers created
+after checkout. Absent member customers use Xero's create-only `PUT Contacts`,
+never contact upsert; the invoice then receives only ContactID. A concurrent
+same-name creation rejects instead of updating its address. Contact creation is
+inside the existing ambiguous-write fence. Existing issued invoices are never updated. Old absent-customer
+work retains its original frozen evidence rather than inventing a selection.
+Contact reads precede the ambiguous-write journal; existing retry/lease/payment
+ownership authority remains intact. Generic membership contact behavior,
+QuickBooks, guest, non-card and on-account paths remain unchanged.
+
+Isolated coverage: `api/_lib/eventInvoiceAddressPolicy.test.mjs`, updated
+producer tests, and disposable PostgreSQL
+`supabase/migrations/eventInvoiceAddressPolicy.test.mjs`.
+No live provider calls, migrations, repairs or address writes were performed.
+Combined verification: 211 isolated tests passed, including mounted selector
+tests, both intent handlers, payment retry/binding checks, recovery, QuickBooks
+and disposable PostgreSQL protections. The application starts and unauthenticated
+POST to the new discovery route returns 401. Signed-in checkout was not visually
+verified: local preview still reports the existing SOURCE tenant-not-found error.
+The create-vs-upsert contract was checked against Xero's official OpenAPI
+specification: https://github.com/XeroAPI/Xero-OpenAPI/blob/master/xero_accounting.yaml
+defines `PUT /Contacts` as `createContacts` (Creates multiple contacts), versus
+`POST /Contacts` as `updateOrCreateContacts` (Updates or creates one or more
+contacts). Only the public documentation was fetched, not a provider tenant.
+
 ## Future integration prerequisites
 
 1. Explicit checkout payer/address selection and authorization, separate from
    attendee/booker identity and organization/group membership.
-2. Payment-time Stripe billing address precedence for individual Stripe payments.
+2. Apply the Xero event-ticket exception above rather than Stripe billing-address
+   precedence. Other payment paths retain their existing behaviour until separately
+   reviewed.
 3. Freeze the selected address and its provenance before accounting preparation;
    replay only frozen evidence, never today's entity values.
 4. Review every tabled path before opting it into the shared resolver; test

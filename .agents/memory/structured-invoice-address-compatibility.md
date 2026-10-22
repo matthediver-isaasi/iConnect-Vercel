@@ -69,3 +69,15 @@ historical Xero invoices.
 **How to apply:** This Xero-specific event-ticket rule overrides the general
 pre-Stripe address selector above. Do not extend it to QuickBooks or treat
 the selection of an organisation address as changing the invoice customer.
+
+Checkout retry identity must retain the original invoice instructions. Do not
+silently generate a new payment attempt when the invoice-address choice changes
+after preparation.
+
+**Why:** Stripe retry keys have a finite retention window, and a replacement
+address snapshot can otherwise turn an interrupted checkout into another payment.
+
+**How to apply:** Keep invoice instructions and payment identity together across
+retries; conflicting edits or expired ambiguous attempts require explicit
+resolution. Older payments without the new instructions retain their original
+evidence, while still receiving the existing-Xero-contact address protection.

@@ -17,6 +17,7 @@ function fixture({ provider = 'xero', enabled = 'true', invoiceStatus = 'AUTHORI
     ].map(([setting_key, setting_value]) => ({ setting_key, setting_value })),
     tenant_accounting_settings: { active_provider: provider },
     xero_token: tokens || [{ id: 'connection-a', tenant_id: 'xero-org-a' }],
+    event_invoice_payment_binding: { policy_id: 'policy-a' },
     quickbooks_token: [{ id: 'qb-connection', realm_id: 'qb-company', environment: 'production' }],
   };
   const db = {
@@ -30,7 +31,14 @@ function fixture({ provider = 'xero', enabled = 'true', invoiceStatus = 'AUTHORI
         maybeSingle() { return query; },
         then(resolve, reject) {
           return Promise.resolve({
-            data: rows[table] || null,
+            data: table === 'event_invoice_address_policy' ? { snapshot: {
+              version: 1, tenantId: 'tenant-a', eventId: 'event-a', memberId: 'member-a',
+              source: input.source === 'booking' ? 'simple' : 'complex',
+              provider: { connectionId: 'connection-a', xeroTenantId: 'xero-org-a' },
+              contact: structuredClone(input.contact), existingContactId: null, mode: 'personal',
+              address: { source: 'structured', address: { invoicing_address_line1: 'Selected invoice street',
+                invoicing_city: 'London', invoicing_postal_code: 'SW1A 1AA', invoicing_country: 'United Kingdom' } },
+            } } : rows[table] || null,
             error: settingsError && table === 'system_settings' ? { message: 'offline' } : null,
           }).then(resolve, reject);
         },
@@ -71,7 +79,8 @@ function fixture({ provider = 'xero', enabled = 'true', invoiceStatus = 'AUTHORI
 function paymentIntent(overrides = {}) {
   return {
     id: 'pi_original', status: 'succeeded', livemode: true, amount: 2500, amount_received: 2500,
-    currency: 'gbp', metadata: { event_id: 'event-a' }, capture_method: 'automatic',
+    currency: 'gbp', metadata: { event_id: 'event-a', tenant_id: 'tenant-a',
+      event_invoice_policy_id: 'policy-a', event_invoice_member_id: 'member-a' }, capture_method: 'automatic',
     created: 1700000000,
     latest_charge: {
       id: 'ch_original', status: 'succeeded', livemode: true, paid: true, captured: true,
@@ -233,9 +242,9 @@ for (const source of ['booking', 'complex_event_booking']) test(`${source}: Stri
   assert.equal(s.contact.provenance.kind, 'member');
   assert.equal(s.invoice.Contact.Name, 'Personal Payer');
   assert.equal(s.invoice.Contact.EmailAddress, member.email);
-  assert.equal(s.invoice.Contact.Addresses[0].AddressLine1, 'Card office');
+  assert.equal(s.invoice.Contact.Addresses[0].AddressLine1, 'Selected invoice street');
   assert.equal(s.invoice.Contact.Addresses[0].City, 'London');
-  assert.equal(s.invoice.Contact.Addresses[0].Country, 'GB');
+  assert.equal(s.invoice.Contact.Addresses[0].Country, 'United Kingdom');
   assert.equal(member.address, 'Personal street\nPersonal town\nPP1 1PP');
   assert.equal(org.address, 'Company street');
   assert.ok(!f.calls.some(call => call.update && ['member', 'organization'].includes(call.table)));
@@ -375,12 +384,12 @@ for (const [label, change] of [
     assert.equal((await enqueueCheckoutEventInvoice(f.input, f.deps)).status, 'needs_review');
     assert.equal(f.queued[0].snapshot.invoice, null);
     assert.equal(f.queued[0].snapshot.settlement, null);
-    if (label !== 'missing charge date') assert.ok(f.queued[0].snapshot.originalInvoice);
+    if (!['missing charge date', 'other event'].includes(label)) assert.ok(f.queued[0].snapshot.originalInvoice);
   });
 }
 
 for (const provider of ['xero', 'quickbooks']) {
-  for (const missing of [false, true]) test(`${provider}: Stripe address captured without profile writes; missing address blocks invoice (${missing})`, async () => {
+  for (const missing of [false, true]) test(`${provider}: invoice address authority stays provider-scoped without profile writes (${missing})`, async () => {
     const f = fixture({ provider });
     let captured;
     f.db.rpc = async (_name, args) => {
@@ -391,9 +400,12 @@ for (const provider of ['xero', 'quickbooks']) {
     if (missing) delete pi.latest_charge.billing_details;
     Object.assign(f.input, { paymentMethod: 'card', paymentIntentId: pi.id, paymentIntent: pi });
     const result = await enqueueCheckoutEventInvoice(f.input, f.deps);
-    assert.equal(result.status, missing ? 'needs_review' : 'pending');
+    assert.equal(result.status, missing && provider === 'quickbooks' ? 'needs_review' : 'pending');
     const contact = provider === 'quickbooks' ? captured.invoice.contact : f.queued[0].snapshot.contact;
-    if (!missing) {
+    if (provider === 'xero') {
+      assert.equal(contact.stripeBillingAddress, undefined);
+      assert.equal(f.queued[0].snapshot.invoice.Contact.Addresses[0].AddressLine1, 'Selected invoice street');
+    } else if (!missing) {
       assert.equal(contact.stripeBillingAddress.line1, 'Stripe road');
       assert.equal(contact.address, 'Stripe road\nLondon\nSW1A 1AA\nGB');
     }
