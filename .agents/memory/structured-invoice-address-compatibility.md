@@ -52,3 +52,20 @@ wins, separating invoice instructions from card security details.
 **How to apply:** Implement the checkout and accounting changes separately from
 the core-field foundation. Preserve historical evidence; do not reinterpret old
 payments as though they used the future selector.
+
+For tenants using Xero, apply this temporary exception to member event-ticket
+payments through Stripe until the Xero bug is fixed and invoice addresses are
+baked into invoices:
+
+- If the member already has a Xero account, do not ask for a billing address
+  before opening Stripe and do not send an invoice address to Xero.
+- If the member does not have a Xero account, ask for an invoice address or,
+  when connected to an organisation, offer its invoice address. Create the
+  invoice using the supplied details.
+
+**Why:** The owner requires protection against overwriting addresses on
+historical Xero invoices.
+
+**How to apply:** This Xero-specific event-ticket rule overrides the general
+pre-Stripe address selector above. Do not extend it to QuickBooks or treat
+the selection of an organisation address as changing the invoice customer.
