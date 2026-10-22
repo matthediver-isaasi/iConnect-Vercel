@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { Link } from "react-router-dom";
 import VoucherSelector from "../components/booking/VoucherSelector";
+import { useBookingVouchers } from '../components/booking/useBookingVouchers';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { CheckCircle2 } from "lucide-react";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -144,6 +145,15 @@ export default function BuyProgramTicketsPage({
   // Use context values if available, otherwise fall back to props, then hook
   const memberInfo = contextMemberInfo || propsMemberInfo;
   const organizationInfo = contextOrganizationInfo || propsOrganizationInfo;
+  const { data: personalProgram = {}, error: programEntitlementError, refetch: refreshPersonalProgram } = useQuery({
+    queryKey: ['personal-program-entitlements', memberInfo?.id], enabled: !!memberInfo?.id,
+    queryFn: async () => {
+      const response = await base44.functions.invoke('getProgramEntitlements', {});
+      if (response.data?.error) throw new Error(response.data.error);
+      return response.data.personal_balances;
+    },
+  });
+  const programBalances = organizationInfo?.program_ticket_balances || personalProgram;
   const memberRole = contextMemberRole || propsMemberRole || hookMemberRole;
   const isFeatureExcluded = contextIsFeatureExcluded || propsIsFeatureExcluded || (() => false);
   const refreshOrganizationInfo = contextRefreshOrganizationInfo || propsRefreshOrganizationInfo || (() => {});
@@ -157,6 +167,9 @@ export default function BuyProgramTicketsPage({
   const [selectedVouchers, setSelectedVouchers] = useState([]);
   const [trainingFundAmount, setTrainingFundAmount] = useState(0);
   const [remainingBalancePaymentMethod, setRemainingBalancePaymentMethod] = useState('account');
+  useEffect(() => {
+    if (!organizationInfo?.id) setRemainingBalancePaymentMethod('card');
+  }, [organizationInfo?.id]);
 
   // Discount code state
   const [discountCodeInput, setDiscountCodeInput] = useState("");
@@ -182,6 +195,48 @@ export default function BuyProgramTicketsPage({
   const hasAutoStartedListTour = useRef(false);
   const hasAutoStartedFormTour = useRef(false);
   const hasUpdatedExpiredVouchers = useRef(false);
+  const purchaseRequestId = useRef(crypto.randomUUID());
+  const purchaseRequestFingerprint = useRef(null);
+  const [pendingAccounting, setPendingAccounting] = useState([]);
+  const [retryingAccounting, setRetryingAccounting] = useState(null);
+  const accountingStorageKey = memberInfo?.id
+    ? `program_accounting_${memberInfo.tenant_id || 'tenant'}_${memberInfo.id}` : null;
+  useEffect(() => {
+    if (!accountingStorageKey) return;
+    try {
+      const saved = JSON.parse(localStorage.getItem(accountingStorageKey) || '[]');
+      setPendingAccounting(Array.isArray(saved) ? saved : []);
+    } catch { toast.error('Could not restore pending programme invoice retries. Contact support with your purchase reference.'); }
+  }, [accountingStorageKey]);
+  const savePendingAccounting = (rows) => {
+    setPendingAccounting(rows);
+    try {
+      if (accountingStorageKey) localStorage.setItem(accountingStorageKey, JSON.stringify(rows));
+    } catch { toast.error('Could not save invoice retry reference on this device. Keep this page open.'); }
+  };
+  const recordPurchaseAccounting = (accounting) => {
+    if (accounting?.status === 'complete') return;
+    const entry = { purchaseRequestId: purchaseRequestId.current, programName: selectedProgram?.name,
+      error: accounting?.error || 'Invoice accounting is pending.' };
+    savePendingAccounting([...pendingAccounting.filter(row => row.purchaseRequestId !== entry.purchaseRequestId), entry]);
+  };
+  const retryPurchaseAccounting = async (entry) => {
+    setRetryingAccounting(entry.purchaseRequestId);
+    try {
+      const response = await base44.functions.invoke('processProgramTicketPurchase', {
+        purchaseRequestId: entry.purchaseRequestId, accountingOnly: true,
+      });
+      if (!response?.data?.success) throw new Error(response?.data?.error || 'Unable to retry programme accounting');
+      if (response.data.accounting?.status === 'complete') {
+        savePendingAccounting(pendingAccounting.filter(row => row.purchaseRequestId !== entry.purchaseRequestId));
+        toast.success('Programme invoice accounting completed. No additional tickets or payments were created.');
+      } else {
+        const error = response.data.accounting?.error || 'Accounting is processing; retry shortly.';
+        savePendingAccounting(pendingAccounting.map(row => row.purchaseRequestId === entry.purchaseRequestId ? { ...row, error } : row));
+      }
+    } catch (error) { toast.error(error.message); }
+    finally { setRetryingAccounting(null); }
+  };
 
   const queryClient = useQueryClient();
 
@@ -293,19 +348,8 @@ export default function BuyProgramTicketsPage({
   const restrictVouchersToEventDate = voucherExpirySetting?.setting_value === 'false';
 
   // Fetch vouchers to calculate total value of selected ones
-  const { data: vouchers = [] } = useQuery({
-    queryKey: ['vouchers', organizationInfo?.id],
-    queryFn: async () => {
-      if (!organizationInfo?.id) return [];
-      return await base44.entities.Voucher.filter({
-        organization_id: organizationInfo.id,
-        status: 'active'
-      });
-    },
-    enabled: !!organizationInfo?.id && !isFeatureExcluded('payment_training_vouchers'), // Only fetch if feature is not excluded
-    staleTime: 0,
-    refetchOnMount: true,
-  });
+  const { data: vouchers = [] } = useBookingVouchers(
+    memberInfo, organizationInfo, !isFeatureExcluded('payment_training_vouchers'));
 
   // Load saved program purchase data on program selection (only depends on selectedProgram ID)
   useEffect(() => {
@@ -435,7 +479,7 @@ export default function BuyProgramTicketsPage({
     setTourAutoShowForm(true);
   };
 
-  if (!memberInfo || !organizationInfo) {
+  if (!memberInfo) {
     return (
       <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <div className="animate-pulse text-slate-600">Loading...</div>
@@ -443,9 +487,8 @@ export default function BuyProgramTicketsPage({
 
   }
 
-  const organizationTotalTickets = organizationInfo.program_ticket_balances ?
-    Object.values(organizationInfo.program_ticket_balances).reduce((sum, val) => sum + val, 0) :
-    0;
+  if (programEntitlementError) return <div role="alert" className="p-6 text-red-700">{programEntitlementError.message}</div>;
+  const organizationTotalTickets = Object.values(programBalances).reduce((sum, val) => sum + Number(val), 0);
 
   const eventCountByProgram = events.reduce((acc, event) => {
     if (event.program_tag) {
@@ -561,6 +604,7 @@ export default function BuyProgramTicketsPage({
   };
 
   const handleProgramSelect = (program) => {
+    purchaseRequestId.current = crypto.randomUUID();
     setSelectedProgram(program);
     // When a new program is selected, ensure we reset purchase states
     // The useEffect for `selectedProgram` will then load from session storage
@@ -657,6 +701,8 @@ export default function BuyProgramTicketsPage({
 
     try {
       const response = await base44.functions.invoke('processProgramTicketPurchase', {
+        purchaseRequestId: purchaseRequestId.current,
+        programId: selectedProgram.id,
         memberEmail: memberInfo.email,
         programName: selectedProgram.name, // Use name for purchase, tag in metadata etc
         quantity: parseInt(quantity),
@@ -670,6 +716,8 @@ export default function BuyProgramTicketsPage({
       });
 
       if (response?.data?.success === true) {
+        recordPurchaseAccounting(response.data.accounting);
+        await refreshPersonalProgram();
         // Clear saved state for this program
         if (selectedProgram) {
           sessionStorage.removeItem(`program_purchase_${selectedProgram.id}`);
@@ -718,6 +766,13 @@ export default function BuyProgramTicketsPage({
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const fingerprint = JSON.stringify([memberInfo?.id, selectedProgram?.id, quantity,
+      selectedVouchers, trainingFundAmount, appliedDiscount?.discountId,
+      remainingBalancePaymentMethod, purchaseOrderNumber]);
+    if (purchaseRequestFingerprint.current !== fingerprint) {
+      purchaseRequestFingerprint.current = fingerprint;
+      purchaseRequestId.current = crypto.randomUUID();
+    }
 
     if (quantity === '' || quantity < 1) {
       toast.error("Please enter a valid quantity (at least 1)");
@@ -739,13 +794,20 @@ export default function BuyProgramTicketsPage({
       setSubmitting(true);
       try {
         const response = await base44.functions.invoke('createStripePaymentIntent', {
+          purchaseRequestId: purchaseRequestId.current,
+          programId: selectedProgram.id,
+          programName: selectedProgram.name,
+          quantity: parseInt(quantity),
+          selectedVoucherIds: isFeatureExcluded('payment_training_vouchers') ? [] : selectedVouchers,
+          trainingFundAmount: isFeatureExcluded('payment_training_fund') ? 0 : trainingFundAmount,
+          appliedDiscountId: appliedDiscount?.discountId || null,
           amount: remainingBalance, // Amount in GBP, will be converted to minor units on backend
           currency: 'gbp',
           memberEmail: memberInfo.email, // Added memberEmail for authentication context
           metadata: { // Optional metadata
             program_name: selectedProgram.program_tag,
             quantity: quantity,
-            organization_id: organizationInfo.id, // Include organization ID for context
+            organization_id: organizationInfo?.id || null,
             discount_code: appliedDiscount?.code || null
           }
         });
@@ -771,6 +833,8 @@ export default function BuyProgramTicketsPage({
 
     try {
       const response = await base44.functions.invoke('processProgramTicketPurchase', {
+        purchaseRequestId: purchaseRequestId.current,
+        programId: selectedProgram.id,
         memberEmail: memberInfo.email,
         programName: selectedProgram.name, // This is the quantity being paid for
         quantity: parseInt(quantity),
@@ -788,6 +852,7 @@ export default function BuyProgramTicketsPage({
       console.log('[BuyProgramTickets] response.data.success:', response.data?.success);
 
       if (response?.data?.success === true) {
+        recordPurchaseAccounting(response.data.accounting);
         // Clear saved state for this program
         if (selectedProgram) {
           sessionStorage.removeItem(`program_purchase_${selectedProgram.id}`);
@@ -795,6 +860,7 @@ export default function BuyProgramTicketsPage({
 
         if (refreshOrganizationInfo) {
           await refreshOrganizationInfo();
+          await refreshPersonalProgram();
         }
 
         // Store purchase details for modal
@@ -843,6 +909,23 @@ export default function BuyProgramTicketsPage({
 
   return (
     <div className="min-h-screen p-4 md:p-8">
+      {pendingAccounting.length > 0 && (
+        <section role="status" className="mb-6 rounded-lg border border-amber-300 bg-amber-50 p-4 space-y-3">
+          <h2 className="font-semibold text-amber-950">Tickets purchased — invoice accounting pending</h2>
+          <p className="text-sm text-amber-900">Your tickets are available. Do not buy again to fix an invoice. Ask your administrator to resolve the error, then retry accounting only.</p>
+          {pendingAccounting.map(entry => (
+            <div key={entry.purchaseRequestId} className="border-t border-amber-200 pt-3">
+              <p className="font-medium">{entry.programName}</p>
+              <p className="text-sm break-words">{entry.error}</p>
+              <p className="text-xs text-slate-600 break-all">Purchase reference: {entry.purchaseRequestId}</p>
+              <Button type="button" variant="outline" className="mt-2" disabled={!!retryingAccounting}
+                onClick={() => retryPurchaseAccounting(entry)}>
+                {retryingAccounting === entry.purchaseRequestId ? 'Retrying accounting…' : 'Retry invoice accounting (no new purchase)'}
+              </Button>
+            </div>
+          ))}
+        </section>
+      )}
       {/* Tour for List View */}
       {showListTour && shouldShowTours && !selectedProgram && (
         <PageTour 
@@ -921,7 +1004,7 @@ export default function BuyProgramTicketsPage({
 
               <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {programs.map((program, index) => {
-                  const currentBalance = organizationInfo.program_ticket_balances?.[program.program_tag] || 0;
+                  const currentBalance = programBalances[program.program_tag] || 0;
                   const eventCount = eventCountByProgram[program.program_tag] || 0;
 
                   return (
@@ -1039,7 +1122,7 @@ export default function BuyProgramTicketsPage({
                       <div className="flex items-center gap-2">
                         <Ticket className="w-5 h-5 text-purple-600" />
                         <span className="text-xl font-bold text-purple-600">
-                          {organizationInfo.program_ticket_balances?.[selectedProgram.program_tag] || 0}
+                          {programBalances[selectedProgram.program_tag] || 0}
                         </span>
                       </div>
                 
@@ -1048,7 +1131,7 @@ export default function BuyProgramTicketsPage({
                     <div className="space-y-2"> 
 
                       <p className="text-xs text-slate-500">
-                        This is the number of tickets your organisation has already purchased but not yet allocated to attendees
+                        This is the number of {organizationInfo ? 'organisation' : 'personal'} tickets already purchased but not yet allocated to attendees
                       </p>
                     </div>
 
@@ -1182,9 +1265,11 @@ export default function BuyProgramTicketsPage({
                       <div id="training-vouchers-section" className="p-4 rounded-lg border border-slate-200 bg-blue-50">
                         <div className="flex items-center gap-2 mb-3">
                           <Ticket className="w-4 h-4 text-blue-600" />
-                          <Label className="text-sm font-medium">Training Vouchers</Label>
+                          <Label className="text-sm font-medium">Available credit</Label>
                         </div>
                         <VoucherSelector
+                          memberInfo={memberInfo}
+                          organizationInfo={organizationInfo}
                           organizationId={organizationInfo?.id}
                           selectedVouchers={selectedVouchers}
                           onVoucherToggle={setSelectedVouchers}
@@ -1248,9 +1333,9 @@ export default function BuyProgramTicketsPage({
                                 id="account-payment-option"
                                 className="flex items-start space-x-3 p-3 rounded-lg border-2 transition-colors cursor-pointer hover:bg-slate-100"
                                 style={{ borderColor: remainingBalancePaymentMethod === 'account' ? '#6366f1' : '#e2e8f0' }}
-                                onClick={() => setRemainingBalancePaymentMethod('account')}
+                                onClick={() => organizationInfo?.id && setRemainingBalancePaymentMethod('account')}
                               >
-                                <RadioGroupItem value="account" id="account" className="mt-1" />
+                                <RadioGroupItem value="account" id="account" className="mt-1" disabled={!organizationInfo?.id} />
                                 <div className="flex-1">
                                   <Label htmlFor="account" className="text-sm leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 font-medium cursor-pointer">Charge to Organisation Account</Label>
                                   <p className="text-xs text-slate-500 mt-1">Requires purchase order number</p>
@@ -1480,6 +1565,11 @@ export default function BuyProgramTicketsPage({
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-2 w-full mt-4">
+            {pendingAccounting.some(row => row.purchaseRequestId === purchaseRequestId.current) && (
+              <div role="alert" className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+                Your tickets were purchased, but invoice accounting needs attention. Close this message to view the error and retry accounting without purchasing or paying again.
+              </div>
+            )}
             <Button
               onClick={() => {
                 handleCloseSuccessModal();

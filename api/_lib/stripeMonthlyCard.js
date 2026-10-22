@@ -1502,6 +1502,9 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
     }
 
     const ensured = await ensureCardPlanForCheckout({ agreement, session: object, db });
+    if (agreement.metadata?.card?.voucher_funding) {
+      await (await import('./membershipVoucherMonthly.js')).commitMembershipVoucherMonthly(db, agreement);
+    }
     await applyStatusTransition({
       entityType: 'billing_agreement',
       entityId: agreement.id,
@@ -1641,7 +1644,19 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
     // already-posted instalment is never minted twice. Best-effort: the
     // posting records its own posted/failed status and never blocks the
     // instalment bookkeeping below.
-    if (isPerInstalmentAgreement(agreement)) {
+    if (agreement.metadata?.card?.voucher_funding) {
+      const { commitMembershipVoucherMonthly } = await import('./membershipVoucherMonthly.js');
+      await commitMembershipVoucherMonthly(db, agreement);
+      const { resolveStripeInvoicePaymentIntent } = await import('./membershipInstalmentInvoicing.js');
+      const paymentIntentId = await resolveStripeInvoicePaymentIntent({
+        stripeInvoiceId: object.id, stripeInvoice: object, stripe: await getStripe(),
+        agreement, plan, amountMinor: Number(object.amount_paid), currency: object.currency,
+      });
+      await (await import('./membershipVoucherMonthlyAccounting.js')).postMembershipVoucherMonthlyCashBatch({
+        db, agreement, provider: 'stripe', externalReference: object.id,
+        cashMinor: Number(object.amount_paid), currency: object.currency, stripePaymentIntentId: paymentIntentId,
+      });
+    } else if (isPerInstalmentAgreement(agreement)) {
       try {
         const postFn = deps.postInstalmentInvoice || postStripeInstalmentInvoice;
         await postFn({
@@ -1676,10 +1691,12 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
       await postSettledArrearsPeriods({
         tenantId: plan.tenant_id, planId: plan.id, providerReference: object.id,
         agreement, db,
-        postPeriod: ({ amountMinor, externalReference }) =>
+        postPeriod: ({ period, amountMinor, externalReference }) =>
           (deps.postInstalmentInvoice || postStripeInstalmentInvoice)({
             agreement, plan, stripeInvoiceId: externalReference,
             stripePaymentEvidenceInvoiceId: object.id, stripeInvoice: object, amountMinor,
+            voucherCollectionUnit: agreement.metadata?.card?.voucher_funding
+              ? (catchUpIntent.period_ids || []).indexOf(period.id) + 1 : null,
             currency: (object.currency || '').toUpperCase() || null,
           }, { db, getProvider: deps.getProvider, getStripe }),
       });

@@ -44,6 +44,90 @@ import { base44, setActiveTenantId } from "@/api/base44Client";
 import { adminFetch } from "@/lib/adminFetch";
 import StripeMembershipWebhookSettings from "@/components/admin/StripeMembershipWebhookSettings";
 
+function VoucherClearingAccountSettings() {
+  const fields = [
+    { key: 'xero_voucher_clearing_account_code', label: 'Xero voucher clearing account code', placeholder: 'Account code from Xero' },
+    { key: 'quickbooks_voucher_clearing_account_id', label: 'QuickBooks voucher clearing account ID', placeholder: 'Account ID from QuickBooks' },
+    { key: 'xero_training_fund_clearing_account_code', label: 'Xero training fund clearing account code', placeholder: 'Dedicated payment-enabled clearing account' },
+    { key: 'quickbooks_training_fund_clearing_account_id', label: 'QuickBooks training fund clearing account ID', placeholder: 'Dedicated clearing account ID' },
+    { key: 'xero_program_sales_account_code', label: 'Xero programme sales account code', placeholder: 'Programme revenue account code' },
+    { key: 'quickbooks_program_sales_item_id', label: 'QuickBooks programme sales item ID', placeholder: 'Programme revenue item ID' },
+    { key: 'xero_program_tax_code', label: 'Xero programme tax code', placeholder: 'Exact tax type matching the VAT rate below' },
+    { key: 'quickbooks_program_tax_code', label: 'QuickBooks programme tax code ID', placeholder: 'Exact tax code ID matching the VAT rate below' },
+    { key: 'program_price_vat_rate_percent', label: 'VAT included in programme prices (%)', placeholder: 'Required: e.g. 20, or explicitly 0 for no VAT' },
+  ];
+  const [rows, setRows] = useState({});
+  const [values, setValues] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState(null);
+  const [failure, setFailure] = useState(null);
+  useEffect(() => {
+    let active = true;
+    base44.entities.SystemSettings.list().then(result => {
+      if (!active) return;
+      const byKey = Object.fromEntries((Array.isArray(result) ? result : []).map(row => [row.setting_key, row]));
+      setRows(byKey);
+      setValues(Object.fromEntries(fields.map(field => [field.key, byKey[field.key]?.setting_value || ''])));
+    }).catch(error => { if (active) setFailure(error.message || 'Could not load clearing account settings'); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, []);
+  async function save() {
+    setSaving(true); setMessage(null); setFailure(null);
+    try {
+      const code = (values.xero_voucher_clearing_account_code || '').trim();
+      const id = (values.quickbooks_voucher_clearing_account_id || '').trim();
+      if (code && !/^[A-Za-z0-9._-]{1,50}$/.test(code)) throw new Error('Enter the exact Xero account code, not an account name.');
+      if (id && !/^[0-9]+$/.test(id)) throw new Error('Enter the numeric QuickBooks account ID.');
+      const normalized = Object.fromEntries(fields.map(field => [field.key, (values[field.key] || '').trim()]));
+      for (const field of fields) {
+        const value = normalized[field.key];
+        if (!value) continue;
+        if (field.key === 'program_price_vat_rate_percent') {
+          if (!/^\d{1,3}(\.\d{1,4})?$/.test(value) || Number(value) > 100) throw new Error('Programme VAT rate must be between 0 and 100.');
+        } else if (field.key.startsWith('quickbooks_')) {
+          if (!/^\d+$/.test(value)) throw new Error(`${field.label} must be a numeric ID.`);
+        } else if (!/^[A-Za-z0-9._-]{1,50}$/.test(value)) throw new Error(`Enter the exact ${field.label}, not its display name.`);
+      }
+      for (const field of fields) {
+        const row = rows[field.key];
+        if (row?.id) {
+          await base44.entities.SystemSettings.update(row.id, { setting_value: normalized[field.key] });
+        } else {
+          const created = await base44.entities.SystemSettings.create({
+            setting_key: field.key, setting_value: normalized[field.key],
+            description: field.label,
+          });
+          setRows(current => ({ ...current, [field.key]: created }));
+        }
+      }
+      setValues(normalized);
+      setMessage('Funding and programme mappings saved. Pending invoice accounting can now be retried without buying again.');
+    } catch (error) {
+      setFailure(error.message || 'Could not save voucher clearing accounts');
+    } finally { setSaving(false); }
+  }
+  return (
+    <div className="mt-6 border-t border-slate-700 pt-5 space-y-3">
+      <h3 className="font-medium text-white">Funding clearing accounts and programme invoice settings</h3>
+      <p className="text-sm text-slate-400">Ask your accountant which payment-enabled clearing account represents voucher funding. Credit settles the gross invoice; it is not a fee discount or a Stripe cash payment. Each provider mapping is independent. Leaving a mapping blank prevents voucher accounting for that provider; cash-account fallback is never used.</p>
+      <p className="text-sm text-slate-400">Programme ticket prices are the final amount charged, inclusive of any VAT. Set the included VAT percentage and matching tax code; VAT is extracted, never added to checkout prices. There is no implicit zero-VAT default. Programme invoices use the dedicated sales account/item, not membership revenue. Saved invoice attempts retain their original tax breakdown on retry.</p>
+      {fields.map(field => <div key={field.key} className="space-y-1">
+        <Label htmlFor={field.key} className="text-slate-300">{field.label}</Label>
+        <Input id={field.key} value={values[field.key] || ''} placeholder={field.placeholder}
+          disabled={loading || saving} className="bg-slate-800 border-slate-600 text-white"
+          onChange={event => { setMessage(null); setValues(current => ({ ...current, [field.key]: event.target.value })); }} />
+      </div>)}
+      {failure && <p role="alert" className="text-sm text-red-400">{failure}</p>}
+      {message && <p role="status" className="text-sm text-emerald-400">{message}</p>}
+      <Button type="button" onClick={save} disabled={loading || saving || (Object.keys(values).length === 0)}>
+        {saving ? 'Saving…' : 'Save funding and programme accounting settings'}
+      </Button>
+    </div>
+  );
+}
+
 function StripeTestCardForm({ onReady }) {
   const [ready, setReady] = useState(false);
 
@@ -2281,6 +2365,7 @@ export default function AdminIntegrations() {
                     <SelectItem value="quickbooks" data-testid="option-accounting-quickbooks">QuickBooks Online</SelectItem>
                   </SelectContent>
                 </Select>
+                <VoucherClearingAccountSettings />
                 <p className="text-xs text-slate-400">
                   Only one accounting provider can be active at a time. Connecting one will disconnect the other.
                 </p>

@@ -252,6 +252,23 @@ export async function recordSucceededMembershipPaymentIntent(
       }
     }
   }
+  if (feeToken) {
+    const { loadMembershipVoucherSettlement, completeMembershipVoucherSettlement } = await import('./membershipVoucherSettlement.js');
+    const settlement = await loadMembershipVoucherSettlement(db, feeToken);
+    if ((settlement || md.membership_voucher_settlement_id) && (!settlement || settlement.id !== md.membership_voucher_settlement_id)) {
+      return { status: 'conflict', detail: 'Membership voucher commitment does not match captured cash' };
+    }
+    if (settlement) {
+      try {
+        const result = await completeMembershipVoucherSettlement(db, feeToken, settlement, pi, deps.voucherSettlement);
+        return { status: result.accountingSyncError ? 'accounting-pending' : 'recorded',
+          table: feeToken.member_id ? 'member_membership_history' : 'organisation_membership_history', recordId: settlement.history_record_id,
+          detail: result.accountingSyncError || null };
+      } catch (error) {
+        return { status: 'conflict', detail: error.message };
+      }
+    }
+  }
   let startSimulation = null;
   try {
     startSimulation = simulationFromMemberStart(feeToken);

@@ -1,4 +1,6 @@
 import { validateSurveyCompletionUpdate } from '../../_lib/surveyCompletionConfiguration.js';
+import { handleVoucherEntity, authorizeVoucherSettingWrite } from '../../_lib/voucherEntityBoundary.js';
+import { handleProgramEntitlementEntity } from '../../_lib/programEntitlementBoundary.js';
 import { validateDirectoryConfiguration, canManageDirectoryConfiguration } from '../../_lib/directoryExpression.js';
 import { authorizeCarouselConsentWrite } from '../../_lib/directoryCarouselConsent.js';
 import { validateTicketRelease } from '../../../shared/ticketRelease.js';
@@ -334,6 +336,11 @@ export default async function handler(req, res, dependencies = {}) {
 
   // Get tenant context from session
   const tenantCtx = await (dependencies.getTenantContext || getTenantContext)(req);
+  if (await handleProgramEntitlementEntity({ entity: entityNorm, id, req, res, context: tenantCtx, db: supabase, hasAdminAccess })) return;
+  if (await handleVoucherEntity({ entity: entityNorm, id, req, res, context: tenantCtx,
+    db: requestDatabase, hasAdminAccess: dependencies.hasAdminAccess || hasAdminAccess })) return;
+  if (await authorizeVoucherSettingWrite({ entity: entityNorm, id, req, res, context: tenantCtx,
+    db: requestDatabase, hasAdminAccess: dependencies.hasAdminAccess || hasAdminAccess })) return;
   if (await enforceInvoicingAddressBoundary({
     entity, id, req, res, context: tenantCtx,
     hasAdminAccess: dependencies.hasAdminAccess || hasAdminAccess,

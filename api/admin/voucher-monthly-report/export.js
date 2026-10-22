@@ -35,13 +35,13 @@ function cell(value) {
 }
 
 const SUMMARY_HEADERS = [
-  'Organisation', 'Month', 'Opening Balance', 'Allocated', 'Used', 'Expired',
+  'Owner / Scheme', 'Month', 'Opening Balance', 'Allocated', 'Used', 'Expired',
   'Adjustments (+)', 'Adjustments (-)', 'Reinstated', 'Closing Balance',
   'Reserved (Future Events)', 'Available Balance',
 ];
 
 const DETAIL_HEADERS = [
-  'Organisation', 'Reporting Month', 'Transaction Date', 'Type',
+  'Owner / Scheme', 'Reporting Month', 'Transaction Date', 'Type',
   'Voucher Reference', 'Voucher Status', 'Voucher Expiry', 'Allocation Date',
   'Funding Source', 'Event', 'Event Date', 'Booking Reference', 'Delegate',
   'Amount', 'Created By', 'Notes', 'Adjustment Reference',
@@ -60,6 +60,7 @@ export default async function handler(req, res) {
   }
 
   const ctx = await getTenantContext(req);
+  if (ctx?.tenantMismatch) return res.status(409).json({ code: 'TENANT_CONTEXT_CHANGED', error: 'Tenant context changed' });
   if (!ctx || !ctx.isAuthenticated) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
@@ -84,6 +85,8 @@ export default async function handler(req, res) {
   try {
     const summary = await getSummary(tenantId, month);
     const summaryRows = applySummaryFilters(summary.rows, {
+      memberId: req.query?.member_id,
+      ownerType: req.query?.owner_type,
       organizationId: typeof req.query?.organization_id === 'string' ? req.query.organization_id : null,
       balance: req.query?.balance,
     });
@@ -106,7 +109,7 @@ export default async function handler(req, res) {
       ...stamp,
       SUMMARY_HEADERS,
       ...summaryRows.map((r) => [
-        cell(r.organization_name),
+        cell(`${r.organization_name} · ${r.owner_display_name}`),
         cell(month),
         r.opening_balance, r.allocated, r.used, r.expired,
         r.adjustments_positive, r.adjustments_negative, r.reinstated,
@@ -118,7 +121,7 @@ export default async function handler(req, res) {
       ...stamp,
       DETAIL_HEADERS,
       ...detailRows.map((r) => [
-        cell(r.organization_name),
+        cell(`${r.organization_name} · ${r.owner_display_name}`),
         cell(r.reporting_month),
         cell(dateOnly(r.transaction_date)),
         cell(r.type),

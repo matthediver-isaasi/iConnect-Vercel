@@ -55,7 +55,7 @@ async function pageAll(build) {
 // the stale legacy SOURCE and may lack the Task #3116 metadata columns.
 async function loadVouchersDetailed(tenantId) {
   const optional = ['valid_from', 'issued_at', 'created_at', 'funding_source', 'notes', 'created_by'];
-  let cols = ['id', 'organization_id', 'code', 'description', 'value', 'expires_at', ...optional];
+  let cols = ['id', 'organization_id', 'member_id', 'code', 'description', 'value', 'expires_at', ...optional];
   while (true) {
     try {
       return await pageAll((a, b) =>
@@ -83,7 +83,7 @@ async function loadTransactionsDetailed(tenantId) {
   let notesCol = true;
   while (true) {
     try {
-      const cols = ['id', 'voucher_id', 'organization_id', 'booking_reference', 'event_id',
+      const cols = ['id', 'voucher_id', 'organization_id', 'owner_member_id', 'allocation_id', 'booking_reference', 'event_id',
         'event_title', 'member_id', 'member_email', 'amount', 'type', 'created_at'];
       if (notesCol) cols.push('notes');
       return await pageAll((a, b) =>
@@ -191,7 +191,7 @@ export function buildDetailRows({ vouchers, transactions, eventInfoById = {}, cl
 
   for (const v of vouchers || []) {
     voucherById[v.id] = v;
-    if (!v.organization_id) continue;
+    if (!!v.organization_id === !!v.member_id) continue;
     const allocDate = allocationDate(v);
     const allocMonth = monthKey(allocDate);
     if (!allocMonth) continue;
@@ -201,6 +201,8 @@ export function buildDetailRows({ vouchers, transactions, eventInfoById = {}, cl
       id: `alloc-${v.id}`,
       source: 'allocation',
       organization_id: v.organization_id,
+      owner_type: v.member_id ? 'member' : 'organization',
+      owner_member_id: v.member_id || null,
       reporting_month: allocMonth,
       bucket: 'allocated',
       type: 'voucher_awarded',
@@ -225,8 +227,10 @@ export function buildDetailRows({ vouchers, transactions, eventInfoById = {}, cl
 
   for (const t of transactions || []) {
     const v = t.voucher_id ? voucherById[t.voucher_id] : null;
-    const orgId = t.organization_id || v?.organization_id || null;
-    if (!orgId) continue;
+    // Transaction member_id is the delegate/actor, never the credit owner.
+    const orgId = t.owner_member_id ? null : (t.organization_id || v?.organization_id || null);
+    const ownerMemberId = t.owner_member_id || v?.member_id || null;
+    if (!!orgId === !!ownerMemberId) continue;
     const txnMonth = monthKey(t.created_at);
     if (!txnMonth) continue;
     const amt = Math.abs(num(t.amount));
@@ -240,6 +244,11 @@ export function buildDetailRows({ vouchers, transactions, eventInfoById = {}, cl
     let bucket;
     let signed;
     switch (t.type) {
+      case 'award':
+      case 'voucher_awarded':
+      case 'reservation':
+      case 'reservation_release':
+        continue;
       case 'booking_usage':
         reportingMonth = eventMonth || txnMonth;
         bucket = 'used';
@@ -287,6 +296,8 @@ export function buildDetailRows({ vouchers, transactions, eventInfoById = {}, cl
       id: `txn-${t.id}`,
       source: 'ledger',
       organization_id: orgId,
+      owner_type: ownerMemberId ? 'member' : 'organization',
+      owner_member_id: ownerMemberId,
       reporting_month: reportingMonth,
       bucket,
       type: t.type,
@@ -332,6 +343,8 @@ export function filterDetailRows(rows, filters = {}) {
     eventId, type, fundingSource,
   } = filters;
   return rows.filter((r) => {
+    if (filters.ownerType && r.owner_type !== filters.ownerType) return false;
+    if (filters.memberId && r.owner_member_id !== filters.memberId) return false;
     if (month && r.reporting_month !== month) return false;
     if (organizationId && r.organization_id !== organizationId) return false;
     if (vStatus && r.voucher_status !== vStatus) return false;

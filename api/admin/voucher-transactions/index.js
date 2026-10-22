@@ -38,7 +38,7 @@ function buildUsageDescription(txn) {
     case 'debit_adjustment':
       return eventTitle ? `Balance adjustment: ${eventTitle}` : 'Manual balance adjustment (debit)';
     case 'voucher_awarded':
-      return 'Voucher awarded to organisation';
+      return 'Voucher awarded';
     case 'expiry':
       return 'Voucher expired — unused value removed';
     default:
@@ -55,6 +55,7 @@ export default async function handler(req, res) {
   }
 
   const ctx = await getTenantContext(req);
+  if (ctx?.tenantMismatch) return res.status(409).json({ code: 'TENANT_CONTEXT_CHANGED', error: 'Tenant context changed' });
   if (!ctx || !ctx.isAuthenticated) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
@@ -113,7 +114,8 @@ export default async function handler(req, res) {
   try {
     const { data: voucher, error: vErr } = await supabase
       .from('voucher')
-      .select('id, tenant_id')
+      .select('id, tenant_id, organization_id, member_id')
+      .eq('tenant_id', tenantId)
       .eq('id', voucherId)
       .maybeSingle();
     if (vErr) {
@@ -204,6 +206,9 @@ export default async function handler(req, res) {
       const memberName = memberDisplayName(member) || null;
       const enrichedTxn = {
         ...txn,
+        owner_type: voucher.member_id ? 'member' : 'organization',
+        owner_member_id: voucher.member_id || null,
+        owner_organization_id: voucher.organization_id || null,
         event_title: eventTitle,
         event_date: ev?.start_date || null,
         event_internal_reference: ev?.internal_reference || null,

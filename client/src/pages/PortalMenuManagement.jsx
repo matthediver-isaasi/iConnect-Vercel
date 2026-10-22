@@ -20,6 +20,8 @@ import { createPageUrl } from "@/utils";
 import { ROLE_ACCESS_MAP } from "@/lib/roleAccessMap";
 import { getSalesPortalPages } from "@/lib/salesNavigation";
 import { useQuoteNaming } from "@/hooks/useSalesSettings";
+import { normalizeVoucherSettings } from '../../../shared/voucherPolicy.js';
+import { useTicketViewerKey } from '@/hooks/useTicketViewerKey';
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { BNMS_TENANT_ID, NMC_REPORT_FEATURE, isNmcReportDestination } from "@/lib/nmcMembershipReport.mjs";
 import {
@@ -236,6 +238,10 @@ const builtInPages = [
 
 export default function PortalMenuManagementPage() {
   const quoteNaming = useQuoteNaming();
+  const viewerKey = useTicketViewerKey(null);
+  const { data: voucherSettingsRows = [] } = useQuery({ queryKey: ['voucher-settings', ...viewerKey], queryFn: () => base44.entities.SystemSettings.list() });
+  const voucherNames = normalizeVoucherSettings(voucherSettingsRows);
+  const voucherDefaultMenuLabel = [...new Set([voucherNames.organization_voucher_display_name, ...(voucherNames.individual_vouchers_enabled ? [voucherNames.member_voucher_display_name] : [])])].join(' / ') + ' management';
   const { isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
   const { branding } = useTenantBranding();
   const isBnmsTenant = branding?.id === BNMS_TENANT_ID && memberInfo?.tenant_id === BNMS_TENANT_ID;
@@ -370,7 +376,8 @@ export default function PortalMenuManagementPage() {
   const availablePages = useMemo(() => {
     return [
       { value: "_none", label: "No Page (Parent Menu)" },
-      ...builtInPages.filter(item => isBnmsTenant || !isNmcReportDestination(item)),
+      ...builtInPages.filter(item => isBnmsTenant || !isNmcReportDestination(item)).map(item =>
+        item.value === 'VoucherManagement' ? { ...item, label: voucherDefaultMenuLabel } : item),
       ...getSalesPortalPages(quoteNaming),
       ...ieditPages,
       ...dynamicDirectories,
@@ -382,7 +389,7 @@ export default function PortalMenuManagementPage() {
       if (b.value === "_none") return 1;
       return a.label.localeCompare(b.label);
     });
-  }, [ieditPages, dynamicDirectories, customObjectDestinations, isBnmsTenant, quoteNaming.singular, quoteNaming.plural, quoteNaming.slug]);
+  }, [ieditPages, dynamicDirectories, customObjectDestinations, isBnmsTenant, quoteNaming.singular, quoteNaming.plural, quoteNaming.slug, voucherDefaultMenuLabel]);
 
   const createMutation = useMutation({
     mutationFn: (data) => base44.entities.PortalMenu.create(data),

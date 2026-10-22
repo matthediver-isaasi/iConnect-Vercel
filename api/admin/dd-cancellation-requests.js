@@ -131,6 +131,8 @@ export default async function handler(req, res, {
               .maybeSingle();
             if (agreementError) throw new Error(agreementError.message);
             if (agreement) {
+              const creditPolicy = (await import('../_lib/membershipVoucherRefund.js')).membershipVoucherCancellationSummary(agreement);
+              if (creditPolicy.voucherFunding) details.push(JSON.stringify(creditPolicy));
               await applyStatusTransition({
                 entityType: 'billing_agreement',
                 entityId: agreement.id,

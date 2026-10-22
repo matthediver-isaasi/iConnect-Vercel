@@ -20,10 +20,18 @@
 
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, hasAdminAccess } from '../../_lib/tenantContext.js';
+import { voucherDisplayName } from '../../../shared/voucherPolicy.js';
+import { loadVoucherOwnerPresentation } from '../../_lib/voucherOwnerPresentation.js';
+
+async function ownerPresentation(tenantId) {
+  return loadVoucherOwnerPresentation(supabase, tenantId);
+}
 import {
   isValidMonth,
   monthStartDate,
   computeTenantMonthRollup,
+  voucherReportOwnerFields,
+  voucherReportOwnerKey,
 } from '../../_lib/voucherMonthlyRollup.js';
 import {
   loadReportData,
@@ -53,6 +61,8 @@ export async function getSummary(tenantId, month) {
   if (closed) {
     rows = stored.map((s) => ({
       organization_id: s.organization_id,
+      owner_member_id: s.owner_member_id || null,
+      owner_type: s.owner_member_id ? 'member' : 'organization',
       opening_balance: num(s.opening_balance),
       allocated: num(s.allocated),
       used: num(s.used),
@@ -67,7 +77,7 @@ export async function getSummary(tenantId, month) {
     generatedAt = stored.reduce((m, s) => (s.generated_at && (!m || s.generated_at > m) ? s.generated_at : m), null);
   } else {
     const { rows: computed } = await computeTenantMonthRollup(tenantId, month);
-    rows = Object.entries(computed).map(([orgId, r]) => ({ organization_id: orgId, ...r }));
+    rows = Object.entries(computed).map(([ownerKey, r]) => ({ ...voucherReportOwnerFields(ownerKey), ...r }));
   }
 
   const { data: orgs, error: orgErr } = await supabase
@@ -78,20 +88,27 @@ export async function getSummary(tenantId, month) {
   const orgNameById = {};
   (orgs || []).forEach((o) => { orgNameById[o.id] = o.name || ''; });
 
-  rows = rows.map((r) => ({ ...r, organization_name: orgNameById[r.organization_id] || '' }));
+  const presentation = await ownerPresentation(tenantId);
+  rows = rows.map((r) => ({
+    ...r,
+    owner_display_name: voucherDisplayName(presentation.settings, r.owner_type),
+    organization_name: r.owner_member_id ? `Individual member · ${presentation.memberNames[r.owner_member_id] || 'Name unavailable'}` : `Organisation · ${orgNameById[r.organization_id] || 'Name unavailable'}`,
+  }));
   rows.sort((a, b) => {
     const an = a.organization_name.toLowerCase();
     const bn = b.organization_name.toLowerCase();
     if (an !== bn) return an < bn ? -1 : 1;
-    return a.organization_id < b.organization_id ? -1 : 1;
+    return voucherReportOwnerKey(a) < voucherReportOwnerKey(b) ? -1 : 1;
   });
 
   return { closed, generatedAt, rows };
 }
 
-export function applySummaryFilters(rows, { organizationId, balance }) {
+export function applySummaryFilters(rows, { organizationId, memberId, ownerType, balance }) {
   let out = rows;
   if (organizationId) out = out.filter((r) => r.organization_id === organizationId);
+  if (memberId) out = out.filter((r) => r.owner_member_id === memberId);
+  if (ownerType) out = out.filter((r) => r.owner_type === ownerType);
   if (balance === 'positive') out = out.filter((r) => r.closing_balance > 0.005);
   else if (balance === 'zero') out = out.filter((r) => Math.abs(r.closing_balance) <= 0.005);
   else if (balance === 'negative') out = out.filter((r) => r.closing_balance < -0.005);
@@ -107,6 +124,8 @@ export function detailFiltersFromQuery(q = {}) {
   };
   const vStatus = s(q.voucher_status);
   return {
+    ownerType: s(q.owner_type),
+    memberId: s(q.member_id),
     organizationId: s(q.organization_id),
     voucherStatus: ['active', 'expired', 'exhausted'].includes(vStatus) ? vStatus : null,
     allocationFrom: d(q.allocation_from),
@@ -121,10 +140,12 @@ export function detailFiltersFromQuery(q = {}) {
 
 export async function getDetail(tenantId, month, filters) {
   const data = await loadReportData(tenantId);
+  const presentation = await ownerPresentation(tenantId);
   const all = buildDetailRows(data);
   const rows = sortDetailRows(filterDetailRows(all, { ...filters, month })).map((r) => ({
     ...r,
-    organization_name: data.orgNameById[r.organization_id] || '',
+    owner_display_name: voucherDisplayName(presentation.settings, r.owner_type),
+    organization_name: r.owner_member_id ? `Individual member · ${presentation.memberNames[r.owner_member_id] || 'Name unavailable'}` : `Organisation · ${data.orgNameById[r.organization_id] || 'Name unavailable'}`,
   }));
 
   // Distinct filter option values, scoped to the reporting month (pre-filter)
@@ -155,6 +176,7 @@ export default async function handler(req, res) {
   }
 
   const ctx = await getTenantContext(req);
+  if (ctx?.tenantMismatch) return res.status(409).json({ code: 'TENANT_CONTEXT_CHANGED', error: 'Tenant context changed' });
   if (!ctx || !ctx.isAuthenticated) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
@@ -185,6 +207,8 @@ export default async function handler(req, res) {
 
     const summary = await getSummary(tenantId, month);
     const rows = applySummaryFilters(summary.rows, {
+      memberId: req.query?.member_id,
+      ownerType: req.query?.owner_type,
       organizationId: typeof req.query?.organization_id === 'string' ? req.query.organization_id : null,
       balance: req.query?.balance,
     });

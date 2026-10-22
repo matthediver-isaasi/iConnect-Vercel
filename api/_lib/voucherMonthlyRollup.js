@@ -92,16 +92,31 @@ function round2(n) {
 // Reconstruct the original allocated value of a voucher from its current
 // remaining value + ledger: original = remaining + debits - credits.
 export function deriveOriginalValue(voucher, txns) {
+  const awards = (txns || []).filter(t => t.type === 'award' || t.type === 'voucher_awarded');
+  if (awards.length) return round2(awards.reduce((sum, t) => sum + Math.abs(num(t.amount)), 0));
   let original = num(voucher.value);
   for (const t of txns || []) {
     const amt = Math.abs(num(t.amount));
-    if (t.type === 'booking_usage' || t.type === 'expiry' || t.type === 'debit_adjustment') {
+    if (t.type === 'reservation' || (t.type === 'booking_usage' && !t.allocation_id) || t.type === 'expiry' || t.type === 'debit_adjustment') {
       original += amt;
-    } else if (t.type === 'cancellation_refund' || t.type === 'credit_adjustment') {
+    } else if (t.type === 'cancellation_refund' || t.type === 'credit_adjustment' || t.type === 'reservation_release') {
       original -= amt;
     }
   }
   return round2(Math.max(0, original));
+}
+
+// Preserve legacy organisation keys exactly. Member keys cannot collide with UUIDs.
+export function voucherReportOwnerKey(row, ledger = false) {
+  const member = ledger ? row?.owner_member_id : (row?.owner_member_id || row?.member_id);
+  if (!!member === !!row?.organization_id) return null;
+  return member ? `member:${member}` : row.organization_id;
+}
+
+export function voucherReportOwnerFields(key) {
+  return key?.startsWith('member:')
+    ? { organization_id: null, owner_member_id: key.slice(7), owner_type: 'member' }
+    : { organization_id: key, owner_member_id: null, owner_type: 'organization' };
 }
 
 export function allocationDate(voucher) {
@@ -160,9 +175,9 @@ export function buildMovements({ vouchers, transactions, eventStartById = {}, cl
   const movements = [];
 
   for (const v of vouchers || []) {
-    orgByVoucher[v.id] = v.organization_id || null;
+    orgByVoucher[v.id] = voucherReportOwnerKey(v);
     expiresAtByVoucher[v.id] = v.expires_at || null;
-    const orgId = v.organization_id || null;
+    const orgId = voucherReportOwnerKey(v);
     if (!orgId) continue;
     const allocMonth = monthKey(allocationDate(v));
     if (!allocMonth) continue;
@@ -173,7 +188,7 @@ export function buildMovements({ vouchers, transactions, eventStartById = {}, cl
   }
 
   for (const t of transactions || []) {
-    const orgId = t.organization_id || orgByVoucher[t.voucher_id] || null;
+    const orgId = voucherReportOwnerKey(t, true) || orgByVoucher[t.voucher_id] || null;
     if (!orgId) continue;
     const txnMonth = monthKey(t.created_at);
     if (!txnMonth) continue;
@@ -184,6 +199,18 @@ export function buildMovements({ vouchers, transactions, eventStartById = {}, cl
     const eventMonth = monthKey(eventStart) || null;
 
     switch (t.type) {
+      case 'reservation': {
+        const terminal = (txnsByVoucher[t.voucher_id] || []).find(row =>
+          row.allocation_id === t.allocation_id && ['booking_usage', 'reservation_release'].includes(row.type));
+        movements.push({ orgId, month: txnMonth, bucket: 'pending', amount: amt, txnCreatedAt: t.created_at, resolvedAt: terminal?.created_at || null });
+        break;
+      }
+      case 'reservation_release':
+        break;
+      case 'award':
+      case 'voucher_awarded':
+        // Allocation is represented once by the synthetic voucher row.
+        break;
       case 'booking_usage': {
         movements.push({
           orgId,
@@ -348,6 +375,12 @@ export function rollupMonth({ month, movements, openingByOrg = null, includeOrgI
   // Reserved for future events: usage/pre-event-refund movements written on
   // or before month end whose event month is after the reporting month.
   for (const m of movements) {
+    if (m.bucket === 'pending') {
+      if (m.txnCreatedAt <= endIso && (!m.resolvedAt || m.resolvedAt > endIso)) {
+        ensure(m.orgId).reserved_future += m.amount;
+      }
+      continue;
+    }
     if (m.bucket !== 'used' || !m.txnCreatedAt) continue;
     if (!rows[m.orgId]) continue;
     if (m.txnCreatedAt <= endIso && m.eventMonth && m.eventMonth > month) {
@@ -395,7 +428,7 @@ async function pageAll(build) {
 // the stale legacy SOURCE and may lack valid_from / issued_at / created_at.
 async function loadVouchers(tenantId) {
   const optional = ['valid_from', 'issued_at', 'created_at'];
-  let cols = ['id', 'organization_id', 'value', 'expires_at', ...optional];
+  let cols = ['id', 'organization_id', 'member_id', 'value', 'expires_at', ...optional];
   while (true) {
     try {
       return await pageAll((a, b) =>
@@ -449,7 +482,7 @@ export async function loadTenantVoucherData(tenantId) {
   const transactions = await pageAll((a, b) =>
     supabase
       .from('voucher_transaction')
-      .select('id, voucher_id, organization_id, type, amount, created_at, event_id, booking_reference')
+      .select('id, voucher_id, organization_id, owner_member_id, allocation_id, type, amount, created_at, event_id, booking_reference')
       .eq('tenant_id', tenantId)
       .order('id', { ascending: true })
       .range(a, b)
@@ -512,7 +545,7 @@ export async function computeTenantMonthRollup(tenantId, month) {
 
   const { data: priorSnaps, error: priorErr } = await supabase
     .from('voucher_monthly_snapshot')
-    .select('organization_id, closing_balance')
+    .select('organization_id, owner_member_id, closing_balance')
     .eq('tenant_id', tenantId)
     .eq('month', monthStartDate(prevMonth(month)));
   if (priorErr && priorErr.code !== '42P01') {
@@ -524,8 +557,10 @@ export async function computeTenantMonthRollup(tenantId, month) {
   if (priorSnaps && priorSnaps.length > 0) {
     openingByOrg = {};
     for (const s of priorSnaps) {
-      openingByOrg[s.organization_id] = num(s.closing_balance);
-      includeOrgIds.push(s.organization_id);
+      const key = voucherReportOwnerKey(s);
+      if (!key) throw new Error('Invalid snapshot owner');
+      openingByOrg[key] = num(s.closing_balance);
+      includeOrgIds.push(key);
     }
   }
 
@@ -560,7 +595,8 @@ export async function snapshotTenantMonth(tenantId, month, { mode = 'close', gen
   const nowIso = (alreadyClosed && existing[0].generated_at) || new Date().toISOString();
   const records = Object.entries(rows).map(([orgId, r]) => ({
     tenant_id: tenantId,
-    organization_id: orgId,
+    organization_id: voucherReportOwnerFields(orgId).organization_id,
+    owner_member_id: voucherReportOwnerFields(orgId).owner_member_id,
     month: monthStartDate(month),
     ...r,
     generated_at: nowIso,
@@ -610,14 +646,14 @@ export async function reconcileTenantMonth(tenantId, month) {
   const { rows } = await computeTenantMonthRollup(tenantId, month);
   const differences = [];
   const storedByOrg = {};
-  for (const s of stored) storedByOrg[s.organization_id] = s;
+  for (const s of stored) storedByOrg[voucherReportOwnerKey(s)] = s;
 
   const allOrgIds = new Set([...Object.keys(rows), ...Object.keys(storedByOrg)]);
   for (const orgId of allOrgIds) {
     const live = rows[orgId];
     const snap = storedByOrg[orgId];
-    if (!live) { differences.push({ organization_id: orgId, missing: 'live' }); continue; }
-    if (!snap) { differences.push({ organization_id: orgId, missing: 'stored' }); continue; }
+    if (!live) { differences.push({ ...voucherReportOwnerFields(orgId), missing: 'live' }); continue; }
+    if (!snap) { differences.push({ ...voucherReportOwnerFields(orgId), missing: 'stored' }); continue; }
     const fieldDiffs = {};
     for (const f of SNAPSHOT_FIELDS) {
       const a = round2(num(snap[f]));
@@ -625,7 +661,7 @@ export async function reconcileTenantMonth(tenantId, month) {
       if (Math.abs(a - b) > 0.005) fieldDiffs[f] = { stored: a, recomputed: b };
     }
     if (Object.keys(fieldDiffs).length > 0) {
-      differences.push({ organization_id: orgId, fields: fieldDiffs });
+      differences.push({ ...voucherReportOwnerFields(orgId), fields: fieldDiffs });
     }
   }
 
@@ -634,18 +670,18 @@ export async function reconcileTenantMonth(tenantId, month) {
   const carryForwardBreaks = [];
   const { data: nextSnaps, error: nErr } = await supabase
     .from('voucher_monthly_snapshot')
-    .select('organization_id, opening_balance')
+    .select('organization_id, owner_member_id, opening_balance')
     .eq('tenant_id', tenantId)
     .eq('month', monthStartDate(nextMonth(month)));
   if (!nErr && nextSnaps && nextSnaps.length > 0) {
     const nextByOrg = {};
-    for (const s of nextSnaps) nextByOrg[s.organization_id] = num(s.opening_balance);
+    for (const s of nextSnaps) nextByOrg[voucherReportOwnerKey(s)] = num(s.opening_balance);
     for (const s of stored) {
-      if (Object.prototype.hasOwnProperty.call(nextByOrg, s.organization_id)) {
+      if (Object.prototype.hasOwnProperty.call(nextByOrg, voucherReportOwnerKey(s))) {
         const closing = round2(num(s.closing_balance));
-        const opening = round2(nextByOrg[s.organization_id]);
+        const opening = round2(nextByOrg[voucherReportOwnerKey(s)]);
         if (Math.abs(closing - opening) > 0.005) {
-          carryForwardBreaks.push({ organization_id: s.organization_id, closing, next_opening: opening });
+          carryForwardBreaks.push({ ...voucherReportOwnerFields(voucherReportOwnerKey(s)), closing, next_opening: opening });
         }
       }
     }

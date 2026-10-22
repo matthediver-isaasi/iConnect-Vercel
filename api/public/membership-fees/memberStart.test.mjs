@@ -36,6 +36,8 @@ function fixture(mode, dynamic = false, startMode = 'immediate') {
   let sequence = 50;
   const value = (row, key) => key.replaceAll('->>', '.').replaceAll('->', '.').split('.').reduce((v, k) => v?.[k], row);
   const db = { state, async rpc(name, args) {
+    if (name === 'membership_payment_term_guard') return { error: { code: '42883' } };
+    if (name === 'membership_fee_checkout_guard') return { data: null, error: null };
     assert.equal(name, 'attach_member_start_agreement');
     assert.equal(args.p_start_id, id(5));
     history.billing_agreement_id = args.p_agreement_id;

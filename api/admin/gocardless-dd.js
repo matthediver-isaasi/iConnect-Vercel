@@ -759,7 +759,7 @@ export async function handlePost(req, res, tenantId, actorEmail, { db: supabase 
 
     case 'refund': {
       const { paymentId, amountMinor, reason } = req.body;
-      if (!paymentId || !Number.isInteger(amountMinor) || amountMinor <= 0) {
+      if (!paymentId || (!req.body.reconcileVoucherOnly && (!Number.isInteger(amountMinor) || amountMinor <= 0))) {
         return res.status(400).json({ error: 'paymentId and positive integer amountMinor required' });
       }
       const { data: payRow } = await supabase
@@ -772,6 +772,18 @@ export async function handlePost(req, res, tenantId, actorEmail, { db: supabase 
       if (payRow.plan_id !== plan.id || !(await filterDirectDebitRows(supabase, tenantId, [payRow])).length) return res.status(404).json({ error: 'Payment not found' });
       if (!['confirmed', 'paid_out'].includes(payRow.status)) {
         return res.status(409).json({ error: `Payment status '${payRow.status}' is not refundable` });
+      }
+      const { membershipVoucherRefundContext, reconcileMembershipVoucherCashRefund } = await import('../_lib/membershipVoucherRefund.js');
+      const refundOptions = { replacementExpiry: req.body.voucherReplacementExpiry || null };
+      const funded = !!agreement?.metadata?.dd?.voucher_funding;
+      if (funded) {
+        const originalFunding = await membershipVoucherRefundContext(supabase, payRow, refundOptions.replacementExpiry);
+        if (!originalFunding) return res.status(409).json({ error: 'Reconcile the original funded collection before refunding it' });
+      }
+      if (req.body.reconcileVoucherOnly) {
+        const voucherRefund = await reconcileMembershipVoucherCashRefund(supabase,payRow,await gc.listRefunds({ paymentId }),refundOptions);
+        await recordAdminAction(tenantId,{ planId,agreementId: agreement?.id,paymentId,action:'refund_credit_reconciliation',actorEmail,details:{ voucherRefund } });
+        return res.json({ ok:true,voucherRefund });
       }
       const alreadyRefunded = payRow.amount_refunded_minor || 0;
       if (payRow.amount_minor && alreadyRefunded + amountMinor > payRow.amount_minor) {
@@ -797,10 +809,12 @@ export async function handlePost(req, res, tenantId, actorEmail, { db: supabase 
         reason: reason || null,
         initiated_by: actorEmail,
         idempotency_key: idempotencyKey,
+        metadata: { membership_voucher_replacement_expiry: refundOptions.replacementExpiry },
         updated_at: new Date().toISOString(),
       }, { onConflict: 'gocardless_refund_id' });
-      await recordAdminAction(tenantId, { planId, agreementId: agreement?.id, paymentId, action: 'refund', actorEmail, details: { amountMinor, reason: reason || null, refundId: refund.id } });
-      return res.json({ ok: true, refund });
+      const voucherRefund = funded ? await reconcileMembershipVoucherCashRefund(supabase,payRow,await gc.listRefunds({ paymentId }),refundOptions) : null;
+      await recordAdminAction(tenantId, { planId, agreementId: agreement?.id, paymentId, action: 'refund', actorEmail, details: { amountMinor, reason: reason || null, refundId: refund.id,voucherRefund } });
+      return res.json({ ok: true, refund,voucherRefund });
     }
 
     case 'cancel_subscription': {
@@ -827,11 +841,12 @@ export async function handlePost(req, res, tenantId, actorEmail, { db: supabase 
         if (!providerAccepted) await releaseCancellationClaim(plan, cancellationClaim);
         throw error;
       }
-      await recordAdminAction(tenantId, { planId, agreementId: agreement?.id, action: 'cancel_subscription', actorEmail, details: { reason: req.body.reason || null, result } });
+      const creditPolicy = (await import('../_lib/membershipVoucherRefund.js')).membershipVoucherCancellationSummary(agreement);
+      await recordAdminAction(tenantId, { planId, agreementId: agreement?.id, action: 'cancel_subscription', actorEmail, details: { reason: req.body.reason || null, result,...creditPolicy } });
       if (agreement?.metadata?.dd?.kind === 'monthly_direct_debit') {
         await sendDdLifecycleEmail('plan_cancelled', agreement).catch(() => {});
       }
-      return res.json({ ok: true, result });
+      return res.json({ ok: true, result,...creditPolicy });
     }
 
     case 'cancel_mandate': {

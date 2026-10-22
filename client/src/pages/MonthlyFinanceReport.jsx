@@ -13,6 +13,11 @@ import {
 } from "lucide-react";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { adminFetch } from '@/lib/adminFetch';
+import { useTicketViewerKey } from '@/hooks/useTicketViewerKey';
+
+const reportOwnerKey = row => row.owner_member_id ? `member:${row.owner_member_id}` : row.organization_id;
+const setOwnerParam = (params, key) => params.set(key.startsWith('member:') ? 'member_id' : 'organization_id', key.startsWith('member:') ? key.slice(7) : key);
 
 const FEATURE_ID = "page_MonthlyFinanceReport";
 
@@ -71,7 +76,8 @@ const EMPTY_DETAIL_FILTERS = {
 };
 
 export default function MonthlyFinanceReport() {
-  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
+  const viewerKey = useTicketViewerKey(memberInfo);
   const [accessChecked, setAccessChecked] = useState(false);
   const [month, setMonth] = useState(currentMonth);
   const [balanceFilter, setBalanceFilter] = useState("all");
@@ -90,9 +96,9 @@ export default function MonthlyFinanceReport() {
   }, [isFeatureExcluded, isAccessReady]);
 
   const summaryQuery = useQuery({
-    queryKey: ["voucher-monthly-report", "summary", month],
+    queryKey: ["voucher-monthly-report", ...viewerKey, "summary", month],
     queryFn: async () => {
-      const res = await fetch(`/api/admin/voucher-monthly-report?month=${encodeURIComponent(month)}`, {
+      const res = await adminFetch(`/api/admin/voucher-monthly-report?month=${encodeURIComponent(month)}`, {
         credentials: "include",
       });
       if (!res.ok) {
@@ -107,7 +113,7 @@ export default function MonthlyFinanceReport() {
 
   const detailParams = useMemo(() => {
     const p = new URLSearchParams({ month, view: "detail" });
-    if (expandedOrgId) p.set("organization_id", expandedOrgId);
+    if (expandedOrgId) setOwnerParam(p, expandedOrgId);
     for (const [k, v] of Object.entries(detailFilters)) {
       if (v) p.set(k, v);
     }
@@ -115,9 +121,9 @@ export default function MonthlyFinanceReport() {
   }, [month, expandedOrgId, detailFilters]);
 
   const detailQuery = useQuery({
-    queryKey: ["voucher-monthly-report", "detail", detailParams],
+    queryKey: ["voucher-monthly-report", ...viewerKey, "detail", detailParams],
     queryFn: async () => {
-      const res = await fetch(`/api/admin/voucher-monthly-report?${detailParams}`, {
+      const res = await adminFetch(`/api/admin/voucher-monthly-report?${detailParams}`, {
         credentials: "include",
       });
       if (!res.ok) {
@@ -132,7 +138,7 @@ export default function MonthlyFinanceReport() {
 
   const summaryRows = useMemo(() => {
     let rows = summaryQuery.data?.rows || [];
-    if (orgFilter !== "all") rows = rows.filter((r) => r.organization_id === orgFilter);
+    if (orgFilter !== "all") rows = rows.filter((r) => reportOwnerKey(r) === orgFilter);
     if (balanceFilter === "positive") rows = rows.filter((r) => r.closing_balance > 0.005);
     else if (balanceFilter === "zero") rows = rows.filter((r) => Math.abs(r.closing_balance) <= 0.005);
     else if (balanceFilter === "negative") rows = rows.filter((r) => r.closing_balance < -0.005);
@@ -162,11 +168,22 @@ export default function MonthlyFinanceReport() {
     setDetailFilters(EMPTY_DETAIL_FILTERS);
   };
 
-  const handleExport = () => {
+  const handleExport = async () => {
     const p = new URLSearchParams({ month });
-    if (orgFilter !== "all") p.set("organization_id", orgFilter);
+    if (orgFilter !== "all") setOwnerParam(p, orgFilter);
     if (balanceFilter !== "all") p.set("balance", balanceFilter);
-    window.open(`/api/admin/voucher-monthly-report/export?${p.toString()}`, "_blank");
+    try {
+      const response = await adminFetch(`/api/admin/voucher-monthly-report/export?${p.toString()}`);
+      if (!response.ok) throw new Error('Unable to export voucher report');
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `voucher-finance-${month}.xlsx`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) {
+      window.alert(error.message);
+    }
   };
 
   if (!accessChecked) {
@@ -209,7 +226,7 @@ export default function MonthlyFinanceReport() {
               />
             </div>
             <div className="space-y-1">
-              <Label>Organisation</Label>
+              <Label>Owner</Label>
               <Select value={orgFilter} onValueChange={(v) => { setOrgFilter(v); setExpandedOrgId(null); }}>
                 <SelectTrigger className="w-64" data-testid="select-organisation-filter">
                   <SelectValue placeholder="All organisations" />
@@ -217,7 +234,7 @@ export default function MonthlyFinanceReport() {
                 <SelectContent>
                   <SelectItem value="all">All organisations</SelectItem>
                   {(summaryQuery.data?.rows || []).map((r) => (
-                    <SelectItem key={r.organization_id} value={r.organization_id}>
+                    <SelectItem key={reportOwnerKey(r)} value={reportOwnerKey(r)}>
                       {r.organization_name || r.organization_id}
                     </SelectItem>
                   ))}
@@ -281,7 +298,7 @@ export default function MonthlyFinanceReport() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b text-left text-slate-600">
-                    <th className="py-2 pr-3 font-medium">Organisation</th>
+                    <th className="py-2 pr-3 font-medium">Owner / Scheme</th>
                     {SUMMARY_COLS.map((c) => (
                       <th key={c.key} className="py-2 px-2 font-medium text-right whitespace-nowrap">{c.label}</th>
                     ))}
@@ -289,18 +306,18 @@ export default function MonthlyFinanceReport() {
                 </thead>
                 <tbody>
                   {summaryRows.map((r) => (
-                    <React.Fragment key={r.organization_id}>
+                    <React.Fragment key={reportOwnerKey(r)}>
                       <tr
                         className="border-b cursor-pointer hover-elevate"
-                        onClick={() => toggleOrg(r.organization_id)}
-                        data-testid={`row-summary-${r.organization_id}`}
+                        onClick={() => toggleOrg(reportOwnerKey(r))}
+                        data-testid={`row-summary-${reportOwnerKey(r)}`}
                       >
                         <td className="py-2 pr-3">
                           <span className="inline-flex items-center gap-1 font-medium text-slate-900">
-                            {expandedOrgId === r.organization_id
+                            {expandedOrgId === reportOwnerKey(r)
                               ? <ChevronDown className="w-4 h-4 text-slate-400" />
                               : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                            {r.organization_name || r.organization_id}
+                            {r.organization_name || reportOwnerKey(r)} · {r.owner_display_name}
                           </span>
                         </td>
                         {SUMMARY_COLS.map((c) => (
@@ -309,7 +326,7 @@ export default function MonthlyFinanceReport() {
                           </td>
                         ))}
                       </tr>
-                      {expandedOrgId === r.organization_id && (
+                      {expandedOrgId === reportOwnerKey(r) && (
                         <tr>
                           <td colSpan={SUMMARY_COLS.length + 1} className="bg-slate-50 p-0">
                             <DetailPanel

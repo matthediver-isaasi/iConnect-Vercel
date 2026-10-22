@@ -36,6 +36,7 @@ import OutlookConnection from "@/components/OutlookConnection";
 import { base44, setActiveTenantId } from "@/api/base44Client";
 import { adminFetch } from "@/lib/adminFetch";
 import MemberAiAssistantSettings from "@/components/admin/MemberAiAssistantSettings";
+import { voucherSettingsForm, voucherSettingsPayload } from '@/lib/voucherSettingsForm';
 
 const DATE_FORMAT_OPTIONS = [
   { value: 'dd/MM/yyyy', label: 'DD/MM/YYYY (31/12/2024)' },
@@ -48,11 +49,45 @@ const DATE_FORMAT_OPTIONS = [
 ];
 
 export default function AdminSettings() {
+  const [tenant, setTenant] = useState(null);
+  const [voucherSettings, setVoucherSettings] = useState(null);
+  const [voucherSettingsError, setVoucherSettingsError] = useState('');
+  const [savingVoucherSettings, setSavingVoucherSettings] = useState(false);
+  useEffect(() => {
+    if (!tenant?.id) return;
+    let cancelled = false;
+    setVoucherSettings(null);
+    base44.entities.SystemSettings.list().then(rows => {
+      if (cancelled) return;
+      setVoucherSettings(voucherSettingsForm(rows));
+    }).catch(() => { if (!cancelled) setVoucherSettingsError('Unable to load voucher settings. Reload before editing.'); });
+    return () => { cancelled = true; };
+  }, [tenant?.id]);
+  const saveVoucherSettings = async () => {
+    if (savingVoucherSettings || !voucherSettings) return;
+    setSavingVoucherSettings(true);
+    setVoucherSettingsError('');
+    try {
+      const next = { ...voucherSettings };
+      for (const [key, row] of Object.entries(voucherSettings)) {
+        const payload = voucherSettingsPayload(key, row);
+        const saved = row.id
+          ? await base44.entities.SystemSettings.update(row.id, payload)
+          : await base44.entities.SystemSettings.create(payload);
+        next[key] = { id: row.id || saved.id, value: payload.setting_value };
+        setVoucherSettings({ ...next });
+      }
+      toast({ title: 'Voucher settings saved' });
+    } catch (error) {
+      setVoucherSettingsError(`Voucher settings could not be fully saved: ${error.message}`);
+    } finally {
+      setSavingVoucherSettings(false);
+    }
+  };
   const navigate = useNavigate();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [tenantUser, setTenantUser] = useState(null);
-  const [tenant, setTenant] = useState(null);
   
   const [formData, setFormData] = useState({
     name: '',
@@ -1100,6 +1135,28 @@ export default function AdminSettings() {
             </CardContent>
           </Card>
 
+          <Card>
+            <CardHeader><CardTitle>Voucher schemes</CardTitle></CardHeader>
+            <CardContent className="space-y-4">
+              {voucherSettingsError && <p role="alert" className="text-red-600">{voucherSettingsError}</p>}
+              {voucherSettings && <>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="individual-vouchers-enabled">Enable individual member vouchers</Label>
+                  <Switch id="individual-vouchers-enabled" checked={voucherSettings.individual_vouchers_enabled.value === 'true'} onCheckedChange={checked => setVoucherSettings(previous => ({ ...previous, individual_vouchers_enabled: { ...previous.individual_vouchers_enabled, value: String(checked) } }))} />
+                </div>
+                <p className="text-sm text-slate-500">Turning this off prevents new personal issuance and spending; existing balances and history remain available.</p>
+                {['organization', 'member'].map(owner => {
+                  const key = `${owner}_voucher_display_name`;
+                  return <div key={key} className="space-y-2">
+                    <Label htmlFor={key}>{owner === 'organization' ? 'Organisation' : 'Individual member'} display name</Label>
+                    <Input id={key} value={voucherSettings[key].value} placeholder="Training Voucher" onChange={event => setVoucherSettings(previous => ({ ...previous, [key]: { ...previous[key], value: event.target.value } }))} />
+                    <p className="text-sm text-slate-500">Blank uses Training Voucher, independently of the other scheme.</p>
+                  </div>;
+                })}
+                <Button type="button" disabled={savingVoucherSettings} onClick={saveVoucherSettings}>{savingVoucherSettings ? 'Saving…' : 'Save voucher settings'}</Button>
+              </>}
+            </CardContent>
+          </Card>
           <div className="flex justify-end">
             <Button 
               type="submit" 

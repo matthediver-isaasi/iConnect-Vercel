@@ -378,7 +378,10 @@ async function handlePostOrgScoped(req, res, member, tenantId, organizationId, s
       metadata: { tenant_id: tenantId, organization_id: organizationId, organization_name: org?.name || '' },
     });
 
-    const paymentIntent = await stripe.paymentIntents.create({
+    const { createGuardedPortalMembershipIntent } = await import('../_lib/membershipVoucherSettlement.js');
+    const paymentIntent = await createGuardedPortalMembershipIntent(supabase, stripe, {
+      tenantId, organizationId, membershipYear: simResult.membershipYear?.label,
+    }, {
       amount,
       currency,
       customer: stripeCustomer?.id || undefined,
@@ -787,7 +790,10 @@ async function handlePostMemberScoped(req, res, member, tenantId, sessionMember)
       metadata: { tenant_id: tenantId, member_id: memberId },
     });
 
-    const paymentIntent = await stripe.paymentIntents.create({
+    const { createGuardedPortalMembershipIntent } = await import('../_lib/membershipVoucherSettlement.js');
+    const paymentIntent = await createGuardedPortalMembershipIntent(supabase, stripe, {
+      tenantId, memberId, membershipYear: simResult.membershipYear?.label,
+    }, {
       amount,
       currency,
       customer: stripeCustomer?.id || undefined,

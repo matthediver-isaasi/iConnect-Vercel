@@ -128,12 +128,16 @@ function ActionDialog({ action, plan, payment, open, onClose, onDone }) {
   const [reason, setReason] = useState("");
   const [days, setDays] = useState("7");
   const [note, setNote] = useState("");
+  const [voucherReplacementExpiry, setVoucherReplacementExpiry] = useState("");
+  const [reconcileVoucherOnly, setReconcileVoucherOnly] = useState(false);
   const meta = ACTIONS[action] || {};
 
   useEffect(() => {
     if (open) {
       setAmount(payment ? ((payment.amount_minor - (payment.amount_refunded_minor || 0)) / 100).toFixed(2) : "");
       setReason(""); setDays("7"); setNote("");
+      setVoucherReplacementExpiry("");
+      setReconcileVoucherOnly(false);
     }
   }, [open, payment]);
 
@@ -146,6 +150,8 @@ function ActionDialog({ action, plan, payment, open, onClose, onDone }) {
         body.paymentId = payment?.gocardless_payment_id;
         body.amountMinor = Math.round(parseFloat(amount) * 100);
         body.reason = reason || undefined;
+        body.voucherReplacementExpiry = voucherReplacementExpiry || undefined;
+        body.reconcileVoucherOnly = reconcileVoucherOnly;
       }
       if (meta.fields?.includes("reason") && action !== "refund") body.reason = reason || undefined;
       if (action === "extend_grace") body.days = parseInt(days, 10);
@@ -165,7 +171,7 @@ function ActionDialog({ action, plan, payment, open, onClose, onDone }) {
     }
   };
 
-  const refundInvalid = action === "refund" && (!(parseFloat(amount) > 0) || !payment);
+  const refundInvalid = action === "refund" && ((!reconcileVoucherOnly && !(parseFloat(amount) > 0)) || !payment);
   const noteInvalid = action === "note" && !note.trim();
 
   return (
@@ -189,6 +195,17 @@ function ActionDialog({ action, plan, payment, open, onClose, onDone }) {
                 onChange={(e) => setAmount(e.target.value)} data-testid="input-refund-amount" />
             </div>
           )}
+          {action === "refund" && <div className="space-y-2 rounded border p-3 text-sm">
+            <p>For a voucher-funded membership, confirmed cash refunds restore the corresponding original credit funding.
+              Cancelling future collections alone does not refund credit.</p>
+            <Label htmlFor="dd-voucher-refund-expiry">Approved replacement expiry (only if original credit has expired)</Label>
+            <Input id="dd-voucher-refund-expiry" type="date" value={voucherReplacementExpiry}
+              onChange={event => setVoucherReplacementExpiry(event.target.value)} />
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={reconcileVoucherOnly} onChange={event => setReconcileVoucherOnly(event.target.checked)} />
+              Reconcile credit for an already confirmed refund only — do not issue another cash refund
+            </label>
+          </div>}
           {meta.fields?.includes("days") && (
             <div className="space-y-1">
               <Label htmlFor="dd-grace-days">Extra days (1–90)</Label>

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { buildRollingCommitment } from './rollingMembershipCommitment.js';
+import { createGuardedPortalMembershipIntent } from './membershipVoucherSettlement.js';
 import {
   feeTokenCommitment, simulationFromFeeCommitment, reserveRollingFeePayment,
   reserveRollingMonthlyHistory, snapshotRollingFeeQuote,
@@ -173,15 +174,76 @@ test('workflow refuses annual invoice for existing monthly commitment, including
 
 test('provider setup is after durable reservation and finite boundary in fee/org routes', () => {
   const publicCode = readFileSync(new URL('../public/membership-fees/[token].js', import.meta.url), 'utf8');
-  const upfront = publicCode.slice(publicCode.indexOf("if (action === 'create_payment')"), publicCode.indexOf("if (action === 'confirm_payment')"));
-  assert.ok(upfront.indexOf('reserveRollingFeePayment') < upfront.indexOf('stripe.paymentIntents.create'));
+  const upfrontStart = publicCode.indexOf("if (action === 'create_payment')");
+  const upfrontEnd = publicCode.indexOf("if (action === 'confirm_payment')", upfrontStart);
+  assert.ok(upfrontStart >= 0 && upfrontEnd > upfrontStart, 'inspect the annual create/confirm branch, not the earlier funded confirmation branch');
+  const upfront = publicCode.slice(upfrontStart, upfrontEnd);
+  const reservation = upfront.indexOf('reserveRollingFeePayment');
+  const providerSetup = upfront.indexOf('await createGuardedPortalMembershipIntent');
+  const attemptedAt = upfront.indexOf('stripe_payment_attempted_at: new Date');
+  assert.ok(reservation >= 0 && providerSetup > reservation, 'durable rolling reservation precedes the guarded provider helper');
+  assert.doesNotMatch(upfront, /stripe\.paymentIntents\.create/, 'the fee route must not bypass the guarded provider helper');
   assert.match(upfront, /rolling-fee-payment:/);
-  assert.ok(upfront.indexOf('stripe_payment_attempted_at: new Date') < upfront.indexOf('stripe.paymentIntents.create'));
+  assert.ok(attemptedAt > reservation && attemptedAt < providerSetup, 'durable attempt timestamp precedes provider setup');
   assert.match(upfront, /23 \* 60 \* 60 \* 1000/);
-  assert.match(upfront, /reservedTerm && paymentLinkError/);
+  assert.match(upfront, /if \(paymentLinkError\) \{\s*return res\.status\(503\)/);
+  assert.ok(upfront.indexOf('if (paymentLinkError)') < upfront.indexOf('clientSecret: paymentIntent.client_secret'),
+    'every failed durable payment link, not only rolling reservations, blocks exposing the client secret');
   const monthly = publicCode.slice(publicCode.indexOf("if (action === 'start_monthly_card')"));
   assert.ok(monthly.indexOf('reserveRollingMonthlyHistory') < monthly.indexOf('stripe.checkout.sessions.create'));
   assert.match(monthly, /snapshot\.commitment\.membership_renewal_date/);
   const org = readFileSync(new URL('../membership/org-direct-debit.js', import.meta.url), 'utf8');
   assert.ok(org.indexOf('existingHistory = await reserveRollingMonthlyHistory') < org.indexOf('await client.createBillingRequest'));
+});
+
+test('rolling fee provider helper awaits fee/term/attempt guards before creating cash payment', async () => {
+  const fee = token();
+  const db = database([{ data: { id: 'reserved' } }]);
+  const reserved = await reserveRollingFeePayment(db, fee);
+  const events = [];
+  db.rpc = async name => { events.push(name); return { data: {} }; };
+  const originalFrom = db.from;
+  db.from = table => {
+    if (table !== 'membership_payment_term_claim') return originalFrom(table);
+    const query = { update() { events.push('save-provider-identity'); return query; },
+      eq() { return query; }, is: async () => ({}) };
+    return query;
+  };
+  const key = `rolling-fee-payment:${fee.tenant_id}:${reserved.id}`;
+  const stripe = { paymentIntents: { create: async (payload, options) => {
+    assert.equal(db.calls[0].insert.status, 'pending_payment_setup');
+    assert.equal(db.calls[0].insert.total_with_vat, 288);
+    assert.deepEqual(events, ['membership_fee_checkout_guard','membership_payment_term_guard','membership_payment_start_provider']);
+    assert.equal(options.idempotencyKey, key);
+    events.push('create-provider-payment');
+    return { ...payload, id: 'pi_reserved', status: 'requires_payment_method' };
+  } } };
+  await createGuardedPortalMembershipIntent(db, stripe, {
+    token: fee, tenantId: fee.tenant_id, memberId: fee.member_id,
+    membershipYear: fee.membership_year, sourceKey: `fee:${fee.id}`, providerIdempotencyKey: key,
+  }, { amount: 28800, currency: 'gbp', metadata: { token_id: fee.id } });
+  assert.deepEqual(events.slice(-2), ['create-provider-payment','save-provider-identity']);
+});
+
+test('each durable fee-provider guard failure prevents all provider calls', async () => {
+  const guards = ['membership_fee_checkout_guard','membership_payment_term_guard','membership_payment_start_provider'];
+  for (const rejected of guards) {
+    const events = [];
+    const db = { rpc: async name => {
+      events.push(name);
+      return name === rejected ? { error: { message: `${name} rejected` } } : { data: {} };
+    } };
+    let providerCalls = 0;
+    const stripe = { paymentIntents: {
+      create: async () => { providerCalls++; throw new Error('must not create'); },
+      retrieve: async () => { providerCalls++; throw new Error('must not retrieve'); },
+    } };
+    const fee = token();
+    await assert.rejects(createGuardedPortalMembershipIntent(db, stripe, {
+      token: fee, tenantId: fee.tenant_id, memberId: fee.member_id,
+      membershipYear: fee.membership_year, sourceKey: `fee:${fee.id}`,
+    }, { amount: 28800, currency: 'gbp', metadata: { token_id: fee.id } }), /rejected/);
+    assert.deepEqual(events, guards.slice(0, guards.indexOf(rejected) + 1));
+    assert.equal(providerCalls, 0);
+  }
 });

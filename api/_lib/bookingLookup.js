@@ -1,10 +1,23 @@
 import { supabase } from './database.js';
+import { refundBookingVoucherCredit } from './voucherCreditService.js';
 
 export const BOOKING_SOURCE_REGULAR = 'booking';
 export const BOOKING_SOURCE_COMPLEX = 'complex_event_booking';
 
 export function isComplexSource(source) {
   return source === BOOKING_SOURCE_COMPLEX;
+}
+
+export async function restoreProgramBookingEntitlement(booking, tenantId, db = supabase) {
+  // Full booking lookups contain an explicit null for legacy rows. A projected
+  // lookup may omit the field: in that case ask SQL rather than assume no owner.
+  if (Object.hasOwn(booking, 'program_entitlement_transaction_id') && !booking.program_entitlement_transaction_id) return { handled: false };
+  if (!tenantId || (booking.tenant_id && booking.tenant_id !== tenantId)) throw new Error('Programme booking tenant mismatch');
+  const { data, error } = await db.rpc('restore_program_booking_entitlement', {
+    p_tenant_id: tenantId, p_booking_id: booking.id,
+  });
+  if (error) throw new Error(`Programme entitlement restoration failed: ${error.message}`);
+  return data;
 }
 
 export async function lookupBooking(bookingId, tenantId, source) {
@@ -152,212 +165,19 @@ export async function resolveEventTitleById(eventId, tenantId) {
 }
 
 export async function reinstateVoucherDirect(booking, refund_allocation, reversalOptions, reversalResults, tenantId) {
-  const voucherId = booking.voucher_id;
-  const voucherAmount = parseFloat(booking.voucher_amount) || 0;
-  if (!voucherId || voucherAmount <= 0) return;
-
-  const { data: existingRefunds } = await supabase
-    .from('voucher_transaction')
-    .select('voucher_id')
-    .eq('booking_reference', booking.booking_reference)
-    .eq('type', 'cancellation_refund');
-  if ((existingRefunds || []).some(r => String(r.voucher_id) === String(voucherId))) {
-    console.log(`[VoucherReinstate] Voucher ${voucherId} already refunded for booking ${booking.booking_reference}, skipping`);
-    return;
-  }
-
-  const { data: voucher } = await supabase
-    .from('voucher')
-    .select('*')
-    .eq('id', voucherId)
-    .single();
-
-  if (!voucher) {
-    reversalResults.vouchers.push({ voucherId, amount: voucherAmount, success: false, error: 'Voucher not found' });
-    return;
-  }
-
-  const isExpired = voucher.expires_at && new Date(voucher.expires_at) < new Date();
-
-  let refundAmount = voucherAmount;
-  if (refund_allocation?.vouchers?.[String(voucher.id)] !== undefined) {
-    const allocated = parseFloat(refund_allocation.vouchers[String(voucher.id)]) || 0;
-    refundAmount = Math.min(allocated, voucherAmount);
-    if (refundAmount <= 0) {
-      reversalResults.vouchers.push({ voucherId: voucher.id, code: voucher.code, amount: 0, success: true, skipped: true });
-      console.log(`[VoucherReinstate] Voucher ${voucher.code} refund skipped per allocation`);
-      return;
-    }
-  }
-
-  if (!isExpired) {
-    if (!tenantId) {
-      throw new Error('Refusing to write voucher_transaction with NULL tenant_id during direct voucher reinstatement');
-    }
-    const newValue = voucher.value + refundAmount;
-    await supabase
-      .from('voucher')
-      .update({ value: newValue, status: 'active' })
-      .eq('id', voucher.id);
-
-    await supabase.from('voucher_transaction').insert({
-      voucher_id: voucher.id,
-      organization_id: booking.organization_id || null,
-      booking_reference: booking.booking_reference,
-      event_id: booking.event_id,
-      event_title: (await resolveEventTitleById(booking.event_id, tenantId)) || null,
-      member_id: booking.member_id,
-      member_email: booking.attendee_email,
-      amount: refundAmount,
-      balance_before: voucher.value,
-      balance_after: newValue,
-      type: 'cancellation_refund',
-      created_at: new Date().toISOString(),
-      tenant_id: tenantId
-    });
-
-    reversalResults.vouchers.push({ voucherId: voucher.id, code: voucher.code, amount: refundAmount, success: true, reinstated: true });
-    console.log(`[VoucherReinstate] Voucher ${voucher.code} reinstated: £${refundAmount}`);
-  } else {
-    const replacementOption = reversalOptions?.voucherReplacements?.find(r => String(r.voucherId) === String(voucher.id));
-    if (replacementOption?.newExpiryDate) {
-      const newCode = `REFUND-${voucher.code}-${Date.now().toString(36).toUpperCase()}`;
-      const { data: newVoucher, error: createErr } = await supabase
-        .from('voucher')
-        .insert({
-          organization_id: voucher.organization_id,
-          code: newCode,
-          value: voucherAmount,
-          description: `Replacement for expired voucher ${voucher.code} (cancellation of ${booking.booking_reference})`,
-          expires_at: replacementOption.newExpiryDate,
-          status: 'active',
-          tenant_id: tenantId,
-          issued_at: new Date().toISOString()
-        })
-        .select()
-        .single();
-
-      if (createErr) {
-        reversalResults.vouchers.push({ voucherId: voucher.id, code: voucher.code, amount: voucherAmount, success: false, expired: true, error: 'Failed to create replacement: ' + createErr.message });
-      } else {
-        reversalResults.vouchers.push({ voucherId: voucher.id, code: voucher.code, amount: voucherAmount, success: true, expired: true, replacementCreated: true, newVoucherCode: newVoucher.code, newVoucherId: newVoucher.id });
-        reversalResults.replacements.push({ type: 'voucher', originalCode: voucher.code, newCode: newVoucher.code, amount: voucherAmount, expiryDate: replacementOption.newExpiryDate });
-        console.log(`[VoucherReinstate] Replacement voucher ${newCode} created for expired ${voucher.code}`);
-      }
-    } else {
-      reversalResults.vouchers.push({ voucherId: voucher.id, code: voucher.code, amount: voucherAmount, success: false, expired: true, skipped: true });
-      console.log(`[VoucherReinstate] Voucher ${voucher.code} expired — no replacement requested`);
-    }
-  }
+  return reinstateVoucherFromTransactions({ ...booking, _source: BOOKING_SOURCE_COMPLEX },
+    refund_allocation, reversalOptions, reversalResults, tenantId);
 }
 
 export async function reinstateVoucherFromTransactions(booking, refund_allocation, reversalOptions, reversalResults, tenantId) {
-  const groupRef = booking.booking_group_reference || booking.booking_reference;
-  const { data: voucherTxns } = await supabase
-    .from('voucher_transaction')
-    .select('*')
-    .eq('booking_reference', groupRef)
-    .eq('type', 'booking_usage');
-
-  if (!voucherTxns || voucherTxns.length === 0) return;
-
-  const { data: existingRefunds } = await supabase
-    .from('voucher_transaction')
-    .select('voucher_id')
-    .eq('booking_reference', booking.booking_reference)
-    .eq('type', 'cancellation_refund');
-  const alreadyRefundedVoucherIds = new Set((existingRefunds || []).map(r => String(r.voucher_id)));
-
-  for (const vtx of voucherTxns) {
-    if (alreadyRefundedVoucherIds.has(String(vtx.voucher_id))) {
-      console.log(`[VoucherReinstate] Voucher ${vtx.voucher_id} already refunded for this booking, skipping`);
-      continue;
-    }
-
-    const { data: voucher } = await supabase
-      .from('voucher')
-      .select('*')
-      .eq('id', vtx.voucher_id)
-      .single();
-
-    if (!voucher) {
-      reversalResults.vouchers.push({ voucherId: vtx.voucher_id, amount: vtx.amount, success: false, error: 'Voucher not found' });
-      continue;
-    }
-
-    const isExpired = voucher.expires_at && new Date(voucher.expires_at) < new Date();
-
-    let voucherRefundAmount = vtx.amount;
-    if (refund_allocation?.vouchers?.[String(voucher.id)] !== undefined) {
-      const allocatedVoucherAmt = parseFloat(refund_allocation.vouchers[String(voucher.id)]) || 0;
-      voucherRefundAmount = Math.min(allocatedVoucherAmt, vtx.amount);
-      if (voucherRefundAmount <= 0) {
-        reversalResults.vouchers.push({ voucherId: voucher.id, code: voucher.code, amount: 0, success: true, skipped: true });
-        console.log(`[VoucherReinstate] Voucher ${voucher.code} refund skipped per allocation`);
-        continue;
-      }
-    }
-
-    if (!isExpired) {
-      if (!tenantId) {
-        throw new Error('Refusing to write voucher_transaction with NULL tenant_id during voucher reinstatement');
-      }
-      const newValue = voucher.value + voucherRefundAmount;
-      await supabase
-        .from('voucher')
-        .update({ value: newValue, status: 'active' })
-        .eq('id', voucher.id);
-
-      await supabase.from('voucher_transaction').insert({
-        voucher_id: voucher.id,
-        organization_id: vtx.organization_id,
-        booking_reference: booking.booking_reference,
-        event_id: booking.event_id,
-        event_title: vtx.event_title || (await resolveEventTitleById(booking.event_id, tenantId)) || null,
-        member_id: booking.member_id,
-        member_email: vtx.member_email || booking.attendee_email,
-        amount: voucherRefundAmount,
-        balance_before: voucher.value,
-        balance_after: newValue,
-        type: 'cancellation_refund',
-        created_at: new Date().toISOString(),
-        tenant_id: tenantId
-      });
-
-      reversalResults.vouchers.push({ voucherId: voucher.id, code: voucher.code, amount: voucherRefundAmount, success: true, reinstated: true });
-      console.log(`[VoucherReinstate] Voucher ${voucher.code} reinstated: £${voucherRefundAmount}`);
-    } else {
-      const replacementOption = reversalOptions?.voucherReplacements?.find(r => String(r.voucherId) === String(voucher.id));
-      if (replacementOption?.newExpiryDate) {
-        const newCode = `REFUND-${voucher.code}-${Date.now().toString(36).toUpperCase()}`;
-        const { data: newVoucher, error: createErr } = await supabase
-          .from('voucher')
-          .insert({
-            organization_id: voucher.organization_id,
-            code: newCode,
-            value: vtx.amount,
-            description: `Replacement for expired voucher ${voucher.code} (cancellation of ${booking.booking_reference})`,
-            expires_at: replacementOption.newExpiryDate,
-            status: 'active',
-            tenant_id: tenantId,
-            issued_at: new Date().toISOString()
-          })
-          .select()
-          .single();
-
-        if (createErr) {
-          reversalResults.vouchers.push({ voucherId: voucher.id, code: voucher.code, amount: vtx.amount, success: false, expired: true, error: 'Failed to create replacement: ' + createErr.message });
-        } else {
-          reversalResults.vouchers.push({ voucherId: voucher.id, code: voucher.code, amount: vtx.amount, success: true, expired: true, replacementCreated: true, newVoucherCode: newVoucher.code, newVoucherId: newVoucher.id });
-          reversalResults.replacements.push({ type: 'voucher', originalCode: voucher.code, newCode: newVoucher.code, amount: vtx.amount, expiryDate: replacementOption.newExpiryDate });
-          console.log(`[VoucherReinstate] Replacement voucher ${newCode} created for expired ${voucher.code}`);
-        }
-      } else {
-        reversalResults.vouchers.push({ voucherId: voucher.id, code: voucher.code, amount: vtx.amount, success: false, expired: true, skipped: true });
-        console.log(`[VoucherReinstate] Voucher ${voucher.code} expired — no replacement requested`);
-      }
-    }
-  }
+  if (!(Number(booking.voucher_amount) > 0)) return;
+  const result = await refundBookingVoucherCredit(supabase, {
+    tenantId, bookingId: booking.id,
+    source: booking._source === BOOKING_SOURCE_COMPLEX ? BOOKING_SOURCE_COMPLEX : BOOKING_SOURCE_REGULAR,
+    refundAllocation: refund_allocation, reversalOptions,
+  });
+  reversalResults.vouchers.push(...(result.vouchers || []));
+  reversalResults.replacements.push(...(result.replacements || []));
 }
 
 export async function restoreComplexEventSeats(booking, tenantId) {

@@ -27,6 +27,7 @@ export function quickBooksPaymentRefNum(reference) {
 export function quickBooksMembershipOperationRequestId(operationKey, { deferred = false } = {}) {
   if (!operationKey) return null;
   const value = String(operationKey);
+  if (value.startsWith('membership-credit-')) return accountingOperationIdentity(value, 'mcv', 50);
   if (deferred) return accountingOperationIdentity(value, 'inv', 50);
   if (value.length > 50) {
     throw new Error(
@@ -976,6 +977,27 @@ export async function applyStripePaymentToQuickBooksInvoice({
   try {
     const bankAccountId = await resolveStripeBankAccountId(appTenantId, bankAccountSettingKey, { strict: strictBankAccount === true });
     if (bankAccountId) {
+      if (String(idempotencyKey || '').startsWith('membership-credit-')) {
+        if (!paymentReference || !Number.isFinite(Number(amount)) || Number(amount) <= 0) {
+          throw new Error('Explicit membership funding amount and reference required');
+        }
+        for (const linked of invoice.LinkedTxn || []) {
+          if (linked.TxnType !== 'Payment') continue;
+          const existing = (await qboFetch('membership-funding-recover', accessToken, 'GET',
+            `${base}/payment/${encodeURIComponent(linked.TxnId)}?minorversion=${MINOR_VERSION}`))?.Payment;
+          if (!existing) throw new Error('Could not reconcile existing invoice payment');
+          if (existing.PrivateNote !== paymentReference) continue;
+          if (Math.round(Number(existing.TotalAmt) * 100) !== Math.round(payAmount * 100)
+              || existing.DepositToAccountRef?.value !== String(bankAccountId)) {
+            throw new Error('Existing membership funding payment conflicts with expected amount or account');
+          }
+          return { invoice_id: qboInvoiceId, invoice_number: invoice.DocNumber,
+            payment_recorded: true, payment_id: existing.Id };
+        }
+        if (Math.round(Number(invoice.Balance) * 100) < Math.round(payAmount * 100)) {
+          throw new Error('Invoice remaining liability is below membership funding amount');
+        }
+      }
       const paymentPayload = {
         CustomerRef: { value: customerId },
         TotalAmt: payAmount,

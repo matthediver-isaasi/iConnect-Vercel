@@ -30,9 +30,13 @@ import { enqueueCheckoutEventInvoice, eventInvoiceContact, complexEventInvoiceLi
 import { assertEventInvoicePaymentOwner } from '../_lib/eventInvoiceAddressPolicy.js';
 import { getAllowVoucherUseAfterExpiry, isVoucherUsableForEventDate } from '../_lib/voucherExpiryPolicy.js';
 import { orderVoucherIdsForRedemption } from '../_lib/voucherOrdering.js';
+import { loadBookingVouchers } from '../_lib/complexEventCreditQuote.js';
+import { reserveVoucherCredit, commitVoucherCredit, releaseVoucherCredit } from '../_lib/voucherCreditService.js';
+import { runBookingCreditAttempt, finalizeBookingCredit, bookingCreditInvoiceInput } from '../_lib/bookingCreditAttempt.js';
 import { sendConfirmationEmailsFromTemplate } from '../_lib/eventConfirmationEmail.js';
 import {
   claimAllocationInvitation,
+  hashAllocationInviteToken,
   resolveAllocationInvitation,
 } from '../_lib/allocationInvitation.js';
 import {
@@ -56,6 +60,27 @@ function generateBookingReference() {
 }
 
 export default async function handler(req, res) {
+  if (req.method !== 'POST' || !req.body?.selected_voucher_ids?.length) return processBooking(req, res);
+  const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_KEY;
+  if (!url || !key) return res.status(503).json({ error: 'Supabase not configured' });
+  let status = 200;
+  const capture = {
+    setHeader: (...args) => res.setHeader(...args),
+    status(code) { status = code; return capture; },
+    json(body) { return body; },
+  };
+  try {
+    const result = await runBookingCreditAttempt({
+      db: createClient(url, key), req, body: req.body, source: 'complex_event_booking',
+      work: () => processBooking(req, capture),
+    });
+    return res.status(result?.success ? 201 : status).json(result);
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({ success: false, error: error.message });
+  }
+}
+
+async function processBooking(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -523,17 +548,22 @@ export default async function handler(req, res) {
     let cardPaymentAuthorizedForCompensation = false;
 
     let org = null;
+    if (payment_method === 'account_balance') {
+      return res.status(400).json({ error: 'Stored account credit is unavailable. Use account or invoice for deferred invoicing.' });
+    }
     if (organization_id) {
-      const { data: orgData } = await supabase
+      const { data: orgData, error: orgError } = await supabase
         .from('organization')
-        .select('id, name, account_balance, training_fund_balance, training_fund_allowed_role_ids, voucher_allowed_role_ids, invoicing_email, address')
+        .select('id, tenant_id, name, training_fund_balance, training_fund_allowed_role_ids, voucher_allowed_role_ids, invoicing_email, address')
         .eq('id', organization_id)
+        .eq('tenant_id', tenant.id)
         .single();
+      if (orgError) return res.status(503).json({ error: 'Purchasing organisation could not be loaded' });
       org = orgData;
     }
 
     if (!isFree) {
-      const validPaidMethods = ['card', 'account', 'account_balance', 'training_fund', 'voucher', 'invoice', PUBLIC_INVOICE_PO];
+      const validPaidMethods = ['card', 'account', 'training_fund', 'voucher', 'invoice', PUBLIC_INVOICE_PO];
       if (!payment_method || !validPaidMethods.includes(payment_method)) {
         return res.status(400).json({
           error: `Invalid payment method. Supported methods: ${validPaidMethods.join(', ')}`
@@ -591,6 +621,10 @@ export default async function handler(req, res) {
           if (paymentIntent.status !== 'succeeded') {
             return res.status(400).json({ error: 'Payment has not been completed' });
           }
+          if (req.bookingCreditAttempt && (paymentIntent.latest_charge?.refunded
+            || Number(paymentIntent.latest_charge?.amount_refunded || 0) > 0)) {
+            return res.status(400).json({ error: 'This payment has already been refunded; start a new purchase' });
+          }
 
           if (allocationContext) {
             const allocationMetadataMatches = paymentIntentMatchesAllocation(paymentIntent, allocationContext);
@@ -608,17 +642,15 @@ export default async function handler(req, res) {
           }
 
           let maxServerDeductionsMinor = 0;
-          if (org) {
+          if (authenticatedMember) {
             if (requestedTrainingFundAmount > 0) {
-              maxServerDeductionsMinor += Math.round(Math.min(requestedTrainingFundAmount, org.training_fund_balance || 0, totalCostPounds) * 100);
+              maxServerDeductionsMinor += Math.round(Math.min(requestedTrainingFundAmount, org?.training_fund_balance || 0, totalCostPounds) * 100);
             }
             if (selected_voucher_ids && selected_voucher_ids.length > 0) {
-              const { data: vouchersForCheck } = await supabase
-                .from('voucher')
-                .select('id, value')
-                .in('id', selected_voucher_ids)
-                .eq('status', 'active')
-                .eq('organization_id', org.id);
+              const vouchersForCheck = await loadBookingVouchers(supabase, {
+                tenantId: tenant.id, member: authenticatedMember, organization: org,
+                voucherIds: selected_voucher_ids, eventStart: event.start_date, currency: unifiedCurrency,
+              });
               if (vouchersForCheck) {
                 const totalVoucherValue = vouchersForCheck.reduce((sum, v) => sum + (v.value || 0), 0);
                 maxServerDeductionsMinor += Math.round(Math.min(totalVoucherValue, totalCostPounds) * 100);
@@ -676,18 +708,6 @@ export default async function handler(req, res) {
         }
         paymentStatus = 'pending';
         confirmedPaymentMethod = payment_method;
-      } else if (payment_method === 'account_balance') {
-        if (!authenticatedMember) {
-          return res.status(401).json({ error: 'You must be logged in to use account balance payment' });
-        }
-        if (!org) {
-          return res.status(400).json({ error: 'Organization is required for account balance payment' });
-        }
-        if ((org.account_balance || 0) < totalCostPounds) {
-          return res.status(400).json({ error: 'Insufficient account balance' });
-        }
-        paymentStatus = 'paid';
-        confirmedPaymentMethod = 'account_balance';
       } else if (payment_method === 'training_fund') {
         if (!authenticatedMember) {
           return res.status(401).json({ error: 'You must be logged in to use training fund payment' });
@@ -710,16 +730,6 @@ export default async function handler(req, res) {
       } else if (payment_method === 'voucher') {
         if (!authenticatedMember) {
           return res.status(401).json({ error: 'You must be logged in to use voucher payment' });
-        }
-        if (!org) {
-          return res.status(400).json({ error: 'Organization is required for voucher payment' });
-        }
-        const vAllowedRoles = org.voucher_allowed_role_ids || [];
-        if (vAllowedRoles.length > 0) {
-          const memberRoleId = authenticatedMember.role_id;
-          if (!memberRoleId || !vAllowedRoles.includes(memberRoleId)) {
-            return res.status(403).json({ error: 'Your role does not have permission to use training vouchers' });
-          }
         }
         paymentStatus = 'paid';
         confirmedPaymentMethod = 'voucher';
@@ -771,8 +781,9 @@ export default async function handler(req, res) {
     const voucherDeductions = [];
     const validatedVouchers = [];
 
-    if (!isFree && authenticatedMember && org) {
+    if (!isFree && authenticatedMember) {
       if (confirmedPaymentMethod === 'training_fund' || (requestedTrainingFundAmount && requestedTrainingFundAmount > 0)) {
+        if (!org) return res.status(400).json({ error: 'Organization is required for training fund payment' });
         const tfAllowedRoles = org.training_fund_allowed_role_ids || [];
         if (tfAllowedRoles.length > 0) {
           const memberRoleId = authenticatedMember.role_id;
@@ -786,14 +797,7 @@ export default async function handler(req, res) {
         validatedTrainingFundAmount = Math.min(tfAmount, org.training_fund_balance || 0, totalCostPounds);
       }
 
-      if ((confirmedPaymentMethod === 'voucher' || (selected_voucher_ids && selected_voucher_ids.length > 0)) && org) {
-        const vAllowedRoles = org.voucher_allowed_role_ids || [];
-        if (vAllowedRoles.length > 0) {
-          const memberRoleId = authenticatedMember.role_id;
-          if (!memberRoleId || !vAllowedRoles.includes(memberRoleId)) {
-            return res.status(403).json({ error: 'Your role does not have permission to use training vouchers' });
-          }
-        }
+      if (confirmedPaymentMethod === 'voucher' || (selected_voucher_ids && selected_voucher_ids.length > 0)) {
         const voucherIds = selected_voucher_ids || [];
 
         if (confirmedPaymentMethod === 'voucher' && voucherIds.length === 0) {
@@ -822,34 +826,16 @@ export default async function handler(req, res) {
         // explicitly requested a manual order (voucher_order_manual),
         // preserve the client-sent order and record the override in the
         // transaction notes/audit trail. Shared logic: api/_lib/voucherOrdering.js.
-        let orderedVoucherIds = [...voucherIds];
-        let voucherOrderOverrideNote = null;
-        {
-          let byId = null;
-          if (voucherOrderManual !== true && voucherIds.length > 1) {
-            const { data: selVouchers, error: selErr } = await supabase
-              .from('voucher')
-              .select('id, expires_at, issued_at')
-              .in('id', voucherIds)
-              .eq('organization_id', org.id);
-            if (!selErr && Array.isArray(selVouchers) && selVouchers.length > 0) {
-              byId = {};
-              selVouchers.forEach(v => { byId[v.id] = v; });
-            }
-          }
-          const ordered = orderVoucherIdsForRedemption(voucherIds, byId, voucherOrderManual === true);
-          orderedVoucherIds = ordered.orderedIds;
-          voucherOrderOverrideNote = ordered.overrideNote;
-        }
+        const eligible = await loadBookingVouchers(supabase, {
+          tenantId: tenant.id, member: authenticatedMember, organization: org,
+          voucherIds, eventStart: voucherPolicyEventStart, currency: unifiedCurrency,
+        });
+        const byId = Object.fromEntries(eligible.map(v => [v.id, v]));
+        const { orderedIds: orderedVoucherIds } = orderVoucherIdsForRedemption(
+          voucherIds, byId, voucherOrderManual === true);
 
         for (const voucherId of orderedVoucherIds) {
-          const { data: voucher } = await supabase
-            .from('voucher')
-            .select('*')
-            .eq('id', voucherId)
-            .eq('organization_id', org.id)
-            .eq('status', 'active')
-            .single();
+          const voucher = byId[voucherId];
 
           if (voucher && !isVoucherUsableForEventDate(voucher, voucherPolicyEventStart, allowVoucherAfterExpiry)) {
             return res.status(400).json({
@@ -957,7 +943,7 @@ export default async function handler(req, res) {
       }
     }
 
-    if (!publicTicketPurchase && event.available_seats !== null && event.available_seats !== undefined) {
+    if (!publicTicketPurchase && !req.bookingCreditAttempt && event.available_seats !== null && event.available_seats !== undefined) {
       const { data: newSeats, error: seatError } = await supabase.rpc('atomic_decrement_complex_event_seats', {
         p_event_id: event_id,
         p_count: totalAttendees
@@ -974,9 +960,10 @@ export default async function handler(req, res) {
     // (count-based, Task #1760). Only the event-level available_seats counter is
     // still maintained as a stored value; the post-verify guard below enforces
     // per-ticket-class limits atomically against confirmed-booking counts.
-    let seatsDecrementedForEvent = !publicTicketPurchase && event.available_seats !== null && event.available_seats !== undefined;
+    let seatsDecrementedForEvent = !publicTicketPurchase && !req.bookingCreditAttempt && event.available_seats !== null && event.available_seats !== undefined;
 
-    let bookingGroupRef = generateBookingReference();
+    let bookingGroupRef = req.bookingCreditAttempt?.key || (selected_voucher_ids?.length && stripe_payment_intent_id
+      ? `CE-${stripe_payment_intent_id}` : generateBookingReference());
     const bookings = [];
     const publicTicketBookingRows = [];
     const usedDiscountCodes = [];
@@ -1052,14 +1039,14 @@ export default async function handler(req, res) {
           training_fund_amount: validatedTrainingFundAmount > 0 ? validatedTrainingFundAmount / totalAttendees : 0,
           voucher_amount: voucherAmountApplied > 0 ? voucherAmountApplied / totalAttendees : 0,
           voucher_id: validatedVouchers.length > 0 ? validatedVouchers[0].voucherId : null,
-          account_balance_amount: confirmedPaymentMethod === 'account_balance' ? totalCostPounds / totalAttendees : 0,
+          account_balance_amount: 0,
           purchase_order_number: purchaseOrderNumber || null,
           po_to_follow: (confirmedPaymentMethod === 'account' || confirmedPaymentMethod === 'invoice') ? (poToFollow || false) : false,
           third_party_consent: (event.pricing_config?.collectThirdPartyConsent === true && typeof thirdPartyConsent === 'boolean') ? thirdPartyConsent : null,
           ...(collectOptionsEnabled ? sanitizeOptionSelections(attendee, event) : EMPTY_OPTION_SELECTIONS)
         };
 
-        if (publicTicketPurchase) {
+        if (publicTicketPurchase || req.bookingCreditAttempt) {
           publicTicketBookingRows.push(bookingData);
           isFirstAttendeeOverall = false;
           continue;
@@ -1091,7 +1078,7 @@ export default async function handler(req, res) {
         isFirstAttendeeOverall = false;
       }
 
-      if (item.validatedDiscountCode) {
+      if (item.validatedDiscountCode && !req.bookingCreditAttempt) {
         try {
           await recordDiscountCodeUsage({
             discountCodeRecord: item.validatedDiscountCode,
@@ -1110,9 +1097,48 @@ export default async function handler(req, res) {
       }
     }
 
+    let atomicCredit = null;
+    if (req.bookingCreditAttempt) {
+      try {
+      const finalized = await finalizeBookingCredit(supabase, req.bookingCreditAttempt, {
+        eventId: event_id, rows: publicTicketBookingRows, funding: {
+          payableMinor: Math.round((totalCostPounds - validatedTrainingFundAmount) * 100),
+          voucherMinor: Math.round(voucherAmountApplied * 100), voucherIds: selected_voucher_ids,
+          trainingFundMinor: Math.round(validatedTrainingFundAmount * 100),
+          expectedOrganizationId: org?.id || null,
+          // account/invoice/PO are deferred liabilities, never stored credit.
+          accountMinor: 0,
+          discountIds: resolvedItems.filter(i => i.validatedDiscountCode).map(i => i.validatedDiscountCode.id),
+          currency: (unifiedCurrency || 'GBP').toUpperCase(), manualOrder: voucherOrderManual, eventTitle: event.title,
+          paymentIntentId: stripe_payment_intent_id || null,
+          allocationTokenHash: allocationContext ? hashAllocationInviteToken(allocationInvitationToken) : null,
+          allocationTicketId: allocationContext ? String(allocationContext.ticketTypeId) : null,
+          invoiceInput: bookingCreditInvoiceInput({
+            event, amount: Math.max(0, totalCostPounds - voucherAmountApplied - validatedTrainingFundAmount),
+            currency: unifiedCurrency, paymentMethod: confirmedPaymentMethod,
+            paymentIntentId: stripe_payment_intent_id, paymentIntent: invoicePaymentEvidence,
+            contact: eventInvoiceContact({ source: 'complex_event_booking', org, member: authenticatedMember,
+              isGuestBooking: !authenticatedMember, guestInfo: purchaserInfo, paymentMethod: confirmedPaymentMethod }),
+            booker: authenticatedMember, purchaseOrderNumber, poToFollow,
+            lineInput: { event, resolvedItems, actualVoucherApplied: voucherAmountApplied,
+              actualTfApplied: validatedTrainingFundAmount },
+          }),
+        },
+      });
+      bookings.push(...finalized.bookings);
+      atomicCredit = finalized.credit;
+      voucherDeductions.push(...atomicCredit.allocations.map(a => ({ voucherId: a.voucherId, amount: a.amountMinor / 100 })));
+      } catch (error) {
+        if (error.definitiveRollback && stripe_payment_intent_id) {
+          const outcome = await refundCardPayment();
+          return res.status(409).json({ success: false, error: error.message, refunded: outcome.refunded,
+            requires_reconciliation: !outcome.refunded });
+        }
+        throw error;
+      }
+    }
     const firstBookingRef = bookings[0]?.booking_reference || bookingGroupRef;
     let actualTrainingFundApplied = 0;
-    let actualAccountBalanceApplied = 0;
 
     const rollbackBookingsAndSeats = async () => {
       await restoreSeats();
@@ -1184,7 +1210,7 @@ export default async function handler(req, res) {
     }
     let capacityExceeded = false;
     let exceededTicketName = null;
-    for (const [tcId, ids] of Object.entries(publicTicketPurchase ? {} : bookingIdsByClass)) {
+    for (const [tcId, ids] of Object.entries(publicTicketPurchase || req.bookingCreditAttempt ? {} : bookingIdsByClass)) {
       const tc = allTicketClasses.find(t => String(t.id) === String(tcId));
       if (!tc || tc.is_unlimited_tickets || tc.available_count === null || tc.available_count === undefined) continue;
       try {
@@ -1218,20 +1244,15 @@ export default async function handler(req, res) {
       });
     }
 
+    let voucherReservation = atomicCredit;
     const rollbackFinancialDeductions = async () => {
-      for (const d of voucherDeductions) {
-        const { error: vRestoreErr } = await supabase
-          .from('voucher')
-          .update({ value: d.originalValue, status: 'active' })
-          .eq('id', d.voucherId);
-        if (vRestoreErr) console.error('[Complex Event Booking] Voucher rollback error:', vRestoreErr.message);
-        const { error: vtDeleteErr } = await supabase
-          .from('voucher_transaction')
-          .delete()
-          .eq('voucher_id', d.voucherId)
-          .eq('booking_reference', firstBookingRef)
-          .eq('type', 'booking_usage');
-        if (vtDeleteErr) console.error('[Complex Event Booking] Voucher transaction rollback error:', vtDeleteErr.message);
+      if (voucherReservation) {
+        // Never restore while a provider outcome is uncertain.
+        const outcome = stripe_payment_intent_id ? await refundCardPayment() : { refunded: true };
+        if (!outcome.refunded) throw new Error('Payment refund is unresolved; credit remains reserved for reconciliation');
+        await releaseVoucherCredit(supabase, { tenantId: tenant.id,
+          purchaseKey: bookingGroupRef, providerOutcome: stripe_payment_intent_id ? 'refunded' : 'not_started' });
+        voucherReservation = null;
       }
       if (actualTrainingFundApplied > 0 && org) {
         const { error: tfRestoreErr } = await supabase
@@ -1248,77 +1269,29 @@ export default async function handler(req, res) {
         if (tftDeleteErr) console.error('[Complex Event Booking] Training fund transaction rollback error:', tftDeleteErr.message);
         actualTrainingFundApplied = 0;
       }
-      if (actualAccountBalanceApplied > 0 && org) {
-        const { error: accountRestoreError } = await supabase
-          .from('organization')
-          .update({ account_balance: (org.account_balance || 0) })
-          .eq('id', org.id);
-        if (accountRestoreError) throw new Error(`Account balance rollback failed: ${accountRestoreError.message}`);
-        actualAccountBalanceApplied = 0;
-      }
     };
 
-    if (!isFree && authenticatedMember && org) {
+    if (!isFree && authenticatedMember && !req.bookingCreditAttempt) {
       let deductionFailed = false;
-
-      for (const v of validatedVouchers) {
-        const newValue = v.originalValue - v.amount;
-        console.log('[Complex Event Booking] Deducting voucher', v.voucherId, 'by', v.amount);
-        const { data: updatedVoucher, error: updateError } = await supabase
-          .from('voucher')
-          .update({
-            value: newValue,
-            status: newValue <= 0 ? 'used' : 'active'
-          })
-          .eq('id', v.voucherId)
-          .gte('value', v.amount)
-          .select('value')
-          .single();
-
-        if (updateError || !updatedVoucher) {
-          console.error('[Complex Event Booking] Guarded voucher update failed:', v.voucherId);
-          if (confirmedPaymentMethod === 'voucher') {
-            deductionFailed = true;
-            break;
+      if (validatedVouchers.length) {
+        try {
+          voucherReservation = await reserveVoucherCredit(supabase, {
+            tenantId: tenant.id, purchaseKey: bookingGroupRef,
+            memberId: authenticatedMember.id, authenticatedMemberId: authenticatedMember.id,
+            voucherIds: selected_voucher_ids,
+            payableMinor: Math.round((totalCostPounds - validatedTrainingFundAmount) * 100),
+            manualOrder: voucherOrderManual,
+            currency: unifiedCurrency,
+          });
+          if (Number(voucherReservation.voucherMinor) !== Math.round(voucherAmountApplied * 100)) {
+            throw new Error('Credit balance changed; please review payment');
           }
-        } else {
-          voucherDeductions.push(v);
-
-          if (!tenant?.id) {
-            console.error('[Complex Event Booking] Refusing to write voucher_transaction with NULL tenant_id', {
-              eventId: event.id,
-              orgId: org.id,
-              voucherId: v.voucherId,
-              firstBookingRef,
-            });
-            await rollbackFinancialDeductions();
-            await rollbackBookingsAndSeats();
-            return res.status(500).json({ error: 'Could not resolve tenant context for voucher transaction' });
-          }
-          const { error: vtxError } = await supabase
-            .from('voucher_transaction')
-            .insert({
-              voucher_id: v.voucherId,
-              organization_id: org.id,
-              booking_reference: firstBookingRef,
-              event_id: event.id,
-              event_title: event.title || 'Complex Event',
-              member_id: member_id || null,
-              member_email: authenticatedMember.email || null,
-              amount: v.amount,
-              balance_before: v.originalValue,
-              balance_after: updatedVoucher.value,
-              type: 'booking_usage',
-              notes: voucherOrderOverrideNote,
-              created_at: new Date().toISOString(),
-              tenant_id: tenant.id
-            });
-
-          if (vtxError) {
-            console.error('[Complex Event Booking] Failed to create voucher transaction:', vtxError.message);
-          } else {
-            console.log('[Complex Event Booking] Voucher transaction created successfully');
-          }
+          voucherDeductions.push(...voucherReservation.allocations.map(a => ({
+            voucherId: a.voucherId, amount: a.amountMinor / 100,
+          })));
+        } catch (error) {
+          console.error('[Complex Event Booking] Credit reservation failed:', error.message);
+          deductionFailed = true;
         }
       }
 
@@ -1328,7 +1301,7 @@ export default async function handler(req, res) {
         return res.status(409).json({ error: 'Voucher deduction failed due to concurrent modification or insufficient value' });
       }
 
-      if (validatedTrainingFundAmount > 0) {
+      if (validatedTrainingFundAmount > 0 && org) {
         const { data: updatedOrg, error: tfUpdateErr } = await supabase
           .from('organization')
           .update({ training_fund_balance: (org.training_fund_balance || 0) - validatedTrainingFundAmount })
@@ -1378,28 +1351,10 @@ export default async function handler(req, res) {
         }
       }
 
-      if (confirmedPaymentMethod === 'account_balance') {
-        const { data: updatedOrgBal, error: abErr } = await supabase
-          .from('organization')
-          .update({ account_balance: (org.account_balance || 0) - totalCostPounds })
-          .eq('id', org.id)
-          .gte('account_balance', totalCostPounds)
-          .select('account_balance')
-          .single();
-
-        if (abErr || !updatedOrgBal) {
-          console.error('[Complex Event Booking] Guarded account balance deduction failed');
-          await rollbackFinancialDeductions();
-          await rollbackBookingsAndSeats();
-          return res.status(409).json({ error: 'Account balance deduction failed due to concurrent modification or insufficient balance' });
-        }
-        actualAccountBalanceApplied = totalCostPounds;
-        console.log(`[Complex Event Booking] Account balance decremented by £${totalCostPounds.toFixed(2)}, new balance: £${updatedOrgBal.account_balance.toFixed(2)}`);
-      }
     }
 
     const actualVoucherApplied = voucherDeductions.reduce((sum, d) => sum + d.amount, 0);
-    const actualTfApplied = actualTrainingFundApplied;
+    const actualTfApplied = req.bookingCreditAttempt ? validatedTrainingFundAmount : actualTrainingFundApplied;
 
     if (bookings.length > 0) {
       const needsVoucherUpdate = actualVoucherApplied !== voucherAmountApplied;
@@ -1427,7 +1382,7 @@ export default async function handler(req, res) {
 
     // Claims happen after capacity and reversible internal deductions, but
     // before invoices, confirmation messages, or reminder jobs.
-    if (allocationContext) {
+    if (allocationContext && !req.bookingCreditAttempt) {
       const coveredBooking = bookings.find((booking) => String(booking.ticket_class_id) === String(allocationContext.ticketTypeId));
       try {
         await claimAllocationInvitation(supabase, allocationInvitationToken, 'complex', coveredBooking?.id);
@@ -1444,6 +1399,9 @@ export default async function handler(req, res) {
       }
     }
 
+    if (voucherReservation && !req.bookingCreditAttempt) {
+      await commitVoucherCredit(supabase, { tenantId: tenant.id, purchaseKey: bookingGroupRef });
+    }
     const memberCreation = publicTicketPurchase ? await completePublicTicketMembers({
       db: supabase, purchase: publicTicketPurchase, tenantId: tenant.id,
       bookingIds: bookings.map(booking => booking.id),
@@ -1460,7 +1418,8 @@ export default async function handler(req, res) {
         isGuestBooking: !authenticatedMember, guestInfo: purchaserInfo, paymentMethod: confirmedPaymentMethod }),
       booker: authenticatedMember || purchaserInfo,
       purchaseOrderNumber, poToFollow,
-      buildLines: accountCode => complexEventInvoiceLines({ event, resolvedItems, actualVoucherApplied, actualTfApplied }, accountCode),
+      buildLines: accountCode => complexEventInvoiceLines({ event, resolvedItems, actualVoucherApplied,
+        voucherFunding: voucherReservation?.allocations || [], actualTfApplied }, accountCode),
       }) : { status: 'not_applicable' };
 
     const emailResults = [];

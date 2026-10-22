@@ -48,6 +48,7 @@ import { EventDisclosureHeading, useEventDisclosure } from "@/components/events/
 import TourButton from "../components/tour/TourButton";
 import { getFocalPointStyle } from "@/components/FocalPointPicker";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { resolveProgramRegistrationAttempt, finishProgramRegistrationAttempt, hasProgramRegistrationAttempt } from '@/lib/programRegistrationAttempt.mjs';
 import { useEventLogin } from "@/components/auth/useEventLogin";
 import { useSpeakerModuleName } from "@/hooks/useSpeakerModuleName";
 import { useEventSeatRealtime } from "@/hooks/useEventSeatRealtime";
@@ -260,6 +261,20 @@ export function EventDetailsExperience({
   allocationToken = null,
 }) {
   const { memberInfo, organizationInfo, memberRole, authResolved, sessionValidated, roleStatus, isFeatureExcluded, reloadMemberInfo, refreshOrganizationInfo } = useMemberAccess();
+  const [selectedProgramOwner, setSelectedProgramOwner] = useState(null);
+  const programTicketOwner = selectedProgramOwner || (organizationInfo?.id ? 'organization' : 'member');
+  const { data: personalProgramBalances = {}, error: personalProgramError } = useQuery({
+    queryKey: ['personal-program-entitlements', memberInfo?.id],
+    enabled: !!memberInfo?.id,
+    queryFn: async () => {
+      const response = await base44.functions.invoke('getProgramEntitlements', {});
+      if (response.data?.error) throw new Error(response.data.error);
+      return response.data.personal_balances;
+    },
+  });
+  useEffect(() => {
+    if (personalProgramError) toast.error(personalProgramError.message);
+  }, [personalProgramError]);
   const { openLogin, loginModal } = useEventLogin();
   const { singular: speakerSingular, plural: speakerPlural } = useSpeakerModuleName();
   const [showTour, setShowTour] = useState(false);
@@ -1432,9 +1447,8 @@ export function EventDetailsExperience({
   // terms enforcement and the booking payload are unaffected.
   const tbcTicketSelectorsHidden = isTbcReplacementDisplayActive(tbcBookingReplacement, totalCost);
   
-  const availableProgramTickets = event.program_tag && organizationInfo?.program_ticket_balances ?
-    organizationInfo.program_ticket_balances[event.program_tag] || 0 : 0;
-  const hasEnoughTickets = isOneOffEvent ? true : availableProgramTickets >= ticketsRequired;
+  const availableProgramTickets = (programTicketOwner === 'member' ? personalProgramBalances
+    : organizationInfo?.program_ticket_balances || {})[event.program_tag] || 0;
   
   // Check if user has no tickets available for their role
   const noTicketsForRole = isOneOffEvent && !legacyWithoutPricingConfig && availableTicketClasses.length === 0;
@@ -1515,6 +1529,13 @@ export function EventDetailsExperience({
     }
     return cfg?.collectThirdPartyConsent === true;
   })();
+  const programRetryAvailable = !!currentMemberInfo?.id && hasProgramRegistrationAttempt({
+    memberId: currentMemberInfo.id, eventId: event.id, storage: sessionStorage,
+    payload: { programTicketOwner, registrationMode, numberOfLinks: 0,
+      attendees: attendees.filter(a => a.isValid),
+      thirdPartyConsent: collectThirdPartyConsent ? thirdPartyConsent === true : null },
+  });
+  const hasEnoughTickets = isOneOffEvent || programRetryAvailable || availableProgramTickets >= ticketsRequired;
 
   const checkGuestEmailIsMember = async (emailToCheck) => {
     const email = emailToCheck || guestInfo?.email;
@@ -1626,6 +1647,11 @@ export function EventDetailsExperience({
         programTag: event.program_tag,
         thirdPartyConsent: collectThirdPartyConsent ? thirdPartyConsent === true : null
       };
+      requestPayload.programTicketOwner = programTicketOwner;
+      requestPayload.registrationAttemptId = resolveProgramRegistrationAttempt({
+        memberId: currentMemberInfo.id, eventId: event.id, payload: requestPayload,
+        storage: sessionStorage, createId: () => crypto.randomUUID(),
+      });
       console.log('[EventDetails] Request payload:', JSON.stringify(requestPayload));
       console.log('[EventDetails] Event location:', event.location);
       console.log('[EventDetails] Event backstage_event_id:', event.backstage_event_id);
@@ -1682,6 +1708,9 @@ export function EventDetailsExperience({
         
         // Defer organization refresh to avoid React state update conflicts
         setTimeout(() => {
+          finishProgramRegistrationAttempt({
+            memberId: currentMemberInfo.id, eventId: event.id, attemptId: requestPayload.registrationAttemptId, storage: sessionStorage,
+          });
           if (refreshOrganizationInfo) {
             refreshOrganizationInfo();
           }
@@ -2374,6 +2403,15 @@ export function EventDetailsExperience({
                         {/* Only show confirm button for program events - one-off events use PaymentOptions button */}
                         {!isOneOffEvent && (
                           <div className="pt-4 border-t border-slate-200 space-y-4">
+                            <label className="block text-sm font-medium">
+                              Programme ticket owner
+                              <select className="block mt-1 w-full rounded border p-2" value={programTicketOwner}
+                                onChange={e => setSelectedProgramOwner(e.target.value)} disabled={submitting}>
+                                {organizationInfo?.id && <option value="organization">Organisation · {organizationInfo.program_ticket_balances?.[event.program_tag] || 0} available</option>}
+                                <option value="member">Personal · {personalProgramBalances[event.program_tag] || 0} available</option>
+                              </select>
+                            </label>
+                            {programRetryAvailable && <p className="text-sm text-slate-600">Retrying this registration will recover its existing booking without spending tickets twice.</p>}
                             {/* TBC replacement: helper message shown in place of the standard booking elements */}
                             {tbcBookingReplacementActive && tbcBookingReplacement.message && (
                               <div className="p-4 rounded-lg border-2 border-blue-200 bg-blue-50" data-testid="card-tbc-booking-replacement">

@@ -41,10 +41,107 @@ export default function MembershipFeePage() {
   const [error, setError] = useState(null);
   const [selectingMethod, setSelectingMethod] = useState(null);
   const [selectionError, setSelectionError] = useState(null);
+  const [personalCredit, setPersonalCredit] = useState(null);
+  const [creditError, setCreditError] = useState(null);
+  const [creditSelection, setCreditSelection] = useState([]);
+  const [creditQuote, setCreditQuote] = useState(null);
+  const [creditPaymentMode, setCreditPaymentMode] = useState('stripe_upfront');
+  const [requoteUpfront, setRequoteUpfront] = useState(false);
+  const [quotingCredit, setQuotingCredit] = useState(false);
+  const payableAmount = data?.voucherFunding
+    ? data.voucherFunding.remainingMinor / 100
+    : creditQuote ? creditQuote.cashMinor / 100 : (data?.totalWithVat ?? data?.finalCost);
+  const creditOnly = (data?.voucherFunding || creditQuote) && payableAmount === 0;
+  const creditMonthly = creditQuote?.monthlySnapshot ? {
+    paymentMode: creditQuote.paymentMode, instalmentCount: creditQuote.monthlySnapshot.instalment_count,
+  } : data?.voucherMonthly;
+  const selectedCreditMode = data?.memberStart?.paymentMode || data?.voucherRequote?.paymentMode || creditPaymentMode;
+  const creditPerMonth = creditMonthly ? payableAmount / creditMonthly.instalmentCount : null;
+  useEffect(() => {
+    let current = true;
+    setPersonalCredit(null);
+    setCreditSelection([]);
+    setCreditQuote(null);
+    setCreditError(null);
+    if (!data || data.status !== 'pending') return;
+    fetch(`/api/public/membership-fees/${encodeURIComponent(token)}?action=vouchers`)
+      .then(async response => {
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Unable to load membership credit');
+        if (current) setPersonalCredit(result);
+      })
+      .catch(err => { if (current) setCreditError(err.message); });
+    return () => { current = false; };
+  }, [token, data?.isMember, data?.status]);
+
+  async function previewPersonalCredit() {
+    setQuotingCredit(true);
+    setCreditError(null);
+    setCreditQuote(null);
+    try {
+      const response = await fetch(`/api/public/membership-fees/${encodeURIComponent(token)}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'quote_vouchers', voucherIds: creditSelection, paymentMode: selectedCreditMode }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Unable to quote credit');
+      setCreditQuote(result.quote);
+    } catch (err) {
+      setCreditError(err.message);
+    } finally {
+      setQuotingCredit(false);
+    }
+  }
+
+  async function clearPersonalCredit() {
+    setQuotingCredit(true);
+    setCreditError(null);
+    try {
+      if (data?.voucherFunding) {
+        const response = await fetch(`/api/public/membership-fees/${encodeURIComponent(token)}`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'release_vouchers' }),
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Credit cannot yet be released');
+        cardRef.current?.unmount();
+        setPaymentMode(null);
+        const refreshed = await fetch(`/api/public/membership-fees/${encodeURIComponent(token)}`);
+        if (!refreshed.ok) throw new Error('Credit was released. Reload the fee page before continuing.');
+        setData(await refreshed.json());
+      }
+      setCreditQuote(null);
+      setCreditSelection([]);
+    } catch (err) {
+      setCreditError(err.message);
+    } finally {
+      setQuotingCredit(false);
+    }
+  }
+
+  async function regenerateCreditQuote(mode = selectedCreditMode) {
+    setQuotingCredit(true);
+    setCreditError(null);
+    try {
+      const response = await fetch(`/api/public/membership-fees/${encodeURIComponent(token)}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'regenerate_voucher_quote', paymentMode: mode }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        setRequoteUpfront(result.code === 'use_original_upfront_quote');
+        throw new Error(result.error || 'Could not create a replacement quote');
+      }
+      if (!result.replacementUrl) throw new Error('Replacement quote link was not confirmed');
+      window.location.assign(result.replacementUrl);
+    } catch (err) { setCreditError(err.message); }
+    finally { setQuotingCredit(false); }
+  }
   const selectingMethodRef = useRef(false);
   const isMemberStart = data?.memberStart != null;
   const awaitingMethod = data?.memberStart?.paymentMode === 'member_choice';
-  const allowsMode = mode => !isMemberStart || data.memberStart.paymentMode === mode;
+  const allowsMode = mode => data?.voucherRequote?.paymentMode
+    ? data.voucherRequote.paymentMode === mode : !isMemberStart || data.memberStart.paymentMode === mode;
   const monthlyOfferReady = offer => !isMemberStart || completeMonthlyOffer(offer, data.memberStart.paymentMode);
   const dynamicMemberStart = isMemberStart && data.memberStart.paymentMode === 'direct_debit' && directDebitCollectionPolicy(data.ddOffer)?.pricing_policy === 'dynamic';
 
@@ -113,6 +210,7 @@ export default function MembershipFeePage() {
         return res.json();
       })
       .then((result) => {
+        if (result.replacementUrl) { window.location.replace(result.replacementUrl); return; }
         setData(result);
         if (result.poNumber) {
           setPoNumber(result.poNumber);
@@ -240,12 +338,13 @@ export default function MembershipFeePage() {
       const res = await fetch(`/api/public/membership-fees/${token}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'start_direct_debit' }),
+        body: JSON.stringify({ action: 'start_direct_debit', ...(creditQuote ? { voucherQuoteId: creditQuote.id } : {}) }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(body.error || 'Failed to start Direct Debit set-up');
       }
+      if (body.success) { setPaymentComplete(true); setAccountingWarning(body.warning || null); return; }
       if (body.authorisationUrl) {
         if (body.flowId) {
           // Open the GoCardless Drop-in modal on-page; hosted redirect stays
@@ -277,12 +376,13 @@ export default function MembershipFeePage() {
       const res = await fetch(`/api/public/membership-fees/${token}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'start_monthly_card' }),
+        body: JSON.stringify({ action: 'start_monthly_card', ...(creditQuote ? { voucherQuoteId: creditQuote.id } : {}) }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(body.error || 'Failed to start monthly card set-up');
       }
+      if (body.success) { setPaymentComplete(true); setAccountingWarning(body.warning || null); return; }
       if (body.checkoutUrl) {
         window.top.location.href = body.checkoutUrl;
         return;
@@ -296,9 +396,9 @@ export default function MembershipFeePage() {
   };
 
   const initStripe = async () => {
-    if (!allowsMode('stripe_upfront')) return;
-    if (!data?.stripePublishableKey) return;
-    if (isBelowStripeMinimum(data?.totalWithVat || data?.finalCost, data?.currency)) return;
+    if (!creditOnly && !allowsMode('stripe_upfront')) return;
+    if (!creditOnly && !data?.stripePublishableKey) return;
+    if (!creditOnly && isBelowStripeMinimum(payableAmount, data?.currency)) return;
     setCreatingPayment(true);
     setPaymentError(null);
 
@@ -306,13 +406,20 @@ export default function MembershipFeePage() {
       const res = await fetch(`/api/public/membership-fees/${token}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'create_payment' }),
+        body: JSON.stringify({ action: creditOnly ? 'complete_with_vouchers' : 'create_payment', ...(creditQuote ? { voucherQuoteId: creditQuote.id } : {}) }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || 'Failed to initialize payment');
       }
-      const { clientSecret } = await res.json();
+      const result = await res.json();
+      if (result.success) {
+        setPaymentComplete(true);
+        setAccountingWarning(result.warning || null);
+        return;
+      }
+      const { clientSecret } = result;
+      if (result.funding) setData(current => ({ ...current, voucherFunding: result.funding }));
 
       if (!window.Stripe) {
         const script = document.createElement('script');
@@ -344,6 +451,12 @@ export default function MembershipFeePage() {
       setPaymentMode('stripe');
     } catch (err) {
       setPaymentError(err.message);
+      if (creditQuote) {
+        try {
+          const refreshed = await fetch(`/api/public/membership-fees/${encodeURIComponent(token)}`);
+          if (refreshed.ok) setData(await refreshed.json());
+        } catch { /* Preserve the explicit payment error; never assume a failed network call released credit. */ }
+      }
     } finally {
       setCreatingPayment(false);
     }
@@ -525,6 +638,82 @@ export default function MembershipFeePage() {
             </div>
 
             <Separator className="my-3" />
+
+            {creditError && <p role="alert" className="mb-3 text-sm text-red-700">{creditError}</p>}
+            {!data.memberStart && data.status === 'pending' && !data.voucherFunding && !paymentComplete && (
+              <section className="mb-4 rounded border p-3 text-sm space-y-2">
+                <p>If this older link has no saved terms, or your monthly offer has a different total, create a matching saved quote.
+                  No payment is taken. Original quote and history evidence are preserved; review the replacement price before continuing.</p>
+                <Button variant="outline" onClick={() => regenerateCreditQuote()} disabled={quotingCredit || creatingPayment}>
+                  {quotingCredit ? 'Preparing quote…' : 'Create matching saved quote'}
+                </Button>
+                {(requoteUpfront || data.voucherRequote?.creditRequired) && <Button variant="outline" onClick={() => regenerateCreditQuote('stripe_upfront')} disabled={quotingCredit}>
+                  Keep original invoice price and apply credit upfront
+                </Button>}
+                {data.voucherRequote && <p>This replacement uses saved {data.voucherRequote.paymentMode.replaceAll('_', ' ')} terms. Its predecessor is retained for audit.</p>}
+                {data.voucherRequote?.creditRequired && <p>Apply credit before starting this monthly plan. Credit absorbs the invoice's minor-unit remainder; each provider cash instalment is exact.</p>}
+              </section>
+            )}
+            {data?.voucherFunding && !paymentComplete && (
+              <section className="mb-4 rounded border p-3 space-y-2" aria-label="Reserved membership credit">
+                <p>Membership cost: {formatCurrency(data.voucherFunding.payableMinor / 100, data?.currency)}</p>
+                {data.voucherFunding.allocations.map(row => <p key={row.id} className="text-sm">{row.displayName} ({row.ownerType === 'member' ? 'Personal' : 'Organisation'}): {formatCurrency(row.amountMinor / 100, data?.currency)}</p>)}
+                <p>Cash remaining: {formatCurrency(payableAmount, data?.currency)}</p>
+                <Button type="button" variant="outline" onClick={clearPersonalCredit} disabled={quotingCredit || creatingPayment || processingPayment}>
+                  Cancel payment and release credit
+                </Button>
+                {creditMonthly && <p className="text-sm">{creditMonthly.instalmentCount} purchased instalments of {formatCurrency(creditPerMonth, data?.currency)} cash each. Credit applies only to this term, not future renewals.</p>}
+                {creditOnly && <Button type="button" onClick={initStripe} disabled={creatingPayment}>Complete with membership credit</Button>}
+              </section>
+            )}
+            {personalCredit?.enabled && personalCredit.vouchers.length > 0 && (
+              <section className="mb-4 rounded border p-3 space-y-2" aria-label="Membership credit">
+                <h2 className="font-medium">Membership credit</h2>
+                <p className="text-sm text-amber-800">{personalCredit.message}</p>
+                {!data.memberStart && data.isMember && <label className="block text-sm">
+                  Payment plan for this credit quote
+                  <select className="block mt-1 rounded border p-2" value={selectedCreditMode}
+                    disabled={!!data.voucherFunding || creatingPayment || !!data.voucherRequote}
+                    onChange={event => { setCreditPaymentMode(event.target.value); setCreditQuote(null); }}>
+                    <option value="stripe_upfront">Annual / upfront</option>
+                    {monthlyOfferReady(data.cardMonthly) && <option value="stripe_monthly">Finite monthly card</option>}
+                    {monthlyOfferReady(data.ddOffer) && <option value="direct_debit">Finite monthly Direct Debit</option>}
+                  </select>
+                </label>}
+                {personalCredit.vouchers.map(voucher => (
+                  <label key={voucher.id} className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" disabled={quotingCredit || creatingPayment || processingPayment || !!data?.voucherFunding}
+                      checked={creditSelection.includes(voucher.id)}
+                      onChange={event => {
+                        setCreditQuote(null);
+                        setCreditSelection(selected => event.target.checked
+                          ? [...selected, voucher.id] : selected.filter(id => id !== voucher.id));
+                      }} />
+                    <span>{voucher.displayName} ({voucher.ownerType === 'member' ? 'Personal' : 'Organisation'}) · {voucher.code} · {formatCurrency(voucher.value, data?.currency)}</span>
+                  </label>
+                ))}
+                <Button type="button" variant="outline" disabled={!creditSelection.length || quotingCredit || creatingPayment || processingPayment || !!data?.voucherFunding}
+                  onClick={previewPersonalCredit}>
+                  {quotingCredit ? 'Reviewing…' : 'Apply credit to payment summary'}
+                </Button>
+                {creditQuote && (
+                  <div className="text-sm space-y-1" role="status">
+                    <p>Membership cost: {formatCurrency(creditQuote.grossMinor / 100, creditQuote.currency)}</p>
+                    {creditQuote.allocations.map(row => <p key={row.voucherId}>{row.displayName} ({row.ownerType === 'member' ? 'Personal' : 'Organisation'}): {formatCurrency(row.amountMinor / 100, creditQuote.currency)}</p>)}
+                    <p>Cash remaining: {formatCurrency(creditQuote.cashMinor / 100, creditQuote.currency)}</p>
+                    {creditMonthly && <p>{creditMonthly.instalmentCount} purchased instalments: {formatCurrency(creditPerMonth, data?.currency)} cash each.
+                      Credit applies only to this finite term. Rounding remainders stay on the original voucher; future renewals are not reduced.</p>}
+                    <p className="font-medium">Credit will be reserved when you continue to payment. This quote expires after 15 minutes.</p>
+                    {!data?.voucherFunding && <Button type="button" variant="outline" onClick={clearPersonalCredit} disabled={creatingPayment || processingPayment}>Remove credit selection</Button>}
+                    {creditOnly && !paymentComplete && (
+                      <Button type="button" onClick={initStripe} disabled={creatingPayment || !!data?.approvalPending || !!data?.openPlan}>
+                        {creatingPayment ? 'Completing…' : 'Complete with membership credit'}
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </section>
+            )}
 
             {breakdown.annualCostBeforeDiscounts != null && breakdown.customDiscountTotal > 0 && (
               <>
@@ -822,8 +1011,8 @@ export default function MembershipFeePage() {
               </div>
               <p className="text-sm text-gray-500 mb-3">
                 Spread your membership fee over {isMemberStart ? data.cardMonthly.instalmentCount : (data?.cardMonthly?.instalmentCount || 12)} monthly card payments of{' '}
-                <span className="font-medium text-gray-700">{formatCurrency(data?.cardMonthly?.monthlyAmount, data?.cardMonthly?.currency || data?.currency)}</span>
-                {data?.cardMonthly?.planTotal ? <> (total {formatCurrency(data.cardMonthly.planTotal, data?.cardMonthly?.currency || data?.currency)})</> : null}.
+                <span className="font-medium text-gray-700">{formatCurrency(creditMonthly?.paymentMode === 'stripe_monthly' ? creditPerMonth : data?.cardMonthly?.monthlyAmount, data?.cardMonthly?.currency || data?.currency)}</span>
+                {data?.cardMonthly?.planTotal ? <> (cash total {formatCurrency(creditMonthly?.paymentMode === 'stripe_monthly' ? payableAmount : data.cardMonthly.planTotal, data?.cardMonthly?.currency || data?.currency)})</> : null}.
                 You'll be taken to a secure Stripe page to enter your card details — they never touch our servers.
                 {isMemberStart && data.cardMonthly.activationRule && <> Activation rule: {data.cardMonthly.activationRule}.</>}
               </p>
@@ -854,8 +1043,8 @@ export default function MembershipFeePage() {
               </div>
               <p className="text-sm text-gray-500 mb-3">
                 {directDebitHasFixedTermTotal(data.ddOffer) ? <>Membership term: {isMemberStart ? data.ddOffer.instalmentCount : (data?.ddOffer?.instalmentCount || 12)} monthly payments of{' '}</> : 'Current monthly price (variable): '}
-                <span className="font-medium text-gray-700">{formatCurrency(data?.ddOffer?.monthlyAmount, data?.ddOffer?.currency || data?.currency)}</span>
-                {directDebitHasFixedTermTotal(data.ddOffer) && data?.ddOffer?.planTotal ? <> (total for this term {formatCurrency(data.ddOffer.planTotal, data?.ddOffer?.currency || data?.currency)})</> : null}.
+                <span className="font-medium text-gray-700">{formatCurrency(creditMonthly?.paymentMode === 'direct_debit' ? creditPerMonth : data?.ddOffer?.monthlyAmount, data?.ddOffer?.currency || data?.currency)}</span>
+                {directDebitHasFixedTermTotal(data.ddOffer) && data?.ddOffer?.planTotal ? <> (cash total for this term {formatCurrency(creditMonthly?.paymentMode === 'direct_debit' ? payableAmount : data.ddOffer.planTotal, data?.ddOffer?.currency || data?.currency)})</> : null}.
                   {' '}First collection: <span data-testid="text-dd-first-collection">{isMemberStart && !data.ddOffer?.firstCollectionRule ? 'not supplied' : directDebitFirstCollectionText(data.ddOffer).toLowerCase()}</span>.
                 {' '}{directDebitPolicyText(data.ddOffer)}
                  {' '}You'll be taken to our secure Direct Debit provider to set up your mandate; no payment is taken during bank set-up.
@@ -902,7 +1091,7 @@ export default function MembershipFeePage() {
 
               {paymentMode !== 'stripe' ? (
                 <>
-                  {isBelowStripeMinimum(data?.totalWithVat || data?.finalCost, data?.currency) ? (
+                  {isBelowStripeMinimum(payableAmount, data?.currency) && !creditOnly ? (
                     <p className="text-sm text-gray-500 mb-3">
                       Online payment is not available as the amount is below the minimum that can be processed by card ({formatCurrency(STRIPE_MINIMUMS[data?.currency] || 0.50, data?.currency)}).
                     </p>
@@ -913,9 +1102,9 @@ export default function MembershipFeePage() {
                   )}
                   <Button
                     onClick={initStripe}
-                    disabled={creatingPayment || isBelowStripeMinimum(data?.totalWithVat || data?.finalCost, data?.currency)}
+                    disabled={creatingPayment || (!creditOnly && isBelowStripeMinimum(payableAmount, data?.currency))}
                     className="w-full"
-                    style={{ background: isBelowStripeMinimum(data?.totalWithVat || data?.finalCost, data?.currency) ? '#9ca3af' : primaryColor }}
+                    style={{ background: !creditOnly && isBelowStripeMinimum(payableAmount, data?.currency) ? '#9ca3af' : primaryColor }}
                     data-testid="button-pay-now"
                   >
                     {creatingPayment ? (
@@ -923,7 +1112,7 @@ export default function MembershipFeePage() {
                     ) : (
                       <CreditCard className="w-4 h-4 mr-2" />
                     )}
-                    Pay {formatCurrency(data?.totalWithVat || data?.finalCost, data?.currency)}
+                    {creditOnly ? 'Complete with membership credit' : `Pay ${formatCurrency(payableAmount, data?.currency)}`}
                   </Button>
                 </>
               ) : (
@@ -949,7 +1138,7 @@ export default function MembershipFeePage() {
                     ) : (
                       <CreditCard className="w-4 h-4 mr-2" />
                     )}
-                    {processingPayment ? 'Processing...' : `Confirm Payment - ${formatCurrency(data?.totalWithVat || data?.finalCost, data?.currency)}`}
+                    {processingPayment ? 'Processing...' : `Confirm Payment - ${formatCurrency(payableAmount, data?.currency)}`}
                   </Button>
                 </div>
               )}

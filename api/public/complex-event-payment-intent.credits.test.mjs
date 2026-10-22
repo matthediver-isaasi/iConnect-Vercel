@@ -42,6 +42,7 @@ async function loadHandler() {
         allow || !voucher.expires_at || !eventStart || new Date(voucher.expires_at) > new Date(eventStart);
     `],
   ]);
+  virtual.set('./voucherExpiryPolicy.js', virtual.get('../_lib/voucherExpiryPolicy.js'));
   const result = await build({
     entryPoints: [entry],
     bundle: true,
@@ -76,7 +77,7 @@ function makeDb({ roleId = 'role-a', fundBalance = 100, voucherRoleIds = [], fun
       training_fund_allowed_role_ids: fundRoleIds,
       voucher_allowed_role_ids: voucherRoleIds,
     }],
-    voucher: [{ id: 'voucher-a', organization_id: 'org-a', status: 'active', value: 25, expires_at: '2027-01-01', issued_at: '2026-01-01' }],
+    voucher: [{ id: 'voucher-a', tenant_id: 'tenant-a', organization_id: 'org-a', status: 'active', value: 25, expires_at: '2027-01-01', issued_at: '2026-01-01' }],
   };
   return {
     from(table) {
@@ -233,7 +234,7 @@ test('rejects role-restricted and overdrawn credits without contacting Stripe', 
 
 test('rejects invalid requested vouchers rather than silently charging full price', async () => {
   const { res, stripeCalls } = await invoke({ selected_voucher_ids: ['missing'] });
-  assert.equal(res.statusCode, 400);
+  assert.equal(res.statusCode, 403);
   assert.match(res.body.error, /invalid or unavailable/);
   assert.equal(stripeCalls.length, 0);
 });

@@ -15,6 +15,9 @@
     "api/cron/reconcile-event-invoices.js": {
       "maxDuration": 60
     },
+    "api/cron/recover-booking-credit-invoices.js": {
+      "maxDuration": 60
+    },
     "api/due-diligence/update-status.js": {
       "maxDuration": 300
     },
@@ -71,6 +74,10 @@
     },
     {
       "path": "/api/cron/reconcile-event-invoices",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/recover-booking-credit-invoices",
       "schedule": "*/5 * * * *"
     },
     {

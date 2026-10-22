@@ -2,6 +2,15 @@
     "name": "Voucher",
     "type": "object",
     "properties": {
+      "member_id": {
+        "type": "string",
+        "description": "Individual member owner; mutually exclusive with organization_id"
+      },
+      "currency": {
+        "type": "string",
+        "default": "GBP",
+        "description": "ISO currency of the credit"
+      },
       "organization_id": {
         "type": "string",
         "description": "Reference to Organization entity"
@@ -66,9 +75,12 @@
       }
     },
     "required": [
-      "organization_id",
       "code",
       "value",
       "expires_at"
+    ],
+    "oneOf": [
+      { "required": ["organization_id"], "not": { "required": ["member_id"] } },
+      { "required": ["member_id"], "not": { "required": ["organization_id"] } }
     ]
   }

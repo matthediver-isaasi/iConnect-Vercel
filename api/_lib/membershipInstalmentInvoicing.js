@@ -618,13 +618,37 @@ export async function postStripeInstalmentInvoice({
   // ledger key. Keep that historical uniqueness key separate from the Stripe
   // invoice that supplies payment evidence.
   stripePaymentEvidenceInvoiceId = null,
-  amountMinor, currency = null,
+  amountMinor, currency = null, voucherCollectionUnit = null,
 }, deps = {}) {
   const db = deps.db || supabase;
   const getProvider = deps.getProvider || getAccountingProvider;
   const reclaimStale = deps.reclaimStale === true;
 
   if (!agreement || !stripeInvoiceId) return { status: 'skipped', reason: 'missing agreement or invoice id' };
+  if (agreement.metadata?.card?.voucher_funding) {
+    const stripe = deps.stripe || (deps.getStripe ? await deps.getStripe() : null);
+    const evidenceId = stripePaymentEvidenceInvoiceId || stripeInvoice?.id || stripeInvoiceIdForPaymentEvidence(stripeInvoiceId);
+    const authoritative = stripeInvoice || (stripe?.invoices?.retrieve ? await stripe.invoices.retrieve(evidenceId) : null);
+    if (!authoritative) throw new Error('Verified Stripe invoice is required for funded membership accounting');
+    const actualAmount = Number(authoritative.amount_paid);
+    const intentId = await resolveStripeInvoicePaymentIntent({
+      stripeInvoiceId: evidenceId, stripeInvoice: authoritative, stripe, agreement, plan,
+      amountMinor: actualAmount, currency: authoritative.currency,
+    });
+    await (await import('./membershipVoucherMonthly.js')).commitMembershipVoucherMonthly(db, agreement);
+    const posted = await (await import('./membershipVoucherMonthlyAccounting.js')).postMembershipVoucherMonthlyCashBatch({
+      db, agreement, provider: 'stripe', externalReference: authoritative.id,
+      cashMinor: actualAmount, currency: authoritative.currency, stripePaymentIntentId: intentId,
+    }, deps.voucherAccounting);
+    if (stripeInvoiceId.includes(':arrears:') && !Number.isInteger(voucherCollectionUnit)) {
+      throw new Error('Funded arrears requires its immutable collection unit');
+    }
+    const unit = voucherCollectionUnit ?? posted.receipts.length;
+    const receipt = posted.receipts[unit - 1];
+    const invoiceId = receipt?.reference?.invoiceId || receipt?.receipt?.accounting_invoice_id;
+    if (!invoiceId) throw new Error('Funded collection invoice identity is unavailable');
+    return { ...posted, invoiceId, invoiceNumber: receipt.reference?.invoiceNumber || receipt.receipt?.accounting_invoice_number };
+  }
   if (!isPerInstalmentAgreement(agreement)) return { status: 'skipped', reason: 'agreement is not per-instalment' };
 
   const snapshot = agreement.metadata?.card;

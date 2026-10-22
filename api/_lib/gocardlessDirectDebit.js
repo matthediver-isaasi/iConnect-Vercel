@@ -32,6 +32,13 @@ export const MANDATE_ONLY_CONSENT_VERSION = 'mandate-only-v2';
 
 export function isMonthlyConsentPolicyCurrent(agreement, offer) {
   const saved = resolveSavedCollectionPolicy(agreement?.metadata?.dd);
+  const funding = agreement?.metadata?.dd?.voucher_funding;
+  if (funding) {
+    return !saved.needs_review && saved.pricing_policy !== 'dynamic'
+      && Number(agreement.metadata.dd.instalment_count) === funding.instalment_count
+      && Number(agreement.metadata.dd.monthly_amount_minor) === funding.cash_per_instalment_minor
+      && funding.credit_per_instalment_minor + funding.cash_per_instalment_minor === funding.gross_per_instalment_minor;
+  }
   const proposed = offer?.collectionPolicy;
   return !saved.needs_review && !!proposed
     && saved.end_policy === proposed.end_policy
@@ -510,6 +517,7 @@ export async function ensureSubscriptionForAgreement(agreement, deps = {}) {
     .maybeSingle();
   if (planErr) throw new Error(`load existing plan failed: ${planErr.message}`);
   if (existingPlan?.gocardless_subscription_id) {
+    if (snapshot.voucher_funding) await (await import('./membershipVoucherMonthly.js')).commitMembershipVoucherMonthly(db, agreement);
     const existingInitialPaymentId = agreement.metadata?.gocardless_initial_payment?.id || null;
     if (existingInitialPaymentId) {
       const { error: linkExistingPaymentErr } = await db
@@ -684,6 +692,7 @@ export async function ensureSubscriptionForAgreement(agreement, deps = {}) {
     })
     .eq('id', plan.id);
   if (upErr) throw new Error(`attach subscription to plan failed: ${upErr.message}`);
+  if (snapshot.voucher_funding) await (await import('./membershipVoucherMonthly.js')).commitMembershipVoucherMonthly(db, agreement);
 
   await applyStatusTransition({
     entityType: 'payment_plan',

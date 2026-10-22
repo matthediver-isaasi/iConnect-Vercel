@@ -1286,6 +1286,30 @@ export async function applyStripePaymentToXeroInvoice({
       const accountsData = accountsResp ? await safeXeroJson(accountsResp, 'accounts-lookup') : null;
       const bankAccount = pilotBankAccount || accountsData?.Accounts?.[0];
       if (bankAccount?.AccountID) {
+        if (String(idempotencyKey || '').startsWith('membership-credit-')) {
+          if (!paymentReference || !Number.isFinite(Number(amount)) || Number(amount) <= 0) {
+            throw new Error('Explicit membership funding amount and reference required');
+          }
+          // Provider idempotency keys expire. Recover by durable payment
+          // reference as well, rather than posting twice on a later retry.
+          for (const existing of invoice.Payments || []) {
+            const response = await fetch(`https://api.xero.com/api.xro/2.0/Payments/${existing.PaymentID}`, {
+              headers: { Authorization: `Bearer ${accessToken}`, 'xero-tenant-id': xeroTenantId, Accept: 'application/json' },
+            });
+            const payment = (await safeXeroJson(response, 'membership-funding-recover'))?.Payments?.[0];
+            if (!payment) throw new Error('Could not reconcile existing invoice payment');
+            if (payment.Reference !== paymentReference || payment.Status === 'DELETED') continue;
+            if (Math.round(Number(payment.Amount) * 100) !== Math.round(Number(amount) * 100)
+                || payment.Account?.AccountID !== bankAccount.AccountID) {
+              throw new Error('Existing membership funding payment has conflicting amount or account');
+            }
+            return { invoice_id: xeroInvoiceId, invoice_number: invoice.InvoiceNumber,
+              total: invoice.Total, payment_recorded: true, payment_id: payment.PaymentID };
+          }
+          if (Math.round(Number(invoice.AmountDue) * 100) < Math.round(Number(amount) * 100)) {
+            throw new Error('Invoice remaining liability is below the membership funding amount');
+          }
+        }
         const paymentPayload = {
           Invoice: { InvoiceID: xeroInvoiceId },
           Account: { AccountID: bankAccount.AccountID },

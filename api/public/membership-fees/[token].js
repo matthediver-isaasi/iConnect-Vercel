@@ -4,6 +4,8 @@ import { resolveEntityAnnualRenewalEligibility } from '../../_lib/annualRenewalP
 import { resolveMemberFeeApproval } from '../../_lib/membershipFeeApproval.js';
 import { feeTokenCommitment, simulationFromFeeCommitment, reserveRollingFeePayment, reserveRollingMonthlyHistory } from '../../_lib/rollingFeeCommitment.js';
 import { simulationFromMemberStart, assertMemberStartAction, assertMemberStartHistory, SELF_SERVICE_START_MODES } from '../../_lib/memberStartPayment.js';
+import { discoverMembershipVouchers, persistMembershipVoucherQuote, resolveMembershipVoucherAuthority } from '../../_lib/membershipVoucherQuote.js';
+import { loadMembershipVoucherSettlement, reserveMembershipVoucherSettlement, startMembershipVoucherPayment, completeMembershipVoucherSettlement, releaseMembershipVoucherSettlement, claimMembershipFeePayment, createGuardedPortalMembershipIntent } from '../../_lib/membershipVoucherSettlement.js';
 
 // Reminder quotes are consent-time snapshots, not a request to reprice at
 // checkout. Rolling tokens already carry the richer commitment snapshot.
@@ -29,7 +31,7 @@ export function simulationFromRenewalQuote(token) {
 }
 
 function savedFeeSimulation(token) {
-  return simulationFromFeeCommitment(token) || simulationFromRenewalQuote(token);
+  return token.cost_breakdown?.membershipVoucherRequote?.simulation || simulationFromFeeCommitment(token) || simulationFromRenewalQuote(token);
 }
 
 export function publicFeeBreakdown(breakdown = {}) {
@@ -91,7 +93,8 @@ return async function handler(req, res) {
       return res.status(404).json({ error: 'Fee link not found or has expired' });
     }
 
-    if (new Date(feeToken.expires_at) < new Date()) {
+    if (new Date(feeToken.expires_at) < new Date()
+        && !(req.method === 'POST' && ['confirm_payment', 'release_vouchers'].includes(req.body?.action))) {
       if (feeToken.status === 'pending') {
         await supabase
           .from('membership_fee_token')
@@ -101,8 +104,34 @@ return async function handler(req, res) {
       return res.status(410).json({ error: 'This fee link has expired' });
     }
 
-    if (feeToken.status === 'cancelled') {
+    if (feeToken.status === 'cancelled' && !(req.method === 'POST' && req.body?.action === 'release_vouchers')) {
+      const replacement = await supabase.from('membership_fee_requote').select('replacement_token_id')
+        .eq('tenant_id', feeToken.tenant_id).eq('predecessor_token_id', feeToken.id).maybeSingle();
+      if (replacement.data?.replacement_token_id) {
+        const next = await supabase.from('membership_fee_token').select('token').eq('tenant_id', feeToken.tenant_id)
+          .eq('id', replacement.data.replacement_token_id).single();
+        if (next.data?.token) return res.json({ replacementUrl: `/membership-fees/${encodeURIComponent(next.data.token)}` });
+      }
       return res.status(410).json({ error: 'This fee link has been cancelled' });
+    }
+
+    // Token ownership, never a request-supplied member or organisation, is the
+    // authority for personal-credit discovery. This route deliberately exposes
+    // no shared organisation balances to bearer-link visitors.
+    if (req.method === 'GET' && req.query.action === 'vouchers') {
+      try {
+        const authority = await resolveMembershipVoucherAuthority(supabase, feeToken, req, deps.voucherAuthority);
+        const result = await discoverMembershipVouchers(supabase, feeToken, new Date(), authority);
+        return res.json({
+          enabled: result.enabled,
+          vouchers: result.vouchers.map(({ id, code, ownerType, displayName, value, expires_at }) =>
+            ({ id, code, ownerType, displayName, value, expires_at })),
+          settlementEnabled: true,
+          message: result.enabled ? 'Eligible credit can fund this membership purchase. Personal ownership comes from this link; organisation credit requires your signed-in permissions. Credit is reserved only when you continue to payment.' : null,
+        });
+      } catch (error) {
+        return res.status(503).json({ error: error.message });
+      }
     }
 
     // Task #3211 — member-driven fee tokens (workflow "Create Membership"
@@ -124,6 +153,8 @@ return async function handler(req, res) {
     }
     // Never route historical debt through the tenant's current provider.
     const invoiceReference = await resolveFeeTokenInvoiceReference(supabase, feeToken);
+    const voucherSettlement = await loadMembershipVoucherSettlement(supabase, feeToken);
+    let fundedMonthlySetup = null;
     const isReminderToken = !!feeToken.cost_breakdown?.renewalQuote && !feeToken.cost_breakdown?.isFeeQuote;
     // Reminder checkout is an upfront renewal, not a new recurring agreement.
     // A PO alone cannot buy an unrecorded successor; invoice-backed tokens may
@@ -501,6 +532,18 @@ return async function handler(req, res) {
       }
 
       return res.json({
+        voucherFunding: voucherSettlement?.funding || null,
+        voucherSettlementState: voucherSettlement?.state || null,
+        voucherRequote: feeToken.cost_breakdown?.membershipVoucherRequote ? {
+          paymentMode: feeToken.cost_breakdown.membershipVoucherRequote.paymentMode,
+          creditRequired: !!feeToken.cost_breakdown.membershipVoucherRequote.creditRequired,
+          regeneratedAt: feeToken.cost_breakdown.membershipVoucherRequote.regeneratedAt,
+        } : null,
+        voucherMonthly: voucherSettlement?.monthly_snapshot ? {
+          paymentMode: voucherSettlement.monthly_snapshot.payment_mode,
+          instalmentCount: voucherSettlement.monthly_snapshot.instalment_count,
+          invoicingMode: voucherSettlement.monthly_snapshot.invoicing_mode,
+        } : null,
         memberStart: memberStart?.paymentMode === 'member_choice'
           ? { ...memberStart, paymentOptions: await choiceOptions() } : memberStart,
         status: feeToken.status,
@@ -571,6 +614,147 @@ return async function handler(req, res) {
 
     if (req.method === 'POST') {
       const { action } = req.body;
+      if (action === 'regenerate_voucher_quote') {
+        if (await checkApprovalBlocked()) return res.status(403).json({ error: 'Membership fees need approval before a replacement quote' });
+        try {
+          const { regenerateMembershipVoucherQuote } = await import('../../_lib/membershipVoucherRequote.js');
+          return res.json(await regenerateMembershipVoucherQuote(supabase, feeToken, req.body.paymentMode || 'stripe_upfront', deps.requote));
+        } catch (error) { return res.status(409).json({ error: error.message, code: error.code || 'membership_requote_unavailable' }); }
+      }
+      const replacementMode = feeToken.cost_breakdown?.membershipVoucherRequote?.paymentMode;
+      if (feeToken.cost_breakdown?.membershipVoucherRequote?.creditRequired
+          && ['start_monthly_card','start_direct_debit'].includes(action) && !req.body.voucherQuoteId && !voucherSettlement) {
+        return res.status(409).json({ error: 'Apply credit to the payment summary first so the original invoice rounds exactly into fixed cash instalments, or create an upfront replacement quote.' });
+      }
+      if (replacementMode && ['create_payment','start_monthly_card','start_direct_debit'].includes(action)
+          && action !== { stripe_upfront: 'create_payment', stripe_monthly: 'start_monthly_card', direct_debit: 'start_direct_debit' }[replacementMode]) {
+        return res.status(409).json({ error: 'Use the payment method in this replacement quote, or create another saved quote before paying.' });
+      }
+      if (action === 'quote_vouchers') {
+        if (await checkApprovalBlocked()) {
+          return res.status(403).json({ error: 'Membership fee approval is required before quoting credit.' });
+        }
+        try {
+          const authority = await resolveMembershipVoucherAuthority(supabase, feeToken, req, deps.voucherAuthority);
+          const paymentMode = req.body.paymentMode || replacementMode || memberStart?.paymentMode || 'stripe_upfront';
+          let monthlySnapshot = null;
+          if (paymentMode !== 'stripe_upfront') {
+            if (!isMemberToken || isReminderToken || !['stripe_monthly', 'direct_debit'].includes(paymentMode)
+                || (memberStart && memberStart.paymentMode !== paymentMode)) {
+              throw new Error('Select an offered fixed monthly membership payment option first.');
+            }
+            const { simulateMembershipForMember } = await import('../../_lib/membershipSimulation.js');
+            const simulation = simulationFromMemberStart(feeToken) || savedFeeSimulation(feeToken)
+              || await simulateMembershipForMember(feeToken.tenant_id, feeToken.member_id, { source: 'voucher-quote', mode: 'manual', targetYear: feeToken.membership_year });
+            if (paymentMode === 'stripe_monthly') {
+              const { resolveCardMonthlyOffer, buildCardAgreementSnapshot } = await import('../../_lib/stripeMonthlyCard.js');
+              const offer = resolveCardMonthlyOffer(simulation);
+              if (!offer) throw new Error('Monthly card payment is not offered for this purchase');
+              monthlySnapshot = { ...buildCardAgreementSnapshot({ offer, simResult: simulation }), payment_mode: paymentMode };
+            } else {
+              const { resolveDdOffer, buildAgreementSnapshot } = await import('../../_lib/gocardlessDirectDebit.js');
+              const offer = resolveDdOffer(simulation);
+              if (!offer) throw new Error('Direct Debit is not offered for this purchase');
+              monthlySnapshot = { ...buildAgreementSnapshot({ offer, simResult: simulation, includeBillingRequestPayment: false,
+                billingRequestMode: 'mandate_only' }), payment_mode: paymentMode };
+            }
+          }
+          if (feeToken.cost_breakdown?.membershipVoucherRequote?.monthlySnapshot && paymentMode === replacementMode) {
+            monthlySnapshot = feeToken.cost_breakdown.membershipVoucherRequote.monthlySnapshot;
+          }
+          if (monthlySnapshot?.commitment) {
+            const { assertMonthlyCollectionsWithinTerm } = await import('../../_lib/rollingMonthlyRenewal.js');
+            const first = monthlySnapshot.deferred_billing?.first_charge_date || monthlySnapshot.commitment.term_start_date;
+            assertMonthlyCollectionsWithinTerm(monthlySnapshot,
+              first && first > new Date().toISOString().slice(0, 10) ? `${first}T00:00:00Z` : new Date(),
+              monthlySnapshot.instalment_count);
+          }
+          const quote = await persistMembershipVoucherQuote(supabase, feeToken, req.body.voucherIds, new Date(), authority, monthlySnapshot);
+          return res.json({ quote, message: 'Preview only. Credit has not been reserved or applied.' });
+        } catch (error) {
+          return res.status(409).json({ error: error.message, canRegenerate: !memberStart && !voucherSettlement });
+        }
+      }
+      if (voucherSettlement || req.body.voucherQuoteId || action === 'complete_with_vouchers') {
+        const creditDeps = {
+          ...deps.voucherSettlement,
+          getStripe: async () => {
+            if (deps.stripe) return deps.stripe;
+            const { getStripeCredentials } = await import('../../_lib/stripeCredentials.js');
+            const credentials = await (deps.getStripeCredentials || getStripeCredentials)(feeToken.tenant_id, 'membership');
+            if (!credentials?.secret_key) throw new Error('Membership card payments are unavailable');
+            const Stripe = (await import('stripe')).default;
+            return new Stripe(credentials.secret_key);
+          },
+        };
+        try {
+          if (action === 'release_vouchers') {
+            if (voucherSettlement?.monthly_snapshot) {
+              const { releaseMembershipVoucherMonthly } = await import('../../_lib/membershipVoucherMonthly.js');
+              return res.json(await releaseMembershipVoucherMonthly(supabase, feeToken, voucherSettlement, {
+                getStripe: creditDeps.getStripe, gc: deps.gc,
+              }));
+            }
+            const stripe = voucherSettlement?.provider_attempted_at ? await creditDeps.getStripe() : null;
+            return res.json(await releaseMembershipVoucherSettlement(supabase, feeToken, voucherSettlement, stripe));
+          }
+          if (action === 'confirm_payment') {
+            if (!voucherSettlement || req.body.paymentIntentId !== voucherSettlement.provider_payment_id) {
+              return res.status(409).json({ error: 'Payment does not match the saved credit commitment' });
+            }
+            const stripe = await creditDeps.getStripe();
+            const pi = await stripe.paymentIntents.retrieve(req.body.paymentIntentId);
+            return res.json(await completeMembershipVoucherSettlement(supabase, feeToken, voucherSettlement, pi, creditDeps));
+          }
+          if (!['create_payment', 'complete_with_vouchers', 'retry_voucher_accounting', 'start_monthly_card', 'start_direct_debit'].includes(action)) {
+            return res.status(409).json({ error: voucherSettlement
+              ? 'An upfront credit purchase is in progress. Complete it or cancel its payment before changing method.'
+              : 'Personal credit currently supports upfront payment only. Remove the credit quote before choosing a monthly plan.' });
+          }
+          if (action === 'retry_voucher_accounting' && voucherSettlement?.state !== 'committed') {
+            return res.status(409).json({ error: 'Only a completed funded purchase can retry its accounting.' });
+          }
+          const quoteResult = await supabase.from('membership_voucher_quote').select('*')
+            .eq('id', voucherSettlement?.quote_id || req.body.voucherQuoteId)
+            .eq('fee_token_id', feeToken.id).eq('tenant_id', feeToken.tenant_id).single();
+          if (quoteResult.error || !quoteResult.data) throw new Error('Saved membership credit quote is unavailable');
+          const acceptedQuote = quoteResult.data.quote;
+          const acceptedMode = acceptedQuote.paymentMode || 'stripe_upfront';
+          if (memberStart && memberStart.paymentMode !== acceptedMode) throw new Error('Credit quote does not match the saved membership payment mode');
+          if (acceptedMode !== 'stripe_upfront' && action !== (acceptedMode === 'stripe_monthly' ? 'start_monthly_card' : 'start_direct_debit')
+              && !(acceptedQuote.cashMinor === 0 && ['complete_with_vouchers','retry_voucher_accounting'].includes(action))) {
+            throw new Error('Continue with the fixed monthly payment method accepted in this credit quote');
+          }
+          if (acceptedMode === 'stripe_upfront' && ['start_monthly_card','start_direct_debit'].includes(action)) {
+            throw new Error('Review a monthly credit quote before setting up monthly payments');
+          }
+          if (!voucherSettlement) {
+            creditDeps.authority = await resolveMembershipVoucherAuthority(supabase, feeToken, req, deps.voucherAuthority);
+            if (await checkApprovalBlocked()) return res.status(403).json({ error: 'Membership fee approval is required.' });
+            const annualEligibility = await annualRenewalGate();
+            if (!annualEligibility.eligible) return res.status(409).json({ error: annualEligibility.message, code: annualEligibility.code });
+            const { annualPaymentBlockedByOpenPlan } = await import('../../membership/monthly-card.js');
+            const blocked = isMemberToken ? await annualPaymentBlockedByOpenPlan({ db: supabase, tenantId: feeToken.tenant_id,
+              memberId: feeToken.member_id, yearLabel: feeToken.membership_year }) : null;
+            if (blocked) return res.status(409).json({ error: 'A monthly plan already exists; do not pay upfront.', code: 'open_plan_exists' });
+          }
+          const settlement = voucherSettlement || await reserveMembershipVoucherSettlement(supabase, feeToken, req.body.voucherQuoteId, creditDeps);
+          if (acceptedMode === 'stripe_upfront') {
+            return res.json(await startMembershipVoucherPayment(supabase, feeToken, settlement, creditDeps));
+          }
+          const { prepareMembershipVoucherMonthly } = await import('../../_lib/membershipVoucherMonthly.js');
+          fundedMonthlySetup = await prepareMembershipVoucherMonthly(supabase, feeToken, settlement);
+          feeToken.history_record_id = fundedMonthlySetup.settlement.history_record_id;
+          if (settlement.funding.remainingMinor === 0) {
+            return res.json(await completeMembershipVoucherSettlement(supabase, feeToken, fundedMonthlySetup.settlement, null, creditDeps));
+          }
+        } catch (error) {
+          return res.status(409).json({ error: error.message, code: 'membership_credit_reconciliation_required' });
+        }
+      }
+      if (req.body.voucherIds?.length) {
+        return res.status(409).json({ error: 'Review and accept a saved membership credit quote before paying.' });
+      }
       try { assertMemberStartAction(feeToken, action); } catch (error) {
         return res.status(error.status || 409).json({ error: error.message, code: error.code || 'member_start_snapshot_invalid' });
       }
@@ -907,7 +1091,14 @@ return async function handler(req, res) {
             })
           : null;
 
-        const paymentIntent = await stripe.paymentIntents.create({
+        const paymentIntent = await createGuardedPortalMembershipIntent(supabase, stripe, {
+          tenantId: feeToken.tenant_id, memberId: feeToken.member_id, organizationId: feeToken.organization_id,
+          token: feeToken,
+          membershipYear: feeToken.membership_year, sourceKey: `fee:${feeToken.id}`,
+          providerIdempotencyKey: reservedTerm ? `rolling-fee-payment:${feeToken.tenant_id}:${reservedTerm.id}`
+            : feeToken.cost_breakdown?.renewalQuote ? `renewal-fee-payment:${feeToken.tenant_id}:${feeToken.id}`
+              : `membership-fee-payment:${feeToken.tenant_id}:${feeToken.id}`,
+        }, {
           amount,
           currency: (feeToken.currency || 'GBP').toLowerCase(),
           customer: stripeCustomer?.id || undefined,
@@ -921,8 +1112,7 @@ return async function handler(req, res) {
             tenant_id: feeToken.tenant_id,
           },
           description: `Membership fee for ${payerName || 'Member'} - ${feeToken.membership_year}`,
-        }, reservedTerm ? { idempotencyKey: `rolling-fee-payment:${feeToken.tenant_id}:${reservedTerm.id}` }
-          : feeToken.cost_breakdown?.renewalQuote ? { idempotencyKey: `renewal-fee-payment:${feeToken.tenant_id}:${feeToken.id}` } : undefined);
+        });
 
         const { error: paymentLinkError } = await supabase
           .from('membership_fee_token')
@@ -932,7 +1122,7 @@ return async function handler(req, res) {
             updated_at: new Date().toISOString(),
           })
           .eq('id', feeToken.id);
-        if (reservedTerm && paymentLinkError) {
+        if (paymentLinkError) {
           return res.status(503).json({ error: 'Payment setup needs reconciliation before it can be opened; please retry without starting another payment' });
         }
 
@@ -1577,7 +1767,7 @@ return async function handler(req, res) {
         }
 
         const { simulateMembershipForMember } = await import('../../_lib/membershipSimulation.js');
-        const simResult = simulationFromFeeCommitment(feeToken) || await simulateMembershipForMember(feeToken.tenant_id, feeToken.member_id, {
+        const simResult = savedFeeSimulation(feeToken) || await simulateMembershipForMember(feeToken.tenant_id, feeToken.member_id, {
           source: 'fee-token-dd',
           mode: 'manual',
           targetYear: feeToken.membership_year,
@@ -1635,7 +1825,8 @@ return async function handler(req, res) {
         const { sendDdLifecycleEmail } = await import('../../_lib/gocardlessDdEmails.js');
         const { markRenewalConfirmed } = await import('../../_lib/gocardlessDdRenewals.js');
 
-        const baseIdempotencyKey = buildIdempotencyKey('dd-agree', feeToken.tenant_id, feeToken.member_id, yearLabel);
+        const baseIdempotencyKey = buildIdempotencyKey('dd-agree', feeToken.tenant_id, feeToken.member_id, yearLabel,
+          ...(fundedMonthlySetup ? [fundedMonthlySetup.settlement.id] : []));
         const replacementKey = monthlyConsentReplacementKey(baseIdempotencyKey);
 
         const { data: replacementAgreement } = await supabase
@@ -1679,7 +1870,7 @@ return async function handler(req, res) {
         const reusable = (staleAgreement || unstartedAgreement)
           ? null
           : await findReusableMandate({ tenantId: feeToken.tenant_id, memberId: feeToken.member_id, db: supabase });
-        let snapshot = unstartedAgreement?.metadata?.dd || buildAgreementSnapshot({
+        let snapshot = unstartedAgreement?.metadata?.dd || fundedMonthlySetup?.snapshot || feeToken.cost_breakdown?.membershipVoucherRequote?.monthlySnapshot || buildAgreementSnapshot({
             offer,
             simResult,
             includeBillingRequestPayment: false,
@@ -1688,6 +1879,13 @@ return async function handler(req, res) {
 
         const scheduleError = newDdConsentScheduleError(snapshot);
         if (scheduleError) return res.status(400).json(scheduleError);
+        if (!fundedMonthlySetup) await claimMembershipFeePayment(supabase, feeToken, 'start_direct_debit');
+        if (fundedMonthlySetup) {
+          const attempt = await supabase.from('membership_voucher_settlement').update({
+            state: 'provider_pending', provider_attempted_at: fundedMonthlySetup.settlement.provider_attempted_at || new Date().toISOString(),
+          }).eq('id', fundedMonthlySetup.settlement.id).eq('state', 'reserved');
+          if (attempt.error) throw new Error('Could not persist Direct Debit setup attempt');
+        }
         const agreementInsert = {
           ...(snapshot.commitment || {}),
           tenant_id: feeToken.tenant_id,
@@ -1876,7 +2074,7 @@ return async function handler(req, res) {
         }
 
         const { simulateMembershipForMember } = await import('../../_lib/membershipSimulation.js');
-        const simResult = simulationFromFeeCommitment(feeToken) || await simulateMembershipForMember(feeToken.tenant_id, feeToken.member_id, {
+        const simResult = savedFeeSimulation(feeToken) || await simulateMembershipForMember(feeToken.tenant_id, feeToken.member_id, {
           source: 'fee-token-card-monthly',
           mode: 'manual',
           targetYear: feeToken.membership_year,
@@ -1913,7 +2111,7 @@ return async function handler(req, res) {
         }
 
         const { STATUS } = await import('../../_lib/gocardlessState.js');
-        const idempotencyKey = `card-agree:${feeToken.tenant_id}:${feeToken.member_id}:${yearLabel}`;
+        const idempotencyKey = `card-agree:${feeToken.tenant_id}:${feeToken.member_id}:${yearLabel}${fundedMonthlySetup ? `:credit:${fundedMonthlySetup.settlement.id}` : ''}`;
 
         const { data: existingAgreement } = await supabase
           .from('membership_billing_agreements')
@@ -1928,7 +2126,17 @@ return async function handler(req, res) {
           return res.json({ agreementId: existingAgreement.id, status: existingAgreement.status, resumed: true });
         }
 
-        const snapshot = existingAgreement?.metadata?.card || buildCardAgreementSnapshot({ offer, simResult });
+        const snapshot = existingAgreement?.metadata?.card || fundedMonthlySetup?.snapshot || feeToken.cost_breakdown?.membershipVoucherRequote?.monthlySnapshot || buildCardAgreementSnapshot({ offer, simResult });
+        if (fundedMonthlySetup) {
+          if (!existingAgreement?.stripe_checkout_session_id && fundedMonthlySetup.settlement.provider_attempted_at
+              && Date.now() - Date.parse(fundedMonthlySetup.settlement.provider_attempted_at) > 23 * 60 * 60 * 1000) {
+            throw new Error('Previous monthly card setup has an uncertain outcome; reconcile it before starting another checkout');
+          }
+          const attempt = await supabase.from('membership_voucher_settlement').update({
+            state: 'provider_pending', provider_attempted_at: fundedMonthlySetup.settlement.provider_attempted_at || new Date().toISOString(),
+          }).eq('id', fundedMonthlySetup.settlement.id).eq('state', 'reserved');
+          if (attempt.error) throw new Error('Could not persist monthly card setup attempt');
+        }
         if (memberStart && existingAgreement && !existingAgreement.redirect_url
             && Date.now() - Date.parse(existingAgreement.created_at || snapshot.accepted_at) >= 20 * 60 * 60 * 1000) {
           return res.status(409).json({ code: 'member_start_checkout_reconciliation_required',
@@ -1975,6 +2183,7 @@ return async function handler(req, res) {
           }
         }
 
+        if (!fundedMonthlySetup) await claimMembershipFeePayment(supabase, feeToken, 'start_monthly_card');
         const customer = await findOrCreateStripeCustomer(stripe, {
           email: tokenMember.email,
           name: [tokenMember.first_name, tokenMember.last_name].filter(Boolean).join(' ') || undefined,
@@ -2003,12 +2212,14 @@ return async function handler(req, res) {
             line_items: [{
               quantity: 1,
               price_data: {
-                currency: (offer.currency || 'GBP').toLowerCase(),
-                unit_amount: offer.monthlyAmountMinor,
+                currency: (snapshot.currency || 'GBP').toLowerCase(),
+                unit_amount: snapshot.monthly_amount_minor,
                 recurring: { interval: 'month' },
                 product_data: {
                   name: `Membership ${yearLabel || ''}`.trim(),
-                  description: `${offer.instalmentCount} monthly instalments of ${offer.currency} ${offer.monthlyAmount.toFixed(2)} (total ${offer.currency} ${offer.planTotal.toFixed(2)})`,
+                  description: `${snapshot.instalment_count} monthly cash instalments of ${snapshot.currency} ${(snapshot.monthly_amount_minor / 100).toFixed(2)}${
+                    snapshot.voucher_funding ? `; gross membership ${snapshot.currency} ${(snapshot.voucher_funding.gross_minor / 100).toFixed(2)}, voucher funding ${snapshot.currency} ${(snapshot.voucher_funding.credit_minor / 100).toFixed(2)} (this term only)`
+                      : ` (total ${snapshot.currency} ${Number(snapshot.plan_total).toFixed(2)})`}`,
                 },
               },
             }],
@@ -2030,7 +2241,8 @@ return async function handler(req, res) {
             },
             success_url: `${origin}/membership-fees/${token}?card=success`,
             cancel_url: `${origin}/membership-fees/${token}?card=cancelled`,
-          }, rollingAgreement ? { idempotencyKey: `rolling-fee-checkout:${rollingAgreement.id}` } : undefined);
+          }, rollingAgreement ? { idempotencyKey: `rolling-fee-checkout:${rollingAgreement.id}` }
+            : fundedMonthlySetup ? { idempotencyKey: `membership-credit-checkout:${fundedMonthlySetup.settlement.id}` } : undefined);
         } catch (err) {
           console.error('[Public Fee] Card checkout session creation failed:', err.message);
           return res.status(502).json({ error: 'Could not start card checkout. Please try again.' });

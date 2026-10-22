@@ -92,6 +92,24 @@ function standardTables(grantRow) {
   };
 }
 
+test('new award emails use escaped organisation terminology without changing recipients', async () => {
+  const sent = [];
+  const row = baseGrant();
+  const tables = standardTables(row);
+  tables.system_settings = { select: filters => {
+    assert.equal(filters.tenant_id, row.tenant_id);
+    assert.equal(filters.setting_key, 'organization_voucher_display_name');
+    return [{ setting_value: ' Credit & Learning ' }];
+  } };
+  await sendPendingSpeakerAwardNotifications({
+    db: makeFakeDb(tables), send: async msg => { sent.push(msg); return { success: true }; },
+  });
+  assert.equal(sent.length, 2);
+  for (const message of sent) assert.match(message.html, /Credit &amp; Learning/);
+  assert.equal(sent[0].to, 'ada@example.com');
+  assert.equal(sent[1].to, 'invoices@acme.example');
+});
+
 test('sends member + org billing emails, stamps deliveries and notified_at, clears leases', async () => {
   const sent = [];
   const row = baseGrant();

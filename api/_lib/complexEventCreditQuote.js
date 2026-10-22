@@ -1,5 +1,37 @@
 import { orderVoucherIdsForRedemption } from './voucherOrdering.js';
 import { createHash } from 'node:crypto';
+import { assertVoucherEligible } from './voucherCreditService.js';
+import { getAllowVoucherUseAfterExpiry, isVoucherUsableForEventDate } from './voucherExpiryPolicy.js';
+
+/** Shared preflight for every booking consumer. Identity comes from session,
+ * never a submitted member email or organization ID. Final reservation repeats
+ * ownership/settings/role checks under the database lock. */
+export async function loadBookingVouchers(db, {
+  tenantId, member, organization, voucherIds, eventStart = null, currency = 'GBP',
+}) {
+  const ids = normalizeRequestedVoucherIds(voucherIds);
+  if (!ids.length) return [];
+  if (!tenantId || !member?.id) throw new ComplexEventCreditQuoteError('Sign in to use credit', 401);
+  const [{ data: vouchers, error }, { data: settings, error: settingsError }] = await Promise.all([
+    db.from('voucher').select('*').eq('tenant_id', tenantId).in('id', ids),
+    db.from('system_settings').select('setting_key, setting_value').eq('tenant_id', tenantId),
+  ]);
+  if (error || settingsError) throw new ComplexEventCreditQuoteError('Unable to verify credit eligibility', 503);
+  if (!vouchers || vouchers.length !== ids.length) {
+    throw new ComplexEventCreditQuoteError('Selected credit is invalid or unavailable', 403);
+  }
+  const allowAfterExpiry = await getAllowVoucherUseAfterExpiry(db, tenantId);
+  for (const voucher of vouchers) {
+    assertVoucherEligible(voucher, {
+      tenantId, memberId: member.id, organizationId: member.organization_id,
+      isAuthenticated: true, roleId: member.role_id, organization, settings, currency,
+    });
+    if (!isVoucherUsableForEventDate(voucher, eventStart, allowAfterExpiry)) {
+      throw new ComplexEventCreditQuoteError('One or more selected vouchers expire before the event');
+    }
+  }
+  return vouchers;
+}
 
 export class ComplexEventCreditQuoteError extends Error {
   constructor(message, statusCode = 400) {

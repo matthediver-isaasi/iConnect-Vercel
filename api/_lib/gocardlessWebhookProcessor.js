@@ -1372,7 +1372,12 @@ async function processPaymentEvent({ event, action, links, db, gc, deps = {} }) 
         }
         // Post the confirmed instalment to accounting (best-effort; records
         // its own posted/failed/skipped status on the payment row).
-        if (action === 'confirmed' && paymentRowForAccounting && !isCatchUpPayment) {
+        if (action === 'confirmed' && agreement.metadata?.dd?.voucher_funding) {
+          if (!paymentRowForAccounting) throw new Error('Funded Direct Debit requires verified collection evidence before accounting');
+          // Financial continuation is retryable, not the legacy best-effort
+          // branch: acknowledge only after gross/funding/cash are recorded.
+          await postDdInstalmentToAccounting({ agreement, paymentRow: paymentRowForAccounting }, { db });
+        } else if (action === 'confirmed' && paymentRowForAccounting && !isCatchUpPayment) {
           const postFn = deps.postToAccounting || postDdInstalmentToAccounting;
           try {
             await postFn({ agreement, paymentRow: paymentRowForAccounting }, { db });
@@ -1498,7 +1503,7 @@ async function processRefundEvent({ event, action, links, db, gc }) {
   if (paymentId) {
     const { data } = await db
       .from('gocardless_payments')
-      .select('id, tenant_id, amount_minor, paid_out_at')
+      .select('*')
       .eq('gocardless_payment_id', paymentId)
       .maybeSingle();
     payRow = data || null;
@@ -1514,7 +1519,22 @@ async function processRefundEvent({ event, action, links, db, gc }) {
     refund_settled: 'refund_settled',
     failed: 'failed',
   };
-  const status = statusByAction[action] || action;
+  let status = statusByAction[action] || action;
+  let savedRefundMetadata = {};
+  if (payRow.metadata?.membership_voucher_settlement_id) {
+    const saved = await db.from('gocardless_refunds').select('metadata,status').eq('tenant_id',payRow.tenant_id)
+      .eq('gocardless_refund_id',refundId).maybeSingle();
+    if (saved.error) throw new Error('Could not load approved voucher refund replacement options');
+    savedRefundMetadata = saved.data?.metadata || {};
+    const previousEvent = Date.parse(savedRefundMetadata.membership_voucher_refund_event_at || '');
+    const thisEvent = Date.parse(event.created_at || '');
+    if ((Number.isFinite(previousEvent) && Number.isFinite(thisEvent) && thisEvent < previousEvent)
+        || (action === 'created' && ['paid','refund_settled','failed'].includes(saved.data?.status))) {
+      status = saved.data.status;
+    } else if (Number.isFinite(thisEvent)) {
+      savedRefundMetadata.membership_voucher_refund_event_at = event.created_at;
+    }
+  }
 
   await checkedUpsert(db, 'gocardless_refunds', {
     tenant_id: payRow.tenant_id,
@@ -1524,7 +1544,7 @@ async function processRefundEvent({ event, action, links, db, gc }) {
     amount_minor: refund?.amount ?? null,
     currency: refund?.currency || null,
     status,
-    metadata: refund?.metadata || null,
+    metadata: { ...(refund?.metadata || {}), ...savedRefundMetadata },
     updated_at: new Date().toISOString(),
   }, 'gocardless_refund_id');
 
@@ -1559,6 +1579,12 @@ async function processRefundEvent({ event, action, links, db, gc }) {
     }
   }
 
+  if (payRow.metadata?.membership_voucher_settlement_id) {
+    const refunds = await gc.listRefunds({ paymentId });
+    await (await import('./membershipVoucherRefund.js')).reconcileMembershipVoucherCashRefund(db,
+      { ...payRow,gocardless_payment_id: paymentId },refunds,
+      { replacementExpiry: savedRefundMetadata.membership_voucher_replacement_expiry || null });
+  }
   return { handled: true, detail: `refund ${action} mirrored (${refundId})` };
 }
 

@@ -31,6 +31,7 @@
 import { supabase as defaultSupabase } from './database.js';
 import { sendTenantEmail } from './tenantEmailService.js';
 import { getTenantBaseUrl } from './campaignService.js';
+import { voucherDisplayName } from '../../shared/voucherPolicy.js';
 
 const SWEEP_LIMIT = 50;
 // A send lease older than this is considered abandoned (worker crashed
@@ -322,6 +323,7 @@ async function buildGrantContext(db, { event, grant, baseUrl }) {
   // treating a transient read error as "no award" would produce zero
   // recipients and permanently stamp the grant notified without any email.
   let voucher = null;
+  let voucherName = 'Training Voucher';
   if (grant.voucher_id) {
     const { data, error } = await db
       .from('voucher')
@@ -332,6 +334,13 @@ async function buildGrantContext(db, { event, grant, baseUrl }) {
     if (error) throw new Error(`voucher lookup failed: ${error.message}`);
     if (!data) throw new Error(`voucher ${grant.voucher_id} not found`);
     voucher = data;
+    // Automated speaker awards remain organisation-owned. Only newly generated
+    // wording changes; recipient selection and historical deliveries do not.
+    const { data: nameSetting, error: nameError } = await db.from('system_settings')
+      .select('setting_value').eq('tenant_id', grant.tenant_id)
+      .eq('setting_key', 'organization_voucher_display_name').maybeSingle();
+    if (nameError) throw new Error(`voucher terminology lookup failed: ${nameError.message}`);
+    voucherName = voucherDisplayName({ organization_voucher_display_name: nameSetting?.setting_value }, 'organization');
   }
 
   let badgeName = null;
@@ -393,7 +402,7 @@ async function buildGrantContext(db, { event, grant, baseUrl }) {
     const value = formatValue(voucher.value ?? grant.voucher_value);
     const expiry = formatDate(voucher.expires_at);
     awardLines.push(
-      `<li>A training voucher${value ? ` worth <strong>${escapeHtml(value)}</strong>` : ''}` +
+      `<li>${escapeHtml(voucherName)}${value ? ` worth <strong>${escapeHtml(value)}</strong>` : ''}` +
       `${organization?.name ? ` for ${escapeHtml(organization.name)}` : ''}` +
       `${expiry ? `, valid until <strong>${escapeHtml(expiry)}</strong>` : ''}.</li>`
     );
@@ -404,7 +413,7 @@ async function buildGrantContext(db, { event, grant, baseUrl }) {
 
   const awardsHtml = `<ul>${awardLines.join('')}</ul>`;
   const whereHtml = voucher
-    ? `<p>The voucher is available to your organisation now — you can see it under <a href="${escapeHtml(`${baseUrl}/Balances`)}">Balances</a> in the member portal.</p>`
+    ? `<p>${escapeHtml(voucherName)} is available to your organisation now — you can see it under <a href="${escapeHtml(`${baseUrl}/Balances`)}">Balances</a> in the member portal.</p>`
     : `<p>You can see it in the <a href="${escapeHtml(baseUrl)}">member portal</a>.</p>`;
 
   const recipients = [];
@@ -429,7 +438,7 @@ async function buildGrantContext(db, { event, grant, baseUrl }) {
       email: billingEmail,
       html: `
         <p>Hello,</p>
-        <p>${escapeHtml(speakerName)} spoke at <strong>${escapeHtml(eventTitle)}</strong>, and in recognition your organisation${organization?.name ? ` (${escapeHtml(organization.name)})` : ''} has received a training voucher${value ? ` worth <strong>${escapeHtml(value)}</strong>` : ''}${expiry ? `, valid until <strong>${escapeHtml(expiry)}</strong>` : ''}.</p>
+        <p>${escapeHtml(speakerName)} spoke at <strong>${escapeHtml(eventTitle)}</strong>, and in recognition your organisation${organization?.name ? ` (${escapeHtml(organization.name)})` : ''} has received ${escapeHtml(voucherName)}${value ? ` worth <strong>${escapeHtml(value)}</strong>` : ''}${expiry ? `, valid until <strong>${escapeHtml(expiry)}</strong>` : ''}.</p>
         <p>You can see it under <a href="${escapeHtml(`${baseUrl}/Balances`)}">Balances</a> in the member portal.</p>`,
     });
   }

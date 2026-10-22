@@ -1,5 +1,6 @@
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, hasAdminAccess } from '../../_lib/tenantContext.js';
+import { loadVoucherOwnerPresentation } from '../../_lib/voucherOwnerPresentation.js';
 
 function sanitizeForCSV(value) {
   if (value === null || value === undefined) return '';
@@ -52,8 +53,8 @@ function formatTransactionTypeLabel(type) {
   }
 }
 
-const POSITIVE_TYPES = new Set(['cancellation_refund', 'credit_adjustment', 'voucher_awarded']);
-const NEGATIVE_TYPES = new Set(['booking_usage', 'debit_adjustment', 'expiry']);
+const POSITIVE_TYPES = new Set(['cancellation_refund', 'credit_adjustment', 'voucher_awarded', 'award', 'reservation_release']);
+const NEGATIVE_TYPES = new Set(['booking_usage', 'debit_adjustment', 'expiry', 'reservation']);
 
 function formatSignedAmount(txn) {
   const amt = Math.abs(parseFloat(txn.amount || 0));
@@ -92,7 +93,7 @@ function memberDisplayName(member) {
 }
 
 const COLUMN_DEFS = [
-  { key: 'organization', header: 'Organisation' },
+  { key: 'organization', header: 'Owner' },
   { key: 'voucher_code', header: 'Voucher Code' },
   { key: 'voucher_description', header: 'Voucher Description' },
   { key: 'voucher_expiry_date', header: 'Voucher Expiry Date' },
@@ -237,6 +238,7 @@ export default async function handler(req, res) {
   }
 
   const ctx = await getTenantContext(req);
+  if (ctx?.tenantMismatch) return res.status(409).json({ code: 'TENANT_CONTEXT_CHANGED', error: 'Tenant context changed' });
   if (!ctx || !ctx.isAuthenticated) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
@@ -427,6 +429,7 @@ export default async function handler(req, res) {
 
   try {
     // Resolve which vouchers are eligible under the voucher-level date
+    const ownerPresentation = await loadVoucherOwnerPresentation(supabase, tenantId);
     // filter (null = no restriction).
     let eligibleVoucherIds = null;
     if (voucherDateFilterActive) {
@@ -497,7 +500,7 @@ export default async function handler(req, res) {
         const pageSize = 1000;
         let vFrom = 0;
         const buildQuery = () => {
-          const cols = ['id', 'code', 'description', 'expires_at', 'value', 'organization_id'];
+          const cols = ['id', 'code', 'description', 'expires_at', 'value', 'organization_id', 'member_id'];
           if (voucherColFlags.created_at) cols.push('created_at');
           if (voucherColFlags.issued_at) cols.push('issued_at');
           let query = supabase
@@ -696,7 +699,7 @@ export default async function handler(req, res) {
           while (true) {
             const { data, error } = await supabase
               .from('voucher_transaction')
-              .select('id, voucher_id, amount, type')
+              .select('id, voucher_id, amount, type, allocation_id')
               .eq('tenant_id', tenantId)
               .in('voucher_id', batch)
               .order('id', { ascending: true })
@@ -710,7 +713,10 @@ export default async function handler(req, res) {
               const amt = Math.abs(parseFloat(t.amount || 0));
               if (isNaN(amt)) continue;
               let signed = 0;
-              if (NEGATIVE_TYPES.has(t.type)) signed = -amt;
+              if (['award', 'voucher_awarded'].includes(t.type) || (t.type === 'booking_usage' && t.allocation_id)) signed = 0;
+              else if (t.type === 'reservation') signed = -amt;
+              else if (t.type === 'reservation_release') signed = amt;
+              else if (NEGATIVE_TYPES.has(t.type)) signed = -amt;
               else if (POSITIVE_TYPES.has(t.type)) signed = amt;
               else {
                 const raw = parseFloat(t.amount || 0);
@@ -749,7 +755,7 @@ export default async function handler(req, res) {
       });
 
       const headerRow = [
-        'Organisation',
+        'Owner',
         'Voucher Code',
         'Voucher Description',
         'Issued Date',
@@ -762,7 +768,7 @@ export default async function handler(req, res) {
         const hasValue = !isNaN(currentValue);
         const initialValue = hasValue ? currentValue - (netByVoucher[v.id] || 0) : NaN;
         return [
-          escapeCSV(orgNameById[v.organization_id] || ''),
+          escapeCSV(ownerPresentation.label(v, orgNameById[v.organization_id])),
           escapeCSV(v.code || ''),
           escapeCSV(v.description || ''),
           escapeCSV(formatDateOnly(v.issued_at ?? v.created_at ?? null)),
@@ -842,7 +848,7 @@ export default async function handler(req, res) {
     // above): issued_at and/or created_at are dropped only after a 42703
     // error names them, so environments with either column keep it.
     const voucherSelectCols = () => {
-      const cols = ['id', 'code', 'description', 'expires_at', 'value', 'organization_id'];
+      const cols = ['id', 'code', 'description', 'expires_at', 'value', 'organization_id', 'member_id'];
       if (voucherColFlags.created_at) cols.push('created_at');
       if (voucherColFlags.issued_at) cols.push('issued_at');
       if (voucherColFlags.valid_from) cols.push('valid_from');
@@ -1094,7 +1100,7 @@ export default async function handler(req, res) {
           while (true) {
             const { data: allForVouchers, error: allErr } = await supabase
               .from('voucher_transaction')
-              .select('id, voucher_id, amount, type')
+              .select('id, voucher_id, amount, type, allocation_id')
               .eq('tenant_id', tenantId)
               .in('voucher_id', batch)
               .order('id', { ascending: true })
@@ -1108,7 +1114,10 @@ export default async function handler(req, res) {
               const amt = Math.abs(parseFloat(t.amount || 0));
               if (isNaN(amt)) continue;
               let signed = 0;
-              if (NEGATIVE_TYPES.has(t.type)) signed = -amt;
+              if (['award', 'voucher_awarded'].includes(t.type) || (t.type === 'booking_usage' && t.allocation_id)) signed = 0;
+              else if (t.type === 'reservation') signed = -amt;
+              else if (t.type === 'reservation_release') signed = amt;
+              else if (NEGATIVE_TYPES.has(t.type)) signed = -amt;
               else if (POSITIVE_TYPES.has(t.type)) signed = amt;
               else {
                 const raw = parseFloat(t.amount || 0);
@@ -1147,6 +1156,9 @@ export default async function handler(req, res) {
       }
       // Emit all synthetic awarded rows; the voucher-level / row-level date
       // filter below applies to them exactly like real transaction rows.
+      for (let i = allTransactions.length - 1; i >= 0; i--) {
+        if (['award', 'voucher_awarded'].includes(allTransactions[i].type)) allTransactions.splice(i, 1);
+      }
       allTransactions.push(...synthetic);
     }
 
@@ -1293,7 +1305,10 @@ export default async function handler(req, res) {
 
     const cellFor = (t, key) => {
       switch (key) {
-        case 'organization': return escapeCSV(orgMap[t.organization_id]?.name || '');
+        case 'organization': {
+          const voucher = voucherMap[t.voucher_id];
+          return escapeCSV(ownerPresentation.label(voucher, orgMap[voucher?.organization_id || t.organization_id]?.name));
+        }
         case 'voucher_code': return escapeCSV(t.voucher_id ? (voucherMap[t.voucher_id]?.code || '') : '');
         case 'voucher_description': return escapeCSV(t.voucher_id ? (voucherMap[t.voucher_id]?.description || '') : '');
         case 'voucher_expiry_date': return escapeCSV(formatDateOnly(t.voucher_id ? voucherMap[t.voucher_id]?.expires_at : ''));

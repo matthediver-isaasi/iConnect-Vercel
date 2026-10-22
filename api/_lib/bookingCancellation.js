@@ -40,6 +40,7 @@ import {
   cancelComplexEventZoomRegistrations,
   reinstateVoucherDirect,
   reinstateVoucherFromTransactions,
+  restoreProgramBookingEntitlement,
 } from './bookingLookup.js';
 
 export const CANCELLATION_REASON_REQUEST_APPROVED = 'request_approved';
@@ -121,6 +122,10 @@ export async function cancelBooking({
   const bookingTable = getBookingTable(source);
 
   if (booking.status === 'cancelled') {
+    if (!isComplex) {
+      try { reversalResults.programTicket = await restoreProgramBookingEntitlement(booking, tenantId); }
+      catch (error) { return { success: false, error: error.message, reversalResults }; }
+    }
     return { success: true, alreadyCancelled: true, reversalResults };
   }
 
@@ -169,6 +174,10 @@ export async function cancelBooking({
     }
   }
   if (atomicCancellation?.alreadyCancelled) {
+    if (!isComplex) {
+      try { reversalResults.programTicket = await restoreProgramBookingEntitlement(booking, tenantId); }
+      catch (error) { return { success: false, error: error.message, reversalResults }; }
+    }
     return { success: true, alreadyCancelled: true, reversalResults };
   }
   console.log(`${LP} Booking ${booking.id} cancelled (source: ${source}, reason: ${reason})`);
@@ -290,6 +299,7 @@ export async function cancelBooking({
       }
     } catch (err) {
       console.error(`${LP} Voucher reinstatement error:`, err.message);
+      reversalResults.vouchers.push({ success: false, error: err.message, requires_reconciliation: true });
     }
   }
 
@@ -371,32 +381,38 @@ export async function cancelBooking({
   // 6. Program ticket refund (regular events only).
   if (booking.event_id && booking.member_id && !isComplex) {
     try {
-      const { data: event } = await supabase.from('event').select('program_tag, title').eq('id', booking.event_id).single();
-      if (event?.program_tag && org) {
-        const balances = org.program_ticket_balances || {};
-        const cur = balances[event.program_tag] || 0;
-        await supabase.from('organization').update({
-          program_ticket_balances: { ...balances, [event.program_tag]: cur + 1 },
-          last_synced: new Date().toISOString(),
-        }).eq('id', org.id);
-        await supabase.from('program_ticket_transaction').insert({
-          organization_id: org.id,
-          program_name: event.program_tag,
-          transaction_type: 'refund',
-          quantity: 1,
-          booking_reference: booking.booking_reference || booking.backstage_order_id || booking.id,
-          event_name: event.title || 'Unknown Event',
-          member_email: booking.attendee_email || 'unknown',
-          notes: programTicketNote
-            || (reason === CANCELLATION_REASON_EVENT_DELETED
-              ? 'Ticket refunded via event deletion'
-              : 'Ticket refunded via approved cancellation request'),
-        });
-        reversalResults.programTicket = { programTag: event.program_tag, success: true };
-        console.log(`${LP} Program ticket refunded for ${event.program_tag}`);
+      const provenance = await restoreProgramBookingEntitlement(booking, tenantId);
+      if (provenance.handled) {
+        reversalResults.programTicket = provenance;
+      } else {
+        const { data: event } = await supabase.from('event').select('program_tag, title').eq('id', booking.event_id).single();
+        if (event?.program_tag && org) {
+          const balances = org.program_ticket_balances || {};
+          const cur = balances[event.program_tag] || 0;
+          await supabase.from('organization').update({
+            program_ticket_balances: { ...balances, [event.program_tag]: cur + 1 },
+            last_synced: new Date().toISOString(),
+          }).eq('id', org.id);
+          await supabase.from('program_ticket_transaction').insert({
+            organization_id: org.id,
+            program_name: event.program_tag,
+            transaction_type: 'refund',
+            quantity: 1,
+            booking_reference: booking.booking_reference || booking.backstage_order_id || booking.id,
+            event_name: event.title || 'Unknown Event',
+            member_email: booking.attendee_email || 'unknown',
+            notes: programTicketNote
+              || (reason === CANCELLATION_REASON_EVENT_DELETED
+                ? 'Ticket refunded via event deletion'
+                : 'Ticket refunded via approved cancellation request'),
+          });
+          reversalResults.programTicket = { programTag: event.program_tag, success: true };
+          console.log(`${LP} Program ticket refunded for ${event.program_tag}`);
+        }
       }
     } catch (err) {
       console.error(`${LP} Program ticket refund error:`, err.message);
+      return { success: false, error: err.message, reversalResults };
     }
   }
 

@@ -9,6 +9,7 @@ import { adminFetch } from "@/lib/adminFetch";
 import { useEventInvoiceAddress } from "./EventInvoiceAddressStep";
 import { invoiceAddressRequired, invoiceAddressSelectionPayload, invoiceAddressConflictMessage } from "@/lib/eventInvoiceAddress.mjs";
 import { eventPurchaseRequestFingerprint, resolveEventPurchaseRequest } from "@/lib/eventPurchaseRequest.mjs";
+import { resolveProgramRegistrationAttempt, finishProgramRegistrationAttempt, hasProgramRegistrationAttempt } from '@/lib/programRegistrationAttempt.mjs';
 import { getViewerProtectedWorkGeneration, subscribeToViewerProtectedWork, isViewerProtectedWorkPaused } from "@/lib/viewerProtectedWorkGate";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -26,6 +27,8 @@ import { createPageUrl } from "@/utils";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, AddressElement, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import VoucherSelector from "./VoucherSelector";
+import { useBookingVouchers } from './useBookingVouchers';
+import { normalizeVoucherSettings } from '../../../../shared/voucherPolicy.js';
 import { useBalancesRealtime } from "@/hooks/useBalancesRealtime";
 import { publicClient } from "@/api/publicClient";
 import { getEffectiveTicketPrice } from "@/lib/ticketPricing";
@@ -479,6 +482,8 @@ export default function PaymentOptions({
   tbcBookingReplacement = null
 }) {
   const [internalSubmitting, setInternalSubmitting] = useState(false);
+  const [selectedProgramOwner, setSelectedProgramOwner] = useState(null);
+  const programTicketOwner = selectedProgramOwner || (organizationInfo?.id ? 'organization' : 'member');
   const isSubmitting = submitting !== undefined ? submitting : internalSubmitting;
   const doSetSubmitting = setSubmitting || setInternalSubmitting;
   const activeTenant = useSyncExternalStore(subscribeToActiveTenantId, getActiveTenantId, () => null);
@@ -677,7 +682,8 @@ export default function PaymentOptions({
     policy: eventPaymentPolicy,
     selectedVoucherIds: selectedVouchers,
     trainingFundAmount,
-    voucherEligible: !isFeatureExcluded('element_EventUseVouchers') && isVoucherRoleAllowed,
+    voucherEligible: !isFeatureExcluded('element_EventUseVouchers')
+      && (isVoucherRoleAllowed || normalizeVoucherSettings(eventPaymentSettings).individual_vouchers_enabled),
     trainingFundEligible: !isFeatureExcluded('element_EventUseTrainingFund') && isTrainingFundRoleAllowed,
   });
   const {
@@ -912,35 +918,36 @@ export default function PaymentOptions({
   ]);
 
   // Fetch vouchers for paid standard and complex events.
-  const { data: vouchers = [] } = useQuery({
-    queryKey: ['vouchers', organizationInfo?.id],
-    queryFn: async () => {
-      if (!organizationInfo?.id) return [];
-      // Fetch from Voucher entity (not ProgramTicketTransaction)
-      const allVouchers = await base44.entities.Voucher.list() || [];
-      const now = new Date();
-      return allVouchers.filter(v => 
-        v.organization_id === organizationInfo.id && 
-        v.status === 'active' &&
-        (v.value || 0) > 0 &&
-        // Exclude expired vouchers
-        (!v.expires_at || new Date(v.expires_at) > now)
-      );
-    },
-    enabled: (isOneOffEvent || isComplexEvent) && !!organizationInfo?.id
-  });
+  const { data: vouchers = [] } = useBookingVouchers(
+    memberInfo, organizationInfo, isOneOffEvent || isComplexEvent);
 
   const ticketsRequired = isComplexEvent 
     ? attendees.length 
     : (registrationMode === 'links' ? numberOfLinks : attendees.filter(a => a.isValid).length);
 
   // Get available program tickets for this specific event's program
-  const availableProgramTickets = event.program_tag && organizationInfo?.program_ticket_balances 
-    ? (organizationInfo.program_ticket_balances[event.program_tag] || 0)
-    : 0;
+  const { data: personalProgramBalances = {}, error: personalProgramError } = useQuery({
+    queryKey: ['personal-program-entitlements', memberInfo?.id],
+    enabled: !!memberInfo?.id,
+    queryFn: async () => {
+      const response = await base44.functions.invoke('getProgramEntitlements', {});
+      if (response.data?.error) throw new Error(response.data.error);
+      return response.data.personal_balances;
+    },
+  });
+  const availableProgramTickets = (programTicketOwner === 'member' ? personalProgramBalances
+    : organizationInfo?.program_ticket_balances || {})[event.program_tag] || 0;
+  useEffect(() => {
+    if (personalProgramError) toast.error(personalProgramError.message);
+  }, [personalProgramError]);
 
   // Check if we have enough tickets (for program events)
-  const hasEnoughTickets = isOneOffEvent ? true : availableProgramTickets >= ticketsRequired;
+  const programRetryAvailable = !!memberInfo?.id && hasProgramRegistrationAttempt({
+    memberId: memberInfo.id, eventId: event.id, storage: sessionStorage,
+    payload: { programTicketOwner, registrationMode, numberOfLinks,
+      attendees: attendees.filter(a => a.isValid) },
+  });
+  const hasEnoughTickets = isOneOffEvent || programRetryAvailable || availableProgramTickets >= ticketsRequired;
 
   // Tenant setting: can a voucher pay for an event that starts after the voucher expires?
   const { data: voucherExpirySetting } = useQuery({
@@ -1170,15 +1177,21 @@ export default function PaymentOptions({
     doSetSubmitting(true);
 
     try {
-      const response = await base44.functions.invoke('createBooking', {
+      const programPayload = {
         eventId: event.id,
         memberEmail: memberInfo.email,
         attendees: (registrationMode === 'colleagues' || registrationMode === 'self') ? attendees.filter(a => a.isValid) : [],
         registrationMode: registrationMode,
         numberOfLinks: registrationMode === 'links' ? numberOfLinks : 0,
         ticketsRequired: ticketsRequired,
-        programTag: event.program_tag
+        programTag: event.program_tag,
+        programTicketOwner,
+      };
+      programPayload.registrationAttemptId = resolveProgramRegistrationAttempt({
+        memberId: memberInfo.id, eventId: event.id, payload: programPayload,
+        storage: sessionStorage, createId: () => crypto.randomUUID(),
       });
+      const response = await base44.functions.invoke('createBooking', programPayload);
 
       if (response.data.success) {
         sessionStorage.removeItem(`event_registration_${event.id}`);
@@ -1189,6 +1202,9 @@ export default function PaymentOptions({
         
         toast.success("Booking confirmed!");
         setTimeout(() => {
+          finishProgramRegistrationAttempt({
+            memberId: memberInfo.id, eventId: event.id, attemptId: programPayload.registrationAttemptId, storage: sessionStorage,
+          });
           window.location.href = createPageUrl('Bookings');
         }, 1500);
       } else {
@@ -1942,7 +1958,7 @@ export default function PaymentOptions({
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <Ticket className="w-4 h-4 text-blue-600" />
-                    <Label className="text-sm font-medium">Training Vouchers</Label>
+                    <Label className="text-sm font-medium">Available credit</Label>
                   </div>
                   {vouchers.length > 0 && (
                     <span className="text-xs text-slate-500">
@@ -1953,6 +1969,8 @@ export default function PaymentOptions({
                 {vouchers.length > 0 ? (
                   <>
                     <VoucherSelector
+                      memberInfo={memberInfo}
+                      organizationInfo={organizationInfo}
                       organizationId={organizationInfo?.id}
                       selectedVouchers={selectedVouchers}
                       onVoucherToggle={setSelectedVouchers}
@@ -1972,7 +1990,7 @@ export default function PaymentOptions({
                     )}
                   </>
                 ) : (
-                  <p className="text-xs text-slate-500">No training vouchers available for your organisation</p>
+                  <p className="text-xs text-slate-500">No eligible credit available</p>
                 )}
               </div>
             )}
@@ -2195,7 +2213,8 @@ export default function PaymentOptions({
                         >
                           <RadioGroupItem value="account" id="account" className="mt-1" />
                           <div className="flex-1">
-                            <Label htmlFor="account" className="text-sm font-medium cursor-pointer">Charge to Organisation Account</Label>
+                            <Label htmlFor="account" className="text-sm font-medium cursor-pointer">Invoice Organisation</Label>
+                            <p className="text-xs text-slate-500">The remaining amount is invoiced, not deducted from a stored balance.</p>
                           </div>
                         </div>
 
@@ -2288,6 +2307,16 @@ export default function PaymentOptions({
             </div>
             
             <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <label className="block w-full text-purple-700">Programme ticket owner
+                  <select className="block mt-1 w-full rounded border p-2" value={programTicketOwner}
+                    onChange={e => setSelectedProgramOwner(e.target.value)} disabled={isSubmitting}>
+                    {organizationInfo?.id && <option value="organization">Organisation · {organizationInfo.program_ticket_balances?.[event.program_tag] || 0} available</option>}
+                    <option value="member">Personal · {personalProgramBalances[event.program_tag] || 0} available</option>
+                  </select>
+                </label>
+              </div>
+              {programRetryAvailable && <p className="text-sm text-purple-700">Retrying recovers the existing booking without spending tickets twice.</p>}
               <div className="flex items-center justify-between text-sm">
                 <span className="text-purple-700">Tickets Required:</span>
                 <span className="font-bold text-purple-900">{ticketsRequired}</span>

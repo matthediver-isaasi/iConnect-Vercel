@@ -2,6 +2,9 @@ import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 
 const PUBLIC_SETTINGS_WHITELIST = [
+  'individual_vouchers_enabled',
+  'organization_voucher_display_name',
+  'member_voucher_display_name',
   'page_visibility',
   'page_visibility_settings',
   'articles_slug',

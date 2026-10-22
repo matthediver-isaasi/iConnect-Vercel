@@ -340,6 +340,11 @@ async function handlePost(req, res, resolvedTenantId) {
     }
   }
 
+  const { claimMembershipTermPayment } = await import('../_lib/membershipVoucherSettlement.js');
+  await claimMembershipTermPayment(supabase, {
+    tenantId, memberId: member.id, membershipYear: yearLabel,
+    sourceKey: idempotencyKey, rail: 'start_monthly_card',
+  });
   const customer = await findOrCreateStripeCustomer(stripe, {
     email: member.email,
     name: [member.first_name, member.last_name].filter(Boolean).join(' ') || undefined,

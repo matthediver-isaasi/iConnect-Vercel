@@ -22,11 +22,14 @@ import { useAdminBalancesRealtime } from "@/hooks/useAdminBalancesRealtime";
 import { useSavedExportReports } from "@/hooks/useSavedExportReports";
 import ExportReportSwitcher from "@/components/ExportReportSwitcher";
 import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
+import { adminFetch } from '@/lib/adminFetch';
+import { useTicketViewerKey } from '@/hooks/useTicketViewerKey';
+import { normalizeVoucherSettings, voucherDisplayName, voucherOwnerType } from '../../../shared/voucherPolicy.js';
 
 const ITEMS_PER_PAGE = 10;
 
 const EXPORT_COLUMN_DEFS = [
-  { key: 'organization', label: 'Organisation' },
+  { key: 'organization', label: 'Owner' },
   { key: 'voucher_code', label: 'Voucher Code' },
   { key: 'voucher_description', label: 'Voucher Description' },
   { key: 'voucher_expiry_date', label: 'Voucher Expiry Date' },
@@ -89,12 +92,32 @@ const normalizeExportDateField = (v) => (v ? (LEGACY_EXPORT_DATE_FIELD_MAP[v] ||
 
 export default function VoucherManagementPage() {
   const { isAdmin, isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
+  const viewerKey = useTicketViewerKey(memberInfo);
+  const [ownerMode, setOwnerMode] = useState('organization');
+  const [memberSearch, setMemberSearch] = useState('');
+  const { data: voucherSettingsRows = [] } = useQuery({ queryKey: ['voucher-settings', ...viewerKey], queryFn: () => base44.entities.SystemSettings.list() });
+  const voucherSettings = normalizeVoucherSettings(voucherSettingsRows);
+  const { data: ownerMembers = [], error: memberSearchError } = useQuery({
+    queryKey: ['voucher-owner-members', ...viewerKey, memberSearch],
+    enabled: memberSearch.trim().length >= 2,
+    queryFn: async () => {
+      const response = await adminFetch(`/api/admin/voucher-members?search=${encodeURIComponent(memberSearch)}`, { credentials: 'include' });
+      if (!response.ok) throw new Error('Unable to search members');
+      return (await response.json()).members;
+    },
+  });
+  const ownerLabel = voucher => voucherOwnerType(voucher) === 'member'
+    ? `Individual member · ${memberOwnerNames[voucher.member_id] || 'Name unavailable'}`
+    : voucherOwnerType(voucher) === 'organization'
+      ? `Organisation · ${organizations.find(org => org.id === voucher.organization_id)?.name || voucher.organization_id}`
+      : 'Invalid owner';
   const [accessChecked, setAccessChecked] = useState(false);
   const [editingVoucher, setEditingVoucher] = useState(null);
   
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [orgFilter, setOrgFilter] = useState("all");
+  const [ownerFilter, setOwnerFilter] = useState("all");
   const [showExpired, setShowExpired] = useState(false);
   const [dateFilterField, setDateFilterField] = useState("issued");
   const [dateFilterFrom, setDateFilterFrom] = useState("");
@@ -146,11 +169,18 @@ export default function VoucherManagementPage() {
     isSaving: isSavingExportReport,
   } = useSavedExportReports({
     settingKey: 'voucher_export_reports',
-    description: 'Training voucher export saved reports',
+    description: 'Voucher export saved reports',
     enabled: !!accessChecked,
   });
 
   const queryClient = useQueryClient();
+  useEffect(() => {
+    setSelectedVoucher(null);
+    setEditingVoucher(null);
+    setShowDialog(false);
+    setMemberSearch('');
+    setSelectedVoucherIds(new Set());
+  }, [viewerKey[0], viewerKey[1]]);
 
   // Realtime callbacks for admin updates
   const handleVoucherUpdated = useCallback(({ eventType, voucher }) => {
@@ -184,25 +214,40 @@ export default function VoucherManagementPage() {
   }, [isFeatureExcluded, isAccessReady]);
 
   const { data: vouchers = [], isLoading: loadingVouchers } = useQuery({
-    queryKey: ['vouchers-admin'],
+    queryKey: ['vouchers-admin', ...viewerKey],
     queryFn: () => base44.entities.Voucher.list(),
     staleTime: 0,
     refetchOnMount: true,
   });
 
   const { data: organizations = [] } = useQuery({
-    queryKey: ['organizations'],
+    queryKey: ['organizations', ...viewerKey],
     queryFn: () => listOrganizationsForAdmin(),
     staleTime: 0,
     refetchOnMount: true,
   });
 
+  const ownerMemberIds = [...new Set(vouchers.map(voucher => voucher.member_id).filter(Boolean))].sort();
+  const { data: memberOwnerNames = {}, error: ownerNamesError } = useQuery({
+    queryKey: ['voucher-owner-names', ...viewerKey, ownerMemberIds],
+    enabled: ownerMemberIds.length > 0,
+    queryFn: async () => {
+      const members = [];
+      for (let offset = 0; offset < ownerMemberIds.length; offset += 200) {
+        const response = await adminFetch(`/api/admin/voucher-members?ids=${encodeURIComponent(ownerMemberIds.slice(offset, offset + 200).join(','))}`);
+        if (!response.ok) throw new Error('Unable to load voucher owner names');
+        members.push(...(await response.json()).members);
+      }
+      return Object.fromEntries(members.map(member => [member.id, [member.first_name, member.last_name].filter(Boolean).join(' ') || member.email || 'Name unavailable']));
+    },
+  });
+
   // Fetch voucher transactions for selected voucher
   const { data: voucherTransactions = [], isLoading: loadingTransactions } = useQuery({
-    queryKey: ['voucher-transactions', selectedVoucher?.id],
+    queryKey: ['voucher-transactions', ...viewerKey, selectedVoucher?.id],
     queryFn: async () => {
       if (!selectedVoucher?.id) return [];
-      const response = await fetch(`/api/admin/voucher-transactions?voucher_id=${encodeURIComponent(selectedVoucher.id)}`, {
+      const response = await adminFetch(`/api/admin/voucher-transactions?voucher_id=${encodeURIComponent(selectedVoucher.id)}`, {
         credentials: 'include',
       });
       if (!response.ok) {
@@ -223,9 +268,9 @@ export default function VoucherManagementPage() {
     data: redemptionDatesByVoucher = {},
     isLoading: loadingRedemptionDates,
   } = useQuery({
-    queryKey: ['voucher-redemption-dates'],
+    queryKey: ['voucher-redemption-dates', ...viewerKey],
     queryFn: async () => {
-      const response = await fetch('/api/admin/voucher-transactions?redemption_dates=1', {
+      const response = await adminFetch('/api/admin/voucher-transactions?redemption_dates=1', {
         credentials: 'include',
       });
       if (!response.ok) {
@@ -262,12 +307,15 @@ export default function VoucherManagementPage() {
 
   const filteredVouchers = useMemo(() => {
     let filtered = vouchers;
+    if (ownerFilter !== 'all') filtered = filtered.filter(v => voucherOwnerType(v) === ownerFilter);
     
     if (searchTerm.trim()) {
       const term = searchTerm.toLowerCase();
       filtered = filtered.filter(v => 
         v.code?.toLowerCase().includes(term) ||
         v.description?.toLowerCase().includes(term) ||
+        v.member_id?.toLowerCase().includes(term) ||
+        memberOwnerNames[v.member_id]?.toLowerCase().includes(term) ||
         organizations.find(o => o.id === v.organization_id)?.name?.toLowerCase().includes(term)
       );
     }
@@ -327,7 +375,7 @@ export default function VoucherManagementPage() {
       const dateB = new Date(b.expires_at || 0);
       return dateB.getTime() - dateA.getTime();
     });
-  }, [vouchers, searchTerm, statusFilter, orgFilter, showExpired, organizations, dateFilterField, dateFilterFrom, dateFilterTo, redemptionDatesByVoucher, loadingRedemptionDates]);
+  }, [vouchers, searchTerm, statusFilter, orgFilter, ownerFilter, showExpired, organizations, memberOwnerNames, dateFilterField, dateFilterFrom, dateFilterTo, redemptionDatesByVoucher, loadingRedemptionDates]);
 
   const totalPages = Math.ceil(filteredVouchers.length / ITEMS_PER_PAGE);
   const paginatedVouchers = useMemo(() => {
@@ -462,7 +510,7 @@ export default function VoucherManagementPage() {
   const orgSummary = useMemo(() => {
     const summaryMap = {};
     filteredVouchers.forEach(v => {
-      const orgId = v.organization_id;
+      const orgId = v.member_id ? `member:${v.member_id}` : v.organization_id;
       if (!orgId) return;
       if (!summaryMap[orgId]) {
         summaryMap[orgId] = { activeCount: 0, totalValue: 0 };
@@ -478,13 +526,14 @@ export default function VoucherManagementPage() {
         const org = organizations.find(o => o.id === orgId);
         return {
           orgId,
-          name: org?.name || 'Unknown Organisation',
+          name: orgId.startsWith('member:') ? `Individual member · ${memberOwnerNames[orgId.slice(7)] || 'Name unavailable'}` : `Organisation · ${org?.name || 'Name unavailable'}`,
+          scheme: voucherDisplayName(voucherSettings, orgId.startsWith('member:') ? 'member' : 'organization'),
           activeCount: data.activeCount,
           totalValue: data.totalValue,
         };
       })
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
-  }, [filteredVouchers, organizations]);
+  }, [filteredVouchers, organizations, memberOwnerNames, voucherSettingsRows]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -866,7 +915,7 @@ export default function VoucherManagementPage() {
         }
       }
 
-      const response = await fetch(`/api/admin/voucher-transactions/export-csv?${params.toString()}`, {
+      const response = await adminFetch(`/api/admin/voucher-transactions/export-csv?${params.toString()}`, {
         credentials: 'include'
       });
       if (!response.ok) {
@@ -929,10 +978,10 @@ export default function VoucherManagementPage() {
       const dt = new Date(d);
       return isNaN(dt.getTime()) ? '' : format(dt, 'yyyy-MM-dd');
     };
-    const header = ['Code', 'Organisation', 'Description', 'Status', 'Value (£)', 'Awarded', 'Expires', 'Used On'];
+    const header = ['Code', 'Owner', 'Description', 'Status', 'Value (£)', 'Awarded', 'Expires', 'Used On'];
     const rows = filteredVouchers.map(v => [
       v.code || '',
-      organizations.find(o => o.id === v.organization_id)?.name || 'Unknown Organisation',
+      `${voucherDisplayName(voucherSettings, voucherOwnerType(v))} · ${ownerLabel(v)}`,
       v.description || '',
       deriveStatus(v),
       (v.value || 0).toFixed(2),
@@ -955,8 +1004,12 @@ export default function VoucherManagementPage() {
   };
 
   const handleCreateNew = () => {
+    setOwnerMode('organization');
+    setMemberSearch('');
     setEditingVoucher({
+      idempotency_key: crypto.randomUUID(),
       organization_id: "",
+      member_id: "",
       code: "",
       value: 0,
       description: "",
@@ -971,6 +1024,7 @@ export default function VoucherManagementPage() {
   };
 
   const handleEdit = (voucher) => {
+    setOwnerMode(voucherOwnerType(voucher));
     const issuedSource = voucher.issued_at || voucher.created_at;
     setEditingVoucher({
       ...voucher,
@@ -994,8 +1048,12 @@ export default function VoucherManagementPage() {
   };
 
   const handleSave = async () => {
-    if (!editingVoucher.organization_id) {
-      toast.error('Organisation is required');
+    if (!voucherOwnerType(editingVoucher)) {
+      toast.error('Exactly one organisation or individual member owner is required');
+      return;
+    }
+    if (!editingVoucher.id && editingVoucher.member_id && !voucherSettings.individual_vouchers_enabled) {
+      toast.error('Individual member issuance is disabled');
       return;
     }
     if (!editingVoucher.code.trim()) {
@@ -1017,7 +1075,9 @@ export default function VoucherManagementPage() {
 
     const newValue = parseFloat(editingVoucher.value);
     const data = {
-      organization_id: editingVoucher.organization_id,
+      ...(!editingVoucher.id ? { idempotency_key: editingVoucher.idempotency_key } : {}),
+      organization_id: editingVoucher.organization_id || null,
+      member_id: editingVoucher.member_id || null,
       code: editingVoucher.code.toUpperCase().trim(),
       value: newValue,
       description: editingVoucher.description || "",
@@ -1034,27 +1094,7 @@ export default function VoucherManagementPage() {
     }
 
     if (editingVoucher.id) {
-      const originalValue = editingVoucher._originalValue || 0;
-      const valueChanged = Math.abs(newValue - originalValue) > 0.001;
-      
-      if (valueChanged) {
-        const adjustmentAmount = newValue - originalValue;
-        const transactionData = {
-          voucher_id: editingVoucher.id,
-          organization_id: editingVoucher.organization_id,
-          amount: Math.abs(adjustmentAmount),
-          balance_before: originalValue,
-          balance_after: newValue,
-          type: adjustmentAmount > 0 ? 'credit_adjustment' : 'debit_adjustment'
-        };
-        
-        try {
-          await base44.entities.VoucherTransaction.create(transactionData);
-        } catch (err) {
-          console.error('Failed to record adjustment transaction:', err);
-        }
-      }
-      
+      // The administrative RPC records the adjustment atomically.
       updateMutation.mutate({ id: editingVoucher.id, data });
     } else {
       createMutation.mutate(data);
@@ -1131,7 +1171,7 @@ export default function VoucherManagementPage() {
                   </h1>
                   {getStatusBadge(selectedVoucher.status, selectedVoucher.expires_at)}
                 </div>
-                <p className="text-slate-600">{org?.name || 'Unknown Organisation'}</p>
+                <p className="text-slate-600">{voucherDisplayName(voucherSettings, voucherOwnerType(selectedVoucher))} · {ownerLabel(selectedVoucher)}</p>
                 {selectedVoucher.description && (
                   <p className="text-slate-500 text-sm mt-1">{selectedVoucher.description}</p>
                 )}
@@ -1278,7 +1318,7 @@ export default function VoucherManagementPage() {
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">
-                Training Voucher Management
+                Voucher management
               </h1>
               {realtimeConnected && (
                 <div className="flex items-center gap-1.5 text-xs text-green-600" title="Live updates enabled">
@@ -1288,7 +1328,7 @@ export default function VoucherManagementPage() {
               )}
             </div>
             <p className="text-slate-600">
-              Create and manage training vouchers for organisations
+              Create and manage organisation and individual credit
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
@@ -1341,6 +1381,14 @@ export default function VoucherManagementPage() {
                 />
               </div>
               <div className="flex flex-wrap items-center gap-3">
+                <Select value={ownerFilter} onValueChange={setOwnerFilter}>
+                  <SelectTrigger className="w-[180px]"><SelectValue placeholder="Owner type" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All owner types</SelectItem>
+                    <SelectItem value="organization">Organisation</SelectItem>
+                    <SelectItem value="member">Individual member</SelectItem>
+                  </SelectContent>
+                </Select>
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
                   <SelectTrigger className="w-[140px]" data-testid="select-status-filter">
                     <SelectValue placeholder="Status" />
@@ -1358,7 +1406,7 @@ export default function VoucherManagementPage() {
                     <SelectValue placeholder="Organisation" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All Organisations</SelectItem>
+                    <SelectItem value="all">All owners</SelectItem>
                     {sortedOrganizations.map(org => (
                       <SelectItem key={org.id} value={org.id}>{org.name}</SelectItem>
                     ))}
@@ -1441,7 +1489,7 @@ export default function VoucherManagementPage() {
                     No Vouchers Yet
                   </h3>
                   <p className="text-slate-600 mb-6">
-                    Create your first training voucher for an organisation
+                    Create your first voucher for an eligible owner
                   </p>
                   <Button onClick={handleCreateNew} className="bg-blue-600 hover:bg-blue-700">
                     <Plus className="w-4 h-4 mr-2" />
@@ -1548,7 +1596,7 @@ export default function VoucherManagementPage() {
                             <div className="flex flex-wrap items-center gap-4 text-sm text-slate-600">
                               <div className="flex items-center gap-1">
                                 <Building2 className="w-4 h-4" />
-                                <span>{org?.name || 'Unknown Organisation'}</span>
+                                <span>{voucherDisplayName(voucherSettings, voucherOwnerType(voucher))} · {ownerLabel(voucher)}</span>
                               </div>
                               {(voucher.issued_at || voucher.created_at) && (
                                 <div className="flex items-center gap-1" data-testid={`text-voucher-awarded-${voucher.id}`}>
@@ -1671,17 +1719,18 @@ export default function VoucherManagementPage() {
               <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
                 <CardTitle className="text-lg flex items-center gap-2">
                   <Building2 className="w-5 h-5 text-slate-500" />
-                  Organisation Summary
+                  Owner summary
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-0">
+                {ownerNamesError && <p role="alert" className="p-4 text-red-600">{ownerNamesError.message}</p>}
                 {loadingVouchers ? (
                   <div className="px-4 pb-4 text-center text-sm text-slate-500">
                     Loading...
                   </div>
                 ) : orgSummary.length === 0 ? (
                   <div className="px-4 pb-4 text-center text-sm text-slate-500">
-                    No organisations to display
+                    No owners to display
                   </div>
                 ) : (
                   <div className="max-h-[calc(100vh-16rem)] overflow-y-auto">
@@ -1694,7 +1743,7 @@ export default function VoucherManagementPage() {
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-medium text-slate-900 truncate">{org.name}</p>
                           <p className="text-xs text-slate-500">
-                            {org.activeCount} active {org.activeCount === 1 ? 'voucher' : 'vouchers'}
+                            {org.scheme} · {org.activeCount} active
                           </p>
                         </div>
                         <div className="flex-shrink-0 text-right">
@@ -1719,7 +1768,23 @@ export default function VoucherManagementPage() {
             
             {editingVoucher && (
               <div className="space-y-4">
-                <div className="space-y-2">
+                <p className="text-sm text-slate-600">{voucherDisplayName(voucherSettings, ownerMode)} · {ownerMode === 'member' ? 'Individual member' : 'Organisation'}</p>
+                {!editingVoucher.id && voucherSettings.individual_vouchers_enabled && (
+                  <Select value={ownerMode} onValueChange={value => { setOwnerMode(value); setEditingVoucher({ ...editingVoucher, organization_id: '', member_id: '' }); }}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent><SelectItem value="organization">Organisation</SelectItem><SelectItem value="member">Individual member</SelectItem></SelectContent>
+                  </Select>
+                )}
+                {ownerMode === 'member' && <div className="space-y-2">
+                  <Label>Individual member owner</Label>
+                  {editingVoucher.member_id && <p className="text-sm">{ownerLabel(editingVoucher)}</p>}
+                  {!editingVoucher.id && <>
+                    <Input placeholder="Search members by name or email" value={memberSearch} onChange={event => setMemberSearch(event.target.value)} />
+                    {memberSearchError && <p role="alert">{memberSearchError.message}</p>}
+                    {ownerMembers.map(member => <Button key={member.id} type="button" variant={editingVoucher.member_id === member.id ? 'default' : 'outline'} onClick={() => setEditingVoucher({ ...editingVoucher, member_id: member.id, organization_id: null })}>{[member.first_name, member.last_name].filter(Boolean).join(' ')} · {member.email}</Button>)}
+                  </>}
+                </div>}
+                {ownerMode === 'organization' && <div className="space-y-2">
                   <Label htmlFor="organization">Organisation *</Label>
                   <Popover open={orgSearchOpen} onOpenChange={setOrgSearchOpen}>
                     <PopoverTrigger asChild>
@@ -1729,6 +1794,7 @@ export default function VoucherManagementPage() {
                         aria-expanded={orgSearchOpen}
                         className="w-full justify-between font-normal"
                         data-testid="select-voucher-org"
+                        disabled={!!editingVoucher.id}
                       >
                         {editingVoucher.organization_id
                           ? organizations.find(o => o.id === editingVoucher.organization_id)?.name || "Select organisation..."
@@ -1765,7 +1831,7 @@ export default function VoucherManagementPage() {
                       </Command>
                     </PopoverContent>
                   </Popover>
-                </div>
+                </div>}
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
@@ -2019,7 +2085,7 @@ export default function VoucherManagementPage() {
         <Dialog open={showExportDialog} onOpenChange={setShowExportDialog}>
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="dialog-export-voucher-csv-config">
             <DialogHeader>
-              <DialogTitle>Export training voucher transactions</DialogTitle>
+              <DialogTitle>Export voucher transactions</DialogTitle>
               <DialogDescription>
                 Choose which columns to include, narrow by date or organisation, and pick how the rows should be sorted.
               </DialogDescription>

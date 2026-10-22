@@ -14,10 +14,23 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useBalancesRealtime } from "@/hooks/useBalancesRealtime";
 import { toast } from "sonner";
 import BuyFundsModal from "@/components/balances/BuyFundsModal";
+import { useTicketViewerKey } from '@/hooks/useTicketViewerKey';
+import { voucherDisplayName, voucherOwnerType } from '../../../shared/voucherPolicy.js';
 
 export default function BalancesPage({ hasBanner }) {
   const { memberInfo, organizationInfo, isFeatureExcluded, refreshOrganizationInfo } = useMemberAccess();
   const queryClient = useQueryClient();
+  const viewerKey = useTicketViewerKey(memberInfo);
+  const { data: personalProgram = {}, error: programError } = useQuery({
+    queryKey: ['personal-program-entitlements', ...viewerKey], enabled: !!memberInfo?.id,
+    queryFn: async () => {
+      const response = await base44.functions.invoke('getProgramEntitlements', {});
+      if (response.data?.error) throw new Error(response.data.error);
+      return response.data.personal_balances;
+    },
+  });
+  const { data: voucherSettings = [] } = useQuery({ queryKey: ['voucher-settings', ...viewerKey], queryFn: () => base44.entities.SystemSettings.list() });
+  const creditLabel = voucher => `${voucherDisplayName(voucherSettings, voucherOwnerType(voucher))} · ${voucherOwnerType(voucher) === 'member' ? 'Personal' : 'Organisation'}`;
   
   // Refresh organization info on mount to get latest training fund balance
   useEffect(() => {
@@ -167,16 +180,15 @@ export default function BalancesPage({ hasBanner }) {
   
   // Fetch all vouchers (both active and expired)
   const { data: allVouchers = [], isLoading } = useQuery({
-    queryKey: ['vouchers', organizationInfo?.id],
+    queryKey: ['vouchers', ...viewerKey, organizationInfo?.id],
     queryFn: async () => {
-      if (!organizationInfo?.id) return [];
-      const vouchers = await base44.entities.Voucher.filter({
-        organization_id: organizationInfo.id,
-        status: 'active'
-      });
-      return vouchers;
+      const personal = await base44.entities.Voucher.filter({ member_id: memberInfo.id });
+      const shared = organizationInfo?.id
+        ? await base44.entities.Voucher.filter({ organization_id: organizationInfo.id })
+        : [];
+      return [...new Map([...personal, ...shared].map(voucher => [voucher.id, voucher])).values()];
     },
-    enabled: !!organizationInfo?.id,
+    enabled: !!memberInfo?.id,
     staleTime: 0,
     refetchOnMount: true,
   });
@@ -211,7 +223,7 @@ export default function BalancesPage({ hasBanner }) {
   // Use activeVouchers for balance calculations
   const vouchers = activeVouchers;
 
-  if (!memberInfo || !organizationInfo) {
+  if (!memberInfo) {
     return (
       <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <div className="animate-pulse text-slate-600">Loading...</div>
@@ -220,13 +232,21 @@ export default function BalancesPage({ hasBanner }) {
   }
 
   const totalVoucherValue = vouchers.reduce((sum, v) => sum + v.value, 0);
-  const programTicketBalances = organizationInfo.program_ticket_balances || {};
+  const programTicketBalances = organizationInfo?.program_ticket_balances || personalProgram;
   const programNames = Object.keys(programTicketBalances).sort();
   const totalProgramTickets = Object.values(programTicketBalances).reduce((sum, val) => sum + val, 0);
 
   return (
     <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
+        {programError && <p role="alert" className="mb-4 text-red-700">{programError.message}</p>}
+        {organizationInfo && Object.keys(personalProgram).length > 0 && (
+          <Card className="mb-4"><CardHeader><CardTitle>Personal programme tickets</CardTitle></CardHeader>
+            <CardContent>{Object.entries(personalProgram).map(([tag, balance]) => <p key={tag}>{tag}: {balance}</p>)}
+              <p className="text-sm text-slate-500">Kept separately from your organisation’s tickets.</p>
+            </CardContent>
+          </Card>
+        )}
         {/* Header - hidden when custom banner is present */}
         {!hasBanner && (
           <div className="mb-8">
@@ -242,7 +262,7 @@ export default function BalancesPage({ hasBanner }) {
               )}
             </div>
             <p className="text-slate-600">
-              View your organisation's training fund and voucher balances
+              View your personal credit and permitted organisation balances
             </p>
           </div>
         )}
@@ -250,7 +270,7 @@ export default function BalancesPage({ hasBanner }) {
         {(!hideTrainingFundCard || !hideTrainingVouchersCard) && (
           <div className="grid lg:grid-cols-2 gap-6 mb-8">
             {/* Training Fund Card */}
-            {!hideTrainingFundCard && (
+            {!hideTrainingFundCard && organizationInfo && (
               <Card className="border-slate-200 shadow-sm bg-gradient-to-br from-green-50 to-emerald-50">
                 <CardHeader>
                   <div className="flex items-center gap-3">
@@ -358,7 +378,7 @@ export default function BalancesPage({ hasBanner }) {
                       <Ticket className="w-6 h-6 text-white" />
                     </div>
                     <div>
-                      <CardTitle className="text-xl">Training Vouchers</CardTitle>
+                      <CardTitle className="text-xl">Voucher balances</CardTitle>
                       <p className="text-sm text-slate-600 mt-1">Active vouchers available</p>
                     </div>
                   </div>
@@ -402,7 +422,7 @@ export default function BalancesPage({ hasBanner }) {
                       {voucherRolesOpen && (
                         <div className="mt-3 space-y-2">
                           <p className="text-xs text-slate-500">
-                            Select which roles can use training vouchers. If none are selected, all roles can use them.
+                            Select which roles can use {voucherDisplayName(voucherSettings, 'organization')} (organisation credit). If none are selected, all roles can use it. Personal credit is not restricted by organisation roles.
                           </p>
                           {rolesLoading || restrictionsLoading ? (
                             <div className="flex items-center gap-2 text-xs text-slate-500">
@@ -465,7 +485,7 @@ export default function BalancesPage({ hasBanner }) {
               ) : (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between p-4 bg-white rounded-lg border-2 border-purple-200">
-                    <span className="font-semibold text-slate-700">Total Tickets</span>
+                    <span className="font-semibold text-slate-700">{organizationInfo ? 'Organisation' : 'Personal'} Tickets</span>
                     <span className="text-2xl font-bold text-purple-600">{totalProgramTickets}</span>
                   </div>
                   
@@ -545,7 +565,7 @@ export default function BalancesPage({ hasBanner }) {
                                     <Ticket className={`w-4 h-4 ${
                                       isExpiringSoon ? 'text-warning' : 'text-blue-600'
                                     }`} />
-                                    <h3 className="font-semibold text-slate-900">{voucher.code}</h3>
+                                    <h3 className="font-semibold text-slate-900">{voucher.code}<span className="block text-sm font-normal">{creditLabel(voucher)}</span></h3>
                                   </div>
                                   {voucher.description && (
                                     <p className="text-sm text-slate-600 mb-2">{voucher.description}</p>
@@ -606,7 +626,7 @@ export default function BalancesPage({ hasBanner }) {
                                 <div className="flex-1">
                                   <div className="flex items-center gap-2 mb-1">
                                     <Ticket className="w-4 h-4 text-red-600" />
-                                    <h3 className="font-semibold text-slate-900">{voucher.code}</h3>
+                                    <h3 className="font-semibold text-slate-900">{voucher.code}<span className="block text-sm font-normal">{creditLabel(voucher)}</span></h3>
                                   </div>
                                   {voucher.description && (
                                     <p className="text-sm text-slate-600 mb-2">{voucher.description}</p>

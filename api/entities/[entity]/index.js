@@ -1,5 +1,7 @@
 import { isOwnBookingHistoryRead, scopeOwnBookingHistory } from '../../_lib/ownBookingHistory.js';
 import { validateDirectoryConfiguration, canManageDirectoryConfiguration } from '../../_lib/directoryExpression.js';
+import { handleVoucherEntity, authorizeVoucherSettingWrite } from '../../_lib/voucherEntityBoundary.js';
+import { handleProgramEntitlementEntity } from '../../_lib/programEntitlementBoundary.js';
 import { authorizeCarouselConsentWrite } from '../../_lib/directoryCarouselConsent.js';
 import { sendEmail, replacePlaceholders } from '../../_lib/emailService.js';
 import { sendSessionUnavailable } from '../../_lib/sessionAvailability.js';
@@ -469,6 +471,9 @@ export default async function handler(req, res) {
     // Only protected consumers interpret this header; public responses do not.
     res.setHeader('X-Session-Status', 'invalid');
   }
+  if (await handleProgramEntitlementEntity({ entity: entityNorm, req, res, context: tenantCtx, db: supabase, hasAdminAccess })) return;
+  if (await handleVoucherEntity({ entity: entityNorm, req, res, context: tenantCtx, db: supabase, hasAdminAccess })) return;
+  if (await authorizeVoucherSettingWrite({ entity: entityNorm, req, res, context: tenantCtx, db: supabase, hasAdminAccess })) return;
   if (await enforceInvoicingAddressBoundary({
     entity, req, res, context: tenantCtx, hasAdminAccess,
   })) return;

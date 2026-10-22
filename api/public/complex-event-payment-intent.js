@@ -28,6 +28,7 @@ import {
   buildComplexEventCreditBinding,
   calculateComplexEventCreditQuote,
   normalizeRequestedVoucherIds,
+  loadBookingVouchers,
 } from '../_lib/complexEventCreditQuote.js';
 
 export default async function handler(req, res) {
@@ -156,12 +157,13 @@ export default async function handler(req, res) {
       if (!member.email) {
         return res.status(400).json({ error: 'A verified member email is required to use event credits' });
       }
-      if (!member.organization_id) {
+      if (!member.organization_id && Number(trainingFundAmount) > 0) {
         return res.status(400).json({ error: 'Organization is required to use event credits' });
       }
+      if (member.organization_id) {
       const { data: organizationData, error: organizationError } = await supabase
         .from('organization')
-        .select('id, training_fund_balance, training_fund_allowed_role_ids, voucher_allowed_role_ids')
+        .select('id, tenant_id, training_fund_balance, training_fund_allowed_role_ids, voucher_allowed_role_ids')
         .eq('id', member.organization_id)
         .eq('tenant_id', tenant.id)
         .single();
@@ -169,19 +171,13 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Organization is required to use event credits' });
       }
       organization = organizationData;
+      }
       try {
         if (Number(trainingFundAmount) > 0) {
           assertCreditRoleAllowed(
             organization.training_fund_allowed_role_ids,
             member.role_id,
             'the training fund',
-          );
-        }
-        if (requestedVoucherIds.length > 0) {
-          assertCreditRoleAllowed(
-            organization.voucher_allowed_role_ids,
-            member.role_id,
-            'training vouchers',
           );
         }
       } catch (error) {
@@ -325,16 +321,6 @@ export default async function handler(req, res) {
 
     let validatedVouchers = [];
     if (requestedVoucherIds.length > 0) {
-      const { data: voucherRows, error: voucherError } = await supabase
-        .from('voucher')
-        .select('id, value, expires_at, issued_at')
-        .in('id', requestedVoucherIds)
-        .eq('organization_id', organization.id)
-        .eq('status', 'active');
-      if (voucherError || !Array.isArray(voucherRows) || voucherRows.length !== requestedVoucherIds.length) {
-        return res.status(400).json({ error: 'One or more selected vouchers are invalid or unavailable' });
-      }
-
       const allowVoucherAfterExpiry = await getAllowVoucherUseAfterExpiry(supabase, tenant.id);
       let voucherPolicyEventStart = event.start_date || null;
       if (!allowVoucherAfterExpiry && !voucherPolicyEventStart) {
@@ -351,16 +337,10 @@ export default async function handler(req, res) {
         }
         voucherPolicyEventStart = earliestSession?.start_time || null;
       }
-      if (voucherRows.some((voucher) => !isVoucherUsableForEventDate(
-        voucher,
-        voucherPolicyEventStart,
-        allowVoucherAfterExpiry,
-      ))) {
-        return res.status(400).json({
-          error: 'One or more selected vouchers expire before the event takes place and cannot be used for this booking.',
-        });
-      }
-      validatedVouchers = voucherRows;
+      validatedVouchers = await loadBookingVouchers(supabase, {
+        tenantId: tenant.id, member, organization, voucherIds: requestedVoucherIds,
+        eventStart: voucherPolicyEventStart, currency,
+      });
     }
 
     let creditQuote;

@@ -54,6 +54,25 @@ const BANK_SETTING_KEYS = {
 export async function postDdArrearsPeriodToAccounting({
   agreement, amountMinor, externalReference,
 }, deps = {}) {
+  if (agreement?.metadata?.dd?.voucher_funding) {
+    const db = deps.db || supabase;
+    const match = /^(PM[A-Za-z0-9]+):arrears:([^:]+)$/.exec(String(externalReference || ''));
+    if (!match) throw new Error('Funded arrears requires an original payment and period identity');
+    const payment = await db.from('gocardless_payments').select('*')
+      .eq('tenant_id', agreement.tenant_id).eq('gocardless_payment_id', match[1]).single();
+    if (payment.error || !payment.data) throw new Error('Funded arrears cash evidence is unavailable');
+    await postDdInstalmentToAccounting({ agreement, paymentRow: payment.data }, deps);
+    const intent = await db.from('membership_monthly_collection_intent').select('period_ids')
+      .eq('tenant_id', agreement.tenant_id).eq('provider_reference', match[1]).maybeSingle();
+    const index = intent.data?.period_ids?.indexOf(match[2]);
+    if (intent.error || index == null || index < 0) throw new Error('Funded arrears period does not match the immutable cash intent');
+    const receipt = await db.from('membership_voucher_collection').select('*')
+      .eq('tenant_id', agreement.tenant_id).eq('provider', 'gocardless')
+      .eq('external_reference', `${match[1]}:unit:${index + 1}`).single();
+    if (receipt.error || receipt.data?.accounting_status !== 'complete') throw new Error('Funded arrears accounting is not complete');
+    return { status: 'posted', invoiceId: receipt.data.accounting_invoice_id,
+      invoiceNumber: receipt.data.accounting_invoice_number, paymentRecorded: true };
+  }
   if (!isPerInstalmentAgreement(agreement)) return { status: 'skipped', reason: 'agreement is not per-instalment' };
   const db = deps.db || supabase;
   const provider = await (deps.getProvider || getAccountingProvider)(agreement.tenant_id);
@@ -119,6 +138,28 @@ export async function postDdInstalmentToAccounting({ agreement, paymentRow }, de
   }
   if (paymentRow.accounting_sync_status === 'skipped') {
     return { status: 'skipped', reason: 'accounting posting is explicitly skipped' };
+  }
+  if (agreement.metadata?.dd?.voucher_funding) {
+    if (paymentRow.tenant_id !== agreement.tenant_id || !['confirmed','paid_out'].includes(paymentRow.status)
+        || !/^PM[A-Za-z0-9]+$/.test(paymentRow.gocardless_payment_id || '')) {
+      throw new Error('Confirmed tenant-bound Direct Debit cash evidence is required');
+    }
+    const plan = await db.from('membership_payment_plans').select('billing_agreement_id')
+      .eq('id', paymentRow.plan_id).eq('tenant_id', agreement.tenant_id).single();
+    if (plan.error || plan.data?.billing_agreement_id !== agreement.id) throw new Error('Direct Debit cash belongs to another membership agreement');
+    const marked = await db.from('gocardless_payments').update({
+      metadata: { ...(paymentRow.metadata || {}), membership_voucher_settlement_id: agreement.metadata.dd.voucher_funding.settlement_id },
+    }).eq('id', paymentRow.id).eq('tenant_id', agreement.tenant_id);
+    if (marked.error) throw new Error('Could not preserve original voucher funding on the collection');
+    await (await import('./membershipVoucherMonthly.js')).commitMembershipVoucherMonthly(db, agreement);
+    const result = await (await import('./membershipVoucherMonthlyAccounting.js')).postMembershipVoucherMonthlyCashBatch({
+      db, agreement, provider: 'gocardless', externalReference: paymentRow.gocardless_payment_id,
+      cashMinor: Number(paymentRow.amount_minor), currency: paymentRow.currency || agreement.metadata.dd.currency,
+    }, deps.voucherAccounting);
+    const saved = await db.from('gocardless_payments').update({ accounting_sync_status: 'posted', accounting_sync_error: null })
+      .eq('id', paymentRow.id).eq('tenant_id', agreement.tenant_id);
+    if (saved.error) throw new Error('Could not save funded Direct Debit accounting completion');
+    return result;
   }
 
   try {

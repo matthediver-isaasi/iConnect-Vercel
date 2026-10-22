@@ -105,7 +105,8 @@ test('cron auth: fails closed without CRON_SECRET, 401 on mismatch', async (t) =
   delete process.env.CRON_SECRET;
   let res = makeRes();
   await handler({ headers: {} }, res);
-  assert.equal(res.statusCode, 500);
+  assert.equal(res.statusCode, 503);
+  assert.equal(res.body.error, 'Cron secret not configured');
 
   process.env.CRON_SECRET = 'test-secret';
   res = makeRes();

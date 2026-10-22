@@ -82,6 +82,13 @@ export default async function handler(req, res) {
     // created the history row, and Stripe's own redelivery window has
     // passed). Idempotent — the recorder dedupes by PI.
     results.stripe_webhook_retries = await retryPendingStripeMembershipEvents(baseUrl);
+    try {
+      results.voucher_instalments = await (await import('../_lib/membershipVoucherMonthlyAccounting.js')).reconcileFundedMembershipInstalments(supabase);
+      results.errors += results.voucher_instalments.errors;
+    } catch (error) {
+      results.errors++;
+      results.voucher_instalments = { error: error.message };
+    }
 
     const orgRows = await fetchOutstanding(ORG_TABLE);
     const memberRows = await fetchOutstanding(MEMBER_TABLE);

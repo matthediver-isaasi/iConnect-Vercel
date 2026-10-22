@@ -109,14 +109,17 @@ export function stripeEventInvoiceContact(contact, paymentIntent) {
 export function simpleEventInvoiceLines({
   event, bookingAttendees, ticketsRequired, ticketClassName, ticketClassPrice,
   ticketClassId, totalCost, voucherAmountApplied, validatedTrainingFundAmount,
-  pricingDetails, validatedRemainingBalance,
+  pricingDetails, validatedRemainingBalance, voucherFunding = [],
 }, accountCode) {
   const attendeeList = bookingAttendees.map(a =>
     `${a.first_name || a.firstName || ''} ${a.last_name || a.lastName || ''}`.trim() || a.email
   ).join('\n');
   const ticketUnitPrice = ticketClassPrice || (totalCost / ticketsRequired);
   const breakdown = [`${ticketsRequired} x ${ticketClassName || 'Ticket'} @ £${ticketUnitPrice.toFixed(2)} = £${(ticketUnitPrice * ticketsRequired).toFixed(2)}`];
-  if (voucherAmountApplied > 0) breakdown.push(`Voucher applied: -£${voucherAmountApplied.toFixed(2)}`);
+  if (voucherFunding.length) {
+    for (const allocation of voucherFunding) breakdown.push(
+      `${allocation.displayName} (${allocation.ownerType === 'member' ? 'Personal' : 'Organisation'}) funding: -£${(allocation.amountMinor / 100).toFixed(2)}`);
+  } else if (voucherAmountApplied > 0) breakdown.push(`Credit applied: -£${voucherAmountApplied.toFixed(2)}`);
   if (validatedTrainingFundAmount > 0) breakdown.push(`Training fund applied: -£${validatedTrainingFundAmount.toFixed(2)}`);
   if (pricingDetails?.freeTickets > 0) breakdown.push(`BOGO offer: ${pricingDetails.freeTickets} free ticket${pricingDetails.freeTickets > 1 ? 's' : ''}`);
   if (pricingDetails?.bulkDiscountAmount > 0) breakdown.push(`Bulk discount: -£${pricingDetails.bulkDiscountAmount.toFixed(2)}`);
@@ -137,7 +140,7 @@ export function simpleEventInvoiceLines({
   return [freezeLineTax(line, ticket)];
 }
 
-export function complexEventInvoiceLines({ event, resolvedItems, actualVoucherApplied, actualTfApplied }, accountCode) {
+export function complexEventInvoiceLines({ event, resolvedItems, actualVoucherApplied, actualTfApplied, voucherFunding = [] }, accountCode) {
   const lines = resolvedItems.map(item => {
     const attendees = item.attendees.map(a => `${a.first_name || ''} ${a.last_name || ''}`.trim() || a.email).join(', ');
     const line = {
@@ -148,7 +151,12 @@ export function complexEventInvoiceLines({ event, resolvedItems, actualVoucherAp
     if (event.internal_reference) line.Tracking = [{ Name: 'Projects', Option: event.internal_reference }];
     return freezeLineTax(line, item.ticketClass);
   });
-  if (actualVoucherApplied > 0) lines.push({ Description: 'Voucher discount', Quantity: 1, UnitAmount: -actualVoucherApplied, AccountCode: accountCode });
+  if (voucherFunding.length) {
+    for (const allocation of voucherFunding) lines.push({
+      Description: `${allocation.displayName} (${allocation.ownerType === 'member' ? 'Personal' : 'Organisation'}) funding`,
+      Quantity: 1, UnitAmount: -allocation.amountMinor / 100, AccountCode: accountCode,
+    });
+  } else if (actualVoucherApplied > 0) lines.push({ Description: 'Credit funding', Quantity: 1, UnitAmount: -actualVoucherApplied, AccountCode: accountCode });
   if (actualTfApplied > 0) lines.push({ Description: 'Training fund contribution', Quantity: 1, UnitAmount: -actualTfApplied, AccountCode: accountCode });
   return lines;
 }

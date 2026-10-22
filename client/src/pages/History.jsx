@@ -1,6 +1,8 @@
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { base44 } from "@/api/base44Client";
+import { voucherDisplayName, voucherOwnerType } from '../../../shared/voucherPolicy.js';
+import { useTicketViewerKey } from '@/hooks/useTicketViewerKey';
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -95,6 +97,8 @@ function membershipSourceLabel(source) {
 
 export default function HistoryPage({ hasBanner }) {
   const { memberInfo, organizationInfo, memberRole, isFeatureExcluded, reloadMemberInfo, refreshOrganizationInfo } = useMemberAccess();
+  const viewerKey = useTicketViewerKey(memberInfo);
+  const { data: voucherSettings = [] } = useQuery({ queryKey: ['voucher-settings', ...viewerKey], queryFn: () => base44.entities.SystemSettings.list() });
   
   const canAccessInvoices = !isFeatureExcluded('commerce.history.access-invoices');
   
@@ -160,13 +164,14 @@ export default function HistoryPage({ hasBanner }) {
   }, [shouldShowTours, hasSeenTour, memberInfo]);
 
   const programQuery = useQuery({
-    queryKey: ['program-transactions', organizationInfo?.id],
+    queryKey: ['program-transactions', organizationInfo?.id, memberInfo?.id],
     queryFn: async () => {
-      if (!organizationInfo?.id) return [];
+      if (!memberInfo?.id) return [];
       const allTransactions = await base44.entities.ProgramTicketTransaction.list('-created_date');
-      return allTransactions.filter((t) => t.organization_id === organizationInfo.id);
+      return allTransactions.filter((t) => t.owner_member_id === memberInfo.id
+        || (organizationInfo?.id && t.organization_id === organizationInfo.id));
     },
-    enabled: !!organizationInfo?.id,
+    enabled: !!memberInfo?.id,
     staleTime: 0,
     refetchOnMount: true,
   });
@@ -255,15 +260,18 @@ export default function HistoryPage({ hasBanner }) {
 
   // Fetch voucher transactions for the organization
   const vouchersQuery = useQuery({
-    queryKey: ['voucher-transactions-org', organizationInfo?.id],
+    queryKey: ['voucher-transactions-org', ...viewerKey, organizationInfo?.id],
     queryFn: async () => {
-      if (!organizationInfo?.id) return [];
+      if (!memberInfo?.id) return [];
+      const vouchers = await base44.entities.Voucher.list();
+      const permitted = new Map(vouchers.map(voucher => [voucher.id, voucher]));
       const allTransactions = await base44.entities.VoucherTransaction.list();
       return allTransactions
-        .filter(t => t.organization_id === organizationInfo.id)
+        .filter(t => permitted.has(t.voucher_id))
+        .map(t => ({ ...t, voucher_owner: permitted.get(t.voucher_id) }))
         .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     },
-    enabled: !!organizationInfo?.id,
+    enabled: !!memberInfo?.id,
     staleTime: 0,
   });
 
@@ -415,7 +423,7 @@ export default function HistoryPage({ hasBanner }) {
     { key: 'tickets', label: 'Standard Tickets', count: bookingGroups.length, eligible: true, queries: [bookingsQuery, complexBookingsQuery] },
     { key: 'program', label: 'Program Tickets', count: transactions.length, eligible: hasOrg, queries: [programQuery] },
     { key: 'training-fund', label: 'Training Fund', count: dedupedTrainingFundTransactions.length + trainingFundPurchases.length, eligible: hasOrg, queries: [trainingFundQuery, trainingFundPurchasesQuery] },
-    { key: 'vouchers', label: 'Vouchers', count: voucherTransactions.length, eligible: hasOrg, queries: [vouchersQuery] },
+    { key: 'vouchers', label: 'Vouchers', count: voucherTransactions.length, eligible: !!memberInfo, queries: [vouchersQuery] },
     { key: 'membership', label: 'Membership', count: membershipHistory.length + (historicalInvoicesQuery.data?.total || 0), eligible: true, queries: [membershipQuery, historicalInvoicesQuery] },
   ].map(category => ({
     ...category,
@@ -536,8 +544,9 @@ export default function HistoryPage({ hasBanner }) {
     }
   };
 
-  const isLoading = bookingsLoading || membershipHistoryLoading || (hasOrg && (transactionsLoading || trainingFundLoading || trainingFundPurchasesLoading || voucherTransactionsLoading));
+  const isLoading = bookingsLoading || membershipHistoryLoading || voucherTransactionsLoading || (hasOrg && (transactionsLoading || trainingFundLoading || trainingFundPurchasesLoading));
   const hasNonMembershipHistory = bookingGroups.length > 0
+    || voucherTransactions.length > 0
     || (hasOrg && (
       transactions.length > 0
       || trainingFundTransactions.length > 0
@@ -1150,7 +1159,7 @@ export default function HistoryPage({ hasBanner }) {
     }
 
     const Icon = icon;
-    const transactionDate = transaction.created_date ? new Date(transaction.created_date) : null;
+    const transactionDate = transaction.created_at || transaction.created_date ? new Date(transaction.created_at || transaction.created_date) : null;
 
     return (
       <div className="flex items-start sm:items-center gap-3 sm:gap-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
@@ -1164,7 +1173,7 @@ export default function HistoryPage({ hasBanner }) {
         <div className="flex-1 min-w-0">
           <TransactionDateInline date={transactionDate} />
           <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <h3 className="font-semibold text-slate-900">{label}</h3>
+            <h3 className="font-semibold text-slate-900">{label} · {transaction.owner_member_id ? 'Personal' : 'Organisation'}</h3>
             <Badge variant="outline" className="text-xs">
               {transaction.program_name}
             </Badge>
@@ -1442,7 +1451,7 @@ export default function HistoryPage({ hasBanner }) {
         <div className="flex-1 min-w-0">
           <TransactionDateInline date={transactionDate} />
           <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <h3 className="font-semibold text-slate-900">Training Voucher</h3>
+            <h3 className="font-semibold text-slate-900">{voucherDisplayName(voucherSettings, voucherOwnerType(transaction.voucher_owner))} · {voucherOwnerType(transaction.voucher_owner) === 'member' ? 'Personal' : 'Organisation'}</h3>
             <Badge variant="outline" className={`text-xs ${typeInfo.color}`}>
               {typeInfo.label}
             </Badge>
@@ -1928,11 +1937,11 @@ export default function HistoryPage({ hasBanner }) {
                   )}
 
                   {/* Voucher Transactions Section (org-only) */}
-                  {hasOrg && filteredVoucherTransactions.length > 0 && (
+                  {filteredVoucherTransactions.length > 0 && (
                     <div className="space-y-3">
                       <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                         <Gift className="w-4 h-4" />
-                        Training Voucher Transactions ({filteredVoucherTransactions.length})
+                        Voucher transactions ({filteredVoucherTransactions.length})
                       </h3>
                       {filteredVoucherTransactions.slice(0, 5).map((transaction) => (
                         <VoucherTransactionCard
@@ -1988,7 +1997,8 @@ export default function HistoryPage({ hasBanner }) {
                   {/* No results message */}
                   {filteredBookingGroups.length === 0 && 
                    filteredMembershipHistory.length === 0 &&
-                   (!hasOrg || (filteredTransactions.length === 0 && filteredTrainingFundTransactions.length === 0 && filteredTrainingFundPurchases.length === 0 && filteredVoucherTransactions.length === 0)) &&
+                   filteredVoucherTransactions.length === 0 &&
+                   (!hasOrg || (filteredTransactions.length === 0 && filteredTrainingFundTransactions.length === 0 && filteredTrainingFundPurchases.length === 0)) &&
                    historyErrors.length === 0 &&
                    searchQuery.trim() && (
                     <div className="text-center py-8">

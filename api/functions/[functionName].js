@@ -11,6 +11,7 @@ import { PUBLIC_INVOICE_PO, validatePublicInvoicePo, requirePublicInvoicePoBalan
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { resolveTicketPrice, isTicketVisibleToUser } from '../_lib/complexEventPricing.js';
 import crypto from 'crypto';
+import { programRegistrationFingerprint, programRegistrationReplay } from '../_lib/programRegistrationAttempt.js';
 import { getSession, getSessionMember } from '../_lib/session.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { getTrustedBaseUrlForTenant } from '../_lib/publicBaseUrl.js';
@@ -31,6 +32,11 @@ import { fetchMemberJobTitlesByEmail, resolveStoredJobTitle } from '../_lib/atte
 import { enforceAttendeeJobTitles, checkBookingAttendeeJobTitles } from '../_lib/attendeeJobTitleRequirement.js';
 import { getAllowVoucherUseAfterExpiry, isVoucherUsableForEventDate } from '../_lib/voucherExpiryPolicy.js';
 import { orderVoucherIdsForRedemption } from '../_lib/voucherOrdering.js';
+import { loadBookingVouchers, calculateComplexEventCreditQuote } from '../_lib/complexEventCreditQuote.js';
+import { reserveVoucherCredit, commitVoucherCredit, releaseVoucherCredit } from '../_lib/voucherCreditService.js';
+import { quoteProgramPurchase } from '../_lib/programVoucherPurchase.js';
+import { runBookingCreditAttempt, finalizeBookingCredit, bookingCreditInvoiceInput } from '../_lib/bookingCreditAttempt.js';
+import { continueProgramVoucherAccounting } from '../_lib/programVoucherAccounting.js';
 import { loadEventPaymentPolicy, assertEventPaymentMethodsAllowed } from '../_lib/eventPaymentPolicy.js';
 import { assertSimpleTicketsReleased, normalizeSimpleTicketId } from '../_lib/ticketReleaseAccess.js';
 import { assertSimplePrivateTicketsAccessible } from '../_lib/privateTicketAccess.js';
@@ -52,6 +58,7 @@ import {
 } from '../_lib/ticketAccess.js';
 import {
   claimAllocationInvitation,
+  hashAllocationInviteToken,
   resolveAllocationInvitation,
 } from '../_lib/allocationInvitation.js';
 
@@ -719,12 +726,20 @@ const functionHandlers = {
     let publicTicketPurchase = null;
     let invoiceAddressPolicy = null;
     let verifiedTicketMember = null;
-    if (metadata?.event_id || voucherRequested || trainingFundRequested || metadata?.ticket_class_id) {
+    let programQuote = null;
+    if (metadata?.program_name && !metadata?.event_id) {
+      const purchaser = await getSessionMember(req);
+      programQuote = await quoteProgramPurchase(supabase, { tenantId, memberId: purchaser?.id,
+        params: { ...params, programName: params.programName || metadata.program_name,
+          quantity: params.quantity || metadata.quantity } });
+      if (programQuote.remainingMinor < 30) throw new Error('Use account or full-credit payment for balances below the card minimum');
+      if (!/^[a-zA-Z0-9-]{16,80}$/.test(params.purchaseRequestId || '')) throw new Error('Purchase request identifier required');
+    } else if (metadata?.event_id || voucherRequested || trainingFundRequested || metadata?.ticket_class_id) {
       const eventId = metadata?.event_id;
       if (!eventId) throw new Error('event_id is required');
       let { data: event, error: eventError } = await supabase
         .from('event')
-        .select('id, tenant_id, pricing_config')
+        .select('id, tenant_id, pricing_config, start_date')
         .eq('id', eventId)
         .eq('tenant_id', tenantId)
         .maybeSingle();
@@ -768,10 +783,22 @@ const functionHandlers = {
         }
         const ticketPurchaser = await getSessionMember(req);
         if (ticketPurchaser) {
-          const verified = await supabase.from('member').select('id,email,tenant_id')
+          const verified = await supabase.from('member').select('*')
             .eq('id', ticketPurchaser.id).eq('tenant_id', tenantId).maybeSingle();
           if (verified.error || !verified.data) throw new Error('Unable to verify purchasing member');
           verifiedTicketMember = verified.data;
+          if (voucherRequested) {
+            let creditOrganization = null;
+            if (verified.data.organization_id) {
+              const result = await supabase.from('organization').select('*')
+                .eq('id', verified.data.organization_id).eq('tenant_id', tenantId).single();
+              if (result.error) throw new Error('Unable to verify organization credit authority');
+              creditOrganization = result.data;
+            }
+            await loadBookingVouchers(supabase, { tenantId, member: verified.data,
+              organization: creditOrganization, voucherIds: selectedVoucherIds,
+              eventStart: event.start_date, currency });
+          }
           invoiceAddressPolicy = await prepareEventInvoiceAddressPolicy({
             db: supabase, tenantId, memberId: verified.data.id, eventId: event.id, source: 'simple',
             selection: params.invoiceAddressSelection, requestId: params.purchase_request_id,
@@ -793,6 +820,7 @@ const functionHandlers = {
         }
       }
       if (voucherRequested || trainingFundRequested) {
+        if (!verifiedTicketMember) throw new Error('Sign in to use event credit');
         const paymentPolicy = await loadEventPaymentPolicy(supabase, tenantId);
         assertEventPaymentMethodsAllowed(paymentPolicy, { voucherRequested, trainingFundRequested });
       }
@@ -805,7 +833,7 @@ const functionHandlers = {
     const stripe = await getStripeClient(tenantId, 'events');
     if (!stripe) throw new Error('Stripe not configured for this tenant');
 
-    const paymentEmail = invoiceAddressPolicy?.policy.contact.email
+    const paymentEmail = programQuote?.memberEmail || invoiceAddressPolicy?.policy.contact.email
       || publicTicketPurchase?.snapshot.purchaser.email || memberEmail;
     let stripeCustomer = null;
     if (paymentEmail) {
@@ -831,8 +859,8 @@ const functionHandlers = {
     }
 
     const paymentParameters = {
-      amount: Math.round(amount * 100),
-      currency,
+      amount: programQuote ? programQuote.remainingMinor : Math.round(amount * 100),
+      currency: programQuote ? 'gbp' : currency,
       customer: stripeCustomer?.id || undefined,
       receipt_email: paymentEmail || undefined,
       metadata: {
@@ -841,6 +869,9 @@ const functionHandlers = {
           ? { ticket_class_id: String(resolvedTicketId) }
           : resolvedTicketId === null && metadata?.ticket_class_id === 'default' ? { ticket_class_id: '' } : {}),
         tenant_id: tenantId,
+        ...(programQuote ? { program_credit_binding: programQuote.binding,
+          program_member_id: programQuote.memberId, program_id: programQuote.programId,
+          program_purchase_key: `PROGRAM-${programQuote.memberId}-${params.purchaseRequestId}` } : {}),
         event_invoice_policy_id: invoiceAddressPolicy?.id || '',
         event_invoice_policy_version: invoiceAddressPolicy ? '1' : '',
         event_invoice_member_id: invoiceAddressPolicy ? verifiedTicketMember.id : '',
@@ -856,7 +887,8 @@ const functionHandlers = {
     const paymentIntent = invoiceAddressPolicy
       ? await createPolicyPaymentIntent({ db: supabase, stripe, preparation: invoiceAddressPolicy, parameters: paymentParameters })
       : await stripe.paymentIntents.create(paymentParameters,
-        publicTicketPurchase ? { idempotencyKey: `public-ticket:${tenantId}:${publicTicketPurchase.id}` } : undefined);
+        programQuote ? { idempotencyKey: `program-credit:${tenantId}:${programQuote.memberId}:${params.purchaseRequestId}` }
+          : publicTicketPurchase ? { idempotencyKey: `public-ticket:${tenantId}:${publicTicketPurchase.id}` } : undefined);
     if (publicTicketPurchase) {
       await bindPublicTicketPayment(supabase, publicTicketPurchase.id, tenantId, paymentIntent.id);
     }
@@ -1370,8 +1402,7 @@ const functionHandlers = {
       attendees,
       registrationMode,
       numberOfLinks = 0,
-      ticketsRequired,
-      programTag,
+      programTag: submittedProgramTag,
       thirdPartyConsent = null
     } = params;
 
@@ -1380,6 +1411,8 @@ const functionHandlers = {
     }
     const requestTenant = await resolveTenantFromRequest(req);
     if (!requestTenant) return { success: false, error: 'Event not found' };
+    const purchaser = await getSessionMember(req);
+    if (!purchaser?.id) throw new Error('Sign in to use programme tickets');
     await enforceAttendeeJobTitles(supabase, requestTenant.id, attendees);
 
     // Use case-insensitive email lookup
@@ -1389,7 +1422,7 @@ const functionHandlers = {
     const { data: member, error: memberError } = await supabase
       .from('member')
       .select('*')
-      .ilike('email', normalizedEmail)
+      .eq('id', purchaser.id)
       .eq('tenant_id', requestTenant.id)
       .maybeSingle();
 
@@ -1404,6 +1437,25 @@ const functionHandlers = {
     }
     
     console.log('[createBooking] Found member:', member.id, member.email);
+    const attemptId = params.registrationAttemptId;
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(attemptId || '')) {
+      throw new Error('A stable programme registration attempt identifier is required');
+    }
+    const ownerType = params.programTicketOwner || (member.organization_id ? 'organization' : 'member');
+    if (!['member', 'organization'].includes(ownerType)) throw new Error('Invalid programme entitlement owner');
+    const registrationFingerprint = programRegistrationFingerprint({
+      tenantId: requestTenant.id, memberId: member.id, eventId, owner: ownerType, params,
+    });
+    const bookingReference = `PG-${attemptId}`;
+    const { data: priorAttempt, error: attemptError } = await supabase.from('program_registration_attempt')
+      .select('member_id,fingerprint,result').eq('tenant_id', requestTenant.id).eq('attempt_id', attemptId).maybeSingle();
+    if (attemptError) throw new Error('Unable to verify programme registration attempt');
+    if (priorAttempt) {
+      if (priorAttempt.member_id !== member.id || priorAttempt.fingerprint !== registrationFingerprint) {
+        throw new Error('Programme registration attempt changed');
+      }
+      return programRegistrationReplay(priorAttempt.result, bookingReference);
+    }
 
     // Direct event lookup by ID
     const { data: event, error: eventError } = await supabase
@@ -1452,40 +1504,18 @@ const functionHandlers = {
       return { success: false, error: 'Registration deadline has passed for this event' };
     }
 
-    if (!programTag || !event.program_tag) {
+    const programTag = event.program_tag;
+    const ticketsRequired = registrationMode === 'links' ? Number(numberOfLinks)
+      : ['self', 'colleagues'].includes(registrationMode) && Array.isArray(attendees) ? attendees.length : 0;
+    if (!Number.isSafeInteger(ticketsRequired) || ticketsRequired < 1 || ticketsRequired > 10000) {
+      throw new Error('Invalid programme booking quantity');
+    }
+    if (!programTag || (submittedProgramTag && submittedProgramTag !== programTag)) {
       return { success: false, error: 'This event does not have a program association' };
     }
 
-    if (!member.organization_id) {
-      console.log('[createBooking] Member has no organization_id');
-      return { success: false, error: 'Member does not have an associated organization' };
-    }
-
-    console.log('[createBooking] Looking up organization:', member.organization_id);
-    
-    // Look up organization by ID
-    let { data: org, error: orgError } = await supabase
-      .from('organization')
-      .select('*')
-      .eq('id', member.organization_id)
-      .maybeSingle();
-
-    if (!org) {
-      console.log('[createBooking] Organization not found for id:', member.organization_id);
-      return { success: false, error: 'Organization not found' };
-    }
-    
-    console.log('[createBooking] Found organization:', org.id, org.name);
-
-    const currentBalances = org.program_ticket_balances || {};
-    const currentBalance = currentBalances[programTag] || 0;
-
-    if (currentBalance < ticketsRequired) {
-      return { success: false, error: `Insufficient program tickets. Required: ${ticketsRequired}, Available: ${currentBalance}` };
-    }
-
-    const bookingReference = `BK${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
     const createdBookings = [];
+    const pendingBookings = [];
     const zoomRegistrationResults = [];
 
     // Helper: Check if event is a Zoom event
@@ -1685,22 +1715,6 @@ const functionHandlers = {
       eventIsZoom = !!matchingWebinar;
     }
 
-    // Register attendees with Zoom if we found a webinar
-    if (eventIsZoom && matchingWebinar && (registrationMode === 'self' || registrationMode === 'colleagues')) {
-      console.log('[createBooking] Will register attendees with Zoom webinar:', matchingWebinar.zoom_webinar_id);
-      
-      for (const attendee of (attendees || [])) {
-        const result = await registerWithZoom(matchingWebinar, {
-          email: attendee.email,
-          first_name: attendee.first_name || 'Guest',
-          last_name: attendee.last_name || 'Attendee'
-        });
-        zoomRegistrationResults.push({ email: attendee.email, ...result });
-      }
-    } else if (eventIsZoom && !matchingWebinar) {
-      console.log('[createBooking] Event detected as Zoom but no matching webinar found');
-    }
-
     // Determine booking status based on event type
     let bookingStatus = 'confirmed';
     if (eventIsBackstage) {
@@ -1746,13 +1760,7 @@ const functionHandlers = {
           bookingData.zoom_registrant_id = zoomResult.registrant_id;
         }
 
-        const { data: booking } = await supabase
-          .from('booking')
-          .insert(bookingData)
-          .select()
-          .single();
-
-        if (booking) createdBookings.push(booking);
+        pendingBookings.push(bookingData);
       }
     } else if (registrationMode === 'links') {
       for (let i = 0; i < numberOfLinks; i++) {
@@ -1763,9 +1771,7 @@ const functionHandlers = {
           ? `${bookingReference}-${i + 1}` 
           : bookingReference;
 
-        const { data: booking } = await supabase
-          .from('booking')
-          .insert({
+        pendingBookings.push({
             event_id: eventId,
             member_id: member.id,
             attendee_email: '',
@@ -1778,34 +1784,39 @@ const functionHandlers = {
             payment_method: 'program_ticket',
             confirmation_token: confirmationToken,
             created_at: new Date().toISOString()
-          })
-          .select()
-          .single();
-
-        if (booking) createdBookings.push(booking);
+          });
       }
     }
 
-    const newBalance = currentBalance - ticketsRequired;
-    const updatedBalances = { ...currentBalances, [programTag]: newBalance };
+    const { data: consumed, error: consumeError } = await supabase.rpc('consume_program_entitlement', {
+      p_tenant_id: requestTenant.id, p_member_id: member.id, p_event_id: event.id,
+      p_reference: bookingReference, p_bookings: pendingBookings,
+      p_attempt_id: attemptId, p_fingerprint: registrationFingerprint, p_owner_type: ownerType,
+    });
+    if (consumeError) throw new Error(consumeError.message);
+    // A concurrent retry can have reached the RPC before the first commit.
+    // Only the transaction winner performs external registration/email effects.
+    if (consumed.replayed) return programRegistrationReplay(consumed, bookingReference);
+    createdBookings.push(...consumed.bookings);
+    const newBalance = consumed.new_balance;
 
-    await supabase
-      .from('organization')
-      .update({ program_ticket_balances: updatedBalances, last_synced: new Date().toISOString() })
-      .eq('id', org.id);
-
-    await supabase
-      .from('program_ticket_transaction')
-      .insert({
-        organization_id: org.id,
-        program_name: programTag,
-        transaction_type: 'usage',
-        quantity: ticketsRequired,
-        booking_reference: bookingReference,
-        event_name: event.title || 'Unknown Event',
-        member_email: memberEmail,
-        notes: `Used ${ticketsRequired} ${programTag} ticket(s) for ${event.title || 'event'}`
-      });
+    // Never register a Zoom attendee before the entitlement transaction commits.
+    // Existing Zoom 3027 ("already registered") handling remains in place.
+    if (eventIsZoom && matchingWebinar && (registrationMode === 'self' || registrationMode === 'colleagues')) {
+      for (const attendee of (attendees || [])) {
+        const result = await registerWithZoom(matchingWebinar, {
+          email: attendee.email, first_name: attendee.first_name || 'Guest', last_name: attendee.last_name || 'Attendee',
+        });
+        zoomRegistrationResults.push({ email: attendee.email, ...result });
+        const booking = createdBookings.find(row => row.attendee_email === attendee.email);
+        if (booking && result.registrant_id) {
+          const saved = await supabase.from('booking').update({ zoom_registrant_id: result.registrant_id })
+            .eq('tenant_id', requestTenant.id).eq('id', booking.id);
+          if (saved.error) console.error('[createBooking] Unable to persist Zoom registrant:', saved.error.message);
+          else booking.zoom_registrant_id = result.registrant_id;
+        }
+      }
+    }
 
     // Send confirmation emails using event_email configuration
     const emailResults = [];
@@ -2470,6 +2481,13 @@ const functionHandlers = {
           console.error('[createOneOffEventBooking] Payment not successful:', paymentIntent.status);
           return { success: false, error: 'Payment has not been completed. Please try again.' };
         }
+        if (req.bookingCreditAttempt && (paymentIntent.latest_charge?.refunded
+          || Number(paymentIntent.latest_charge?.amount_refunded || 0) > 0)) {
+          return { success: false, error: 'This payment has already been refunded; start a new purchase' };
+        }
+        if (req.bookingCreditAttempt && paymentIntent.status !== 'succeeded') {
+          return { success: false, error: 'Payment capture is still pending; retry without making another payment' };
+        }
 
         // Verify payment amount: the frontend charges (remainingBalance + donation) and converts to pence via amount*100.
         // The PaymentIntent was created by our own createStripePaymentIntent endpoint with the correct amount.
@@ -2586,12 +2604,15 @@ const functionHandlers = {
     }
 
     // Generate booking reference
-    let bookingReference = `OOE-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+    let bookingReference = req.bookingCreditAttempt?.key || (selectedVoucherIds?.length && stripePaymentIntentId
+      ? `OOE-${stripePaymentIntentId}`
+      : `OOE-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`);
     
     // For guest bookings, skip vouchers and training fund - use full card payment
     let validatedTrainingFundAmount = 0;
     let voucherAmountApplied = 0;
     const voucherDeductions = [];
+    let voucherFunding = [];
     let pendingTrainingFundTxId = null;
 
     // Validate and recompute discount code amount on server side (never trust client amount).
@@ -2734,9 +2755,10 @@ const functionHandlers = {
       catch (error) { return { success: false, error: error.message }; }
     }
 
-    if (!isGuestBooking && org) {
+    if (!isGuestBooking && member) {
       // Server-side role restriction validation for training fund
-      const trainingFundAllowedRoles = org.training_fund_allowed_role_ids || [];
+      const trainingFundAllowedRoles = org?.training_fund_allowed_role_ids || [];
+      if (trainingFundAmount > 0 && !org) return { success: false, error: 'Organization required for training fund' };
       if (trainingFundAmount > 0 && trainingFundAllowedRoles.length > 0) {
         if (!member?.role_id || !trainingFundAllowedRoles.includes(member.role_id)) {
           console.warn('[createOneOffEventBooking] Training fund rejected - member role not in allowed list:', {
@@ -2747,146 +2769,42 @@ const functionHandlers = {
         }
       }
 
-      // Server-side role restriction validation for vouchers
-      const voucherAllowedRoles = org.voucher_allowed_role_ids || [];
-      if (selectedVoucherIds && selectedVoucherIds.length > 0 && voucherAllowedRoles.length > 0) {
-        if (!member?.role_id || !voucherAllowedRoles.includes(member.role_id)) {
-          console.warn('[createOneOffEventBooking] Voucher usage rejected - member role not in allowed list:', {
-            memberRoleId: member?.role_id,
-            allowedRoles: voucherAllowedRoles
-          });
-          return { success: false, error: 'Your role does not have permission to use training vouchers' };
-        }
-      }
-
       // Server-side validation: Clamp training fund amount to available balance.
       // Ceiling is the cost AFTER the discount code is applied (matching the new
       // discount-first order). See comment above the discount block.
       validatedTrainingFundAmount = Math.min(
         Math.max(0, trainingFundAmount || 0),
-        org.training_fund_balance || 0,
+        org?.training_fund_balance || 0,
         costAfterDiscount
       );
       
       // Process voucher deductions if any - with ownership validation
       if (selectedVoucherIds && selectedVoucherIds.length > 0) {
-        console.log('[createOneOffEventBooking] Processing vouchers:', selectedVoucherIds);
-        const allowVoucherAfterExpiry = await getAllowVoucherUseAfterExpiry(supabase, event.tenant_id || org.tenant_id);
+        const eligibleVouchers = await loadBookingVouchers(supabase, {
+          tenantId: event.tenant_id, member, organization: org,
+          voucherIds: selectedVoucherIds, eventStart: event.start_date,
+        });
 
         // First-expiry-first-used: by default, apply vouchers in earliest-
         // expiry order (then earliest allocation date). If the caller
         // explicitly requested a manual order (voucherOrderManual), preserve
         // the client-sent order and record the override in the transaction
         // notes/audit trail. Shared logic: api/_lib/voucherOrdering.js.
-        let orderedVoucherIds = [...selectedVoucherIds];
-        let voucherOrderOverrideNote = null;
-        {
-          let byId = null;
-          if (voucherOrderManual !== true && selectedVoucherIds.length > 1) {
-            const { data: selVouchers, error: selErr } = await supabase
-              .from('voucher')
-              .select('id, expires_at, issued_at')
-              .in('id', selectedVoucherIds)
-              .eq('organization_id', org.id);
-            if (!selErr && Array.isArray(selVouchers) && selVouchers.length > 0) {
-              byId = {};
-              selVouchers.forEach(v => { byId[v.id] = v; });
-            }
-          }
-          const ordered = orderVoucherIdsForRedemption(selectedVoucherIds, byId, voucherOrderManual === true);
-          orderedVoucherIds = ordered.orderedIds;
-          voucherOrderOverrideNote = ordered.overrideNote;
-        }
-
-        for (const voucherId of orderedVoucherIds) {
-          console.log('[createOneOffEventBooking] Looking up voucher:', voucherId, 'for org:', org.id);
-          // Fetch voucher from the voucher table and validate it belongs to the member's organization
-          const { data: voucher, error: voucherError } = await supabase
-            .from('voucher')
-            .select('*')
-            .eq('id', voucherId)
-            .eq('organization_id', org.id)
-            .eq('status', 'active')
-            .single();
-          
-          console.log('[createOneOffEventBooking] Voucher lookup result:', voucher ? { id: voucher.id, value: voucher.value, status: voucher.status } : 'not found', 'error:', voucherError?.message);
-          
-          if (voucher && !isVoucherUsableForEventDate(voucher, event.start_date, allowVoucherAfterExpiry)) {
-            return res.status(400).json({
-              error: 'One or more selected vouchers expire before the event takes place and cannot be used for this booking.'
-            });
-          }
-          
-          if (voucher && voucher.value > 0) {
-            // Clamp amount to remaining cost
-            const amountToUse = Math.min(voucher.value, costAfterDiscount - voucherAmountApplied - validatedTrainingFundAmount);
-            if (amountToUse > 0) {
-              // Resolve tenant_id BEFORE any voucher mutation. If we cannot
-              // resolve it, abort before touching voucher.value so we don't
-              // leave the voucher debited without a matching transaction row.
-              const vtxTenantId = event.tenant_id || org.tenant_id || null;
-              if (!vtxTenantId) {
-                console.error('[createOneOffEventBooking] Refusing to write voucher_transaction with NULL tenant_id', {
-                  eventId: event.id,
-                  orgId: org.id,
-                  voucherId,
-                  bookingReference,
-                });
-                return res.status(500).json({ error: 'Could not resolve tenant context for voucher transaction' });
-              }
-
-              voucherAmountApplied += amountToUse;
-              voucherDeductions.push({ voucherId, amount: amountToUse });
-
-              // Update voucher balance in the voucher table
-              const newValue = voucher.value - amountToUse;
-              console.log('[createOneOffEventBooking] Updating voucher', voucherId, 'from', voucher.value, 'to', newValue);
-              const { error: updateError } = await supabase
-                .from('voucher')
-                .update({
-                  value: newValue,
-                  status: newValue <= 0 ? 'used' : 'active'
-                })
-                .eq('id', voucherId);
-              
-              if (updateError) {
-                console.error('[createOneOffEventBooking] Failed to update voucher:', updateError.message);
-              } else {
-                console.log('[createOneOffEventBooking] Voucher updated successfully');
-                const { error: vtxError } = await supabase
-                  .from('voucher_transaction')
-                  .insert({
-                    voucher_id: voucherId,
-                    organization_id: org.id,
-                    booking_reference: bookingReference,
-                    event_id: event.id,
-                    event_title: event.title || 'One-off Event',
-                    member_id: member?.id || null,
-                    member_email: memberEmail,
-                    amount: amountToUse,
-                    balance_before: voucher.value,
-                    balance_after: newValue,
-                    type: 'booking_usage',
-                    notes: voucherOrderOverrideNote,
-                    created_at: new Date().toISOString(),
-                    tenant_id: vtxTenantId
-                  });
-                
-                if (vtxError) {
-                  console.error('[createOneOffEventBooking] Failed to create voucher transaction:', vtxError.message);
-                } else {
-                  console.log('[createOneOffEventBooking] Voucher transaction created successfully');
-                }
-              }
-            }
-          } else {
-            console.warn('[createOneOffEventBooking] Voucher not found or not owned by org:', voucherId);
-          }
-        }
+        const quote = calculateComplexEventCreditQuote({
+          totalMinor: Math.round(costAfterDiscount * 100),
+          requestedTrainingFundAmount: validatedTrainingFundAmount,
+          trainingFundBalance: org?.training_fund_balance || 0,
+          requestedVoucherIds: selectedVoucherIds, vouchers: eligibleVouchers,
+          voucherOrderManual,
+        });
+        voucherAmountApplied = quote.voucherMinor / 100;
+        voucherDeductions.push(...quote.voucherDeductions.map(a => ({
+          voucherId: a.voucherId, amount: a.amountMinor / 100,
+        })));
       }
 
       // Process training fund deduction if any (use validated amount)
-      if (validatedTrainingFundAmount > 0) {
+      if (validatedTrainingFundAmount > 0 && !req.bookingCreditAttempt) {
         const newTrainingFundBalance = org.training_fund_balance - validatedTrainingFundAmount;
 
         // Resolve a non-null tenant_id BEFORE mutating any balances. Writing a
@@ -2941,7 +2859,7 @@ const functionHandlers = {
     // AFTER voucher/training-fund role checks and tenant-resolution guards
     // above have passed, so a request that aborts on those checks does not
     // consume discount usage (matches pre-task-899 tracking semantics).
-    if (validatedDiscountCodeId && validatedDiscountCodeRecord) {
+    if (validatedDiscountCodeId && validatedDiscountCodeRecord && !req.bookingCreditAttempt) {
       const discountCode = validatedDiscountCodeRecord;
       const isMemberTargetedCode = validatedDiscountIsMemberTargeted;
 
@@ -3026,6 +2944,15 @@ const functionHandlers = {
 
     // Calculate validated remaining balance after vouchers, training fund, and discount code
     const validatedRemainingBalance = Math.max(0, totalCost - voucherAmountApplied - validatedTrainingFundAmount - validatedDiscountAmount);
+    if (req.bookingCreditAttempt && validatedRemainingBalance > 0
+      && !['card', 'account', 'invoice', PUBLIC_INVOICE_PO].includes(paymentMethod)) {
+      return { success: false, error: 'Selected internal funding does not cover the full booking cost' };
+    }
+    if (selectedVoucherIds?.length && paymentMethod === 'card' && validatedRemainingBalance > 0
+      && (!_testMode && (!invoicePaymentEvidence
+        || invoicePaymentEvidence.amount < Math.round((validatedRemainingBalance + donationAmountValue) * 100)))) {
+      return { success: false, error: 'Payment does not cover the remaining balance; do not pay again, contact support' };
+    }
     if (publicTicketPurchase && (
       (paymentMethod === 'free' && validatedRemainingBalance > 0)
       || (paymentMethod === 'card' && Number(invoicePaymentEvidence?.amount || 0) < Math.round(validatedRemainingBalance * 100))
@@ -3104,7 +3031,7 @@ const functionHandlers = {
       };
 
       console.log('[createOneOffEventBooking] Inserting booking:', JSON.stringify(bookingData));
-      if (publicTicketPurchase) {
+      if (publicTicketPurchase || req.bookingCreditAttempt) {
         publicTicketBookingRows.push(bookingData);
         continue;
       }
@@ -3175,6 +3102,42 @@ const functionHandlers = {
       createdBookings.push(...batch);
       bookingReference = batch[0].booking_group_reference || batch[0].booking_reference;
     }
+    if (req.bookingCreditAttempt) {
+      try {
+      const finalized = await finalizeBookingCredit(supabase, req.bookingCreditAttempt, {
+        eventId, rows: publicTicketBookingRows, funding: {
+          payableMinor: Math.round((costAfterDiscount - validatedTrainingFundAmount) * 100),
+          voucherMinor: Math.round(voucherAmountApplied * 100), voucherIds: selectedVoucherIds,
+          trainingFundMinor: Math.round(validatedTrainingFundAmount * 100),
+          expectedOrganizationId: org?.id || null,
+          discountIds: validatedDiscountCodeId ? [validatedDiscountCodeId] : [],
+          currency: 'GBP', manualOrder: voucherOrderManual, eventTitle: event.title,
+          paymentIntentId: stripePaymentIntentId || null,
+          allocationTokenHash: allocationContext ? hashAllocationInviteToken(allocationInvitationToken) : null,
+          allocationTicketId: allocationContext ? String(ticketClassId) : null,
+          invoiceInput: bookingCreditInvoiceInput({
+            event, amount: validatedRemainingBalance,
+            currency: event.pricing_config?.ticket_classes?.find(tc => tc.id === ticketClassId)?.currency || 'GBP',
+            paymentMethod, paymentIntentId: stripePaymentIntentId, paymentIntent: invoicePaymentEvidence,
+            contact: eventInvoiceContact({ source: 'booking', org, member, isGuestBooking, guestInfo, paymentMethod }),
+            booker: bookingSessionMember, purchaseOrderNumber, poToFollow,
+            lineInput: { event, bookingAttendees, ticketsRequired, ticketClassName, ticketClassPrice,
+              ticketClassId, totalCost, voucherAmountApplied, validatedTrainingFundAmount,
+              pricingDetails, validatedRemainingBalance },
+          }),
+        },
+      });
+      createdBookings.push(...finalized.bookings);
+      voucherFunding = finalized.credit.allocations;
+      } catch (error) {
+        if (error.definitiveRollback && stripePaymentIntentId && verifiedStripeClient) {
+          await verifiedStripeClient.refunds.create({ payment_intent: stripePaymentIntentId },
+            { idempotencyKey: `booking-credit-failure:${req.bookingCreditAttempt.key}` });
+          return { success: false, error: error.message, refunded: true };
+        }
+        throw error;
+      }
+    }
     // Check if any bookings were created
     if (createdBookings.length === 0) {
       console.error('[createOneOffEventBooking] No bookings were created');
@@ -3213,7 +3176,7 @@ const functionHandlers = {
     // within the fixed maximum (under the same advisory lock); if they do not,
     // the guard DELETES our booking rows (this booking lost the race) and we
     // refund any payment taken (mirrors the no-bookings auto-refund above).
-    if (ticketClassId && createdBookings.length > 0 && !publicTicketPurchase) {
+    if (ticketClassId && createdBookings.length > 0 && !publicTicketPurchase && !req.bookingCreditAttempt) {
       let capacityExceeded = false;
       try {
         const { data: capVerify, error: capVerifyError } = await supabase.rpc('check_oneoff_ticket_capacity', {
@@ -3277,7 +3240,7 @@ const functionHandlers = {
 
     // Claim only after the post-insert capacity guard. A losing capacity row
     // is deleted by that guard, so claiming earlier would strand its invite.
-    if (allocationContext) {
+    if (allocationContext && !req.bookingCreditAttempt) {
       const coveredBooking = createdBookings.find((booking) => String(booking.ticket_class_id) === String(ticketClassId));
       if (!coveredBooking) return { success: false, error: 'Booking was not returned for allocation claim' };
       try {
@@ -3288,6 +3251,40 @@ const functionHandlers = {
         const { error: deleteError } = await supabase.from('booking').delete().eq('id', coveredBooking.id);
         if (deleteError) throw new Error(`Allocation claim failed and booking rollback failed: ${deleteError.message}`);
         return { success: false, error: claimError.message };
+      }
+    }
+    if (voucherDeductions.length && !req.bookingCreditAttempt) {
+      let reservation = null;
+      try {
+        reservation = await reserveVoucherCredit(supabase, {
+          tenantId: event.tenant_id, purchaseKey: bookingReference,
+          memberId: member.id, authenticatedMemberId: bookingSessionMember.id,
+          voucherIds: selectedVoucherIds,
+          payableMinor: Math.round((costAfterDiscount - validatedTrainingFundAmount) * 100),
+          manualOrder: voucherOrderManual,
+        });
+        if (Number(reservation.voucherMinor) !== Math.round(voucherAmountApplied * 100)) {
+          throw new Error('Credit balance changed; please review payment');
+        }
+        await commitVoucherCredit(supabase, { tenantId: event.tenant_id, purchaseKey: bookingReference });
+        voucherFunding = reservation.allocations;
+      } catch (creditError) {
+        // Delete only this attempt's booking rows; never overwrite a voucher
+        // balance with an earlier snapshot.
+        const { error: rollbackError } = await supabase.from('booking').delete()
+          .eq('tenant_id', event.tenant_id).in('id', createdBookings.map(b => b.id));
+        if (rollbackError) throw new Error(`Credit failed; booking rollback requires reconciliation: ${rollbackError.message}`);
+        let outcome = 'not_started';
+        if (stripePaymentIntentId) {
+          if (!verifiedStripeClient) throw new Error('Payment outcome requires reconciliation; credit remains reserved');
+          await verifiedStripeClient.refunds.create({ payment_intent: stripePaymentIntentId },
+            { idempotencyKey: `voucher-failure:${event.tenant_id}:${stripePaymentIntentId}` });
+          outcome = 'refunded';
+        }
+        if (reservation) await releaseVoucherCredit(supabase, {
+          tenantId: event.tenant_id, purchaseKey: bookingReference, providerOutcome: outcome,
+        });
+        return { success: false, error: creditError.message, refunded: outcome === 'refunded' };
       }
     }
     for (const booking of createdBookings) {
@@ -3550,7 +3547,7 @@ const functionHandlers = {
     }
 
     // Decrement available seats for the event (if not unlimited)
-    if (!publicTicketPurchase && event.available_seats !== null && event.available_seats !== undefined && !event.is_unlimited_registration) {
+    if (!publicTicketPurchase && !req.bookingCreditAttempt && event.available_seats !== null && event.available_seats !== undefined && !event.is_unlimited_registration) {
       const seatsToDecrement = bookingAttendees.length;
       console.log(`[createOneOffEventBooking] Decrementing ${seatsToDecrement} seats for event ${eventId}`);
       
@@ -3620,7 +3617,7 @@ const functionHandlers = {
       purchaseOrderNumber, poToFollow,
       buildLines: accountCode => simpleEventInvoiceLines({
         event, bookingAttendees, ticketsRequired, ticketClassName, ticketClassPrice,
-        ticketClassId, totalCost, voucherAmountApplied, validatedTrainingFundAmount,
+        ticketClassId, totalCost, voucherAmountApplied, voucherFunding, validatedTrainingFundAmount,
         pricingDetails, validatedRemainingBalance,
       }, accountCode),
       }) : { status: 'not_applicable' };
@@ -3883,89 +3880,78 @@ const functionHandlers = {
     return response;
   },
 
-  async processProgramTicketPurchase(params) {
+  async getProgramEntitlements(params, req) {
     if (!supabase) throw new Error('Supabase not configured');
-    
-    const {
-      organizationId,
-      programName,
-      quantity,
-      paymentMethod,
-      memberEmail,
-      stripePaymentIntentId
-    } = params;
+    const { tenantId } = await getTenantContext(req);
+    const session = await getSessionMember(req);
+    if (!tenantId || !session?.id) throw new Error('Sign in to view programme tickets');
+    const { data: member, error: memberError } = await supabase.from('member').select('id,organization_id')
+      .eq('tenant_id', tenantId).eq('id', session.id).single();
+    if (memberError) throw new Error('Member unavailable');
+    const { data: personal, error } = await supabase.from('program_member_entitlement').select('program_tag,balance')
+      .eq('tenant_id', tenantId).eq('member_id', member.id);
+    if (error) throw new Error('Unable to load personal programme entitlements');
+    return { personal_balances: Object.fromEntries(personal.map(row => [row.program_tag, Number(row.balance)])) };
+  },
 
-    if (!programName || !quantity) {
-      return { success: false, error: 'Missing required parameters' };
+  async processProgramTicketPurchase(params, req) {
+    if (!supabase) throw new Error('Supabase not configured');
+    const { tenantId } = await getTenantContext(req);
+    const member = await getSessionMember(req);
+    if (!tenantId || !member?.id) throw new Error('Sign in to purchase programme tickets');
+    if (!/^[a-zA-Z0-9-]{16,80}$/.test(params.purchaseRequestId || '')) throw new Error('Purchase request identifier required');
+    const purchaseKey = `PROGRAM-${member.id}-${params.purchaseRequestId}`;
+    const existing = await supabase.from('program_credit_purchase').select('result')
+      .eq('tenant_id', tenantId).eq('purchase_key', purchaseKey).maybeSingle();
+    if (existing.error) throw new Error('Programme credit migration is required');
+    if (existing.data) return { ...existing.data.result,
+      accounting: await continueProgramVoucherAccounting(supabase, tenantId, purchaseKey) };
+    if (params.accountingOnly === true) throw new Error('Completed programme purchase not found; accounting retry cannot create a purchase');
+    if (!['card', 'account'].includes(params.paymentMethod)) throw new Error('Unsupported payment method');
+    let stripe = null;
+    let intent = null;
+    if (params.paymentMethod === 'card' && params.stripePaymentIntentId) {
+      stripe = await getStripeClient(tenantId, 'events');
+      if (!stripe) throw new Error('Verified payment required');
+      intent = await stripe.paymentIntents.retrieve(params.stripePaymentIntentId, { expand: ['latest_charge'] });
+      if (intent.status !== 'succeeded' || intent.currency !== 'gbp'
+        || !intent.latest_charge || typeof intent.latest_charge !== 'object'
+        || intent.latest_charge.refunded || Number(intent.latest_charge.amount_refunded || 0) > 0
+        || intent.metadata?.tenant_id !== tenantId
+        || intent.metadata?.program_purchase_key !== purchaseKey
+        || intent.metadata?.program_member_id !== member.id) throw new Error('Payment does not match this programme purchase');
     }
-
-    let org = null;
-
-    // Try to find organization by ID first
-    if (organizationId) {
-      const { data: orgById } = await supabase
-        .from('organization')
-        .select('*')
-        .eq('id', organizationId)
-        .maybeSingle();
-      org = orgById;
-
-    }
-
-    // If no org found by ID, try to find via member email
-    if (!org && memberEmail) {
-      const { data: member } = await supabase
-        .from('member')
-        .select('*')
-        .ilike('email', memberEmail)
-        .maybeSingle();
-
-      if (member?.organization_id) {
-        const { data: orgByMember } = await supabase
-          .from('organization')
-          .select('*')
-          .eq('id', member.organization_id)
-          .maybeSingle();
-        org = orgByMember;
-      }
-    }
-
-    if (!org) {
-      return { success: false, error: 'Organization not found' };
-    }
-
-    const currentBalances = org.program_ticket_balances || {};
-    const currentBalance = currentBalances[programName] || 0;
-    const newBalance = currentBalance + quantity;
-
-    const updatedBalances = { ...currentBalances, [programName]: newBalance };
-
-    await supabase
-      .from('organization')
-      .update({ program_ticket_balances: updatedBalances, last_synced: new Date().toISOString() })
-      .eq('id', org.id);
-
-    const { data: transaction } = await supabase
-      .from('program_ticket_transaction')
-      .insert({
-        organization_id: org.id,
-        program_name: programName,
-        transaction_type: 'purchase',
-        quantity: quantity,
-        payment_method: paymentMethod,
-        member_email: memberEmail,
-        stripe_payment_intent_id: stripePaymentIntentId,
-        notes: `Purchased ${quantity} ${programName} ticket(s)`
-      })
-      .select()
-      .single();
-
-    return {
-      success: true,
-      transaction_id: transaction?.id,
-      new_balance: newBalance,
-      organization_id: org.id
+    const refundVerifiedProgramPayment = async () => {
+      if (!intent) return;
+      await stripe.refunds.create({ payment_intent: intent.id },
+        { idempotencyKey: `program-credit-refund:${tenantId}:${intent.id}` });
     };
+    let quote;
+    try {
+      quote = await quoteProgramPurchase(supabase, { tenantId, memberId: member.id, params });
+      if (params.paymentMethod === 'card' && quote.remainingMinor > 0 && !intent) throw new Error('Verified payment required');
+      if (intent && (intent.amount !== quote.remainingMinor
+        || intent.metadata?.program_credit_binding !== quote.binding)) throw new Error('Programme credit or price changed');
+    } catch (error) {
+      await refundVerifiedProgramPayment();
+      return { success: false, error: error.message, refunded: !!intent };
+    }
+    const { data, error } = await supabase.rpc('complete_program_credit_purchase', {
+      p_tenant_id: tenantId, p_purchase_key: purchaseKey, p_quote: quote,
+      p_payment_method: params.paymentMethod,
+      p_payment_intent_id: stripe ? params.stripePaymentIntentId : null,
+      p_purchase_order: params.purchaseOrderNumber || null,
+    });
+    if (error) {
+      // Transaction failure rolls back the reservation, ledger and entitlement.
+      // Do not release any uncertain payment/reservation separately.
+      if (error.code === 'P0001') {
+        await refundVerifiedProgramPayment();
+        return { success: false, error: error.message, refunded: !!intent };
+      }
+      throw new Error(`Programme purchase could not complete; retry the same purchase without paying again: ${error.message}`);
+    }
+    return { ...data, accounting: await continueProgramVoucherAccounting(supabase, tenantId, purchaseKey) };
   },
 
   async syncBackstageEventsDeprecated() {
@@ -4815,71 +4801,17 @@ const functionHandlers = {
     }
   },
 
-  async cancelProgramTicketTransaction(params) {
+  async cancelProgramTicketTransaction(params, req) {
     if (!supabase) throw new Error('Supabase not configured');
-    
-    const { transactionId, reason, memberEmail } = params;
-
-    const { data: transaction } = await supabase
-      .from('program_ticket_transaction')
-      .select('*')
-      .eq('id', transactionId)
-      .single();
-
-    if (!transaction) {
-      return { success: false, error: 'Transaction not found' };
-    }
-
-    if (transaction.transaction_type !== 'usage') {
-      return { success: false, error: 'Can only cancel usage transactions' };
-    }
-
-    const { data: org } = await supabase
-      .from('organization')
-      .select('*')
-      .eq('id', transaction.organization_id)
-      .single();
-
-    if (!org) {
-      return { success: false, error: 'Organization not found' };
-    }
-
-    const currentBalances = org.program_ticket_balances || {};
-    const currentBalance = currentBalances[transaction.program_name] || 0;
-    const newBalance = currentBalance + transaction.quantity;
-
-    await supabase
-      .from('organization')
-      .update({
-        program_ticket_balances: { ...currentBalances, [transaction.program_name]: newBalance }
-      })
-      .eq('id', org.id);
-
-    await supabase
-      .from('program_ticket_transaction')
-      .update({
-        cancelled_at: new Date().toISOString(),
-        cancelled_by_member_email: memberEmail,
-        cancellation_reason: reason
-      })
-      .eq('id', transactionId);
-
-    await supabase
-      .from('program_ticket_transaction')
-      .insert({
-        organization_id: org.id,
-        program_name: transaction.program_name,
-        transaction_type: 'refund',
-        quantity: transaction.quantity,
-        member_email: memberEmail,
-        notes: `Refund for cancelled transaction. Reason: ${reason || 'Not specified'}`
-      });
-
-    return {
-      success: true,
-      refunded_quantity: transaction.quantity,
-      new_balance: newBalance
-    };
+    const { tenantId } = await getTenantContext(req);
+    const member = await getSessionMember(req);
+    if (!tenantId || !member?.id) throw new Error('Sign in to cancel programme usage');
+    const { data, error } = await supabase.rpc('cancel_program_entitlement_usage', {
+      p_tenant_id: tenantId, p_member_id: member.id,
+      p_transaction_id: params.transactionId, p_reason: params.reason || null,
+    });
+    if (error) throw new Error(error.message);
+    return data;
   },
 
   async reinstateProgramTicketTransaction(params) {
@@ -7028,7 +6960,10 @@ export default async function handler(req, res) {
       });
     }
 
-    const result = await handlerFn(req.body, req);
+    const result = functionName === 'createOneOffEventBooking'
+      ? await runBookingCreditAttempt({ db: supabase, req, body: req.body, source: 'booking',
+        work: () => handlerFn(req.body, req) })
+      : await handlerFn(req.body, req);
     return res.json(result);
   } catch (error) {
     console.error(`Function ${functionName} error:`, error);

@@ -73,6 +73,16 @@ Distinguish an unavailable dev server from a blank fixture before changing tests
 
 **How to apply:** Check workflow termination and cached dependency paths against the installed package exports when logs show optimizer ENOENT errors. Regenerate generated caches rather than changing application imports or weakening fixture assertions.
 
+Credential-absence tests must explicitly blank the relevant child environment
+keys rather than merely omitting them.
+
+**Why:** The isolation runner merges child environments with the parent. A
+preflight test that supplied only PATH inherited destination credentials and
+attempted a provider-CA fetch; the network boundary correctly blocked it.
+
+**How to apply:** For tests of missing configuration, supply empty synthetic
+values for each required key and keep the isolation boundary active.
+
 The generic JavaScript isolation runner does not permit a native PostgREST
 fixture, even when its PostgreSQL exception is enabled.
 

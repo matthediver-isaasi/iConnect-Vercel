@@ -1,14 +1,13 @@
 
-import React, { useState, useEffect, useMemo } from "react";
-import { base44 } from "@/api/base44Client";
-import { useQuery } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import React, { useEffect, useMemo } from "react";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Ticket, Calendar, AlertCircle, Loader2 } from "lucide-react";
 import { format } from "date-fns";
+import { useBookingVouchers } from './useBookingVouchers';
+import { voucherDisplayName, voucherOwnerType } from '../../../../shared/voucherPolicy.js';
 
-export default function VoucherSelector({ organizationId, selectedVouchers, onVoucherToggle, maxAmount, eventStartDate = null, restrictToEventDate = false, manualOrder = false, onManualOrderChange = null }) {
+export default function VoucherSelector({ memberInfo, organizationInfo, selectedVouchers, onVoucherToggle, maxAmount, eventStartDate = null, restrictToEventDate = false, manualOrder = false, onManualOrderChange = null }) {
   // When the tenant disallows using vouchers past their expiry for a later event,
   // a voucher is only eligible if it expires AFTER the event's start date.
   const eventStart = restrictToEventDate && eventStartDate ? new Date(eventStartDate) : null;
@@ -18,35 +17,8 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
     return new Date(voucher.expires_at) > eventStart;
   };
   // Fetch raw vouchers without any sorting in the queryFn
-  const { data: rawVouchers = [], isLoading, error } = useQuery({
-    queryKey: ['vouchers', organizationId],
-    queryFn: async () => {
-      if (!organizationId) return [];
-      
-      console.log('[VoucherSelector] Fetching vouchers for org:', organizationId);
-      
-      // Fetch ALL vouchers, then filter in JavaScript
-      const allVouchers = await base44.entities.Voucher.list() || [];
-      
-      console.log('[VoucherSelector] All vouchers fetched:', allVouchers.length);
-      
-      // Filter for this organization, active status, and not expired - no sorting here
-      const now = new Date();
-      const activeVouchers = allVouchers.filter(v => 
-        v.organization_id === organizationId && 
-        v.status === 'active' &&
-        // Exclude expired vouchers
-        (!v.expires_at || new Date(v.expires_at) > now)
-      );
-      
-      console.log('[VoucherSelector] Active vouchers for this org:', activeVouchers.length);
-      
-      return activeVouchers;
-    },
-    enabled: !!organizationId,
-    staleTime: 0,
-    refetchOnMount: true,
-  });
+  const { data: rawVouchers = [], isLoading, error, settings } =
+    useBookingVouchers(memberInfo, organizationInfo);
 
   // Apply sorting as derived state using useMemo - this runs on EVERY render
   const vouchers = useMemo(() => {
@@ -157,16 +129,15 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
   // If the eligibility rule kicks in (e.g. setting/event date loads after the user
   // selected a voucher), automatically deselect any ineligible vouchers.
   useEffect(() => {
-    if (!eventStart || isNaN(eventStart.getTime())) return;
-    if (!vouchers.length || !selectedVouchers.length) return;
+    if (isLoading || !selectedVouchers.length) return;
     const eligibleSelected = selectedVouchers.filter(id => {
       const voucher = vouchers.find(v => v.id === id);
-      return !voucher || isVoucherEligible(voucher);
+      return !!voucher && isVoucherEligible(voucher);
     });
     if (eligibleSelected.length !== selectedVouchers.length) {
       onVoucherToggle(eligibleSelected);
     }
-  }, [vouchers, selectedVouchers, restrictToEventDate, eventStartDate]);
+  }, [vouchers, selectedVouchers, restrictToEventDate, eventStartDate, isLoading]);
 
   if (isLoading) {
     return (
@@ -193,12 +164,12 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
     );
   }
 
-  if (!organizationId) {
+  if (!memberInfo?.id) {
     return (
       <div className="p-4 rounded-lg border border-warning/30 bg-warning/10">
         <div className="flex items-start gap-2 text-sm text-warning">
           <AlertCircle className="w-4 h-4 mt-0.5" />
-          <span>Organisation information not available</span>
+          <span>Sign in to view available credit</span>
         </div>
       </div>
     );
@@ -300,6 +271,10 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
                       £{voucher.value.toFixed(2)}
                     </Badge>
                   </div>
+                  <p className="text-xs text-slate-600 mb-1">
+                    {voucherDisplayName(settings, voucherOwnerType(voucher))}
+                    {' · '}{voucherOwnerType(voucher) === 'member' ? 'Personal' : 'Organisation'}
+                  </p>
                   
                   {voucher.description && (
                     <p className="text-xs text-slate-600 mb-2">{voucher.description}</p>
@@ -308,7 +283,7 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
                   <div className="flex items-center gap-1 text-xs">
                     <Calendar className="w-3 h-3 text-slate-400" />
                     <span className={isExpiringSoon ? 'text-warning font-medium' : 'text-slate-500'}>
-                      Expires {format(expiryDate, 'MMM d, yyyy')}
+                      {voucher.expires_at ? `Expires ${format(expiryDate, 'MMM d, yyyy')}` : 'No expiry'}
                       {isExpiringSoon && ` (${daysUntilExpiry} days)`}
                     </span>
                   </div>

@@ -255,6 +255,11 @@ async function handlePost(req, res, resolvedTenantId) {
     }
   }
 
+  const { claimMembershipTermPayment } = await import('../_lib/membershipVoucherSettlement.js');
+  await claimMembershipTermPayment(supabase, {
+    tenantId, memberId: member.id, membershipYear: yearLabel,
+    sourceKey: baseIdempotencyKey, rail: 'start_direct_debit',
+  });
   const client = await gocardlessForTenant(tenantId);
 
   // Renewal path: reuse an existing active mandate — no hosted flow needed.
