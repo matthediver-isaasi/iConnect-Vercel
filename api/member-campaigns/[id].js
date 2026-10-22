@@ -261,7 +261,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Only draft campaigns can be deleted.' });
     }
     const result = await deleteCampaign(id, access.tenantContext.tenantId, { expectedStatus: 'draft' });
-    if (!result.success) return res.status(result.status || (result.code === 'CAMPAIGN_STATE_CONFLICT' || result.conflict ? 409 : 500)).json({ error: result.error, code: result.code });
+    if (!result.success) return res.status(result.statusCode || result.status || (result.code === 'CAMPAIGN_STATE_CONFLICT' || result.conflict ? 409 : 500)).json({ error: result.error, code: result.code });
     return res.json({ success: true });
   }
 

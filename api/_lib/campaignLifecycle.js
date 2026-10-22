@@ -7,10 +7,12 @@ export function campaignLifecycleError(error) {
   return {
     success: false,
     code: unavailable ? 'CAMPAIGN_LIFECYCLE_UNAVAILABLE' : error?.code,
-    statusCode: unavailable ? 503 : error?.code === 'P0002' ? 404
+    statusCode: unavailable || error?.code === '57014' ? 503 : error?.code === 'P0002' ? 404
       : ['55000', '23503', '40001', '40P01'].includes(error?.code) ? 409 : 500,
     error: unavailable
       ? 'Campaign archive management requires the approved database migration. No changes were made.'
+      : error?.code === '57014'
+        ? 'The campaign operation timed out. No changes were made. Wait a moment and retry. If it times out again, contact your administrator with error code 57014.'
       : error?.code === '23503'
         ? 'This campaign has protected linked history and cannot be deleted. Archive it instead. No changes were made.'
         : error?.message || 'Campaign operation failed.',

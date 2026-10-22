@@ -70,6 +70,8 @@ test('campaign lifecycle: isolation, preservation, work fencing, atomic cascades
       GRANT SELECT,DELETE ON email_campaign,email_campaign_recipient TO PUBLIC,anon,authenticated;`);
     const migration=readFileSync('supabase/migrations/202612310006_campaign_lifecycle.sql','utf8');
     sql(migration); sql(migration);
+    const indexMigration=readFileSync('supabase/migrations/202612310007_campaign_delete_fk_indexes.sql','utf8');
+    sql(indexMigration); sql(indexMigration);
     for(let i=0;i<2;i++) {
       const db=new pg.Client({host:h.socket,port:h.port,user:'postgres',database:'postgres'});
       await db.connect(); clients.push(db);
@@ -323,6 +325,44 @@ test('campaign lifecycle: isolation, preservation, work fencing, atomic cascades
       assert.equal(sql(`SELECT has_function_privilege('anon','${signature}','EXECUTE') OR has_function_privilege('authenticated','${signature}','EXECUTE')`),'f');
       assert.equal(sql(`SELECT has_function_privilege('service_role','${signature}','EXECUTE')`),'t');
     }
+    // Reproduce the deployed missing-index graph, isolated from all live data.
+    // Global history matters even when the deleted campaign has few recipients.
+    await db.query(`INSERT INTO email_campaign(id,tenant_id,status) VALUES($1,$2,'sent')`,[r,tenant]);
+    await db.query(`INSERT INTO email_campaign_recipient(campaign_id,status)
+      SELECT $1,'delivered' FROM generate_series(1,400)`,[r]);
+    await db.query(`INSERT INTO email_event(campaign_id,raw_event)
+      SELECT $1,jsonb_build_object('padding',repeat('x',800)) FROM generate_series(1,550000)`,[c]);
+    await db.query(`INSERT INTO email_link_click(campaign_id)
+      SELECT $1 FROM generate_series(1,265000)`,[c]);
+    await db.query(`INSERT INTO email_event(campaign_id,recipient_id)
+      SELECT campaign_id,id FROM email_campaign_recipient WHERE campaign_id=$1`,[r]);
+    await db.query(`INSERT INTO email_link_click(campaign_id,recipient_id)
+      SELECT campaign_id,id FROM email_campaign_recipient WHERE campaign_id=$1`,[r]);
+    await db.query(`INSERT INTO member_inbox_message_state
+      SELECT $2,id FROM email_campaign_recipient WHERE campaign_id=$1`,[r,tenant]);
+    await db.query(`INSERT INTO email_unsubscribe(tenant_id,email,campaign_id) VALUES($1,'retained@example.invalid',$2)`,[tenant,r]);
+    await db.query('DROP INDEX idx_email_event_recipient; DROP INDEX idx_email_link_click_recipient; ANALYZE');
+    await db.query("SET statement_timeout='8s'");
+    const before=performance.now();
+    await assert.rejects(db.query("SELECT campaign_lifecycle($1,$2,'delete')",[r,tenant]),e=>e.code==='57014');
+    console.log(`unindexed delete timed out after ${Math.round(performance.now()-before)}ms`);
+    assert.equal((await db.query('SELECT count(*)::int n FROM email_campaign_recipient WHERE campaign_id=$1',[r])).rows[0].n,400);
+    assert.equal((await db.query('SELECT count(*)::int n FROM member_inbox_message_state WHERE tenant_id=$1',[tenant])).rows[0].n,401);
+    assert.equal((await db.query('SELECT count(*)::int n FROM email_event WHERE campaign_id=$1',[r])).rows[0].n,400);
+    assert.equal((await db.query('SELECT count(*)::int n FROM email_link_click WHERE campaign_id=$1',[r])).rows[0].n,400);
+    await db.query('RESET statement_timeout');
+    sql(indexMigration);
+    await db.query("SET statement_timeout='8s'; SET ROLE service_role");
+    const after=performance.now();
+    await db.query("SELECT campaign_lifecycle($1,$2,'delete')",[r,tenant]);
+    console.log(`indexed delete completed after ${Math.round(performance.now()-after)}ms`);
+    await db.query('RESET ROLE');
+    assert.equal((await db.query('SELECT count(*)::int n FROM email_campaign WHERE id=$1',[r])).rows[0].n,0);
+    assert.equal((await db.query('SELECT count(*)::int n FROM email_campaign_recipient WHERE campaign_id=$1',[r])).rows[0].n,0);
+    assert.equal((await db.query('SELECT count(*)::int n FROM member_inbox_message_state WHERE tenant_id=$1',[tenant])).rows[0].n,1);
+    assert.equal((await db.query('SELECT campaign_id FROM email_unsubscribe WHERE email=$1',['retained@example.invalid'])).rows[0].campaign_id,null);
+    assert.equal((await db.query('SELECT count(*)::int n FROM email_event WHERE campaign_id=$1',[c])).rows[0].n,550000);
+    assert.equal((await db.query('SELECT count(*)::int n FROM email_link_click WHERE campaign_id=$1',[c])).rows[0].n,265000);
   } finally {
     await Promise.all(clients.map(db=>db.end()));
     if(started) spawnSync('pg_ctl',['-D',h.data,'-m','immediate','stop'],{encoding:'utf8'});

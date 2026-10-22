@@ -3,6 +3,7 @@ import { build } from 'esbuild';
 import { readFile, mkdir } from 'node:fs/promises';
 import postcss from 'postcss';
 import tailwindcss from 'tailwindcss';
+import { campaignLifecycleError } from '../api/_lib/campaignLifecycle.js';
 
 // Render the actual component, React Query, router and Radix UI in Chromium.
 // Every HTTP request is intercepted; entity access is an in-memory boundary.
@@ -109,7 +110,9 @@ async function fixture(page, { schemaReady = true, deliveryOutcomes = false } = 
       if (request.method() === 'POST' || request.method() === 'DELETE') {
         const action = request.method() === 'DELETE' ? 'delete' : request.postDataJSON().action;
         mutations.push({ method: request.method(), action, id: match[1], body: request.postData() });
-        if (conflict) return reply({ error: conflict }, 409);
+        if (conflict) return typeof conflict === 'object'
+          ? reply(conflict, conflict.statusCode)
+          : reply({ error: conflict }, 409);
         if (action === 'archive') campaign.archived_at = '2026-05-18T12:00:00Z';
         else if (action === 'restore') campaign.archived_at = null;
         else if (action === 'delete') campaigns = campaigns.filter(item => item.id !== match[1]);
@@ -257,6 +260,27 @@ test('permanently deleting a sent campaign changes totals and weighted rates', a
   await page.getByTestId('campaign-view-all').click();
   await expect(page.getByTestId('row-campaign-sent-b')).toBeVisible();
   await expect(page.getByTestId('row-campaign-sent-a')).toHaveCount(0);
+  assertIsolated(state);
+});
+
+test('database timeout retains campaign and dialog without invalidation; explicit retry succeeds', async ({ page }) => {
+  const state = await fixture(page);
+  const failure = campaignLifecycleError({ code: '57014' });
+  state.setConflict(failure);
+  await page.getByTestId('button-delete-sent-a').click();
+  const reads = state.requests.length;
+  await page.getByTestId('button-confirm-delete').click();
+  await expect(page.getByRole('dialog').getByRole('alert')).toHaveText(failure.error);
+  await expect(page.getByTestId('row-campaign-sent-a')).toBeVisible();
+  await expect(page.getByTestId('button-confirm-delete')).toBeEnabled();
+  expect(state.requests.length).toBe(reads + 1);
+  await expect(page.getByText('Campaign permanently deleted', { exact: true })).toHaveCount(0);
+  await screenshot(page, 'timeout-retains-campaign');
+  state.setConflict('');
+  await page.getByTestId('button-confirm-delete').click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.getByTestId('row-campaign-sent-a')).toHaveCount(0);
+  expect(state.mutations).toHaveLength(2);
   assertIsolated(state);
 });
 

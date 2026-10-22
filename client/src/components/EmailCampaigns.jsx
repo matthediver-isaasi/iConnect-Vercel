@@ -84,7 +84,7 @@ export default function EmailCampaigns() {
 
   const readCampaignResponse = async (response, fallback) => {
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.error || fallback);
+    if (!response.ok || data.success === false) throw Object.assign(new Error(data.error || fallback), { code: data.code });
     return data;
   };
   const { data: lifecycle, error: readinessError } = useQuery({
@@ -217,7 +217,8 @@ export default function EmailCampaigns() {
         })
       });
 
-      await readCampaignResponse(response, `Failed to ${action} campaign`);
+      const confirmation = await readCampaignResponse(response, `Failed to ${action} campaign`);
+      if (confirmation.success !== true) throw new Error('The campaign operation was not confirmed. Refresh the list before retrying.');
 
       toast.success(action === 'restore' ? 'Campaign restored. No emails scheduled or sent.' : action === 'archive' ? 'Campaign archived. Statistics retained.' : 'Campaign permanently deleted');
       queryClient.invalidateQueries({ queryKey: ['email-campaigns'] });

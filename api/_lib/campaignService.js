@@ -1038,7 +1038,7 @@ export async function deleteCampaign(campaignId, tenantId, options = {}) {
     return await campaignLifecycle(supabase, campaignId, tenantId, 'delete');
   } catch (err) {
     console.error('[Campaign Service] Error deleting campaign:', err);
-    return { success: false, error: err.message };
+    return campaignLifecycleError(err);
   }
 }
 
