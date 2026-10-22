@@ -1,5 +1,0 @@
-name,card_type,resource_type,button_type,button_text,icon_name,description,is_active,id,created_date,updated_date,created_by_id,created_by,is_sample
-Download button,resource,download,rectangular_agcas,Download,Download,,true,69172c213ea39605add9da3f,2025-11-14T13:18:25.071000,2025-11-14T14:11:13.027000,68efc2103e0a30fafad6dde8,mat.the.diver@googlemail.com,false
-Watch video,resource,video,rectangular_agcas,Watch Video,PlayCircle,,true,69172c50586f1116f30603b1,2025-11-14T13:19:12.870000,2025-11-14T13:23:40.729000,68efc2103e0a30fafad6dde8,mat.the.diver@googlemail.com,false
-Visit site,resource,external_link,rectangular_agcas,Visit Site,ExternalLink,,true,69172eaaaa4fcc55bbef5fa2,2025-11-14T13:29:14.163000,2025-11-14T13:29:14.163000,68efc2103e0a30fafad6dde8,mat.the.diver@googlemail.com,false
-Read article,article,,rectangular_agcas,Read Article,FileText,,true,6917318a394a9e5287658245,2025-11-14T13:41:30.899000,2025-11-14T19:08:44.595000,68efc2103e0a30fafad6dde8,mat.the.diver@googlemail.com,false

@@ -1,4 +1,0 @@
-section_id,name,description,display_order,is_active,id,created_date,updated_date,created_by_id,created_by,is_sample
-691984a55a8df00f250de466,Staff,AGCAS Staff,0,true,691984b83221bfe09c5a132e,2025-11-16T08:00:56.635000,2025-11-16T08:00:56.635000,68efc2103e0a30fafad6dde8,mat.the.diver@googlemail.com,false
-,Board,,0,true,691c3b5902f4bbd3cba33c8a,2025-11-18T09:24:41.842000,2025-11-18T09:24:41.842000,anonymous,anonymous,false
-691984a55a8df00f250de466,Board,,1,true,691ee7945c8ee03149cde54c,2025-11-20T10:04:04.717000,2025-11-20T10:04:04.717000,anonymous,anonymous,false

@@ -1,2 +1,0 @@
-name,image_url,alt_text,size,height,position,associated_pages,display_order,is_active,id,created_date,updated_date,created_by_id,created_by,is_sample
-Banner Test 1,https://base44.app/api/apps/68efc20f3e0a30fafad6dde7/files/public/68efc20f3e0a30fafad6dde7/ca8755560_806ff79f4_PHOTO-2025-10-14-06-33-58.jpg,,full-width,small,center,"[""JobBoard""]",0,true,6912482a8481339c04d1ce1f,2025-11-10T20:16:42.786000,2025-11-10T20:37:08.225000,68efc2103e0a30fafad6dde8,mat.the.diver@googlemail.com,false

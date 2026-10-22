@@ -1,2 +1,0 @@
-first_name,last_name,email,organisation,job_title,is_active,id,created_date,updated_date,created_by_id,created_by,is_sample
-"Charlie","Brown","charlie.b@snoopy.testing","Snoopy Shack","Snoops best friend","true","6924c63b96e7cee169696e15","2025-11-24T20:55:23.124000","2025-11-24T20:55:23.124000","68efc2103e0a30fafad6dde8","mat.the.diver@googlemail.com","false"

@@ -1,4 +1,0 @@
-name,award_id,offline_award_id,threshold,display_order,image_url,is_active,id,created_date,updated_date,created_by_id,created_by,is_sample
-"Gold","","69249c91174cdd801a6a88c1","","0","https://base44.app/api/apps/68efc20f3e0a30fafad6dde7/files/public/68efc20f3e0a30fafad6dde7/21c6422e8_snoopy.jpeg","true","6924b184d89bafae02f45847","2025-11-24T19:27:00.121000","2025-11-24T19:27:00.121000","68efc2103e0a30fafad6dde8","mat.the.diver@googlemail.com","false"
-"Nomination","","69249cebed5b8b7cfedef1f9","","0","","true","6924c9905f0dc79938f344dc","2025-11-24T21:09:36.915000","2025-11-24T21:09:36.915000","anonymous","anonymous","false"
-"Nomination","","69249cebed5b8b7cfedef1f9","","0","","true","6924c9953a996265beda5509","2025-11-24T21:09:41.850000","2025-11-24T21:09:41.850000","anonymous","anonymous","false"

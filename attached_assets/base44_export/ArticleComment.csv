@@ -1,5 +1,0 @@
-article_id,content,author_name,author_member_id,is_member,thumbs_up_count,thumbs_down_count,id,created_date,updated_date,created_by_id,created_by,is_sample
-68f13fc6dfc210a92377f44e,Hey nice article.,Mat,,false,0,0,691616d4a644e06aa0aa3b07,2025-11-13T17:35:16.474000,2025-11-13T17:35:16.474000,68efc2103e0a30fafad6dde8,mat.the.diver@googlemail.com,false
-6916e062d017411a264628ae,This is a terrible article,Sharon,,false,0,0,6916ea4ef3a26c5e87153fa5,2025-11-14T08:37:34.904000,2025-11-14T08:37:34.904000,anonymous,anonymous,false
-6916e062d017411a264628ae,test,mat,,false,0,0,6916ea6d5835177ddebc422f,2025-11-14T08:38:05.085000,2025-11-14T08:38:05.085000,68efc2103e0a30fafad6dde8,mat.the.diver@googlemail.com,false
-6916e062d017411a264628ae,simon is crap at golf,Mat Henderson,mat@isaasi.co.uk,true,1,0,69177ef902b456034cb6f2e6,2025-11-14T19:11:53.257000,2025-11-20T21:27:08.539000,68efc2103e0a30fafad6dde8,mat.the.diver@googlemail.com,false

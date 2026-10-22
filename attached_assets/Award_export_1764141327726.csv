@@ -1,2 +1,0 @@
-name,description,award_type,threshold,level,image_url,is_active,id,created_date,updated_date,created_by_id,created_by,is_sample
-"Top contributor","Award for posting a ton of articles.","articles_published","1","1","https://base44.app/api/apps/68efc20f3e0a30fafad6dde7/files/public/68efc20f3e0a30fafad6dde7/dae977a1b_awardExample.png","true","6917635f0a243573a5bf9454","2025-11-14T17:14:07.030000","2025-11-14T17:14:07.030000","68efc2103e0a30fafad6dde8","mat.the.diver@googlemail.com","false"

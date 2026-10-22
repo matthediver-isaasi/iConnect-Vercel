@@ -1,2 +1,0 @@
-full_name,email,organization,job_title,biography,profile_photo_url,is_active,id,created_date,updated_date,created_by_id,created_by,is_sample
-"Charlie Brown","charlie@browns.testing.org","Charlie Brown & Co","Snoopy's best friend","Charlie Brown loves Snoppy, what else is there to know?","https://base44.app/api/apps/68efc20f3e0a30fafad6dde7/files/public/68efc20f3e0a30fafad6dde7/71233fc86_agcasQR.png","true","691f8b3a8a7ac71743cb3494","2025-11-20T21:42:18.934000","2025-11-20T21:42:18.934000","68efc2103e0a30fafad6dde8","mat.the.diver@googlemail.com","false"
