@@ -151,15 +151,24 @@ async function buildMemberConfig({ res, tenantId, directory, dirId, roles, filte
 // --- organisation directory config ------------------------------------------
 
 async function buildOrgConfig({ res, tenantId, directory, dirId, roles, filterField, context, supabase, organizationId }) {
+  const organizationQuery = () => {
+    let query = supabase.from('organization')
+      .select(`id, name, logo_url, website_url, phone, description${context.isAuthenticated ? ', invoicing_address' : ''}`)
+      .eq('tenant_id', tenantId);
+    if (organizationId) query = query.eq('id', organizationId);
+    return query.order('name', { ascending: true }).order('id', { ascending: true });
+  };
+  const readOrganization = async () => {
+    // An exact primary-key read cannot have a second page. Avoid the
+    // inventory reader's extra round trip to establish an empty final page.
+    const { data, error } = await organizationQuery().limit(1);
+    if (error || !Array.isArray(data)) throw new Error('Unable to read directory organisation');
+    return data;
+  };
   const [displaySettings, orgRows, fieldRows] = await Promise.all([
     fetchOrgDisplaySettings(supabase, tenantId),
-    readCompleteOrganisationDirectoryPages(() => {
-      let query = supabase.from('organization')
-        .select(`id, name, logo_url, website_url, phone, description${context.isAuthenticated ? ', invoicing_address' : ''}`)
-        .eq('tenant_id', tenantId);
-      if (organizationId) query = query.eq('id', organizationId);
-      return query.order('name', { ascending: true }).order('id', { ascending: true });
-    }, 'Organisation inventory'),
+    organizationId ? readOrganization()
+      : readCompleteOrganisationDirectoryPages(organizationQuery, 'Organisation inventory'),
     readDirectoryPages(() => supabase
       .from('preference_field')
       .select('*')

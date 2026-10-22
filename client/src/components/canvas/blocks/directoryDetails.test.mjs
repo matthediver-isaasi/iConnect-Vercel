@@ -287,6 +287,8 @@ test("organisation hover obeys settings; scoped canonical details fail closed an
   });
   await pause();
   assert.ok(dialog().querySelector('[aria-busy="true"]'));
+  assert.match(dialog().querySelector('[role="status"]').textContent, /Loading details/);
+  assert.ok(dialog().querySelector('[role="status"] .animate-spin'));
   assert.doesNotMatch(dialog().textContent, /Archives|Member-led network/);
   await act(async () => {
     finish({ ok: true, json: async () => ({ directory, organizations: [] }) });
@@ -302,6 +304,28 @@ test("organisation hover obeys settings; scoped canonical details fail closed an
   block.content.enableDetails = false;
   await render();
   assert.equal(card().querySelector(".group-hover\\:opacity-100"), null);
+});
+
+test("initial click immediately displays a visible loading status while the request is pending", async () => {
+  block.content.enableDetails = true;
+  globalThis.__directoryDetailsRecords = { data: {
+    records: [{ id: "org-a", name: "Westhaven Network" }],
+    entityType: "organization",
+    config: { directory, displaySettings: {} },
+  } };
+  let finish;
+  globalThis.fetch = () => new Promise(resolve => { finish = resolve; });
+  await render();
+  await click(card());
+  assert.ok(dialog());
+  assert.match(dialog().textContent, /Westhaven Network/);
+  assert.match(dialog().querySelector('[role="status"]').textContent, /Loading details/);
+  assert.ok(dialog().querySelector('.animate-spin'));
+  await act(async () => finish({ ok: true, json: async () => ({
+    directory, organizations: [{ id: "org-a", name: "Westhaven Network" }],
+  }) }));
+  await pause();
+  assert.equal(dialog().querySelector('[role="status"]'), null);
 });
 
 test("a detail response for another directory is rejected, never used as generic entity detail", async () => {

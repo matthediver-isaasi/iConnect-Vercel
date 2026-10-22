@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Building2, User, Briefcase, ClipboardList, ChevronUp, ChevronDown } from "lucide-react";
+import { Building2, User, Briefcase, ClipboardList, ChevronUp, ChevronDown, Loader2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import RoleBadge from "@/components/RoleBadge";
@@ -161,7 +161,16 @@ export default function DirectoryGuestDetailDialog({
                 </div>
               </div>
             )}
-            {loading ? <div aria-busy="true" aria-label="Loading directory details" className="space-y-3"><div className="h-6 rounded bg-slate-100 animate-pulse" /><div className="h-16 rounded bg-slate-100 animate-pulse" /></div>
+            {loading ? <div role="status" aria-live="polite" aria-busy="true" aria-label="Loading directory details" className="space-y-4 py-6">
+              <div className="flex items-center justify-center gap-3 text-slate-700">
+                <Loader2 aria-hidden="true" className="h-6 w-6 animate-spin motion-reduce:animate-none text-blue-600" />
+                <span className="text-sm font-medium">Loading details…</span>
+              </div>
+              <p className="text-center text-sm text-slate-500">Please wait while we load this directory entry.</p>
+              <div aria-hidden="true" className="space-y-3 motion-reduce:animate-none animate-pulse">
+                <div className="h-6 rounded bg-slate-100" /><div className="h-16 rounded bg-slate-100" />
+              </div>
+            </div>
               : error ? <div role="alert" className="space-y-3"><p>Couldn't load directory details.</p><Button variant="outline" onClick={onRetry}>Retry</Button></div>
               : <DirectoryGuestDetailBody key={record.id} {...{ record, entityType, directory, displaySettings, fields, values, organization, customFieldsLabel }} />}
           </div>

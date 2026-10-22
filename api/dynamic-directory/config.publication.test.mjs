@@ -50,6 +50,7 @@ test('single-organisation detail scopes inventory and values without loading rol
   assert.ok(queries.filter(q => q.table === 'organization_preference_value').every(q =>
     q.filters.some(([key, values]) => key === 'organization_id' && values.length === 1 && values[0] === targetId)));
   assert.equal(queries.some(q => q.table === 'role'), false);
+  assert.equal(queries.filter(q => q.table === 'organization').length, 1, 'Exact ID read needs only one round trip');
   assert.ok(queries.filter(q => q.table === 'dynamic_directory').length >= 3, 'Final publication/inclusion checks retained');
 });
 
