@@ -30,12 +30,22 @@ export function DirectoryMemberCard({
   memberValues = {},
   isGuest,
   onView,
+  enableHover = true,
 }) {
   const departments = normalizeMemberDepartments(member);
   return (
     <Card
-      className={`border-slate-200 hover:shadow-lg transition-shadow${onView ? ' cursor-pointer' : ''}`}
+      className={`border-slate-200${enableHover ? ' hover:shadow-lg transition-shadow' : ''}${onView ? ' cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring' : ''}`}
       onClick={onView ? () => onView(member) : undefined}
+      role={onView ? "button" : undefined}
+      tabIndex={onView ? 0 : undefined}
+      aria-haspopup={onView ? "dialog" : undefined}
+      aria-label={onView ? `View details for ${[member.first_name, member.last_name].filter(Boolean).join(' ')}` : undefined}
+      onKeyDown={onView ? (event) => {
+        if (event.target !== event.currentTarget || !['Enter', ' '].includes(event.key)) return;
+        event.preventDefault();
+        onView(member);
+      } : undefined}
       data-testid={`card-member-${member.id}`}
     >
       <CardHeader className="pb-3">
@@ -228,11 +238,22 @@ export function DirectoryOrganizationCard({
   onEditLogo,
   onRequestDeleteLogo,
   onSelect,
+  enableHover = true,
 }) {
+  const showNameTooltip = enableHover && displaySettings?.showNameTooltip;
   return (
     <Card
-      className={`border-slate-200 hover:shadow-lg transition-shadow${onSelect ? ' cursor-pointer' : ''}`}
+      className={`border-slate-200${enableHover ? ' hover:shadow-lg transition-shadow' : ''}${onSelect ? ' cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring' : ''}`}
       onClick={onSelect ? () => onSelect(org) : undefined}
+      role={onSelect ? "button" : undefined}
+      tabIndex={onSelect ? 0 : undefined}
+      aria-haspopup={onSelect ? "dialog" : undefined}
+      aria-label={onSelect ? `View details for ${org.name}` : undefined}
+      onKeyDown={onSelect ? (event) => {
+        if (event.target !== event.currentTarget || !['Enter', ' '].includes(event.key)) return;
+        event.preventDefault();
+        onSelect(org);
+      } : undefined}
       data-testid={`card-organisation-${org.id}`}
     >
       <CardHeader className="flex flex-col items-center text-center pb-2">
@@ -244,13 +265,13 @@ export function DirectoryOrganizationCard({
                 <img
                   src={safeSrc}
                   alt={org.name}
-                  className={`w-full h-full object-contain transition-all duration-300 ${displaySettings?.showNameTooltip ? 'group-hover:opacity-20' : ''}`}
+                  className={`w-full h-full object-contain transition-all duration-300 ${showNameTooltip ? 'group-hover:opacity-20' : ''}`}
                 />
               ) : (
-                <Building2 className={`w-16 h-16 text-slate-400 transition-all duration-300 ${displaySettings?.showNameTooltip ? 'group-hover:opacity-20' : ''}`} />
+                <Building2 className={`w-16 h-16 text-slate-400 transition-all duration-300 ${showNameTooltip ? 'group-hover:opacity-20' : ''}`} />
               );
             })()}
-            {displaySettings?.showNameTooltip && (
+            {showNameTooltip && (
               <div className="absolute inset-0 flex items-center justify-center p-3 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
                 <span className="text-lg font-bold text-slate-800 text-center leading-tight line-clamp-4">
                   {org.name}

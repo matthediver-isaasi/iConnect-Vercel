@@ -103,6 +103,7 @@ import {
   resizeCanvasDynamicWidgetSize,
 } from '@/lib/canvasDynamicWidget';
 import { DirectoryMemberCard, DirectoryOrganizationCard } from '@/components/directory/DirectoryCards';
+import CanvasDirectoryDetails from './CanvasDirectoryDetails';
 import MemberGroupBlockView, { resolveMemberGroupGrid } from './MemberGroupBlockView';
 import MemberGroupCardsBlockView from './MemberGroupCardsBlockView';
 import {
@@ -269,7 +270,7 @@ function ToggleField({ label, value, onChange, testId, hint }) {
   return (
     <Field label={label} hint={hint}>
       <div className="flex items-center gap-2">
-        <Switch checked={!!value} onCheckedChange={onChange} data-testid={testId} />
+        <Switch checked={!!value} onCheckedChange={onChange} data-testid={testId} aria-label={label} />
         <span className="text-xs text-slate-600">{value ? 'On' : 'Off'}</span>
       </div>
     </Field>
@@ -7206,6 +7207,9 @@ function DirectoryCardsRender({ block, breakpoint, asEditor, icon: Icon, fallbac
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [sort, setSort] = useState(c.sort || 'name-asc');
   const [currentPage, setCurrentPage] = useState(1);
+  const [selectedRecord, setSelectedRecord] = useState(null);
+  const detailsEnabled = block.type === BLOCK_TYPES.DYNAMIC_DIRECTORY_EMBED && c.enableDetails === true && !asEditor;
+  useEffect(() => { setSelectedRecord(null); }, [c.directorySlug, detailsEnabled, currentPage, debouncedSearch, sort]);
 
   // Debounce end-user search (portal uses 300ms).
   useEffect(() => {
@@ -7228,6 +7232,7 @@ function DirectoryCardsRender({ block, breakpoint, asEditor, icon: Icon, fallbac
   const records = Array.isArray(data?.records) ? data.records : [];
   const entityType = data?.entityType || 'member';
   const cfg = data?.config || {};
+  const canOpenDetails = detailsEnabled && cfg.directory?.slug === c.directorySlug;
   const displaySettings = cfg.displaySettings || {};
   const roles = Array.isArray(cfg.roles) ? cfg.roles : [];
   const directoryCustomFields = Array.isArray(cfg.directoryCustomFields) ? cfg.directoryCustomFields : [];
@@ -7303,6 +7308,8 @@ function DirectoryCardsRender({ block, breakpoint, asEditor, icon: Icon, fallbac
                       org={r}
                       displaySettings={displaySettings}
                       isGuest={true}
+                      enableHover={block.type === BLOCK_TYPES.DYNAMIC_DIRECTORY_EMBED ? detailsEnabled : undefined}
+                      onSelect={canOpenDetails ? (record) => setSelectedRecord({ ...record, directorySlug: c.directorySlug }) : undefined}
                     />
                   ) : (
                     <DirectoryMemberCard
@@ -7313,6 +7320,8 @@ function DirectoryCardsRender({ block, breakpoint, asEditor, icon: Icon, fallbac
                       directoryCustomFields={directoryCustomFields}
                       memberValues={r.customValues || {}}
                       isGuest={true}
+                      enableHover={block.type === BLOCK_TYPES.DYNAMIC_DIRECTORY_EMBED ? detailsEnabled : undefined}
+                      onView={canOpenDetails ? (record) => setSelectedRecord({ ...record, directorySlug: c.directorySlug }) : undefined}
                     />
                   )}
                 </li>
@@ -7345,6 +7354,16 @@ function DirectoryCardsRender({ block, breakpoint, asEditor, icon: Icon, fallbac
               </div>
             ) : null}
           </>
+        )}
+        {canOpenDetails && selectedRecord?.directorySlug === c.directorySlug && (
+          <CanvasDirectoryDetails
+            key={`${c.directorySlug}:${selectedRecord.id}`}
+            record={selectedRecord}
+            directorySlug={c.directorySlug}
+            entityType={entityType}
+            config={cfg}
+            onClose={() => setSelectedRecord(null)}
+          />
         )}
       </div>
     </TooltipProvider>
@@ -7432,6 +7451,13 @@ function DynamicDirectoryEmbedInspector({ block, update }) {
         value={c.directorySlug}
         onChange={(v) => set({ directorySlug: v })}
         testId="select-dynamic-dir-slug"
+      />
+      <ToggleField
+        label="Hover and click details"
+        value={c.enableDetails === true}
+        onChange={(value) => set({ enableDetails: value })}
+        testId="switch-dynamic-dir-details"
+        hint="Enable directory card hover effects and detail dialogs in preview and on the published page. Directory visibility settings still apply."
       />
       <TextField label="Heading" value={c.title} onChange={(v) => set({ title: v })} testId="input-dynamic-dir-title" />
       <SelectField

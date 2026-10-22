@@ -21,6 +21,7 @@ import { toast } from "sonner";
 import { isDeletedMember } from "@/utils";
 import { isVisibleOnFront, isVisibleOnBack, isFieldVisibleOnBackFor, getDirectoryOrderedFields, enrichFieldForDirectory, isFieldInDirectory, hasDirectoryFieldValue, getDirectoryFilterOptions, directoryFilterValueMatches, resolveBackFieldOrder, MEMBER_BACK_DEFAULT_ORDER, ORG_BACK_DEFAULT_ORDER, applyCoreFieldVisibility, isOrgCoreItemVisible, resolveCustomFieldsLabel } from "@/utils/directorySettings";
 import { DirectoryMemberCard, DirectoryOrganizationCard } from "@/components/directory/DirectoryCards";
+import DirectoryGuestDetailDialog from "@/components/directory/DirectoryGuestDetailDialog";
 import { buildOrganisationDirectoryMembersUrl, parseOrganisationViewMembersRoleIds } from "@/lib/organisationDirectoryMemberContext";
 import { CustomFieldFileDisplay } from "@/components/CustomFieldFileUpload";
 import { DirectoryContactValue } from "@/components/directory/DirectoryContactValue";
@@ -1057,7 +1058,17 @@ export default function DynamicDirectoryView() {
           </DialogContent>
         </Dialog>
 
-        <Dialog open={!!selectedOrg} onOpenChange={(open) => !open && setSelectedOrg(null)}>
+        {isGuest ? (
+          <DirectoryGuestDetailDialog
+            record={selectedCoreOrganization}
+            onClose={() => setSelectedOrg(null)}
+            entityType="organization"
+            directory={directory}
+            displaySettings={orgDisplaySettings}
+            fields={orgCustomFields}
+            values={Object.fromEntries(selectedOrgValues.map(value => [value.field_id, value.value]))}
+          />
+        ) : <Dialog open={!!selectedOrg} onOpenChange={(open) => !open && setSelectedOrg(null)}>
           <DialogContent className="sm:max-w-lg">
             <DialogHeader>
               <div className="flex items-center gap-4">
@@ -1300,7 +1311,7 @@ export default function DynamicDirectoryView() {
               )}
             </DialogFooter>
           </DialogContent>
-        </Dialog>
+        </Dialog>}
       </div>
     );
   }
@@ -1550,7 +1561,19 @@ export default function DynamicDirectoryView() {
         </div>
       </div>
 
-      <Dialog open={!!viewingMember} onOpenChange={(open) => !open && setViewingMember(null)}>
+      {isGuest ? (
+        <DirectoryGuestDetailDialog
+          record={viewingMember}
+          onClose={() => setViewingMember(null)}
+          entityType="member"
+          directory={directory}
+          displaySettings={memberDisplaySettings}
+          fields={directoryCustomFields}
+          values={memberPreferenceMap[viewingMember?.id] || {}}
+          roles={roles}
+          organization={allOrganizations.find(item => item.id === viewingMember?.organization_id)}
+        />
+      ) : <Dialog open={!!viewingMember} onOpenChange={(open) => !open && setViewingMember(null)}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="sr-only">Member Information</DialogTitle>
@@ -1852,7 +1875,7 @@ export default function DynamicDirectoryView() {
             </div>
           )}
         </DialogContent>
-      </Dialog>
+      </Dialog>}
     </TooltipProvider>
   );
 }

@@ -1701,6 +1701,7 @@ export const BLOCK_DEFAULTS = {
     style: { background: 'transparent', borderWidth: 0 },
     content: {
       directorySlug: '',
+      enableDetails: false,
       title: '',
       headingLevel: 2,
       limit: 12,
