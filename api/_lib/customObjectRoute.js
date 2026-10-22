@@ -14,6 +14,7 @@ function schemaAccessRequired(level, resource, method) {
     'relationship-panel-preference',
     'report-preview',
     'report-export',
+    'report-organization-fields',
   ].includes(resource)) return null;
   if (level === 'resource' && resource === 'relationship-definitions') return method === 'GET' ? 'view' : 'manage';
   if (level === 'resource' && resource === 'relationship-definition-graph') return 'manage';
@@ -107,6 +108,7 @@ export function createCustomObjectRouteHandler(level, dependencies = {}) {
         else if (resource === 'records' && req.method === 'GET') data = await service.listRecords(objectId, req.query);
         else if (resource === 'export' && req.method === 'GET') data = await service.exportRecords(objectId, req.query);
         else if (resource === 'report-preview' && req.method === 'POST') data = await service.previewReport(objectId, req.body);
+        else if (resource === 'report-organization-fields' && req.method === 'GET') data = await service.reportOrganizationFields(objectId);
         else if (resource === 'report-export' && ['POST', 'GET'].includes(req.method)) {
           const input = req.method === 'POST' ? req.body : {
             ...req.query,

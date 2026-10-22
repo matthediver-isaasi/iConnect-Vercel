@@ -277,6 +277,74 @@ test('report preview and complete export remain on the record-data authorization
   ]);
 });
 
+test('report organization metadata GET uses record authorization and preserves the minimal metadata contract', async () => {
+  const calls = [];
+  const metadata = { data: [{ id: 'org-field', label: 'Organisation type', field_type: 'dropdown' }] };
+  const handler = createCustomObjectRouteHandler('resource', {
+    getTenantContext: async () => ({ isAuthenticated: true, tenantId: 'tenant-1', roleId: 'role-1' }),
+    hasAdminAccess: async () => false,
+    hasFeatureAccess: async () => { throw new Error('Metadata must use service record/core authorization'); },
+    createCustomObjectService: () => ({
+      reportOrganizationFields: async (objectId) => { calls.push(objectId); return metadata; },
+    }),
+  });
+  const res = response();
+  await handler({
+    method: 'GET', query: { objectId: 'object-1', resource: 'report-organization-fields' },
+  }, res);
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.payload, metadata);
+  assert.deepEqual(calls, ['object-1']);
+  const invalidMethod = response();
+  await handler({
+    method: 'POST', query: { objectId: 'object-1', resource: 'report-organization-fields' },
+  }, invalidMethod);
+  assert.equal(invalidMethod.statusCode, 405);
+  assert.deepEqual(calls, ['object-1']);
+});
+
+test('report organization metadata preserves tenant/auth and service authorization failures', async () => {
+  for (const [context, status] of [
+    [{ isAuthenticated: false }, 401],
+    [{ isAuthenticated: true }, 400],
+    [{ isAuthenticated: true, tenantId: 'tenant-1', tenantMismatch: true }, 409],
+    [{ isAuthenticated: true, tenantId: 'tenant-1' }, 403],
+  ]) {
+    const handler = createCustomObjectRouteHandler('resource', {
+      getTenantContext: async () => context,
+      hasAdminAccess: async () => false,
+      hasFeatureAccess: async () => false,
+      createCustomObjectService: () => ({
+        reportOrganizationFields: async () => { throw new CustomObjectHttpError(403, 'Report organization field is unavailable'); },
+      }),
+    });
+    const res = response();
+    await handler({
+      method: 'GET', query: { objectId: 'object-1', resource: 'report-organization-fields' },
+    }, res);
+    assert.equal(res.statusCode, status);
+  }
+});
+
+test('report preview and export forward typed organization preferences without rewriting them to core fields', async () => {
+  const calls = [];
+  const handler = createCustomObjectRouteHandler('resource', {
+    getTenantContext: async () => ({ isAuthenticated: true, tenantId: 'tenant-1' }),
+    hasAdminAccess: async () => true,
+    createCustomObjectService: () => ({
+      previewReport: async (_objectId, body) => { calls.push(body); return { data: [] }; },
+      exportReport: async (_objectId, body) => { calls.push(body); return { status: 'queued' }; },
+    }),
+  });
+  const definition = { version: 2, columns: [{ kind: 'field', preference_field_id: 'org-field', path: [] }] };
+  for (const resource of ['report-preview', 'report-export']) {
+    const res = response();
+    await handler({ method: 'POST', query: { objectId: 'object-1', resource }, body: { definition } }, res);
+    assert.equal(res.statusCode, 201);
+  }
+  assert.deepEqual(calls, [{ definition }, { definition }]);
+});
+
 test('report routes preserve the version 2 owner and endpoint contract at service boundary', async () => {
   const calls = [];
   const handler = createCustomObjectRouteHandler('resource', {

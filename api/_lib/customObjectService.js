@@ -22,6 +22,7 @@ import { CSV_BOM, CSV_ROW_SEPARATOR, escapeCsvCell } from './csvCell.js';
 import { randomUUID } from 'node:crypto';
 import { createChainedListService } from './customObjectChainedList.js';
 import { isDeletedRelationshipMember } from './customObjectMemberEligibility.js';
+import { formatOrganisationDirectoryCsvValue } from './organisationDirectoryCsv.js';
 
 export class CustomObjectHttpError extends Error {
   constructor(status, message, details = null) {
@@ -4226,6 +4227,83 @@ export function createCustomObjectService({
 
   // Reports deliberately use ids, rather than labels, in their persisted contract.  Labels are
   // presentation only: this prevents a rename from silently changing the meaning of a report.
+  async function reportOrganizationFields(objectId) {
+    await activeObject(objectId);
+    await requireCapability(objectId, 'view_records');
+    if (!isAdmin) {
+      throw new CustomObjectHttpError(403, 'Tenant administrator access is required for reports containing core entities');
+    }
+    const output = [];
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await db.from('preference_field')
+        .select('id, label, field_type').eq('tenant_id', tenantId)
+        .eq('entity_scope', 'organization').eq('is_active', true)
+        .order('id', { ascending: true }).range(from, from + 999);
+      throwDb(error);
+      if (!Array.isArray(data)) throw new CustomObjectHttpError(500, 'Report organization field query returned a malformed result');
+      output.push(...data.map(({ id, label, field_type }) => ({ id, label, field_type })));
+      if (output.length > 10_000) throw new CustomObjectHttpError(400, 'Report organization field inventory exceeds the supported size');
+      if (data.length < 1000) return { data: output };
+    }
+  }
+
+  async function reportOrganizationColumn(column, path) {
+    if (!Object.hasOwn(column, 'preference_field_id')) return null;
+    if (path.endpoint.kind !== 'organization'
+      || (column.kind !== undefined && column.kind !== 'field')
+      || typeof column.preference_field_id !== 'string' || !column.preference_field_id.trim()
+      || ['field', 'field_id', 'fieldId', 'relationship_field_id', 'relationshipFieldId']
+        .some((key) => Object.hasOwn(column, key))) {
+      throw new CustomObjectHttpError(400, 'Organization report columns require an unambiguous preference_field_id on an organization endpoint');
+    }
+    if (!isAdmin) throw new CustomObjectHttpError(403, 'Tenant administrator access is required for reports containing core entities');
+    const { data: preferenceField, error } = await db.from('preference_field').select('*')
+      .eq('tenant_id', tenantId).eq('entity_scope', 'organization')
+      .eq('is_active', true).eq('id', column.preference_field_id).maybeSingle();
+    throwDb(error);
+    if (!preferenceField) throw new CustomObjectHttpError(403, 'Report organization field is unavailable');
+    return { ...column, path, preferenceField, label: column.label || preferenceField.label };
+  }
+
+  async function reportOrganizationValues(columns, organizationIds) {
+    const fieldIds = [...new Set(columns.filter((column) => column.preferenceField)
+      .map((column) => String(column.preferenceField.id)))];
+    const ids = [...new Set(organizationIds.filter(Boolean).map(String))];
+    const output = new Map();
+    if (!fieldIds.length || !ids.length) return output;
+    // This table has no tenant_id. Both sets of ids must originate from the
+    // tenant-scoped, authorized metadata and endpoint queries above.
+    let loaded = 0;
+    for (const batch of chunked(ids, ENDPOINT_ID_BATCH_SIZE)) {
+      for (const fieldBatch of chunked(fieldIds, 20)) {
+        for (let from = 0; ; from += 1000) {
+          const { data, error } = await db.from('organization_preference_value')
+            .select('id, organization_id, field_id, value')
+            .in('organization_id', batch).in('field_id', fieldBatch)
+            .order('id', { ascending: true }).range(from, from + 999);
+          throwDb(error);
+          if (!Array.isArray(data)) throw new CustomObjectHttpError(500, 'Report organization value query returned a malformed result');
+          loaded += data.length;
+          if (loaded > V2_REPORT_MAX_PAGE_EXPANSION) throw new CustomObjectHttpError(400, 'This report loads too many organization field values in one page');
+          for (const item of data) {
+            const key = `${item.organization_id}:${item.field_id}`;
+            const values = output.get(key) || [];
+            values.push(item.value);
+            output.set(key, values);
+          }
+          if (data.length < 1000) break;
+        }
+      }
+    }
+    return output;
+  }
+
+  function reportOrganizationValue(record, column, values) {
+    return formatOrganisationDirectoryCsvValue(
+      values.get(`${record.id}:${column.preferenceField.id}`) || [], column.preferenceField,
+    );
+  }
+
   async function validateReportDefinitionV2(objectId, report) {
     await activeObject(objectId);
     await requireCapability(objectId, 'view_records');
@@ -4380,6 +4458,9 @@ export function createCustomObjectService({
       if (column.kind === 'matching_field' && Object.hasOwn(column, 'mode')) {
         throw new CustomObjectHttpError(400, 'Matching field columns must not specify a match mode');
       }
+      if (Object.hasOwn(column, 'preference_field_id') && column.kind !== 'field') {
+        throw new CustomObjectHttpError(400, 'Organization preference fields are supported only as field projections');
+      }
       if (['count_distinct', 'exists_related'].includes(column.kind)) {
         if (!Array.isArray(column.path) || !column.path.length) {
           throw new CustomObjectHttpError(
@@ -4405,6 +4486,11 @@ export function createCustomObjectService({
       }
       const path = await resolvePath(column.path ?? [], 'Report column path',
         column.kind === 'matching_field' ? grain.endpoint : startEndpoint);
+      const organizationColumn = await reportOrganizationColumn(column, path);
+      if (organizationColumn) {
+        resolvedColumns.push(organizationColumn);
+        continue;
+      }
       const fieldId = String(column.field_id || '');
       const relationshipFieldId = String(column.relationship_field_id || '');
       if (column.kind === 'relationship_field') {
@@ -4481,6 +4567,9 @@ export function createCustomObjectService({
       }
       const conditions = [];
       for (const condition of filter.conditions) {
+        if (condition && Object.hasOwn(condition, 'preference_field_id')) {
+          throw new CustomObjectHttpError(400, 'Organization preference fields are not supported in report filters');
+        }
         if (!condition || !['field', 'relationship_field'].includes(condition.kind)) {
           throw new CustomObjectHttpError(400, 'Report filter condition kind is invalid');
         }
@@ -4600,6 +4689,11 @@ export function createCustomObjectService({
       if (!column || typeof column !== 'object') throw new CustomObjectHttpError(400, 'Report column is malformed');
       if (['exists_related', 'matching_field'].includes(column.kind)) throw new CustomObjectHttpError(400, 'Related-record conditional columns require an explicit version 2 report');
       const path = await resolvePath(column.path ?? [], 'Report column path');
+      const organizationColumn = await reportOrganizationColumn(column, path);
+      if (organizationColumn) {
+        resolvedColumns.push(organizationColumn);
+        continue;
+      }
       const fieldId = String(column.field_id ?? column.fieldId ?? '');
       const relationshipFieldId = String(column.relationship_field_id ?? column.relationshipFieldId ?? '');
       if (relationshipFieldId) {
@@ -4803,8 +4897,12 @@ export function createCustomObjectService({
       reportEndpointRows(endpoint_, summaryRows.map((row) => row.record_ids?.[index]))));
     const sameHop = (left, right) =>
       String(left.definition.id) === String(right.definition.id) && left.fromSide === right.fromSide;
+    let organizationValues = new Map();
     const valueFromItem = (item, column) => {
       if (!item?.record) return undefined;
+      if (column.preferenceField) {
+        return reportOrganizationValue(item.record, column, organizationValues);
+      }
       if (column.relationshipField) {
         return item.edges.at(-1)?.field_values?.[column.relationshipField.key];
       }
@@ -4940,6 +5038,18 @@ export function createCustomObjectService({
       }
       fieldTraversalResults.set(groupKey, byAnchor);
     }
+    const organizationIds = [];
+    for (const column of validated.columns.filter((item) => item.preferenceField)) {
+      const { common, remaining, groupKey } = fieldPlans.get(column);
+      if (!remaining.length) {
+        organizationIds.push(...ancestryMaps[common].keys());
+      } else {
+        for (const items of fieldTraversalResults.get(groupKey)?.values() || []) {
+          organizationIds.push(...items.map((item) => item.record.id));
+        }
+      }
+    }
+    organizationValues = await reportOrganizationValues(validated.columns, organizationIds);
     const data = [];
     let renderedFieldValues = 0;
     for (const summaryRow of summaryRows) {
@@ -5142,6 +5252,12 @@ export function createCustomObjectService({
       const byRoot = await traversalCache.get(cacheKey);
       return [...roots_.keys()].flatMap(id => byRoot.get(id) || []);
     };
+    const organizationIds = [];
+    for (const column of validated.columns.filter((item) => item.preferenceField)) {
+      const items = await traverseRoots(batchRoots, column.path.hops);
+      organizationIds.push(...items.map((item) => item.record.id));
+    }
+    const organizationValues = await reportOrganizationValues(validated.columns, organizationIds);
     const valuesFor = async (grain, column) => {
       const isGrainPrefix = column.path.hops.length <= validated.grain.hops.length
         && sameResolvedPath(column.path.hops, validated.grain.hops.slice(0, column.path.hops.length));
@@ -5158,6 +5274,9 @@ export function createCustomObjectService({
                 ? 'target_record_id' : 'source_record_id']],
             )).values().next().value);
         if (!record) return [];
+        if (column.preferenceField) {
+          return [reportOrganizationValue(record, column, organizationValues)];
+        }
         if (column.relationshipField) {
           return [item.edges[pathLength - 1]?.field_values?.[column.relationshipField.key]];
         }
@@ -5174,6 +5293,9 @@ export function createCustomObjectService({
         cursor = cursor.filter((item) => String(item.record.id) === grain.id);
       }
       const values = cursor.map((item) => {
+        if (column.preferenceField) {
+          return reportOrganizationValue(item.record, column, organizationValues);
+        }
         if (column.relationshipField) {
           return item.edges.at(-1)?.field_values?.[column.relationshipField.key];
         }
@@ -5363,6 +5485,6 @@ export function createCustomObjectService({
     listCoreRelationshipDefinitions, listCoreRelationships, coreEntityPicker,
     getRelationshipPanelPreference, saveRelationshipPanelPreference,
     createCoreRelationship, updateCoreRelationship, archiveCoreRelationship,
-    previewReport, exportReport, validateReportDefinition,
+    previewReport, exportReport, validateReportDefinition, reportOrganizationFields,
   };
 }

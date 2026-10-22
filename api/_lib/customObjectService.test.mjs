@@ -771,6 +771,227 @@ function context(overrides = {}) {
   };
 }
 
+function organizationReportFixture(version = 2) {
+  const orgRelationship = {
+    id: 'assigned-organization', tenant_id: tenantId, status: 'active', archived_at: null,
+    source_kind: 'custom_object', source_custom_object_id: objectId,
+    target_kind: 'organization', target_custom_object_id: null, cardinality: 'many_to_one',
+  };
+  const memberRelationship = {
+    ...orgRelationship, id: 'department-members', target_kind: 'member', cardinality: 'many_to_many',
+  };
+  const orgPath = [{ relationship_definition_id: orgRelationship.id, from_side: 'source' }];
+  const memberPath = [{ relationship_definition_id: memberRelationship.id, from_side: 'source' }];
+  const preferences = [
+    field({ id: 'org-type', custom_object_id: null, entity_scope: 'organization', label: 'Type', field_type: 'dropdown', options: [{ value: 'h', label: 'Hospital' }] }),
+    field({ id: 'org-boolean', custom_object_id: null, entity_scope: 'organization', label: 'Enabled', field_type: 'boolean' }),
+    field({ id: 'org-country', custom_object_id: null, entity_scope: 'organization', label: 'Countries', field_type: 'countries' }),
+    field({ id: 'org-file', custom_object_id: null, entity_scope: 'organization', label: 'File', field_type: 'file' }),
+  ];
+  const seed = {
+    custom_object_definition: [object()],
+    preference_field: preferences,
+    custom_object_record: ['a', 'b', 'c'].map((id) => ({
+      id, tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {},
+    })),
+    organization: ['org-a', 'org-b'].map((id) => ({ id, tenant_id: tenantId, name: id })),
+    member: [{ id: 'shared', tenant_id: tenantId, first_name: 'Shared' }],
+    custom_object_relationship_definition: [orgRelationship, memberRelationship],
+    custom_object_relationship: [
+      ...['a', 'b'].map((id) => ({
+        id: `organization-${id}`, tenant_id: tenantId,
+        relationship_definition_id: orgRelationship.id,
+        source_record_id: id, target_record_id: `org-${id}`, archived_at: null,
+      })),
+      ...['a', 'b', 'c'].map((id) => ({
+        id: `member-${id}`, tenant_id: tenantId,
+        relationship_definition_id: memberRelationship.id,
+        source_record_id: id, target_record_id: 'shared', archived_at: null,
+      })),
+    ],
+    organization_preference_value: [
+      { id: 'value-a', organization_id: 'org-a', field_id: 'org-type', value: '["h","h"]' },
+      { id: 'value-b', organization_id: 'org-b', field_id: 'org-type', value: 'Clinic' },
+      { id: 'value-boolean', organization_id: 'org-a', field_id: 'org-boolean', value: 'false' },
+      { id: 'value-country', organization_id: 'org-a', field_id: 'org-country', value: '["GB","US"]' },
+      { id: 'value-file', organization_id: 'org-a', field_id: 'org-file', value: '{"path":"private/secret","url":"https://example.test?token=secret"}' },
+      { id: 'foreign-value', organization_id: 'foreign-org', field_id: 'org-type', value: 'Do not disclose' },
+    ],
+  };
+  const definition = {
+    version, start_object_id: objectId,
+    start_endpoint: { kind: 'custom_object', customObjectId: objectId },
+    grain_path: memberPath, include_empty: true,
+    columns: [
+      { kind: 'field', field: 'id', path: [], label: 'Department' },
+      ...preferences.map((item) => ({
+        kind: 'field', preference_field_id: item.id, path: orgPath, empty_label: 'Unassigned',
+      })),
+    ],
+  };
+  return { seed, definition, orgPath };
+}
+
+test('report organization metadata is tenant-scoped, active, minimal, and requires core report access', async () => {
+  const { seed } = organizationReportFixture();
+  seed.preference_field.push(
+    field({ id: 'custom-only' }),
+    field({ id: 'inactive', entity_scope: 'organization', is_active: false }),
+    field({ id: 'foreign', entity_scope: 'organization', tenant_id: 'other-tenant' }),
+  );
+  const db = mockDb(seed);
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const result = await service.reportOrganizationFields(objectId);
+  assert.deepEqual(result.data.map((item) => item.id), ['org-boolean', 'org-country', 'org-file', 'org-type']);
+  assert.ok(result.data.every((item) => Object.keys(item).sort().join(',') === 'field_type,id,label'));
+  await assert.rejects(
+    createCustomObjectService({ db, context: context(), isAdmin: false }).reportOrganizationFields(objectId),
+    (error) => error.status === 403,
+  );
+  await assert.rejects(service.reportOrganizationFields('foreign-object'), (error) => error.status === 404);
+  db.tables.custom_object_definition[0].status = 'archived';
+  await assert.rejects(service.reportOrganizationFields(objectId), (error) => error.status === 409);
+});
+
+test('organization projection retains sibling provenance, missing rows, and shared preview/export formatting', async () => {
+  for (const version of [1, 2]) {
+    const { seed, definition } = organizationReportFixture(version);
+    const db = mockDb(seed);
+    const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+    const preview = await service.previewReport(objectId, { definition });
+    assert.equal(preview.data.length, 3);
+    const rows = new Map(preview.data.map((row) => [row.values[0], row.values]));
+    assert.deepEqual(rows.get('a'), ['a', 'Hospital', 'No', 'United Kingdom; United States', 'File']);
+    assert.deepEqual(rows.get('b'), ['b', 'Clinic', '', '', '']);
+    assert.deepEqual(rows.get('c'), version === 2
+      ? ['c', 'Unassigned', 'Unassigned', 'Unassigned', 'Unassigned'] : ['c', '', '', '', '']);
+    const reads = db.calls.filter((call) => call.table === 'organization_preference_value' && call.type === 'select');
+    assert.equal(reads.length, 1, 'all projected fields and organizations load together, not per row');
+    assert.ok(db.calls.filter((call) => call.table === 'organization_preference_value' && call.type === 'in')
+      .every((call) => call.values.length <= 200));
+    let job = await service.exportReport(objectId, { action: 'start', definition });
+    for (let page = 0; page < 10 && !['complete', 'failed'].includes(job.status); page++) {
+      job = await service.exportReport(objectId, { action: 'process', job_id: job.id });
+    }
+    assert.equal(job.status, 'complete');
+    const csv = db.tables.custom_object_report_export_chunk.map((chunk) => chunk.csv_text).join('');
+    assert.match(csv, /Hospital/);
+    assert.match(csv, /United Kingdom; United States/);
+    assert.doesNotMatch(csv, /private\/secret|token=secret|Do not disclose/);
+  }
+});
+
+test('organization preference references fail closed for stale, wrong-scope, foreign, ambiguous and non-organization fields', async () => {
+  for (const version of [1, 2]) {
+    const { seed, definition } = organizationReportFixture(version);
+    seed.preference_field.push(field({ id: 'custom-field' }),
+      field({ id: 'inactive-org', entity_scope: 'organization', is_active: false }),
+      field({ id: 'foreign-org-field', tenant_id: 'other', entity_scope: 'organization' }));
+    const db = mockDb(seed);
+    const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+    for (const patch of [
+      { preference_field_id: 'missing' }, { preference_field_id: 'custom-field' },
+      { preference_field_id: 'inactive-org' }, { preference_field_id: 'foreign-org-field' },
+      { preference_field_id: '' }, { preference_field_id: 123 },
+      { field_id: 'org-type' }, { field: 'name' },
+      { path: [] }, { kind: 'relationship_field' },
+    ]) {
+      const invalid = structuredClone(definition);
+      invalid.columns = [{ ...definition.columns[1], ...patch }];
+      await assert.rejects(service.previewReport(objectId, { definition: invalid }),
+        (error) => [400, 403].includes(error.status));
+    }
+    await assert.rejects(
+      createCustomObjectService({ db, context: context(), isAdmin: false })
+        .previewReport(objectId, { definition }),
+      (error) => error.status === 403,
+    );
+    assert.equal(db.calls.some((call) => call.table === 'organization_preference_value'), false);
+  }
+});
+
+test('organization preference columns do not extend related-record filter support', async () => {
+  const { seed, definition, orgPath } = organizationReportFixture();
+  definition.grain_path = [];
+  definition.filters = [{ mode: 'any', path: orgPath, conditions: [{
+    kind: 'field', preference_field_id: 'org-type', field: 'name', op: 'equals', value: 'Hospital',
+  }] }];
+  const db = mockDb(seed);
+  await assert.rejects(createCustomObjectService({ db, context: context(), isAdmin: true })
+    .previewReport(objectId, { definition }), /not supported in report filters/);
+  assert.equal(db.calls.some((call) => call.type === 'rpc'), false);
+});
+
+test('organization projections batch ids and page values beyond the server row cap without per-row queries', async () => {
+  const { seed, definition, orgPath } = organizationReportFixture();
+  definition.grain_path = [];
+  seed.preference_field = Array.from({ length: 6 }, (_, index) =>
+    field({ id: `org-field-${index}`, custom_object_id: null, entity_scope: 'organization', field_type: 'text' }));
+  definition.columns = seed.preference_field.map((item) => ({
+    kind: 'field', preference_field_id: item.id, path: orgPath,
+  }));
+  seed.custom_object_record = [];
+  seed.organization = [];
+  seed.custom_object_relationship = [];
+  seed.organization_preference_value = [];
+  for (let index = 0; index < 205; index++) {
+    const id = String(index).padStart(3, '0');
+    seed.custom_object_record.push({
+      id: `root-${id}`, tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {},
+    });
+    seed.organization.push({ id: `org-${id}`, tenant_id: tenantId });
+    seed.custom_object_relationship.push({
+      id: `edge-${id}`, tenant_id: tenantId, relationship_definition_id: orgPath[0].relationship_definition_id,
+      source_record_id: `root-${id}`, target_record_id: `org-${id}`, archived_at: null,
+    });
+    for (const item of seed.preference_field) seed.organization_preference_value.push({
+      id: `value-${id}-${item.id}`, organization_id: `org-${id}`, field_id: item.id, value: id,
+    });
+  }
+  const db = mockDb(seed);
+  const result = await createCustomObjectService({ db, context: context(), isAdmin: true })
+    .previewReport(objectId, { definition, pageSize: 500 });
+  assert.equal(result.total, 205);
+  assert.deepEqual(result.data.at(-1).values, Array(6).fill('204'));
+  const queries = db.calls.filter((call) => call.table === 'organization_preference_value');
+  assert.equal(queries.filter((call) => call.type === 'select').length, 3);
+  assert.ok(queries.some((call) => call.type === 'range' && call.from === 1000));
+  assert.ok(queries.filter((call) => call.type === 'in' && call.column === 'organization_id')
+    .every((call) => call.values.length <= 200));
+});
+
+test('organization endpoint starts and organization-grain ancestry project typed preferences without dropping empty values', async () => {
+  for (const startAtOrganization of [false, true]) {
+    const { seed, definition, orgPath } = organizationReportFixture();
+    definition.start_endpoint = startAtOrganization
+      ? { kind: 'organization' } : definition.start_endpoint;
+    definition.grain_path = startAtOrganization ? [] : orgPath;
+    definition.columns = [{
+      kind: 'field', preference_field_id: 'org-type', path: startAtOrganization ? [] : orgPath,
+    }, {
+      kind: 'field', preference_field_id: 'org-boolean', path: startAtOrganization ? [] : orgPath,
+    }];
+    const result = await createCustomObjectService({ db: mockDb(seed), context: context(), isAdmin: true })
+      .previewReport(objectId, { definition });
+    assert.equal(result.data.length, startAtOrganization ? 2 : 3);
+    assert.deepEqual(result.data[0].values, ['Hospital', 'No']);
+    assert.deepEqual(result.data[1].values, ['Clinic', '']);
+    if (!startAtOrganization) assert.deepEqual(result.data[2].values, ['', '']);
+  }
+});
+
+test('resumable organization exports revalidate active preference metadata before reading values', async () => {
+  const { seed, definition } = organizationReportFixture();
+  const db = mockDb(seed);
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const job = await service.exportReport(objectId, { action: 'start', definition });
+  db.tables.preference_field.find((item) => item.id === 'org-type').is_active = false;
+  await assert.rejects(service.exportReport(objectId, { action: 'process', job_id: job.id }),
+    (error) => error.status === 403);
+  assert.equal(db.calls.some((call) => call.table === 'organization_preference_value'), false);
+  assert.equal(db.tables.custom_object_report_export_job[0].status, 'failed');
+});
+
 function object(overrides = {}) {
   return {
     id: objectId, tenant_id: tenantId, object_key: 'departments',

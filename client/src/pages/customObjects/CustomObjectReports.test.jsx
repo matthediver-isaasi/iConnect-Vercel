@@ -93,13 +93,17 @@ const savedReports = {
 };
 
 async function mount(initialConfig, suppliedDefinitions = definitions, suppliedSaved = savedReports, suppliedObject = object,
-  suppliedFields = [{ id: "department_name", label: "Department name", is_active: true }], linkedReportId = "") {
+  suppliedFields = [{ id: "department_name", label: "Department name", is_active: true }], linkedReportId = "",
+  organizationMetadata = []) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity, gcTime: 0 }, mutations: { retry: false, gcTime: 0 } },
   });
+  if (organizationMetadata !== null) queryClient.setQueryData(
+    ["custom-object-report-organization-fields", suppliedObject.id], organizationMetadata,
+  );
   // These component fixtures never contact a tenant API. Seed authorised
   // connected-object metadata explicitly, including an intentionally empty schema.
   const graph = Array.isArray(suppliedDefinitions) ? suppliedDefinitions : suppliedDefinitions?.data || [];
@@ -129,6 +133,7 @@ async function mount(initialConfig, suppliedDefinitions = definitions, suppliedS
   });
   return {
     container,
+    queryClient,
     get config() { return latest; },
     async cleanup() {
       await act(async () => root.unmount());
@@ -699,5 +704,125 @@ test("unavailable saved indicator metadata blocks execution and is preserved unt
     assert.equal(buttonNamed("Export CSV").disabled, true);
     assert.match(view.container.textContent, /preserved|unavailable/i);
     await view.cleanup();
+  }
+});
+
+test("organisation custom fields are discovered, added with typed references, saved and reopened", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  const metadata = [{ id: "org-sector", label: "Organisation sector", field_type: "text" }];
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url, options });
+    return { ok: true, json: async () => ({ data: metadata }) };
+  };
+  const initial = makeReportConfig("department");
+  const report = { id: "organisation-fields", name: "Organisation fields", config: initial };
+  let stored;
+  const saved = { ...savedReports, reports: [report], activeReport: report, activeReportId: report.id,
+    async updateReport(id, config) { stored = structuredClone({ id, config }); } };
+  let view;
+  try {
+    view = await mount(initial, definitions, saved, object, [], "", null);
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].url, "/api/custom-objects/department/report-organization-fields");
+    await chooseRelatedRecords(view, "related_field", ["department_member", "member_organization"]);
+    assert.ok(buttonNamed("Name"), "core organisation fields remain available");
+    await act(async () => click(buttonNamed("Name")));
+    await act(async () => click(buttonNamed("Organisation sector")));
+    assert.equal(view.config.columns[0].field, "name");
+    assert.equal(view.config.columns[1].preference_field_id, "org-sector");
+    assert.equal(Object.hasOwn(view.config.columns[1], "field"), false);
+    assert.equal(Object.hasOwn(view.config.columns[1], "field_id"), false);
+    assert.deepEqual(view.config.columns[1].path, [...departmentMemberPath, ...memberOrganizationPath]);
+    assert.equal(buttonNamed("Preview").disabled, false);
+    await act(async () => view.container.querySelector("[data-testid=button-custom-object-report-switcher]")
+      .dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true, cancelable: true, button: 0, ctrlKey: false })));
+    await act(async () => click(document.querySelector("[data-testid=menuitem-custom-object-report-update]")));
+    assert.equal(stored.id, report.id);
+    assert.deepEqual(stored.config, view.config);
+    await view.cleanup();
+    view = await mount(stored.config, definitions, savedReports, object, [], "", metadata);
+    assert.deepEqual(view.config, stored.config);
+    assert.equal(view.container.querySelector("[data-testid=column-heading-1]").value, "Organisation sector");
+    assert.equal(buttonNamed("Export CSV").disabled, false);
+  } finally {
+    if (view) await view.cleanup();
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("pending organisation metadata preserves a saved selection and blocks execution until validated", async () => {
+  const originalFetch = globalThis.fetch;
+  let resolveMetadata;
+  globalThis.fetch = () => new Promise(resolve => { resolveMetadata = resolve; });
+  const initial = makeReportConfig("department", {
+    columns: [{ kind: "field", path: [...departmentMemberPath, ...memberOrganizationPath],
+      preference_field_id: "org-sector", label: "Saved sector" }],
+  });
+  let view;
+  try {
+    view = await mount(initial, definitions, savedReports, object, [], "", null);
+    assert.equal(view.config, initial);
+    assert.equal(buttonNamed("Preview").disabled, true);
+    assert.equal(buttonNamed("Export CSV").disabled, true);
+    assert.match(view.container.textContent, /Saved selections are preserved; preview and export are blocked/);
+    await chooseRelatedRecords(view, "related_field", ["department_member", "member_organization"]);
+    assert.ok(buttonNamed("Name"));
+    assert.equal(buttonNamed("Organisation sector"), undefined);
+    await act(async () => {
+      resolveMetadata({ ok: true, json: async () => ({
+        data: [{ id: "org-sector", label: "Organisation sector", field_type: "text" }],
+      }) });
+      await new Promise(resolve => setTimeout(resolve, 20));
+    });
+    assert.equal(buttonNamed("Preview").disabled, false);
+    assert.equal(buttonNamed("Export CSV").disabled, false);
+    assert.equal(view.config, initial);
+  } finally {
+    if (view) await view.cleanup();
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("inaccessible organisation metadata exposes retry, retains saved V1 selections and never authorises execution", async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    return { ok: false, status: 403, json: async () => ({ message: "Access denied" }) };
+  };
+  const initial = { version: 1, start_object_id: "department", grain_path: [], multi_value: "join",
+    columns: [{ kind: "field", path: [...departmentMemberPath, ...memberOrganizationPath],
+      preference_field_id: "org-sector", label: "Saved sector" }] };
+  let view;
+  try {
+    view = await mount(initial, definitions, savedReports, object, [], "", null);
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+    assert.match(view.container.textContent, /Organisation custom fields could not be loaded: Access denied/);
+    assert.equal(view.config, initial);
+    assert.equal(view.config.version, 1);
+    assert.equal(buttonNamed("Preview").disabled, true);
+    assert.equal(buttonNamed("Export CSV").disabled, true);
+    await act(async () => {
+      click(buttonNamed("Retry organisation fields"));
+      await new Promise(resolve => setTimeout(resolve, 20));
+    });
+    assert.equal(calls, 2);
+    assert.equal(view.config, initial);
+    // A successful empty response means the saved field is inaccessible/deleted,
+    // not permission to substitute a similarly named core field.
+    await act(async () => {
+      view.queryClient.setQueryData(["custom-object-report-organization-fields", object.id], []);
+      await new Promise(resolve => setTimeout(resolve, 20));
+    });
+    assert.match(view.container.textContent, /Organisation custom field column "Saved sector" is unavailable/);
+    assert.equal(buttonNamed("Preview").disabled, true);
+    await act(async () => click(view.container.querySelector('[aria-label="Remove column 1"]')));
+    assert.deepEqual(view.config.columns, []);
+    assert.equal(initial.columns[0].preference_field_id, "org-sector");
+  } finally {
+    if (view) await view.cleanup();
+    globalThis.fetch = originalFetch;
   }
 });

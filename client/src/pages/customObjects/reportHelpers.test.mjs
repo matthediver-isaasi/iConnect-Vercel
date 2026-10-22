@@ -72,6 +72,51 @@ test("report column reordering is bounded and stable", () => {
   assert.deepEqual(moveReportColumn([{ id: "a" }], 0, -1).map((item) => item.id), ["a"]);
 });
 
+test("organisation custom column reconciliation validates typed IDs without rewriting V1 or V2 snapshots", () => {
+  const graph = [{ ...definitions[0], target_kind: "organization" }];
+  const path = [{ relationship_definition_id: "department-member", from_side: "source" }];
+  for (const version of [1, 2]) {
+    const config = makeReportConfig("department", { version,
+      columns: [{ kind: "field", path, preference_field_id: "sector", label: "Sector" }] });
+    const inspect = (organizationFields, changes = {}) => reconcileReportConfig({
+      objectId: "department", definitions: graph, config, organizationFields, ...changes,
+    });
+    const pending = inspect(undefined);
+    assert.equal(pending.config, config);
+    assert.equal(pending.config.version, version);
+    assert.equal(pending.columnsPending, true);
+    assert.deepEqual(pending.stale, []);
+    const valid = inspect([{ id: "sector", label: "Sector", field_type: "text" }]);
+    assert.equal(valid.columnsPending, false);
+    assert.deepEqual(valid.stale, []);
+    assert.equal(valid.config, config);
+    assert.match(inspect([]).stale.join(" "), /Sector.*unavailable/);
+    assert.equal(inspect([{ id: "sector" }], { metadataLoading: true }).columnsPending, true);
+    for (const column of [
+      { ...config.columns[0], field: "name" },
+      { ...config.columns[0], field_id: "sector" },
+      { ...config.columns[0], preference_field_id: "" },
+      { ...config.columns[0], path: [] },
+    ]) {
+      assert.match(inspect([{ id: "sector" }], { config: { ...config, columns: [column] } })
+        .stale.join(" "), /invalid reference/);
+    }
+  }
+});
+
+test("only selected custom fields wait for column metadata; core fields do not depend on organisation discovery", () => {
+  const inspect = (column, fieldsByEndpoint = {}) => reconcileReportConfig({
+    objectId: "department", definitions: [{ ...definitions[0], target_kind: "organization" }],
+    fieldsByEndpoint, config: makeReportConfig("department", { columns: [column] }),
+  });
+  assert.equal(inspect({ kind: "field", path: [], field_id: "title" }).columnsPending, true);
+  assert.equal(inspect({ kind: "field", path: [], field: "id" }).columnsPending, false);
+  assert.equal(inspect({ kind: "field", path: [{ relationship_definition_id: "department-member", from_side: "source" }],
+    field: "name" }).columnsPending, false);
+  assert.equal(inspect({ kind: "field", path: [], field_id: "title" },
+    { "custom_object:department": [{ id: "title" }] }).columnsPending, false);
+});
+
 test("new reports use the V2 owner and path contract", () => {
   assert.deepEqual(makeReportConfig("department"), {
     version: 2,

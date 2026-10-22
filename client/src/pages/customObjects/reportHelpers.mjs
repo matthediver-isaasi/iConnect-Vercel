@@ -71,7 +71,7 @@ export const reportColumnSummary = (column, { start, row, definitions, objects, 
   const route = (path.length <= 1 ? `linked directly to ${origin}` : `linked to ${origin} via ${via}`)
     + (relationship ? ` · ${relationship}` : "");
   if (column.kind === "count_distinct") return `Count distinct ${destination} ${route}`;
-  if (column.kind === "matching_field") return `${destination} ${column.field || column.field_id} · ${route} · matching values only · ${Array.isArray(column.conditions) ? column.conditions.length : "Invalid"} conditions`;
+  if (column.kind === "matching_field") return `${destination} ${column.field || column.field_id || column.preference_field_id} · ${route} · matching values only · ${Array.isArray(column.conditions) ? column.conditions.length : "Invalid"} conditions`;
   if (column.kind === "exists_related") {
     const count = Array.isArray(column.conditions) ? column.conditions.length : "Invalid";
     return `Has matching ${destination} ${route} · True / False · ${count} condition${count === 1 ? "" : "s"}`;
@@ -138,6 +138,7 @@ export const reconcileReportConfig = ({
   objectId,
   definitions = [],
   fieldsByEndpoint = {},
+  organizationFields,
   metadataLoading = false,
 }) => {
   // `makeReportConfig` is the builder for new V2 definitions and therefore
@@ -187,6 +188,7 @@ export const reconcileReportConfig = ({
   });
   const stale = [];
   let indicatorsPending = false;
+  let columnsPending = false;
   if (!SUPPORTED_REPORT_CONFIG_VERSIONS.includes(version)) {
     stale.push(`Report version ${view.version ?? "unknown"} is not supported and must be repaired.`);
   }
@@ -248,6 +250,19 @@ export const reconcileReportConfig = ({
       }
       continue;
     }
+    if (Object.hasOwn(column, "preference_field_id")) {
+      const reference = column.preference_field_id;
+      if (result.endpoint?.kind !== "organization" || !["field", "matching_field"].includes(column.kind)
+        || reference == null || String(reference).trim() === ""
+        || Object.hasOwn(column, "field") || Object.hasOwn(column, "field_id")) {
+        stale.push(`Organisation custom field column "${column.label || reference || "unknown"}" has an invalid reference.`);
+      } else if (metadataLoading || !Array.isArray(organizationFields)) {
+        columnsPending = true;
+      } else if (!organizationFields.some((field) => String(field.id) === String(reference))) {
+        stale.push(`Organisation custom field column "${column.label || reference}" is unavailable.`);
+      }
+      continue;
+    }
     const fieldReference = column.field_id || column.field;
     if (column.kind === "matching_field" && result.endpoint?.kind !== "custom_object") {
       const core = result.endpoint?.kind === "member"
@@ -257,6 +272,7 @@ export const reconcileReportConfig = ({
     }
     if (result.endpoint?.kind === "custom_object" && fieldReference === "id") continue;
     const available = fieldsByEndpoint[endpointKey(result.endpoint)];
+    if (result.endpoint?.kind === "custom_object" && !Array.isArray(available)) columnsPending = true;
     // An endpoint whose metadata has not loaded is not declared stale.
     if (available && !available.some((field) => String(field.id) === String(fieldReference))) {
       stale.push(`Field column "${column.label || fieldReference}" is unavailable.`);
@@ -270,6 +286,7 @@ export const reconcileReportConfig = ({
     config: normalized, stale, rowEndpoint: pathCheck.endpoint, rowPathError: pathCheck.error,
     filtersPending: filterCheck.pending,
     indicatorsPending,
+    columnsPending,
   };
 };
 

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./ReportBuilder.css";
-import { useMutation, useQueries } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery } from "@tanstack/react-query";
 import { Download, Loader2, Plus, Trash2, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import ExportReportSwitcher from "@/components/ExportReportSwitcher";
@@ -108,6 +108,17 @@ export function CustomObjectReports({
     : [];
   const ownerEndpoint = useMemo(() => startEndpoint(objectId), [objectId]);
   const endpoints = useMemo(() => reportReachableEndpoints(graph, ownerEndpoint), [graph, ownerEndpoint]);
+  const organizationFieldsQuery = useQuery({
+    queryKey: ["custom-object-report-organization-fields", objectId],
+    queryFn: async () => {
+      const response = await relationshipRequest(reportUrl(objectId, "organization-fields"));
+      if (!Array.isArray(response?.data)) throw new Error("Invalid organisation field metadata response.");
+      return response.data;
+    },
+    enabled: Boolean(objectId) && endpoints.some((endpoint) => endpoint.kind === "organization"),
+  });
+  // Failed refreshes must not authorise execution using cached metadata.
+  const organizationFields = organizationFieldsQuery.isError ? undefined : organizationFieldsQuery.data;
   const customEndpoints = endpoints.filter((item) => item.kind === "custom_object" && item.customObjectId);
   const fieldQueries = useQueries({
     queries: customEndpoints.map((endpoint) => ({
@@ -127,10 +138,10 @@ export function CustomObjectReports({
     ]];
   })), [customEndpoints, fieldQueries, fields, objectId]);
   const reconciled = useMemo(() => reconcileReportConfig({
-    config, objectId, definitions: graph, fieldsByEndpoint, metadataLoading: graphLoading,
-  }), [config, objectId, graph, fieldsByEndpoint, graphLoading]);
+    config, objectId, definitions: graph, fieldsByEndpoint, organizationFields, metadataLoading: graphLoading,
+  }), [config, objectId, graph, fieldsByEndpoint, organizationFields, graphLoading]);
   const executionBlocked = linkPending || graphLoading || reconciled.stale.length > 0
-    || reconciled.filtersPending || reconciled.indicatorsPending || !renderedColumns.length;
+    || reconciled.filtersPending || reconciled.indicatorsPending || reconciled.columnsPending || !renderedColumns.length;
 
   useEffect(() => {
     setConfig((current) => current == null || typeof current !== "object"
@@ -247,14 +258,15 @@ export function CustomObjectReports({
   }).endpoint;
   const availableFields = columnEndpoint.kind === "custom_object"
     ? [{ id: "id", label: "ID", builtIn: true }, ...(fieldsByEndpoint[endpointKey(columnEndpoint)] || [])]
-    : (CORE_FIELDS[columnEndpoint.kind] || []);
+    : [...(CORE_FIELDS[columnEndpoint.kind] || []), ...(columnEndpoint.kind === "organization"
+      ? (organizationFields || []).map((field) => ({ ...field, preferenceField: true })) : [])];
   const addColumn = (field) => setColumns((current) => [...current, {
     id: `${endpointKey(columnEndpoint)}:${field.id}:${Date.now()}`,
     kind: columnKind === "matching_field" ? "matching_field" : "field", path: columnPath,
     ...(columnKind === "matching_field" ? { conditions: [] } : {}),
     ...(columnEndpoint.kind === "custom_object"
       ? (field.builtIn ? { field: String(field.id) } : { field_id: String(field.id) })
-      : { field: String(field.id) }),
+      : field.preferenceField ? { preference_field_id: String(field.id) } : { field: String(field.id) }),
     label: field.label,
   }]);
   const relationshipDefinition = columnPath.length
@@ -364,10 +376,11 @@ export function CustomObjectReports({
               label={rowRelativeColumn ? "Related records from each row" : "Related records from starting entity"} />}
             <p className="text-xs text-slate-500">{columnKind === "matching_field" ? "Show only matching records from each row. Blank and repeated values preserve identity order; rows and counts are unchanged." : columnKind === "exists_related" ? "True when at least one related record meets every condition. Does not filter rows or change other columns." : calculation ? "Calculated for each row. All distinct linked records are counted, independently of indicator conditions." : "Field values are reached from the starting entity, not the row entity."}</p>
             {!calculation && <div><Label>Add a field</Label><div className="mt-2 grid max-h-64 gap-2 overflow-y-auto sm:grid-cols-2">
-              {availableFields.map((field) => <Button key={field.id} type="button" size="sm" variant="outline"
+              {availableFields.map((field) => <Button key={`${field.preferenceField ? "preference" : "field"}:${field.id}`} type="button" size="sm" variant="outline"
                 className="h-auto min-h-9 whitespace-normal break-words [overflow-wrap:anywhere]" disabled={!canManage || graphLoading || (["related_field", "matching_field"].includes(columnKind) && !columnPath.length)}
                 onClick={() => addColumn(field)}><Plus className="mr-1 h-3 w-3 shrink-0" /><span title={field.label} className="min-w-0 line-clamp-2">{field.label}</span></Button>)}
               {columnEndpoint.kind === "custom_object" && !Array.isArray(fieldsByEndpoint[endpointKey(columnEndpoint)]) && <p role="status" className="text-sm text-slate-500">Field metadata unavailable. Saved selections are preserved.</p>}
+              {columnEndpoint.kind === "organization" && !Array.isArray(organizationFields) && <p role="status" className="text-sm text-slate-500">Organisation custom field metadata unavailable. Saved selections are preserved.</p>}
             </div></div>}
             {!rowRelativeColumn && relationshipMetadata.length > 0 && <div><Label>Relationship fields</Label><div className="mt-2 grid gap-2 sm:grid-cols-2">{relationshipMetadata.map((field) => <Button key={field.id || field.key} type="button" size="sm" variant="outline" className="h-auto min-h-9 whitespace-normal break-words" disabled={!canManage || graphLoading} onClick={() => addRelationshipColumn(field)}><Plus className="mr-1 h-3 w-3 shrink-0" /><span title={field.label} className="min-w-0 line-clamp-2">{field.label}</span></Button>)}</div></div>}
             {calculation && <Button type="button" data-testid={columnKind === "exists_related" ? "add-report-indicator" : "add-report-count"}
@@ -403,7 +416,8 @@ export function CustomObjectReports({
           definitions={graph} objects={graphObjects} object={object} fieldsByEndpoint={fieldsByEndpoint}
           metadataLoading={graphLoading} metadataError={fieldQueries.some((query) => query.isError)}
           onRetry={() => fieldQueries.filter((query) => query.isError).forEach((query) => query.refetch())} />}
-        {(graphLoading || reconciled.indicatorsPending || reconciled.filtersPending) && <p role="status" className="rounded-md border p-3 text-sm text-slate-500">Waiting for authorised relationship or field metadata. Saved selections are preserved; preview and export are blocked.</p>}
+        {organizationFieldsQuery.isError && <div role="alert" className="rounded-md border p-3 text-sm text-red-600">Organisation custom fields could not be loaded: {organizationFieldsQuery.error?.message}. Saved selections are preserved.<Button type="button" variant="outline" size="sm" className="ml-2" onClick={() => organizationFieldsQuery.refetch()}>Retry organisation fields</Button></div>}
+        {(graphLoading || reconciled.indicatorsPending || reconciled.filtersPending || reconciled.columnsPending) && <p role="status" className="rounded-md border p-3 text-sm text-slate-500">Waiting for authorised relationship or field metadata. Saved selections are preserved; preview and export are blocked.</p>}
         {previewMutation.isError && <p role="alert" className="text-sm text-red-600">Preview failed: {previewMutation.error?.message}. Retry Preview after resolving the issue.</p>}
         <div className="flex flex-wrap items-center justify-end gap-3">{exportMutation.isPending && <span className="text-sm text-slate-500">Preparing CSV… {exportProgress?.total ? `${exportProgress.processed} of ${exportProgress.total} rows` : "counting rows"}</span>}{exportMutation.isError && <span role="alert" className="text-sm text-red-600">Export failed: {exportMutation.error?.message}</span>}<Button variant="outline" disabled={!canManage || executionBlocked || exportMutation.isPending} onClick={() => exportMutation.mutate()}>{exportMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}Export CSV</Button></div>
       </CardContent>
