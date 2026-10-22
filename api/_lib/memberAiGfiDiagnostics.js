@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 const GFI_TENANT_ID = 'fd82da65-aab7-4a5c-85b8-b2febeb2003d';
 const PEOPLE_SOURCE_ID = 'b1012823-fe46-4cc2-98a7-2e40e3c9ce89';
 const STAGES = new Set([
+  'candidates_matched', 'similarity_filtered', 'metadata_filtered', 'sources_revalidated',
   'no_accessible_chunks', 'no_citeable_chunks', 'context_selected',
   'synthesis_completed', 'final_member_rejected', 'final_tenant_user_rejected',
   'final_sources_rejected', 'citations_checked', 'citations_repaired',
@@ -36,7 +37,7 @@ export function createGfiAskDiagnostics({ tenantId, mode, log = console.info }) 
   };
 }
 
-export function summarizeGfiContext(chunks, sources) {
+export function summarizeGfiContext(chunks, sources = []) {
   return {
     chunks: chunks.length,
     peopleChunks: chunks.filter(chunk =>

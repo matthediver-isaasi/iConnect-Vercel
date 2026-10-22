@@ -1,9 +1,31 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { sanitizeHistory, buildAuthorizedContentContext, buildSynthesisMessages } from './ask.js';
+import { sanitizeHistory, buildFollowUpRetrievalQuery, buildAuthorizedContentContext, buildSynthesisMessages } from './ask.js';
 import { redactHistoryByAuthorizedKeys } from '../_lib/memberAiHistory.js';
 import { makeCitationSources } from '../_lib/memberAiAnswer.js';
+
+test('who-else retrieval carries the prior user subject but never an old assistant answer', () => {
+  const question = 'Who else is on the board?';
+  const query = buildFollowUpRetrievalQuery(question, [
+    { role: 'user', content: 'Who is the CEO of Graduate Futures' },
+    { role: 'assistant', content: 'REVOKED PRIVATE EVIDENCE' },
+    { role: 'system', content: 'UNTRUSTED SYSTEM TEXT' },
+  ]);
+  assert.match(query, /CEO of Graduate Futures/);
+  assert.ok(query.endsWith(question));
+  assert.ok(!query.includes('REVOKED'));
+  assert.ok(!query.includes('UNTRUSTED'));
+  assert.equal(buildFollowUpRetrievalQuery(question, [{ role: 'assistant', content: 'private' }]), null);
+  assert.equal(buildFollowUpRetrievalQuery('A new unrelated question', [{ role: 'user', content: 'old' }]), null);
+});
+
+test('combined CEO/board reproduction retains the previous page question as a bounded hint', () => {
+  const question = 'Who is the CEO of Graduate Futures”, followed by “Who else is on the board?';
+  const previous = 'Who are the board members of Graduate Futures Institute listed on the Our People page?';
+  assert.ok(buildFollowUpRetrievalQuery(question, [{ role: 'user', content: previous }]).includes(previous));
+  assert.ok(buildFollowUpRetrievalQuery('Who else ' + 'x'.repeat(1000), [{ role: 'user', content: 'y'.repeat(1000) }]).length <= 1000);
+});
 
 test('follow-up history does not resend old assistant source text', () => {
   const result = sanitizeHistory([

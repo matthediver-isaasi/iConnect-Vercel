@@ -145,6 +145,16 @@ export function sanitizeHistory(raw) {
     .map((m) => ({ role: m.role, content: m.content.slice(0, MAX_QUESTION_LEN) }));
 }
 
+// User questions are search hints, never evidence. Do not reuse old assistant
+// text: every candidate must still pass the current source/access checks.
+export function buildFollowUpRetrievalQuery(question, rawHistory) {
+  if (!/\bwho else\b/i.test(question)) return null;
+  const previous = sanitizeHistory(rawHistory).reverse().find(turn =>
+    turn.content.trim() && turn.content.trim().toLowerCase() !== question.trim().toLowerCase());
+  if (!previous) return null;
+  return `Previous question: ${previous.content.slice(0, 450)}\nFollow-up: ${question.slice(0, 500)}`;
+}
+
 // Only the citation cards built from revalidated live source rows are allowed
 // to contribute source dates to the synthesis prompt. Indexed timestamps and
 // user/tenant-authored dates are not evidence of publication or update.
@@ -624,10 +634,15 @@ export async function handleMemberAiAsk(req, res, { publicOnly = false } = {}) {
     // --- Multi-query retrieval: expand broad questions into extra queries ---
     const wordCount = question.split(/\s+/).filter(Boolean).length;
     let queries = [question];
+    const followUpQuery = buildFollowUpRetrievalQuery(question, history);
+    if (followUpQuery) queries.push(followUpQuery);
     if (wordCount >= MIN_WORDS_FOR_EXPANSION) {
       const extras = await expandRetrievalQueries(openai, question, recordProviderUsage, requestDeadline);
-      const seen = new Set([question.toLowerCase()]);
+      const seen = new Set(queries.map(query => query.toLowerCase()));
       for (const q of extras) {
+        // The contextual hint occupies an expansion slot; do not increase the
+        // existing per-request vector-search/embedding query count ceiling.
+        if (queries.length >= 1 + MAX_EXPANDED_QUERIES) break;
         const k = q.toLowerCase();
         if (!seen.has(k)) {
           seen.add(k);
@@ -728,6 +743,7 @@ export async function handleMemberAiAsk(req, res, { publicOnly = false } = {}) {
       if (r.error) throw r.error;
     }
     const candidates = mergeCandidates(matchResults.map((r) => r.data));
+    diagnose('candidates_matched', summarizeGfiContext(candidates));
 
     // --- Security boundary: keep only accessible, relevant chunks ---
     const now = new Date();
@@ -736,6 +752,7 @@ export async function handleMemberAiAsk(req, res, { publicOnly = false } = {}) {
     const aboveFloor = candidates.filter(
       (m) => (m.similarity ?? 0) >= MIN_SIMILARITY
     );
+    diagnose('similarity_filtered', summarizeGfiContext(aboveFloor));
     let visible = aboveFloor.filter((m) =>
       isChunkVisibleToMember(m, visibilityCtx)
     );
@@ -748,6 +765,7 @@ export async function handleMemberAiAsk(req, res, { publicOnly = false } = {}) {
         (chunk) => chunk.content_type !== 'resource' || chunk.is_public === true
       );
     }
+    diagnose('metadata_filtered', summarizeGfiContext(visible));
 
     // Final live-source validation is deliberately after the cheap metadata
     // checks and before ranking/limiting. It makes publication, role, group,
@@ -760,6 +778,7 @@ export async function handleMemberAiAsk(req, res, { publicOnly = false } = {}) {
       accessibleEventIds,
       accessibleSessionIds,
     });
+    diagnose('sources_revalidated', summarizeGfiContext(visible));
 
     if (!visible.length) {
       // Structured fallback instrumentation: make future stock answers

@@ -946,8 +946,9 @@ test('actual ask original CEO then board follow-up regression uses unchanged fol
   assert.equal(second.body.sources[0].type, 'iedit_page');
   assert.equal(second.body.sources[0].link, '/board');
   assert.match(second.body.answer, /Fixture Boardchair.*Fixture Trustee/);
-  assert.deepEqual(trace.embeddings, [[firstQuestion], [followUp]]);
-  assert.deepEqual(trace.searches.map(args => args.p_query_text), [firstQuestion, followUp]);
+  const contextualQuery = `Previous question: ${firstQuestion}\nFollow-up: ${followUp}`;
+  assert.deepEqual(trace.embeddings, [[firstQuestion], [followUp, contextualQuery]]);
+  assert.deepEqual(trace.searches.map(args => args.p_query_text), [firstQuestion, followUp, contextualQuery]);
   assert.equal(trace.synthesis.length, 2);
   assert.ok(trace.synthesis[1].some(message => message.role === 'user' && message.content === firstQuestion));
   assert.ok(!trace.synthesis[1].some(message => message.role === 'assistant'), 'old model facts are not replayed as authority');
@@ -960,11 +961,19 @@ test('actual ask rechecks source Access after synthesis and suppresses revoked r
     duringSynthesis: async ({ db }) => { db.state.tables.wall_of_fame_person[1].is_active = false; },
   });
   const res = httpResponse();
-  await fixture.ask({ method: 'POST', headers: {}, body: { question: 'Who else is on the board?' } }, res);
+  await fixture.ask({ method: 'POST', headers: {}, body: {
+    question: 'Who else is on the board?',
+    history: [
+      { role: 'user', content: 'Who is the CEO of Graduate Futures' },
+      { role: 'assistant', content: 'Previously named Fixture Trustee [S1].' },
+    ],
+  } }, res);
   assert.equal(res.statusCode, 200);
   assert.equal(fixture.trace.synthesis.length, 1, 'the roster was initially eligible before revocation');
   assert.equal(res.body.grounded, false);
   assert.deepEqual(res.body.sources, []);
   assert.doesNotMatch(res.body.answer, /Fixture Boardchair|Fixture Trustee/);
   assert.equal(res.body.answerProvenance, undefined);
+  assert.ok(fixture.trace.embeddings[0].some(query => query.includes('Previous question:')));
+  assert.ok(fixture.trace.embeddings[0].every(query => !query.includes('Previously named')));
 }));
