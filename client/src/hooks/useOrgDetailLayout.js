@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
+import { INVOICING_CORE_FIELDS, DEFAULT_INVOICING_CARD } from "@/lib/invoicingAddressFields";
 
 const LAYOUT_SETTING_KEY = 'org_detail_layout_config';
 export const DEFAULT_ORGANISATION_RELATIONSHIP_DISPLAY_MODE = 'columns';
@@ -10,6 +11,7 @@ export function normalizeOrganisationRelationshipDisplayMode(value) {
 
 const DEFAULT_LAYOUT = {
   cards: [
+    DEFAULT_INVOICING_CARD,
     {
       id: 'card-details',
       title: 'Organisation Details',
@@ -60,6 +62,7 @@ function migrateLayoutWithColumnIndex(layout) {
 }
 
 export const CORE_FIELDS = [
+  ...INVOICING_CORE_FIELDS,
   { id: 'core:name', fieldKey: 'name', label: 'Organisation Name', type: 'text' },
   { id: 'core:organization_group_id', fieldKey: 'organization_group_id', label: 'Organisation Group', type: 'select' },
   { id: 'core:description', fieldKey: 'description', label: 'Description', type: 'textarea' },

@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { redactInvoicingAddress } from '../../../shared/invoicingAddress.js';
 import { resolveTenantFromRequest } from '../../_lib/tenantResolver.js';
 import { resolveTenantOrganisationGroupId } from '../../_lib/formOrganisationGroups.js';
 
@@ -109,7 +110,7 @@ export default async function handler(req, res) {
     } = org;
 
     return res.json({
-      ...publicOrg,
+      ...redactInvoicingAddress(publicOrg),
       organization_group_id: organizationGroupId,
     });
   } catch (error) {

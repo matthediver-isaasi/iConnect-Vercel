@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
+import { INVOICING_CORE_FIELDS, DEFAULT_INVOICING_CARD } from "@/lib/invoicingAddressFields";
 import {
   MEMBER_MANDATE_LAYOUT_FIELDS,
 } from "@/lib/memberMandateLayout";
@@ -13,6 +14,7 @@ export function normalizeRelationshipDisplayMode(value) {
 
 const DEFAULT_LAYOUT = {
   cards: [
+    DEFAULT_INVOICING_CARD,
     {
       id: 'card-contact',
       title: 'Contact Information',
@@ -73,6 +75,7 @@ function migrateLayoutWithColumnIndex(layout) {
 }
 
 export const MEMBER_CORE_FIELDS = [
+  ...INVOICING_CORE_FIELDS,
   { id: 'core:first_name', fieldKey: 'first_name', label: 'First Name', type: 'text' },
   { id: 'core:last_name', fieldKey: 'last_name', label: 'Last Name', type: 'text' },
   { id: 'core:email', fieldKey: 'email', label: 'Email', type: 'email' },

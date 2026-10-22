@@ -1,4 +1,5 @@
 import Stripe from 'stripe';
+import { redactInvoicingAddress } from '../../shared/invoicingAddress.js';
 import { replayPublicTicketBooking, compensatePublicTicketCapacity } from '../_lib/publicTicketMemberRecovery.js';
 import { assertPublicTicketPurchaser } from '../_lib/publicTicketEmail.js';
 import { publicTicketSimpleBaseTotal, validatePublicTicketSimpleCharge } from '../_lib/publicTicketSimpleQuote.js';
@@ -529,7 +530,7 @@ const functionHandlers = {
       .update({ used: true })
       .eq('id', magicLink.id);
 
-    return { success: true, member: magicLink.member };
+    return { success: true, member: redactInvoicingAddress(magicLink.member) };
   },
 
   async validateMember(params) {

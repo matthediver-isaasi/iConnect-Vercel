@@ -1,4 +1,5 @@
 import { getSessionMember } from '../../../_lib/session.js';
+import { INVOICING_ADDRESS_KEYS, invoicingAddressError, redactInvoicingAddress } from '../../../../shared/invoicingAddress.js';
 import { createClient } from '@supabase/supabase-js';
 import { isResourceExcluded } from '../../../_lib/roleVisibility.js';
 import { triggerWorkflows } from '../../../_lib/workflows.js';
@@ -42,12 +43,12 @@ async function verifyPermission(req, permissionId) {
     // Derive admin status from whether admin.role-management is NOT excluded
     const isAdmin = !isResourceExcluded(excludedFeatures, 'admin.role-management');
     if (isAdmin) {
-      return { hasPermission: true, memberId: sessionMember.id };
+      return { hasPermission: true, memberId: sessionMember.id, tenantId: sessionMember.tenant_id };
     }
 
     const hasPermission = !isResourceExcluded(excludedFeatures, permissionId);
 
-    return { hasPermission, memberId: sessionMember.id };
+    return { hasPermission, memberId: sessionMember.id, tenantId: sessionMember.tenant_id };
   } catch (error) {
     console.error('[Permission Verify] Error:', error);
     return { hasPermission: false, error: 'Verification failed' };
@@ -64,7 +65,7 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  const { hasPermission, error } = await verifyPermission(req, 'admin_can_edit_members');
+  const { hasPermission, error, tenantId } = await verifyPermission(req, 'admin_can_edit_members');
 
   if (error) {
     return res.status(401).json({ error });
@@ -82,11 +83,12 @@ export default async function handler(req, res) {
 
   if (req.method === 'GET') {
     try {
-      const { data: member, error: memberError } = await supabase
+      let memberQuery = supabase
         .from('member')
         .select('*')
-        .eq('id', memberId)
-        .single();
+        .eq('id', memberId);
+      if (tenantId) memberQuery = memberQuery.eq('tenant_id', tenantId);
+      const { data: member, error: memberError } = await memberQuery.single();
 
       if (memberError || !member) {
         return res.status(404).json({ error: 'Member not found' });
@@ -102,7 +104,7 @@ export default async function handler(req, res) {
         console.error('[Admin Get Member] Effective login status error:', statusErr);
       }
 
-      return res.json({ ...member, effective_login_status: effectiveLoginStatus });
+      return res.json({ ...(tenantId ? member : redactInvoicingAddress(member)), effective_login_status: effectiveLoginStatus });
     } catch (error) {
       console.error('[Admin Get Member] Error:', error);
       return res.status(500).json({ error: 'Failed to get member' });
@@ -112,8 +114,13 @@ export default async function handler(req, res) {
   if (req.method === 'PATCH') {
     try {
       const rawUpdates = req.body;
+      const addressError = invoicingAddressError(rawUpdates);
+      if (addressError) return res.status(400).json({ error: addressError });
+      const writesAddress = INVOICING_ADDRESS_KEYS.some(key => Object.prototype.hasOwnProperty.call(rawUpdates, key));
+      if (writesAddress && !tenantId) return res.status(403).json({ error: 'Tenant context required for invoicing address changes' });
 
       const allowedFields = [
+        ...INVOICING_ADDRESS_KEYS,
         'first_name', 'last_name', 'job_title', 'biography',
         'profile_photo_url', 'linkedin_url', 'show_in_directory',
         'twitter_url', 'phone_number', 'pronouns', 'location_summary'
@@ -137,10 +144,12 @@ export default async function handler(req, res) {
         .eq('id', memberId)
         .single();
 
-      const { data: updatedMember, error: updateError } = await supabase
+      let updateQuery = supabase
         .from('member')
         .update(updates)
-        .eq('id', memberId)
+        .eq('id', memberId);
+      if (tenantId) updateQuery = updateQuery.eq('tenant_id', tenantId);
+      const { data: updatedMember, error: updateError } = await updateQuery
         .select()
         .single();
 

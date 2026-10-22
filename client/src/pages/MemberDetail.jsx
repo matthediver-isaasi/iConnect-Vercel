@@ -15,6 +15,7 @@ import CrmTagInput from "@/components/crm/CrmTagInput";
 import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
 import { useMemberDetailLayout, mergeLayoutWithCustomFields, MEMBER_CORE_FIELDS } from "@/hooks/useMemberDetailLayout";
+import { INVOICING_CORE_FIELDS, invoicingAddressFormValues, withInvoicingAddressChanges } from "@/lib/invoicingAddressFields";
 import { CORE_FIELDS as ORG_CORE_FIELDS } from "@/hooks/useOrgDetailLayout";
 import MemberDetailLayoutEditor from "@/components/MemberDetailLayoutEditor";
 import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
@@ -754,6 +755,7 @@ export default function MemberDetail() {
   useEffect(() => {
     if (member?.id && !isEditing) {
       setFormData({
+        ...invoicingAddressFormValues(member),
         first_name: member.first_name || '',
         last_name: member.last_name || '',
         email: member.email || '',
@@ -787,6 +789,7 @@ export default function MemberDetail() {
         phone: linkedOrg.phone || '',
         website_url: linkedOrg.website_url || '',
         invoicing_address: linkedOrg.invoicing_address || '',
+        ...invoicingAddressFormValues(linkedOrg),
         created_at: linkedOrg.created_at || ''
       } : {};
       setOrgFormData((previous) => preserveEqualState(previous, next));
@@ -979,7 +982,7 @@ export default function MemberDetail() {
     const orgId = linkedOrg?.id;
     if (!orgId) return;
 
-    const ORG_CORE_KEYS = ['name', 'description', 'email', 'invoicing_email', 'phone', 'website_url', 'invoicing_address'];
+    const ORG_CORE_KEYS = ['name', 'description', 'email', 'invoicing_email', 'phone', 'website_url', 'invoicing_address', ...INVOICING_CORE_FIELDS.map(field => field.fieldKey)];
     const coreUpdates = {};
     ORG_CORE_KEYS.forEach(key => {
       const next = orgFormData[key] ?? '';
@@ -1046,7 +1049,7 @@ export default function MemberDetail() {
         return;
       }
     }
-    const payload = { ...formData, role_id: selectedRoleId };
+    const payload = { ...withInvoicingAddressChanges(formData, member), role_id: selectedRoleId };
     if (linkedOrg?.guest_access_enabled) {
       payload.guest_expires_at = formData.guest_expires_at
         ? new Date(`${formData.guest_expires_at}T23:59:59`).toISOString()
@@ -1064,6 +1067,7 @@ export default function MemberDetail() {
 
   const handleCancel = () => {
     setFormData({
+      ...invoicingAddressFormValues(member),
       first_name: member.first_name || '',
       last_name: member.last_name || '',
       email: member.email || '',
@@ -1087,6 +1091,7 @@ export default function MemberDetail() {
         phone: linkedOrg.phone || '',
         website_url: linkedOrg.website_url || '',
         invoicing_address: linkedOrg.invoicing_address || '',
+        ...invoicingAddressFormValues(linkedOrg),
         created_at: linkedOrg.created_at || ''
       });
     }
@@ -1347,11 +1352,17 @@ export default function MemberDetail() {
       case 'mobile':
       case 'landline':
       case 'job_title':
+      case 'invoicing_address_line1':
+      case 'invoicing_address_line2':
+      case 'invoicing_city':
+      case 'invoicing_region':
+      case 'invoicing_postal_code':
+      case 'invoicing_country':
         return (
           <div className="space-y-1">
             <Label className="text-xs text-slate-500 flex items-center gap-1">{label}{lockBadge}</Label>
             {isEditing ? (
-              <Input value={formData[fieldKey] || ''} onChange={(e) => setFormData(prev => ({ ...prev, [fieldKey]: e.target.value }))} disabled={isLocked} data-testid={`input-member-${fieldKey}`} />
+              <Input value={formData[fieldKey] || ''} maxLength={coreFieldDef.maxLength} onChange={(e) => setFormData(prev => ({ ...prev, [fieldKey]: e.target.value }))} disabled={isLocked} data-testid={`input-member-${fieldKey}`} />
             ) : (
               <p className="text-sm font-medium">{member[fieldKey] || '-'}</p>
             )}
@@ -1433,7 +1444,7 @@ export default function MemberDetail() {
       control = <Textarea value={value || ''} onChange={(e) => setOrgFormData(prev => ({ ...prev, [fieldKey]: e.target.value }))} rows={3} disabled={isLocked} data-testid={`textarea-org-${fieldKey}`} />;
     } else {
       const inputType = def.type === 'email' ? 'email' : def.type === 'url' ? 'url' : 'text';
-      control = <Input type={inputType} value={value || ''} onChange={(e) => setOrgFormData(prev => ({ ...prev, [fieldKey]: e.target.value }))} disabled={isLocked} data-testid={`input-org-${fieldKey}`} />;
+      control = <Input type={inputType} maxLength={def.maxLength} value={value || ''} onChange={(e) => setOrgFormData(prev => ({ ...prev, [fieldKey]: e.target.value }))} disabled={isLocked} data-testid={`input-org-${fieldKey}`} />;
     }
     return (
       <div className="space-y-1">

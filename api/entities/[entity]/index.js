@@ -17,6 +17,7 @@ import { triggerZohoCrmSync, awaitZohoCrmSyncForResponse } from '../../_lib/zoho
 import { supabase } from '../../_lib/database.js';
 import { applyResourceReadReleaseScope } from '../../_lib/resourceReleaseAccess.js';
 import { stripProtectedOrgBalanceFields } from '../../_lib/protectedOrgFields.js';
+import { enforceInvoicingAddressBoundary } from '../../_lib/invoicingAddressBoundary.js';
 import { stripMemberPauseFields } from '../../_lib/memberPause.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess, hasFeatureAccess } from '../../_lib/tenantContext.js';
 import { MEMBER_RESOURCE_CATEGORY_SELECT, scopeMemberResourceCategoryRead } from '../../_lib/memberResourceCategoryRead.js';
@@ -468,6 +469,9 @@ export default async function handler(req, res) {
     // Only protected consumers interpret this header; public responses do not.
     res.setHeader('X-Session-Status', 'invalid');
   }
+  if (await enforceInvoicingAddressBoundary({
+    entity, req, res, context: tenantCtx, hasAdminAccess,
+  })) return;
   if (req.method === 'GET') {
     const projectionError = ticketAudienceProjectionError(entityNorm, req.query);
     if (projectionError) return res.status(400).json({ error: projectionError });

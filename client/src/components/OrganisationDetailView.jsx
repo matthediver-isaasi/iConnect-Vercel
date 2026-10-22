@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
+import { invoicingAddressFormValues, withInvoicingAddressChanges } from "@/lib/invoicingAddressFields";
 import { safeLogoSrc } from "@/lib/safeLogoSrc";
 import {
   organisationDirectKey,
@@ -446,6 +447,7 @@ export default function OrganisationDetailView({
   const noteFileInputRef = useRef(null);
   const logoFileInputRef = useRef(null);
   const [formData, setFormData] = useState({
+    ...invoicingAddressFormValues(),
     name: '',
     email: '',
     phone: '',
@@ -483,6 +485,7 @@ export default function OrganisationDetailView({
         website_url: organization.website_url || '',
         invoicing_email: organization.invoicing_email || '',
         invoicing_address: organization.invoicing_address || '',
+        ...invoicingAddressFormValues(organization),
         description: organization.description || '',
         organization_group_id: organization.organization_group_id || ''
       });
@@ -1252,7 +1255,7 @@ export default function OrganisationDetailView({
       if (createOrgMutation.isPending) return;
       
       // Create mode: create org first, then save custom fields
-      createOrgMutation.mutate(formData, {
+      createOrgMutation.mutate(withInvoicingAddressChanges(formData, {}), {
         onSuccess: async (createdOrg) => {
           // Save custom field values for the newly created org
           const currentCustomFieldValues = { ...customFieldValues };
@@ -1301,7 +1304,7 @@ export default function OrganisationDetailView({
       });
       try {
         await saveOrganisationEdits({
-          core: { ...formData },
+          core: withInvoicingAddressChanges(formData, organization),
           custom: changes,
           updateCore: updateOrgMutation.mutateAsync,
           updateCustom: updateCustomFieldMutation.mutateAsync,
@@ -1330,6 +1333,7 @@ export default function OrganisationDetailView({
       website_url: organization.website_url || '',
       invoicing_email: organization.invoicing_email || '',
       invoicing_address: organization.invoicing_address || '',
+      ...invoicingAddressFormValues(organization),
       description: organization.description || ''
     });
     
@@ -1798,6 +1802,7 @@ export default function OrganisationDetailView({
         {isEditing ? (
           <Input
             type={inputType}
+            maxLength={coreFieldDef.maxLength}
             value={value || ''}
             onChange={(e) => setFormData(prev => ({ ...prev, [fieldKey]: e.target.value }))}
             disabled={isLocked}

@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
+import { INVOICING_CORE_FIELDS, DEFAULT_INVOICING_CARD } from "@/lib/invoicingAddressFields";
 
 // Task #3601: organisation-group record layout, mirroring useOrgDetailLayout
 // under its own SystemSettings key.
@@ -7,6 +8,7 @@ const LAYOUT_SETTING_KEY = 'org_group_detail_layout_config';
 
 const DEFAULT_LAYOUT = {
   cards: [
+    DEFAULT_INVOICING_CARD,
     {
       id: 'card-details',
       title: 'Group Details',
@@ -42,6 +44,7 @@ function migrateLayoutWithColumnIndex(layout) {
 }
 
 export const GROUP_CORE_FIELDS = [
+  ...INVOICING_CORE_FIELDS,
   { id: 'core:name', fieldKey: 'name', label: 'Group Name', type: 'text' },
   { id: 'core:description', fieldKey: 'description', label: 'Description', type: 'textarea' },
   { id: 'core:created_at', fieldKey: 'created_at', label: 'Created Date', type: 'date' }

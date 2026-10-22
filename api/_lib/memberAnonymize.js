@@ -1,6 +1,7 @@
 import { supabase as defaultSupabase } from './database.js';
 import { invalidateMemberSessions } from './session.js';
 import { checkMemberDeletionBilling } from './memberDeletionBillingSafety.js';
+import { INVOICING_ADDRESS_KEYS } from '../../shared/invoicingAddress.js';
 
 /**
  * Anonymise ("soft delete") a member row in place.
@@ -121,6 +122,7 @@ export async function anonymizeMember(memberId, { supabase = defaultSupabase } =
   const { error: anonymizeError } = await supabase
     .from('member')
     .update({
+      ...Object.fromEntries(INVOICING_ADDRESS_KEYS.map(key => [key, null])),
       email: `deleted_${id}@deleted.local`,
       first_name: 'Deleted',
       last_name: 'Member',

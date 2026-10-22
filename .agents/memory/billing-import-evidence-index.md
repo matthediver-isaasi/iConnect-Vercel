@@ -18,3 +18,6 @@
 - [Post-booking credit authority](post-booking-credit-authority.md) — refunds and credit notes need actual reversal evidence and durable linkage.
 - [Annual membership value](annual-membership-value-semantics.md) — allocate net commitments by applied structure, not settlement or term dates.
 - [Commercial sale invoice conversion](commercial-sale-invoice-conversion.md) — accepted quote snapshots own invoice arithmetic and provider claims.
+- [Structured invoice addresses](structured-invoice-address-compatibility.md) — independent entity addresses, legacy fallback and pre-Stripe invoice selection policy.
+- [Stripe membership invoice addresses](stripe-membership-invoice-addresses.md) — immutable payment-time evidence; missing snapshots fail closed.
+- [Event invoice recovery](event-invoice-recovery-authority.md) — purchaser authority, immutable checkout evidence and repair boundaries.

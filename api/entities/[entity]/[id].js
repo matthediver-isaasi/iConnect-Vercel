@@ -24,6 +24,7 @@ import { deleteRepositoryFile } from '../../_lib/fileRepositoryDelete.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess, hasFeatureAccess } from '../../_lib/tenantContext.js';
 import { MEMBER_RESOURCE_CATEGORY_SELECT, scopeMemberResourceCategoryRead } from '../../_lib/memberResourceCategoryRead.js';
 import { stripProtectedOrgBalanceFields } from '../../_lib/protectedOrgFields.js';
+import { enforceInvoicingAddressBoundary } from '../../_lib/invoicingAddressBoundary.js';
 import { stripMemberPauseFields } from '../../_lib/memberPause.js';
 import { hasGenericCommitmentFields, constrainGenericCommitmentMutation } from '../../_lib/rollingCommitmentEntityBoundary.js';
 import { isAdminOnlyEntity } from '../../_lib/adminOnlyEntities.js';
@@ -333,6 +334,10 @@ export default async function handler(req, res, dependencies = {}) {
 
   // Get tenant context from session
   const tenantCtx = await (dependencies.getTenantContext || getTenantContext)(req);
+  if (await enforceInvoicingAddressBoundary({
+    entity, id, req, res, context: tenantCtx,
+    hasAdminAccess: dependencies.hasAdminAccess || hasAdminAccess,
+  })) return;
   if (entityNorm === 'member' && req.method === 'GET' && req.query.deletionSafety === 'true') {
     if (!tenantCtx.isAuthenticated) return res.status(401).json({ error: 'Authentication required' });
     if (tenantCtx.tenantMismatch || !tenantCtx.tenantId || !await (dependencies.hasAdminAccess || hasAdminAccess)(tenantCtx)) {

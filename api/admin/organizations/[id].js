@@ -1,4 +1,5 @@
 import { organizationNameError } from '../../../shared/organizationNameValidation.js';
+import { INVOICING_ADDRESS_KEYS, invoicingAddressError } from '../../../shared/invoicingAddress.js';
 
 import { getSessionMember } from '../../_lib/session.js';
 import { createClient } from '@supabase/supabase-js';
@@ -42,12 +43,12 @@ async function verifyPermission(req, permissionId) {
     // Derive admin status from whether admin.role-management is NOT excluded
     const isAdmin = !isResourceExcluded(excludedFeatures, 'admin.role-management');
     if (isAdmin) {
-      return { hasPermission: true, memberId: sessionMember.id };
+      return { hasPermission: true, memberId: sessionMember.id, tenantId: sessionMember.tenant_id };
     }
 
     const hasPermission = !isResourceExcluded(excludedFeatures, permissionId);
 
-    return { hasPermission, memberId: sessionMember.id };
+    return { hasPermission, memberId: sessionMember.id, tenantId: sessionMember.tenant_id };
   } catch (error) {
     console.error('[Permission Verify] Error:', error);
     return { hasPermission: false, error: 'Verification failed' };
@@ -68,7 +69,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { hasPermission, error } = await verifyPermission(req, 'admin_can_edit_members');
+  const { hasPermission, error, tenantId } = await verifyPermission(req, 'admin_can_edit_members');
 
   if (error) {
     return res.status(401).json({ error });
@@ -88,10 +89,15 @@ export default async function handler(req, res) {
     const rawUpdates = req.body;
     const nameError = organizationNameError(rawUpdates);
     if (nameError) return res.status(400).json({ error: nameError });
+    const addressError = invoicingAddressError(rawUpdates);
+    if (addressError) return res.status(400).json({ error: addressError });
+    const writesAddress = INVOICING_ADDRESS_KEYS.some(key => Object.prototype.hasOwnProperty.call(rawUpdates, key));
+    if (writesAddress && !tenantId) return res.status(403).json({ error: 'Tenant context required for invoicing address changes' });
 
     const allowedFields = [
       'logo_url', 'name', 'description', 'website_url',
       'phone', 'invoicing_email', 'invoicing_address',
+      ...INVOICING_ADDRESS_KEYS,
       'organization_group_id'
     ];
 
@@ -130,10 +136,12 @@ export default async function handler(req, res) {
       }
     }
 
-    const { data: updatedOrg, error: updateError } = await supabase
+    let updateQuery = supabase
       .from('organization')
       .update(updates)
-      .eq('id', orgId)
+      .eq('id', orgId);
+    if (tenantId) updateQuery = updateQuery.eq('tenant_id', tenantId);
+    const { data: updatedOrg, error: updateError } = await updateQuery
       .select()
       .single();
 

@@ -1,5 +1,6 @@
 import { getSessionMember } from './_lib/session.js';
 import { supabase } from './_lib/database.js';
+import { INVOICING_ADDRESS_KEYS, redactInvoicingAddress } from '../shared/invoicingAddress.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -40,6 +41,9 @@ export default async function handler(req, res) {
 
     const orgId = member.organization_id;
     const rawUpdates = req.body;
+    if (INVOICING_ADDRESS_KEYS.some(key => Object.prototype.hasOwnProperty.call(rawUpdates || {}, key))) {
+      return res.status(403).json({ error: 'Organization invoicing address changes require administrator access' });
+    }
 
     // Fields that members can update on their own organization (name excluded)
     const allowedFields = [
@@ -70,7 +74,7 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: updateError.message });
     }
 
-    return res.json(updatedOrg);
+    return res.json(redactInvoicingAddress(updatedOrg));
   } catch (error) {
     console.error('[Update My Org] Error:', error);
     return res.status(500).json({ error: 'Failed to update organization' });

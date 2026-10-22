@@ -83,7 +83,6 @@
 - [Mixed-encoding CSV imports](mixed-encoding-csv-imports.md) — preserve valid UTF-8 sequences while decoding isolated Windows-1252 bytes; whole-file fallback can silently create mojibake.
 - [Stripe feature mode for shared payments](stripe-feature-payment-mode.md) — discovery, creation, and confirmation must use one persisted feature when a shared flow serves several products.
 - [Department relationship replacement](department-relationship-replacement.md) — changing a member Organisation may auto-archive Department edges; pre-journal restoration and never hard-delete.
-- [Stripe membership invoice addresses](stripe-membership-invoice-addresses.md) — Stripe form memberships invoice only from immutable payment-time snapshots; missing snapshots fail closed.
 - [Annual membership renewal lifecycle](annual-membership-renewal-lifecycle.md) — annual policy is a dated tier snapshot; next terms always start the day after the prior persisted end, while monthly agreements stay separate.
 - [Renewal tenant rollout](renewal-tenant-rollout.md) — BNMS-first activation must be tenant-specific; legacy historical authority remains separate from rollout readiness.
 - [Renewal payment-method choice](renewal-payment-method-choice.md) — opening Stripe checkout must not lock members into card payment; switching requires provider reconciliation.
@@ -137,7 +136,6 @@
 - [Delivery finalization column grants](delivery-finalization-column-grants.md) — test successful final audit writes as service_role; immutable initial provenance needs a separate narrowly granted final-output column.
 - [Member AI policy boundaries](member-ai-policy-boundaries.md) — tenant voice does not authorize reporting changes; no-evidence replies stay deterministic and fixture tests are not model guarantees.
 - [Team and portal dual access](team-portal-dual-access.md) — team revocation must preserve member access; shared status cannot independently suspend both access types.
-- [Event invoice recovery](event-invoice-recovery-authority.md) — immutable checkout evidence, provider-ID reconciliation, payment ownership and completed-sweep health.
 - [Deferred card Checkout timing](deferred-card-checkout.md) — trial minimum lead time needs an anchor alternative; provider trial semantics never imply free membership access.
 - [Synthetic renewal fixture authority](synthetic-renewal-fixture-authority.md) — BNMS counterfactual terms are fixture-only approval; reserved emails do not suppress transactional provider calls.
 - [Public ticket contact creation](public-ticket-contact-boundary.md) — purchaser and attendee CRM records never imply activation, membership, affiliation or consent.
@@ -157,4 +155,3 @@
 - [Portable npm downloads](portable-npm-downloads.md) — dependency updates can record workspace-only registry URLs that break Vercel installs.
 - [Membership amendment policy](membership-amendment-policy.md) — approved mid-term changes cover collection, credit and refund, preserving purchase evidence and expiry by default.
 - [Badge instructions lifecycle](badge-instructions-lifecycle.md) — removal retains private guidance; failed deletion requires recoverable, fenced storage disposal.
-- [Structured invoice address compatibility](structured-invoice-address-compatibility.md) — retain legacy text fallback; audit every invoice creation/update path before adding structured addresses.
