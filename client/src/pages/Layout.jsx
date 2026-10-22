@@ -99,7 +99,7 @@ import InboxUnreadPopup from "@/components/inbox/InboxUnreadPopup";
 import { useInboxAlertPreferences } from "@/hooks/useInboxAlertPreferences";
 import MemberAiAssistant from "@/components/ai/MemberAiAssistant";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import dougalAvatar from "@assets/ChatGPT_Image_Jul_4,_2026,_06_26_22_PM_1783182456658.png";
+import dougalAvatar from "/dougal-avatar.webp";
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from "@/api/base44Client";

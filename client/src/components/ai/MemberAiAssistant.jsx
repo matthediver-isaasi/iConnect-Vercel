@@ -47,7 +47,7 @@ import {
   MessageSquare,
   X,
 } from "lucide-react";
-import dougalAvatar from "@assets/ChatGPT_Image_Jul_4,_2026,_06_26_22_PM_1783182456658.png";
+import dougalAvatar from "/dougal-avatar.webp";
 
 const TYPE_ICON = {
   resource: FileText,

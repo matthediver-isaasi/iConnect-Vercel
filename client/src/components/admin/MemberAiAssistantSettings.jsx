@@ -11,7 +11,7 @@ import { adminFetch } from "@/lib/adminFetch";
 import { resolveMemberAiLauncherStyle } from "@shared/memberAiLauncherColors.js";
 import MemberAiResponsePolicy, { DEFAULT_RESPONSE_POLICY, normalizePolicy, policyValidationError } from "./MemberAiResponsePolicy";
 import MemberAiPolicyTest from "./MemberAiPolicyTest";
-import dougalAvatar from "@assets/ChatGPT_Image_Jul_4,_2026,_06_26_22_PM_1783182456658.png";
+import dougalAvatar from "/dougal-avatar.webp";
 
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
 const RASTER_TYPES = ["image/png", "image/jpeg", "image/webp"];
