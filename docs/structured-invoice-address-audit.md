@@ -158,7 +158,7 @@ tables, verifies no owner columns/backfill, private table grants/RLS/RPC
 permissions, independent atomic partial updates, wrong-tenant/missing-owner
 rejection, cleanup, and unchanged legacy/saved financial evidence.
 
-## Member Xero event Stripe policy (implementation; migration NOT applied)
+## Member Xero event Stripe policy (migration applied; application deployment separate)
 
 New authenticated member ticket payments only use a pre-Stripe server policy.
 `POST /api/event-invoice-address` accepts `{eventId,source:"simple"|"complex"}`.
@@ -186,7 +186,10 @@ conflicting/malformed mappings fail closed. Missing optional pilot tables are
 unsupported provenance, not a failed live contact lookup. Organization-only
 sales mappings are never used to identify the individual member.
 
-`202612310026_event_invoice_address_policy.sql` is **unapplied**. It adds
+`202612310026_event_invoice_address_policy.sql` was applied with owner approval
+on 2026-10-22 to live DEST (`lvmzliemqnieeoruhkik`).
+SHA256: `05af5603a85c728cc00335f481c4ee5f329af3d958ec2b6f8f6840f498a60cc6`.
+It adds
 service-only immutable snapshot storage with forced RLS, browser grants
 revoked, validated tenant/member/event/source bindings, and no backfill. Apply
 only with separate approval before enabling this checkout release. PI creation
@@ -226,7 +229,14 @@ QuickBooks, guest, non-card and on-account paths remain unchanged.
 Isolated coverage: `api/_lib/eventInvoiceAddressPolicy.test.mjs`, updated
 producer tests, and disposable PostgreSQL
 `supabase/migrations/eventInvoiceAddressPolicy.test.mjs`.
-No live provider calls, migrations, repairs or address writes were performed.
+Live migration verification confirmed forced RLS on all three new tables,
+no browser-role read/write grants, service-role SELECT/INSERT only, and enabled
+immutability triggers. Actual read-only queries under anon and authenticated
+were denied with 42501 for each table; service-role reads succeeded.
+Existing member, organisation, group and event permissions were unchanged.
+All three new tables were empty. No live provider calls, repairs, payments or
+address writes were performed; SOURCE was untouched. No migration remains
+pending for this feature. Matching application deployment remains separate.
 Combined verification: 211 isolated tests passed, including mounted selector
 tests, both intent handlers, payment retry/binding checks, recovery, QuickBooks
 and disposable PostgreSQL protections. The application starts and unauthenticated
