@@ -20,10 +20,33 @@ export const invoicingAddressChanges = (draft, record) => Object.fromEntries(
     .map(field => [field.fieldKey, draft[field.fieldKey]]),
 );
 
-export function withInvoicingAddressChanges(draft, record) {
+// Structured addresses belong exclusively to the protected address endpoint.
+// Keep the legacy free-text invoicing_address and invoicing_email untouched.
+export function withoutInvoicingAddress(draft) {
   const core = { ...draft };
   for (const field of INVOICING_CORE_FIELDS) delete core[field.fieldKey];
-  return { ...core, ...invoicingAddressChanges(draft, record) };
+  return core;
+}
+
+export const isInvoicingAddressField = key => INVOICING_CORE_FIELDS.some(field => field.fieldKey === key);
+
+// Retain the created owner across an address failure. Reusing this reference on
+// Save retries prevents a partially successful create from producing duplicates.
+export async function saveNewInvoicingAddressOwner({ address, createdOwnerRef, core, createOwner, updateOwner }) {
+  address.assertCurrent();
+  if (createdOwnerRef.current && createdOwnerRef.current.scopeKey !== address.scopeKey) {
+    throw new Error("An organisation was already created before your session changed. Reopen that organisation to finish saving; do not create another.");
+  }
+  let owner = createdOwnerRef.current?.scopeKey === address.scopeKey
+    ? createdOwnerRef.current.organization : null;
+  if (!owner) {
+    owner = await createOwner(withoutInvoicingAddress(core));
+    createdOwnerRef.current = { scopeKey: address.scopeKey, organization: owner };
+  } else {
+    await updateOwner(owner.id, withoutInvoicingAddress(core));
+  }
+  await address.save(owner.id);
+  return owner;
 }
 
 export const DEFAULT_INVOICING_CARD = {

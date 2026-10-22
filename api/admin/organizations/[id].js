@@ -1,5 +1,5 @@
 import { organizationNameError } from '../../../shared/organizationNameValidation.js';
-import { INVOICING_ADDRESS_KEYS, invoicingAddressError } from '../../../shared/invoicingAddress.js';
+import { INVOICING_ADDRESS_KEYS } from '../../../shared/invoicingAddress.js';
 
 import { getSessionMember } from '../../_lib/session.js';
 import { createClient } from '@supabase/supabase-js';
@@ -89,15 +89,12 @@ export default async function handler(req, res) {
     const rawUpdates = req.body;
     const nameError = organizationNameError(rawUpdates);
     if (nameError) return res.status(400).json({ error: nameError });
-    const addressError = invoicingAddressError(rawUpdates);
-    if (addressError) return res.status(400).json({ error: addressError });
     const writesAddress = INVOICING_ADDRESS_KEYS.some(key => Object.prototype.hasOwnProperty.call(rawUpdates, key));
-    if (writesAddress && !tenantId) return res.status(403).json({ error: 'Tenant context required for invoicing address changes' });
+    if (writesAddress) return res.status(400).json({ error: 'Save private invoicing address fields through /api/invoicing-address after the owner is saved' });
 
     const allowedFields = [
       'logo_url', 'name', 'description', 'website_url',
       'phone', 'invoicing_email', 'invoicing_address',
-      ...INVOICING_ADDRESS_KEYS,
       'organization_group_id'
     ];
 

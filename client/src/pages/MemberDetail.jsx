@@ -15,7 +15,9 @@ import CrmTagInput from "@/components/crm/CrmTagInput";
 import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
 import { useMemberDetailLayout, mergeLayoutWithCustomFields, MEMBER_CORE_FIELDS } from "@/hooks/useMemberDetailLayout";
-import { INVOICING_CORE_FIELDS, invoicingAddressFormValues, withInvoicingAddressChanges } from "@/lib/invoicingAddressFields";
+import { withoutInvoicingAddress, isInvoicingAddressField } from "@/lib/invoicingAddressFields";
+import { useInvoicingAddress } from "@/hooks/useInvoicingAddress";
+import InvoicingAddressField, { InvoicingAddressStatus } from "@/components/InvoicingAddressField";
 import { CORE_FIELDS as ORG_CORE_FIELDS } from "@/hooks/useOrgDetailLayout";
 import MemberDetailLayoutEditor from "@/components/MemberDetailLayoutEditor";
 import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
@@ -755,7 +757,6 @@ export default function MemberDetail() {
   useEffect(() => {
     if (member?.id && !isEditing) {
       setFormData({
-        ...invoicingAddressFormValues(member),
         first_name: member.first_name || '',
         last_name: member.last_name || '',
         email: member.email || '',
@@ -789,7 +790,6 @@ export default function MemberDetail() {
         phone: linkedOrg.phone || '',
         website_url: linkedOrg.website_url || '',
         invoicing_address: linkedOrg.invoicing_address || '',
-        ...invoicingAddressFormValues(linkedOrg),
         created_at: linkedOrg.created_at || ''
       } : {};
       setOrgFormData((previous) => preserveEqualState(previous, next));
@@ -828,21 +828,24 @@ export default function MemberDetail() {
     }
   }, [member?.opening_balances]);
 
+  const memberAddress = useInvoicingAddress("member", id);
+  const orgAddress = useInvoicingAddress("organization", linkedOrg?.id);
+  useEffect(() => {
+    setIsEditing(false);
+    memberAddress.reset();
+    orgAddress.reset();
+  }, [id]);
+
   // Mutation
   const updateMutation = useMutation({
-    mutationFn: (data) => base44.entities.Member.update(id, data),
+    mutationFn: async (data) => {
+      await memberAddress.save();
+      if (linkedOrg?.id) await orgAddress.save();
+      await base44.entities.Member.update(id, withoutInvoicingAddress(data));
+      await saveCustomFieldValues();
+      await saveOrgFieldChanges();
+    },
     onSuccess: async () => {
-      try {
-        await saveCustomFieldValues();
-      } catch (error) {
-        console.error('Failed to save custom fields:', error);
-      }
-      try {
-        await saveOrgFieldChanges();
-      } catch (error) {
-        console.error('Failed to save organisation fields:', error);
-        toast.error('Failed to save organisation fields: ' + (error.message || 'Unknown error'));
-      }
       toast.success(`${memberLabel} updated successfully`);
       setIsEditing(false);
       queryClient.invalidateQueries({ queryKey: ['members-paginated'] });
@@ -982,7 +985,7 @@ export default function MemberDetail() {
     const orgId = linkedOrg?.id;
     if (!orgId) return;
 
-    const ORG_CORE_KEYS = ['name', 'description', 'email', 'invoicing_email', 'phone', 'website_url', 'invoicing_address', ...INVOICING_CORE_FIELDS.map(field => field.fieldKey)];
+    const ORG_CORE_KEYS = ['name', 'description', 'email', 'invoicing_email', 'phone', 'website_url', 'invoicing_address'];
     const coreUpdates = {};
     ORG_CORE_KEYS.forEach(key => {
       const next = orgFormData[key] ?? '';
@@ -1049,7 +1052,7 @@ export default function MemberDetail() {
         return;
       }
     }
-    const payload = { ...withInvoicingAddressChanges(formData, member), role_id: selectedRoleId };
+    const payload = { ...withoutInvoicingAddress(formData), role_id: selectedRoleId };
     if (linkedOrg?.guest_access_enabled) {
       payload.guest_expires_at = formData.guest_expires_at
         ? new Date(`${formData.guest_expires_at}T23:59:59`).toISOString()
@@ -1066,8 +1069,9 @@ export default function MemberDetail() {
   };
 
   const handleCancel = () => {
+    memberAddress.reset();
+    orgAddress.reset();
     setFormData({
-      ...invoicingAddressFormValues(member),
       first_name: member.first_name || '',
       last_name: member.last_name || '',
       email: member.email || '',
@@ -1091,7 +1095,6 @@ export default function MemberDetail() {
         phone: linkedOrg.phone || '',
         website_url: linkedOrg.website_url || '',
         invoicing_address: linkedOrg.invoicing_address || '',
-        ...invoicingAddressFormValues(linkedOrg),
         created_at: linkedOrg.created_at || ''
       });
     }
@@ -1325,6 +1328,7 @@ export default function MemberDetail() {
     });
 
   const renderMemberCoreField = (fieldKey, isLocked = false) => {
+    if (isInvoicingAddressField(fieldKey)) return <InvoicingAddressField address={memberAddress} fieldKey={fieldKey} isEditing={isEditing} isLocked={isLocked} prefix="member-" />;
     const coreFieldDef = MEMBER_CORE_FIELDS.find(f => f.fieldKey === fieldKey);
     if (!coreFieldDef) return null;
     const label = coreFieldDef.label;
@@ -1401,6 +1405,7 @@ export default function MemberDetail() {
   // org-sourced visual cue (purple label + Building2), an empty state when the
   // member has no linked org, and writes edits back to orgFormData.
   const renderOrgCoreField = (fieldKey, isLocked = false) => {
+    if (linkedOrg && isInvoicingAddressField(fieldKey)) return <InvoicingAddressField address={orgAddress} fieldKey={fieldKey} isEditing={isEditing} isLocked={isLocked} prefix="org-" />;
     const def = ORG_CORE_FIELDS.find(f => f.fieldKey === fieldKey);
     if (!def) return null;
     const lockBadge = isLocked && isEditing ? (
@@ -1587,6 +1592,8 @@ export default function MemberDetail() {
 
   return (
     <div className="p-6 space-y-6">
+      <InvoicingAddressStatus address={memberAddress} />
+      {linkedOrg && <InvoicingAddressStatus address={orgAddress} />}
       {/* Page Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">

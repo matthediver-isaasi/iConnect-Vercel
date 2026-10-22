@@ -2,25 +2,37 @@
 
 ## Scope and rollout decision
 
-This release adds independent nullable text fields to `member`, `organization`
+This release adds independent virtual core fields for `member`, `organization`
 and `organization_group`: `invoicing_address_line1`, `invoicing_address_line2`,
 `invoicing_city`, `invoicing_region`, `invoicing_postal_code`,
 `invoicing_country`. Country is a country **name**. Existing
-`organization.invoicing_address` remains untouched. The migration is additive,
-idempotent and has no backfill, grants, provider actions or transaction updates.
+`organization.invoicing_address` remains untouched. The six new fields are stored
+only in service-accessible `public.invoicing_address_private`, NOT on owner tables.
+The migration is additive, idempotent and has no backfill, browser grants,
+provider actions or transaction updates.
 Apply the migration through the normal reviewed deployment process before using
 the new editor fields. It has not been applied by this implementation.
 
-### Live privacy blocker — do not deploy this foundation yet
+Verification on 2026-10-22: 55 isolated backend, disposable PostgreSQL, layout,
+editor-state and mounted-hook tests passed. The application starts and the new
+endpoint rejects unauthenticated requests with HTTP 401. Signed-in screens were
+not visually verified in this workspace; its local tenant/auth configuration
+does not provide an authenticated DEST member session.
+
+### Protected storage decision (supersedes owner-column migration)
 
 Read-only inspection of verified DEST on 2026-10-22 found table-wide SELECT for
 both browser roles on all three tables. Member and organisation-group RLS is
 disabled; organisation has a public SELECT policy with a true predicate.
 Adding columns under those permissions would expose private billing addresses
 through direct database access. Application API redaction is insufficient.
-The migration now refuses to run with these grants. No live schema, permissions,
-address data or invoices were changed. Protected separate storage or a reviewed
-compatibility-safe permissions change is required before rollout.
+The user approved protected separate storage instead. The UNAPPLIED migration
+was rewritten to create a private sidecar: RLS enabled and forced, no policies,
+all PUBLIC/anon/authenticated privileges revoked, explicit service_role DML and
+atomic patch RPC execution only. Existing owner grants remain unchanged.
+Owner type/id/tenant are validated by a database trigger. Deleting an owner,
+changing its tenant, or anonymizing a member clears the corresponding private
+address. No live schema, permissions, address data or invoices were changed.
 
 The admin UI fields and isolated tests are implemented but not live-ready.
 Existing saved layouts are preserved; the fields are available under Customize
@@ -81,21 +93,32 @@ legacy field behavior is preserved. New billing fields are not automatically
 added to public form mappings, directory schemas, Zoho synchronization or
 user-configured invoice-field selectors.
 
-The generic entity create/update routes validate the new fields and require
-administrator authority for organization/group changes. Ordinary members may
-update only their own member record's new address; membership of an organization
-or group grants no address-edit permission. Admin member/organization PATCH
-allowlists include all six new fields. `api/my-organization.js` explicitly rejects
-new billing fields rather than extending its existing self-service rights.
+Private address access uses a dedicated authenticated endpoint:
 
-Generic member/organization/group responses redact the new fields for
-non-admins, except the member's own root member record. Joined organizations and
-groups never inherit that self-read exception. This covers single/list/counted
-and write-response shapes with wildcard selections.
-This also projects wildcard joins from other generic entity endpoints. Non-admin
-aliases/filters/sorts naming a new billing field are rejected, so renaming a
-column cannot bypass key-based redaction. A member relation aliased `data` does
-not receive the counted-list envelope's own-member exception.
+- `GET /api/invoicing-address?ownerType=member|organization|organization_group&ownerId=uuid`
+- `PATCH /api/invoicing-address` with JSON
+  `{ownerType,ownerId,address:{...changed invoicing_* fields...}}`.
+- Both return `{address:{...all six nullable fields...}}`; absent row returns all
+  nulls. Null or blank clears a field. PATCH is atomic and preserves omitted fields.
+- Ordinary members can read/edit only their own member address; tenant admins
+  can read/edit all three owner types in their authenticated tenant. Owner
+  existence and exact tenant membership are checked before accessing storage.
+  `X-Tenant-Id`, if supplied, must match the authenticated tenant. No caller
+  supplied tenant is used for storage writes.
+- Missing sidecar/RPC migration is explicit HTTP 503
+  `INVOICING_ADDRESS_STORAGE_UNAVAILABLE`, never empty-success fallback.
+
+Generic entity and alternate admin owner create/update routes reject virtual
+fields with endpoint guidance, even for administrators. They never write
+nonexistent owner columns, silently discard a mixed owner/address save, or
+hydrate the sidecar. UI saves a new owner first, then PATCHes its address, and
+must report address failure distinctly. Ordinary nonaddress edits never query
+the private table and continue working before its migration.
+
+Generic responses redact any older-schema billing values recursively as defense
+in depth, including joins from other entities. Generic aliases/filters/sorts
+naming virtual fields are rejected. There is no own-member or admin hydration
+exception: dedicated endpoint only.
 `api/public/organisation/[id].js` redacts all six fields from its wildcard
 projection. Public member prefill, organization/group options, member search,
 member-by-ID lookup and public group member cards already use explicit output
@@ -111,8 +134,20 @@ wildcard member response. Direct admin member GET is tenant-scoped when context
 is available and redacts new fields when it is absent. Admin read/edit capability
 remains required on that route.
 
-Member anonymization clears the six new personal-address fields on the member
-record, without touching saved financial snapshots or shared organizations/groups.
+Member anonymization clears its personal sidecar row through a database trigger,
+without touching saved financial snapshots or shared organizations/groups.
+
+### Isolated verification
+
+`api/invoicing-address.test.mjs` exercises authenticated own/admin CRUD and
+clearing, tenant/owner isolation, input validation and explicit missing-storage
+errors. `api/_lib/invoicingAddressBoundary.test.mjs` checks rejection of virtual
+fields in generic/alternate owner writes and ordinary-edit independence.
+`supabase/migrations/structuredInvoicingAddresses.test.mjs` starts disposable
+PostgreSQL, applies the migration twice with existing browser-readable owner
+tables, verifies no owner columns/backfill, private table grants/RLS/RPC
+permissions, independent atomic partial updates, wrong-tenant/missing-owner
+rejection, cleanup, and unchanged legacy/saved financial evidence.
 
 ## Future integration prerequisites
 

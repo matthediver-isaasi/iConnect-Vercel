@@ -24,6 +24,14 @@ would inherit that exposure.
 **How to apply:** Require protected storage or a separately reviewed access
 change before rollout; do not silently tighten unrelated existing table access.
 
+Use protected separate storage, presented as core invoicing fields in the UI.
+
+**Why:** The owner selected this approach instead of changing existing tables'
+permissions, preserving compatibility without exposing new billing data.
+
+**How to apply:** Keep owner/tenant checks server-side and storage inaccessible
+to browser database roles. Do not add billing columns to the public owner tables.
+
 Members, organisations and organisation groups must each have independent core
 invoicing addresses using a common provider-neutral structure.
 

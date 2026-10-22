@@ -2,7 +2,9 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
-import { invoicingAddressFormValues, invoicingAddressChanges } from "@/lib/invoicingAddressFields";
+import { isInvoicingAddressField } from "@/lib/invoicingAddressFields";
+import { useInvoicingAddress } from "@/hooks/useInvoicingAddress";
+import InvoicingAddressField, { InvoicingAddressStatus } from "@/components/InvoicingAddressField";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -54,7 +56,7 @@ function parseStoredValue(field, raw) {
 export default function OrganisationGroupDetailView({ group, orgs = EMPTY_ARR, onBack, onEdit, onDelete }) {
   const queryClient = useQueryClient();
   const [isEditing, setIsEditing] = useState(false);
-  const [formData, setFormData] = useState({ name: '', description: '', ...invoicingAddressFormValues() });
+  const [formData, setFormData] = useState({ name: '', description: '' });
   const [customFieldValues, setCustomFieldValues] = useState({});
   const [showLayoutEditor, setShowLayoutEditor] = useState(false);
   const [showRulesEditor, setShowRulesEditor] = useState(false);
@@ -62,6 +64,8 @@ export default function OrganisationGroupDetailView({ group, orgs = EMPTY_ARR, o
   const { formatDate } = useDateFormat();
 
   const groupId = group?.id;
+  const address = useInvoicingAddress("organization_group", groupId);
+  useEffect(() => { setIsEditing(false); }, [groupId]);
   const relatedRecords = useRelatedRecordDefinitions({
     context: { kind: "organization_group", recordId: groupId },
     enabled: !!groupId,
@@ -104,7 +108,6 @@ export default function OrganisationGroupDetailView({ group, orgs = EMPTY_ARR, o
   useEffect(() => {
     if (isEditing) return;
     setFormData({
-      ...invoicingAddressFormValues(group),
       name: group?.name || '',
       description: group?.description || ''
     });
@@ -141,8 +144,8 @@ export default function OrganisationGroupDetailView({ group, orgs = EMPTY_ARR, o
         throw new Error('Group name is required');
       }
       // Core fields.
+      await address.save();
       await base44.entities.OrganizationGroup.update(groupId, {
-        ...invoicingAddressChanges(formData, group),
         name: formData.name.trim(),
         description: formData.description?.trim() || null
       });
@@ -169,8 +172,9 @@ export default function OrganisationGroupDetailView({ group, orgs = EMPTY_ARR, o
   });
 
   const handleCancel = () => {
+    address.reset();
     setIsEditing(false);
-    setFormData({ name: group?.name || '', description: group?.description || '', ...invoicingAddressFormValues(group) });
+    setFormData({ name: group?.name || '', description: group?.description || '' });
     const valuesMap = {};
     groupValues.forEach(pv => {
       const field = groupCustomFields.find(f => f.id === pv.field_id);
@@ -190,6 +194,7 @@ export default function OrganisationGroupDetailView({ group, orgs = EMPTY_ARR, o
   );
 
   const renderCoreField = (fieldKey, isLocked = false) => {
+    if (isInvoicingAddressField(fieldKey)) return <InvoicingAddressField address={address} fieldKey={fieldKey} isEditing={isEditing} isLocked={isLocked} prefix="group-detail-" />;
     const coreFieldDef = GROUP_CORE_FIELDS.find(f => f.fieldKey === fieldKey);
     if (!coreFieldDef) return null;
     const label = coreFieldDef.label;
@@ -577,6 +582,7 @@ export default function OrganisationGroupDetailView({ group, orgs = EMPTY_ARR, o
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-4">
+      <InvoicingAddressStatus address={address} />
       <div className="flex items-center justify-between">
         <Button variant="ghost" size="sm" onClick={onBack} data-testid="button-back-to-groups">
           <ChevronLeft className="w-4 h-4 mr-1" /> All groups

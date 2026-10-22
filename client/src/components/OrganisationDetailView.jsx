@@ -2,7 +2,9 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
-import { invoicingAddressFormValues, withInvoicingAddressChanges } from "@/lib/invoicingAddressFields";
+import { withoutInvoicingAddress, isInvoicingAddressField, saveNewInvoicingAddressOwner } from "@/lib/invoicingAddressFields";
+import { useInvoicingAddress } from "@/hooks/useInvoicingAddress";
+import InvoicingAddressField, { InvoicingAddressStatus } from "@/components/InvoicingAddressField";
 import { safeLogoSrc } from "@/lib/safeLogoSrc";
 import {
   organisationDirectKey,
@@ -412,6 +414,9 @@ export default function OrganisationDetailView({
     clearDryRunResults,
   } = useWorkflowConfirmation();
   const [isEditing, setIsEditing] = useState(isNew);
+  const address = useInvoicingAddress("organization", organization?.id, { isNew });
+  const createdOwnerRef = useRef(null);
+  useEffect(() => { setIsEditing(isNew); }, [organization?.id, isNew]);
   const [activeTab, setActiveTab] = useState('overview');
   useEffect(() => {
     if (isNew || !organization?.id) {
@@ -447,7 +452,6 @@ export default function OrganisationDetailView({
   const noteFileInputRef = useRef(null);
   const logoFileInputRef = useRef(null);
   const [formData, setFormData] = useState({
-    ...invoicingAddressFormValues(),
     name: '',
     email: '',
     phone: '',
@@ -485,7 +489,6 @@ export default function OrganisationDetailView({
         website_url: organization.website_url || '',
         invoicing_email: organization.invoicing_email || '',
         invoicing_address: organization.invoicing_address || '',
-        ...invoicingAddressFormValues(organization),
         description: organization.description || '',
         organization_group_id: organization.organization_group_id || ''
       });
@@ -1134,7 +1137,11 @@ export default function OrganisationDetailView({
 
   const createOrgMutation = useMutation({
     mutationFn: async (newOrg) => {
-      return await base44.entities.Organization.create(newOrg);
+      return saveNewInvoicingAddressOwner({
+        address, createdOwnerRef, core: newOrg,
+        createOwner: core => base44.entities.Organization.create(core),
+        updateOwner: (id, core) => base44.entities.Organization.update(id, core),
+      });
     },
     onSuccess: (createdOrg) => {
       queryClient.invalidateQueries({ queryKey: orgListKey });
@@ -1145,7 +1152,9 @@ export default function OrganisationDetailView({
       }
     },
     onError: (error) => {
-      toast.error('Failed to create organisation: ' + error.message);
+      toast.error((createdOwnerRef.current?.scopeKey === address.scopeKey
+        ? 'Organisation created, but saving is incomplete. Retry Save (it will not create another organisation): '
+        : 'Failed to create organisation: ') + error.message);
     }
   });
 
@@ -1255,7 +1264,7 @@ export default function OrganisationDetailView({
       if (createOrgMutation.isPending) return;
       
       // Create mode: create org first, then save custom fields
-      createOrgMutation.mutate(withInvoicingAddressChanges(formData, {}), {
+      createOrgMutation.mutate(withoutInvoicingAddress(formData), {
         onSuccess: async (createdOrg) => {
           // Save custom field values for the newly created org
           const currentCustomFieldValues = { ...customFieldValues };
@@ -1279,7 +1288,7 @@ export default function OrganisationDetailView({
         }
       });
     } else {
-      if (updateOrgMutation.isPending || updateCustomFieldMutation.isPending) return;
+      if (address.saving || updateOrgMutation.isPending || updateCustomFieldMutation.isPending) return;
       
       // Capture current values at save time to avoid stale closure issues
       const currentCustomFieldValues = { ...customFieldValues };
@@ -1303,8 +1312,9 @@ export default function OrganisationDetailView({
         }] : [];
       });
       try {
+        await address.save();
         await saveOrganisationEdits({
-          core: withInvoicingAddressChanges(formData, organization),
+          core: withoutInvoicingAddress(formData),
           custom: changes,
           updateCore: updateOrgMutation.mutateAsync,
           updateCustom: updateCustomFieldMutation.mutateAsync,
@@ -1313,13 +1323,15 @@ export default function OrganisationDetailView({
             toast.success('Organisation updated successfully');
           },
         });
-      } catch {
+      } catch (error) {
+        toast.error(error.message || 'Failed to save organisation');
         // Mutation error handlers report the failure; preserve the draft for retry.
       }
     }
   };
 
   const handleCancel = () => {
+    address.reset();
     if (isNew) {
       // Cancel creating a new org - go back
       onBack?.();
@@ -1333,7 +1345,6 @@ export default function OrganisationDetailView({
       website_url: organization.website_url || '',
       invoicing_email: organization.invoicing_email || '',
       invoicing_address: organization.invoicing_address || '',
-      ...invoicingAddressFormValues(organization),
       description: organization.description || ''
     });
     
@@ -1659,6 +1670,7 @@ export default function OrganisationDetailView({
   };
 
   const renderCoreField = (fieldKey, isLocked = false) => {
+    if (isInvoicingAddressField(fieldKey)) return <InvoicingAddressField address={address} fieldKey={fieldKey} isEditing={isEditing} isLocked={isLocked} />;
     const coreFieldDef = CORE_FIELDS.find(f => f.fieldKey === fieldKey);
     if (!coreFieldDef) return null;
     
@@ -1953,6 +1965,7 @@ export default function OrganisationDetailView({
 
   return (
     <div className="min-h-screen bg-slate-50">
+      <InvoicingAddressStatus address={address} />
       <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
         <div className="px-6 py-4">
           <div className="flex items-center justify-between">
