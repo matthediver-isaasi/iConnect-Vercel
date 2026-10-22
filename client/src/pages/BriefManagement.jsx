@@ -75,6 +75,7 @@ import { uploadFileWithProgress, UPLOAD_TYPES } from "@/lib/tenantUpload";
 import MemberCombobox from "@/components/MemberCombobox";
 import ExternalWriterCombobox from "@/components/ExternalWriterCombobox";
 import MultiSelectFilter from "@/components/MultiSelectFilter";
+import PublicationImportControls from "@/components/PublicationImportControls";
 
 const ARCHIVED_STATUS = "archived";
 const ARCHIVED_STATUS_CONFIG = { label: "Archived", color: "#64748b", icon: Archive };
@@ -1225,6 +1226,13 @@ export default function BriefManagementPage() {
                 <Download className="w-4 h-4 mr-2" />
                 Export
               </Button>
+              {canManage && (
+                <PublicationImportControls
+                  canManage={canManage && isAccessReady}
+                  tenantId={memberInfo?.tenant_id}
+                  actorId={memberInfo?.id}
+                />
+              )}
               {canManage && (
                 <Button onClick={() => setCreateDialogOpen(true)} data-testid="button-create-brief">
                   <Plus className="w-4 h-4 mr-2" />

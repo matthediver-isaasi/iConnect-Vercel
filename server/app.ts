@@ -33,6 +33,8 @@ declare module 'http' {
 }
 // Only this endpoint accepts base64 PDF payloads (2 MB decoded, <3 MB JSON).
 app.use('/api/badge-instructions', express.json({ limit: '3mb' }));
+// XLSX uploads are base64 JSON; signed reviewed plans use the same bounded route.
+app.use('/api/article-briefs/publication-import', express.json({ limit: '2mb' }));
 app.use(express.json({
   verify: (req, _res, buf) => {
     req.rawBody = buf;

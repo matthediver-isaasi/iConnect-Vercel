@@ -2,6 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { findHandler } from "./vercel-api-adapter";
 
+test("publication imports resolve to the exact handler rather than a brief-id route", async () => {
+  const result = await findHandler("/api/article-briefs/publication-import");
+  assert.equal(typeof result?.handler, "function");
+  assert.deepEqual(result?.params, {});
+});
+
 test("booking credit reconciliation endpoints are discoverable as distinct exact routes", async () => {
   const admin = await findHandler("/api/reports/reconcile-booking-credits");
   const cron = await findHandler("/api/cron/reconcile-booking-credits");

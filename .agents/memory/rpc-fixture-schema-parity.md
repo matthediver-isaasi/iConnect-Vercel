@@ -14,4 +14,7 @@ a missing RPC.
 Cast the parameter to the indexed column's type where appropriate; do not cast
 all stored IDs to UUID or alter legacy key types to make a new RPC work. Exercise
 the function as service_role, including ordinary and mention-bearing comments,
-not merely migration installation.
+not merely migration installation. Include unified owner/admin sessions with no
+legacy user row and at least one non-UUID-shaped text identity. A member-only
+fixture can completely miss the fallback identity join, even when it tests
+permissions, transactions and retries thoroughly.
