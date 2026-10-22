@@ -273,6 +273,7 @@ test("organisation hover obeys settings; scoped canonical details fail closed an
     const parsed = new URL(url, window.location.origin);
     assert.equal(parsed.pathname, "/api/dynamic-directory/config");
     assert.equal(parsed.searchParams.get("slug"), directory.slug);
+    assert.equal(parsed.searchParams.get("organizationId"), "org-a");
     assert.equal(parsed.searchParams.get("tenant"), "westhaven");
     assert.equal(options.credentials, "include");
   }

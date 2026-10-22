@@ -11,7 +11,7 @@ export default function CanvasDirectoryDetails({ record, directorySlug, entityTy
   const details = useQuery({
     queryKey: ["canvas", "directory-details", tenant, directorySlug, record.id],
     queryFn: async () => {
-      const params = new URLSearchParams({ slug: directorySlug });
+      const params = new URLSearchParams({ slug: directorySlug, organizationId: record.id });
       if (tenant) params.set("tenant", tenant);
       // The canonical organisation dialog reads its projected reverse-card
       // data from this directory-scoped endpoint, never Organization.get().

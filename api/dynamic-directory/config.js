@@ -44,9 +44,13 @@ export default async function handler(req, res, dependencies = {}) {
   }
   const { tenantId } = tenantContext;
 
-  const { slug } = req.query;
+  const { slug, organizationId } = req.query;
   if (!slug) {
     return res.status(400).json({ error: 'slug is required' });
+  }
+  if (organizationId !== undefined && (typeof organizationId !== 'string'
+    || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(organizationId))) {
+    return res.status(400).json({ error: 'Invalid organizationId' });
   }
 
   try {
@@ -66,6 +70,20 @@ export default async function handler(req, res, dependencies = {}) {
     const directory = directories?.[0];
     if (!directory) {
       return res.status(404).json({ error: 'Directory not found' });
+    }
+    if (organizationId && directory.entity_type !== 'organization') {
+      return res.status(400).json({ error: 'Organisation details require an organisation directory' });
+    }
+    // A detail read uses the same publication authority, but does not need the
+    // directory-wide roles/filter labels or inventory.
+    if (organizationId) {
+      if (!canReadOrganisationDirectory(directory, tenantContext, tenantId)) {
+        return res.status(403).json({ error: 'Directory access denied' });
+      }
+      return await buildOrgConfig({
+        res, tenantId, directory, dirId: directory.id, roles: [], filterField: null,
+        context: tenantContext, supabase: db, organizationId,
+      });
     }
     if (!tenantContext.isAuthenticated) directory.back_field_order = publicDirectoryBackOrder(directory.back_field_order);
 
@@ -132,27 +150,30 @@ async function buildMemberConfig({ res, tenantId, directory, dirId, roles, filte
 
 // --- organisation directory config ------------------------------------------
 
-async function buildOrgConfig({ res, tenantId, directory, dirId, roles, filterField, context, supabase }) {
-  const displaySettings = await fetchOrgDisplaySettings(supabase, tenantId);
+async function buildOrgConfig({ res, tenantId, directory, dirId, roles, filterField, context, supabase, organizationId }) {
+  const [displaySettings, orgRows, fieldRows] = await Promise.all([
+    fetchOrgDisplaySettings(supabase, tenantId),
+    readCompleteOrganisationDirectoryPages(() => {
+      let query = supabase.from('organization')
+        .select(`id, name, logo_url, website_url, phone, description${context.isAuthenticated ? ', invoicing_address' : ''}`)
+        .eq('tenant_id', tenantId);
+      if (organizationId) query = query.eq('id', organizationId);
+      return query.order('name', { ascending: true }).order('id', { ascending: true });
+    }, 'Organisation inventory'),
+    readDirectoryPages(() => supabase
+      .from('preference_field')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .eq('is_active', true)
+      .eq('entity_scope', 'organization')
+      .order('display_order', { ascending: true }).order('id')),
+  ]);
   if (!context.isAuthenticated) displaySettings.backFieldOrder = publicDirectoryBackOrder(displaySettings.backFieldOrder);
   displaySettings.showMemberCount = isOrgCoreItemVisible(
     directory.core_field_visibility, 'org_member_count', displaySettings.showMemberCount
   );
 
-  const orgRows = await readCompleteOrganisationDirectoryPages(() => supabase
-    .from('organization')
-    .select(`id, name, logo_url, website_url, phone, description${context.isAuthenticated ? ', invoicing_address' : ''}`)
-    .eq('tenant_id', tenantId)
-    .order('name', { ascending: true }).order('id', { ascending: true }), 'Organisation inventory');
   let organizations = orgRows || [];
-
-  const fieldRows = await readDirectoryPages(() => supabase
-    .from('preference_field')
-    .select('*')
-    .eq('tenant_id', tenantId)
-    .eq('is_active', true)
-    .eq('entity_scope', 'organization')
-    .order('display_order', { ascending: true }).order('id'));
   const orgCustomFields = sortFieldsForDirectory(
     (fieldRows || [])
       .filter((f) => isVisibleInDirectory(f, dirId))
@@ -161,18 +182,24 @@ async function buildOrgConfig({ res, tenantId, directory, dirId, roles, filterFi
 
   // organization_preference_value has no tenant_id column; scope via org ids.
   const orgIds = organizations.map((o) => o.id);
-  const allOrgPreferenceValues = await fetchOrgPreferenceValues(orgIds, supabase);
-  const eligible = await directoryEligibleIds(supabase, tenantId, directory, orgIds);
+  const [allOrgPreferenceValues, eligible] = await Promise.all([
+    fetchOrgPreferenceValues(orgIds, supabase),
+    directoryEligibleIds(supabase, tenantId, directory, orgIds),
+  ]);
   if (eligible !== null) {
     const matching = new Set(eligible);
     organizations = organizations.filter(org => matching.has(org.id));
   }
   const allowedIds = new Set(organizations.map(org => org.id));
   const allowedFields = new Set(orgCustomFields.map(field => field.id));
-  if (!await revalidateOrganisationPublication({ db: supabase, tenantId, directory, settings: displaySettings, context })) {
+  const [publicationValid, inclusionValid] = await Promise.all([
+    revalidateOrganisationPublication({ db: supabase, tenantId, directory, settings: displaySettings, context }),
+    revalidateDirectoryInclusion(supabase, tenantId, directory, organizations.map(row => row.id)),
+  ]);
+  if (!publicationValid) {
     return res.status(409).json({ error: 'Directory publication changed; retry' });
   }
-  if (!await revalidateDirectoryInclusion(supabase, tenantId, directory, organizations.map(row => row.id))) {
+  if (!inclusionValid) {
     return res.status(409).json({ error: 'Directory inclusion changed; retry' });
   }
 
