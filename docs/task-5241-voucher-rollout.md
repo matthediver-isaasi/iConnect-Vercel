@@ -1,5 +1,23 @@
 # Task 5241 — voucher extension rollout evidence
 
+## Approved DEST rollout — 23 October 2026
+
+The fourteen migrations listed below were applied in order to the pinned DEST
+project `lvmzliemqnieeoruhkik` in one transaction, following owner approval.
+Source hashes matched the read-only preflight inventory. Existing voucher count
+and aggregate value were unchanged across application.
+
+Post-commit verification confirmed:
+- All 33 declared functions deny execution to `anon` and `authenticated`.
+- All 16 new tables have RLS enabled and deny browser-role table access.
+- `voucher_admin_write` is executable by `service_role` only.
+- After the schema-cache reload, REST schema discovery exposes that function
+  with all six parameter names expected by the API.
+
+No voucher was issued, balance adjusted, or provider called during verification.
+No migrations in this sequence remain pending on DEST. The sections below
+describe the original pre-rollout evidence; their pending status is historical.
+
 ## Final integrated verification
 
 Completion-review corrections: complex-event refunds now freeze per-attendee,
