@@ -59,6 +59,7 @@ import { validateScoreFieldConfig, validateSurveyForPublish, getScoreRange, getS
 import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
 import SurveyEventAssignmentsPanel from "@/components/surveys/SurveyEventAssignmentsPanel";
 import FormSubmissionAlerts from "@/components/forms/FormSubmissionAlerts";
+import FormBuilderEmailTemplatePicker from "@/components/forms/FormBuilderEmailTemplatePicker";
 import { useFormAlertTenant } from "@/hooks/useFormAlerts";
 import {
   getEligibleRelationshipParents,
@@ -4669,7 +4670,7 @@ const BOOKING_PREFILL_FIELDS = [
 ];
 
 // EmailCard component for configuring individual email notifications
-function EmailCard({
+export function EmailCard({
   email,
   index,
   emailTemplates,
@@ -4749,23 +4750,16 @@ function EmailCard({
         {/* Template Selection */}
         <div className="space-y-1">
           <Label className="text-xs text-slate-600">Email Template</Label>
-          <Select
-            value={email.template_id || '_none'}
-            onValueChange={(val) => onUpdate({ 
-              template_id: val === '_none' ? null : val,
+          <FormBuilderEmailTemplatePicker
+            templates={emailTemplates}
+            value={email.template_id}
+            emptyLabel="Select template..."
+            testId={`select-email-template-${email.id}`}
+            onChange={(val) => onUpdate({
+              template_id: val,
               field_mapping: {} // Reset mappings when template changes
             })}
-          >
-            <SelectTrigger data-testid={`select-email-template-${email.id}`}>
-              <SelectValue placeholder="Select template" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="_none">Select template...</SelectItem>
-              {emailTemplates.map(t => (
-                <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          />
         </div>
         
         {email.template_id && (
@@ -13248,26 +13242,20 @@ export default function FormBuilderPage() {
                     <p className="text-xs text-slate-500">
                       Select the email template to send when the contract is sent for signing.
                     </p>
-                    <Select
-                      value={formData.contract_settings?.initial_email_template_id || "_none"}
-                      onValueChange={(value) => setFormData({
+                    <FormBuilderEmailTemplatePicker
+                      templates={emailTemplates}
+                      label="Initial Email Template"
+                      emptyLabel="No template (don't send email)"
+                      testId="select-initial-email-template"
+                      value={formData.contract_settings?.initial_email_template_id}
+                      onChange={(value) => setFormData({
                         ...formData,
                         contract_settings: {
                           ...formData.contract_settings,
-                          initial_email_template_id: value === "_none" ? null : value
+                          initial_email_template_id: value
                         }
                       })}
-                    >
-                      <SelectTrigger data-testid="select-initial-email-template">
-                        <SelectValue placeholder="Select email template..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="_none">No template (don't send email)</SelectItem>
-                        {emailTemplates.map(template => (
-                          <SelectItem key={template.id} value={template.id}>{template.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    />
                   </div>
 
                   {/* Reminder Schedule */}
@@ -13353,27 +13341,21 @@ export default function FormBuilderPage() {
                               </Select>
                             </div>
                             <div className="flex-1 min-w-[180px]">
-                              <Select
-                                value={reminder.email_template_id || "_none"}
-                                onValueChange={(value) => {
+                              <FormBuilderEmailTemplatePicker
+                                templates={emailTemplates}
+                                label="Contract Reminder Email Template"
+                                emptyLabel="No template"
+                                testId={`select-reminder-template-${idx}`}
+                                value={reminder.email_template_id}
+                                onChange={(value) => {
                                   const reminders = [...(formData.contract_settings?.reminders || [])];
-                                  reminders[idx] = { ...reminder, email_template_id: value === "_none" ? null : value };
+                                  reminders[idx] = { ...reminder, email_template_id: value };
                                   setFormData({
                                     ...formData,
                                     contract_settings: { ...formData.contract_settings, reminders }
                                   });
                                 }}
-                              >
-                                <SelectTrigger data-testid={`select-reminder-template-${idx}`}>
-                                  <SelectValue placeholder="Select email template..." />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="_none">No template</SelectItem>
-                                  {emailTemplates.map(template => (
-                                    <SelectItem key={template.id} value={template.id}>{template.name}</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
+                              />
                             </div>
                             <Button
                               type="button"
@@ -13411,26 +13393,20 @@ export default function FormBuilderPage() {
                   <div className="space-y-3">
                     <div className="space-y-1">
                       <Label className="text-xs text-slate-600">Timeout Email Template</Label>
-                      <Select
-                        value={formData.contract_settings?.timeout_email_template_id || "_none"}
-                        onValueChange={(value) => setFormData({
+                      <FormBuilderEmailTemplatePicker
+                        templates={emailTemplates}
+                        label="Timeout Email Template"
+                        emptyLabel="No template (disabled)"
+                        testId="select-timeout-email-template"
+                        value={formData.contract_settings?.timeout_email_template_id}
+                        onChange={(value) => setFormData({
                           ...formData,
                           contract_settings: {
                             ...formData.contract_settings,
-                            timeout_email_template_id: value === "_none" ? null : value
+                            timeout_email_template_id: value
                           }
                         })}
-                      >
-                        <SelectTrigger data-testid="select-timeout-email-template">
-                          <SelectValue placeholder="Select email template..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="_none">No template (disabled)</SelectItem>
-                          {emailTemplates.map(template => (
-                            <SelectItem key={template.id} value={template.id}>{template.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      />
                     </div>
 
                     {formData.contract_settings?.timeout_email_template_id && (

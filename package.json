@@ -4,6 +4,7 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
+    "test:form-email-templates": "node scripts/run-isolated-tests.mjs node --import tsx --test client/src/pages/FormBuilder.emailTemplates.test.jsx",
     "test:organization-name-safeguards": "node scripts/run-isolated-tests.mjs --shell \"node --test shared/organizationNameValidation.test.mjs api/entities/organizationDeleteAuthorization.test.mjs api/_lib/importOrganizationName.test.mjs api/_lib/formStructuredActions.test.mjs api/forms/processApplicationOrganizationName.test.mjs api/due-diligence/fieldMappingWorkflowFanout.test.mjs api/due-diligence/mappingEmptySource.test.mjs\"",
     "test:featured-job-preview:browser": "playwright test --config=tests/featured-job-preview.config.mjs",
     "test:event-login-modal:browser": "playwright test --config=tests/event-login-modal.config.mjs",
