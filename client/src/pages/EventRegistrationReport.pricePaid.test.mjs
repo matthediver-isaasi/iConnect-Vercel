@@ -94,9 +94,11 @@ test('financial export columns use stable keys in accounting order', () => {
   assert.equal(state.selected.has('std:pricePaid'), true);
 });
 
-test('table and filtered CSV export share the same Price Paid formatter', () => {
-  const formatterCalls = source.match(/formatRegistrationPricePaid\(a(?:ttendee)?\)/g) || [];
-  assert.equal(formatterCalls.length, 3, 'one export getter and two table row layouts must use the formatter');
+test('table uses warning presentation while CSV retains textual pending status', () => {
+  assert.equal((source.match(/<RegistrationPricePaid attendee=\{attendee\}/g) || []).length, 2);
+  assert.match(source, /key: 'std:pricePaid'.*formatRegistrationPricePaid\(a\)/);
+  assert.match(source, /aria-label=\{UNPAID_EXPLANATION\}/);
+  assert.match(source, /<TooltipContent>\{UNPAID_EXPLANATION\}<\/TooltipContent>/);
   assert.match(
     source,
     /for \(const group of filteredGroups\)[\s\S]*?rows\.push\(orderedColumns\.map\(c =>/,
@@ -117,24 +119,18 @@ test('table financial columns and whole-filter footer use canonical totals in or
   assert.match(source, /const afterDiscount = financialAmount\(gp\.totalAfterDiscount\)/);
   assert.match(source, /if \(afterDiscount === null\) hasUnavailableAfterDiscount = true/);
   assert.match(source, /else totalAfterDiscount \+= afterDiscount/);
-  assert.match(source, /if \(discount === null \|\| isGrossSnapshotUnavailable\(gp\)\) hasUnavailableDiscountTotal = true/);
-  assert.match(source, /else totalDiscount \+= discount/);
+  assert.match(source, /if \(discountPresentation\.partial\) hasUnavailableDiscountTotal = true/);
+  assert.match(source, /if \(discountPresentation\.amount !== null\) \{\s*totalDiscount \+= discountPresentation\.amount/);
   assert.match(source, /totalFooterDiscount \+= Math\.abs\(Number\(gp\.discount\)\)/);
   assert.match(source, /hasUnavailableAfterDiscount \? 'Unavailable' : formatCurrency\(filteredSummary\.totalAfterDiscount\)/);
   assert.match(source, /hasUnavailablePricePaid \? 'Unavailable' : formatCurrency\(filteredSummary\.totalPricePaid\)/);
 });
 
 test('unavailable historical gross snapshots are never rendered or exported as zero', () => {
-  assert.match(source, /ticket_price_status === 'unavailable_gross_snapshot'/);
-  assert.match(source, /ticket_price_status === 'unavailable_import_financials'/);
-  assert.match(
-    source,
-    /isGrossSnapshotUnavailable\(a\) \|\| a\.ticket_price == null[\s\S]*?'Unavailable'/,
-  );
-  assert.match(
-    source,
-    /isGrossSnapshotUnavailable\(gp\) \|\| gp\.discount == null\) return 'Unavailable'/,
-  );
+  assert.match(source, /key: 'std:ticketPrice'.*registrationTicketPriceExport\(a\)/);
+  assert.match(source, /return registrationDiscountExport\(gp\)/);
+  assert.equal((source.match(/<RegistrationTicketPrice attendee=\{attendee\}/g) || []).length, 2);
+  assert.equal((source.match(/<RegistrationDiscount payment=\{gp\}/g) || []).length, 2);
   assert.match(source, /hasUnavailableTicketTotal[\s\S]*?text-muted-foreground">Unavailable/);
   assert.match(source, /hasUnavailableDiscount[\s\S]*?text-muted-foreground">Unavailable/);
   assert.match(source, /Historical Invoice \/ PO registrations with offer-adjusted prices/);

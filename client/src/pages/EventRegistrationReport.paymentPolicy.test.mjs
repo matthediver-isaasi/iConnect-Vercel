@@ -7,7 +7,11 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { transformSync } from 'esbuild';
 import { JSDOM } from 'jsdom';
 import { financialCurrency } from '../lib/eventRegistrationFinancial.js';
-import { formatRegistrationPricePaid } from '../lib/eventRegistrationPricePaid.js';
+import { registrationOrganisationName } from '../lib/eventRegistrationOrganisation.mjs';
+import { registrationMemberHighlight } from '../lib/eventRegistrationMemberHighlight.mjs';
+import * as recordedFinancial from '../lib/eventRegistrationRecordedFinancial.js';
+import * as TooltipPrimitive from '@radix-ui/react-tooltip';
+import { TriangleAlert } from 'lucide-react';
 import { resolveEventPaymentPolicy } from '../../../shared/eventPaymentPolicy.js';
 
 const source = readFileSync(new URL('./EventRegistrationReport.jsx', import.meta.url), 'utf8');
@@ -87,9 +91,36 @@ const tableSource = source.slice(source.indexOf('<table className="w-full text-s
 const compiledTable = transformSync(`const table = (${tableSource});`, { loader: 'jsx', jsx: 'transform' }).code;
 const passthrough = ({ children }) => React.createElement(React.Fragment, null, children);
 const empty = () => null;
-function renderTable(policy, attendance = false, unavailable = false) {
-  const attendee = id => ({ id, attendee_first_name: id, status: 'confirmed', ticket_price: 100, price_paid: 70, price_paid_status: 'net' });
-  const groupPayment = { discount: 5, totalAfterDiscount: 95, voucherAmount: unavailable ? null : 11, trainingFundAmount: unavailable ? null : 14, paymentMethod: 'card' };
+// Compile the existing Tooltip and financial components, not replacements.
+// Radix intentionally leaves closed tooltip content unmounted in SSR.
+const tooltipSource = readFileSync(new URL('../components/ui/tooltip.jsx', import.meta.url), 'utf8');
+const tooltipCode = transformSync(tooltipSource.slice(
+  tooltipSource.indexOf('const TooltipProvider ='), tooltipSource.indexOf('export {'),
+), { loader: 'jsx', jsx: 'transform' }).code;
+const tooltips = new Function('React', 'TooltipPrimitive', 'cn',
+  `${tooltipCode}; return { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider };`
+)(React, TooltipPrimitive, (...classes) => classes.filter(Boolean).join(' '));
+const financialCode = transformSync(source.slice(
+  source.indexOf('function FinancialExplanation('), source.indexOf('function PaymentMethodBadge('),
+), { loader: 'jsx', jsx: 'transform' }).code;
+const financialContext = { React, ...tooltips, ...recordedFinancial, TriangleAlert, formatCurrency: financialCurrency };
+const financialComponents = new Function(...Object.keys(financialContext),
+  `${financialCode}; return { RegistrationTicketPrice, RegistrationDiscount, RegistrationPricePaid };`
+)(...Object.values(financialContext));
+
+function renderTable(policy, attendance = false, unavailable = false, legacy = false) {
+  const attendee = id => ({
+    id, attendee_first_name: id, status: 'confirmed', ticket_price: 100, price_paid: 70, price_paid_status: 'net',
+    ...(legacy ? {
+      payment_method: 'public_invoice_po', ticket_price_status: 'unavailable_gross_snapshot',
+      ticket_price: null, raw_ticket_price: 166.67, price_paid: 166.67, price_paid_status: 'pending',
+    } : {}),
+  });
+  const groupPayment = {
+    discount: 5, totalAfterDiscount: 95, voucherAmount: unavailable ? null : 11,
+    trainingFundAmount: unavailable ? null : 14, paymentMethod: 'card',
+    ...(legacy ? { totalsStatus: 'unavailable_gross_snapshot', discount: null, codeDiscount: 0, paymentMethod: 'public_invoice_po' } : {}),
+  };
   const groups = [
     { attendees: [attendee('individual')] },
     { isGroup: true, attendees: [attendee('group-first'), attendee('group-second')] },
@@ -100,17 +131,19 @@ function renderTable(policy, attendance = false, unavailable = false) {
     React, paymentPolicy: policy, showAttendanceColumn: attendance,
     paginatedGroups: groups, filteredGroups: groups, totalAttendees: 7, organizations: {},
     filteredSummary: { totalTicketPrice: 700, totalFooterDiscount: 20, totalAfterDiscount: 380, totalVoucher: 44, totalTrainingFund: 56, totalPricePaid: 490, hasUnavailableVoucher: unavailable, hasUnavailableFund: unavailable },
-    Tooltip: passthrough, TooltipTrigger: passthrough, TooltipContent: empty, Badge: passthrough,
+    ...tooltips, ...financialComponents, registrationOrganisationName, registrationMemberHighlight,
+    Badge: passthrough,
     PaymentMethodBadge: empty, ReportInvoice: empty, Layers: empty,
     renderActionIcons: empty, renderFlagBadges: empty, renderDesignationCell: empty,
     renderBuddyCell: empty, renderBadgeCell: empty, renderOptionsCell: empty, renderAttendanceCell: empty,
-    formatCurrency: financialCurrency, formatRegistrationTicketPrice: a => financialCurrency(a.ticket_price),
-    formatRegistrationPricePaid, isGrossSnapshotUnavailable: () => false,
+    formatCurrency: financialCurrency, isGrossSnapshotUnavailable: recordedFinancial.isGrossSnapshotUnavailable,
     formatRegistrationCredits: () => '£0.00', formatRegistrationCreditSummary: () => '£0.00',
     formatRegistrationCreditBreakdown: empty, formatRegistrationCreditExplanation: empty,
   };
   const table = new Function(...Object.keys(context), `${compiledTable}; return table;`)(...Object.values(context));
-  return new JSDOM(renderToStaticMarkup(table)).window.document.querySelector('table');
+  return new JSDOM(renderToStaticMarkup(
+    React.createElement(tooltips.TooltipProvider, null, table),
+  )).window.document.querySelector('table');
 }
 
 function assertTable(policy, attendance = false, unavailable = false) {
@@ -158,6 +191,28 @@ test('all policy and attendance combinations align headers, individual/group/del
       assertTable(evaluate({ isSuccess: true, data: rows(voucher, fund) }).policy, attendance, unavailable);
     }
   }
+});
+
+test('actual financial components render recorded amounts and unpaid warning in standalone and grouped rows', () => {
+  const table = renderTable({ allowVoucherPayment: true, allowTrainingFundPayment: true }, false, false, true);
+  const headers = [...table.querySelectorAll('thead th')].map(cell => cell.textContent);
+  const standalone = table.querySelector('[data-testid="row-booking-individual"]');
+  const ticket = standalone.cells[headers.indexOf('Ticket Price')];
+  assert.equal(ticket.textContent.trim(), '£166.67 recorded');
+  assert.equal(ticket.querySelector('[tabindex="0"]').getAttribute('data-state'), 'closed');
+  assert.equal(standalone.cells[headers.indexOf('Discount')].textContent.trim(), '£0.00 recorded');
+  for (const id of ['individual', 'group-first', 'group-second', 'delegate-first', 'delegate-second', 'booker-attendee', 'booker-guest']) {
+    const paid = table.querySelector(`[data-testid="text-price-paid-${id}"]`);
+    assert.equal(paid.textContent.trim(), '£166.67');
+    const warning = paid.querySelector('button');
+    assert.equal(warning.getAttribute('aria-label'), recordedFinancial.UNPAID_EXPLANATION);
+    assert.equal(warning.getAttribute('type'), 'button');
+    assert.equal(warning.getAttribute('data-state'), 'closed');
+    assert.ok(warning.querySelector('svg'));
+  }
+  // Group-spanned financial cells must render the same actual components.
+  assert.equal([...table.querySelectorAll('tbody td')].filter(cell => cell.textContent.trim() === '£166.67 recorded').length, 7);
+  assert.equal([...table.querySelectorAll('tbody td')].filter(cell => cell.textContent.trim() === '£0.00 recorded').length, 4);
 });
 
 test('table hides during loading, failure and revalidation, and defaults on only after successful missing keys', () => {

@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
 import GuestRegistrationMemberDialog from "@/components/events/GuestRegistrationMemberDialog";
 import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
-import { ContactRound, UserCheck } from "lucide-react";
+import { ContactRound, UserCheck, TriangleAlert } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { resolveEventPaymentPolicy } from "../../../shared/eventPaymentPolicy.js";
@@ -44,6 +44,11 @@ import CpdPointsReplayDialog from "@/components/events/CpdPointsReplayDialog";
 import { CPD_REPLAY_ENDPOINT, cpdEventChoices, cpdRegistrationIdentity, cpdRegistrationKey, readCpdReplayResponse } from "@/lib/cpdPointsReplay";
 import { formatRegistrationPricePaid } from "@/lib/eventRegistrationPricePaid";
 import { financialAmount, financialCurrency, financialExport, paymentMethodLabel } from "@/lib/eventRegistrationFinancial";
+import {
+  isGrossSnapshotUnavailable, registrationTicketPricePresentation, registrationDiscountPresentation,
+  registrationTicketPriceExport, registrationDiscountExport, registrationPricePaidPresentation,
+  RECORDED_TICKET_EXPLANATION, RECORDED_DISCOUNT_EXPLANATION, PARTIAL_DISCOUNTS_EXPLANATION, UNPAID_EXPLANATION,
+} from "@/lib/eventRegistrationRecordedFinancial";
 import { summarizeRegistrationRevenue, registrationRevenueExplanation } from "../../../shared/eventRegistrationRevenue.mjs";
 import {
   formatRegistrationCreditBreakdown,
@@ -286,16 +291,48 @@ function formatCurrency(amount) {
   return financialCurrency(amount);
 }
 
-function isGrossSnapshotUnavailable(record) {
-  return record?.totalsStatus === 'unavailable_gross_snapshot'
-    || record?.totalsStatus === 'unavailable_import_financials'
-    || record?.ticket_price_status === 'unavailable_gross_snapshot'
-    || record?.ticket_price_status === 'unavailable_import_financials';
+function FinancialExplanation({ children, explanation }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span tabIndex={0} className="cursor-help rounded-sm border-b border-dotted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">{children}</span>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-xs">{explanation}</TooltipContent>
+    </Tooltip>
+  );
 }
 
-function formatRegistrationTicketPrice(attendee) {
-  if (isGrossSnapshotUnavailable(attendee) || attendee?.ticket_price == null) return 'Unavailable';
-  return formatCurrency(attendee.ticket_price);
+function RegistrationTicketPrice({ attendee }) {
+  const { amount, recorded } = registrationTicketPricePresentation(attendee);
+  return recorded
+    ? <FinancialExplanation explanation={RECORDED_TICKET_EXPLANATION}>{formatCurrency(amount)} <span className="text-xs text-muted-foreground">recorded</span></FinancialExplanation>
+    : formatCurrency(amount);
+}
+
+function RegistrationDiscount({ payment }) {
+  const { amount, recorded } = registrationDiscountPresentation(payment);
+  if (amount === null) return <span className="text-muted-foreground">Unavailable</span>;
+  const label = amount === 0 ? formatCurrency(0) : `-${formatCurrency(Math.abs(amount))}`;
+  return recorded
+    ? <FinancialExplanation explanation={RECORDED_DISCOUNT_EXPLANATION}>{label} <span className="text-xs text-muted-foreground">recorded</span></FinancialExplanation>
+    : amount === 0 ? '-' : <span className="text-green-600">{label}</span>;
+}
+
+function RegistrationPricePaid({ attendee }) {
+  const { label, pending } = registrationPricePaidPresentation(attendee);
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      {label}
+      {pending && <Tooltip>
+        <TooltipTrigger asChild>
+          <button type="button" aria-label={UNPAID_EXPLANATION} className="inline-flex cursor-help rounded-sm text-warning focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
+            <TriangleAlert className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>{UNPAID_EXPLANATION}</TooltipContent>
+      </Tooltip>}
+    </span>
+  );
 }
 
 function PaymentMethodBadge({ method }) {
@@ -1162,16 +1199,10 @@ export default function EventRegistrationReport() {
     { key: 'std:org', label: 'Organisation', get: ({ a }) => registrationOrganisationLabel(a, organizations) },
     { key: 'std:ticketType', label: 'Ticket Type', get: ({ a }) => a.ticket_class_name || '' },
     { key: 'std:trackAccess', label: 'Track Access', get: ({ a }) => a.track_access || '' },
-    { key: 'std:ticketPrice', label: 'Ticket Price', get: ({ a }) => (
-      isGrossSnapshotUnavailable(a) || a.ticket_price == null
-        ? 'Unavailable'
-        : Number(a.ticket_price).toFixed(2)
-    ) },
+    { key: 'std:ticketPrice', label: 'Ticket Price', get: ({ a }) => registrationTicketPriceExport(a) },
     { key: 'std:groupDiscount', label: 'Discount', get: ({ gp, isFirstInGroup }) => {
       if (!isFirstInGroup) return '';
-      if (isGrossSnapshotUnavailable(gp) || gp.discount == null) return 'Unavailable';
-      const discount = Math.abs(Number(gp.discount || 0));
-      return (discount > 0 ? -discount : 0).toFixed(2);
+      return registrationDiscountExport(gp);
     } },
     { key: 'std:groupTotal', label: 'Total after Discount', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? financialExport(gp.totalAfterDiscount) : '') },
     { key: 'std:voucher', label: 'Voucher Amount', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? financialExport(gp.voucherAmount) : '') },
@@ -1264,6 +1295,7 @@ export default function EventRegistrationReport() {
     let totalVoucher = 0;
     let totalTrainingFund = 0;
     let totalDiscount = 0;
+    let hasRecordedDiscount = false;
     let totalTicketPrice = 0;
     let totalFooterDiscount = 0;
     let totalAfterDiscount = 0;
@@ -1285,13 +1317,16 @@ export default function EventRegistrationReport() {
       const codeDiscount = financialAmount(gp.codeDiscount);
       const voucher = financialAmount(gp.voucherAmount);
       const fund = financialAmount(gp.trainingFundAmount);
-      const discount = financialAmount(gp.discount);
+      const discountPresentation = registrationDiscountPresentation(gp);
       if (voucher === null) hasUnavailableVoucher = true;
       else totalVoucher += voucher;
       if (fund === null) hasUnavailableFund = true;
       else totalTrainingFund += fund;
-      if (discount === null || isGrossSnapshotUnavailable(gp)) hasUnavailableDiscountTotal = true;
-      else totalDiscount += discount;
+      if (discountPresentation.partial) hasUnavailableDiscountTotal = true;
+      if (discountPresentation.amount !== null) {
+        totalDiscount += discountPresentation.amount;
+        hasRecordedDiscount = true;
+      }
       if (isGrossSnapshotUnavailable(gp) || gp.ticketTotal == null) {
         hasUnavailableTicketTotal = true;
       } else {
@@ -1326,6 +1361,7 @@ export default function EventRegistrationReport() {
       totalVoucher,
       totalTrainingFund,
       totalDiscount,
+      hasRecordedDiscount,
       totalTicketPrice,
       totalFooterDiscount,
       totalAfterDiscount,
@@ -2052,7 +2088,11 @@ export default function EventRegistrationReport() {
                   <Receipt className="w-4 h-4 text-muted-foreground" />
                   <span className="text-xs text-muted-foreground">Discounts</span>
                 </div>
-                <p className="text-xl font-bold" data-testid="text-total-discounts">{filteredSummary.hasUnavailableDiscountTotal ? 'Unavailable' : formatCurrency(filteredSummary.totalDiscount)}</p>
+                <p className="text-xl font-bold" data-testid="text-total-discounts">
+                  {!filteredSummary.hasRecordedDiscount && filteredSummary.hasUnavailableDiscountTotal
+                    ? 'Unavailable' : formatCurrency(filteredSummary.totalDiscount)}
+                  {filteredSummary.hasUnavailableDiscountTotal && <span className="ml-2 text-xs font-normal text-muted-foreground"><FinancialExplanation explanation={PARTIAL_DISCOUNTS_EXPLANATION}>Recorded / partial</FinancialExplanation></span>}
+                </p>
               </CardContent>
             </Card>
             <Card>
@@ -2146,7 +2186,7 @@ export default function EventRegistrationReport() {
                 <>
                   <p className="mb-3 text-xs text-muted-foreground" data-testid="text-price-paid-explanation">
                     Price Paid is the net ticket price after discounts and credits applied at checkout, including vouchers and training funds. It is not a payment-provider settlement or refund ledger. Pending/unpaid amounts have not been received.
-                    {' '}Historical Invoice / PO registrations with offer-adjusted prices may show Ticket Price and Discount as Unavailable because no gross-price snapshot was stored.
+                    {' '}Historical Invoice / PO registrations with offer-adjusted prices show recorded amounts where available, not the original list price or full discount. Unknown components remain unavailable.
                     {' '}Voucher, Training Fund and Account amounts reflect only allocations recorded in this app. A recorded zero on an imported registration does not establish its external payment history; imported financial history may be unavailable.
                     {' '}Credits are successful post-booking refunds or accounting credit notes recorded in iConnect, not vouchers, training funds or account allocations used at checkout. £0.00 means No credits recorded in iConnect. Historical references without amounts show Amount not recorded. Pending and failed actions are not applied credits. Unknown amounts or allocations prevent a complete total. Reloading reads local records only.
                   </p>
@@ -2249,13 +2289,9 @@ export default function EventRegistrationReport() {
                                     <span className="text-xs">{attendee.track_access}</span>
                                   ) : '-'}
                                 </td>
-                                <td className="py-3 pr-3 text-right whitespace-nowrap">{formatRegistrationTicketPrice(attendee)}</td>
+                                <td className="py-3 pr-3 text-right whitespace-nowrap"><RegistrationTicketPrice attendee={attendee} /></td>
                                 <td className="py-3 pr-3 text-right whitespace-nowrap">
-                                  {isGrossSnapshotUnavailable(gp) || gp.discount == null
-                                    ? <span className="text-muted-foreground">Unavailable</span>
-                                    : Math.abs(Number(gp.discount || 0)) > 0
-                                      ? <span className="text-green-600">-{formatCurrency(Math.abs(Number(gp.discount)))}</span>
-                                      : '-'}
+                                  <RegistrationDiscount payment={gp} />
                                   {gp.discountCode && <div className="text-xs text-muted-foreground" data-testid={`text-discount-code-${attendee.id}`}>{gp.discountCode}</div>}
                                 </td>
                                 <td className="py-3 pr-3 text-right whitespace-nowrap font-medium">{formatCurrency(gp.totalAfterDiscount)}</td>
@@ -2266,7 +2302,7 @@ export default function EventRegistrationReport() {
                                   {gp.trainingFundAmount == null ? 'Unavailable' : gp.trainingFundAmount > 0 ? formatCurrency(gp.trainingFundAmount) : '-'}
                                 </td>}
                                 <td className="py-3 pr-3 text-right whitespace-nowrap" data-testid={`text-price-paid-${attendee.id}`}>
-                                  {formatRegistrationPricePaid(attendee)}
+                                  <RegistrationPricePaid attendee={attendee} />
                                 </td>
                                 <td className="py-3 pr-3 text-right whitespace-nowrap" data-testid={`text-credits-${attendee.id}`}>
                                   <Tooltip>
@@ -2357,11 +2393,7 @@ export default function EventRegistrationReport() {
                           const renderGroupFinancialCells = (keyAttendeeId) => (
                             <>
                               <td className="py-2 pr-3 text-right whitespace-nowrap" rowSpan={groupRowCount}>
-                                {isGrossSnapshotUnavailable(gp) || gp.discount == null
-                                  ? <span className="text-muted-foreground">Unavailable</span>
-                                  : Math.abs(Number(gp.discount || 0)) > 0
-                                    ? <span className="text-green-600">-{formatCurrency(Math.abs(Number(gp.discount)))}</span>
-                                    : '-'}
+                                <RegistrationDiscount payment={gp} />
                                 {gp.discountCode && <div className="text-xs text-muted-foreground" data-testid={`text-discount-code-${keyAttendeeId}`}>{gp.discountCode}</div>}
                               </td>
                               <td className="py-2 pr-3 text-right whitespace-nowrap font-medium" rowSpan={groupRowCount}>
@@ -2503,10 +2535,10 @@ export default function EventRegistrationReport() {
                                     <span className="text-xs">{attendee.track_access}</span>
                                   ) : '-'}
                                 </td>
-                                <td className="py-2 pr-3 text-right whitespace-nowrap">{formatRegistrationTicketPrice(attendee)}</td>
+                                <td className="py-2 pr-3 text-right whitespace-nowrap"><RegistrationTicketPrice attendee={attendee} /></td>
                                 {renderGroupSpannedCells ? renderGroupFinancialCells(attendee.id) : null}
                                 <td className="py-2 pr-3 text-right whitespace-nowrap" data-testid={`text-price-paid-${attendee.id}`}>
-                                  {formatRegistrationPricePaid(attendee)}
+                                  <RegistrationPricePaid attendee={attendee} />
                                 </td>
                                 {renderGroupSpannedCells ? renderGroupCreditsCell(attendee.id) : null}
                                 {renderGroupSpannedCells ? renderPaymentDetailCells(attendee.id) : null}
