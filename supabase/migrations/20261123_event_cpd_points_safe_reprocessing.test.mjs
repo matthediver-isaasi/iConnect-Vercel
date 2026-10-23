@@ -272,6 +272,38 @@ test('safe CPD reprocessing executes as service_role against isolated PostgreSQL
       sql(`INSERT INTO member VALUES('${id(601)}','${tenant}','member@example.invalid');`);
       assert.equal(preview(scope(id(21))).rows[0].outcome, 'unmatched_member', 'ambiguous email never falls back to purchaser hint');
     });
+    await t.test('manual certificate override is service-only, audited, and shares automatic award deduplication', async () => {
+      sql(`CREATE TABLE attendee_cpd_certificate_delivery(
+        id uuid PRIMARY KEY, tenant_id uuid, booking_id uuid,booking_source text,
+        actor text,recipient text,provenance jsonb,status text,purpose text);
+        INSERT INTO member VALUES('${id(705)}','${tenant}','manual@example.invalid');
+        INSERT INTO event VALUES('${id(701)}','${tenant}','{"ticket_classes":[{"id":"ticket","name":"Ticket"}]}');
+        INSERT INTO booking(id,tenant_id,event_id,status,attendee_email,ticket_class_id)
+        VALUES('${id(702)}','${tenant}','${id(701)}','confirmed','manual@example.invalid','ticket');
+        INSERT INTO event_cpd_points_rule(id,tenant_id,event_type,event_id,ticket_id,active,trigger_type,points_value)
+        VALUES('${id(703)}','${tenant}','event','${id(701)}',NULL,true,'attendance',10);
+        INSERT INTO attendee_cpd_certificate_delivery VALUES('${id(704)}','${tenant}','${id(702)}','standard',
+          'tenant_user:admin','manual@example.invalid','{"attendee_member_id":"${id(705)}"}','pending','attendee');`);
+      sql(readFileSync(new URL('./202612310028_manual_certificate_points.sql', import.meta.url), 'utf8'));
+      const award = `SELECT to_jsonb(award_manual_certificate_points('${id(704)}','${id(703)}',10,'Approved advance certificate for this attendee'));`;
+      fails(`SELECT award_manual_certificate_points('${id(704)}','${id(703)}',9,'Approved advance certificate for this attendee');`, /rule changed/);
+      const forbidden = spawnSync('psql', args, { input: `SET ROLE authenticated; ${award}`, encoding: 'utf8' });
+      assert.notEqual(forbidden.status, 0); assert.match(forbidden.stderr, /permission denied/);
+      const results = await Promise.all([concurrent(award), concurrent(award)]);
+      assert.equal(results[0], results[1]);
+      assert.equal(sql(`SELECT count(*) FROM member_cpd_points_ledger WHERE booking_id='${id(702)}';`), '1');
+      const auto = call(`SELECT to_jsonb(record_event_cpd_points_award(${lit({
+        tenant_id: tenant, booking_type: 'booking', booking_id: id(702), event_id: id(701),
+        event_type: 'event', member_id: id(705), trigger_type: 'attendance', status: 'awarded',
+        idempotency_key: 'manual-then-auto', evidence_type: 'qr_checkin', evidence_id: id(702),
+      })}));`);
+      assert.equal(auto.status, 'already_awarded');
+      assert.equal(sql(`SELECT count(*) FROM member_cpd_points_ledger WHERE booking_id='${id(702)}';`), '1');
+      assert.equal(sql(`SELECT evidence_type FROM member_cpd_points_ledger WHERE booking_id='${id(702)}';`), 'manual_certificate_override');
+      assert.equal(sql(`SELECT checked_in_at IS NULL FROM booking WHERE id='${id(702)}';`), 't');
+      sql(`UPDATE attendee_cpd_certificate_delivery SET purpose='test' WHERE id='${id(704)}';`);
+      fails(award, /Pending attendee delivery required/);
+    });
   } finally {
     if (started) run('pg_ctl', ['-D', h.data, '-m', 'immediate', '-w', 'stop']);
     await h.cleanup();

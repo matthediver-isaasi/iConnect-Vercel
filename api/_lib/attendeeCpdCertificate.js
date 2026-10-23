@@ -190,12 +190,12 @@ export async function resolveAttendeeCertificate(db, { tenantId, bookingId, book
     'event.start_date': event.start_date || '', 'event.end_date': event.end_date || '',
   };
   let pointsRows = [];
+  let prospectiveRule = null;
   let guestPointsEvidence = null;
   const emailSelection = memberCertificateId ? null : await loadCpdEmailTemplate(db, tenantId, policy.email_template_id);
-  if (memberCertificateId || !attendeeMemberId || (fields || []).some(p => p.placeholder_key === 'cpd.cpd_points')
-    || /\{\{\s*cpd_points\s*\}\}|\[\[\s*cpd_points\s*\]\]/.test(`${emailSelection.template?.subject || ''} ${emailSelection.template?.body || ''}`)) {
+  {
     if (attendeeMemberId) {
-      // Matched members never receive speculative rule points for missing awards.
+      // Always resolve the ledger, independently of template placeholder choices.
       // Paginate even when a deployment's REST row cap is below 500.
       for (let offset = 0; ; ) {
         const result = await db.from('member_cpd_points_ledger').select('id,member_id,points_value,entry_kind')
@@ -217,6 +217,18 @@ export async function resolveAttendeeCertificate(db, { tenantId, bookingId, book
       const points = pointsRows.reduce((sum, row) => sum + Number(row.points_value), 0);
       if (!Number.isFinite(points)) throw new Error('The authoritative CPD points ledger contains invalid values');
       values['cpd.cpd_points'] = points;
+    }
+  }
+  if (attendeeMemberId && !memberCertificateId && !emailOnly && !pointsRows.length) {
+    const { data: rules, error } = await db.from('event_cpd_points_rule').select('*')
+      .eq('tenant_id', tenantId).eq('event_type', eventType === 'simple' ? 'event' : 'complex_event')
+      .eq('event_id', booking.event_id).eq('active', true);
+    if (error) throw error;
+    const rule = (rules || []).find(r => ticketId && r.ticket_id === ticketId)
+      || (rules || []).find(r => r.ticket_id == null);
+    if (rule && !rule.is_no_award && Number(rule.points_value) > 0) {
+      prospectiveRule = rule;
+      values['cpd.cpd_points'] = Number(rule.points_value);
     }
   }
   const real = realCertificatePlaceholders(fields, values);
@@ -256,14 +268,17 @@ export async function resolveAttendeeCertificate(db, { tenantId, bookingId, book
     booking_status: booking.status, attendee_member_id: attendeeMemberId || null,
     template_version: template.version, template_source_sha256: template.source_sha256,
     points_ledger: pointsRows, guest_certificate_points_evidence: guestPointsEvidence,
+    prospective_points_rule: prospectiveRule,
     values, placeholders: real.placeholders,
     email: { selection_id: policy.email_template_id || null, ...email.provenance,
       rendered_message: email.message || null, survey_snapshot: surveyList?.snapshot || null,
       reason: email.reason || null } };
   const fingerprint = certificateFingerprint({ provenance, recipient, source_path: template.source_path });
   return { ...base, available: true, can_send: validCertificateRecipient(recipient) && !email.reason, fingerprint,
-    certificate_points: guestPointsEvidence?.qualifies ? values['cpd.cpd_points'] : null,
-    certificate_points_source: guestPointsEvidence ? 'guest_rule' : pointsRows.length ? 'member_ledger' : null,
+    certificate_points: values['cpd.cpd_points'] ?? null,
+    certificate_points_source: guestPointsEvidence ? 'guest_rule' : pointsRows.length ? 'member_ledger' : prospectiveRule ? 'member_rule' : null,
+    award_required: !!prospectiveRule, manual_award_supported: !!prospectiveRule,
+    award_status: pointsRows.length ? 'awarded' : 'not_awarded',
     email_template_id: policy.email_template_id || null, email_template_name: emailSelection.template?.name || null,
     email_is_default: !policy.email_template_id, email_reason: email.reason || null, email_message: email.message,
     email_selection_missing: policy.email_selection_missing,

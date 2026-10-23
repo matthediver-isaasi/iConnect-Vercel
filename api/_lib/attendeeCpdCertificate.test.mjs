@@ -191,6 +191,43 @@ async function invoke(f, input = {}, extra = {}) {
   return output;
 }
 
+test('manual member certificate awards only on explicit send, then renders ledger points; preview and test remain read-only', async () => {
+  const f = await fixture();
+  f.db.rows.member = [{ id: 'attendee', tenant_id: tenantId, email: f.booking.attendee_email }];
+  f.db.rows.event_cpd_points_rule = [{ id: 'manual-rule', tenant_id: tenantId, event_type: 'event',
+    event_id: eventId, active: true, ticket_id: null, trigger_type: 'attendance', points_value: '10' }];
+  f.db.rows.member_cpd_points_ledger = [];
+  claims(f);
+  const claimRpc = f.db.rpc;
+  let awards = 0, sends = 0;
+  f.db.rpc = async (name, args) => {
+    if (name !== 'award_manual_certificate_points') return claimRpc(name, args);
+    awards++;
+    assert.equal(args.p_rule_id, 'manual-rule');
+    assert.equal(args.p_points, 10);
+    f.db.rows.member_cpd_points_ledger.push({ id: 'award', tenant_id: tenantId, member_id: 'attendee',
+      booking_type: 'booking', booking_id: bookingId, event_type: 'event', event_id: eventId, entry_kind: 'event_award', points_value: 10 });
+    return { data: 'award', error: null };
+  };
+  const resolved = await resolveAttendeeCertificate(f.db, identity);
+  const input = { booking_id: bookingId, booking_source: 'standard', expected_fingerprint: resolved.fingerprint,
+    request_id: randomUUID(), confirmed: true };
+  const deps = { send: async () => { sends++; return { success: true }; } };
+  assert.equal((await invoke(f, { ...input, action: 'preview' }, deps)).statusCode, 200);
+  assert.equal((await invoke(f, { ...input, action: 'test-send', test_recipient: 'review@example.test' }, deps)).statusCode, 200);
+  assert.equal(awards, 0);
+  assert.equal((await invoke(f, { ...input, action: 'send', request_id: randomUUID() }, deps)).statusCode, 400);
+  const sent = await invoke(f, { ...input, action: 'send', request_id: randomUUID(),
+    award_confirmed: true, override_reason: 'Approved individual advance certificate request' }, deps);
+  assert.equal(sent.statusCode, 200, JSON.stringify(sent.body));
+  assert.equal(sent.body.award_status, 'awarded');
+  assert.equal(awards, 1); assert.equal(sends, 2);
+  const after = await resolveAttendeeCertificate(f.db, identity);
+  assert.equal(after.certificate_points_source, 'member_ledger');
+  assert.equal(after.certificate_points, 10);
+  assert.equal(after.award_required, false);
+});
+
 test('test send uses only the chosen recipient and isolated audit, without attendee sent status', async () => {
   const f = await fixture();
   const resolved = await resolveAttendeeCertificate(f.db, identity);
@@ -572,7 +609,11 @@ test('matched attendee with missing member award does not borrow guest rule or p
     event_id: eventId, active: true, ticket_id: null, trigger_type: 'registration', points_value: '8' }];
   f.db.rows.member_cpd_points_ledger = [{ id: 'other', tenant_id: tenantId, member_id: 'purchaser',
     booking_type: 'booking', booking_id: bookingId, event_type: 'event', event_id: eventId, points_value: 8 }];
-  assert.match((await resolveAttendeeCertificate(f.db, identity)).reason, /cpd.cpd_points/);
+  const prospective = await resolveAttendeeCertificate(f.db, identity);
+  assert.equal(prospective.certificate_points, 8);
+  assert.equal(prospective.award_required, true);
+  assert.equal(prospective.certificate_points_source, 'member_rule');
+  assert.deepEqual(prospective.provenance.points_ledger, []);
   f.db.rows.member_cpd_points_ledger.push({ ...f.db.rows.member_cpd_points_ledger[0],
     id: 'attendee-award', member_id: 'attendee', points_value: 5 });
   assert.equal((await resolveAttendeeCertificate(f.db, identity)).values['cpd.cpd_points'], 5);

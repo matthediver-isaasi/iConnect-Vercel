@@ -25,7 +25,7 @@ const { createRoot } = await import("react-dom/client");
 const { default: CertificateDialog, CertificatePdfCanvasPreview } = await import("./AttendeeCpdCertificateDialog.jsx");
 
 const attendee = { id: "booking-1", attendee_first_name: "Ari", attendee_last_name: "Lee" };
-const details = { attendee_name: "Ari Lee", recipient: "ari@example.test", available: true, can_preview_email: true, can_send: true, fingerprint: "snapshot-a", latest_delivery: null };
+const details = { attendee_name: "Ari Lee", recipient: "ari@example.test", available: true, can_preview_email: true, can_send: true, fingerprint: "snapshot-a", latest_delivery: null, certificate_points_source: "member_ledger" };
 const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
 const tick = () => act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
 const click = async selector => act(async () => document.querySelector(selector).click());
@@ -40,6 +40,65 @@ async function mount(source = "standard", pdfEngine) {
     node.remove();
   };
 }
+
+test("prospective member award needs a specific reason and separate award/email confirmations", async () => {
+  const requests = [];
+  let awarded = false;
+  globalThis.fetch = (_url, options) => {
+    if (!options?.method) return Promise.resolve(json({
+      ...details, certificate_points_source: awarded ? "member_ledger" : "member_rule",
+      certificate_points: "6.25", award_required: !awarded, manual_award_supported: true,
+      award_status: awarded ? "awarded" : "not_awarded",
+      latest_delivery: awarded ? { id: "delivery-a", status: "unknown" } : null,
+    }));
+    const body = JSON.parse(options.body);
+    requests.push(body);
+    awarded = true;
+    return Promise.resolve(json({ error: "Provider outcome unknown", award_status: "awarded",
+      latest_delivery: { id: "delivery-a", status: "unknown" } }, 502));
+  };
+  const cleanup = await mount();
+  try {
+    await tick();
+    assert.match(document.body.textContent, /Not awarded.*prospective/);
+    assert.match(document.body.textContent, /6.25 CPD points/);
+    const field = document.querySelector("#cpd-override-reason");
+    assert.equal(field.value, "");
+    await click('[data-testid="confirm-cpd-email"]');
+    assert.equal(document.querySelector('[data-testid="button-email-cpd-certificate"]').disabled, true);
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value").set.call(field,
+        "Approved early credit for the completed preparatory assessment.");
+      field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+    await click('[data-testid="confirm-cpd-award"]');
+    await click('[data-testid="confirm-cpd-email"]');
+    await click('[data-testid="button-email-cpd-certificate"]');
+    await tick();
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].award_confirmed, true);
+    assert.equal(requests[0].override_reason, "Approved early credit for the completed preparatory assessment.");
+    assert.match(document.body.textContent, /already recorded in the ledger/);
+    assert.match(document.body.textContent, /Delivery audit ID: delivery-a/);
+    assert.equal(document.querySelector('[data-testid="button-email-cpd-certificate"]'), null);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("missing server award capability blocks send while leaving previews available", async () => {
+  globalThis.fetch = () => Promise.resolve(json({ ...details, certificate_points_source: "member_rule",
+    certificate_points: "6.25", award_required: true }));
+  const cleanup = await mount();
+  try {
+    await tick();
+    assert.match(document.body.textContent, /capability is not confirmed/);
+    assert.equal(document.querySelector('[data-testid="button-email-cpd-certificate"]'), null);
+    assert.equal(document.querySelector('[data-testid="button-preview-cpd-email"]').disabled, false);
+  } finally {
+    await cleanup();
+  }
+});
 
 test("metadata is fetched only when opened, with the selected booking source; unavailable means no PDF or email", async () => {
   const calls = [];
@@ -257,12 +316,14 @@ test("canvas renderer shows loading then errors, and cancels pending rendering o
 test("email requires explicit recipient confirmation; retry retains ID, deliberate resend uses a new ID", async () => {
   const sends = [];
   let failOnce = true;
+  let latestDelivery = null;
   globalThis.fetch = (_url, options) => {
-    if (!options?.method) return Promise.resolve(json(details));
+    if (!options?.method) return Promise.resolve(json({ ...details, latest_delivery: latestDelivery }));
     const body = JSON.parse(options.body);
     sends.push(body);
     if (failOnce) { failOnce = false; return Promise.resolve(json({ error: "Email provider timed out" }, 502)); }
-    return Promise.resolve(json({ success: true, latest_delivery: { status: "accepted" } }));
+    latestDelivery = { status: "accepted" };
+    return Promise.resolve(json({ success: true, latest_delivery: latestDelivery }));
   };
   const cleanup = await mount();
   await tick();
@@ -274,6 +335,7 @@ test("email requires explicit recipient confirmation; retry retains ID, delibera
   assert.equal(sends[0].confirmed, true);
   assert.equal(sends[0].expected_fingerprint, "snapshot-a");
   assert.equal(sends[0].deliberate_resend, false);
+  await click('[data-testid="confirm-cpd-email"]');
   await click('[data-testid="button-email-cpd-certificate"]');
   await tick();
   assert.equal(sends[1].request_id, sends[0].request_id);
@@ -300,9 +362,10 @@ test("preview remains available without a valid recipient, but sending is disabl
 });
 
 test("an unknown provider outcome disables sending instead of offering a blind retry", async () => {
+  let attempted = false;
   globalThis.fetch = (_url, options) => options?.method
-    ? Promise.resolve(json({ error: "Provider outcome unknown", latest_delivery: { status: "unknown" } }, 502))
-    : Promise.resolve(json(details));
+    ? (attempted = true, Promise.resolve(json({ error: "Provider outcome unknown", latest_delivery: { status: "unknown" } }, 502)))
+    : Promise.resolve(json({ ...details, latest_delivery: attempted ? { status: "unknown" } : null }));
   const cleanup = await mount();
   await tick();
   await click('[data-testid="confirm-cpd-email"]');

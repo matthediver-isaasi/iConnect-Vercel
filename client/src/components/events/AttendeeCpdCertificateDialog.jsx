@@ -3,6 +3,7 @@ import { Loader2 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { certificateAwardState, validCertificateOverrideReason } from "./attendeeCertificateAwardState";
 
 const ENDPOINT = "/api/reports/attendee-cpd-certificate";
 
@@ -118,6 +119,10 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
   const [testRecipient, setTestRecipient] = useState("");
   const [testMessage, setTestMessage] = useState("");
   const [testConfirmed, setTestConfirmed] = useState(false);
+  const [overrideReason, setOverrideReason] = useState("");
+  const [awardConfirmed, setAwardConfirmed] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [awardMessage, setAwardMessage] = useState("");
   const testRequestId = useRef(null);
   const requestId = useRef(null);
   const metadataRef = useRef(null);
@@ -138,6 +143,9 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
     setTestRecipient("");
     setTestMessage("");
     setTestConfirmed(false);
+    setOverrideReason("");
+    setAwardConfirmed(false);
+    setAwardMessage("");
     testRequestId.current = null;
     setPdfBytes(null);
     setEmailPreview(null);
@@ -158,10 +166,16 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
       if (!controller.signal.aborted) setLoading(false);
     });
     return () => { controller.abort(); };
-  }, [bookingId, source]);
+  }, [bookingId, source, refreshKey]);
 
   const action = async (kind) => {
     if (pendingRef.current || !metadataRef.current) return;
+    const award = certificateAwardState(metadataRef.current);
+    if (kind === "send" && (!confirmed || !award.supported
+      || (award.required && (!awardConfirmed || !validCertificateOverrideReason(overrideReason))))) {
+      setError("Confirm this individual award and enter a specific reason before sending.");
+      return;
+    }
     pendingRef.current = true;
     setBusy(kind);
     setError("");
@@ -169,6 +183,7 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
     if (kind === "preview") setPdfBytes(null);
     if (kind === "email-preview") setEmailPreview(null);
     const activeRequestId = kind === "test-send" ? testRequestId : requestId;
+    let refreshSendOutcome = kind === "send";
     if (["send", "test-send"].includes(kind) && !activeRequestId.current) {
       if (!globalThis.crypto?.randomUUID) {
         setError("Secure request IDs are unavailable in this browser. Please use a supported browser.");
@@ -191,14 +206,24 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
           } : {}),
           ...(kind === "send" ? {
             request_id: requestId.current,
-            confirmed: true,
+            confirmed,
             deliberate_resend: wasAccepted(metadataRef.current.latest_delivery),
+            ...(award.required ? {
+              award_confirmed: awardConfirmed,
+              override_reason: overrideReason.trim(),
+            } : {}),
           } : {}),
         }),
       });
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
+        if (data.award_status === "awarded") {
+          setAwardMessage("CPD points have already been awarded. A delivery failure does not undo the award; retries must not create another award.");
+        }
         if (data.fingerprint && data.fingerprint !== metadataRef.current?.fingerprint) {
+          // A preflight conflict already includes fresh authoritative metadata;
+          // no award or provider attempt occurred for this stale confirmation.
+          refreshSendOutcome = false;
           // A changed email selection/content, PDF or recipient needs fresh consent.
           // The server returns the new metadata with a stale-fingerprint conflict.
           const next = kind === "test-send"
@@ -207,6 +232,7 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
           metadataRef.current = next;
           setMetadata(next);
           setConfirmed(false);
+          setAwardConfirmed(false);
           setPdfBytes(null);
           setEmailPreview(null);
           requestId.current = null;
@@ -240,6 +266,9 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
       } else {
         const data = await response.json();
         if (data.success !== true) throw new Error(data.error || "The email provider has not confirmed acceptance. Check the delivery record before trying again.");
+        if (data.award_status === "awarded") {
+          setAwardMessage("CPD points are recorded in the ledger. Resending this certificate will not award points again.");
+        }
         setSent(true);
         setConfirmed(false);
         setMetadata(previous => {
@@ -253,6 +282,31 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
       // Keep the same request ID after an ambiguous send failure. A retry must
       // never silently turn into a second delivery.
     } finally {
+      if (refreshSendOutcome) {
+        // Award and provider delivery are separate durable outcomes. Always
+        // re-read after an attempt, including a lost/ambiguous response.
+        try {
+          const response = await fetch(`${ENDPOINT}?${new URLSearchParams({ booking_id: bookingId, booking_source: source })}`, {
+            credentials: "include",
+          });
+          if (!response.ok) throw new Error("Could not verify award and delivery status.");
+          const next = await response.json();
+          metadataRef.current = next;
+          setMetadata(next);
+          setConfirmed(false);
+          setAwardConfirmed(false);
+          setPdfBytes(null);
+          setEmailPreview(null);
+          if (certificateAwardState(next).awarded) {
+            setAwardMessage("CPD points are already recorded in the ledger. Email failure or resending does not undo or duplicate the award.");
+          }
+        } catch {
+          const next = { ...metadataRef.current, can_send: false };
+          metadataRef.current = next;
+          setMetadata(next);
+          setAwardMessage("The award or email may already have occurred. Status could not be verified. Reload details and reconcile the delivery audit before sending again.");
+        }
+      }
       pendingRef.current = false;
       setBusy("");
     }
@@ -280,8 +334,9 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
   const name = metadata?.attendee_name || `${attendee?.attendee_first_name || ""} ${attendee?.attendee_last_name || ""}`.trim() || "Attendee";
   const recipient = metadata?.recipient;
   const available = metadata?.available === true;
+  const award = certificateAwardState(metadata);
   const canSend = available && metadata?.can_send === true && !!metadata?.fingerprint
-    && !["pending", "unknown"].includes(metadata?.latest_delivery?.status);
+    && award.supported && !["pending", "unknown"].includes(metadata?.latest_delivery?.status);
   // A pending delivery blocks another send, not inspection of the selected email.
   const canPreviewEmail = available && metadata?.can_preview_email === true && !!metadata?.fingerprint;
   const emailPreviewReason = !recipient
@@ -318,6 +373,14 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
                      This certificate does not create a member CPD ledger award.
                    </p>
                  )}
+                 {!award.guest && <section className="rounded border bg-muted/40 p-3 space-y-1" aria-label="Member CPD award status" data-testid="member-cpd-award-status">
+                   <h3 className="text-sm font-semibold">{award.awarded ? "Member CPD points already awarded" : "Not awarded — prospective certificate points"}</h3>
+                   <p className="text-sm">{metadata.certificate_points != null
+                     ? `${metadata.certificate_points} CPD points ${award.awarded ? "from this attendee’s booking ledger." : "under the effective ticket/event rule. Ticket overrides take precedence."}`
+                     : "The server has not confirmed a CPD point value for this attendee."}</p>
+                   {!award.awarded && <p className="text-xs text-muted-foreground">Preview, download and test email do not award points. A confirmed individual send may award once with your audited reason, even before the event or without recorded attendance. Attendance and event-wide rules remain unchanged.</p>}
+                   {!award.supported && <p role="status" className="text-sm text-amber-700">Individual award capability is not confirmed by the server. Sending is disabled until award status can be verified.</p>}
+                 </section>}
                 <section className="space-y-2 rounded border p-3" aria-label="Certificate PDF preview" data-testid="cpd-certificate-section">
                   <h3 className="font-semibold">1. Certificate PDF</h3>
                   <p className="text-sm text-muted-foreground">Inspect the personalized certificate without sending it.</p>
@@ -390,16 +453,38 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
                   </div>
                 ) : (
                   <div className="space-y-2 border-t pt-3">
-                    {!canSend && <p role="status" className="text-sm text-amber-700">Email unavailable: {["pending", "unknown"].includes(metadata.latest_delivery?.status) ? "A previous send is pending or its provider outcome is unknown. Reconcile it before sending again." : metadata.email_message || describeReason(metadata.email_reason || metadata.send_reason || metadata.reason || "missing_recipient")}</p>}
+                     {award.required && award.supported && <section className="rounded border border-amber-300 bg-amber-50/50 p-3 space-y-3" aria-label="Individual CPD award override">
+                       <h3 className="font-semibold">3. Authorize this attendee’s CPD award</h3>
+                       <p className="text-sm">Sending will first record {metadata.certificate_points} CPD points once in the append-only member ledger, then prepare the certificate with those points. The award remains recorded if email fails. This does not record attendance or change any event rule.</p>
+                       <label htmlFor="cpd-override-reason" className="block text-sm font-medium">Why are you authorizing this individual award?</label>
+                       <textarea id="cpd-override-reason" value={overrideReason} maxLength={2000} rows={3}
+                         disabled={!!busy} aria-describedby="cpd-override-reason-help"
+                         className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                         onChange={event => {
+                           setOverrideReason(event.target.value);
+                           setAwardConfirmed(false);
+                           setConfirmed(false);
+                         }} />
+                       <p id="cpd-override-reason-help" className="text-xs text-muted-foreground">Required: explain the specific circumstances in at least 15 characters and three words. Your reason and admin identity will be audited; no reason is prefilled.</p>
+                       <label className="flex items-start gap-2 text-sm">
+                         <Checkbox checked={awardConfirmed} disabled={!!busy || !validCertificateOverrideReason(overrideReason)}
+                           onCheckedChange={value => setAwardConfirmed(value === true)} data-testid="confirm-cpd-award" />
+                         <span>I explicitly authorize this attendee’s CPD award, overriding the normal registration or attendance trigger for this attendee only, including if the event has not yet occurred.</span>
+                       </label>
+                     </section>}
+                     {!canSend && <p role="status" className="text-sm text-amber-700">Email unavailable: {["pending", "unknown"].includes(metadata.latest_delivery?.status) ? "A previous send is pending or its provider outcome is unknown. Reconcile it before sending again." : !award.supported ? "The server has not verified this attendee’s award status or individual award capability." : metadata.email_message || describeReason(metadata.email_reason || metadata.send_reason || metadata.reason || "missing_recipient")}</p>}
+                     {["pending", "unknown"].includes(metadata.latest_delivery?.status) && <p className="text-xs text-muted-foreground">
+                       Delivery audit ID: {metadata.latest_delivery.id || "unavailable"}. Check the provider outcome and have an authorized administrator reconcile this audit record. Refreshing does not send email or award points.
+                     </p>}
                     {canSend && <>
                       {wasAccepted(metadata.latest_delivery) && <p className="text-sm text-amber-700">A certificate email was already accepted. Sending again will create another email.</p>}
                       <label className="flex items-start gap-2 text-sm">
                         <Checkbox checked={confirmed} disabled={!!busy} onCheckedChange={value => setConfirmed(value === true)} data-testid="confirm-cpd-email" />
                         <span>I confirm I want to email the CPD certificate for <strong>{name}</strong> to <strong>{recipient}</strong>.</span>
                       </label>
-                      <Button type="button" disabled={!confirmed || !!busy} onClick={() => action("send")} data-testid="button-email-cpd-certificate">
+                      <Button type="button" disabled={!confirmed || !!busy || (award.required && (!awardConfirmed || !validCertificateOverrideReason(overrideReason)))} onClick={() => action("send")} data-testid="button-email-cpd-certificate">
                         {busy === "send" && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                        {wasAccepted(metadata.latest_delivery) ? "Send another email" : "Email CPD certificate"}
+                        {award.required ? "Award CPD points & email certificate" : wasAccepted(metadata.latest_delivery) ? "Send another email" : "Email CPD certificate"}
                       </Button>
                     </>}
                   </div>
@@ -408,8 +493,12 @@ export default function AttendeeCpdCertificateDialog({ attendee, bookingSource, 
             )}
           </div>
         )}
+        {awardMessage && <p role="status" className="text-sm" data-testid="cpd-award-outcome">{awardMessage}</p>}
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-        <DialogFooter><Button variant="outline" disabled={!!busy} onClick={onClose}>Close</Button></DialogFooter>
+        <DialogFooter>
+          <Button variant="outline" disabled={!!busy || loading} onClick={() => setRefreshKey(value => value + 1)}>Reload details</Button>
+          <Button variant="outline" disabled={!!busy} onClick={onClose}>Close</Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

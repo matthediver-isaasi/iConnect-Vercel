@@ -25,7 +25,13 @@ Manual attendee certificates and member CPD points are distinct evidence boundar
 
 **Why:** A group booking's `member_id` can identify the purchaser, while the actual attendee is a guest. Requiring a member ledger for all certificates blanks legitimate guest certificates, but treating a certificate as a ledger award would overstate earned member credit.
 
-**How to apply:** Resolve attendee identity by tenant-scoped attendee email, never by purchaser alone. For unmatched attendees, use the active ticket override (which replaces the event rule) or event rule only when booking status and its registration/attendance trigger qualify; snapshot rule and attendance evidence into the certificate fingerprint/delivery provenance. Keep preview, download, and email on the same resolved values, and never write ledger rows during certificate issuance.
+**How to apply:** Resolve attendee identity by tenant-scoped attendee email, never by purchaser alone. For unmatched attendees, use the active ticket override (which replaces the event rule) or event rule only when booking status and its registration/attendance trigger qualify; snapshot rule and attendance evidence into the certificate fingerprint/delivery provenance. Preview/download/test email never award points. The explicit admin override below supersedes the former blanket no-award-on-send rule for matched members.
+
+Manual admin certificate sending may explicitly award an individual's effective rule points before the event or without attendance, with an actor and reason audit; it must not alter the event's rules or attendance records.
+
+**Why:** The owner approved this for incorrect registrations and individual advance issuance without changing the overall event award setup.
+
+**How to apply:** Show prospective points as not yet awarded, require explicit override consent, serialize against automatic awards, and never duplicate an existing award on resend. If email fails after the award, preserve the ledger entry and report the delivery failure separately.
 
 Historical certificate access must not create event attendance or reinterpret imported points as CPD hours. The user requires the original award's title and points, not its description, a recalculated balance, or designer samples.
 

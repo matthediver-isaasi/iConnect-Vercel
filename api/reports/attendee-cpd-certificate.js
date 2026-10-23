@@ -58,7 +58,7 @@ export async function handleAttendeeCertificate(req, res, deps = {}) {
     if (req.method === 'POST' && !['preview', 'email-preview', 'test-send', 'send'].includes(input.action)) {
       return res.status(400).json({ error: 'action must be preview, email-preview, test-send or send' });
     }
-    const resolved = await resolve(db, identity);
+    let resolved = await resolve(db, identity);
     const latest = await latestDelivery(db, context.tenantId, bookingSource, bookingId,badgeOnly?'badge':'attendee');
     const blocked = latest && ['pending', 'unknown'].includes(latest.status);
     const metadata = {
@@ -67,6 +67,9 @@ export async function handleAttendeeCertificate(req, res, deps = {}) {
       template_name: resolved.template_name || null,
       certificate_points: resolved.certificate_points ?? null,
       certificate_points_source: resolved.certificate_points_source || null,
+      award_required: resolved.award_required === true,
+      manual_award_supported: resolved.manual_award_supported === true,
+      award_status: resolved.award_status || 'not_awarded',
       email_template_id: resolved.email_template_id || null,
       email_template_name: resolved.email_template_name || null,
       email_is_default: resolved.email_is_default,
@@ -114,6 +117,13 @@ export async function handleAttendeeCertificate(req, res, deps = {}) {
       return res.status(400).json({ error: 'Explicit confirmation and a UUID request_id are required' });
     }
     if (!resolved.can_send) return res.status(409).json({ error: resolved.send_reason });
+    if (!isTest && !badgeOnly && resolved.award_required) {
+      const reason = typeof input.override_reason === 'string' ? input.override_reason.trim() : '';
+      if (input.award_confirmed !== true || reason.length < 15 || reason.length > 2000
+        || new Set(reason.toLowerCase().split(/\s+/)).size < 3 || (reason.match(/\p{L}/gu) || []).length < 10) {
+        return res.status(400).json({ error: 'Explicit award confirmation and a specific override reason are required.' });
+      }
+    }
     const { data: claim, error: claimError } = await db.rpc('claim_attendee_cpd_certificate_delivery', {
       p_tenant_id: context.tenantId, p_booking_source: bookingSource, p_booking_id: bookingId,
       p_request_id: input.request_id, p_fingerprint: resolved.fingerprint,
@@ -137,6 +147,22 @@ export async function handleAttendeeCertificate(req, res, deps = {}) {
     let attempted = false;
     let surveyGrantIds = [];
     try {
+      if (!isTest && !badgeOnly && resolved.award_required) {
+        const rechecked = await resolve(db, identity);
+        if (rechecked.fingerprint !== resolved.fingerprint) throw new Error('Certificate data changed before award. Reload and review.');
+        const rule = resolved.provenance.prospective_points_rule;
+        const expectedPoints = resolved.certificate_points;
+        const { error: awardError } = await db.rpc('award_manual_certificate_points', {
+          p_delivery_id: claim.delivery.id, p_rule_id: rule.id,
+          p_points: Number(rule.points_value), p_reason: input.override_reason.trim(),
+        });
+        if (awardError) throw awardError;
+        resolved = await resolve(db, identity);
+        if (!resolved.available || !resolved.can_send || resolved.award_status !== 'awarded'
+          || Number(resolved.certificate_points) !== Number(expectedPoints)) {
+          throw new Error('Points award recorded but certificate must be reviewed before sending.');
+        }
+      }
       const pdf = badgeOnly ? null : await render(db, resolved);
       // Recheck just before the provider boundary: cancellation, changed email,
       // template/configuration changes, guest evidence and ledger corrections invalidate consent.
@@ -226,6 +252,7 @@ export async function handleAttendeeCertificate(req, res, deps = {}) {
     }
     return res.status(outcome.status === 'accepted' ? 200 : 502).json({
       success: outcome.status === 'accepted',
+      award_status: resolved.award_status || 'not_awarded',
       ...(isTest ? { test_recipient: recipient, test_delivery: publicDelivery(finished) } : { latest_delivery: publicDelivery(finished) }),
       message: outcome.status === 'accepted' ? (isTest
         ? 'Test email accepted. Attendee delivery is unchanged. Real survey links: open only; do not submit.'
