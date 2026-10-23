@@ -77,11 +77,18 @@ limit error, never an incomplete identity resolution. Confirmation briefly locks
 brief writes and relevant authority tables to prevent validation/write races.
 This is deliberately bounded interactive import, not a background bulk loader.
 
-The SQL migration is **required and outstanding on DEST**. It has only been
-applied to disposable local PostgreSQL test fixtures. **No shared database,
-SOURCE or production database was changed. No deployment was performed.**
+The SQL migration was **applied to live DEST on 23 October 2026**, with owner
+approval, using reviewed SHA-256
+`3e29ca03c2d087beda16369d493a74accb68872100befa6bf98bfe1262ac4fcc`.
+The runner verified service-only function privileges and receipt-table access
+protections, then reloaded the REST schema cache. A read-only service-role
+snapshot and REST RPC check succeeded; a template generated from GFI settings
+parsed successfully. All 32 focused tests passed. No briefs were created,
+no notifications were sent, and the receipt table remained empty.
+SOURCE was not changed. No deployment was required for this database repair.
+The signed-in browser download was not exercised.
 
-After separate owner approval, review the offline hash:
+For future environments, after separate owner approval, review the offline hash:
 
 ```sh
 node scripts/apply-publication-import-migration.mjs
