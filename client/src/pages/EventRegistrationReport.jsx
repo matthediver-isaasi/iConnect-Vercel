@@ -22,6 +22,7 @@ import { Search, Download, Calendar, Building2, CreditCard, Receipt, Ticket, Use
 import { format, parseISO } from "date-fns";
 import { attendanceSyncMessage, responseErrors, responseHasPendingSync } from "@/lib/attendanceSyncSummary";
 import { filterRegistrationAttendance } from "@/lib/eventRegistrationAttendance.mjs";
+import { registrationOrganisationName, registrationOrganisationLabel } from "@/lib/eventRegistrationOrganisation.mjs";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import TransferTicketDialog from "@/components/TransferTicketDialog";
@@ -942,7 +943,7 @@ export default function EventRegistrationReport() {
           (a.attendee_first_name || '').toLowerCase().includes(q) ||
           (a.attendee_last_name || '').toLowerCase().includes(q) ||
           (a.attendee_email || '').toLowerCase().includes(q) ||
-          (organizations[a.organization_id] || '').toLowerCase().includes(q) ||
+          registrationOrganisationLabel(a, organizations).toLowerCase().includes(q) ||
           (a.ticket_class_name || '').toLowerCase().includes(q) ||
           (a.track_access || '').toLowerCase().includes(q)
         ) ||
@@ -963,7 +964,7 @@ export default function EventRegistrationReport() {
         case 'name_desc':
           return (`${bFirst?.attendee_last_name} ${bFirst?.attendee_first_name}`).localeCompare(`${aFirst?.attendee_last_name} ${aFirst?.attendee_first_name}`);
         case 'org_asc':
-          return (organizations[aFirst?.organization_id] || 'zzz').localeCompare(organizations[bFirst?.organization_id] || 'zzz');
+          return registrationOrganisationLabel(aFirst, organizations).localeCompare(registrationOrganisationLabel(bFirst, organizations));
         case 'total_desc':
           return (b.groupPayment.totalCost || 0) - (a.groupPayment.totalCost || 0);
         case 'total_asc':
@@ -1157,7 +1158,7 @@ export default function EventRegistrationReport() {
     { key: 'std:dietary', label: 'Dietary Requirements', get: ({ a }) => formatDietarySelections(a.dietary_selections) },
     { key: 'std:allergies', label: 'Allergies', get: ({ a }) => formatAllergySelections(a.allergy_selections) },
     { key: 'std:accessibility', label: 'Accessibility Needs', get: ({ a }) => formatAccessibilitySelections(a.accessibility_selections) },
-    { key: 'std:org', label: 'Organisation', get: ({ a }) => organizations[a.organization_id] || (a.is_guest_booking ? 'Guest' : 'Non-member') },
+    { key: 'std:org', label: 'Organisation', get: ({ a }) => registrationOrganisationLabel(a, organizations) },
     { key: 'std:ticketType', label: 'Ticket Type', get: ({ a }) => a.ticket_class_name || '' },
     { key: 'std:trackAccess', label: 'Track Access', get: ({ a }) => a.track_access || '' },
     { key: 'std:ticketPrice', label: 'Ticket Price', get: ({ a }) => (
@@ -2203,8 +2204,7 @@ export default function EventRegistrationReport() {
 
                           if (!group.isGroup) {
                             const attendee = group.attendees[0];
-                            const orgName = organizations[attendee.organization_id] || null;
-                            const isGuest = attendee.is_guest_booking || (!attendee.organization_id && !attendee.member_id);
+                            const orgName = registrationOrganisationName(attendee, organizations);
 
                             return (
                               <tr key={attendee.id} className="border-b last:border-0" data-testid={`row-booking-${attendee.id}`}>
@@ -2237,7 +2237,7 @@ export default function EventRegistrationReport() {
                                   ) : '-'}
                                 </td>
                                 <td className="py-3 pr-3 whitespace-nowrap">
-                                  {orgName ? orgName : <span className="italic text-muted-foreground">{isGuest ? 'Guest' : 'Non-member'}</span>}
+                                  {orgName || <span className="italic text-muted-foreground">Not provided</span>}
                                 </td>
                                 <td className="py-3 pr-3 whitespace-nowrap truncate" style={{ maxWidth: '120px' }} title={attendee.ticket_class_name || ''}>{attendee.ticket_class_name || '-'}</td>
                                 <td className="py-3 pr-3 whitespace-nowrap truncate" style={{ maxWidth: '100px' }} title={attendee.track_access || ''} data-testid={`text-track-access-${attendee.id}`}>
@@ -2456,8 +2456,7 @@ export default function EventRegistrationReport() {
                             const isLast = idx === group.attendees.length - 1;
                             const isFirstRowInGroup = isFirst && !showBookerHeader;
                             const renderGroupSpannedCells = isFirst && !showBookerHeader;
-                            const orgName = organizations[attendee.organization_id] || null;
-                            const isGuest = attendee.is_guest_booking || (!attendee.organization_id && !attendee.member_id);
+                            const orgName = registrationOrganisationName(attendee, organizations);
 
                             rows.push(
                               <tr
@@ -2492,7 +2491,7 @@ export default function EventRegistrationReport() {
                                 </td>
                                 {renderGroupSpannedCells ? renderEventCells(attendee.id) : null}
                                 <td className="py-2 pr-3 whitespace-nowrap">
-                                  {orgName ? orgName : <span className="italic text-muted-foreground">{isGuest ? 'Guest' : 'Non-member'}</span>}
+                                  {orgName || <span className="italic text-muted-foreground">Not provided</span>}
                                 </td>
                                 <td className="py-2 pr-3 whitespace-nowrap truncate" style={{ maxWidth: '120px' }} title={attendee.ticket_class_name || ''}>{attendee.ticket_class_name || '-'}</td>
                                 <td className="py-2 pr-3 whitespace-nowrap truncate" style={{ maxWidth: '100px' }} title={attendee.track_access || ''} data-testid={`text-track-access-${attendee.id}`}>
