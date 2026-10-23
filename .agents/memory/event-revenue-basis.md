@@ -18,3 +18,9 @@ Legacy simple bookings may lack immutable currency evidence. Current linked tick
 See [Imported registration evidence](imported-registration-financial-evidence.md)
 for the separate rule that admin-import zero defaults do not establish a free
 historical purchase.
+
+The Event Registration Report's Ticket Price and Discount column totals must sum the displayed row amounts, counting a group discount once, rather than requiring complete historical gross-price evidence.
+
+**Why:** The owner explicitly wants these column footers to match the row values, including legacy recorded amounts, rather than show “Unavailable.”
+
+**How to apply:** Keep this display-total policy separate from canonical revenue and historical accounting evidence; do not manufacture missing row values.

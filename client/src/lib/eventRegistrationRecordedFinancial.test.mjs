@@ -45,24 +45,26 @@ test('known code discount including zero is partial, never an invented full disc
   assert.equal(registrationDiscountExport({ discount: 0 }), '0.00');
 });
 
-test('actual report summary sums known discounts once and keeps gross footer unknown', () => {
+test('actual report summary sums displayed ticket amounts and counts group discounts once', () => {
   const source = readFileSync(new URL('../pages/EventRegistrationReport.jsx', import.meta.url), 'utf8');
   const start = source.indexOf('    let totalVoucher = 0;', source.indexOf('  const filteredSummary ='));
   const end = source.indexOf('\n  },', start);
   const calculate = new Function(
     'filteredGroups', 'totalAttendees', 'summarizeRegistrationCredits', 'summarizeRegistrationRevenue',
-    'financialAmount', 'isGrossSnapshotUnavailable', 'registrationDiscountPresentation',
+    'financialAmount', 'isGrossSnapshotUnavailable', 'registrationDiscountPresentation', 'registrationTicketPricePresentation',
     source.slice(start, end),
   );
   const summarize = payments => calculate(
-    payments.map(groupPayment => ({ groupPayment, attendees: [] })), 0, () => ({}), () => ({}),
-    financialAmount, isGrossSnapshotUnavailable, registrationDiscountPresentation,
+    payments.map(groupPayment => ({ groupPayment, attendees: [legacy, { ticket_price: 100 }] })), 0, () => ({}), () => ({}),
+    financialAmount, isGrossSnapshotUnavailable, registrationDiscountPresentation, registrationTicketPricePresentation,
   );
   const mixed = summarize([{ discount: 12.75, codeDiscount: 4 }, { ...payment, codeDiscount: 3.5 }, payment]);
   assert.equal(mixed.totalDiscount, 16.25);
   assert.equal(mixed.hasUnavailableDiscountTotal, true);
-  assert.equal(mixed.hasUnavailableTicketTotal, true);
-  assert.equal(mixed.hasUnavailableDiscount, true);
+  assert.equal(mixed.totalTicketPrice.toFixed(2), '800.01');
+  assert.equal(mixed.totalFooterDiscount, 16.25);
+  assert.equal(mixed.hasUnavailableTicketTotal, false);
+  assert.equal(mixed.hasUnavailableDiscount, false);
   assert.equal(summarize([payment]).totalDiscount, 0);
   assert.equal(summarize([{}]).totalDiscount, 0);
   assert.equal(summarize([{}]).hasUnavailableDiscountTotal, true);

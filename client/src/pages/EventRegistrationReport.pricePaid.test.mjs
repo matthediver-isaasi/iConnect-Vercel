@@ -121,7 +121,7 @@ test('table financial columns and whole-filter footer use canonical totals in or
   assert.match(source, /else totalAfterDiscount \+= afterDiscount/);
   assert.match(source, /if \(discountPresentation\.partial\) hasUnavailableDiscountTotal = true/);
   assert.match(source, /if \(discountPresentation\.amount !== null\) \{\s*totalDiscount \+= discountPresentation\.amount/);
-  assert.match(source, /totalFooterDiscount \+= Math\.abs\(Number\(gp\.discount\)\)/);
+  assert.match(source, /totalFooterDiscount \+= Math\.round\(Math\.abs\(discountPresentation\.amount\) \* 100\) \/ 100/);
   assert.match(source, /hasUnavailableAfterDiscount \? 'Unavailable' : formatCurrency\(filteredSummary\.totalAfterDiscount\)/);
   assert.match(source, /hasUnavailablePricePaid \? 'Unavailable' : formatCurrency\(filteredSummary\.totalPricePaid\)/);
 });
@@ -131,8 +131,10 @@ test('unavailable historical gross snapshots are never rendered or exported as z
   assert.match(source, /return registrationDiscountExport\(gp\)/);
   assert.equal((source.match(/<RegistrationTicketPrice attendee=\{attendee\}/g) || []).length, 2);
   assert.equal((source.match(/<RegistrationDiscount payment=\{gp\}/g) || []).length, 2);
-  assert.match(source, /hasUnavailableTicketTotal[\s\S]*?text-muted-foreground">Unavailable/);
-  assert.match(source, /hasUnavailableDiscount[\s\S]*?text-muted-foreground">Unavailable/);
+  const footer = source.slice(source.indexOf('<tfoot>'), source.indexOf('</tfoot>'));
+  assert.doesNotMatch(footer, /hasUnavailableTicketTotal|hasUnavailableDiscount/);
+  assert.match(footer, /formatCurrency\(filteredSummary\.totalTicketPrice\)/);
+  assert.match(footer, /formatCurrency\(filteredSummary\.totalFooterDiscount\)/);
   assert.match(source, /Historical Invoice \/ PO registrations with offer-adjusted prices/);
 });
 

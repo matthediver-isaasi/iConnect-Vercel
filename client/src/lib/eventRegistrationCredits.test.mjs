@@ -25,9 +25,9 @@ test('rows, filtered footer, revenue and CSV share local credit amounts', () => 
   const groups = [group(positive), ...Array.from({ length: 63 }, () => group(projectCredits([])))];
   assert.equal(formatRegistrationCredits(positive), '£60.00');
   assert.match(formatRegistrationCreditsExport(positive), /^£60\.00 — Credit note \(xero\) #cn_1: £60\.00$/);
-  assert.equal(formatRegistrationCreditSummary(summarizeRegistrationCredits(groups)), 'Recorded credits: £60.00');
+  assert.equal(formatRegistrationCreditSummary(summarizeRegistrationCredits(groups)), '£60.00');
   assert.equal(summarizeRegistrationRevenue(groups).totalRevenue, 6340);
-  assert.equal(formatRegistrationCreditSummary(summarizeRegistrationCredits(groups.slice(1))), 'Recorded credits: £0.00');
+  assert.equal(formatRegistrationCreditSummary(summarizeRegistrationCredits(groups.slice(1))), '£0.00');
   assert.equal(summarizeRegistrationRevenue(groups.slice(1)).totalRevenue, 6300);
 });
 

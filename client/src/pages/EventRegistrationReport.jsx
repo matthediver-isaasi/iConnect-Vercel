@@ -1327,20 +1327,18 @@ export default function EventRegistrationReport() {
         totalDiscount += discountPresentation.amount;
         hasRecordedDiscount = true;
       }
-      if (isGrossSnapshotUnavailable(gp) || gp.ticketTotal == null) {
-        hasUnavailableTicketTotal = true;
-      } else {
-        totalTicketPrice += Number(gp.ticketTotal);
-      }
-      if (isGrossSnapshotUnavailable(gp) || gp.discount == null) {
+      if (discountPresentation.amount === null) {
         hasUnavailableDiscount = true;
       } else {
-        totalFooterDiscount += Math.abs(Number(gp.discount));
+        totalFooterDiscount += Math.round(Math.abs(discountPresentation.amount) * 100) / 100;
       }
       const afterDiscount = financialAmount(gp.totalAfterDiscount);
       if (afterDiscount === null) hasUnavailableAfterDiscount = true;
       else totalAfterDiscount += afterDiscount;
       for (const attendee of group.attendees) {
+        const ticketAmount = registrationTicketPricePresentation(attendee).amount;
+        if (ticketAmount === null) hasUnavailableTicketTotal = true;
+        else totalTicketPrice += Math.round(ticketAmount * 100) / 100;
         if (attendee.price_paid_status === 'net' && attendee.price_paid != null && Number.isFinite(Number(attendee.price_paid))) {
           totalPricePaid += Number(attendee.price_paid);
         } else if (attendee.price_paid == null) {
@@ -2587,16 +2585,10 @@ export default function EventRegistrationReport() {
                               Totals ({totalAttendees} attendees, {filteredGroups.length} bookings)
                             </td>
                             <td className="pt-3 pr-3 text-right whitespace-nowrap">
-                              {filteredSummary.hasUnavailableTicketTotal
-                                ? <span className="text-muted-foreground">Unavailable</span>
-                                : formatCurrency(filteredSummary.totalTicketPrice)}
+                              {formatCurrency(filteredSummary.totalTicketPrice)}
                             </td>
                             <td className="pt-3 pr-3 text-right whitespace-nowrap text-green-600">
-                              {filteredSummary.hasUnavailableDiscount
-                                ? <span className="text-muted-foreground">Unavailable</span>
-                                : filteredSummary.totalFooterDiscount > 0
-                                  ? `-${formatCurrency(filteredSummary.totalFooterDiscount)}`
-                                  : '-'}
+                              {filteredSummary.totalFooterDiscount > 0 ? '-' : ''}{formatCurrency(filteredSummary.totalFooterDiscount)}
                             </td>
                             <td className="pt-3 pr-3 text-right whitespace-nowrap">
                               {filteredSummary.hasUnavailableAfterDiscount ? 'Unavailable' : formatCurrency(filteredSummary.totalAfterDiscount)}

@@ -90,8 +90,8 @@ export function formatRegistrationCreditSummary(summary) {
   const unknown = Object.entries(summary?.unknownByStatus || {})
     .filter(([, count]) => count > 0)
     .map(([status, count]) => `${status}: ${count} booking group${count === 1 ? '' : 's'}`);
-  const prefix = unknown.length ? 'Recorded subtotal' : 'Recorded credits';
-  const amount = totals.length ? `${prefix}: ${totals.join(' · ')}` : summary?.confirmedGroups
-    ? `${prefix}: ${formatCreditMoney(0, 'GBP')}` : 'No recorded credit amounts available';
+  const prefix = unknown.length ? 'Recorded subtotal: ' : '';
+  const amount = totals.length ? `${prefix}${totals.join(' · ')}` : summary?.confirmedGroups
+    ? `${prefix}${formatCreditMoney(0, 'GBP')}` : 'No recorded credit amounts available';
   return [amount, ...unknown].join(' · ');
 }
