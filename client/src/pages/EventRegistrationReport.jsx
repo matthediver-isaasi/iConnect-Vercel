@@ -23,6 +23,7 @@ import { format, parseISO } from "date-fns";
 import { attendanceSyncMessage, responseErrors, responseHasPendingSync } from "@/lib/attendanceSyncSummary";
 import { filterRegistrationAttendance } from "@/lib/eventRegistrationAttendance.mjs";
 import { registrationOrganisationName, registrationOrganisationLabel } from "@/lib/eventRegistrationOrganisation.mjs";
+import { registrationMemberHighlight } from "@/lib/eventRegistrationMemberHighlight.mjs";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import TransferTicketDialog from "@/components/TransferTicketDialog";
@@ -2069,6 +2070,9 @@ export default function EventRegistrationReport() {
             <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-4">
               <CardTitle className="text-base">
                 Registrations
+                <span className="block text-xs font-normal text-muted-foreground mt-1">
+                  Pale amber rows have no linked member record.
+                </span>
                 {totalAttendees > 0 && (
                   <span className="text-muted-foreground font-normal text-sm ml-2">
                     ({totalAttendees} attendee{totalAttendees !== 1 ? 's' : ''} in {filteredGroups.length} booking{filteredGroups.length !== 1 ? 's' : ''})
@@ -2207,7 +2211,7 @@ export default function EventRegistrationReport() {
                             const orgName = registrationOrganisationName(attendee, organizations);
 
                             return (
-                              <tr key={attendee.id} className="border-b last:border-0" data-testid={`row-booking-${attendee.id}`}>
+                              <tr key={attendee.id} className={`border-b last:border-0 ${registrationMemberHighlight(attendee)}`} data-testid={`row-booking-${attendee.id}`}>
                                 <td className="py-3 pr-1">
                                   {renderActionIcons(attendee, group)}
                                 </td>
@@ -2461,7 +2465,7 @@ export default function EventRegistrationReport() {
                             rows.push(
                               <tr
                                 key={attendee.id}
-                                className={`${isLast ? 'border-b' : ''} ${isFirstRowInGroup ? 'border-t' : ''}`}
+                                className={`${isLast ? 'border-b' : ''} ${isFirstRowInGroup ? 'border-t' : ''} ${registrationMemberHighlight(attendee)}`}
                                 style={isFirstRowInGroup ? { borderTopWidth: '2px' } : undefined}
                                 data-testid={`row-booking-${attendee.id}`}
                               >
