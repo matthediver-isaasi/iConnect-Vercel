@@ -67,6 +67,12 @@ would have changed a member record.
 identify expected telemetry separately from forbidden business writes, and
 account for automatic activity writes before promising a read-only live visit.
 
+Browser API interception does not isolate server-rendered document requests.
+
+**Why:** A form reload fixture failed in tenant-branding SSR before the mocked browser API responses could run.
+
+**How to apply:** For isolated SPA navigation tests, serve a fixture document using the actual client entry and Vite React preamble. Keep SSR/live-tenant verification separate; browser mocks do not prove it.
+
 Distinguish an unavailable dev server from a blank fixture before changing tests.
 
 **Why:** Restored Vite dependency metadata can reference files from an older installed package layout. A page may initially render and then lose the server during dependency optimization, making unrelated Canvas fixtures all report zero embeds.

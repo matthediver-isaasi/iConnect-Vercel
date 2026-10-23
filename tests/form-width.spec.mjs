@@ -174,6 +174,22 @@ async function installFixtures(page) {
 
   page.on("pageerror", (error) => state.pageErrors.push(error.message));
 
+  // Serve the actual SPA entry without tenant SSR/database dependencies.
+  await page.context().route("**/*", route => {
+    if (!route.request().isNavigationRequest()) return route.continue();
+    return route.fulfill({
+      contentType: "text/html",
+      body: `<!doctype html><html><head><script type="module">
+        import RefreshRuntime from '/@react-refresh';
+        RefreshRuntime.injectIntoGlobalHook(window);
+        window.$RefreshReg$ = () => {};
+        window.$RefreshSig$ = () => (type) => type;
+        window.__vite_plugin_react_preamble_installed__ = true;
+      </script></head><body><div id="root"></div>
+      <script type="module" src="/src/main.jsx"></script></body></html>`,
+    });
+  });
+
   await page.context().route("**/rest/v1/**", async (route) => {
     const method = route.request().method();
     if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
@@ -300,6 +316,123 @@ async function openSurface(page, surface) {
   await formWidthBox(page);
 }
 
+const managementReturn = page => page.getByRole("link", { name: "Back to Form Management", exact: true });
+
+async function openManagementPreview(page, mode = "card") {
+  await page.goto("/FormManagement", { waitUntil: "domcontentloaded" });
+  if (mode === "list") await page.getByTestId("standard-button-view-list").click();
+  const action = page.getByTestId(`button-view-${FORM_ID}`);
+  await expect(action).toBeVisible();
+  expect(await action.locator("..").getAttribute("href")).toBe(`/FormView?slug=${FORM_SLUG}`);
+  await action.click();
+  await expect(managementReturn(page)).toBeVisible();
+}
+
+for (const layout of ["standard", "card_swipe"]) {
+  for (const mode of ["card", "list"]) {
+    test(`management preview: ${mode} action, ${layout} layout, reload and explicit return`, async ({ page }, testInfo) => {
+      const state = await installFixtures(page);
+      state.form = layout === "card_swipe" ? cardSwipeFixture() : formFixture();
+      await openManagementPreview(page, mode);
+      await formWidthBox(page);
+      await page.screenshot({ path: testInfo.outputPath("management-preview.png") });
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await formWidthBox(page);
+      await expect(managementReturn(page)).toBeVisible();
+      if (layout === "standard") {
+        await page.getByRole("button", { name: "Next", exact: true }).click();
+        await expect(page.getByText("2 of 2", { exact: true })).toBeVisible();
+        await expect(managementReturn(page)).toBeVisible();
+      }
+      await managementReturn(page).focus();
+      await expect(managementReturn(page)).toBeFocused();
+      await page.keyboard.press("Enter");
+      await expect(page).toHaveURL(/\/FormManagement$/);
+      // A copied URL is a new entry, even for this authenticated administrator.
+      await page.goto(`/FormView?slug=${FORM_SLUG}`);
+      await formWidthBox(page);
+      await expect(managementReturn(page)).toHaveCount(0);
+      await openSurface(page, "embed");
+      await expect(managementReturn(page)).toHaveCount(0);
+      expect(state.pageErrors).toEqual([]);
+      expect(state.unexpectedWrites).toEqual([]);
+      expect(state.supabaseWrites).toEqual([]);
+    });
+  }
+}
+
+test("management preview: return remains available while loading and after a failed load", async ({ page }) => {
+  const state = await installFixtures(page);
+  let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  await page.route(`**/api/public/form/${FORM_SLUG}*`, async route => {
+    await pending;
+    return json(route, { error: "Fixture unavailable" }, 404);
+  });
+  await openManagementPreview(page);
+  await expect(page.getByTestId("form-width-container")).toHaveCount(0);
+  release();
+  await expect(page.getByText("Form not found or is not active.")).toBeVisible();
+  await expect(managementReturn(page)).toBeVisible();
+  await managementReturn(page).click();
+  await expect(page).toHaveURL(/\/FormManagement$/);
+  expect(state.pageErrors).toEqual([]);
+});
+
+test("management preview: completion keeps return, submission uses the normal endpoint", async ({ page }) => {
+  const state = await installFixtures(page);
+  state.form = { ...cardSwipeFixture(), fields: [] };
+  const submissions = [];
+  await page.route("**/api/forms/send-submission-email", route => json(route, { success: true }));
+  await page.route("**/api/public/form-submission*", route => {
+    submissions.push(route.request().postDataJSON());
+    return json(route, { completion_recorded: true });
+  });
+  await openManagementPreview(page);
+  await page.getByTestId("button-submit-form").click();
+  await expect(page.getByText("Success!", { exact: true })).toBeVisible();
+  await expect(managementReturn(page)).toBeVisible();
+  expect(submissions).toHaveLength(1);
+  expect(submissions[0].form_id).toBe(FORM_ID);
+  expect(submissions[0]).not.toHaveProperty("formManagementPreview");
+  expect(state.pageErrors).toEqual([]);
+  expect(state.unexpectedWrites).toEqual([]);
+});
+
+test("management preview: another form does not inherit return and previous-form navigation stays independent", async ({ page }) => {
+  const state = await installFixtures(page);
+  state.form = {
+    ...cardSwipeFixture(), layout_type: "standard",
+    visibility_rules: [{
+      trigger_field_id: "form-width-card-swipe-first", operator: "equals", value: "next",
+      actions: [{ id: "open-next", action_type: "open_form", destination_form_id: "other-form" }],
+    }],
+  };
+  await page.route("**/api/public/form-transition*", route => json(route, {
+    target_slug: "other-form", target_form_id: "other-form",
+  }));
+  await page.route("**/api/public/form/other-form*", route => json(route, {
+    ...cardSwipeFixture(), id: "other-form", slug: "other-form", name: "Other form", layout_type: "standard",
+  }));
+  await openManagementPreview(page);
+  await page.getByRole("textbox").first().fill("next");
+  await expect(page.getByText("Other form", { exact: true })).toBeVisible();
+  await expect(managementReturn(page)).toHaveCount(0);
+  await page.getByRole("button", { name: "Back to previous form", exact: true }).click();
+  await expect(managementReturn(page)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Back to previous form", exact: true })).toHaveCount(0);
+  // Preserve the marker deliberately but change the route: slug scope must reject it.
+  await page.evaluate(() => {
+    history.pushState(history.state, "", "/FormView?slug=other-form");
+    window.dispatchEvent(new PopStateEvent("popstate", { state: history.state }));
+  });
+  await expect(managementReturn(page)).toHaveCount(0);
+  await page.reload();
+  await expect(managementReturn(page)).toHaveCount(0);
+  expect(state.pageErrors).toEqual([]);
+  expect(state.unexpectedWrites).toEqual([]);
+});
+
 function pageIndicator(surface, pageNumber) {
   return surface === "embed"
     ? `Page ${pageNumber} of 2`
@@ -333,12 +466,17 @@ async function assertPageTwoLayout(page, surface) {
   const right = page.getByTestId(`input-email-${PAGE_TWO_RIGHT_ID}`);
   await expect(left).toBeVisible();
   await expect(right).toBeVisible();
-  await expect(page.getByTestId(`payment-summary-${PAYMENT_ID}`)).toBeVisible();
+  // FormView's zero-price payment now uses FormPaymentSubmit's ordinary
+  // submit fallback; only EmbedForm renders the legacy summary component.
+  const paymentContent = surface === "embed"
+    ? page.getByTestId(`payment-summary-${PAYMENT_ID}`)
+    : page.getByTestId("form-payment-area");
+  await expect(paymentContent).toBeVisible();
 
   const [leftBox, rightBox, paymentBox, paymentAreaBox] = await Promise.all([
     left.boundingBox(),
     right.boundingBox(),
-    page.getByTestId(`payment-summary-${PAYMENT_ID}`).boundingBox(),
+    paymentContent.boundingBox(),
     page.getByTestId(surface === "embed" ? "embed-form-payment-area" : "form-payment-area").boundingBox(),
   ]);
   expect(leftBox).not.toBeNull();

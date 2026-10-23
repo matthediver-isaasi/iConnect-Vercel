@@ -702,7 +702,7 @@ export default function FormManagementPage() {
           >
             <Copy className="w-3 h-3" />
           </Button>
-          <Link to={`${createPageUrl('FormView')}?slug=${form.slug}`}>
+          <Link to={`${createPageUrl('FormView')}?slug=${form.slug}`} state={{ formManagementPreview: { formId: form.id, slug: form.slug } }}>
             <Button variant="outline" size="sm" data-testid={`button-view-${form.id}`}>
               <Eye className="w-3 h-3" />
             </Button>
@@ -755,7 +755,7 @@ export default function FormManagementPage() {
       >
         <Copy className="w-3 h-3" />
       </Button>
-      <Link to={`${createPageUrl('FormView')}?slug=${form.slug}`}>
+      <Link to={`${createPageUrl('FormView')}?slug=${form.slug}`} state={{ formManagementPreview: { formId: form.id, slug: form.slug } }}>
         <Button variant="outline" size="sm" title="View form" data-testid={`button-view-${form.id}`}>
           <Eye className="w-3 h-3" />
         </Button>

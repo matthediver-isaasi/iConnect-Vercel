@@ -67,7 +67,7 @@ import {
 import DepartmentCurrentSetNotice from "@/components/forms/DepartmentCurrentSetNotice";
 import { classifyFormMutationContract } from "../../../shared/formMutationContract.js";
 import { memberOwnerRequired } from "@/lib/publicMemberSignup";
-import { useLocation } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { formCommunicationCreationRole, formCommunicationRoleSourceAnswers } from "@/lib/formCommunicationCategoryEligibility";
 
 const EMPTY_FORM_COLLECTION = Object.freeze([]);
@@ -252,7 +252,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     setSelectedCurrentSetDepartment(departmentId);
     const next = new URLSearchParams(window.location.search);
     next.set('department_id', departmentId);
-    window.history.replaceState({}, '', `${window.location.pathname}?${next.toString()}${window.location.hash}`);
+    window.history.replaceState(window.history.state, '', `${window.location.pathname}?${next.toString()}${window.location.hash}`);
   }, []);
   
   // Draft save state
@@ -432,7 +432,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       next.searchParams.set('applicant_continuation', '1');
     }
     if (next.href !== window.location.href) {
-      window.history.replaceState({}, '', `${next.pathname}${next.search}${next.hash}`);
+      window.history.replaceState(window.history.state, '', `${next.pathname}${next.search}${next.hash}`);
     }
   }, [form?.id, legacyPublicApplication, applicantContinuationStorageKey, applicantContinuationToken]);
   const applicantCredentialIdentity = `${form?.id || 'loading'}:${
@@ -2551,11 +2551,33 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     previousRoleActionsRef.current = nowActiveRoleActions;
   }, [form?.visibility_rules, formValues, recordSelectionOptionStates, emptyRelationshipParentValues, prefillMember, prefillOrg, prefillMemberCustomValues, prefillOrgCustomValues, conditionalPrefillValues, form?.prefill_source]);
 
+  // History-entry context is presentation only, never submission authority.
+  // Open-form rules can switch the active form without changing the URL.
+  const previewOrigin = location.state?.formManagementPreview;
+  const showManagementReturn = !assignmentToken
+    && !!previewOrigin?.formId
+    && !!formSlug
+    && previewOrigin.slug === formSlug
+    && (!form?.id || previewOrigin.formId === form.id);
+  const withManagementReturn = (screen) => showManagementReturn ? (
+    <>
+      <nav aria-label="Form management return" className="bg-slate-50 px-4 py-3 md:px-8 print:hidden">
+        <Button asChild variant="outline" size="sm">
+          <Link to="/FormManagement">
+            <ChevronLeft className="mr-2 h-4 w-4" aria-hidden="true" />
+            Back to Form Management
+          </Link>
+        </Button>
+      </nav>
+      {screen}
+    </>
+  ) : screen;
+
   // Payment return status always wins over current form availability/access.
   // Confirmation is tied to the server-created submission and prior access
   // proof, not to whether the public form can still be loaded now.
   if (paymentReturn.active) {
-    return (
+    return withManagementReturn(
       <div ref={paymentReturnScrollTargetRef} data-testid="payment-return-scroll-target">
         <FormPaymentReturnScreen
           status={paymentReturn.status}
@@ -2578,7 +2600,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   }
 
   if (!authResolved || isLoading) {
-    return (
+    return withManagementReturn(
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
       </div>
@@ -2586,7 +2608,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   }
 
   if (transitionError) {
-    return (
+    return withManagementReturn(
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
         <Card className="max-w-md border-red-200">
           <CardContent className="p-8 text-center">
@@ -2600,7 +2622,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   }
 
   if (formAccess.restricted) {
-    return (
+    return withManagementReturn(
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
         <FormAccessRestriction
           form={accessPayload}
@@ -2616,7 +2638,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // authentication — the server returned event context but no form config.
   if (assignmentMeta && (rawForm?.__assignmentBlocked || assignmentMeta.closed_message || assignmentMeta.require_authentication)) {
     const eventTitle = assignmentMeta.event?.title;
-    return (
+    return withManagementReturn(
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
         <Card className="max-w-md">
           <CardContent className="p-6 text-center space-y-2">
@@ -2640,7 +2662,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   }
 
   if (!form) {
-    return (
+    return withManagementReturn(
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
         <Card className="max-w-md">
           <CardContent className="p-6 text-center">
@@ -2655,7 +2677,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     // Task #3364: the redirect effect above sends the visitor to
     // /login?returnTo=<this form URL>. Render a transient redirect state
     // (never the old static dead end) while auth resolves / navigation runs.
-    return (
+    return withManagementReturn(
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
         <Card className="max-w-md">
           <CardContent className="p-6 text-center space-y-2">
@@ -2684,7 +2706,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     viewerBookingData,
     viewerBookingError,
   })) {
-    return (
+    return withManagementReturn(
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex justify-center pt-8 md:pt-16">
         <Card className="max-w-md h-fit">
           <CardHeader className="text-center">
@@ -2703,7 +2725,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // Check if still loading capacity
   // Only show loading if we actually expect to do a pre-load capacity check (i.e., we have effectiveOrgIdForCapacity)
   if (primaryMemberRoleId && effectiveOrgIdForCapacity && isCheckingCapacity && !prefillState.locked) {
-    return (
+    return withManagementReturn(
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
       </div>
@@ -2718,7 +2740,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   const shouldBlockForCapacity = primaryMemberRoleId && canCheckCapacityNow && roleCapacity && !roleCapacity.hasCapacity;
   
   if (shouldBlockForCapacity) {
-    return (
+    return withManagementReturn(
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex justify-center pt-8 md:pt-16">
         <Card className="max-w-md h-fit">
           <CardHeader className="text-center">
@@ -3032,7 +3054,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   handleSubmitRef.current = handleSubmit;
 
   if (submitted) {
-    return (
+    return withManagementReturn(
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
         <Card className="max-w-md border-green-200">
           <CardContent className="p-12 text-center">
@@ -3067,7 +3089,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     // Can proceed if: (not required OR has value) AND format is valid
     const canProceed = !currentField || ((!currentField.required || hasValue) && isFormatValid);
 
-    return (
+    return withManagementReturn(
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
         <FormPrefillBoundary state={prefillState} className="w-full min-w-0" style={{ maxWidth: getFormMaxWidth(form.form_width) }}>
         <Card className="w-full min-w-0 border-slate-200" style={{ maxWidth: getFormMaxWidth(form.form_width) }} data-testid="form-width-container">
@@ -3393,7 +3415,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     toast,
   });
 
-  return (
+  return withManagementReturn(
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8" ref={formContainerRef}>
       <FormTransitionOverlay active={isTransitioning} prefillState={prefillState}>
       <div className="w-full min-w-0 mx-auto" style={{ maxWidth: getFormMaxWidth(form.form_width) }} data-testid="form-width-container">
