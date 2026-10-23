@@ -36,7 +36,7 @@ export function historicalStoredInvoiceFilename(disposition, record) {
   }).replace(/^historical-dd-invoice-/, "historical-invoice-");
 }
 
-export function HistoricalInvoicesTable({ records, canAccessInvoices, tenantId, request = fetch }) {
+export function HistoricalInvoicesTable({ records, canAccessInvoices, tenantId, request = fetch, activity = false }) {
   const [busy, setBusy] = useState(null);
   const [actionError, setActionError] = useState(null);
   const [preview, setPreview] = useState(null);
@@ -109,11 +109,17 @@ export function HistoricalInvoicesTable({ records, canAccessInvoices, tenantId, 
     }
   };
 
+  // The timeline shares the same PDF lifecycle, authorization and metadata as
+  // the archive table, but renders a single semantic activity row, not a table.
+  const Table = activity ? "div" : "table";
+  const Body = activity ? "div" : "tbody";
+  const Row = activity ? "div" : "tr";
+  const Cell = activity ? "div" : "td";
   return (
     <div className="space-y-3">
       <div className="overflow-x-auto rounded border">
-        <table className="w-full text-sm" data-testid="table-historical-invoices">
-          <thead className="bg-muted/50 text-muted-foreground">
+        <Table className="w-full text-sm" data-testid={activity ? undefined : "table-historical-invoices"}>
+          {!activity && <thead className="bg-muted/50 text-muted-foreground">
             <tr>
               <th scope="col" className="p-3 text-left">Date &amp; description</th>
               <th scope="col" className="p-3 text-left">Invoice number</th>
@@ -121,25 +127,25 @@ export function HistoricalInvoicesTable({ records, canAccessInvoices, tenantId, 
               <th scope="col" className="p-3 text-right">Amount</th>
               <th scope="col" className="p-3 text-left">Document</th>
             </tr>
-          </thead>
-          <tbody>{records.map(record => (
-            <tr key={record.id} className="border-t align-top" data-testid={`row-historical-invoice-${record.id}`}>
-              <td className="p-3 min-w-[180px]">
+          </thead>}
+          <Body>{records.map(record => (
+            <Row key={record.id} className={activity ? "flex flex-wrap items-start gap-x-3 bg-slate-50 rounded-lg" : "border-t align-top"} data-testid={`row-historical-invoice-${record.id}`}>
+              <Cell className="p-3 min-w-[180px]">
                 <div className="flex flex-wrap items-center gap-2">
                   <span>{formatHistoricalInvoiceDate(record.invoice_date)}</span>
                   <Badge variant="secondary">Historical</Badge>
                 </div>
                 <p className="mt-1 text-muted-foreground">{record.description || "Description not supplied"}</p>
-              </td>
-              <td className="p-3">
+              </Cell>
+              <Cell className="p-3">
                 {canAccessInvoices && record.can_download === true ? (
                   <Button variant="link" className="h-auto p-0" disabled={!!busy}
                     onClick={() => runAction(record, "view")}>
                     {record.invoice_number || "View invoice"}
                   </Button>
                 ) : (record.invoice_number || "Not supplied")}
-              </td>
-              <td className="p-3">
+              </Cell>
+              <Cell className="p-3">
                 <p>{({ invoice: "Invoice", credit: "Credit", overpayment: "Overpayment" })[record.record_kind] || "Unknown kind"}</p>
                 <Badge variant="outline" className="mt-1">
                   {record.accounting_status_checked_at
@@ -160,9 +166,9 @@ export function HistoricalInvoicesTable({ records, canAccessInvoices, tenantId, 
                     Xero status not yet verified{record.accounting_status_refresh_pending ? " · refresh pending" : ""}
                   </p>
                 )}
-              </td>
-              <td className="p-3 text-right">{formatHistoricalInvoiceAmount(record.amount_minor, record.currency)}</td>
-              <td className="p-3 min-w-[175px]">
+              </Cell>
+              <Cell className="p-3 text-right">{formatHistoricalInvoiceAmount(record.amount_minor, record.currency)}</Cell>
+              <Cell className="p-3 min-w-[175px]">
                 {canAccessInvoices && record.can_download === true ? (
                   <div className="flex flex-wrap gap-2">
                     {["view", "download"].map(action => (
@@ -183,12 +189,12 @@ export function HistoricalInvoicesTable({ records, canAccessInvoices, tenantId, 
                       onClick={() => runAction(record, actionError.action)}>Retry</Button>
                   </div>
                 )}
-              </td>
-            </tr>
-          ))}</tbody>
-        </table>
+              </Cell>
+            </Row>
+          ))}</Body>
+        </Table>
       </div>
-      <p className="text-xs text-muted-foreground">Imported historical records are read-only. They do not establish current membership entitlement or change payment status.</p>
+      {!activity && <p className="text-xs text-muted-foreground">Imported historical records are read-only. They do not establish current membership entitlement or change payment status.</p>}
       <Dialog open={!!preview} onOpenChange={open => { if (!open) closePreview(); }}>
         <DialogContent className="max-w-4xl">
           <DialogHeader>

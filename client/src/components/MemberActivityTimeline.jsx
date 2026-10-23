@@ -1,13 +1,17 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, ClipboardList, Calendar, UserCheck, UserPlus, UserMinus } from "lucide-react";
+import { ClipboardList, Calendar, UserCheck, UserPlus, UserMinus } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
 import { useDateFormat } from "@/hooks/useDateFormat";
 import RelatedOpportunityActivity from "@/components/opportunities/RelatedOpportunityActivity";
 import ActivityInvoiceActions from "@/components/ActivityInvoiceActions";
+import { HistoricalInvoicesTable } from "@/components/membership/HistoricalInvoices";
+import { useAllHistoricalInvoices, useHistoricalInvoiceTenant } from "@/hooks/useHistoricalInvoices";
+import { bookingActivityDate, mergeHistoricalInvoiceActivity, validActivityDate } from "@/lib/memberActivityDates";
 
 /**
  * Shared member Activity timeline.
@@ -15,7 +19,8 @@ import ActivityInvoiceActions from "@/components/ActivityInvoiceActions";
  * This is the single source of truth for the member Activity timeline used by
  * both member detail screens (`pages/MemberDetail.jsx` and
  * `components/MemberDetailView.jsx`). Data fetching, unified item building and
- * per-row rendering (bookings, check-ins and group join/leave) all live here so
+ * per-row rendering (bookings, check-ins, group join/leave and historical
+ * invoices, including renewal invoices) all live here so
  * that adding a new Activity item type in the future updates both screens at
  * once.
  *
@@ -28,22 +33,33 @@ import ActivityInvoiceActions from "@/components/ActivityInvoiceActions";
  * @param {string} [props.title]        Card heading text.
  * @param {string} [props.emptyText]    Empty-state message.
  * @param {string} [props.emptyTestId]  data-testid for the empty-state message.
+ * @param {string} [props.activeTenantId] Tenant fallback for archive reads and PDF actions.
  */
-export default function MemberActivityTimeline({
+export default function MemberActivityTimeline(props) {
+  const tenantId = useHistoricalInvoiceTenant(props.activeTenantId);
+  return <MemberActivityTimelineContent key={`${tenantId || "portal"}:${props.memberId}`} {...props} tenantId={tenantId} />;
+}
+
+function MemberActivityTimelineContent({
   memberId,
   memberEmail,
   enabled = true,
   title = "Activity Timeline",
   emptyText = "No activity found",
   emptyTestId = "text-no-activity",
+  tenantId,
+  request = fetch,
 }) {
   const { formatDate } = useDateFormat();
+  const [page, setPage] = useState(0);
+  const displayDate = value => validActivityDate(value) ? formatDate(value) : '—';
 
   const id = memberId;
   const queriesEnabled = !!id && enabled;
+  const invoices = useAllHistoricalInvoices({ memberId: id, activeTenantId: tenantId, enabled: queriesEnabled, request });
 
   const { data: memberBookings = [], isLoading: bookingsLoading } = useQuery({
-    queryKey: ['member-detail-bookings', id, memberEmail],
+    queryKey: ['member-detail-bookings', id, memberEmail, tenantId],
     enabled: queriesEnabled,
     queryFn: async () => {
       const email = (memberEmail || '').trim();
@@ -81,7 +97,7 @@ export default function MemberActivityTimeline({
   });
 
   const { data: complexBookings = [], isLoading: complexBookingsLoading } = useQuery({
-    queryKey: ['member-detail-complex-bookings', id, memberEmail],
+    queryKey: ['member-detail-complex-bookings', id, memberEmail, tenantId],
     enabled: queriesEnabled,
     queryFn: async () => {
       const email = (memberEmail || '').trim();
@@ -116,8 +132,8 @@ export default function MemberActivityTimeline({
     }
   });
 
-  const { data: events = [] } = useQuery({
-    queryKey: ['events-for-member-detail'],
+  const { data: events = [], isLoading: eventsLoading } = useQuery({
+    queryKey: ['events-for-member-detail', tenantId],
     enabled: queriesEnabled && memberBookings.length > 0,
     queryFn: async () => {
       try {
@@ -137,8 +153,8 @@ export default function MemberActivityTimeline({
     return Array.from(ids);
   }, [complexBookings]);
 
-  const { data: complexEvents = [] } = useQuery({
-    queryKey: ['complex-events-for-member-detail', complexEventIds],
+  const { data: complexEvents = [], isLoading: complexEventsLoading } = useQuery({
+    queryKey: ['complex-events-for-member-detail', complexEventIds, tenantId],
     enabled: queriesEnabled && complexEventIds.length > 0,
     queryFn: async () => {
       try {
@@ -155,7 +171,7 @@ export default function MemberActivityTimeline({
   const memberEmailLower = (memberEmail || '').trim().toLowerCase();
 
   const { data: groupActivityEvents = [], isLoading: groupActivityLoading } = useQuery({
-    queryKey: ['member-detail-group-activity', id],
+    queryKey: ['member-detail-group-activity', id, tenantId],
     enabled: queriesEnabled,
     queryFn: async () => {
       try {
@@ -176,7 +192,7 @@ export default function MemberActivityTimeline({
   }, [complexBookings]);
 
   const { data: complexCheckins = [], isLoading: complexCheckinsLoading } = useQuery({
-    queryKey: ['member-detail-complex-checkins', complexBookingIds],
+    queryKey: ['member-detail-complex-checkins', complexBookingIds, tenantId],
     enabled: queriesEnabled && complexBookingIds.length > 0,
     queryFn: async () => {
       try {
@@ -198,8 +214,8 @@ export default function MemberActivityTimeline({
     return Array.from(ids);
   }, [complexCheckins]);
 
-  const { data: checkinSessions = [] } = useQuery({
-    queryKey: ['member-detail-checkin-sessions', checkinSessionIds],
+  const { data: checkinSessions = [], isLoading: sessionsLoading } = useQuery({
+    queryKey: ['member-detail-checkin-sessions', checkinSessionIds, tenantId],
     enabled: queriesEnabled && checkinSessionIds.length > 0,
     queryFn: async () => {
       try {
@@ -226,7 +242,7 @@ export default function MemberActivityTimeline({
       const isBuyer = !!(id && b.member_id && b.member_id === id);
       const attendeeEmail = (b.attendee_email || '').trim().toLowerCase();
       const isAttendee = !!(memberEmailLower && attendeeEmail === memberEmailLower);
-      const bookingDate = b.created_date || b.created_at || null;
+      const bookingDate = validActivityDate(b.created_date) || validActivityDate(b.created_at);
       return {
         key: `simple-${b.id}`,
         booking: b,
@@ -235,7 +251,7 @@ export default function MemberActivityTimeline({
         title: event?.title || 'Unknown Event',
         eventDate: event?.start_date || null,
         bookingDate,
-        date: bookingDate,
+        date: bookingActivityDate(event, b),
         attendeeName: buildAttendeeName(b),
         ticketClassName: b.ticket_class_name || null,
         status: b.status || 'confirmed',
@@ -248,7 +264,7 @@ export default function MemberActivityTimeline({
       const isBuyer = !!(id && b.member_id && b.member_id === id);
       const attendeeEmail = (b.attendee_email || '').trim().toLowerCase();
       const isAttendee = !!(memberEmailLower && attendeeEmail === memberEmailLower);
-      const bookingDate = b.created_at || null;
+      const bookingDate = validActivityDate(b.created_at) || validActivityDate(b.created_date);
       return {
         key: `complex-${b.id}`,
         booking: b,
@@ -257,7 +273,7 @@ export default function MemberActivityTimeline({
         title: ev?.title || 'Unknown Event',
         eventDate: ev?.start_date || null,
         bookingDate,
-        date: bookingDate,
+        date: bookingActivityDate(ev, b),
         attendeeName: buildAttendeeName(b),
         ticketClassName: b.ticket_class_name || null,
         status: b.status || 'confirmed',
@@ -306,12 +322,17 @@ export default function MemberActivityTimeline({
         };
       });
 
-    return [...simpleItems, ...complexItems, ...groupItems, ...simpleCheckinItems, ...complexCheckinItems]
-      .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
-      .slice(0, 50);
-  }, [memberBookings, complexBookings, events, complexEvents, id, memberEmailLower, groupActivityEvents, complexCheckins, checkinSessions]);
+    return mergeHistoricalInvoiceActivity(
+      [...simpleItems, ...complexItems, ...groupItems, ...simpleCheckinItems, ...complexCheckinItems],
+      invoices.data?.records || [],
+    );
+  }, [memberBookings, complexBookings, events, complexEvents, id, memberEmailLower, groupActivityEvents, complexCheckins, checkinSessions, invoices.data]);
 
-  const anyBookingsLoading = bookingsLoading || complexBookingsLoading || groupActivityLoading || complexCheckinsLoading;
+  const anyBookingsLoading = bookingsLoading || complexBookingsLoading || groupActivityLoading || complexCheckinsLoading
+    || eventsLoading || complexEventsLoading || sessionsLoading || invoices.isLoading;
+  const totalPages = Math.max(1, Math.ceil(unifiedBookings.length / 50));
+  const currentPage = Math.min(page, totalPages - 1);
+  const visibleActivity = unifiedBookings.slice(currentPage * 50, (currentPage + 1) * 50);
 
   return (
     <div className="space-y-6">
@@ -324,14 +345,31 @@ export default function MemberActivityTimeline({
         </CardHeader>
         <CardContent>
         {anyBookingsLoading ? (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+          <div role="status" aria-label="Loading activity" className="space-y-3 animate-pulse py-4">
+            {[0, 1, 2].map(row => <div key={row} className="h-16 rounded-lg bg-muted" />)}
+            <span className="sr-only">Loading activity and historical invoices…</span>
+          </div>
+        ) : invoices.error ? (
+          <div role="alert" className="space-y-3 text-sm text-destructive">
+            <p>{invoices.error.message}</p>
+            <p>The complete activity timeline cannot be shown until historical invoices have loaded.</p>
+            <Button type="button" variant="outline" size="sm" disabled={invoices.isFetching} onClick={() => invoices.refetch()}>Retry</Button>
           </div>
         ) : unifiedBookings.length === 0 ? (
           <p className="text-sm text-slate-500 text-center py-8" data-testid={emptyTestId}>{emptyText}</p>
         ) : (
           <div className="space-y-3">
-            {unifiedBookings.map(item => {
+            {visibleActivity.map(item => {
+              if (item.source === 'historical_invoice') {
+                return <HistoricalInvoicesTable
+                  key={item.key}
+                  activity
+                  records={[item.record]}
+                  canAccessInvoices={invoices.data?.canAccessInvoices === true}
+                  tenantId={tenantId}
+                  request={request}
+                />;
+              }
               if (item.source === 'group_activity') {
                 const isJoined = item.action === 'joined';
                 return (
@@ -353,7 +391,7 @@ export default function MemberActivityTimeline({
                           <span className="font-semibold">{item.groupName}</span>
                         </p>
                         <p className="text-xs text-slate-500" data-testid={`text-group-activity-date-${item.id}`}>
-                          {item.date ? formatDate(item.date) : '—'}
+                          {displayDate(item.date)}
                         </p>
                       </div>
                     </div>
@@ -422,10 +460,10 @@ export default function MemberActivityTimeline({
                       )}
                       <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-500">
                         <span data-testid={`text-booking-event-date-${item.source}-${item.id}`}>
-                          Event: {item.eventDate ? formatDate(item.eventDate) : '—'}
+                          Event: {displayDate(item.eventDate)}
                         </span>
                         <span data-testid={`text-booking-booked-on-${item.source}-${item.id}`}>
-                          Booked: {item.bookingDate ? formatDate(item.bookingDate) : '—'}
+                          Booked: {displayDate(item.bookingDate)}
                         </span>
                       </div>
                       <ActivityInvoiceActions booking={item.booking} />
@@ -443,6 +481,18 @@ export default function MemberActivityTimeline({
               );
             })}
           </div>
+        )}
+        {!anyBookingsLoading && !invoices.error && invoices.data?.total > 0 && (
+          <p className="mt-4 text-xs text-muted-foreground">Historical invoices are read-only records, not evidence of current membership entitlement. Invoice dates determine their position; unknown dates appear last.</p>
+        )}
+        {!anyBookingsLoading && !invoices.error && totalPages > 1 && (
+          <nav aria-label="Activity pages" className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs text-muted-foreground">Page {currentPage + 1} of {totalPages} · {unifiedBookings.length} activities</p>
+            <div className="flex gap-2">
+              <Button type="button" size="sm" variant="outline" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous</Button>
+              <Button type="button" size="sm" variant="outline" disabled={currentPage + 1 >= totalPages} onClick={() => setPage(currentPage + 1)}>Next</Button>
+            </div>
+          </nav>
         )}
         </CardContent>
       </Card>

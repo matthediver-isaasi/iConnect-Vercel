@@ -219,6 +219,8 @@ test("historical-only members retain their History category and both Activity im
   assert.equal((history.match(/<HistoricalInvoices\s/g) || []).length, 2);
   for (const path of ["../MemberDetailView.jsx", "../../pages/MemberDetail.jsx"]) {
     const source = readFileSync(new URL(path, import.meta.url), "utf8");
-    assert.match(source, /<TabsContent value="activity"[\s\S]*?<HistoricalInvoices/);
+    assert.match(source, /<TabsContent value="activity"[\s\S]*?<MemberActivityTimeline/);
+    assert.doesNotMatch(source, /<HistoricalInvoices/);
+    assert.match(source, /<MemberActivityTimeline[\s\S]*?activeTenantId=/);
   }
 });

@@ -18,6 +18,14 @@ Object.assign(globalThis, {
   IS_REACT_ACT_ENVIRONMENT: true,
 });
 Object.defineProperty(globalThis, "navigator", { value: dom.window.navigator, configurable: true });
+globalThis.Image = dom.window.Image;
+// JSDOM has no canvas renderer. Keep the real mounted SignatureField and its
+// change/invalidation behavior; only replace the canvas drawing primitives.
+dom.window.HTMLCanvasElement.prototype.getContext = () => ({
+  scale() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {},
+  clearRect() {}, drawImage() {}, setTransform() {}, fillText() {},
+});
+dom.window.HTMLCanvasElement.prototype.toDataURL = () => "data:image/png;base64,c2lnbmF0dXJl";
 dom.window.HTMLElement.prototype.scrollIntoView = () => {};
 dom.window.HTMLElement.prototype.hasPointerCapture = () => false;
 dom.window.HTMLElement.prototype.setPointerCapture = () => {};
@@ -66,6 +74,23 @@ async function input(id, value) {
     el.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
   });
 }
+async function selectSender(value) {
+  await act(async () => {
+    const el = document.getElementById("quote-sender");
+    el.value = value;
+    el.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  });
+}
+async function signAgreement() {
+  const canvas = document.querySelector('[data-testid="signature-canvas-sales-sender"]');
+  await act(async () => canvas.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
+  await act(async () => canvas.dispatchEvent(new dom.window.MouseEvent("mouseup", { bubbles: true })));
+  await act(async () => document.querySelector('[aria-label="Sender agreement signature"] [role="checkbox"]').click());
+}
+const agreementQuote = {
+  legalHtml: "<p>Agreement terms</p>",
+  agreement: { contact: { name: "Priya Shah", role: "Training director", email: "client@example.test" } },
+};
 async function mount(extra = {}) {
   const container = document.createElement("div");
   document.body.append(container);
@@ -102,6 +127,147 @@ test("sender defaults to self; changing it invalidates preview and sends the sel
     await click("Preview email");
     await click("Send quote");
     assert.equal(sends[0].senderKey, "member:other");
+  } finally { await view.cleanup(); }
+});
+
+test("agreement with signature and consent explains blank sender role; role enables preview, not send until preview, and edits invalidate", async () => {
+  const requests = [], sends = [];
+  const view = await mount({
+    quote: agreementQuote,
+    request: async (url, options) => { requests.push({ url, options }); return response(JSON.parse(options.body)); },
+    onSend: async payload => sends.push(payload),
+  });
+  try {
+    await signAgreement();
+    assert.equal(button("Preview email").disabled, true);
+    assert.equal(button("Send quote").disabled, true);
+    assert.equal(requests.length, 0);
+    const role = document.getElementById("agreement-sender-role");
+    assert.equal(role.value, "");
+    assert.equal(role.required, true);
+    assert.equal(role.getAttribute("aria-required"), "true");
+    assert.equal(role.getAttribute("aria-describedby"), "agreement-sender-role-help");
+    assert.match(document.getElementById("agreement-sender-role-help").textContent, /Enter your role/);
+    assert.match(document.getElementById("quote-preview-requirements").textContent, /Enter your role/);
+    assert.equal(button("Preview email").getAttribute("aria-describedby"), "quote-preview-requirements");
+    for (const id of ["quote-recipient-email", "agreement-contact-name", "agreement-contact-role", "agreement-sender-name"]) {
+      assert.equal(document.getElementById(id).required, true, id);
+      assert.match(document.querySelector(`label[for="${id}"]`).textContent, /required/);
+    }
+    await input("agreement-sender-role", "Managing director");
+    assert.equal(document.getElementById("agreement-sender-role-help"), null);
+    assert.equal(document.getElementById("quote-preview-requirements"), null);
+    assert.equal(button("Preview email").disabled, false);
+    assert.equal(button("Send quote").disabled, true);
+    await click("Preview email");
+    assert.equal(button("Send quote").disabled, false);
+    assert.equal(sends.length, 0, "preview does not send");
+    assert.equal(requests.length, 1);
+    const payload = JSON.parse(requests[0].options.body);
+    assert.equal(payload.senderRole, "Managing director");
+    assert.equal(payload.senderConsent, true);
+    assert.deepEqual(payload.senderSignature, { mode: "drawn", data: "data:image/png;base64,c2lnbmF0dXJl" });
+    assert.equal(document.querySelector("iframe").getAttribute("sandbox"), "");
+    for (const [id, value] of [
+      ["agreement-sender-role", "Chief executive"],
+      ["agreement-sender-name", "Morgan Ellis"],
+      ["agreement-contact-role", "Operations director"],
+      ["agreement-contact-name", "Ravi Shah"],
+      ["quote-personal-message", "Please review this version."],
+    ]) {
+      await input(id, value);
+      assert.equal(button("Send quote").disabled, true, id);
+      assert.equal(document.querySelector("iframe"), null, id);
+      await click("Preview email");
+      assert.equal(button("Send quote").disabled, false, id);
+    }
+    const consent = document.querySelector('[aria-label="Sender agreement signature"] [role="checkbox"]');
+    await act(async () => consent.click());
+    assert.equal(document.querySelector("iframe"), null);
+    assert.equal(button("Preview email").disabled, true);
+    assert.equal(button("Send quote").disabled, true);
+    assert.match(document.getElementById("quote-preview-requirements").textContent, /signing consent/);
+    await act(async () => consent.click());
+    await click("Preview email");
+    assert.equal(button("Send quote").disabled, false);
+    await act(async () => document.querySelector('[data-testid="button-clear-signature-sales-sender"]').click());
+    assert.equal(document.querySelector("iframe"), null);
+    assert.equal(button("Preview email").disabled, true);
+    assert.equal(button("Send quote").disabled, true);
+    assert.match(document.getElementById("quote-preview-requirements").textContent, /Add your signature/);
+    await selectSender("member:other");
+    await selectSender("member:self");
+    assert.equal(document.querySelector('[aria-label="Sender agreement signature"] [role="checkbox"]').getAttribute("aria-checked"), "false");
+    assert.match(document.getElementById("quote-preview-requirements").textContent, /Add your signature/);
+    assert.match(document.getElementById("quote-preview-requirements").textContent, /signing consent/);
+    assert.equal(button("Preview email").disabled, true);
+  } finally { await view.cleanup(); }
+});
+
+test("agreement preview lists all missing requirements, not only sender role", async () => {
+  const view = await mount({ quote: { legalHtml: "<p>Terms</p>" }, initialRecipient: "" });
+  try {
+    await input("agreement-sender-name", "");
+    const requirements = document.getElementById("quote-preview-requirements").textContent;
+    for (const pattern of [/valid recipient email/, /customer signatory’s name/, /customer signatory’s role/, /your full name/, /your role/, /Add your signature/, /signing consent/]) assert.match(requirements, pattern);
+    assert.equal(button("Preview email").disabled, true);
+    await input("agreement-sender-role", "Director");
+    assert.equal(button("Preview email").disabled, true, "other requirements still block");
+  } finally { await view.cleanup(); }
+});
+
+test("colleague requests explain delivery blockers without requiring the current user's signature", async () => {
+  const requests = [], sends = [];
+  const view = await mount({
+    quote: agreementQuote, initialRecipient: "",
+    onRequestSignature: async payload => requests.push(payload),
+    onSend: async payload => sends.push(payload),
+  });
+  try {
+    await selectSender("member:other");
+    assert.equal(button("Preview email"), undefined);
+    assert.equal(document.getElementById("agreement-sender-role"), null);
+    assert.equal(button("Request colleague signature").disabled, true);
+    assert.match(document.getElementById("quote-colleague-requirements").textContent, /valid recipient email/);
+    assert.equal(button("Request colleague signature").getAttribute("aria-describedby"), "quote-colleague-requirements");
+    await input("quote-recipient-email", "client@example.test");
+    assert.equal(button("Request colleague signature").disabled, false);
+    await click("Request colleague signature");
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].senderKey, "member:other");
+    assert.equal("senderSignature" in requests[0], false);
+    assert.equal("senderRole" in requests[0], false);
+    assert.equal(sends.length, 0);
+    await view.render({ onRequestSignature: undefined });
+    assert.equal(button("Request colleague signature").disabled, true);
+    assert.match(document.getElementById("quote-colleague-requirements").textContent, /unavailable here/);
+  } finally { await view.cleanup(); }
+});
+
+test("frozen agreement resends keep readonly details and require a fresh preview without a new signature", async () => {
+  const sends = [];
+  const view = await mount({
+    quote: { ...agreementQuote, agreement: { ...agreementQuote.agreement, sender: { name: "Colleague", role: "Director", email: "other@example.test", signedAt: "2026-06-01T12:00:00Z" } } },
+    onSend: async payload => sends.push(payload),
+  });
+  try {
+    assert.equal(document.getElementById("quote-sender").value, "member:other");
+    for (const id of ["quote-sender", "quote-recipient-email", "agreement-contact-name", "agreement-contact-role"]) assert.equal(document.getElementById(id).disabled, true);
+    assert.equal(document.getElementById("agreement-sender-role"), null);
+    assert.equal(button("Request colleague signature"), undefined);
+    assert.equal(button("Preview email").disabled, false);
+    assert.equal(button("Send quote").disabled, true);
+    await click("Preview email");
+    assert.equal(button("Send quote").disabled, false);
+    await input("quote-personal-message", "Signed version reminder");
+    assert.equal(button("Send quote").disabled, true);
+    assert.equal(document.querySelector("iframe"), null);
+    await click("Preview email");
+    await click("Send quote");
+    assert.equal(sends.length, 1);
+    assert.equal(sends[0].senderKey, "member:other");
+    assert.equal("senderSignature" in sends[0], false);
+    assert.equal("senderRole" in sends[0], false);
   } finally { await view.cleanup(); }
 });
 

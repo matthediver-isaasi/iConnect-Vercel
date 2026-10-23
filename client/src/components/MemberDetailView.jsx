@@ -91,7 +91,6 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useDateFormat } from "@/hooks/useDateFormat";
 import MemberEmails from "@/components/MemberEmails";
 import MemberActivityTimeline from "@/components/MemberActivityTimeline";
-import HistoricalInvoices from "@/components/membership/HistoricalInvoices";
 import MemberMembershipTab from "@/components/MemberMembershipTab";
 import CrmTagInput from "@/components/crm/CrmTagInput";
 import { formatTermLength } from "@/lib/memberGroupTermSnapshot";
@@ -1933,10 +1932,6 @@ export default function MemberDetailView({
           </TabsContent>
 
           <TabsContent value="activity" className="space-y-6">
-            {!isNew && <HistoricalInvoices
-              memberId={member?.id}
-              activeTenantId={memberInfo?.tenant_id || memberInfo?.tenantId || null}
-            />}
             {!isNew && member.created_on && (
               <Card>
                 <CardContent className="py-4">
@@ -1956,10 +1951,11 @@ export default function MemberDetailView({
             )}
             <MemberActivityTimeline
               memberId={member?.id}
+              activeTenantId={memberInfo?.tenant_id || memberInfo?.tenantId || null}
               memberEmail={member?.email}
               enabled={activeTab === 'activity'}
-              title="Recent Bookings"
-              emptyText="No bookings found"
+              title="Activity Timeline"
+              emptyText="No activity found"
               emptyTestId="text-no-bookings"
             />
 

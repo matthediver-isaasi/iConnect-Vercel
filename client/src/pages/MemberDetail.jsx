@@ -6,7 +6,6 @@ import { supabase } from "@/api/supabaseClient";
 import { Loader2, ArrowLeft, User, Pencil, Save, X, Building2, Mail, Smartphone, PhoneCall, Briefcase, Shield, CalendarDays, LogIn, Users, Globe, ClipboardList, FolderTree, Trophy, Award, StickyNote, Plus, Search, MessageSquare, Trash2, ChevronLeft, ChevronRight, Key, Copy, Check, UserCheck, LayoutGrid, ChevronDown, ChevronUp, ExternalLink, AlertTriangle, Wallet, Settings2, Tag, Lock, ClipboardCheck, Eye, GitMerge } from "lucide-react";
 import MemberEmails from "@/components/MemberEmails";
 import MemberActivityTimeline from "@/components/MemberActivityTimeline";
-import HistoricalInvoices from "@/components/membership/HistoricalInvoices";
 import MemberMembershipTab from "@/components/MemberMembershipTab";
 import MemberBadgesTab from "@/components/MemberBadgesTab";
 import MemberCpdPointsTab from "@/components/MemberCpdPointsTab";
@@ -2237,10 +2236,6 @@ export default function MemberDetail() {
 
         {/* Activity Tab */}
         <TabsContent value="activity" className="space-y-6">
-          <HistoricalInvoices
-            memberId={id}
-            activeTenantId={memberInfo?.tenant_id || memberInfo?.tenantId || null}
-          />
           {member.created_on && (
             <Card>
               <CardContent className="py-4">
@@ -2260,6 +2255,7 @@ export default function MemberDetail() {
           )}
           <MemberActivityTimeline
             memberId={id}
+            activeTenantId={memberInfo?.tenant_id || memberInfo?.tenantId || null}
             memberEmail={member?.email}
             enabled={activeTab === 'activity'}
             title="Activity Timeline"

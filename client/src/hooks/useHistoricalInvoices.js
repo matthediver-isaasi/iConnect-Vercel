@@ -38,3 +38,35 @@ export function useHistoricalInvoices({ memberId, page = 0, activeTenantId = nul
     retry: false,
   });
 }
+
+// Read every archive page before exposing a globally sortable timeline. Never
+// substitute partial results when a later page fails.
+export async function fetchAllHistoricalInvoices(options) {
+  const first = await fetchHistoricalInvoices({ ...options, page: 0 });
+  const records = [...first.records];
+  const total = first.total;
+  let canAccessInvoices = first.canAccessInvoices;
+  for (let page = 1; page * HISTORICAL_INVOICES_PAGE_SIZE < total; page += 1) {
+    const next = await fetchHistoricalInvoices({ ...options, page });
+    if (next.total !== total) {
+      throw new Error("Historical invoices changed while loading. Please retry.");
+    }
+    records.push(...next.records);
+    canAccessInvoices = canAccessInvoices && next.canAccessInvoices;
+  }
+  const unique = [...new Map(records.map(record => [record.id, record])).values()];
+  if (unique.length !== total) {
+    throw new Error("Historical invoices could not be fully loaded. Please retry.");
+  }
+  return { records: unique, total, canAccessInvoices };
+}
+
+export function useAllHistoricalInvoices({ memberId, activeTenantId = null, enabled = true, request = fetch }) {
+  const tenantId = useHistoricalInvoiceTenant(activeTenantId);
+  return useQuery({
+    queryKey: historicalInvoicesQueryKey(tenantId, memberId, "all"),
+    queryFn: ({ signal }) => fetchAllHistoricalInvoices({ memberId, tenantId, signal, request }),
+    enabled: !!memberId && enabled,
+    retry: false,
+  });
+}
