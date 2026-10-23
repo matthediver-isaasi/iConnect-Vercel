@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { registrationMemberHighlight } from './eventRegistrationMemberHighlight.mjs';
+import postcss from 'postcss';
+import tailwindcss from 'tailwindcss';
 
 test('highlight depends only on the resolved member link', () => {
   for (const is_guest_booking of [true, false]) {
@@ -23,4 +25,11 @@ test('both report row layouts use the cue and member creation patches its depend
   assert.equal((page.match(/registrationMemberHighlight\(attendee\)/g) || []).length, 2);
   assert.match(page, /\{ \.\.\.attendee, member_id: data\.member\.id \}/);
   assert.match(page, /Pale amber rows have no linked member record/);
+});
+
+test('production Tailwind scanning emits both highlight styles from the mjs helper', async () => {
+  const result = await postcss([tailwindcss('./tailwind.config.ts')])
+    .process('@tailwind utilities;', { from: undefined });
+  assert.ok(result.css.includes('.bg-amber-50\\/60'), 'light-mode highlight CSS missing');
+  assert.ok(result.css.includes('.dark\\:bg-amber-950\\/20'), 'dark-mode highlight CSS missing');
 });
