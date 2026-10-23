@@ -71,7 +71,6 @@
 - [Member deletion billing policy](member-deletion-billing-policy.md) — access removal is not payment cancellation authority; unresolved billing must block destructive disposal.
 - [Controlled composite pending state](controlled-composite-pending-state.md) — queued sibling edits must drive rendering as well as mutations until the parent acknowledges them.
 - [Catalogue event references](catalogue-event-references.md) — derive ticket delegate capacity live; revalidate links on restore, and replace bundle composition atomically.
-- [Catalogue tax-code authority](catalogue-tax-authority.md) — use direct provider identities for new Sales tax; freeze quote codes and preserve legacy tax without percentage inference.
 - [Sales and Projects policies](sales-project-policy-index.md) — task modes, acceptance automation, collaborator scope, board responsiveness and dashboard dates.
 - [Sales quote naming scope](sales-quote-naming-scope.md) — internal terminology only; public documents, financial identifiers and project task-list names stay independent.
 - [Deactivating referenced workflow states](workflow-state-deactivation-races.md) — assignment and deactivation must serialize on the same database row; an existence check is raceable.
@@ -93,7 +92,6 @@
 - [Pinned import identity vs matching](pinned-import-identity-matching.md) — make live-name matching legacy-encoding tolerant without changing historical identity-hash normalization.
 - [Contextual Custom Object creation](contextual-custom-object-create.md) — create a record and initial edges in one RPC; requiredness follows the new record’s source side.
 - [Platform-managed tenant integrations](platform-managed-tenant-integrations.md) — shared secrets stay server-only; tenants store only enablement and receive boolean availability.
-- [Payment quote cache authority](payment-quote-cache-authority.md) — quote keys must include validation-changing answers, not only price inputs, or transient validation errors can stick.
 - [Long-running pinned imports](long-running-pinned-imports.md) — sequential compensated imports may outlive interactive shells; resume idempotently and require a zero-write replay.
 - [Relationship picker graph scopes](relationship-picker-graph-scopes.md) — constrain direct links by intersecting bounded source/target relationship paths; active graph only, fail closed.
 - [Relationship preview config aliases](relationship-preview-config-aliases.md) — compact_preview and legacy compact_preview_fields may coexist; merge and dedupe field IDs across both.
@@ -131,7 +129,6 @@
 - [Private uploads and checkpoints](private-upload-checkpoints.md) — automatic checkpoints can track uploads before ignore rules; verify the index and inherited shared history separately.
 - [Widget cache authority](widget-cache-authority.md) — stale/overdue is not active work; unchanged results require request-correlated publication evidence, not old success/pending flags.
 - [Canvas widget discovery sharing](canvas-widget-discovery-sharing.md) — deduplicate auth-scoped metadata discovery without sharing per-card result or refresh state.
-- [New-member incentive evidence](new-member-incentive-evidence.md) — rollover preserves original entitlement less usage; later pricing cannot establish legacy credit.
 - [Widget date boundaries](widget-date-boundaries.md) — day-first input support must preserve midnight comparisons, never expand date-only operands to whole days.
 - [Delivery finalization column grants](delivery-finalization-column-grants.md) — test successful final audit writes as service_role; immutable initial provenance needs a separate narrowly granted final-output column.
 - [Member AI policy boundaries](member-ai-policy-boundaries.md) — tenant voice does not authorize reporting changes; no-evidence replies stay deterministic and fixture tests are not model guarantees.
@@ -155,6 +152,5 @@
 - [Portable npm downloads](portable-npm-downloads.md) — dependency updates can record workspace-only registry URLs that break Vercel installs.
 - [Membership amendment policy](membership-amendment-policy.md) — approved mid-term changes cover collection, credit and refund, preserving purchase evidence and expiry by default.
 - [Badge instructions lifecycle](badge-instructions-lifecycle.md) — removal retains private guidance; failed deletion requires recoverable, fenced storage disposal.
-- [Individual training funds](individual-training-fund-terminology.md) — owner terminology refers to member-owned vouchers, not legacy organisation fund balances.
-- [Accounting temporary failures](accounting-transient-retry-policy.md) — rate limits and transient errors must not consume genuine retry allowances; preserve uncertain-write discovery.
+- [Individual training funds](individual-training-fund-terminology.md) — member-owned vouchers, not legacy organisation funds; valid for all membership renewal types.
 - [Member payment wording](member-payment-wording.md) — simplify copy without inventing dates, membership types, mandate reuse or renewal promises.

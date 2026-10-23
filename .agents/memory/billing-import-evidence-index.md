@@ -1,5 +1,10 @@
 # Billing, import, and evidence topics
 
+- [Accounting temporary failures](accounting-transient-retry-policy.md) — rate limits and transient failures do not consume genuine retry allowances.
+- [Payment quote cache authority](payment-quote-cache-authority.md) — validation-changing answers belong in quote keys.
+- [Catalogue tax-code authority](catalogue-tax-authority.md) — freeze provider tax identities; preserve legacy tax evidence.
+- [New-member incentive evidence](new-member-incentive-evidence.md) — preserve original entitlement less usage, not current pricing.
+
 - [Historical invoice storage](historical-invoice-storage-boundary.md) — BNMS imports are historical metadata, presented like invoices without operational financial effects.
 
 - [csv_import_job history](csv-import-job-history.md) — import history writes are swallowed by try/catch so column drift fails silently; recording must fire on BOTH the SQL fast path and JS path, and the list must be tenant-filtered.
