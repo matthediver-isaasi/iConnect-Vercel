@@ -198,9 +198,9 @@ test('actual financial components render recorded amounts and unpaid warning in 
   const headers = [...table.querySelectorAll('thead th')].map(cell => cell.textContent);
   const standalone = table.querySelector('[data-testid="row-booking-individual"]');
   const ticket = standalone.cells[headers.indexOf('Ticket Price')];
-  assert.equal(ticket.textContent.trim(), '£166.67 recorded');
+  assert.equal(ticket.textContent.trim(), '£166.67');
   assert.equal(ticket.querySelector('[tabindex="0"]').getAttribute('data-state'), 'closed');
-  assert.equal(standalone.cells[headers.indexOf('Discount')].textContent.trim(), '£0.00 recorded');
+  assert.equal(standalone.cells[headers.indexOf('Discount')].textContent.trim(), '£0.00');
   for (const id of ['individual', 'group-first', 'group-second', 'delegate-first', 'delegate-second', 'booker-attendee', 'booker-guest']) {
     const paid = table.querySelector(`[data-testid="text-price-paid-${id}"]`);
     assert.equal(paid.textContent.trim(), '£166.67');
@@ -211,8 +211,9 @@ test('actual financial components render recorded amounts and unpaid warning in 
     assert.ok(warning.querySelector('svg'));
   }
   // Group-spanned financial cells must render the same actual components.
-  assert.equal([...table.querySelectorAll('tbody td')].filter(cell => cell.textContent.trim() === '£166.67 recorded').length, 7);
-  assert.equal([...table.querySelectorAll('tbody td')].filter(cell => cell.textContent.trim() === '£0.00 recorded').length, 4);
+  assert.equal([...table.querySelectorAll('tbody td [tabindex="0"]')].filter(cell => cell.textContent.trim() === '£166.67').length, 7);
+  assert.equal([...table.querySelectorAll('tbody td [tabindex="0"]')].filter(cell => cell.textContent.trim() === '£0.00').length, 4);
+  assert.doesNotMatch(table.querySelector('tbody').textContent, /recorded/);
 });
 
 test('table hides during loading, failure and revalidation, and defaults on only after successful missing keys', () => {

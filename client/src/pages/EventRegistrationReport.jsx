@@ -305,7 +305,7 @@ function FinancialExplanation({ children, explanation }) {
 function RegistrationTicketPrice({ attendee }) {
   const { amount, recorded } = registrationTicketPricePresentation(attendee);
   return recorded
-    ? <FinancialExplanation explanation={RECORDED_TICKET_EXPLANATION}>{formatCurrency(amount)} <span className="text-xs text-muted-foreground">recorded</span></FinancialExplanation>
+    ? <FinancialExplanation explanation={RECORDED_TICKET_EXPLANATION}>{formatCurrency(amount)}</FinancialExplanation>
     : formatCurrency(amount);
 }
 
@@ -314,7 +314,7 @@ function RegistrationDiscount({ payment }) {
   if (amount === null) return <span className="text-muted-foreground">Unavailable</span>;
   const label = amount === 0 ? formatCurrency(0) : `-${formatCurrency(Math.abs(amount))}`;
   return recorded
-    ? <FinancialExplanation explanation={RECORDED_DISCOUNT_EXPLANATION}>{label} <span className="text-xs text-muted-foreground">recorded</span></FinancialExplanation>
+    ? <FinancialExplanation explanation={RECORDED_DISCOUNT_EXPLANATION}><span className={amount === 0 ? undefined : "text-green-600"}>{label}</span></FinancialExplanation>
     : amount === 0 ? '-' : <span className="text-green-600">{label}</span>;
 }
 
