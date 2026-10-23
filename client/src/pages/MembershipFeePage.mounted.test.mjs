@@ -27,12 +27,12 @@ const bundle = await build({
         : { path: args.path, namespace: "fixture" });
       builder.onLoad({ filter: /.*/, namespace: "fixture" }, ({ path }) => ({
         loader: "js",
-        contents: path === "router" ? 'export const useParams = () => ({token:"saved-token"});'
+        contents: path === "router" ? 'export const useParams = () => ({token:globalThis.feeTestToken});'
           : path.includes("GoCardlessDropinFlow") ? 'export default function Dropin(){ return null; }'
             : `import React from "react";
               const wrap = tag => ({children, variant, size, ...props}) => React.createElement(tag, props, children);
               export const Card = wrap("div"), CardContent = wrap("div"), Badge = wrap("span"), Separator = wrap("hr");
-              export const Button = wrap("button"), Input = wrap("input"), Label = wrap("label");`,
+              export const Button = wrap("button"), Input = wrap("input"), Label = wrap("label"), Skeleton = wrap("div");`,
       }));
     },
   }],
@@ -63,16 +63,20 @@ async function waitFor(predicate) {
 }
 const byId = id => document.querySelector(`[data-testid="${id}"]`);
 async function mount(data, search = "", transport, vouchers = { enabled: false, vouchers: [] }) {
+  globalThis.feeTestToken = "saved-token";
   dom.window.history.replaceState({}, "", `/membership-fees/saved-token${search}`);
   const calls = [];
+  const voucherCalls = [];
   globalThis.fetch = async (url, options = {}) => {
-    if (url === "/api/public/membership-fees/saved-token?action=vouchers") {
+    if (/^\/api\/public\/membership-fees\/[^?]+\?action=vouchers$/.test(url)) {
+      voucherCalls.push({ url, options });
+      if (typeof vouchers === "function") return vouchers(url, options);
       return new Response(JSON.stringify(vouchers), { status: 200 });
     }
-    assert.equal(url, "/api/public/membership-fees/saved-token");
+    assert.match(url, /^\/api\/public\/membership-fees\/[^?]+$/);
     const payload = options.body ? JSON.parse(options.body) : null;
     calls.push(payload);
-    if (transport) return transport(payload);
+    if (transport) return transport(payload, url, options);
     return new Response(JSON.stringify(payload ? {} : data), { status: 200, headers: { "Content-Type": "application/json" } });
   };
   const container = document.createElement("div");
@@ -80,7 +84,14 @@ async function mount(data, search = "", transport, vouchers = { enabled: false, 
   const root = createRoot(container);
   await act(async () => root.render(React.createElement(Component)));
   await waitFor(() => container.textContent.includes("Your Membership") || container.textContent.includes("Payment Complete"));
-  return { calls, container, async cleanup() { await act(async () => root.unmount()); container.remove(); } };
+  return {
+    calls, voucherCalls, container,
+    async changeToken(token) {
+      globalThis.feeTestToken = token;
+      await act(async () => root.render(React.createElement(Component)));
+    },
+    async cleanup() { await act(async () => root.unmount()); container.remove(); },
+  };
 }
 
 const choiceFixture = () => {
@@ -284,6 +295,144 @@ const availableCredit = {
   enabled: true,
   vouchers: [{ id: "credit-1", value: 13.83, code: "MEM-27", ownerType: "member", displayName: "Harbour rewards" }],
 };
+const deferred = () => {
+  let resolve, reject;
+  const promise = new Promise((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
+};
+const voucherResponse = (body, status = 200) => new Response(JSON.stringify(body), { status });
+const creditPanel = () => document.querySelector('[aria-label="Available membership credit"]');
+test("available-credit panel immediately shows accessible skeletons and spinner until empty discovery succeeds", async () => {
+  const gate = deferred();
+  const data = { ...fixture("stripe_upfront"), tenant: { name: "iConnect" } };
+  const view = await mount(data, "", undefined, () => gate.promise);
+  try {
+    assert.match(view.container.textContent, /iConnect/);
+    assert.ok(creditPanel());
+    assert.equal(creditPanel().getAttribute("aria-busy"), "true");
+    assert.match(creditPanel().querySelector('[role="status"]').textContent, /Checking for available/);
+    assert.equal(byId("credit-discovery-spinner").getAttribute("aria-hidden"), "true");
+    assert.match(byId("credit-discovery-spinner").getAttribute("class"), /motion-safe:animate-spin/);
+    const skeleton = byId("credit-discovery-skeleton");
+    assert.equal(skeleton.getAttribute("aria-hidden"), "true");
+    assert.equal(skeleton.children.length, 3);
+    for (const child of skeleton.children) assert.match(child.className, /motion-reduce:animate-none/);
+    assert.doesNotMatch(view.container.textContent, /no credit available/);
+    assert.ok(byId("button-pay-now"));
+    await act(async () => gate.resolve(voucherResponse({ enabled: true, vouchers: [] })));
+    await waitFor(() => creditPanel()?.getAttribute("aria-busy") === "false");
+    assert.equal(byId("credit-discovery-spinner"), null);
+    assert.equal(byId("credit-discovery-skeleton"), null);
+    assert.match(creditPanel().querySelector('[role="status"]').textContent, /no credit available towards this membership payment/);
+    assert.equal(view.calls.filter(Boolean).length, 0);
+  } finally { await view.cleanup(); }
+});
+test("successful deferred discovery replaces placeholders with selectable vouchers without changing payment authority", async () => {
+  const gate = deferred();
+  const view = await mount(fixture("direct_debit"), "", undefined, () => gate.promise);
+  try {
+    assert.ok(byId("credit-discovery-skeleton"));
+    await act(async () => gate.resolve(voucherResponse(availableCredit)));
+    await waitFor(() => view.container.querySelector('input[type="checkbox"]'));
+    assert.equal(creditPanel().getAttribute("aria-busy"), "false");
+    assert.equal(byId("credit-discovery-spinner"), null);
+    assert.match(creditPanel().textContent, /Harbour rewards.*£13.83/);
+    assert.doesNotMatch(creditPanel().textContent, /no credit available/);
+    assert.ok(byId("button-setup-direct-debit"));
+    assert.equal(byId("button-pay-now"), null);
+    assert.equal(view.calls.filter(Boolean).length, 0);
+  } finally { await view.cleanup(); }
+});
+test("HTTP and network discovery failures are distinct from successful empty credit", async () => {
+  for (const network of [false, true]) {
+    const gate = deferred();
+    const view = await mount(fixture("stripe_upfront"), "", undefined, () => gate.promise);
+    try {
+      assert.ok(byId("credit-discovery-spinner"));
+      await act(async () => network
+        ? gate.reject(new Error("Connection unavailable"))
+        : gate.resolve(voucherResponse({ error: "Credit service unavailable" }, 503)));
+      await waitFor(() => creditPanel()?.querySelector('[role="alert"]'));
+      assert.equal(creditPanel().getAttribute("aria-busy"), "false");
+      assert.match(creditPanel().textContent, /couldn’t check your available membership credit/);
+      assert.match(creditPanel().textContent, network ? /Connection unavailable/ : /Credit service unavailable/);
+      assert.doesNotMatch(view.container.textContent, /no credit available/);
+      assert.equal(byId("credit-discovery-skeleton"), null);
+      assert.equal(byId("credit-discovery-spinner"), null);
+      assert.ok(byId("button-pay-now"));
+    } finally { await view.cleanup(); }
+  }
+});
+test("reserved funding never shows an available-credit empty helper", async () => {
+  const data = fixture("stripe_upfront");
+  data.voucherFunding = { payableMinor: 13811, remainingMinor: 12428, allocations: [{ id: "credit-1", amountMinor: 1383, ownerType: "member" }] };
+  const gate = deferred();
+  const view = await mount(data, "", undefined, () => gate.promise);
+  try {
+    assert.ok(view.container.querySelector('[aria-label="Reserved membership credit"]'));
+    assert.equal(creditPanel(), null);
+    await act(async () => gate.resolve(voucherResponse({ enabled: true, vouchers: [] })));
+    assert.equal(creditPanel(), null);
+    assert.doesNotMatch(view.container.textContent, /no credit available/);
+  } finally { await view.cleanup(); }
+});
+test("non-pending fees skip voucher discovery and cannot leave a loading panel", async () => {
+  for (const status of ["paid", "po_submitted"]) {
+    const view = await mount({ ...fixture("invoice"), status });
+    try {
+      assert.equal(view.voucherCalls.length, 0);
+      assert.equal(creditPanel(), null);
+      assert.equal(byId("credit-discovery-spinner"), null);
+    } finally { await view.cleanup(); }
+  }
+});
+test("token changes abort discovery and ignore late results even when transport ignores abort", async () => {
+  const old = deferred(), next = deferred();
+  const view = await mount(fixture("stripe_upfront"), "", undefined,
+    url => url.includes("/saved-token?") ? old.promise : next.promise);
+  try {
+    const oldSignal = view.voucherCalls[0].options.signal;
+    await view.changeToken("next-token");
+    await waitFor(() => view.voucherCalls.length === 2);
+    assert.equal(oldSignal.aborted, true);
+    await act(async () => next.resolve(voucherResponse({ enabled: true, vouchers: [] })));
+    await waitFor(() => creditPanel()?.textContent.includes("no credit available"));
+    await act(async () => old.resolve(voucherResponse(availableCredit)));
+    assert.match(creditPanel().textContent, /no credit available/);
+    assert.equal(view.container.querySelector('input[type="checkbox"]'), null);
+    assert.equal(creditPanel().getAttribute("aria-busy"), "false");
+  } finally { await view.cleanup(); }
+});
+test("unmount aborts outstanding voucher discovery and safely ignores a late failure", async () => {
+  const gate = deferred();
+  const view = await mount(fixture("stripe_upfront"), "", undefined, () => gate.promise);
+  const signal = view.voucherCalls[0].options.signal;
+  await view.cleanup();
+  assert.equal(signal.aborted, true);
+  await act(async () => gate.reject(new Error("Late failure")));
+  assert.equal(view.container.textContent, "");
+});
+test("late fee details from an aborted token cannot restart discovery or replace the current fee", async () => {
+  const gate = deferred();
+  let oldSignal;
+  const view = await mount(fixture("stripe_upfront"), "", (payload, url, options) => {
+    if (url.endsWith("/intermediate-token")) {
+      oldSignal = options.signal;
+      return gate.promise;
+    }
+    return voucherResponse(fixture(url.endsWith("/final-token") ? "direct_debit" : "stripe_upfront"));
+  });
+  try {
+    await view.changeToken("intermediate-token");
+    await view.changeToken("final-token");
+    await waitFor(() => byId("button-setup-direct-debit"));
+    assert.equal(oldSignal.aborted, true);
+    await act(async () => gate.resolve(voucherResponse(fixture("stripe_upfront"))));
+    assert.ok(byId("button-setup-direct-debit"));
+    assert.equal(byId("button-pay-now"), null);
+    assert.equal(view.voucherCalls.some(call => call.url.includes("intermediate-token")), false);
+  } finally { await view.cleanup(); }
+});
 const creditQuoteFixture = (dynamic, cashMinor = 12428) => ({
   id: "quote-1", currency: "GBP", paymentMode: "direct_debit",
   grossMinor: 13811, cashMinor,

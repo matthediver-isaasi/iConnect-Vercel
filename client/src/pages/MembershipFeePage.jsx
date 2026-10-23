@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Loader2, CheckCircle2, FileText, CreditCard, ClipboardList,
   AlertCircle, Building2, Landmark, User
@@ -58,11 +59,14 @@ function VariableCreditSummary({ credit, instalmentCount, offer, currency }) {
 export default function MembershipFeePage() {
   const { token } = useParams();
   const [data, setData] = useState(null);
+  const [dataToken, setDataToken] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectingMethod, setSelectingMethod] = useState(null);
   const [selectionError, setSelectionError] = useState(null);
   const [personalCredit, setPersonalCredit] = useState(null);
+  const [creditDiscovery, setCreditDiscovery] = useState('idle');
+  const [creditDiscoveryError, setCreditDiscoveryError] = useState(null);
   const [creditError, setCreditError] = useState(null);
   const [creditSelection, setCreditSelection] = useState([]);
   const [creditQuote, setCreditQuote] = useState(null);
@@ -82,20 +86,32 @@ export default function MembershipFeePage() {
   const creditPerMonth = creditMonthly && !variableCredit ? payableAmount / creditMonthly.instalmentCount : null;
   useEffect(() => {
     let current = true;
+    const controller = new AbortController();
     setPersonalCredit(null);
+    setCreditDiscovery('idle');
+    setCreditDiscoveryError(null);
     setCreditSelection([]);
     setCreditQuote(null);
     setCreditError(null);
-    if (!data || data.status !== 'pending') return;
-    fetch(`/api/public/membership-fees/${encodeURIComponent(token)}?action=vouchers`)
+    if (!token || dataToken !== token || !data || data.status !== 'pending') return;
+    setCreditDiscovery('loading');
+    fetch(`/api/public/membership-fees/${encodeURIComponent(token)}?action=vouchers`, { signal: controller.signal })
       .then(async response => {
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || 'Unable to load membership credit');
-        if (current) setPersonalCredit(result);
+        if (current) {
+          setPersonalCredit(result);
+          setCreditDiscovery('success');
+        }
       })
-      .catch(err => { if (current) setCreditError(err.message); });
-    return () => { current = false; };
-  }, [token, data?.isMember, data?.status]);
+      .catch(err => {
+        if (current) {
+          setCreditDiscoveryError(err.message);
+          setCreditDiscovery('error');
+        }
+      });
+    return () => { current = false; controller.abort(); };
+  }, [token, dataToken, data?.isMember, data?.status]);
 
   async function previewPersonalCredit() {
     setQuotingCredit(true);
@@ -223,8 +239,14 @@ export default function MembershipFeePage() {
   }
 
   useEffect(() => {
+    let current = true;
+    const controller = new AbortController();
+    setLoading(!!token);
+    setError(token ? null : 'Membership fee link is missing.');
+    setData(null);
+    setDataToken(null);
     if (!token) return;
-    fetch(`/api/public/membership-fees/${token}`)
+    fetch(`/api/public/membership-fees/${token}`, { signal: controller.signal })
       .then(async (res) => {
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
@@ -233,8 +255,10 @@ export default function MembershipFeePage() {
         return res.json();
       })
       .then((result) => {
+        if (!current) return;
         if (result.replacementUrl) { window.location.replace(result.replacementUrl); return; }
         setData(result);
+        setDataToken(token);
         if (result.poNumber) {
           setPoNumber(result.poNumber);
         }
@@ -248,8 +272,9 @@ export default function MembershipFeePage() {
         if (result.invoiceNumber || result.xeroInvoiceNumber) setInvoiceNumber(result.invoiceNumber || result.xeroInvoiceNumber);
         if (result.invoiceUrl || result.xeroOnlineInvoiceUrl) setInvoiceLink(result.invoiceUrl || result.xeroOnlineInvoiceUrl);
       })
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
+      .catch((err) => { if (current) setError(err.message); })
+      .finally(() => { if (current) setLoading(false); });
+    return () => { current = false; controller.abort(); };
   }, [token]);
 
   // Handle 3D Secure redirect return
@@ -550,7 +575,7 @@ export default function MembershipFeePage() {
     );
   }
 
-  if (loading) {
+  if (loading || (data && dataToken !== token)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
@@ -689,9 +714,30 @@ export default function MembershipFeePage() {
                 {creditOnly && <Button type="button" onClick={initStripe} disabled={creatingPayment}>Complete with membership credit</Button>}
               </section>
             )}
-            {personalCredit?.enabled && personalCredit.vouchers.length > 0 && (
-              <section className="mb-4 rounded border p-3 space-y-2" aria-label="Membership credit">
+            {data?.status === 'pending' && (!data?.voucherFunding || (personalCredit?.enabled && personalCredit.vouchers.length > 0)) && (
+              <section className="mb-4 rounded border p-3 space-y-2" aria-label="Available membership credit"
+                aria-busy={creditDiscovery === 'idle' || creditDiscovery === 'loading'}>
                 <h2 className="font-medium">Your available credit</h2>
+                {!data?.voucherFunding && (creditDiscovery === 'idle' || creditDiscovery === 'loading') && <>
+                  <p role="status" className="flex items-center gap-2 text-sm text-gray-600">
+                    <Loader2 aria-hidden="true" className="h-4 w-4 motion-safe:animate-spin shrink-0" data-testid="credit-discovery-spinner" />
+                    Checking for available membership credit…
+                  </p>
+                  <div aria-hidden="true" className="space-y-2" data-testid="credit-discovery-skeleton">
+                    <Skeleton className="h-4 w-3/4 motion-reduce:animate-none" />
+                    <Skeleton className="h-4 w-1/2 motion-reduce:animate-none" />
+                    <Skeleton className="h-9 w-28 motion-reduce:animate-none" />
+                  </div>
+                </>}
+                {!data?.voucherFunding && creditDiscovery === 'error' && <p role="alert" className="text-sm text-red-700">
+                  We couldn’t check your available membership credit. {creditDiscoveryError} Please reload the page to try again.
+                </p>}
+                {!data?.voucherFunding && creditDiscovery === 'success' && !(personalCredit?.enabled && personalCredit.vouchers.length > 0) &&
+                  <p role="status" className="text-sm text-gray-600">You have no credit available towards this membership payment.</p>}
+                {creditDiscovery === 'success' && personalCredit?.enabled && personalCredit.vouchers.length > 0 && (
+                  <p role="status" className="sr-only">Membership credit is available. Select credit below to apply it.</p>
+                )}
+                {personalCredit?.enabled && personalCredit.vouchers.length > 0 && <>
                 <p className="text-sm text-amber-800">You have credit available towards your membership. Select the credit you would like to use and apply it to your payment.</p>
                 {!data.memberStart && data.isMember && <label className="block text-sm">
                   How would you like to pay the remaining amount?
@@ -737,6 +783,7 @@ export default function MembershipFeePage() {
                     )}
                   </div>
                 )}
+                </>}
               </section>
             )}
 
