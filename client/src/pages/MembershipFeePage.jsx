@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
+import { membershipCreditEstimate } from "../lib/membershipCreditEstimate";
 import GoCardlessDropinFlow from "@/components/gocardless/GoCardlessDropinFlow";
 import { directDebitHasFixedTermTotal, directDebitCollectionPolicy } from "@/lib/directDebitConsentSummary";
 import { membershipPeriod, membershipHeading, annualMembershipFeeLabel, memberDate, activationText, memberDirectDebitPolicy as directDebitPolicyText, memberFirstCollection as directDebitFirstCollectionText, reusesDirectDebit, creditOwnerLabel } from "@/lib/membershipFeeCopy";
@@ -16,6 +17,7 @@ import {
 } from "lucide-react";
 
 function formatCurrency(amount, currency) {
+  if (amount != null && !Number.isFinite(Number(amount))) return 'Not supplied';
   const symbols = { GBP: '\u00a3', USD: '$', EUR: '\u20ac', AUD: 'A$', NZD: 'NZ$' };
   const symbol = symbols[currency] || currency + ' ';
   return `${symbol}${parseFloat(amount || 0).toFixed(2)}`;
@@ -37,10 +39,10 @@ const completeMonthlyOffer = (offer, mode) => {
 };
 
 // Display the server's allocation, never derive a future charge from quote totals.
-function VariableCreditSummary({ credit, instalmentCount, offer, currency }) {
+function VariableCreditSummary({ credit, instalmentCount, offer, currency, estimate }) {
   const count = Number(instalmentCount ?? credit.creditSchedule?.length);
-  const first = credit.creditSchedule?.find(row => row.ordinal === 1);
-  const total = credit.allocations?.reduce((sum, row) => sum + row.amountMinor, 0);
+  const first = Array.isArray(credit.creditSchedule) ? credit.creditSchedule.find(row => row?.ordinal === 1) : null;
+  const total = Array.isArray(credit.allocations) ? credit.allocations.reduce((sum, row) => sum + row?.amountMinor, 0) : null;
   return <div className="text-sm space-y-1" data-testid="variable-credit-summary">
     {Number.isSafeInteger(total) && <p>Total selected credit: {formatCurrency(total / 100, currency)}.</p>}
     {Number.isInteger(count) && count > 0
@@ -49,7 +51,12 @@ function VariableCreditSummary({ credit, instalmentCount, offer, currency }) {
     {Number.isSafeInteger(first?.allocatedCreditMinor)
       ? <p>Credit towards your first month: {formatCurrency(first.allocatedCreditMinor / 100, currency)}.</p>
       : <p>We can’t confirm the credit towards your first month yet. Please contact the membership team for details.</p>}
-    {offer?.monthlyAmount != null && <p>Current monthly payment estimate before credit: {formatCurrency(offer.monthlyAmount, offer.currency || currency)}.</p>}
+    {offer?.monthlyAmount != null && offer.monthlyAmount !== '' && Number.isFinite(Number(offer.monthlyAmount)) && <p>Current monthly payment estimate before credit: {formatCurrency(offer.monthlyAmount, offer.currency || currency)}.</p>}
+    {estimate ? <>
+      <p className="font-medium">Estimated first monthly payment after credit: {formatCurrency(estimate.firstCashMinor / 100, currency)}.</p>
+      <p>Later monthly amounts may differ by pennies as credit is spread across the period.</p>
+      {estimate.unusedCreditMinor > 0 && <p>At current rates, {formatCurrency(estimate.unusedCreditMinor / 100, currency)} of selected credit cannot be used and will be returned with its original expiry date.</p>}
+    </> : <p>We can’t confirm an after-credit payment estimate yet. Please review a current quote with complete payment details.</p>}
     <p>Your monthly fees and payments may change. These estimates are not a fixed total for this membership period.</p>
     <p>Credit applies only to this membership period, not future renewals. Any unused credit is returned with its original expiry date.</p>
     <p>You still need to continue with Direct Debit for future payments, even if the current estimate after credit is zero.</p>
@@ -73,6 +80,23 @@ export default function MembershipFeePage() {
   const [creditPaymentMode, setCreditPaymentMode] = useState('stripe_upfront');
   const [requoteUpfront, setRequoteUpfront] = useState(false);
   const [quotingCredit, setQuotingCredit] = useState(false);
+  const quoteRevision = useRef(0);
+  const [estimateNow, setEstimateNow] = useState(Date.now);
+  useEffect(() => {
+    const expiry = Date.parse(creditQuote?.expiresAt);
+    if (!Number.isFinite(expiry)) return;
+    const timer = setTimeout(() => setEstimateNow(Date.now()), Math.max(0, Math.min(expiry - Date.now() + 1, 2147483647)));
+    return () => clearTimeout(timer);
+  }, [creditQuote]);
+  const creditEstimate = membershipCreditEstimate({
+    funding: data?.voucherFunding, quote: creditQuote, offer: data?.ddOffer,
+    currency: data?.currency, instalmentCount: data?.voucherMonthly?.instalmentCount,
+    now: Math.max(estimateNow, Date.now()),
+  });
+  const quoteCurrent = creditQuote && Number.isFinite(Date.parse(creditQuote.expiresAt)) && Date.parse(creditQuote.expiresAt) > Math.max(estimateNow, Date.now());
+  const displayPayableAmount = creditEstimate && !creditEstimate.variable ? creditEstimate.cashMinor / 100 : (data?.totalWithVat ?? data?.finalCost);
+  const displayMonthlyMode = creditEstimate && !creditEstimate.variable && creditEstimate.count
+    ? (data?.voucherMonthly?.paymentMode || creditQuote?.paymentMode) : null;
   const payableAmount = data?.voucherFunding
     ? data.voucherFunding.remainingMinor / 100
     : creditQuote ? creditQuote.cashMinor / 100 : (data?.totalWithVat ?? data?.finalCost);
@@ -83,7 +107,7 @@ export default function MembershipFeePage() {
     paymentMode: creditQuote.paymentMode, instalmentCount: creditQuote.monthlySnapshot.instalment_count,
   } : data?.voucherMonthly;
   const selectedCreditMode = data?.memberStart?.paymentMode || data?.voucherRequote?.paymentMode || creditPaymentMode;
-  const creditPerMonth = creditMonthly && !variableCredit ? payableAmount / creditMonthly.instalmentCount : null;
+  const creditPerMonth = creditEstimate && !creditEstimate.variable ? creditEstimate.monthlyMinor / 100 : null;
   useEffect(() => {
     let current = true;
     const controller = new AbortController();
@@ -91,6 +115,8 @@ export default function MembershipFeePage() {
     setCreditDiscovery('idle');
     setCreditDiscoveryError(null);
     setCreditSelection([]);
+    quoteRevision.current += 1;
+    setQuotingCredit(false);
     setCreditQuote(null);
     setCreditError(null);
     if (!token || dataToken !== token || !data || data.status !== 'pending') return;
@@ -114,6 +140,7 @@ export default function MembershipFeePage() {
   }, [token, dataToken, data?.isMember, data?.status]);
 
   async function previewPersonalCredit() {
+    const revision = ++quoteRevision.current;
     setQuotingCredit(true);
     setCreditError(null);
     setCreditQuote(null);
@@ -124,15 +151,16 @@ export default function MembershipFeePage() {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Unable to quote credit');
-      setCreditQuote(result.quote);
+      if (revision === quoteRevision.current) setCreditQuote(result.quote);
     } catch (err) {
-      setCreditError(err.message);
+      if (revision === quoteRevision.current) setCreditError(err.message);
     } finally {
-      setQuotingCredit(false);
+      if (revision === quoteRevision.current) setQuotingCredit(false);
     }
   }
 
   async function clearPersonalCredit() {
+    quoteRevision.current += 1;
     setQuotingCredit(true);
     setCreditError(null);
     try {
@@ -706,15 +734,16 @@ export default function MembershipFeePage() {
             )}
             {data?.voucherFunding && !paymentComplete && (
               <section className="mb-4 rounded border p-3 space-y-2" aria-label="Reserved membership credit">
+                <p className="text-sm font-medium">Credit reserved for this membership period. Payment has not yet been confirmed.</p>
                 {!variableCredit && <p>Membership cost: {formatCurrency(data.voucherFunding.payableMinor / 100, data?.currency)}</p>}
-                {data.voucherFunding.allocations.map(row => <p key={row.id} className="text-sm">{creditOwnerLabel(row)}: {formatCurrency(row.amountMinor / 100, data?.currency)}</p>)}
+                {Array.isArray(data.voucherFunding.allocations) && data.voucherFunding.allocations.filter(row => row && Number.isSafeInteger(row.amountMinor)).map((row, index) => <p key={row.id || row.voucherId || index} className="text-sm">{creditOwnerLabel(row)}: {formatCurrency(row.amountMinor / 100, data?.currency)}</p>)}
                 {variableCredit
-                  ? <VariableCreditSummary credit={data.voucherFunding} instalmentCount={creditMonthly?.instalmentCount} offer={data.ddOffer} currency={data.currency} />
-                  : <p>Remaining to pay: {formatCurrency(payableAmount, data?.currency)}</p>}
+                  ? <VariableCreditSummary credit={data.voucherFunding} instalmentCount={creditMonthly?.instalmentCount} offer={data.ddOffer} currency={data.currency} estimate={creditEstimate} />
+                  : creditEstimate ? <p>Remaining to pay: {formatCurrency(displayPayableAmount, data?.currency)}</p> : <p>We can’t confirm the after-credit amount yet. Please contact the membership team.</p>}
                 <Button type="button" variant="outline" onClick={clearPersonalCredit} disabled={quotingCredit || creatingPayment || processingPayment}>
                   Cancel payment and release credit
                 </Button>
-                {creditMonthly && !variableCredit && <p className="text-sm">{creditMonthly.instalmentCount} monthly payments of {formatCurrency(creditPerMonth, data?.currency)} after credit. Credit applies only to this membership period, not future renewals.</p>}
+                {displayMonthlyMode && <p className="text-sm">{creditEstimate.count} monthly payments of {formatCurrency(creditPerMonth, data?.currency)} after credit. Credit applies only to this membership period, not future renewals.</p>}
                 {creditOnly && <Button type="button" onClick={initStripe} disabled={creatingPayment}>Complete with membership credit</Button>}
               </section>
             )}
@@ -747,7 +776,7 @@ export default function MembershipFeePage() {
                   How would you like to pay the remaining amount?
                   <select className="block mt-1 rounded border p-2" value={selectedCreditMode}
                     disabled={!!data.voucherFunding || creatingPayment || !!data.voucherRequote}
-                    onChange={event => { setCreditPaymentMode(event.target.value); setCreditQuote(null); }}>
+                    onChange={event => { quoteRevision.current += 1; setQuotingCredit(false); setCreditPaymentMode(event.target.value); setCreditQuote(null); }}>
                     <option value="stripe_upfront">Annual / upfront</option>
                     {monthlyOfferReady(data.cardMonthly) && <option value="stripe_monthly">Monthly card payments</option>}
                     {monthlyOfferReady(data.ddOffer) && <option value="direct_debit">Monthly Direct Debit</option>}
@@ -758,6 +787,7 @@ export default function MembershipFeePage() {
                     <input type="checkbox" disabled={quotingCredit || creatingPayment || processingPayment || !!data?.voucherFunding}
                       checked={creditSelection.includes(voucher.id)}
                       onChange={event => {
+                        quoteRevision.current += 1;
                         setCreditQuote(null);
                         setCreditSelection(selected => event.target.checked
                           ? [...selected, voucher.id] : selected.filter(id => id !== voucher.id));
@@ -769,16 +799,17 @@ export default function MembershipFeePage() {
                   onClick={previewPersonalCredit}>
                   {quotingCredit ? 'Reviewing…' : 'Apply credit'}
                 </Button>
-                {creditQuote && (
+                {creditQuote && !quoteCurrent && <p role="status">Your credit quote is expired or unavailable. Apply credit again to review a current estimate.</p>}
+                {quoteCurrent && (
                   <div className="text-sm space-y-1" role="status">
                     {!variableCredit && <p>Membership cost: {formatCurrency(creditQuote.grossMinor / 100, creditQuote.currency)}</p>}
-                    {creditQuote.allocations.map(row => <p key={row.voucherId}>{creditOwnerLabel(row)}: {formatCurrency(row.amountMinor / 100, creditQuote.currency)}</p>)}
+                    {Array.isArray(creditQuote.allocations) && creditQuote.allocations.filter(row => row && Number.isSafeInteger(row.amountMinor)).map((row, index) => <p key={row.voucherId || index}>{creditOwnerLabel(row)}: {formatCurrency(row.amountMinor / 100, creditQuote.currency)}</p>)}
                     {variableCredit
-                      ? <VariableCreditSummary credit={creditQuote} instalmentCount={creditMonthly?.instalmentCount} offer={data.ddOffer} currency={creditQuote.currency} />
-                      : <p>Remaining to pay: {formatCurrency(creditQuote.cashMinor / 100, creditQuote.currency)}</p>}
-                    {creditMonthly && !variableCredit && <p>{creditMonthly.instalmentCount} monthly payments of {formatCurrency(creditPerMonth, data?.currency)} after credit.
+                      ? <VariableCreditSummary credit={creditQuote} instalmentCount={creditMonthly?.instalmentCount} offer={data.ddOffer} currency={creditQuote.currency} estimate={creditEstimate} />
+                      : creditEstimate ? <p>Remaining to pay: {formatCurrency(displayPayableAmount, creditQuote.currency)}</p> : <p>We can’t confirm the after-credit amount yet. Please review your credit quote.</p>}
+                    {displayMonthlyMode && <p>{creditEstimate.count} monthly payments of {formatCurrency(creditPerMonth, data?.currency)} after credit.
                       Credit applies only to this membership period. Any unused credit stays available; future renewals are not reduced.</p>}
-                    <p className="font-medium">Credit will be reserved when you continue to payment. This quote expires after 15 minutes.</p>
+                    <p className="font-medium">Credit selected, not reserved yet. Credit will be reserved when you continue to payment. This quote expires after 15 minutes.</p>
                     {!data?.voucherFunding && <Button type="button" variant="outline" onClick={clearPersonalCredit} disabled={creatingPayment || processingPayment}>Remove credit selection</Button>}
                     {creditOnly && !paymentComplete && (
                       <Button type="button" onClick={initStripe} disabled={creatingPayment || !!data?.approvalPending || !!data?.openPlan}>
@@ -806,7 +837,7 @@ export default function MembershipFeePage() {
 
             {breakdown.annualCost != null && (
               <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-500">{annualMembershipFeeLabel(data)}</span>
+                <span className="text-gray-500">{annualMembershipFeeLabel(data)}{(data?.voucherFunding || creditQuote) ? ' before credit' : ''}</span>
                 <span>{formatCurrency(breakdown.annualCost, data?.currency)}</span>
               </div>
             )}
@@ -856,10 +887,21 @@ export default function MembershipFeePage() {
 
             <Separator className="my-3" />
 
+            {creditEstimate && <div className="space-y-2 mb-4 text-sm" data-testid="credit-estimate" role="status">
+              <div className="flex items-center justify-between gap-3">
+                <span>Credit {creditEstimate.reserved ? 'reserved' : 'selected (not reserved yet)'}</span>
+                <span className="font-medium text-green-700">-{formatCurrency(creditEstimate.selectedMinor / 100, data.currency)}</span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span>{creditEstimate.variable ? 'Estimated period payments at current rates' : 'Remaining to pay after credit'}</span>
+                <span className="font-semibold">{formatCurrency(creditEstimate.cashMinor / 100, data.currency)}</span>
+              </div>
+              {!creditEstimate.variable && <p>Fee before credit: {formatCurrency(creditEstimate.grossMinor / 100, data.currency)}.</p>}
+            </div>}
             <div className="flex items-center justify-between">
-              <span className="font-medium">{awaitingMethod ? 'Payment amount' : dynamicMemberStart ? (variableCredit ? 'Current monthly payment estimate before credit' : 'Current monthly payment') : <>Total Due{data?.vatAmount > 0 ? ' (incl. VAT)' : ''}</>}</span>
+              <span className="font-medium">{awaitingMethod ? 'Payment amount' : creditEstimate?.variable ? 'Estimated first monthly payment after credit' : dynamicMemberStart ? (variableCredit ? 'Current monthly payment estimate before credit' : 'Current monthly payment') : creditEstimate ? 'Total due after credit' : <>Total Due{data?.vatAmount > 0 ? ' (incl. VAT)' : ''}</>}</span>
               <span className="text-2xl font-bold" style={{ color: primaryColor }} data-testid="text-total">
-                {awaitingMethod ? 'See payment options below' : dynamicMemberStart ? (data.ddOffer?.monthlyAmount != null ? formatCurrency(data.ddOffer.monthlyAmount, data.ddOffer.currency || data.currency) : 'Not supplied') : formatCurrency(data?.totalWithVat || data?.finalCost, data?.currency)}
+                {awaitingMethod ? 'See payment options below' : creditEstimate?.variable ? formatCurrency(creditEstimate.firstCashMinor / 100, data.currency) : dynamicMemberStart ? (data.ddOffer?.monthlyAmount != null ? formatCurrency(data.ddOffer.monthlyAmount, data.ddOffer.currency || data.currency) : 'Not supplied') : formatCurrency(creditEstimate ? creditEstimate.cashMinor / 100 : (data?.totalWithVat || data?.finalCost), data?.currency)}
               </span>
             </div>
           </CardContent>
@@ -1091,8 +1133,8 @@ export default function MembershipFeePage() {
               </div>
               <p className="text-sm text-gray-500 mb-3">
                 Spread your membership fee over {isMemberStart ? data.cardMonthly.instalmentCount : (data?.cardMonthly?.instalmentCount || 12)} monthly card payments of{' '}
-                <span className="font-medium text-gray-700">{formatCurrency(creditMonthly?.paymentMode === 'stripe_monthly' ? creditPerMonth : data?.cardMonthly?.monthlyAmount, data?.cardMonthly?.currency || data?.currency)}</span>
-                {data?.cardMonthly?.planTotal ? <> (cash total {formatCurrency(creditMonthly?.paymentMode === 'stripe_monthly' ? payableAmount : data.cardMonthly.planTotal, data?.cardMonthly?.currency || data?.currency)})</> : null}.
+                <span className="font-medium text-gray-700">{formatCurrency(displayMonthlyMode === 'stripe_monthly' ? creditPerMonth : data?.cardMonthly?.monthlyAmount, data?.cardMonthly?.currency || data?.currency)}</span>
+                {data?.cardMonthly?.planTotal ? <> (cash total {formatCurrency(displayMonthlyMode === 'stripe_monthly' ? displayPayableAmount : data.cardMonthly.planTotal, data?.cardMonthly?.currency || data?.currency)})</> : null}.
                 {' '}Continue to Stripe to enter your card details securely.
                 {isMemberStart && data.cardMonthly.activationRule && <> {activationText(data.cardMonthly.activationRule)}</>}
               </p>
@@ -1122,9 +1164,10 @@ export default function MembershipFeePage() {
                 <h2 className="font-medium">{reusesDirectDebit(data) ? 'Continue your monthly payments' : 'Set up your monthly payments'}</h2>
               </div>
               <p className="text-sm text-gray-500 mb-3">
-                {!variableCredit && directDebitHasFixedTermTotal(data.ddOffer) ? <>{isMemberStart ? data.ddOffer.instalmentCount : (data?.ddOffer?.instalmentCount || 12)} monthly payments of{' '}</> : variableCredit ? 'Your current monthly payment estimate before credit is ' : 'Your current monthly payment by Direct Debit is '}
-                <span className="font-medium text-gray-700">{formatCurrency(!variableCredit && creditMonthly?.paymentMode === 'direct_debit' ? creditPerMonth : data?.ddOffer?.monthlyAmount, data?.ddOffer?.currency || data?.currency)}</span>
-                {!variableCredit && directDebitHasFixedTermTotal(data.ddOffer) && data?.ddOffer?.planTotal ? <> (cash total for this term {formatCurrency(creditMonthly?.paymentMode === 'direct_debit' ? payableAmount : data.ddOffer.planTotal, data?.ddOffer?.currency || data?.currency)})</> : null}.
+                {creditEstimate?.variable ? 'Your estimated first monthly payment after credit is ' : !variableCredit && directDebitHasFixedTermTotal(data.ddOffer) ? <>{isMemberStart ? data.ddOffer.instalmentCount : (data?.ddOffer?.instalmentCount || 12)} monthly payments of{' '}</> : variableCredit ? 'Your current monthly payment estimate before credit is ' : 'Your current monthly payment by Direct Debit is '}
+                <span className="font-medium text-gray-700">{formatCurrency(creditEstimate?.variable ? creditEstimate.firstCashMinor / 100 : displayMonthlyMode === 'direct_debit' ? creditPerMonth : data?.ddOffer?.monthlyAmount, data?.ddOffer?.currency || data?.currency)}</span>
+                {creditEstimate?.variable && <> (before credit: {formatCurrency(data.ddOffer.monthlyAmount, data.ddOffer.currency)}). Later amounts may differ by pennies and fees may change</>}
+                {!variableCredit && directDebitHasFixedTermTotal(data.ddOffer) && data?.ddOffer?.planTotal ? <> (cash total for this term {formatCurrency(displayMonthlyMode === 'direct_debit' ? displayPayableAmount : data.ddOffer.planTotal, data?.ddOffer?.currency || data?.currency)})</> : null}.
                   {' '}First collection: <span data-testid="text-dd-first-collection">{isMemberStart && !data.ddOffer?.firstCollectionRule ? 'we’ll confirm the date with you' : directDebitFirstCollectionText(data.ddOffer)}</span>.
                 {' '}{directDebitPolicyText(data.ddOffer)}
                  {' '}{reusesDirectDebit(data) ? 'Your existing Direct Debit will be reused. Confirm below to continue your payments.' : 'To get started, we’ll securely guide you through setting up your Direct Debit.'}
@@ -1192,7 +1235,7 @@ export default function MembershipFeePage() {
                     ) : (
                       <CreditCard className="w-4 h-4 mr-2" />
                     )}
-                    {creditOnly ? 'Complete with membership credit' : `Pay ${formatCurrency(payableAmount, data?.currency)}`}
+                    {creditOnly ? 'Complete with membership credit' : `Pay ${formatCurrency(displayPayableAmount, data?.currency)}`}
                   </Button>
                 </>
               ) : (
@@ -1218,7 +1261,7 @@ export default function MembershipFeePage() {
                     ) : (
                       <CreditCard className="w-4 h-4 mr-2" />
                     )}
-                    {processingPayment ? 'Processing...' : `Confirm Payment - ${formatCurrency(payableAmount, data?.currency)}`}
+                    {processingPayment ? 'Processing...' : `Confirm Payment - ${formatCurrency(displayPayableAmount, data?.currency)}`}
                   </Button>
                 </div>
               )}

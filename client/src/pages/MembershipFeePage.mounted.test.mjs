@@ -438,6 +438,7 @@ test("late fee details from an aborted token cannot restart discovery or replace
 });
 const creditQuoteFixture = (dynamic, cashMinor = 12428) => ({
   id: "quote-1", currency: "GBP", paymentMode: "direct_debit",
+  expiresAt: "2099-01-01T00:00:00.000Z",
   grossMinor: 13811, cashMinor,
   allocations: [{ voucherId: "credit-1", amountMinor: 1383, ownerType: "member", displayName: "Harbour rewards" }],
   monthlySnapshot: { instalment_count: 7, collection_policy: { pricing_policy: dynamic ? "dynamic" : "fixed" } },
@@ -514,6 +515,8 @@ test("reserved variable credit with a zero forecast retains DD setup and can be 
     assert.doesNotMatch(view.container.textContent, /Payment Complete|has been received/);
     await act(async () => [...view.container.querySelectorAll("button")].find(button => button.textContent === "Cancel payment and release credit").click());
     await waitFor(() => !view.container.querySelector('[aria-label="Reserved membership credit"]'));
+    assert.equal(byId("credit-estimate"), null);
+    assert.equal(byId("text-total").textContent, "£19.73");
     assert.ok(view.calls.some(call => call?.action === "release_vouchers"));
   } finally { await view.cleanup(); }
 });
@@ -538,6 +541,7 @@ test("fixed credit quotes retain totals and the existing zero-cash completion ha
   for (const mode of ["direct_debit", "stripe_monthly", "stripe_upfront"]) {
     const data = fixture(mode);
     const quote = { ...creditQuoteFixture(false, 0), paymentMode: mode };
+    quote.allocations[0].amountMinor = quote.grossMinor;
     if (mode === "stripe_upfront") delete quote.monthlySnapshot;
     const view = await mount(data, "", payload => new Response(JSON.stringify(
       payload?.action === "quote_vouchers" ? { quote }
@@ -555,6 +559,166 @@ test("fixed credit quotes retain totals and the existing zero-cash completion ha
       assert.equal(document.querySelector('script[src="https://js.stripe.com/v3/"]'), null);
       assert.doesNotMatch(view.container.textContent, /Payment Complete|has been received/);
     } finally { await view.cleanup(); }
+  }
+});
+
+const screenshotFee = () => {
+  const data = fixture("direct_debit");
+  data.tenant = { name: "iConnect", primaryColor: "#5C0085" };
+  data.finalCost = data.totalWithVat = 156;
+  data.costBreakdown = { annualCost: 156 };
+  data.ddOffer = { ...offer(), monthlyAmount: 13, instalmentCount: 12, planTotal: 156,
+    collectionPolicy: { pricing_policy: "dynamic", end_policy: "continue" } };
+  return data;
+};
+const screenshotQuote = () => ({
+  ...creditQuoteFixture(true), grossMinor: 15600, cashMinor: null,
+  allocations: [{ voucherId: "credit-1", amountMinor: 1000, displayName: "Harbour rewards" }],
+  monthlySnapshot: { instalment_count: 12, collection_policy: { pricing_policy: "dynamic" } },
+  creditSchedule: Array.from({ length: 12 }, (_, i) => ({ ordinal: i + 1, allocatedCreditMinor: i < 4 ? 84 : 83 })),
+});
+test("screenshot figures show a visible deduction, first-month estimate consistently, and removal restores gross", async () => {
+  const data = screenshotFee(), quote = screenshotQuote();
+  const view = await mount(data, "", payload => voucherResponse(payload ? { quote } : data), availableCredit);
+  try {
+    assert.equal(byId("credit-estimate"), null);
+    await waitFor(() => view.container.querySelector('input[type="checkbox"]'));
+    await act(async () => view.container.querySelector('input[type="checkbox"]').click());
+    assert.equal(byId("credit-estimate"), null, "checkbox alone has no accepted quote");
+    assert.equal(byId("text-total").textContent, "£13.00");
+    await act(async () => [...view.container.querySelectorAll("button")].find(button => button.textContent === "Apply credit").click());
+    await waitFor(() => byId("credit-estimate"));
+    assert.match(byId("credit-estimate").textContent, /Credit selected \(not reserved yet\)-£10.00/);
+    assert.match(byId("credit-estimate").textContent, /Estimated period payments at current rates£146.00/);
+    assert.equal(byId("text-total").textContent, "£12.16");
+    assert.match(view.container.textContent, /before credit£156.00/);
+    assert.match(byId("variable-credit-summary").textContent, /Estimated first monthly payment after credit: £12.16/);
+    assert.match(view.container.textContent, /Your estimated first monthly payment after credit is £12.16 \(before credit: £13.00\)/);
+    assert.match(view.container.textContent, /Later monthly amounts may differ by pennies/);
+    assert.match(view.container.textContent, /iConnect/);
+    assert.equal(view.calls.filter(Boolean).length, 1);
+    await act(async () => [...view.container.querySelectorAll("button")].find(button => button.textContent === "Remove credit selection").click());
+    assert.equal(byId("credit-estimate"), null);
+    assert.equal(byId("text-total").textContent, "£13.00");
+    assert.equal(view.calls.filter(Boolean).length, 1);
+  } finally { await view.cleanup(); }
+});
+test("reserved credit estimates zero fully funded first month but retains mandatory Direct Debit setup", async () => {
+  const data = screenshotFee(), quote = screenshotQuote();
+  data.ddOffer.monthlyAmount = 0.5;
+  data.voucherFunding = { variableCredit: true, remainingMinor: 0,
+    allocations: quote.allocations, creditSchedule: quote.creditSchedule };
+  data.voucherMonthly = { paymentMode: "direct_debit", instalmentCount: 12 };
+  const view = await mount(data);
+  try {
+    assert.equal(byId("text-total").textContent, "£0.00");
+    assert.match(byId("credit-estimate").textContent, /Credit reserved-£10.00/);
+    assert.match(view.container.textContent, /£4.00 of selected credit cannot be used/);
+    assert.match(view.container.textContent, /original expiry date/);
+    assert.match(view.container.textContent, /Credit reserved.*Payment has not yet been confirmed/);
+    assert.doesNotMatch(view.container.textContent, /Complete with membership credit|Payment Complete/);
+    assert.ok(byId("button-setup-direct-debit"));
+    await act(async () => byId("button-setup-direct-debit").click());
+    assert.deepEqual(view.calls.filter(Boolean), [{ action: "start_direct_debit" }]);
+  } finally { await view.cleanup(); }
+});
+test("expired and malformed variable quotes do not display after-credit net", async () => {
+  for (const change of [
+    quote => { quote.expiresAt = "2001-01-01"; },
+    quote => { delete quote.expiresAt; },
+    quote => { delete quote.creditSchedule; },
+    quote => { quote.creditSchedule[0] = null; },
+    quote => { quote.allocations = [null]; },
+  ]) {
+    const data = screenshotFee(), quote = screenshotQuote();
+    change(quote);
+    const view = await mount(data, "", payload => voucherResponse(payload ? { quote } : data), availableCredit);
+    try {
+      await applyCredit(view);
+      assert.equal(byId("credit-estimate"), null);
+      assert.equal(byId("text-total").textContent, "£13.00");
+      assert.doesNotMatch(view.container.textContent, /£12.16|£146.00/);
+    } finally { await view.cleanup(); }
+  }
+});
+test("an accepted quote loses its net estimate when its expiry passes without another interaction", async () => {
+  const data = screenshotFee(), quote = screenshotQuote();
+  const view = await mount(data, "", payload => {
+    quote.expiresAt = new Date(Date.now() + 160).toISOString();
+    return voucherResponse(payload ? { quote } : data);
+  }, availableCredit);
+  try {
+    await applyCredit(view);
+    assert.equal(byId("text-total").textContent, "£12.16");
+    await waitFor(() => byId("credit-estimate") === null);
+    assert.equal(byId("text-total").textContent, "£13.00");
+    assert.doesNotMatch(view.container.textContent, /£12.16|£146.00/);
+    assert.match(view.container.textContent, /quote is expired or unavailable/);
+  } finally { await view.cleanup(); }
+});
+test("minimum-aware cash and VAT-inclusive seven-month estimates use monthly prices, not the annual row", async () => {
+  for (const minimum of [true, false]) {
+    const data = screenshotFee(), quote = screenshotQuote();
+    data.ddOffer.monthlyAmount = minimum ? 1.5 : 15.6;
+    const count = minimum ? 12 : 7, credit = minimum ? 1200 : 1000;
+    data.ddOffer.instalmentCount = count;
+    quote.monthlySnapshot.instalment_count = count;
+    quote.allocations[0].amountMinor = credit;
+    quote.creditSchedule = Array.from({ length: count }, (_, i) => ({
+      ordinal: i + 1, allocatedCreditMinor: Math.floor(credit / count) + (i < credit % count ? 1 : 0),
+    }));
+    data.costBreakdown.annualCost = 130;
+    data.finalCost = 130;
+    data.totalWithVat = 156;
+    data.vatAmount = 26;
+    const view = await mount(data, "", payload => voucherResponse(payload ? { quote } : data), availableCredit);
+    try {
+      await applyCredit(view);
+      assert.equal(byId("text-total").textContent, minimum ? "£1.00" : "£14.17");
+      assert.match(byId("credit-estimate").textContent, minimum ? /current rates£12.00/ : /current rates£99.20/);
+      if (minimum) assert.match(view.container.textContent, /£6.00 of selected credit cannot be used/);
+      else assert.match(view.container.textContent, /spread over 7 monthly payments/);
+      assert.equal(view.calls.filter(Boolean).length, 1);
+    } finally { await view.cleanup(); }
+  }
+});
+test("queued quote from a previous payment choice cannot replace the current display", async () => {
+  const gate = deferred(), data = screenshotFee();
+  data.memberStart = null;
+  const view = await mount(data, "", payload => payload?.action === "quote_vouchers" ? gate.promise : voucherResponse(data), availableCredit);
+  try {
+    await waitFor(() => view.container.querySelector('input[type="checkbox"]'));
+    await act(async () => view.container.querySelector('input[type="checkbox"]').click());
+    await act(async () => [...view.container.querySelectorAll("button")].find(button => button.textContent === "Apply credit").click());
+    const select = view.container.querySelector("select");
+    await act(async () => {
+      select.value = "direct_debit";
+      select.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    await act(async () => gate.resolve(voucherResponse({ quote: screenshotQuote() })));
+    assert.equal(byId("credit-estimate"), null);
+    assert.doesNotMatch(view.container.textContent, /£12.16|£146.00/);
+  } finally { await view.cleanup(); }
+});
+test("fixed upfront and monthly main total reflects accepted cash and reserved remaining amounts", async () => {
+  for (const mode of ["stripe_upfront", "stripe_monthly", "direct_debit"]) {
+    for (const reserved of [false, true]) {
+      const data = fixture(mode), quote = { ...creditQuoteFixture(false), paymentMode: mode };
+      if (mode === "stripe_upfront") delete quote.monthlySnapshot;
+      if (reserved) {
+        data.voucherFunding = { payableMinor: quote.grossMinor, remainingMinor: quote.cashMinor, allocations: quote.allocations };
+        if (mode !== "stripe_upfront") data.voucherMonthly = { paymentMode: mode, instalmentCount: 7 };
+      }
+      const view = await mount(data, "", payload => voucherResponse(payload ? { quote } : data), availableCredit);
+      try {
+        if (!reserved) await applyCredit(view);
+        assert.equal(byId("text-total").textContent, "£124.28");
+        assert.match(byId("credit-estimate").textContent, /-£13.83/);
+        assert.match(view.container.textContent, /Fee before credit: £138.11/);
+        if (mode !== "stripe_upfront") assert.match(view.container.textContent, /7 monthly payments of £17.75 after credit/);
+        assert.equal(view.calls.filter(Boolean).length, reserved ? 0 : 1);
+      } finally { await view.cleanup(); }
+    }
   }
 });
 
