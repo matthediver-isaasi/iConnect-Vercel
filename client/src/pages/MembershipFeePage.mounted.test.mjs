@@ -134,6 +134,7 @@ test("member confirms a choice once then sees only the server-selected provider 
     assert.equal(byId("member-payment-choice"), null);
     assert.equal(byId("button-pay-now"), null);
     assert.equal(byId("button-setup-monthly-card"), null);
+    assert.match(byId("member-start-payment-authority").textContent, /You have chosen to pay by monthly Direct Debit/);
   } finally { await view.cleanup(); }
 });
 test("unavailable or incomplete choices cannot be selected, and conflicts do not unlock providers", async () => {
@@ -160,6 +161,7 @@ test("saved member-start payment mode is the only offered rail, regardless of le
       for (const [rail, id] of Object.entries(ids)) assert.equal(!!byId(id), rail === mode, `${mode}: ${rail}`);
       assert.match(byId("member-start-payment-authority").textContent, /Payment method:/);
       assert.match(view.container.textContent, /1 February 2027 – 31 January 2028/);
+      assert.equal(byId("text-tier").textContent, "Standard");
       assert.equal(view.calls.filter(Boolean).length, 0);
       if (mode === "invoice") assert.match(view.container.textContent, /invoice remains outstanding/);
       if (mode === "free") assert.match(view.container.textContent, /There is no membership fee to pay/);
@@ -167,7 +169,7 @@ test("saved member-start payment mode is the only offered rail, regardless of le
   }
 });
 
-test("variable DD content hides internal labels and retains dates, price and continuation disclosures", async () => {
+test("variable DD content hides raw pricing classifications and retains dates, price and continuation disclosures", async () => {
   const data=fixture('direct_debit');
   data.tierLabel='Flat Rate';
   data.membershipYear='rolling:2027-02-01';
@@ -180,6 +182,7 @@ test("variable DD content hides internal labels and retains dates, price and con
     assert.match(view.container.textContent,/may change if membership fees are updated/);
     assert.match(view.container.textContent,/payments continue when your membership renews/);
     assert.match(byId('button-setup-direct-debit').textContent,/Continue to Direct Debit Setup/);
+    assert.equal(byId('text-tier'), null);
     assert.doesNotMatch(view.container.textContent,/rolling:|Flat Rate|first_payment|Membership term:|saved collection|dynamic monthly|billing period/i);
     assert.equal(view.calls.filter(Boolean).length,0);
   } finally {await view.cleanup();}
@@ -454,11 +457,13 @@ function assertVariableCreditCopy(view) {
   const text = view.container.textContent;
   assert.match(text, /Total selected credit: £13.83/);
   assert.match(text, /spread over 7 monthly payments/);
-  assert.match(text, /First-month allocated credit: £1.98/);
+  assert.match(text, /Credit towards your first month: £1.98/);
   assert.match(text, /Current monthly payment estimate before credit: £19.73/);
-  assert.match(text, /Actual monthly fees and payments may change/);
+  assert.match(text, /Your monthly fees and payments may change/);
   assert.match(text, /not a fixed total/);
   assert.match(text, /not future renewals/);
+  assert.match(text, /Any unused credit is returned with its original expiry date/);
+  assert.doesNotMatch(text, /Any unused credit stays available/);
   assert.match(text, /Harbour rewards \(your credit\)/);
   assert.doesNotMatch(text, /Remaining to pay:|Membership cost:|Total Due|cash total|monthly payments of|Complete with membership credit|dynamic|collection_policy|allocatedCreditMinor|NaN|Infinity/);
   assert.ok(byId("button-setup-direct-debit"));
@@ -521,7 +526,7 @@ test("variable credit missing allocation details does not invent a count or firs
   const view = await mount(data, "", payload => new Response(JSON.stringify(payload ? { quote } : data), { status: 200 }), availableCredit);
   try {
     await applyCredit(view);
-    assert.match(view.container.textContent, /First-month allocated credit is not available yet/);
+    assert.match(view.container.textContent, /can’t confirm the credit towards your first month yet/);
     assert.match(view.container.textContent, /confirm how your credit is spread/);
     assert.doesNotMatch(view.container.textContent, /12 monthly|NaN|Infinity|Complete with membership credit/);
     await act(async () => [...view.container.querySelectorAll("button")].find(button => button.textContent === "Remove credit selection").click());
@@ -580,5 +585,131 @@ test("a failed variable credit quote can be retried without starting a payment",
     assert.equal(view.container.querySelector('[role="alert"]'), null);
     assert.equal(view.calls.filter(Boolean).length, 2);
     assert.ok(view.calls.filter(Boolean).every(call => call.action === "quote_vouchers"));
+  } finally { await view.cleanup(); }
+});
+
+test("renewal and new-membership details use authoritative dates without repeating the period", async () => {
+  for (const renewal of [false, true]) {
+    const data = fixture("direct_debit");
+    data.membershipYear = "rolling:2027-02-01";
+    if (renewal) data.renewal = { provider: "gocardless", status: "notice_sent", mode: "confirm" };
+    const view = await mount(data);
+    try {
+      assert.equal(view.container.querySelector("h1").textContent, renewal ? "Your Membership Renewal" : "Your Membership");
+      assert.match(byId("member-start-payment-authority").textContent, renewal ? /Your renewal details/ : /Your membership details/);
+      assert.equal((view.container.textContent.match(/1 February 2027 – 31 January 2028/g) || []).length, 1);
+      assert.doesNotMatch(view.container.textContent, /rolling:/);
+      assert.match(view.container.textContent, renewal ? /Continue your monthly payments/ : /Set up your monthly payments/);
+    } finally { await view.cleanup(); }
+  }
+  const data = fixture("stripe_upfront");
+  data.memberStart.termStart = null;
+  data.memberStart.termEnd = null;
+  data.membershipYear = "rolling:2027-02-01";
+  const view = await mount(data);
+  try {
+    assert.equal(byId("text-period").textContent, "Please contact us to confirm your membership dates.");
+    assert.doesNotMatch(view.container.textContent, /rolling:|Invalid Date/);
+    assert.ok(byId("button-pay-now"));
+  } finally { await view.cleanup(); }
+  const paid = await mount({ ...data, status: "paid" });
+  try {
+    assert.match(paid.container.textContent, /Your membership fee has been received/);
+    assert.doesNotMatch(paid.container.textContent, /rolling:|undefined|null/);
+  } finally { await paid.cleanup(); }
+});
+
+test("annual and current-rate labels leave net, VAT and payment amounts unchanged", async () => {
+  for (const mode of ["stripe_upfront", "direct_debit"]) for (const dynamic of [false, true]) for (const vat of [false, true]) {
+    const data = fixture(mode);
+    data.ddOffer.collectionPolicy.pricing_policy = dynamic ? "dynamic" : "fixed";
+    data.costBreakdown = { annualCost: 138.11 };
+    if (vat) {
+      data.vatAmount = 27.62;
+      data.vatRatePercent = 20;
+      data.totalWithVat = 165.73;
+    }
+    const view = await mount(data);
+    try {
+      const variable = mode === "direct_debit" && dynamic;
+      const label = `Annual membership fee${variable ? " at current rates" : ""}${vat ? " (excluding VAT)" : ""}`;
+      const row = [...view.container.querySelectorAll("span")].find(span => span.textContent === label)?.parentElement;
+      assert.ok(row, label);
+      assert.match(row.textContent, /£138.11/);
+      assert.equal(byId("text-total").textContent, variable ? "£19.73" : vat ? "£165.73" : "£138.11");
+      if (vat) {
+        assert.equal(byId("text-vat").textContent, "£27.62");
+        assert.match(view.container.textContent, /Amount excluding VAT/);
+      }
+      if (!variable) assert.doesNotMatch(view.container.textContent, /Annual membership fee at current rates/);
+      assert.equal(view.calls.filter(Boolean).length, 0);
+    } finally { await view.cleanup(); }
+  }
+});
+
+test("a saved method is not attributed to the member and an unselected choice is clearly unselected", async () => {
+  const saved = await mount(fixture("direct_debit"));
+  try {
+    assert.match(byId("member-start-payment-authority").textContent, /Payment method: Monthly Direct Debit/);
+    assert.doesNotMatch(saved.container.textContent, /You have chosen|Your existing Direct Debit/);
+  } finally { await saved.cleanup(); }
+  const choice = await mount(choiceFixture());
+  try {
+    assert.match(byId("member-start-payment-authority").textContent, /Choose how you would like to pay below/);
+    assert.doesNotMatch(choice.container.textContent, /You have chosen|Your existing Direct Debit/);
+    assert.equal(byId("button-setup-direct-debit"), null);
+  } finally { await choice.cleanup(); }
+});
+
+test("setup keeps first-collection, activation and recorded continuation or stopping disclosures", async () => {
+  for (const end_policy of ["continue", "stop", "unknown"]) {
+    const data = fixture("direct_debit");
+    data.ddOffer.collectionPolicy = { pricing_policy: "dynamic", end_policy };
+    data.ddOffer.firstCollectionRule = "nominated_day";
+    data.ddOffer.collectionDay = 17;
+    data.ddOffer.activationRule = "mandate";
+    data.ddStatus = { hasMandate: true };
+    const view = await mount(data);
+    try {
+      assert.match(view.container.textContent, /Set up your monthly payments/);
+      assert.match(view.container.textContent, /To get started, we’ll securely guide you through setting up your Direct Debit\./);
+      assert.equal(byId("text-dd-first-collection").textContent, "on the next available collection date, on day 17 of the month");
+      assert.match(view.container.textContent, /becomes active once your Direct Debit is confirmed/);
+      assert.equal(view.container.textContent.includes("continue when your membership renews"), end_policy === "continue");
+      assert.equal(view.container.textContent.includes("unless you cancel your arrangement"), end_policy === "continue");
+      assert.equal(view.container.textContent.includes("stop at the end"), end_policy === "stop");
+      if (end_policy === "unknown") assert.match(view.container.textContent, /contact the membership team to confirm your payment amount and when payments will end/);
+      assert.doesNotMatch(view.container.textContent, /Your existing Direct Debit|No payment is taken while/);
+      assert.equal(view.calls.filter(Boolean).length, 0);
+    } finally { await view.cleanup(); }
+  }
+});
+
+test("generic credit labels use the requested amount and code format while tenant names remain intact", async () => {
+  const vouchers = { enabled: true, vouchers: [
+    { id: "member", ownerType: "member", displayName: "Member vouchers", value: 10, code: "MATTEST01" },
+    { id: "org", ownerType: "organisation", displayName: "Organisation vouchers", value: 17.31, code: "ORG-27" },
+    { id: "custom", ownerType: "member", displayName: "Harbour rewards", value: 13.83, code: "MEM-27" },
+  ] };
+  const view = await mount(fixture("stripe_upfront"), "", undefined, vouchers);
+  try {
+    await waitFor(() => view.container.querySelectorAll('input[type="checkbox"]').length === 3);
+    assert.match(creditPanel().textContent, /Member credit – £10.00 \(MATTEST01\)/);
+    assert.match(creditPanel().textContent, /Organisation credit – £17.31 \(ORG-27\)/);
+    assert.match(creditPanel().textContent, /Harbour rewards \(your credit\) – £13.83 \(MEM-27\)/);
+    assert.ok([...creditPanel().querySelectorAll("button")].some(button => button.textContent === "Apply credit"));
+    assert.doesNotMatch(creditPanel().textContent, /Apply credit to payment summary|ownership comes from|signed-in permissions/);
+    assert.equal(view.calls.filter(Boolean).length, 0);
+  } finally { await view.cleanup(); }
+});
+
+test("legacy DD in-progress response does not establish reuse by itself", async () => {
+  const view = await mount(fixture(null));
+  try {
+    await act(async () => byId("button-setup-direct-debit").click());
+    await waitFor(() => view.container.textContent.includes("Direct Debit In Progress"));
+    assert.match(view.container.textContent, /Direct Debit is being processed/);
+    assert.doesNotMatch(view.container.textContent, /existing Direct Debit has been reused|payments have been scheduled/);
+    assert.deepEqual(view.calls.filter(Boolean), [{ action: "start_direct_debit" }]);
   } finally { await view.cleanup(); }
 });

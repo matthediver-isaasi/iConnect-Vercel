@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { membershipPeriod, membershipHeading, memberDate, activationText, memberDirectDebitPolicy, reusesDirectDebit, creditOwnerLabel } from './membershipFeeCopy.js';
+import { membershipPeriod, membershipHeading, annualMembershipFeeLabel, memberDate, activationText, memberDirectDebitPolicy, memberFirstCollection, reusesDirectDebit, creditOwnerLabel } from './membershipFeeCopy.js';
 
 test('dates are readable, paired from one source and never inferred from internal rolling keys', () => {
   assert.equal(membershipPeriod({ memberStart: {termStart:'2026-10-22',termEnd:'2027-10-21'},membershipYear:'rolling:2026-10-22' }), '22 October 2026 – 21 October 2027');
@@ -34,4 +34,66 @@ test('credit labels retain tenant terminology and distinguish ownership', () => 
   assert.equal(creditOwnerLabel({ownerType:'member',displayName:'Member vouchers'}),'Member credit');
   assert.equal(creditOwnerLabel({ownerType:'organization'}),'Organisation credit');
   assert.match(creditOwnerLabel({ownerType:'member',displayName:'Training fund'}),/Training fund/);
+});
+
+test('periods use valid authoritative pairs, with safe year or contact fallbacks', () => {
+  const data = {
+    memberStart: { termStart: '2026-10-22' },
+    commitment: { term_start_date: '2025-04-01', term_end_date: '2026-03-31' },
+    renewalLifecycle: { termStart: '2027-01-01', termEnd: '2027-12-31' },
+  };
+  assert.equal(membershipPeriod(data), '1 April 2025 – 31 March 2026');
+  assert.equal(membershipPeriod({ renewalLifecycle: data.renewalLifecycle }), '1 January 2027 – 31 December 2027');
+  for (const membershipYear of [undefined, 'rolling:2026-10-22', 'term-internal-431', '2026-10-22']) {
+    assert.equal(membershipPeriod({ membershipYear }), 'Please contact us to confirm your membership dates.');
+  }
+  for (const membershipYear of ['2026', '2026/2027', '2026 – 2027']) {
+    assert.equal(membershipPeriod({ membershipYear }), membershipYear);
+  }
+  assert.equal(memberDate('2024-02-29'), '29 February 2024');
+  for (const value of ['2026-02-29', '2026-13-01', 'rolling:2026-10-22', '2026-10-22T00:00:00Z']) {
+    assert.equal(memberDate(value), null);
+  }
+  assert.equal(membershipHeading({ memberStart: {}, renewal: {} }), 'Your Membership Renewal');
+  assert.equal(membershipHeading({}), 'Your Membership');
+});
+
+test('annual fee labels preserve current-rate and VAT meaning without qualifying unrelated upfront offers', () => {
+  for (const pricing_policy of ['fixed', 'dynamic']) for (const vatAmount of [0, 26.31]) {
+    const data = { memberStart: { paymentMode: 'direct_debit' }, vatAmount, ddOffer: { collectionPolicy: { pricing_policy } } };
+    assert.equal(annualMembershipFeeLabel(data),
+      `Annual membership fee${pricing_policy === 'dynamic' ? ' at current rates' : ''}${vatAmount > 0 ? ' (excluding VAT)' : ''}`);
+    data.memberStart.paymentMode = 'stripe_upfront';
+    assert.equal(annualMembershipFeeLabel(data), `Annual membership fee${vatAmount > 0 ? ' (excluding VAT)' : ''}`);
+  }
+});
+
+test('unknown or review-required policies never promise continuation, fixed pricing or cancellation rights', () => {
+  for (const collectionPolicy of [
+    undefined, { pricing_policy: 'dynamic' }, { pricing_policy: 'fixed', end_policy: 'unknown' },
+    { pricing_policy: 'unknown', end_policy: 'continue' },
+    { pricing_policy: 'dynamic', end_policy: 'continue', needs_review: true },
+  ]) {
+    const text = memberDirectDebitPolicy({ collectionPolicy });
+    assert.match(text, /contact the membership team/);
+    assert.doesNotMatch(text, /continue when|unless you cancel|is fixed|may change/);
+  }
+});
+
+test('first collection and activation disclosures retain the recorded rule without exposing codes', () => {
+  assert.equal(memberFirstCollection({ firstCollectionRule: 'nominated_day', collectionDay: 17 }), 'on the next available collection date, on day 17 of the month');
+  assert.match(memberFirstCollection({ firstCollectionRule: 'anniversary' }), /matching your membership start day/);
+  for (const firstCollectionRule of [undefined, 'internal_unknown', 'nominated_day']) {
+    assert.match(memberFirstCollection({ firstCollectionRule, collectionDay: 29 }), /as soon as your Direct Debit is ready.*advance notice/);
+  }
+  assert.equal(activationText('unknown'), 'We’ll confirm when your membership becomes active.');
+});
+
+test('default credit labels are translated but deliberate tenant names are not replaced', () => {
+  for (const displayName of ['Vouchers', 'Member vouchers', 'Organisation vouchers']) {
+    assert.equal(creditOwnerLabel({ ownerType: 'member', displayName }), 'Member credit');
+    assert.equal(creditOwnerLabel({ ownerType: 'organisation', displayName }), 'Organisation credit');
+  }
+  assert.equal(creditOwnerLabel({ ownerType: 'member', displayName: 'Harbour rewards' }), 'Harbour rewards (your credit)');
+  assert.equal(creditOwnerLabel({ ownerType: 'organisation', displayName: 'Learning allowance' }), 'Learning allowance (organisation credit)');
 });

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
 import GoCardlessDropinFlow from "@/components/gocardless/GoCardlessDropinFlow";
 import { directDebitHasFixedTermTotal, directDebitCollectionPolicy } from "@/lib/directDebitConsentSummary";
-import { membershipPeriod, membershipHeading, memberDate, activationText, memberDirectDebitPolicy as directDebitPolicyText, memberFirstCollection as directDebitFirstCollectionText, reusesDirectDebit, creditOwnerLabel } from "@/lib/membershipFeeCopy";
+import { membershipPeriod, membershipHeading, annualMembershipFeeLabel, memberDate, activationText, memberDirectDebitPolicy as directDebitPolicyText, memberFirstCollection as directDebitFirstCollectionText, reusesDirectDebit, creditOwnerLabel } from "@/lib/membershipFeeCopy";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,11 +47,11 @@ function VariableCreditSummary({ credit, instalmentCount, offer, currency }) {
       ? <p>Your credit is spread over {count} monthly payments in this membership period, not used all at once.</p>
       : <p>We’ll confirm how your credit is spread over this membership period. Please contact the membership team for the allocation details.</p>}
     {Number.isSafeInteger(first?.allocatedCreditMinor)
-      ? <p>First-month allocated credit: {formatCurrency(first.allocatedCreditMinor / 100, currency)}.</p>
-      : <p>First-month allocated credit is not available yet. Please contact the membership team for details.</p>}
+      ? <p>Credit towards your first month: {formatCurrency(first.allocatedCreditMinor / 100, currency)}.</p>
+      : <p>We can’t confirm the credit towards your first month yet. Please contact the membership team for details.</p>}
     {offer?.monthlyAmount != null && <p>Current monthly payment estimate before credit: {formatCurrency(offer.monthlyAmount, offer.currency || currency)}.</p>}
-    <p>Actual monthly fees and payments may change. These estimates are not a fixed total to pay for this membership period.</p>
-    <p>Credit applies only to this membership period, not future renewals. Any unused credit stays available.</p>
+    <p>Your monthly fees and payments may change. These estimates are not a fixed total for this membership period.</p>
+    <p>Credit applies only to this membership period, not future renewals. Any unused credit is returned with its original expiry date.</p>
     <p>You still need to continue with Direct Debit for future payments, even if the current estimate after credit is zero.</p>
   </div>;
 }
@@ -177,6 +177,9 @@ export default function MembershipFeePage() {
     finally { setQuotingCredit(false); }
   }
   const selectingMethodRef = useRef(false);
+  // Copy only: only a successful choice made here establishes who chose it.
+  // A saved method may have been selected by an administrator.
+  const memberChosenMethodRef = useRef(null);
   const isMemberStart = data?.memberStart != null;
   const awaitingMethod = data?.memberStart?.paymentMode === 'member_choice';
   const allowsMode = mode => data?.voucherRequote?.paymentMode
@@ -229,6 +232,7 @@ export default function MembershipFeePage() {
       if (!refreshed.ok || !['stripe_upfront', 'stripe_monthly', 'direct_debit'].includes(next.memberStart?.paymentMode)) {
         throw new Error('Your selection may have been saved. Reload this page to confirm it before proceeding.');
       }
+      memberChosenMethodRef.current = { token, mode: next.memberStart.paymentMode };
       setData(next);
     } catch (err) {
       setSelectionError(`${err.message} No payment has been confirmed.`);
@@ -608,7 +612,7 @@ export default function MembershipFeePage() {
             <CheckCircle2 className="w-16 h-16 mx-auto mb-4" style={{ color: primaryColor }} />
             <h2 className="text-xl font-semibold mb-2">Payment Complete</h2>
             <p className="text-gray-500 mb-4">
-              Your membership fee for {data?.membershipYear} has been received.
+              Your membership fee has been received.
             </p>
             {accountingWarning && <p role="status" className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{accountingWarning}</p>}
             <div className="p-3 rounded-md bg-gray-50 border">
@@ -790,7 +794,7 @@ export default function MembershipFeePage() {
             {breakdown.annualCostBeforeDiscounts != null && breakdown.customDiscountTotal > 0 && (
               <>
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-500">Gross Cost</span>
+                  <span className="text-gray-500">{annualMembershipFeeLabel(data)} before discounts</span>
                   <span>{formatCurrency(breakdown.annualCostBeforeDiscounts, data?.currency)}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
@@ -802,7 +806,7 @@ export default function MembershipFeePage() {
 
             {breakdown.annualCost != null && (
               <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-500">Membership fee{data?.vatAmount > 0 ? ' (excluding VAT)' : ''}</span>
+                <span className="text-gray-500">{annualMembershipFeeLabel(data)}</span>
                 <span>{formatCurrency(breakdown.annualCost, data?.currency)}</span>
               </div>
             )}
@@ -840,7 +844,7 @@ export default function MembershipFeePage() {
               <>
                 <Separator className="my-3" />
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-500">Net Amount</span>
+                  <span className="text-gray-500">Amount excluding VAT{annualMembershipFeeLabel(data).includes('at current rates') ? ' at current rates' : ''}</span>
                   <span>{formatCurrency(data?.finalCost, data?.currency)}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
@@ -870,13 +874,17 @@ export default function MembershipFeePage() {
         {data?.paymentMethodsMessage && (
           <p className="text-sm text-gray-600" data-testid="text-renewal-payment-methods">{data.paymentMethodsMessage}</p>
         )}
-        {isMemberStart && (
+        {(isMemberStart || membershipHeading(data) === 'Your Membership Renewal') && (
           <div className="rounded-md border bg-white p-3 text-sm space-y-2" data-testid="member-start-payment-authority">
-            <p className="font-medium">Your membership details</p>
-            <p>{awaitingMethod ? 'Choose how you would like to pay below.' : `Payment method: ${savedModeLabel(data.memberStart.paymentMode)}.`}</p>
-            {data.memberStart.paymentMode === 'invoice' && <p>Your invoice remains outstanding until payment is verified.</p>}
-            {data.memberStart.paymentMode === 'free' && <p>There is no membership fee to pay.</p>}
-            {['stripe_monthly', 'direct_debit'].includes(data.memberStart.paymentMode) && !monthlyOfferReady(data.memberStart.paymentMode === 'stripe_monthly' ? data.cardMonthly : data.ddOffer) && <p role="alert">We can’t confirm your monthly payment details yet. Please contact the membership team before continuing.</p>}
+            <p className="font-medium">{membershipHeading(data) === 'Your Membership Renewal' ? 'Your renewal details' : 'Your membership details'}</p>
+            <p>{!isMemberStart ? (reusesDirectDebit(data) ? 'Payment method: Monthly Direct Debit.' : 'Review your payment options below.')
+              : awaitingMethod ? 'Choose how you would like to pay below.'
+              : memberChosenMethodRef.current?.token === token && memberChosenMethodRef.current.mode === data.memberStart.paymentMode
+                ? `You have chosen to pay by ${savedModeLabel(data.memberStart.paymentMode).toLowerCase().replace('direct debit', 'Direct Debit')}.`
+                : `Payment method: ${savedModeLabel(data.memberStart.paymentMode)}.`}</p>
+            {data.memberStart?.paymentMode === 'invoice' && <p>Your invoice remains outstanding until payment is verified.</p>}
+            {data.memberStart?.paymentMode === 'free' && <p>There is no membership fee to pay.</p>}
+            {['stripe_monthly', 'direct_debit'].includes(data.memberStart?.paymentMode) && !monthlyOfferReady(data.memberStart.paymentMode === 'stripe_monthly' ? data.cardMonthly : data.ddOffer) && <p role="alert">We can’t confirm your monthly payment details yet. Please contact the membership team before continuing.</p>}
           </div>
         )}
 
@@ -1024,7 +1032,7 @@ export default function MembershipFeePage() {
                 <span className="font-medium">Direct Debit In Progress</span>
               </div>
               <p className="text-sm text-gray-500 mt-1">
-                {isMemberStart ? 'We’re waiting for confirmation of your Direct Debit and payment. Your membership is not yet confirmed.' : 'Your existing Direct Debit has been reused — your monthly payments have been scheduled.'}
+                {isMemberStart ? 'We’re waiting for confirmation of your Direct Debit and payment. Your membership is not yet confirmed.' : reusesDirectDebit(data) ? 'Your existing Direct Debit has been reused — your monthly payments have been scheduled.' : 'Your Direct Debit is being processed. We’ll confirm your monthly payments once it is ready.'}
               </p>
             </CardContent>
           </Card>
@@ -1055,8 +1063,10 @@ export default function MembershipFeePage() {
           <div className="flex items-start gap-2 p-3 rounded-md bg-blue-50 border border-blue-200" data-testid="banner-renewal-awaiting-confirmation">
             <AlertCircle className="w-4 h-4 text-blue-500 mt-0.5 shrink-0" />
             <p className="text-sm text-blue-700">
-              Your monthly {data.renewal.provider === 'stripe' ? 'card payment' : 'Direct Debit'} plan is ready to renew for this membership year.
-              Confirm your renewal below — {data.renewal.provider === 'stripe' ? 'your saved card details can be reused' : 'your existing Direct Debit will be reused'}.
+              Your monthly {data.renewal.provider === 'stripe' ? 'card payment' : data.renewal.provider === 'gocardless' ? 'Direct Debit' : 'payment'} plan is ready to renew for this membership year.
+              {' '}{data.renewal.provider === 'stripe' ? 'Confirm your renewal below — your saved card details can be reused.'
+                : reusesDirectDebit(data) ? 'Confirm your renewal below — your existing Direct Debit will be reused.'
+                  : 'Review the details below before continuing.'}
             </p>
           </div>
         )}
@@ -1117,7 +1127,7 @@ export default function MembershipFeePage() {
                 {!variableCredit && directDebitHasFixedTermTotal(data.ddOffer) && data?.ddOffer?.planTotal ? <> (cash total for this term {formatCurrency(creditMonthly?.paymentMode === 'direct_debit' ? payableAmount : data.ddOffer.planTotal, data?.ddOffer?.currency || data?.currency)})</> : null}.
                   {' '}First collection: <span data-testid="text-dd-first-collection">{isMemberStart && !data.ddOffer?.firstCollectionRule ? 'we’ll confirm the date with you' : directDebitFirstCollectionText(data.ddOffer)}</span>.
                 {' '}{directDebitPolicyText(data.ddOffer)}
-                 {' '}{reusesDirectDebit(data) ? 'Your existing Direct Debit will be reused. Confirm below to continue your payments.' : 'We’ll guide you through secure Direct Debit setup. No payment is taken while you enter your bank details.'}
+                 {' '}{reusesDirectDebit(data) ? 'Your existing Direct Debit will be reused. Confirm below to continue your payments.' : 'To get started, we’ll securely guide you through setting up your Direct Debit.'}
                 {isMemberStart && data.ddOffer.activationRule && <> {activationText(data.ddOffer.activationRule)}</>}
               </p>
               <Button

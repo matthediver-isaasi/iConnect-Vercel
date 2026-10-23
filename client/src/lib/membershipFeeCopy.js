@@ -21,8 +21,15 @@ export function membershipPeriod(data) {
 }
 
 export function membershipHeading(data) {
-  return data?.memberStart ? 'Your Membership' : data?.renewalLifecycle?.termStart || data?.renewal
+  return data?.renewalLifecycle?.termStart || data?.renewal
     ? 'Your Membership Renewal' : 'Your Membership';
+}
+
+export function annualMembershipFeeLabel(data) {
+  const mode = data?.memberStart?.paymentMode || data?.voucherRequote?.paymentMode || data?.voucherMonthly?.paymentMode;
+  const variable = data?.voucherFunding?.variableCredit === true
+    || ((!mode || mode === 'direct_debit') && directDebitCollectionPolicy(data?.ddOffer)?.pricing_policy === 'dynamic');
+  return `Annual membership fee${variable ? ' at current rates' : ''}${data?.vatAmount > 0 ? ' (excluding VAT)' : ''}`;
 }
 
 export function activationText(rule) {
