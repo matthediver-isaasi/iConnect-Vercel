@@ -24,6 +24,7 @@ import { loadCanvasRenewalEligibility } from '../_lib/canvasRenewalEligibility.j
 import { attachExpiryRenewalPolicyDisplay, legacyRenewalPolicyDisplay } from '../_lib/membershipRenewalPolicyDisplay.js';
 import { resolveMemberAmendmentReadOverlays, effectiveMemberEntitlement } from '../_lib/membershipAmendmentReadOverlay.js';
 import { findUnresolvedUnverifiedHistory } from '../../shared/unverifiedMembershipHistory.js';
+import { attachMembershipAccountingProgress } from '../_lib/membershipAccountingProgress.js';
 
 const INSTALMENT_PAGE_SIZE = 25;
 const INSTALMENT_MAX_PAGE = 1000;
@@ -1283,6 +1284,7 @@ async function handleGet(req, res, tenantId, db = supabase, {
     return String(left.id || '').localeCompare(String(right.id || ''));
   });
   await enrichHistoryPrices(history, { db, tenantId });
+  if (isAdmin) await attachMembershipAccountingProgress(db, { tenantId, history, now });
   await attachAlphaMembershipRecognition(db, tenantId, memberId, history);
   let legacyCurrentMembership = findLegacyCurrentMembership(personalHistory, tenantId, now);
   // Retain the paid term, not a fabricated successor or price. Verified

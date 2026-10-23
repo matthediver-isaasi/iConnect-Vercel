@@ -598,6 +598,8 @@ function MemberYearCostSection({
   );
 }
 
+import MembershipAccountingStatus from './MembershipAccountingStatus';
+
 export default function MemberMembershipTab({ memberId, memberEmail, memberTenantId }) {
   const queryClient = useQueryClient();
   const selectedTenantId = useSyncExternalStore(
@@ -665,7 +667,11 @@ export default function MemberMembershipTab({ memberId, memberEmail, memberTenan
       if (!response.ok || !data.ok) {
         throw new Error(data?.error || 'Invoice retry failed');
       }
-      toast.success(`Invoice ${data.invoice_number || ''} created`);
+      if (data.accounting_pending || response.status === 202) {
+        toast.success('Accounting retry queued');
+      } else {
+        toast.success(`Invoice ${data.invoice_number || ''} created`);
+      }
       queryClient.invalidateQueries({ queryKey: ['member-membership', memberId] });
     } catch (err) {
       console.error('[MemberMembershipTab] retry invoice failed:', err);
@@ -1883,6 +1889,8 @@ export default function MemberMembershipTab({ memberId, memberEmail, memberTenan
                           )}
                           {record.payment_status === 'unverified' ? (
                             <span className="text-xs text-muted-foreground">Payment evidence unavailable</span>
+                          ) : !invoiceId && record.accounting_progress ? (
+                            <MembershipAccountingStatus progress={record.accounting_progress} recordId={record.id} />
                           ) : !invoiceId && record.accounting_sync_status === 'failed' ? (
                             <div className="flex items-center justify-center gap-2" data-testid={`cell-invoice-failed-${record.id}`}>
                               <Badge variant="warning" title={record.accounting_sync_error || 'Invoice creation failed'}>
@@ -1905,7 +1913,9 @@ export default function MemberMembershipTab({ memberId, memberEmail, memberTenan
                             </div>
                           ) : invoiceId ? (
                             <div className="flex flex-col items-center gap-1">
-                              {(record.accounting_sync_status || record.accounting_sync_error) && (
+                              {record.accounting_progress ? (
+                                <MembershipAccountingStatus progress={record.accounting_progress} recordId={record.id} />
+                              ) : (record.accounting_sync_status || record.accounting_sync_error) && (
                                 <div className="max-w-56 text-center">
                                   {record.accounting_sync_status && (
                                     <Badge

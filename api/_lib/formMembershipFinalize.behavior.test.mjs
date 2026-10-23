@@ -533,6 +533,27 @@ for (const spec of [
   });
 }
 
+test('fresh paid submission without membership progress completes initial finalization', async () => {
+  const initial = fixture();
+  delete initial.submission.payment_meta.membership_result;
+  const db = makeDb(initial);
+  const provider = makeProvider('xero');
+  const result = await finalizeFormMembership(
+    { supabase: db, submission: db.getSubmission(), baseUrl: 'https://app.test' },
+    {
+      getAccountingProvider: async () => provider,
+      getConfigByIdDirect: async () => ({}),
+      settleFormStripeInvoice: realSettlement(db, provider),
+      fireWorkflowForPaidRow: async () => {},
+    },
+  );
+  assert.equal(result.invoiceState, 'done');
+  assert.equal(result.settlementState, 'done');
+  assert.equal(db.historyRows().length, 1);
+  assert.equal(provider.calls.create.length, 1);
+  assert.equal(db.getSubmission().payment_status, 'paid');
+});
+
 test('a retry with a pinned provider resolves through getAccountingProviderByName', async () => {
   const provider = makeProvider('xero');
   const db = makeDb(fixture({

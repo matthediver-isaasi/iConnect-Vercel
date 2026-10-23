@@ -20,6 +20,33 @@ const { createRoot } = await import("react-dom/client");
 const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
 const { default: MemberMembershipTab } = await import("./MemberMembershipTab.jsx");
 const { setActiveTenantId } = await import("../api/base44Client.js");
+
+test('accounting recovery progress preserves paid status and never retries on render', async () => {
+  for (const [state, label] of [
+    ['waiting', 'Accounting waiting to retry'],
+    ['pending', 'Accounting retry pending'],
+    ['attention', 'Accounting needs manual attention'],
+    ['unavailable', 'Accounting progress unavailable'],
+  ]) {
+    for (const invoiceId of [null, 'invoice-existing']) {
+    await mounted({
+      dataOverrides: { history: [{ id: 'accounting-row', member_id: 'member',
+        payment_status: 'paid', payment_method: 'stripe', accounting_sync_status: 'failed',
+        accounting_invoice_id: invoiceId,
+        accounting_progress: { state, retryAt: '2026-10-23T12:15:00Z' } }] },
+    }, async (container, calls) => {
+      assert.ok(container.textContent.includes(label));
+      assert.ok(container.textContent.includes('Membership remains paid'));
+      assert.equal(container.querySelector('[data-testid="button-retry-invoice-accounting-row"]'), null);
+      assert.equal(!!container.querySelector('[data-testid="button-view-invoice-accounting-row"]'), !!invoiceId);
+      assert.ok(!calls.some(call => call.options?.method === 'POST'));
+      if (state === 'waiting' || state === 'pending') {
+        assert.equal(container.querySelector('time')?.dateTime, '2026-10-23T12:15:00Z');
+      }
+    });
+    }
+  }
+});
 after(() => dom.window.close());
 
 const policy = {

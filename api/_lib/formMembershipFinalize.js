@@ -558,7 +558,7 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
     // ── Resume path: a prior run already created/adopted the row. ───────
     const prior = meta.membership_result;
     if (membershipIsBlocked(prior)) return { created: false, blocked: true, requiresAttention: true };
-    if (Date.parse(prior.accounting_retry_after) > Date.now()) {
+    if (Date.parse(prior?.accounting_retry_after) > Date.now()) {
       return { created: false, pending: true, retryAfter: prior.accounting_retry_after };
     }
     // An exact observed operation may still publish its authoritative links.
