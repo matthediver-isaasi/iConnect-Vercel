@@ -68,6 +68,20 @@ test('admin reads still use hard tenant predicate', async () => {
   assert.ok(!f.calls.some(c => c[0] === 'or'));
 });
 
+test('voucher default ordering uses the live issue-date column; ledger retains created_at', async () => {
+  for (const admin of [true, false]) {
+    const f = fixture({ admin });
+    await handleVoucherEntity(f);
+    assert.equal(f.res.code, 200);
+    assert.ok(f.calls.some(c => c[0] === 'order' && c[1] === 'issued_at'));
+    assert.ok(!f.calls.some(c => c[0] === 'order' && c[1] === 'created_at'));
+    assert.ok(f.calls.some(c => c[0] === 'order' && c[1] === 'id'));
+  }
+  const ledger = fixture({ entity: 'vouchertransaction', data: [] });
+  await handleVoucherEntity(ledger);
+  assert.ok(ledger.calls.some(c => c[0] === 'order' && c[1] === 'created_at'));
+});
+
 test('forged filters cannot replace scope and projections cannot traverse related records', async () => {
   const f = fixture({ query: { filter: JSON.stringify({ member_id: id }) } });
   await handleVoucherEntity(f);

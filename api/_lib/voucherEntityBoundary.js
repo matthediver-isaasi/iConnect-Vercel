@@ -112,7 +112,9 @@ export async function handleVoucherEntity({ entity, id, req, res, context, db, h
     }
     const fields = ledger ? TRANSACTION_FIELDS : VOUCHER_FIELDS;
     if (req.query?.filter) query = filterQuery(query, parseObject(req.query.filter), fields);
-    const sort = req.query?.sort ? parseObject(req.query.sort) : { created_at: 'desc' };
+    // Vouchers have an issue date, not a created_at column. The ledger has
+    // created_at; do not impose its schema on voucher list reads.
+    const sort = req.query?.sort ? parseObject(req.query.sort) : ledger ? { created_at: 'desc' } : { issued_at: 'desc' };
     for (const [field, direction] of Object.entries(sort)) {
       if (!fields.has(field) || !['asc', 'desc'].includes(direction)) throw new Error('Unsupported voucher sort');
       query = query.order(field, { ascending: direction === 'asc' });

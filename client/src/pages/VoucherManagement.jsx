@@ -213,7 +213,7 @@ export default function VoucherManagementPage() {
     }
   }, [isFeatureExcluded, isAccessReady]);
 
-  const { data: vouchers = [], isLoading: loadingVouchers } = useQuery({
+  const { data: vouchers = [], isLoading: loadingVouchers, isError: vouchersLoadFailed, refetch: retryVouchers } = useQuery({
     queryKey: ['vouchers-admin', ...viewerKey],
     queryFn: () => base44.entities.Voucher.list(),
     staleTime: 0,
@@ -1481,6 +1481,11 @@ export default function VoucherManagementPage() {
           <div className="lg:col-span-2">
             {loadingVouchers ? (
               <div className="text-center py-12">Loading vouchers...</div>
+            ) : vouchersLoadFailed ? (
+              <Card><CardContent className="p-6" role="alert">
+                <p>Unable to load vouchers. Existing vouchers have not been removed.</p>
+                <Button variant="outline" className="mt-3" onClick={() => retryVouchers()}>Retry</Button>
+              </CardContent></Card>
             ) : vouchers.length === 0 ? (
               <Card className="border-slate-200 shadow-sm">
                 <CardContent className="p-12 text-center">
@@ -1728,6 +1733,8 @@ export default function VoucherManagementPage() {
                   <div className="px-4 pb-4 text-center text-sm text-slate-500">
                     Loading...
                   </div>
+                ) : vouchersLoadFailed ? (
+                  <p role="alert" className="px-4 pb-4 text-sm">Owner summary unavailable until vouchers load successfully.</p>
                 ) : orgSummary.length === 0 ? (
                   <div className="px-4 pb-4 text-center text-sm text-slate-500">
                     No owners to display
