@@ -460,6 +460,49 @@ test('stale ambiguous creation discovers, atomically links, then settles without
   assert.ok(db.rpcCalls.some((call) => call.name === 'link_recovered_form_membership_invoice'));
 });
 
+test('repeated transient discovery failures never exhaust genuine attempts, while permanent failures still block', async () => {
+  for (const status of [429, 503, 400]) {
+    const rows = fixture();
+    rows.history.accounting_invoice_id = null;
+    rows.history.accounting_invoice_number = null;
+    const progress = rows.submission.payment_meta.membership_result;
+    progress.invoice_state = 'processing';
+    progress.invoice_claimed_at = '2026-01-01T00:00:01.000Z';
+    progress.invoice_discovery_attempts = 11;
+    progress.settlement_state = 'waiting_invoice';
+    const db = makeDb(rows);
+    for (let i = 0; i < (status === 400 ? 1 : 13); i++) {
+      await assert.rejects(settleFormStripeInvoice({
+        supabase: db, tenantId, submissionId, dryRun: false,
+        retrievePaymentIntent: async () => succeededIntent(),
+        getProvider: async () => ({
+          findFormStripeInvoice: async () => { throw Object.assign(new Error('Provider unavailable'), { status }); },
+          settleFormStripeInvoice: async () => assert.fail('Discovery failed; never settle'),
+        }),
+      }));
+      const current = rows.submission.payment_meta.membership_result;
+      assert.equal(current.invoice_discovery_attempts, status === 400 ? 12 : 11);
+      assert.equal(current.invoice_state, status === 400 ? 'blocked' : 'processing');
+    }
+  }
+});
+
+test('transient settlement failure refunds its attempt and leaves a cooling-off lease', async () => {
+  const rows = fixture();
+  rows.submission.payment_meta.membership_result.settlement_attempts = 11;
+  const db = makeDb(rows);
+  await assert.rejects(settleFormStripeInvoice({
+    supabase: db, tenantId, submissionId, dryRun: false,
+    retrievePaymentIntent: async () => succeededIntent(),
+    getProvider: async () => ({
+      settleFormStripeInvoice: async () => { throw Object.assign(new Error('Rate limited'), { status: 429 }); },
+    }),
+  }));
+  assert.equal(rows.submission.payment_meta.membership_result.settlement_attempts, 11);
+  assert.equal(rows.submission.payment_meta.membership_result.settlement_state, 'processing');
+  assert.ok(rows.submission.payment_meta.membership_result.settlement_claimed_at);
+});
+
 test('ambiguous discovery is blocked and never settles or links', async () => {
   const rows = fixture();
   rows.history.accounting_invoice_id = null;

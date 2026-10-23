@@ -745,6 +745,7 @@ export async function reconcileFormPayments(supabase, {
       .or('payment_meta->membership_result->>integrity_state.is.null,payment_meta->membership_result->>integrity_state.neq.blocked')
       .or('payment_meta->membership_result->>invoice_state.is.null,payment_meta->membership_result->>invoice_state.neq.blocked')
       .or('payment_meta->membership_result->>settlement_state.is.null,payment_meta->membership_result->>settlement_state.neq.blocked')
+      .or(`payment_meta->membership_result->>accounting_retry_after.is.null,payment_meta->membership_result->>accounting_retry_after.lte.${new Date(now).toISOString()}`)
       // Also recover orphaned workflow claims (crash between claim and
       // dispatch): 'claimed' with a claim timestamp past the TTL. ISO
       // strings compare lexicographically, so lt on the ->> text works.

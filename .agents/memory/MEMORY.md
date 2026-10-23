@@ -156,3 +156,4 @@
 - [Membership amendment policy](membership-amendment-policy.md) — approved mid-term changes cover collection, credit and refund, preserving purchase evidence and expiry by default.
 - [Badge instructions lifecycle](badge-instructions-lifecycle.md) — removal retains private guidance; failed deletion requires recoverable, fenced storage disposal.
 - [Individual training funds](individual-training-fund-terminology.md) — owner terminology refers to member-owned vouchers, not legacy organisation fund balances.
+- [Accounting temporary failures](accounting-transient-retry-policy.md) — rate limits and transient errors must not consume genuine retry allowances; preserve uncertain-write discovery.

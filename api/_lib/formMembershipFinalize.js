@@ -78,6 +78,7 @@ import {
 // A workflow claim older than this is considered orphaned (crash between
 // claim and dispatch) and may be re-claimed by the cron sweep.
 export const WORKFLOW_CLAIM_TTL_MS = 15 * 60 * 1000;
+import { isTemporaryAccountingFailure } from './accountingTemporaryFailure.js';
 
 // Diagnostic exhaustion stops automatic retries without reopening payment.
 export { MAX_ENTITY_ATTEMPTS } from './formMembershipIntegrity.js';
@@ -247,14 +248,16 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
         }
       } catch (providerPrepError) {
         accountingSyncError = String(providerPrepError?.message || providerPrepError);
-        invoiceState = invoiceAttempts >= MAX_FORM_STRIPE_SETTLEMENT_ATTEMPTS ? 'blocked' : 'retry';
+        const temporary = isTemporaryAccountingFailure(providerPrepError);
+        invoiceState = temporary ? 'retry' : invoiceAttempts >= MAX_FORM_STRIPE_SETTLEMENT_ATTEMPTS ? 'blocked' : 'retry';
         const prepFailure = await mergeFormMembershipProgress(supabase, {
           tenantId,
           submissionId: submission.id,
           expected,
           patch: {
             invoice_state: invoiceState,
-            invoice_attempts: invoiceAttempts,
+            invoice_attempts: temporary ? Math.max(0, invoiceAttempts - 1) : invoiceAttempts,
+            ...(temporary ? { accounting_retry_after: new Date(Date.now() + WORKFLOW_CLAIM_TTL_MS).toISOString() } : {}),
             accounting_error: accountingSyncError.slice(0, 500),
           },
         });
@@ -392,6 +395,8 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
           expected: { invoice_state: 'processing', invoice_claimed_at: invoiceClaimedAt },
           patch: {
             invoice_state: invoiceState,
+            ...(isTemporaryAccountingFailure(invoiceErr)
+              ? { invoice_attempts: Math.max(0, invoiceAttempts - 1) } : {}),
             accounting_error: accountingSyncError.slice(0, 500),
           },
         });
@@ -553,6 +558,9 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
     // ── Resume path: a prior run already created/adopted the row. ───────
     const prior = meta.membership_result;
     if (membershipIsBlocked(prior)) return { created: false, blocked: true, requiresAttention: true };
+    if (Date.parse(prior.accounting_retry_after) > Date.now()) {
+      return { created: false, pending: true, retryAfter: prior.accounting_retry_after };
+    }
     // An exact observed operation may still publish its authoritative links.
     // No membership side effects or diagnostic attempts while it owns work.
     if (processorResult?.awaitingOperation) return { created: false, awaitingEntity: true, waitingOperation: true };

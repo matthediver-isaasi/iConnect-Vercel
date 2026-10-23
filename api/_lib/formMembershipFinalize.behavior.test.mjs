@@ -465,6 +465,35 @@ function linkedHistory({
   };
 }
 
+test('transient provider preparation and creation failures preserve the genuine attempt budget', async () => {
+  for (const stage of ['prepare', 'create']) {
+    const db = makeDb(fixture({}));
+    const provider = makeProvider('xero');
+    provider[stage === 'prepare' ? 'getRawAccessToken' : 'createMembershipInvoice'] = async () => {
+      throw Object.assign(new Error('Rate limited'), { statusCode: 429 });
+    };
+    const deps = {
+      getAccountingProvider: async () => provider,
+      getAccountingProviderByName: () => provider,
+      getConfigByIdDirect: async () => ({}),
+      settleFormStripeInvoice: async () => assert.fail('Do not settle a failed creation'),
+      fireWorkflowForPaidRow: async () => {},
+    };
+    await finalizeFormMembership({ supabase: db, submission: db.getSubmission(), baseUrl: 'https://app.test' }, deps);
+    const progress = db.getSubmission().payment_meta.membership_result;
+    assert.equal(progress.invoice_attempts, 0);
+    assert.equal(progress.invoice_state, stage === 'prepare' ? 'retry' : 'processing');
+    assert.equal(db.getSubmission().payment_status, 'paid');
+    if (stage === 'prepare') {
+      assert.ok(Date.parse(progress.accounting_retry_after) > Date.now());
+      const result = await finalizeFormMembership({ supabase: db, submission: db.getSubmission(), baseUrl: 'https://app.test' }, {
+        ...deps, getAccountingProvider: async () => assert.fail('Cooling off must not contact the provider'),
+      });
+      assert.equal(result.pending, true);
+    }
+  }
+});
+
 for (const spec of [
   { name: 'Xero', provider: 'xero', rawContext: false },
   { name: 'QuickBooks', provider: 'quickbooks', rawContext: true },

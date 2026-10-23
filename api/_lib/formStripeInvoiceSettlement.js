@@ -1,4 +1,5 @@
 import { getAccountingProviderByName } from './accountingProvider.js';
+import { isTemporaryAccountingFailure } from './accountingTemporaryFailure.js';
 import { retrieveTenantPaymentIntent } from './stripeCredentials.js';
 import { authoritativeMembershipEntity, membershipIntegrityError, membershipIsBlocked } from './formMembershipIntegrity.js';
 
@@ -343,7 +344,17 @@ async function settleVerifiedFormStripeInvoice({
         deadlineAt,
       });
     } catch (error) {
-      if (!dryRun && discoveryAttempts >= MAX_FORM_STRIPE_SETTLEMENT_ATTEMPTS) {
+      if (!dryRun && isTemporaryAccountingFailure(error)) {
+        const deferred = await mergeFormMembershipProgress(supabase, {
+          tenantId, submissionId,
+          expected: { invoice_state: 'processing', invoice_claimed_at: progress.invoice_claimed_at },
+          // Preserve processing: discovery resumes only after the existing
+          // fifteen-minute lease, and never blindly recreates an invoice.
+          patch: { invoice_discovery_attempts: Math.max(0, discoveryAttempts - 1),
+            accounting_error: String(error?.message || error).slice(0, 1000) },
+        });
+        if (!deferred.updated) throw new Error('Temporary invoice discovery failure was not persisted');
+      } else if (!dryRun && discoveryAttempts >= MAX_FORM_STRIPE_SETTLEMENT_ATTEMPTS) {
         const blocked = await mergeFormMembershipProgress(supabase, {
           tenantId,
           submissionId,
@@ -521,12 +532,15 @@ async function settleVerifiedFormStripeInvoice({
     }
   } catch (error) {
     if (!dryRun) {
-      const failedState = attempt >= MAX_FORM_STRIPE_SETTLEMENT_ATTEMPTS ? 'blocked' : 'retry';
+      const temporary = isTemporaryAccountingFailure(error);
+      const failedState = temporary ? 'processing' : attempt >= MAX_FORM_STRIPE_SETTLEMENT_ATTEMPTS ? 'blocked' : 'retry';
       const failurePersisted = await mergeFormMembershipProgress(supabase, {
         tenantId,
         submissionId,
         expected: { settlement_state: 'processing', settlement_claimed_at: claim.result.settlement_claimed_at },
-        patch: { settlement_state: failedState, settlement_error: String(error?.message || error).slice(0, 1000) },
+        patch: { settlement_state: failedState,
+          ...(temporary ? { settlement_attempts: Math.max(0, attempt - 1) } : {}),
+          settlement_error: String(error?.message || error).slice(0, 1000) },
       });
       await persistDiagnostics(error?.message || error);
       if (!failurePersisted.updated) {
