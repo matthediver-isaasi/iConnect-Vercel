@@ -216,6 +216,64 @@ test("agreement preview lists all missing requirements, not only sender role", a
   } finally { await view.cleanup(); }
 });
 
+test("disabled actions expose missing-role and fresh-preview help on hover and keyboard focus without invoking actions", async () => {
+  const requests = [], sends = [];
+  const view = await mount({
+    quote: agreementQuote,
+    request: async (url, options) => { requests.push(url); return response(JSON.parse(options.body)); },
+    onSend: async payload => sends.push(payload),
+  });
+  const helpFor = label => document.querySelector(`[role="group"][aria-label^="${label} unavailable."]`);
+  const hover = async el => {
+    await act(async () => {
+      const event = new dom.window.MouseEvent("pointermove", { bubbles: true });
+      Object.defineProperty(event, "pointerType", { value: "mouse" });
+      el.dispatchEvent(event);
+      await new Promise(resolve => setTimeout(resolve, 20));
+    });
+  };
+  try {
+    await signAgreement();
+    assert.equal(document.querySelector('label[for="quote-recipient-contact"]').textContent.includes("required"), false);
+    assert.match(document.querySelector('label[for="quote-personal-message"]').textContent, /optional/);
+    assert.match(document.querySelector('label[for="quote-link-expiry"]').textContent, /required/);
+    assert.equal(document.getElementById("quote-link-expiry").getAttribute("aria-required"), "true");
+    const previewHelp = helpFor("Preview email");
+    assert.equal(previewHelp.tabIndex, 0);
+    assert.match(previewHelp.getAttribute("aria-label"), /Enter your role/);
+    await hover(previewHelp);
+    assert.match(document.querySelector('[role="tooltip"]').textContent, /Enter your role/);
+    await act(async () => previewHelp.focus());
+    assert.match(document.querySelector('[role="tooltip"]').textContent, /Enter your role/);
+    await click("Preview email");
+    await click("Send quote");
+    await act(async () => {
+      previewHelp.click();
+      previewHelp.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+    assert.equal(requests.length, 0);
+    assert.equal(sends.length, 0);
+    await input("agreement-sender-role", "Managing director");
+    assert.equal(helpFor("Preview email"), null, "enabled preview has no extra tab stop");
+    const sendHelp = helpFor("Send quote");
+    assert.equal(sendHelp.tabIndex, 0);
+    await act(async () => sendHelp.focus());
+    assert.match(document.querySelector('[role="tooltip"]').textContent, /Preview the email before sending/);
+    await click("Send quote");
+    await act(async () => sendHelp.click());
+    assert.equal(requests.length, 0);
+    assert.equal(sends.length, 0);
+    await act(async () => sendHelp.blur());
+    await click("Preview email");
+    assert.equal(requests.length, 1);
+    assert.equal(helpFor("Send quote"), null, "enabled send has no extra tab stop");
+    await input("quote-personal-message", "Updated message");
+    await act(async () => helpFor("Send quote").focus());
+    assert.match(document.querySelector('[role="tooltip"]').textContent, /Any changes require a new preview/);
+    assert.equal(sends.length, 0);
+  } finally { await view.cleanup(); }
+});
+
 test("colleague requests explain delivery blockers without requiring the current user's signature", async () => {
   const requests = [], sends = [];
   const view = await mount({
@@ -230,6 +288,7 @@ test("colleague requests explain delivery blockers without requiring the current
     assert.equal(button("Request colleague signature").disabled, true);
     assert.match(document.getElementById("quote-colleague-requirements").textContent, /valid recipient email/);
     assert.equal(button("Request colleague signature").getAttribute("aria-describedby"), "quote-colleague-requirements");
+    assert.match(button("Request colleague signature").parentElement.getAttribute("aria-label"), /valid recipient email/);
     await input("quote-recipient-email", "client@example.test");
     assert.equal(button("Request colleague signature").disabled, false);
     await click("Request colleague signature");
@@ -412,6 +471,8 @@ test("loading, failure and retry; old responses cannot replace a newer preview",
     await click("Preview email");
     assert.match(document.querySelector('[role="status"]').textContent, /Preparing/);
     assert.equal(button("Preparing preview…").disabled, true);
+    assert.match(button("Preparing preview…").parentElement.getAttribute("aria-label"), /being prepared/);
+    assert.match(button("Send quote").parentElement.getAttribute("aria-label"), /finish preparing/);
     await input("quote-personal-message", "New message");
     assert.equal(document.querySelector('[role="status"]'), null);
     await click("Preview email");
@@ -445,6 +506,7 @@ test("send locks duplicates, retains draft on failure and resets the next sessio
     await act(async () => { button("Send quote").click(); button("Send quote")?.click(); });
     assert.equal(sends, 1);
     assert.equal(button("Sending…").disabled, true);
+    assert.match(button("Sending…").parentElement.getAttribute("aria-label"), /current delivery action/);
     assert.equal(document.getElementById("quote-personal-message").disabled, true);
     await act(async () => wait.reject(new Error("Delivery failed")));
     assert.equal(document.getElementById("quote-personal-message").value, "Keep this note");

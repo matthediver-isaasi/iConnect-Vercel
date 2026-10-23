@@ -4,6 +4,12 @@ description: Requested replacement for the separate manual commercial proposal a
 ---
 The user currently uses two manual documents: a detailed quote and a full legal contract. They want one automatic agreement: quote first, per-proposal rich-text legal content next, and sender/contact details with signatures last. Both parties must be able to type in a script font, draw, or upload a signature; the sender signs when sending.
 
+Proposal sending must visibly identify mandatory fields and explain disabled actions with hover help (also accessible by keyboard).
+
+**Why:** The user confirmed completing the sender role resolved the blocked preview, but explicitly requested mandatory indicators and disabled-button helpers so users know what to complete.
+
+**How to apply:** Preserve signature and preview requirements; explain missing inputs rather than weakening those requirements.
+
 **Why:** The user described this business process, reviewed the recommendation, and approved implementation.
 
 **How to apply:** Keep signature authority separate from email-sender selection: a colleague must personally sign through an authenticated request. Bind both signatures to an immutable agreement version, never live profile or template content. Preserve ordinary quotes without legal content.
