@@ -1643,3 +1643,17 @@ mtime_ms = 1792569352261
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/8d50898b-132d-43bb-9db8-4ad928cffad3/95ee6034-1a0d-42c3-854a-e450e0a2e8be"
 storage_version_token = "1792569379713280"
 content_type = "text/html"
+
+[[outputs]]
+id = "M24hiF8zUJCRUIt_iXbom"
+uri = "file://generated-artifacts/form-accounting-audit-2026-10-23.html"
+type = "html"
+title = "Historical form-membership accounting audit"
+description = "Read-only production findings, deployment evidence, excluded incident and invoice validation conflict."
+logical_id = "11b7710d-2213-485b-8dff-dfbe1499cff9"
+content_hash = "sha256:9c0a411df3a69f7c938a0eaf5aa9281e378fc8069073fbe2d637d0770e7e8d21"
+size = 6016
+mtime_ms = 1792746010931
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/11b7710d-2213-485b-8dff-dfbe1499cff9/63e2f36c-d806-4a34-aea2-f4262366f267"
+storage_version_token = "1792746033203742"
+content_type = "text/html"
