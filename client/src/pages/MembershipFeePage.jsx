@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
 import GoCardlessDropinFlow from "@/components/gocardless/GoCardlessDropinFlow";
-import { directDebitFirstCollectionText, directDebitPolicyText, directDebitHasFixedTermTotal, directDebitCollectionPolicy } from "@/lib/directDebitConsentSummary";
+import { directDebitHasFixedTermTotal, directDebitCollectionPolicy } from "@/lib/directDebitConsentSummary";
+import { membershipPeriod, membershipHeading, memberDate, activationText, memberDirectDebitPolicy as directDebitPolicyText, memberFirstCollection as directDebitFirstCollectionText, reusesDirectDebit, creditOwnerLabel } from "@/lib/membershipFeeCopy";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -615,69 +616,67 @@ export default function MembershipFeePage() {
               {data?.isMember
                 ? <User className="w-5 h-5" style={{ color: primaryColor }} />
                 : <Building2 className="w-5 h-5" style={{ color: primaryColor }} />}
-              <h1 className="text-lg font-semibold">Membership Fee</h1>
+              <h1 className="text-lg font-semibold">{membershipHeading(data)}</h1>
             </div>
 
             <div className="flex items-center justify-between mb-1">
               <span className="text-sm text-gray-500">{data?.isMember ? 'Member' : 'Organisation'}</span>
               <span className="font-medium" data-testid="text-org-name">{data?.isMember ? (data?.memberName || data?.organizationName) : data?.organizationName}</span>
             </div>
-            {data?.renewalLifecycle && (
+            {data?.renewalLifecycle?.isEarly && memberDate(data.renewalLifecycle.termStart) && (
               <div className="mt-2 text-xs text-gray-500">
-                Membership term: {data.renewalLifecycle.termStart} to {data.renewalLifecycle.termEnd}.
-                {data.renewalLifecycle.isEarly ? ` Payment is being scheduled for activation on ${data.renewalLifecycle.termStart}.` : ''}
+                Your renewal is scheduled to start on {memberDate(data.renewalLifecycle.termStart)}.
               </div>
             )}
             <div className="flex items-center justify-between mb-1">
-              <span className="text-sm text-gray-500">Period</span>
-              <span className="font-medium" data-testid="text-period">{data?.membershipYear}</span>
+              <span className="text-sm text-gray-500">Membership period</span>
+              <span className="font-medium" data-testid="text-period">{membershipPeriod(data)}</span>
             </div>
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-sm text-gray-500">Tier</span>
-              <Badge variant="secondary" data-testid="text-tier">{data?.tierLabel || 'Standard'}</Badge>
-            </div>
+            {data?.tierLabel && !/^flat rate$/i.test(data.tierLabel.trim()) && <div className="flex items-center justify-between mb-1">
+              <span className="text-sm text-gray-500">Membership type</span>
+              <Badge variant="secondary" data-testid="text-tier">{data.tierLabel}</Badge>
+            </div>}
 
             <Separator className="my-3" />
 
             {creditError && <p role="alert" className="mb-3 text-sm text-red-700">{creditError}</p>}
             {!data.memberStart && data.status === 'pending' && !data.voucherFunding && !paymentComplete && (
               <section className="mb-4 rounded border p-3 text-sm space-y-2">
-                <p>If this older link has no saved terms, or your monthly offer has a different total, create a matching saved quote.
-                  No payment is taken. Original quote and history evidence are preserved; review the replacement price before continuing.</p>
+                <p>To use credit with this link, you may need an updated payment summary. No payment is taken when you update it. Review the amount before continuing.</p>
                 <Button variant="outline" onClick={() => regenerateCreditQuote()} disabled={quotingCredit || creatingPayment}>
-                  {quotingCredit ? 'Preparing quote…' : 'Create matching saved quote'}
+                  {quotingCredit ? 'Preparing…' : 'Update payment summary'}
                 </Button>
                 {(requoteUpfront || data.voucherRequote?.creditRequired) && <Button variant="outline" onClick={() => regenerateCreditQuote('stripe_upfront')} disabled={quotingCredit}>
                   Keep original invoice price and apply credit upfront
                 </Button>}
-                {data.voucherRequote && <p>This replacement uses saved {data.voucherRequote.paymentMode.replaceAll('_', ' ')} terms. Its predecessor is retained for audit.</p>}
-                {data.voucherRequote?.creditRequired && <p>Apply credit before starting this monthly plan. Credit absorbs the invoice's minor-unit remainder; each provider cash instalment is exact.</p>}
+                {data.voucherRequote && <p>Payment method: {savedModeLabel(data.voucherRequote.paymentMode)}.</p>}
+                {data.voucherRequote?.creditRequired && <p>Apply your credit before continuing so we can confirm your monthly payment amount.</p>}
               </section>
             )}
             {data?.voucherFunding && !paymentComplete && (
               <section className="mb-4 rounded border p-3 space-y-2" aria-label="Reserved membership credit">
                 <p>Membership cost: {formatCurrency(data.voucherFunding.payableMinor / 100, data?.currency)}</p>
-                {data.voucherFunding.allocations.map(row => <p key={row.id} className="text-sm">{row.displayName} ({row.ownerType === 'member' ? 'Personal' : 'Organisation'}): {formatCurrency(row.amountMinor / 100, data?.currency)}</p>)}
-                <p>Cash remaining: {formatCurrency(payableAmount, data?.currency)}</p>
+                {data.voucherFunding.allocations.map(row => <p key={row.id} className="text-sm">{creditOwnerLabel(row)}: {formatCurrency(row.amountMinor / 100, data?.currency)}</p>)}
+                <p>Remaining to pay: {formatCurrency(payableAmount, data?.currency)}</p>
                 <Button type="button" variant="outline" onClick={clearPersonalCredit} disabled={quotingCredit || creatingPayment || processingPayment}>
                   Cancel payment and release credit
                 </Button>
-                {creditMonthly && <p className="text-sm">{creditMonthly.instalmentCount} purchased instalments of {formatCurrency(creditPerMonth, data?.currency)} cash each. Credit applies only to this term, not future renewals.</p>}
+                {creditMonthly && <p className="text-sm">{creditMonthly.instalmentCount} monthly payments of {formatCurrency(creditPerMonth, data?.currency)} after credit. Credit applies only to this membership period, not future renewals.</p>}
                 {creditOnly && <Button type="button" onClick={initStripe} disabled={creatingPayment}>Complete with membership credit</Button>}
               </section>
             )}
             {personalCredit?.enabled && personalCredit.vouchers.length > 0 && (
               <section className="mb-4 rounded border p-3 space-y-2" aria-label="Membership credit">
-                <h2 className="font-medium">Membership credit</h2>
-                <p className="text-sm text-amber-800">{personalCredit.message}</p>
+                <h2 className="font-medium">Your available credit</h2>
+                <p className="text-sm text-amber-800">You have credit available towards your membership. Select the credit you would like to use and apply it to your payment.</p>
                 {!data.memberStart && data.isMember && <label className="block text-sm">
-                  Payment plan for this credit quote
+                  How would you like to pay the remaining amount?
                   <select className="block mt-1 rounded border p-2" value={selectedCreditMode}
                     disabled={!!data.voucherFunding || creatingPayment || !!data.voucherRequote}
                     onChange={event => { setCreditPaymentMode(event.target.value); setCreditQuote(null); }}>
                     <option value="stripe_upfront">Annual / upfront</option>
-                    {monthlyOfferReady(data.cardMonthly) && <option value="stripe_monthly">Finite monthly card</option>}
-                    {monthlyOfferReady(data.ddOffer) && <option value="direct_debit">Finite monthly Direct Debit</option>}
+                    {monthlyOfferReady(data.cardMonthly) && <option value="stripe_monthly">Monthly card payments</option>}
+                    {monthlyOfferReady(data.ddOffer) && <option value="direct_debit">Monthly Direct Debit</option>}
                   </select>
                 </label>}
                 {personalCredit.vouchers.map(voucher => (
@@ -689,20 +688,20 @@ export default function MembershipFeePage() {
                         setCreditSelection(selected => event.target.checked
                           ? [...selected, voucher.id] : selected.filter(id => id !== voucher.id));
                       }} />
-                    <span>{voucher.displayName} ({voucher.ownerType === 'member' ? 'Personal' : 'Organisation'}) · {voucher.code} · {formatCurrency(voucher.value, data?.currency)}</span>
+                    <span>{creditOwnerLabel(voucher)} – {formatCurrency(voucher.value, data?.currency)} ({voucher.code})</span>
                   </label>
                 ))}
                 <Button type="button" variant="outline" disabled={!creditSelection.length || quotingCredit || creatingPayment || processingPayment || !!data?.voucherFunding}
                   onClick={previewPersonalCredit}>
-                  {quotingCredit ? 'Reviewing…' : 'Apply credit to payment summary'}
+                  {quotingCredit ? 'Reviewing…' : 'Apply credit'}
                 </Button>
                 {creditQuote && (
                   <div className="text-sm space-y-1" role="status">
                     <p>Membership cost: {formatCurrency(creditQuote.grossMinor / 100, creditQuote.currency)}</p>
-                    {creditQuote.allocations.map(row => <p key={row.voucherId}>{row.displayName} ({row.ownerType === 'member' ? 'Personal' : 'Organisation'}): {formatCurrency(row.amountMinor / 100, creditQuote.currency)}</p>)}
-                    <p>Cash remaining: {formatCurrency(creditQuote.cashMinor / 100, creditQuote.currency)}</p>
-                    {creditMonthly && <p>{creditMonthly.instalmentCount} purchased instalments: {formatCurrency(creditPerMonth, data?.currency)} cash each.
-                      Credit applies only to this finite term. Rounding remainders stay on the original voucher; future renewals are not reduced.</p>}
+                    {creditQuote.allocations.map(row => <p key={row.voucherId}>{creditOwnerLabel(row)}: {formatCurrency(row.amountMinor / 100, creditQuote.currency)}</p>)}
+                    <p>Remaining to pay: {formatCurrency(creditQuote.cashMinor / 100, creditQuote.currency)}</p>
+                    {creditMonthly && <p>{creditMonthly.instalmentCount} monthly payments of {formatCurrency(creditPerMonth, data?.currency)} after credit.
+                      Credit applies only to this membership period. Any unused credit stays available; future renewals are not reduced.</p>}
                     <p className="font-medium">Credit will be reserved when you continue to payment. This quote expires after 15 minutes.</p>
                     {!data?.voucherFunding && <Button type="button" variant="outline" onClick={clearPersonalCredit} disabled={creatingPayment || processingPayment}>Remove credit selection</Button>}
                     {creditOnly && !paymentComplete && (
@@ -730,7 +729,7 @@ export default function MembershipFeePage() {
 
             {breakdown.annualCost != null && (
               <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-500">Net Cost</span>
+                <span className="text-gray-500">Membership fee{data?.vatAmount > 0 ? ' (excluding VAT)' : ''}</span>
                 <span>{formatCurrency(breakdown.annualCost, data?.currency)}</span>
               </div>
             )}
@@ -781,7 +780,7 @@ export default function MembershipFeePage() {
             <Separator className="my-3" />
 
             <div className="flex items-center justify-between">
-              <span className="font-medium">{awaitingMethod ? 'Payment amount' : dynamicMemberStart ? 'Current monthly price (variable)' : <>Total Due{data?.vatAmount > 0 ? ' (incl. VAT)' : ''}</>}</span>
+              <span className="font-medium">{awaitingMethod ? 'Payment amount' : dynamicMemberStart ? 'Current monthly payment' : <>Total Due{data?.vatAmount > 0 ? ' (incl. VAT)' : ''}</>}</span>
               <span className="text-2xl font-bold" style={{ color: primaryColor }} data-testid="text-total">
                 {awaitingMethod ? 'See payment options below' : dynamicMemberStart ? (data.ddOffer?.monthlyAmount != null ? formatCurrency(data.ddOffer.monthlyAmount, data.ddOffer.currency || data.currency) : 'Not supplied') : formatCurrency(data?.totalWithVat || data?.finalCost, data?.currency)}
               </span>
@@ -800,13 +799,11 @@ export default function MembershipFeePage() {
         )}
         {isMemberStart && (
           <div className="rounded-md border bg-white p-3 text-sm space-y-2" data-testid="member-start-payment-authority">
-            <p>Saved payment method: {savedModeLabel(data.memberStart.paymentMode)}.</p>
-            <p>Membership term: {data.memberStart.termStart} to {data.memberStart.termEnd}.</p>
-            <p>{awaitingMethod ? 'Choose from the payment options saved for your membership below. Once confirmed, your choice is reserved for this request to prevent duplicate payment arrangements.' : 'This request uses the saved payment method, term and pricing policy. No alternative payment method is offered.'} Payment authorization or plan set-up alone is not confirmation of payment.</p>
-            {dynamicMemberStart && <p>No guaranteed plan total or fixed instalment count is quoted. Dynamic monthly collections use current prices under the saved collection policy.</p>}
+            <p className="font-medium">Your membership details</p>
+            <p>{awaitingMethod ? 'Choose how you would like to pay below.' : `Payment method: ${savedModeLabel(data.memberStart.paymentMode)}.`}</p>
             {data.memberStart.paymentMode === 'invoice' && <p>Your invoice remains outstanding until payment is verified.</p>}
-            {data.memberStart.paymentMode === 'free' && <p>No payment authorization is required for this zero-value membership.</p>}
-            {['stripe_monthly', 'direct_debit'].includes(data.memberStart.paymentMode) && !monthlyOfferReady(data.memberStart.paymentMode === 'stripe_monthly' ? data.cardMonthly : data.ddOffer) && <p role="alert">The saved monthly payment terms are incomplete. Contact your membership administrator before authorizing payment.</p>}
+            {data.memberStart.paymentMode === 'free' && <p>There is no membership fee to pay.</p>}
+            {['stripe_monthly', 'direct_debit'].includes(data.memberStart.paymentMode) && !monthlyOfferReady(data.memberStart.paymentMode === 'stripe_monthly' ? data.cardMonthly : data.ddOffer) && <p role="alert">We can’t confirm your monthly payment details yet. Please contact the membership team before continuing.</p>}
           </div>
         )}
 
@@ -825,10 +822,10 @@ export default function MembershipFeePage() {
                 <h3 className="font-medium">{savedModeLabel(option.mode)}</h3>
                 {complete && <div className="text-sm space-y-1">
                   {monthly ? dynamic
-                    ? <p>Current monthly price (variable): {formatCurrency(offer.monthlyAmount, offer.currency)}. No guaranteed term total.</p>
+                    ? <p>Current monthly payment: {formatCurrency(offer.monthlyAmount, offer.currency)}.</p>
                     : <p>{offer.instalmentCount} monthly payments of {formatCurrency(offer.monthlyAmount, offer.currency)} · Plan total: {formatCurrency(offer.planTotal, offer.currency)}</p>
                     : <p>One-off payment: {formatCurrency(quote.totalWithVat, quote.currency)}</p>}
-                  {monthly && <p>Activation rule: {offer.activationRule}</p>}
+                  {monthly && <p>{activationText(offer.activationRule)}</p>}
                   {option.mode === 'direct_debit' && <><p>{directDebitPolicyText(offer)}</p><p>First collection: {directDebitFirstCollectionText(offer)}.</p></>}
                 </div>}
                 {(!option.available || !complete) && <p className="text-sm" role="status">{option.reason || 'Complete payment terms are unavailable. Contact your membership administrator.'}</p>}
@@ -930,10 +927,10 @@ export default function MembershipFeePage() {
             <CardContent className="pt-6">
               <div className="flex items-center gap-2 text-green-600">
                 <CheckCircle2 className="w-5 h-5" />
-                <span className="font-medium">{isMemberStart ? 'Direct Debit Authorization Pending Confirmation' : 'Direct Debit Set-Up Complete'}</span>
+                <span className="font-medium">{isMemberStart ? 'Direct Debit awaiting confirmation' : 'Direct Debit Set-Up Complete'}</span>
               </div>
               <p className="text-sm text-gray-500 mt-1">
-                {isMemberStart ? 'Your authorization has been returned to the provider. Bank confirmation and payment settlement are still pending; this is not a payment receipt.' : 'Thank you — your Direct Debit mandate is being confirmed by your bank. Your membership payments will be collected monthly and no further action is needed.'}
+                {isMemberStart ? 'We’re waiting for confirmation of your Direct Debit and payment. Your payment has not yet been confirmed.' : 'Thank you — your bank is confirming your Direct Debit. Your membership payments will be collected monthly and no further action is needed.'}
               </p>
             </CardContent>
           </Card>
@@ -954,7 +951,7 @@ export default function MembershipFeePage() {
                 <span className="font-medium">Direct Debit In Progress</span>
               </div>
               <p className="text-sm text-gray-500 mt-1">
-                {isMemberStart ? 'The provider has accepted the set-up request. Authorization and payment status must still be confirmed; no payment receipt is recorded here.' : 'Your existing Direct Debit mandate has been reused — your monthly payments have been scheduled.'}
+                {isMemberStart ? 'We’re waiting for confirmation of your Direct Debit and payment. Your membership is not yet confirmed.' : 'Your existing Direct Debit has been reused — your monthly payments have been scheduled.'}
               </p>
             </CardContent>
           </Card>
@@ -965,10 +962,10 @@ export default function MembershipFeePage() {
             <CardContent className="pt-6">
               <div className="flex items-center gap-2 text-green-600">
                 <CheckCircle2 className="w-5 h-5" />
-                <span className="font-medium">{isMemberStart ? 'Monthly Card Authorization Pending Confirmation' : 'Monthly Card Payments Set Up'}</span>
+                <span className="font-medium">{isMemberStart ? 'Monthly card payments awaiting confirmation' : 'Monthly Card Payments Set Up'}</span>
               </div>
               <p className="text-sm text-gray-500 mt-1">
-                {isMemberStart ? 'Your card set-up has returned from the provider. Authorization and payment settlement must still be confirmed; this is not a payment receipt.' : 'Thank you — your card has been saved securely with Stripe and your membership will be collected in monthly instalments. No further action is needed.'}
+                {isMemberStart ? 'We’re waiting for confirmation from Stripe. Your payment has not yet been confirmed.' : 'Thank you — your card has been saved securely with Stripe and your membership will be collected in monthly instalments. No further action is needed.'}
               </p>
             </CardContent>
           </Card>
@@ -986,7 +983,7 @@ export default function MembershipFeePage() {
             <AlertCircle className="w-4 h-4 text-blue-500 mt-0.5 shrink-0" />
             <p className="text-sm text-blue-700">
               Your monthly {data.renewal.provider === 'stripe' ? 'card payment' : 'Direct Debit'} plan is ready to renew for this membership year.
-              Confirm your renewal by setting up your monthly plan below — {data.renewal.provider === 'stripe' ? 'your saved card details can be reused' : 'your existing Direct Debit mandate will be reused'}.
+              Confirm your renewal below — {data.renewal.provider === 'stripe' ? 'your saved card details can be reused' : 'your existing Direct Debit will be reused'}.
             </p>
           </div>
         )}
@@ -1013,8 +1010,8 @@ export default function MembershipFeePage() {
                 Spread your membership fee over {isMemberStart ? data.cardMonthly.instalmentCount : (data?.cardMonthly?.instalmentCount || 12)} monthly card payments of{' '}
                 <span className="font-medium text-gray-700">{formatCurrency(creditMonthly?.paymentMode === 'stripe_monthly' ? creditPerMonth : data?.cardMonthly?.monthlyAmount, data?.cardMonthly?.currency || data?.currency)}</span>
                 {data?.cardMonthly?.planTotal ? <> (cash total {formatCurrency(creditMonthly?.paymentMode === 'stripe_monthly' ? payableAmount : data.cardMonthly.planTotal, data?.cardMonthly?.currency || data?.currency)})</> : null}.
-                You'll be taken to a secure Stripe page to enter your card details — they never touch our servers.
-                {isMemberStart && data.cardMonthly.activationRule && <> Activation rule: {data.cardMonthly.activationRule}.</>}
+                {' '}Continue to Stripe to enter your card details securely.
+                {isMemberStart && data.cardMonthly.activationRule && <> {activationText(data.cardMonthly.activationRule)}</>}
               </p>
               <Button
                 onClick={handleStartMonthlyCard}
@@ -1039,16 +1036,16 @@ export default function MembershipFeePage() {
             <CardContent className="pt-6">
               <div className="flex items-center gap-2 mb-3">
                 <Landmark className="w-4 h-4" style={{ color: primaryColor }} />
-                <h2 className="font-medium">Pay Monthly by Direct Debit</h2>
+                <h2 className="font-medium">{reusesDirectDebit(data) ? 'Continue your monthly payments' : 'Set up your monthly payments'}</h2>
               </div>
               <p className="text-sm text-gray-500 mb-3">
-                {directDebitHasFixedTermTotal(data.ddOffer) ? <>Membership term: {isMemberStart ? data.ddOffer.instalmentCount : (data?.ddOffer?.instalmentCount || 12)} monthly payments of{' '}</> : 'Current monthly price (variable): '}
+                {directDebitHasFixedTermTotal(data.ddOffer) ? <>{isMemberStart ? data.ddOffer.instalmentCount : (data?.ddOffer?.instalmentCount || 12)} monthly payments of{' '}</> : 'Your current monthly payment by Direct Debit is '}
                 <span className="font-medium text-gray-700">{formatCurrency(creditMonthly?.paymentMode === 'direct_debit' ? creditPerMonth : data?.ddOffer?.monthlyAmount, data?.ddOffer?.currency || data?.currency)}</span>
                 {directDebitHasFixedTermTotal(data.ddOffer) && data?.ddOffer?.planTotal ? <> (cash total for this term {formatCurrency(creditMonthly?.paymentMode === 'direct_debit' ? payableAmount : data.ddOffer.planTotal, data?.ddOffer?.currency || data?.currency)})</> : null}.
-                  {' '}First collection: <span data-testid="text-dd-first-collection">{isMemberStart && !data.ddOffer?.firstCollectionRule ? 'not supplied' : directDebitFirstCollectionText(data.ddOffer).toLowerCase()}</span>.
+                  {' '}First collection: <span data-testid="text-dd-first-collection">{isMemberStart && !data.ddOffer?.firstCollectionRule ? 'we’ll confirm the date with you' : directDebitFirstCollectionText(data.ddOffer)}</span>.
                 {' '}{directDebitPolicyText(data.ddOffer)}
-                 {' '}You'll be taken to our secure Direct Debit provider to set up your mandate; no payment is taken during bank set-up.
-                {isMemberStart && data.ddOffer.activationRule && <> Activation rule: {data.ddOffer.activationRule}.</>}
+                 {' '}{reusesDirectDebit(data) ? 'Your existing Direct Debit will be reused. Confirm below to continue your payments.' : 'We’ll guide you through secure Direct Debit setup. No payment is taken while you enter your bank details.'}
+                {isMemberStart && data.ddOffer.activationRule && <> {activationText(data.ddOffer.activationRule)}</>}
               </p>
               <Button
                 onClick={handleStartDirectDebit}
@@ -1062,7 +1059,7 @@ export default function MembershipFeePage() {
                 ) : (
                   <Landmark className="w-4 h-4 mr-2" />
                 )}
-                Set Up Direct Debit
+                {reusesDirectDebit(data) ? 'Confirm Direct Debit Renewal' : 'Continue to Direct Debit Setup'}
               </Button>
             </CardContent>
           </Card>

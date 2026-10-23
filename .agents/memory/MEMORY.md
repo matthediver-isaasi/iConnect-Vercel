@@ -157,3 +157,4 @@
 - [Badge instructions lifecycle](badge-instructions-lifecycle.md) — removal retains private guidance; failed deletion requires recoverable, fenced storage disposal.
 - [Individual training funds](individual-training-fund-terminology.md) — owner terminology refers to member-owned vouchers, not legacy organisation fund balances.
 - [Accounting temporary failures](accounting-transient-retry-policy.md) — rate limits and transient errors must not consume genuine retry allowances; preserve uncertain-write discovery.
+- [Member payment wording](member-payment-wording.md) — simplify copy without inventing dates, membership types, mandate reuse or renewal promises.

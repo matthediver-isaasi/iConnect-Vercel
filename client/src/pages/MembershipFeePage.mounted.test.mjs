@@ -22,8 +22,8 @@ const bundle = await build({
     setup(builder) {
       builder.onResolve({ filter: /^react(?:\/.*)?$/ }, args => ({ path: args.path, external: true }));
       builder.onResolve({ filter: /^react-router-dom$/ }, () => ({ path: "router", namespace: "fixture" }));
-      builder.onResolve({ filter: /^@\// }, args => args.path.endsWith("directDebitConsentSummary")
-        ? { path: resolve("client/src/lib/directDebitConsentSummary.js") }
+      builder.onResolve({ filter: /^@\// }, args => /(?:directDebitConsentSummary|membershipFeeCopy)$/.test(args.path)
+        ? { path: resolve(`client/src/lib/${args.path.split('/').at(-1)}.js`) }
         : { path: args.path, namespace: "fixture" });
       builder.onLoad({ filter: /.*/, namespace: "fixture" }, ({ path }) => ({
         loader: "js",
@@ -66,6 +66,9 @@ async function mount(data, search = "", transport) {
   dom.window.history.replaceState({}, "", `/membership-fees/saved-token${search}`);
   const calls = [];
   globalThis.fetch = async (url, options = {}) => {
+    if (url === "/api/public/membership-fees/saved-token?action=vouchers") {
+      return new Response(JSON.stringify({ enabled: false, vouchers: [] }), { status: 200 });
+    }
     assert.equal(url, "/api/public/membership-fees/saved-token");
     const payload = options.body ? JSON.parse(options.body) : null;
     calls.push(payload);
@@ -76,7 +79,7 @@ async function mount(data, search = "", transport) {
   document.body.append(container);
   const root = createRoot(container);
   await act(async () => root.render(React.createElement(Component)));
-  await waitFor(() => container.textContent.includes("Membership Fee") || container.textContent.includes("Payment Complete"));
+  await waitFor(() => container.textContent.includes("Your Membership") || container.textContent.includes("Payment Complete"));
   return { calls, container, async cleanup() { await act(async () => root.unmount()); container.remove(); } };
 }
 
@@ -144,13 +147,43 @@ test("saved member-start payment mode is the only offered rail, regardless of le
     const view = await mount(fixture(mode));
     try {
       for (const [rail, id] of Object.entries(ids)) assert.equal(!!byId(id), rail === mode, `${mode}: ${rail}`);
-      assert.match(byId("member-start-payment-authority").textContent, /No alternative payment method is offered/);
-      assert.match(view.container.textContent, /2027-02-01 to 2028-01-31/);
+      assert.match(byId("member-start-payment-authority").textContent, /Payment method:/);
+      assert.match(view.container.textContent, /1 February 2027 – 31 January 2028/);
       assert.equal(view.calls.filter(Boolean).length, 0);
       if (mode === "invoice") assert.match(view.container.textContent, /invoice remains outstanding/);
-      if (mode === "free") assert.match(view.container.textContent, /No payment authorization is required/);
+      if (mode === "free") assert.match(view.container.textContent, /There is no membership fee to pay/);
     } finally { await view.cleanup(); }
   }
+});
+
+test("variable DD content hides internal labels and retains dates, price and continuation disclosures", async () => {
+  const data=fixture('direct_debit');
+  data.tierLabel='Flat Rate';
+  data.membershipYear='rolling:2027-02-01';
+  data.renewalLifecycle={};
+  data.ddOffer.collectionPolicy={pricing_policy:'dynamic',end_policy:'continue'};
+  const view=await mount(data);
+  try {
+    assert.match(view.container.textContent,/1 February 2027 – 31 January 2028/);
+    assert.match(view.container.textContent,/Current monthly payment/);
+    assert.match(view.container.textContent,/may change if membership fees are updated/);
+    assert.match(view.container.textContent,/payments continue when your membership renews/);
+    assert.match(byId('button-setup-direct-debit').textContent,/Continue to Direct Debit Setup/);
+    assert.doesNotMatch(view.container.textContent,/rolling:|Flat Rate|first_payment|Membership term:|saved collection|dynamic monthly|billing period/i);
+    assert.equal(view.calls.filter(Boolean).length,0);
+  } finally {await view.cleanup();}
+});
+
+test("confirmed DD renewal describes reuse without implying new setup", async () => {
+  const data=fixture(null);
+  data.renewal={provider:'gocardless',status:'notice_sent',mode:'confirm'};
+  const view=await mount(data);
+  try {
+    assert.match(byId('button-setup-direct-debit').textContent,/Confirm Direct Debit Renewal/);
+    assert.match(view.container.textContent,/Your existing Direct Debit will be reused/);
+    assert.doesNotMatch(view.container.textContent,/guide you through secure Direct Debit setup/);
+    assert.equal(view.calls.filter(Boolean).length,0);
+  } finally {await view.cleanup();}
 });
 
 test("legacy public fee flows retain all existing payment options", async () => {
@@ -168,12 +201,12 @@ test("saved monthly offer displays server counts and totals and fails closed wit
     try {
       assert.match(view.container.textContent, /7 monthly (?:card )?payments of £19.73/);
       assert.match(view.container.textContent, /138.11/);
-      assert.match(view.container.textContent, /Activation rule: first_payment/);
+      assert.match(view.container.textContent, /Your membership becomes active after your first payment is received/);
       assert.doesNotMatch(view.container.textContent, /12 monthly/);
     } finally { await view.cleanup(); }
     const incomplete = await mount({ ...data, cardMonthly: null, ddOffer: null });
     try {
-      assert.match(incomplete.container.textContent, /saved monthly payment terms are incomplete/);
+      assert.match(incomplete.container.textContent, /can’t confirm your monthly payment details yet/);
       assert.equal(byId("button-setup-monthly-card"), null);
       assert.equal(byId("button-setup-direct-debit"), null);
       assert.doesNotMatch(incomplete.container.textContent, /12 monthly|£0.00/);
@@ -193,7 +226,7 @@ test("member must initiate chosen monthly authorization; setup result is not pay
       await waitFor(() => view.calls.some(Boolean));
       assert.deepEqual(view.calls.filter(Boolean), [{ action }]);
       assert.doesNotMatch(view.container.textContent, /Payment Complete|fee .* has been received|no further action is needed/);
-      assert.match(view.container.textContent, /not a payment receipt|no payment receipt/);
+      assert.match(view.container.textContent, /payment has not yet been confirmed|membership is not yet confirmed/);
     } finally { await view.cleanup(); }
   }
 });
@@ -212,10 +245,10 @@ test("dynamic saved Direct Debit offers variable collections without requiring f
     assert.equal(byId("button-setup-monthly-card"), null);
     assert.equal(byId("button-pay-now"), null);
     assert.match(byId("text-total").textContent, /£19.73/);
-    assert.match(view.container.textContent, /Current monthly price \(variable\)/);
-    assert.match(view.container.textContent, /No guaranteed plan total or fixed instalment count/);
-    assert.match(view.container.textContent, /Collections continue at the end of the billing period/);
-    assert.match(view.container.textContent, /The amount can change during the term/);
+    assert.match(view.container.textContent, /Current monthly payment/);
+    assert.match(view.container.textContent, /notified in advance/);
+    assert.match(view.container.textContent, /payments continue when your membership renews/);
+    assert.match(view.container.textContent, /monthly amount may change/);
     assert.doesNotMatch(view.container.textContent, /terms are incomplete|12 monthly|£0.00|total for this term|Total Due/);
     await act(async () => byId("button-setup-direct-debit").click());
     await waitFor(() => view.calls.some(Boolean));
@@ -226,7 +259,7 @@ test("dynamic saved Direct Debit offers variable collections without requiring f
 test("query-string setup returns never claim paid and mismatched return cannot confirm another rail", async () => {
   const monthly = await mount(fixture("stripe_monthly"), "?card=success");
   try {
-    await waitFor(() => monthly.container.textContent.includes("Authorization Pending Confirmation"));
+    await waitFor(() => monthly.container.textContent.includes("Monthly card payments awaiting confirmation"));
     assert.doesNotMatch(monthly.container.textContent, /Payment Complete|has been received|no further action is needed/);
     assert.equal(monthly.calls.filter(Boolean).length, 0);
   } finally { await monthly.cleanup(); }
