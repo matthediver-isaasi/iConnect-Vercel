@@ -2,6 +2,7 @@ import { invoiceReferenceFromRow } from './feeTokenInvoiceReference.js';
 import { monthlyFundingSlice, fundedMonthlySnapshot, fundedInstalmentDate } from './membershipVoucherMonthly.js';
 import { accountMembershipVoucherSettlement } from './membershipVoucherAccounting.js';
 import { pinMembershipAccountingBinding } from './membershipVoucherAccountingBinding.js';
+import { settleVariableVoucherCollection } from './membershipVariableVoucher.js';
 
 export async function postMembershipVoucherMonthlyPayment({
   db, agreement, settlement: suppliedSettlement = null, provider: paymentProvider,
@@ -14,14 +15,39 @@ export async function postMembershipVoucherMonthlyPayment({
     : await db.from('membership_voucher_settlement').select('*')
       .eq('id', funding.settlement_id).eq('tenant_id', agreement.tenant_id).single();
   if (loadError || !loaded || !['plan_committed', 'committed'].includes(loaded.state)) throw new Error('Committed monthly funding unavailable');
-  if (cashMinor !== funding.cash_per_instalment_minor || currency.toUpperCase() !== loaded.funding.currency
+  const variable = funding.variable_credit === true;
+  if ((!variable && cashMinor !== funding.cash_per_instalment_minor) || currency.toUpperCase() !== loaded.funding.currency
       || (paymentProvider === 'stripe' && !/^pi_[A-Za-z0-9]+$/.test(stripePaymentIntentId || ''))) {
     throw new Error('Cash evidence does not match the purchased monthly instalment');
   }
   const { data: token, error: tokenError } = await db.from('membership_fee_token').select('*')
     .eq('id', loaded.fee_token_id).eq('tenant_id', loaded.tenant_id).single();
   if (tokenError || !token) throw new Error('Monthly funding token is unavailable');
-  const { data: receipt, error: claimError } = await db.rpc('membership_voucher_claim_collection', {
+  let variableSlice = null, price = null, variableReceipt = null;
+  if (variable) {
+    let query = db.from('gocardless_collection_reservations').select('*')
+      .eq('tenant_id', agreement.tenant_id).eq('billing_agreement_id', agreement.id);
+    query = paymentProvider === 'voucher'
+      ? query.eq('id', externalReference.replace(/^variable-voucher:/, ''))
+      : query.eq('gocardless_payment_id', externalReference.split(':unit:')[0]);
+    const reservation = await query.single();
+    if (reservation.error || !reservation.data || reservation.data.amount_minor !== cashMinor
+        || reservation.data.currency.toUpperCase() !== currency.toUpperCase()
+        || reservation.data.term_key !== funding.term_key) throw new Error('Variable collection evidence mismatch');
+    variableReceipt = await settleVariableVoucherCollection(db, reservation.data.id, agreement.tenant_id);
+    if (paymentProvider === 'voucher') {
+      const activate = deps.activateMembership || (await import('./gocardlessDirectDebit.js')).activateMembershipForAgreement;
+      await activate(agreement, { trigger: 'first_payment_confirmed', db });
+    }
+    const sliceResult = await db.from('membership_variable_voucher_slice').select('*')
+      .eq('tenant_id', agreement.tenant_id).eq('reservation_id', reservation.data.id).single();
+    if (sliceResult.error || sliceResult.data?.state !== 'settled') throw new Error('Settled variable credit evidence unavailable');
+    variableSlice = { ordinal: sliceResult.data.ordinal, grossMinor: Number(sliceResult.data.gross_minor),
+      creditMinor: Number(sliceResult.data.credit_minor), cashMinor: Number(sliceResult.data.cash_minor),
+      allocations: sliceResult.data.allocations };
+    price = reservation.data.price_snapshot;
+  }
+  const { data: receipt, error: claimError } = variableReceipt ? { data: variableReceipt } : await db.rpc('membership_voucher_claim_collection', {
     p_tenant_id: loaded.tenant_id, p_settlement_id: loaded.id, p_provider: paymentProvider,
     p_reference: externalReference, p_cash_minor: cashMinor,
     p_collection_date: collectionDate,
@@ -44,7 +70,11 @@ export async function postMembershipVoucherMonthlyPayment({
   let accountingProvider = reference ? facade.getAccountingProviderByName(reference.provider)
     : (receipt.accounting_provider || loaded.accounting_provider) ? facade.getAccountingProviderByName(receipt.accounting_provider || loaded.accounting_provider)
       : await facade.getAccountingProvider(loaded.tenant_id);
-  const slice = monthlyFundingSlice(funding, receipt.ordinal);
+  const slice = variableSlice || monthlyFundingSlice(funding, receipt.ordinal);
+  if (variable && (!perInstalment || !Object.hasOwn(price, 'vat_rate')
+      || !Number.isSafeInteger(price.invoice_net_minor))) {
+    throw new Error('Variable credit requires actual per-collection invoice and tax evidence');
+  }
   try {
     const expectedProviderContext = await pinMembershipAccountingBinding(db, loaded, reference?.provider || accountingProvider.name, deps);
     if (loaded.accounting_provider && reference?.provider && loaded.accounting_provider !== reference.provider) {
@@ -87,11 +117,12 @@ export async function postMembershipVoucherMonthlyPayment({
       const result = await accountingProvider.createMembershipInvoice({
         appTenantId: token.tenant_id, expectedProviderContext, organizationName: `${member.data.first_name || ''} ${member.data.last_name || ''}`.trim() || member.data.email,
         invoicingEmail: member.data.email, membershipYear: token.membership_year,
-        tierLabel: history.tier_label, currency: loaded.funding.currency,
-        finalCost: Math.round(slice.grossMinor * netRatio) / 100,
-        vatRate: loaded.history_snapshot?.__accounting?.vatRate || null,
-        nominalCode: loaded.history_snapshot?.__accounting?.nominalCode || null,
-        markAsPaid: false, reference: `Membership ${token.membership_year} instalment ${receipt.ordinal}/${funding.instalment_count}`,
+        tierLabel: variable ? price.tier_label : history.tier_label, currency: loaded.funding.currency,
+        finalCost: variable ? price.invoice_net_minor / 100 : Math.round(slice.grossMinor * netRatio) / 100,
+        vatRate: variable ? price.vat_rate : loaded.history_snapshot?.__accounting?.vatRate || null,
+        nominalCode: variable ? price.nominal_code : loaded.history_snapshot?.__accounting?.nominalCode || null,
+        markAsPaid: false, ...(variable ? { authorizeWithoutPayment: true } : {}),
+        reference: `Membership ${token.membership_year} instalment ${receipt.ordinal}/${funding.instalment_count}`,
         invoiceDescription: `Membership instalment ${receipt.ordinal}/${funding.instalment_count}. Funding (not a discount): ${
           slice.allocations.map(a => `${a.displayName} (${a.ownerType === 'member' ? 'Personal' : 'Organisation'}) ${loaded.funding.currency} ${(a.amountMinor / 100).toFixed(2)}`).join('; ')
         }. Cash ${loaded.funding.currency} ${(slice.cashMinor / 100).toFixed(2)}.`,
@@ -185,7 +216,8 @@ export async function reconcileFundedMembershipInstalments(db, deps = {}) {
       if (purchase.error || !purchase.data) throw new Error('Scheduled membership purchase is unavailable');
       const snapshot = fundedMonthlySnapshot(purchase.data.monthly_snapshot, purchase.data.funding, purchase.data.id);
       await postMembershipVoucherMonthlyPayment({ db, settlement: purchase.data,
-        agreement: { tenant_id: receipt.tenant_id, metadata: { card: snapshot } },
+        agreement: { id: purchase.data.billing_agreement_id, tenant_id: receipt.tenant_id,
+          metadata: snapshot.voucher_funding?.variable_credit ? { dd: snapshot } : { card: snapshot } },
         provider: 'voucher', externalReference: receipt.external_reference, cashMinor: 0,
         currency: purchase.data.funding.currency, collectionDate: receipt.collection_date }, deps);
       const schedule = await db.from('membership_voucher_collection').select('accounting_status')
@@ -212,6 +244,11 @@ export async function reconcileFundedMembershipInstalments(db, deps = {}) {
 export async function postMembershipVoucherMonthlyCashBatch(input, deps = {}) {
   const snapshot = input.agreement.metadata?.card || input.agreement.metadata?.dd;
   const funding = snapshot?.voucher_funding;
+  if (funding?.variable_credit) {
+    return postMembershipVoucherMonthlyPayment({
+      ...input, externalReference: `${input.externalReference}:unit:1`,
+    }, deps);
+  }
   const each = funding?.cash_per_instalment_minor;
   if (!Number.isSafeInteger(each) || each <= 0 || !Number.isSafeInteger(input.cashMinor)
       || input.cashMinor <= 0 || input.cashMinor % each !== 0

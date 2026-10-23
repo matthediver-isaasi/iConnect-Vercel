@@ -608,6 +608,7 @@ export async function createQuickBooksMembershipInvoice({
   vatRate,
   markAsPaid,
   deferStripeSettlement = false,
+  authorizeWithoutPayment = false,
   stripePaymentIntentId,
   invoiceDescription,
   extraLineItems,
@@ -628,6 +629,9 @@ export async function createQuickBooksMembershipInvoice({
   }
   if (deferStripeSettlement && (!stripePaymentIntentId || !idempotencyKey)) {
     throw new Error('deferStripeSettlement requires stripePaymentIntentId and idempotencyKey');
+  }
+  if (authorizeWithoutPayment && (markAsPaid || deferStripeSettlement || stripePaymentIntentId || !idempotencyKey)) {
+    throw new Error('Unpaid authorised invoice requires an idempotency key and no payment instructions');
   }
 
   const tokenResolver = dependencies.getValidQuickBooksAccessToken || getValidQuickBooksAccessToken;

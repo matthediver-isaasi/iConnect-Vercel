@@ -641,7 +641,7 @@ return async function handler(req, res) {
           if (paymentMode !== 'stripe_upfront') {
             if (!isMemberToken || isReminderToken || !['stripe_monthly', 'direct_debit'].includes(paymentMode)
                 || (memberStart && memberStart.paymentMode !== paymentMode)) {
-              throw new Error('Select an offered fixed monthly membership payment option first.');
+              throw new Error('Select an offered monthly membership payment option first.');
             }
             const { simulateMembershipForMember } = await import('../../_lib/membershipSimulation.js');
             const simulation = simulationFromMemberStart(feeToken) || savedFeeSimulation(feeToken)
@@ -723,7 +723,7 @@ return async function handler(req, res) {
           if (memberStart && memberStart.paymentMode !== acceptedMode) throw new Error('Credit quote does not match the saved membership payment mode');
           if (acceptedMode !== 'stripe_upfront' && action !== (acceptedMode === 'stripe_monthly' ? 'start_monthly_card' : 'start_direct_debit')
               && !(acceptedQuote.cashMinor === 0 && ['complete_with_vouchers','retry_voucher_accounting'].includes(action))) {
-            throw new Error('Continue with the fixed monthly payment method accepted in this credit quote');
+            throw new Error('Continue with the monthly payment method accepted in this credit quote');
           }
           if (acceptedMode === 'stripe_upfront' && ['start_monthly_card','start_direct_debit'].includes(action)) {
             throw new Error('Review a monthly credit quote before setting up monthly payments');

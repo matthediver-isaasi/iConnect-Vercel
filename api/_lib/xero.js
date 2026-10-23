@@ -559,7 +559,7 @@ async function recoverBnmsSettlement({ invoice, contactId, amount, mapping, paym
 export async function createXeroMembershipInvoice({
   appTenantId, organizationName, invoicingEmail, invoicingAddress, membershipYear,
   tierLabel, finalCost, currency, reference, paymentReference = null, vatRate, markAsPaid,
-  deferStripeSettlement = false, stripePaymentIntentId, invoiceDescription,
+  deferStripeSettlement = false, authorizeWithoutPayment = false, stripePaymentIntentId, invoiceDescription,
   extraLineItems, nominalCode, bankAccountSettingKey, strictBankAccount, ddAccountingMigration = null,
   idempotencyKey, paymentIdempotencyKey, expectedProviderContext = null,
   transportTimeoutMs, deadlineAt, signal,
@@ -573,6 +573,9 @@ export async function createXeroMembershipInvoice({
   }
   if (deferStripeSettlement && (!stripePaymentIntentId || !idempotencyKey)) {
     throw new Error('deferStripeSettlement requires stripePaymentIntentId and idempotencyKey');
+  }
+  if (authorizeWithoutPayment && (markAsPaid || deferStripeSettlement || stripePaymentIntentId || !idempotencyKey)) {
+    throw new Error('Unpaid authorised invoice requires an idempotency key and no payment instructions');
   }
 
   const tokenResolver = dependencies.getValidXeroAccessToken || getValidXeroAccessToken;
@@ -644,7 +647,7 @@ export async function createXeroMembershipInvoice({
     .maybeSingle();
 
   const configuredInvoiceStatus = invoiceStatusSetting?.setting_value || 'DRAFT';
-  const xeroInvoiceStatus = (markAsPaid || deferStripeSettlement) ? 'AUTHORISED' : configuredInvoiceStatus;
+  const xeroInvoiceStatus = (markAsPaid || deferStripeSettlement || authorizeWithoutPayment) ? 'AUTHORISED' : configuredInvoiceStatus;
 
   let taxType = null;
   let taxLabel = null;

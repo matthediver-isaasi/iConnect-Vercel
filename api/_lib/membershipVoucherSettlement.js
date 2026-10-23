@@ -130,10 +130,15 @@ export async function reserveMembershipVoucherSettlement(db, token, quoteId, dep
     if (existing.quote_id !== quoteId || existing.state === 'released') throw new Error('A different credit commitment exists');
     return existing;
   }
-  const basis = membershipVoucherBasis(token);
+  const quoteResult = await db.from('membership_voucher_quote').select('quote')
+    .eq('id', quoteId).eq('tenant_id', token.tenant_id).eq('fee_token_id', token.id).single();
+  if (quoteResult.error || !quoteResult.data) throw new Error('Saved membership credit quote is unavailable');
+  const variable = quoteResult.data.quote.variableCredit === true;
+  const basis = membershipVoucherBasis(token, variable ? quoteResult.data.quote.monthlySnapshot : null);
   const snapshot = await historySnapshot(db, token, deps);
   const { invoiceReferenceFromRow } = await import('./feeTokenInvoiceReference.js');
   const reference = invoiceReferenceFromRow(snapshot) || invoiceReferenceFromRow(token);
+  if (variable && reference) throw new Error('An existing annual invoice requires reconciliation before variable monthly credit');
   if (reference) {
     const provider = deps.accountingProvider || (await import('./accountingProvider.js')).getAccountingProviderByName(reference.provider);
     const invoice = await provider.fetchInvoiceStatus(reference.invoiceId, token.tenant_id);
@@ -141,7 +146,7 @@ export async function reserveMembershipVoucherSettlement(db, token, quoteId, dep
       throw new Error('Existing invoice balance has changed. Ask the administrator for a refreshed membership fee quote before applying credit.');
     }
   }
-  const { data, error } = await db.rpc('membership_voucher_reserve', {
+  const { data, error } = await db.rpc(variable ? 'membership_variable_voucher_reserve' : 'membership_voucher_reserve', {
     p_tenant_id: token.tenant_id, p_token_id: token.id, p_quote_id: quoteId,
     p_fingerprint: basis.fingerprint, p_history_snapshot: snapshot,
     p_authenticated_member_id: deps.authority?.authenticatedMemberId || null,

@@ -2,6 +2,7 @@
 // pipeline; this module owns production effects and non-cron integration.
 import { supabase } from './database.js';
 import { buildIdempotencyKey, gocardlessForTenant } from './gocardless.js';
+import { variableMembershipCollectionFunding } from './membershipVariableVoucherAllocation.js';
 import {
   DYNAMIC_RESERVATIONS, isDynamicAgreement, dynamicCollectionDate,
   resolveDynamicCollectionPrice as resolvePrice, processDynamicCollection,
@@ -19,7 +20,7 @@ const checked = (result, context) => {
 };
 
 export function assertDynamicPayment(reservation, payment, mandateId) {
-  if (!payment?.id || payment.amount !== reservation.amount_minor
+  if (reservation.amount_minor <= 0 || !payment?.id || payment.amount !== reservation.amount_minor
     || !equal(payment.currency, reservation.currency)
     || payment.links?.mandate !== mandateId || payment.links?.subscription
     || !payment.charge_date || payment.charge_date !== reservation.requested_charge_date) {
@@ -37,6 +38,9 @@ export async function ensureDynamicPlanForAgreement(agreement, deps = {}) {
     : deps.gc || await gocardlessForTenant(agreement.tenant_id, { db });
   if (!isDynamicAgreement(agreement)) throw new Error('Explicit dynamic collection consent is required');
   const terms = agreement.metadata.dd;
+  if (terms.voucher_funding?.variable_credit) {
+    await (await import('./membershipVoucherMonthly.js')).commitMembershipVoucherMonthly(db, agreement);
+  }
   const term = terms.commitment;
   if (!term?.term_key || !term.term_start_date || !term.term_end_date
     || terms.invoicing_mode !== 'per_instalment') throw new Error('Dynamic collection term or invoicing consent is incomplete');
@@ -48,13 +52,22 @@ export async function ensureDynamicPlanForAgreement(agreement, deps = {}) {
     const mandate = await gc.getMandate(agreement.gocardless_mandate_id);
     if (mandate?.status !== 'active' || !mandate.next_possible_charge_date) throw new Error('Dynamic collection mandate is not active or has no provider earliest charge date');
     const today = day(typeof deps.now === 'function' ? deps.now() : new Date());
-    let first = [today, term.term_start_date, mandate.next_possible_charge_date].sort().at(-1);
-    if (terms.first_collection_rule !== 'earliest') {
+    const align = date => {
+      if (terms.first_collection_rule === 'earliest') return date;
       const nominated = terms.first_collection_rule === 'anniversary'
         ? Number(term.term_start_date.slice(8, 10)) : Number(terms.collection_day);
       const wanted = Math.max(1, Math.min(28, nominated || 1));
-      const candidate = `${first.slice(0, 8)}${String(wanted).padStart(2, '0')}`;
-      first = candidate < first ? dynamicCollectionDate(candidate, 2) : candidate;
+      const candidate = `${date.slice(0, 8)}${String(wanted).padStart(2, '0')}`;
+      return candidate < date ? dynamicCollectionDate(candidate, 2) : candidate;
+    };
+    let first = align([today, term.term_start_date, mandate.next_possible_charge_date].sort().at(-1));
+    const internalDate = align([today, term.term_start_date].sort().at(-1));
+    if (terms.voucher_funding?.variable_credit && internalDate <= today && internalDate <= term.term_end_date) {
+      const price = await resolvePrice(agreement, internalDate, { db });
+      const funding = variableMembershipCollectionFunding({ grossMinor: price.monthly_amount_minor,
+        allocatedCreditMinor: terms.voucher_funding.creditSchedule?.find(row => row.ordinal === 1)?.allocatedCreditMinor,
+        minimumCashMinor: 100 });
+      if (funding.cashMinor === 0) first = internalDate;
     }
     if (first > term.term_end_date) throw new Error('Provider notice window leaves no collection within the purchased term');
     const row = {
@@ -77,7 +90,7 @@ export async function ensureDynamicPlanForAgreement(agreement, deps = {}) {
       plan = checked(inserted, 'Create dynamic plan'); created = true;
     }
   }
-  const result = await collectDynamicPlan(plan, { ...deps, db, gc });
+  const result = await (deps.collectDynamicPlan || collectDynamicPlan)(plan, { ...deps, db, gc });
   return { created, plan: result.plan || plan, detail: result.detail };
 }
 
@@ -109,6 +122,18 @@ export function createLiveDynamicCollectionEffects({ db, getGc, authorizeOperati
         p_due_date: reservation.due_date, p_price_snapshot: reservation.price_snapshot,
         p_provider_evidence: reservation.provider_evidence, p_idempotency_key: reservation.idempotency_key,
       }), 'Authorize reserved dynamic collection');
+    }
+    if (reservation.amount_minor === 0) {
+      const { settleVariableVoucherCollection } = await import('./membershipVariableVoucher.js');
+      if (reservation.due_date > today) {
+        return { plan, skipped: true, detail: 'Voucher-only collection is reserved until its due date' };
+      }
+      await settleVariableVoucherCollection(db, reservation.id, plan.tenant_id);
+      await (await import('./membershipVoucherMonthlyAccounting.js')).postMembershipVoucherMonthlyPayment({
+        db, agreement, provider: 'voucher', externalReference: `variable-voucher:${reservation.id}`,
+        cashMinor: 0, currency: reservation.currency, collectionDate: reservation.due_date,
+      });
+      return { plan, submitted: true, detail: 'Collection settled internally by voucher credit; no provider payment created' };
     }
     const client = await getGc(plan.tenant_id);
     if (authorizeOperation && (reservation.amount_minor !== operation.amountMinor

@@ -5,7 +5,9 @@ export function membershipVoucherCancellationSummary(agreement) {
   const funding = (agreement?.metadata?.dd || agreement?.metadata?.card)?.voucher_funding;
   return funding ? { voucherFunding: {
     settlementId: funding.settlement_id, disposition: 'retained',
-    reason: 'Stopping future collections is not a refund under the existing cancellation policy.',
+    reason: funding.variable_credit
+      ? 'Uncollected credit is released when cancellation is confirmed. Credit tied to an uncertain payment remains reserved; settled credit follows the refund policy.'
+      : 'Stopping future collections is not a refund under the existing cancellation policy.',
     allocations: funding.allocations.map(a => ({ voucherId: a.voucherId, ownerType: a.ownerType, displayName: a.displayName, amountMinor: a.amountMinor })),
   } } : {};
 }
@@ -38,7 +40,12 @@ export async function membershipVoucherRefundContext(db, payment, replacementExp
   if (purchase.error || !purchase.data) throw new Error('Original membership credit purchase unavailable');
   const funding = fundedMonthlySnapshot(purchase.data.monthly_snapshot,purchase.data.funding,purchase.data.id).voucher_funding;
   const byAllocation = new Map();
-  for (const receipt of receipts.data) for (const allocation of monthlyFundingSlice(funding,receipt.ordinal).allocations) {
+  const slices = funding.variable_credit ? await db.from('membership_variable_voucher_slice').select('*')
+    .eq('tenant_id', payment.tenant_id).eq('settlement_id', purchase.data.id)
+    .in('ordinal', receipts.data.map(r => r.ordinal)).eq('state','settled') : null;
+  if (slices && (slices.error || slices.data?.length !== receipts.data.length)) throw new Error('Actual variable collection funding is unavailable');
+  for (const receipt of receipts.data) for (const allocation of (slices
+    ? slices.data.find(s => s.ordinal === receipt.ordinal).allocations : monthlyFundingSlice(funding,receipt.ordinal).allocations)) {
     const existing = byAllocation.get(allocation.id);
     byAllocation.set(allocation.id,{ ...allocation, amountMinor: allocation.amountMinor + (existing?.amountMinor || 0) });
   }

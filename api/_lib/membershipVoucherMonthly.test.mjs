@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { monthlyVoucherCreditLimit, fundedMonthlySnapshot, monthlyFundingSlice, fundedInstalmentDate,
   releaseMembershipVoucherMonthly } from './membershipVoucherMonthly.js';
-import { postMembershipVoucherMonthlyCashBatch, accountFullyFundedMonthlyMembership } from './membershipVoucherMonthlyAccounting.js';
+import { postMembershipVoucherMonthlyPayment, postMembershipVoucherMonthlyCashBatch, accountFullyFundedMonthlyMembership } from './membershipVoucherMonthlyAccounting.js';
 import { createGuardedPortalMembershipIntent } from './membershipVoucherSettlement.js';
 import { reconcileMembershipVoucherCashRefund } from './membershipVoucherRefund.js';
 
@@ -121,6 +121,9 @@ function fixture({ accounting = 'xero', mode = 'annual', full = false, rail = 's
   const provider = {
     name: accounting,
     async createMembershipInvoice(input) {
+      if (input.deferStripeSettlement && (!input.stripePaymentIntentId || !input.idempotencyKey)) {
+        throw new Error('deferStripeSettlement requires stripePaymentIntentId and idempotencyKey');
+      }
       const invoice = { ...input, invoiceId: `invoice-${invoices.length + 1}`, invoiceNumber: `INV-${invoices.length + 1}`, provider: accounting };
       invoices.push(invoice);
       return invoice;
@@ -136,6 +139,45 @@ function fixture({ accounting = 'xero', mode = 'annual', full = false, rail = 's
   const agreement = { id: 'agreement', tenant_id: 'tenant', member_id: 'member',
     metadata: { [rail === 'stripe' ? 'card' : 'dd']: fundedMonthlySnapshot(snapshot, sourceFunding, settlement.id) } };
   return { db, tables, invoices, payments, facade, agreement, settlement, token: tables.membership_fee_token[0] };
+}
+
+for (const accounting of ['xero','quickbooks']) for (const cashMinor of [0,250]) {
+  test(`${accounting}: variable actual gross and source credit, including internal-only months, retry once`, async () => {
+    const f=fixture({accounting,mode:'per_instalment',rail:'gocardless'});
+    const grossMinor=cashMinor ? 1250 : 800;
+    const creditMinor=grossMinor-cashMinor;
+    const fund={variableCredit:true,payableMinor:null,remainingMinor:null,voucherMinor:4000,currency:'GBP',
+      creditSchedule:[1,2,3,4].map(ordinal=>({ordinal,allocatedCreditMinor:1000})),allocations:funding.allocations};
+    const snap={...base,plan_total:null,invoicing_mode:'per_instalment',payment_mode:'direct_debit',
+      collection_policy:{version:1,pricing_policy:'dynamic'},commitment:{term_key:'term'}};
+    Object.assign(f.settlement,{funding:fund,monthly_snapshot:snap});
+    f.agreement.metadata.dd=fundedMonthlySnapshot(snap,fund,f.settlement.id);
+    f.tables.gocardless_collection_reservations=[{id:'r',tenant_id:'tenant',billing_agreement_id:'agreement',
+      amount_minor:cashMinor,currency:'GBP',term_key:'term',gocardless_payment_id:cashMinor?'PMvariable':null,
+      price_snapshot:{monthly_amount_minor:grossMinor,invoice_net_minor:grossMinor,vat_rate:null,nominal_code:'300',tier_label:'Current'}}];
+    const actual=[{...funding.allocations[0],amountMinor:creditMinor}];
+    f.tables.membership_variable_voucher_slice=[{tenant_id:'tenant',reservation_id:'r',state:'settled',ordinal:1,
+      gross_minor:grossMinor,credit_minor:creditMinor,cash_minor:cashMinor,allocations:actual}];
+    const receipt={id:'receipt-variable',tenant_id:'tenant',settlement_id:'settlement',ordinal:1,
+      accounting_status:'pending',collection_date:'2020-01-01'};
+    f.tables.membership_voucher_collection.push(receipt);
+    const rpc=f.db.rpc.bind(f.db);
+    f.db.rpc=async(name,args)=>name==='membership_variable_voucher_settle_collection'
+      ? {data:structuredClone(receipt)}:rpc(name,args);
+    const input={db:f.db,agreement:f.agreement,provider:cashMinor?'gocardless':'voucher',
+      externalReference:cashMinor?'PMvariable:unit:1':'variable-voucher:r',cashMinor,currency:'GBP'};
+    const deps={facade:f.facade,activateMembership:async()=>({updated:false})};
+    await postMembershipVoucherMonthlyPayment(input,deps);
+    await postMembershipVoucherMonthlyPayment(input,deps);
+    assert.equal(f.invoices.length,1);
+    assert.equal(f.invoices[0].finalCost,grossMinor/100);
+    assert.equal(f.invoices[0].nominalCode,'300');
+    assert.equal(f.invoices[0].authorizeWithoutPayment,true);
+    assert.equal(f.invoices[0].deferStripeSettlement,undefined);
+    assert.equal(f.payments.reduce((sum,p)=>sum+p.amount,0),grossMinor/100);
+    assert.equal(f.payments.filter(p=>p.bankAccountSettingKey.includes('voucher_clearing')).reduce((sum,p)=>sum+p.amount,0),creditMinor/100);
+    assert.equal(f.payments.filter(p=>p.bankAccountSettingKey.includes('gocardless_bank')).length,cashMinor?1:0);
+  });
 }
 
 for (const accounting of ['xero','quickbooks']) for (const mode of ['annual','per_instalment']) for (const rail of ['stripe','gocardless']) {

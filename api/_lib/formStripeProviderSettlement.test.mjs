@@ -57,6 +57,43 @@ const baseArgs = {
   operationKey: 'form-stripe-invoice:ff2df806-b321-4254-b651-3af11fccf1db:11d8a645-1a04-48c9-8e00-025f0195db3d:16dcc70d-71af-4c38-b5fc-56ac2a102d77:pi_3UE6Sn0Ku8P2LW360u2QlH5B',
 };
 
+for (const provider of ['xero','quickbooks']) {
+  test(`${provider}: real invoice adapter authorises variable DD invoice without Stripe or an automatic cash payment`, async () => {
+    const calls=[];
+    const args={appTenantId:'tenant-1',organizationName:'Isolated member',membershipYear:'2026',
+      finalCost:12.5,currency:'GBP',vatRate:{taxType:'NONE'},authorizeWithoutPayment:true,
+      markAsPaid:false,idempotencyKey:'membership-credit-instalment:isolated'};
+    const dependencies={
+      supabase:settings({quickbooks_membership_item_id:'item',xero_invoice_status:'DRAFT'}),
+      getValidXeroAccessToken:async()=>({accessToken:'test',tenantId:'company'}),
+      findOrCreateXeroContact:async()=> 'contact',
+      getValidQuickBooksAccessToken:async()=>({accessToken:'test',realmId:'company',environment:'sandbox'}),
+      findOrCreateQuickBooksCustomer:async()=> 'contact',
+      fetch:async(url,init)=>{
+        calls.push({url,method:init.method,body:init.body?JSON.parse(init.body):null});
+        if(String(url).includes('OnlineInvoice')) return json({OnlineInvoices:[]});
+        if(provider==='quickbooks' && init.method==='GET') return json({Invoice:{Id:'invoice',DocNumber:'I1',TotalAmt:12.5,Balance:12.5}});
+        if(provider==='xero') {
+          assert.equal(init.method,'POST');
+          assert.equal(JSON.parse(init.body).Invoices[0].Status,'AUTHORISED');
+          return json({Invoices:[{InvoiceID:'invoice',InvoiceNumber:'I1',Status:'AUTHORISED',Total:12.5}]});
+        }
+        assert.ok(String(url).includes('/invoice?'));
+        assert.equal(init.method,'POST');
+        return json({Invoice:{Id:'invoice',DocNumber:'I1',TotalAmt:12.5,Balance:12.5}});
+      },
+    };
+    const create=provider==='xero'?createXeroMembershipInvoice:createQuickBooksMembershipInvoice;
+    const result=await create(args,dependencies);
+    assert.equal(result.payment_recorded,false);
+    assert.equal(calls.filter(c=>c.method==='POST').length,1);
+    assert.ok(calls.every(c=>!c.url.toLowerCase().includes('/payments')));
+    for(const conflict of [{markAsPaid:true},{stripePaymentIntentId:baseArgs.stripePaymentIntentId},{deferStripeSettlement:true}]) {
+      await assert.rejects(create({...args,...conflict},dependencies),/requires|no payment instructions/);
+    }
+  });
+}
+
 test('facade exposes pinned provider settlement operation', () => {
   assert.equal(typeof getAccountingProviderByName('xero').settleFormStripeInvoice, 'function');
   assert.equal(typeof getAccountingProviderByName('quickbooks').settleFormStripeInvoice, 'function');

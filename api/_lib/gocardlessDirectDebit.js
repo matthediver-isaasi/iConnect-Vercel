@@ -34,6 +34,23 @@ export function isMonthlyConsentPolicyCurrent(agreement, offer) {
   const saved = resolveSavedCollectionPolicy(agreement?.metadata?.dd);
   const funding = agreement?.metadata?.dd?.voucher_funding;
   if (funding) {
+    if (funding.variable_credit === true) {
+      const terms = agreement.metadata.dd;
+      const count = Number(terms.instalment_count);
+      const total = funding.credit_minor;
+      const schedule = funding.creditSchedule;
+      return !saved.needs_review && saved.pricing_policy === 'dynamic'
+        && saved.end_policy === offer?.collectionPolicy?.end_policy
+        && offer?.collectionPolicy?.pricing_policy === 'dynamic'
+        && terms.invoicing_mode === 'per_instalment' && terms.currency === offer.currency
+        && count === offer.instalmentCount && count === funding.instalment_count
+        && Number.isSafeInteger(count) && count > 0 && count <= 120
+        && !!funding.settlement_id && !!funding.term_key && funding.term_key === terms.commitment?.term_key
+        && Number.isSafeInteger(total) && total > 0
+        && Array.isArray(schedule) && schedule.length === count
+        && schedule.every((row, i) => row.ordinal === i + 1
+          && row.allocatedCreditMinor === Math.floor(total / count) + (i < total % count ? 1 : 0));
+    }
     return !saved.needs_review && saved.pricing_policy !== 'dynamic'
       && Number(agreement.metadata.dd.instalment_count) === funding.instalment_count
       && Number(agreement.metadata.dd.monthly_amount_minor) === funding.cash_per_instalment_minor

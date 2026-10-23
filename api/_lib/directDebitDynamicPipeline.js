@@ -5,6 +5,7 @@ import { matchBand } from './tierBandMatcher.js';
 import { matchesSelections } from './selectionMatcher.js';
 import { findAlphaAdoption, BNMS_ALPHA_PROCESSING_NOT_BEFORE } from './bnmsAlphaAccounting.js';
 import { resolveManualAccountingContext } from './bnmsManualCohort.js';
+import { variableMembershipCollectionFunding } from './membershipVariableVoucherAllocation.js';
 
 export const DYNAMIC_RESERVATIONS = 'gocardless_collection_reservations';
 // One-off operational delay, intentionally separate from the immutable midnight
@@ -258,15 +259,26 @@ export async function processDynamicCollection({ db, plan, now, getGc, effects, 
   if (bnmsProcessing && mandate.next_possible_charge_date < today) throw new Error('BNMS pilot provider charge date is in the past; refresh provider evidence');
   let params;
   if (!reservation) {
-    if (mandate.next_possible_charge_date < intendedDate) return skip('Waiting for provider submission window');
+    let price = null, internal = false;
+    if (terms.voucher_funding?.variable_credit && intendedDate <= today) {
+      price = await resolveDynamicCollectionPrice(agreement, intendedDate, { db });
+      price = await (await import('./membershipVariableVoucher.js')).variableVoucherInvoicePrice(db, plan.tenant_id, price);
+      internal = variableMembershipCollectionFunding({ grossMinor: price.monthly_amount_minor,
+        allocatedCreditMinor: terms.voucher_funding.creditSchedule?.find(row => row.ordinal === number)?.allocatedCreditMinor,
+        minimumCashMinor: 100 }).cashMinor === 0;
+    }
+    if (!internal && mandate.next_possible_charge_date < intendedDate) return skip('Waiting for provider submission window');
     if (bnmsPilot && number === 1 && term.term_start_date === '2026-10-01' && intendedDate !== '2026-10-01') {
       throw new Error('BNMS pilot intended October 1 cadence drifted; review required');
     }
     const latest = day(new Date(Date.parse(`${intendedDate}T00:00:00Z`) + 7 * 86_400_000));
-    if (mandate.next_possible_charge_date > term.term_end_date || mandate.next_possible_charge_date > latest) {
+    if (!internal && (mandate.next_possible_charge_date > term.term_end_date || mandate.next_possible_charge_date > latest)) {
       throw new Error(`Provider notice deadline leaves no safe charge date for ${intendedDate}; review required`);
     }
-    const price = await resolveDynamicCollectionPrice(agreement, intendedDate, { db });
+    price ||= await resolveDynamicCollectionPrice(agreement, intendedDate, { db });
+    if (terms.voucher_funding?.variable_credit && price.invoice_net_minor == null) {
+      price = await (await import('./membershipVariableVoucher.js')).variableVoucherInvoicePrice(db, plan.tenant_id, price);
+    }
     params = {
       p_tenant_id: plan.tenant_id, p_plan_id: plan.id, p_collection_number: number,
       p_due_date: intendedDate, p_price_snapshot: price,
@@ -284,7 +296,12 @@ export async function processDynamicCollection({ db, plan, now, getGc, effects, 
   return effects.perform({
     type: 'dynamic.reserve_collection',
     description: `${reservation ? 'Reauthorize the existing' : 'Reserve a new'} dynamic collection. Collection submission and payment attachment depend on the winning reservation and its locked owner-pause, arrears, cancellation and consent checks.`,
-    amountMinor: reservation?.amount_minor ?? params.p_price_snapshot.monthly_amount_minor,
+    amountMinor: reservation?.amount_minor ?? (terms.voucher_funding?.variable_credit
+      ? variableMembershipCollectionFunding({
+        grossMinor: params.p_price_snapshot.monthly_amount_minor,
+        allocatedCreditMinor: terms.voucher_funding.creditSchedule?.find(row => row.ordinal === number)?.allocatedCreditMinor,
+        minimumCashMinor: 100,
+      }).cashMinor : params.p_price_snapshot.monthly_amount_minor),
     currency: reservation?.currency ?? params.p_price_snapshot.currency,
     date: reservation?.requested_charge_date ?? mandate.next_possible_charge_date,
     conditional: true,

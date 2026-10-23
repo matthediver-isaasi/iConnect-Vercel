@@ -19,3 +19,9 @@ For variable monthly membership payments, spread voucher credit across the membe
 **Why:** The owner selected this instead of reducing the next payments until the credit is used up.
 
 **How to apply:** Distribute credit across the actual membership-period instalments, preserving variable gross prices and exact penny totals. Do not front-load the credit or silently turn the arrangement into a fixed-price plan.
+
+Unused reserved credit is not a refund of consumed credit and must not acquire a new expiry automatically.
+
+**Why:** Variable prices can fall below an instalment's reserved share. Restoring that unused portion must not make it refundable a second time or extend the owner's original entitlement.
+
+**How to apply:** Keep the original reservation evidence, distinguish consumption from unused release, and include prior reservation releases when calculating remaining refundable credit.

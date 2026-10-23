@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   resolveDynamicCollectionPrice, collectDynamicPlan, dynamicCollectionDate,
-  assertDynamicPayment, reconcileDynamicCollections, resolveDynamicPayment,
+  assertDynamicPayment, reconcileDynamicCollections, resolveDynamicPayment, ensureDynamicPlanForAgreement,
 } from './gocardlessDynamicCollections.js';
 import { resolveInstalmentInvoiceContext } from './membershipInstalmentInvoicing.js';
 import { BNMS_ALPHA_TENANT, BNMS_ALPHA_MANIFEST, BNMS_ALPHA_PROCESSING_NOT_BEFORE } from './bnmsAlphaAccounting.js';
@@ -34,7 +34,7 @@ function fixture({ amount = 12.5, firstDate = '2027-04-02', providerDate = '2027
   const valueAt = (row, key) => key.includes('->>') ? row.metadata?.[key.split('->>')[1]] : row[key];
   const db = {
     from(table) {
-      let filters = [], single = false, patch, rowLimit = Infinity, ordering = [];
+      let filters = [], single = false, patch, insertion, rowLimit = Infinity, ordering = [];
       const query = {
         select() { return this; }, eq(key, value) { filters.push(row => valueAt(row, key) === value); return this; },
         in(key, values) { filters.push(row => values.includes(row[key])); return this; },
@@ -55,8 +55,14 @@ function fixture({ amount = 12.5, firstDate = '2027-04-02', providerDate = '2027
         limit(value) { rowLimit = value; return this; },
         lte(key, value) { filters.push(row => row[key] != null && row[key] <= value); return this; },
         update(value) { patch = value; return this; },
+        insert(value) { insertion = value; return this; },
         maybeSingle() { single = true; return this; }, single() { single = true; return this; },
         then(resolve, reject) {
+          if (insertion) {
+            const inserted = { id: 'new-plan', ...insertion };
+            (rows[table] ||= []).push(inserted);
+            return Promise.resolve({data:inserted,error:null}).then(resolve,reject);
+          }
           controls.beforeQuery?.({ table, patch, single });
           const data = (rows[table] || []).filter(row => filters.every(fn => fn(row)))
             .sort((a, b) => {
@@ -77,6 +83,7 @@ function fixture({ amount = 12.5, firstDate = '2027-04-02', providerDate = '2027
       return query;
     },
     async rpc(name, params) {
+      if (name === 'membership_variable_voucher_commit') return {data:{id:params.p_settlement_id}};
       if (name === 'reserve_gocardless_dynamic_collection') {
         const target = rows.membership_payment_plans.find(row => row.id === params.p_plan_id);
         if (target.status === 'cancelled') return { error: { message: 'cancelled' } };
@@ -112,6 +119,26 @@ function fixture({ amount = 12.5, firstDate = '2027-04-02', providerDate = '2027
   };
   return { config, agreement, plan, rows, db, gc, calls, updates, controls, now: () => new Date('2027-03-29T12:00:00Z') };
 }
+
+test('new fully funded dynamic plan starts internally before a provider date outside the term', async () => {
+  const f=fixture({amount:8,providerDate:'2027-05-05',end:'2027-04-30'});
+  f.rows.membership_payment_plans=[];
+  f.config.flat_vat_rate=null;
+  const terms=f.agreement.metadata.dd;
+  terms.first_collection_rule='earliest';
+  terms.voucher_funding={variable_credit:true,settlement_id:'s',creditSchedule:[{ordinal:1,allocatedCreditMinor:1000}]};
+  let collected;
+  const run=()=>ensureDynamicPlanForAgreement(f.agreement,{db:f.db,gc:f.gc,
+    now:()=>new Date('2027-04-30T12:00:00Z'),
+    collectDynamicPlan:async plan=>{collected=plan;return {plan,detail:'delegated to canonical pipeline'};}});
+  const result=await run();
+  assert.equal(result.created,true);
+  assert.equal(collected.start_date,'2027-04-30');
+  assert.equal(collected.dynamic_next_collection_date,'2027-04-30');
+  assert.equal(f.calls.length,0,'plan setup never creates a fake payment');
+  assert.equal((await run()).created,false,'setup resumes the saved plan');
+  assert.equal(f.rows.membership_payment_plans.length,1);
+});
 
 test('manual scoped selection bypasses next-check only, while retaining Beta holds and exact plan scope', async () => {
   const f = fixture();

@@ -20,6 +20,23 @@ function simulation(endPolicy, pricingPolicy, startMode = 'immediate') {
   };
 }
 
+test('pending variable-funded consent resumes with its original allocation without freezing new gross prices', () => {
+  const sim=simulation('stop','dynamic');
+  const offer=resolveDdOffer(sim);
+  const snapshot=buildAgreementSnapshot({offer,simResult:sim});
+  snapshot.voucher_funding={variable_credit:true,settlement_id:'settlement',
+    term_key:snapshot.commitment.term_key,instalment_count:12,credit_minor:12001,
+    creditSchedule:Array.from({length:12},(_,i)=>({ordinal:i+1,allocatedCreditMinor:1000+(i===0?1:0)}))};
+  const agreement={status:'payment_setup_required',metadata:{dd:snapshot}};
+  assert.equal(isMonthlyConsentPolicyCurrent(agreement,offer),true);
+  assert.equal(isMonthlyConsentPolicyCurrent(agreement,{...offer,monthlyAmountMinor:9999}),true);
+  assert.equal(isMonthlyConsentPolicyCurrent(agreement,{...offer,currency:'EUR'}),false);
+  assert.equal(isMonthlyConsentPolicyCurrent(agreement,{...offer,instalmentCount:6}),false);
+  assert.equal(isMonthlyConsentPolicyCurrent(agreement,{...offer,collectionPolicy:{...offer.collectionPolicy,end_policy:'continue'}}),false);
+  snapshot.voucher_funding.creditSchedule[0].allocatedCreditMinor=1002;
+  assert.equal(isMonthlyConsentPolicyCurrent(agreement,offer),false);
+});
+
 for (const endPolicy of ['stop', 'continue']) {
   for (const pricingPolicy of ['fixed', 'dynamic']) {
     test(`${pricingPolicy} + ${endPolicy}: immutable consent, term boundary and renewal authority`, () => {

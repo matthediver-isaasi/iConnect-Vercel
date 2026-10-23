@@ -1,4 +1,5 @@
 import { membershipAmountMinor } from './membershipVoucherQuote.js';
+import { variableFundedSnapshot } from './membershipVariableVoucher.js';
 
 /** Fixed purchased-term funding. Provider cash is an exact whole minor-unit
  * amount per instalment; credit absorbs gross penny remainders. Unused credit
@@ -16,6 +17,7 @@ export function monthlyVoucherCreditLimit({ grossMinor, availableMinor, count, m
 }
 
 export function fundedMonthlySnapshot(snapshot, funding, settlementId) {
+  if (funding.variableCredit) return variableFundedSnapshot(snapshot, funding, settlementId);
   const count = Number(snapshot.instalment_count);
   const grossMinor = membershipAmountMinor(snapshot.plan_total);
   if (!settlementId || funding.payableMinor !== grossMinor || funding.currency !== snapshot.currency
@@ -80,6 +82,9 @@ export function fundedInstalmentDate(snapshot, ordinal) {
 }
 
 export async function prepareMembershipVoucherMonthly(db, token, settlement) {
+  if (settlement.funding.variableCredit) {
+    return { settlement, snapshot: fundedMonthlySnapshot(settlement.monthly_snapshot, settlement.funding, settlement.id) };
+  }
   const { data, error } = await db.rpc('membership_voucher_prepare_monthly', {
     p_tenant_id: token.tenant_id, p_token_id: token.id,
   });
@@ -91,7 +96,8 @@ export async function prepareMembershipVoucherMonthly(db, token, settlement) {
 export async function commitMembershipVoucherMonthly(db, agreement) {
   const snapshot = agreement.metadata?.card || agreement.metadata?.dd;
   if (!snapshot?.voucher_funding) return null;
-  const { data, error } = await db.rpc('membership_voucher_commit_monthly', {
+  const { data, error } = await db.rpc(snapshot.voucher_funding.variable_credit
+    ? 'membership_variable_voucher_commit' : 'membership_voucher_commit_monthly', {
     p_tenant_id: agreement.tenant_id, p_settlement_id: snapshot.voucher_funding.settlement_id,
     p_agreement_id: agreement.id,
   });
@@ -143,7 +149,8 @@ export async function releaseMembershipVoucherMonthly(db, token, settlement, dep
   } else if (settlement.provider_attempted_at) {
     throw new Error('Monthly provider outcome is uncertain; credit remains reserved for reconciliation');
   }
-  const { data, error } = await db.rpc('membership_voucher_release_monthly', {
+  const { data, error } = await db.rpc(settlement.funding.variableCredit
+    ? 'membership_variable_voucher_release' : 'membership_voucher_release_monthly', {
     p_tenant_id: token.tenant_id, p_settlement_id: settlement.id,
     p_agreement_id: agreement?.id || null, p_provider_reference: reference,
   });

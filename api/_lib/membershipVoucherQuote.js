@@ -4,6 +4,7 @@ import { orderVoucherIdsForRedemption } from './voucherOrdering.js';
 import { normalizeVoucherSettings, voucherDisplayName } from '../../shared/voucherPolicy.js';
 import { monthlyVoucherCreditLimit } from './membershipVoucherMonthly.js';
 import { invoiceReferenceFromRow } from './feeTokenInvoiceReference.js';
+import { variableMembershipCreditSchedule } from './membershipVariableVoucherAllocation.js';
 
 const SETTINGS = ['individual_vouchers_enabled', 'organization_voucher_display_name', 'member_voucher_display_name'];
 
@@ -44,13 +45,15 @@ export function allocateMembershipTerm(grossMinor, creditMinor, count = 1, minim
   };
 }
 
-export function membershipVoucherBasis(token) {
-  const grossMinor = membershipAmountMinor(token.cost_breakdown?.totalWithVat ?? token.final_cost);
+export function membershipVoucherBasis(token, monthlySnapshot = null) {
+  const variable = monthlySnapshot?.collection_policy?.pricing_policy === 'dynamic';
+  const grossMinor = variable ? null : membershipAmountMinor(token.cost_breakdown?.totalWithVat ?? token.final_cost);
   const basis = {
     tenantId: token.tenant_id, tokenId: token.id, memberId: token.member_id || null,
     organizationId: token.organization_id || null, historyId: token.history_record_id || null,
     currency: (token.currency || 'GBP').toUpperCase(), grossMinor,
     membershipYear: token.membership_year, breakdown: token.cost_breakdown || {},
+    ...(variable ? { variableTerms: monthlySnapshot } : {}),
   };
   return { ...basis, fingerprint: createHash('sha256').update(JSON.stringify(basis)).digest('hex') };
 }
@@ -130,7 +133,13 @@ export function buildMembershipVoucherQuote(token, discovery, ids, now = new Dat
   if (token.status !== 'pending' || token.stripe_payment_intent_id || token.stripe_payment_attempted_at) {
     throw new Error('Credit cannot be changed after payment setup has started');
   }
-  const basis = membershipVoucherBasis(token);
+  const variable = monthlySnapshot?.collection_policy?.pricing_policy === 'dynamic';
+  if (variable && (monthlySnapshot.payment_mode !== 'direct_debit'
+      || monthlySnapshot.invoicing_mode !== 'per_instalment'
+      || !monthlySnapshot.commitment?.term_key || !token.member_id || token.organization_id)) {
+    throw new Error('Variable credit requires an individual Direct Debit term with per-instalment invoicing');
+  }
+  const basis = membershipVoucherBasis(token, monthlySnapshot);
   const byId = Object.fromEntries(discovery.vouchers.map(voucher => [voucher.id, voucher]));
   if (ids.some(id => !byId[id])) throw new Error('Selected credit is unavailable for this member');
   if (ids.some(id => {
@@ -141,10 +150,9 @@ export function buildMembershipVoucherQuote(token, discovery, ids, now = new Dat
   })) throw new Error('Selected credit does not have authority for this purchase');
   const availableMinor = ids.reduce((total, id) => total + membershipAmountMinor(byId[id].value), 0);
   const minimumMinor = { GBP: 30, USD: 50, EUR: 50, AUD: 50, NZD: 50 }[basis.currency] || 50;
-  let creditCap = Math.min(basis.grossMinor, availableMinor);
-  if (monthlySnapshot) {
-    if (monthlySnapshot.collection_policy?.pricing_policy === 'dynamic'
-        || membershipAmountMinor(monthlySnapshot.plan_total) !== basis.grossMinor) {
+  let creditCap = variable ? availableMinor : Math.min(basis.grossMinor, availableMinor);
+  if (monthlySnapshot && !variable) {
+    if (membershipAmountMinor(monthlySnapshot.plan_total) !== basis.grossMinor) {
       throw new Error('The selected monthly offer requires a new fixed-term fee quote before credit can be applied');
     }
     creditCap = monthlyVoucherCreditLimit({ grossMinor: basis.grossMinor, availableMinor,
@@ -173,7 +181,11 @@ export function buildMembershipVoucherQuote(token, discovery, ids, now = new Dat
     authenticatedMemberId: allocations.some(row => row.ownerType === 'organization') ? discovery.authenticatedMemberId : null,
     paymentMode: monthlySnapshot?.payment_mode || 'stripe_upfront',
     monthlySnapshot,
-    grossMinor: basis.grossMinor, creditMinor: basis.grossMinor - remaining, cashMinor: remaining,
+    grossMinor: basis.grossMinor, creditMinor: variable ? creditCap : basis.grossMinor - remaining,
+    cashMinor: variable ? null : remaining,
+    ...(variable ? { variableCredit: true, creditSchedule: variableMembershipCreditSchedule({
+      creditMinor: creditCap, instalmentCount: monthlySnapshot.instalment_count,
+    }) } : {}),
     allocations, quotedAt: now.toISOString(),
     expiresAt: new Date(Math.min(now.getTime() + 15 * 60 * 1000, Date.parse(token.expires_at))).toISOString(),
     // Preview itself never reserves funds; acceptance uses a separate RPC.
