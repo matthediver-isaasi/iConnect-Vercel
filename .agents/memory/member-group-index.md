@@ -8,3 +8,4 @@ description: Group metadata, permission boundaries and related content behavior.
 - [Group policies](member-group-policy-index.md) — role membership limits and names, group-scoped lists and resource subcategory links.
 - [Group-event body aliasing](group-event-authz-body-aliasing.md) — clear-and-reassign can empty an aliased authorization body.
 - [Admin redaction](redacted-group-admin-surfaces.md) — redact every response branch, not just access checks.
+- [Group card expiry](group-card-expiry-policy.md) — hide expired assignments from member cards without deleting history.

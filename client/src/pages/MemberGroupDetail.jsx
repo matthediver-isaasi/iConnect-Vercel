@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
 import { buildTermSnapshot, formatTermLength, evaluateTermLimit } from "@/lib/memberGroupTermSnapshot";
+import { projectGroupMemberCards } from "@/lib/memberGroupCardEligibility";
+import { useGroupCardExpiryClock } from "@/hooks/useGroupCardExpiryClock";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { parseISO } from "date-fns";
@@ -516,23 +518,25 @@ export default function MemberGroupDetailPage() {
     refetchOnMount: true,
   });
 
-  const memberIds = useMemo(
-    () => groupAssignments.filter((a) => a.member_id).map((a) => a.member_id),
+  // Keep historical members available for award/term decision checks. The
+  // expiry clock must not change this query key or refetch members each tick.
+  const rawMemberIds = useMemo(
+    () => [...new Set(groupAssignments.filter((a) => a.member_id).map((a) => a.member_id))],
     [groupAssignments]
   );
 
   const { data: members = [], isLoading: loadingMembers } = useQuery({
-    queryKey: ["member-group-members", groupId, memberIds.join(",")],
+    queryKey: ["member-group-members", groupId, rawMemberIds.join(",")],
     queryFn: async () => {
-      if (memberIds.length === 0) return [];
+      if (rawMemberIds.length === 0) return [];
       const results = await Promise.all(
-        memberIds.map((id) =>
+        rawMemberIds.map((id) =>
           base44.entities.Member.get(id).catch(() => null)
         )
       );
       return results.filter(Boolean);
     },
-    enabled: accessChecked && memberIds.length > 0,
+    enabled: accessChecked && rawMemberIds.length > 0,
     staleTime: 0,
   });
 
@@ -1267,21 +1271,11 @@ export default function MemberGroupDetailPage() {
   const [selectedMemberId, setSelectedMemberId] = useState(null);
   const [editTermTarget, setEditTermTarget] = useState(null);
 
-  const memberRoleByMemberId = useMemo(() => {
-    const map = new Map();
-    for (const a of groupAssignments) {
-      if (a.member_id && a.group_role) map.set(a.member_id, a.group_role);
-    }
-    return map;
-  }, [groupAssignments]);
-
-  const assignmentByMemberId = useMemo(() => {
-    const map = new Map();
-    for (const a of groupAssignments) {
-      if (a.member_id) map.set(a.member_id, a);
-    }
-    return map;
-  }, [groupAssignments]);
+  const cardEligibilityNow = useGroupCardExpiryClock();
+  const { cardMembers, memberRoleByMemberId, assignmentByMemberId } = useMemo(
+    () => projectGroupMemberCards(groupAssignments, members, cardEligibilityNow),
+    [groupAssignments, members, cardEligibilityNow]
+  );
 
   // Per-role term definitions live on the group (Task #1626). They drive the
   // read-only term shown on vacancy postings and the snapshot taken at award.
@@ -1365,14 +1359,14 @@ export default function MemberGroupDetailPage() {
   };
 
   const sortedMembers = useMemo(() => {
-    return members
+    return cardMembers
       .map((m) => ({
         ...m,
         __display: getMemberDisplay(m),
         __assignment: assignmentByMemberId.get(m.id) || null,
       }))
       .sort((a, b) => a.__display.displayName.localeCompare(b.__display.displayName));
-  }, [members, assignmentByMemberId]);
+  }, [cardMembers, assignmentByMemberId]);
 
   const groupRoles = useMemo(
     () => (Array.isArray(group?.roles) ? group.roles.filter(Boolean) : []),
