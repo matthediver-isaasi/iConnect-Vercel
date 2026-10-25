@@ -1533,6 +1533,9 @@ export const BLOCK_DEFAULTS = {
       innerPaddingLeft: 32,
       showDescription: true,
       showDetails: true,
+      // Like Dynamic Directory, only explicit consent enables details. Legacy
+      // showDetails is retained for document compatibility, not treated as consent.
+      enableDetails: false,
       showWebsite: true,
       websiteNewTab: true,
       randomiseOrder: false,

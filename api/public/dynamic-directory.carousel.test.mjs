@@ -79,6 +79,12 @@ function database(seed, failures = {}, hooks = {}, serverCap = Infinity, checkSc
       return this;
     }
 
+    like(column, value) {
+      const pattern = new RegExp(`^${String(value).replaceAll('%', '.*').replaceAll('_', '.')}$`);
+      this.predicates.push(row => pattern.test(String(row[column] || '')));
+      return this;
+    }
+
     order(column, options = {}) {
       this.sorts.push({ column, ascending: options.ascending !== false });
       return this;
@@ -1173,6 +1179,92 @@ async function publicCarousel(state, query, hooks = {}, failures = {}) {
   });
   return res;
 }
+
+test('carousel details hydrate only the selected eligible organization with published custom fields', async () => {
+  const id = '11111111-1111-4111-8111-111111111111';
+  const state = {
+    dynamic_directory: [directory({ public_carousel_enabled: true })],
+    organization: [{ id, tenant_id: TENANT_ID, name: 'Partner', logo_url: 'https://example.test/logo.png',
+      description: 'Full partner description', phone: 'private phone', internal_notes: 'secret' }],
+    system_settings: [{ tenant_id: TENANT_ID, setting_key: 'org_directory_core_publication',
+      setting_value: JSON.stringify({ org_description: true }) }],
+    preference_field: [
+      { id: 'public-field', tenant_id: TENANT_ID, entity_scope: 'organization', is_active: true,
+        label: 'Services', directory_visibility: ['directory-orgs'] },
+      { id: 'private-field', tenant_id: TENANT_ID, entity_scope: 'organization', is_active: true, show_in_directory: false },
+    ],
+    organization_preference_value: [
+      { id: 'v1', organization_id: id, field_id: 'public-field', value: 'Sector body' },
+      { id: 'v2', organization_id: id, field_id: 'private-field', value: 'secret' },
+    ],
+  };
+  // Use the same tenant-scoped database fixture but permit the full canonical
+  // detail select, which is intentionally broader than logo-only list selects.
+  const run = async (overrides = {}, hooks = {}) => {
+    const res = response();
+    await dynamicDirectoryHandler({ method: 'GET', query: { mode: 'carousel',
+      slug: directory().slug, detail_id: id, ...overrides } }, res, {
+      supabase: database(state, {}, hooks, Infinity, false),
+      resolveTenant: async () => ({ id: TENANT_ID }),
+      getTenantContext: async () => ({ tenantId: TENANT_ID, isAuthenticated: false }),
+    });
+    return res;
+  };
+  const result = await run();
+  assert.equal(result.statusCode, 200);
+  assert.equal(result.payload.detail.record.description, 'Full partner description');
+  assert.equal(result.payload.detail.record.phone, undefined);
+  assert.equal(result.payload.detail.record.internal_notes, undefined);
+  assert.deepEqual(result.payload.detail.record.customValues, { 'public-field': 'Sector body' });
+  assert.equal(result.headers['Cache-Control'], 'private, no-store, max-age=0');
+  assert.equal((await run({ detail_id: '22222222-2222-4222-8222-222222222222' })).statusCode, 404);
+  assert.equal((await run({ detail_id: ['bad'] })).statusCode, 400);
+  let detailReads = 0;
+  const changed = await run({}, { organization: (_state, query) => {
+    if (query.selection === 'id,name,logo_url,website_url,phone,description' && ++detailReads === 2) {
+      state.organization[0].description = 'Changed while loading';
+    }
+  } });
+  assert.equal(changed.statusCode, 409);
+  state.system_settings.push({ tenant_id: TENANT_ID, setting_key: 'org_directory_public_carousel_enabled', setting_value: 'true' });
+  const primary = await run({ source: 'primary-organization' });
+  assert.equal(primary.statusCode, 200);
+  assert.equal(primary.payload.detail.config.directory.id, 'main');
+  state.dynamic_directory[0].public_carousel_enabled = false;
+  assert.equal((await run()).statusCode, 401);
+});
+
+test('primary member details retain member display controls and reject excluded records', async () => {
+  const id = '33333333-3333-4333-8333-333333333333';
+  const state = {
+    member: [{ id, tenant_id: TENANT_ID, first_name: 'Public', last_name: 'Member',
+      email: 'private@example.test', job_title: 'Hidden job', role_id: 'role-a', membership_paused: false,
+      profile_photo_url: 'https://example.test/photo.png', linkedin_url: 'https://example.test/profile' }],
+    system_settings: [
+      { tenant_id: TENANT_ID, setting_key: 'member_directory_public_carousel_enabled', setting_value: 'true' },
+      { tenant_id: TENANT_ID, setting_key: 'member_directory_display',
+        setting_value: JSON.stringify({ show_job_title: { front: true, back: false }, show_linkedin: false }) },
+    ],
+  };
+  const run = async () => {
+    const res = response();
+    await dynamicDirectoryHandler({ method: 'GET', query: { mode: 'carousel',
+      source: 'primary-member', detail_id: id } }, res, {
+      supabase: database(state, {}, {}, Infinity, false),
+      resolveTenant: async () => ({ id: TENANT_ID }),
+      getTenantContext: async () => ({ tenantId: TENANT_ID, isAuthenticated: false }),
+    });
+    return res;
+  };
+  const result = await run();
+  assert.equal(result.statusCode, 200);
+  assert.equal(result.payload.detail.record.first_name, 'Public');
+  assert.equal(result.payload.detail.record.email, undefined);
+  assert.equal(result.payload.detail.record.job_title, null);
+  assert.equal(result.payload.detail.record.linkedin_url, null);
+  state.member[0].show_in_directory = false;
+  assert.equal((await run()).statusCode, 404);
+});
 
 test('organisation carousel name overrides are isolated from directory settings and require publication consent', async () => {
   for (const source of ['dynamic', 'primary-organization']) {

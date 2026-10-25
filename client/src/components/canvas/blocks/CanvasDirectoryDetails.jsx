@@ -2,20 +2,25 @@ import { useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import DirectoryGuestDetailDialog from "@/components/directory/DirectoryGuestDetailDialog";
 import { publicClient } from "@/api/publicClient";
+import { readDirectoryCarouselDetails } from "./directoryCarouselDetails.mjs";
 
 // Guest-safe presentation is intentional even for authenticated editors/readers:
 // opting into details is not a grant to reveal member-only directory content.
-export default function CanvasDirectoryDetails({ record, directorySlug, entityType, config, onClose }) {
+export default function CanvasDirectoryDetails({ record, directorySlug, entityType, config = {}, onClose, carousel }) {
   const trigger = useRef(typeof document === "undefined" ? null : document.activeElement);
   const tenant = publicClient.getTenantSlug();
   const details = useQuery({
-    queryKey: ["canvas", "directory-details", tenant, directorySlug, record.id],
-    queryFn: async () => {
+    queryKey: ["canvas", "directory-details", tenant, directorySlug, record.id, entityType,
+      carousel?.source || "", carousel?.directoryId || "", carousel?.viewerIdentity || ""],
+    queryFn: async ({ signal }) => {
+      if (carousel) return readDirectoryCarouselDetails({
+        ...carousel, directorySlug, tenant, recordId: record.id, entityType, signal,
+      });
       const params = new URLSearchParams({ slug: directorySlug, organizationId: record.id });
       if (tenant) params.set("tenant", tenant);
       // The canonical organisation dialog reads its projected reverse-card
       // data from this directory-scoped endpoint, never Organization.get().
-      const response = await fetch(`/api/dynamic-directory/config?${params}`, { credentials: "include" });
+      const response = await fetch(`/api/dynamic-directory/config?${params}`, { credentials: "include", signal, cache: "no-store" });
       if (!response.ok) throw new Error("Directory details unavailable");
       const data = await response.json();
       const organization = data.organizations?.find(item => item.id === record.id);
@@ -30,7 +35,7 @@ export default function CanvasDirectoryDetails({ record, directorySlug, entityTy
           .map(value => [value.field_id, value.value])),
       };
     },
-    enabled: entityType === "organization",
+    enabled: !!carousel || entityType === "organization",
     retry: false,
     staleTime: 0,
     gcTime: 0,
@@ -46,7 +51,18 @@ export default function CanvasDirectoryDetails({ record, directorySlug, entityTy
   // Match the canonical page's configFetching/configError gate: never keep
   // displaying a prior publication projection while authority is revalidated.
   const approvedDetails = !details.isFetching && !details.isError ? details.data : undefined;
-  const props = entityType === "organization" ? {
+  const props = carousel ? {
+    record: approvedDetails?.record || { id: record.id },
+    directory: approvedDetails?.config.directory || {},
+    displaySettings: approvedDetails?.config.displaySettings || {},
+    fields: (entityType === "organization" ? approvedDetails?.config.orgCustomFields : approvedDetails?.config.directoryCustomFields) || [],
+    values: approvedDetails?.record.customValues || {},
+    roles: approvedDetails?.config.roles || [],
+    organization: approvedDetails?.record.organization_name ? { name: approvedDetails.record.organization_name } : undefined,
+    loading: details.isPending || details.isFetching,
+    error: details.isError,
+    onRetry: () => details.refetch(),
+  } : entityType === "organization" ? {
     // Do not fall back to a stale list projection after a denied detail read.
     record: approvedDetails?.record || { id: record.id, name: record.name },
     directory: approvedDetails?.directory || config.directory,

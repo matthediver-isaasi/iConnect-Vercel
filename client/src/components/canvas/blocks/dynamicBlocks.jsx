@@ -104,6 +104,7 @@ import {
 } from '@/lib/canvasDynamicWidget';
 import { DirectoryMemberCard, DirectoryOrganizationCard } from '@/components/directory/DirectoryCards';
 import CanvasDirectoryDetails from './CanvasDirectoryDetails';
+import DirectoryDetailsToggle from './DirectoryDetailsToggle';
 import MemberGroupBlockView, { resolveMemberGroupGrid } from './MemberGroupBlockView';
 import MemberGroupCardsBlockView from './MemberGroupCardsBlockView';
 import {
@@ -4140,54 +4141,6 @@ function DirectoryCarouselImage({ record, className = 'w-8 h-8' }) {
   ) : <Fallback className={`${className} text-slate-300`} aria-hidden="true" />;
 }
 
-function DirectoryCarouselDetail({ record, websiteNewTab, showWebsite, asEditor }) {
-  if (!record) return null;
-  const websiteUrl = resolveDirectoryCarouselWebsiteUrl(record.website_url);
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-4">
-        <div className="w-16 h-16 shrink-0 rounded-md border border-slate-200 bg-white flex items-center justify-center p-2 overflow-hidden">
-          <DirectoryCarouselImage record={record} className="w-7 h-7" />
-        </div>
-        <div className="min-w-0">
-          {record.name ? (
-            <h3 className="text-lg font-semibold text-slate-900 m-0" data-testid="text-directory-carousel-detail-name">
-              {record.name}
-            </h3>
-          ) : null}
-        </div>
-      </div>
-      {record.description ? (
-        <p className="text-sm text-slate-600 leading-relaxed m-0" data-testid="text-directory-carousel-detail-description">
-          {record.description}
-        </p>
-      ) : null}
-      {record.entity_type === 'member' ? (
-        <dl className="space-y-2 text-sm text-slate-600">
-          {[
-            ['Role', record.job_title],
-            ['Organisation', record.organization_name],
-          ].filter(([, value]) => typeof value === 'string' && value.trim()).map(([label, value]) => (
-            <div key={label}><dt className="font-medium text-slate-700">{label}</dt><dd className="m-0 break-words">{value}</dd></div>
-          ))}
-        </dl>
-      ) : null}
-      {showWebsite && websiteUrl ? (
-        <a
-          href={asEditor ? undefined : websiteUrl}
-          target={!asEditor && websiteNewTab ? '_blank' : undefined}
-          rel={!asEditor && websiteNewTab ? 'noopener noreferrer' : undefined}
-          onClick={(event) => { if (asEditor) event.preventDefault(); }}
-          className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
-          data-testid="link-directory-carousel-detail-website"
-        >
-          Visit website <ExternalLink className="w-4 h-4" aria-hidden="true" />
-        </a>
-      ) : null}
-    </div>
-  );
-}
-
 function DirectoryCarouselCard({
   record,
   showDescription,
@@ -4202,13 +4155,19 @@ function DirectoryCarouselCard({
   const hasContent = Boolean(
     record.name ||
     (showDescription && (record.description || (record.entity_type === 'member' && record.job_title))) ||
-    (showWebsite && websiteUrl && showDetails)
+    (showWebsite && websiteUrl)
   );
   return (
     <Card
       type={showDetails ? 'button' : undefined}
       onClick={onClick}
-      className="rounded-md border border-slate-200 bg-white overflow-hidden flex flex-col h-full w-full text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+      onKeyDown={showDetails ? (event) => {
+        if (event.target !== event.currentTarget || event.repeat || !['Enter', ' '].includes(event.key)) return;
+        event.preventDefault();
+        onClick?.(event);
+      } : undefined}
+      aria-haspopup={showDetails ? 'dialog' : undefined}
+      className={`rounded-md border border-slate-200 bg-white overflow-hidden flex flex-col h-full w-full text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${showDetails ? 'cursor-pointer hover:shadow-lg' : ''}`}
       data-testid={`button-directory-carousel-${record.id}`}
       aria-label={showDetails ? `View details for ${record.name || 'organisation'}` : (record.name || 'Organisation')}
     >
@@ -4240,7 +4199,7 @@ function DirectoryCarouselCard({
             {record.description}
           </div>
         ) : null}
-        {showWebsite && websiteUrl && showDetails ? (
+        {showWebsite && websiteUrl ? (
           <div className="text-xs text-blue-600 inline-flex items-center gap-1">
             Visit website <ExternalLink className="w-3 h-3" aria-hidden="true" />
           </div>
@@ -4264,7 +4223,7 @@ function DirectoryCarouselRender({ block, asEditor, breakpoint }) {
   const sharedVisit = bootstrapEntry?.viewerIdentity === viewerIdentity && bootstrapEntry?.tenant === tenant ? bootstrapEntry : null;
   const visitIdentity = sharedVisit?.visitIdentity || localVisitIdentity;
   const randomiseOrder = c.randomiseOrder === true;
-  const websiteNewTab = resolveNewTab({ newTab: c.websiteNewTab }, true);
+  const detailsEnabled = c.enableDetails === true && !asEditor;
   const effBreakpoint = useCarouselBreakpoint(breakpoint);
   const perView = resolveDirectoryCarouselPerView(resolveResponsiveValue(c.perView, effBreakpoint) ?? 3);
   const gap = Math.max(0, resolveResponsiveValue(c.gap, effBreakpoint) ?? 16);
@@ -4287,6 +4246,7 @@ function DirectoryCarouselRender({ block, asEditor, breakpoint }) {
   const [hovered, setHovered] = useState(false);
   const [autoplayPausedAt, setAutoplayPausedAt] = useState(0);
   const [selected, setSelected] = useState(null);
+  useEffect(() => { setSelected(null); }, [detailsEnabled, sourceIdentity, viewerIdentity, tenant]);
   const touchStartRef = useRef(null);
   const pageIdentity = `${tenant}|${viewerIdentity}|${sourceIdentity}|${organisationNameDisplay}|${randomiseOrder ? visitSeed || '' : ''}`;
   const [previousPageIdentity, setPreviousPageIdentity] = useState(pageIdentity);
@@ -4457,7 +4417,7 @@ function DirectoryCarouselRender({ block, asEditor, breakpoint }) {
   const showIndicators = hasMany && c.showIndicators !== false;
   const indicatorItems = buildDirectoryCarouselIndicatorItems(pageCount, safePage);
   const showDescription = c.showDescription !== false;
-  const showDetails = c.showDetails !== false;
+  const showDetails = detailsEnabled && !identityChanged && !isError && !isFetching;
   const showWebsite = c.showWebsite !== false;
   const centerAlign = c.centerAlign === true;
   const isForcedPreview = !!breakpoint;
@@ -4477,6 +4437,7 @@ function DirectoryCarouselRender({ block, asEditor, breakpoint }) {
   }
 
   const openRecord = (record) => {
+    if (!showDetails) return;
     setSelected(record);
     setAutoplayPausedAt(Date.now());
   };
@@ -4540,7 +4501,7 @@ function DirectoryCarouselRender({ block, asEditor, breakpoint }) {
                     showWebsite={showWebsite}
                     nameStyle={nameStyle}
                     descStyle={descStyle}
-                    onClick={showDetails ? () => openRecord(record) : undefined}
+                    onClick={showDetails ? (event) => { event.stopPropagation(); openRecord(record); } : undefined}
                   />
                 ) : null}
               </div>
@@ -4614,20 +4575,16 @@ function DirectoryCarouselRender({ block, asEditor, breakpoint }) {
         ) : null}
       </div>
 
-      <Dialog open={!identityChanged && showDetails && !!selected} onOpenChange={(open) => { if (!open) setSelected(null); }}>
-        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto" data-testid="dialog-directory-carousel-detail">
-          <DialogHeader>
-            <DialogTitle>{selected?.entity_type === 'member' ? 'Member' : 'Organisation'}</DialogTitle>
-            <DialogDescription className="sr-only">Directory entry details</DialogDescription>
-          </DialogHeader>
-          <DirectoryCarouselDetail
-            record={selected}
-            websiteNewTab={websiteNewTab}
-            showWebsite={showWebsite}
-            asEditor={asEditor}
-          />
-        </DialogContent>
-      </Dialog>
+      {!identityChanged && !isError && detailsEnabled && selected ? (
+        <CanvasDirectoryDetails
+          key={`${pageIdentity}:${selected.id}`}
+          record={selected}
+          entityType={selected.entity_type}
+          directorySlug={directorySlug}
+          carousel={{ source, directoryId, viewerIdentity }}
+          onClose={() => setSelected(null)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -4716,12 +4673,10 @@ function DirectoryCarouselInspector({ block, update, breakpoint }) {
         onChange={(value) => set({ showDescription: value })}
         testId="toggle-directory-carousel-description"
       />
-      <ToggleField
-        label="Show details"
-        value={c.showDetails !== false}
-        onChange={(value) => set({ showDetails: value })}
+      <DirectoryDetailsToggle
+        content={c}
+        onChange={set}
         testId="toggle-directory-carousel-details"
-        hint="Show only the details permitted by the selected directory."
       />
       <ToggleField
         label="Show website link"
@@ -7452,12 +7407,10 @@ function DynamicDirectoryEmbedInspector({ block, update }) {
         onChange={(v) => set({ directorySlug: v })}
         testId="select-dynamic-dir-slug"
       />
-      <ToggleField
-        label="Hover and click details"
-        value={c.enableDetails === true}
-        onChange={(value) => set({ enableDetails: value })}
+      <DirectoryDetailsToggle
+        content={c}
+        onChange={set}
         testId="switch-dynamic-dir-details"
-        hint="Enable directory card hover effects and detail dialogs in preview and on the published page. Directory visibility settings still apply."
       />
       <TextField label="Heading" value={c.title} onChange={(v) => set({ title: v })} testId="input-dynamic-dir-title" />
       <SelectField

@@ -3,6 +3,7 @@ import { applyCoreFieldVisibility, isMemberFieldVisibleOnFront } from './directo
 import { isMemberPaused } from './memberPause.js';
 import { isDeletedRelationshipMember } from './customObjectMemberEligibility.js';
 import { loadOrganizationCarouselSnapshot } from './organizationCarouselSnapshot.js';
+import { loadCarouselDetails } from './directoryCarouselDetails.js';
 
 const MEMBER_SELECT = 'id, first_name, last_name, profile_photo_url, job_title, role_id, email, membership_paused';
 
@@ -26,6 +27,11 @@ export async function renderSecureDirectoryCarousel({
   featureCheck, exclusionsResolver, helpers: h, res,
 }) {
   const source = req.query.source || 'dynamic';
+  const detailId = req.query.detail_id;
+  if (detailId !== undefined && (typeof detailId !== 'string'
+    || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(detailId))) {
+    return res.status(400).json({ error: 'Invalid directory record ID' });
+  }
   if (!['dynamic', 'primary-member', 'primary-organization'].includes(source)) {
     return res.status(400).json({ error: 'Invalid carousel source' });
   }
@@ -209,8 +215,15 @@ export async function renderSecureDirectoryCarousel({
   const initial = await authority();
   if (initial.error) return res.status(initial.status).json({ error: initial.error });
   let records;
+  let detail;
   try {
     records = await timed('carousel_inventory', () => inventory(initial));
+    if (detailId) {
+      if (!records.some(record => record.id === detailId)) {
+        return res.status(404).json({ error: 'Record no longer available in this directory' });
+      }
+      detail = await loadCarouselDetails(db, tenantId, initial.directory, detailId, initial.settings);
+    }
   } catch (error) {
     const latest = await authority();
     if (latest.error) return res.status(latest.status).json({ error: latest.error });
@@ -225,12 +238,20 @@ export async function renderSecureDirectoryCarousel({
     return res.status(409).json({ error: 'Directory authority changed; retry' });
   }
   const current = await timed('carousel_inventory', () => inventory(refreshed));
+  const currentDetail = detailId && current.some(record => record.id === detailId)
+    ? await loadCarouselDetails(db, tenantId, refreshed.directory, detailId, refreshed.settings) : null;
   const final = await authority();
   if (final.error) return res.status(final.status).json({ error: final.error });
   if (fingerprint(initial) !== fingerprint(refreshed)
     || fingerprint(records) !== fingerprint(current)
+    || (detailId && fingerprint(detail) !== fingerprint(currentDetail))
     || fingerprint(refreshed) !== fingerprint(final)) {
     return res.status(409).json({ error: 'Directory authority changed; retry' });
+  }
+  if (detailId) {
+    if (!currentDetail) return res.status(404).json({ error: 'Record no longer available in this directory' });
+    res.setHeader?.('Cache-Control', 'private, no-store, max-age=0');
+    return res.json({ source, detail: currentDetail });
   }
   const ordered = h.seededOrganizationOrder(current, effectiveSeed);
   const offset = (pageNum - 1) * pageSize;

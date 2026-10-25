@@ -27,7 +27,7 @@ const page = await readFile(new URL("../../../pages/DynamicDirectoryView.jsx", i
 const getFunction = name => {
   const start = source.indexOf(`function ${name}(`);
   assert.ok(start >= 0, name);
-  const end = source.indexOf("\n}", start);
+  const end = source.indexOf("\n}\n", start);
   return source.slice(start, end + 2);
 };
 const directory = { slug: "partner-directory", id: "directory-a", custom_fields_label: "Specialisms" };
@@ -40,14 +40,31 @@ const outfile = path.join(temporary, "bundle.mjs");
 await build({
   stdin: {
     contents: `
-      import { useMemo, useState, useEffect } from 'react';
+       import { useMemo, useState, useEffect, useRef, useId, useContext, createContext } from 'react';
       import { Search, ChevronLeft, ChevronRight } from 'lucide-react';
       import { Input } from '@/components/ui/input';
       import { Button } from '@/components/ui/button';
       import { DirectoryMemberCard, DirectoryOrganizationCard } from '@/components/directory/DirectoryCards';
       import CanvasDirectoryDetails from '@/components/canvas/blocks/CanvasDirectoryDetails';
+       import DirectoryDetailsToggle from '@/components/canvas/blocks/DirectoryDetailsToggle';
+       import { resolveDirectoryCarouselSource, presentDirectoryCarouselRecord, resolveDirectoryCarouselPerView, resolveDirectoryCarouselOrganisationNameDisplay } from '@/components/canvas/blocks/directoryCarouselSource.mjs';
+       import { resolveResponsiveValue, hasAnyResponsiveValue, resolveBlockAtBreakpoint } from '@/lib/canvasDesign';
       import { BLOCK_TYPES } from '@/lib/canvasDesign';
       const useDirectoryRecords = () => globalThis.__directoryDetailsRecords;
+       const useDirectoryCarouselRecords = useDirectoryRecords;
+       const useLayoutContext = () => ({});
+       const publicClient = { getTenantSlug: () => 'westhaven' };
+       const DirectoryCarouselBootstrapContext = createContext(null);
+       const directoryCarouselViewerIdentity = () => 'guest';
+       const directoryCarouselBlockKey = () => 'carousel';
+       const createDirectoryCarouselVisitSeed = () => 'visit';
+       const useCarouselBreakpoint = breakpoint => breakpoint || 'desktop';
+       const CarouselStage = ({children}) => children;
+       const DirectoryCarouselImage = () => <img alt="" src="/logo.png" />;
+       const DirectoryCarouselSourceField = () => null;
+       const resolveNewTab = (value, fallback) => value.newTab ?? fallback;
+       const ResponsiveNumberField = () => null;
+       const Label = ({children}) => <label>{children}</label>;
       const TooltipProvider = ({children}) => children;
       const Select = ({children}) => <div>{children}</div>;
       const SelectTrigger = ({children}) => <div>{children}</div>;
@@ -70,9 +87,14 @@ await build({
       ${getFunction("columnsForBreakpoint")}
       ${getFunction("gridStyle")}
       ${getFunction("isEditorPreviewBreakpoint")}
+       ${getFunction("DirectoryCarouselCard")}
+       ${getFunction("DirectoryCarouselRender")}
+       ${getFunction("DirectoryCarouselInspector")}
+       ${getFunction("resolveDirectoryCarouselWebsiteUrl")}
+       const buildDirectoryCarouselIndicatorItems = () => [];
       ${getFunction("DirectoryCardsRender")}
       ${getFunction("DynamicDirectoryEmbedInspector")}
-      export { DirectoryCardsRender, DynamicDirectoryEmbedInspector };
+       export { DirectoryCardsRender, DynamicDirectoryEmbedInspector, DirectoryCarouselRender, DirectoryCarouselInspector };
     `,
     loader: "jsx", resolveDir: process.cwd(),
   },
@@ -87,7 +109,7 @@ await build({
   }],
   logLevel: "silent",
 });
-const { DirectoryCardsRender, DynamicDirectoryEmbedInspector } = await import(pathToFileURL(outfile).href);
+const { DirectoryCardsRender, DynamicDirectoryEmbedInspector, DirectoryCarouselRender, DirectoryCarouselInspector } = await import(pathToFileURL(outfile).href);
 let container, root, client, block, requests, parentClicks;
 const originalFetch = globalThis.fetch;
 const member = {
@@ -107,7 +129,7 @@ const config = {
   ],
 };
 const pause = async () => { await act(async () => { await new Promise(resolve => setTimeout(resolve, 35)); }); };
-const card = () => container.querySelector('[data-testid^="card-member-"],[data-testid^="card-organisation-"]');
+const card = () => container.querySelector('[data-testid^="card-member-"],[data-testid^="card-organisation-"],[data-testid^="button-directory-carousel-member"],[data-testid^="button-directory-carousel-org"]');
 const dialog = () => document.querySelector('[role="dialog"]');
 const click = async element => { await act(async () => { element.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true })); }); await pause(); };
 const key = async (element, value) => {
@@ -119,7 +141,7 @@ const key = async (element, value) => {
 const render = async props => {
   await act(async () => root.render(React.createElement(QueryClientProvider, { client },
     React.createElement("div", { onClick: () => parentClicks++ },
-      React.createElement(DirectoryCardsRender, { block, fallbackTitle: "Directory", ...props })))));
+       React.createElement(block.type === BLOCK_TYPES.DIRECTORY_CAROUSEL ? DirectoryCarouselRender : DirectoryCardsRender, { block, fallbackTitle: "Directory", ...props })))));
   await pause();
 };
 beforeEach(() => {
@@ -345,4 +367,126 @@ test("a detail response for another directory is rejected, never used as generic
   await click(card());
   assert.match(dialog().textContent, /Couldn't load directory details/);
   assert.doesNotMatch(dialog().textContent, /PRIVATE|UNRELATED/);
+});
+
+test("carousel inspector persists the shared strict opt-in and legacy carousel defaults off", async () => {
+  block = createBlock(BLOCK_TYPES.DIRECTORY_CAROUSEL, { content: { directorySlug: directory.slug } });
+  assert.equal(block.content.enableDetails, false);
+  let changed;
+  await act(async () => root.render(React.createElement(DirectoryCarouselInspector, {
+    block, update: fn => { changed = fn(block); },
+  })));
+  await click(container.querySelector('[data-testid="toggle-directory-carousel-details"]'));
+  assert.equal(changed.content.enableDetails, true);
+  assert.equal(changed.content.directorySlug, directory.slug);
+  assert.equal(changed.content.perView.desktop, 3);
+});
+
+test("carousel off/editor keep selection and logo-only geometry without a detail read", async () => {
+  block = createBlock(BLOCK_TYPES.DIRECTORY_CAROUSEL, { content: { directorySlug: directory.slug } });
+  globalThis.__directoryDetailsRecords = { data: {
+    entityType: "organization", records: [{ id: "org-a", name: null, logo_url: "/logo.png" }], total: 1,
+  } };
+  await render();
+  assert.equal(card().tagName, "DIV");
+  assert.match(card().querySelector('[data-testid^="directory-carousel-image"]').className, /flex-1/);
+  await click(card());
+  assert.equal(parentClicks, 1);
+  block.content.enableDetails = true;
+  await render({ asEditor: true });
+  await click(card());
+  assert.equal(parentClicks, 2);
+  assert.equal(dialog(), null);
+  assert.equal(requests.length, 0);
+});
+
+test("all carousel sources hydrate the canonical rich dialog on click and keyboard, not the partial card", async () => {
+  for (const sourceType of ["dynamic", "primary-member", "primary-organization"]) {
+    const entityType = sourceType === "primary-organization" ? "organization" : "member";
+    const record = entityType === "member" ? member : { id: "org-a", name: "Westhaven Network" };
+    block = createBlock(BLOCK_TYPES.DIRECTORY_CAROUSEL, { content: {
+      source: sourceType, directoryId: sourceType === "dynamic" ? directory.id : "",
+      directorySlug: directory.slug, enableDetails: true, autoplay: false,
+    } });
+    globalThis.__directoryDetailsRecords = { data: {
+      records: [{ id: record.id, name: "Partial card" }], entityType, total: 1,
+    } };
+    globalThis.fetch = async (url, options) => {
+      requests.push([url, options]);
+      return { ok: true, json: async () => ({ source: sourceType, detail: {
+        record: { ...record, customValues: { second: "Rich reverse-card content" } },
+        entityType,
+        config: { ...config, orgCustomFields: config.directoryCustomFields },
+      } }) };
+    };
+    await render();
+    if (sourceType === "dynamic") await click(card());
+    else await key(card(), sourceType === "primary-member" ? "Enter" : " ");
+    assert.ok(dialog());
+    assert.match(dialog().textContent, /Rich reverse-card content/);
+    assert.doesNotMatch(dialog().textContent, /Partial card|PRIVATE FIELD|private@example/);
+    const [url, options] = requests.at(-1);
+    const params = new URL(url, window.location.origin).searchParams;
+    assert.equal(params.get("source"), sourceType);
+    assert.equal(params.get("detail_id"), record.id);
+    assert.equal(params.get("directory_id"), sourceType === "dynamic" ? directory.id : null);
+    assert.equal(params.has("slug"), false, "primary identity and dynamic immutable id win over legacy slug");
+    assert.equal(options.credentials, "include");
+    await key(dialog(), "Escape");
+  }
+});
+
+test("carousel rejects old logo-only responses, can retry, and never retains denied rich content", async () => {
+  block = createBlock(BLOCK_TYPES.DIRECTORY_CAROUSEL, { content: {
+    directorySlug: directory.slug, enableDetails: true,
+  } });
+  globalThis.__directoryDetailsRecords = { data: {
+    records: [{ id: member.id, name: "Partial card" }], entityType: "member", total: 1,
+  } };
+  globalThis.fetch = async () => ({ ok: true, json: async () => globalThis.__directoryDetailsRecords.data });
+  await render();
+  await click(card());
+  assert.match(dialog().textContent, /Couldn't load directory details/);
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({
+    source: "dynamic", detail: { record: member, entityType: "member", config },
+  }) });
+  await click([...dialog().querySelectorAll("button")].find(button => button.textContent === "Retry"));
+  assert.match(dialog().textContent, /Second detail/);
+  let finish;
+  globalThis.fetch = () => new Promise(resolve => { finish = resolve; });
+  let refresh;
+  await act(async () => { refresh = client.refetchQueries({ queryKey: ["canvas", "directory-details"] }); });
+  await pause();
+  assert.match(dialog().textContent, /Loading details/);
+  assert.doesNotMatch(dialog().textContent, /Second detail|Mara Ellis/);
+  await act(async () => { finish({ ok: false }); await refresh; });
+  await pause();
+  assert.doesNotMatch(dialog().textContent, /Second detail|Mara Ellis/);
+  assert.match(dialog().textContent, /Couldn't load directory details/);
+  block = { ...block, content: { ...block.content, enableDetails: false } };
+  await render();
+  assert.equal(dialog(), null);
+});
+
+test("carousel rejects rich details from another source or directory and closes on source changes", async () => {
+  block = createBlock(BLOCK_TYPES.DIRECTORY_CAROUSEL, { content: {
+    directoryId: directory.id, directorySlug: directory.slug, enableDetails: true,
+  } });
+  globalThis.__directoryDetailsRecords = { data: {
+    records: [{ id: member.id, name: "Partial card" }], entityType: "member", total: 1,
+  } };
+  for (const [sourceType, configDirectory] of [["primary-member", directory], ["dynamic", { ...directory, id: "another" }]]) {
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({
+      source: sourceType, detail: { record: member, entityType: "member", config: { ...config, directory: configDirectory } },
+    }) });
+    await render();
+    await click(card());
+    assert.match(dialog().textContent, /Couldn't load directory details/);
+    assert.doesNotMatch(dialog().textContent, /Mara Ellis|Second detail/);
+    await key(dialog(), "Escape");
+  }
+  await click(card());
+  block = { ...block, content: { ...block.content, source: "primary-member" } };
+  await render();
+  assert.equal(dialog(), null);
 });

@@ -68,3 +68,14 @@ the user's subsequent browser evidence showed a 12.90-second server wait.
 **How to apply:** Share a checked session only within one authority pass, never
 between passes or requests. Retain fresh revocation checks and use response
 phase timings before claiming the deployed authenticated delay is resolved.
+
+Directory Carousel click behaviour must match Dynamic Directory's configured
+detail dialog, not a separate logo-only popup.
+
+**Why:** The user explicitly requested the same admin controls and the same
+result when clicking an entry.
+
+**How to apply:** Share the opt-in control and guest-safe dialog presentation.
+Hydrate details under the carousel's own publication authority, including
+primary-source consent; permission to show a lightweight card must not bypass
+field visibility or justify a generic CRM entity read.
