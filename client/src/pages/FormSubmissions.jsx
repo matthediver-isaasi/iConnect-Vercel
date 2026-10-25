@@ -54,6 +54,8 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { downloadSubmissionsDocx, resolveAwardType, sanitizeFileName } from "@/lib/formSubmissionWordExport";
 import SubmissionReplies from "@/components/forms/SubmissionReplies";
+import SubmissionForwards from "@/components/forms/SubmissionForwards";
+import { useSubmissionForwardListHistory } from "@/hooks/useSubmissionForwards";
 import RevokeSubmissionAlert from "@/components/forms/RevokeSubmissionAlert";
 import { useFormAlertTenant } from "@/hooks/useFormAlerts";
 import { listAllOrganizationsForAdmin } from '@/lib/adminOrgList';
@@ -172,6 +174,7 @@ function extractSubmissionEmail(submission, fields) {
 export default function FormSubmissionsPage() {
   const { memberInfo, memberRole, isFeatureExcluded, isAccessReady } = useMemberAccess();
   const alertTenantId = useFormAlertTenant();
+  const forwardTenant = useFormAlertTenant("page_FormSubmissions");
   const canRevokeFormAlerts = isAccessReady && !isFeatureExcluded('page_FormBuilder');
   const [accessChecked, setAccessChecked] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -1089,6 +1092,7 @@ export default function FormSubmissionsPage() {
     const startIndex = (currentPage - 1) * itemsPerPage;
     return filteredSubmissions.slice(startIndex, startIndex + itemsPerPage);
   }, [filteredSubmissions, currentPage, itemsPerPage]);
+  const forwardListHistory = useSubmissionForwardListHistory(forwardTenant, paginatedSubmissions);
 
   const statusCounts = useMemo(() => {
     const counts = { new: 0, junk: 0, actioned: 0, total: scopedSubmissions.length };
@@ -2623,6 +2627,14 @@ export default function FormSubmissionsPage() {
                         defaultEmail={getSubmitterEmail(submission)}
                         formName={resolveFormName(submission)}
                       />
+                      {forwardTenant.status === "ready" && (
+                        <SubmissionForwards
+                          key={`${forwardTenant.scopeKey}:${submission.id}`}
+                          scope={forwardTenant}
+                          submissionId={submission.id}
+                          listHistory={forwardListHistory}
+                        />
+                      )}
                     </div>
                   </CardHeader>
                 </Card>

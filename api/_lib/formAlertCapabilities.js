@@ -21,6 +21,12 @@ export async function resolveFormAlertCapability(db, tenantId, token, now = Date
   if (error) throw error;
   if (!delivery || delivery.status !== 'sent' || delivery.revoked_at
     || !Number.isFinite(Date.parse(delivery.expires_at)) || Date.parse(delivery.expires_at) <= now) return null;
+  return projectFormAlertCapability(db, tenantId, delivery);
+}
+
+// Shared by automatic alerts and explicit forwarding. Keep published survey
+// privacy and attachment scope identical on every bearer-link read.
+export async function projectFormAlertCapability(db, tenantId, delivery) {
   const { data: form, error: formError } = await db.from('form').select('id,form_type')
     .eq('tenant_id',tenantId).eq('id',delivery.form_id).maybeSingle();
   if (formError) throw formError;

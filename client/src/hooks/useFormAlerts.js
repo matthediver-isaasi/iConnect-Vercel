@@ -9,7 +9,7 @@ import {
   subscribeToViewerProtectedWork,
 } from "@/lib/viewerProtectedWorkGate";
 
-export function useFormAlertTenant() {
+export function useFormAlertTenant(feature = "page_FormBuilder") {
   const { memberInfo, authResolved, sessionValidated, sessionWorkPaused, sessionRoleSnapshot } = useLayoutContext();
   const { roleStatus, isFeatureExcluded } = useMemberAccess();
   const generation = useSyncExternalStore(subscribeToViewerProtectedWork,
@@ -61,13 +61,13 @@ export function useFormAlertTenant() {
   const tenantId = memberInfo ? memberInfo.tenant_id : dashboard.data?.tenant?.id;
   const mismatch = (!!intent.id && intent.id !== tenantId) || (!intent.id && intent.epoch > 0);
   const memberReady = sessionValidated && roleStatus === "ready"
-    && !!sessionRoleSnapshot?.session_key && !isFeatureExcluded("page_FormBuilder");
+    && !!sessionRoleSnapshot?.session_key && !isFeatureExcluded(feature);
   const ready = authResolved && !paused && !!tenantId && !mismatch
     && (memberInfo ? memberReady : dashboard.isSuccess);
   const status = ready ? "ready" : mismatch || paused ? "error"
     : !authResolved || (memberInfo && roleStatus === "loading")
       || (!memberInfo && dashboard.isFetching) ? "loading" : "error";
-  const scopeKey = JSON.stringify([tenantId, memberInfo?.id, memberInfo?.role_id,
+  const scopeKey = JSON.stringify([feature, tenantId, memberInfo?.id, memberInfo?.role_id,
     sessionRoleSnapshot?.session_key, intent.epoch, generation, dashboard.data?.user?.id, ready]);
   const current = useRef();
   current.current = { scopeKey, ready };
@@ -81,7 +81,7 @@ export function useFormAlertTenant() {
     scopeKey,
     status,
     error: mismatch ? "The active tenant changed. Reload this page before continuing."
-      : "Your session or FormBuilder access could not be verified. Sign in again or reload this page.",
+      : "Your session or page access could not be verified. Sign in again or reload this page.",
     assertCurrent() {
       if (!mounted.current || !ready || !current.current?.ready || current.current.scopeKey !== scopeKey
         || liveIntent.current !== intent || getActiveTenantId() !== intent.id

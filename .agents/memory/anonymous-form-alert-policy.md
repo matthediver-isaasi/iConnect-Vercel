@@ -14,3 +14,15 @@ Submission alert setup belongs to FormBuilder access, not a separate administrat
 **Why:** The user explicitly requires anyone allowed to access FormBuilder through RBAC to have complete alert setup access.
 
 **How to apply:** Use FormBuilder's permission for settings reads, saves and link revocation; preserve tenant isolation, individual exclusions and anonymous-response privacy.
+
+Explicit submission forwarding uses Form Submissions management authority, not
+FormBuilder setup authority. Sharing a response must retain the same published
+anonymous-survey protections as automatic alerts.
+
+**Why:** The owner requested forwarding individual submissions to tenant members
+without login. That grants read-only sharing, not permission to disclose protected
+identity, bypass cohort thresholds or expose internal submission metadata.
+
+**How to apply:** Keep forward history separate from automatic-alert settings;
+default bearer links to seven days and support individual revocation. Treat
+unknown email acceptance as unresolved, never permission to resend automatically.

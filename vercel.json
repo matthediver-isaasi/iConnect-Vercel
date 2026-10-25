@@ -3,6 +3,9 @@
   "buildCommand": "npx vite build",
   "outputDirectory": "dist/public",
   "functions": {
+    "api/admin/form-submission-forwards.js": {
+      "maxDuration": 60
+    },
     "api/cron/send-job-alerts.js": {
       "maxDuration": 60
     },
