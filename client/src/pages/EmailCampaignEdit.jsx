@@ -983,7 +983,7 @@ export default function EmailCampaignEdit() {
             {directAudienceType !== 'audience_list' && <div className="space-y-2">
               <Label>Select events</Label>
               {directAudienceType === 'event_waiting_list' && <p className="text-xs text-muted-foreground">Active waiting list contacts only. Withdrawn entries are excluded at send time. This does not subscribe anyone to unrelated marketing.</p>}
-              <EventAudiencePicker value={selectedEventIds} onChange={ids => {
+              <EventAudiencePicker waitingListOnly={directAudienceType === 'event_waiting_list'} value={selectedEventIds} onChange={ids => {
                 setSelectedEventIds(ids);
                 if (categoryReviewRequired) { setReviewSelections(prev => ({ ...prev, audience: true })); setReviewConfirmed(false); }
               }} />

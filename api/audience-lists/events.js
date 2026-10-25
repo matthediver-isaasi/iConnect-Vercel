@@ -15,11 +15,13 @@ export default async function handler(req, res) {
   if (!(await hasAdminAccess(tenantContext))) return res.status(403).json({ error: 'Admin access required' });
 
   try {
+    const waitingListOnly = req.query?.waiting_list_only === 'true';
     const readEvents = async table => {
       const all = [];
       let cursor;
       while (true) {
         let query = supabase.from(table).select('id,title,start_date,status').eq('tenant_id', tenantId).order('id').limit(200);
+        if (waitingListOnly) query = query.eq('waiting_list_enabled', true);
         if (cursor) query = query.gt('id', cursor);
         const { data, error } = await query;
         if (error) throw error;

@@ -6,12 +6,12 @@ import { Button } from "@/components/ui/button";
 
 // Same event source, searchable title list and selection model as Event Attendees
 // in Communications' existing audience editor. No new audience-list segment type.
-export default function EventAudiencePicker({ value, onChange }) {
+export default function EventAudiencePicker({ value, onChange, waitingListOnly = false }) {
   const [search, setSearch] = useState('');
   const query = useQuery({
-    queryKey: ['audience-list-events'],
+    queryKey: ['audience-list-events', { waitingListOnly }],
     queryFn: async () => {
-      const response = await fetch('/api/audience-lists/events', { credentials: 'include' });
+      const response = await fetch(`/api/audience-lists/events${waitingListOnly ? '?waiting_list_only=true' : ''}`, { credentials: 'include' });
       if (!response.ok) throw new Error('Unable to load events');
       return response.json();
     },
@@ -27,7 +27,7 @@ export default function EventAudiencePicker({ value, onChange }) {
           <Checkbox checked={value.includes(event.id)} onCheckedChange={checked => onChange(checked ? [...value, event.id] : value.filter(id => id !== event.id))} />
           <span>{event.title}</span>
         </label>)}
-        {!query.data?.length && <p className="text-sm text-muted-foreground">No events available.</p>}
+        {!query.data?.length && <p className="text-sm text-muted-foreground">{waitingListOnly ? 'No events have Waiting List enabled.' : 'No events available.'}</p>}
         {!!query.data?.length && !filtered.length && <p className="text-sm text-muted-foreground">No events match this search.</p>}
       </div>}
     {value.length > 0 && <p className="text-xs text-muted-foreground">{value.length} event{value.length === 1 ? '' : 's'} selected</p>}
