@@ -14,3 +14,9 @@ Vercel non-optional catch-all routes do not serve their bare collection URL. Pro
 **Why:** An allocations collection request returned Vercel's own NOT_FOUND before authentication, despite the nested catch-all handler implementing a collection branch.
 
 **How to apply:** Check collection and detail URLs independently; local adapter discovery alone is not proof of deployed collection routing.
+
+Plain Vercel function deployment can resolve a catch-all filename for one segment but return platform NOT_FOUND for nested actions. Use an explicit rewrite to a concrete function entry point when this occurs.
+
+**Why:** Live public proposal OPTIONS probes reached the token route but not its send-code or acceptance action; the application handler was never invoked.
+
+**How to apply:** Probe with invalid synthetic tokens and safe methods, never real signing links. Cover original URLs and rewrite-forwarded parameters in tests; confirm the deployed rewrite separately after publishing.

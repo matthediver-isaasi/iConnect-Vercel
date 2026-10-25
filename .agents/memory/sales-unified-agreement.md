@@ -20,6 +20,12 @@ Recipient email verification must produce a separate short-lived secret proof he
 
 **How to apply:** Bind proof to the delivery token and current code generation, invalidate on resend, keep it out of URLs and logs, and validate it transactionally with acceptance.
 
+Recipients sign first, then acceptance opens an email-code modal. A correct code submits the captured signed agreement automatically; errors retain the modal and signature.
+
+**Why:** The user explicitly requested this order with friendly explanations of why email verification is needed.
+
+**How to apply:** Do not require verification before signing or a second acceptance after verification. Retain explicit back/retry controls, block accidental dismissal, and never submit without server-issued verification proof.
+
 Standard partnership terms must be editable under Sales settings per tenant. GFI's standalone terms start at clause 1, not clause 3; numbered cross-references must align.
 
 **Why:** The user explicitly requested a central editing location and correction of the inherited numbering.

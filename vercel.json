@@ -233,6 +233,7 @@
     }
   ],
   "rewrites": [
+    { "source": "/api/public/sales-quote/:path+", "destination": "/api/public/sales-quote-entry?path=:path+" },
     { "source": "/favicon.ico", "destination": "/api/public/favicon" },
     { "source": "/favicon.png", "destination": "/api/public/favicon?path=/favicon.png" },
     { "source": "/favicon-32.png", "destination": "/api/public/favicon?path=/favicon-32.png" },

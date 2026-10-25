@@ -6,6 +6,37 @@ import {
 } from './[...path].js';
 import { createSalesQuotesHandler } from '../../sales/quotes/[...path].js';
 import { sendQuote } from '../../_lib/salesQuoteDelivery.js';
+import { readFileSync } from 'node:fs';
+import entryHandler from '../sales-quote-entry.js';
+import originalHandler from './[...path].js';
+
+test('deployment explicitly routes nested public proposal actions to a concrete function', () => {
+  const config = JSON.parse(readFileSync(new URL('../../../vercel.json', import.meta.url), 'utf8'));
+  assert.deepEqual(config.rewrites[0], {
+    source: '/api/public/sales-quote/:path+',
+    destination: '/api/public/sales-quote-entry?path=:path+',
+  });
+  assert.equal(entryHandler, originalHandler);
+});
+
+test('rewritten proposal actions reach the protected handler rather than a platform 404', async () => {
+  for (const action of ['send-otp', 'verify-otp', 'finalize', 'accept', 'decline', 'download', 'agreement-download']) {
+    clearPublicSalesQuoteRateLimits();
+    const res = response();
+    await createPublicSalesQuoteHandler({ db: {
+      from() { return query(null); },
+      async rpc() { return { error: { code: '22023', message: 'Invalid token' } }; },
+    } })({
+      method: action.includes('download') ? 'GET' : 'POST',
+      url: '/api/public/sales-quote-entry',
+      query: { path: `invalid-token/${action}` }, headers: {}, socket: {},
+      body: { agreement: true, role: 'Director', idempotencyKey: 'test-key' },
+    }, res);
+    assert.notEqual(res.statusCode, 405, action);
+    assert.ok(res.body && typeof res.body === 'object', action);
+    assert.ok([400, 404, 410].includes(res.statusCode), `${action}: ${res.statusCode}`);
+  }
+});
 
 function response() {
   return {

@@ -104,6 +104,15 @@ async function input(id, value) {
   });
 }
 async function wait(ms = 0) { await act(async () => { await new Promise(resolve => setTimeout(resolve, ms)); }); }
+async function completeSignature(name = "Asha Moreau") {
+  await click("Type");
+  const typed = document.querySelector('[data-testid="input-signature-typed-name-sales-customer"]');
+  typed.id = "typed-customer";
+  await input("typed-customer", name);
+  await wait(340);
+  await act(async () => document.querySelector('[role="checkbox"]').click());
+}
+const signerAgreement = { contact: { name: "Asha Moreau", role: "Director", email: "asha@example.test" } };
 
 test("mounted legal editor inserts the tenant's saved terms and a real editable cancellation table, without source customer data", async () => {
   const originalFetch = globalThis.fetch;
@@ -186,38 +195,174 @@ test("signature upload is opt-in and normalized PNG; typed mode clears stale sig
   } finally { await view.cleanup(); }
 });
 
-test("public agreement acceptance is gated by signature, consent and recipient email code verification", async () => {
+test("signing first opens OTP automatically and verification submits the captured signed form without a second accept click", async () => {
   const calls = [];
   const submits = [];
   const view = await mount(Signer, {
-    agreement: { contact: { name: "Asha Moreau", role: "Director", email: "asha@example.test" } },
+    agreement: signerAgreement,
     path: "/public-fixture", request: async (path, options) => { calls.push([path, JSON.parse(options.body)]); return { verified: true, verificationProof: "private-proof-secret", expiresInSeconds: 600 }; },
     onSubmit: data => submits.push(data), onCancel() {},
   });
   try {
     assert.equal(button("Sign and accept agreement").disabled, true);
-    await click("Type");
-    const typed = document.querySelector('[data-testid="input-signature-typed-name-sales-customer"]');
-    typed.id = "typed-customer";
-    await input("typed-customer", "Asha Moreau");
-    await wait(340);
-    const consent = document.querySelector('[role="checkbox"]');
-    await act(async () => consent.click());
+    assert.equal(document.querySelector('[role="dialog"]'), null);
+    assert.equal(button("Send verification code"), undefined);
+    assert.equal(calls.length, 0);
+    assert.equal(document.getElementById("agreement-customer-name").required, true);
+    assert.equal(document.getElementById("agreement-customer-role").required, true);
+    await input("agreement-customer-role", "");
+    await completeSignature();
     assert.equal(button("Sign and accept agreement").disabled, true);
-    await click("Send verification code");
-    await wait();
-    await input("agreement-email-code", "814263");
-    await click("Verify code");
-    await wait();
+    await input("agreement-customer-role", "Director");
+    await input("agreement-customer-po", "PO-284");
+    await input("agreement-customer-reference", "Summer partnership");
     assert.equal(button("Sign and accept agreement").disabled, false);
     await click("Sign and accept agreement");
+    await wait();
+    const dialog = document.querySelector('[role="dialog"]');
+    assert.ok(dialog);
+    assert.match(dialog.textContent, /protect your signature/);
+    assert.match(dialog.textContent, /Asha Moreau at asha@example.test/);
+    assert.match(dialog.textContent, /not submitted until you enter the correct code/);
+    assert.equal(submits.length, 0);
+    assert.equal(button("Verify and accept agreement").disabled, true);
+    await input("agreement-email-code", "814263");
+    await click("Verify and accept agreement");
+    await wait();
     assert.deepEqual(calls, [["/public-fixture/send-otp", {}], ["/public-fixture/verify-otp", { code: "814263" }]]);
+    assert.equal(submits.length, 1);
     assert.equal(submits[0].consent, true);
     assert.equal(submits[0].verificationProof, "private-proof-secret");
     assert.equal(submits[0].agreement, true);
     assert.deepEqual(submits[0].signature, { mode: "typed", data: png, typedName: "Asha Moreau" });
-    await click("Send a new code");
+    assert.equal(submits[0].purchaseOrderReference, "PO-284");
+    assert.equal(submits[0].customerReference, "Summer partnership");
+    assert.equal(document.querySelector('[role="dialog"]'), null);
     assert.equal(button("Sign and accept agreement").disabled, true);
+  } finally { await view.cleanup(); }
+});
+
+test("OTP modal resists dismissal while sending, retries send/verification failures and keeps the signature on explicit back", async () => {
+  let finishSend;
+  let sends = 0;
+  let verifies = 0;
+  const submits = [];
+  const view = await mount(Signer, {
+    agreement: signerAgreement, path: "/public-fixture",
+    request: async path => {
+      if (path.endsWith("/send-otp")) {
+        sends += 1;
+        if (sends === 1) return new Promise((resolve, reject) => { finishSend = () => reject(new Error("Email service unavailable")); });
+        return { sent: true };
+      }
+      verifies += 1;
+      if (verifies === 1) throw new Error("Incorrect or expired code");
+      if (verifies === 2) throw new Error("Network unavailable");
+      return { verified: true }; // A server response without a proof cannot accept.
+    },
+    onSubmit: data => submits.push(data), onCancel() {},
+  });
+  try {
+    await completeSignature();
+    await click("Sign and accept agreement"); await wait();
+    assert.equal(button("Back to agreement").disabled, true);
+    assert.equal(button("Sending code…").disabled, true);
+    assert.ok(document.body.textContent.includes("Sending your verification code"));
+    await act(async () => {
+      document.querySelector('[role="dialog"]').dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      document.body.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true }));
+    });
+    assert.ok(document.querySelector('[role="dialog"]'));
+    await act(async () => finishSend()); await wait();
+    assert.match(document.querySelector('[role="alert"]').textContent, /Email service unavailable/);
+    await click("Retry sending code"); await wait();
+    await act(async () => {
+      document.querySelector('[role="dialog"]').dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      document.body.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true }));
+    });
+    assert.ok(document.querySelector('[role="dialog"]'));
+    await input("agreement-email-code", "123456");
+    await click("Verify and accept agreement"); await wait();
+    assert.match(document.querySelector('[role="alert"]').textContent, /Incorrect or expired code/);
+    await click("Verify and accept agreement"); await wait();
+    assert.match(document.querySelector('[role="alert"]').textContent, /Network unavailable/);
+    await click("Verify and accept agreement"); await wait();
+    assert.match(document.querySelector('[role="alert"]').textContent, /couldn't verify that code/);
+    assert.equal(submits.length, 0);
+    await click("Send a new code"); await wait();
+    assert.equal(document.getElementById("agreement-email-code").value, "");
+    assert.equal(sends, 3);
+    await click("Back to agreement");
+    assert.equal(document.querySelector('[role="dialog"]'), null);
+    assert.equal(document.querySelector('[data-testid="input-signature-typed-name-sales-customer"]').value, "Asha Moreau");
+    assert.equal(document.querySelector('[role="checkbox"]').getAttribute("aria-checked"), "true");
+    assert.equal(button("Sign and accept agreement").disabled, false);
+    await click("Sign and accept agreement"); await wait();
+    assert.equal(sends, 4);
+  } finally { await view.cleanup(); }
+});
+
+test("verified submission failures stay in the modal, retry the same captured payload, and lock duplicate submits", async () => {
+  let finishSubmit;
+  const submits = [];
+  const calls = [];
+  const view = await mount(Signer, {
+    agreement: signerAgreement, path: "/public-fixture",
+    request: async path => { calls.push(path); return { verified: true, verificationProof: "fixture-proof", expiresInSeconds: 600 }; },
+    onSubmit: async data => {
+      submits.push(data);
+      if (submits.length === 1) throw new Error("Acceptance service unavailable");
+      return new Promise(resolve => { finishSubmit = resolve; });
+    }, onCancel() {},
+  });
+  try {
+    await completeSignature();
+    await click("Sign and accept agreement"); await wait();
+    await input("agreement-email-code", "814263");
+    await click("Verify and accept agreement"); await wait();
+    assert.ok(document.querySelector('[role="dialog"]'));
+    assert.match(document.querySelector('[role="alert"]').textContent, /Acceptance service unavailable/);
+    assert.equal(document.getElementById("agreement-customer-name").disabled, true);
+    await click("Retry submission"); await wait();
+    assert.equal(button("Back to agreement").disabled, true);
+    assert.equal(button("Recording agreement…").disabled, true);
+    await click("Recording agreement…");
+    assert.equal(submits.length, 2);
+    assert.deepEqual(submits[1], submits[0]);
+    assert.equal(calls.filter(path => path.endsWith("/verify-otp")).length, 1);
+    await act(async () => finishSubmit({ status: "accepted" })); await wait();
+    assert.equal(document.querySelector('[role="dialog"]'), null);
+  } finally { await view.cleanup(); }
+});
+
+test("expired verification proof cannot retry acceptance and requires another server OTP verification", async () => {
+  const submits = [];
+  let verifies = 0;
+  const view = await mount(Signer, {
+    agreement: signerAgreement, path: "/public-fixture",
+    request: async path => {
+      if (path.endsWith("/send-otp")) return { sent: true };
+      verifies += 1;
+      return { verified: true, verificationProof: `fixture-proof-${verifies}`, expiresInSeconds: 0.08 };
+    },
+    onSubmit: async data => { submits.push(data); throw new Error("Temporary submission failure"); }, onCancel() {},
+  });
+  try {
+    await completeSignature();
+    await click("Sign and accept agreement"); await wait();
+    await input("agreement-email-code", "814263");
+    await click("Verify and accept agreement"); await wait();
+    assert.equal(submits.length, 1);
+    assert.ok(button("Retry submission"));
+    await wait(110);
+    assert.equal(button("Retry submission"), undefined);
+    assert.match(document.querySelector('[role="alert"]').textContent, /verification has expired/);
+    await click("Send a new code"); await wait();
+    await input("agreement-email-code", "814264");
+    await click("Verify and accept agreement"); await wait();
+    assert.equal(submits.length, 2);
+    assert.equal(submits[1].verificationProof, "fixture-proof-2");
+    assert.deepEqual(submits[1].signature, submits[0].signature);
   } finally { await view.cleanup(); }
 });
 
@@ -307,6 +452,7 @@ test("mounted public page shows exact saved commercial details, sender image, OT
   const originalFetch = globalThis.fetch;
   const calls = [];
   let finalizations = 0;
+  let acceptances = 0;
   let agreement = { required: true, status: "awaiting_customer", sender: { name: "Mara Finch", role: "Partnerships manager", email: "mara@example.test", signedAt: "2026-06-02T10:00:00Z", signature: { mode: "typed", typedName: "Mara Finch", data: png } }, contact: { name: "Asha Moreau", role: "Director", email: "asha@example.test" }, finalizationStatus: "pending", downloadAvailable: false };
   const quote = { quoteNumber: "Q-284", version: 4, status: "issued", currency: "GBP", terms: { text: "Payment due within 37 days of invoice." }, legalHtml: "<h2>Approved agreement terms</h2>", address: { addressee: "Accounts team", line1: "28 Mill Lane", city: "York", postalCode: "YO1 4QD" }, lines: [{ description: "Conference partnership", quantity: 1, quotedUnitPriceMinor: 287500, netMinor: 287500, taxMinor: 57500, grossMinor: 345000, taxRateBps: 2000, bundleComponents: [{ name: "Delegate places", quantity: 2 }, { name: "Exhibition space", quantity: 1 }] }], netMinor: 287500, taxMinor: 57500, grossMinor: 345000 };
   globalThis.fetch = async (url, options = {}) => {
@@ -316,7 +462,11 @@ test("mounted public page shows exact saved commercial details, sender image, OT
     if (!options.method) payload = { quote, agreement, branding: { name: "Institute" } };
     else if (url.endsWith("/send-otp")) payload = { sent: true };
     else if (url.endsWith("/verify-otp")) payload = { verified: true, verificationProof: "proof-for-this-signing-session", expiresInSeconds: 600 };
-    else if (url.endsWith("/accept")) { agreement = { ...agreement, status: "accepted", finalizationStatus: "failed", customer: { name: body.name, role: body.role, signature: body.signature } }; payload = { status: "accepted", agreement }; }
+    else if (url.endsWith("/accept")) {
+      acceptances += 1;
+      if (acceptances === 1) { status = 503; payload = { code: "conflict", message: "Acceptance temporarily unavailable" }; }
+      else { agreement = { ...agreement, status: "accepted", finalizationStatus: "failed", customer: { name: body.name, role: body.role, signature: body.signature } }; payload = { status: "accepted", agreement }; }
+    }
     else if (url.endsWith("/finalize")) {
       finalizations += 1;
       if (finalizations === 1) { status = 503; payload = { message: "PDF service temporarily unavailable" }; }
@@ -331,17 +481,25 @@ test("mounted public page shows exact saved commercial details, sender image, OT
     for (const expected of ["Version 4", "37 days", "28 Mill Lane", "Delegate places", "Exhibition space", "Approved agreement terms"]) assert.ok(text.includes(expected), expected);
     assert.equal(document.querySelector('img[alt="Sender signature of Mara Finch"]').getAttribute("src"), png);
     await click("Review and sign agreement");
-    await click("Send verification code"); await wait(10);
-    await input("agreement-email-code", "814263");
-    await click("Verify code"); await wait(10);
-    assert.ok(!document.body.textContent.includes("proof-for-this-signing-session"));
     await click("Type");
     const typed = document.querySelector('[data-testid="input-signature-typed-name-sales-customer"]');
     typed.id = "public-typed";
     await input("public-typed", "Asha Moreau"); await wait(340);
     await act(async () => document.querySelector('[role="checkbox"]').click());
     await click("Sign and accept agreement"); await wait(15);
+    assert.equal(calls.filter(call => call.url.endsWith("/accept")).length, 0);
+    await input("agreement-email-code", "814263");
+    await click("Verify and accept agreement"); await wait(15);
+    assert.ok(!document.body.textContent.includes("proof-for-this-signing-session"));
+    assert.match(document.querySelector('[role="dialog"]').textContent, /Acceptance temporarily unavailable/);
+    assert.ok(button("Retry submission"));
+    await click("Retry submission"); await wait(15);
     const accept = calls.find(call => call.url.endsWith("/accept"));
+    const attempts = calls.filter(call => call.url.endsWith("/accept"));
+    assert.equal(attempts.length, 2);
+    assert.deepEqual(attempts[1].body, attempts[0].body);
+    assert.ok(attempts[0].body.idempotencyKey);
+    assert.equal(calls.filter(call => call.url.endsWith("/verify-otp")).length, 1);
     assert.equal(accept.body.verificationProof, "proof-for-this-signing-session");
     assert.equal(accept.body.signature.mode, "typed");
     assert.ok(document.body.textContent.includes("Agreement accepted"));
@@ -351,7 +509,7 @@ test("mounted public page shows exact saved commercial details, sender image, OT
     await click("Retry / check signed PDF"); await wait(15);
     const download = [...document.querySelectorAll("a")].find(el => el.textContent === "Download signed agreement PDF");
     assert.equal(download.getAttribute("href"), "/api/public/sales-quote/fixture-token/agreement-download");
-    assert.equal(calls.filter(call => call.url.endsWith("/accept")).length, 1);
+    assert.equal(calls.filter(call => call.url.endsWith("/accept")).length, 2);
   } finally { await view.cleanup(); globalThis.fetch = originalFetch; }
 });
 

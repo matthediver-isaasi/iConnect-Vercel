@@ -129,7 +129,7 @@ export default function PublicSalesQuote() {
     const errorStatus = outcomeKey(query.error.payload?.outcome || query.error.payload?.status || query.error.payload?.code || (query.error.status === 410 ? "expired" : "unavailable"));
     return <main className="min-h-screen bg-slate-50 px-4 py-16"><Outcome status={errorStatus} message={query.error.message} /></main>;
   }
-  if (outcomeCopy[decisionErrorStatus]) return <main className="min-h-screen bg-slate-50 px-4 py-16"><Outcome status={decisionErrorStatus} message={submit.error.message} /></main>;
+  if (outcomeCopy[decisionErrorStatus] && !(hasAgreement && decision === "accept")) return <main className="min-h-screen bg-slate-50 px-4 py-16"><Outcome status={decisionErrorStatus} message={submit.error.message} /></main>;
   const acceptedAgreement = hasAgreement && ["accepted", "already_accepted", "converted"].includes(status);
   if ((!actionable || result) && !acceptedAgreement) return <main className="min-h-screen bg-slate-50 px-4 py-16"><Outcome status={status} message={result?.message} /></main>;
 
@@ -154,7 +154,7 @@ export default function PublicSalesQuote() {
       {!hasAgreement && <BillingSchedule schedule={billingScheduleOf(quote)} />}
       {hasAgreement && <AgreementDocument quote={quote} sender={agreement?.sender} recipient={agreement?.customer || agreement?.contact} />}
       {submit.error && <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800"><AlertTriangle className="mr-2 inline h-4 w-4" />{submit.error.message}</div>}
-      {!acceptedAgreement && (decision ? hasAgreement && decision === "accept" ? <AgreementDecisionForm agreement={agreement || {}} path={path} request={publicRequest} pending={submit.isPending} onCancel={() => setDecision("")} onSubmit={form => submit.mutate(form)} /> : <DecisionForm decision={decision} pending={submit.isPending} onCancel={() => setDecision("")} onSubmit={(form) => submit.mutate(form)} /> : <div className="flex flex-col gap-3 sm:flex-row sm:justify-end"><Button size="lg" variant="outline" className="border-rose-300 text-rose-700" onClick={() => setDecision("decline")}>Decline</Button><Button size="lg" style={{ backgroundColor: primary }} onClick={() => setDecision("accept")}>{hasAgreement ? "Review and sign agreement" : "Accept quote"}</Button></div>)}
+       {!acceptedAgreement && (decision ? hasAgreement && decision === "accept" ? <AgreementDecisionForm agreement={agreement || {}} path={path} request={publicRequest} pending={submit.isPending} onCancel={() => setDecision("")} onSubmit={form => submit.mutateAsync(form)} /> : <DecisionForm decision={decision} pending={submit.isPending} onCancel={() => setDecision("")} onSubmit={(form) => submit.mutate(form)} /> : <div className="flex flex-col gap-3 sm:flex-row sm:justify-end"><Button size="lg" variant="outline" className="border-rose-300 text-rose-700" onClick={() => setDecision("decline")}>Decline</Button><Button size="lg" style={{ backgroundColor: primary }} onClick={() => setDecision("accept")}>{hasAgreement ? "Review and sign agreement" : "Accept quote"}</Button></div>)}
     </div>
   </main>;
 }
