@@ -2,7 +2,6 @@ import { useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { ChevronDown, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -70,26 +69,28 @@ export default function MultiSelectFilter({
         </Button>
       </PopoverTrigger>
       <PopoverContent
-        className="p-0 min-w-[var(--radix-popover-trigger-width)] w-[var(--radix-popover-trigger-width)] max-w-[320px]"
+        className="p-0 w-max min-w-[min(var(--radix-popover-trigger-width),calc(100vw-2rem))] max-w-[min(32rem,calc(100vw-2rem))]"
         align="start"
+        collisionPadding={16}
       >
-        <ScrollArea className={options.length > 8 ? "h-[260px]" : ""}>
+        <div className="max-h-[min(260px,var(--radix-popover-content-available-height))] overflow-y-auto">
           <div className="p-1">
             {options.map((option) => (
               <label
                 key={option.value}
-                className="flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer hover-elevate"
+                className="flex items-start gap-2 px-2 py-1.5 rounded-md cursor-pointer hover-elevate"
                 data-testid={testId ? `${testId}-option-${option.value}` : undefined}
               >
                 <Checkbox
+                  className="mt-0.5 shrink-0"
                   checked={selected.includes(option.value)}
                   onCheckedChange={() => toggleValue(option.value)}
                 />
-                <span className="text-sm truncate">{option.label}</span>
+                <span className="min-w-0 text-sm whitespace-normal [overflow-wrap:anywhere]">{option.label}</span>
               </label>
             ))}
           </div>
-        </ScrollArea>
+        </div>
       </PopoverContent>
     </Popover>
   );
