@@ -24,9 +24,19 @@ multi-session and multi-day editors use the same boolean.
 ## Storage and rollout
 
 Required migration: `supabase/migrations/20261205_event_waiting_lists.sql`.
-It has **not been applied to a live database** as part of implementation.
-Apply to approved DEST before deploying code that selects the new event flag.
-SOURCE is not a rollout target.
+Applied with owner approval to live DEST (`lvmzliemqnieeoruhkik`) on
+2026-10-25. SHA-256:
+`0aa857dae09dcab509f29b781962a9b0845dc228a15d65cba4427f71fc03bea6`.
+SOURCE was unchanged. No migrations remain pending for this feature.
+Code deployment remains a separate step.
+
+Verified before commit: both protected tables have RLS enabled and no
+anon/authenticated table grants; both registration/withdrawal operations
+are service-only with pinned search paths. Both booking guards are enabled.
+All existing events remain out of waiting-list mode; both new tables are empty.
+Full-row fingerprints confirmed all 5,243 simple and 49 complex booking rows
+were unchanged within the migration transaction. Post-commit REST reads
+confirmed the API schema recognises both tables and both event flags.
 
 Protected service-only registration/entry tables separate interest from every
 booking/payment/CPD consumer. Transactional creation is idempotent and atomic for
