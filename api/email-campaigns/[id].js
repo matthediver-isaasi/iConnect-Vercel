@@ -1,6 +1,6 @@
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { supabase } from '../_lib/database.js';
-import { campaignLifecycle } from '../_lib/campaignLifecycle.js';
+import { campaignLifecycle, campaignLifecycleError } from '../_lib/campaignLifecycle.js';
 import { readCampaignTimings } from '../_lib/campaignTimings.js';
 import { getCampaign, updateCampaign, confirmCampaignCategoryReconfiguration, deleteCampaign, duplicateCampaign, cancelCampaign, pauseCampaign, resumeCampaign, getCampaignStats, getClickHeatmapData, getCampaignRecipients } from '../_lib/campaignService.js';
 
@@ -26,6 +26,21 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'GET') {
+    if (req.query.removal === 'true') {
+      if (!tenantContext.isAuthenticated) return res.status(401).json({ error: 'Authentication required' });
+      if (tenantContext.tenantMismatch || !await hasAdminAccess(tenantContext)) {
+        return res.status(403).json({ error: 'Tenant administrator access required' });
+      }
+      const { data, error } = await supabase.rpc('campaign_removal_eligibility', {
+        p_campaign: id, p_tenant: tenantId,
+      });
+      if (error) {
+        const result = campaignLifecycleError(error);
+        return res.status(result.statusCode).json(result);
+      }
+      if (!data) return res.status(503).json({ error: 'Removal eligibility is unavailable.' });
+      return res.json(data);
+    }
     if (req.query.timings === 'true') {
       if (!tenantContext.isAuthenticated) return res.status(401).json({ error: 'Authentication required' });
       if (tenantContext.tenantMismatch || !await hasAdminAccess(tenantContext)) {

@@ -81,6 +81,32 @@ test('service lifecycle makes exactly one tenant-scoped RPC and never deletes ch
   assert.equal(calls.length, 1);
 });
 
+test('removal discovery requires tenant admin and uses session scope; database errors fail closed', async () => {
+  for (const [context,isAdmin,expected] of [[admin,true,200],[admin,false,403],
+    [{...admin,isAuthenticated:false},true,401],[{...admin,tenantMismatch:true},true,403]]) {
+    const calls=[];
+    const handler=await route('./[id].js',{
+      getTenantContext:async()=>context,hasAdminAccess:async()=>isAdmin,
+      campaignLifecycleError,
+      supabase:{rpc:async(...args)=>{calls.push(args);return {data:{archiveAllowed:true,deleteAllowed:true,queued:1,processing:0}}}},
+    });
+    const res=response();
+    await handler({method:'GET',query:{id:'campaign',removal:'true',tenantId:'attacker'}},res);
+    assert.equal(res.statusCode,expected);
+    assert.deepEqual(calls,expected===200?[['campaign_removal_eligibility',{p_campaign:'campaign',p_tenant:'tenant-a'}]]:[]);
+  }
+  for(const error of [{code:'PGRST202'},{code:'P0002'},{code:'XX000'}]) {
+    const handler=await route('./[id].js',{
+      getTenantContext:async()=>admin,hasAdminAccess:async()=>true,campaignLifecycleError,
+      supabase:{rpc:async()=>({error})},
+    });
+    const res=response();
+    await handler({method:'GET',query:{id:'campaign',removal:'true'}},res);
+    assert.equal(res.statusCode,campaignLifecycleError(error).statusCode);
+    assert.notEqual(res.body.archiveAllowed,true);
+  }
+});
+
 test('missing migration fails closed; protected FKs provide Archive guidance', async () => {
   for (const code of ['42883', '42703', 'PGRST202', 'PGRST204']) {
     const db = { rpc: async () => ({ error: { code } }) };
@@ -159,6 +185,11 @@ test('actual generic EmailCampaign PATCH/PUT cannot edit archived content or cle
         getEntityTenantScope: () => 'tenant', TENANT_SCOPE: { GLOBAL: 'global' },
         rejectGenericCpdPointsEntity: () => false,
         rejectGenericServerOwnedEntity: () => false,
+        handleProgramEntitlementEntity: async () => false,
+        handleVoucherEntity: async () => false,
+        authorizeVoucherSettingWrite: async () => false,
+        enforceInvoicingAddressBoundary: async () => false,
+        authorizeCarouselConsentWrite: async () => null,
         gatePublicTicketMemberPolicy: async (_entity, body) => body,
         isCustomObjectStorageEntity: () => false,
         hasGenericCommitmentFields: () => false,

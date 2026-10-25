@@ -192,9 +192,25 @@ export default function EmailCampaigns() {
     ),
     refetchInterval: campaigns.some(c => ['sending', 'preparing', 'paused'].includes(c.status)) ? 5000 : false
   });
-  const removalBlocked = (campaign) => campaign && (
-    ['scheduled', 'preparing', 'sending', 'paused'].includes(campaign.status) || Number(campaign.pending_count) > 0
-  );
+  const { data: removal, error: removalError, isFetching: removalLoading } = useQuery({
+    queryKey: ['email-campaigns', 'removal', campaignToDelete?.id],
+    enabled: showDeleteConfirm && !!campaignToDelete?.id && lifecycleReady,
+    queryFn: async () => {
+      const data = await readCampaignResponse(
+        await fetch(`/api/email-campaigns/${campaignToDelete.id}?removal=true`, { credentials: 'include' }),
+        'Unable to verify removal eligibility. Refresh and try again.'
+      );
+      if (typeof data?.archiveAllowed !== 'boolean' || typeof data?.deleteAllowed !== 'boolean'
+        || !Number.isSafeInteger(data?.queued) || data.queued < 0
+        || !Number.isSafeInteger(data?.processing) || data.processing < 0) {
+        throw new Error('Removal eligibility is incomplete. Refresh and try again.');
+      }
+      return data;
+    },
+    staleTime: 0,
+    retry: false,
+  });
+  const removalBlocked = (action) => removalLoading || !!removalError || removal?.[`${action}Allowed`] !== true;
   const archivedGuard = (campaign) => {
     if (!campaign?.archived_at) return false;
     toast.error('Archived campaigns are read-only. Restore or duplicate as a draft first.');
@@ -202,7 +218,7 @@ export default function EmailCampaigns() {
   };
   const handleLifecycleAction = async (action, campaign = campaignToDelete) => {
     if (!campaign || lifecycleBusy.current || !lifecycleReady) return;
-    if (action !== 'restore' && removalBlocked(campaign)) return;
+    if (action !== 'restore' && removalBlocked(action)) return;
 
     lifecycleBusy.current = true;
     setIsDeleting(true);
@@ -1591,17 +1607,22 @@ export default function EmailCampaigns() {
             </DialogDescription>
           </DialogHeader>
           <p className="text-sm">Delete permanently cannot be undone. It removes this campaign, its recipient history, tracking statistics and campaign inbox entries. It does not recall emails already delivered to recipients’ inboxes. Headline statistics will decrease.</p>
-          {removalBlocked(campaignToDelete) && <p role="alert" className="text-sm text-destructive">Archive and permanent deletion are blocked while delivery is active, scheduled or paused, or recipients remain pending ({campaignToDelete?.pending_count || 0}). Stop the campaign and wait for delivery to finish before trying again.</p>}
+          {removalLoading && <p role="status">Checking delivery work before removal…</p>}
+          {removalError && <p role="alert" className="text-sm text-destructive">{removalError.message}</p>}
+          {!removalLoading && !removalError && removal && <>
+            <p className="text-sm text-muted-foreground">Queued recipients: {removal.queued}. Processing or sending: {removal.processing}.</p>
+            {(removal.archiveReason || removal.deleteReason) && <p role="alert" className="text-sm text-destructive">{removal.archiveReason || removal.deleteReason}</p>}
+          </>}
           {lifecycleError && <p role="alert" className="text-sm text-destructive">{lifecycleError}</p>}
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowDeleteConfirm(false)} disabled={isDeleting}>
               Cancel
             </Button>
             {!campaignToDelete?.archived_at && <Button variant="outline" onClick={() => handleLifecycleAction('archive')}
-              disabled={isDeleting || !lifecycleReady || removalBlocked(campaignToDelete)} data-testid="button-confirm-archive">
+              disabled={isDeleting || !lifecycleReady || removalBlocked('archive')} data-testid="button-confirm-archive">
               Archive
             </Button>}
-            <Button variant="destructive" onClick={() => handleLifecycleAction('delete')} disabled={isDeleting || !lifecycleReady || removalBlocked(campaignToDelete)} data-testid="button-confirm-delete">
+            <Button variant="destructive" onClick={() => handleLifecycleAction('delete')} disabled={isDeleting || !lifecycleReady || removalBlocked('delete')} data-testid="button-confirm-delete">
               {isDeleting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Working...</> : 'Delete permanently'}
             </Button>
           </DialogFooter>

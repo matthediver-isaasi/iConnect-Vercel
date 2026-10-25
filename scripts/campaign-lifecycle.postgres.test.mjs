@@ -72,6 +72,8 @@ test('campaign lifecycle: isolation, preservation, work fencing, atomic cascades
     sql(migration); sql(migration);
     const indexMigration=readFileSync('supabase/migrations/202612310007_campaign_delete_fk_indexes.sql','utf8');
     sql(indexMigration); sql(indexMigration);
+    const removalMigration=readFileSync('supabase/migrations/202701010001_cancelled_campaign_removal.sql','utf8');
+    sql(removalMigration); sql(removalMigration);
     for(let i=0;i<2;i++) {
       const db=new pg.Client({host:h.socket,port:h.port,user:'postgres',database:'postgres'});
       await db.connect(); clients.push(db);
@@ -88,6 +90,87 @@ test('campaign lifecycle: isolation, preservation, work fencing, atomic cascades
       assert.fail('Expected the concurrent operation to wait on a database lock');
     };
     const lifecycle=(action,t=tenant)=>db.query('SELECT campaign_lifecycle($1,$2,$3) result',[c,t,action]);
+    const eligibility=async()=> (await db.query('SELECT campaign_removal_eligibility($1,$2) result',[c,tenant])).rows[0].result;
+    // Cancelled pending rows are not claims. No recipient status is rewritten.
+    for (const action of ['archive','delete']) {
+      await db.query("INSERT INTO email_campaign(id,tenant_id,status) VALUES($1,$2,'cancelled')",[c,tenant]);
+      await db.query("INSERT INTO email_campaign_recipient(id,campaign_id,status) VALUES($1,$2,'pending')",[r,c]);
+      assert.deepEqual(await eligibility(),{queued:1,processing:0,archiveAllowed:true,deleteAllowed:true,archiveReason:null,deleteReason:null});
+      await assert.rejects(lifecycle(action,other),/not found/);
+      await assert.rejects(db.query('SELECT campaign_removal_eligibility($1,$2)',[c,other]),/not found/);
+      // Pending with delivery evidence is not provably unsent.
+      for (const field of ['sent_at','mailgun_message_id']) {
+        await db.query(`UPDATE email_campaign_recipient SET ${field}=$1 WHERE id=$2`,[field==='sent_at'?'2026-01-01':'provider-id',r]);
+        assert.equal((await eligibility()).archiveAllowed,false);
+        await assert.rejects(lifecycle(action),/unresolved recipient/);
+        await db.query(`UPDATE email_campaign_recipient SET ${field}=NULL WHERE id=$1`,[r]);
+      }
+      for (const state of ['processing','sending']) {
+        await db.query("UPDATE email_campaign SET status='sending' WHERE id=$1",[c]);
+        await db.query('UPDATE email_campaign_recipient SET status=$1 WHERE id=$2',[state,r]);
+        await db.query("UPDATE email_campaign SET status='cancelled' WHERE id=$1",[c]);
+        assert.equal((await eligibility()).processing,1);
+        await assert.rejects(lifecycle(action),/unresolved recipient/);
+        await db.query("UPDATE email_campaign_recipient SET status='pending' WHERE id=$1",[r]);
+      }
+      const lease=(await db.query('SELECT campaign_test_send_begin($1,$2) token',[c,tenant])).rows[0].token;
+      await assert.rejects(lifecycle(action),/unresolved test-send/);
+      await db.query('SELECT campaign_test_send_end($1,$2,$3)',[c,tenant,lease]);
+      await db.query("INSERT INTO campaign_preparation(id,campaign_id,tenant_id,snapshot,phase,lease_until) VALUES($1,$2,$3,'{}','complete',now()+interval '1 hour')",[r,c,tenant]);
+      await assert.rejects(lifecycle(action),/unresolved preparation/);
+      await db.query("UPDATE campaign_preparation SET lease_until=NULL,phase='resolve'");
+      await assert.rejects(lifecycle(action),/unresolved preparation/);
+      await db.query("UPDATE campaign_preparation SET phase='complete'");
+      // Removal first: a concurrent resume cannot revive removed/archived work.
+      await db.query('BEGIN');
+      await lifecycle(action);
+      const resume=worker.query("UPDATE email_campaign SET status='sending' WHERE id=$1 AND status='cancelled' RETURNING id",[c]);
+      const resumed=action==='archive'?assert.rejects(resume,/Archived/):resume;
+      await waitForLock(db,workerPid);
+      await db.query('COMMIT');
+      if(action==='archive') {
+        await resumed;
+        assert.equal((await db.query('SELECT status FROM email_campaign_recipient WHERE id=$1',[r])).rows[0].status,'pending');
+        await assert.rejects(worker.query("UPDATE email_campaign_recipient SET status='processing' WHERE id=$1",[r]),/Archived/);
+        await lifecycle('restore');
+        await lifecycle('delete');
+      } else {
+        assert.equal((await resumed).rowCount,0);
+        assert.equal((await worker.query("UPDATE email_campaign_recipient SET status='processing' WHERE id=$1 RETURNING id",[r])).rowCount,0);
+      }
+      // Resume/claim first: removal waits, then sees committed delivery work.
+      await db.query("INSERT INTO email_campaign(id,tenant_id,status) VALUES($1,$2,'cancelled')",[c,tenant]);
+      await db.query("INSERT INTO email_campaign_recipient(id,campaign_id,status) VALUES($1,$2,'pending')",[r,c]);
+      await worker.query('BEGIN');
+      await worker.query("UPDATE email_campaign SET status='sending' WHERE id=$1",[c]);
+      await worker.query("UPDATE email_campaign_recipient SET status='processing' WHERE id=$1",[r]);
+      const blocked=assert.rejects(lifecycle(action),/unresolved/);
+      await waitForLock(worker,dbPid);
+      await worker.query('COMMIT'); await blocked;
+      await db.query("UPDATE email_campaign SET status='cancelled' WHERE id=$1",[c]);
+      await assert.rejects(lifecycle(action),/unresolved recipient/);
+      await db.query("UPDATE email_campaign_recipient SET status='pending' WHERE id=$1",[r]);
+      await lifecycle('delete');
+    }
+    for (const action of ['archive','delete']) {
+      await db.query("INSERT INTO email_campaign(id,tenant_id,status) VALUES($1,$2,'cancelled')",[c,tenant]);
+      await db.query("INSERT INTO email_campaign_recipient(id,campaign_id,status) VALUES($1,$2,'pending')",[r,c]);
+      await db.query('BEGIN');
+      await lifecycle(action);
+      const claim=worker.query("UPDATE email_campaign_recipient SET status='processing' WHERE id=$1 AND status='pending' RETURNING id",[r]);
+      const claimed=action==='archive'?assert.rejects(claim,/Archived/):claim;
+      await waitForLock(db,workerPid);
+      await db.query('COMMIT');
+      if (action==='archive') { await claimed; await lifecycle('delete'); }
+      else assert.equal((await claimed).rowCount,0);
+    }
+    for (const status of ['draft','sent','failed']) {
+      await db.query('INSERT INTO email_campaign(id,tenant_id,status) VALUES($1,$2,$3)',[c,tenant,status]);
+      await db.query("INSERT INTO email_campaign_recipient(id,campaign_id,status) VALUES($1,$2,'pending')",[r,c]);
+      for(const action of ['archive','delete']) await assert.rejects(lifecycle(action),/unresolved/);
+      await db.query("UPDATE email_campaign SET status='cancelled' WHERE id=$1",[c]);
+      await lifecycle('delete');
+    }
     await db.query(`INSERT INTO email_campaign(id,tenant_id,status) VALUES($1,$2,'sent')`,[c,tenant]);
     await assert.rejects(lifecycle('archive',other),/Campaign not found/);
     await assert.rejects(lifecycle('invalid'),/Invalid/);
@@ -176,6 +259,10 @@ test('campaign lifecycle: isolation, preservation, work fencing, atomic cascades
     await db.query(`INSERT INTO campaign_survey_delivery(id,tenant_id,campaign_id,campaign_recipient_id,purpose,
       booking_source,booking_id,event_type,event_id,source_email,destination_email)
       VALUES($1,$2,$3,$1,'live','standard',$1,'event',$1,'fixture@example.invalid','fixture@example.invalid')`,[r,tenant,c]);
+    await db.query("UPDATE email_campaign SET status='cancelled' WHERE id=$1",[c]);
+    await db.query("UPDATE email_campaign_recipient SET status='pending' WHERE id=$1",[r]);
+    for (const action of ['archive','delete']) await assert.rejects(lifecycle(action),/unresolved survey/);
+    assert.equal((await eligibility()).archiveAllowed,false);
     await db.query("UPDATE campaign_survey_delivery SET status='accepted',resolved_at=now()");
     await db.query("UPDATE email_campaign_recipient SET status='sent' WHERE id=$1",[r]);
     await db.query("UPDATE email_campaign SET status='sent' WHERE id=$1",[c]);
@@ -321,6 +408,7 @@ test('campaign lifecycle: isolation, preservation, work fencing, atomic cascades
     assert.equal(summary.totalCampaigns,1100); assert.equal(summary.draftCount,1100);
     assert.equal(summary.scheduledCount,0); assert.equal(summary.avgOpenRate,0);
     for(const signature of ['campaign_lifecycle(uuid,uuid,text)','campaign_summary(uuid)','campaign_lifecycle_ready()',
+      'campaign_removal_eligibility(uuid,uuid)',
       'campaign_test_send_begin(uuid,uuid)','campaign_test_send_end(uuid,uuid,uuid)']) {
       assert.equal(sql(`SELECT has_function_privilege('anon','${signature}','EXECUTE') OR has_function_privilege('authenticated','${signature}','EXECUTE')`),'f');
       assert.equal(sql(`SELECT has_function_privilege('service_role','${signature}','EXECUTE')`),'t');

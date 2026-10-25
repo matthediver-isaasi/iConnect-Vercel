@@ -2,6 +2,74 @@
 
 ## Rollout status
 
+### Cancelled-campaign removal forward fix (not applied)
+
+`supabase/migrations/202701010001_cancelled_campaign_removal.sql` is required
+for the updated removal modal. It has been applied only to disposable local
+PostgreSQL test databases, **not to DEST or SOURCE**. Separate owner approval
+is required before production application. The older rollout status below
+does not imply that this forward fix is installed.
+
+Read-only inspection on 2026-10-25 used the pinned DEST SQL connection
+(`lvmzliemqnieeoruhkik`), verified TLS and a READ ONLY transaction. The exact
+Graduate Futures Institute campaign “Board vacancies mailer 2.10.26” is cancelled.
+Recipient counts: processing 1, opened 59, clicked 44, delivered 104, bounced 1;
+pending 0. The processing row has no sent timestamp or provider message ID,
+which does **not** prove it was never submitted. Preparation is complete with
+no live lease, and there are no test-send leases or survey-delivery rows.
+Its actual blocker is unresolved processing, so this campaign **must still be
+blocked** after rollout until separately authorized delivery reconciliation.
+No live data or provider work was changed and no recipient identities were exposed.
+
+Offline review:
+
+```sh
+node scripts/apply-cancelled-campaign-removal.mjs
+```
+
+After reviewing the SQL and obtaining separate approval for its printed SHA:
+
+```sh
+node scripts/apply-cancelled-campaign-removal.mjs --apply --review-sha256=<approved-hash>
+```
+
+The runner pins DEST and verifies TLS, applies transactionally and verifies
+permissions. Apply this forward migration before releasing the matching UI/API.
+The new discovery endpoint fails closed if its RPC is missing. A source merge
+does not migrate the external database or prove the published frontend updated.
+Verify the new endpoint read-only through an authenticated tenant-admin session;
+do not remove the reported campaign as a rollout test.
+
+Only cancelled campaigns' pending recipients with neither `sent_at` nor
+`mailgun_message_id` become non-blocking. Processing/sending, active preparation,
+leases, pending survey delivery and protected survey provenance remain guarded.
+The modal reads action-specific eligibility from the same database assertion
+used by the lifecycle RPC and delete trigger; combined `pending_count` remains
+unchanged for reporting/resume. Discovery is advisory; mutations revalidate
+under the existing parent row lock. Restore of a cancelled archived campaign
+retains pending rows without sending them.
+
+Verification commands:
+
+```sh
+node --test scripts/campaign-lifecycle.postgres.test.mjs \
+  scripts/apply-cancelled-campaign-removal.test.mjs \
+  api/email-campaigns/lifecycle.test.mjs \
+  api/_lib/campaignService.concurrency.test.mjs \
+  client/src/components/EmailCampaigns.lifecycle.mounted.test.mjs
+```
+
+The removal browser cases also pass with
+`npx playwright test --config tests/campaign-lifecycle-browser.config.mjs --grep-invert 'outcomes separate exclusions'`.
+The excluded pre-existing outcome-summary case expects a summary inside the
+campaign list row that the current UI does not render; it is unrelated to
+removal eligibility. The normal preview cannot verify the signed-in screen in
+this workspace (tenant-not-found on the legacy SOURCE-backed preview).
+Removal UI evidence therefore comes from isolated Chromium and mounted React
+tests, not a signed-in production session.
+
+### Original lifecycle rollout
+
 Implementation and isolated verification are complete. **The migration was
 applied to verified DEST on 2026-10-19 following the user's request to enable
 archive/delete. No SOURCE or DEST campaign was archived, restored, deleted or

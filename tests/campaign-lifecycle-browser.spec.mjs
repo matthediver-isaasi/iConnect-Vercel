@@ -57,8 +57,9 @@ const seed = () => [
   html_content: '<h2>Retained campaign preview</h2><p>Member news remains available after archiving.</p>'
 }));
 
-async function fixture(page, { schemaReady = true, deliveryOutcomes = false } = {}) {
+async function fixture(page, { schemaReady = true, deliveryOutcomes = false, cancelled = false, processing = 0 } = {}) {
   let campaigns = seed();
+  if (cancelled) Object.assign(campaigns[0], {status:'cancelled',pending_count:1,queued_count:processing?0:1,processing_count:processing});
   const deliverySummary = {
     sent: 4826, excluded: 150, failed: 0, queued: 0, processing: 15,
     reconciliationAlert: { count: 15, message: '15 recipients await reconciliation. Campaign started 2026-10-19T09:00:00.000Z; individual processing start times are not recorded.' }
@@ -107,6 +108,13 @@ async function fixture(page, { schemaReady = true, deliveryOutcomes = false } = 
     const match = url.pathname.match(/^\/api\/email-campaigns\/(sent-a|sent-b|draft)$/);
     if (match) {
       const campaign = campaigns.find(item => item.id === match[1]);
+      if (url.searchParams.has('removal')) {
+        if (!campaign) return reply({error:'Campaign not found'},404);
+        const blocked = (campaign.processing_count || 0)>0;
+        return reply({queued:campaign.queued_count || 0,processing:campaign.processing_count || 0,
+          archiveAllowed:!blocked,deleteAllowed:!blocked,
+          archiveReason:blocked?'Unresolved processing/provider delivery':null});
+      }
       if (request.method() === 'POST' || request.method() === 'DELETE') {
         const action = request.method() === 'DELETE' ? 'delete' : request.postDataJSON().action;
         mutations.push({ method: request.method(), action, id: match[1], body: request.postData() });
@@ -152,6 +160,29 @@ function assertIsolated(state) {
   expect(state.unexpected).toEqual([]);
   expect(state.browserErrors).toEqual([]);
 }
+
+test('cancelled queued removal and processing protection use separate authoritative counts', async ({ page }) => {
+  let state=await fixture(page,{cancelled:true});
+  await page.getByTestId('button-delete-sent-a').click();
+  await expect(page.getByRole('dialog')).toContainText('Queued recipients: 1. Processing or sending: 0.');
+  await expect(page.getByTestId('button-confirm-archive')).toBeEnabled();
+  await expect(page.getByTestId('button-confirm-delete')).toBeEnabled();
+  await screenshot(page,'cancelled-pending-removal');
+  await page.getByTestId('button-confirm-archive').click();
+  await expect(page.getByTestId('row-campaign-sent-a')).toHaveCount(0);
+  expect(state.mutations.map(m=>m.action)).toEqual(['archive']);
+  assertIsolated(state);
+  await page.unroute('**/*');
+  state=await fixture(page,{cancelled:true,processing:1});
+  await page.getByTestId('button-delete-sent-a').click();
+  await expect(page.getByRole('dialog')).toContainText('Unresolved processing/provider delivery');
+  await expect(page.getByTestId('button-confirm-archive')).toBeDisabled();
+  await expect(page.getByTestId('button-confirm-delete')).toBeDisabled();
+  await expect(page.getByRole('dialog')).not.toContainText('Stop the campaign');
+  await screenshot(page,'cancelled-processing-protected');
+  expect(state.mutations).toEqual([]);
+  assertIsolated(state);
+});
 
 test('outcomes separate exclusions and uncertain sends, offer inspection not retry, and filter details', async ({ page }) => {
   const state = await fixture(page, { deliveryOutcomes: true });

@@ -14,6 +14,18 @@ A convenient removal action must not silently change delivery intent.
 explicit delivery reconciliation authority rather than treating an archive or
 delete request as permission to intervene in sending.
 
+Cancelled campaigns may retain genuinely unsent queued recipients, but a
+combined pending count is not evidence that delivery is idle. Processing with
+no provider ID or sent timestamp is still ambiguous, not provably unsent.
+
+**Why:** Read-only investigation of an owner-reported cancelled campaign found
+that its displayed pending recipient was actually processing. Treating the
+combined count as a queue would have bypassed unresolved provider work.
+
+**How to apply:** Permit retention operations only for definitively unsent
+pending rows on cancelled parents; keep processing, sending, preparation,
+test-send and survey protections independent. Do not reconcile as a removal side effect.
+
 Assess delete cost against global child-history volume, not just the selected
 campaign's recipient count; source migrations do not prove live FK indexes exist.
 

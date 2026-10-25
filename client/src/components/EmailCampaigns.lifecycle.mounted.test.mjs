@@ -48,15 +48,27 @@ async function waitFor(predicate, label) {
   for (let i = 0; i < 100; i++) { if (predicate()) return; await settle(); }
   assert.fail(`Timed out waiting for ${label}`);
 }
-const click = async element => { assert.ok(element); await act(async () => element.click()); };
+const click = async element => { assert.ok(element); await act(async () => element.click()); await settle(); };
 const byId = id => document.querySelector(`[data-testid="${id}"]`);
-async function mount({ records = [campaign], ready = true, mutationError = null, listError = null, summaryError = null, dataGate = null, readinessGate = null } = {}) {
+async function mount({ records = [campaign], ready = true, mutationError = null, listError = null, summaryError = null, dataGate = null, readinessGate = null, removalResult, removalFailure = false, removalGate = null } = {}) {
   let items = records.map(item => ({ ...item }));
   const calls = [];
   globalThis.fetch = async (url, options = {}) => {
     calls.push({ url, options });
     assert.equal(options.credentials, 'include');
     const parsed = new URL(url, dom.window.location.origin);
+    if (parsed.searchParams.has('removal')) {
+      if (removalGate) await removalGate;
+      if (removalFailure) return json({error:'Unable to verify removal eligibility'},503);
+      const blocked = ['scheduled','preparing','sending','paused'].includes(items[0].status)
+        || (items[0].status !== 'cancelled' && items[0].pending_count > 0);
+      return json(removalResult === undefined ? {
+        queued: items[0].pending_count || 0, processing: 0,
+        archiveAllowed: !blocked, deleteAllowed: !blocked,
+        archiveReason: blocked ? 'Campaign has unresolved delivery work' : null,
+        deleteReason: blocked ? 'Campaign has unresolved delivery work' : null,
+      } : removalResult);
+    }
     if (parsed.searchParams.has('lifecycle')) {
       if (readinessGate) await readinessGate;
       return ready ? json({ ready: true }) : json({ error: 'Archive schema migration required' }, 503);
@@ -183,7 +195,7 @@ test('pending and active delivery block archive/delete with explanation', async 
     const view = await mount({ records: [{ ...campaign, ...overrides }] });
     try {
       await click(byId('button-delete-campaign-1'));
-      assert.match(document.querySelector('[role="dialog"] [role="alert"]').textContent, /Stop the campaign/);
+      assert.match(document.querySelector('[role="dialog"] [role="alert"]').textContent, /unresolved delivery/);
       assert.equal(byId('button-confirm-archive').disabled, true);
       assert.equal(byId('button-confirm-delete').disabled, true);
       assert.equal(view.calls.filter(call => call.options.method).length, 0);
@@ -200,6 +212,55 @@ test('server conflict remains visible in dialog without removing campaign or cla
     assert.match(document.querySelector('[role="dialog"]').textContent, /Delivery started/);
     assert.ok(byId('row-campaign-campaign-1'));
   } finally { await view.cleanup(); }
+});
+
+test('cancelled queued recipients can archive or delete through confirmation without resuming', async () => {
+  for (const action of ['archive','delete']) {
+    const view=await mount({records:[{...campaign,status:'cancelled',pending_count:1}]});
+    try {
+      await click(byId('button-delete-campaign-1'));
+      assert.match(document.querySelector('[role="dialog"]').textContent,/Queued recipients: 1. Processing or sending: 0/);
+      assert.equal(byId(`button-confirm-${action}`).disabled,false);
+      await click(byId(`button-confirm-${action}`));
+      await waitFor(()=>!byId('row-campaign-campaign-1'),'removed campaign');
+      assert.equal(view.calls.filter(c=>c.options.method).length,1);
+    } finally {await view.cleanup();}
+  }
+});
+
+test('cancelled processing and independent blockers use server reasons; incomplete discovery fails closed', async () => {
+  for (const options of [
+    {removalResult:{queued:0,processing:1,archiveAllowed:false,deleteAllowed:false,archiveReason:'Unresolved processing/provider delivery'}},
+    {removalResult:{queued:1,processing:0,archiveAllowed:false,deleteAllowed:false,archiveReason:'Unresolved preparation lease'}},
+    {removalResult:{queued:1,processing:0,archiveAllowed:false,deleteAllowed:false,archiveReason:'Unresolved test-send work'}},
+    {removalResult:{queued:1,processing:0,archiveAllowed:false,deleteAllowed:false,archiveReason:'Unresolved survey delivery'}},
+    {removalResult:{}}, {removalResult:null}, {removalFailure:true},
+  ]) {
+    const view=await mount({...options,records:[{...campaign,status:'cancelled',pending_count:1}]});
+    try {
+      await click(byId('button-delete-campaign-1'));
+      assert.equal(byId('button-confirm-archive').disabled,true);
+      assert.equal(byId('button-confirm-delete').disabled,true);
+      assert.doesNotMatch(document.querySelector('[role="dialog"]').textContent,/Stop the campaign/);
+      await click(byId('button-confirm-delete'));
+      assert.equal(view.calls.filter(c=>c.options.method).length,0);
+    } finally {await view.cleanup();}
+  }
+});
+
+test('protected survey history allows archive only; pending discovery disables both buttons', async () => {
+  let release;
+  const removalGate=new Promise(resolve=>{release=resolve});
+  const view=await mount({removalGate,removalResult:{queued:1,processing:0,archiveAllowed:true,deleteAllowed:false,deleteReason:'Protected survey provenance; use Archive instead'}});
+  try {
+    await click(byId('button-delete-campaign-1'));
+    assert.equal(byId('button-confirm-archive').disabled,true);
+    assert.equal(byId('button-confirm-delete').disabled,true);
+    await act(async()=>release());
+    await waitFor(()=>!byId('button-confirm-archive').disabled,'eligibility loaded');
+    assert.equal(byId('button-confirm-delete').disabled,true);
+    assert.match(document.querySelector('[role="dialog"]').textContent,/use Archive instead/);
+  } finally {release();await view.cleanup();}
 });
 
 test('missing archive migration still loads 99 campaigns and independent totals; lifecycle controls fail closed', async () => {
