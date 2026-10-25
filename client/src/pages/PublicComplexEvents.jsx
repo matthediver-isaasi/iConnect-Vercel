@@ -187,6 +187,7 @@ export default function PublicComplexEvents() {
               const eventUrl = `/ComplexEventDetail?id=${event.id}`;
               // Resolution order: status label > per-event label > Event Settings default > fallback
               const ctaLabel = resolveEventCtaLabel({
+                waitingListEnabled: event.waiting_list_enabled === true,
                 isRegistrationClosed: isEventRegistrationClosed(event),
                 isSoldOut: !hasUnlimitedCapacity && event.available_seats === 0,
                 perEventLabel: event.cta_button_label,
@@ -268,7 +269,7 @@ export default function PublicComplexEvents() {
                     )}
 
                     <div className="pt-3 border-t border-slate-100">
-                      {(event.cta_override_url && event.cta_override_mode !== 'detail_page') ? (
+                      {(event.waiting_list_enabled !== true && event.cta_override_url && event.cta_override_mode !== 'detail_page') ? (
                         <a href={event.cta_override_url} rel="noopener noreferrer">
                           <Button className="w-full" data-testid={`button-view-event-${event.id}`}>
                             {ctaLabel}

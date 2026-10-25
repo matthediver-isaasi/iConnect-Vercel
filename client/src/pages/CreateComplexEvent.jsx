@@ -1,3 +1,4 @@
+import WaitingListTimingField from "@/components/events/WaitingListTimingField";
 import PublicTicketMemberFields from "@/components/events/PublicTicketMemberFields";
 import PublicTicketMemberDiagnostics from "@/components/events/PublicTicketMemberDiagnostics";
 import { ticketMemberPolicy, updateTicketMemberField, validateTicketMemberPolicies } from "@/utils/publicTicketMembers";
@@ -662,6 +663,7 @@ export default function CreateComplexEvent() {
     end_date: "",
     location: "",
     status: "published",
+    waiting_list_enabled: false,
     event_state: "active",
     is_featured: false,
     timezone: "Europe/London",
@@ -1205,6 +1207,7 @@ export default function CreateComplexEvent() {
           : "",
         location: existingEvent.location || "",
         status: loadedStatus,
+        waiting_list_enabled: existingEvent.waiting_list_enabled === true,
         event_state: loadedEventState,
         is_featured: existingEvent.is_featured === true,
         timezone: existingEvent.timezone || "Europe/London",
@@ -1981,6 +1984,7 @@ export default function CreateComplexEvent() {
         end_date: formData.end_date || null,
         location: formData.location || null,
         status: formData.status,
+        waiting_list_enabled: formData.waiting_list_enabled === true,
         event_state: formData.event_state,
         is_featured: formData.is_featured || false,
         timezone: formData.timezone,
@@ -2679,9 +2683,14 @@ export default function CreateComplexEvent() {
                   />
                 )}
 
+                {isGroupLimited && <div>
+                  <Label className="text-sm font-medium mb-3 block">Event Timing</Label>
+                  <WaitingListTimingField checked={formData.waiting_list_enabled === true} onCheckedChange={checked => setFormData(prev => ({ ...prev, waiting_list_enabled: checked }))} />
+                </div>}
                 {!isGroupLimited && (
                 <div>
                   <Label className="text-sm font-medium mb-3 block">Event Timing</Label>
+                  <WaitingListTimingField checked={formData.waiting_list_enabled === true} onCheckedChange={checked => setFormData(prev => ({ ...prev, waiting_list_enabled: checked }))} />
                   <p className="text-xs text-slate-500 mb-3">Determines whether dates are required for this event</p>
                   <RadioGroup
                     value={formData.status}

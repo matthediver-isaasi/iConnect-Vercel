@@ -49,10 +49,12 @@ export const getTenantCtaLabel = (systemSettings, fallback = 'View Details') => 
 export const resolveEventCtaLabel = ({
   isRegistrationClosed = false,
   isSoldOut = false,
+  waitingListEnabled = false,
   perEventLabel,
   defaultLabel,
 }) => {
   if (isRegistrationClosed) return REGISTRATION_CLOSED_LABEL;
+  if (waitingListEnabled) return 'Join waiting list';
   if (isSoldOut) return SOLD_OUT_LABEL;
   const custom = typeof perEventLabel === 'string' ? perEventLabel.trim() : '';
   return custom || defaultLabel;

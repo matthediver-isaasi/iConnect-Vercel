@@ -81,6 +81,7 @@ const EmailTemplateManagement = lazy(() => import("./EmailTemplateManagement"));
 const EmailPlaceholders = lazy(() => import("./EmailPlaceholders"));
 
 import MyTickets from "./MyTickets";
+import WaitingList from "./WaitingList";
 
 const EventSettings = lazy(() => import("./EventSettings"));
 
@@ -581,6 +582,7 @@ const PAGES = {
     EmailPlaceholders: EmailPlaceholders,
     
     MyTickets: MyTickets,
+    waitingList: WaitingList,
     
     EventSettings: EventSettings,
     
@@ -1086,6 +1088,7 @@ function PagesContent() {
                 <Route path="/emailplaceholders" element={<EmailPlaceholders />} />
                 
                 <Route path="/MyTickets" element={<MyTickets />} />
+                <Route path="/waitingList" element={<WaitingList />} />
                 
                 <Route path="/MyBookings" element={<MyBookings />} />
                 

@@ -1,5 +1,6 @@
 import { isActiveCommunicationMember } from '../../shared/communicationCategoryMembership.js';
 import { jobCategoryCampaignMembers } from './jobAlerts.js';
+import { activeWaitingEmails } from './eventWaitingAudience.js';
 
 const normalize = value => String(value || '').trim().toLowerCase();
 const literal = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -16,6 +17,7 @@ export async function bulkRecipientEligibility(db, entries, campaign, tenantId) 
   const recipients = entries.map(e => e.recipient);
   const ids = recipients.map(r => r.id);
   const emails = [...new Set(recipients.map(r => normalize(r.email)))];
+  const waitingEmails = await activeWaitingEmails(db, tenantId, campaign, emails);
   const memberIds = [...new Set(recipients.map(r => r.member_id).filter(Boolean))];
   const jobMembers = await jobCategoryCampaignMembers(db, tenantId, campaign.communication_category_id, memberIds);
   const prepared = Boolean(campaign.preparation_generation);
@@ -58,6 +60,10 @@ export async function bulkRecipientEligibility(db, entries, campaign, tenantId) 
       r.communication_category_id === campaign.communication_category_id)).map(r => normalize(r.email)));
   const result = new Map();
   for (const r of recipients) {
+    if (waitingEmails && !waitingEmails.has(normalize(r.email))) {
+      result.set(r.id, 'unsubscribed');
+      continue;
+    }
     if (jobMembers && !jobMembers.has(r.member_id)) {
       result.set(r.id, 'unsubscribed');
       continue;

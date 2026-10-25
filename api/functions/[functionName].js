@@ -739,19 +739,20 @@ const functionHandlers = {
       if (!eventId) throw new Error('event_id is required');
       let { data: event, error: eventError } = await supabase
         .from('event')
-        .select('id, tenant_id, pricing_config, start_date')
+        .select('id, tenant_id, pricing_config, start_date, waiting_list_enabled')
         .eq('id', eventId)
         .eq('tenant_id', tenantId)
         .maybeSingle();
       let donationBookingTable = 'booking';
       if (!eventError && !event && metadata?.payment_type === 'donation') {
         const complexResult = await supabase.from('complex_event')
-          .select('id, tenant_id').eq('id', eventId).eq('tenant_id', tenantId).maybeSingle();
+          .select('id, tenant_id, waiting_list_enabled').eq('id', eventId).eq('tenant_id', tenantId).maybeSingle();
         event = complexResult.data;
         eventError = complexResult.error;
         donationBookingTable = 'complex_event_booking';
       }
       if (eventError || !event) throw new Error('Event not found');
+      if (event.waiting_list_enabled) throw new Error('This event accepts waiting list entries only. No payment is required.');
       if (metadata?.payment_type === 'donation') {
         // A client flag alone must not exempt an unpurchased ticket.
         const { data: booking, error } = await supabase.from(donationBookingTable).select('id')
@@ -1476,6 +1477,7 @@ const functionHandlers = {
     }
     
     console.log('[createBooking] Found event:', event.id, event.title);
+    if (event.waiting_list_enabled) return { success: false, error: 'This event accepts waiting list entries only. No payment is required.' };
 
     try {
       if (params.items != null) throw new Error('Simple event bookings require one ticket class');
@@ -2061,6 +2063,7 @@ const functionHandlers = {
     }
 
     // Completed payments stay idempotent even if a ticket is rescheduled later.
+    if (event.waiting_list_enabled) return { success: false, error: 'This event accepts waiting list entries only. No payment is required.' };
     const provisioningTicket = (event.pricing_config?.ticket_classes || []).find(ticket => String(ticket.id) === String(ticketClassId));
     let privateTicketError = null;
     try {

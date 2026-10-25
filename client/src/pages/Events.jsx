@@ -2192,9 +2192,10 @@ export default function EventsPage({
                                       </Button>
                                     ) : (() => {
                                       const ctaConfig = getCtaButtonConfig(systemSettings);
-                                      const isSoldOut = !hasUnlimitedCapacity && event.available_seats === 0;
+                                      const isSoldOut = event.waiting_list_enabled !== true && !hasUnlimitedCapacity && event.available_seats === 0;
                                       // Status label > per-event label > Event Settings default
                                       const buttonLabel = resolveEventCtaLabel({
+                                        waitingListEnabled: event.waiting_list_enabled === true,
                                         isRegistrationClosed,
                                         isSoldOut,
                                         perEventLabel: event.cta_button_label,
@@ -2538,9 +2539,10 @@ export default function EventsPage({
                                   </Button>
                                 ) : (() => {
                                   const ctaConfig = getCtaButtonConfig(systemSettings);
-                                  const isSoldOut = !hasUnlimitedCapacity && event.available_seats === 0;
+                                  const isSoldOut = event.waiting_list_enabled !== true && !hasUnlimitedCapacity && event.available_seats === 0;
                                   // Status label > per-event label > Event Settings default
                                   const buttonLabel = resolveEventCtaLabel({
+                                    waitingListEnabled: event.waiting_list_enabled === true,
                                     isRegistrationClosed,
                                     isSoldOut,
                                     perEventLabel: event.cta_button_label,

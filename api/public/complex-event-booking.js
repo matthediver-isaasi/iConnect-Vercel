@@ -177,13 +177,14 @@ async function processBooking(req, res) {
 
     const { data: event, error: eventError } = await supabase
       .from('complex_event')
-      .select('id, title, status, event_state, tenant_id, member_group_id, group_event_public, available_seats, internal_reference, xero_account_code, pricing_config, dietary_options, allergy_options, accessibility_options, start_date, allow_public_invoice_po')
+      .select('id, title, status, event_state, tenant_id, member_group_id, group_event_public, available_seats, internal_reference, xero_account_code, pricing_config, dietary_options, allergy_options, accessibility_options, start_date, allow_public_invoice_po, waiting_list_enabled')
       .eq('id', event_id)
       .eq('tenant_id', tenant.id)
       .in('status', ['published', 'tbc'])
       .single();
 
     if (eventError || !event) return res.status(404).json({ error: 'Event not found' });
+    if (event.waiting_list_enabled) return res.status(409).json({ error: 'This event accepts waiting list entries only. No payment is required.' });
 
     let allTicketClasses;
     try { allTicketClasses = await loadComplexReleaseTickets(supabase, event); }

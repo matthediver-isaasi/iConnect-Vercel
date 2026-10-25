@@ -149,6 +149,12 @@ const navigationItems = [
     featureId: "page_MyTickets"
   },
   {
+    title: "My Waiting Lists",
+    url: "/waitingList",
+    icon: Clock,
+    featureId: "page_MyTickets"
+  },
+  {
     title: "Balances",
     url: createPageUrl("Balances"),
     icon: Wallet,
@@ -1757,6 +1763,7 @@ useEffect(() => {
     'Events': 'page_user_Events',
     'Bookings': 'page_user_Bookings',
     'MyTickets': 'page_user_MyTickets',
+    'waitingList': 'page_user_MyTickets',
     'Balances': 'page_user_Balances',
     'History': 'page_user_History',
     'CpdPoints': 'cpd.member_cpd',
@@ -2636,14 +2643,23 @@ useEffect(() => {
       icon: item.icon,
       subItems: item.subItems ? item.subItems.map(sub => ({ ...sub })) : undefined
     }))), quoteNaming, { authored: dynamicNavItems.length > 0 });
+    // Authored menus get the companion destination beside My Tickets too.
+    const addWaitingListCompanion = items => items.flatMap(item => {
+      const next = item.subItems ? { ...item, subItems: addWaitingListCompanion(item.subItems) } : item;
+      const isTickets = /\/mytickets\/?(?:\?.*)?$/i.test(item.url || '');
+      return isTickets && !items.some(sibling => /\/waitinglist\/?$/i.test(sibling.url || ''))
+        ? [next, { title: 'My Waiting Lists', url: '/waitingList', icon: Clock, featureId: 'page_MyTickets' }]
+        : [next];
+    });
+    const withWaitingLists = addWaitingListCompanion(clonedItems);
     
     // When NOT using custom slug, return cloned items with original createPageUrl() URLs
     if (!isCustomSlug) {
-      return clonedItems;
+      return withWaitingLists;
     }
     
     // Apply dynamic URLs only when custom slug is confirmed
-    return clonedItems.map(item => {
+    return withWaitingLists.map(item => {
       const processedItem = { ...item };
       
       if (item.isDynamicArticleSection && articleDisplayName) {

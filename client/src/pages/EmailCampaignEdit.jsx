@@ -1,3 +1,4 @@
+import EventAudiencePicker from "@/components/EventAudiencePicker";
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from "react";
 import { resolveEventEmailPreview } from '@/lib/eventEmailPreview';
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -236,6 +237,10 @@ export default function EmailCampaignEdit() {
   const RECIPIENTS_PER_PAGE = 50;
 
   const [selectedListIds, setSelectedListIds] = useState([]);
+  const [directAudienceType, setDirectAudienceType] = useState('audience_list');
+  const [selectedEventIds, setSelectedEventIds] = useState([]);
+  const selectedAudienceIds = directAudienceType === 'audience_list' ? selectedListIds : selectedEventIds;
+  const campaignTargetAudiences = [{ type: directAudienceType, ids: selectedAudienceIds }];
   const [senderMember, setSenderMember] = useState(null);
   const [reviewSelections, setReviewSelections] = useState({ audience: false, category: false });
   const [reviewConfirmed, setReviewConfirmed] = useState(false);
@@ -304,6 +309,9 @@ export default function EmailCampaignEdit() {
         }
       }
       const listAudience = audiences.find(a => a.type === 'audience_list');
+      const eventAudience = audiences.find(a => ['event_attendees', 'event_waiting_list'].includes(a.type));
+      setDirectAudienceType(eventAudience?.type || 'audience_list');
+      setSelectedEventIds(eventAudience?.ids || []);
       if (listAudience && listAudience.ids) {
         setSelectedListIds(listAudience.ids);
       }
@@ -378,27 +386,27 @@ export default function EmailCampaignEdit() {
     staleTime: 60000
   });
   const affectedSelectedList = audienceLists.find(
-    list => list.category_review_required && selectedListIds.includes(list.id)
+    list => directAudienceType === 'audience_list' && list.category_review_required && selectedListIds.includes(list.id)
   );
 
   useEffect(() => {
-    if (selectedListIds.length > 0) {
+    if (selectedAudienceIds.length > 0) {
       setFormData(prev => ({
         ...prev,
-        target_audiences: [{ type: 'audience_list', ids: selectedListIds }]
+        target_audiences: [{ type: directAudienceType, ids: selectedAudienceIds }]
       }));
     }
-  }, [selectedListIds]);
+  }, [selectedListIds, selectedEventIds, directAudienceType]);
 
   useEffect(() => {
     const fetchRecipientCount = async () => {
-      if (selectedListIds.length === 0 || affectedSelectedList) {
+      if (selectedAudienceIds.length === 0 || affectedSelectedList) {
         setRecipientPreviewCount(null);
         setRecipientStats(null);
         return;
       }
 
-      const audiences = [{ type: 'audience_list', ids: selectedListIds }];
+      const audiences = [{ type: directAudienceType, ids: selectedAudienceIds }];
 
       setLoadingRecipientCount(true);
       try {
@@ -427,7 +435,7 @@ export default function EmailCampaignEdit() {
 
     const debounceTimer = setTimeout(fetchRecipientCount, 300);
     return () => clearTimeout(debounceTimer);
-  }, [selectedListIds, formData.communication_category_id, affectedSelectedList]);
+  }, [selectedListIds, selectedEventIds, directAudienceType, formData.communication_category_id, affectedSelectedList]);
 
   const linkedTemplate = emailTemplates.find(t => t.id === formData.email_template_id);
   const canReloadVisualTemplate = linkedTemplate && linkedTemplate.editor_type !== 'html' && normalizeEmailDesign(linkedTemplate.design_json);
@@ -477,8 +485,8 @@ export default function EmailCampaignEdit() {
 
     setSaving(true);
     try {
-      if (selectedListIds.length === 0) {
-        toast.error('Please select at least one audience list before saving');
+      if (selectedAudienceIds.length === 0) {
+        toast.error('Please select at least one audience list or event before saving');
         setSaving(false);
         return;
       }
@@ -488,9 +496,9 @@ export default function EmailCampaignEdit() {
         return;
       }
       let saveData = { ...formData };
-      saveData.target_audiences = [{ type: 'audience_list', ids: selectedListIds }];
-      saveData.target_type = 'audience_list';
-      saveData.target_ids = selectedListIds;
+      saveData.target_audiences = campaignTargetAudiences;
+      saveData.target_type = directAudienceType;
+      saveData.target_ids = selectedAudienceIds;
       if (saveData.communication_category_id === '') {
         saveData.communication_category_id = null;
       }
@@ -709,7 +717,7 @@ export default function EmailCampaignEdit() {
     }
   };
 
-  const hasAudienceSelected = selectedListIds.length > 0;
+  const hasAudienceSelected = selectedAudienceIds.length > 0;
   const canSendCampaign = isEditing && 
     formData.subject && 
     formData.html_content && 
@@ -959,6 +967,29 @@ export default function EmailCampaignEdit() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
+              <Label>Audience type</Label>
+              <Select value={directAudienceType} onValueChange={value => {
+                setDirectAudienceType(value);
+                if (categoryReviewRequired) { setReviewSelections(prev => ({ ...prev, audience: true })); setReviewConfirmed(false); }
+              }}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="audience_list">Audience lists</SelectItem>
+                  <SelectItem value="event_attendees">Event attendees</SelectItem>
+                  <SelectItem value="event_waiting_list">Event waiting list</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {directAudienceType !== 'audience_list' && <div className="space-y-2">
+              <Label>Select events</Label>
+              {directAudienceType === 'event_waiting_list' && <p className="text-xs text-muted-foreground">Active waiting list contacts only. Withdrawn entries are excluded at send time. This does not subscribe anyone to unrelated marketing.</p>}
+              <EventAudiencePicker value={selectedEventIds} onChange={ids => {
+                setSelectedEventIds(ids);
+                if (categoryReviewRequired) { setReviewSelections(prev => ({ ...prev, audience: true })); setReviewConfirmed(false); }
+              }} />
+            </div>}
+            {directAudienceType === 'audience_list' && (
+            <div className="space-y-2">
               <Label>Select Lists</Label>
               <p className="text-xs text-muted-foreground">
                 Choose one or more lists to send this campaign to. Lists are managed in Communications.
@@ -1029,6 +1060,7 @@ export default function EmailCampaignEdit() {
               )}
             </div>
 
+            )}
             <div className="space-y-2">
               <Label>Subscription Category</Label>
               <p className="text-xs text-muted-foreground">
@@ -1125,7 +1157,7 @@ export default function EmailCampaignEdit() {
                               campaignId: 'preview',
                               preview: true,
                               previewList: true,
-                              targetAudiences: [{ type: 'audience_list', ids: selectedListIds }],
+                              targetAudiences: campaignTargetAudiences,
                               communicationCategoryId: formData.communication_category_id || null
                             })
                           });

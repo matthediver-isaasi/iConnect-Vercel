@@ -1,3 +1,4 @@
+import WaitingListCheckout from "./WaitingListCheckout";
 import { v4 as uuidv4 } from "uuid";
 import { requireAttendeeJobTitle, missingAttendeeJobTitle } from "../../../../shared/attendeeJobTitleRequirement.js";
 import PurchaserIdentityFields from "@/components/booking/PurchaserIdentityFields";
@@ -433,7 +434,14 @@ function StripePaymentForm({ clientSecret, onSuccess, onCancel, amount, returnUr
   );
 }
 
-export default function PaymentOptions({ 
+// Isolate waiting mode before mounting ANY payment hooks or return handlers.
+export default function PaymentOptions(props) {
+  return props.event?.waiting_list_enabled === true
+    ? <WaitingListCheckout key={`${props.event.id}:${props.memberInfo?.tenant_id}:${props.memberInfo?.id}`} {...props} />
+    : <NormalPaymentOptions {...props} />;
+}
+
+function NormalPaymentOptions({
   totalCost, 
   memberInfo, 
   organizationInfo, 

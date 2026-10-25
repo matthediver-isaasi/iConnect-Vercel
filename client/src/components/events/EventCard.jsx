@@ -1135,7 +1135,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                   >
                     Event Ended
                   </Button>
-                ) : needsTickets ? (
+                ) : needsTickets && event.waiting_list_enabled !== true ? (
                   joinLocked ? (
                     <Button
                       className="w-full"
@@ -1158,13 +1158,14 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                   )
                 ) : (() => {
                   const ctaConfig = getCtaButtonConfig(systemSettings);
-                  const isSoldOut = !hasUnlimitedCapacity && event.available_seats === 0;
+                  const isSoldOut = event.waiting_list_enabled !== true && !hasUnlimitedCapacity && event.available_seats === 0;
                   // Registration is closed if event_state is 'closed' (or legacy status='closed' when event_state is null) OR if registration_closes_at has passed
                   const isRegistrationClosed = event.event_state === 'closed' || 
                     (!event.event_state && event.status === 'closed') ||
                     (event.registration_closes_at && new Date() > new Date(event.registration_closes_at));
                   // Resolution order: status label > per-event label > Event Settings default
                   const buttonLabel = resolveEventCtaLabel({
+                    waitingListEnabled: event.waiting_list_enabled === true,
                     isRegistrationClosed,
                     isSoldOut,
                     perEventLabel: event.cta_button_label,
@@ -1178,7 +1179,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                   const isActiveCta = !isRegistrationClosed && !isSoldOut;
                   const handleRegisterClick = (interactionEvent) => {
                     trackEventClick(interactionEvent);
-                    if (event.cta_override_url && event.cta_override_mode !== 'detail_page') {
+                    if (event.waiting_list_enabled !== true && event.cta_override_url && event.cta_override_mode !== 'detail_page') {
                       window.location.href = event.cta_override_url;
                     } else {
                       // Complex events have their own detail routes.

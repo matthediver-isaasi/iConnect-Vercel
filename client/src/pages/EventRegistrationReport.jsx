@@ -1,3 +1,4 @@
+import AdminEventWaitingList from "@/components/events/AdminEventWaitingList";
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
 import GuestRegistrationMemberDialog from "@/components/events/GuestRegistrationMemberDialog";
@@ -916,6 +917,7 @@ export default function EventRegistrationReport() {
     const exactEvent = selectedEvent && selectedEvent.title === filterEventName.trim() ? selectedEvent : null;
     const nextFilters = {
       eventId: exactEvent ? exactEvent.id : null,
+      eventKind: exactEvent?.isComplex ? 'complex' : 'simple',
       eventName: filterEventName.trim(),
       internalReference: filterInternalRef.trim(),
       dateFrom: filterDateFrom,
@@ -2660,6 +2662,7 @@ export default function EventRegistrationReport() {
       {reportGenerated && reportData && (
         <PublicInvoicePoRegistrations groups={filteredGroups} allGroups={bookingGroups} organizations={organizations} renderFormAnswers={renderPublicInvoiceFormAnswers} />
       )}
+      {accessChecked && <AdminEventWaitingList memberInfo={memberInfo} eventId={appliedFilters?.eventId} eventKind={appliedFilters?.eventKind || 'simple'} />}
 
       {!reportGenerated && !isLoading && (
         <Card>

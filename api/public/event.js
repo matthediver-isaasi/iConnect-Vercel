@@ -54,6 +54,7 @@ export default async function handler(req, res) {
         image_focal_point,
         pricing_config,
         allow_public_invoice_po,
+        waiting_list_enabled,
         speaker_ids,
         speaker_display_mode,
         sponsor_display_mode,
@@ -255,6 +256,7 @@ export default async function handler(req, res) {
         offer_type: event.pricing_config.offer_type
       } : null,
       allow_public_invoice_po: event.allow_public_invoice_po === true,
+      waiting_list_enabled: event.waiting_list_enabled === true,
       donation_config: event.donation_config || null,
       event_state: event.event_state,
       program_tag: event.program_tag,

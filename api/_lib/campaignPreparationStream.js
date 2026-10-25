@@ -5,6 +5,7 @@ import { discoverAudienceCustomObjects, validateCustomObjectCondition, matchesCu
 import { customObjectSelectionKey } from '../../shared/audienceCustomObjectContract.js';
 import { preparationError } from './campaignPreparation.js';
 import { speakerAudienceChunk } from './eventSpeakerAudience.js';
+import { waitingAudienceChunk } from './eventWaitingAudience.js';
 
 export const RESOLUTION_PAGE_SIZE = 200;
 const normalize = value => typeof value === 'string' ? value.trim().toLowerCase() : '';
@@ -154,6 +155,10 @@ async function surveyChunk(db, state, work, bucket) {
 }
 
 async function normalChunk(db, state, work, bucket) {
+  if (work.s.type === 'event_waiting_list') {
+    const result = await waitingAudienceChunk(db, state.tenant_id, work.s, work.cursor);
+    return { candidates: result.candidates, done: result.done, next: { ...work, cursor: result.cursor } };
+  }
   if (work.s.type === 'event_speakers') {
     const result = await speakerAudienceChunk(db, state.tenant_id, work.s, work.speakerCursor);
     return { candidates: result.candidates, done: result.done, next: { ...work, speakerCursor: result.cursor } };

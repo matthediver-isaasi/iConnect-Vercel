@@ -92,6 +92,7 @@ const getCheapestPrice = (pricingConfig) => {
 // Resolution order: status label > per-event label > Event Settings default > "View Details".
 const getCardCtaLabel = (event, tenantCtaLabel, { hasUnlimitedCapacity } = {}) =>
   resolveEventCtaLabel({
+    waitingListEnabled: event.waiting_list_enabled === true,
     isRegistrationClosed: isEventRegistrationClosed(event),
     isSoldOut: !hasUnlimitedCapacity && event.available_seats === 0,
     perEventLabel: event.cta_button_label,
@@ -222,7 +223,7 @@ export default function PublicEventsPage() {
                   const seatStatusLabels = getSeatStatusLabels(systemSettings, { availableDefault: isComplex ? '{count} places available' : '{count} seats available' });
                   const cheapest = getCheapestPrice(event.pricing_config);
                   const baseDetailUrl = getEventDetailUrl(event);
-                  const detailUrl = (event.cta_override_url && event.cta_override_mode !== 'detail_page')
+                  const detailUrl = (event.waiting_list_enabled !== true && event.cta_override_url && event.cta_override_mode !== 'detail_page')
                     ? event.cta_override_url
                     : baseDetailUrl;
                   const isExternalDetailUrl = /^https?:\/\//i.test(detailUrl);
@@ -367,7 +368,7 @@ export default function PublicEventsPage() {
               const seatStatusLabels = getSeatStatusLabels(systemSettings, { availableDefault: isComplex ? '{count} places available' : '{count} seats available' });
               const cheapest = getCheapestPrice(event.pricing_config);
               const baseDetailUrl = getEventDetailUrl(event);
-              const detailUrl = (event.cta_override_url && event.cta_override_mode !== 'detail_page')
+              const detailUrl = (event.waiting_list_enabled !== true && event.cta_override_url && event.cta_override_mode !== 'detail_page')
                 ? event.cta_override_url
                 : baseDetailUrl;
               const isExternalDetailUrl = /^https?:\/\//i.test(detailUrl);

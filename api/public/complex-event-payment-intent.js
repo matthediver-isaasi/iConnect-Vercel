@@ -85,13 +85,14 @@ export default async function handler(req, res) {
 
     const { data: event, error: eventError } = await supabase
       .from('complex_event')
-      .select('id, title, tenant_id, status, event_state, start_date')
+      .select('id, title, tenant_id, status, event_state, start_date, waiting_list_enabled')
       .eq('id', event_id)
       .eq('tenant_id', tenant.id)
       .in('status', ['published', 'tbc'])
       .single();
 
     if (eventError || !event) return res.status(404).json({ error: 'Event not found' });
+    if (event.waiting_list_enabled) return res.status(409).json({ error: 'This event accepts waiting list entries only. No payment is required.' });
 
     try {
       const paymentPolicy = await loadEventPaymentPolicy(supabase, tenant.id);

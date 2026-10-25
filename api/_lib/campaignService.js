@@ -18,6 +18,7 @@ import { finishPreparedCampaignBatch } from './campaignBulkDrain.js';
 import { persistCampaignDeliveryProvenance, verifyCampaignDeliveryProvenance } from './campaignDeliveryProvenance.js';
 import { bulkRecipientEligibility } from './campaignBulkEligibility.js';
 import { jobCategoryCampaignMembers } from './jobAlerts.js';
+import { resolveWaitingAudience, activeWaitingEmails, campaignWaitingIds } from './eventWaitingAudience.js';
 import { fittingCampaignBatchSize } from './campaignBulkTransport.js';
 import { drainCampaignRecipients as drainRecipients, campaignSendConcurrency } from './campaignDrain.js';
 import { createCampaignRecipientClaimer } from './campaignRecipientClaims.js';
@@ -1160,7 +1161,7 @@ async function fetchAllMembersPaginated(tenantId, selectFields, filters = {}) {
 const ALLOWED_SEGMENT_TYPES = new Set([
   'audience_list', 'individual_members', 'role', 'organisation', 
   'communication_category', 'form', 'member_group', 'member_group_admins', 'event_attendees',
-  'event_form', 'field_filter', 'event_speakers'
+  'event_form', 'field_filter', 'event_speakers', 'event_waiting_list'
 ]);
 
 const AUDIENCE_LIST_REPLACEMENT_MESSAGE =
@@ -1195,6 +1196,9 @@ export async function validateCampaignAudienceLists(campaign, tenantId) {
     }
     for (const list of data || []) {
       for (const segment of Array.isArray(list.target_audiences) ? list.target_audiences : []) {
+        if (segment?.type === 'event_waiting_list') {
+          return { valid: false, reason: 'Select Event waiting list directly on the campaign, not through a saved audience list.' };
+        }
         if (segment?.type === 'audience_list' && Array.isArray(segment.ids)) {
           pending.push(...segment.ids.filter(Boolean).map(String));
         }
@@ -1205,6 +1209,8 @@ export async function validateCampaignAudienceLists(campaign, tenantId) {
 }
 
 function validateCampaignTargeting(campaign) {
+  try { campaignWaitingIds(campaign); }
+  catch (error) { return { valid: false, reason: error.message }; }
   const audiences = campaign.target_audiences;
   const hasAudiences = Array.isArray(audiences) && audiences.length > 0;
 
@@ -1332,6 +1338,7 @@ async function getExplicitCategoryMemberRecipients(categoryIds, tenantId) {
 }
 
 async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentData = null) {
+  if (targetType === 'event_waiting_list') return resolveWaitingAudience(supabase, tenantId, targetIds);
   if (targetType === 'event_speakers') return resolveSpeakerAudience(supabase, tenantId, segmentData);
   if (targetType === 'event_form' && segmentData?.form_id) targetIds = [segmentData.form_id];
   if (targetType === 'event_form' && targetIds.length !== 1) throw new Error('Select exactly one event form or survey');
@@ -3418,6 +3425,7 @@ async function resolveCampaignEventScope(campaign, tenantId, db = supabase) {
 // booking). Works for member and guest attendees alike — matching is driven
 // by email, consistent with how the event-attendees audience list is built.
 async function resolveEventQrImageUrl(recipient, campaign, tenantId, requestHost, db = supabase, signal = null) {
+  if (campaignWaitingIds(campaign)) return null;
   const email = (recipient?.email || '').trim();
   if (!email) return null;
   const escapeLike = (s) => String(s).replace(/([%_\\])/g, '\\$1');
@@ -3538,6 +3546,7 @@ async function resolveCampaignBookingEventScope(campaign, tenantId, db = supabas
 // campaign's event(s) when determinable. Returns a normalized booking object
 // (the fields replaceBookingPlaceholders consumes) or null when none matches.
 async function resolveRecipientBooking(recipient, campaign, tenantId, db = supabase) {
+  if (campaignWaitingIds(campaign)) return null;
   const email = (recipient?.email || '').trim();
   const memberId = recipient?.member_id || null;
   if (!email && !memberId) return null;
@@ -3604,6 +3613,8 @@ async function resolveRecipientBooking(recipient, campaign, tenantId, db = supab
 }
 
 async function preparedRecipientStillConsents(db, recipient, campaign, tenantId) {
+  const waitingEmails = await activeWaitingEmails(db, tenantId, campaign, [recipient.email]);
+  if (waitingEmails && !waitingEmails.has(recipient.email.trim().toLowerCase())) return false;
   const jobMembers = await jobCategoryCampaignMembers(db, tenantId, campaign.communication_category_id,
     recipient.member_id ? [recipient.member_id] : []);
   if (jobMembers && !jobMembers.has(recipient.member_id)) return false;

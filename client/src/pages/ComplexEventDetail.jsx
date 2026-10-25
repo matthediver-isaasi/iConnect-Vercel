@@ -524,6 +524,7 @@ function CartSummary({ cart, ticketClasses, onRemoveAttendee, onUpdateAttendee, 
 }
 
 function BookingSection({ event, sessions, memberInfo, organizationInfo, memberGroupIds, onBookingComplete, cart, setCart, openLogin, editorMode = false, allocationContext = null }) {
+  const waitingListEnabled = event?.waiting_list_enabled === true;
   const [attendeeModalOpen, setAttendeeModalOpen] = useState(false);
   const [modalTicketClassId, setModalTicketClassId] = useState(null);
   const [termsAccepted, setTermsAccepted] = useState(false);
@@ -570,9 +571,10 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
 
   const releaseNowMs = useTicketReleaseClock(ticketClasses);
   const isReleaseBlocked = useCallback((ticket) => {
+    if (waitingListEnabled) return false;
     if (allocationContext?.ticketTypeId && String(ticket?.id) === String(allocationContext.ticketTypeId)) return false;
     return !isTicketReleased(ticket, releaseNowMs);
-  }, [allocationContext?.ticketTypeId, releaseNowMs]);
+  }, [allocationContext?.ticketTypeId, releaseNowMs, waitingListEnabled]);
 
   const isGuest = !memberInfo;
   const userRoleId = memberInfo?.role_id;
@@ -586,6 +588,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
   // the count-based fields embedded by the public API, falling back to the
   // raw capacity only when nothing else is available.
   const isTicketSoldOut = useCallback((tc) => {
+    if (waitingListEnabled) return false;
     if (allocationContext?.ticketTypeId && String(tc.id) === allocationContext.ticketTypeId) return false;
     const live = getTicketClassAvailability(tc.id);
     if (live) return live.isSoldOut;
@@ -597,10 +600,11 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
     if (typeof tc.is_sold_out === 'boolean') return tc.is_sold_out;
     if (typeof tc.remaining === 'number') return tc.remaining <= 0;
     return Number(tc.available_count) <= 0;
-  }, [getTicketClassAvailability, allocationContext?.ticketTypeId]);
+  }, [getTicketClassAvailability, allocationContext?.ticketTypeId, waitingListEnabled]);
 
   // Remaining tickets for a finite class, or null when unlimited / unknown.
   const getTicketRemaining = useCallback((tc) => {
+    if (waitingListEnabled) return null;
     const live = getTicketClassAvailability(tc.id);
     if (live) return live.is_unlimited_tickets ? null : live.remaining;
     const isUnlimited = tc.is_unlimited_tickets === true
@@ -610,7 +614,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
     if (isUnlimited) return null;
     if (typeof tc.remaining === 'number') return tc.remaining;
     return null;
-  }, [getTicketClassAvailability]);
+  }, [getTicketClassAvailability, waitingListEnabled]);
 
   const getTicketVisibility = (tc) => {
     if (tc.visibility_mode) return tc.visibility_mode;
@@ -675,11 +679,12 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
   }, [cart]);
 
   const handleOpenAttendeeModal = useCallback((ticketClassId) => {
+    if (waitingListEnabled && !memberInfo) { openLogin(); return; }
     const ticket = availableTicketClasses.find(tc => tc.id === ticketClassId);
     if (!ticket || isReleaseBlocked(ticket) || isTicketSoldOut(ticket)) return;
     setModalTicketClassId(ticketClassId);
     setAttendeeModalOpen(true);
-  }, [availableTicketClasses, isReleaseBlocked, isTicketSoldOut]);
+  }, [availableTicketClasses, isReleaseBlocked, isTicketSoldOut, waitingListEnabled, memberInfo, openLogin]);
 
   // Reconcile against current settings, never a ticket snapshot saved in a cart.
   // Already purchased allocations are exempt from the new-sale release gate.
@@ -939,19 +944,19 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
 
   // CTA override "detail_page" mode: hide ticket add-attendee buttons and
   // payment options; show ticket prices + a "Continue to book" button.
-  const useCtaOverrideDetailMode = !!event?.cta_override_url
+  const useCtaOverrideDetailMode = !waitingListEnabled && !!event?.cta_override_url
     && event?.cta_override_mode === 'detail_page';
 
   // TBC events with "Replace standard booking elements" on: ticket prices and
   // the cart summary are replaced by a helper-message card and the confirm
   // button (label overridden). Booking action + terms enforcement unchanged.
-  const tbcBookingReplacement = getTbcBookingReplacement(event);
+  const tbcBookingReplacement = waitingListEnabled ? null : getTbcBookingReplacement(event);
   const tbcReplacementActive = !!tbcBookingReplacement;
   // While the replacement display is active (toggle on and nothing is owed)
   // the ticket selection controls are hidden — the Add Attendee inputs,
   // terms enforcement and the booking payload are unaffected.
   const tbcTicketSelectorsHidden = isTbcReplacementDisplayActive(tbcBookingReplacement, grandTotal);
-  const isSoldOut = event?.available_seats !== null
+  const isSoldOut = !waitingListEnabled && event?.available_seats !== null
     && event?.available_seats !== undefined
     && Number(event.available_seats) <= 0
     && event?.is_unlimited_registration !== true;
@@ -1080,7 +1085,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
                 </Badge>
               )}
             </div>
-            {count > 0 && tcPrice.price > 0
+            {!waitingListEnabled && count > 0 && tcPrice.price > 0
               && String(tc.id) !== String(allocationContext?.ticketTypeId) && (
               <TicketDiscountInput
                 ticketClassId={tc.id}
@@ -1105,10 +1110,12 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
   const isStripeReturn = !editorMode && typeof window !== 'undefined' &&
     new URLSearchParams(window.location.search).has('payment_intent');
 
-  const shouldShowPaymentOptions = totalAttendeeCount > 0 || isStripeReturn;
+  const shouldShowPaymentOptions = waitingListEnabled || totalAttendeeCount > 0 || isStripeReturn;
 
   const paymentOptionsSection = shouldShowPaymentOptions ? (
     <PaymentOptions
+      editorMode={editorMode}
+      waitingListItems={Object.entries(cart).map(([id, item]) => ({ ticket_class_id: id, attendees: item.attendees }))}
       tbcBookingReplacement={tbcBookingReplacement}
       event={paymentOptionsEvent}
       memberInfo={memberInfo}
@@ -1759,7 +1766,7 @@ export function ComplexEventDetailExperience({
                     </div>
                   )}
 
-                  {event.show_seat_count !== false && (
+                  {event.waiting_list_enabled !== true && event.show_seat_count !== false && (
                     <div className="flex items-center gap-3 text-slate-700">
                       <Users className="w-5 h-5 text-slate-400" />
                       {(event.available_seats === 0 || event.available_seats === null) ? (

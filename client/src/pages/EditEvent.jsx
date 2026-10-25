@@ -1,3 +1,4 @@
+import WaitingListTimingField from "@/components/events/WaitingListTimingField";
 import PublicTicketMemberFields from "@/components/events/PublicTicketMemberFields";
 import { deriveTrainingAgendaBounds } from "@shared/trainingAgendaBounds.js";
 import PublicTicketMemberDiagnostics from "@/components/events/PublicTicketMemberDiagnostics";
@@ -234,6 +235,7 @@ export default function EditEvent() {
   
   // Event timing: published, tbc, or immediate
   const [eventTiming, setEventTiming] = useState("published");
+  const [waitingListEnabled, setWaitingListEnabled] = useState(false);
   // TBC-only: replace standard booking elements on the public detail page
   const [replaceBookingElements, setReplaceBookingElements] = useState(false);
   const [bookingReplacementMessage, setBookingReplacementMessage] = useState("");
@@ -1397,6 +1399,7 @@ export default function EditEvent() {
         });
       
       setIsFeatured(event.is_featured === true);
+      setWaitingListEnabled(event.waiting_list_enabled === true);
 
       // Load timing and state from event with migration for old status values
       // Old values: draft, published, tbc, closed -> New: timing (published/tbc/immediate) + state (active/draft/closed)
@@ -1866,6 +1869,7 @@ export default function EditEvent() {
       is_online: isOnlineEvent,
       ...attendancePolicyPayload(attendancePolicy),
       status: resolvedStatus,
+      waiting_list_enabled: waitingListEnabled,
       // TBC-only booking-element replacement (persisted regardless of timing;
       // it only applies on the public page when status === 'tbc')
       replace_booking_elements: replaceBookingElements === true,
@@ -2328,9 +2332,14 @@ export default function EditEvent() {
               )}
 
               {/* Event Timing - affects date requirements */}
+              {isGroupLimited && <div>
+                <Label className="text-sm font-medium mb-3 block">Event Timing</Label>
+                <WaitingListTimingField checked={waitingListEnabled} onCheckedChange={setWaitingListEnabled} />
+              </div>}
               {!isGroupLimited && (
               <div>
                 <Label className="text-sm font-medium mb-3 block">Event Timing</Label>
+                <WaitingListTimingField checked={waitingListEnabled} onCheckedChange={setWaitingListEnabled} />
                 <p className="text-xs text-slate-500 mb-3">Determines whether dates are required for this event</p>
                 <RadioGroup
                   value={eventTiming}

@@ -38,7 +38,7 @@ export function assertRequestedTicketsReleased({
   });
 }
 
-function simpleTicketClasses(event) {
+export function simpleTicketClasses(event) {
   let config = event.pricing_config;
   if (config === '') config = null; // Existing empty-string legacy pricing.
   if (typeof config === 'string') {

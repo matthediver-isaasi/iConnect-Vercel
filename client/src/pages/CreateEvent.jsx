@@ -1,3 +1,4 @@
+import WaitingListTimingField from "@/components/events/WaitingListTimingField";
 import PublicTicketMemberFields from "@/components/events/PublicTicketMemberFields";
 import { deriveTrainingAgendaBounds } from "@shared/trainingAgendaBounds.js";
 import { getZoomWebinarEndTime } from "@shared/zoomWebinarTiming.js";
@@ -192,6 +193,7 @@ export default function CreateEvent() {
   const [isTraining, setIsTraining] = useState(() => groupSearchParams.get('training') === '1');
 
   const [eventTiming, setEventTiming] = useState("published"); // published, tbc, or immediate
+  const [waitingListEnabled, setWaitingListEnabled] = useState(false);
 
   // Task #3691: whether Immediate Access timing is available for this editor session
   // (only for standard non-training non-group simple events)
@@ -1194,6 +1196,7 @@ export default function CreateEvent() {
       is_training: isTraining,
       ...attendancePolicyPayload(attendancePolicy),
       status: resolvedStatus,
+      waiting_list_enabled: waitingListEnabled,
       // TBC-only booking-element replacement (persisted regardless of timing;
       // it only applies on the public page when status === 'tbc')
       replace_booking_elements: replaceBookingElements === true,
@@ -1439,9 +1442,14 @@ export default function CreateEvent() {
               )}
 
               {/* Event Timing - affects date requirements */}
+              {isGroupLimited && <div>
+                <Label className="text-sm font-medium mb-3 block">Event Timing</Label>
+                <WaitingListTimingField checked={waitingListEnabled} onCheckedChange={setWaitingListEnabled} />
+              </div>}
               {!isGroupLimited && (
               <div>
                 <Label className="text-sm font-medium mb-3 block">Event Timing</Label>
+                <WaitingListTimingField checked={waitingListEnabled} onCheckedChange={setWaitingListEnabled} />
                 <p className="text-xs text-slate-500 mb-3">Determines whether dates are required for this event</p>
                 <RadioGroup
                   value={eventTiming}

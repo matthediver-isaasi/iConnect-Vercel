@@ -726,6 +726,8 @@ export const LEGACY_TO_NEW_MAPPING = {
   "page_Bookings": "commerce.bookings",
   "page_CancellationRequests": "commerce.event-cancellations",
   "page_MyTickets": "events.my-tickets",
+  "page_waitingList": "events.my-tickets",
+  "page_user_waitingList": "events.my-tickets",
   "page_BuyProgramTickets": "commerce.buy-tickets",
   "page_Balances": "commerce.balances",
   "page_History": "commerce.history",

@@ -1062,7 +1062,9 @@ export default function EmailCampaigns() {
       form: 'Forms',
       fundraisers: 'Fundraisers',
       donors: 'Donors',
-      all_members: 'All Members'
+      all_members: 'All Members',
+      event_waiting_list: 'Event waiting list',
+      event_attendees: 'Event attendees'
     };
     if (type === 'all_members') return 'All Members';
     let names = [];

@@ -475,16 +475,17 @@ export function EventDetailsExperience({
     }
   }, [attendees, registrationMode, memberAttending, eventId, currentMemberInfo, editorMode]);
 
+  // Resolve waiting mode before realtime notifications: interest never sells out.
+  const { data: event, isLoading } = useEventData(eventId);
   // Set up realtime subscription for seat updates
   const { isConnected: realtimeConnected } = useEventSeatRealtime(eventId, {
-    showSoldOutToast: true,
+    showSoldOutToast: event?.waiting_list_enabled !== true,
     onSoldOut: () => {
       console.log('[EventDetails] Event sold out via realtime update');
     }
   });
 
   // Use hybrid hook (authenticated: base44, public: publicClient)
-  const { data: event, isLoading } = useEventData(eventId);
   const speakerDisclosure = useEventDisclosure(event?.id, event?.speaker_display_mode);
 
   useEffect(() => {
@@ -678,13 +679,14 @@ export function EventDetailsExperience({
   // These hooks MUST be called unconditionally to avoid React hooks order violations
   
   // Determine if this is a one-off event (guard for null event)
-  const isOneOffEvent = event && (!event.program_tag || event.program_tag === "");
+  const isOneOffEvent = event && (event.waiting_list_enabled === true || !event.program_tag || event.program_tag === "");
 
   // TBC events with "Replace standard booking elements" on: the right column's
   // ticket price / booking summary displays are replaced by a helper-message
   // card and the confirm button (label overridden). Ticket selection, attendee
   // inputs, booking action and terms enforcement are unchanged.
-  const tbcBookingReplacement = getTbcBookingReplacement(event);
+  const waitingListEnabled = event?.waiting_list_enabled === true;
+  const tbcBookingReplacement = waitingListEnabled ? null : getTbcBookingReplacement(event);
   const tbcBookingReplacementActive = !!tbcBookingReplacement;
   
   // Get the user's role ID
@@ -761,7 +763,7 @@ export function EventDetailsExperience({
   // Set up realtime subscription for ticket class availability updates
   // MUST be after pricingConfig is defined to seed initial state
   const { ticketClassAvailability, getTicketClassAvailability } = useTicketAvailabilityRealtime(eventId, {
-    showSoldOutToast: true,
+    showSoldOutToast: !waitingListEnabled,
     initialPricingConfig: pricingConfig, // Seed with initial data
     onTicketSoldOut: (ticketClassId, ticketClassName) => {
       console.log('[EventDetails] Ticket class sold out via realtime update:', ticketClassName);
@@ -858,6 +860,7 @@ export function EventDetailsExperience({
   // realtime data, otherwise fall back to the sold_count / is_sold_out embedded
   // on the ticket by the public API.
   const getTicketSoldOut = (ticket) => {
+    if (waitingListEnabled) return false;
     if (!ticket) return false;
     const realtimeAvail = getTicketClassAvailability(String(ticket.id));
     if (realtimeAvail) {
@@ -877,6 +880,7 @@ export function EventDetailsExperience({
   // Remaining tickets for display. Returns null for unlimited / no enforceable
   // maximum (caller should not show a count in that case).
   const getTicketRemaining = (ticket) => {
+    if (waitingListEnabled) return null;
     if (!ticket) return null;
     const realtimeAvail = getTicketClassAvailability(String(ticket.id));
     if (realtimeAvail) {
@@ -901,7 +905,7 @@ export function EventDetailsExperience({
   const isTicketPurchasable = (ticket) => {
     if (!ticket) return false;
     if (allocationMode && String(ticket.id) === allocationContext.ticketTypeId) return true;
-    if (!isTicketReleased(ticket, releaseNowMs)) return false;
+    if (!waitingListEnabled && !isTicketReleased(ticket, releaseNowMs)) return false;
     
     // Count-based availability (Task #1758): availability is derived from the
     // number of confirmed bookings, not from mutating available_count.
@@ -1031,7 +1035,7 @@ export function EventDetailsExperience({
     } else {
       setSelectedTicketClassId(null);
     }
-  }, [availableTicketClasses, selectedTicketClassId, allowGuestsToViewAllTickets, currentMemberInfo, userRoleId, allocationMode, allocationContext?.ticketTypeId, releaseNowMs]);
+  }, [availableTicketClasses, selectedTicketClassId, allowGuestsToViewAllTickets, currentMemberInfo, userRoleId, allocationMode, allocationContext?.ticketTypeId, releaseNowMs, waitingListEnabled]);
   
   // Get selected ticket class
   const selectedTicketClass = useMemo(() => {
@@ -1455,11 +1459,11 @@ export function EventDetailsExperience({
 
   // CTA override "detail_page" mode: card opens this page, but booking inputs
   // are hidden and replaced with a "Continue to book" button linking out.
-  const useCtaOverrideDetailMode = !!event?.cta_override_url
+  const useCtaOverrideDetailMode = !waitingListEnabled && !!event?.cta_override_url
     && event?.cta_override_mode === 'detail_page';
   
   // Check if event is sold out (not unlimited and available_seats <= 0)
-  const isSoldOut = !hasUnlimitedCapacity && event.available_seats !== null && event.available_seats <= 0;
+  const isSoldOut = !waitingListEnabled && !hasUnlimitedCapacity && event.available_seats !== null && event.available_seats <= 0;
   
   // Check if registration is closed (event_state is 'closed')
   // Registration is closed if event_state is 'closed' (or legacy status='closed' when event_state is null) OR if registration_closes_at has passed
@@ -1497,7 +1501,7 @@ export function EventDetailsExperience({
   const showSeatsEnabled = globalShowSeats && perEventShowSeats;
   
   // Combine both role-based permission and system setting
-  const showAvailableSeats = showSeatsEnabled && (!isFeatureExcluded || !isFeatureExcluded('element_AvailableSeatsDisplay'));
+  const showAvailableSeats = !waitingListEnabled && showSeatsEnabled && (!isFeatureExcluded || !isFeatureExcluded('element_AvailableSeatsDisplay'));
 
   // Get description preview lines setting (default to 3 lines)
   const sponsorsPlacementSetting = Array.isArray(systemSettings)
@@ -1570,6 +1574,7 @@ export function EventDetailsExperience({
   };
 
   const handleConfirmBooking = async () => {
+    if (waitingListEnabled) return;
     if (titleSettingsLoading || titleSettingsError) {
       toast.error('Attendee requirements could not be loaded. Please wait or retry.');
       return;
@@ -2083,7 +2088,7 @@ export function EventDetailsExperience({
             </Card>
 
             {/* Hide attendees card if no tickets available for user's role, or if CTA override detail-page mode is active */}
-            {!noTicketsForRole && !useCtaOverrideDetailMode && (
+            {!noTicketsForRole && !useCtaOverrideDetailMode && !(waitingListEnabled && isGuestCheckout) && (
             <Card className="border-slate-200 shadow-sm">
               <CardHeader className="border-b border-slate-200">
                 <div className="flex flex-col gap-3">
@@ -2401,7 +2406,7 @@ export function EventDetailsExperience({
                         />
                         
                         {/* Only show confirm button for program events - one-off events use PaymentOptions button */}
-                        {!isOneOffEvent && (
+                        {!isOneOffEvent && !waitingListEnabled && (
                           <div className="pt-4 border-t border-slate-200 space-y-4">
                             <label className="block text-sm font-medium">
                               Programme ticket owner
@@ -2615,7 +2620,7 @@ export function EventDetailsExperience({
                       const ticketPrice = Number(tc.price) || 0;
                       const purchasable = isTicketPurchasable(tc);
                       const loginEnabled = canLoginForTicket({ purchasable,
-                        authenticated: !!currentMemberInfo, released: isTicketReleased(tc, releaseNowMs),
+                        authenticated: !!currentMemberInfo, released: waitingListEnabled || isTicketReleased(tc, releaseNowMs),
                         soldOut: getTicketSoldOut(tc), registrationClosed: isRegistrationClosed, eventSoldOut: isSoldOut });
                       const isSelected = String(selectedTicketClassId) === ticketId;
                       
@@ -2675,7 +2680,7 @@ export function EventDetailsExperience({
                                 </span>
                               </Label>
                               <TicketRestrictionMessage ticket={tc} purchasable={purchasable}
-                                released={isTicketReleased(tc, releaseNowMs)} soldOut={getTicketSoldOut(tc)}
+                                released={waitingListEnabled || isTicketReleased(tc, releaseNowMs)} soldOut={getTicketSoldOut(tc)}
                                 registrationClosed={isRegistrationClosed} eventSoldOut={isSoldOut}
                                 authenticated={!!currentMemberInfo} onLogin={openLogin} suffix={ticketId} cardLogin={loginEnabled} />
                               {tc.is_group_ticket && tc.group_size && (
@@ -2740,7 +2745,7 @@ export function EventDetailsExperience({
                   {(() => {
                     const purchasable = isTicketPurchasable(selectedTicketClass);
                     const loginEnabled = canLoginForTicket({ purchasable,
-                      authenticated: !!currentMemberInfo, released: isTicketReleased(selectedTicketClass, releaseNowMs),
+                      authenticated: !!currentMemberInfo, released: waitingListEnabled || isTicketReleased(selectedTicketClass, releaseNowMs),
                       soldOut: getTicketSoldOut(selectedTicketClass), registrationClosed: isRegistrationClosed, eventSoldOut: isSoldOut });
                     const singlePricing = getEffectiveTicketPrice(selectedTicketClass);
                     return (
@@ -2765,7 +2770,7 @@ export function EventDetailsExperience({
                               )}
                             </div>
                             <TicketRestrictionMessage ticket={selectedTicketClass} purchasable={purchasable}
-                              released={isTicketReleased(selectedTicketClass, releaseNowMs)} soldOut={getTicketSoldOut(selectedTicketClass)}
+                              released={waitingListEnabled || isTicketReleased(selectedTicketClass, releaseNowMs)} soldOut={getTicketSoldOut(selectedTicketClass)}
                               registrationClosed={isRegistrationClosed} eventSoldOut={isSoldOut}
                               authenticated={!!currentMemberInfo} onLogin={openLogin} suffix="single" cardLogin={loginEnabled} />
                             {singlePricing.isEarlyBird && singlePricing.earlyBirdDeadline && (
@@ -2856,6 +2861,7 @@ export function EventDetailsExperience({
               </Card>
             ) : (
             <PaymentOptions
+              editorMode={editorMode}
               tbcBookingReplacement={tbcBookingReplacement}
               totalCost={totalCost}
               memberInfo={currentMemberInfo}
