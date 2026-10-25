@@ -38,3 +38,15 @@ Historical certificate access must not create event attendance or reinterpret im
 **Why:** Imported awards establish only the historical facts they actually contain; a certificate is not permission to invent missing event or attendance evidence.
 
 **How to apply:** Keep historical certificate work separate from importing/editing records, emailing, and permanent issuance archives unless explicitly requested. Leave unknown fields blank or fail required fields, and never automatically choose a historic template for an existing tenant.
+
+Standalone manual CPD awards belong in the normal member CPD history and balance
+with downloadable certificates, but must not fabricate event registration or
+attendance. Preserve the issued certificate independently of later template edits.
+
+**Why:** The user requested individual awards with a chosen certificate, points,
+event name/date and optional custom email, accessible like automatically generated
+awards. A manual administrative award is not evidence of event attendance.
+
+**How to apply:** Keep preview side-effect-free and email delivery separate from
+the immutable award. Email failures and retries must never duplicate points;
+ambiguous provider outcomes require reconciliation rather than automatic resending.

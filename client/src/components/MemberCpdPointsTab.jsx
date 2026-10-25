@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useParams } from "react-router-dom";
 import { Award, ChevronLeft, ChevronRight, Download, Loader2, ShieldX } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -8,6 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { CertificatePdfCanvasPreview } from "@/components/events/AttendeeCpdCertificateDialog";
 import MemberCpdPointsLedger from "@/components/MemberCpdPointsLedger";
+import ManualCpdAwardDialog from "@/components/ManualCpdAwardDialog";
 
 const PAGE_SIZE = 20;
 
@@ -56,6 +58,7 @@ function formatDate(value) {
 }
 
 function triggerLabel(item) {
+  if (item.entry_kind === "manual_award") return "Manual award";
   if (item.entry_kind === "manual_adjustment") return "Adjustment";
   if (item.entry_kind === "imported_award") return "Historical import";
   if (item.entry_kind === "reversal") return "Reversal";
@@ -104,7 +107,7 @@ export function MemberCpdPointsHistoryView({ data = {}, page, setPage, isFetchin
                   {items.map((item) => (
                     <TableRow key={item.id}>
                       <TableCell className="min-w-52">
-                        <p className="font-medium">{item.event_name}</p>
+                        <p className="font-medium">{item.event_name || item.activity_title}</p>
                         {item.activity_description && <p className="text-xs text-muted-foreground mt-1">{item.activity_description}</p>}
                       </TableCell>
                       <TableCell>{item.ticket_name_snapshot || "—"}</TableCell>
@@ -150,6 +153,10 @@ export function MemberCpdPointsHistoryView({ data = {}, page, setPage, isFetchin
 }
 
 export default function MemberCpdPointsTab({ memberId, enabled = true, canCorrect = false, certificates = false, pdfEngine }) {
+  // MemberDetail owns the :id route parameter. Self-service CPD has no :id,
+  // even when the signed-in user also has correction permissions elsewhere.
+  const detailParams = useParams();
+  const canAward = enabled && canCorrect && !!memberId && detailParams.id === memberId;
   const [page, setPage] = useState(1);
   const [preview, setPreview] = useState(null);
   const [pdfError, setPdfError] = useState("");
@@ -163,7 +170,7 @@ export default function MemberCpdPointsTab({ memberId, enabled = true, canCorrec
     placeholderData: (previous) => previous,
   });
   const certificateIds = enabled && certificates && !query.isPlaceholderData
-    ? (query.data?.items || []).filter(item => ["event_award", "imported_award"].includes(item.entry_kind) && Number(item.points_value) > 0 && !item.is_reversed)
+    ? (query.data?.items || []).filter(item => ["event_award", "imported_award", "manual_award"].includes(item.entry_kind) && Number(item.points_value) > 0 && !item.is_reversed)
       .slice(0, PAGE_SIZE).map(item => String(item.id))
     : [];
   const certificateQuery = useQuery({
@@ -226,7 +233,7 @@ export default function MemberCpdPointsTab({ memberId, enabled = true, canCorrec
   }
 
   function renderCertificate(item) {
-    if (!["event_award", "imported_award"].includes(item.entry_kind) || !(Number(item.points_value) > 0) || item.is_reversed) return <span className="text-muted-foreground">—</span>;
+    if (!["event_award", "imported_award", "manual_award"].includes(item.entry_kind) || !(Number(item.points_value) > 0) || item.is_reversed) return <span className="text-muted-foreground">—</span>;
     if (certificateQuery.isPending || certificateQuery.isFetching || query.isPlaceholderData) return <span role="status" className="text-sm text-muted-foreground">Checking…</span>;
     if (certificateQuery.isError) return (
       <div className="space-y-1 text-sm">
@@ -269,6 +276,7 @@ export default function MemberCpdPointsTab({ memberId, enabled = true, canCorrec
   }
   return (
     <>
+      {canAward && <ManualCpdAwardDialog key={memberId} memberId={memberId} pdfEngine={pdfEngine} />}
       {certificates && pdfError && !preview && <p role="alert" className="text-sm text-destructive">
         {pdfError} <Button variant="outline" size="sm" onClick={() => setPdfError("")}>Dismiss</Button>
       </p>}

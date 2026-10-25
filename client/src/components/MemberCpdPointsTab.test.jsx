@@ -16,8 +16,9 @@ const { default: MemberCpdPointsTab } = await import("./MemberCpdPointsTab.jsx")
 const { createRoot } = await import("react-dom/client");
 const { act } = React;
 const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+const { MemoryRouter, Routes, Route } = await import("react-router-dom");
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-for (const key of ["HTMLElement", "HTMLInputElement", "Element", "Node", "NodeFilter", "MutationObserver", "CustomEvent", "Event"]) {
+for (const key of ["HTMLElement", "HTMLInputElement", "Element", "Node", "NodeFilter", "DocumentFragment", "MutationObserver", "CustomEvent", "Event"]) {
   globalThis[key] = dom.window[key];
 }
 globalThis.getComputedStyle = dom.window.getComputedStyle;
@@ -45,8 +46,14 @@ async function mountTab(run) {
   const root = createRoot(container);
   const originalFetch = globalThis.fetch;
   const render = async (props = {}) => {
+    const { route, ...tabProps } = props;
+    const tab = <MemberCpdPointsTab memberId="member" {...tabProps} />;
     await act(async () => root.render(
-      <QueryClientProvider client={client}><MemberCpdPointsTab memberId="member" {...props} /></QueryClientProvider>,
+      <QueryClientProvider client={client}>
+        {route ? <MemoryRouter initialEntries={[route]}><Routes>
+          <Route path="/members/:id" element={tab} /><Route path="/my-cpd" element={tab} />
+        </Routes></MemoryRouter> : tab}
+      </QueryClientProvider>,
     ));
     await settle();
   };
@@ -79,6 +86,124 @@ async function fill(id, value) {
 }
 const award = { id: "award", entry_kind: "event_award", points_value: 5, event_name: "Conference" };
 const json = (data, ok = true) => ({ ok, json: async () => data });
+
+test("manual awards are gated to permitted matching member-detail routes, not self-service", async () => {
+  for (const props of [
+    { route: "/my-cpd", canCorrect: true },
+    { route: "/members/another-member", canCorrect: true },
+    { route: "/members/member", canCorrect: false },
+    { route: "/members/member", canCorrect: true, enabled: false },
+  ]) await mountTab(async ({ render }) => {
+    globalThis.fetch = async () => json({ balance: 0, items: [], entries: [] });
+    await render(props);
+    assert.equal(button("Award manual CPD"), undefined);
+  });
+  await mountTab(async ({ render }) => {
+    const calls = [];
+    let failOptions = true;
+    globalThis.fetch = async url => {
+      calls.push(url);
+      if (url.includes("manual-cpd-awards")) {
+        if (failOptions) return json({ error: "Templates unavailable" }, false);
+        return json({ templates: [], member: { name: "Nadia Mills", email: "nadia@example.test" } });
+      }
+      return json({ balance: 0, items: [], entries: [] });
+    };
+    await render({ route: "/members/member", canCorrect: true });
+    assert.ok(button("Award manual CPD"));
+    assert.equal(calls.filter(url => url.includes("manual-cpd-awards")).length, 0);
+    await click("Award manual CPD");
+    assert.match(document.body.textContent, /Templates unavailable/);
+    failOptions = false;
+    await click("Retry templates");
+    assert.match(document.body.textContent, /Nadia Mills/);
+    assert.match(document.body.textContent, /No certificate templates are available/);
+    assert.equal(button("Award CPD").disabled, true);
+    await click("Cancel");
+  });
+});
+
+test("manual awards have a distinct history label and participate in certificate eligibility", async () => {
+  await mountTab(async ({ render, container }) => {
+    let certificateRequest = "";
+    globalThis.fetch = async url => {
+      if (url.includes("cpd-certificate")) {
+        certificateRequest = url;
+        return json({ certificates: { "manual-ledger": { available: true } } });
+      }
+      return json({ balance: 2.75, total: 1, items: [{
+        id: "manual-ledger", entry_kind: "manual_award", activity_title: "Clinical review workshop",
+        points_value: "2.75", evidence_date: "2026-05-21",
+      }] });
+    };
+    await render({ certificates: true });
+    assert.match(container.textContent, /Manual award/);
+    assert.match(container.textContent, /Clinical review workshop/);
+    assert.match(certificateRequest, /ledger_entry_ids=manual-ledger/);
+    assert.ok(button("View certificate"));
+  });
+});
+
+test("manual award dialog locks ambiguous retries, refreshes ledger queries and retains email retry after save", async () => {
+  await mountTab(async ({ render }) => {
+    const posts = [];
+    let historyReads = 0;
+    let correctionReads = 0;
+    globalThis.fetch = async (url, options = {}) => {
+      if (url.includes("manual-cpd-awards") && options.method !== "POST") return json({
+        templates: [{ id: "template-7", name: "Professional development certificate" }],
+        member: { id: "member", name: "Nadia Mills", email: "nadia@example.test" },
+      });
+      if (options.method === "POST") {
+        const body = JSON.parse(options.body);
+        posts.push(body);
+        if (body.action === "award") {
+          if (posts.length === 1) throw new TypeError("Response lost");
+          return json({ entry: { id: "manual-ledger" }, email_status: "not_sent" });
+        }
+        return json({ status: posts.filter(post => post.action === "email").length === 1 ? "failed" : "sent" });
+      }
+      if (url.includes("/api/admin/member-cpd-points")) {
+        correctionReads++;
+        return json({ entries: [] });
+      }
+      historyReads++;
+      return json({ items: [], balance: 0 });
+    };
+    await render({ route: "/members/member", canCorrect: true });
+    await click("Award manual CPD");
+    const trigger = document.getElementById("manual-cpd-template");
+    if (!HTMLElement.prototype.scrollIntoView) HTMLElement.prototype.scrollIntoView = () => {};
+    await act(async () => trigger.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+    await settle();
+    const option = document.querySelector('[role="option"]');
+    assert.ok(option);
+    await act(async () => option.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    await settle();
+    await fill("manual-cpd-title", "Clinical review workshop");
+    await fill("manual-cpd-points", "2.75");
+    await fill("manual-cpd-date", "2026-05-21");
+    assert.equal(button("Award CPD").disabled, false);
+    await click("Award CPD");
+    assert.match(document.body.textContent, /This award may already exist/);
+    assert.equal(document.getElementById("manual-cpd-title").disabled, true);
+    assert.equal(button("Cancel").disabled, true);
+    await click("Retry award request");
+    assert.deepEqual(posts[0], posts[1]);
+    assert.match(document.body.textContent, /Manual CPD award saved/);
+    assert.ok(historyReads >= 2);
+    assert.ok(correctionReads >= 2);
+    await click("Email certificate");
+    assert.match(document.body.textContent, /award is saved, but the certificate email failed/);
+    await click("Close");
+    await click("View saved manual CPD award");
+    await click("Retry certificate email");
+    assert.match(document.body.textContent, /Certificate email sent/);
+    assert.equal(posts.filter(post => post.action === "award").length, 2);
+    assert.deepEqual(posts[2], posts[3]);
+    await click("Close");
+  });
+});
 
 test("disabled tabs make no requests; viewers have history only; pagination and empty/error retry survive", async () => {
   await mountTab(async ({ render, container }) => {

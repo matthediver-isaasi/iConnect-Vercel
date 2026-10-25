@@ -5,6 +5,7 @@ import { makeFeatureAccessChecker, resolveMemberExclusions } from '../../_lib/me
 import { resolveMember } from '../../_lib/eventCpdBadgeService.js';
 import { resolveAttendeeCertificate, renderAttendeeCertificate } from '../../_lib/attendeeCpdCertificate.js';
 import { resolveHistoricCertificate } from '../../_lib/historicCpdCertificate.js';
+import { resolveManualCertificate } from '../../_lib/manualCpdAwards.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const sources = { booking: 'standard', complex_event_booking: 'complex' };
@@ -19,7 +20,7 @@ async function one(db, table, tenantId, id) {
 
 async function eligibility(db, tenantId, memberId, entryId) {
   const row = await one(db, 'member_cpd_points_ledger', tenantId, entryId);
-  if (!row || String(row.member_id) !== String(memberId) || !['event_award', 'imported_award'].includes(row.entry_kind)
+  if (!row || String(row.member_id) !== String(memberId) || !['event_award', 'imported_award', 'manual_award'].includes(row.entry_kind)
     || !(Number(row.points_value) > 0) || (row.entry_kind === 'event_award' && (!sources[row.booking_type]
     || row.event_type !== (row.booking_type === 'booking' ? 'event' : 'complex_event')
     || !row.event_id || !row.booking_id))) {
@@ -29,7 +30,7 @@ async function eligibility(db, tenantId, memberId, entryId) {
     .eq('tenant_id', tenantId).eq('member_id', memberId).eq('reversal_of', entryId).limit(1);
   if (error) throw error;
   if (reversals?.length) return null;
-  if (row.entry_kind === 'imported_award') return row;
+  if (['imported_award', 'manual_award'].includes(row.entry_kind)) return row;
   const booking = await one(db, row.booking_type, tenantId, row.booking_id);
   if (!booking || String(booking.event_id) !== String(row.event_id)
     || booking.status !== 'confirmed'
@@ -46,6 +47,7 @@ export function createMemberCpdCertificateHandler(deps = {}) {
   const adminAccess = deps.hasAdminAccess || hasAdminAccess;
   const resolveExclusions = deps.resolveMemberExclusions || resolveMemberExclusions;
   const resolveCertificate = (db, input) => {
+    if (input.row?.entry_kind === 'manual_award') return (deps.resolveManualCertificate || resolveManualCertificate)(db, input);
     if (input.row?.entry_kind === 'imported_award') return (deps.resolveHistoricCertificate || resolveHistoricCertificate)(db, input);
     const { row, ...eventInput } = input;
     return (deps.resolveAttendeeCertificate || resolveAttendeeCertificate)(db, eventInput);
