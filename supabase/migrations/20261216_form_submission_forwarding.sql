@@ -25,7 +25,9 @@ CREATE TABLE public.form_submission_forward (
 );
 CREATE INDEX form_submission_forward_history ON public.form_submission_forward(tenant_id,submission_id,created_at DESC,id);
 ALTER TABLE public.form_submission_forward ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON public.form_submission_forward FROM PUBLIC,anon,authenticated;
+-- Hosted databases may automatically grant service_role ALL on new tables.
+-- Reset those defaults before granting the narrow mutation contract.
+REVOKE ALL ON public.form_submission_forward FROM PUBLIC,anon,authenticated,service_role;
 GRANT SELECT,INSERT ON public.form_submission_forward TO service_role;
 GRANT UPDATE(status,sent_at,revoked_at,revoked_by,token_hash,provider_id) ON public.form_submission_forward TO service_role;
 

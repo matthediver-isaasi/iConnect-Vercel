@@ -48,3 +48,16 @@ prerequisite.
 
 Verification covers mocked API delivery, capability reads, UI state and an
 isolated PostgreSQL migration/access check. No real member email is sent by tests.
+
+### Live storage verification
+
+Applied on 25 October 2026 to approved live DEST (`lvmzliemqnieeoruhkik`).
+Migration SHA-256:
+`5456e2ef0abff59c5c6c7111c13c0a50e968c5ca267cf5f5406f8b65501c683e`.
+Verified RLS, denied anonymous/authenticated access, narrow service-role column
+updates, no service-role delete, enabled recipient guard, submission foreign key
+and idempotency uniqueness. The initial transaction rolled back when the
+production default grants were detected; the corrected migration explicitly
+revokes those defaults, with a regression fixture reproducing them.
+No submission data changed, no forward rows created and no emails sent.
+Application-code deployment remains separate.

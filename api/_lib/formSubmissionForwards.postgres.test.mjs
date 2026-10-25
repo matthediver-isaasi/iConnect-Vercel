@@ -13,6 +13,7 @@ test('forwarding migration scopes recipient/submission, deduplicates and protect
     run('pg_ctl',['-D',path.join(root,'data'),'-l',path.join(root,'log'),'-o',`-k ${root}/socket -h ''`,'-w','start']);started=true;
     const sql=s=>run('psql',['-h',path.join(root,'socket'),'-U','postgres','-d','postgres','-v','ON_ERROR_STOP=1'],s);
     sql(`CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;
+      ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO service_role;
       CREATE TABLE member(id uuid PRIMARY KEY,tenant_id uuid,status text,email text);
       CREATE TABLE form_submission(id uuid PRIMARY KEY,tenant_id uuid,form_id uuid,UNIQUE(tenant_id,form_id,id));
       INSERT INTO member VALUES ('10000000-0000-4000-8000-000000000003','10000000-0000-4000-8000-000000000001','active','example@example.test');
