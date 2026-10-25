@@ -24,9 +24,17 @@ this change does not infer their value from current catalogue pricing.
 ## Rollout
 
 Required migration: `20261206_sales_pending_ticket_values.sql`.
-Not applied to live DEST during implementation; owner approval required.
-SOURCE is unchanged. Deploy the updated API/reporting UI before enabling the
-database change so NULL pending values are displayed correctly.
+Applied to live DEST (`lvmzliemqnieeoruhkik`) with owner approval after verifying
+the live allocation API and the allocation/reporting JavaScript bundles.
+SOURCE is unchanged. No further migration is pending for this feature.
+
+Applied SQL SHA-256:
+`9b72878f5d228ee011ef65e90dba435526764bbaef058f5e4f4d2f4d4c41d0e8`.
+Before commit, verified RLS, the append-only trigger, the pinned SECURITY DEFINER
+search path, no anonymous/authenticated access, and service-role read/RPC access
+without direct insert/update/delete privileges. Allocation and ticket-value
+table fingerprints were unchanged (both contained zero records). The affected
+proposal remained sent; no acceptance, email, invoice or payment was triggered.
 
 The affected sent proposal does not need its signed snapshot edited: after the
 migration, another successful acceptance attempt creates pending allocations.
