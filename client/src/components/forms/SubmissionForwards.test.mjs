@@ -89,7 +89,7 @@ test("per-submission history, confidentiality notice, disabled-send guidance and
     assert.match(container.textContent, /anyone with this link can view/);
     assert.match(container.textContent, /7 days/);
     assert.equal(button("Send email").disabled, true);
-    assert.match(container.textContent, /Choose a tenant member with an email address/);
+    assert.match(container.textContent, /Choose a member of the tenant’s default organisation with an email address/);
     assert.equal(container.querySelector('[aria-label="Forward email message"]').disabled, false);
     await act(async () => button("Cancel").click());
     assert.equal(container.querySelector('[role="dialog"]'), null);

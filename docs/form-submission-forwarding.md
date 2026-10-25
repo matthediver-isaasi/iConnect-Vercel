@@ -1,7 +1,9 @@
 # Forwarding form submissions
 
 Form Submissions management users can forward one submission to an active member
-of the same tenant with a valid email address. The action includes a TipTap message
+of the tenant's default organisation with a valid email address. Both member search
+and server-side send/retry checks enforce that organisation; missing or ambiguous
+default-organisation configuration blocks forwarding. The action includes a TipTap message
 and visible recipient, creation/sent time, delivery state, expiry and revocation.
 
 The email contains no answers. Its seven-day, read-only link uses a random

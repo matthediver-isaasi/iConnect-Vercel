@@ -16,6 +16,16 @@ async function single(db, table, tenantId, id, select = '*') {
   return data;
 }
 
+async function forwardingOrganization(db, tenantId) {
+  const result = await db.from('organization').select('id').eq('tenant_id', tenantId)
+    .eq('is_primary', true).limit(2);
+  if (result.error) throw result.error;
+  if (result.data?.length !== 1) {
+    throw problem('Forwarding requires one default organisation to be configured for this tenant.', 409);
+  }
+  return result.data[0].id;
+}
+
 export default async function handler(req, res, overrides = {}) {
   const deps = { db: supabase, getTenantContext, authorize: authorizeFormSubmissionDelete,
     sendEmail, project: projectFormAlertCapability, ...overrides };
@@ -49,10 +59,12 @@ export default async function handler(req, res, overrides = {}) {
     if (!submission) throw problem('Submission unavailable',404);
     if (req.method === 'GET') {
       if (query.action === 'members') {
+        const organizationId = await forwardingOrganization(db, tenantId);
         const search = String(query.q || '').trim();
         if (search.length < 2) return res.json({members:[]});
         if (search.length > 100 || /[(),*%\\]/.test(search)) throw problem('Use a name or email to search.');
         const r = await db.from('member').select('id,first_name,last_name,email').eq('tenant_id',tenantId)
+          .eq('organization_id',organizationId)
           .eq('status','active').not('email','is',null)
           .or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%`)
           .order('last_name').order('id').limit(30);
@@ -87,9 +99,10 @@ export default async function handler(req, res, overrides = {}) {
       if (prior.data.status !== 'failed' || prior.data.revoked_at) return res.json({forward:publicRow(prior.data)});
       if (Date.parse(prior.data.expires_at) <= Date.now()) throw problem('This forwarding request has expired.',409);
     }
-    const member = await single(db,'member',tenantId,body.member_id,'id,first_name,last_name,email,status');
-    if (!member || member.status !== 'active' || !/^[^\s<>@,;]+@[^\s<>@,;]+\.[^\s<>@,;]+$/.test(member.email || '')) {
-      throw problem('Select an active member in this tenant with a valid email address.');
+    const organizationId = await forwardingOrganization(db, tenantId);
+    const member = await single(db,'member',tenantId,body.member_id,'id,first_name,last_name,email,status,organization_id');
+    if (!member || member.organization_id !== organizationId || member.status !== 'active' || !/^[^\s<>@,;]+@[^\s<>@,;]+\.[^\s<>@,;]+$/.test(member.email || '')) {
+      throw problem('Select an active member of the tenant’s default organisation with a valid email address.');
     }
     if (prior.data && prior.data.recipient_email !== member.email) {
       throw problem('The recipient email has changed. The original request cannot be retried.',409);

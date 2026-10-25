@@ -10,6 +10,7 @@ const submission='10000000-0000-4000-8000-000000000002';
 const member='10000000-0000-4000-8000-000000000003';
 const form='10000000-0000-4000-8000-000000000004';
 const key='10000000-0000-4000-8000-000000000005';
+const organization='10000000-0000-4000-8000-000000000006';
 function response() {
   return {headers:{},statusCode:200,setHeader(k,v){this.headers[k]=v;},status(s){this.statusCode=s;return this;},
     json(body){this.body=body;return this;},send(body){this.body=body;return this;}};
@@ -18,7 +19,8 @@ function fixture() {
   const tables={
     form_submission:[{tenant_id:tenant,id:submission,form_id:form,submission_data:{q:'Real answer',hidden:'Secret'},
       created_date:'2026-10-25T12:00:00Z',is_anonymous:false}],
-    member:[{tenant_id:tenant,id:member,first_name:'Example',last_name:'Member',email:'recipient@example.test',status:'active'}],
+    organization:[{tenant_id:tenant,id:organization,is_primary:true}],
+    member:[{tenant_id:tenant,id:member,organization_id:organization,first_name:'Example',last_name:'Member',email:'recipient@example.test',status:'active'}],
     form:[{tenant_id:tenant,id:form,name:'Example form',fields:[{id:'q',type:'text',label:'Question'}],form_type:'standard'}],
     tenant:[{id:tenant,slug:'example',domain:null}],
     form_alert_submission_snapshot:[],
@@ -40,6 +42,7 @@ function fixture() {
     const chain={
       select(value){fields=value;return this;},eq(k,v){filters.push(r=>r[k]===v);return this;},
       is(k,v){filters.push(r=>(r[k]??null)===v);return this;},
+      not(k,op,v){filters.push(r=>(r[k]??null)!==v);return this;},or(){return this;},
       in(k,v){filters.push(r=>v.includes(r[k]));return this;},order(){return this;},limit(){return this;},range(){return this;},
       insert(v){op='insert';payload=v;return this;},update(v){op='update';payload=v;return this;},
       maybeSingle(){const r=result();return Promise.resolve({...r,data:r.data?.[0]||null});},
@@ -110,12 +113,31 @@ test('permission, tenant, recipient and privacy failures prevent all sends',asyn
     f=>{f.deps.authorize=async()=>({status:403,error:'Denied'});},
     f=>{f.tables.member[0].tenant_id='other';},
     f=>{f.tables.member[0].status='deleted';},
+    f=>{f.tables.member[0].organization_id='other';},
+    f=>{f.tables.member[0].organization_id=null;},
+    f=>{f.tables.organization=[];},
+    f=>{f.tables.organization[0].tenant_id='other';},
+    f=>{f.tables.organization.push({...f.tables.organization[0],id:'ambiguous'});},
     f=>{f.tables.form_submission[0].tenant_id='other';},
     f=>{f.deps.project=async()=>null;},
   ]) {
     const f=fixture();setup(f);const r=await f.call(send);assert.ok(r.statusCode>=400);
     assert.equal(f.sent.length,0);assert.equal(f.tables.form_submission_forward.length,0);
   }
+});
+test('recipient search only includes members of the default organisation',async()=>{
+  const f=fixture();
+  f.tables.member.push({...f.tables.member[0],id:'outsider',organization_id:'other'});
+  const r=await f.call({},'GET',{submission_id:submission,action:'members',q:'Example'});
+  assert.equal(r.statusCode,200);
+  assert.deepEqual(r.body.members.map(m=>m.id),[member]);
+});
+test('failed delivery cannot retry after member leaves the default organisation',async()=>{
+  const f=fixture();f.deps.sendEmail=async mail=>{f.sent.push(mail);return {notSubmitted:true};};
+  assert.equal((await f.call(send)).body.forward.status,'failed');
+  f.tables.member[0].organization_id='other';
+  assert.equal((await f.call(send)).statusCode,400);
+  assert.equal(f.sent.length,1);
 });
 test('public forwarding rejects expired, invalid, unsent and deleted targets',async()=>{
   for(const mutate of [

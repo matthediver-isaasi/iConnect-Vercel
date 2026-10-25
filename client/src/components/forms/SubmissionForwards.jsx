@@ -100,7 +100,7 @@ export default function SubmissionForwards({ scope, submissionId, listHistory })
 
   const disabledReason = !allowed ? history.isError ? "Load forwarding history before sending."
     : history.isPending || history.isFetching ? "Checking forwarding access…" : "Forwarding is not available for this submission."
-    : !locked && !member?.email ? "Choose a tenant member with an email address to send." : "";
+    : !locked && !member?.email ? "Choose a member of the tenant’s default organisation with an email address." : "";
 
   const renderHistory = (query, forwards, canRevoke = false) => <>
     {query.isPending && <div role="status" aria-label="Loading forwarding history" className="mt-2 h-8 animate-pulse rounded bg-slate-100" />}
@@ -108,7 +108,7 @@ export default function SubmissionForwards({ scope, submissionId, listHistory })
       <p>Forwarding history could not be loaded. {query.error.message}</p>
       <Button size="sm" variant="outline" onClick={() => query.refetch()}>Retry history</Button>
     </div>}
-    {query.data && !forwards.length && <p className="mt-2 text-xs text-slate-500">No forwards yet. Share this submission with a tenant member by email.</p>}
+    {query.data && !forwards.length && <p className="mt-2 text-xs text-slate-500">No forwards yet. Share this submission with a member of the tenant’s default organisation by email.</p>}
     <ul className="mt-2 space-y-2">
       {forwards.map(forward => {
         const status = forwardDisplayStatus(forward);
@@ -143,7 +143,7 @@ export default function SubmissionForwards({ scope, submissionId, listHistory })
         onPointerDownOutside={event => { if (busy) event.preventDefault(); }}>
         <DialogHeader>
           <DialogTitle>Forward submission</DialogTitle>
-          <DialogDescription>Email a tenant member a link to view this submission, with your own message. No login is required.</DialogDescription>
+          <DialogDescription>Email a member of the tenant’s default organisation a link to view this submission, with your own message. No login is required.</DialogDescription>
         </DialogHeader>
         <div className="flex gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
           <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
@@ -162,7 +162,7 @@ export default function SubmissionForwards({ scope, submissionId, listHistory })
           <Input id={`forward-member-${submissionId}`} value={search} autoComplete="off" placeholder="Search members by name or email"
             disabled={busy || !allowed} onChange={event => { setSearch(event.target.value); setMember(null); }} />
           {member ? <p className="rounded border bg-slate-50 p-2 text-sm">Selected: {[member.first_name, member.last_name].filter(Boolean).join(" ")} — {member.email}</p>
-            : search.trim().length < 2 ? <p className="text-xs text-slate-500">Enter at least 2 characters to search tenant members.</p> : <>
+            : search.trim().length < 2 ? <p className="text-xs text-slate-500">Enter at least 2 characters to search members of the tenant’s default organisation.</p> : <>
               {(search !== debouncedSearch || members.isFetching) && <div role="status" aria-label="Searching members" className="h-10 animate-pulse rounded bg-slate-100" />}
               {members.isError && <div role="alert" className="text-sm text-red-700">{members.error.message} <Button variant="outline" size="sm" onClick={() => members.refetch()}>Retry search</Button></div>}
               {search === debouncedSearch && members.data && <ul aria-label="Matching members" className="max-h-48 space-y-1 overflow-y-auto rounded-md border p-1">
