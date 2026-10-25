@@ -2,9 +2,16 @@
 
 ## Rollout
 
-Apply `supabase/migrations/20261204_job_posting_alerts.sql` to the approved
-application database **before** deploying this change. This migration has been
-tested in isolated PostgreSQL; it has not yet been applied to live DEST.
+`supabase/migrations/20261204_job_posting_alerts.sql` must be applied to the
+approved application database **before** deploying this change. It was tested
+in isolated PostgreSQL before the approved live application below.
+Applied to live DEST (`lvmzliemqnieeoruhkik`) on 25 October 2026.
+SHA-256: `9bc406ec988e276b53a10a10ce18628683b0e1e1c3b0b8c30df5ac3851c2d96b`.
+RLS and service-only table/RPC privileges were checked before commit, and the
+REST schema cache was verified afterward. No tenant settings, subscriptions or
+delivery queue rows were created. 297 existing published/historical jobs were
+marked to prevent retroactive notifications. SOURCE was not changed.
+
 It adds service-only subscription-prompt/settings/publication/delivery tables,
 a protected system category marker, queue functions and publication triggers.
 No tenant is enabled and no member is subscribed by migration.
