@@ -11,6 +11,7 @@ export const PARTIAL_DISCOUNTS_EXPLANATION = 'Recorded discounts only: includes 
 export const UNPAID_EXPLANATION = 'Unpaid: this amount has not been received.';
 
 export function registrationTicketPricePresentation(attendee) {
+  if (attendee?.price_paid_status === 'proposal_pending') return { amount: null, recorded: false, allocationPending: true };
   const recorded = attendee?.payment_method === 'public_invoice_po'
     && attendee?.ticket_price_status === 'unavailable_gross_snapshot';
   const amount = recorded
@@ -28,6 +29,7 @@ export function registrationDiscountPresentation(payment) {
 }
 
 export function registrationTicketPriceExport(attendee) {
+  if (attendee?.price_paid_status === 'proposal_pending') return 'Pending allocation';
   const { amount, recorded } = registrationTicketPricePresentation(attendee);
   return recorded
     ? `${financialExport(amount)} (recorded after offers; original list price unavailable)`
@@ -42,10 +44,11 @@ export function registrationDiscountExport(payment) {
 }
 
 export function registrationPricePaidPresentation(attendee) {
+  if (attendee?.price_paid_status === 'proposal_pending') return { label: 'Pending allocation', pending: false };
   const pending = attendee?.price_paid_status === 'pending';
   const amount = financialAmount(attendee?.price_paid);
   return {
     pending,
-    label: pending || attendee?.price_paid_status === 'net' ? financialCurrency(amount) : 'Unavailable',
+    label: pending || ['net', 'proposal_attributed'].includes(attendee?.price_paid_status) ? financialCurrency(amount) : 'Unavailable',
   };
 }

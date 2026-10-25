@@ -304,6 +304,7 @@ function FinancialExplanation({ children, explanation }) {
 }
 
 function RegistrationTicketPrice({ attendee }) {
+  if (attendee?.price_paid_status === 'proposal_pending') return <span className="text-muted-foreground">Pending allocation</span>;
   const { amount, recorded } = registrationTicketPricePresentation(attendee);
   return recorded
     ? <FinancialExplanation explanation={RECORDED_TICKET_EXPLANATION}>{formatCurrency(amount)}</FinancialExplanation>
@@ -1302,6 +1303,7 @@ export default function EventRegistrationReport() {
     let totalFooterDiscount = 0;
     let totalAfterDiscount = 0;
     let totalPricePaid = 0;
+    const hasPendingAllocation = filteredGroups.some(group => group.attendees.some(a => a.price_paid_status === 'proposal_pending'));
     const creditsSummary = summarizeRegistrationCredits(filteredGroups);
     let hasUnavailableTicketTotal = false;
     let hasUnavailableDiscount = false;
@@ -1341,7 +1343,7 @@ export default function EventRegistrationReport() {
         const ticketAmount = registrationTicketPricePresentation(attendee).amount;
         if (ticketAmount === null) hasUnavailableTicketTotal = true;
         else totalTicketPrice += Math.round(ticketAmount * 100) / 100;
-        if (attendee.price_paid_status === 'net' && attendee.price_paid != null && Number.isFinite(Number(attendee.price_paid))) {
+        if (['net', 'proposal_attributed'].includes(attendee.price_paid_status) && attendee.price_paid != null && Number.isFinite(Number(attendee.price_paid))) {
           totalPricePaid += Number(attendee.price_paid);
         } else if (attendee.price_paid == null) {
           hasUnavailablePricePaid = true;
@@ -1366,6 +1368,7 @@ export default function EventRegistrationReport() {
       totalFooterDiscount,
       totalAfterDiscount,
       totalPricePaid,
+      hasPendingAllocation,
       creditsSummary,
       hasUnavailableTicketTotal,
       hasUnavailableDiscount,
@@ -2587,13 +2590,13 @@ export default function EventRegistrationReport() {
                               Totals ({totalAttendees} attendees, {filteredGroups.length} bookings)
                             </td>
                             <td className="pt-3 pr-3 text-right whitespace-nowrap">
-                              {formatCurrency(filteredSummary.totalTicketPrice)}
+                              {filteredSummary.hasPendingAllocation ? 'Pending allocation' : formatCurrency(filteredSummary.totalTicketPrice)}
                             </td>
                             <td className="pt-3 pr-3 text-right whitespace-nowrap text-green-600">
                               {filteredSummary.totalFooterDiscount > 0 ? '-' : ''}{formatCurrency(filteredSummary.totalFooterDiscount)}
                             </td>
                             <td className="pt-3 pr-3 text-right whitespace-nowrap">
-                              {filteredSummary.hasUnavailableAfterDiscount ? 'Unavailable' : formatCurrency(filteredSummary.totalAfterDiscount)}
+                              {filteredSummary.hasPendingAllocation ? 'Pending allocation' : filteredSummary.hasUnavailableAfterDiscount ? 'Unavailable' : formatCurrency(filteredSummary.totalAfterDiscount)}
                             </td>
                             {paymentPolicy?.allowVoucherPayment && <td className="pt-3 pr-3 text-right whitespace-nowrap">
                               {filteredSummary.hasUnavailableVoucher ? 'Unavailable' : formatCurrency(filteredSummary.totalVoucher)}
@@ -2602,7 +2605,7 @@ export default function EventRegistrationReport() {
                               {filteredSummary.hasUnavailableFund ? 'Unavailable' : formatCurrency(filteredSummary.totalTrainingFund)}
                             </td>}
                             <td className="pt-3 pr-3 text-right whitespace-nowrap">
-                              {filteredSummary.hasUnavailablePricePaid ? 'Unavailable' : formatCurrency(filteredSummary.totalPricePaid)}
+                              {filteredSummary.hasPendingAllocation ? 'Pending allocation' : filteredSummary.hasUnavailablePricePaid ? 'Unavailable' : formatCurrency(filteredSummary.totalPricePaid)}
                             </td>
                             <td className="pt-3 pr-3 text-right whitespace-nowrap" data-testid="text-total-credits">
                               {formatRegistrationCreditSummary(filteredSummary.creditsSummary)}

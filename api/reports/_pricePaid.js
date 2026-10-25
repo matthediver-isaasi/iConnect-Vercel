@@ -14,6 +14,9 @@ export function normalizeGroupPricePaid(bookings) {
   const roundCents = (value) => Math.round((value + Number.EPSILON) * 100);
 
   const normalized = (bookings || []).map((booking) => {
+    if (booking._proposal_ticket_value?.status === 'pending') {
+      return { price_paid: null, price_paid_status: 'proposal_pending', rawCents: null };
+    }
     if (booking._proposal_ticket_value) {
       return {
         price_paid: null,
@@ -151,6 +154,12 @@ const complexDiscountCentsByRow = (rows) => {
  */
 export function normalizeGroupPayment(bookings) {
   const rows = bookings || [];
+  if (rows.some(row => row._proposal_ticket_value?.status === 'pending')) {
+    return { ticketTotal: null, totalAfterDiscount: null, discount: null,
+      offerDiscount: null, codeDiscount: null, totalsStatus: 'unavailable',
+      proposalAttributedTotal: null, proposalAttributedNet: null, proposalAttributedTax: null,
+      proposalAllocationPending: true };
+  }
   const attributed = rows.filter(booking => booking._proposal_ticket_value);
   if (attributed.length) {
     const ordinary = rows.filter(booking => !booking._proposal_ticket_value);
@@ -332,6 +341,7 @@ export function normalizeGroupPayment(bookings) {
 
 /** Gross attendee ticket value for display; complex ticket_price is net. */
 export function grossTicketPrice(booking) {
+  if (booking?._proposal_ticket_value?.status === 'pending') return null;
   if (booking?._proposal_ticket_value) return Number(booking._proposal_ticket_value.gross_minor) / 100;
   if (knownMoney(booking?.ticket_price) === null
     || (booking?.payment_method === 'admin_import' && knownMoney(booking.ticket_price) === 0)) return null;
@@ -355,6 +365,7 @@ export function normalizeGroupTicketPrices(bookings) {
       && booking.purchaser_context?.financial_snapshot,
   )?.purchaser_context.financial_snapshot.gross_ticket_unit_amount;
   return rows.map((booking, index) => {
+    if (booking._proposal_ticket_value?.status === 'pending') return null;
     if (booking._proposal_ticket_value) return Number(booking._proposal_ticket_value.gross_minor) / 100;
     if (booking?.payment_method === 'admin_import'
       && knownMoney(booking.ticket_price) === 0) return null;

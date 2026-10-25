@@ -20,3 +20,9 @@ Preserve the distinction between proposal-attributed ticket value and cash colle
 **Why:** A prepaid registration owes zero at checkout without being a zero-value sale. Mixed bundles include non-ticket benefits; assigning their entire price to tickets overstates event revenue.
 
 **How to apply:** Freeze accepted commercial evidence for new allocations, apportion exact pennies using frozen component weights, and leave historical records unchanged. Ambiguous old ticket snapshots require an amended proposal rather than silently using live ticket capacity.
+
+Unpriced package components must not block acceptance solely because ticket-value weights are missing or all zero. Accept with ticket attribution pending, not zero, and allow a separately audited admin assignment after acceptance.
+
+**Why:** The owner approved this for package-priced sponsorship bundles whose ticket and non-ticket benefits have no individual prices.
+
+**How to apply:** Preserve the accepted bundle price and original snapshots. Do not create an invoice/payment when assigning reporting value. Bound combined ticket values by the accepted line; unknown values stay explicit until assigned. This does not waive missing ticket identity/capacity validation.

@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { summarizeRegistrationRevenue, registrationRevenueExplanation } from './eventRegistrationRevenue.mjs';
 import { normalizeGroupPayment } from '../api/reports/_pricePaid.js';
 import { projectCredits } from '../api/reports/_credits.js';
+import { registrationDiscountPresentation, registrationTicketPricePresentation } from '../client/src/lib/eventRegistrationRecordedFinancial.js';
 
 function group(source = 'standard', amount = 25) {
   const rows = [{
@@ -85,9 +86,11 @@ test('actual client summary and API summary share the contract after attachment,
   const groups = [group(), group('complex')];
   const result = new Function('useMemo', 'filteredGroups', 'totalAttendees',
     'summarizeRegistrationRevenue', 'summarizeRegistrationCredits', 'financialAmount', 'isGrossSnapshotUnavailable',
+    'registrationDiscountPresentation', 'registrationTicketPricePresentation',
     `${block}; return filteredSummary;`)(
     fn => fn(), groups, 4, summarizeRegistrationRevenue, () => ({}),
     value => value == null ? null : Number(value), () => false,
+    registrationDiscountPresentation, registrationTicketPricePresentation,
   );
   assert.equal(result.totalRevenue, 150);
   assert.equal(result.totalStripePayments, 0);

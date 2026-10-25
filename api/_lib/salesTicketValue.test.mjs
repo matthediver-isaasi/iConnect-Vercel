@@ -56,6 +56,7 @@ test('isolated PostgreSQL freezes values, apportions bundle/non-ticket weights, 
     `);
     const migration = await readFile(new URL('../../supabase/migrations/202610180009_sales_ticket_value_attribution.sql', import.meta.url), 'utf8');
     run('psql', args, migration);
+    run('psql', args, await readFile(new URL('../../supabase/migrations/20261206_sales_pending_ticket_values.sql', import.meta.url), 'utf8'));
     const hardened = await readFile(new URL('../../supabase/migrations/20260913_sales_concurrency_hardening.sql', import.meta.url), 'utf8');
     run('psql', args, hardened.slice(hardened.indexOf('CREATE OR REPLACE FUNCTION public.claim_sales_allocation_invitation('),
       hardened.indexOf('REVOKE ALL ON FUNCTION public.claim_sales_allocation_invitation')));
@@ -130,13 +131,64 @@ test('isolated PostgreSQL freezes values, apportions bundle/non-ticket weights, 
           OR (SELECT sum(net_minor) FROM sales_allocation_ticket_value WHERE allocation_id=a)<>8
           OR (SELECT sum(tax_minor) FROM sales_allocation_ticket_value WHERE allocation_id=a)<>2 THEN
           RAISE EXCEPTION 'fractional penny distribution failed'; END IF;
-        -- No component price evidence means an explicit rejection, not an
-        -- equal split silently transferring non-ticket revenue to attendees.
+        -- Missing price evidence is pending, never an invented equal split.
         UPDATE sales_quote_bundle_component SET product_snapshot='{}' WHERE id=component;
+        a:=gen_random_uuid();
+        INSERT INTO sales_commercial_allocation VALUES(a,tenant,bl,component,3,'complex',ev,'ambiguous',NULL);
+        IF (SELECT proposal_value_snapshot->>'status' FROM sales_commercial_allocation WHERE id=a)<>'pending'
+          THEN RAISE EXCEPTION 'ambiguous bundle not marked pending'; END IF;
+      END $test$;
+    `);
+    run('psql', args, `
+      DO $test$
+      DECLARE tenant uuid:=gen_random_uuid(); v uuid:=gen_random_uuid(); l uuid:=gen_random_uuid();
+        c uuid:=gen_random_uuid(); a uuid:=gen_random_uuid(); a2 uuid:=gen_random_uuid();
+        inv uuid:=gen_random_uuid(); actor uuid:=gen_random_uuid(); key uuid:=gen_random_uuid(); s jsonb;
+      BEGIN
+        INSERT INTO sales_quote_version VALUES(v,tenant,'accepted','GBP');
+        INSERT INTO sales_quote_line VALUES(l,tenant,v,400000,80000);
+        INSERT INTO sales_quote_bundle_component VALUES(c,tenant,l,0,6,'{"standard_price_minor":0}');
+        INSERT INTO sales_commercial_allocation VALUES(a,tenant,l,c,6,'simple',gen_random_uuid(),'ticket',NULL);
+        INSERT INTO sales_commercial_allocation VALUES(a2,tenant,l,c,6,'simple',gen_random_uuid(),'ticket',NULL);
+        IF (SELECT proposal_value_snapshot->>'status' FROM sales_commercial_allocation WHERE id=a)<>'pending' THEN
+          RAISE EXCEPTION 'not pending'; END IF;
+        INSERT INTO sales_commercial_allocation_invitation(id,tenant_id,allocation_id,booking_kind,booking_id)
+          VALUES(inv,tenant,a,'simple',gen_random_uuid());
+        UPDATE sales_commercial_allocation_invitation SET claimed_at=now() WHERE id=inv;
+        IF NOT EXISTS(SELECT 1 FROM sales_allocation_ticket_value WHERE invitation_id=inv
+          AND net_minor IS NULL AND gross_minor IS NULL AND place_index=1) THEN RAISE EXCEPTION 'pending claim not retained'; END IF;
         BEGIN
-          INSERT INTO sales_commercial_allocation VALUES(gen_random_uuid(),tenant,bl,component,3,'complex',ev,'ambiguous',NULL);
-          RAISE EXCEPTION 'ambiguous bundle accepted';
+          PERFORM resolve_sales_allocation_value(gen_random_uuid(),a,actor,60000,'Allocation',key);
+          RAISE EXCEPTION 'cross tenant allowed';
+        EXCEPTION WHEN no_data_found THEN NULL; END;
+        BEGIN
+          PERFORM resolve_sales_allocation_value(tenant,a,actor,400001,'Allocation',key);
+          RAISE EXCEPTION 'over budget allowed';
         EXCEPTION WHEN check_violation THEN NULL; END;
+        s:=resolve_sales_allocation_value(tenant,a,actor,60000,'Allocation',key);
+        IF (s->>'grossMinor')::bigint<>72000 THEN RAISE EXCEPTION 'tax mismatch'; END IF;
+        IF resolve_sales_allocation_value(tenant,a,actor,60000,'Allocation',key)<>s THEN RAISE EXCEPTION 'replay mismatch'; END IF;
+        BEGIN
+          PERFORM resolve_sales_allocation_value(tenant,a,actor,50000,'Allocation',key);
+          RAISE EXCEPTION 'changed replay allowed';
+        EXCEPTION WHEN check_violation THEN NULL; END;
+        BEGIN
+          PERFORM resolve_sales_allocation_value(tenant,a2,actor,340001,'Allocation',gen_random_uuid());
+          RAISE EXCEPTION 'combined budget exceeded';
+        EXCEPTION WHEN check_violation THEN NULL; END;
+        -- After assignment, preserve immutable NULL row and original agreement
+        -- evidence; reporting overlays the audited resolution for all claims.
+        IF EXISTS(SELECT 1 FROM sales_allocation_ticket_value WHERE invitation_id=inv AND gross_minor IS NOT NULL)
+          OR (SELECT proposal_value_snapshot->>'status' FROM sales_commercial_allocation WHERE id=a)<>'pending'
+          THEN RAISE EXCEPTION 'historical evidence changed'; END IF;
+        BEGIN
+          UPDATE sales_allocation_value_resolution SET reason='changed' WHERE allocation_id=a;
+          RAISE EXCEPTION 'audit mutable';
+        EXCEPTION WHEN raise_exception THEN IF SQLERRM='audit mutable' THEN RAISE; END IF; END;
+        IF has_function_privilege('authenticated','resolve_sales_allocation_value(uuid,uuid,uuid,bigint,text,uuid)','EXECUTE')
+          OR has_table_privilege('service_role','sales_allocation_value_resolution','INSERT')
+          OR has_table_privilege('anon','sales_allocation_value_resolution','SELECT')
+          THEN RAISE EXCEPTION 'unsafe grants'; END IF;
       END $test$;
     `);
   } finally {

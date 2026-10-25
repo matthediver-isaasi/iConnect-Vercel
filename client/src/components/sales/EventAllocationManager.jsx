@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { allocationPlacesAvailable, allocationRegistrationUrl, normalizeAllocationContext } from "@/lib/eventAllocation.mjs";
 import { toast } from "sonner";
+import AllocationValueControl from "./AllocationValueControl";
 
 async function allocationRequest(path, options = {}) {
   const response = await fetch(path, {
@@ -28,7 +29,7 @@ function Stat({ label, value, emphasis = false }) {
   </div>;
 }
 
-export function AllocationSummaryCard({ item }) {
+export function AllocationSummaryCard({ item, children }) {
   const allocation = normalizeAllocationContext(item);
   const available = allocationPlacesAvailable(allocation);
   return <Card>
@@ -36,6 +37,7 @@ export function AllocationSummaryCard({ item }) {
       <div>
         <p className="font-semibold text-slate-900">{allocation.eventName}</p>
         <p className="text-sm text-slate-500">{allocation.ticketName} · {allocation.organizationName}</p>
+        {children}
       </div>
       <div className="flex items-center gap-3 text-sm"><span>{allocation.registered} registered</span><Badge variant={available ? "default" : "secondary"}>{available} remaining</Badge>
         <Button asChild size="sm" variant="outline"><Link to={`/sales/allocations/${allocation.id}`}>Manage</Link></Button>
@@ -56,7 +58,7 @@ export function OpportunityAllocations({ opportunityId }) {
   if (query.isLoading) return <div className="grid h-32 place-items-center"><Loader2 className="h-5 w-5 animate-spin" /></div>;
   if (query.error) return <Card className="border-rose-200"><CardContent className="p-5 text-rose-700">{query.error.message}</CardContent></Card>;
   if (!items.length) return <Card><CardContent className="p-10 text-center text-slate-500">No Event delegate allocations are linked to this opportunity.</CardContent></Card>;
-  return <div className="space-y-3">{items.map((item) => <AllocationSummaryCard key={item.allocation_id || item.id} item={item} />)}</div>;
+  return <div className="space-y-3">{items.map((item) => <AllocationSummaryCard key={item.allocation_id || item.id} item={item}><AllocationValueControl allocationId={item.allocation_id || item.id} /></AllocationSummaryCard>)}</div>;
 }
 
 export default function EventAllocationManager() {
