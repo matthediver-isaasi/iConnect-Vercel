@@ -1,6 +1,7 @@
 // v2.1.0 - Added non-member guest booking support
 import { useState, useMemo, useEffect, Fragment } from "react";
 import { resolveEventCtaLabel } from "@/lib/eventCtaLabel";
+import EventWaitingListModal from './EventWaitingListModal';
 import { buildActiveAttendeeCountMap } from "@/lib/eventAttendeeCounts";
 import { resolveEventAttendeeCountDisplay } from "@/lib/eventAttendeeCountDisplay";
 import { isImmediateEvent } from "@shared/eventTiming.js";
@@ -213,6 +214,7 @@ export function EventClickCountMetric({
 export default function EventCard({ event, organizationInfo, isFeatureExcluded, isAdmin, onEventDeleted, joinLinkSettings, webinars, systemSettings = [], memberInfo, joinLocked = false, agendaSummary = null, groupAdminMode = false, attendeeCount = null, attendeeCountLoading = false, attendeeCountError = false, eventClickTrackingEnabled = false, eventClickCountEnabled = false, onEventClick, eventClickCount = null, eventClickCountLoading = false, eventClickCountError = false }) {
   const queryClient = useQueryClient();
   const attendeeCountDisplay = resolveEventAttendeeCountDisplay({
+    waitingList: event.waiting_list_enabled,
     count: attendeeCount,
     isLoading: attendeeCountLoading,
     isError: attendeeCountError,
@@ -253,7 +255,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
       const bookings = await entity.filter({ event_id: event.id });
       return bookings;
     },
-    enabled: showAttendeesModal && canManageEvent,
+    enabled: showAttendeesModal && canManageEvent && !event.waiting_list_enabled,
   });
 
   // Fetch organizations when attendees modal is open
@@ -262,7 +264,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
     queryFn: async () => {
       return await listAllOrganizationsForAdmin();
     },
-    enabled: showAttendeesModal && canManageEvent,
+    enabled: showAttendeesModal && canManageEvent && !event.waiting_list_enabled,
   });
 
   // Fetch members when attendees modal is open
@@ -271,7 +273,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
     queryFn: async () => {
       return await base44.entities.Member.listAll();
     },
-    enabled: showAttendeesModal && canManageEvent,
+    enabled: showAttendeesModal && canManageEvent && !event.waiting_list_enabled,
   });
 
   // Create organization lookup map
@@ -298,14 +300,14 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
   }, [bookingsData]);
 
   useEffect(() => {
-    if (!bookingsData) return;
+    if (!bookingsData || event.waiting_list_enabled) return;
     queryClient.setQueriesData(
       { queryKey: ['event-attendee-counts'] },
       (old) => old
         ? { ...old, ...buildActiveAttendeeCountMap(bookingsData, [event.id]) }
         : old,
     );
-  }, [bookingsData, event.id, queryClient]);
+  }, [bookingsData, event.id, event.waiting_list_enabled, queryClient]);
 
   // Get unique organizations from bookings for filter dropdown
   const uniqueOrganizations = useMemo(() => {
@@ -1365,7 +1367,10 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
       )}
 
       {/* Attendees Modal - Only render for admins */}
-      {canManageEvent && (
+      {canShowAttendeeAction && event.waiting_list_enabled && showAttendeesModal && (
+        <EventWaitingListModal event={event} memberInfo={memberInfo} open={showAttendeesModal} onOpenChange={setShowAttendeesModal} />
+      )}
+      {canManageEvent && !event.waiting_list_enabled && (
         <Dialog open={showAttendeesModal} onOpenChange={(open) => {
           setShowAttendeesModal(open);
           if (!open) {

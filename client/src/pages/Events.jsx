@@ -49,6 +49,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import EventCard, { EventClickCountMetric } from "../components/events/EventCard";
+import EventWaitingListModal from '@/components/events/EventWaitingListModal';
 import TenantEventTimeDisplay from "@/components/events/TenantEventTimeDisplay";
 import PageTour from "../components/tour/PageTour";
 import TourButton from "../components/tour/TourButton";
@@ -344,12 +345,13 @@ export default function EventsPage({
     isLoading: eventAttendeeCountsLoading,
     isError: eventAttendeeCountsError,
   } = useQuery({
-    queryKey: ['event-attendee-counts', simpleEventIds, complexEventIds],
+    queryKey: ['event-attendee-counts', ...viewerKey, simpleEventIds, complexEventIds, events.map(event => !!event.waiting_list_enabled)],
     queryFn: () => fetchEventAttendeeCounts({ simpleEventIds, complexEventIds }),
     enabled: canViewAttendees && (simpleEventIds.length > 0 || complexEventIds.length > 0),
     staleTime: 0,
   });
   const getEventAttendeeCountDisplay = (eventId) => resolveEventAttendeeCountDisplay({
+    waitingList: events.find(event => event.id === eventId)?.waiting_list_enabled,
     count: eventAttendeeCounts?.[eventId],
     isLoading: eventAttendeeCountsLoading,
     isError: eventAttendeeCountsError,
@@ -958,7 +960,7 @@ export default function EventsPage({
       // Complex events store bookings in complex_event_booking (keyed by event_id).
       return await base44.entities.ComplexEventBooking.filter({ event_id: complexAttendeesEvent.id });
     },
-    enabled: showComplexAttendeesModal && isAdmin,
+    enabled: showComplexAttendeesModal && isAdmin && !complexAttendeesEvent?.waiting_list_enabled,
   });
 
   const { data: complexOrganizationsData } = useQuery({
@@ -966,7 +968,7 @@ export default function EventsPage({
     queryFn: async () => {
       return await listAllOrganizationsForAdmin();
     },
-    enabled: showComplexAttendeesModal && isAdmin,
+    enabled: showComplexAttendeesModal && isAdmin && !complexAttendeesEvent?.waiting_list_enabled,
   });
 
   const { data: complexMembersData } = useQuery({
@@ -974,7 +976,7 @@ export default function EventsPage({
     queryFn: async () => {
       return await base44.entities.Member.listAll();
     },
-    enabled: showComplexAttendeesModal && isAdmin,
+    enabled: showComplexAttendeesModal && isAdmin && !complexAttendeesEvent?.waiting_list_enabled,
   });
 
   const complexOrgMap = useMemo(() => {
@@ -999,7 +1001,7 @@ export default function EventsPage({
   }, [complexBookingsData]);
 
   useEffect(() => {
-    if (!complexAttendeesEvent?.id || !complexBookingsData) return;
+    if (!complexAttendeesEvent?.id || !complexBookingsData || complexAttendeesEvent.waiting_list_enabled) return;
     queryClient.setQueriesData(
       { queryKey: ['event-attendee-counts'] },
       (old) => old
@@ -1009,7 +1011,7 @@ export default function EventsPage({
           }
         : old,
     );
-  }, [complexAttendeesEvent?.id, complexBookingsData, queryClient]);
+  }, [complexAttendeesEvent?.id, complexAttendeesEvent?.waiting_list_enabled, complexBookingsData, queryClient]);
 
   const complexUniqueOrganizations = useMemo(() => {
     if (!complexActiveBookings || complexActiveBookings.length === 0) return [];
@@ -2114,7 +2116,7 @@ export default function EventsPage({
                                                  : <span aria-hidden="true">{getEventAttendeeCountDisplay(event.id).text}</span>}
                                             </Button>
                                           </TooltipTrigger>
-                                          <TooltipContent>Attendees</TooltipContent>
+                                          <TooltipContent>{event.waiting_list_enabled ? 'Waiting List' : 'Attendees'}</TooltipContent>
                                         </Tooltip>
                                       )}
                                       {canViewAttendees && (
@@ -2497,7 +2499,7 @@ export default function EventsPage({
                                      {getEventAttendeeCountDisplay(event.id).kind === 'loading'
                                        ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
                                        : <span aria-hidden="true">{getEventAttendeeCountDisplay(event.id).text}</span>}
-                                     <span>Attendees</span>
+                                     <span>{event.waiting_list_enabled ? 'Waiting List' : 'Attendees'}</span>
                                   </Button>
                                 )}
                                 {canViewAttendees && (
@@ -2810,7 +2812,10 @@ export default function EventsPage({
         </DialogContent>
       </Dialog>
 
-      {isAdmin && (
+      {canViewAttendees && complexAttendeesEvent?.waiting_list_enabled && (
+        <EventWaitingListModal key={complexAttendeesEvent.id} event={complexAttendeesEvent} memberInfo={memberInfo} open={showComplexAttendeesModal} onOpenChange={open => { if (!open) setComplexAttendeesEvent(null); }} />
+      )}
+      {isAdmin && !complexAttendeesEvent?.waiting_list_enabled && (
         <Dialog open={showComplexAttendeesModal} onOpenChange={(open) => {
           if (!open) {
             setComplexAttendeesEvent(null);

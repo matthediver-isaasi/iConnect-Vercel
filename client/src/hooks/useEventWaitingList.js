@@ -12,10 +12,10 @@ export async function waitingListRequest(url, options = {}, tenantId) {
   return data;
 }
 
-export function useEventWaitingList(memberInfo, { admin = false, eventId, eventKind } = {}) {
+export function useEventWaitingList(memberInfo, { admin = false, eventId, eventKind, enabled = true } = {}) {
   return useQuery({
     queryKey: ['event-waiting-list', memberInfo?.tenant_id, memberInfo?.id, admin, eventId, eventKind],
-    enabled: !!memberInfo?.id && (!admin || !!eventId),
+    enabled: enabled && !!memberInfo?.id && (!admin || !!eventId),
     queryFn: ({ signal }) => waitingListRequest(admin
       ? `/api/admin/event-waiting-list?${new URLSearchParams({ event_id: eventId, event_kind: eventKind })}`
       : '/api/member/event-waiting-list', { signal }, memberInfo?.tenant_id),

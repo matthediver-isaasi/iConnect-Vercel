@@ -15,15 +15,18 @@ function normalizeEventIds(value) {
   return [...new Set(value.filter((id) => typeof id === 'string' && id.length > 0))];
 }
 
-async function addTableCounts({ table, eventIds, tenantId, counts }) {
+async function addTableCounts({ table, eventIds, tenantId, counts, eventKind }) {
+  if (!eventIds.length) return;
   for (let from = 0; ; from += PAGE_SIZE) {
-    const { data, error } = await supabase
+    let query = supabase
       .from(table)
       .select('id,event_id,status')
       .eq('tenant_id', tenantId)
       .in('event_id', eventIds)
       .order('id', { ascending: true })
       .range(from, from + PAGE_SIZE - 1);
+    if (eventKind) query = query.eq('event_kind', eventKind).eq('status', 'active');
+    const { data, error } = await query;
 
     if (error) throw error;
     for (const booking of data || []) {
@@ -39,7 +42,7 @@ async function loadEventRows(table, eventIds, tenantId) {
   if (eventIds.length === 0) return [];
   const { data, error } = await supabase
     .from(table)
-    .select('id,tenant_id,member_group_id,group_event_public')
+    .select('id,tenant_id,member_group_id,group_event_public,waiting_list_enabled')
     .eq('tenant_id', tenantId)
     .in('id', eventIds);
   if (error) throw error;
@@ -47,6 +50,7 @@ async function loadEventRows(table, eventIds, tenantId) {
 }
 
 export default async function handler(req, res) {
+  res.setHeader('Cache-Control', 'private, no-store');
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
     return res.status(405).json({ error: 'Method not allowed' });
@@ -112,19 +116,15 @@ export default async function handler(req, res) {
       [...allowedSimpleIds, ...allowedComplexIds].map((eventId) => [eventId, 0]),
     );
     await Promise.all([
-      allowedSimpleIds.length > 0 && addTableCounts({
-        table: 'booking',
-        eventIds: allowedSimpleIds,
-        tenantId: context.tenantId,
-        counts,
-      }),
-      allowedComplexIds.length > 0 && addTableCounts({
-        table: 'complex_event_booking',
-        eventIds: allowedComplexIds,
-        tenantId: context.tenantId,
-        counts,
-      }),
-    ]);
+      ['simple', simpleRows, allowedSimpleIds, 'booking'],
+      ['complex', complexRows, allowedComplexIds, 'complex_event_booking'],
+    ].flatMap(([kind, rows, allowedIds, bookingTable]) => {
+      const allowed = rows.filter(row => allowedIds.includes(row.id));
+      return [
+        addTableCounts({ table: bookingTable, eventIds: allowed.filter(row => !row.waiting_list_enabled).map(row => row.id), tenantId: context.tenantId, counts }),
+        addTableCounts({ table: 'event_waiting_entry', eventKind: kind, eventIds: allowed.filter(row => row.waiting_list_enabled).map(row => row.id), tenantId: context.tenantId, counts }),
+      ];
+    }));
     return res.status(200).json({ counts });
   } catch (error) {
     console.error('[Event attendee counts] Query failed:', error);

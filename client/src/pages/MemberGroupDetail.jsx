@@ -1580,7 +1580,7 @@ export default function MemberGroupDetailPage() {
     isLoading: groupEventAttendeeCountsLoading,
     isError: groupEventAttendeeCountsError,
   } = useQuery({
-    queryKey: ['event-attendee-counts', pagedSimpleEventIds, pagedComplexEventIds],
+    queryKey: ['event-attendee-counts', memberInfo?.tenant_id, memberInfo?.id, pagedSimpleEventIds, pagedComplexEventIds, pagedEvents.map(event => !!event.waiting_list_enabled)],
     queryFn: () => fetchEventAttendeeCounts({
       simpleEventIds: pagedSimpleEventIds,
       complexEventIds: pagedComplexEventIds,

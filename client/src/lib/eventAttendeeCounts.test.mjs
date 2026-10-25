@@ -68,6 +68,12 @@ test('uses explicit loading and unavailable count states', () => {
   assert.equal(resolveEventAttendeeCountDisplay().kind, 'unavailable');
 });
 
+test('waiting-list labels distinguish loading, unavailable and zero', () => {
+  assert.equal(resolveEventAttendeeCountDisplay({ waitingList: true, count: 0 }).ariaLabel, 'Waiting list: 0');
+  assert.equal(resolveEventAttendeeCountDisplay({ waitingList: true, isLoading: true }).ariaLabel, 'Waiting list count loading');
+  assert.equal(resolveEventAttendeeCountDisplay({ waitingList: true, isError: true }).ariaLabel, 'Waiting list count unavailable');
+});
+
 test('Events counts only visible complex events and supplies counts to shared cards', () => {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const source = fs.readFileSync(path.join(here, '../pages/Events.jsx'), 'utf8');
