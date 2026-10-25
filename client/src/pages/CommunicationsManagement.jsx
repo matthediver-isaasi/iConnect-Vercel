@@ -27,6 +27,7 @@ import { listAllOrganizationsForAdmin } from '@/lib/adminOrgList';
 import { parseExternalContacts } from "@/lib/externalContactsCsv";
 import { downloadCsv, slugifyFilename } from "@/lib/csvExport";
 import { audiencePreviewToCsv } from "@/lib/audienceCsvExport";
+import { isJobPostingsCategory, invalidateJobAlertPreferences } from "@/lib/jobAlerts.mjs";
 import {
   beginExternalSubscriberRequest,
   createLatestRequestTracker,
@@ -1011,12 +1012,14 @@ export default function CommunicationsManagementPage() {
   };
 
   const handleUpdateZohoListId = async (categoryId, zohoListId) => {
+    if (isJobPostingsCategory(categories.find(category => category.id === categoryId))) return;
     try {
       await base44.entities.CommunicationCategory.update(categoryId, { 
         zoho_list_id: zohoListId || null 
       });
       queryClient.invalidateQueries({ queryKey: ['communication-categories'] });
       toast.success('Zoho list mapping updated');
+      void invalidateJobAlertPreferences(queryClient);
     } catch (error) {
       toast.error('Failed to update Zoho list mapping');
     }
@@ -1407,6 +1410,7 @@ export default function CommunicationsManagementPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['communication-categories'] });
       queryClient.invalidateQueries({ queryKey: ['communication-category-roles'] });
+      void invalidateJobAlertPreferences(queryClient);
       setShowCategoryDialog(false);
       setEditingCategory(null);
       toast.success('Category created successfully');
@@ -1418,6 +1422,7 @@ export default function CommunicationsManagementPage() {
 
   const updateCategoryMutation = useMutation({
     mutationFn: async ({ id, data }) => {
+      if (isJobPostingsCategory(data) || isJobPostingsCategory(categories.find(category => category.id === id))) throw new Error('Job postings is a protected system category.');
       const { selectedRoles = [], audienceMode, ...categoryData } = data;
       await base44.entities.CommunicationCategory.update(id, categoryData);
       
@@ -1441,6 +1446,7 @@ export default function CommunicationsManagementPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['communication-categories'] });
       queryClient.invalidateQueries({ queryKey: ['communication-category-roles'] });
+      void invalidateJobAlertPreferences(queryClient);
       setShowCategoryDialog(false);
       setEditingCategory(null);
       toast.success('Category updated successfully');
@@ -1452,6 +1458,7 @@ export default function CommunicationsManagementPage() {
 
   const deleteCategoryMutation = useMutation({
     mutationFn: async (id) => {
+      if (isJobPostingsCategory(categories.find(category => category.id === id))) throw new Error('Job postings is a protected system category.');
       // Category deletion is an atomic server-side operation. The generic
       // entity DELETE is intercepted by the API to remove preferences/role
       // links and flag affected unsent campaigns for review.
@@ -1463,6 +1470,7 @@ export default function CommunicationsManagementPage() {
       queryClient.invalidateQueries({ queryKey: ['member-communication-preferences'] });
       queryClient.invalidateQueries({ queryKey: ['external-subscriber-counts'] });
       queryClient.invalidateQueries({ queryKey: ['email-campaigns'] });
+      void invalidateJobAlertPreferences(queryClient);
       setShowDeleteConfirm(false);
       setCategoryToDelete(null);
       toast.success('Category deleted. Affected unsent campaigns now require audience review.');
@@ -1473,6 +1481,7 @@ export default function CommunicationsManagementPage() {
   });
 
   const handleSaveCategory = () => {
+    if (isJobPostingsCategory(editingCategory)) return;
     if (!editingCategory.name?.trim()) {
       toast.error('Please enter a category name');
       return;
@@ -1499,6 +1508,7 @@ export default function CommunicationsManagementPage() {
   };
 
   const openEditCategoryDialog = (category) => {
+    if (isJobPostingsCategory(category)) return;
     setEditingCategory({
       ...category,
       member_enabled: category.member_enabled !== false,
@@ -1934,6 +1944,9 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                               <h3 className="text-lg font-semibold text-slate-900">
                                 {category.name}
                               </h3>
+                              {isJobPostingsCategory(category) && (
+                                <Badge variant="outline" className="text-xs border-slate-200 text-slate-600">System category</Badge>
+                              )}
                               <Badge variant="outline" className="text-xs border-pink-200 text-pink-700 bg-pink-50">
                                 {CATEGORY_AUDIENCE_LABELS[getCommunicationCategoryAudienceMode(category)]}
                               </Badge>
@@ -2040,6 +2053,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                   <span className="text-sm text-slate-600">Zoho List:</span>
                                   <Select
                                     value={category.zoho_list_id || "none"}
+                                    disabled={isJobPostingsCategory(category)}
                                     onValueChange={(value) => handleUpdateZohoListId(category.id, value === "none" ? null : value)}
                                   >
                                     <SelectTrigger className="w-[200px] h-8" data-testid={`select-zoho-list-${category.id}`}>
@@ -2105,6 +2119,8 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                               variant="ghost"
                               size="sm"
                               onClick={() => openEditCategoryDialog(category)}
+                              disabled={isJobPostingsCategory(category)}
+                              title={isJobPostingsCategory(category) ? 'Protected system category' : 'Edit category'}
                               data-testid={`button-edit-category-${category.id}`}
                             >
                               <Pencil className="w-4 h-4" />
@@ -2114,10 +2130,13 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                               size="sm"
                               className="text-red-600 hover:text-red-700 hover:bg-red-50"
                               onClick={() => {
+                                if (isJobPostingsCategory(category)) return;
                                 setCategoryToDelete(category);
                                 setShowDeleteConfirm(true);
                               }}
                               data-testid={`button-delete-category-${category.id}`}
+                              disabled={isJobPostingsCategory(category)}
+                              title={isJobPostingsCategory(category) ? 'Protected system category' : 'Delete category'}
                             >
                               <Trash2 className="w-4 h-4" />
                             </Button>

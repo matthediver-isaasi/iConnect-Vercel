@@ -13,12 +13,20 @@ import { createPageUrl } from "@/utils";
 import { parseJobClosingDate, startOfLocalToday } from "@/lib/jobDate";
 import DOMPurify from 'dompurify';
 import { useLayoutContext } from "@/contexts/LayoutContext";
+import { jobAlertReturnTo } from "@/lib/jobAlerts.mjs";
 
 export default function JobDetailsPage() {
   const urlParams = new URLSearchParams(window.location.search);
   const jobId = urlParams.get('id');
-  const { memberInfo, sessionValidated } = useLayoutContext();
+  const { memberInfo, sessionValidated, authResolved } = useLayoutContext();
   const isAuthenticated = !!memberInfo && !!sessionValidated;
+  const alertReturnTo = jobAlertReturnTo(window.location.search);
+  const waitingForAlertLogin = !!alertReturnTo && (!authResolved || !isAuthenticated);
+  useEffect(() => {
+    if (alertReturnTo && authResolved && !isAuthenticated) {
+      window.location.replace(`/login?returnTo=${encodeURIComponent(alertReturnTo)}`);
+    }
+  }, [alertReturnTo, authResolved, isAuthenticated]);
 
   // Scroll to top when component mounts
   useEffect(() => {
@@ -36,7 +44,7 @@ export default function JobDetailsPage() {
       }
       return (jobs || []).find(j => j.id === jobId);
     },
-    enabled: !!jobId
+    enabled: !!jobId && !waitingForAlertLogin
   });
 
   if (!jobId) {
@@ -51,7 +59,7 @@ export default function JobDetailsPage() {
     );
   }
 
-  if (isLoading) {
+  if (isLoading || waitingForAlertLogin) {
     return (
       <div className="min-h-screen p-8">
         <div className="max-w-4xl mx-auto">

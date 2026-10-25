@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { bulkRecipientEligibility } from './campaignBulkEligibility.js';
 import { finishPreparedCampaignBatch } from './campaignBulkDrain.js';
+import { __setRoleAccessOverlayForTests } from './roleVisibility.js';
+__setRoleAccessOverlayForTests([]);
 
 function fixture({ delay = 0, broken = null } = {}) {
   const campaign = { tenant_id: 'tenant', preparation_generation: 'generation', communication_category_id: 'category' };
@@ -12,7 +14,7 @@ function fixture({ delay = 0, broken = null } = {}) {
     campaign_preparation_recipient: entries.map(e => ({ generation: 'generation', recipient_id: e.recipient.id, recipient: {} })),
     member: entries.map(e => ({ tenant_id: 'tenant', id: e.recipient.member_id, email: e.recipient.email, login_enabled: true })),
     member_communication_preference: entries.map(e => ({ tenant_id: 'tenant', member_id: e.recipient.member_id, category_id: 'category', is_subscribed: true })),
-    email_address_bounce: [], email_unsubscribe: [],
+    email_address_bounce: [], email_unsubscribe: [], communication_category: [],
   };
   let calls = 0;
   const db = { from(table) {
@@ -24,6 +26,7 @@ function fixture({ delay = 0, broken = null } = {}) {
       in(k, values) { filters.push(r => values.includes(r[k])); return this; },
       filter(k, operator, pattern) { assert.equal(operator, 'imatch'); const regex = new RegExp(pattern, 'i'); filters.push(r => regex.test(r[k])); return this; },
       or() { return this; },
+      async maybeSingle() { return { data: (data[table] || []).find(r => filters.every(f => f(r))) || null }; },
       async limit(cap) {
         calls++; if (delay) await new Promise(resolve => setTimeout(resolve, delay));
         return table === broken ? { error: { code: 'test-failure' } } : { data: data[table].filter(r => filters.every(f => f(r))).slice(0, cap) };
@@ -33,11 +36,31 @@ function fixture({ delay = 0, broken = null } = {}) {
   return { campaign, entries, data, db, calls: () => calls };
 }
 
-test('100 recipients need nine bounded parallel reads, not hundreds', async () => {
+test('100 recipients need ten bounded reads including category policy, not hundreds', async () => {
   const f = fixture();
   const states = await bulkRecipientEligibility(f.db, f.entries, f.campaign, 'tenant');
-  assert.equal(f.calls(), 9);
+  assert.equal(f.calls(), 10);
   assert.equal([...states.values()].filter(v => v === 'ready').length, 100);
+});
+
+test('job category campaigns require enabled tenant, current subscription and Job Board access', async () => {
+  const f = fixture();
+  f.data.communication_category = [{ id: 'category', tenant_id: 'tenant', system_key: 'job_postings' }];
+  f.data.job_alert_settings = [{ tenant_id: 'tenant', enabled: true, category_id: 'category' }];
+  f.data.role = [
+    { id: 'allowed', tenant_id: 'tenant', excluded_features: [] },
+    { id: 'denied', tenant_id: 'tenant', excluded_features: ['jobs'] },
+  ];
+  f.data.member.forEach((member, i) => { member.role_id = i === 0 ? 'denied' : 'allowed'; });
+  f.data.member_communication_preference = f.data.member_communication_preference.filter(p => p.member_id !== 'm1');
+  let result = await bulkRecipientEligibility(f.db, f.entries, f.campaign, 'tenant');
+  assert.equal(result.get('r0'), 'unsubscribed');
+  assert.equal(result.get('r1'), 'unsubscribed');
+  assert.equal(result.get('r2'), 'ready');
+  assert.ok(f.calls() < 20, 'RBAC is resolved in bounded set reads');
+  f.data.job_alert_settings[0].enabled = false;
+  result = await bulkRecipientEligibility(f.db, f.entries, f.campaign, 'tenant');
+  assert.ok([...result.values()].every(value => value === 'unsubscribed'));
 });
 
 test('fresh opt-outs, missing members, changed emails, category consent and bounces are enforced', async () => {

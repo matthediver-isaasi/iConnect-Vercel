@@ -1,4 +1,5 @@
 import { filterCommunicationCategoriesForMember } from '../../shared/communicationCategoryMembership.js';
+import { jobBoardEligible, jobAlertSettings } from './jobAlerts.js';
 
 export async function loadMemberCommunicationCategoryEligibility(
   database,
@@ -6,7 +7,7 @@ export async function loadMemberCommunicationCategoryEligibility(
 ) {
   let memberQuery = database
     .from('member')
-    .select('id, tenant_id, email, role_id, communications_opted_out_all')
+    .select('*')
     .eq('id', memberId)
     .eq('tenant_id', tenantId);
 
@@ -16,7 +17,7 @@ export async function loadMemberCommunicationCategoryEligibility(
 
   let categoryQuery = database
     .from('communication_category')
-    .select('id, name, description, display_order, is_active, is_public, member_enabled')
+    .select('id, name, description, display_order, is_active, is_public, member_enabled, system_key')
     .eq('tenant_id', tenantId);
   if (activeOnly) categoryQuery = categoryQuery.eq('is_active', true);
 
@@ -35,11 +36,17 @@ export async function loadMemberCommunicationCategoryEligibility(
   if (roleError) throw roleError;
 
   const allCategories = categories || [];
-  const eligibleCategories = filterCommunicationCategoriesForMember(
+  let eligibleCategories = filterCommunicationCategoriesForMember(
     allCategories,
     roleAssignments || [],
     member,
   );
+  if (eligibleCategories.some(category => category.system_key === 'job_postings')) {
+    const settings = await jobAlertSettings(database, tenantId);
+    const allowed = settings.enabled && await jobBoardEligible(database, member);
+    eligibleCategories = eligibleCategories.filter(category => category.system_key !== 'job_postings' || allowed);
+  }
+  eligibleCategories.sort((a, b) => Number(a.system_key === 'job_postings') - Number(b.system_key === 'job_postings'));
 
   return {
     member,

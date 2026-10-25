@@ -1,4 +1,5 @@
 import { isActiveCommunicationMember } from '../../shared/communicationCategoryMembership.js';
+import { jobCategoryCampaignMembers } from './jobAlerts.js';
 
 const normalize = value => String(value || '').trim().toLowerCase();
 const literal = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -16,6 +17,7 @@ export async function bulkRecipientEligibility(db, entries, campaign, tenantId) 
   const ids = recipients.map(r => r.id);
   const emails = [...new Set(recipients.map(r => normalize(r.email)))];
   const memberIds = [...new Set(recipients.map(r => r.member_id).filter(Boolean))];
+  const jobMembers = await jobCategoryCampaignMembers(db, tenantId, campaign.communication_category_id, memberIds);
   const prepared = Boolean(campaign.preparation_generation);
   const unsubscribeQueries = [];
   if (prepared) for (let offset = 0; offset < emails.length; offset += 20) {
@@ -56,6 +58,10 @@ export async function bulkRecipientEligibility(db, entries, campaign, tenantId) 
       r.communication_category_id === campaign.communication_category_id)).map(r => normalize(r.email)));
   const result = new Map();
   for (const r of recipients) {
+    if (jobMembers && !jobMembers.has(r.member_id)) {
+      result.set(r.id, 'unsubscribed');
+      continue;
+    }
     const email = normalize(r.email);
     if (prepared && (!provenance.get(r.id) || typeof provenance.get(r.id) !== 'object' ||
       Array.isArray(provenance.get(r.id)))) throw new Error('Missing prepared consent provenance');

@@ -15,6 +15,7 @@ import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useBelowFirstElementBanners } from "@/contexts/BannerContext";
 import PortalHeroBanner from "@/components/banners/PortalHeroBanner";
 import PageBannerDisplay from "@/components/banners/PageBannerDisplay";
+import JobAlertsSubscription from "@/components/jobs/JobAlertsSubscription";
 
 const stripHtml = (html) => {
   if (!html) return '';
@@ -256,6 +257,8 @@ export default function JobBoardPage() {
             </div>
           </CardContent>
         </Card>
+
+        {isAuthenticated && <JobAlertsSubscription key={`${memberInfo.tenant_id}:${memberInfo.id}`} />}
 
         {/* Results Count */}
         <div className="mb-6">

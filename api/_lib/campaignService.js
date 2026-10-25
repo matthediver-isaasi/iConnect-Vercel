@@ -17,6 +17,7 @@ import { BULK_TRANSPORT, bulkCampaignCompatible, newCampaignTransport } from './
 import { finishPreparedCampaignBatch } from './campaignBulkDrain.js';
 import { persistCampaignDeliveryProvenance, verifyCampaignDeliveryProvenance } from './campaignDeliveryProvenance.js';
 import { bulkRecipientEligibility } from './campaignBulkEligibility.js';
+import { jobCategoryCampaignMembers } from './jobAlerts.js';
 import { fittingCampaignBatchSize } from './campaignBulkTransport.js';
 import { drainCampaignRecipients as drainRecipients, campaignSendConcurrency } from './campaignDrain.js';
 import { createCampaignRecipientClaimer } from './campaignRecipientClaims.js';
@@ -3603,6 +3604,9 @@ async function resolveRecipientBooking(recipient, campaign, tenantId, db = supab
 }
 
 async function preparedRecipientStillConsents(db, recipient, campaign, tenantId) {
+  const jobMembers = await jobCategoryCampaignMembers(db, tenantId, campaign.communication_category_id,
+    recipient.member_id ? [recipient.member_id] : []);
+  if (jobMembers && !jobMembers.has(recipient.member_id)) return false;
   if (!campaign.preparation_generation) return true;
   const { data: staged, error } = await db.from('campaign_preparation_recipient')
     .select('recipient').eq('generation', campaign.preparation_generation)

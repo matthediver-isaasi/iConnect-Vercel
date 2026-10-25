@@ -3,6 +3,9 @@
   "buildCommand": "npx vite build",
   "outputDirectory": "dist/public",
   "functions": {
+    "api/cron/send-job-alerts.js": {
+      "maxDuration": 60
+    },
     "api/membership/member-start.js": {
       "maxDuration": 300
     },
@@ -135,6 +138,10 @@
     {
       "path": "/api/cron/sync-adzuna-job-feeds",
       "schedule": "10 * * * *"
+    },
+    {
+      "path": "/api/cron/send-job-alerts",
+      "schedule": "* * * * *"
     },
     {
       "path": "/api/cron/reconcile-form-payments",

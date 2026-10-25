@@ -64,6 +64,7 @@ import { createPageUrl } from "@/utils";
 import { sanitizeRichText } from "@/components/canvas/blocks/sanitize";
 import { mergeLibraryBadges } from "@/lib/aboutMeBadges";
 import { confirmedProfilePatch, profileQueryKey, synchronizeProfile } from "@/lib/profileSynchronization";
+import { communicationPreferencesKey, invalidateJobAlertPreferences } from "@/lib/jobAlerts.mjs";
 
 // --- List Field Editor Component ---
 function ListFieldEditor({ fieldId, values = [], onChange, placeholder, disabled = false }) {
@@ -625,7 +626,7 @@ export default function PreferencesPage() {
 
   // Server-authorized communication categories and persisted preferences.
   const { data: communicationPreferenceData, isLoading: communicationCategoriesLoading } = useQuery({
-    queryKey: ["my-communication-preferences", memberRecord?.id],
+    queryKey: communicationPreferencesKey(memberRecord?.tenant_id, memberRecord?.id),
     enabled: !!memberRecord?.id,
     queryFn: async () => {
       const response = await fetch('/api/member/communication-preferences', { credentials: 'include' });
@@ -1412,7 +1413,7 @@ export default function PreferencesPage() {
       }
       
       // Invalidate query to refresh data
-      queryClient.invalidateQueries({ queryKey: ["my-communication-preferences"] });
+      void invalidateJobAlertPreferences(queryClient, memberRecord?.tenant_id);
       toast.success(isSubscribed ? "Subscribed to updates" : "Unsubscribed from updates");
       
       // Sync to Zoho Campaigns in background (don't await)
@@ -1452,7 +1453,7 @@ export default function PreferencesPage() {
       
       // Invalidate queries to refresh data
       queryClient.invalidateQueries({ queryKey: ["fresh-member-data", memberRecord.id] });
-      queryClient.invalidateQueries({ queryKey: ["my-communication-preferences"] });
+      void invalidateJobAlertPreferences(queryClient, memberRecord?.tenant_id);
       
       // Update localStorage session data
       const storedMember = localStorage.getItem('agcas_member');
@@ -2821,6 +2822,7 @@ export default function PreferencesPage() {
                           )}
                         </div>
                         <Switch
+                          aria-label={`${category.name} emails`}
                           checked={isSubscribed}
                           onCheckedChange={(checked) => handleCommunicationToggle(category.id, checked)}
                           disabled={updatingCommPrefs.has(category.id) || isOptedOutAll}

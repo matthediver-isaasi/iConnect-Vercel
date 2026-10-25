@@ -79,6 +79,19 @@ export async function handleMemberCommunicationPreferences(req, res, dependencie
     if (!isSubscribed && !existing) {
       return res.json({ success: true, categoryId, isSubscribed: false });
     }
+    if (eligibility.allCategories.some(category => category.id === categoryId && category.system_key === 'job_postings')) {
+      const { error } = await database.rpc('set_email_preference_category_state', {
+        p_tenant_id: sessionMember.tenant_id, p_email: eligibility.member.email,
+        p_member_id: sessionMember.id, p_category_id: categoryId,
+        p_is_subscribed: isSubscribed, p_campaign_id: null,
+      });
+      if (error) throw error;
+      const { error: promptError } = await database.from('job_alert_prompt').upsert({
+        tenant_id: sessionMember.tenant_id, member_id: sessionMember.id, never_ask: true, ask_after: null,
+      }, { onConflict: 'tenant_id,member_id' });
+      if (promptError) throw promptError;
+      return res.json({ success: true, categoryId, isSubscribed });
+    }
 
     const { error: updateError } = await database
       .from('member_communication_preference')

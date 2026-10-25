@@ -11,6 +11,7 @@ export const TRANSACTIONAL_INBOX_LABELS = {
   forms: 'Forms',
   groups: 'Groups',
   automations: 'Automations',
+  jobs: 'Job postings',
 };
 
 // Neutral catch-all when neither a category name nor a known label key is
