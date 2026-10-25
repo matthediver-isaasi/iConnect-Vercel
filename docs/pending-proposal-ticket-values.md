@@ -40,6 +40,21 @@ The affected sent proposal does not need its signed snapshot edited: after the
 migration, another successful acceptance attempt creates pending allocations.
 No real proposal was accepted or email sent by implementation tests.
 
+### Stage-history compatibility repair
+
+After rollout, the live stage-history table was found to lack the nullable
+`note` column already expected by the commercial acceptance functions.
+With owner approval, `20261207_opportunity_stage_history_note_repair.sql`
+was applied to DEST only. SQL SHA-256:
+`ff3893b76dd133bf0203cf9cb4c1e388fd1363975405baa315d4f59c18b96438`.
+
+Verification before commit confirmed an idempotent replay, unchanged contents
+of all 12 existing history records (excluding the newly added null column),
+unchanged RLS/policies/grants/triggers, and successful EXPLAIN planning of the
+history insert, opportunity update and activity insert. EXPLAIN did not execute
+acceptance or its triggers. The proposal remained sent, with no customer
+decision or commercial sale. End-to-end customer signing was not performed.
+
 ## Verification
 
 Isolated PostgreSQL tests extend `api/_lib/salesTicketValue.test.mjs`, covering
