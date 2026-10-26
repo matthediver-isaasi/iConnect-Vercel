@@ -143,6 +143,8 @@ import { useCanvasAnchors } from '../CanvasAnchorContext';
 import { useCanvasEditorPage } from '../CanvasEditorPageContext';
 import { useCanvasSymbols } from '../CanvasSymbolsContext';
 import { ColorField } from './ColorField';
+import TestimonialsCarousel from './TestimonialsCarousel';
+import { normalizeTestimonialsCarousel } from '@/lib/testimonialsCarousel';
 import { useReportReflowHeight, useReportCardContentHeight, useReportButtonBounds, useAccordionReflow } from '../AccordionReflowContext';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
@@ -4044,7 +4046,7 @@ function AccordionInspector({ block, update }) {
 }
 
 // TESTIMONIALS ---------------------------------------------------------------
-function TestimonialsRender({ block, breakpoint }) {
+function TestimonialsRender({ block, breakpoint, asEditor = false }) {
   const c = block.content || {};
   const items = c.items || [];
   // Resolve tenant typography styles for the quote text and the
@@ -4080,13 +4082,12 @@ function TestimonialsRender({ block, breakpoint }) {
     c.layout === 'grid' ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3'
       : c.layout === 'carousel' ? 'flex gap-3 overflow-x-auto snap-x'
       : 'flex flex-col gap-3';
-  return (
-    <div className={`w-full h-full overflow-auto ${containerClass}`}>
-      {items.map((t, i) => (
+  const carousel = c.layout === 'carousel' && normalizeTestimonialsCarousel(c.carousel);
+  const cards = items.map((t, i) => (
         <figure
           key={i}
-          className="rounded-md border min-w-[240px] snap-start"
-          style={{ padding: cardPadding, background: cardBg, borderColor: cardBorder }}
+          className={`rounded-md border ${carousel ? 'min-w-0' : 'min-w-[240px] snap-start'}`}
+          style={{ padding: cardPadding, background: cardBg, borderColor: cardBorder, ...(carousel ? { overflowWrap: 'anywhere' } : {}) }}
         >
           <Quote className="w-4 h-4 text-slate-400 mb-1" aria-hidden="true" />
           <blockquote className={quoteInline ? 'text-slate-800' : 'text-sm text-slate-800'} style={quoteInline || undefined}>{t.quote}</blockquote>
@@ -4100,14 +4101,23 @@ function TestimonialsRender({ block, breakpoint }) {
             </div>
           </figcaption>
         </figure>
-      ))}
-    </div>
+      ));
+  return carousel ? (
+    <TestimonialsCarousel settings={carousel} asEditor={asEditor}>{cards}</TestimonialsCarousel>
+  ) : (
+    <div className={`w-full h-full overflow-auto ${containerClass}`}>{cards}</div>
   );
 }
 
 function TestimonialsInspector({ block, update }) {
   const c = block.content || {};
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
+  const carousel = normalizeTestimonialsCarousel(c.carousel) || normalizeTestimonialsCarousel({});
+  const setCarousel = (patch) => update((b) => ({
+    ...b, content: { ...b.content, carousel: normalizeTestimonialsCarousel({
+      ...(normalizeTestimonialsCarousel(b.content?.carousel) || carousel), ...patch,
+    }) },
+  }));
   return (
     <>
       <SelectField
@@ -4129,6 +4139,22 @@ function TestimonialsInspector({ block, update }) {
         max={64}
         testId="input-testimonials-card-padding"
       />
+      {c.layout === 'carousel' && <>
+        {!normalizeTestimonialsCarousel(c.carousel) && <div className="text-xs text-slate-500">
+          Legacy scroll layout. Change a carousel setting to enable paged navigation.
+          <Button type="button" variant="outline" onClick={() => setCarousel({})}>Enable paged carousel</Button>
+        </div>}
+        {['desktop', 'tablet', 'mobile'].map((device) => <NumberField key={device}
+          label={`Testimonials per page (${device})`} value={carousel.perPage[device]} min={1} max={12}
+          testId={`testimonials-per-page-${device}`}
+          onChange={(v) => setCarousel({ perPage: { ...carousel.perPage, [device]: v } })} />)}
+        {[['arrows', 'Show arrows'], ['dots', 'Show pagination dots'], ['loop', 'Loop'], ['pauseOnHover', 'Pause on hover']].map(([key, label]) => <ToggleField key={key}
+          label={label} value={carousel[key]} onChange={(v) => setCarousel({ [key]: v })} testId={`testimonials-${key}`} />)}
+        <NumberField label="Autoplay interval (seconds; 0 disables)" value={carousel.autoplaySeconds}
+          min={0} max={300} onChange={(v) => setCarousel({ autoplaySeconds: v })} testId="testimonials-autoplay" />
+        <NumberField label="Transition duration (milliseconds)" value={carousel.transitionMs}
+          min={0} max={3000} onChange={(v) => setCarousel({ transitionMs: v })} testId="testimonials-transition" />
+      </>}
       <ColorField
         label="Card background colour"
         value={c.cardBgColor}

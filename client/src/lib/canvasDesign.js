@@ -1,5 +1,6 @@
 // Canvas Builder design document helpers.
 import { normalizeTableContent, TABLE_LIMITS } from './canvasDataTable.js';
+import { normalizeTestimonialsCarousel } from './testimonialsCarousel.js';
 import {
   DEFAULT_MEMBER_GROUP_CARD_COLUMNS,
   MAX_MEMBER_GROUP_CARD_COLUMNS,
@@ -3472,6 +3473,9 @@ function normalizeBlock(block) {
   }
   if (type === BLOCK_TYPES.DATA_TABLE) {
     normalized.content = normalizeTableContent(normalized.content);
+  }
+  if (type === BLOCK_TYPES.TESTIMONIALS && normalized.content.carousel != null) {
+    normalized.content.carousel = normalizeTestimonialsCarousel(normalized.content.carousel);
   }
   if (type === BLOCK_TYPES.ADVANCED_ACCORDION) {
     normalized.content = normalizeAdvancedAccordionContent(normalized.content);
