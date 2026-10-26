@@ -29,7 +29,8 @@ test('monthly operation SQL serializes claims, holds collectors and protects evi
       CREATE TABLE gocardless_payments(plan_id uuid,status text);
       CREATE TABLE gocardless_payment_retry_attempts(plan_id uuid);
       GRANT SELECT,INSERT,UPDATE,DELETE ON membership_payment_plans,gocardless_collection_reservations,
-        gocardless_payments,gocardless_payment_retry_attempts TO service_role;
+        gocardless_payments,gocardless_payment_retry_attempts,member_membership_history,
+        membership_billing_agreements TO service_role;
     `);
     await admin.query(readFileSync('supabase/migrations/202612310022_member_amendment_provider_operations.sql','utf8'));
     await admin.query('INSERT INTO tenant VALUES($1)',[id(1)]);
@@ -50,6 +51,9 @@ test('monthly operation SQL serializes claims, holds collectors and protects evi
     await admin.query("INSERT INTO gocardless_collection_reservations VALUES($1,'reserved')",[id(5)]);
     await assert.rejects(reserve(a,pending),{code:'40001'});
     await admin.query('DELETE FROM gocardless_collection_reservations');
+    await admin.query("INSERT INTO gocardless_payments VALUES($1,'confirmed'),(NULL,'confirmed')",[id(5)]);
+    await admin.query("INSERT INTO gocardless_collection_reservations VALUES($1,'completed'),(NULL,'completed')",[id(5)]);
+    await admin.query("INSERT INTO gocardless_payment_retry_attempts VALUES($1),(NULL)",[id(5)]);
     const original=await reserve(a);
     assert.equal((await reserve(b)).replayed,true);
     const op=original.operation;
@@ -63,6 +67,22 @@ test('monthly operation SQL serializes claims, holds collectors and protects evi
     const claims=await Promise.all([claim(a),claim(b)]);
     assert.equal(claims.filter(c=>c.claimed).length,1);
     const token=claims.find(c=>c.claimed).operation.claim_token;
+    for(const table of ['gocardless_payments','gocardless_collection_reservations','gocardless_payment_retry_attempts']) {
+      await assert.rejects(a.query(`UPDATE ${table} SET plan_id=NULL WHERE plan_id=$1`,[id(5)]),{code:'40001'});
+      await assert.rejects(a.query(`UPDATE ${table} SET plan_id=$1 WHERE plan_id IS NULL`,[id(5)]),{code:'40001'});
+    }
+    // Provider evidence ingestion remains possible; the finalizer must inspect
+    // it rather than mistaking a collection hold for an unchanged provider.
+    await a.query("UPDATE gocardless_payments SET status='paid_out' WHERE plan_id=$1",[id(5)]);
+    // Recovery cannot rely on snapshots whose source is edited/deleted after
+    // the external write starts. Both lifecycle updates and reparenting fail.
+    for(const [sql,params] of [
+      ["UPDATE member_membership_history SET status='expired' WHERE id=$1",[id(3)]],
+      ["UPDATE member_membership_history SET billing_agreement_id=$2 WHERE id=$1",[id(3),id(99)]],
+      ["DELETE FROM member_membership_history WHERE id=$1",[id(3)]],
+      ["UPDATE membership_billing_agreements SET organization_id=$2 WHERE id=$1",[id(4),id(99)]],
+      ["DELETE FROM membership_billing_agreements WHERE id=$1",[id(4)]],
+    ]) await assert.rejects(a.query(sql,params),{code:'40001'});
     for(const sql of [
       "UPDATE membership_payment_plans SET status='cancelled' WHERE id=$1",
       "DELETE FROM membership_payment_plans WHERE id=$1",
@@ -78,6 +98,8 @@ test('monthly operation SQL serializes claims, holds collectors and protects evi
       [id(1),op.id,id(6),'Cannot abandon an unknown provider result']),{code:'40001'});
     assert.equal((await claim(a)).claimed,false);
     assert.equal((await record(token,'provider_applied')).state,'provider_applied');
+    await assert.rejects(a.query("UPDATE member_membership_history SET status='expired' WHERE id=$1",
+      [id(3)]),{code:'40001'});
     await assert.rejects(a.query("UPDATE membership_payment_plans SET status='active' WHERE id=$1",[id(5)]),{code:'40001'});
     await assert.rejects(a.query("UPDATE member_amendment_provider_operation SET state='aborted'"),{code:'42501'});
     await assert.rejects(a.query('DELETE FROM member_amendment_provider_event'),{code:'42501'});

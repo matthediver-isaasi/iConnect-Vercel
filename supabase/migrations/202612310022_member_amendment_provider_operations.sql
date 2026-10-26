@@ -180,34 +180,76 @@ END $$;
 -- check-then-write race. Provider webhook updates may retry while a hold exists.
 CREATE FUNCTION public.guard_member_amendment_provider_hold()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
-DECLARE affected_plan uuid;
+DECLARE affected_plan uuid; previous_plan uuid;
 BEGIN
   IF TG_TABLE_NAME='membership_payment_plans' THEN
     affected_plan := OLD.id;
   ELSE
     affected_plan := NEW.plan_id;
-    PERFORM 1 FROM public.membership_payment_plans WHERE id=affected_plan FOR UPDATE;
+    IF TG_OP='UPDATE' THEN
+      previous_plan := OLD.plan_id;
+      -- Provider reconciliation may update status/evidence during a hold.
+      -- It may not move that evidence into or out of a held payment plan.
+      IF previous_plan IS NOT DISTINCT FROM affected_plan THEN RETURN NEW; END IF;
+    END IF;
+    PERFORM 1 FROM public.membership_payment_plans
+      WHERE id IN (affected_plan,previous_plan) ORDER BY id FOR UPDATE;
   END IF;
   IF EXISTS (SELECT 1 FROM public.member_amendment_provider_operation o
-      WHERE o.plan_id=affected_plan AND o.state NOT IN ('finalized','aborted')) THEN
+      WHERE o.plan_id IN (affected_plan,previous_plan) AND o.state NOT IN ('finalized','aborted')) THEN
     RAISE EXCEPTION 'Membership amendment collection hold requires reconciliation' USING ERRCODE='40001';
   END IF;
   IF TG_OP='DELETE' THEN RETURN OLD; ELSE RETURN NEW; END IF;
 END $$;
 CREATE TRIGGER member_amendment_provider_hold BEFORE UPDATE OR DELETE ON public.membership_payment_plans
   FOR EACH ROW EXECUTE FUNCTION public.guard_member_amendment_provider_hold();
-CREATE TRIGGER member_amendment_provider_hold BEFORE INSERT ON public.gocardless_collection_reservations
+CREATE TRIGGER member_amendment_provider_hold BEFORE INSERT OR UPDATE OF plan_id ON public.gocardless_collection_reservations
   FOR EACH ROW EXECUTE FUNCTION public.guard_member_amendment_provider_hold();
-CREATE TRIGGER member_amendment_provider_hold BEFORE INSERT ON public.gocardless_payments
+CREATE TRIGGER member_amendment_provider_hold BEFORE INSERT OR UPDATE OF plan_id ON public.gocardless_payments
   FOR EACH ROW EXECUTE FUNCTION public.guard_member_amendment_provider_hold();
-CREATE TRIGGER member_amendment_provider_hold BEFORE INSERT ON public.gocardless_payment_retry_attempts
+CREATE TRIGGER member_amendment_provider_hold BEFORE INSERT OR UPDATE OF plan_id ON public.gocardless_payment_retry_attempts
   FOR EACH ROW EXECUTE FUNCTION public.guard_member_amendment_provider_hold();
+
+-- Once an external write has been claimed its purchased authority must remain
+-- available for recovery. A reservation may become stale before claim (claim
+-- rechecks its snapshots), but a claimed operation cannot be invalidated by a
+-- concurrent membership edit, lifecycle sweep or agreement deletion.
+-- Locking the affected plans also serializes this check with reservation/claim.
+CREATE FUNCTION public.guard_member_amendment_claimed_authority()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
+DECLARE affected_plan uuid;
+BEGIN
+  FOR affected_plan IN
+    SELECT p.id FROM public.membership_payment_plans p
+    WHERE (TG_TABLE_NAME='membership_billing_agreements' AND p.billing_agreement_id=OLD.id)
+      OR (TG_TABLE_NAME='member_membership_history' AND EXISTS (
+        SELECT 1 FROM public.member_amendment_provider_operation o
+        WHERE o.plan_id=p.id AND o.source_record_id=OLD.id
+      ))
+    ORDER BY p.id FOR UPDATE
+  LOOP
+    IF EXISTS (
+      SELECT 1 FROM public.member_amendment_provider_operation o
+      WHERE o.plan_id=affected_plan AND o.claim_token IS NOT NULL
+        AND o.state NOT IN ('finalized','aborted')
+        AND (TG_TABLE_NAME='membership_billing_agreements' OR o.source_record_id=OLD.id)
+    ) THEN
+      RAISE EXCEPTION 'Claimed membership amendment authority requires reconciliation' USING ERRCODE='40001';
+    END IF;
+  END LOOP;
+  IF TG_OP='DELETE' THEN RETURN OLD; ELSE RETURN NEW; END IF;
+END $$;
+CREATE TRIGGER member_amendment_claimed_authority BEFORE UPDATE OR DELETE ON public.member_membership_history
+  FOR EACH ROW EXECUTE FUNCTION public.guard_member_amendment_claimed_authority();
+CREATE TRIGGER member_amendment_claimed_authority BEFORE UPDATE OR DELETE ON public.membership_billing_agreements
+  FOR EACH ROW EXECUTE FUNCTION public.guard_member_amendment_claimed_authority();
 
 REVOKE ALL ON FUNCTION public.reserve_member_amendment_provider_operation(uuid,uuid,uuid,text,jsonb),
  public.claim_member_amendment_provider_operation(uuid,uuid,uuid),
  public.record_member_amendment_provider_result(uuid,uuid,uuid,uuid,jsonb),
  public.abandon_member_amendment_provider_operation(uuid,uuid,uuid,text),
- public.guard_member_amendment_provider_hold() FROM PUBLIC,anon,authenticated,service_role;
+ public.guard_member_amendment_provider_hold(),
+ public.guard_member_amendment_claimed_authority() FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.reserve_member_amendment_provider_operation(uuid,uuid,uuid,text,jsonb),
  public.claim_member_amendment_provider_operation(uuid,uuid,uuid),
  public.record_member_amendment_provider_result(uuid,uuid,uuid,uuid,jsonb),

@@ -150,3 +150,33 @@ Isolated orchestration/PostgreSQL tests cover concurrent claims, permissions,
 collection guards and ambiguous-result recovery. These tests are not proof of
 the unimplemented end-to-end self-service journey or a completed migration
 rollout. The owner's conditional migration approval remains unused.
+
+### Claimed purchase/consent protection
+
+The staged operation migration also guards updates and deletes of the source
+membership and billing agreement after an external write has been claimed.
+The guard serializes on the affected payment plans, remains in place for
+uncertain and provider-applied outcomes, and protects agreement re-parenting as
+well as deletion. Before a claim, changed snapshots still cause the existing
+claim revalidation to fail.
+
+The isolated PostgreSQL test now exercises these writes as `service_role`,
+including source expiry and agreement ownership changes. All seven operation
+orchestration/PostgreSQL tests pass. This closes an additional safety gap; it
+does **not** implement atomic membership finalization or authorize releasing
+holds on claimed operations. The migration is still unapplied and the new flow
+remains disconnected.
+
+Collection evidence cannot be re-parented into or out of a held plan either.
+Those guards check both old and new plan ownership under ordered plan locks;
+ordinary provider status/evidence updates remain allowed for reconciliation.
+
+The next finalization work must introduce a validated membership-change
+authority, not treat the existing provider adapter's `target.amountMinor` or
+`target.termTotalMinor` as an entitlement selection. The adapter currently
+binds billing economics, whereas the operational entitlement reader explicitly
+supports only the original upfront retained-term scope. A finalizer that merely
+sets the provider operation to `finalized` would release collections without
+making monthly, replacement-term or cancellation entitlement effective in
+those readers. Both authority and readers must be extended before wiring the
+operation to a member-facing action.
