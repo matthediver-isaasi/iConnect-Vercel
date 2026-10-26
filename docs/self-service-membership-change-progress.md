@@ -99,9 +99,19 @@ unexplained delivered-service total. No annual-price/12 or current-price fallbac
 is used. Variable monthly target changes still require the effective-dated
 collection quote; the fixed-term calculation refuses to invent one.
 
-This implements the approved service-period rule, not the production historical
-price loader, dynamic revision writer or monthly finalization. No schema change
-or live financial mutation was made for this calculation work.
+The read-only historical-price loader now joins tenant/plan-scoped dynamic DD
+reservations to their payment ledger and retrieves the source-linked Xero invoice.
+It requires the original full-service gross price to match the invoice's net/tax
+totals, rejects adjustments and ambiguous links, and maps collection ordinals to
+membership anniversaries. The purchase authority exposes this as `reconcileService`.
+This is not an assertion of settled cash; authorised unpaid invoices can prove
+service prices, but cannot become settled funding.
+
+Coverage remains deliberately limited: voucher-reduced collections, missing
+invoices, shortened final periods and non-Xero accounting need additional evidence
+adapters. No current-price or annual-price/12 fallback exists. The dynamic revision
+writer and monthly finalization remain unfinished. No migration or live financial
+mutation was made for this loader.
 
 `memberMonthlyPurchaseAuthority.js` loads the single current purchase, consent
 agreement and payment plan using paged tenant/member-scoped reads. It verifies

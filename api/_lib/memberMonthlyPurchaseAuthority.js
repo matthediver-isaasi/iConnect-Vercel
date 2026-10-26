@@ -1,6 +1,7 @@
 import {MonthlyAmendmentError,monthlyAmendmentFingerprint,
   createMemberAmendmentMonthlyService} from './memberAmendmentMonthly.js';
 import {monthlyStripeForTenant,monthlyGoCardlessForTenant} from './memberAmendmentMonthlyProviders.js';
+import {createMemberMonthlyHistoricalPrices} from './memberMonthlyHistoricalPrices.js';
 
 const fail=message=>{throw new MonthlyAmendmentError('monthly_purchase_evidence_required',message);};
 const ref=value=>typeof value==='string'?value:value?.id;
@@ -152,5 +153,7 @@ export function createMemberMonthlyPurchaseAuthority({db,now=()=>new Date(),
   }
   // Existing provider inspection independently verifies every generated payment,
   // notice date, schedule item and target price before producing prepared data.
-  return {load,prepare:async request=>monthly.prepare(await load(request))};
+  return {load,prepare:async request=>monthly.prepare(await load(request)),
+    reconcileService:async(request,throughExclusiveDate)=>
+      createMemberMonthlyHistoricalPrices({db}).load(await load(request),throughExclusiveDate)};
 }

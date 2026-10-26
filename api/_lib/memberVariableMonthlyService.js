@@ -14,6 +14,7 @@ function anniversary(start, offset) {
   date.setUTCDate(Math.min(originalDay,lastDay.getUTCDate()));
   return iso(date);
 }
+export { anniversary as membershipServiceAnniversary };
 
 // This is service accounting, not a payment calendar. No collection date,
 // payment status, current catalogue price or annual-price/12 enters this function.
