@@ -17,6 +17,12 @@ records, not form answers; revalidate eligibility and finances at confirmation.
 Cancellation of access, renewal, collections and mandates are separate actions.
 Never convert organisation-funded value into personal credit automatically.
 
+New surplus credit from membership changes has tenant-configurable expiry,
+defaulting to no expiry.
+**Why:** The owner explicitly selected this policy.
+**How to apply:** Keep newly issued surplus separate from reversals of previously
+used vouchers; returning an existing voucher must preserve its original expiry.
+
 The user approved mid-current-term membership structure/tier changes with
 additional-payment collection, retained credit notes and cash refunds all
 covered, plus explicit membership-change history. Preserve the existing expiry

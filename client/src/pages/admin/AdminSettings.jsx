@@ -37,6 +37,7 @@ import { base44, setActiveTenantId } from "@/api/base44Client";
 import { adminFetch } from "@/lib/adminFetch";
 import MemberAiAssistantSettings from "@/components/admin/MemberAiAssistantSettings";
 import JobAlertsSettings from "@/components/admin/JobAlertsSettings";
+import MembershipChangePolicySettings from "@/components/admin/MembershipChangePolicySettings";
 import { voucherSettingsForm, voucherSettingsPayload } from '@/lib/voucherSettingsForm';
 
 const DATE_FORMAT_OPTIONS = [
@@ -1181,6 +1182,7 @@ export default function AdminSettings() {
         </form>
 
         <div className="mt-8 space-y-6">
+          <MembershipChangePolicySettings key={`membership-change-policy-${tenant?.id}`} tenantId={tenant?.id} />
           <JobAlertsSettings key={`job-alerts-${tenant?.id}`} tenantId={tenant?.id} />
           <MemberAiAssistantSettings key={tenant?.id} tenantId={tenant?.id} />
           <Card className="bg-slate-800/50 border-slate-700">
