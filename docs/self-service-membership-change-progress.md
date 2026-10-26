@@ -1,5 +1,21 @@
 # Self-service membership changes: implementation boundary
 
+## Monthly execution coordinator
+
+`memberMonthlyChangeExecution.js` now coordinates confirmed authority, fresh
+purchase/provider ownership checks, provider execution and atomic finalization.
+Only stored monthlyExecution version-1 pricing/provider authority is accepted;
+posted payment amounts are ignored. Source, target structure and band snapshots
+are revalidated before a new operation. Replays use the durable operation
+instead of trying to reload an already-changed Stripe schedule as a new purchase.
+Recovery never initiates a provider write and uses only saved approval.
+
+This coordinator is internal and is not yet exposed by the production endpoint:
+the production confirmation resolver still needs to produce the fully verified
+monthlyExecution envelope. Its tests use explicitly synthetic authorities.
+Dynamic DD and notifications remain unfinished. This is not Step 2 completion
+or authorization to enable monthly member-facing execution.
+
 Read-only provider reconciliation no longer rejects a previously prepared
 operation solely because its effective boundary has passed. New preparation
 and new provider writes still require a future boundary. Changed payment
