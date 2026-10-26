@@ -41,16 +41,25 @@ await build({
   stdin: {
     contents: `
        import { useMemo, useState, useEffect, useRef, useId, useContext, createContext } from 'react';
-      import { Search, ChevronLeft, ChevronRight } from 'lucide-react';
+       import { Search, ChevronLeft, ChevronRight, User } from 'lucide-react';
       import { Input } from '@/components/ui/input';
       import { Button } from '@/components/ui/button';
       import { DirectoryMemberCard, DirectoryOrganizationCard } from '@/components/directory/DirectoryCards';
       import CanvasDirectoryDetails from '@/components/canvas/blocks/CanvasDirectoryDetails';
        import DirectoryDetailsToggle from '@/components/canvas/blocks/DirectoryDetailsToggle';
+       import DirectoryVisitorFilterDropdown from '@/components/canvas/blocks/DirectoryVisitorFilterDropdown';
+       import { normalizeVisitorFilterFields, pruneVisitorFilters, visitorFiltersKey } from '@/components/canvas/blocks/directoryVisitorFilters.mjs';
+       import { useQuery } from '@tanstack/react-query';
        import { resolveDirectoryCarouselSource, presentDirectoryCarouselRecord, resolveDirectoryCarouselPerView, resolveDirectoryCarouselOrganisationNameDisplay } from '@/components/canvas/blocks/directoryCarouselSource.mjs';
        import { resolveResponsiveValue, hasAnyResponsiveValue, resolveBlockAtBreakpoint } from '@/lib/canvasDesign';
       import { BLOCK_TYPES } from '@/lib/canvasDesign';
-      const useDirectoryRecords = () => globalThis.__directoryDetailsRecords;
+       ${getFunction("parseFilterOverrides")}
+       ${getFunction("useDirectoryRecords").replace("function useDirectoryRecords(", "function actualDirectoryRecords(")}
+       const useDirectoryRecords = props => {
+         globalThis.__directoryQueryArguments = props;
+         globalThis.__directoryQueryHistory.push(props);
+         return globalThis.__useActualDirectoryQuery ? actualDirectoryRecords(props) : globalThis.__directoryDetailsRecords;
+       };
        const useDirectoryCarouselRecords = useDirectoryRecords;
        const useLayoutContext = () => ({});
        const publicClient = { getTenantSlug: () => 'westhaven' };
@@ -153,6 +162,8 @@ beforeEach(() => {
   requests = [];
   parentClicks = 0;
   globalThis.__directoryDetailsRecords = { data: { records: [member], entityType: "member", config } };
+  globalThis.__useActualDirectoryQuery = false;
+  globalThis.__directoryQueryHistory = [];
   globalThis.fetch = async (...args) => { requests.push(args); throw new Error("Unexpected request"); };
 });
 afterEach(async () => {
@@ -489,4 +500,171 @@ test("carousel rejects rich details from another source or directory and closes 
   block = { ...block, content: { ...block.content, source: "primary-member" } };
   await render();
   assert.equal(dialog(), null);
+});
+
+const visitorFields = [
+  { id: "region", label: "Region", field_type: "multi_select", options: [
+    { value: "north", label: "Northern region" }, { value: "south", label: "Southern region" },
+  ] },
+  { id: "focus", label: "Focus", field_type: "select", options: [{ value: "arts", label: "Arts and archives" }] },
+];
+const filterTrigger = () => container.querySelector('[data-testid="button-directory-filters"]');
+const filterPopup = () => document.querySelector('[data-testid="directory-filter-popover"]');
+const filterChoice = value => [...filterPopup().querySelectorAll("label")].find(label => label.textContent === value).querySelector("input");
+const withVisitorMetadata = (fields = visitorFields, extra = {}) => {
+  globalThis.__directoryDetailsRecords = { data: {
+    records: [member], total: 25, entityType: "member",
+    config: { ...config, visitorFilterFields: fields }, ...extra,
+  } };
+};
+
+test("visitor dropdown groups multiple checkbox choices, summary and clear without changing author filters or editor selection", async () => {
+  block.content.filterOverrides = '{"fixed":["author"]}';
+  withVisitorMetadata();
+  await render({ asEditor: true });
+  await click(filterTrigger());
+  assert.ok(filterPopup(), "editor guard must not swallow the trigger");
+  assert.equal(container.contains(filterPopup()), false, "popup must be portalled");
+  assert.equal(filterPopup().querySelectorAll("fieldset").length, 2);
+  await click(filterChoice("Northern region"));
+  await click(filterChoice("Southern region"));
+  await click(filterChoice("Arts and archives"));
+  assert.deepEqual(globalThis.__directoryQueryArguments.visitorFilters, { region: ["north", "south"], focus: ["arts"] });
+  assert.match(filterTrigger().textContent, /3/);
+  assert.match(container.querySelector('[data-testid="directory-filter-summary"]').textContent, /Northern region, Southern region, Arts and archives/);
+  assert.equal(block.content.filterOverrides, '{"fixed":["author"]}');
+  assert.equal(parentClicks, 0);
+  await click(filterPopup().querySelector('[data-testid="button-directory-filters-clear"]'));
+  assert.deepEqual(globalThis.__directoryQueryArguments.visitorFilters, {});
+  assert.equal(container.querySelector('[data-testid="directory-filter-summary"]'), null);
+});
+
+test("visitor change closes details and resets pagination; source changes never query a stale selection or page", async () => {
+  block.content.enableDetails = true;
+  withVisitorMetadata();
+  await render();
+  await click(container.querySelector('[data-testid="button-directory-next"]'));
+  assert.equal(globalThis.__directoryQueryArguments.page, 2);
+  await click(card());
+  assert.ok(dialog());
+  await click(filterTrigger());
+  await click(filterChoice("Northern region"));
+  assert.equal([...document.querySelectorAll('[role="dialog"]')].filter(el => el !== filterPopup()).length, 0);
+  assert.equal(globalThis.__directoryQueryArguments.page, 1);
+  block = { ...block, content: { ...block.content, directorySlug: "new-source" } };
+  await render();
+  assert.deepEqual(globalThis.__directoryQueryArguments.visitorFilters, {});
+  assert.equal(globalThis.__directoryQueryArguments.page, 1);
+  assert.equal(filterTrigger(), null, "old metadata must not leak across sources");
+  for (const args of globalThis.__directoryQueryHistory.filter(args => args.directorySlug === "new-source")) {
+    assert.equal(args.page, 1);
+    assert.deepEqual(args.visitorFilters, {});
+  }
+});
+
+test("fresh metadata prunes removed values and empty metadata clears every choice; previous response metadata does not prune", async () => {
+  withVisitorMetadata();
+  await render();
+  await click(filterTrigger());
+  await click(filterChoice("Northern region"));
+  await click(filterChoice("Southern region"));
+  globalThis.__directoryDetailsRecords.isPreviousData = true;
+  globalThis.__directoryDetailsRecords.data.config = { ...config, visitorFilterFields: [] };
+  await render();
+  assert.deepEqual(globalThis.__directoryQueryArguments.visitorFilters, { region: ["north", "south"] });
+  withVisitorMetadata([{ ...visitorFields[0], options: [visitorFields[0].options[1]] }]);
+  await render();
+  assert.deepEqual(globalThis.__directoryQueryArguments.visitorFilters, { region: ["south"] });
+  withVisitorMetadata([]);
+  await render();
+  assert.deepEqual(globalThis.__directoryQueryArguments.visitorFilters, {});
+  assert.equal(filterTrigger(), null);
+});
+
+test("toolbar survives loading and zero results; only Dynamic Directory Embed receives visitor controls", async () => {
+  withVisitorMetadata();
+  await render();
+  globalThis.__directoryDetailsRecords.isLoading = true;
+  await render();
+  assert.ok(filterTrigger());
+  withVisitorMetadata(visitorFields, { records: [], total: 0 });
+  await render();
+  assert.ok(filterTrigger());
+  assert.match(container.textContent, /No records/);
+  for (const type of [BLOCK_TYPES.MEMBER_DIRECTORY_EMBED, BLOCK_TYPES.DIRECTORY_CAROUSEL]) {
+    block = createBlock(type, { content: { directorySlug: directory.slug } });
+    await render();
+    assert.equal(filterTrigger(), null);
+  }
+});
+
+test("actual query sends visitor_filters separately from fixed overrides and separates cache entries", async () => {
+  client.setDefaultOptions({ queries: { retry: false, gcTime: Infinity } });
+  globalThis.__useActualDirectoryQuery = true;
+  block.content.filterOverrides = '{"fixed":["author"]}';
+  globalThis.fetch = async url => {
+    requests.push(String(url));
+    return { ok: true, json: async () => ({
+      records: [], total: 0, entityType: "member", config: { ...config, visitorFilterFields: visitorFields },
+    }) };
+  };
+  await render();
+  await click(filterTrigger());
+  await click(filterChoice("Northern region"));
+  const first = new URL(requests.at(-1), window.location.origin);
+  assert.deepEqual(JSON.parse(first.searchParams.get("filters")), { fixed: ["author"] });
+  assert.deepEqual(JSON.parse(first.searchParams.get("visitor_filters")), { region: ["north"] });
+  await click(filterChoice("Southern region"));
+  assert.deepEqual(JSON.parse(new URL(requests.at(-1), window.location.origin).searchParams.get("visitor_filters")), { region: ["north", "south"] });
+  const entries = client.getQueryCache().getAll().filter(query => query.queryKey[1] === "public-dynamic-directory");
+  assert.equal(entries.length, 3);
+});
+
+test("only the precise unavailable-visitor 400 prunes and retries; fixed overrides remain untouched", async () => {
+  client.setDefaultOptions({ queries: { retry: false, gcTime: Infinity } });
+  globalThis.__useActualDirectoryQuery = true;
+  block.content.filterOverrides = '{"fixed":["author"]}';
+  let removed = false;
+  globalThis.fetch = async url => {
+    requests.push(String(url));
+    const params = new URL(url, window.location.origin).searchParams;
+    if (params.has("visitor_filters")) {
+      removed = true;
+      return { ok: false, status: 400, json: async () => ({ error: "Unavailable visitor filter", visitorFilterFields: [] }) };
+    }
+    return { ok: true, json: async () => ({
+      records: [], total: 0, entityType: "member",
+      config: { ...config, visitorFilterFields: removed ? [] : visitorFields },
+    }) };
+  };
+  await render();
+  await click(filterTrigger());
+  await click(filterChoice("Northern region"));
+  await pause();
+  assert.ok(removed);
+  assert.deepEqual(globalThis.__directoryQueryArguments.visitorFilters, {});
+  assert.equal(filterTrigger(), null);
+  assert.equal(container.querySelector('[role="alert"]'), null);
+  assert.equal(new URL(requests.at(-1), window.location.origin).searchParams.has("visitor_filters"), false);
+  for (const url of requests) assert.equal(new URL(url, window.location.origin).searchParams.get("filters"), '{"fixed":["author"]}');
+});
+
+test("fixed-source changes synchronously clear visitor choices; ordinary errors do not broaden the visitor query", async () => {
+  withVisitorMetadata();
+  await render();
+  await click(filterTrigger());
+  await click(filterChoice("Northern region"));
+  globalThis.__directoryDetailsRecords = {
+    ...globalThis.__directoryDetailsRecords, isError: true,
+    error: Object.assign(new Error("Permission denied"), { unrelatedFields: [] }),
+  };
+  await render();
+  assert.deepEqual(globalThis.__directoryQueryArguments.visitorFilters, { region: ["north"] });
+  assert.match(container.querySelector('[role="alert"]').textContent, /Permission denied/);
+  block = { ...block, content: { ...block.content, filterOverrides: '{"scope":"changed"}' } };
+  await render();
+  for (const args of globalThis.__directoryQueryHistory.filter(args => args.filterOverrides === '{"scope":"changed"}')) {
+    assert.equal(args.page, 1);
+    assert.deepEqual(args.visitorFilters, {});
+  }
 });

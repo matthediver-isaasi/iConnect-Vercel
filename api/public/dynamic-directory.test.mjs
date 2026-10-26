@@ -46,7 +46,7 @@ test('public payload defaults: no override, members list shown', () => {
 
 // Explicit schema contract: unlike permissive row mocks, reject unknown
 // organization columns even when no rows would match the query.
-function organizationDatabase({ onRead, member = false } = {}) {
+function organizationDatabase({ onRead, member = false, configure } = {}) {
   const directory = {
     id: 'dir-1', tenant_id: 'tenant-1', slug: 'partners', name: 'Partners',
     entity_type: 'organization', is_active: true, allowed_role_ids: [],
@@ -84,6 +84,7 @@ function organizationDatabase({ onRead, member = false } = {}) {
     }));
     seed.role = [];
   }
+  configure?.(seed);
   class Query {
     constructor(table) {
       this.table = table;
@@ -236,4 +237,96 @@ test('both entity lists return successful empty searches and custom-filter resul
       assert.deepEqual(res.payload.records, []);
     }
   }
+});
+
+function visitorFixture(seed) {
+  const scope = seed.dynamic_directory[0].entity_type;
+  const field = { tenant_id: 'tenant-1', entity_scope: scope, is_active: true,
+    is_filterable: true, field_type: 'picklist', label: 'Full specialist field label',
+    options: [{ value: 'a', label: 'Alpha specialty' }, { value: 'b', label: 'Beta specialty' }] };
+  seed.preference_field.push(
+    { ...field, id: 'specialty', private_note: 'DO NOT EXPOSE' },
+    { ...field, id: 'boolean', label: 'Available', field_type: 'boolean', options: null },
+    { ...field, id: 'inactive', is_active: false },
+    { ...field, id: 'not-filterable', is_filterable: false },
+    { ...field, id: 'foreign', tenant_id: 'tenant-2' },
+    { ...field, id: 'wrong-entity', entity_scope: scope === 'member' ? 'organization' : 'member' },
+  );
+  seed.preference_field[0].is_filterable = true;
+  seed.preference_field[0].options = field.options;
+  const table = scope === 'member' ? 'member_preference_value' : 'organization_preference_value';
+  const idKey = scope === 'member' ? 'member_id' : 'organization_id';
+  const prefix = scope === 'member' ? 'member' : 'org';
+  for (let i = 0; i < 3; i++) {
+    seed[table].push(
+      { id: `s-${i}`, [idKey]: `${prefix}-${i}`, field_id: 'specialty', value: i === 0 ? ['a', 'b'] : [i === 1 ? 'a' : 'b'] },
+      { id: `b-${i}`, [idKey]: `${prefix}-${i}`, field_id: 'boolean', value: i === 2 ? 'no' : 'yes' },
+    );
+  }
+}
+
+test('visitor metadata is narrow, independent of cards, respects null/empty/selected and excludes primary field', async () => {
+  for (const member of [false, true]) {
+    for (const selection of [undefined, null, [], ['boolean']]) {
+      const { res } = await organizationRequest({ search: 'No results' }, {
+        member, configure(seed) {
+          visitorFixture(seed);
+          seed.dynamic_directory[0].selected_filter_fields = selection;
+        },
+      });
+      assert.equal(res.statusCode, 200);
+      assert.deepEqual(res.payload.records, []);
+      const fields = res.payload.config.visitorFilterFields;
+      assert.deepEqual(fields.map(f => f.id), selection == null ? ['boolean', 'specialty'] : selection);
+      for (const field of fields) assert.deepEqual(Object.keys(field).sort(), ['field_type', 'id', 'label', 'options']);
+      if (fields.length) assert.deepEqual(fields[0].options, [{ value: 'true', label: 'Yes' }, { value: 'false', label: 'No' }]);
+    }
+  }
+});
+
+test('visitor ANY values and AND fields combine with global search, sort, paging and fixed same-field overrides', async () => {
+  for (const member of [false, true]) {
+    const options = { member, configure: visitorFixture };
+    const filters = { specialty: ['a', 'b'], boolean: ['true'] };
+    const { res } = await organizationRequest({
+      visitor_filters: JSON.stringify(filters), search: member ? 'Engineer' : 'a',
+      sort: 'name-desc', page: '2', limit: '1',
+    }, options);
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.payload.total, 2);
+    assert.equal(res.payload.records[0].id, member ? 'member-0' : 'org-0');
+    const conjunction = await organizationRequest({
+      filters: '{"specialty":["a"]}', visitor_filters: '{"specialty":["b"]}',
+    }, options);
+    assert.equal(conjunction.res.payload.total, 1, 'same-field constraints are AND, not replaced or intersected as values');
+    const zero = await organizationRequest({
+      visitor_filters: '{"specialty":["a"],"boolean":["false"]}',
+    }, options);
+    assert.equal(zero.res.payload.total, 0);
+    assert.equal(zero.res.payload.config.visitorFilterFields.length, 2);
+  }
+});
+
+test('visitor requests cannot use foreign, inactive, unselected, primary or nonfilterable fields and invalid options', async () => {
+  for (const member of [false, true]) {
+    for (const id of ['foreign', 'inactive', 'not-filterable', 'wrong-entity', 'eligible', 'unknown', 'specialty']) {
+      const { res } = await organizationRequest({ visitor_filters: JSON.stringify({ [id]: ['a'] }) }, {
+        member, configure(seed) { visitorFixture(seed); seed.dynamic_directory[0].selected_filter_fields = ['boolean']; },
+      });
+      assert.equal(res.statusCode, 400, id);
+      assert.deepEqual(res.payload.visitorFilterFields.map(f => f.id), ['boolean']);
+      assert.equal(res.payload.records, undefined);
+    }
+    for (const raw of ['[]', 'null', '{', '{"boolean":["not-an-option"]}']) {
+      const { res } = await organizationRequest({ visitor_filters: raw }, { member, configure: visitorFixture });
+      assert.equal(res.statusCode, 400);
+    }
+  }
+});
+
+test('visitor definition failures are errors rather than an unrestricted successful result', async () => {
+  const { res } = await organizationRequest({}, { configure: visitorFixture, onRead(query) {
+    if (query.table === 'preference_field' && query.selection.includes('options')) query.error = { message: 'offline' };
+  } });
+  assert.equal(res.statusCode, 500);
 });

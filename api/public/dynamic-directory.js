@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { fetchDirectoryVisitorFields, parseVisitorFilters, validateVisitorFilters } from '../_lib/directoryVisitorFilters.js';
 import { renderSecureDirectoryCarousel } from '../_lib/secureDirectoryCarousel.js';
 import { directoryEligibleIds, revalidateDirectoryInclusion, readDirectoryPages } from '../_lib/directoryExpression.js';
 import { createHmac } from 'node:crypto';
@@ -26,7 +27,7 @@ import {
 // show_members_on_card_back so guest/Canvas consumers can resolve the
 // unified back-of-card order exactly like the portal does.
 export const PUBLIC_DIRECTORY_SELECT =
-  'id, slug, name, entity_type, filter_expression, filter_field_id, filter_value, is_active, allowed_role_ids, back_field_order, show_members_on_card_back, core_field_visibility, custom_fields_label';
+  'id, slug, name, entity_type, filter_expression, filter_field_id, filter_value, is_active, allowed_role_ids, back_field_order, show_members_on_card_back, core_field_visibility, custom_fields_label, selected_filter_fields';
 
 // Carousel responses are deliberately much smaller than the existing directory
 // response.  The upper bound is part of the API contract: callers cannot turn
@@ -157,6 +158,9 @@ export async function dynamicDirectoryHandler(req, res, dependencies = {}) {
   }
 
   let customFilters = {};
+  let visitorFilters;
+  try { visitorFilters = parseVisitorFilters(req.query.visitor_filters); }
+  catch { return res.status(400).json({ error: 'Invalid visitor filters JSON' }); }
   if (filters) {
     try { const parsed = JSON.parse(filters); if (parsed && typeof parsed === 'object') customFilters = parsed; }
     catch { return res.status(400).json({ error: 'Invalid filters JSON' }); }
@@ -181,15 +185,23 @@ export async function dynamicDirectoryHandler(req, res, dependencies = {}) {
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const pageSize = Math.min(50, Math.max(1, parseInt(limit, 10) || 12));
     const offset = (pageNum - 1) * pageSize;
+    // Check organisation access before reading its filter definitions.
+    const context = directory.entity_type === 'organization'
+      ? await (dependencies.getTenantContext || getTenantContext)(tenantRequest) : null;
+    if (directory.entity_type === 'organization' && !canReadOrganisationDirectory(directory, context, tenantId)) {
+      return res.status(403).json({ error: 'Directory access denied' });
+    }
+    const visitorFilterFields = await fetchDirectoryVisitorFields(supabase, tenantId, directory);
+    let visitorConstraints;
+    try { visitorConstraints = validateVisitorFilters(visitorFilters, visitorFilterFields); }
+    catch { return res.status(400).json({ error: 'Unavailable visitor filter', visitorFilterFields }); }
 
     if (directory.entity_type === 'member') {
-      return await renderMembers({ supabase, tenantId, directory, pageNum, pageSize, offset, sort, search, customFilters, res });
+      return await renderMembers({ supabase, tenantId, directory, pageNum, pageSize, offset, sort, search, customFilters, visitorConstraints, visitorFilterFields, res });
     }
     if (directory.entity_type === 'organization') {
-      const context = await (dependencies.getTenantContext || getTenantContext)(tenantRequest);
-      if (!canReadOrganisationDirectory(directory, context, tenantId)) return res.status(403).json({ error: 'Directory access denied' });
       res.setHeader('Cache-Control', 'private, no-store, max-age=0');
-      return await renderOrganizations({ supabase, tenantId, directory, pageNum, pageSize, offset, sort, search, customFilters, res, context });
+      return await renderOrganizations({ supabase, tenantId, directory, pageNum, pageSize, offset, sort, search, customFilters, visitorConstraints, visitorFilterFields, res, context });
     }
     return res.status(400).json({ error: `Directory entity type '${directory.entity_type}' is not supported in public embeds yet.` });
   } catch (err) {
@@ -1083,8 +1095,8 @@ async function fetchCarouselOrganizations({
   });
 }
 
-async function renderMembers({ supabase, tenantId, directory, pageNum, pageSize, offset, sort, search, customFilters, res }) {
-  const filterFields = [];
+async function renderMembers({ supabase, tenantId, directory, pageNum, pageSize, offset, sort, search, customFilters, visitorConstraints, visitorFilterFields, res }) {
+  const filterFields = [...visitorConstraints];
   for (const [fieldId, value] of Object.entries(customFilters || {})) {
     if (Array.isArray(value) ? value.length > 0 : (value && value !== 'all')) filterFields.push({ fieldId, value });
   }
@@ -1092,7 +1104,6 @@ async function renderMembers({ supabase, tenantId, directory, pageNum, pageSize,
   if (filterFields.length > 0) {
     const searched = await intersectMemberIds(supabase, filterFields);
     memberIds = memberIds === null ? searched : memberIds.filter(id => searched.includes(id));
-    if (memberIds.length === 0) return res.json({ entityType: 'member', records: [], total: 0, page: pageNum, pageSize });
   }
 
   const baseFilter = (q) => {
@@ -1186,13 +1197,13 @@ async function renderMembers({ supabase, tenantId, directory, pageNum, pageSize,
     total: total || 0,
     page: pageNum,
     pageSize,
-    config: { displaySettings, roles, directoryCustomFields, directory: buildPublicDirectoryPayload(directory) },
+    config: { displaySettings, roles, directoryCustomFields, visitorFilterFields, directory: buildPublicDirectoryPayload(directory) },
   });
 }
 
-async function renderOrganizations({ supabase, tenantId, directory, pageNum, pageSize, offset, sort, search, customFilters, res, context }) {
+async function renderOrganizations({ supabase, tenantId, directory, pageNum, pageSize, offset, sort, search, customFilters, visitorConstraints, visitorFilterFields, res, context }) {
   const displaySettings = await fetchOrgDisplaySettings(supabase, tenantId);
-  const filterFields = [];
+  const filterFields = [...visitorConstraints];
   for (const [fieldId, value] of Object.entries(customFilters || {})) {
     if (Array.isArray(value) ? value.length > 0 : (value && value !== 'all')) filterFields.push({ fieldId, value });
   }
@@ -1200,7 +1211,6 @@ async function renderOrganizations({ supabase, tenantId, directory, pageNum, pag
   if (filterFields.length > 0) {
     const searched = await intersectOrgIds(supabase, filterFields);
     orgIds = orgIds === null ? searched : orgIds.filter(id => searched.includes(id));
-    if (orgIds.length === 0) return res.json({ entityType: 'organization', records: [], total: 0, page: pageNum, pageSize });
   }
   let q = supabase
     .from('organization')
@@ -1246,7 +1256,7 @@ async function renderOrganizations({ supabase, tenantId, directory, pageNum, pag
     total: count || 0,
     page: pageNum,
     pageSize,
-    config: { displaySettings, directory: buildPublicDirectoryPayload(directory) },
+    config: { displaySettings, visitorFilterFields, directory: buildPublicDirectoryPayload(directory) },
   });
 }
 
@@ -1280,7 +1290,8 @@ async function getIdsForFieldValue(supabase, table, idColumn, fieldId, filterVal
       .select(`${idColumn}, value`)
       .eq('field_id', fieldId)
       .range(offset, offset + batchSize - 1);
-    if (error || !data || data.length === 0) break;
+    if (error || !Array.isArray(data)) throw new Error('Unable to read directory filter values');
+    if (data.length === 0) break;
     for (const pv of data) {
       if (matchesValue(pv.value, filterValue)) ids.push(pv[idColumn]);
     }

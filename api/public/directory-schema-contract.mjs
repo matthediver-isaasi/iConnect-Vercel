@@ -4,8 +4,8 @@
 export const directorySchema = {
   organization: 'id tenant_id name logo_url description website_url phone',
   member: 'id tenant_id email first_name last_name handle job_title profile_photo_url organization_id role_id login_enabled show_in_directory linkedin_url membership_paused',
-  dynamic_directory: 'id tenant_id name slug entity_type filter_field_id filter_value filter_expression is_active allowed_role_ids back_field_order show_members_on_card_back core_field_visibility custom_fields_label',
-  preference_field: 'id tenant_id name label entity_scope is_active field_type display_order',
+  dynamic_directory: 'id tenant_id name slug entity_type filter_field_id filter_value filter_expression is_active allowed_role_ids back_field_order show_members_on_card_back core_field_visibility custom_fields_label selected_filter_fields',
+  preference_field: 'id tenant_id name label entity_scope is_active field_type display_order is_filterable options directory_visibility',
   organization_preference_value: 'id organization_id field_id value',
   member_preference_value: 'id member_id field_id value',
   system_settings: 'id tenant_id setting_key setting_value',

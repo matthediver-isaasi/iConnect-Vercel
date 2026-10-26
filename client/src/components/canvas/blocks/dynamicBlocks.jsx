@@ -24,6 +24,8 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { ColorField } from './ColorField';
 import { DirectoryCarouselSourceField } from './DirectoryCarouselSourceField';
+import DirectoryVisitorFilterDropdown from './DirectoryVisitorFilterDropdown';
+import { normalizeVisitorFilterFields, pruneVisitorFilters, visitorFiltersKey } from './directoryVisitorFilters.mjs';
 import { resolveDirectoryCarouselSource, presentDirectoryCarouselRecord, resolveDirectoryCarouselPerView, resolveDirectoryCarouselOrganisationNameDisplay } from './directoryCarouselSource.mjs';
 import { FormPickerField } from './FormPickerField';
 import { Button } from '@/components/ui/button';
@@ -6943,9 +6945,9 @@ function parseFilterOverrides(raw) {
   return null;
 }
 
-function useDirectoryRecords({ directorySlug, page, limit, sort, search, filterOverrides, enabled }) {
+function useDirectoryRecords({ directorySlug, page, limit, sort, search, filterOverrides, visitorFilters, visitorFilterRevision = 0, enabled }) {
   return useQuery({
-    queryKey: ['canvas', 'public-dynamic-directory', directorySlug, page || 1, limit, sort, search || '', filterOverrides || ''],
+    queryKey: ['canvas', 'public-dynamic-directory', directorySlug, page || 1, limit, sort, search || '', filterOverrides || '', visitorFiltersKey(visitorFilters || {}), visitorFilterRevision],
     queryFn: async () => {
       const tenant = publicClient.getTenantSlug();
       const params = new URLSearchParams();
@@ -6958,12 +6960,24 @@ function useDirectoryRecords({ directorySlug, page, limit, sort, search, filterO
       if (parsedFilters && Object.keys(parsedFilters).length > 0) {
         params.set('filters', JSON.stringify(parsedFilters));
       }
+      if (visitorFilters && Object.keys(visitorFilters).length > 0) {
+        params.set('visitor_filters', visitorFiltersKey(visitorFilters));
+      }
       if (tenant) params.set('tenant', tenant);
       const res = await fetch(`/api/public/dynamic-directory?${params.toString()}`);
       if (!res.ok) {
         let msg = 'Directory fetch failed';
-        try { const j = await res.json(); if (j?.error) msg = j.error; } catch {}
-        throw new Error(msg);
+        let visitorFilterFields;
+        try {
+          const j = await res.json();
+          if (j?.error) msg = j.error;
+          if (res.status === 400 && j?.error === 'Unavailable visitor filter' && Array.isArray(j.visitorFilterFields)) {
+            visitorFilterFields = j.visitorFilterFields;
+          }
+        } catch {}
+        const failure = new Error(msg);
+        if (visitorFilterFields) failure.visitorFilterFields = visitorFilterFields;
+        throw failure;
       }
       return res.json();
     },
@@ -7163,6 +7177,22 @@ function DirectoryCardsRender({ block, breakpoint, asEditor, icon: Icon, fallbac
   const [sort, setSort] = useState(c.sort || 'name-asc');
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedRecord, setSelectedRecord] = useState(null);
+  const visitorEnabled = block.type === BLOCK_TYPES.DYNAMIC_DIRECTORY_EMBED;
+  const sourceKey = JSON.stringify([block.type, c.directorySlug, c.filterOverrides || '']);
+  const [visitorState, setVisitorState] = useState(() => ({ sourceKey, values: {}, fields: [], revision: 0 }));
+  const sourceChanged = visitorState.sourceKey !== sourceKey;
+  const visitorFilters = visitorEnabled && !sourceChanged ? visitorState.values : {};
+  // Render-phase reset prevents a single stale-source request/page/detail frame.
+  if (sourceChanged) {
+    setVisitorState({ sourceKey, values: {}, fields: [], revision: 0 });
+    setCurrentPage(1);
+    setSelectedRecord(null);
+  }
+  const changeVisitorFilters = values => {
+    setVisitorState(state => ({ ...state, sourceKey, values }));
+    setCurrentPage(1);
+    setSelectedRecord(null);
+  };
   const detailsEnabled = block.type === BLOCK_TYPES.DYNAMIC_DIRECTORY_EMBED && c.enableDetails === true && !asEditor;
   useEffect(() => { setSelectedRecord(null); }, [c.directorySlug, detailsEnabled, currentPage, debouncedSearch, sort]);
 
@@ -7175,14 +7205,37 @@ function DirectoryCardsRender({ block, breakpoint, asEditor, icon: Icon, fallbac
   // Any query change resets to page 1.
   useEffect(() => { setCurrentPage(1); }, [debouncedSearch, sort, c.directorySlug, c.filterOverrides]);
 
-  const { data, isLoading, isError, error, isFetching } = useDirectoryRecords({
+  const { data, isLoading, isError, error, isFetching, isPreviousData } = useDirectoryRecords({
     directorySlug: c.directorySlug,
-    page: currentPage,
+    page: sourceChanged ? 1 : currentPage,
     limit: pageSize,
     sort,
     search: debouncedSearch,
     filterOverrides: c.filterOverrides,
+    visitorFilters: visitorEnabled ? visitorFilters : undefined,
+    visitorFilterRevision: visitorEnabled && !sourceChanged ? visitorState.revision : 0,
   });
+  // Previous-page metadata may be retained during a fetch, but must never prune
+  // a new source. An authoritative empty metadata array must also clear choices.
+  const recoveryFields = isError && Array.isArray(error?.visitorFilterFields) ? error.visitorFilterFields : null;
+  const metadataReady = visitorEnabled && !sourceChanged && (recoveryFields !== null ||
+    (!isPreviousData && !isError && data?.config?.directory?.slug === c.directorySlug &&
+    Array.isArray(data?.config?.visitorFilterFields)));
+  if (metadataReady) {
+    const fields = normalizeVisitorFilterFields(recoveryFields ?? data.config.visitorFilterFields);
+    const values = pruneVisitorFilters(visitorFilters, fields);
+    if (JSON.stringify(fields) !== JSON.stringify(visitorState.fields) ||
+        visitorFiltersKey(values) !== visitorFiltersKey(visitorFilters)) {
+      const pruned = visitorFiltersKey(values) !== visitorFiltersKey(visitorFilters);
+      // A correction must fetch fresh metadata, not resurrect a still-fresh
+      // cached unfiltered response from before the field was removed.
+      setVisitorState({ sourceKey, fields, values, revision: visitorState.revision + (pruned ? 1 : 0) });
+      if (pruned) {
+        setCurrentPage(1);
+        setSelectedRecord(null);
+      }
+    }
+  }
 
   const records = Array.isArray(data?.records) ? data.records : [];
   const entityType = data?.entityType || 'member';
@@ -7206,7 +7259,7 @@ function DirectoryCardsRender({ block, breakpoint, asEditor, icon: Icon, fallbac
 
   // In the editor, block interactive controls from stealing selection clicks.
   const editorGuard = asEditor
-    ? { onClickCapture: (e) => e.stopPropagation() }
+    ? { onClick: (e) => e.stopPropagation(), onPointerDown: (e) => e.stopPropagation() }
     : {};
 
   return (
@@ -7216,7 +7269,7 @@ function DirectoryCardsRender({ block, breakpoint, asEditor, icon: Icon, fallbac
         {c.title ? <Heading level={c.headingLevel || 2}>{c.title}</Heading> : null}
 
         <div className="flex flex-wrap items-center gap-3 mb-4" {...editorGuard}>
-          <div className="relative flex-1 min-w-[200px]">
+          <div className="relative flex-1 min-w-0 basis-[200px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" aria-hidden="true" />
             <Input
               value={searchInput}
@@ -7236,6 +7289,13 @@ function DirectoryCardsRender({ block, breakpoint, asEditor, icon: Icon, fallbac
               <SelectItem value="name-desc">Name (Z → A)</SelectItem>
             </SelectContent>
           </Select>
+          {visitorEnabled && <DirectoryVisitorFilterDropdown
+            key={sourceKey}
+            fields={sourceChanged ? [] : visitorState.fields}
+            value={visitorFilters}
+            onChange={changeVisitorFilters}
+            asEditor={asEditor}
+          />}
         </div>
 
         {isLoading ? (
