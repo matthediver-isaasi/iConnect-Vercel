@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import Stripe from 'stripe';
+import { optionalEventRegistrationConsent, recoverEventRegistrationConsent } from '../_lib/eventRegistrationConsent.js';
 import { replayPublicTicketBooking, compensatePublicTicketCapacity } from '../_lib/publicTicketMemberRecovery.js';
 import { assertPublicTicketPurchaser } from '../_lib/publicTicketEmail.js';
 import { preparePublicTicketPurchase, bindPublicTicketPayment, completePublicTicketMembers, assertPublicTicketPaymentEvidence, loadPublicTicketPurchase } from '../_lib/publicTicketMemberPurchase.js';
@@ -60,6 +61,30 @@ function generateBookingReference() {
 }
 
 export default async function handler(req, res) {
+  if (req.method !== 'POST') return handleBookingWithCredits(req, res);
+  let status = 200;
+  const capture = {
+    setHeader: (...args) => res.setHeader(...args),
+    status(code) { status = code; return capture; },
+    json(body) { return body; },
+  };
+  const result = await handleBookingWithCredits(req, capture);
+  if (result?.success && !result.communication_offer) {
+    try {
+      const tenant = await resolveTenantFromRequest(req);
+      const db = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+      result.communication_offer = await recoverEventRegistrationConsent(db, {
+        tenantId: tenant?.id, eventKind: 'complex', eventId: req.body.event_id,
+        purchaseReference: result.booking_group_reference || result.booking_reference,
+        purchaser: await getSessionMember(req), recoveryNonce: req.body.communication_nonce,
+        allocation: req.body.allocation_invitation_token,
+      });
+    } catch { /* Optional recovery never changes booking success. */ }
+  }
+  return res.status(status).json(result);
+}
+
+async function handleBookingWithCredits(req, res) {
   if (req.method !== 'POST' || !req.body?.selected_voucher_ids?.length) return processBooking(req, res);
   const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_KEY;
   if (!url || !key) return res.status(503).json({ error: 'Supabase not configured' });
@@ -1480,6 +1505,12 @@ async function processBooking(req, res) {
 
     return res.status(201).json({
       success: true,
+      communication_offer: await optionalEventRegistrationConsent(supabase, {
+        tenantId: tenant.id, eventKind: 'complex', eventId: event_id,
+        purchaseReference: bookingGroupRef, purchaser: authenticatedMember,
+        guestEmail: purchaserInfo?.email, allocation: allocationContext,
+        recoveryNonce: req.body.communication_nonce,
+      }),
       member_creation: memberCreation,
       booking_group_reference: bookingGroupRef,
       bookings,

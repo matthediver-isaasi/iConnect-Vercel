@@ -1,4 +1,5 @@
 import WaitingListTimingField from "@/components/events/WaitingListTimingField";
+import EventRegistrationCommunication, { saveEventRegistrationCommunication } from "@/components/events/EventRegistrationCommunication";
 import PublicTicketMemberFields from "@/components/events/PublicTicketMemberFields";
 import PublicTicketMemberDiagnostics from "@/components/events/PublicTicketMemberDiagnostics";
 import { ticketMemberPolicy, updateTicketMemberField, validateTicketMemberPolicies } from "@/utils/publicTicketMembers";
@@ -748,6 +749,7 @@ export default function CreateComplexEvent() {
   // During edit, null distinguishes "rules not hydrated" from an intentionally
   // empty configuration so saving quickly cannot erase existing rules.
   const [cpdBadgeConfig, setCpdBadgeConfig] = useState(() => isEditMode ? null : emptyEventCpdBadgeConfig());
+  const [communicationCategories, setCommunicationCategories] = useState(() => isEditMode ? null : []);
   const [cpdPointsConfig, setCpdPointsConfig] = useState(() => isEditMode ? null : emptyEventCpdPointsConfig());
   const [cpdCertificateConfig, setCpdCertificateConfig] = useState(() => isEditMode ? null : emptyEventCpdCertificateConfig());
   const [expandedTickets, setExpandedTickets] = useState({});
@@ -1131,8 +1133,8 @@ export default function CreateComplexEvent() {
   };
 
   const buildSnapshot = useCallback(() => {
-    return JSON.stringify({ formData, tracks, sessions, ticketClasses, cpdBadgeConfig, cpdPointsConfig, cpdCertificateConfig, selectedSponsors, sponsorDetails, seoTitle, seoDescription, ogImageUrl, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, qrOnConfirmation, collectThirdPartyConsent, allowPublicInvoicePo, isProgramEvent });
-  }, [formData, tracks, sessions, ticketClasses, cpdBadgeConfig, cpdPointsConfig, cpdCertificateConfig, selectedSponsors, sponsorDetails, seoTitle, seoDescription, ogImageUrl, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, qrOnConfirmation, collectThirdPartyConsent, allowPublicInvoicePo, isProgramEvent]);
+    return JSON.stringify({ communicationCategories, formData, tracks, sessions, ticketClasses, cpdBadgeConfig, cpdPointsConfig, cpdCertificateConfig, selectedSponsors, sponsorDetails, seoTitle, seoDescription, ogImageUrl, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, qrOnConfirmation, collectThirdPartyConsent, allowPublicInvoicePo, isProgramEvent });
+  }, [communicationCategories, formData, tracks, sessions, ticketClasses, cpdBadgeConfig, cpdPointsConfig, cpdCertificateConfig, selectedSponsors, sponsorDetails, seoTitle, seoDescription, ogImageUrl, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, qrOnConfirmation, collectThirdPartyConsent, allowPublicInvoicePo, isProgramEvent]);
 
   const isDirty = !isEditMode || isDirtyState;
 
@@ -2295,6 +2297,9 @@ export default function CreateComplexEvent() {
       if (persistedCpdCertificateConfig !== null) setCpdCertificateConfig(persistedCpdCertificateConfig);
 
       let cpdSaveError = null;
+      try {
+        await saveEventRegistrationCommunication(eventId, "complex", communicationCategories);
+      } catch (error) { cpdSaveError = error.message; }
       if (persistedCpdConfig !== null) {
         try {
           await putEventCpdBadgeRules(eventId, "complex", persistedCpdConfig, savedTicketClasses);
@@ -4703,7 +4708,8 @@ export default function CreateComplexEvent() {
         </Card>
         </TabsContent>
 
-        <TabsContent value="emails">
+        <TabsContent value="emails" forceMount className="data-[state=inactive]:hidden">
+          <EventRegistrationCommunication eventId={isEditMode ? editId : null} kind="complex" value={communicationCategories} onChange={setCommunicationCategories} />
           <Card className="border-slate-200 shadow-sm">
             <CardHeader>
               <div className="flex flex-wrap items-start justify-between gap-4">

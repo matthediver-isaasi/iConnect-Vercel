@@ -1,4 +1,5 @@
 import WaitingListTimingField from "@/components/events/WaitingListTimingField";
+import EventRegistrationCommunication, { saveEventRegistrationCommunication } from "@/components/events/EventRegistrationCommunication";
 import PublicTicketMemberFields from "@/components/events/PublicTicketMemberFields";
 import { deriveTrainingAgendaBounds } from "@shared/trainingAgendaBounds.js";
 import { getZoomWebinarEndTime } from "@shared/zoomWebinarTiming.js";
@@ -253,6 +254,7 @@ export default function CreateEvent() {
   // Ticket classes state for one-off events
   const [ticketClasses, setTicketClasses] = useState([createEmptyTicketClass(true)]);
   const [cpdBadgeConfig, setCpdBadgeConfig] = useState(() => emptyEventCpdBadgeConfig());
+  const [communicationCategories, setCommunicationCategories] = useState([]);
   const [cpdPointsConfig, setCpdPointsConfig] = useState(() => emptyEventCpdPointsConfig());
   const [cpdCertificateConfig, setCpdCertificateConfig] = useState(() => emptyEventCpdCertificateConfig());
   const { ticketTypeName: groupTicketTypeName, featureName: memberGroupFeatureName } = useMemberGroupSettings();
@@ -824,6 +826,7 @@ export default function CreateEvent() {
       // the mutation and incorrectly tell the admin creation failed.
       let cpdError = null;
       const cpdSaves = await Promise.allSettled([
+        saveEventRegistrationCommunication(createdEvent.id, "simple", communicationCategories),
         putEventCpdBadgeRules(createdEvent.id, "simple", cpdBadgeConfig, isProgramEvent ? [] : ticketClasses),
         putEventCpdPointsRules(createdEvent.id, "simple", cpdPointsConfig, isProgramEvent ? [] : ticketClasses),
         putEventCpdCertificateRules(createdEvent.id, "simple", cpdCertificateConfig, isProgramEvent ? [] : ticketClasses),
@@ -3639,6 +3642,7 @@ export default function CreateEvent() {
                 eventTimezone={formData.timezone || 'Europe/London'}
                 mode="event"
               />
+              <EventRegistrationCommunication kind="simple" value={communicationCategories} onChange={setCommunicationCategories} />
             </CardContent>
           </Card>
 

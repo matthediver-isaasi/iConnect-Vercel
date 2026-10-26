@@ -1,3 +1,4 @@
+import { cloneEventRegistrationCommunication } from '../../_lib/eventRegistrationConsent.js';
 import { randomUUID } from 'crypto';
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, hasAdminAccess } from '../../_lib/tenantContext.js';
@@ -191,6 +192,7 @@ export default async function handler(req, res) {
       console.error('[DuplicateComplexEvent] Date recompute failed:', recomputeErr?.message || recomputeErr);
     }
 
+    await cloneEventRegistrationCommunication(supabase, tenantId, 'complex', id, newEventId);
     console.log(`[DuplicateComplexEvent] ${id} → ${newEventId} tenant=${tenantId} tracks=${trackIdMap.size} sessions=${sessionIdMap.size} by=${ctx.tenantUserId || ctx.memberId || 'unknown'}`);
     return res.status(200).json({ id: newEventId, slug: newEvent.slug });
   } catch (err) {

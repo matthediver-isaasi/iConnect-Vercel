@@ -7,7 +7,8 @@ const canonical = value => Array.isArray(value) ? value.map(canonical)
     ? Object.fromEntries(Object.keys(value).sort().filter(k => !k.startsWith('_')).map(k => [k, canonical(value[k])]))
     : value;
 export function bookingAttemptFingerprint(body) {
-  return createHash('sha256').update(JSON.stringify(canonical(body))).digest('hex');
+  const { communication_nonce, ...booking } = body;
+  return createHash('sha256').update(JSON.stringify(canonical(booking))).digest('hex');
 }
 export function bookingCreditInvoiceInput(input) {
   const { paymentIntent, booker, ...rest } = input;

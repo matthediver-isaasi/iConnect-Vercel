@@ -1,4 +1,5 @@
 import WaitingListTimingField from "@/components/events/WaitingListTimingField";
+import EventRegistrationCommunication, { saveEventRegistrationCommunication } from "@/components/events/EventRegistrationCommunication";
 import PublicTicketMemberFields from "@/components/events/PublicTicketMemberFields";
 import { deriveTrainingAgendaBounds } from "@shared/trainingAgendaBounds.js";
 import PublicTicketMemberDiagnostics from "@/components/events/PublicTicketMemberDiagnostics";
@@ -307,6 +308,7 @@ export default function EditEvent() {
   // Null means the secure rules endpoint has not hydrated yet. A quick save
   // must preserve existing rules rather than interpreting "not loaded" as empty.
   const [cpdBadgeConfig, setCpdBadgeConfig] = useState(null);
+  const [registrationCommunicationCategories, setRegistrationCommunicationCategories] = useState(null);
   const [cpdPointsConfig, setCpdPointsConfig] = useState(null);
   const [cpdCertificateConfig, setCpdCertificateConfig] = useState(null);
   const [expandedTickets, setExpandedTickets] = useState({});
@@ -1961,6 +1963,7 @@ export default function EditEvent() {
       onSuccess: async () => {
         let cpdSaveError = null;
         const cpdSaves = [];
+        cpdSaves.push(saveEventRegistrationCommunication(eventId, "simple", registrationCommunicationCategories));
         if (cpdBadgeConfig !== null) {
           cpdSaves.push(putEventCpdBadgeRules(eventId, "simple", cpdBadgeConfig, isOneOffEvent ? ticketClasses : []));
         }
@@ -4875,6 +4878,7 @@ export default function EditEvent() {
           </TabsContent>
 
           <TabsContent value="emails" forceMount className={TAB_PANEL_CLASS}>
+            <EventRegistrationCommunication eventId={eventId} kind="simple" value={registrationCommunicationCategories} onChange={setRegistrationCommunicationCategories} />
           {/* Email Configuration Section */}
           <Card className="border-slate-200 shadow-sm mb-6">
             <CardHeader className="pb-4">

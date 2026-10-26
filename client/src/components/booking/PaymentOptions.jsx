@@ -1,4 +1,5 @@
 import WaitingListCheckout from "./WaitingListCheckout";
+import { offerEventRegistrationConsent, cancelEventRegistrationConsent } from "./EventRegistrationConsent";
 import { v4 as uuidv4 } from "uuid";
 import { requireAttendeeJobTitle, missingAttendeeJobTitle } from "../../../../shared/attendeeJobTitleRequirement.js";
 import PurchaserIdentityFields from "@/components/booking/PurchaserIdentityFields";
@@ -495,6 +496,15 @@ function NormalPaymentOptions({
   const isSubmitting = submitting !== undefined ? submitting : internalSubmitting;
   const doSetSubmitting = setSubmitting || setInternalSubmitting;
   const activeTenant = useSyncExternalStore(subscribeToActiveTenantId, getActiveTenantId, () => null);
+  const offerCommunications = result => offerEventRegistrationConsent(result, {
+    eventId: event.id, kind: isComplexEvent ? 'complex' : 'simple', memberId: memberInfo?.id,
+  });
+  useEffect(() => {
+    if (!allocationContext) void offerCommunications(null);
+    return () => cancelEventRegistrationConsent({
+      eventId: event.id, kind: isComplexEvent ? 'complex' : 'simple', memberId: memberInfo?.id,
+    });
+  }, [event.id, memberInfo?.id, isComplexEvent]);
   const viewerGeneration = useSyncExternalStore(subscribeToViewerProtectedWork,
     getViewerProtectedWorkGeneration, getViewerProtectedWorkGeneration);
   const checkoutIdentity = JSON.stringify([event?.id, memberInfo?.id, memberInfo?.email, memberInfo?.tenant_id,
@@ -841,6 +851,7 @@ function NormalPaymentOptions({
           }
           const result = await complexEventApi.submitBooking(complexPayload);
           if (result.success) {
+            await offerCommunications(result);
             sessionStorage.removeItem(savedPayloadKey);
             const isPending = result.bookings?.some(b => b.status === 'pending');
             setBookingConfirmation({
@@ -868,9 +879,10 @@ function NormalPaymentOptions({
           }
         } else {
           const response = await base44.functions.invoke('createOneOffEventBooking', savedPayload);
-          console.log('[PaymentOptions] 3D Secure booking response:', JSON.stringify(response.data));
+          console.log('[PaymentOptions] 3D Secure booking completed:', response.data.success);
           
           if (response.data.success) {
+            await offerCommunications(response.data);
             sessionStorage.removeItem(savedPayloadKey);
             sessionStorage.removeItem(`event_registration_${event.id}`);
             
@@ -1202,6 +1214,7 @@ function NormalPaymentOptions({
       const response = await base44.functions.invoke('createBooking', programPayload);
 
       if (response.data.success) {
+        await offerCommunications(response.data);
         sessionStorage.removeItem(`event_registration_${event.id}`);
         
         if (refreshOrganizationInfo) {
@@ -1589,6 +1602,7 @@ function NormalPaymentOptions({
         const result = await complexEventApi.submitBooking(complexPayload);
 
         if (result.success) {
+          await offerCommunications(result);
           const isPending = result.bookings?.some(b => b.status === 'pending');
           setBookingConfirmation({
             bookingReference: result.booking_group_reference || result.booking_reference,
@@ -1685,9 +1699,10 @@ function NormalPaymentOptions({
         }
         console.log('[PaymentOptions] Calling createOneOffEventBooking API with payload:', JSON.stringify(bookingPayload));
         const response = await base44.functions.invoke('createOneOffEventBooking', bookingPayload);
-        console.log('[PaymentOptions] API response received:', JSON.stringify(response.data));
+        console.log('[PaymentOptions] Booking completed:', response.data.success);
 
         if (response.data.success) {
+          await offerCommunications(response.data);
           sessionStorage.removeItem(`event_registration_${event.id}`);
           
           if (refreshOrganizationInfo && !isGuestCheckout) {

@@ -1,3 +1,4 @@
+import { cloneEventRegistrationCommunication } from '../../_lib/eventRegistrationConsent.js';
 import { randomUUID } from 'crypto';
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, hasAdminAccess } from '../../_lib/tenantContext.js';
@@ -157,6 +158,7 @@ export default async function handler(req, res) {
       }
     }
 
+    await cloneEventRegistrationCommunication(supabase, ctx.tenantId, 'simple', id, createdEventId);
     console.log(`[DuplicateEvent] ${id} → ${createdEventId} (slug=${created.slug}) tenant=${ctx.tenantId} by=${ctx.tenantUserId || ctx.memberId || 'unknown'}`);
     return res.status(200).json({ id: createdEventId, slug: created.slug });
   } catch (err) {

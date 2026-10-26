@@ -3,6 +3,7 @@
 // our Express backend which communicates with Supabase directly
 
 import { throwUploadHttpError } from '@/lib/planQuotaError.js';
+import { withEventConsentNonce } from '@/lib/eventConsentRequest.mjs';
 
 // The currently-displayed tenant ID in the admin dashboard.
 // Set via setActiveTenantId() after auth resolves and after tenant switches.
@@ -144,6 +145,9 @@ class FunctionsProxy {
   }
 
   async invoke(functionName, params = {}) {
+    if (['createBooking', 'createOneOffEventBooking'].includes(functionName)) {
+      params = withEventConsentNonce(params, 'simple');
+    }
     const response = await this.apiRequest(`/api/functions/${functionName}`, {
       method: 'POST',
       body: JSON.stringify(params),

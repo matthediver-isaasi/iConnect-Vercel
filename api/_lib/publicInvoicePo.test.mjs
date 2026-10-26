@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { validatePublicInvoicePo, requirePublicInvoicePoBalance } from './publicInvoicePo.js';
+import { literalNormalizedEmailPattern } from './publicTicketEmail.js';
 
 const purchaserInfo = { email: 'buyer@example.com', first_name: 'Public', last_name: 'Buyer', phone: '01234', organization: 'Example', answers: { access: 'Ramp' } };
 function options({ member = false, error = null, ...overrides } = {}) {
@@ -9,6 +10,7 @@ function options({ member = false, error = null, ...overrides } = {}) {
     select() { return this; },
     eq(...args) { calls.push(args); return this; },
     ilike(...args) { calls.push(args); return this; },
+    filter(...args) { calls.push(args); return this; },
     async limit() { return { data: member ? [{ id: 'member' }] : [], error }; },
   };
   return {
@@ -29,7 +31,7 @@ test('snapshot retains collected contact data independently of member attendees,
   args.purchaserInfo.phone = 'Changed';
   assert.equal(snapshot.details.phone, '01234');
   assert.equal(snapshot.details.answers, undefined);
-  assert.deepEqual(args.calls, [['tenant_id', 'tenant'], ['email', 'buyer@example.com']]);
+  assert.deepEqual(args.calls, [['tenant_id', 'tenant'], ['email', 'imatch', literalNormalizedEmailPattern('buyer@example.com')]]);
 });
 test('snapshot drops tokens and classification overrides from submitted metadata', async () => {
   const snapshot = await validatePublicInvoicePo(options({
@@ -58,7 +60,7 @@ test('PO is optional and email wildcard characters are escaped for membership lo
   const args = options({ purchaserInfo: { ...purchaserInfo, email: ' BUY_ER@Example.com ' }, purchaseOrderNumber: 'PO-123' });
   const snapshot = await validatePublicInvoicePo(args);
   assert.equal(snapshot.details.email, 'buy_er@example.com');
-  assert.equal(args.calls[1][1], 'buy\\_er@example.com');
+  assert.equal(args.calls[1][2], literalNormalizedEmailPattern('buy_er@example.com'));
 });
 test('zero, negative, invalid and fully discounted amounts cannot become unpaid PO bookings', () => {
   for (const amount of [0, -1, null, undefined, NaN, Infinity, 'bad']) {

@@ -68,6 +68,8 @@ export async function groupBooking({ complex = false, flag = true, identity = 'g
   });
   const originalDependency = harness.dependency;
   harness.dependency = (name, args) => {
+    if (name === 'runBookingCreditAttempt') return args[0].work();
+    if (name === 'optionalEventRegistrationConsent' || name === 'recoverEventRegistrationConsent') return null;
     if (name === 'needsPublicTicketMemberCreation') return false;
     if (name === 'assertPublicTicketPurchaser') return undefined;
     if (name === 'scheduleComplexEventReminders') return undefined;

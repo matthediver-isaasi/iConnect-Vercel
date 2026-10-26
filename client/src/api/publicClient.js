@@ -1,3 +1,4 @@
+import { withEventConsentNonce } from '@/lib/eventConsentRequest.mjs';
 /**
  * Public Client for Multi-Tenant SaaS
  * 
@@ -1004,6 +1005,7 @@ class PublicClient {
   }
 
   async submitComplexEventBooking(data) {
+    data = withEventConsentNonce(data, 'complex');
     return this._fetch('/api/public/complex-event-booking', {
       method: 'POST',
       body: JSON.stringify(data)

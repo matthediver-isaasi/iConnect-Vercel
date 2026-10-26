@@ -1,4 +1,5 @@
 import Stripe from 'stripe';
+import { optionalEventRegistrationConsent, recoverEventRegistrationConsent } from '../_lib/eventRegistrationConsent.js';
 import { redactInvoicingAddress } from '../../shared/invoicingAddress.js';
 import { replayPublicTicketBooking, compensatePublicTicketCapacity } from '../_lib/publicTicketMemberRecovery.js';
 import { assertPublicTicketPurchaser } from '../_lib/publicTicketEmail.js';
@@ -1881,6 +1882,11 @@ const functionHandlers = {
     }
 
     console.log('[createBooking] Booking complete:', response);
+    response.communication_offer = await optionalEventRegistrationConsent(supabase, {
+      tenantId: requestTenant.id, eventKind: 'simple', eventId,
+      purchaseReference: bookingReference, purchaser: member,
+      recoveryNonce: params.communication_nonce,
+    });
     return response;
   },
 
@@ -3880,6 +3886,13 @@ const functionHandlers = {
       };
     }
 
+    response.communication_offer = paymentMethod === 'card' && !stripePaymentIntentId ? null : await optionalEventRegistrationConsent(supabase, {
+      tenantId: event.tenant_id, eventKind: 'simple', eventId: event.id,
+      purchaseReference: bookingReference, purchaser: bookingSessionMember,
+      guestEmail: purchaserInfo?.email || params.purchaserInfo?.email || guestInfo?.email,
+      allocation: allocationContext,
+      recoveryNonce: params.communication_nonce,
+    });
     return response;
   },
 
@@ -6967,6 +6980,18 @@ export default async function handler(req, res) {
       ? await runBookingCreditAttempt({ db: supabase, req, body: req.body, source: 'booking',
         work: () => handlerFn(req.body, req) })
       : await handlerFn(req.body, req);
+    if (['createBooking', 'createOneOffEventBooking'].includes(functionName)
+        && result?.success && !result.communication_offer) {
+      try {
+        const tenant = await resolveTenantFromRequest(req);
+        result.communication_offer = await recoverEventRegistrationConsent(supabase, {
+          tenantId: tenant?.id, eventKind: 'simple', eventId: req.body.eventId,
+          purchaseReference: result.booking_group_reference || result.booking_reference,
+          purchaser: await getSessionMember(req), recoveryNonce: req.body.communication_nonce,
+          allocation: req.body.allocation_invitation_token,
+        });
+      } catch { /* Optional recovery never changes booking success. */ }
+    }
     return res.json(result);
   } catch (error) {
     console.error(`Function ${functionName} error:`, error);

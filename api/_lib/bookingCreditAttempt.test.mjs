@@ -37,6 +37,7 @@ function dbFor(state) {
 }
 test.beforeEach(()=>{globalThis[fixture]={tenant:{id:'t'},member:{id:'m'}};});
 test('stable canonical fingerprint detects changed funding but not object key order',()=>{
+  assert.equal(api.bookingAttemptFingerprint(body),api.bookingAttemptFingerprint({...body,communication_nonce:'optional'}));
   assert.equal(api.bookingAttemptFingerprint({a:1,b:2}),api.bookingAttemptFingerprint({b:2,a:1}));
   assert.notEqual(api.bookingAttemptFingerprint(body),api.bookingAttemptFingerprint({...body,selectedVoucherIds:['other']}));
 });

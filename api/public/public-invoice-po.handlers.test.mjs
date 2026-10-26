@@ -18,7 +18,7 @@ async function loadHandler(path) {
   const replacements = new Map();
   for (const [, names, specifier] of source.matchAll(imports)) {
     if (specifier.startsWith('node:') || specifier === 'crypto') continue;
-    if (/publicTicket|publicInvoicePo|complexEventPricing|ticketAccess|ticketReleaseAccess|eventOptionSelections|attendeeJobTitleEnrichment/.test(specifier)) continue;
+    if (/publicTicket|publicInvoicePo|complexEventPricing|ticketAccess|ticketAudience|ticketReleaseAccess|eventOptionSelections|attendeeJobTitleEnrichment/.test(specifier)) continue;
     const exports = [];
     if (names.trim().startsWith('{')) {
       for (const entry of names.replace(/[{}]/g, '').split(',').map(s => s.trim()).filter(Boolean)) {
@@ -168,12 +168,21 @@ function fixture({ enabled = true, member = null, memberEmail = null, free = fal
   return {
     rows, calls, db, unexpected, paymentIntent,
     dependency(name, args) {
-      calls.push({ dependency: name });
+      calls.push({ dependency: name, ...(name === 'optionalEventRegistrationConsent' ? { consent: args[1] } : {}) });
       if (name === 'createClient') return db;
       if (name === 'resolveTenantFromRequest') return { id: 'tenant-a' };
       if (name === 'getTenantContext') return { tenantId: 'tenant-a' };
       if (name === 'getSessionMember') return member;
       if (name === 'getSession') return null;
+      if (name === 'runBookingCreditAttempt') {
+        if ((args[0].body.selectedVoucherIds || args[0].body.selected_voucher_ids || []).length)
+          throw Object.assign(new Error('Sign in to use booking credit vouchers'),{statusCode:401});
+        return args[0].work();
+      }
+      if (name === 'checkBookingAttendeeJobTitles') return null;
+      if (name === 'optionalEventRegistrationConsent') return { id:'consent-offer',token:'fixture-offer' };
+      if (name === 'recoverEventRegistrationConsent') return null;
+      if (name === 'assertSimplePrivateTicketsAccessible' || name === 'assertPrivateTicketsAccessible') return;
       if (paid && name === 'getStripeClient') return {
         paymentIntents: { retrieve: async () => paymentIntent },
         refunds: { create: async (body, options) => {
@@ -254,6 +263,7 @@ for (const kind of ['simple', 'complex']) {
       });
       assert.equal(result.rows.member.length, status === 'succeeded' ? 3 : 0, JSON.stringify(result.res.body));
       assert.equal(result.bookings.length, status === 'succeeded' ? 2 : 0, JSON.stringify(result.res.body));
+      assert.equal(result.calls.filter(call=>call.dependency==='optionalEventRegistrationConsent').length,status==='succeeded'?1:0);
       assert.deepEqual(result.unexpected, []);
     });
   }
@@ -297,6 +307,10 @@ for (const kind of ['simple', 'complex']) {
     test(`${kind}: public purchaser registers two attendees confirmed and unpaid, optional PO ${po || 'absent'}`, async () => {
       const result = await invoke(kind, {}, { purchase_order_number: po });
       assert.equal(result.bookings.length, 2, JSON.stringify(result.res.body));
+      const consentCalls = result.calls.filter(call => call.dependency === 'optionalEventRegistrationConsent');
+      assert.equal(consentCalls.length, 1, 'one booker offer for the successful purchase, not each attendee');
+      assert.equal(consentCalls[0].consent.guestEmail, purchaser.email);
+      assert.equal(consentCalls[0].consent.purchaser, null);
       for (const booking of result.bookings) {
         assert.equal(booking.status, 'confirmed');
         assert.equal(booking.payment_method, 'public_invoice_po');
@@ -369,6 +383,11 @@ for (const kind of ['simple', 'complex']) {
     const result = await invoke(kind, { enabled: false }, kind === 'simple' ? { paymentMethod: 'card' } : { payment_method: 'card' });
     assert.equal(result.bookings.length, 0);
     assert.ok(result.res.body.error);
+  });
+  test(`${kind}: no marketing offer for a card attempt without payment proof`, async () => {
+    const result = await invoke(kind, { enabled: false }, kind === 'simple' ? { paymentMethod: 'card' } : { payment_method: 'card' });
+    assert.equal(result.calls.filter(call => call.dependency === 'optionalEventRegistrationConsent').length, 0);
+    assert.ok(!result.res.body.communication_offer);
   });
 }
 

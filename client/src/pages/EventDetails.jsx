@@ -1,4 +1,5 @@
 import { ticketMemberPolicy } from "@/utils/publicTicketMembers";
+import { offerEventRegistrationConsent, cancelEventRegistrationConsent } from "@/components/booking/EventRegistrationConsent";
 import { requireAttendeeJobTitle, missingAttendeeJobTitle } from "../../../shared/attendeeJobTitleRequirement.js";
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
@@ -377,6 +378,12 @@ export function EventDetailsExperience({
   const isSlugLookup = !!slugToResolve && !explicitEventId;
   const { data: slugResolvedEvent, isLoading: isSlugLoading } = useEventDataBySlug(isSlugLookup ? slugToResolve : null);
   const eventId = allocationContext?.eventId || explicitEventId || (slugResolvedEvent?.id) || null;
+  useEffect(() => {
+    if (!eventId || !authResolved || allocationToken || editorMode) return;
+    const context = { eventId, memberId: currentMemberInfo?.id };
+    void offerEventRegistrationConsent(null, context);
+    return () => cancelEventRegistrationConsent(context);
+  }, [eventId, currentMemberInfo?.id, authResolved, allocationToken, editorMode]);
   const isEmbedMode = embedded;
 
   // Notify parent iframe of height changes for embed mode
@@ -1662,7 +1669,7 @@ export function EventDetailsExperience({
       console.log('[EventDetails] Event backstage_event_id:', event.backstage_event_id);
       
       const response = await base44.functions.invoke('createBooking', requestPayload);
-      console.log('[EventDetails] createBooking FULL response:', JSON.stringify(response.data, null, 2));
+      console.log('[EventDetails] createBooking completed:', response.data.success);
       console.log('[EventDetails] Event type:', response.data.event_type);
       console.log('[EventDetails] Zoom registration:', JSON.stringify(response.data.zoom_registration, null, 2));
       
@@ -1671,6 +1678,7 @@ export function EventDetailsExperience({
       }
 
       if (response.data.success) {
+        await offerEventRegistrationConsent(response.data, { eventId: event.id, memberId: currentMemberInfo?.id });
         console.log('[EventDetails] Booking succeeded!');
         sessionStorage.removeItem(`event_registration_${event.id}`);
 
