@@ -128,8 +128,43 @@ function serviceFixture() {
     member_membership_amendment_notification: [],
   };
   const db = mockDb(tables);
-  return { ...f, db, tables, service: createMemberAmendmentsService({ db, now: () => new Date(f.quotedAt) }) };
+  const proof = {
+    provider: 'xero', xeroTenantId: uuid(70), sourceInvoiceId: uuid(71),
+    contactId: uuid(72), originalPaymentIds: [uuid(73)], originalPaidMinor: 10000,
+    originalAmounts: { netMinor: 10000, vatMinor: 0, grossMinor: 10000 },
+  };
+  const finance = { verifyOriginal: async a => {
+    assert.equal(a.tenant_id, f.tenantId);
+    assert.equal(a.member_id, f.memberId);
+    return structuredClone(proof);
+  } };
+  return { ...f, db, tables, proof, finance,
+    service: createMemberAmendmentsService({ db, now: () => new Date(f.quotedAt), finance }) };
 }
+
+test('confirmation re-verifies original funding and rejects a changed payer or payment', async () => {
+  for (const change of [
+    proof => { proof.contactId = uuid(74); },
+    proof => { proof.originalPaymentIds = [uuid(75)]; },
+    proof => { proof.xeroTenantId = uuid(76); },
+  ]) {
+    const f = serviceFixture();
+    const preview = await f.service.preview(f.tenantId, f.request);
+    assert.equal(preview.quote.fundingEvidence.paidMinor, 10000);
+    change(f.proof);
+    await assert.rejects(f.service.create(f.tenantId, uuid(7), {
+      ...f.request, expectedQuote: preview.expectedQuote, idempotencyKey: 'changed-payment',
+    }), { code: 'quote_changed' });
+    assert.equal(f.db.rpcCalls.length, 0);
+  }
+});
+
+test('source provider failure blocks preview and creates no proposal', async () => {
+  const f = serviceFixture();
+  f.finance.verifyOriginal = async () => { throw Object.assign(new Error('Provider unavailable'), { status: 502 }); };
+  await assert.rejects(f.service.preview(f.tenantId, f.request), { status: 502 });
+  assert.equal(f.db.rpcCalls.length, 0);
+});
 
 test('service tenant-scopes every read, lists immutable current-term history and quotes through tracked RPC only', async () => {
   const f = serviceFixture();

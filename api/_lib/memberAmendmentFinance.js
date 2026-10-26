@@ -74,10 +74,8 @@ export function createMemberAmendmentFinance({
     };
     return { provider, request, xeroTenantId };
   }
-  async function prepare(amendment, choice) {
+  async function verifyOriginal(amendment) {
     const q = amendment.quote;
-    const amounts = amendmentMoney(q, choice);
-    if (choice === 'none') return { provider: 'none', amounts };
     const source = q.sourceSnapshot;
     if (source.billing_agreement_id || source.commitment_snapshot?.payment_frequency !== 'upfront') {
       fail('Monthly/provider-linked commitments require the dedicated monthly amendment service.');
@@ -113,8 +111,9 @@ export function createMemberAmendmentFinance({
       if (!item.PaymentID) fail('Original invoice payment ownership is missing.');
       if (originalPaymentIds.has(item.PaymentID)) fail('Original invoice has duplicate payment evidence.');
       originalPaymentIds.add(item.PaymentID);
-      const payment = (await request(`Payments/${encodeURIComponent(item.PaymentID)}`))?.Payments?.[0];
-      if (payment?.PaymentID !== item.PaymentID || payment.Status !== 'AUTHORISED'
+      const paymentResponse = await request(`Payments/${encodeURIComponent(item.PaymentID)}`);
+      const payment = paymentResponse?.Payments?.[0];
+      if (paymentResponse?.Payments?.length !== 1 || payment?.PaymentID !== item.PaymentID || payment.Status !== 'AUTHORISED'
           || payment.Invoice?.InvoiceID !== invoiceId || !payment.Account?.AccountID) {
         fail('Original invoice payment ownership could not be independently verified.');
       }
@@ -135,6 +134,35 @@ export function createMemberAmendmentFinance({
       fail('Existing or unattributed payer credits prevent a verified refundable/creditable balance; finance review is required.');
     }
     await verifyOriginalCard(amendment);
+    const original = {
+      provider: 'xero', xeroTenantId, sourceInvoiceId: invoiceId,
+      contactId: invoice.Contact.ContactID, currency: q.currency,
+      originalPaymentIds: [...originalPaymentIds].sort(),
+      originalPaidMinor: originalPaid, originalAmounts: { ...q.originalFullTerm },
+      accountCode: accounts[0], taxCode: taxes[0],
+      payerEmail: invoice.Contact.EmailAddress || null,
+    };
+    const expected = q.fundingEvidence;
+    if (expected && (
+      expected.provider !== original.provider
+      || expected.providerTenantId !== original.xeroTenantId
+      || expected.sourceInvoiceId !== original.sourceInvoiceId
+      || expected.contactId !== original.contactId
+      || expected.paidMinor !== original.originalPaidMinor
+      || JSON.stringify(expected.paymentIds) !== JSON.stringify(original.originalPaymentIds)
+      || ['netMinor', 'vatMinor', 'grossMinor'].some(key =>
+        expected.originalAmounts?.[key] !== original.originalAmounts[key])
+    )) fail('The original funding changed since confirmation. Review the amendment before starting settlement.');
+    return original;
+  }
+  async function prepare(amendment, choice) {
+    const q = amendment.quote;
+    const amounts = amendmentMoney(q, choice);
+    // A zero adjustment is not proof that the original purchase was paid.
+    // Verify the same source invoice/card evidence before every entitlement
+    // change, including a lateral move with no new accounting document.
+    const original = await verifyOriginal(amendment);
+    if (choice === 'none') return { ...original, provider: 'none', amounts };
     if (amounts.grossMinor > q.originalFullTerm.grossMinor && choice !== 'collect') fail('Credit exceeds the original paid amount.');
     let targetTax;
     const target = q.targetSnapshot.band || q.targetSnapshot.config;
@@ -144,14 +172,13 @@ export function createMemberAmendmentFinance({
     }
     // A single tax type can represent a difference exactly only when the
     // original and target tax regimes match. No reverse-engineered VAT rate.
-    if (targetTax && targetTax !== taxes[0]) fail('Tax-regime changes need separate debit and credit documents.');
+    if (targetTax && targetTax !== original.taxCode) fail('Tax-regime changes need separate debit and credit documents.');
     if (!targetTax && (q.originalFullTerm.vatMinor || amounts.taxMinor)) fail('Missing target tax type or changed tax regime requires separate debit and credit documents.');
     return {
-      provider: 'xero', xeroTenantId, sourceInvoiceId: invoiceId, contactId: invoice.Contact.ContactID,
-      currency: q.currency, amounts, accountCode: accounts[0], taxCode: taxes[0],
+      ...original, amounts,
       reference: `MA:${amendment.id}`, issueDate: q.effectiveDate,
       // Preserve original payer, not a mutable member contact lookup.
-      payerEmail: invoice.Contact.EmailAddress || null,
+      payerEmail: original.payerEmail,
     };
   }
   function accepted(context) {
@@ -182,7 +209,19 @@ export function createMemberAmendmentFinance({
   }
   async function inspect(amendment, settlement) {
     const c = settlement.context;
-    if (settlement.choice === 'none') return { state: 'settled', evidence: { kind: 'zero_difference', verified: true } };
+    if (settlement.choice === 'none') {
+      const original = await verifyOriginal(amendment);
+      if (original.sourceInvoiceId !== c.sourceInvoiceId || original.contactId !== c.contactId
+          || original.xeroTenantId !== c.xeroTenantId
+          || JSON.stringify(original.originalPaymentIds) !== JSON.stringify(c.originalPaymentIds)) {
+        fail('Original payment evidence changed after the zero-difference reservation.');
+      }
+      return { state: 'settled', evidence: {
+        kind: 'zero_difference', verified: true,
+        sourceInvoiceId: original.sourceInvoiceId,
+        originalPaymentIds: original.originalPaymentIds,
+      } };
+    }
     const { request, xeroTenantId } = await client(amendment.tenant_id);
     if (xeroTenantId !== c.xeroTenantId) fail('Accounting connection changed; original organisation reconciliation is required.');
     const invoice = settlement.choice === 'collect';
@@ -276,5 +315,5 @@ export function createMemberAmendmentFinance({
     }
     return inspect(amendment, settlement);
   }
-  return { prepare, execute, inspect };
+  return { prepare, execute, inspect, verifyOriginal };
 }

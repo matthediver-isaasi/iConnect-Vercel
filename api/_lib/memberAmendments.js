@@ -3,6 +3,7 @@ import {
   AMENDMENT_CAPABILITIES, AmendmentError, buildMemberAmendmentQuote, currentAmendmentBlockers,
 } from './memberAmendmentQuote.js';
 import { createMemberAmendmentSettlementService } from './memberAmendmentSettlement.js';
+import { createMemberAmendmentFinance } from './memberAmendmentFinance.js';
 
 export const AMENDMENT_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PAGE_SIZE = 500;
@@ -58,7 +59,9 @@ export function normalizeAmendmentRequest(input) {
   };
 }
 
-export function createMemberAmendmentsService({ db, now = () => new Date(), settlementService = null }) {
+export function createMemberAmendmentsService({ db, now = () => new Date(), settlementService = null,
+  finance = createMemberAmendmentFinance(),
+}) {
   const settlement = settlementService || createMemberAmendmentSettlementService({ db, now });
   const rows = async (table, tenantId, memberId) => allPages(() => db.from(table).select('*')
     .eq('tenant_id', tenantId).eq('member_id', memberId));
@@ -124,6 +127,23 @@ export function createMemberAmendmentsService({ db, now = () => new Date(), sett
         current: state.current, config, band, discounts, vatOverrides, vatSetting,
         effectiveDate: request.effectiveDate, today: state.today, quotedAt: now().toISOString(),
       });
+      // Price arithmetic is not proof of available paid value. The same
+      // provider-backed reader used at settlement must verify the original
+      // invoice/payments before a member/admin can confirm a proposal.
+      // Confirmation re-runs preview; stable payment provenance is included
+      // in its fingerprint, so a changed payer/payment requires a new preview.
+      const original = await finance.verifyOriginal({
+        tenant_id: tenantId, member_id: request.memberId, quote,
+      });
+      quote.fundingEvidence = {
+        provider: original.provider,
+        providerTenantId: original.xeroTenantId,
+        sourceInvoiceId: original.sourceInvoiceId,
+        contactId: original.contactId,
+        paymentIds: original.originalPaymentIds,
+        paidMinor: original.originalPaidMinor,
+        originalAmounts: original.originalAmounts,
+      };
       return { quote, expectedQuote: memberAmendmentQuoteFingerprint(quote), canCreate: true, blockers: quote.blockers };
     } catch (error) {
       if (error instanceof AmendmentError && error.status === 422) return { quote: null, canCreate: false, blockers: [error.message] };

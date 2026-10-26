@@ -79,6 +79,90 @@ test('money validation rejects mixed-sign/tax-only and imprecise amounts; indepe
     { netMinor: 101, taxMinor: 21, grossMinor: 122 });
 });
 
+test('source evidence reader verifies provider payments without creating accounting documents', async () => {
+  const f = financeFixture();
+  const proof = await f.finance.verifyOriginal(f.a);
+  assert.equal(proof.sourceInvoiceId, f.invoice.InvoiceID);
+  assert.equal(proof.originalPaidMinor, 10000);
+  assert.deepEqual(proof.originalAmounts, f.a.quote.originalFullTerm);
+  assert.deepEqual(proof.originalPaymentIds, [uuid(63)]);
+  assert.equal(proof.contactId, f.invoice.Contact.ContactID);
+  assert.equal(f.documents.length, 0);
+  assert.ok(f.calls.every(call => call.method === 'GET'));
+  f.invoice.Status = 'AUTHORISED';
+  await assert.rejects(f.finance.verifyOriginal(f.a), /fully paid/);
+});
+
+test('a confirmed funding fingerprint cannot silently use a new payer at settlement', async () => {
+  const f = financeFixture();
+  const original = await f.finance.verifyOriginal(f.a);
+  f.a.quote.fundingEvidence = {
+    provider: original.provider, providerTenantId: original.xeroTenantId,
+    sourceInvoiceId: original.sourceInvoiceId, contactId: original.contactId,
+    paymentIds: original.originalPaymentIds, paidMinor: original.originalPaidMinor,
+    originalAmounts: original.originalAmounts,
+  };
+  await f.finance.prepare(f.a, 'collect');
+  f.invoice.Contact.ContactID = uuid(91);
+  await assert.rejects(f.finance.prepare(f.a, 'collect'), /funding changed since confirmation/);
+  assert.equal(f.documents.length, 0);
+});
+
+test('a zero-price change verifies original payment at reservation and again before application', async () => {
+  const f = financeFixture();
+  f.a.quote.delta = { netMinor: 0, vatMinor: 0, grossMinor: 0 };
+  const context = await f.finance.prepare(f.a, 'none');
+  assert.equal(context.provider, 'none');
+  assert.equal(context.sourceInvoiceId, f.invoice.InvoiceID);
+  const settlement = { context, choice: 'none' };
+  assert.equal((await f.finance.execute(f.a, settlement)).state, 'settled');
+  assert.deepEqual((await f.finance.inspect(f.a, settlement)).evidence.originalPaymentIds, [uuid(63)]);
+  assert.equal(f.documents.length, 0);
+  assert.ok(f.calls.every(call => call.method === 'GET'));
+  f.originalCharge.amount_refunded = 1;
+  await assert.rejects(f.finance.inspect(f.a, settlement), /refunds\/disputes/);
+});
+
+test('a zero-price change cannot rely on local paid status or skip invoice verification', async () => {
+  for (const damage of [
+    f => { f.invoice.AmountPaid = 0; },
+    f => { f.payments[uuid(63)].Status = 'DELETED'; },
+    f => { f.originalCard.status = 'requires_payment_method'; },
+    f => { f.a.quote.sourceSnapshot.xero_invoice_id = null; },
+    f => { f.a.quote.sourceSnapshot.billing_agreement_id = uuid(70); },
+  ]) {
+    const f = financeFixture();
+    f.a.quote.delta = { netMinor: 0, vatMinor: 0, grossMinor: 0 };
+    damage(f);
+    await assert.rejects(f.finance.prepare(f.a, 'none'), { code: 'finance_evidence_required' });
+    assert.equal(f.documents.length, 0);
+  }
+});
+
+test('zero-price reconciliation refuses changed original payer or replaced payment evidence', async () => {
+  for (const damage of [
+    f => { f.invoice.Contact.ContactID = uuid(91); },
+    f => {
+      f.payments[uuid(92)] = { ...f.payments[uuid(63)], PaymentID: uuid(92) };
+      f.invoice.Payments = [{ PaymentID: uuid(92) }];
+    },
+  ]) {
+    const f = financeFixture();
+    f.a.quote.delta = { netMinor: 0, vatMinor: 0, grossMinor: 0 };
+    const context = await f.finance.prepare(f.a, 'none');
+    damage(f);
+    await assert.rejects(f.finance.inspect(f.a, { choice: 'none', context }), /evidence changed/);
+  }
+});
+
+test('legacy zero-price reservation without original evidence requires review, not automatic application', async () => {
+  const f = financeFixture();
+  f.a.quote.delta = { netMinor: 0, vatMinor: 0, grossMinor: 0 };
+  await assert.rejects(f.finance.inspect(f.a, {
+    choice: 'none', context: { provider: 'none', amounts: { netMinor: 0, taxMinor: 0, grossMinor: 0 } },
+  }), /evidence changed/);
+});
+
 test('connected Xero collection uses original payer, exact accepted amounts and stable identity; credit allocation is not payment', async () => {
   const f = financeFixture();
   const context = await f.finance.prepare(f.a, 'collect');

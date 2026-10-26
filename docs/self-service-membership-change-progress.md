@@ -108,3 +108,45 @@ and failed/ambiguous saves. No live payments, refunds or emails were
 performed; the only live write was the approved policy-storage migration.
 These tests are not acceptance evidence for the unfinished execution
 flows above.
+
+## Provider evidence integration
+
+The original-payment verifier is now shared by the administrative preview,
+confirmation and settlement paths. Preview and confirmation independently read
+the source Xero invoice and its payment records and, for card purchases, verify
+the original Stripe PaymentIntent and charge. Missing, refunded, credited,
+ambiguous or unavailable evidence does not become a spendable balance.
+
+The confirmed quote fingerprints the accounting tenant, payer contact, invoice,
+payment IDs and exact original amounts. Settlement refuses changed provenance.
+Zero-difference changes now verify the original payment too, including a fresh
+read before application. Legacy zero-difference reservations without that
+evidence require review rather than gaining access from their old state flag.
+
+This code does not create a new payment document during preview, and does not
+implement the remaining self-service UI, replacement-term application, monthly
+provider coordination, cancellation or personal-credit issuance. The execution
+migration approval was given conditionally on implementation and testing; no new
+execution migration has been applied at this stage.
+
+## Dormant monthly operation infrastructure
+
+`memberAmendmentProviderOperations.js` adds an internal reserve/claim/write/
+read-only-reconcile boundary around the existing fixed-card/fixed-DD adapters.
+The draft migration `202612310022_member_amendment_provider_operations.sql`
+persists prepared evidence, uses one active operation per plan and purchase,
+serializes claims, and holds local collection/retry/cancellation writes.
+Only an unclaimed reservation can be abandoned; an uncertain provider result
+cannot release a hold or authorize another write.
+
+**Not enabled and not applied to live DEST.** No API or worker invokes this
+module yet. It must not be wired to a member or administrator action before
+atomic entitlement finalization and the full production collector-path audit
+are complete. In particular `provider_applied` deliberately retains its hold:
+it is not a completed membership change. Dynamic DD is rejected before
+reservation until its effective-dated price-revision bridge exists.
+
+Isolated orchestration/PostgreSQL tests cover concurrent claims, permissions,
+collection guards and ambiguous-result recovery. These tests are not proof of
+the unimplemented end-to-end self-service journey or a completed migration
+rollout. The owner's conditional migration approval remains unused.
