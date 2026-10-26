@@ -37,6 +37,7 @@
 // Every supabase write's { error } is inspected (see replit.md).
 
 import { supabase } from './database.js';
+import { projectMonthlyInstalmentSnapshot } from './memberMonthlyInvoiceSnapshot.js';
 import { getAccountingProvider, PROVIDER_NONE, PROVIDER_XERO } from './accountingProvider.js';
 import { resolveInvoiceAddress } from './invoiceAddressResolver.js';
 import { stripeInvoiceAddressFromMetadata } from './stripeInvoiceAddress.js';
@@ -755,7 +756,15 @@ export async function postStripeInstalmentInvoice({
     const outcome = await mintOrPayInstalmentInvoice({
       provider,
       agreement,
-      snapshot,
+      snapshot:await projectMonthlyInstalmentSnapshot({db,agreement,snapshot,getPaymentDate:async()=>{
+        const client=stripe || await (await import('./memberAmendmentMonthlyProviders.js')).monthlyStripeForTenant(agreement.tenant_id,agreement.environment);
+        const invoice=stripeInvoice || await client.invoices.retrieve(paymentEvidenceInvoiceId);
+        if(invoice?.id!==paymentEvidenceInvoiceId || invoice.lines?.has_more || invoice.lines?.data?.length!==1
+          || !Number.isInteger(invoice.lines.data[0].period?.start)) {
+          throw new Error('Original Stripe invoice period is required for amended membership accounting.');
+        }
+        return new Date(invoice.lines.data[0].period.start*1000).toISOString().slice(0,10);
+      }}),
       amountMinor: amt,
       reference: `Membership ${snapshot?.membership_year || ''} - card instalment ${stripeInvoiceId}`.trim(),
       paymentReference: `Stripe invoice: ${paymentEvidenceInvoiceId}`,

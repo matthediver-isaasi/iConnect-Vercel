@@ -2,11 +2,15 @@ import { createMemberAmendmentsService, normalizeAmendmentRequest } from './memb
 import { calculateAmendmentTerms } from './memberAmendmentCalculation.js';
 import { MEMBERSHIP_CHANGE_POLICY_DEFAULTS, validateMembershipChangePolicy,
   resolveMembershipChangeBehaviour, planMembershipChangeSettlement } from './membershipChangePolicy.js';
+import { createMemberDynamicChangeAuthorityResolver } from './memberDynamicChangeAuthorityResolver.js';
 
 const fail = message => { throw Object.assign(new Error(message), {status:422,code:'authority_evidence_required'}); };
 // Production read-only adapter. Existing verified upfront evidence is admitted;
 // unsupported monthly/adjusted funding is refused, never fabricated from price.
-export function createMemberChangeAuthorityResolver({db, amendments=createMemberAmendmentsService({db})}) {
+export function createMemberChangeAuthorityResolver({
+  db, amendments=createMemberAmendmentsService({db}),
+  monthlyResolve=createMemberDynamicChangeAuthorityResolver({db}),
+}) {
   async function one(table, context, filters) {
     let query=db.from(table).select('*').eq('tenant_id',context.tenantId);
     for(const [key,value] of Object.entries(filters)) query=query.eq(key,value);
@@ -18,6 +22,11 @@ export function createMemberChangeAuthorityResolver({db, amendments=createMember
     if(context.actorKind!=='admin') fail('Member initiation requires the opted-in FormBuilder flow.');
     if(selection?.action && selection.action!=='change') fail('Cancellation evidence is not yet available.');
     const request=normalizeAmendmentRequest({...selection,memberId:context.memberId,settlementChoice:'defer'});
+    const sourceContext=typeof amendments.source==='function'
+      ? await amendments.source(context.tenantId,context.memberId) : null;
+    if(sourceContext?.current?.commitment_snapshot?.payment_frequency==='monthly') {
+      return monthlyResolve(context,selection);
+    }
     const preview=await amendments.preview(context.tenantId,request);
     if(!preview.canCreate || !preview.quote) fail(preview.blockers?.join(' ') || 'Purchase evidence is unavailable.');
     const q=preview.quote, source=q.sourceSnapshot;

@@ -74,7 +74,7 @@ export function createMemberMonthlyChangeExecution({
     if (prior) {
       binding(prior, saved);
       if (prior.state === 'reserved') {
-        await operations.execute({ input: prior.prepared.input, actorId: context.actorId });
+        await operations.execute({ input: prior.prepared.input, actorId: context.actorId, approvalReason: request.reason.trim() });
       }
     }
     else {
@@ -101,7 +101,11 @@ export function createMemberMonthlyChangeExecution({
           fail('Target membership band changed; do not execute the stale quote.');
         }
       }
-      await operations.execute({ input: { ...input, changeAuthorityId: saved.id }, actorId: context.actorId });
+      await operations.execute({
+        input: { ...input, changeAuthorityId: saved.id,
+          expectedFunding: authority.monthlyExecution.providerFunding }, actorId: context.actorId,
+        approvalReason: request.reason.trim(),
+      });
     }
     // A replay does not reload a now-amended Stripe schedule as a new purchase.
     // It uses the original operation and read-only reconciliation.

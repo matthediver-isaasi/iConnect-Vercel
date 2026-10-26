@@ -98,6 +98,28 @@ function fixture(provider = 'stripe', basis = 'annual_instalments') {
 }
 const rejects = (promise, code) => assert.rejects(promise, error => error.code === code);
 
+test('Stripe inline pricing is created only within the one schedule write and is verified by immutable price attributes',async()=>{
+  const f=fixture('stripe');
+  delete f.input.target.stripePriceId;f.input.target.createInlinePrice=true;
+  const originalRead=f.stripe.prices.retrieve;
+  f.stripe.prices.retrieve=async id=>({...await originalRead(id),product:'product-membership',tax_behavior:'unspecified'});
+  const originalWrite=f.stripe.subscriptionSchedules.update;
+  f.stripe.subscriptionSchedules.update=async(...args)=>{
+    const result=await originalWrite(...args);
+    assert.ok(args[1].phases[1].items[0].price_data);
+    f.state.schedule.phases[1].items=[{price:'generated-price',quantity:1}];
+    return result;
+  };
+  const prepared=await f.service.prepare(f.input);
+  assert.equal(f.state.writes.length,0);
+  assert.equal(prepared.mutation.params.phases[1].items[0].price_data.unit_amount,1500);
+  assert.equal((await f.service.apply(prepared)).status,'provider_applied');
+  await f.service.apply(prepared);assert.equal(f.state.writes.length,1);
+  const existing=f.stripe.prices.retrieve;
+  f.stripe.prices.retrieve=async id=>({...await existing(id),...(id==='generated-price'?{product:'foreign-product'}:{})});
+  assert.equal((await f.service.reconcile(prepared)).status,'uncertain');
+});
+
 test('elapsed boundaries allow read-only recovery but never a new backdated provider write', async () => {
   for (const provider of ['stripe', 'gocardless']) {
     const f = fixture(provider);

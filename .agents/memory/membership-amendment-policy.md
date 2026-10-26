@@ -96,3 +96,15 @@ permit duplicate payment arrangements.
 **How to apply:** Preserve each offered method's quote and collection policy.
 Bind one method atomically before provider setup, retain the member's own consent
 step, and never treat the method selection itself as payment.
+
+Durable approval must precede a monthly provider mutation, and an ambiguous
+provider or email outcome must not authorize an automatic replacement write.
+
+**Why:** A provider can accept a change before the response is lost. Recording
+approval only afterwards can strand an already-changed agreement, while
+repeating the call or email can duplicate an externally accepted operation.
+
+**How to apply:** Commit approval with the write claim, reconcile claimed
+operations read-only, and commit entitlement application, collection-hold
+release and notification scheduling together. Unknown email acceptance requires
+review rather than an automatic resend.

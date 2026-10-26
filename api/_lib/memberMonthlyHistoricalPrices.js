@@ -22,6 +22,7 @@ async function xeroInvoice(tenantId,id,{timeoutMs=12000}={}) {
   if(body.Invoices?.length!==1)fail('Historical invoice evidence is ambiguous.');
   return body.Invoices[0];
 }
+export { xeroInvoice as readMonthlyXeroInvoice, minor as monthlyInvoiceMinor };
 
 // Read-only. The input is produced by memberMonthlyPurchaseAuthority, never by
 // posted form answers. Gross service price is not the cash paid after vouchers.

@@ -180,6 +180,6 @@ export function createMemberAmendmentsService({ db, now = () => new Date(), sett
       p_idempotency_key: key, p_request: request, p_quote: result.quote,
     }));
   }
-  return { list, preview: async (tenantId, input) => preview(tenantId, normalizeAmendmentRequest(input)), create,
+  return { list, source: context, preview: async (tenantId, input) => preview(tenantId, normalizeAmendmentRequest(input)), create,
     settle: settlement.settle, reconcile: settlement.reconcile, apply: settlement.apply, notify: settlement.notify };
 }

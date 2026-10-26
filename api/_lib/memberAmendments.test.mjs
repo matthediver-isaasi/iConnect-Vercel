@@ -269,7 +269,7 @@ test('migration absence is explicit; unsafe settlement and missing idempotency b
 async function callHandler(context, options = {}) {
   let called = false;
   const handler = createMemberAmendmentsHandler({
-    db: {}, getContext: async () => context, isAdmin: async () => options.admin !== false,
+    db: {rpc:async()=>({error:{code:'PGRST202'}})}, getContext: async () => context, isAdmin: async () => options.admin !== false,
     hasFinance: async (...args) => { assert.deepEqual(args[2], context.memberExcludedFeatures || []); return options.finance !== false; },
     service: { list: async () => { called = true; return { ok: true }; } },
   });

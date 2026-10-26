@@ -83,7 +83,7 @@ export function createMemberAmendmentProviderOperations({
       p_actor_id: actorId, p_reason: reason.trim(),
     });
   }
-  async function execute({ input, actorId }) {
+  async function execute({ input, actorId, approvalReason }) {
     if (!actorId) throw new MonthlyAmendmentError('actor_required', 'An authenticated audit identity is required.');
     const { tenantId, memberId, amendmentId: key } = input;
     let operation = await load(tenantId, memberId, key);
@@ -99,6 +99,17 @@ export function createMemberAmendmentProviderOperations({
       if (operation.state !== 'reserved') return reconcile(operation, actorId);
     } else {
       const prepared = await monthly.prepare(input);
+      if(input.expectedFunding && monthlyAmendmentFingerprint(prepared.funding)!==monthlyAmendmentFingerprint(input.expectedFunding)){
+        throw new MonthlyAmendmentError('monthly_funding_changed','Monthly funding changed; preview again before changing the provider.');
+      }
+      if (prepared.mutation.kind === 'dynamic_revision_required' && input.changeAuthorityId
+        && typeof approvalReason === 'string' && approvalReason.trim()
+        && approvalReason.trim().length <= 2000) {
+        return rpc('apply_member_dynamic_monthly_change', {
+          p_tenant_id: tenantId, p_member_id: memberId, p_actor_id: actorId,
+          p_key: key, p_reason: approvalReason.trim(), p_prepared: prepared,
+        });
+      }
       if (!['stripe_schedule','gc_amount'].includes(prepared.mutation.kind)) {
         throw new MonthlyAmendmentError('dynamic_revision_required', 'Dynamic collections require a versioned pricing revision; no operation was reserved.');
       }
@@ -108,8 +119,10 @@ export function createMemberAmendmentProviderOperations({
       })).operation;
       checkBinding(operation, tenantId, memberId);
     }
-    const claim = await rpc('claim_member_amendment_provider_operation', {
+    const approved=typeof approvalReason==='string' && approvalReason.trim() && input.changeAuthorityId;
+    const claim = await rpc(approved?'claim_approved_member_amendment_provider_operation':'claim_member_amendment_provider_operation', {
       p_tenant_id: tenantId, p_id: operation.id, p_actor_id: actorId,
+      ...(approved?{p_reason:approvalReason.trim()}:{}),
     });
     if (!claim.claimed) {
       checkBinding(claim.operation, tenantId, memberId);

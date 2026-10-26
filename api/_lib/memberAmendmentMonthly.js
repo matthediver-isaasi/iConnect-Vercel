@@ -342,11 +342,19 @@ export function createMemberAmendmentMonthlyService({
       if (phase.billing_cycle_anchor && phase.billing_cycle_anchor !== 'automatic') {
         block('unsupported_stripe_schedule', 'Custom phase billing anchors are not supported');
       }
-      if (!input.target.stripePriceId) block('stripe_price_required', 'Existing approved target Stripe price ID required');
       const client = await getStripe(input.tenantId, input.authority.environment);
-      const targetPrice = await client.prices.retrieve(input.target.stripePriceId);
-      simpleStripePrice(targetPrice, quote.currency, quote.amountMinor);
+      let targetItem;
+      const inline=input.target.createInlinePrice===true;
+      if (!inline && !input.target.stripePriceId) block('stripe_price_required', 'Existing approved target Stripe price ID required');
+      const targetPrice = await client.prices.retrieve(inline ? stripeItems(phase.items)[0].price : input.target.stripePriceId);
+      simpleStripePrice(targetPrice, quote.currency, inline ? targetPrice.unit_amount : quote.amountMinor);
       if (targetPrice.livemode !== (input.authority.environment === 'live')) block('mode_mismatch', 'Target Stripe price mode mismatch');
+      if(inline){
+        if(!ref(targetPrice.product))block('stripe_product_required','Original Stripe billing product is required');
+        targetItem={price_data:{currency:quote.currency.toLowerCase(),product:ref(targetPrice.product),
+          recurring:{interval:'month',interval_count:1},unit_amount:quote.amountMinor,
+          tax_behavior:targetPrice.tax_behavior||'unspecified'},quantity:1};
+      } else targetItem={price:input.target.stripePriceId,quantity:1};
       const preserved = {};
       for (const key of ['metadata', 'collection_method', 'invoice_settings', 'default_payment_method']) {
         if (phase[key] != null) preserved[key] = phase[key];
@@ -359,7 +367,7 @@ export function createMemberAmendmentMonthlyService({
           { ...preserved, start_date: phase.start_date, end_date: timestamp,
             items: stripeItems(phase.items), proration_behavior: 'none' },
           { ...preserved, start_date: timestamp, end_date: phase.end_date,
-            items: [{ price: input.target.stripePriceId, quantity: 1 }], proration_behavior: 'none' },
+            items: [targetItem], proration_behavior: 'none' },
         ],
       } };
     } else if (evidence.dynamic) {
@@ -374,7 +382,7 @@ export function createMemberAmendmentMonthlyService({
       }
       mutation = { kind: 'gc_amount', id: evidence.subscription.id, amountMinor: quote.amountMinor };
     }
-    const prepared = { version: 1, input: structuredClone(input), quote, mutation, funding:evidence.funding,
+    const prepared = { version: 1, verifiedAt: now().toISOString(), input: structuredClone(input), quote, mutation, funding:evidence.funding,
       before: monthlyAmendmentFingerprint(evidence), immutable: evidence.immutable,
       idempotencyKey: `member-amend-monthly:${monthlyAmendmentFingerprint({
         tenant: input.tenantId, amendment: input.amendmentId, plan: input.plan.id,
@@ -399,12 +407,25 @@ export function createMemberAmendmentMonthlyService({
         matches = schedule.id === mutation.id
           && schedule.metadata?.member_amendment_id === input.amendmentId
           && schedule.phases?.length === mutation.params.phases.length
-          && schedule.end_behavior === mutation.params.end_behavior
-          && schedule.phases.every((phase, i) => {
+          && schedule.end_behavior === mutation.params.end_behavior;
+        for(let i=0;matches && i<schedule.phases.length;i++){
+            const phase=schedule.phases[i];
             const wanted = mutation.params.phases[i];
-            return phase.start_date === wanted.start_date && phase.end_date === wanted.end_date
-              && monthlyAmendmentFingerprint(stripeItems(phase.items)) === monthlyAmendmentFingerprint(wanted.items);
-          });
+            stripeRestricted(phase);
+            let actualItems=stripeItems(phase.items);
+            const inline=wanted.items?.[0]?.price_data;
+            if(inline){
+              if(actualItems.length!==1 || actualItems[0].quantity!==1){matches=false;break;}
+              const actual=await client.prices.retrieve(actualItems[0].price);
+              simpleStripePrice(actual,prepared.quote.currency,prepared.quote.amountMinor);
+              if(actual.id!==actualItems[0].price || ref(actual.product)!==inline.product
+                || (actual.tax_behavior||'unspecified')!==inline.tax_behavior
+                || actual.livemode!==(input.authority.environment==='live')){matches=false;break;}
+              actualItems=[{price_data:inline,quantity:1}];
+            }
+            matches=phase.start_date===wanted.start_date && phase.end_date===wanted.end_date
+              && monthlyAmendmentFingerprint(actualItems)===monthlyAmendmentFingerprint(wanted.items);
+        }
       } else {
         matches = evidence.subscription.id === mutation.id && evidence.subscription.amount === mutation.amountMinor
           && evidence.subscription.upcoming_payments?.length === prepared.quote.collectionDates.length

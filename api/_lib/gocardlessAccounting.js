@@ -19,6 +19,7 @@
 // Dependencies injectable for tests: { db, getProvider }.
 
 import { supabase } from './database.js';
+import { projectMonthlyInstalmentSnapshot } from './memberMonthlyInvoiceSnapshot.js';
 import { assertBnmsAccountingContext } from './xero.js';
 import { resolveBetaAccountingContext, BNMS_BETA_TENANT, BNMS_BETA_REVENUE } from './bnmsBetaAccounting.js';
 import { resolveAlphaAccountingContext, findAlphaAdoption } from './bnmsAlphaAccounting.js';
@@ -96,7 +97,9 @@ export async function postDdArrearsPeriodToAccounting({
     throw new Error('BNMS pilot accounting requires a confirmed canonical dynamic payment, not arrears/history');
   }
   const outcome = await mintOrPayInstalmentInvoice({
-    provider, agreement, snapshot, amountMinor,
+    provider, agreement, snapshot:await projectMonthlyInstalmentSnapshot({
+      db,agreement,snapshot,getPaymentDate:async()=>payment.charge_date,
+    }), amountMinor,
     reference: `Membership ${snapshot?.membership_year || ''} - DD arrears ${externalReference}`.trim(),
     paymentReference: `GoCardless DD arrears: ${externalReference}`,
     idempotencyKey: `mii-gc-arrears-${externalReference}`,
@@ -285,7 +288,9 @@ export async function postDdInstalmentToAccounting({ agreement, paymentRow }, de
         const outcome = await mintOrPayInstalmentInvoice({
           provider,
           agreement,
-          snapshot,
+          snapshot:await projectMonthlyInstalmentSnapshot({
+            db,agreement,snapshot,getPaymentDate:async()=>paymentRow.charge_date,
+          }),
           amountMinor: instAmountMinor,
           reference: `Membership ${snapshot?.membership_year || ''} - DD instalment ${paymentRow.gocardless_payment_id}`.trim(),
           paymentReference: `GoCardless DD: ${paymentRow.gocardless_payment_id}`,

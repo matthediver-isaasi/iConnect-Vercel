@@ -4,10 +4,13 @@ import { AMENDMENT_UUID, createMemberAmendmentsService } from '../_lib/memberAme
 import { createMemberChangeAuthorityService } from '../_lib/memberChangeAuthority.js';
 import { createMemberChangeAuthorityResolver } from '../_lib/memberChangeAuthorityResolver.js';
 import { createMemberChangeExecutionService } from '../_lib/memberChangeExecution.js';
+import { createMemberMonthlyChangeExecution } from '../_lib/memberMonthlyChangeExecution.js';
+import { readMemberMonthlyChanges } from '../_lib/memberMonthlyChangeRead.js';
 
 export function createMemberAmendmentsHandler({
   db = supabase, getContext = getTenantContext, isAdmin = hasAdminAccess,
   hasFinance = hasFeatureAccess, service = null, authorityService = null, executionService = null,
+  monthlyExecutionService = null,
 } = {}) {
   return async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -28,7 +31,22 @@ export function createMemberAmendmentsHandler({
       if (!actorId) return res.status(403).json({ error: 'An authenticated audit identity is required' });
       const amendments = service || createMemberAmendmentsService({ db });
       if(req.method==='POST' && ['execute_change','resume_change'].includes(req.body?.action)) {
-        const execution=executionService || createMemberChangeExecutionService({db});
+        if(!AMENDMENT_UUID.test(req.body?.memberId||'') || !AMENDMENT_UUID.test(req.body?.authorityId||'')) {
+          return res.status(400).json({error:'Valid memberId and authorityId are required'});
+        }
+        const {data:saved,error}=await db.from('member_change_authority').select('authority')
+          .eq('tenant_id',context.tenantId).eq('member_id',req.body.memberId)
+          .eq('id',req.body.authorityId).maybeSingle();
+        if(error) return res.status(503).json({error:'Confirmed membership authority could not be read'});
+        if(!saved) return res.status(404).json({error:'Confirmed membership authority not found'});
+        const monthly=saved.authority?.sourceSnapshot?.commitment_snapshot?.payment_frequency==='monthly';
+        if(monthly){
+          const ready=await db.rpc('monthly_change_execution_available',{});
+          if(ready.error||ready.data!==true)return res.status(503).json({error:'Monthly membership execution requires the reviewed database migration.'});
+        }
+        const execution=monthly
+          ? monthlyExecutionService || createMemberMonthlyChangeExecution({db})
+          : executionService || createMemberChangeExecutionService({db});
         const actor={tenantId:context.tenantId,memberId:req.body.memberId,actorId,actorKind:'admin'};
         return res.json(await execution[req.body.action==='execute_change'?'execute':'resume'](actor,req.body));
       }
@@ -49,7 +67,11 @@ export function createMemberAmendmentsHandler({
       }
       if (req.method === 'GET') {
         if (!AMENDMENT_UUID.test(req.query?.memberId || '')) return res.status(400).json({ error: 'A valid memberId is required' });
-        return res.json(await amendments.list(context.tenantId, req.query.memberId));
+        const [existing,monthly]=await Promise.all([
+          amendments.list(context.tenantId,req.query.memberId),
+          readMemberMonthlyChanges(db,context.tenantId,req.query.memberId),
+        ]);
+        return res.json({...existing,...monthly});
       }
       if (req.body?.action === 'preview') return res.json(await amendments.preview(context.tenantId, req.body));
       if (req.body?.action === 'create') {

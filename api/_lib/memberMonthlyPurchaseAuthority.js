@@ -3,6 +3,7 @@ import {MonthlyAmendmentError,monthlyAmendmentFingerprint,
 import {monthlyStripeForTenant,monthlyGoCardlessForTenant} from './memberAmendmentMonthlyProviders.js';
 import {createMemberMonthlyHistoricalPrices} from './memberMonthlyHistoricalPrices.js';
 import {buildMemberMonthlyFundingEvidence} from './memberMonthlyFundingEvidence.js';
+import {readMemberFixedMonthlyFunding} from './memberFixedMonthlyFunding.js';
 
 const fail=message=>{throw new MonthlyAmendmentError('monthly_purchase_evidence_required',message);};
 const ref=value=>typeof value==='string'?value:value?.id;
@@ -159,6 +160,14 @@ export function createMemberMonthlyPurchaseAuthority({db,now=()=>new Date(),
     reconcileFunding:async request=>{
       const input=await load(request);
       const prepared=await monthly.prepare(input);
+      if(input.authority.pricingBasis==='annual_instalments'){
+        const fixed=await readMemberFixedMonthlyFunding({db,input,funding:prepared.funding});
+        const fresh=await monthly.prepare(input);
+        if(monthlyAmendmentFingerprint(fresh.funding)!==monthlyAmendmentFingerprint(prepared.funding)) {
+          fail('Monthly settlement evidence changed during invoice verification; retry the preview.');
+        }
+        return {input,prepared,...fixed};
+      }
       const service=await historicalPrices.load(input,input.effectiveDate);
       const fundingEvidence=buildMemberMonthlyFundingEvidence({input,funding:prepared.funding,service});
       // Invoice verification can take several remote reads. A newly generated,

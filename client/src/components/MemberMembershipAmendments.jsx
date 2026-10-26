@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { FileText, History, Lock } from "lucide-react";
 import { adminFetch } from "@/lib/adminFetch";
 import MemberMembershipAmendmentLifecycle from "./MemberMembershipAmendmentLifecycle";
+import MemberMonthlyMembershipAmendments from "./MemberMonthlyMembershipAmendments";
 
 const endpoint = "/api/membership/member-amendments";
 const dateLabel = value => {
@@ -153,6 +154,7 @@ function AmendmentPanel({ memberId, tenantId }) {
     }
   }
   const current = data?.current;
+  const isMonthly = current?.commitment_snapshot?.payment_frequency === "monthly";
   const quote = preview?.quote;
   function updateLifecycle(id, lifecycle) {
     queryClient.setQueryData(queryKey, previous => previous ? {
@@ -163,15 +165,15 @@ function AmendmentPanel({ memberId, tenantId }) {
   return <Card data-testid="member-amendments">
     <CardHeader>
       <CardTitle className="text-base flex items-center gap-2"><FileText className="w-4 h-4" />Membership change requests</CardTitle>
-       <p className="text-sm text-muted-foreground">Preview and record an upfront personal membership change, then follow its separate settlement and application history. Saving a proposal does not collect payment, issue a refund, or change entitlement.</p>
+       <p className="text-sm text-muted-foreground">{isMonthly ? "Preview a retained-term monthly membership change, save its authority, then explicitly approve execution. Preview and saving never change the provider or membership." : "Preview and record an upfront personal membership change, then follow its separate settlement and application history. Saving a proposal does not collect payment, issue a refund, or change entitlement."}</p>
     </CardHeader>
     <CardContent className="space-y-5">
       <div className="rounded-md border bg-muted/50 p-3 text-sm flex items-start gap-2">
         <Lock className="w-4 h-4 shrink-0 mt-0.5" />
          <div className="space-y-1">
            <p>The original paid commitment and consent stay immutable. Settlement evidence and applied membership revisions are recorded separately; the original term and renewal boundary are preserved.</p>
-           {data && <p>{data.capabilities?.invoice === true ? "Additional payment uses a Xero invoice and verified payment evidence." : "Invoice collection is unavailable for this server or your current capabilities."} {data.capabilities?.refund === true ? "Refund support records a manual, bank-reconciled Xero refund; it does not send cash automatically." : "Refund processing is unavailable for this server or your current capabilities."}</p>}
-           {data && data.capabilities?.providerAmendment !== true && <p>Monthly card, fixed Direct Debit and dynamic Direct Debit amendments are not connected to this workflow. No provider change or monthly amendment can be completed here.</p>}
+           {data && !isMonthly && <p>{data.capabilities?.invoice === true ? "Additional payment uses a Xero invoice and verified payment evidence." : "Invoice collection is unavailable for this server or your current capabilities."} {data.capabilities?.refund === true ? "Refund support records a manual, bank-reconciled Xero refund; it does not send cash automatically." : "Refund processing is unavailable for this server or your current capabilities."}</p>}
+           {data && !isMonthly && data.monthlyExecutionAvailable !== true && data.capabilities?.providerAmendment !== true && <p>Monthly card, fixed Direct Debit and dynamic Direct Debit amendments are not connected to this workflow. No provider change or monthly amendment can be completed here.</p>}
          </div>
       </div>
       {isLoading ? <div role="status" aria-label="Loading membership change requests" className="space-y-2">
@@ -184,7 +186,7 @@ function AmendmentPanel({ memberId, tenantId }) {
            <p>History could not be refreshed: {error?.message}. Previously loaded records are shown; their latest outcome is not confirmed.</p>
            <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>Retry loading</Button>
          </div>}
-        <Blockers items={blockers} />
+         {!isMonthly && <Blockers items={blockers} />}
         {current && <div className="rounded-md border p-3 text-sm space-y-1" data-testid="amendment-original">
           <p className="font-medium">{current.payment_status === "paid" ? "Original paid commitment" : "Original purchase record"} <Badge variant="outline">Read-only</Badge></p>
           <p>{current.commitment_snapshot?.config?.name || current.structureName || "Historical structure"}{current.tier_label ? ` · ${current.tier_label}` : ""}</p>
@@ -196,7 +198,11 @@ function AmendmentPanel({ memberId, tenantId }) {
             <div><dt className="text-muted-foreground">Recorded gross</dt><dd>{money(current.total_with_vat, current.currency)}</dd></div>
           </dl>
         </div>}
-        {!canPreview ? <p className="text-sm text-muted-foreground">Preview is unavailable for this member or your current permissions. Existing membership operations are unchanged.</p> :
+         {(isMonthly || data?.monthlyChanges?.length > 0) && <MemberMonthlyMembershipAmendments
+           memberId={memberId} tenantId={tenantId} data={data} actionsEnabled={!isError}
+           readResponse={readResponse} onRefresh={refetch}
+         />}
+         {!isMonthly && (!canPreview ? <p className="text-sm text-muted-foreground">Preview is unavailable for this member or your current permissions. Existing membership operations are unchanged.</p> :
           <form className="space-y-4" onSubmit={event => { event.preventDefault(); void submit("preview"); }}>
             <fieldset disabled={locked} className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1.5">
@@ -225,7 +231,7 @@ function AmendmentPanel({ memberId, tenantId }) {
             </fieldset>
             {!structures.length && <p className="text-sm text-muted-foreground">No eligible target structures are available.</p>}
             {!attempt.current && !saved && <Button type="submit" variant="outline" disabled={!valid || !!pending}>{pending === "preview" ? "Preparing preview…" : "Preview"}</Button>}
-          </form>}
+          </form>)}
         {preview && !quote && <div className="rounded-md border p-3 space-y-2" aria-live="polite">
           <p className="text-sm font-medium">Preview unavailable — no request has been saved</p>
           <Blockers items={preview.blockers} />

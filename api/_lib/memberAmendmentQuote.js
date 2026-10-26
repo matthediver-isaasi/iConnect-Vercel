@@ -72,6 +72,30 @@ export function currentAmendmentBlockers(current, today) {
 }
 
 /** Exact minor-unit arithmetic; actual UTC days, inclusive effective date/exclusive renewal date. */
+export function resolveAnnualMemberTargetPrice({config,band=null,vatSetting=null}) {
+  const flat=config.pricing_model==='flat';
+  const targetNet=cents(flat?config.flat_cost:band?.annual_cost,'target annual net');
+  const tax=flat?config.flat_vat_rate:band?.vat_rate;
+  let targetVatRate=0,taxAuthority='explicit_no_tax_config';
+  if(tax){
+    let parsed,cached;
+    try{parsed=typeof tax==='string'?JSON.parse(tax):tax;}catch{parsed={taxType:tax};}
+    try{cached=JSON.parse(vatSetting?.setting_value||'{}');}catch{/* rejected below */}
+    const rates=cached?.rates?.filter(rate=>rate.taxType===parsed?.taxType)||[];
+    if(!parsed?.taxType || rates.length!==1 || rates[0].effectiveRate==null
+      || !Number.isFinite(Number(rates[0].effectiveRate)) || Number(rates[0].effectiveRate)<0
+      || Number(rates[0].effectiveRate)>100) {
+      throw new AmendmentError('Target VAT cannot be resolved from a unique saved tax-rate setting; no live provider lookup or label inference is performed.');
+    }
+    targetVatRate=Number(rates[0].effectiveRate);taxAuthority='saved_tenant_tax_rate_cache';
+  }
+  const targetVat=Math.round(targetNet*targetVatRate/100);
+  if(!Number.isSafeInteger(targetVat)||!Number.isSafeInteger(targetNet+targetVat)){
+    throw new AmendmentError('Target price exceeds safe minor-unit bounds.');
+  }
+  return {netMinor:targetNet,vatMinor:targetVat,grossMinor:targetNet+targetVat,vatRatePercent:targetVatRate,taxAuthority};
+}
+
 export function buildMemberAmendmentQuote({
   current, config, band = null, discounts = [], vatOverrides = [], vatSetting = null,
   effectiveDate, today, quotedAt,
@@ -101,31 +125,12 @@ export function buildMemberAmendmentQuote({
   if (current.config_id === config.id && (current.band_id || null) === (band?.id || null)) {
     throw new AmendmentError('Select a different structure or band.');
   }
-  const targetNet = cents(flat ? config.flat_cost : band.annual_cost, 'target annual net');
-  const tax = flat ? config.flat_vat_rate : band.vat_rate;
-  let targetVatRate = 0;
-  let taxAuthority = 'explicit_no_tax_config';
-  if (tax) {
-    let parsed;
-    try { parsed = typeof tax === 'string' ? JSON.parse(tax) : tax; } catch { parsed = { taxType: tax }; }
-    const taxType = parsed?.taxType;
-    let cached;
-    try { cached = JSON.parse(vatSetting?.setting_value || '{}'); } catch { /* blocked below */ }
-    const rates = cached?.rates?.filter((rate) => rate.taxType === taxType) || [];
-    if (!taxType || rates.length !== 1 || rates[0].effectiveRate == null
-        || !Number.isFinite(Number(rates[0].effectiveRate))
-        || Number(rates[0].effectiveRate) < 0 || Number(rates[0].effectiveRate) > 100) {
-      throw new AmendmentError('Target VAT cannot be resolved from a unique saved tax-rate setting; no live provider lookup or label inference is performed.');
-    }
-    targetVatRate = Number(rates[0].effectiveRate);
-    taxAuthority = 'saved_tenant_tax_rate_cache';
-  }
+  const {netMinor:targetNet,vatMinor:targetVat,vatRatePercent:targetVatRate,taxAuthority}
+    =resolveAnnualMemberTargetPrice({config,band,vatSetting});
   const originalNet = cents(current.final_cost, 'original full-term net');
   const originalVat = cents(current.vat_amount, 'original full-term VAT');
   const originalGross = cents(current.total_with_vat, 'original full-term gross');
   if (originalNet + originalVat !== originalGross) throw new AmendmentError('Original net and VAT do not equal the original gross.');
-  const targetVat = Math.round(targetNet * targetVatRate / 100);
-  if (!Number.isSafeInteger(targetVat) || !Number.isSafeInteger(targetNet + targetVat)) throw new AmendmentError('Target price exceeds safe minor-unit bounds.');
   const {totalDays,remainingDays}=amendmentTermDays(current.term_start_date,current.membership_renewal_date,effectiveDate);
   const prorate = (net, vat) => prorateAmendmentMoney({netMinor:net,vatMinor:vat},remainingDays,totalDays);
   const originalRemaining = prorate(originalNet, originalVat);

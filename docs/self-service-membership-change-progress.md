@@ -1,5 +1,59 @@
 # Self-service membership changes: implementation boundary
 
+## Current connected monthly delivery — 26 October 2026
+
+This section supersedes the historical implementation notes below.
+
+The retained-term monthly administrative path is now connected from the member
+Membership tab through authoritative preview, immutable confirmation, explicit
+finance approval, provider execution, atomic application and recovery. It covers
+fixed Stripe schedules, fixed GoCardless amounts and dynamic GoCardless pricing
+revisions. Recovery never starts a new provider write. Approval is recorded
+atomically with the write claim, so an interrupted response cannot orphan an
+otherwise approved operation.
+
+Dynamic pricing revisions serialize with collection reservations. A reservation
+must carry the effective revision and current matching pricing snapshot. Fixed
+operational amounts, application, hold release and the notification queue commit
+together. Original purchase/consent evidence remains unchanged. New instalment
+invoice context uses the applied target at the original collection/service date;
+historical invoices and earlier periods retain their original context.
+
+The admin panel offers separate monthly preview/save/approval/recovery states,
+retains an uncertain confirmation's idempotency key across reloads, and shows
+operation and notification history. It does not expose the unfinished member
+FormBuilder flow.
+
+### Financial eligibility remains deliberately restricted
+
+Executable quotes currently require complete Xero-backed historical invoice
+and independently verified payment evidence, personal cash funding, and no
+unsettled balance or prepaid surplus needing a separate settlement. Fixed
+remaining instalments must divide exactly. Discounts, conditional VAT,
+voucher-reduced/mixed funding, replacement terms and cancellations are rejected,
+not silently approximated. This is **not unrestricted monthly amendment support**
+or completion of the entire self-service brief. In particular, many fixed
+annual-instalment purchases have a difference between daily service consumed
+and cash received and will require the later settlement flow.
+
+### Verification and rollout
+
+- 428 relevant isolated tests passed, including PostgreSQL concurrency,
+  permission, atomic rollback and stale-price checks; mounted admin tests passed.
+- Production build passed.
+- Development workflow restarted and login route rendered. The authenticated
+  admin panel was checked through mounted tests, not a live signed-in browser.
+- Applied `202612310026_member_dynamic_monthly_application.sql` to live DEST
+  `lvmzliemqnieeoruhkik`.
+- SHA-256: `77f08b93ce30d1444cf315488bde19f1d0017b65801bf432f916d0448adb05d0`.
+- Verified service-only entry points, protected internal finalizer, notification
+  RLS and absence of direct notification DML for public/authenticated/service
+  roles. There were zero provider operations and notifications after migration.
+- Earlier execution migrations 022 and 025 remain applied. No further migration
+  is pending for this delivery.
+- No live provider mutation, member change or test notification was performed.
+  Deploy the updated code before using the connected administrative flow.
+
 ## Source cash/service reconciliation for monthly quotes
 
 The production purchase adapter now offers `reconcileFunding`: it joins

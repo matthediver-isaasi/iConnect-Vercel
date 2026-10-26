@@ -6,6 +6,7 @@ import { matchesSelections } from './selectionMatcher.js';
 import { findAlphaAdoption, BNMS_ALPHA_PROCESSING_NOT_BEFORE } from './bnmsAlphaAccounting.js';
 import { resolveManualAccountingContext } from './bnmsManualCohort.js';
 import { variableMembershipCollectionFunding } from './membershipVariableVoucherAllocation.js';
+import { resolveMemberDynamicScopeRevision, projectMemberDynamicScope } from './memberDynamicScopeRevision.js';
 
 export const DYNAMIC_RESERVATIONS = 'gocardless_collection_reservations';
 // One-off operational delay, intentionally separate from the immutable midnight
@@ -35,7 +36,12 @@ export function dynamicCollectionDate(firstDate, number) {
   return day(new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + number - 1, Math.min(start.getUTCDate(), last))));
 }
 
-export async function resolveDynamicCollectionPrice(agreement, intendedDate, { db, configRows, bandRows, vatRows } = {}) {
+export async function resolveDynamicCollectionPrice(agreement, intendedDate, {
+  db, configRows, bandRows, vatRows, applyMembershipRevision = true,
+} = {}) {
+  const revision = applyMembershipRevision && isDynamicAgreement(agreement)
+    ? await resolveMemberDynamicScopeRevision(db, agreement, intendedDate) : null;
+  agreement = projectMemberDynamicScope(agreement, revision);
   const terms = agreement?.metadata?.dd;
   const commitment = terms?.commitment;
   const purchased = commitment?.commitment_snapshot?.config;
@@ -103,6 +109,7 @@ export async function resolveDynamicCollectionPrice(agreement, intendedDate, { d
     taxRule = overrides.find(rule => matchesSelections(taxValues[rule.field_id], rule.match_value, rule.match_condition)) || null;
   }
   return {
+    membership_revision_id: revision?.id || null,
     config_id: config.id, band_id: band?.id || null,
     tier_label: band?.label || 'Flat Rate', membership_year: terms.membership_year,
     currency: terms.currency, monthly_amount_minor: minor,
