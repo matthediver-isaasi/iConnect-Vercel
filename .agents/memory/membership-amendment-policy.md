@@ -23,6 +23,18 @@ defaulting to no expiry.
 **How to apply:** Keep newly issued surplus separate from reversals of previously
 used vouchers; returning an existing voucher must preserve its original expiry.
 
+For variable-monthly membership changes, service used is measured against
+membership-start anniversaries, not scheduled or actual collection dates.
+
+**Why:** The owner explicitly chose membership-start anniversaries for unused-value
+calculations. Changing a collection day or collecting late must not redefine the
+service period and therefore the credit or refund.
+
+**How to apply:** Anchor each monthly boundary independently to the original
+membership start, clamping month-end anniversaries. Keep the collection calendar
+separate, use evidenced prices for the corresponding service periods, and never
+infer settled cash from a due or submitted collection.
+
 The user approved mid-current-term membership structure/tier changes with
 additional-payment collection, retained credit notes and cash refunds all
 covered, plus explicit membership-change history. Preserve the existing expiry

@@ -1,52 +1,12 @@
 // Shared internal arithmetic for admin and self-service amendments. Callers must
 // obtain these inputs from server-owned purchase and settlement evidence. This
 // module neither authorizes a member nor asserts that a provider write succeeded.
-export class AmendmentCalculationError extends Error {
-  constructor(message) {
-    super(message);
-    this.name = 'AmendmentCalculationError';
-    this.code = 'amendment_evidence_required';
-    this.status = 422;
-  }
-}
+import { reconcileVariableMonthlyService } from './memberVariableMonthlyService.js';
+import { AmendmentCalculationError, amendmentTermDays, amendmentMoneyParts,
+  prorateAmendmentMoney, amendmentSafeMinor as safe } from './memberAmendmentMoney.js';
+export { AmendmentCalculationError, amendmentDay, amendmentTermDays,
+  amendmentMoneyParts, prorateAmendmentMoney } from './memberAmendmentMoney.js';
 const fail = message => { throw new AmendmentCalculationError(message); };
-
-export function amendmentDay(value) {
-  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) fail('An exact calendar date is required.');
-  const ms = Date.parse(`${value}T00:00:00Z`);
-  if (!Number.isFinite(ms) || new Date(ms).toISOString().slice(0,10) !== value) fail('Invalid calendar date.');
-  return ms / 86400000;
-}
-
-export function amendmentTermDays(startDate, renewalDate, effectiveDate) {
-  const start = amendmentDay(startDate), renewal = amendmentDay(renewalDate), effective = amendmentDay(effectiveDate);
-  const totalDays = renewal - start, remainingDays = renewal - effective;
-  if (totalDays <= 0 || remainingDays <= 0 || remainingDays > totalDays) fail('The effective date must be within the current term.');
-  return {totalDays,remainingDays,elapsedDays:totalDays-remainingDays};
-}
-
-function minor(value) {
-  if (!Number.isSafeInteger(value) || value < 0) fail('Nonnegative integer minor-unit amounts are required.');
-  return value;
-}
-function safe(value) {
-  if (!Number.isSafeInteger(value)) fail('Amount exceeds safe minor-unit bounds.');
-  return value;
-}
-export function amendmentMoneyParts(value) {
-  if (!value || typeof value !== 'object') fail('Net and tax evidence is required.');
-  const netMinor=minor(value.netMinor),vatMinor=minor(value.vatMinor);
-  const grossMinor=safe(netMinor+vatMinor);
-  if (value.grossMinor !== undefined && value.grossMinor !== grossMinor) fail('Net and tax do not match the gross amount.');
-  return {netMinor,vatMinor,grossMinor};
-}
-export function prorateAmendmentMoney(value,numerator,denominator) {
-  const parts=amendmentMoneyParts(value);
-  if (!Number.isSafeInteger(numerator) || !Number.isSafeInteger(denominator)
-    || numerator<0 || denominator<=0 || numerator>denominator) fail('Invalid proration period.');
-  const round=amount=>Number((BigInt(amount)*BigInt(numerator)*2n+BigInt(denominator))/(BigInt(denominator)*2n));
-  return amendmentMoneyParts({netMinor:round(parts.netMinor),vatMinor:round(parts.vatMinor)});
-}
 function subtract(a,b) {
   return {netMinor:safe(a.netMinor-b.netMinor),vatMinor:safe(a.vatMinor-b.vatMinor),grossMinor:safe(a.grossMinor-b.grossMinor)};
 }
@@ -66,7 +26,7 @@ const zero=()=>({netMinor:0,vatMinor:0,grossMinor:0});
  * authority and must not be silently applied or counted twice.
  */
 export function reconcileAmendmentFunding({
-  sourceRecordId,memberId,currency,frequency,sourcePrice,term,effectiveDate,evidence,
+  sourceRecordId,memberId,currency,frequency,pricingBasis,sourcePrice,term,effectiveDate,evidence,
 }) {
   if (!sourceRecordId || !memberId || !/^[A-Z]{3}$/.test(currency||'')) fail('Purchase identity and currency are required.');
   if (!Intl.supportedValuesOf('currency').includes(currency)
@@ -74,6 +34,11 @@ export function reconcileAmendmentFunding({
     fail('A supported two-decimal currency is required.');
   }
   if (!['upfront','monthly'].includes(frequency)) fail('Unsupported payment frequency.');
+  if(frequency==='monthly' && pricingBasis!==undefined
+    && !['annual_instalments','monthly_price'].includes(pricingBasis)) fail('Unsupported monthly pricing basis.');
+  if(frequency==='monthly' && pricingBasis==='monthly_price' && !evidence?.variableMonthlyService) {
+    fail('Variable monthly pricing requires anniversary-period service evidence.');
+  }
   const days=amendmentTermDays(term.startDate,term.renewalDate,effectiveDate);
   const original=amendmentMoneyParts(sourcePrice);
   if (!evidence || evidence.sourceRecordId!==sourceRecordId || evidence.currency!==currency
@@ -92,16 +57,21 @@ export function reconcileAmendmentFunding({
       netMinor:safe(settled.netMinor+amount.netMinor),vatMinor:safe(settled.vatMinor+amount.vatMinor),
     });
   }
-  let consumed;
+  let consumed, deliveredServiceEvidence;
   if(frequency==='upfront') {
     // Subtract the rounded remaining value rather than round both halves:
     // consumed + remaining must equal the original purchase to the penny.
     consumed=subtract(original,prorateAmendmentMoney(original,days.remainingDays,days.totalDays));
   } else {
-    if(evidence.deliveredService?.sourceRecordId!==sourceRecordId
-      || evidence.deliveredService?.throughExclusiveDate!==effectiveDate
-      || evidence.deliveredService?.verified!==true) fail('Monthly delivered-service obligations must be reconciled.');
-    consumed=amendmentMoneyParts(evidence.deliveredService);
+    const delivered=evidence.variableMonthlyService !== undefined
+      ? reconcileVariableMonthlyService({sourceRecordId,currency,term,throughExclusiveDate:effectiveDate,
+        evidence:evidence.variableMonthlyService})
+      : evidence.deliveredService;
+    if(delivered?.sourceRecordId!==sourceRecordId
+      || delivered?.throughExclusiveDate!==effectiveDate
+      || delivered?.verified!==true) fail('Monthly delivered-service obligations must be reconciled.');
+    consumed=amendmentMoneyParts(delivered);
+    if(evidence.variableMonthlyService !== undefined) deliveredServiceEvidence=delivered;
   }
   const balance=subtract(settled,consumed);
   // Tax-only and mixed-sign positions need accounting review; do not net unlike
@@ -119,18 +89,22 @@ export function reconcileAmendmentFunding({
   if([...ownership].some(owner=>owner!==`member:${memberId}`))blockers.push('non_member_funding');
   const available=balance.netMinor>=0&&balance.vatMinor>=0?amendmentMoneyParts(balance):zero();
   return {days,original,settled,consumed,available,outstanding,blockers,
+    ...(deliveredServiceEvidence ? {deliveredServiceEvidence} : {}),
     voucherFunding: evidence.settledFunding.filter(entry=>entry.kind==='voucher').map(entry=>entry.id),
     fundingIds:[...seen],personalFundingOnly:ownership.size===1&&ownership.has(`member:${memberId}`)};
 }
 
 export function calculateAmendmentTerms({
-  sourceRecordId,memberId,currency,frequency,sourcePrice,term,effectiveDate,evidence,
+  sourceRecordId,memberId,currency,frequency,pricingBasis,sourcePrice,term,effectiveDate,evidence,
   behaviour,targetPrice,targetTerm,action='change',cancellationTiming='immediate',
 }) {
   if(!['change','cancel'].includes(action))fail('Unsupported membership operation.');
   if(!['retain_term','new_term'].includes(behaviour))fail('An explicit governing term policy is required.');
   if(!['immediate','end_of_term'].includes(cancellationTiming))fail('Invalid cancellation timing.');
-  const finance=reconcileAmendmentFunding({sourceRecordId,memberId,currency,frequency,sourcePrice,term,effectiveDate,evidence});
+  if(frequency==='monthly' && pricingBasis==='monthly_price' && action==='change') {
+    fail('Variable monthly target pricing requires an effective-dated collection quote, not an assumed fixed term total.');
+  }
+  const finance=reconcileAmendmentFunding({sourceRecordId,memberId,currency,frequency,pricingBasis,sourcePrice,term,effectiveDate,evidence});
   let newCost=zero(),newTerm=null,unused=finance.available;
   if(action==='change') {
     const full=amendmentMoneyParts(targetPrice);

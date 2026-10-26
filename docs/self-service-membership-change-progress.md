@@ -87,6 +87,22 @@ finalization or completion of the entire self-service feature.
 
 ### Monthly purchase evidence adapter
 
+The owner confirmed that variable-monthly service periods follow membership-start
+anniversaries, independently of scheduled or actual collection dates.
+`memberVariableMonthlyService.js` now reconciles historical, purchase-scoped net
+and VAT prices by those periods, with independent month-end clamping and exact
+partial-period day proration. It retains a period/evidence audit breakdown and
+rejects missing, duplicate, foreign, unverified or misaligned price evidence.
+The shared funding reconciliation invokes this resolver when supplied variable
+monthly period evidence; an explicit monthly-price basis cannot fall back to an
+unexplained delivered-service total. No annual-price/12 or current-price fallback
+is used. Variable monthly target changes still require the effective-dated
+collection quote; the fixed-term calculation refuses to invent one.
+
+This implements the approved service-period rule, not the production historical
+price loader, dynamic revision writer or monthly finalization. No schema change
+or live financial mutation was made for this calculation work.
+
 `memberMonthlyPurchaseAuthority.js` loads the single current purchase, consent
 agreement and payment plan using paged tenant/member-scoped reads. It verifies
 the saved term, currency, instalment count, personal ownership, environment and
