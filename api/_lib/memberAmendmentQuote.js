@@ -1,5 +1,6 @@
 import { recoverRollingCommitment } from './rollingMembershipCommitment.js';
 import { assessMemberAmendmentOperationalScope } from './membershipAmendmentReadOverlay.js';
+import { amendmentTermDays, prorateAmendmentMoney } from './memberAmendmentCalculation.js';
 
 export const AMENDMENT_CAPABILITIES = Object.freeze({
   preview: true, create: true, apply: true, invoice: true, refund: true, providerAmendment: false,
@@ -125,16 +126,8 @@ export function buildMemberAmendmentQuote({
   if (originalNet + originalVat !== originalGross) throw new AmendmentError('Original net and VAT do not equal the original gross.');
   const targetVat = Math.round(targetNet * targetVatRate / 100);
   if (!Number.isSafeInteger(targetVat) || !Number.isSafeInteger(targetNet + targetVat)) throw new AmendmentError('Target price exceeds safe minor-unit bounds.');
-  const days = (a, b) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400000);
-  const totalDays = days(current.term_start_date, current.membership_renewal_date);
-  const remainingDays = days(effectiveDate, current.membership_renewal_date);
-  if (totalDays <= 0 || remainingDays <= 0 || remainingDays > totalDays) throw new AmendmentError('Invalid retained term boundaries.');
-  const prorate = (net, vat) => {
-    const rounded = (amount) => Number((BigInt(amount) * BigInt(remainingDays) * 2n + BigInt(totalDays)) / (BigInt(totalDays) * 2n));
-    const n = rounded(net);
-    const v = rounded(vat);
-    return { netMinor: n, vatMinor: v, grossMinor: n + v };
-  };
+  const {totalDays,remainingDays}=amendmentTermDays(current.term_start_date,current.membership_renewal_date,effectiveDate);
+  const prorate = (net, vat) => prorateAmendmentMoney({netMinor:net,vatMinor:vat},remainingDays,totalDays);
   const originalRemaining = prorate(originalNet, originalVat);
   const targetRemaining = prorate(targetNet, targetVat);
   const delta = Object.fromEntries(Object.keys(originalRemaining).map((key) => [key, targetRemaining[key] - originalRemaining[key]]));

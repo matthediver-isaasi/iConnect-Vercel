@@ -50,6 +50,32 @@ Migration SHA-256: `e28f938bf7d9f22b0657b0a3f9a8b878be00604b3a05b5a8182e796968d1
 
 ## Still required for the original brief
 
+### Shared calculation work added on 26 October 2026
+
+`memberAmendmentCalculation.js` now supplies exact calendar-day and minor-unit
+arithmetic shared with the existing admin quote path. Its additional internal
+reconciliation/term functions cover retained terms, replacement terms,
+immediate/end-of-term cancellation, and purchase-scoped settled funding.
+Monthly evidence must include reconciled delivered-service obligations rather
+than an assumption that half an annual price is refundable.
+
+`membershipChangePolicy.js` also plans approval, surplus handling and credit
+expiry using the governing source schedule; replacement-term downgrades remain
+downgrades even when they require an additional payment.
+
+These are **internal calculation functions, not enabled execution endpoints**.
+Only the shared proration helper is integrated into the existing administrator
+flow; new financial planning still requires trusted production evidence adapters,
+atomic execution and UI integration. The monthly plan deliberately requires
+provider coordination and does not label a remaining obligation as a charge due
+today. Mixed-tax, partial/refunded funding, failed/pending collections, liabilities
+and non-member funding block automatic settlement. Voucher returns are flagged
+for their original credit authority, not converted into cash or extended expiry.
+
+Both exact £100-to-£75 acceptance calculations pass in isolated tests. These
+results do not demonstrate real provider collection, entitlement changes, credit
+issuance or cancellation.
+
 This is unfinished implementation work, not a list of optional enhancements:
 
 1. Shared execution authority for retained versus replacement terms, governed
