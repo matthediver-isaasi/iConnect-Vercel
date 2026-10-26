@@ -9,7 +9,8 @@ test('authority entry points enforce admin finance access and use session tenant
    isAdmin:async()=>true,hasFinance:async()=>false,authorityService:{
     async preview(actor,selection){calls++;assert.equal(actor.tenantId,'tenant');assert.equal(actor.actorId,'actor');
       assert.equal(actor.memberId,member);return {fingerprint:'verified'};},
-    async confirm(){calls++;return {id:'record'};}
+    async confirm(){calls++;return {id:'record'};},
+    async recover(){calls++;return {id:'record'};}
    }});
  const invoke=async action=>{
   const res={code:200,setHeader(){},status(code){this.code=code;return this},json(body){this.body=body;return this}};
@@ -18,8 +19,9 @@ test('authority entry points enforce admin finance access and use session tenant
  };
  assert.equal((await invoke('preview_change')).body.fingerprint,'verified');
  assert.equal((await invoke('confirm_change')).body.executionEnabled,false);
+ assert.equal((await invoke('recover_change')).body.record.id,'record');
  context={...context,tenantMismatch:true};assert.equal((await invoke('confirm_change')).code,409);
  context={...context,tenantMismatch:false,roleId:'role'};assert.equal((await invoke('preview_change')).code,403);
  context={isAuthenticated:false};assert.equal((await invoke('preview_change')).code,401);
- assert.equal(calls,2);
+ assert.equal(calls,3);
 });

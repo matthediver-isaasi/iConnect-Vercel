@@ -28,9 +28,25 @@ member initiation remains disabled until the opted-in FormBuilder flow exists.
 Thus this connects authority recording for the admitted scope, not all planned
 payment/cancellation rails.
 
-The migration has not been applied to DEST; deployment alone does not make
-confirmation available. No UI exposes the new actions yet. Neither action
+The Step 1 migration was applied to live DEST on 26 October 2026.
+SHA-256: `a920cb708db9d01bd506fe17e33565bfc94f98bb802d1f0de93e61a89d820018`.
+Live checks verified RLS, no anon/authenticated table or function access,
+service-role SELECT-only table access and service-only confirmation execution.
+The authority table contained zero records after migration. No purchases,
+payments or entitlement were changed. No UI exposes the new actions yet. Neither action
 settles, applies membership, issues credit or releases provider holds.
+
+### Step 2: confirmation recovery
+
+`recover_change` on the same finance-admin endpoint reads the immutable record
+using member, tenant, request key, actor and preview fingerprint. Confirmation
+retries recover an already-saved matching request before consulting providers.
+A changed selection, actor or fingerprint conflicts; storage errors do not
+silently create a replacement request. This recovers confirmation only, never
+represents it as settlement or applied entitlement.
+
+Atomic membership finalization, execution-stage recovery and provider-hold
+release remain unfinished. The monthly operation migration remains unapplied.
 
 37 focused tests pass, including real PostgreSQL concurrent confirmation,
 stale target, actor ownership, immutable data, service grants, browser denial,

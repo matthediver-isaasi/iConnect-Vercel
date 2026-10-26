@@ -26,13 +26,17 @@ export function createMemberAmendmentsHandler({
       const actorId = context.tenantUserId || context.memberId;
       if (!actorId) return res.status(403).json({ error: 'An authenticated audit identity is required' });
       const amendments = service || createMemberAmendmentsService({ db });
-      if(req.method==='POST' && ['preview_change','confirm_change'].includes(req.body?.action)) {
+      if(req.method==='POST' && ['preview_change','confirm_change','recover_change'].includes(req.body?.action)) {
         if(!AMENDMENT_UUID.test(req.body?.memberId||'')) return res.status(400).json({error:'A valid memberId is required'});
         const authority=authorityService || createMemberChangeAuthorityService({
           db,resolve:createMemberChangeAuthorityResolver({db,amendments}),
         });
         const actor={tenantId:context.tenantId,memberId:req.body.memberId,actorId,actorKind:'admin'};
         if(req.body.action==='preview_change') return res.json(await authority.preview(actor,req.body.selection));
+        if(req.body.action==='recover_change') {
+          const record=await authority.recover(actor,{key:req.body.idempotencyKey,fingerprint:req.body.fingerprint});
+          return res.status(record?200:404).json({record,executionEnabled:false});
+        }
         return res.json({record:await authority.confirm(actor,{
           selection:req.body.selection,fingerprint:req.body.fingerprint,key:req.body.idempotencyKey,
         }),executionEnabled:false});
