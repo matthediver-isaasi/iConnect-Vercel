@@ -1,10 +1,12 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tenantContext.js';
 import { AMENDMENT_UUID, createMemberAmendmentsService } from '../_lib/memberAmendments.js';
+import { createMemberChangeAuthorityService } from '../_lib/memberChangeAuthority.js';
+import { createMemberChangeAuthorityResolver } from '../_lib/memberChangeAuthorityResolver.js';
 
 export function createMemberAmendmentsHandler({
   db = supabase, getContext = getTenantContext, isAdmin = hasAdminAccess,
-  hasFinance = hasFeatureAccess, service = null,
+  hasFinance = hasFeatureAccess, service = null, authorityService = null,
 } = {}) {
   return async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -24,6 +26,17 @@ export function createMemberAmendmentsHandler({
       const actorId = context.tenantUserId || context.memberId;
       if (!actorId) return res.status(403).json({ error: 'An authenticated audit identity is required' });
       const amendments = service || createMemberAmendmentsService({ db });
+      if(req.method==='POST' && ['preview_change','confirm_change'].includes(req.body?.action)) {
+        if(!AMENDMENT_UUID.test(req.body?.memberId||'')) return res.status(400).json({error:'A valid memberId is required'});
+        const authority=authorityService || createMemberChangeAuthorityService({
+          db,resolve:createMemberChangeAuthorityResolver({db,amendments}),
+        });
+        const actor={tenantId:context.tenantId,memberId:req.body.memberId,actorId,actorKind:'admin'};
+        if(req.body.action==='preview_change') return res.json(await authority.preview(actor,req.body.selection));
+        return res.json({record:await authority.confirm(actor,{
+          selection:req.body.selection,fingerprint:req.body.fingerprint,key:req.body.idempotencyKey,
+        }),executionEnabled:false});
+      }
       if (req.method === 'GET') {
         if (!AMENDMENT_UUID.test(req.query?.memberId || '')) return res.status(400).json({ error: 'A valid memberId is required' });
         return res.json(await amendments.list(context.tenantId, req.query.memberId));

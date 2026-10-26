@@ -22,6 +22,9 @@ test('change authority is immutable, scoped, stale-checked and serialized', {tim
    CREATE TABLE membership_tier_config(id uuid PRIMARY KEY,tenant_id uuid,structure_scope_type text,is_active boolean);
    CREATE TABLE membership_change_policy(tenant_id uuid,revision bigint,policy jsonb);
    CREATE TABLE member_membership_amendment(tenant_id uuid,source_record_id uuid);
+   CREATE TABLE membership_tier_discount(tenant_id uuid,config_id uuid);
+   CREATE TABLE membership_tier_vat_override(tenant_id uuid,config_id uuid);
+   CREATE TABLE system_settings(tenant_id uuid,setting_key text,setting_value text);
   `);
   await admin.query(readFileSync('supabase/migrations/202612310023_member_change_authority.sql','utf8'));
   await admin.query('INSERT INTO tenant VALUES($1);',[id(1)]);

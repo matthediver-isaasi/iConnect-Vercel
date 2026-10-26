@@ -25,7 +25,7 @@ CREATE TRIGGER immutable BEFORE UPDATE OR DELETE ON public.member_change_authori
 CREATE FUNCTION public.confirm_member_change_authority(
  p_tenant_id uuid,p_member_id uuid,p_actor_id uuid,p_actor_kind text,p_key text,p_authority jsonb
 ) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
-DECLARE saved public.member_change_authority; source jsonb; target jsonb; policy jsonb;
+DECLARE saved public.member_change_authority; source jsonb; target jsonb; policy jsonb; governing jsonb; band jsonb; tax_setting jsonb;
 BEGIN
  IF p_actor_id IS NULL OR p_actor_kind NOT IN ('admin','member') OR p_actor_kind IS NULL
    OR (p_actor_kind='member' AND p_actor_id<>p_member_id)
@@ -86,12 +86,37 @@ BEGIN
    RAISE EXCEPTION 'Competing membership authority requires review' USING ERRCODE='40001';
  END IF;
  IF p_authority->>'action'='change' THEN
+   SELECT to_jsonb(c) INTO governing FROM public.membership_tier_config c
+     WHERE c.id=(source->>'config_id')::uuid AND c.tenant_id=p_tenant_id FOR SHARE;
+   IF governing IS DISTINCT FROM p_authority->'governingSnapshot' THEN
+     RAISE EXCEPTION 'Governing schedule changed; preview again' USING ERRCODE='40001';
+   END IF;
    SELECT to_jsonb(c) INTO target FROM public.membership_tier_config c
      WHERE c.id=(p_authority->'targetSnapshot'->>'id')::uuid AND c.tenant_id=p_tenant_id FOR SHARE;
    IF target IS NULL OR target IS DISTINCT FROM p_authority->'targetSnapshot'
      OR target->>'structure_scope_type' IS DISTINCT FROM 'member'
      OR target->>'is_active' IS DISTINCT FROM 'true' THEN
      RAISE EXCEPTION 'Target changed; preview again' USING ERRCODE='40001';
+   END IF;
+   -- The admitted resolver rejects conditional prices. Recheck these tables
+   -- here so a rule added after preview cannot confirm stale economics.
+   IF EXISTS(SELECT 1 FROM public.membership_tier_discount d WHERE d.tenant_id=p_tenant_id AND d.config_id=(target->>'id')::uuid)
+     OR EXISTS(SELECT 1 FROM public.membership_tier_vat_override v WHERE v.tenant_id=p_tenant_id AND v.config_id=(target->>'id')::uuid) THEN
+     RAISE EXCEPTION 'Target pricing rules changed; preview again' USING ERRCODE='40001';
+   END IF;
+   SELECT to_jsonb(s) INTO tax_setting FROM public.system_settings s
+     WHERE s.tenant_id=p_tenant_id AND s.setting_key='xero_vat_rates_' || p_tenant_id::text FOR SHARE;
+   IF COALESCE(tax_setting,'null'::jsonb) IS DISTINCT FROM
+     COALESCE(p_authority->'pricingSnapshot'->'vatSetting','null'::jsonb) THEN
+     RAISE EXCEPTION 'Tax authority changed; preview again' USING ERRCODE='40001';
+   END IF;
+   IF p_authority->'targetBandSnapshot'->>'id' IS NOT NULL THEN
+     SELECT to_jsonb(b) INTO band FROM public.membership_tier_band b
+       WHERE b.id=(p_authority->'targetBandSnapshot'->>'id')::uuid
+         AND b.config_id=(target->>'id')::uuid AND b.tenant_id=p_tenant_id FOR SHARE;
+     IF band IS NULL OR band IS DISTINCT FROM p_authority->'targetBandSnapshot' THEN
+       RAISE EXCEPTION 'Target band changed; preview again' USING ERRCODE='40001';
+     END IF;
    END IF;
  END IF;
  INSERT INTO public.member_change_authority(tenant_id,member_id,source_record_id,actor_id,actor_kind,request_key,authority)

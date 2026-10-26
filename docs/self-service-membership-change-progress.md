@@ -10,16 +10,35 @@ Confirmation serializes on the member, verifies current source/target/policy,
 rejects competing legacy proposals, and supports exact idempotent replay.
 The legacy insertion guard closes the inverse conflict path.
 
-The service requires a trusted, injected resolver and re-resolves evidence before
-confirming the preview fingerprint. **Production evidence resolver and route
-integration are not yet implemented; Step 1 is not operationally complete.**
-The new migration has not been applied to DEST. No new endpoints or UI expose
-this storage, and it cannot settle or apply membership changes.
+The service now has a production resolver, `memberChangeAuthorityResolver.js`,
+which reuses the existing provider-backed original-payment verification and
+v2 calculations. The authenticated finance-admin endpoint
+`POST /api/membership/member-amendments` accepts `preview_change` and
+`confirm_change`. Both require `memberId` and `selection` (configId, optional
+bandId, reason, optional effectiveDate). Confirmation additionally requires the
+preview fingerprint and idempotencyKey. Browser-supplied payment evidence,
+tenant and actor identities are not used as authority.
 
-Two isolated test suites pass, including real PostgreSQL concurrent confirmation,
+The admitted production scope is the existing verified paid-upfront annual
+personal purchase scope, with retained/replacement-term calculations governed by
+the source schedule. Confirmation re-reads provider evidence, snapshots the
+tenant approval/credit policy, and records requirements without applying them.
+Monthly funding and cancellation evidence remain unsupported and fail closed;
+member initiation remains disabled until the opted-in FormBuilder flow exists.
+Thus this connects authority recording for the admitted scope, not all planned
+payment/cancellation rails.
+
+The migration has not been applied to DEST; deployment alone does not make
+confirmation available. No UI exposes the new actions yet. Neither action
+settles, applies membership, issues credit or releases provider holds.
+
+37 focused tests pass, including real PostgreSQL concurrent confirmation,
 stale target, actor ownership, immutable data, service grants, browser denial,
 legacy conflict and changed-evidence refusal. These do not constitute provider
-or end-to-end verification.
+or live-provider/end-to-end verification. Resolver integration tests check fresh
+evidence reads, ignored posted funding, governing-policy changes and disabled
+member initiation; handler tests exercise authentication, tenant mismatch,
+finance permission and session-derived actor binding.
 
 ## Investigation
 

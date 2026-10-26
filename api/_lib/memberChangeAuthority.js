@@ -7,6 +7,8 @@ const fail = message => { throw Object.assign(new Error(message), { status: 409,
 export function createMemberChangeAuthorityService({ db, resolve }) {
   if (typeof resolve !== 'function') throw new Error('Trusted change resolver required');
   async function preview(context, selection) {
+    if(!context.actorId || !['admin','member'].includes(context.actorKind)
+      || (context.actorKind==='member' && context.actorId!==context.memberId)) fail('Incomplete or foreign membership change evidence');
     const authority = await resolve(context, selection);
     if (!context.actorId || !['admin','member'].includes(context.actorKind)
       || (context.actorKind === 'member' && context.actorId !== context.memberId)
@@ -21,6 +23,8 @@ export function createMemberChangeAuthorityService({ db, resolve }) {
     return { authority, fingerprint: monthlyAmendmentFingerprint(authority) };
   }
   async function confirm(context, { selection, fingerprint, key }) {
+    if(typeof key!=='string' || !/^[A-Za-z0-9_.:-]{8,128}$/.test(key)
+      || typeof fingerprint!=='string' || !/^[a-f0-9]{64}$/.test(fingerprint)) fail('A valid confirmation key and preview fingerprint are required');
     // A fresh provider/database resolution must match the displayed evidence.
     const fresh = await preview(context, selection);
     if (fresh.fingerprint !== fingerprint) fail('Membership or payment evidence changed; preview again');
