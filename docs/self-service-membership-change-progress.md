@@ -1,5 +1,26 @@
 # Self-service membership changes: implementation boundary
 
+## Step 1 authority storage
+
+Added `202612310023_member_change_authority.sql` and the internal shared
+`memberChangeAuthority.js` confirmation service. The storage records source,
+target, calculation, funding evidence, settlement requirements and policy
+snapshots with authenticated actor provenance. It is append-only and service-only.
+Confirmation serializes on the member, verifies current source/target/policy,
+rejects competing legacy proposals, and supports exact idempotent replay.
+The legacy insertion guard closes the inverse conflict path.
+
+The service requires a trusted, injected resolver and re-resolves evidence before
+confirming the preview fingerprint. **Production evidence resolver and route
+integration are not yet implemented; Step 1 is not operationally complete.**
+The new migration has not been applied to DEST. No new endpoints or UI expose
+this storage, and it cannot settle or apply membership changes.
+
+Two isolated test suites pass, including real PostgreSQL concurrent confirmation,
+stale target, actor ownership, immutable data, service grants, browser denial,
+legacy conflict and changed-evidence refusal. These do not constitute provider
+or end-to-end verification.
+
 ## Investigation
 
 The reference BNMS form `6880a70a-8643-4fcc-a5b9-0af603f00b40`
