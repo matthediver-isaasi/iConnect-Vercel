@@ -23,6 +23,9 @@ import {
   fireNewZeroDueMembershipPaidWorkflow,
 } from '../_lib/zeroDueMembership.js';
 import { processTenantAnnualExpirySweep } from '../_lib/annualMembershipExpiryEnforcement.js';
+import { deliverAnnualExpiryRoleEvents } from '../_lib/annualExpiryRoleDelivery.js';
+import { triggerWorkflows } from '../_lib/workflows.js';
+import { getTrustedBaseUrlForTenant } from '../_lib/publicBaseUrl.js';
 import { invalidateMemberSessions } from '../_lib/session.js';
 import { annualRecordSchedule, resolveEntityAnnualRenewalEligibility } from '../_lib/annualRenewalPolicy.js';
 import { upfrontRollingCommitment } from '../_lib/upfrontRollingRenewal.js';
@@ -72,6 +75,14 @@ export default async function handler(req, res) {
     pause: processPauseAutoRestarts,
     expiry: (db, tenantId, results, now, options) => processTenantAnnualExpirySweep(db, tenantId, results, now, {
       ...options, invalidateSessions: invalidateMemberSessions,
+      dispatchRoleEvents: async payload => {
+        const outcome = await deliverAnnualExpiryRoleEvents(db, payload, {
+          dispatch: triggerWorkflows,
+          baseUrl: id => getTrustedBaseUrlForTenant(null, db, id),
+        });
+        await options.roleEventsObserved?.(outcome.unresolvedRoleEvents);
+        return outcome;
+      },
     }),
     stages: [
       ['organisation-activation', activateScheduledRecords],

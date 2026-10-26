@@ -254,7 +254,7 @@ test('production comments document the operator-review / non-idempotent-sink pol
 
 test('completed is marked only after the workflow loop runs', () => {
   const finishIdx = workflowsSrc.indexOf('await finishWorkflowDelivery(');
-  const loopIdx = workflowsSrc.indexOf('await executeWorkflowActions(');
+  const loopIdx = workflowsSrc.indexOf('await (context.executeWorkflowActions || executeWorkflowActions)(');
   assert.ok(loopIdx > -1, 'workflow action loop must exist');
   assert.ok(finishIdx > -1, 'finishWorkflowDelivery must be called');
   assert.ok(finishIdx > loopIdx, 'finishWorkflowDelivery must run after the workflow loop');
@@ -265,8 +265,9 @@ test('completed is marked only after the workflow loop runs', () => {
 });
 
 test('delivery errors are marked failed and rethrown when a deliveryKey is present', () => {
-  assert.match(workflowsSrc, /if \(deliveryClaim\?\.owned && !usesPerWorkflowDelivery\) \{\s*await failWorkflowDelivery/);
-  assert.match(workflowsSrc, /if \(workflowDeliveryClaim\?\.owned\) \{\s*await failWorkflowDelivery/);
+  assert.match(workflowsSrc, /if \(deliveryClaim\?\.owned && !usesPerWorkflowDelivery\) \{\s*if \(err\.ddKnownQueryFailure && !deliveryHadSuccessfulEffect\)/);
+  assert.match(workflowsSrc, /else \{\s*await failWorkflowDelivery\(context\.deliveryKey, deliveryClaim\.ownerToken, err\)/);
+  assert.match(workflowsSrc, /await failWorkflowDelivery\(workflowDeliveryKey, workflowDeliveryClaim\.ownerToken/);
   assert.match(workflowsSrc, /if \(context\.deliveryKey\) throw err;/);
 });
 

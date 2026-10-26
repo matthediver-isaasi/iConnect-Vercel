@@ -5,6 +5,29 @@ description: Durable boundaries between annual renewal policy, term continuity, 
 
 Annual renewal settings belong to the dated tier configuration snapshot and must not reuse monthly Direct Debit/card grace or arrears fields. A renewal term starts the day after the prior persisted term ends and runs for a full year whether payment is early or during grace.
 
+Committed annual fallback-role workflow events retain their own delivery authority,
+independent of current role equality or later renewal protection. Never synthesize
+an event from a pending journal or backfill old completed expiry actions.
+
+**Why:** An interrupted worker may have committed a role change before dispatch;
+rechecking current eligibility can lose that event, while inferring it from a
+matching role can notify someone whose role was changed manually.
+
+**How to apply:** Persist transition snapshots atomically with the guarded role
+change. Recover from durable delivery outcomes; hold uncertain effects for review
+rather than reclaiming their claims.
+
+Recovery tenant discovery must include unresolved events, not just current
+configurations and unfinished histories. Outstanding delivery counts must gate
+health even on deferred slices that do not visit that tenant.
+
+**Why:** Completing the source history can otherwise remove the tenant from
+discovery after a worker-state reset; isolated error reporting alone can also
+mislabel a held delivery as a healthy run.
+
+**How to apply:** Discover unresolved-event tenants from the database and retain
+their review counts in continuation state until a complete scan reconciles them.
+
 **Why:** Recomputing from the payment date shortens or shifts the member's expected year sequence, while classifying recurrence from current UI choices can allow double payment against an existing monthly agreement.
 
 **How to apply:** Resolve eligibility from persisted history/config and persisted billing agreements. Keep early paid terms scheduled until their start date. Expiry enforcement must skip successfully renewed terms, protect tenant admins and unrelated memberships, invalidate sessions only for policy-owned login disablement, and persist action provenance.

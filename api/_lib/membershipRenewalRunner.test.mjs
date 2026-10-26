@@ -23,7 +23,7 @@ function database({ tenants = [tenant()], initialState = {}, cap = 200, busy = f
       if (name === 'claim_membership_renewal_cron') {
         return Promise.resolve({ data: { claimed: !busy, state: clone(state) }, error: claimError });
       }
-      if (name === 'membership_renewal_cron_tenants') {
+      if (name === 'membership_renewal_cron_tenants_with_events') {
         return {
           order(column) { assert.equal(column, 'tenant_id'); return this; },
           async range(start, end) {
@@ -95,6 +95,34 @@ function rowsQuery(rows, cap = 100) {
   };
   return { factory, calls };
 }
+
+test('unresolved role events gate global and tenant health across resets and deferred slices', async () => {
+  const tenants = [{ ...tenant(), unresolved_role_events: 2 }];
+  for (const initialState of [{}, { tenants: { a: tenants[0] }, expiry: {} }]) {
+    const h = harness({ db: database({ tenants, initialState }) });
+    for (let i = 0; i < 2; i++) {
+      const result = await h.run({ limits: { workMs: 0 } });
+      assert.equal(result.healthy, false);
+      assert.equal(result.outcome, 'needs_review');
+      assert.equal(result.reviewCount, 2);
+      const logs = h.db.writes.filter(w => w.type === 'log').at(-1).row;
+      assert.equal(logs[0].status, 'partial');
+      assert.equal(JSON.parse(logs[0].details).unresolvedRoleEvents, 2);
+    }
+  }
+});
+
+test('completed role-event drain clears discovery count only after durable observation', async () => {
+  const tenants = [{ ...tenant(), unresolved_role_events: 1 }];
+  const h = harness({ db: database({ tenants }) });
+  const result = await h.run({ expiry: async (_db,_tenant,_results,_now,control) => {
+    await control.roleEventsObserved(0);
+    return complete();
+  } });
+  assert.equal(result.healthy, true);
+  assert.equal(result.reviewCount, 0);
+  assert.equal(h.db.state.tenants.a.unresolved_role_events, 0);
+});
 
 test('hourly expiry is independent of billing hours; due billing precedes expiry', async () => {
   const db = database({ tenants: [tenant('a', 6), tenant('b', 9)] });

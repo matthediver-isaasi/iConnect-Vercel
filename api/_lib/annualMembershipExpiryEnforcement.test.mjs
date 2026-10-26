@@ -18,9 +18,13 @@ before(async () => {
     await cp(new URL(file, import.meta.url), path.join(lib, file));
   }
   await cp(new URL('../../shared/rollingMembershipTerm.js', import.meta.url), path.join(root, 'shared/rollingMembershipTerm.js'));
+  await cp(new URL('../../shared/unverifiedMembershipHistory.js', import.meta.url), path.join(root, 'shared/unverifiedMembershipHistory.js'));
   await writeFile(path.join(lib, 'session.js'),
     'export const invalidateMemberSessions = () => { throw new Error("Real session effects forbidden"); };');
-  ({ processTenantAnnualExpirySweep: sweep } = await import(pathToFileURL(path.join(lib, 'annualMembershipExpiryEnforcement.js'))));
+  const { processTenantAnnualExpirySweep } = await import(pathToFileURL(path.join(lib, 'annualMembershipExpiryEnforcement.js')));
+  sweep = (db, tenant, results, now, options = {}) => processTenantAnnualExpirySweep(db, tenant, results, now, {
+    dispatchRoleEvents: async () => {}, ...options,
+  });
 });
 after(async () => { await rm(root, { recursive: true, force: true }); });
 
@@ -29,6 +33,19 @@ after(async () => { await rm(root, { recursive: true, force: true }); });
 function database(tables = {}, { cap = 1000, latency = 70, fail = () => false } = {}) {
   const state = { queries: [], elapsed: 0, tables, writes: [] };
   return Object.assign(state, {
+    async rpc(name, args) {
+      assert.equal(name, 'apply_annual_expiry_role');
+      const a = tables.membership_expiry_action?.find(a => a.id === args.p_action_id && a.tenant_id === args.p_tenant_id);
+      const m = tables.member?.find(m => m.id === a?.member_id && m.tenant_id === args.p_tenant_id);
+      if (a?.action_state === 'pending' && !a.role_event_state && a.assigned_role_id
+          && m && m.role_id === a.previous_role_id && m.role_id !== a.assigned_role_id) {
+        a.role_event_before = structuredClone(m);
+        m.role_id = a.assigned_role_id;
+        a.role_event_after = structuredClone(m);
+        a.role_event_state = 'pending';
+      }
+      return { error: null };
+    },
     from(table) {
       const filters = [];
       let limit = cap;
@@ -487,9 +504,22 @@ test('large organisation fanout resumes per member and completed actions are not
   // Last invalidation can precede a budget stop at completion-journal write.
   assert.ok([...calls.values()].filter(value => value > 1).length <= 1);
   assert.equal(tables.membership_expiry_action.length, 1031);
+  assert.ok(tables.membership_expiry_action.every(a => a.role_event_before.role_id === 'original'
+    && a.role_event_after.role_id === 'fallback'));
   const before = [...calls];
   await sweep(db, 'tenant', null, now, { invalidateSessions });
   assert.deepEqual([...calls], before);
+});
+
+test('login-only expiry and unchanged fallback roles never record role events', async () => {
+  for (const loginOnly of [true, false]) {
+    const tables = tablesFor([history()]);
+    if (loginOnly) tables.membership_tier_config[0].renewal_change_role = false;
+    else tables.member[0].role_id = 'fallback';
+    await sweep(database(tables), 'tenant', null, now, { invalidateSessions: async () => ({ success: true }) });
+    assert.equal(tables.membership_expiry_action[0].role_event_state, undefined);
+    assert.equal(tables.member[0].login_enabled, false);
+  }
 });
 
 test('interruption after mutation repairs from original journal; complete action survives failed history mark', async () => {

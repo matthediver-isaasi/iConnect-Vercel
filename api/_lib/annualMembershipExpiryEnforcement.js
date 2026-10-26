@@ -110,9 +110,16 @@ const TABLES = { member: 'member_membership_history', organisation: 'organisatio
 
 // Live capability is constructed by the cron with its injected DB/session
 // dispatcher. The preview passes only a recording effect capability.
-export function annualExpiryEffects(client, invalidateSessions) {
+export function annualExpiryEffects(client, invalidateSessions, dispatchRoleEvents) {
   return { async perform(operation) {
     const p = operation.payload;
+    if (operation.type === 'owner.expiry_role') {
+      return client.rpc('apply_annual_expiry_role', { p_tenant_id: p.tenantId, p_action_id: p.actionId });
+    }
+    if (operation.type === 'owner.expiry_workflows') {
+      if (!dispatchRoleEvents) throw new Error('Expiry workflow capability is not configured');
+      return dispatchRoleEvents(p);
+    }
     if (operation.type === 'owner.expiry_sessions') {
       if (!invalidateSessions) throw new Error('Expiry session capability is not configured');
       return invalidateSessions(p.memberId);
@@ -131,7 +138,7 @@ export function annualExpiryEffects(client, invalidateSessions) {
  * The budget is cooperative: no Promise.race leaves writes running in background.
  */
 export async function processTenantAnnualExpirySweep(client, tenantId, results = null, now = new Date(), options = {}) {
-  const effects = options.effects || annualExpiryEffects(client, options.invalidateSessions);
+  const effects = options.effects || annualExpiryEffects(client, options.invalidateSessions, options.dispatchRoleEvents);
   const trace = options.trace || (() => {});
   const skip = reason => trace({ stage: 'annual-expiry', status: 'skipped', reason });
   async function mutate(type, description, payload) {
@@ -268,7 +275,10 @@ export async function processTenantAnnualExpirySweep(client, tenantId, results =
     // made after preparation, including when repairing a killed invocation.
     const changes = [];
     if (action.login_disabled) changes.push(['login_enabled', action.previous_login_enabled, false]);
-    if (action.assigned_role_id) changes.push(['role_id', action.previous_role_id, action.assigned_role_id]);
+    if (action.assigned_role_id && action.previous_role_id !== action.assigned_role_id) {
+      guard();
+      await mutate('owner.expiry_role', 'Apply expiry role and persist transition', { tenantId, actionId: action.id });
+    }
     for (const [field, previous, target] of changes) {
       if (member[field] === target) continue;
       guard();
@@ -376,6 +386,8 @@ export async function processTenantAnnualExpirySweep(client, tenantId, results =
     await markHistory(history, 'expired');
   }
   try {
+    guard();
+    if (options.dispatchRoleEvents) await mutate('owner.expiry_workflows', 'Resume expiry role workflows', { tenantId, results, owner: options.owner, guard });
     // Revisit durable review identities independently of the traversal cursor.
     // Missing/deleted evidence never clears a review; a repaired, explicitly
     // assigned policy must successfully pass normal expiry processing first.
@@ -434,7 +446,11 @@ export async function processTenantAnnualExpirySweep(client, tenantId, results =
         return query;
       }, 'Could not load expiry candidates');
       if (!rows?.length) {
-        if (cursor.historyType === 'organisation') return { enforced, examined, complete: true, cursor: null };
+        if (cursor.historyType === 'organisation') {
+          guard();
+          if (options.dispatchRoleEvents) await mutate('owner.expiry_workflows', 'Deliver expiry role workflows', { tenantId, results, owner: options.owner, guard });
+          return { enforced, examined, complete: true, cursor: null };
+        }
         await checkpoint({ historyType: 'organisation', afterId: null });
         continue;
       }

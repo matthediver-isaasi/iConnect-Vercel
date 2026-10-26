@@ -124,7 +124,7 @@ export async function runMembershipRenewals({
       // Explicit pagination even if the server cap is smaller than PAGE_SIZE.
       let offset = state.discoveryOffset || 0;
       while (clock() < started + limits.discoveryMs) {
-        const rows = await checked(db.rpc('membership_renewal_cron_tenants')
+        const rows = await checked(db.rpc('membership_renewal_cron_tenants_with_events')
           .order('tenant_id', { ascending: true }).range(offset, offset + PAGE_SIZE - 1),
         'Tenant discovery failed', Math.min(limits.readMs, started + limits.discoveryMs - clock()));
         if (!rows?.length) {
@@ -234,6 +234,10 @@ export async function runMembershipRenewals({
       const sliceEnd = Math.min(started + limits.workMs, clock() + limits.tenantExpiryMs);
       const prior = state.expiry[tenantId] || {};
       const control = {
+        roleEventsObserved: async count => {
+          state.tenants[tenantId].unresolved_role_events = count;
+          await save();
+        },
         cursor: prior.cursor || null,
         reviewHistoryIds: [...(prior.reviewHistoryIds || [])],
         reviewRequired: async historyId => {
@@ -297,7 +301,8 @@ export async function runMembershipRenewals({
       ]);
       results.reviewCount = [...reviewTenants].reduce((count, id) => count
         + tenantRenewalReviews(state, id, clock()).length
-        + (state.expiry?.[id]?.reviewHistoryIds?.length || 0), 0);
+        + (state.expiry?.[id]?.reviewHistoryIds?.length || 0)
+        + Number(state.tenants?.[id]?.unresolved_role_events || 0), 0);
       diagnostic('finalization', 'start');
       const logRows = [];
       for (const tenantId of reviewTenants.size ? reviewTenants : [null]) {
@@ -305,7 +310,8 @@ export async function runMembershipRenewals({
           const reviews = tenantRenewalReviews(state, tenantId, clock());
           const reviewHistoryIds = state.expiry?.[tenantId]?.reviewHistoryIds || [];
           const errors = details.filter(d => !d.isolated && (d.error || d.status === 'error')).length;
-          const reviewCount = reviews.length + reviewHistoryIds.length;
+          const unresolvedRoleEvents = Number(state.tenants?.[tenantId]?.unresolved_role_events || 0);
+          const reviewCount = reviews.length + reviewHistoryIds.length + unresolvedRoleEvents;
           const deferred = state.billing?.[tenantId] && !state.billing[tenantId].done ? 1 : 0;
           const outcome = renewalOutcome({ errors, details, reviewCount, deferred });
           logRows.push({
@@ -313,7 +319,7 @@ export async function runMembershipRenewals({
             status: ['failed', 'stalled'].includes(outcome) ? 'error' : ['deferred', 'needs_review'].includes(outcome) ? 'partial' : 'success',
             details: JSON.stringify({
               outcome, duration_ms: clock() - started, errors, deferred, details,
-              reviewCount, reviews, reviewHistoryIds,
+              reviewCount, reviews, reviewHistoryIds, unresolvedRoleEvents,
               workerOutcome: renewalOutcome(results),
               workerAvailable: !['failed', 'stalled'].includes(renewalOutcome(results)),
               // These counters are whole-worker totals, not this tenant's totals.
