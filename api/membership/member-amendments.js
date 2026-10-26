@@ -3,10 +3,11 @@ import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tena
 import { AMENDMENT_UUID, createMemberAmendmentsService } from '../_lib/memberAmendments.js';
 import { createMemberChangeAuthorityService } from '../_lib/memberChangeAuthority.js';
 import { createMemberChangeAuthorityResolver } from '../_lib/memberChangeAuthorityResolver.js';
+import { createMemberChangeExecutionService } from '../_lib/memberChangeExecution.js';
 
 export function createMemberAmendmentsHandler({
   db = supabase, getContext = getTenantContext, isAdmin = hasAdminAccess,
-  hasFinance = hasFeatureAccess, service = null, authorityService = null,
+  hasFinance = hasFeatureAccess, service = null, authorityService = null, executionService = null,
 } = {}) {
   return async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -26,6 +27,11 @@ export function createMemberAmendmentsHandler({
       const actorId = context.tenantUserId || context.memberId;
       if (!actorId) return res.status(403).json({ error: 'An authenticated audit identity is required' });
       const amendments = service || createMemberAmendmentsService({ db });
+      if(req.method==='POST' && ['execute_change','resume_change'].includes(req.body?.action)) {
+        const execution=executionService || createMemberChangeExecutionService({db});
+        const actor={tenantId:context.tenantId,memberId:req.body.memberId,actorId,actorKind:'admin'};
+        return res.json(await execution[req.body.action==='execute_change'?'execute':'resume'](actor,req.body));
+      }
       if(req.method==='POST' && ['preview_change','confirm_change','recover_change'].includes(req.body?.action)) {
         if(!AMENDMENT_UUID.test(req.body?.memberId||'')) return res.status(400).json({error:'A valid memberId is required'});
         const authority=authorityService || createMemberChangeAuthorityService({

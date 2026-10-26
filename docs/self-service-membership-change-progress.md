@@ -45,8 +45,45 @@ A changed selection, actor or fingerprint conflicts; storage errors do not
 silently create a replacement request. This recovers confirmation only, never
 represents it as settlement or applied entitlement.
 
-Atomic membership finalization, execution-stage recovery and provider-hold
-release remain unfinished. The monthly operation migration remains unapplied.
+### Step 2: retained-term upfront execution
+
+`memberChangeExecution.js` now connects a confirmed authority to the existing
+settlement/application engine, instead of introducing a second entitlement
+reader. Finance-admin POST actions `execute_change` and `resume_change` accept
+memberId and authorityId. Execute additionally requires approve=true, a reason,
+and settlementChoice (`collect`, `refund` or `none`). The immutable execution
+link records explicit approval and the chosen rail. Conflicting legacy proposals
+remain blocked; generic settlement calls cannot override the approved choice.
+
+Supported execution is **retained-term, verified upfront personal annual rolling
+membership only**. Collection creates the existing additional-payment invoice;
+refund uses the existing verified manual, bank-reconciled refund process, not
+automatic cash transfer. Personal-credit issuance, replacement-term execution,
+cancellation and monthly provider changes remain blocked.
+
+Resume never initiates money. Existing reservations are reconciled read-only;
+only verified settled outcomes proceed through the existing atomic application
+RPC. Application, settlement state, audit event and notification are committed
+together. A failed final database write leaves settlement recoverable, and an
+already-applied operation returns its existing application. The existing cron
+now also resumes due approved executions within a shared invocation budget.
+
+`202612310024_member_change_execution.sql` was applied to live DEST on
+26 October 2026 after isolated tests and exact live prerequisite-function body
+comparisons. SHA-256:
+`a5cfc11777690802be5a927aff5f37d4193b0d253ca4ec1a50b30c409b48e866`.
+RLS, service-only RPC execution, SELECT-only service table access and denied
+anon/authenticated access were verified. Zero execution rows were created.
+The application code still requires deployment; no live financial calls were made.
+
+Real PostgreSQL tests inject a failure in the final notification insert to prove
+that application and state updates roll back together; concurrent retries then
+commit one application while leaving the original purchase unchanged.
+
+**Monthly provider-hold release remains unfinished and its migration remains
+unapplied.** Upfront purchases in this admitted scope have no recurring collection
+plan to release. These results must not be reported as completed monthly
+finalization or completion of the entire self-service feature.
 
 37 focused tests pass, including real PostgreSQL concurrent confirmation,
 stale target, actor ownership, immutable data, service grants, browser denial,

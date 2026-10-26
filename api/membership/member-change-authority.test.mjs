@@ -25,3 +25,22 @@ test('authority entry points enforce admin finance access and use session tenant
  context={isAuthenticated:false};assert.equal((await invoke('preview_change')).code,401);
  assert.equal(calls,3);
 });
+test('execution actions use the same tenant/admin/finance gate and authenticated actor',async()=>{
+ let context={isAuthenticated:true,tenantId:'tenant',tenantUserId:'actor'},allowed=true,calls=0;
+ const executionService=Object.fromEntries(['execute','resume'].map(name=>[name,async(actor)=>{
+   calls++;assert.deepEqual(actor,{tenantId:'tenant',memberId:member,actorId:'actor',actorKind:'admin'});
+   return {state:name};
+ }]));
+ const handler=createMemberAmendmentsHandler({db:{},service:{},executionService,getContext:async()=>context,
+   isAdmin:async()=>allowed,hasFinance:async()=>false});
+ const invoke=async action=>{
+   const res={status(code){this.code=code;return this},json(body){this.body=body;return this},setHeader(){}};
+   await handler({method:'POST',body:{action,memberId:member,actorId:'forged',tenantId:'forged'}},res);return res;
+ };
+ assert.equal((await invoke('execute_change')).body.state,'execute');
+ assert.equal((await invoke('resume_change')).body.state,'resume');
+ allowed=false;assert.equal((await invoke('execute_change')).code,403);
+ allowed=true;context={...context,roleId:'restricted'};assert.equal((await invoke('resume_change')).code,403);
+ context={...context,tenantMismatch:true};assert.equal((await invoke('execute_change')).code,409);
+ assert.equal(calls,2);
+});
