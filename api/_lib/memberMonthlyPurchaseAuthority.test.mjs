@@ -54,6 +54,29 @@ for(const [provider,dynamic] of [['stripe',false],['gocardless',false],['gocardl
    assert.ok(f.reads.every(read=>read.filters.tenant_id==='tenant' && read.filters.member_id==='member'));
  });
 }
+
+test('production source-funding join rejects settlement changes during invoice verification',async()=>{
+ const f=fixture('gocardless',true);
+ let reads=0,drift=false;
+ const service=createMemberMonthlyPurchaseAuthority({
+   db:f.db,now:()=>new Date('2026-02-15T12:00:00Z'),
+   getGc:async()=>({getMandate:async()=>({id:'mandate',status:'active',links:{customer:'payer'}})}),
+   monthly:{async prepare(input){
+     reads++;
+     return {funding:{sourceRecordId:input.purchase.id,agreementId:input.agreement.id,planId:input.plan.id,
+       provider:'gocardless',currency:'GBP',settledGrossMinor:1000,pendingGrossMinor:0,
+       payments:[{id:'PM1',date:'2026-01-31',amountMinor:drift&&reads%2===0?900:1000,settled:true}]}};
+   }},
+   historicalPrices:{async load(input,throughExclusiveDate){return {evidence:{
+     sourceRecordId:input.purchase.id,currency:'GBP',throughExclusiveDate,complete:true,
+     periods:[{evidenceId:'invoice',providerPaymentId:'PM1',collectionDate:'2026-01-31',
+       sourceRecordId:input.purchase.id,currency:'GBP',verified:true,netMinor:833,vatMinor:167,grossMinor:1000}],
+   }}}},
+ });
+ assert.equal((await service.reconcileFunding(f.request)).fundingEvidence.settledFunding[0].grossMinor,1000);
+ drift=true;
+ await assert.rejects(service.reconcileFunding(f.request),/settlement evidence changed/);
+});
 test('missing/changed consent, currencies, retry holds and ambiguous plans fail before provider reads',async()=>{
  for(const mutate of [
    f=>f.terms.commitment.term_key='different',

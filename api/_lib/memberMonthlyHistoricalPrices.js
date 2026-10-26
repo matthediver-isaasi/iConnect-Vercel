@@ -82,7 +82,8 @@ export function createMemberMonthlyHistoricalPrices({db,readInvoice=xeroInvoice}
       const start=membershipServiceAnniversary(term.startDate,ordinal-1);
       const end=membershipServiceAnniversary(term.startDate,ordinal);
       if(end>term.renewalDate)fail('A shortened final service period needs explicit period-price evidence.');
-      periods.push({ordinal,evidenceId:`${r.id}:${invoiceId}`,sourceRecordId:purchase.id,currency:authority.currency,
+      periods.push({ordinal,evidenceId:`${r.id}:${invoiceId}`,providerPaymentId:r.gocardless_payment_id,
+        collectionDate:payment.charge_date,sourceRecordId:purchase.id,currency:authority.currency,
         serviceStartDate:start,serviceEndExclusiveDate:end,verified:true,...amounts});
     }
     const evidence={sourceRecordId:purchase.id,currency:authority.currency,throughExclusiveDate,

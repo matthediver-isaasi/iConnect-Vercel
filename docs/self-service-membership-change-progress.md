@@ -1,5 +1,21 @@
 # Self-service membership changes: implementation boundary
 
+## Source cash/service reconciliation for monthly quotes
+
+The production purchase adapter now offers `reconcileFunding`: it joins
+independently verified provider receipts to the source-linked invoice net/VAT
+and historical service prices. An authorised invoice alone is never paid cash.
+Missing, duplicate, unsettled, mismatched or additional unpriced receipts prevent
+a complete funding result. Payment dates follow actual collection evidence;
+service consumed still follows original membership-start anniversaries.
+Provider funding is re-read after invoice verification to reject concurrent
+settlement changes.
+
+This currently admits the existing strict dynamic-DD/Xero historical-price
+scope only; it does not support voucher-reduced payments or other accounting
+providers. It does not implement a target monthly pricing quote, dynamic-DD
+revision execution or notifications, and it does not make Step 2 complete.
+
 ## Monthly execution coordinator
 
 `memberMonthlyChangeExecution.js` now coordinates confirmed authority, fresh

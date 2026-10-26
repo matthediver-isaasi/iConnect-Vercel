@@ -2,6 +2,7 @@ import {MonthlyAmendmentError,monthlyAmendmentFingerprint,
   createMemberAmendmentMonthlyService} from './memberAmendmentMonthly.js';
 import {monthlyStripeForTenant,monthlyGoCardlessForTenant} from './memberAmendmentMonthlyProviders.js';
 import {createMemberMonthlyHistoricalPrices} from './memberMonthlyHistoricalPrices.js';
+import {buildMemberMonthlyFundingEvidence} from './memberMonthlyFundingEvidence.js';
 
 const fail=message=>{throw new MonthlyAmendmentError('monthly_purchase_evidence_required',message);};
 const ref=value=>typeof value==='string'?value:value?.id;
@@ -23,6 +24,7 @@ function calendar(anchor,count) {
 // pricing resolver, not a browser. No route exposes prepared provider authority.
 export function createMemberMonthlyPurchaseAuthority({db,now=()=>new Date(),
   getStripe=monthlyStripeForTenant,getGc=monthlyGoCardlessForTenant,
+  historicalPrices=createMemberMonthlyHistoricalPrices({db}),
   monthly=createMemberAmendmentMonthlyService({getStripe,getGc,now})}) {
   async function rows(table,tenantId,memberId,filters={}) {
     const found=[];
@@ -154,6 +156,19 @@ export function createMemberMonthlyPurchaseAuthority({db,now=()=>new Date(),
   // Existing provider inspection independently verifies every generated payment,
   // notice date, schedule item and target price before producing prepared data.
   return {load,prepare:async request=>monthly.prepare(await load(request)),
+    reconcileFunding:async request=>{
+      const input=await load(request);
+      const prepared=await monthly.prepare(input);
+      const service=await historicalPrices.load(input,input.effectiveDate);
+      const fundingEvidence=buildMemberMonthlyFundingEvidence({input,funding:prepared.funding,service});
+      // Invoice verification can take several remote reads. A newly generated,
+      // refunded or settled collection must invalidate the assembled quote.
+      const fresh=await monthly.prepare(input);
+      if(monthlyAmendmentFingerprint(fresh.funding)!==monthlyAmendmentFingerprint(prepared.funding)) {
+        fail('Monthly settlement evidence changed during invoice verification; retry the preview.');
+      }
+      return {input,prepared,service,fundingEvidence};
+    },
     reconcileService:async(request,throughExclusiveDate)=>
       createMemberMonthlyHistoricalPrices({db}).load(await load(request),throughExclusiveDate)};
 }
