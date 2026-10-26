@@ -899,6 +899,7 @@ export default function DynamicPage() {
           page={page}
           symbols={pageData?.symbols}
           editorPreview={canPreviewDrafts && !forcePublicPreview}
+          auditPreviewView={canPreviewDrafts ? (forcePublicPreview || isPublicPage ? 'public' : 'member') : null}
         />
         </DirectoryCarouselBootstrapContext.Provider>
       </div>

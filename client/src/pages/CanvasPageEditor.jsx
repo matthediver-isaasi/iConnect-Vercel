@@ -35,6 +35,7 @@ import {
   validateCanvasDesign,
 } from "@/lib/canvasDesign";
 import { auditCanvasDesign, getBlockingIssues } from "@/lib/canvasA11y";
+import { assertPreviewIdentity, editableBlockMap, mapAuditResults, verifiedAuditTarget, highlightAuditTarget } from "@/lib/canvasRenderedAudit";
 import CanvasBuilder from "@/components/canvas/CanvasBuilder";
 import CanvasSymbolContentEditor from "@/components/canvas/CanvasSymbolContentEditor";
 import CanvasA11yPanel from "@/components/canvas/CanvasA11yPanel";
@@ -189,6 +190,9 @@ export default function CanvasPageEditorPage() {
     staleTime: 30_000,
   });
   const previewIframeRef = useRef(null);
+  const auditLockRef = useRef(false);
+  const clearHighlightRef = useRef(null);
+  useEffect(() => () => { clearHighlightRef.current?.(); }, [showAuditModal, previewView, previewNonce]);
   const [axeIssues, setAxeIssues] = useState(null); // null = never run
   const [axeRunning, setAxeRunning] = useState(false);
   const [axeStale, setAxeStale] = useState(false);
@@ -235,13 +239,15 @@ export default function CanvasPageEditorPage() {
   useEffect(() => {
     const onMessage = (e) => {
       const iframe = previewIframeRef.current;
-      if (!iframe || e.source !== iframe.contentWindow) return;
+      if (!iframe || e.origin !== window.location.origin || e.source !== iframe.contentWindow) return;
       const data = e.data;
       if (!data || data.type !== 'canvas-preview-ready') return;
       const sig = {
         nonce: data.nonce,
         publicView: !!data.publicView,
         at: Date.now(),
+        document: iframe.contentDocument,
+        runner: iframe.contentWindow.__canvasPreviewAudit,
       };
       previewReadyRef.current = sig;
       // Snapshot first — waiters may remove themselves during iteration.
@@ -269,6 +275,7 @@ export default function CanvasPageEditorPage() {
     const { nonce, publicView, timeoutMs = 8000 } = opts;
     const matches = (sig) => {
       if (!sig) return false;
+      if (sig.document !== previewIframeRef.current?.contentDocument) return false;
       if (nonce != null && sig.nonce !== nonce) return false;
       if (publicView != null && sig.publicView !== !!publicView) return false;
       return true;
@@ -289,7 +296,7 @@ export default function CanvasPageEditorPage() {
         done = true;
         readyWaitersRef.current.delete(onSig);
         // eslint-disable-next-line no-console
-        console.warn('[canvas-axe] preview-ready handshake timed out; scanning anyway');
+        console.warn('[canvas-axe] preview-ready handshake timed out; scan blocked');
         resolve({ ready: false, timedOut: true });
       }, timeoutMs);
     });
@@ -315,7 +322,8 @@ export default function CanvasPageEditorPage() {
     // count edits so the drawer can nudge for a re-run. Skip while viewing
     // a persisted past run — staleness there is meaningless. Read the
     // latest values off refs so this callback can stay identity-stable.
-    if (viewingRunIdRef.current == null && axeIssuesRef.current !== null) {
+    if (viewingRunIdRef.current == null && axeIssuesRef.current !== null
+      && JSON.stringify(canvasRef.current?.getDesign?.()) !== JSON.stringify(lastAxeDesignRef.current)) {
       setAxeStale(true);
       setEditsSinceAudit((n) => n + 1);
     }
@@ -911,7 +919,7 @@ export default function CanvasPageEditorPage() {
       timeoutMs: 8000,
     });
     if (result.timedOut) {
-      toast.message('Preview took longer than expected to finish rendering — the audit may not reflect the final page.');
+      throw new Error('Preview readiness timed out. Refresh and rerun.');
     }
     return result;
   }, [previewNonce, waitForPreviewReady]);
@@ -921,65 +929,21 @@ export default function CanvasPageEditorPage() {
   // used by both single- and dual-pass runs.
   const scanIframeWithAxe = useCallback(async (view) => {
     const iframe = previewIframeRef.current;
-    const doc = iframe?.contentDocument;
-    if (!doc) throw new Error('Preview is not loaded');
-    const axe = (await import('axe-core')).default;
-    // Use an explicit context-spec object so axe-core 4.10's
-    // normalizeRunParams reliably identifies the first arg as context
-    // (not options). Passing the raw iframe `document` trips
-    // "axe.run arguments are invalid" due to cross-realm instanceof
-    // checks — same issue we hit on the server-side runner.
-    const ctx = { include: [doc.documentElement] };
-    const results = await axe.run(ctx, {
-      runOnly: ['wcag2a', 'wcag2aa', 'best-practice'],
-      resultTypes: ['violations'],
-    });
-    const sevFromImpact = (impact) => {
-      if (impact === 'critical' || impact === 'serious') return 'error';
-      if (impact === 'moderate') return 'warning';
-      return 'info';
-    };
-    const blockMap = new Map();
+    const expected = { pageId, nonce: previewNonce, view };
+    const { doc, runner } = assertPreviewIdentity(iframe, previewReadyRef.current, expected);
+    let timer;
+    let results;
     try {
-      const design = canvasRef.current?.getDesign?.();
-      const visit = (b) => {
-        if (!b) return;
-        if (b.id) blockMap.set(b.id, b.name || b.type || b.id);
-        (b.children || []).forEach(visit);
-      };
-      (design?.root?.children || []).forEach(visit);
-    } catch { /* best-effort */ }
-    const blockIdForNode = (target) => {
-      const sel = Array.isArray(target) ? target[target.length - 1] : target;
-      if (!sel || typeof sel !== 'string') return null;
-      let el = null;
-      try { el = doc.querySelector(sel); } catch { return null; }
-      while (el && el !== doc.documentElement) {
-        const id = el.getAttribute && el.getAttribute('data-block-id');
-        if (id) return id;
-        el = el.parentElement;
-      }
-      return null;
-    };
-    return (results.violations || []).flatMap((v) =>
-      v.nodes.map((n) => {
-        const blockId = blockIdForNode(n.target);
-        const selector = Array.isArray(n.target) ? n.target : (n.target ? [String(n.target)] : []);
-        return {
-          blockId,
-          blockName: blockId ? (blockMap.get(blockId) || null) : null,
-          rule: `axe:${v.id}`,
-          severity: sevFromImpact(v.impact),
-          message: v.help || v.description || v.id,
-          selector,
-          html: n.html || null,
-          helpUrl: v.helpUrl || null,
-          target: n.target || null,
-          view,
-        };
-      }),
-    );
-  }, []);
+      results = await Promise.race([
+        runner.run(),
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Audit timed out. Refresh and rerun.')), 30000); }),
+      ]);
+    } finally { clearTimeout(timer); }
+    if (iframe !== previewIframeRef.current) throw new Error('Preview frame replaced. Rerun.');
+    const current = assertPreviewIdentity(iframe, previewReadyRef.current, expected);
+    if (current.runner !== runner) throw new Error('Preview changed during scan. Rerun.');
+    return mapAuditResults(results, doc, editableBlockMap(canvasRef.current?.getDesign?.()), view);
+  }, [pageId, previewNonce]);
 
   // Core audit runner. Sequentially audits each applicable view (member +
   // public for hybrid pages, otherwise just one view) and concatenates
@@ -987,11 +951,15 @@ export default function CanvasPageEditorPage() {
   // abort the other view's pass — they just leave that view's findings
   // empty and surface a partial-failure toast.
   const runAxeOnPreview = useCallback(async ({ silent = false } = {}) => {
+    if (auditLockRef.current) return null;
     const iframe = previewIframeRef.current;
     if (!iframe) {
       if (!silent) toast.error('Preview is not loaded yet. Try again in a moment.');
       return null;
     }
+    auditLockRef.current = true;
+    const scannedDesign = canvasRef.current?.getDesign?.();
+    clearHighlightRef.current?.();
     setAxeRunning(true);
     const initialView = viewsToAudit[0];
     const errorViews = [];
@@ -1013,7 +981,7 @@ export default function CanvasPageEditorPage() {
           timeoutMs: 8000,
         });
         if (r.timedOut) {
-          toast.message('Preview took longer than expected to finish rendering — the audit may not reflect the final page.');
+          throw new Error('Preview readiness timed out. Refresh and rerun.');
         }
       }
       // Pass 1: scan the iframe in its current state (which now matches
@@ -1042,15 +1010,19 @@ export default function CanvasPageEditorPage() {
         try { await reloadIframeForView(initialView); } catch { /* ignore */ }
       }
 
+      if (previewIframeRef.current !== iframe || !iframe.isConnected) throw new Error('Preview closed or replaced. Rerun the audit.');
+      if (JSON.stringify(scannedDesign) !== JSON.stringify(canvasRef.current?.getDesign?.())) {
+        throw new Error('The design changed during the audit. Save and rerun.');
+      }
       setAxeIssues(allIssues);
-      setAxeStale(false);
+      setAxeStale(errorViews.length > 0);
       setEditsSinceAudit(0);
       setAxeLastRunAt(Date.now());
       setAxeFailedViews(errorViews);
       setViewingRunId(null);
       lastAxeDesignRef.current = canvasRef.current?.getDesign?.() || null;
 
-      if (pageId) {
+      if (pageId && errorViews.length === 0) {
         try {
           const resp = await fetch(`/api/canvas-page-audits/${encodeURIComponent(pageId)}`, {
             method: 'POST',
@@ -1097,10 +1069,14 @@ export default function CanvasPageEditorPage() {
       }
       return allIssues;
     } catch (err) {
+      setAxeIssues(null);
+      setAxeStale(true);
+      setAxeFailedViews(viewsToAudit);
       console.error('[canvas-axe] axe.run failed', err);
       if (!silent) toast.error('Audit failed — see browser console for details.');
       return null;
     } finally {
+      auditLockRef.current = false;
       setAxeRunning(false);
     }
   }, [pageId, queryClient, viewsToAudit, previewView, previewNonce, scanIframeWithAxe, reloadIframeForView, waitForPreviewReady]);
@@ -1124,6 +1100,16 @@ export default function CanvasPageEditorPage() {
 
   const handleLocateIssue = useCallback((issue) => {
     if (!issue || !issue.blockId) return;
+    if (issue.rule?.startsWith('axe:') && (!issue.evidenceVersion || axeStale || viewingRunId)) {
+      toast.error('This target is stale or historical. Rerun the audit before locating it.');
+      return;
+    }
+    if (!editableBlockMap(canvasRef.current?.getDesign?.()).has(issue.blockId)) {
+      toast.error('This block no longer exists. Rerun the audit.');
+      return;
+    }
+    setShowAuditModal(false);
+    setShowAuditDrawer(false);
     // The fix has to be made on the canvas editing surface, so Locate
     // selects + scrolls + pulses the block here. The preview iframe is
     // intentionally left alone.
@@ -1151,7 +1137,25 @@ export default function CanvasPageEditorPage() {
         try { el.classList.remove('canvas-locate-pulse'); } catch { /* ignore */ }
       }, 1600);
     }, 80);
-  }, []);
+  }, [axeStale, viewingRunId]);
+
+  const handleShowInPreview = async (issue) => {
+    if (auditLockRef.current) return;
+    setShowAuditDrawer(false);
+    setPreviewView(issue.view);
+    setShowAuditModal(true);
+    try {
+      // Let React mount the modal before subscribing to its readiness signal.
+      await new Promise(resolve => setTimeout(resolve, 0));
+      const ready = await waitForPreviewReady({ nonce: previewNonce, publicView: issue.view === 'public' });
+      if (!ready.ready) throw new Error('Preview is not ready. Refresh and rerun the audit.');
+      const { doc } = assertPreviewIdentity(previewIframeRef.current, previewReadyRef.current,
+        { pageId, nonce: previewNonce, view: issue.view });
+      const el = verifiedAuditTarget(doc, issue);
+      clearHighlightRef.current?.();
+      clearHighlightRef.current = highlightAuditTarget(el);
+    } catch (error) { toast.error(error.message); }
+  };
 
   // Fires when the preview iframe finishes loading. Used to kick off an
   // auto-audit once the SPA inside the iframe has fully mounted. The
@@ -1455,7 +1459,9 @@ export default function CanvasPageEditorPage() {
             }
           >
             <FileText className="w-4 h-4 mr-2" />
-            {!axeSummary ? (
+            {axeFailedViews.length > 0 ? (
+              <span className="text-destructive">Audit incomplete — rerun</span>
+            ) : !axeSummary ? (
               <span className="text-slate-700" data-testid="badge-axe-summary-empty">
                 Audit report
               </span>
@@ -2092,7 +2098,7 @@ export default function CanvasPageEditorPage() {
                 : null;
               const runFailedViews = Array.isArray(activeRun?.failed_views)
                 ? activeRun.failed_views
-                : [];
+                : axeFailedViews;
               const countsFor = (v) => {
                 if (runViewCounts && runViewCounts[v]) return runViewCounts[v];
                 return issuesForView(v).reduce(
@@ -2230,6 +2236,9 @@ export default function CanvasPageEditorPage() {
                       <div data-testid={`audit-view-pane-${auditViewTab}`}>
                         <CanvasA11yPanel
                           issues={issuesForView(auditViewTab)}
+                          scanFailed={runFailedViews.includes(auditViewTab)}
+                          onShowInPreview={handleShowInPreview}
+                          onRerun={handleRunFullAudit}
                           selectedIds={[]}
                           onLocate={onLocate}
                         />
@@ -2246,6 +2255,9 @@ export default function CanvasPageEditorPage() {
                       </div>
                       <CanvasA11yPanel
                         issues={issuesForView(effectiveViews[0])}
+                        scanFailed={runFailedViews.includes(effectiveViews[0])}
+                        onShowInPreview={handleShowInPreview}
+                        onRerun={handleRunFullAudit}
                         selectedIds={[]}
                         onLocate={onLocate}
                       />

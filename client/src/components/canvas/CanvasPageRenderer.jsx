@@ -27,6 +27,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import CanvasFlowStage from "./CanvasFlowStage";
 import { CanvasEditorPageProvider } from "./CanvasEditorPageContext";
 import { useLayoutContext } from "@/contexts/LayoutContext";
+import { installPreviewAudit } from "@/lib/canvasRenderedAudit";
 
 // Phase 7 — Hooks that fetch the tenant Canvas theme and any referenced
 // symbols. Both are best-effort; failures degrade to "no theme" and
@@ -562,6 +563,7 @@ function CanvasPageRendererContent({
   forceBreakpoint,
   embedded = false,
   editorPreview = false,
+  auditPreviewView = null,
 }) {
   const baseDesign = useMemo(() => normalizeCanvasDesign(page?.canvas_design), [page?.canvas_design]);
   // Task #2570 — v2 (flow / auto-layout) documents take a separate render path
@@ -656,7 +658,7 @@ function CanvasPageRendererContent({
   // land asynchronously) so the editor's last-known ready signal always
   // reflects the latest stable render.
   useEffect(() => {
-    if (typeof window === 'undefined' || window.parent === window) return;
+    if (!auditPreviewView || typeof window === 'undefined' || window.parent === window) return;
     let nonce;
     let publicView;
     try {
@@ -670,13 +672,15 @@ function CanvasPageRendererContent({
       return;
     }
     let cancelled = false;
+    let disposeRunner;
     const rafIds = [];
     const send = () => {
       if (cancelled) return;
       try {
+        disposeRunner = installPreviewAudit({ nonce, view: auditPreviewView, pageId: page.id });
         window.parent.postMessage(
           { type: 'canvas-preview-ready', nonce, publicView },
-          '*',
+          window.location.origin,
         );
       } catch { /* cross-origin parents will just miss the signal */ }
     };
@@ -708,10 +712,11 @@ function CanvasPageRendererContent({
     const t = setTimeout(ready, 0);
     return () => {
       cancelled = true;
+      disposeRunner?.();
       clearTimeout(t);
       rafIds.forEach((id) => cancelAnimationFrame(id));
     };
-  }, [design, hasBlocks]);
+  }, [design, hasBlocks, auditPreviewView, page?.id]);
 
   // Task #2570 — v2 (flow) render path. Same outer scaffold (scope id,
   // skip-link, a11y + theme CSS) as the v1 path, but the stage is laid out by

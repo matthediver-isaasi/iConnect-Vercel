@@ -45,6 +45,9 @@ export default function CanvasA11yPanel({
   issues,
   selectedIds,
   onLocate,
+  onShowInPreview,
+  onRerun,
+  scanFailed = false,
   onAutoOrder,
   canAutoOrder = false,
   showReadingOrder = false,
@@ -137,7 +140,9 @@ export default function CanvasA11yPanel({
         </div>
       )}
 
-      {issues.length === 0 ? (
+      {scanFailed ? (
+        <p role="alert">This view could not be audited. Refresh the preview and rerun; no clean result is available.</p>
+      ) : issues.length === 0 ? (
         <div
           className="text-xs text-slate-600 px-2 py-3 rounded border border-emerald-200 bg-emerald-50"
           data-testid="a11y-empty"
@@ -154,15 +159,16 @@ export default function CanvasA11yPanel({
               {g.items.map((it, idx) => {
                 const Icon = SEV_ICON[it.severity] || Info;
                 const isSelected = it.blockId && selectedIds?.includes(it.blockId);
-                const canJump = !!it.blockId;
+                const rendered = it.rule?.startsWith('axe:');
+                const canJump = !!it.blockId && (!rendered || !!it.evidenceVersion);
                 const selector = Array.isArray(it.selector)
                   ? it.selector.join(' ')
                   : (it.selector || '');
                 const canLocate = !!onLocate && canJump;
-                const showDisabledLocate = !!onLocate && !canJump;
                 const handleRowClick = canLocate ? () => onLocate?.(it) : undefined;
                 const handleRowKey = canLocate
                   ? (e) => {
+                      if (e.target !== e.currentTarget) return;
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
                         onLocate?.(it);
@@ -191,6 +197,14 @@ export default function CanvasA11yPanel({
                           </div>
                         )}
                         <div className="text-slate-700">{it.message}</div>
+                        {it.elementLabel && <div className="mt-1 break-words font-medium">{it.elementLabel}</div>}
+                        {it.failureSummary && <p className="mt-1 whitespace-pre-wrap">{it.failureSummary}</p>}
+                        {it.checks?.map((check, index) => (
+                          <div key={index} className="mt-1">
+                            <p>{check.message}</p>
+                            {check.data && <pre className="whitespace-pre-wrap break-all text-[10px]">{JSON.stringify(check.data, null, 2)}</pre>}
+                          </div>
+                        ))}
                         {!it.blockId && selector && (
                           <div
                             className="text-[10px] text-slate-600 mt-1 font-mono break-all"
@@ -238,24 +252,17 @@ export default function CanvasA11yPanel({
                               Locate
                             </Button>
                           )}
-                          {showDisabledLocate && (
-                            <span
-                              className="inline-flex"
-                              title="This issue applies to the whole page — there is no specific block to locate."
-                              data-testid={`a11y-issue-locate-disabled-wrapper-${it.rule}`}
-                            >
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-6 px-2 text-[11px] pointer-events-none"
-                                disabled
-                                tabIndex={-1}
-                                data-testid={`a11y-issue-locate-disabled-${it.rule}`}
-                              >
-                                <Crosshair className="w-3 h-3 mr-1" />
-                                No block to locate
-                              </Button>
-                            </span>
+                          {it.scope === 'element' && it.evidenceVersion && onShowInPreview && (
+                            <Button size="sm" variant="outline" onClick={() => onShowInPreview(it)}>Show in preview</Button>
+                          )}
+                          {it.scope === 'document' && (
+                            <p>This affects the preview document or page shell, not one editable block. Update page settings or the shared layout using the failure details above.</p>
+                          )}
+                          {rendered && (!it.evidenceVersion || it.scope === 'unresolved') && (
+                            <p>The target could not be verified (older audit, missing element or unsupported path). This is not necessarily a whole-page issue.</p>
+                          )}
+                          {rendered && onRerun && (
+                            <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); onRerun(); }}>Rerun audit</Button>
                           )}
                         </div>
                       </div>
