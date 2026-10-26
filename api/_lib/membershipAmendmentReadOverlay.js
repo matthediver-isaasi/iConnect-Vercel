@@ -1,4 +1,5 @@
 // Read-only entitlement projection. Never replace original purchase economics.
+import { isPersonalMonthlyHistory, resolveMonthlyEntitlements } from './memberMonthlyEntitlement.js';
 // Deliberately dependency-light: payment/settlement/provider modules are not imported.
 // Never use a blanket "readers ready" flag. Core must check BOTH source and
 // target with assessMemberAmendmentOperationalScope at proposal and apply.
@@ -108,6 +109,9 @@ export function projectMemberAmendmentReadOverlay(history, application, {
 
 export async function resolveMemberAmendmentReadOverlay({ db, tenantId, history,
   asOf = new Date().toISOString().slice(0, 10), renewal = false }) {
+  if (isPersonalMonthlyHistory(history)) {
+    return (await resolveMonthlyEntitlements({ db, tenantId, history: [history], asOf, renewal }))[0];
+  }
   if (!supportsMemberAmendmentReadOverlay(history)) return history;
   if (history.tenant_id !== tenantId) fail('Membership amendment read tenant mismatch');
   const { data, error } = await db.from('member_membership_amendment_application').select('*')
@@ -159,7 +163,8 @@ export async function resolveMemberAmendmentReadOverlaysBatched({ db, tenantId, 
       if (data.length < 500) break;
     }
   }
-  return history.map(row => projectMemberAmendmentReadOverlay(row, applications.get(row.id), { tenantId, asOf }));
+  const projected = history.map(row => projectMemberAmendmentReadOverlay(row, applications.get(row.id), { tenantId, asOf }));
+  return resolveMonthlyEntitlements({ db, tenantId, history: projected, asOf });
 }
 
 export function effectiveMemberEntitlement(history) {

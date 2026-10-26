@@ -1,5 +1,46 @@
 # Self-service membership changes: implementation boundary
 
+## Monthly operational entitlement projection
+
+The shared single-member and batched reporting readers can now project a
+finalized monthly operation's effective-dated membership scope while retaining
+the original purchase amounts, invoice linkage and consent snapshot. Future
+changes are not promoted early; expired changes remain audit evidence only,
+except that renewal resolution can select the last purchased scope.
+Provider-applied is not finalized and cannot grant membership.
+
+The required finalization payload is deliberately explicit:
+`operation.evidence.application` contains operationId, effectiveDate, expiresOn,
+appliedAt and targetSnapshot (config/band). It must match the operation's
+persisted source purchase/agreement/plan and the original renewal boundary.
+Only one finalized operation per purchase is currently supported; ambiguous
+rows fail closed instead of selecting a winner.
+
+The draft `202612310025_member_monthly_finalization.sql` emits this payload
+atomically with operation finalization (which releases the collection hold)
+and the audit event. It admits only fixed monthly retained-term changes with
+confirmed administrative authority, no surplus or carried prepaid value, no unresolved funding blockers,
+exact approved/provider future obligation, and unchanged source/target evidence.
+The internal `finalize` method re-reads the provider before calling it. SQL
+rejects provider evidence older than sixty seconds.
+
+Administrative finalization approval is stored immutably before reconciliation,
+with tenant/operation/actor/reason binding. The scheduled recovery job can finish
+only these approved operations; it never invents approval or starts provider
+money movement. Uncertain outcomes stay held. A failed application remains in
+the pending queue; a committed application disappears from it atomically.
+
+Real isolated PostgreSQL tests verify injected final-audit failure rolls back
+application and leaves the hold intact, concurrent finalization is idempotent,
+uncertain outcomes cannot apply, original purchase evidence remains unchanged,
+and anon/authenticated roles cannot invoke the RPC.
+
+This is not an enabled monthly execution path. Production monthly confirmation
+authority, dynamic collection revision pinning, collector/retry pricing-reader
+audit, notifications and end-to-end production integration still need completion
+before either monthly migration can be applied. No live database migration or
+financial operation was performed.
+
 ## Scheduled monthly provider reconciliation
 
 The existing authenticated amendment cron now includes bounded recovery of

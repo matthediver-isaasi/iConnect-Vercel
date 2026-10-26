@@ -45,6 +45,13 @@ function fixture() {
         row.evidence = args.p_result;
         return { data: structuredClone(row) };
       }
+      if (name === 'finalize_member_monthly_amendment') {
+        assert.equal(row.state, 'provider_applied');
+        row.state = 'finalized';
+        row.evidence.application = { operationId: row.id, reason: args.p_reason };
+        return { data: structuredClone(row.evidence.application) };
+      }
+      if (name === 'approve_member_monthly_finalization') return { data: { operation_id: row.id } };
       throw Error(name);
     },
   };
@@ -101,4 +108,20 @@ test('dynamic revisions remain blocked before reservation; absent actor cannot r
   f.monthly.prepare=async()=>({mutation:{kind:'dynamic_revision_required'}});
   await assert.rejects(f.service.execute({input:f.input,actorId:'actor'}),{code:'dynamic_revision_required'});
   assert.equal(f.row(),null);
+});
+test('local finalization requires approval and a fresh read-only provider reconciliation', async () => {
+  const f=fixture();
+  await f.service.execute({input:f.input,actorId:'actor'});
+  const args={tenantId:'tenant',memberId:'member',actorId:'actor',key:'operation-key',reason:'Approved'};
+  await assert.rejects(f.service.finalize({...args,reason:''}),{code:'approval_required'});
+  f.monthly.reconcile=async()=>({status:'uncertain'});
+  await assert.rejects(f.service.finalize(args),{code:'provider_outcome_unresolved'});
+  assert.ok(!f.calls.includes('finalize_member_monthly_amendment'));
+  f.monthly.reconcile=async()=>{f.calls.push('fresh-read');return {status:'provider_applied'}};
+  const application=await f.service.finalize(args);
+  assert.equal(application.operationId,'operation');
+  assert.ok(f.calls.indexOf('fresh-read')<f.calls.indexOf('finalize_member_monthly_amendment'));
+  assert.deepEqual(await f.service.finalize(args),application);
+  assert.equal(f.calls.filter(c=>c==='apply').length,1);
+  assert.equal(f.calls.filter(c=>c==='finalize_member_monthly_amendment').length,1);
 });

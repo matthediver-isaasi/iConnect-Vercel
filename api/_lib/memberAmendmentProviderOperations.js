@@ -55,6 +55,34 @@ export function createMemberAmendmentProviderOperations({
     checkBinding(operation, tenantId, memberId);
     return reconcile(operation, actorId);
   }
+  async function finalize({ tenantId, memberId, actorId, key, reason }) {
+    if (typeof reason !== 'string' || !reason.trim() || reason.trim().length > 2000) {
+      throw new MonthlyAmendmentError('approval_required', 'An explicit administrative approval reason is required.');
+    }
+    if (!actorId) throw new MonthlyAmendmentError('actor_required', 'An authenticated audit identity is required.');
+    const saved = await load(tenantId, memberId, key);
+    checkBinding(saved, tenantId, memberId);
+    await rpc('approve_member_monthly_finalization', {
+      p_tenant_id: tenantId, p_operation_id: saved.id,
+      p_actor_id: actorId, p_reason: reason.trim(),
+    });
+    // Re-read the provider immediately before local application. A stored
+    // success from an earlier invocation is not fresh settlement evidence.
+    const operation = await resume({ tenantId, memberId, actorId, key });
+    if (operation.state === 'finalized') {
+      if (!operation.evidence?.application) {
+        throw new MonthlyAmendmentError('operation_evidence_changed', 'Finalized operation is missing its membership application.');
+      }
+      return operation.evidence.application;
+    }
+    if (operation.state !== 'provider_applied') {
+      throw new MonthlyAmendmentError('provider_outcome_unresolved', 'The collection hold remains until the provider outcome is verified.');
+    }
+    return rpc('finalize_member_monthly_amendment', {
+      p_tenant_id: tenantId, p_operation_id: operation.id,
+      p_actor_id: actorId, p_reason: reason.trim(),
+    });
+  }
   async function execute({ input, actorId }) {
     if (!actorId) throw new MonthlyAmendmentError('actor_required', 'An authenticated audit identity is required.');
     const { tenantId, memberId, amendmentId: key } = input;
@@ -96,5 +124,5 @@ export function createMemberAmendmentProviderOperations({
     // Subsequent requests run read-only reconciliation; never a second write.
     return persistOutcome(operation, actorId, outcome);
   }
-  return { execute, resume };
+  return { execute, resume, finalize };
 }
