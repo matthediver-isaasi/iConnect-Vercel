@@ -195,6 +195,33 @@ test('fixed DD fails closed outside provider notice window', async () => {
   await rejects(service.prepare(input), 'gc_notice_or_boundary');
 });
 
+test('monthly funding distinguishes submitted Direct Debits from settled cash without inventing usable credit',async()=>{
+ const {input,state,service}=fixture('gocardless');
+ state.payments[0].status='submitted';
+ const prepared=await service.prepare(input);
+ assert.equal(prepared.quote.retainedMinor,1000); // Preserved generated obligation, not cash.
+ assert.equal(prepared.funding.settledGrossMinor,0);
+ assert.equal(prepared.funding.pendingGrossMinor,1000);
+ assert.equal(prepared.funding.usableCreditMinor,null);
+ assert.equal(prepared.funding.sourceRecordId,input.purchase.id);
+ assert.equal(state.writes.length,0);
+ state.payments[0].status='paid_out';
+ const quote=await service.quote(input);
+ assert.equal(quote.funding.settledGrossMinor,1000);
+ assert.equal(quote.funding.pendingGrossMinor,0);
+ assert.equal(quote.funding.requiresServiceReconciliation,true);
+ assert.equal(quote.funding.usableCreditMinor,null);
+});
+test('card funding reports independently verified paid invoices, not the future schedule value',async()=>{
+ const {input,state,service}=fixture();
+ const prepared=await service.prepare(input);
+ assert.equal(prepared.funding.settledGrossMinor,1000);
+ assert.equal(prepared.funding.pendingGrossMinor,0);
+ assert.equal(prepared.funding.usableCreditMinor,null);
+ assert.equal(prepared.funding.payments[0].id,'in-jan');
+ assert.equal(state.writes.length,0);
+});
+
 test('annual nonuniform remainder requires explicit finance review', async () => {
   const { input, service } = fixture();
   input.target.termTotalMinor = 4001;

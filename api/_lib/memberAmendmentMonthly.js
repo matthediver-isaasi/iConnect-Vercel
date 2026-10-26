@@ -15,6 +15,20 @@ const canonical = value => Array.isArray(value) ? value.map(canonical)
 export const monthlyAmendmentFingerprint = value =>
   createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex');
 const positive = value => Number.isSafeInteger(value) && value > 0;
+function fundingEvidence(input, payments) {
+  const total = rows => {
+    const sum=rows.reduce((amount,p)=>amount+p.amountMinor,0);
+    if(!Number.isSafeInteger(sum)) block('invalid_amount','Payment evidence exceeds exact minor-unit bounds');
+    return sum;
+  };
+  const settled=payments.filter(p=>p.settled),pending=payments.filter(p=>!p.settled);
+  return {sourceRecordId:input.purchase.id,agreementId:input.agreement.id,planId:input.plan.id,
+    currency:input.authority.currency,provider:input.authority.provider,
+    payments,settledGrossMinor:total(settled),pendingGrossMinor:total(pending),
+    // Gross cash receipt is not unused value. Net/tax allocation, prior credit
+    // and delivered-service liabilities still need their accounting resolver.
+    usableCreditMinor:null,requiresServiceReconciliation:true};
+}
 const date = value => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value || '') || !Number.isFinite(Date.parse(`${value}T00:00:00Z`))
     || new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) !== value) {
@@ -237,7 +251,8 @@ async function inspectStripe(input, stripe, now) {
     || boundaries[effectiveAt] !== timestamp || expectedEnd !== auth.finiteEnd) {
     block('billing_boundary_required', 'Purchased collection dates/end do not match the provider monthly anchor');
   }
-  return { sub, schedule, immutable, timestamp };
+  return { sub, schedule, immutable, timestamp,
+    funding:fundingEvidence(input,immutable.map(payment=>({...payment,status:'paid',settled:true}))) };
 }
 
 async function inspectGc(input, gc) {
@@ -268,7 +283,11 @@ async function inspectGc(input, gc) {
     }
     return { id: p.id, date: p.charge_date, amountMinor: p.amount };
   }).sort((x, y) => x.date.localeCompare(y.date));
-  if (dynamic) return { mandate, immutable, dynamic: true };
+  const funding=fundingEvidence(input,immutable.map(payment=>{
+    const status=payments.find(p=>p.id===payment.id).status;
+    return {...payment,status,settled:['confirmed','paid_out'].includes(status)};
+  }));
+  if (dynamic) return { mandate, immutable, dynamic: true, funding };
   if (!subscriptionId) block('subscription_required', 'Fixed DD requires an existing provider subscription');
   const subscription = await gc.getSubscription(subscriptionId);
   if (subscription.id !== subscriptionId || subscription.status !== 'active'
@@ -283,7 +302,7 @@ async function inspectGc(input, gc) {
     || !positive(subscription.amount)) {
     block('gc_commitment_mismatch', 'Provider subscription count does not match the purchased finite collection obligation');
   }
-  return { mandate, subscription, immutable, dynamic: false };
+  return { mandate, subscription, immutable, dynamic: false, funding };
 }
 
 export function createMemberAmendmentMonthlyService({
@@ -355,7 +374,7 @@ export function createMemberAmendmentMonthlyService({
       }
       mutation = { kind: 'gc_amount', id: evidence.subscription.id, amountMinor: quote.amountMinor };
     }
-    const prepared = { version: 1, input: structuredClone(input), quote, mutation,
+    const prepared = { version: 1, input: structuredClone(input), quote, mutation, funding:evidence.funding,
       before: monthlyAmendmentFingerprint(evidence), immutable: evidence.immutable,
       idempotencyKey: `member-amend-monthly:${monthlyAmendmentFingerprint({
         tenant: input.tenantId, amendment: input.amendmentId, plan: input.plan.id,
@@ -432,6 +451,6 @@ export function createMemberAmendmentMonthlyService({
     const prepared = await prepare(input);
     return { ...prepared.quote, supported: prepared.mutation.kind !== 'dynamic_revision_required',
       blocker: prepared.mutation.kind === 'dynamic_revision_required' ? 'dynamic_revision_required' : null,
-      provider: input.authority.provider, providerEvidenceFingerprint: prepared.before };
+      provider: input.authority.provider, providerEvidenceFingerprint: prepared.before, funding:prepared.funding };
   }, apply, reconcile };
 }

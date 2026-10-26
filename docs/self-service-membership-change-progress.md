@@ -85,6 +85,36 @@ unapplied.** Upfront purchases in this admitted scope have no recurring collecti
 plan to release. These results must not be reported as completed monthly
 finalization or completion of the entire self-service feature.
 
+### Monthly purchase evidence adapter
+
+`memberMonthlyPurchaseAuthority.js` loads the single current purchase, consent
+agreement and payment plan using paged tenant/member-scoped reads. It verifies
+the saved term, currency, instalment count, personal ownership, environment and
+provider linkage before deriving a finite calendar from the provider schedule
+or the original dynamic plan anchor. Month-end dates are clamped independently
+from the original anchor, not accumulated from February.
+
+Its read-only `prepare` method calls the existing monthly provider inspector.
+Targets must still come from a trusted server pricing resolver; this internal
+adapter is not exposed as a browser endpoint and does not enable execution.
+Initial one-off DD payments are reconciled separately against the provider's
+settled payment, saved date, mandate, amount and currency. Their date is
+preserved independently from the recurring subscription's calendar. Dynamic
+collection-day changes use the existing collector SQL history resolver; a
+concurrent plan change causes the evidence load to fail rather than returning a
+mixed calendar. Unverifiable histories remain blocked.
+
+Monthly prepared evidence now separates settled gross receipts from submitted
+or pending Direct Debits. Generated obligations remain immutable, but are not
+reported as paid money. Usable credit remains null pending independent
+delivered-service, tax and prior-credit reconciliation. No annual-price/12
+assumption is used to fabricate credit.
+
+48 isolated monthly/provider-operation/execution tests pass. No migration was
+needed for these evidence helpers and no live provider calls were made.
+Effective-dated pricing revisions, their reservation bridge, monthly entitlement
+readers, atomic finalization and hold release remain unfinished.
+
 37 focused tests pass, including real PostgreSQL concurrent confirmation,
 stale target, actor ownership, immutable data, service grants, browser denial,
 legacy conflict and changed-evidence refusal. These do not constitute provider
