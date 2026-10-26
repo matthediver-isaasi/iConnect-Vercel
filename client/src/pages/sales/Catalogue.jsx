@@ -20,6 +20,8 @@ import { getSalesCataloguePath } from "@/lib/salesNavigation";
 import { catalogueCodeError, normaliseCatalogueCode, suggestedCatalogueCategoryCode } from "../../../../shared/salesContracts.js";
 import BundleBillingGroups from "@/components/sales/BundleBillingGroups";
 import { groupsForEditing, groupsForSaving } from "@/components/sales/billingGroups";
+import ExhibitionInventory from "./ExhibitionInventory";
+import ProductSpaceRequirement from "@/components/sales/ProductSpaceRequirement";
 
 const icon = { categories: FolderTree, products: Package, bundles: Boxes };
 const title = { categories: "Categories", products: "Products", bundles: "Bundles" };
@@ -32,6 +34,7 @@ function Field({ label, children, wide = false }) { return <div className={wide 
 
 export default function Catalogue({ section = "categories" }) {
   const navigate = useNavigate();
+  const [spacesOpen, setSpacesOpen] = useState(false);
   const tab = section;
   const [search, setSearch] = useState("");
   const [dialog, setDialog] = useState(null);
@@ -43,6 +46,7 @@ export default function Catalogue({ section = "categories" }) {
   useEffect(() => {
     setSearch("");
     setDialog(null);
+    setSpacesOpen(false);
   }, [section, settings.scopeKey]);
   const { isAccessReady, isFeatureExcluded } = useMemberAccess();
   const canManage = isAccessReady && !isFeatureExcluded("sales.catalogue-prices.manage");
@@ -50,6 +54,8 @@ export default function Catalogue({ section = "categories" }) {
   const onSaved = () => { setDialog(null); toast({ title: `${singular[tab][0].toUpperCase() + singular[tab].slice(1)} saved`, description: "Catalogue changes are now available to your sales team." }); };
   const onMutationError = (error) => toast({ variant: "destructive", title: "Catalogue change failed", description: error?.message || "Please try again." });
   const changeTab = (next) => {
+    if (next === "exhibition") { setSpacesOpen(true); setDialog(null); return; }
+    setSpacesOpen(false);
     const path = getSalesCataloguePath(next);
     if (path) navigate(path);
   };
@@ -64,20 +70,21 @@ export default function Catalogue({ section = "categories" }) {
   return <div className="min-w-0">
     <div className="mb-5 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
       <p className="max-w-xl text-sm text-slate-600">Manage the categories, products, pricing and packaged offers available to your sales team.</p>
-      {canManage && <Button onClick={() => setDialog({ type: tab, scopeKey: settings.scopeKey })} className="shrink-0 bg-blue-600 text-white hover:bg-blue-700"><Plus className="mr-2 h-4 w-4" />New {singular[tab]}</Button>}
+      {canManage && !spacesOpen && <Button onClick={() => setDialog({ type: tab, scopeKey: settings.scopeKey })} className="shrink-0 bg-blue-600 text-white hover:bg-blue-700"><Plus className="mr-2 h-4 w-4" />New {singular[tab]}</Button>}
     </div>
-    <Tabs value={tab} onValueChange={changeTab} className="mb-5">
+    <Tabs value={spacesOpen ? "exhibition" : tab} onValueChange={changeTab} className="mb-5">
       <TabsList className="h-auto w-full justify-start gap-1 rounded-xl border border-slate-200 bg-slate-100 p-1 sm:w-auto">
         {["categories", "products", "bundles"].map((key) => { const Icon = icon[key]; return <TabsTrigger key={key} value={key} className="min-w-0 flex-1 gap-1.5 rounded-lg px-2 py-2 text-xs data-[state=active]:bg-blue-600 data-[state=active]:text-white sm:flex-none sm:px-3"><Icon className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{title[key]}</span></TabsTrigger>; })}
+        <TabsTrigger value="exhibition" className="min-w-0 flex-1 rounded-lg px-2 py-2 text-xs data-[state=active]:bg-blue-600 data-[state=active]:text-white sm:flex-none sm:px-3">Exhibition spaces</TabsTrigger>
       </TabsList>
     </Tabs>
-    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+    {spacesOpen ? <ExhibitionInventory canManage={canManage} /> : <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
       <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="text-sm font-medium text-slate-800">{rows.length} {rows.length === 1 ? singular[tab] : title[tab].toLowerCase()} <span className="ml-2 text-xs font-normal text-slate-500">including archived records</span></div>
         {tab !== "categories" && <div className="relative w-full sm:w-72"><Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" /><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={`Search ${title[tab].toLowerCase()}`} className="h-9 border-slate-200 bg-white pl-9 text-sm" /></div>}
       </div>
       {catalogue.isLoading ? <Skeleton /> : catalogue.isError ? <Failure onRetry={() => catalogue.refetch()} /> : rows.length === 0 ? <Empty type={tab} onCreate={canManage ? () => setDialog({ type: tab, scopeKey: settings.scopeKey }) : null} /> : <div className="overflow-x-auto"><CatalogueTable rows={rows} type={tab} showInternalCode={showInternalCode} showSku={showSku} canManage={canManage} categories={asList(categories.data)} products={asList(products.data)} onEdit={(row) => setDialog({ type: tab, row, scopeKey: settings.scopeKey })} onDuplicate={(copySource) => setDialog({ type: tab, copySource, scopeKey: settings.scopeKey })} onArchive={(row) => { const action = row.isActive === false || row.archivedAt ? catalogue.restore : catalogue.archive; action.mutate(row.id, { onError: onMutationError }); }} onMove={move} /></div>}
-    </section>
+    </section>}
     <EditDialog config={canManage && dialog?.scopeKey === settings.scopeKey ? dialog : null} showInternalCode={showInternalCode} showSku={showSku} categories={asList(categories.data)} categoriesLoading={categories.isLoading} products={asList(products.data)} events={events.data || {}} onClose={() => setDialog(null)} onSave={(data) => dialog?.row ? catalogue.update.mutateAsync({ id: dialog.row.id, data }, { onSuccess: onSaved, onError: onMutationError }) : catalogue.create.mutateAsync(data, { onSuccess: onSaved, onError: onMutationError })} saving={catalogue.create.isPending || catalogue.update.isPending} />
   </div>;
 }
@@ -220,6 +227,7 @@ export function EditDialog({ config, categories, categoriesLoading, products, ev
      {type !== "categories" && showInternalCode && <Field label="Internal code"><Input aria-label="Internal code" required maxLength={64} autoCapitalize="characters" spellCheck={false} aria-invalid={Boolean(categoryError)} aria-describedby="internal-code-help internal-code-error" value={form.code || ""} onChange={(e) => update("code", e.target.value.toUpperCase())} /><p id="internal-code-help" className="mt-1 text-xs text-slate-500">Use 1–64 uppercase letters, numbers, underscores, or hyphens. Start with a letter or number. Lowercase letters are converted to uppercase.</p>{categoryError && <p id="internal-code-error" role="alert" className="mt-1 text-xs font-medium text-red-600">Enter a valid code: start with a letter or number, then use only uppercase letters, numbers, underscores, or hyphens (maximum 64 characters).</p>}</Field>}
      {type === "categories" && <><Field label="Category code"><Input required maxLength={64} aria-invalid={Boolean(categoryError)} aria-describedby="category-code-help category-code-error" value={form.code || ""} onChange={(e) => updateCategoryCode(e.target.value)} /><p id="category-code-help" className="mt-1 text-xs text-slate-500">1–64 uppercase letters, numbers, underscores, or hyphens. Codes must be unique.</p>{categoryError && <p id="category-code-error" className="mt-1 text-xs font-medium text-red-600">{categoryError}</p>}</Field><Field label="Description" wide><Textarea value={form.description || ""} onChange={(e) => update("description", e.target.value)} /></Field></>}
     {type === "products" && <ProductFields form={form} update={update} categories={categories} events={events} existing={config.row} showSku={showSku} taxOptions={taxOptions} selectedTaxId={selectedTaxId} onTaxChange={(value) => { copyTaxInitialized.current = true; setSelectedTaxId(value); }} />}
+    {type === "products" && <ProductSpaceRequirement value={form.spaceRequirementId} onChange={value => update("spaceRequirementId", value)} />}
      {type === "bundles" && <BundleFields form={form} update={update} />}
      {type === "bundles" && <BundleItems form={form} update={update} products={products} />}
       {type === "bundles" && <BundleBillingGroups key={config.row?.id || config.copySource?.id || "new"} form={form} update={update} products={products} />}

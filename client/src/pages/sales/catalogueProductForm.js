@@ -2,7 +2,7 @@ import { selectedProviderTaxCode, taxCodeKey } from "../../lib/salesTaxCodes.js"
 
 export const CATALOGUE_FIELDS = {
   categories: ["name", "code", "description"],
-  products: ["name", "code", "sku", "categoryId", "currency", "standardPriceMinor", "minimumPriceMinor", "costMinor", "shortDescription", "description", "availableFrom", "availableTo", "eventReference", "capacityMetadata", "createTaskOnAcceptance"],
+  products: ["name", "code", "sku", "categoryId", "currency", "standardPriceMinor", "minimumPriceMinor", "costMinor", "shortDescription", "description", "availableFrom", "availableTo", "eventReference", "capacityMetadata", "createTaskOnAcceptance", "spaceRequirementId"],
   bundles: ["name", "code", "currency", "sellingPriceMinor", "minimumPriceMinor", "presentationMode", "availableFrom", "availableTo", "description", "items", "billingGroups"],
 };
 

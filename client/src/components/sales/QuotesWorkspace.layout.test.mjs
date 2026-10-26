@@ -9,15 +9,16 @@ import { chromium } from "playwright";
 import { createServer } from "node:http";
 
 // Isolated browser fixture: production LinesEditor and UI primitives, no portal
-// server, authentication, database or network requests. Only the tax query is
-// stubbed; field edits and add/reorder/delete use the production handlers.
+// server, authentication, database or network requests. Tax is stubbed and
+// ticket options are seeded; edits and add/reorder/delete use real handlers.
 test("quote lines fit narrow and wide containers and preserve editing/actions", async () => {
   const source = await readFile("client/src/components/sales/QuotesWorkspace.jsx", "utf8");
   const uiSources = await Promise.all(["button", "card", "input", "label", "select"].map(
     (name) => readFile(`client/src/components/ui/${name}.jsx`, "utf8"),
   ));
+  const exhibitionSource = await readFile("client/src/components/sales/QuoteExhibitionSpaces.jsx", "utf8");
   const css = await postcss([tailwindcss({
-    content: [{ raw: [source, ...uiSources].join("\n"), extension: "jsx" }],
+    content: [{ raw: [source, exhibitionSource, ...uiSources].join("\n"), extension: "jsx" }],
     theme: { extend: { colors: {
       border: "#dbe2ea", input: "#dbe2ea", background: "#f8fafc",
       foreground: "#182334", card: "#f8fafc", primary: "#245ad2",
@@ -31,7 +32,10 @@ test("quote lines fit narrow and wide containers and preserve editing/actions", 
       contents: `
         import React, { useState } from "react";
         import { createRoot } from "react-dom/client";
+        import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
         import { LinesEditor } from "./client/src/components/sales/QuotesWorkspace.jsx";
+        const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+        client.setQueryData(["quote-line-ticket-options"], { items: [] });
         const initial = (key, description, type = "free_text") => ({
           key, description, type, productId: type === "product" ? "product-1" : "",
           quantity: 2, standardUnitPriceMinor: 1250, quotedUnitPriceMinor: 1250,
@@ -45,7 +49,19 @@ test("quote lines fit narrow and wide containers and preserve editing/actions", 
             products={[{ id: "product-1", name: "Printed resources", standardPriceMinor: 1250 }]}
             bundles={[]} readOnly={false} canOverride={true} />;
         }
-        createRoot(document.getElementById("root")).render(<Fixture />);
+        function ExhibitionFixture() {
+          const form = { id: "saved-quote", eventId: "saved-event", currency: "GBP", lines: [{
+            ...initial("exhibition-line", "Exhibitor package", "bundle"), bundleId: "exhibitor-package",
+            catalogue_snapshot: { exhibition: { slots: [{ key: "slot-a" }, { key: "slot-b" }], selections: [
+              { slotKey: "slot-a", spaceId: "space-a", reference: "EX-NORTH-117", priceMinor: 17350, currency: "GBP" },
+              { slotKey: "slot-b", spaceId: "space-b", reference: "EX-NORTH-118", priceMinor: 21175, currency: "GBP" }
+            ] } }
+          }] };
+          return <LinesEditor form={form} setForm={()=>{}} products={[]} bundles={[{id:"exhibitor-package",name:"Exhibitor package"}]} readOnly={true} canOverride={false}/>;
+        }
+        const root = createRoot(document.getElementById("root"));
+        root.render(<QueryClientProvider client={client}><Fixture /></QueryClientProvider>);
+        window.showExhibitionFixture=()=>root.render(<QueryClientProvider client={client}><ExhibitionFixture /></QueryClientProvider>);
       `,
     },
     bundle: true, write: false, format: "iife", platform: "browser", jsx: "automatic",
@@ -138,6 +154,16 @@ test("quote lines fit narrow and wide containers and preserve editing/actions", 
     assert.equal(await page.getByRole("button", { name: /^Delete line/ }).count(), 1);
     await page.getByRole("button", { name: "Free text", exact: true }).click();
     assert.equal(await page.getByRole("button", { name: /^Delete line/ }).count(), 2);
+    await page.evaluate(() => window.showExhibitionFixture());
+    await page.getByText("EX-NORTH-117", { exact: true }).waitFor();
+    assert.equal(await page.getByText("£173.50", { exact: true }).count(), 1);
+    assert.equal(await page.getByText("£211.75", { exact: true }).count(), 1);
+    for (const [viewport, container] of [[375, 343], [1280, 560], [1440, 880], [1920, 1560]]) {
+      await page.setViewportSize({ width: viewport, height: 1100 });
+      await page.locator("#root").evaluate((root, width) => { root.style.width = `${width}px`; }, container);
+      assert.equal(await page.locator("#root").evaluate(root => root.scrollWidth > root.clientWidth), false, `exhibition overflow at ${viewport}/${container}px`);
+      assert.equal(await page.getByRole("region", { name: "Exhibition spaces" }).count(), 1);
+    }
     assert.deepEqual(errors, []);
   } finally {
     await browser.close();

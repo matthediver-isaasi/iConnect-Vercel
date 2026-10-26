@@ -24,6 +24,7 @@ before(async () => {
   await writeFile(path.join(temporaryRoot, 'package.json'), '{"type":"module"}');
   await cp(new URL('../../shared/rollingMembershipTerm.js', import.meta.url), path.join(temporaryRoot, 'shared', 'rollingMembershipTerm.js'));
   await cp(new URL('../../shared/unverifiedMembershipHistory.js', import.meta.url), path.join(temporaryRoot, 'shared', 'unverifiedMembershipHistory.js'));
+  await cp(new URL('memberMonthlyEntitlement.js', import.meta.url), path.join(lib, 'memberMonthlyEntitlement.js'));
   for (const file of ['membershipAmendmentReadOverlay.js', 'membershipSimulation.js', 'membershipSimulationCore.js', 'membershipConfigResolverCore.js', 'discountHelperCore.js', 'vatOverrideHelperCore.js', 'selectionMatcher.js', 'membershipConfigResolver.js', 'membershipYear.js', 'membershipReminders.js', 'membershipRenewalBudget.js', 'annualRenewalPolicy.js', 'annualMembershipExpiryEnforcement.js', 'expiryOnlyRenewalPolicy.js', 'formExpiryOnlyRenewal.js']) {
     await cp(new URL(file, import.meta.url), path.join(lib, file));
   }

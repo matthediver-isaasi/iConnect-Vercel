@@ -21,6 +21,10 @@ const built = await build({
     name: "isolated-catalogue-data",
     setup(b) {
       b.onResolve({ filter: /^\.\/useCatalogue$/ }, () => ({ path: "catalogue-hooks", namespace: "fixture" }));
+      // Product editor requirements are a separate resource; keep this code
+      // validation suite isolated from inventory APIs and auth contexts.
+      b.onResolve({ filter: /\/useExhibition$/ }, () => ({ path: "exhibition", namespace: "exhibition-fixture" }));
+      b.onLoad({ filter: /.*/, namespace: "exhibition-fixture" }, () => ({ contents: "export const useExhibition=()=>({data:{items:[]},isPending:false,isError:false}); export const useExhibitionMutation=()=>({}); export const exhibitionRequest=async()=>({items:[]});" }));
       b.onResolve({ filter: /\/useSalesSettings$/ }, () => ({ path: "settings", namespace: "settings-fixture" }));
       b.onLoad({ filter: /.*/, namespace: "settings-fixture" }, () => ({ contents: "export const useSalesSettings=()=>globalThis.catalogueSettingsFixture; export const useSalesSettingsScope=()=>({scopeKey:'fixture',ready:true});" }));
       b.onResolve({ filter: /\/useMemberAccess$/ }, () => ({ path: "access", namespace: "access-fixture" }));

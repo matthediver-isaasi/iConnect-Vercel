@@ -246,7 +246,8 @@ export function validateQuoteDraft(value, { existing = false } = {}) {
   if (!Array.isArray(value.lines) || value.lines.length === 0) errors.push('lines must be a non-empty array');
   else value.lines.forEach((line, index) => {
     if (!isObject(line)) return errors.push(`lines[${index}] must be an object`);
-    const lineAllowed = new Set(['id', 'kind', 'catalogueId', 'quantity', 'standardUnitPriceMinor', 'quotedUnitPriceMinor', 'discountBps', 'description', 'taxRateBps', 'taxCode', 'eventReference']);
+    const lineAllowed = new Set(['id', 'kind', 'catalogueId', 'quantity', 'standardUnitPriceMinor', 'quotedUnitPriceMinor', 'discountBps', 'description', 'taxRateBps', 'taxCode', 'eventReference', 'exhibitionSelections']);
+    if (line.exhibitionSelections !== undefined && (!Array.isArray(line.exhibitionSelections) || line.exhibitionSelections.length > 1000 || line.exhibitionSelections.some(p => !p || typeof p.slotKey !== 'string' || p.slotKey.length > 300 || !UUID_RE.test(p.spaceId || '')))) errors.push('Invalid exhibition selections');
     if (line.eventReference != null) {
       const ref = line.eventReference;
       if (line.kind !== 'product' || !['simple', 'complex'].includes(ref.kind)
@@ -282,7 +283,7 @@ export function normaliseQuoteInput(input) {
       const normalized = { id: line.id, kind, catalogueId: line.catalogueId ?? line.catalogue_id ?? (kind === 'bundle' ? line.bundleId ?? line.bundle_id : line.productId ?? line.product_id) ?? null,
         quantity: typeof line.quantity === 'number' ? String(line.quantity) : line.quantity, standardUnitPriceMinor: line.standardUnitPriceMinor ?? line.standard_unit_price_minor,
         quotedUnitPriceMinor: line.quotedUnitPriceMinor ?? line.quoted_unit_price_minor, discountBps: line.discountBps ?? line.discount_bps ?? 0,
-        taxRateBps: line.taxRateBps ?? line.tax_rate_bps, taxCode: line.taxCode, description: line.description, eventReference: line.eventReference };
+        taxRateBps: line.taxRateBps ?? line.tax_rate_bps, taxCode: line.taxCode, description: line.description, eventReference: line.eventReference, exhibitionSelections: line.exhibitionSelections };
       return Object.fromEntries(Object.entries(normalized).filter(([, fieldValue]) => fieldValue !== undefined));
     }),
   };
@@ -439,9 +440,10 @@ export function validateCatalogueProduct(value, { patch = false } = {}) {
   const allowed = new Set([
     'code', 'sku', 'name', 'shortDescription', 'description', 'categoryId', 'currency', 'standardPriceMinor',
     'minimumPriceMinor', 'costMinor', 'taxTreatment', 'taxRateBps', 'taxCode', 'availableFrom',
-    'availableTo', 'capacityMetadata', 'eventReference', 'displayOrder', 'createTaskOnAcceptance',
+    'availableTo', 'capacityMetadata', 'eventReference', 'displayOrder', 'createTaskOnAcceptance', 'spaceRequirementId',
   ]);
   const errors = Object.keys(value).filter((key) => !allowed.has(key)).map((key) => `Unknown product field: ${key}`);
+  if (value.spaceRequirementId != null && !UUID_RE.test(value.spaceRequirementId)) errors.push('spaceRequirementId must be a UUID or null');
   if ('createTaskOnAcceptance' in value && typeof value.createTaskOnAcceptance !== 'boolean') {
     errors.push('createTaskOnAcceptance must be a boolean');
   }

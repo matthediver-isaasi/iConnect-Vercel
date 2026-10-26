@@ -9,6 +9,7 @@ import { buildBillingSchedule, resolveBillingTimezone } from '../../shared/sales
 import { resolvePercentageInstalments } from '../../shared/salesBillingConfiguration.js';
 import { sanitizeAgreementHtml } from './salesAgreementHtml.js';
 import { resolveEventTicketReference } from './salesCatalogue.js';
+import { prepareExhibitionLine, exhibitionError } from './salesExhibition.js';
 
 const VERSION_SELECT = '*,sales_quote_line(*,sales_quote_bundle_component(*))';
 
@@ -33,8 +34,10 @@ async function snapshotReferences(db, tenantId, actor, draft, previousSalesperso
   if (settings.error) throw settings.error;
   let event = draft.event || (draft.eventId ? { id: draft.eventId, kind: 'simple' } : null);
   if (event?.id) {
+    const kind = event.kind === 'complex' ? 'complex' : 'simple';
     const table = event.kind === 'complex' ? 'complex_event' : 'event';
     event = await one(db, table, tenantId, event.id, 'Event');
+    event = { ...event, kind };
   }
   return {
     organisationSnapshot: organisation,
@@ -92,11 +95,12 @@ async function resolveLine(db, tenantId, line, index, allowPriceOverride, previo
   const item = await one(db, table, tenantId, line.catalogueId, line.kind === 'bundle' ? 'Bundle' : 'Product');
   if (!item.is_active) throw new SalesHttpError(400, `Quote line ${index + 1} references an archived catalogue item`);
   if (item.currency !== line.currency && line.currency) throw new SalesHttpError(400, `Quote line ${index + 1} currency mismatch`);
-  const standard = Number(line.kind === 'bundle' ? item.selling_price_minor : item.standard_price_minor);
+  const spaceProduct = line.kind === 'product' && item.space_requirement_id;
+  const standard = Number((spaceProduct || previous?.catalogue_snapshot?.exhibition) && previous?.catalogue_id === item.id ? previous.standard_unit_price_minor : line.kind === 'bundle' ? item.selling_price_minor : item.standard_price_minor);
   if (!Number.isSafeInteger(standard) || standard < 0) {
     throw new SalesHttpError(400, `Quote line ${index + 1} catalogue price exceeds the supported safe minor-unit range`);
   }
-  const quoted = line.quotedUnitPriceMinor ?? standard;
+  const quoted = spaceProduct ? standard : line.quotedUnitPriceMinor ?? standard;
   // Persist unit-price changes separately from discounts. Both require permission,
   // but the database's price_overridden invariant compares unit prices only.
   const overridden = quoted !== standard;
@@ -108,7 +112,7 @@ async function resolveLine(db, tenantId, line, index, allowPriceOverride, previo
   const discounted = calculateQuoteLine({
     quantity: '1', quotedUnitPriceMinor: quoted, discountBps: line.discountBps || 0, taxRateBps: 0,
   }).discountedUnitPriceMinor;
-  if (minimum != null && discounted < minimum) throw new SalesHttpError(400, `Quote line ${index + 1} is below its minimum price`);
+  if (!spaceProduct && minimum != null && discounted < minimum) throw new SalesHttpError(400, `Quote line ${index + 1} is below its minimum price`);
   // Catalogue tax is authoritative. A quote editor may display and submit the
   // rate it read from the catalogue, but it must not be able to alter the
   // financial tax treatment of a catalogue-backed line.
@@ -142,20 +146,44 @@ async function resolveLine(db, tenantId, line, index, allowPriceOverride, previo
       };
     }));
   }
-  return {
+  let resolved = {
     kind: line.kind, catalogueId: item.id, catalogueSnapshot: { ...snapshot, tax_code: taxCode },
     description: line.description ?? item.description ?? item.name,
     quantity: amounts.quantity, standardUnitPriceMinor: standard, quotedUnitPriceMinor: quoted,
     priceOverridden: overridden, discountBps: line.discountBps || 0, taxRateBps, ...amounts, components,
   };
+  resolved = await prepareExhibitionLine(db, tenantId, resolved, line, previous);
+  if (spaceProduct && resolved.catalogueSnapshot.exhibition?.selections.length) {
+    const price = resolved.catalogueSnapshot.exhibition.selections.reduce((sum, p) => sum + p.priceMinor, 0);
+    resolved = { ...resolved, standardUnitPriceMinor: price, quotedUnitPriceMinor: price, priceOverridden: false,
+      ...calculateQuoteLine({ quantity: '1', quotedUnitPriceMinor: price, discountBps: line.discountBps || 0, taxRateBps }) };
+  }
+  if (resolved.catalogueSnapshot.exhibition) {
+    const ex = resolved.catalogueSnapshot.exhibition;
+    const base = previous?.description === resolved.description
+      ? previous.catalogue_snapshot?.exhibition?.baseDescription ?? resolved.description : resolved.description;
+    ex.baseDescription = base;
+    resolved.description = ex.selections.length
+      ? `${base}\nExhibition spaces: ${ex.selections.map(p => `${p.reference} (${p.currency} ${(p.priceMinor / 100).toFixed(2)}${line.kind === 'bundle' ? ', included' : ''})`).join(', ')}` : base;
+  }
+  return resolved;
 }
 
 export async function prepareQuoteDraft(db, tenantId, actor, draft, allowPriceOverride = false, previousLines = new Map(), previousSalesperson, previousBillingSchedule, previousLegalHtml) {
   if (draft.legalHtml === undefined && previousLegalHtml !== undefined) draft = { ...draft, legalHtml: previousLegalHtml };
   const snapshots = await snapshotReferences(db, tenantId, actor, draft, previousSalesperson);
-  const lines = await Promise.all(draft.lines.map((line, index) => resolveLine(
+  const expanded = [];
+  for (const line of draft.lines) {
+    const product = line.kind === 'product' ? await one(db, 'sales_catalogue_product', tenantId, line.catalogueId, 'Product') : null;
+    if (product?.space_requirement_id) {
+      const quantity = Number(line.quantity);
+      if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > 1000) throw new SalesHttpError(400, 'Exhibition quantities must be whole numbers from 1 to 1000');
+      for (let unit = 0; unit < quantity; unit++) expanded.push({ ...line, quantity: '1', ...(unit ? { id: undefined, exhibitionSelections: [] } : {}) });
+    } else expanded.push(line);
+  }
+  const lines = await Promise.all(expanded.map(async (line, index) => ({ ...await resolveLine(
     db, tenantId, { ...line, currency: draft.currency }, index, allowPriceOverride, previousLines.get(line.id),
-  )));
+  ), sourceLineId: line.id })));
   let billingSchedule = null;
   if (draft.scheduledBilling === true) {
     const [settings, tenant] = await Promise.all([
@@ -188,7 +216,7 @@ export async function prepareQuoteDraft(db, tenantId, actor, draft, allowPriceOv
       for (const group of billingSchedule.groups) {
         if (draft.billingMode === 'percentage' || previousBillingSchedule?.mode === 'percentage') continue;
         const oldPosition = group.linePosition === null ? null
-          : previousLines.get(draft.lines[group.linePosition]?.id)?.display_order;
+           : previousLines.get(expanded[group.linePosition]?.id)?.display_order;
         const oldGroup = previousBillingSchedule?.groups?.find(g => g.linePosition === oldPosition
           && (group.linePosition === null || g.sourceGroupId === group.sourceGroupId));
         if (oldGroup) group.id = oldGroup.id;
@@ -206,6 +234,7 @@ export async function prepareQuoteDraft(db, tenantId, actor, draft, allowPriceOv
 }
 
 function rpcError(error) {
+  if (['40001','23505','40P01','23514','22023','23503','22P02','23502'].includes(error?.code)) exhibitionError(error);
   if (error?.code === '40001') throw new SalesHttpError(409, 'Quote was updated by another user');
   if (error?.code === 'P0002') throw new SalesHttpError(404, 'Quote not found');
   if (error?.code === '22023' || error?.code === '23514') throw new SalesHttpError(400, error.message);
@@ -246,7 +275,7 @@ export async function saveQuoteDraft(db, tenantId, actor, id, expectedVersion, d
   }
   const payload = await prepareQuoteDraft(db, tenantId, actor, draft, allowOverride, previousLines, previousSalesperson, previousBillingSchedule, previousLegalHtml);
   for (let i = 0; i < payload.lines.length; i++) {
-    if (!previousLines.has(draft.lines[i].id) && !payload.lines[i].catalogueSnapshot?.tax_code) {
+    if (!previousLines.has(payload.lines[i].sourceLineId) && !payload.lines[i].catalogueSnapshot?.tax_code) {
       throw new SalesHttpError(400, `Select a provider tax code for new quote line ${i + 1}${draft.lines[i].kind === 'product' ? ' on its catalogue product' : ''}.`);
     }
   }
@@ -296,7 +325,7 @@ export async function listQuotes(db, tenantId, filters = {}) {
   if (!ids.length) return { items: [], total: 0, page, pageSize, totalPages: 1 };
   const { data: versions, error: versionError } = await db.from('sales_quote_version').select('*').eq('tenant_id', tenantId).in('quote_id', ids);
   if (versionError) throw versionError;
-  const filtered = (data || []).map((root) => {
+  const filtered = (data || []).filter(root => !root.exhibition_deleted_at).map((root) => {
     const currentVersion = (versions || []).find((v) => v.quote_id === root.id && v.version_number === root.current_version);
     return { ...root, ...currentVersion, id: root.id, versionId: currentVersion?.id, currentVersion };
   })
@@ -311,7 +340,7 @@ export async function getQuote(db, tenantId, id) {
   const { data: root, error } = await db.from('sales_quote').select('*')
     .eq('tenant_id', tenantId).eq('id', id).maybeSingle();
   if (error) throw error;
-  if (!root) throw new SalesHttpError(404, 'Quote not found');
+  if (!root || root.exhibition_deleted_at) throw new SalesHttpError(404, 'Quote not found');
   const { data: versions, error: versionError } = await db.from('sales_quote_version')
     .select(VERSION_SELECT).eq('tenant_id', tenantId).eq('quote_id', id)
     .order('version_number', { ascending: false });

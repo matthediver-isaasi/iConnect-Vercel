@@ -43,6 +43,8 @@ import QuoteBillingSettings from "./QuoteBillingSettings";
 import BillingSchedule from "./BillingSchedule";
 import { billingScheduleOf, percentageInstalmentsForEditing, percentageInstalmentsForSaving } from "./billingGroups";
 import { useSalesSettingsScope } from "./useSalesSettings";
+import QuoteExhibitionSpaces from "./QuoteExhibitionSpaces";
+import { exhibitionSelectionPayload, hasExhibitionHolds, lineRequiresExhibition, selectionsOf, withExhibitionSelection } from "./exhibition";
 
 const list = (value) => Array.isArray(value) ? value : value?.items || value?.data || value?.results || value?.quotes || [];
 const idOf = (value) => value?.id || value?._id;
@@ -115,6 +117,9 @@ function normalizeLine(line, index) {
   return {
     ...emptyLine(), ...line, key: idOf(line) || line.key || `line-${index}`,
     persistedLineId: persistedQuoteLineId(line),
+    // Only explicit user commands are sent back; saved selections live in the
+    // immutable snapshot and are preserved when this property is unset.
+    exhibitionSelections: undefined,
     eventReference: line.eventReference !== undefined ? line.eventReference : line.catalogue_snapshot?.event_reference_kind ? {
       kind: line.catalogue_snapshot.event_reference_kind, eventId: line.catalogue_snapshot.event_id,
       ticketTypeId: line.catalogue_snapshot.ticket_type_id,
@@ -229,7 +234,7 @@ function lineTotals(line) {
   }
 }
 
-export function LinesEditor({ form, setForm, products, bundles, readOnly, canOverride }) {
+export function LinesEditor({ form, setForm, products, bundles, readOnly, canOverride, exhibitionDisabled = true, onExhibitionSelect, onDeleteHeldLine }) {
   const { singular } = useQuoteNaming();
   const taxOptions = useCatalogueTaxOptions(!readOnly);
   const taxItems = providerTaxOptions(taxOptions.data);
@@ -258,8 +263,9 @@ export function LinesEditor({ form, setForm, products, bundles, readOnly, canOve
             <div className="flex justify-between gap-3"><dt>Tax/VAT</dt><dd>{money(totals.tax, form.currency)}</dd></div>
             <div className="flex justify-between gap-3 border-t pt-1 font-semibold"><dt>Gross</dt><dd>{money(totals.gross, form.currency)}</dd></div>
           </dl>
-          {!readOnly && <div className="flex flex-wrap items-end justify-end gap-1"><Button variant="ghost" size="icon" aria-label={`Move line ${index + 1} up`} disabled={!index} onClick={() => move(index, -1)}><ArrowUp className="h-4 w-4" /></Button><Button variant="ghost" size="icon" aria-label={`Move line ${index + 1} down`} disabled={index === form.lines.length - 1} onClick={() => move(index, 1)}><ArrowDown className="h-4 w-4" /></Button><Button variant="ghost" size="icon" aria-label={`Delete line ${index + 1}`} onClick={() => setForm((old) => ({ ...old, lines: old.lines.filter((_, i) => i !== index) }))}><Trash2 className="h-4 w-4 text-rose-600" /></Button></div>}
+           {!readOnly && <div className="flex flex-wrap items-end justify-end gap-1"><Button variant="ghost" size="icon" aria-label={`Move line ${index + 1} up`} disabled={!index} onClick={() => move(index, -1)}><ArrowUp className="h-4 w-4" /></Button><Button variant="ghost" size="icon" aria-label={`Move line ${index + 1} down`} disabled={index === form.lines.length - 1} onClick={() => move(index, 1)}><ArrowDown className="h-4 w-4" /></Button><Button variant="ghost" size="icon" aria-label={`Delete line ${index + 1}`} disabled={selectionsOf(line).length > 0 && (exhibitionDisabled || !onDeleteHeldLine)} title={selectionsOf(line).length ? "Deletes and saves immediately to release held spaces. Save other edits first." : ""} onClick={() => selectionsOf(line).length ? onDeleteHeldLine(line.key) : setForm((old) => ({ ...old, lines: old.lines.filter((_, i) => i !== index) }))}><Trash2 className="h-4 w-4 text-rose-600" /></Button></div>}
         </div>
+        {lineRequiresExhibition(line, products, bundles) && <QuoteExhibitionSpaces line={line} quoteId={form.id} eventId={form.eventId} readOnly={readOnly} disabled={exhibitionDisabled} onSelect={(slotKey, spaceId) => onExhibitionSelect?.(line.key, slotKey, spaceId)} />}
         {quotePriceError(line) && <p role="alert" className="mt-2 text-sm text-rose-700">{quotePriceError(line)}</p>}
         {line.type !== "free_text" && <Input disabled={readOnly} className="mt-2 bg-white" value={line.description} onChange={(e) => patch(index, { description: e.target.value })} aria-label="Line description" />}
         <div className="mt-3">
@@ -362,6 +368,7 @@ function QuoteEditor() {
   const opportunity = useQuoteOpportunity({ opportunityId: form.opportunityId, isNew, setForm, request });
   const [loadedId, setLoadedId] = useState(null);
   const [savedFingerprint, setSavedFingerprint] = useState("");
+  const [reloadRequired, setReloadRequired] = useState(false);
   const [sendOpen, setSendOpen] = useState(false);
   const [signingRequest, setSigningRequest] = useState(null);
   useEffect(() => {
@@ -389,7 +396,10 @@ function QuoteEditor() {
   const totals = useMemo(() => readOnly ? persistedQuoteAmounts(form) : form.lines.reduce((sum, line) => { const values = lineTotals(line); return { net: sum.net + values.net, tax: sum.tax + values.tax, gross: sum.gross + values.gross }; }, { net: 0, tax: 0, gross: 0 }), [form, readOnly]);
   const invalidPrices = form.lines.some(line => Boolean(quotePriceError(line)));
   const [schedulePreview, setSchedulePreview] = useState(null);
-  const payload = () => ({
+  // Parameter overrides let an inventory command persist the entire draft
+  // atomically, without first replacing the currently displayed server state.
+  const currentForm = form;
+  const payload = (form = currentForm) => ({
     opportunityId: form.opportunityId, customerContactId: form.customerContactId || null, billingContactId: form.billingContactId || null,
     address: form.address, event: form.eventId ? { id: form.eventId, kind: form.eventKind || "simple" } : null, issueDate: form.issueDate || null, validUntil: form.validUntil || null,
     purchaseOrderReference: form.purchaseOrderReference || null, customerReference: form.customerReference || null, notes: form.notes,
@@ -398,7 +408,7 @@ function QuoteEditor() {
     scheduledBilling: Boolean(form.scheduledBilling), remainderPaymentTermsId: form.scheduledBilling ? form.remainderPaymentTermsId || null : null,
     billingMode: form.billingMode || "groups",
     percentageInstalments: form.scheduledBilling && form.billingMode === "percentage" ? percentageInstalmentsForSaving(form.percentageInstalments) : [],
-    lines: form.lines.map((line) => ({ ...quoteLineIdentityForSaving(line), ...(line.type === "product" ? { eventReference: line.eventReference ?? null } : {}), kind: line.type, catalogueId: line.type === "product" ? line.productId || null : line.type === "bundle" ? line.bundleId || null : null, description: line.description, quantity: String(line.quantity || "0"), quotedUnitPriceMinor: quotePriceMinor(line, "quotedUnitPriceMinor"), ...(line.type === "free_text" ? { standardUnitPriceMinor: quotePriceMinor(line, "standardUnitPriceMinor") } : {}), discountBps: minor(line.discountBps), ...quoteLineTaxForSaving(line, providerTaxOptions(taxOptions.data), !taxOptions.isPending && !taxOptions.isError) })),
+    lines: form.lines.map((line) => ({ ...quoteLineIdentityForSaving(line), ...exhibitionSelectionPayload(line), ...(line.type === "product" ? { eventReference: line.eventReference ?? null } : {}), kind: line.type, catalogueId: line.type === "product" ? line.productId || null : line.type === "bundle" ? line.bundleId || null : null, description: line.description, quantity: String(line.quantity || "0"), quotedUnitPriceMinor: quotePriceMinor(line, "quotedUnitPriceMinor"), ...(line.type === "free_text" ? { standardUnitPriceMinor: quotePriceMinor(line, "standardUnitPriceMinor") } : {}), discountBps: minor(line.discountBps), ...quoteLineTaxForSaving(line, providerTaxOptions(taxOptions.data), !taxOptions.isPending && !taxOptions.isError) })),
     expectedVersion: quote.rowVersion,
   });
   const preview = useMutation({
@@ -420,13 +430,34 @@ function QuoteEditor() {
     ? persistedQuoteAmounts(serverTotals) : totals;
   const isDirty = JSON.stringify(form) !== savedFingerprint;
   const save = useMutation({
-    mutationFn: async () => {
-      const submittedFingerprint = JSON.stringify(form);
-      const data = await request(isNew ? "/api/sales/quotes" : `/api/sales/quotes/${id}`, { method: isNew ? "POST" : "PATCH", body: JSON.stringify(payload()) });
+    mutationFn: async ({ nextForm } = {}) => {
+      const submittedFingerprint = JSON.stringify(nextForm || form);
+      const data = await request(isNew ? "/api/sales/quotes" : `/api/sales/quotes/${id}`, { method: isNew ? "POST" : "PATCH", body: JSON.stringify(payload(nextForm || form)) });
+      if (nextForm) {
+        // A picker must not report success before the durable draft reload.
+        // Keep previous server selections visible on PATCH or reload failure.
+        try {
+          const result = await detail.refetch();
+          if (result.error || !result.data) throw result.error || new Error("Saved draft could not be reloaded.");
+          return { data, submittedFingerprint, fresh: normalizeQuote(result.data) };
+        } catch (error) {
+          setReloadRequired(true);
+          throw new Error(`Draft saved, but could not reload it. Reload before continuing. ${error.message}`);
+        }
+      }
       return { data, submittedFingerprint };
     },
-    onSuccess: async ({ data, submittedFingerprint }) => {
+    onSuccess: async ({ data, submittedFingerprint, fresh }) => {
       const saved = normalizeQuote(data);
+      if (fresh) {
+        setForm(fresh);
+        setSavedFingerprint(JSON.stringify(fresh));
+        setServerTotals(null);
+        qc.invalidateQueries({ queryKey: ["sales-quotes"] });
+        qc.invalidateQueries({ queryKey: ["sales-exhibition"] });
+        toast({ title: "Exhibition spaces saved" });
+        return;
+      }
       setSavedFingerprint(submittedFingerprint);
       setServerTotalsFingerprint(submittedFingerprint);
       setServerTotals(data?.totals || data?.currentVersion?.totals || null);
@@ -439,6 +470,7 @@ function QuoteEditor() {
           await refreshSavedQuoteDraft({ refetch: detail.refetch, normalize: normalizeQuote, submittedFingerprint, setForm, setSavedFingerprint });
           toast({ title: `Draft ${naming.singular} saved` });
         } catch (error) {
+          setReloadRequired(true);
           toast({ title: "Draft saved, but could not reload it", description: "Your entered values have been kept. Reload the page before saving again.", variant: "destructive" });
         }
       }
@@ -451,18 +483,20 @@ function QuoteEditor() {
       const result = normalizeQuote(data);
       qc.invalidateQueries({ queryKey: ["sales-quotes"] });
       qc.invalidateQueries({ queryKey: ["quote-history", id] });
-      if (variables.action === "amend") {
+      if (["amend", "exhibition-cancel", "exhibition-reopen"].includes(variables.action)) {
         // Keep the busy feedback through the authoritative reload, not just
         // the POST. An amendment retains the quote ID but changes its version.
         const refreshed = await detail.refetch();
         if (refreshed.error || !refreshed.data) {
-          toast({ title: "Amendment created; reload needed", description: `The amendment was created, but its editable details could not be loaded. Reload this ${naming.singular.toLowerCase()} to continue.`, variant: "destructive" });
+          setReloadRequired(true);
+          toast({ title: "Action saved; reload needed", description: `The updated details could not be loaded. Reload this ${naming.singular.toLowerCase()} to continue.`, variant: "destructive" });
           return;
         }
         const fresh = normalizeQuote(refreshed.data);
         setForm(fresh);
         setSavedFingerprint(JSON.stringify(fresh));
-        toast({ title: "Amendment ready to edit" });
+        qc.invalidateQueries({ queryKey: ["sales-exhibition"] });
+        toast({ title: variables.action === "amend" ? "Amendment ready to edit" : variables.action === "exhibition-cancel" ? "Proposal cancelled; spaces released" : "Proposal reopened as draft", description: variables.action === "exhibition-reopen" ? "Previously released spaces have not been reclaimed. Select available spaces again." : undefined });
         if (result.id && result.id !== id) navigate(quotePath(naming, result.id));
       } else {
         qc.invalidateQueries({ queryKey: ["sales-quote", id] });
@@ -498,11 +532,32 @@ function QuoteEditor() {
     ]);
     return result;
   };
+  const editorBusy = save.isPending || action.isPending || deliveryAction.isPending;
+  const exhibitionDisabled = readOnly || isNew || isDirty || editorBusy || reloadRequired;
+  const selectExhibition = (lineKey, slotKey, spaceId) => {
+    if (exhibitionDisabled) return Promise.reject(new Error("Save your edits before selecting a space."));
+    return save.mutateAsync({ nextForm: withExhibitionSelection(form, lineKey, slotKey, spaceId) });
+  };
+  const deleteHeldLine = async lineKey => {
+    if (exhibitionDisabled || !window.confirm("Delete this line and save the draft immediately? Its held exhibition spaces will be released.")) return;
+    try { await save.mutateAsync({ nextForm: { ...form, lines: form.lines.filter(line => line.key !== lineKey) } }); }
+    catch { /* The save mutation reports the error; retain the server line. */ }
+  };
   if (!isNew && detail.isLoading) return <Loading />;
-  if (!isNew && detail.error) return <Failure error={detail.error} retry={detail.refetch} />;
+  // A failed background reload must not replace the last confirmed draft with
+  // an error screen: inventory commands deliberately keep prior selections.
+  if (!isNew && detail.error && !detail.data) return <Failure error={detail.error} retry={detail.refetch} />;
   if (!isNew && loadedId !== id) return <Loading />;
   const patch = (key, value) => setForm((old) => ({ ...old, [key]: value }));
   return <div className="space-y-5">
+    {reloadRequired && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><p>The action was saved, but its details could not be reloaded. Previous values are shown; reload before making further changes.</p><Button variant="outline" disabled={detail.isFetching} onClick={async () => {
+      const result = await detail.refetch();
+      if (result.error || !result.data) { toast({ title: "Reload failed", description: result.error?.message || "Please retry.", variant: "destructive" }); return; }
+      const fresh = normalizeQuote(result.data);
+      setForm(fresh); setSavedFingerprint(JSON.stringify(fresh)); setReloadRequired(false);
+      qc.invalidateQueries({ queryKey: ["sales-exhibition"] });
+    }}>{detail.isFetching ? "Reloading…" : "Reload saved proposal"}</Button></div>}
+    <fieldset disabled={editorBusy || reloadRequired} className="min-w-0 space-y-5">
     <div className="flex flex-wrap items-start justify-between gap-3"><div className="flex items-start gap-3"><Button variant="outline" size="icon" onClick={() => navigate(quotePath(naming))}><ArrowLeft className="h-4 w-4" /></Button><div><div className="flex flex-wrap items-center gap-2"><h2 className="text-2xl font-bold">{isNew ? `Create ${naming.singular}` : quote.number || quote.quoteNumber || quote.quote_number || naming.singular}</h2>{statusBadge(status)}{!isNew && <Badge variant="outline">Version {quote.versionNumber || quote.version_number || quote.version || 1}</Badge>}</div><p className="mt-1 text-sm text-slate-500">{readOnly ? "Issued versions are immutable. Create an amendment to make changes." : `Build and save a customer-ready ${naming.singular}.`}</p></div></div><div className="flex flex-wrap gap-2">
       {!readOnly && <Button variant="outline" disabled={invalidPrices || preview.isPending || (isNew && !opportunity.ready) || !form.lines.length} onClick={() => preview.mutate()}>{preview.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Recalculate</Button>}
       {!readOnly && <Button variant="outline" disabled={invalidPrices || save.isPending || !form.opportunityId || (isNew && !opportunity.ready) || !form.lines.length} onClick={() => save.mutate()}>{save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save draft</Button>}
@@ -513,7 +568,12 @@ function QuoteEditor() {
       {!isNew && !["draft", "superseded", "accepted", "converted", "declined", "rejected", "expired"].includes(status) && allowed(["canAmend", "can_amend", "amend"], false) && <AmendQuoteButton pending={action.isPending || deliveryAction.isPending} onAmend={() => action.mutateAsync({ action: "amend" })} />}
       {!isNew && <AcceptQuoteButton status={status} permitted={allowed(["canTransition", "can_transition", "transition"], false)} pending={action.isPending} onAccept={extra => action.mutateAsync({ action: "transition", extra })} />}
       {!isNew && status === "accepted" && allowed(["canTransition", "can_transition", "transition"], false) && <Button variant="outline" onClick={() => action.mutate({ action: "transition", extra: { status: "converted" } })}>Convert</Button>}
+      {!isNew && !quote.saleId && !["accepted", "converted", "superseded"].includes(status) && allowed(["canTransition", "can_transition", "transition", "canEdit", "can_edit"], false) && <Button variant="outline" disabled={isDirty || editorBusy} title={isDirty ? "Save your edits first" : "Cancellation releases held exhibition inventory"} onClick={() => {
+        const reopen = ["declined", "expired"].includes(status);
+        if (window.confirm(reopen ? "Reopen as draft? Previously released spaces will not be reclaimed." : "Cancel this unsold proposal and release its exhibition spaces? The proposal will be marked declined.")) action.mutate({ action: reopen ? "exhibition-reopen" : "exhibition-cancel" });
+      }}>{["declined", "expired"].includes(status) ? "Reopen proposal" : "Cancel proposal"}</Button>}
     </div></div>
+    {["declined", "expired"].includes(status) && <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">This proposal is {status}. Any exhibition references below are historical, not current holds. Reopening creates a draft and does not reclaim released spaces; select available inventory again.</p>}
     {!isNew && status === "draft" && <p className="rounded border bg-slate-50 p-3 text-sm">Save draft → preview the draft PDF → Issue {naming.singular} → Send. Issuing locks this version for delivery.{!allowed(["canIssue"], false) && ` Your role does not have permission to issue ${naming.plural}.`}{isDirty && " Save your latest changes first."}</p>}
     {!isNew && <SendQuoteDialog quote={quote} signingRequest={signingRequest} onRequestSignature={extra => deliveryAction.mutateAsync({ action: "request-signature", extra })} request={request} quoteId={id} version={quote.versionNumber || quote.version_number || quote.version} contacts={contacts} open={sendOpen} onOpenChange={value => { setSendOpen(value); if (!value) setSigningRequest(null); }} pending={deliveryAction.isPending} initialRecipient={signingRequest?.draft?.recipient || quote.agreement?.contact?.email || contacts.find(contact => contact.id === form.billingContactId)?.email || contacts.find(contact => contact.id === form.customerContactId)?.email || quote.recipient || quote.customerEmail || quote.customer_email || ""} onSend={(extra) => deliveryAction.mutateAsync({ action: "send", extra })} />}
     {!isNew && form.legalHtml && status !== "draft" && <AgreementSignatureRequests quoteId={id} request={request} requestedId={new URLSearchParams(location.search).get("signingRequest")} onSign={item => { setSigningRequest(item); setSendOpen(true); }} />}
@@ -528,7 +588,7 @@ function QuoteEditor() {
           <Field label="Opportunity">{isNew ? <QuoteOpportunitySelect value={form.opportunityId} name={opportunityName} request={request} onChange={(value) => setForm((old) => old.opportunityId === value ? old : clearOpportunityContacts(old, value))} /> : <p className="rounded-md border bg-slate-50 px-3 py-2 text-sm">{opportunityName || (opportunity.isError ? "Opportunity unavailable" : "Loading opportunity…")}</p>}{opportunity.ready && opportunity.data?.organization?.name && <p className="mt-1 text-xs text-slate-500">{opportunity.data.organization.name}</p>}</Field>
           <Field label="Customer contact"><QuoteContactSelect label="Customer contact" contacts={contacts} value={form.customerContactId} loading={contactsLoading} error={contactsError} disabled={contactsDisabled} emptyLabel="Not selected" onChange={value => patch("customerContactId", value)} /></Field>
           <Field label="Billing contact"><QuoteContactSelect label="Billing contact" contacts={contacts} value={form.billingContactId} loading={contactsLoading} error={contactsError} disabled={contactsDisabled} emptyLabel="Same as customer" onChange={value => patch("billingContactId", value)} /></Field>
-          <Field label="Event"><QuoteEventSelect disabled={readOnly} value={form.eventId} kind={form.eventKind} request={request} onChange={event => setForm(old => ({ ...old, eventId: event?.id || "", eventKind: event?.kind || "simple" }))} /></Field>
+          <Field label="Event"><QuoteEventSelect disabled={readOnly || hasExhibitionHolds(form)} value={form.eventId} kind={form.eventKind} request={request} onChange={event => setForm(old => ({ ...old, eventId: event?.id || "", eventKind: event?.kind || "simple" }))} />{hasExhibitionHolds(form) && <p className="mt-2 text-xs text-amber-800">Release all selected exhibition spaces before changing the proposal Event. Save other edits first.</p>}</Field>
           <Field label="Issue date"><Input disabled={readOnly} type="date" value={form.issueDate} onChange={(e) => patch("issueDate", e.target.value)} /></Field>
           <Field label="Valid until"><Input disabled={readOnly} type="date" value={form.validUntil} onChange={(e) => patch("validUntil", e.target.value)} /></Field>
           <Field label="PO reference"><Input disabled={readOnly} value={form.purchaseOrderReference} onChange={(e) => patch("purchaseOrderReference", e.target.value)} /></Field>
@@ -542,7 +602,7 @@ function QuoteEditor() {
           const AddressInput = key === "line2" ? Textarea : Input;
           return <Field key={key} label={label}><AddressInput aria-label={label} disabled={readOnly || (isNew && !opportunity.ready)} value={form.address[key]} onChange={(e) => setForm((old) => ({ ...old, address: { ...old.address, [key]: e.target.value } }))} /></Field>;
         })}</CardContent></Card>
-        <LinesEditor form={form} setForm={setForm} products={list(products.data)} bundles={list(bundles.data)} readOnly={readOnly} canOverride={canOverride} />
+        <LinesEditor form={form} setForm={setForm} products={list(products.data)} bundles={list(bundles.data)} readOnly={readOnly} canOverride={canOverride} exhibitionDisabled={exhibitionDisabled} onExhibitionSelect={selectExhibition} onDeleteHeldLine={deleteHeldLine} />
         <QuoteBillingSettings form={form} setForm={setForm} readOnly={readOnly} />
         <Card><CardHeader><CardTitle>Agreement terms and signatures</CardTitle><p className="text-sm text-muted-foreground">Review the quote first, add legal terms, then save and issue this version before signing and sending.</p></CardHeader><CardContent className="space-y-5"><AgreementLegalEditor value={form.legalHtml} onChange={value => patch("legalHtml", value)} disabled={readOnly} fields={[{ label: "Customer", value: form.address.addressee }, ...(!form.scheduledBilling ? [{ label: "Payment terms", value: form.paymentTerms }] : []), { label: "Customer reference", value: form.customerReference }]} />{form.legalHtml && <details className="rounded-lg border p-3"><summary className="cursor-pointer text-sm font-semibold">Full agreement preview{isDirty ? " · Unsaved draft" : ""}</summary><div className="mt-4"><AgreementDocument draft={isDirty || isNew} quote={isDirty || isNew ? { ...form, totals: { netMinor: totals.net, taxMinor: totals.tax, grossMinor: totals.gross } } : quote} sender={quote.agreement?.sender} recipient={quote.agreement?.customer || quote.agreement?.contact} /></div></details>}</CardContent></Card>
         {form.scheduledBilling && <BillingSchedule schedule={isDirty ? schedulePreview?.schedule || form.billingSchedule : quote.billingSchedule || schedulePreview?.schedule} pending={isDirty && schedulePreview?.fingerprint !== JSON.stringify(form)} />}
@@ -552,6 +612,7 @@ function QuoteEditor() {
       {!isNew && <TabsContent value="delivery"><DeliveryHistory quoteId={id} /></TabsContent>}
       {!isNew && <TabsContent value="history" className="space-y-4"><QuoteVersionDocuments versions={uniqueQuoteVersions(detail.data?.versions || [])} currentVersion={quote.versionNumber || quote.version_number || quote.version} onPdf={pdf.mutate} pending={pdf.isPending} dirty={isDirty} /><HistoryPanel quoteId={id} version={quote.versionNumber || quote.version_number || quote.version} versions={detail.data?.versions || []} /></TabsContent>}
     </Tabs>
+    </fieldset>
   </div>;
 }
 

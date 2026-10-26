@@ -65,6 +65,7 @@ before(async () => {
   for (const file of [
     'membershipSimulationCore.js', 'membershipConfigResolverCore.js',
     'membershipAmendmentReadOverlay.js',
+    'memberMonthlyEntitlement.js',
     'discountHelperCore.js', 'vatOverrideHelperCore.js', 'selectionMatcher.js',
     'invoiceAddressResolver.js', 'tierBandMatcher.js', 'membershipYear.js',
     'annualRenewalPolicy.js', 'membershipIncentiveSnapshot.js',

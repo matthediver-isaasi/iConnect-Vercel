@@ -72,14 +72,10 @@
 - [Member security and lifecycle topics](member-security-lifecycle-index.md) — tenant-scoped deletion, reset authorization, access revocation, and member-only context.
 - [Member deletion billing policy](member-deletion-billing-policy.md) — access removal is not payment cancellation authority; unresolved billing must block destructive disposal.
 - [Controlled composite pending state](controlled-composite-pending-state.md) — queued sibling edits must drive rendering as well as mutations until the parent acknowledges them.
-- [Catalogue event references](catalogue-event-references.md) — derive ticket delegate capacity live; revalidate links on restore, and replace bundle composition atomically.
-- [Sales and Projects policies](sales-project-policy-index.md) — task modes, acceptance automation, collaborator scope, board responsiveness and dashboard dates.
-- [Sales quote naming scope](sales-quote-naming-scope.md) — internal terminology only; public documents, financial identifiers and project task-list names stay independent.
+- [Sales and Projects policies](sales-project-policy-index.md) — tasks, billing, agreements, catalogue/ticket capacity, bearer safety and exhibition event authority.
 - [Deactivating referenced workflow states](workflow-state-deactivation-races.md) — assignment and deactivation must serialize on the same database row; an existence check is raceable.
 - [Immutable child re-parenting](immutable-child-reparenting.md) — child immutability triggers must validate both OLD and NEW parents or updates can move data out of locked snapshots.
 - [Custom Object cardinality migrations](custom-object-cardinality-migrations.md) — widen with a new pinned migration; preserve definition history and global legacy-trigger behavior.
-- [Commercial Event capacity](commercial-event-capacity.md) — unused sale allocations and confirmed delegate rows share one locked capacity equation; reconciliation/cancellation must be atomic.
-- [Quote delivery bearer safety](quote-delivery-bearer-safety.md) — quote links stay inactive until delivery is durably recorded; never persist token-bearing referrers or return broad snapshots publicly.
 - [Allocated delegate claim ordering](allocated-delegate-claim-ordering.md) — claim invite entitlement only after booking capacity checks; compensate the whole checkout if a later claim fails.
 - [Mixed-encoding CSV imports](mixed-encoding-csv-imports.md) — preserve valid UTF-8 sequences while decoding isolated Windows-1252 bytes; whole-file fallback can silently create mojibake.
 - [Stripe feature mode for shared payments](stripe-feature-payment-mode.md) — discovery, creation, and confirmation must use one persisted feature when a shared flow serves several products.

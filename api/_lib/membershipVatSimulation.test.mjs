@@ -201,6 +201,7 @@ before(async () => {
     'annualRenewalPolicy.js',
     'membershipConfigResolverCore.js',
     'membershipAmendmentReadOverlay.js',
+    'memberMonthlyEntitlement.js',
     'discountHelperCore.js',
     'vatOverrideHelperCore.js',
     'discountHelper.js',

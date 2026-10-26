@@ -1,4 +1,5 @@
 import { supabase } from '../../_lib/database.js';
+import { exhibitionError } from '../../_lib/salesExhibition.js';
 import { getTenantContext } from '../../_lib/tenantContext.js';
 import {
   SALES_CAPABILITIES, normaliseQuoteInput, validateQuoteDraft, validateQuoteTransition,
@@ -204,7 +205,14 @@ export function createSalesQuotesHandler(dependencies = {}) {
           body.expectedVersion, body, allowOverride);
         return res.status(id ? 200 : 201).json(result);
       }
-      if (req.method === 'POST' && id && action === 'issue') {
+       if ((req.method === 'DELETE' && id && !action) || (req.method === 'POST' && id && ['exhibition-cancel','exhibition-reopen'].includes(action))) {
+         if (!Number.isInteger(req.body?.expectedVersion)) throw new SalesHttpError(400, 'expectedVersion is required');
+         const result = await db.rpc('sales_exhibition_terminal', { p_tenant: actor.tenantId, p_quote: id,
+           p_version: req.body.expectedVersion, p_action: req.method === 'DELETE' ? 'delete' : action === 'exhibition-cancel' ? 'cancel' : 'reopen', p_actor: actor.actorId });
+         exhibitionError(result.error);
+         return res.status(200).json(result.data);
+       }
+       if (req.method === 'POST' && id && action === 'issue') {
         if (!Number.isInteger(req.body?.expectedVersion) || req.body.expectedVersion < 1) throw new SalesHttpError(400, 'expectedVersion is required');
         return res.status(200).json(await issueQuote(db, actor.tenantId, actor, id, req.body.expectedVersion));
       }
