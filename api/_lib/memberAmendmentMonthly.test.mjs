@@ -98,6 +98,25 @@ function fixture(provider = 'stripe', basis = 'annual_instalments') {
 }
 const rejects = (promise, code) => assert.rejects(promise, error => error.code === code);
 
+test('elapsed boundaries allow read-only recovery but never a new backdated provider write', async () => {
+  for (const provider of ['stripe', 'gocardless']) {
+    const f = fixture(provider);
+    const prepared = await f.service.prepare(f.input);
+    const late = createMemberAmendmentMonthlyService({
+      getStripe: async () => f.stripe, getGc: async () => f.gc,
+      now: () => new Date('2026-02-02T12:00:00Z'),
+    });
+    await rejects(late.prepare(f.input), 'billing_boundary_required');
+    assert.equal((await late.reconcile(prepared)).status, 'not_applied');
+    await rejects(late.apply(prepared), 'billing_boundary_required');
+    assert.equal(f.state.writes.length, 0);
+    assert.equal((await f.service.apply(prepared)).status, 'provider_applied');
+    assert.equal((await late.reconcile(prepared)).status, 'provider_applied');
+    assert.equal((await late.apply(prepared)).replayed, true);
+    assert.equal(f.state.writes.length, 1);
+  }
+});
+
 test('annual card quote retains paid invoice and splits finite schedule without proration/cancellation', async () => {
   const { input, state, service } = fixture();
   const original = copy(input);

@@ -38,7 +38,7 @@ const date = value => {
 };
 
 // authority is server-owned immutable evidence, NEVER a client-authored object.
-function validate(input, now) {
+function validate(input, now, { recovery = false } = {}) {
   const { tenantId, memberId, purchase: p, agreement: a, plan, authority: auth, target } = input;
   if (!tenantId || !memberId || !auth || !p || !a || !plan || !target) {
     block('purchase_authority_required', 'Purchase, consent, payment plan and immutable monthly authority are required');
@@ -86,7 +86,7 @@ function validate(input, now) {
     block('unsupported_currency', 'Recognized two-decimal currency required');
   }
   date(input.effectiveDate);
-  if (input.effectiveDate < now.toISOString().slice(0, 10)
+  if ((!recovery && input.effectiveDate < now.toISOString().slice(0, 10))
     || !auth.collectionDates.includes(input.effectiveDate)) {
     block('billing_boundary_required', 'Only future original collection boundaries may be amended');
   }
@@ -157,7 +157,7 @@ function stripeRestricted(object) {
   }
 }
 
-async function inspectStripe(input, stripe, now) {
+async function inspectStripe(input, stripe, now, { recovery = false } = {}) {
   const { agreement: a, plan, authority: auth } = input;
   const sub = await stripe.subscriptions.retrieve(plan.stripe_subscription_id);
   if (!sub?.id || sub.id !== a.stripe_subscription_id || ref(sub.customer) !== auth.payerId
@@ -224,7 +224,7 @@ async function inspectStripe(input, stripe, now) {
   }
   const anchorDate = new Date(anchor * 1000);
   const timestamp = Date.parse(`${input.effectiveDate}T${anchorDate.toISOString().slice(11)}`) / 1000;
-  if (effectiveAt < 0 || timestamp <= now.getTime() / 1000 || timestamp >= auth.finiteEnd) {
+  if (effectiveAt < 0 || (!recovery && timestamp <= now.getTime() / 1000) || timestamp >= auth.finiteEnd) {
     block('billing_boundary_required', 'A future billing boundary strictly inside the purchased finite term is required');
   }
   // Prove dates against Stripe's actual anchor rather than trusting a caller's
@@ -308,11 +308,11 @@ async function inspectGc(input, gc) {
 export function createMemberAmendmentMonthlyService({
   getStripe = monthlyStripeForTenant, getGc = monthlyGoCardlessForTenant, now = () => new Date(),
 } = {}) {
-  async function inspect(input) {
-    validate(input, now());
+  async function inspect(input, options = {}) {
+    validate(input, now(), options);
     const client = await (input.authority.provider === 'stripe' ? getStripe : getGc)(input.tenantId, input.authority.environment);
     const evidence = input.authority.provider === 'stripe'
-      ? await inspectStripe(input, client, now()) : await inspectGc(input, client);
+      ? await inspectStripe(input, client, now(), options) : await inspectGc(input, client);
     return { client, evidence };
   }
   async function prepare(input) {
@@ -392,7 +392,7 @@ export function createMemberAmendmentMonthlyService({
     const { input, mutation } = prepared;
     if (mutation.kind === 'dynamic_revision_required') block('dynamic_revision_required', 'Core must implement an atomic effective-dated dynamic collection revision resolver before applying');
     try {
-      const { client, evidence } = await inspect(input);
+      const { client, evidence } = await inspect(input, { recovery: true });
       let matches;
       if (mutation.kind === 'stripe_schedule') {
         const schedule = evidence.schedule;
@@ -431,6 +431,13 @@ export function createMemberAmendmentMonthlyService({
     if (current.status === 'provider_applied') return { ...current, replayed: true };
     if (current.status !== 'not_applied') block('provider_state_changed', 'Provider state changed; reconcile the existing operation without resubmission');
     const { input, mutation } = prepared;
+    // Read-only recovery may inspect an elapsed boundary. It must never make a
+    // new backdated provider mutation when that inspection says not_applied.
+    validate(input, now());
+    if (mutation.kind === 'stripe_schedule'
+      && mutation.params.phases[1].start_date <= now().getTime() / 1000) {
+      block('billing_boundary_required', 'A new provider write requires a future billing boundary');
+    }
     const client = await (input.authority.provider === 'stripe' ? getStripe : getGc)(input.tenantId, input.authority.environment);
     try {
       if (mutation.kind === 'stripe_schedule') {

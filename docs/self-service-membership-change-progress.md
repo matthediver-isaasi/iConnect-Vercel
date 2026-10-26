@@ -1,5 +1,11 @@
 # Self-service membership changes: implementation boundary
 
+Read-only provider reconciliation no longer rejects a previously prepared
+operation solely because its effective boundary has passed. New preparation
+and new provider writes still require a future boundary. Changed payment
+evidence remains uncertain; this does not waive finalization checks or enable
+dynamic DD.
+
 ## Live DEST migration status — 26 October 2026
 
 Applied together in one transaction to pinned DEST `lvmzliemqnieeoruhkik`:
