@@ -20,8 +20,15 @@ function credential(value) {
   } catch { throw new EventInvoiceRecoveryError('provider_reconnect_required'); }
 }
 export const recoveryInvoiceMarker = identity => `\n[Event invoice recovery: ${identity}]`;
+// Customer-useful identity, independent of the editable PO and invoice number.
+// Retain the old marker reader for already-issued invoices and in-flight work.
+export function eventInvoiceBookingReference(reference) {
+  if (typeof reference !== 'string' || !reference.trim() || reference.length > 200
+    || /[\r\n]/.test(reference)) throw new EventInvoiceRecoveryError('booking_reference_invalid');
+  return `\nBooking reference: ${reference}`;
+}
 
-export function verifyRecoveryInvoiceFinancials(invoice, snapshot, { legacy = false, identity = null } = {}) {
+export function verifyRecoveryInvoiceFinancials(invoice, snapshot, { legacy = false, identity = null, bookingReference = null } = {}) {
   if (day(invoice.DateString || invoice.Date) !== snapshot.invoice.Date
     || day(invoice.DueDateString || invoice.DueDate) !== snapshot.invoice.DueDate
     || invoice.LineAmountTypes !== snapshot.invoice.LineAmountTypes
@@ -37,7 +44,8 @@ export function verifyRecoveryInvoiceFinancials(invoice, snapshot, { legacy = fa
       && Number(actual.DiscountRate || 0) === Number(expected.DiscountRate || 0)
       && (expected.DiscountAmount == null || Number(actual.DiscountAmount) === Number(expected.DiscountAmount))
       && (legacy || String(actual.Description || '') === String(expected.Description || '')
-        + (i === 0 && identity ? recoveryInvoiceMarker(identity) : ''))
+        + (i === 0 ? (identity ? recoveryInvoiceMarker(identity)
+          : bookingReference ? eventInvoiceBookingReference(bookingReference) : '') : ''))
       && tracking(actual.Tracking) === tracking(expected.Tracking);
   });
 }
@@ -148,10 +156,13 @@ export async function createEventInvoiceRecoveryXero({
     return data[field][0];
   };
   const legacyInvoiceIds = new Set();
-  // Keep operation identity out of both Xero's sequential number and the buyer's
-  // editable PO Reference. The exact first-line suffix survives a lost response.
+  // Keep internal hashes out of customer-facing fields. Both formats remain
+  // discoverable after a lost response; financial/purchaser validation follows.
   const marker = recoveryInvoiceMarker(identity);
-  const marked = invoice => invoice?.LineItems?.[0]?.Description?.endsWith(marker) === true;
+  const bookingReference = eventInvoiceBookingReference(row.booking_group_reference);
+  const oldMarked = invoice => invoice?.LineItems?.[0]?.Description?.endsWith(marker) === true;
+  const bookingMarked = invoice => invoice?.LineItems?.[0]?.Description?.endsWith(bookingReference) === true;
+  const marked = invoice => oldMarked(invoice) || bookingMarked(invoice);
   let durablePayment = null;
   const legacyPaymentReference = `Stripe: ${snapshot.settlement?.paymentIntentId || ''}`;
   const hasToken = (text, token) => {
@@ -400,7 +411,7 @@ export async function createEventInvoiceRecoveryXero({
       }
       return single(await api('Invoices', 'POST', {
         Invoices: [{ ...snapshot.invoice, Contact: contact, LineItems: snapshot.invoice.LineItems.map((line, i) =>
-          i === 0 ? { ...line, Description: String(line.Description || '') + marker } : { ...line }) }],
+          i === 0 ? { ...line, Description: String(line.Description || '') + bookingReference } : { ...line }) }],
       }, `${identity}-invoice`), 'Invoices');
     },
     validateInvoice(invoice) {
@@ -413,7 +424,8 @@ export async function createEventInvoiceRecoveryXero({
           : [snapshot.invoice.Status, 'AUTHORISED', 'PAID']).includes(invoice.Status)
         || invoice.CurrencyCode !== snapshot.currency
         || Number(invoice.Total) !== snapshot.amount || !verifyRecoveryInvoiceFinancials(invoice, snapshot,
-          { legacy, identity: marked(invoice) ? identity : null })
+          { legacy, identity: oldMarked(invoice) ? identity : null,
+            bookingReference: bookingMarked(invoice) ? row.booking_group_reference : null })
         || (snapshot.invoice.Contact.ContactID && invoice.Contact?.ContactID !== snapshot.invoice.Contact.ContactID)
         || (preparedContact?.ContactID && invoice.Contact?.ContactID !== preparedContact.ContactID)
         || (!snapshot.invoice.Contact.ContactID && !preparedContact?.ContactID

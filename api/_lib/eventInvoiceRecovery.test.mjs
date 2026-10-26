@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { enqueueEventInvoiceRecovery, processEventInvoiceRecovery, providerCooldown,
   recoveryIdentity, validRecoverySnapshot } from './eventInvoiceRecovery.js';
-import { createEventInvoiceRecoveryXero, recoveryInvoiceMarker } from './eventInvoiceRecoveryXero.js';
+import { createEventInvoiceRecoveryXero, recoveryInvoiceMarker, eventInvoiceBookingReference } from './eventInvoiceRecoveryXero.js';
 import { eventRecoveryCronHandler, validEventRecoveryCronSecret } from '../cron/reconcile-event-invoices.js';
 import { eventInvoiceRecoveryHealthHandler } from '../health/event-invoice-recovery.js';
 
@@ -174,7 +174,8 @@ test('actual adapter pins organization, bounds transport, uses exact where and s
   assert.notEqual(calls[2].init.headers['Idempotency-Key'], calls[4].init.headers['Idempotency-Key']);
   const payload = JSON.parse(calls[2].init.body).Invoices[0];
   assert.equal(Object.hasOwn(payload, 'InvoiceNumber'), false);
-  assert.equal(payload.LineItems[0].Description, 'Event ticket' + recoveryInvoiceMarker(identity));
+  assert.equal(payload.LineItems[0].Description, 'Event ticket' + eventInvoiceBookingReference(job.booking_group_reference));
+  assert.doesNotMatch(JSON.stringify(payload), /Event invoice recovery/);
 });
 
 test('provider 429 is persisted once and stops further requests in that attempt', async () => {
@@ -360,7 +361,7 @@ test('normal Xero auto-numbered creation journals INV number and links on retry 
   assert.ok(f.calls.at(-1).url.endsWith('/Invoices/sequential-id'));
 });
 
-test('exact description marker recovers auto-numbered remote success after response or local record loss', async () => {
+test('customer booking reference recovers auto-numbered remote success after response or local record loss', async () => {
   for (const failure of ['response', 'record']) {
     const f = numberedXeroFixture({ failure });
     assert.equal((await f.run()).status, 'retry');
@@ -373,19 +374,46 @@ test('exact description marker recovers auto-numbered remote success after respo
     assert.equal(f.db.calls.at(-1)[1].p_invoice_id, 'sequential-id');
     assert.equal(f.db.calls.at(-1)[1].p_invoice_number, 'INV-0100');
     assert.equal(f.remote.invoice.Reference, 'UPDATED-PO');
-    assert.equal(f.remote.invoice.LineItems[0].Description, 'Event ticket' + recoveryInvoiceMarker(f.identity));
+    assert.equal(f.remote.invoice.LineItems[0].Description, 'Event ticket' + eventInvoiceBookingReference(f.job.booking_group_reference));
   }
 });
 
 test('missing or merely similar operation marker after an ambiguous write stops without duplicates', async () => {
   for (const description of ['Event ticket', 'Event ticket\n[Event invoice recovery: event-unrelated]',
-    'Event ticket\n[Event invoice recovery: event-prefix] extra']) {
+    'Event ticket\n[Event invoice recovery: event-prefix] extra',
+    'Event ticket\nBooking reference: group-other', 'Event ticket\nBooking reference: group extra']) {
     const f = numberedXeroFixture({ failure: 'response' });
     assert.equal((await f.run()).status, 'retry');
     f.remote.invoice.LineItems[0].Description = description;
     assert.equal((await f.run()).status, 'needs_review');
     assert.equal(f.db.calls.at(-1)[1].p_reason, 'invoice_creation_ambiguous');
     assert.equal(f.calls.filter(call => call.init.method === 'POST').length, 1);
+  }
+});
+
+test('old recovery-marker invoices remain recoverable without rewriting or duplicating them', async () => {
+  const f = numberedXeroFixture({ failure: 'response' });
+  assert.equal((await f.run()).status, 'retry');
+  f.remote.invoice.LineItems[0].Description = 'Event ticket' + recoveryInvoiceMarker(f.identity);
+  assert.equal((await f.run()).status, 'complete');
+  assert.equal(f.calls.filter(call => call.init.method === 'POST').length, 1);
+  assert.equal(f.remote.invoice.LineItems[0].Description, 'Event ticket' + recoveryInvoiceMarker(f.identity));
+});
+
+test('matching booking reference cannot adopt changed invoice finances or purchaser', async () => {
+  for (const change of [{ Total: 21 }, { Contact: { ContactID: 'another-customer' } }]) {
+    const f = numberedXeroFixture({ failure: 'response' });
+    assert.equal((await f.run()).status, 'retry');
+    Object.assign(f.remote.invoice, change);
+    assert.equal((await f.run()).status, 'needs_review');
+    assert.equal(f.db.calls.at(-1)[1].p_reason, 'invoice_evidence_mismatch');
+    assert.equal(f.calls.filter(call => call.init.method === 'POST').length, 1);
+  }
+});
+
+test('booking reference rejects multiline and empty values', () => {
+  for (const value of ['', null, ' ', 'group\nother', 'x'.repeat(201)]) {
+    assert.throws(() => eventInvoiceBookingReference(value), /booking_reference_invalid/);
   }
 });
 

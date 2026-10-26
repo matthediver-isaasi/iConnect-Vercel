@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createEventInvoiceRecoveryXero, recoveryInvoiceMarker } from './eventInvoiceRecoveryXero.js';
+import { createEventInvoiceRecoveryXero, recoveryInvoiceMarker, eventInvoiceBookingReference } from './eventInvoiceRecoveryXero.js';
 import { processEventInvoiceRecovery, recoveryIdentity } from './eventInvoiceRecovery.js';
 
 const job = () => ({
@@ -309,7 +309,7 @@ test('only complete absence authorizes journaled writes with stable deterministi
    const createdInvoice = { ...row.snapshot.invoice, InvoiceID: 'new-invoice', InvoiceNumber: 'INV-0042',
     Total: 166.67, AmountPaid: 0, AmountDue: 166.67,
      LineItems: [{ ...row.snapshot.invoice.LineItems[0], LineAmount: 166.67,
-       Description: row.snapshot.invoice.LineItems[0].Description + recoveryInvoiceMarker(identity) }] };
+       Description: row.snapshot.invoice.LineItems[0].Description + eventInvoiceBookingReference(row.booking_group_reference) }] };
   const result = await processEventInvoiceRecovery({ db,
     providerFactory: options => createEventInvoiceRecoveryXero({ ...options,
       fetchImpl: async (url, init) => {

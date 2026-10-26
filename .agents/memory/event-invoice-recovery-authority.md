@@ -93,6 +93,16 @@ Use Xero's normal invoice numbering, not the internal recovery identifier.
 
 **How to apply:** Keep duplicate-prevention identity separate from numbering and retain provider invoice/payment IDs. Xero auto-numbering on creation does not establish that omitting the number on an update regenerates it; do not experiment on paid invoices.
 
+Do not put internal “Event invoice recovery” hashes in customer-facing invoice
+descriptions. A normal booking reference is useful customer-facing information.
+
+**Why:** The user explicitly requested removing the technical label from future
+invoices and correcting the known affected invoice in place.
+
+**How to apply:** Retain recognition of previously issued technical markers and
+the durable provider IDs. Keep duplicate prevention, exact financial validation
+and ambiguous-write fences intact when changing the visible reference.
+
 Unchanged event and ticket information is useful reconstruction evidence, but absent ticket VAT does not establish zero VAT or whether a recorded booking amount is gross.
 
 **Why:** Historical checkout omitted Xero's line-amount treatment, relying on its Exclusive default. A recorded amount can therefore conflict with the provider's tax-inclusive invoice total. The user wants reconstruction from booking/event/ticket evidence, not permanent rejection merely because a snapshot is absent.
