@@ -37,10 +37,16 @@ Safe defaults:
 Saving this configuration does not enable any self-service execution. The API
 returns `executionEnabled: false`, and the settings UI explains this.
 
-The additive migration `20261217_membership_change_policy.sql` is **pending live
-approval/application**. It adds a protected singleton policy and immutable policy
+The additive migration `20261217_membership_change_policy.sql` was **applied to
+live DEST on 26 October 2026**, with owner approval. It adds a protected singleton policy and immutable policy
 history; revision checks serialize even the first save. It does not update
 existing forms, schedules, memberships, payment agreements or provider accounts.
+
+Live verification confirmed RLS on both tables, no anonymous/authenticated
+table or save-function access, service-role read-only table grants, and
+service-only execution of the pinned-search-path save function. Both tables
+were empty at application; no tenant policies or financial actions were created.
+Migration SHA-256: `e28f938bf7d9f22b0657b0a3f9a8b878be00604b3a05b5a8182e796968d10eaf`.
 
 ## Still required for the original brief
 
@@ -72,6 +78,7 @@ This is unfinished implementation work, not a list of optional enhancements:
 18 focused tests passed: API validation and tenant authorization, expiry rules,
 missing-schema failure, revision conflict, real isolated PostgreSQL grants and
 concurrent first saves, plus mounted settings UI tests including tenant switches
-and failed/ambiguous saves. No live payments, refunds, emails or DB writes were
-performed. These tests are not acceptance evidence for the unfinished execution
+and failed/ambiguous saves. No live payments, refunds or emails were
+performed; the only live write was the approved policy-storage migration.
+These tests are not acceptance evidence for the unfinished execution
 flows above.
