@@ -124,7 +124,9 @@ export async function runRetry({
     description: priorAttempt.data?.status === 'requested'
       ? 'A requested attempt already exists. Attempt the normal exclusive claim to reconcile that duplicate; no new retry is inferred.'
       : 'Attempt exclusive retry claim. Only after winning it: reserve an idempotent attempt, read live payment and mandate, revalidate claim/policy, then retry the failed payment and update the retry ledger. None of that continuation is guaranteed.',
-    conditional: true, amountMinor: payment?.amount_minor ?? currentPlan.amount_minor,
+    // A retry is of the original provider payment, not a newly priced plan
+    // instalment. A missing mirror amount is unknown, never today's plan price.
+    conditional: true, amountMinor: payment?.amount_minor ?? null,
     currency: payment?.currency || currentPlan.currency, date: currentPlan.auto_retry_next_at || null,
     payload: { tenantId, currentPlan, paymentId, mode, actor, policy, mandateId: mandateId || null,
       attemptNumber, idempotencyKey, claimToken, now: now.toISOString(),

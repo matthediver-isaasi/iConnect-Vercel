@@ -59,6 +59,16 @@ test('production and recording use identical operation construction until the ac
   assert.deepEqual(a.calls, b.calls);
   assert.deepEqual(reads, ['MD1', 'MD1']);
 });
+test('retry evidence retains original payment amount after a prospective plan price change', async () => {
+  const f = fixture({ amount_minor: 2400 }), operations = [];
+  await assert.rejects(runRetries({
+    db: f.db, plan: f.current, now,
+    getGc: async () => ({ getMandate: async () => ({ status: 'active' }) }),
+    effects: recording(operations),
+  }), err => err === stop);
+  assert.equal(operations[0].type, 'retry.claim');
+  assert.equal(operations[0].amountMinor, 1200);
+});
 
 test('due selection and per-plan eligibility share status and deadline constraints', () => {
   const calls = [], q = {};

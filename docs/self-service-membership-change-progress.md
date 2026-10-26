@@ -1,5 +1,28 @@
 # Self-service membership changes: implementation boundary
 
+## Live DEST migration status — 26 October 2026
+
+Applied together in one transaction to pinned DEST `lvmzliemqnieeoruhkik`:
+
+- `202612310022_member_amendment_provider_operations.sql`
+  SHA256 `016d6c22853c8650d663e61da020eabece560c4d26f936b63036c0db2ad7c32c`
+- `202612310025_member_monthly_finalization.sql`
+  SHA256 `dce558e58639e2d8e115167dfe28ca78cad6947ec44af00ac61074afb6eaad55`
+
+Verified RLS on all three new tables, no direct writes for anon/authenticated/
+service_role, and service-only execution of all seven operational RPCs.
+The pending finalization queue was empty. No provider calls, membership changes,
+or financial operations were executed. SOURCE was not modified.
+
+This supersedes the historical “unapplied” notes below; it does not enable the
+unfinished monthly entry flow. Dynamic DD integration and monthly confirmation
+authority still require implementation before member testing.
+
+The retry audit confirmed that GoCardless retries the existing provider payment
+by ID, not a new payment at the current plan price. Retry preview evidence now
+leaves a missing original amount unknown instead of substituting the plan price;
+the original failed-payment amount survives a prospective pricing change.
+
 ## Monthly operational entitlement projection
 
 The shared single-member and batched reporting readers can now project a
