@@ -3,6 +3,20 @@ name: Mid-term membership amendment policy
 description: Approved scope and financial treatment for changes during an existing membership.
 ---
 
+Self-service changes and cancellation must be explicit opt-ins on existing
+membership payment forms, sharing the administrative amendment engine rather
+than creating a competing payment flow. Support both remaining-term and
+replacement-term policies, with safe tenant-controlled approval/credit/refund
+handling. Existing application forms must retain their behaviour unless enabled.
+
+**Why:** The owner's self-service brief requires actual settled-value accounting,
+preserved history and no duplicate collections or premature entitlement changes.
+
+**How to apply:** Resolve the current purchase from authenticated membership
+records, not form answers; revalidate eligibility and finances at confirmation.
+Cancellation of access, renewal, collections and mandates are separate actions.
+Never convert organisation-funded value into personal credit automatically.
+
 The user approved mid-current-term membership structure/tier changes with
 additional-payment collection, retained credit notes and cash refunds all
 covered, plus explicit membership-change history. Preserve the existing expiry
