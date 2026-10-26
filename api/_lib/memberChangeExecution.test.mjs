@@ -53,10 +53,25 @@ test('cron retains authentication and includes execution recovery within its bud
  const calls=[];
  const handler=createMemberAmendmentRecoveryHandler({db:{},secret:()=> 'fixture-secret',
    run:async args=>{calls.push(['legacy',args.budgetMs]);return {outcomes:[]}},
-   runExecutions:async args=>{calls.push(['execution',args.budgetMs]);return {enabled:true,outcomes:[]}}});
+   runExecutions:async args=>{calls.push(['execution',args.budgetMs]);return {enabled:true,outcomes:[]}},
+   runMonthly:async args=>{calls.push(['monthly',args.budgetMs]);return {enabled:false,reason:'migration_required',outcomes:[]}}});
  const res={setHeader(){},status(value){this.code=value;return this},json(value){this.body=value;return this}};
  await handler({method:'POST',headers:{}},res);assert.equal(res.code,401);assert.equal(calls.length,0);
  await handler({method:'POST',headers:{authorization:'Bearer fixture-secret'}},res);
  assert.equal(calls[0][0],'legacy');assert.equal(calls[1][0],'execution');
  assert.ok(calls[1][1]<=40000);assert.equal(res.body.executionRecovery.enabled,true);
+ assert.equal(calls[2][0],'monthly');assert.ok(calls[2][1]<=40000);
+ assert.equal(res.body.monthlyRecovery.reason,'migration_required');
+});
+test('monthly queue failure is reported without hiding earlier recovery results',async()=>{
+ const handler=createMemberAmendmentRecoveryHandler({db:{},secret:()=> 'fixture-secret',
+   run:async()=>({outcomes:[{state:'settled'}]}),
+   runExecutions:async()=>({enabled:true,outcomes:[{state:'applied'}]}),
+   runMonthly:async()=>{throw Object.assign(Error('private provider error'),{code:'monthly_recovery_queue_failed'})}});
+ const res={setHeader(){},status(value){this.code=value;return this},json(value){this.body=value;return this}};
+ await handler({method:'GET',headers:{authorization:'Bearer fixture-secret'}},res);
+ assert.equal(res.body.outcomes[0].state,'settled');
+ assert.equal(res.body.executionRecovery.outcomes[0].state,'applied');
+ assert.equal(res.body.monthlyRecovery.error,'monthly_recovery_queue_failed');
+ assert.ok(!JSON.stringify(res.body).includes('private'));
 });

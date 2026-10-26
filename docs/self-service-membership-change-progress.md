@@ -1,5 +1,22 @@
 # Self-service membership changes: implementation boundary
 
+## Scheduled monthly provider reconciliation
+
+The existing authenticated amendment cron now includes bounded recovery of
+stale claimed monthly provider operations. It loads executing/uncertain rows
+in oldest-updated order, preserves their original tenant/member/actor binding,
+and calls only read-only provider reconciliation. It never starts a provider
+write, retries an unknown write, releases a hold or claims membership completion.
+Provider success is reported as requiring finalization. Individual failures
+are isolated; missing storage is explicitly reported as migration-required.
+Unclaimed reservations and already provider-applied rows are not selected.
+
+This closes automatic provider-outcome recovery, not atomic entitlement
+application. The monthly infrastructure migration remains unapplied, so this
+runner reports disabled on databases without it. Effective-dated monthly
+pricing/application and transactional hold release are still required before
+monthly changes can be enabled. No live financial operation was performed.
+
 ## Step 1 authority storage
 
 Added `202612310023_member_change_authority.sql` and the internal shared

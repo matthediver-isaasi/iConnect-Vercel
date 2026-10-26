@@ -1,9 +1,11 @@
 import { supabase } from '../_lib/database.js';
 import { runMemberAmendmentRecovery } from '../_lib/memberAmendmentSettlement.js';
 import {runMemberChangeExecutionRecovery} from '../_lib/memberChangeExecution.js';
+import {runMemberAmendmentProviderRecovery} from '../_lib/memberAmendmentProviderRecovery.js';
 
 export function createMemberAmendmentRecoveryHandler({ db = supabase, run = runMemberAmendmentRecovery,
   runExecutions=runMemberChangeExecutionRecovery,
+  runMonthly=runMemberAmendmentProviderRecovery,
   secret = () => process.env.CRON_SECRET } = {}) {
   return async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -14,10 +16,19 @@ export function createMemberAmendmentRecoveryHandler({ db = supabase, run = runM
       // Share the invocation budget rather than adding a second full cron run.
       const start=Date.now();
       const result = await run({ db,budgetMs:25000 });
-      const executionRecovery=Date.now()-start<40000
-        ? await runExecutions({db,budgetMs:Math.max(0,40000-(Date.now()-start))})
+      const executionRecovery=Date.now()-start<32500
+        ? await runExecutions({db,budgetMs:Math.max(0,32500-(Date.now()-start))})
         : {enabled:true,outcomes:[],timedOut:true};
-      return res.json({...result,executionRecovery});
+      let monthlyRecovery;
+      try {
+        monthlyRecovery=Date.now()-start<40000
+          ? await runMonthly({db,budgetMs:Math.max(0,40000-(Date.now()-start))})
+          : {enabled:true,outcomes:[],timedOut:true};
+      } catch (error) {
+        // An unavailable new queue must not hide completed legacy recovery.
+        monthlyRecovery={enabled:true,outcomes:[],error:error.code||'monthly_recovery_failed'};
+      }
+      return res.json({...result,executionRecovery,monthlyRecovery});
     } catch (error) {
       return res.status(error.status || 500).json({ error: 'Membership amendment recovery failed', code: error.code || 'recovery_failed' });
     }
