@@ -68,7 +68,7 @@ const fixture = () => ({
   capabilities: { preview: true, create: true }, blockers: [],
 });
 const record = evidence => ({ id: "financial-authority", authority: evidence || authority(), execution: null, settlement: null, application: null, notifications: [] });
-const life = (overrides = {}) => ({ execution: { id: "approved-execution" }, settlement: null, application: null, notifications: [], ...overrides });
+const life = (overrides = {}) => ({ execution: null, settlement: null, application: null, notifications: [], ...overrides });
 const application = { id: "application-upfront", snapshot: { targetSnapshot: { config: { id: "target-config" } } }, effective_date: "2027-01-17", expires_on: "2027-04-17" };
 const fingerprint = "a".repeat(64);
 const financialPanel = () => document.querySelector('[data-testid="upfront-financial-changes"]');
@@ -129,6 +129,10 @@ function historyFixture(evidence = authority(), overrides = {}) {
   data.financialChanges = [{ ...record(evidence), ...overrides }];
   return data;
 }
+const approvalEvidence = () => ({
+  ...authority(-4327, "approval"),
+  creditLiabilityBinding: { accountId: "liability-account", providerTenantId: "accounting-org" },
+});
 
 test("separate upfront form leaves the legacy form intact and previews exact retained-term selection", async () => {
   window.localStorage.clear();
@@ -268,7 +272,7 @@ test("positive and zero adjustments require explicit approval/reason and use col
   }
 });
 
-test("negative refund and approval policies require manual bank-reconciled refund, never automatic cash", async () => {
+test("negative refund and explicitly selected approval-policy refund require manual bank reconciliation, never automatic cash", async () => {
   for (const policy of ["refund", "approval"]) {
     const view = await mount({ data: historyFixture(authority(-4327, policy)), post: payload => json(payload.action === "resume_change" ? life({ nextAction: "execute" }) : life({ settlement: { choice: "refund", state: "awaiting_reconciliation" } })) });
     try {
@@ -276,6 +280,11 @@ test("negative refund and approval policies require manual bank-reconciled refun
       assert.match(financialPanel().textContent, /does not send cash automatically/);
       await click(button("Check / recover upfront financial change"));
       await waitFor(() => button("Approve and execute upfront financial change"));
+      if (policy === "approval") {
+        assert.equal(document.querySelector('select[id^="financial-treatment-"]').value, "");
+        assert.equal(button("Approve and execute upfront financial change").disabled, true);
+        await change('select[id^="financial-treatment-"]', "refund");
+      }
       await approve();
       assert.equal(view.calls.find(item => item.payload?.action === "execute_change").payload.settlementChoice, "refund");
       assert.doesNotMatch(financialPanel().textContent, /Upfront membership application confirmed/);
@@ -518,4 +527,204 @@ test("corrupt confirmation metadata fails closed and unavailable recovery cannot
     assert.deepEqual(JSON.parse(window.localStorage.getItem(storageKey)), metadata);
     assert.ok(view.calls.every(item => !item.payload || item.payload.action === "recover_change"));
   } finally { await view.cleanup(); window.localStorage.clear(); }
+});
+
+test("approval policy has no default and explicitly selected eligible credit is sent only after finance approval", async () => {
+  const view = await mount({ data: historyFixture(approvalEvidence()), post: payload => json(payload.action === "resume_change"
+    ? life({ nextAction: "execute" })
+    : life({ execution: { id: "approved-execution", settlement_choice: "credit" }, settlement: { state: "settled", choice: "credit" } })) });
+  try {
+    assert.match(financialPanel().textContent, /explicit refund or eligible iConnect credit choice required/);
+    await click(button("Check / recover upfront financial change"));
+    await waitFor(() => document.querySelector('select[id^="financial-treatment-"]'));
+    const select = document.querySelector('select[id^="financial-treatment-"]');
+    assert.equal(select.required, true);
+    assert.equal(select.value, "");
+    assert.deepEqual([...select.options].map(option => option.value), ["", "refund", "credit"]);
+    assert.equal(button("Approve and execute upfront financial change").disabled, true);
+    assert.equal(document.querySelector('textarea[id^="financial-approval-reason-"]').disabled, true);
+    assert.equal(view.calls.filter(item => item.payload?.action === "execute_change").length, 0);
+    await change('select[id^="financial-treatment-"]', "credit");
+    await approve();
+    await waitFor(() => financialPanel().textContent.includes("Locked execution treatment"));
+    const execute = view.calls.find(item => item.payload?.action === "execute_change").payload;
+    assert.equal(execute.settlementChoice, "credit");
+    assert.equal(execute.approve, true);
+    assert.match(execute.reason, /Finance verified/);
+    assert.match(financialPanel().textContent, /Member credit is not spendable yet/);
+  } finally { await view.cleanup(); }
+});
+
+test("approval policy keeps refund explicitly selectable when credit flags, binding or optional eligibility checks fail", async () => {
+  for (const variant of ["credit-flag", "missing-flag", "binding", "eligibility-error"]) {
+    const evidence = approvalEvidence();
+    const data = historyFixture(evidence);
+    if (variant === "credit-flag") data.memberCreditExecutionAvailable = false;
+    if (variant === "missing-flag") delete data.memberCreditExecutionAvailable;
+    if (variant === "binding") delete evidence.creditLiabilityBinding;
+    if (variant === "eligibility-error") {
+      delete evidence.creditLiabilityBinding;
+      evidence.creditEligibilityError = "Liability account currency is incompatible with the original payment.";
+    }
+    const view = await mount({ data, post: payload => json(payload.action === "resume_change"
+      ? life({ nextAction: "execute" })
+      : life({ execution: { id: "approved-refund", settlement_choice: "refund" }, settlement: { choice: "refund", state: "awaiting_reconciliation" } })) });
+    try {
+      if (variant === "eligibility-error") assert.match(financialPanel().textContent, /Liability account currency is incompatible/);
+      await click(button("Check / recover upfront financial change"));
+      await waitFor(() => document.querySelector('select[id^="financial-treatment-"]'));
+      const select = document.querySelector('select[id^="financial-treatment-"]');
+      assert.equal(select.value, "");
+      assert.deepEqual([...select.options].map(option => option.value), ["", "refund"]);
+      assert.equal(button("Approve and execute upfront financial change").disabled, true);
+      await change('select[id^="financial-treatment-"]', "refund");
+      await approve();
+      assert.equal(view.calls.filter(item => item.payload?.action === "execute_change").length, 1);
+      assert.equal(view.calls.find(item => item.payload?.action === "execute_change").payload.settlementChoice, "refund");
+      assert.doesNotMatch(financialPanel().textContent, /Upfront membership application confirmed/);
+    } finally { await view.cleanup(); }
+  }
+});
+
+test("changing an approval-policy treatment clears approval and reason, including clearing back to the placeholder", async () => {
+  const view = await mount({ data: historyFixture(approvalEvidence()), post: () => json(life({ nextAction: "execute" })) });
+  try {
+    await click(button("Check / recover upfront financial change"));
+    await waitFor(() => document.querySelector('select[id^="financial-treatment-"]'));
+    await change('select[id^="financial-treatment-"]', "credit");
+    await change('textarea[id^="financial-approval-reason-"]', "Approval applies only to credit");
+    await click(document.querySelector('input[id^="financial-approve-"]'));
+    assert.equal(button("Approve and execute upfront financial change").disabled, false);
+    await change('select[id^="financial-treatment-"]', "refund");
+    assert.equal(document.querySelector('textarea[id^="financial-approval-reason-"]').value, "");
+    assert.equal(document.querySelector('input[id^="financial-approve-"]').checked, false);
+    assert.equal(button("Approve and execute upfront financial change").disabled, true);
+    await change('textarea[id^="financial-approval-reason-"]', "New refund review");
+    await click(document.querySelector('input[id^="financial-approve-"]'));
+    await change('select[id^="financial-treatment-"]', "");
+    assert.equal(document.querySelector('textarea[id^="financial-approval-reason-"]').value, "");
+    assert.equal(document.querySelector('input[id^="financial-approve-"]').checked, false);
+    assert.equal(button("Approve and execute upfront financial change").disabled, true);
+    assert.equal(view.calls.filter(item => item.payload?.action === "execute_change").length, 0);
+  } finally { await view.cleanup(); }
+});
+
+test("existing approval-policy execution locks to settlement_choice and cannot be changed through recovery", async () => {
+  const execution = { id: "approved-refund", settlement_choice: "refund" };
+  const view = await mount({
+    data: historyFixture(approvalEvidence(), { execution }),
+    post: payload => json(payload.action === "resume_change" ? life({ execution, nextAction: "execute" }) : life({ execution, settlement: { choice: "refund", state: "awaiting_reconciliation" } })),
+  });
+  try {
+    assert.match(financialPanel().textContent, /Locked execution treatment: Record a manual, bank-reconciled cash refund/);
+    await click(button("Check / recover upfront financial change"));
+    await waitFor(() => document.querySelector('select[id^="financial-treatment-"]'));
+    const select = document.querySelector('select[id^="financial-treatment-"]');
+    assert.equal(select.disabled, true);
+    assert.equal(select.value, "refund");
+    assert.deepEqual([...select.options].map(option => option.value), ["", "refund"]);
+    await change('select[id^="financial-treatment-"]', "credit");
+    assert.equal(document.querySelector('select[id^="financial-treatment-"]').value, "refund");
+    await approve();
+    assert.equal(view.calls.find(item => item.payload?.action === "execute_change").payload.settlementChoice, "refund");
+  } finally { await view.cleanup(); }
+});
+
+test("lost execution acknowledgement recovers its locked credit choice and back_credit still requires fresh explicit approval", async () => {
+  let resumes = 0;
+  let executes = 0;
+  const execution = { id: "approved-credit", settlement_choice: "credit" };
+  const view = await mount({ data: historyFixture(approvalEvidence()), post: payload => {
+    if (payload.action === "resume_change") return json(++resumes === 1
+      ? life({ nextAction: "execute" })
+      : life({ execution, nextAction: "back_credit" }));
+    if (++executes === 1) throw new Error("Approved execution response lost");
+    return json(life({ execution, settlement: { choice: "credit", state: "settled" } }));
+  } });
+  try {
+    await click(button("Check / recover upfront financial change"));
+    await waitFor(() => document.querySelector('select[id^="financial-treatment-"]'));
+    await change('select[id^="financial-treatment-"]', "credit");
+    await approve();
+    await waitFor(() => financialPanel().textContent.includes("Approved execution response lost"));
+    assert.equal(button("Approve and execute upfront financial change"), undefined);
+    assert.equal(executes, 1);
+    await click(button("Check / recover upfront financial change"));
+    await waitFor(() => button("Approve and execute upfront financial change"));
+    assert.equal(document.querySelector('select[id^="financial-treatment-"]').value, "credit");
+    assert.equal(document.querySelector('select[id^="financial-treatment-"]').disabled, true);
+    assert.equal(document.querySelector('textarea[id^="financial-approval-reason-"]').value, "");
+    assert.equal(document.querySelector('input[id^="financial-approve-"]').checked, false);
+    assert.equal(button("Approve and execute upfront financial change").disabled, true);
+    assert.equal(executes, 1);
+    await approve();
+    assert.equal(executes, 2);
+    const requests = view.calls.filter(item => item.payload?.action === "execute_change");
+    assert.ok(requests.every(item => item.payload.authorityId === "financial-authority" && item.payload.settlementChoice === "credit" && item.payload.approve === true));
+  } finally { await view.cleanup(); }
+});
+
+test("locked credit cannot fall back to refund when credit execution is unavailable", async () => {
+  const execution = { id: "approved-credit", settlement_choice: "credit" };
+  const data = historyFixture(approvalEvidence(), { execution });
+  data.memberCreditExecutionAvailable = false;
+  const view = await mount({ data, post: () => json(life({ execution, nextAction: "back_credit" })) });
+  try {
+    await click(button("Check / recover upfront financial change"));
+    await waitFor(() => financialPanel().textContent.includes("No permitted execution action"));
+    assert.match(financialPanel().textContent, /Locked execution treatment: Issue liability-backed iConnect member credit/);
+    assert.match(financialPanel().textContent, /No retained Xero credit or refund fallback/);
+    assert.equal(document.querySelector('select[id^="financial-treatment-"]'), null);
+    assert.equal(button("Approve and execute upfront financial change"), undefined);
+    assert.equal(view.calls.filter(item => item.payload?.action === "execute_change").length, 0);
+  } finally { await view.cleanup(); }
+});
+
+test("missing or conflicting execution choices fail closed rather than silently selecting a different treatment", async () => {
+  for (const variant of ["missing", "conflicting"]) {
+    const execution = { id: "approved-operation", ...(variant === "conflicting" ? { settlement_choice: "refund" } : {}) };
+    const view = await mount({
+      data: historyFixture(approvalEvidence(), { execution }),
+      post: () => json(life({ execution: variant === "conflicting" ? { ...execution, settlement_choice: "credit" } : execution, nextAction: "execute" })),
+    });
+    try {
+      await click(button("Check / recover upfront financial change"));
+      await waitFor(() => financialPanel().textContent.includes("No permitted execution action"));
+      assert.match(financialPanel().textContent, /Execution treatment evidence is missing or conflicts/);
+      assert.equal(document.querySelector('select[id^="financial-treatment-"]'), null);
+      assert.equal(button("Approve and execute upfront financial change"), undefined);
+      assert.equal(view.calls.filter(item => item.payload?.action === "execute_change").length, 0);
+    } finally { await view.cleanup(); }
+  }
+});
+
+test("settlement evidence without its execution cannot unlock a new approval-policy choice", async () => {
+  const settlement = { choice: "credit", state: "reserved" };
+  const view = await mount({ data: historyFixture(approvalEvidence(), { settlement }), post: () => json(life({ settlement, nextAction: "execute" })) });
+  try {
+    await click(button("Check / recover upfront financial change"));
+    await waitFor(() => financialPanel().textContent.includes("No permitted execution action"));
+    assert.match(financialPanel().textContent, /Execution treatment evidence is missing or conflicts/);
+    assert.equal(document.querySelector('select[id^="financial-treatment-"]'), null);
+    assert.equal(button("Approve and execute upfront financial change"), undefined);
+    assert.equal(view.calls.filter(item => item.payload?.action === "execute_change").length, 0);
+  } finally { await view.cleanup(); }
+});
+
+test("losing optional credit capability invalidates an unexecuted selection and does not silently choose refund", async () => {
+  const view = await mount({ data: historyFixture(approvalEvidence()), post: () => json(life({ nextAction: "execute" })) });
+  try {
+    await click(button("Check / recover upfront financial change"));
+    await waitFor(() => document.querySelector('select[id^="financial-treatment-"]'));
+    await change('select[id^="financial-treatment-"]', "credit");
+    await change('textarea[id^="financial-approval-reason-"]', "Credit approval before capability changed");
+    await click(document.querySelector('input[id^="financial-approve-"]'));
+    await act(async () => view.client.setQueryData(["member-amendments", "tenant-finance", "member-upfront"], previous => ({ ...previous, memberCreditExecutionAvailable: false })));
+    await waitFor(() => document.querySelector('select[id^="financial-treatment-"]').value === "");
+    assert.equal(document.querySelector('textarea[id^="financial-approval-reason-"]').value, "");
+    assert.equal(document.querySelector('input[id^="financial-approve-"]').checked, false);
+    assert.equal(button("Approve and execute upfront financial change").disabled, true);
+    assert.deepEqual([...document.querySelector('select[id^="financial-treatment-"]').options].map(option => option.value), ["", "refund"]);
+    assert.equal(view.calls.filter(item => item.payload?.action === "execute_change").length, 0);
+  } finally { await view.cleanup(); }
 });

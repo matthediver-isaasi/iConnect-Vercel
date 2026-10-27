@@ -4,6 +4,7 @@ import { buildXeroSalesInvoicePayload } from './xero.js';
 import { discoverInvoiceCredits } from './invoiceCreditDiscovery.js';
 import { retrieveTenantPaymentIntent } from './stripeCredentials.js';
 import { verifyMemberCreditLiability } from './memberCreditLiability.js';
+import {inspectMemberCreditBacking,executeMemberCreditBacking} from './memberCreditBacking.js';
 
 const fail = (message) => { throw new AmendmentError(message, 422, 'finance_evidence_required'); };
 export function amendmentMinor(value, label = 'provider amount') {
@@ -175,8 +176,19 @@ export function createMemberAmendmentFinance({
     // original and target tax regimes match. No reverse-engineered VAT rate.
     if (targetTax && targetTax !== original.taxCode) fail('Tax-regime changes need separate debit and credit documents.');
     if (!targetTax && (q.originalFullTerm.vatMinor || amounts.taxMinor)) fail('Missing target tax type or changed tax regime requires separate debit and credit documents.');
+    let memberCreditLiabilityBinding;
+    if(choice==='credit'&&q.memberCreditLiabilityBinding){
+      memberCreditLiabilityBinding=await verifyCreditLiability(amendment.tenant_id,{
+        accountCode:q.memberCreditLiabilityBinding.accountCode,currency:q.currency,
+      });
+      for(const key of ['provider','providerTenantId','accountId','accountCode','currency','kind']){
+        if(memberCreditLiabilityBinding[key]!==q.memberCreditLiabilityBinding[key])fail('Credit liability mapping changed. Review the change again.');
+      }
+      if(memberCreditLiabilityBinding.providerTenantId!==original.xeroTenantId)fail('Credit backing belongs to another accounting organisation.');
+    }
     return {
       ...original, amounts,
+      ...(memberCreditLiabilityBinding?{memberCreditLiabilityBinding}:{}),
       reference: `MA:${amendment.id}`, issueDate: q.effectiveDate,
       // Preserve original payer, not a mutable member contact lookup.
       payerEmail: original.payerEmail,
@@ -267,6 +279,12 @@ export function createMemberAmendmentFinance({
     }
     if (settlement.choice === 'credit') {
       await verifyOriginalCard(amendment);
+      if(c.memberCreditLiabilityBinding){
+        const current=await verifyMemberCreditLiability({request,providerTenantId:xeroTenantId,
+          accountCode:c.memberCreditLiabilityBinding.accountCode,currency:c.currency});
+        if(current.accountId!==c.memberCreditLiabilityBinding.accountId)fail('Credit backing account changed.');
+        return inspectMemberCreditBacking({context:c,document:doc,request});
+      }
       // Before application, spent or allocated credit needs review. Never later
       // permit changing this choice into a refund.
       if (doc.Status !== 'AUTHORISED' || amendmentMinor(doc.RemainingCredit) !== c.amounts.grossMinor
@@ -320,5 +338,11 @@ export function createMemberAmendmentFinance({
     const {request,xeroTenantId}=await client(tenantId);
     return verifyMemberCreditLiability({request,providerTenantId:xeroTenantId,accountCode,currency});
   }
-  return { prepare, execute, inspect, verifyOriginal, verifyCreditLiability };
+  async function backCredit(db,amendment,settlement,actorId){
+    const {request,xeroTenantId}=await client(amendment.tenant_id);
+    if(xeroTenantId!==settlement.context.xeroTenantId)fail('Accounting organisation changed before credit backing.');
+    return executeMemberCreditBacking({db,tenantId:amendment.tenant_id,amendmentId:amendment.id,actorId,
+      request,inspect:()=>inspect(amendment,settlement)});
+  }
+  return { prepare, execute, inspect, verifyOriginal, verifyCreditLiability,backCredit };
 }

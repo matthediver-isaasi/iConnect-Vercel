@@ -43,6 +43,17 @@ note would expose the same surplus twice.
 issuance and redemption use that same account, and do not release usable credit
 until its accounting backing and membership application are committed safely.
 
+A cash-provider refund does not prove that the corresponding voucher-clearing
+payment was reversed in accounting.
+
+**Why:** The existing cash-refund path can restore voucher value independently
+of its accounting entries. For liability-backed credit, that could restore
+spendable value without restoring its liability backing.
+
+**How to apply:** Verify redemption and return accounting as well as original
+issuance before enabling liability-backed member credit. Preserve ownership and
+expiry; unresolved return accounting must not silently create available credit.
+
 For variable-monthly membership changes, service used is measured against
 membership-start anniversaries, not scheduled or actual collection dates.
 

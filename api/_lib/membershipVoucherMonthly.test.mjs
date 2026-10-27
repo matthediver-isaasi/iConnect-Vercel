@@ -74,6 +74,7 @@ function fixture({ accounting = 'xero', mode = 'annual', full = false, rail = 's
     gocardless_refunds: [],voucher_allocation_refund:[],
   };
   const db = { async rpc(name, args) {
+    if(name==='member_credit_funding_proofs')return {data:[]};
     if (name === 'voucher_credit_refund_allocation') {
       let row=tables.voucher_allocation_refund.find(r=>r.allocation_id===args.p_allocation_id && r.refund_key===args.p_refund_key);
       if (!row) { row={ tenant_id:'tenant',allocation_id:args.p_allocation_id,refund_key:args.p_refund_key,cumulative_minor:0 }; tables.voucher_allocation_refund.push(row); }

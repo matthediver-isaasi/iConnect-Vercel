@@ -46,9 +46,9 @@ test('surplus preview pins accounting readiness and refuses another accounting o
    term:{startDate:'2026-01-01',renewalDate:'2027-01-01'},
    fundingEvidence:{provider:'xero',providerTenantId:'books',sourceInvoiceId:'invoice',paymentIds:['paid'],paidMinor:10000}};
   let creditExpiryDays=null;
-  const db={from(table){return {select(){return this},eq(){return this},async maybeSingle(){
+  const db={from(table){let settingKey;return {select(){return this},eq(k,v){if(k==='setting_key')settingKey=v;return this},async maybeSingle(){
    return {data:table==='membership_tier_config'?{id:id(4),tenant_id:id(1)}:
-     table==='system_settings'?{setting_value:'850'}:
+      table==='system_settings'?{setting_value:settingKey==='individual_vouchers_enabled'?'true':'850'}:
       table==='membership_change_policy'?{policy:{...MEMBERSHIP_CHANGE_POLICY_DEFAULTS,surplusHandling:'credit',creditExpiryDays},revision:1}:null};
  }}}};
  let books='books',reads=0;

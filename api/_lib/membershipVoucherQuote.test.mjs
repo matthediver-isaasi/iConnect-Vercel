@@ -77,7 +77,7 @@ function fakeDb({ enabled = true, failSettings = false, failPersist = false } = 
         organization_id: null, status: 'active', currency: 'GBP' }] }
         : { data: failPersist ? null : { id: 'quote-id' }, error: failPersist ? {} : null };
     const query = { then(resolve) { return Promise.resolve(result).then(resolve); } };
-    for (const method of ['select', 'eq', 'is', 'in', 'gt', 'insert', 'single']) {
+    for (const method of ['select', 'eq', 'is', 'in', 'gt', 'or', 'insert', 'single']) {
       query[method] = (...args) => { calls.push([table, method, ...args]); return query; };
     }
     return query;

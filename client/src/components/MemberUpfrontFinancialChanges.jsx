@@ -29,7 +29,8 @@ function treatment(authority) {
   if (delta > 0) return "collect";
   if (delta === 0) return "none";
   if (authority?.settlement?.surplusHandling === "credit") return authority.creditLiabilityBinding ? "credit" : null;
-  if (["refund", "approval"].includes(authority?.settlement?.surplusHandling)) return "refund";
+  if (authority?.settlement?.surplusHandling === "refund") return "refund";
+  if (authority?.settlement?.surplusHandling === "approval") return "approval";
   return null;
 }
 function blockers(authority) {
@@ -68,10 +69,12 @@ const treatments = {
   credit: "Issue liability-backed iConnect member credit",
   refund: "Record a manual, bank-reconciled cash refund",
 };
-function FinancialSummary({ authority, creditEnabled = false }) {
+function FinancialSummary({ authority, creditEnabled = false, selectedTreatment = "", executionLocked = false }) {
   const calculation = authority?.calculation;
   const source = authority?.sourceSnapshot;
-  const choice = treatment(authority);
+  const policy = treatment(authority);
+  const choice = policy === "approval" ? selectedTreatment : policy;
+  const creditEligible = creditEnabled && !!authority?.creditLiabilityBinding && !authority?.creditEligibilityError;
   return <div className="space-y-2 text-sm">
     <p>Source: {source?.commitment_snapshot?.config?.name || source?.structureName || "Historical upfront purchase"}{source?.tier_label ? ` · ${source.tier_label}` : ""}</p>
     <p>Source term: {date(source?.term_start_date)} to {date(source?.term_end_date)}. Original renewal boundary: {date(source?.membership_renewal_date)} · retained.</p>
@@ -80,14 +83,15 @@ function FinancialSummary({ authority, creditEnabled = false }) {
     <dl className="grid grid-cols-1 sm:grid-cols-3 gap-3">
       {[["netMinor", "Net adjustment"], ["vatMinor", "VAT adjustment"], ["grossMinor", "Gross adjustment"]].map(([key, label]) => <div key={key}><dt className="text-muted-foreground">{label}</dt><dd className="font-medium">{money(calculation?.delta?.[key], calculation?.currency)}</dd></div>)}
     </dl>
-    <p className="font-medium">Financial treatment: {choice === "credit" && !creditEnabled ? "iConnect member credit policy — not yet executable" : choice ? treatments[choice] : "Unavailable — resolve financial policy or liability evidence"}</p>
+    <p className="font-medium">Financial treatment: {choice === "credit" && !creditEligible ? "iConnect member credit policy — not yet executable" : treatments[choice] || (policy === "approval" ? "Tenant approval policy — explicit refund or eligible iConnect credit choice required" : "Unavailable — resolve financial policy or liability evidence")}</p>
     {choice === "collect" && <p>An invoice requests the additional payment. Application is not confirmed until payment evidence is verified and a separate application record is returned.</p>}
     {choice === "none" && <p>No collection, cash refund or member credit is requested. A separate application record is still required.</p>}
-    {choice === "refund" && <p>The manual refund must be recorded and bank-reconciled before membership application. This does not send cash automatically.</p>}
-    {(choice === "credit" || authority?.settlement?.surplusHandling === "credit") && <>
+    {(choice === "refund" || (policy === "approval" && !choice)) && <p>{policy === "approval" && !choice ? "If refund is selected: the" : "The"} manual refund must be recorded and bank-reconciled before membership application. This does not send cash automatically.</p>}
+    {(choice === "credit" || authority?.settlement?.surplusHandling === "credit" || policy === "approval") && <>
       <p>iConnect member credit requires frozen liability backing. It is not a retained Xero credit note and not a cash refund. Credit is not spendable until a membership application exists.</p>
-      {!creditEnabled && <p role="alert">Member credit execution is not enabled. Safe atomic backed-voucher issuance is not yet available on this server; an account binding alone does not enable credit. No retained Xero credit or refund fallback is offered against this policy.</p>}
-      {!authority?.creditLiabilityBinding && <p role="alert">Frozen credit liability binding is missing. Credit execution is blocked; no alternative treatment is inferred.</p>}
+      {!creditEnabled && <p role="alert">Member credit execution is not enabled. Both execution capabilities are required; an account binding alone does not enable credit. {policy === "approval" && !executionLocked ? "Refund remains an explicitly selectable option under the approval policy, but nothing is selected automatically." : "No retained Xero credit or refund fallback is offered against this policy or locked execution."}</p>}
+      {!authority?.creditLiabilityBinding && <p role="alert">Frozen credit liability binding is missing. Credit execution is blocked; {policy === "approval" && !executionLocked ? "refund remains available only by explicit selection." : "no alternative treatment is inferred."}</p>}
+      {typeof authority?.creditEligibilityError === "string" && authority.creditEligibilityError && <p role="alert">Credit eligibility: {authority.creditEligibilityError}</p>}
     </>}
     {!!blockers(authority).length && <ul role="alert" className="list-disc pl-5 text-amber-800 dark:text-amber-300">{blockers(authority).map((item, index) => <li key={index}>{message(item)}</li>)}</ul>}
   </div>;
@@ -242,24 +246,65 @@ function FinancialExecution({ record, memberId, tenantId, available, creditEnabl
   const [error, setError] = useState("");
   const [reason, setReason] = useState("");
   const [approval, setApproval] = useState(false);
+  const [selectedChoice, setSelectedChoice] = useState("");
+  const [executionLock, setExecutionLock] = useState(record.execution || null);
+  const approvalFor = useRef(null);
   const busy = useRef(false);
   const alive = useRef(true);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  useEffect(() => {
+    if (record.execution) {
+      setExecutionLock(previous => previous?.settlement_choice ? previous : record.execution);
+      setApproval(false);
+      approvalFor.current = null;
+      setReason("");
+    }
+  }, [record.execution?.id, record.execution?.settlement_choice]);
   const lifecycle = outcome || record;
   const settlement = lifecycle.settlement;
   const application = isApplication(lifecycle.application) ? lifecycle.application : null;
   const safe = supported(record.authority, memberId, tenantId);
-  const choice = treatment(record.authority);
-  const canExecute = safe && (choice !== "credit" || creditEnabled)
-    && (outcome?.nextAction === "execute" || (outcome?.nextAction === "back_credit" && choice === "credit"));
+  const policy = treatment(record.authority);
+  const execution = executionLock || lifecycle.execution || record.execution;
+  const choice = execution ? execution.settlement_choice : policy === "approval" ? selectedChoice : policy;
+  const creditEligible = creditEnabled && !!record.authority?.creditLiabilityBinding && !record.authority?.creditEligibilityError;
+  useEffect(() => {
+    setApproval(false);
+    approvalFor.current = null;
+    setReason("");
+    if (!creditEligible && !execution && selectedChoice === "credit") setSelectedChoice("");
+  }, [available, creditEligible]);
+  const choices = policy === "approval" ? ["refund", ...(creditEligible ? ["credit"] : [])]
+    : policy === "credit" ? (creditEligible ? ["credit"] : []) : [policy].filter(Boolean);
+  const executionConflict = (!execution && !!settlement) || (!!execution && (
+    !execution.settlement_choice
+    || (lifecycle.execution?.id && execution.id && lifecycle.execution.id !== execution.id)
+    || (record.execution?.id && execution.id && record.execution.id !== execution.id)
+    || (lifecycle.execution?.settlement_choice && lifecycle.execution.settlement_choice !== execution.settlement_choice)
+    || (record.execution?.settlement_choice && record.execution.settlement_choice !== execution.settlement_choice)
+    || (settlement?.choice && settlement.choice !== execution.settlement_choice)
+  ));
+  const hasGrant = outcome?.nextAction === "execute" || (outcome?.nextAction === "back_credit" && choice === "credit");
+  const canExecute = safe && choices.includes(choice) && !executionConflict && hasGrant;
+  const canChoose = safe && available && hasGrant && policy === "approval" && !execution && !settlement;
+  function changeChoice(value) {
+    if (execution || busy.current || (value !== "" && !choices.includes(value))) return;
+    setSelectedChoice(value);
+    setApproval(false);
+    approvalFor.current = null;
+    setReason("");
+    setError("");
+  }
   const url = paymentLink(settlement);
   async function run(action) {
     if (busy.current || !enabled || !safe || application) return;
-    if (action === "execute_change" && (!available || (choice === "credit" && !creditEnabled) || !canExecute || !approval || !reason.trim() || reason.length > 2000)) return;
+    if (action === "execute_change" && (!available || (choice === "credit" && !creditEligible) || !canExecute || !approval || approvalFor.current !== choice || !reason.trim() || reason.length > 2000)) return;
     busy.current = true;
     setPending(action);
     setError("");
     setApproval(false);
+    approvalFor.current = null;
+    setReason("");
     // Retain financial evidence, but remove any execution grant after EVERY attempt.
     setOutcome(previous => previous ? { ...previous, nextAction: undefined } : null);
     try {
@@ -268,6 +313,7 @@ function FinancialExecution({ record, memberId, tenantId, available, creditEnabl
       });
       if (!alive.current) return;
       if (!isLifecycle(result)) throw new Error("Financial lifecycle evidence is incomplete. No application or completed outcome is confirmed; recover this authority.");
+      if (result.execution) setExecutionLock(previous => previous?.settlement_choice ? previous : result.execution);
       setOutcome(action === "resume_change" ? result : { ...result, nextAction: undefined });
       void onRefresh();
     } catch (failure) {
@@ -279,10 +325,12 @@ function FinancialExecution({ record, memberId, tenantId, available, creditEnabl
   }
   return <article data-testid={`financial-authority-${record.id}`} className="rounded-md border p-3 space-y-3 text-sm">
     <div className="flex flex-wrap justify-between gap-2"><h5 className="font-medium break-all">Financial authority {record.id}</h5><Badge variant="outline">{application ? "Application confirmed" : "Application not confirmed"}</Badge></div>
-    <FinancialSummary authority={record.authority} creditEnabled={creditEnabled} />
+    <FinancialSummary authority={record.authority} creditEnabled={creditEnabled} selectedTreatment={choice} executionLocked={!!execution} />
     <p className="whitespace-pre-wrap break-words">Recorded change reason: {record.authority?.request?.reason || "Not supplied"}</p>
     {!safe && <p role="alert">Financial execution blocked: unsupported source, member/tenant binding, retained-term, cash funding or liability evidence. No alternative financial route is inferred.</p>}
-    <p>Execution: {lifecycle.execution?.id || "Not confirmed"} · Settlement: {settlement?.state || "Not started / not confirmed"}</p>
+    <p>Execution: {execution?.id || "Not confirmed"} · Settlement: {settlement?.state || "Not started / not confirmed"}</p>
+    {execution && <p className="font-medium">Locked execution treatment: {treatments[execution.settlement_choice] || "Missing or unsupported — recover execution evidence"}. This saved execution choice cannot be changed.</p>}
+    {executionConflict && <p role="alert">Execution treatment evidence is missing or conflicts with recorded settlement. No alternative choice or new execution is permitted; recover the existing authority.</p>}
     {(lifecycle.execution?.last_error || lifecycle.execution?.error) && <p role="alert">Execution error: {message(lifecycle.execution.last_error || lifecycle.execution.error)}</p>}
     {settlement?.evidence?.reason && <p role="alert">Settlement evidence: {settlement.evidence.reason}</p>}
     {settlement?.last_error && <p role="alert">Finance error: {message(settlement.last_error)}</p>}
@@ -300,18 +348,26 @@ function FinancialExecution({ record, memberId, tenantId, available, creditEnabl
     </div> : safe && <div className="space-y-3 border-t pt-3">
       <p className="text-muted-foreground">Check / recover is read-only financial recovery: it never starts collection, refunds or credit backing. Only a separately approved execute action may start financial writes.</p>
       <Button type="button" variant="outline" disabled={!!pending || !enabled} onClick={() => run("resume_change")}>{pending === "resume_change" ? "Recovering financial evidence…" : "Check / recover upfront financial change"}</Button>
-      {canExecute && available && <div className="rounded-md border p-3 space-y-3">
+      {(canExecute || canChoose) && available && <div className="rounded-md border p-3 space-y-3">
         <p className="font-medium">{outcome?.nextAction === "back_credit" ? "Approve liability backing for iConnect member credit" : "Approve upfront financial execution"}</p>
-        <p>{treatments[choice]}. The original term is retained. Approval applies only to this saved authority and its existing execution identity.</p>
+        <p>{treatments[choice] || "Choose a permitted treatment before approving."} The original term is retained. Approval applies only to this saved authority and its existing execution identity.</p>
+        {policy === "approval" && <div className="space-y-1.5">
+          <Label htmlFor={`financial-treatment-${record.id}`}>Surplus financial treatment (required)</Label>
+          <select id={`financial-treatment-${record.id}`} required value={choice || ""} disabled={!!execution || !!pending || !enabled} onChange={event => changeChoice(event.target.value)} className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+            <option value="">Choose refund or eligible iConnect credit</option>
+            {(execution ? [execution.settlement_choice].filter(Boolean) : choices).map(value => <option key={value} value={value}>{treatments[value] || value}</option>)}
+          </select>
+          <p className="text-xs text-muted-foreground">{execution ? "Locked to execution.settlement_choice; recovery cannot select another treatment." : "No treatment is selected by default. Changing treatment clears approval and its reason."}</p>
+        </div>}
         <div className="space-y-1.5"><Label htmlFor={`financial-approval-reason-${record.id}`}>Financial approval reason (required)</Label>
-          <Textarea id={`financial-approval-reason-${record.id}`} required maxLength={2000} value={reason} disabled={!!pending || !enabled} onChange={event => setReason(event.target.value)} />
+          <Textarea id={`financial-approval-reason-${record.id}`} required maxLength={2000} value={reason} disabled={!!pending || !enabled || !canExecute} onChange={event => setReason(event.target.value)} />
         </div>
-        <div className="flex items-start gap-2"><input id={`financial-approve-${record.id}`} type="checkbox" required checked={approval} disabled={!!pending || !enabled} onChange={event => setApproval(event.target.checked)} className="mt-1" />
+        <div className="flex items-start gap-2"><input id={`financial-approve-${record.id}`} type="checkbox" required checked={approval && approvalFor.current === choice} disabled={!!pending || !enabled || !canExecute} onChange={event => { setApproval(event.target.checked); approvalFor.current = event.target.checked ? choice : null; }} className="mt-1" />
           <Label htmlFor={`financial-approve-${record.id}`}>I explicitly approve this financial treatment and retained-term change (required).</Label>
         </div>
-        <Button type="button" disabled={!!pending || !enabled || !approval || !reason.trim()} onClick={() => run("execute_change")}>Approve and execute upfront financial change</Button>
+        <Button type="button" disabled={!!pending || !enabled || !canExecute || !approval || approvalFor.current !== choice || !reason.trim()} onClick={() => run("execute_change")}>Approve and execute upfront financial change</Button>
       </div>}
-      {outcome && !application && !canExecute && <p className="text-muted-foreground">No permitted execution action is available. Continue read-only recovery or resolve the finance evidence; do not start a replacement authority.</p>}
+      {outcome && !application && !canExecute && !canChoose && <p className="text-muted-foreground">No permitted execution action is available. Continue read-only recovery or resolve the finance evidence; do not start a replacement authority.</p>}
     </div>}
     <div className="space-y-1"><p className="font-medium">Notification evidence</p>
       {!list(lifecycle.notifications).length ? <p className="text-muted-foreground">No delivery confirmed. Notification state does not establish settlement or application.</p> : <ul className="list-disc pl-5">{lifecycle.notifications.map((item, index) => <li key={item.id || index}>{item.state || item.status || "Not confirmed"}{item.evidence?.reason ? ` · ${item.evidence.reason}` : ""}</li>)}</ul>}

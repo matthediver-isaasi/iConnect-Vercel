@@ -1,5 +1,38 @@
 # Self-service membership changes: implementation boundary
 
+## Step 3 staged financial lifecycle — 27 October 2026
+
+**Step 3 is not complete and personal-credit execution remains disabled.**
+
+The code now includes a durable, service-only claim before the Xero liability
+payment; exact non-cash backing verification; atomic voucher issuance with
+membership application; no-expiry membership-credit discovery; liability
+rechecks on upfront and monthly redemption; explicit approval-policy selection;
+and a paginated, finance-gated expiry-review panel in Voucher Management.
+Expiry preserves the remaining voucher value for review and does not post a
+write-off. Historical retained-credit-note behaviour is unchanged.
+
+New migration files, **not applied to DEST or SOURCE**:
+- `202612310027_member_credit_backing_claim.sql`
+- `202612310029_member_credit_issuance.sql`
+
+The latter deliberately returns false from the capability RPC. Its isolated
+test opens that gate only in disposable PostgreSQL to exercise issuance,
+rollback and repeat-call behaviour with the real voucher issuance routine.
+
+Release blocker discovered while checking the complete credit lifecycle:
+the existing cash-refund path can restore consumed voucher value after provider
+refund confirmation without verifying reversal of the corresponding accounting
+clearing payment. Original credit-note backing alone is insufficient proof for
+that restored value. Persisted redemption/return accounting evidence and
+reconciliation must cover that path before enabling new liability-backed credit.
+Do not enable the capability merely because initial issuance tests pass.
+
+Monthly surplus settlement, replacement-term and cancellation execution also
+remain outside the connected upfront path. No live financial transactions have
+been performed. The older progress notes below describe earlier milestones,
+not an assertion that Step 3 is finished.
+
 ## Step 3 financial execution — accounting decision and initial guard
 
 The owner selected iConnect-only member credit with liability accounting.

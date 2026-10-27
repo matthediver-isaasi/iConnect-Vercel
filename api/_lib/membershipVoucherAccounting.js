@@ -1,5 +1,6 @@
 import { invoiceReferenceFromRow, invoiceReferenceColumns } from './feeTokenInvoiceReference.js';
 import { pinMembershipAccountingBinding } from './membershipVoucherAccountingBinding.js';
+import {verifyMemberCreditRedemption} from './memberCreditRedemption.js';
 
 /** Explicit funding against a gross invoice. Never a fee discount, never a
  * synthetic Stripe payment. Existing invoice identity always wins.
@@ -23,6 +24,7 @@ export async function accountMembershipVoucherSettlement(db, token, settlement, 
     ? facade.getAccountingProviderByName(reference?.provider || settlement.accounting_provider)
     : await facade.getAccountingProvider(token.tenant_id);
   const funding = settlement.funding;
+  await (deps.verifyMemberCreditRedemption||verifyMemberCreditRedemption)(db,token.tenant_id,funding.allocations,provider);
   const description = funding.allocations.map(a =>
     `${a.displayName} (${a.ownerType === 'member' ? 'Personal' : 'Organisation'}): ${funding.currency} ${(a.amountMinor / 100).toFixed(2)}`).join('; ');
   const expectedProviderContext = await pinMembershipAccountingBinding(db, settlement, reference?.provider || provider.name, deps);

@@ -8,6 +8,10 @@ export async function readMemberMonthlyChanges(db,tenantId,memberId){
     throw Object.assign(new Error('Monthly membership readiness could not be checked.'),{status:503});
   }
   if(ready.data!==true)throw Object.assign(new Error('Monthly membership execution is unavailable.'),{status:503});
+  const creditReady=await db.rpc('member_credit_execution_available',{});
+  if(creditReady.error&&!['PGRST202','42883'].includes(creditReady.error.code)){
+    throw Object.assign(new Error('Member credit readiness could not be checked.'),{status:503});
+  }
   async function pages(table,columns,filters){
     const all=[];
     for(let offset=0;;offset+=500){
@@ -49,7 +53,7 @@ export async function readMemberMonthlyChanges(db,tenantId,memberId){
     notifications.push(...data);
   }
   return {monthlyExecutionAvailable:true,monthlyExecutionNotice:null,
-    financialExecutionAvailable:true,memberCreditExecutionAvailable:false,
+    financialExecutionAvailable:true,memberCreditExecutionAvailable:!creditReady.error&&creditReady.data===true,
     financialChanges:upfront.map(row=>{
       const execution=executions.find(e=>e.authority_id===row.id);
       const settlement=settlements.find(s=>s.amendment_id===execution?.amendment_id);

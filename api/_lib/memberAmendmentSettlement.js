@@ -116,6 +116,23 @@ export function createMemberAmendmentSettlementService({
     if (result.conflict) throw new AmendmentError('Settlement arrived after the membership changed, paused or renewed. Funds remain recorded; entitlement was not applied.', 409, result.code);
     return lifecycle(tenantId, input.amendmentId);
   }
+  async function backCredit(tenantId,actorId,input){
+    const a=await amendment(tenantId,input.amendmentId);
+    assertOperationalScope(a);
+    const s=await one('member_membership_amendment_settlement',tenantId,'amendment_id',a.id);
+    if(s?.choice!=='credit'||!a.quote?.memberCreditLiabilityBinding||!s.context?.memberCreditLiabilityBinding){
+      throw new AmendmentError('This settlement is not an approved member-credit issuance.',409,'credit_backing_not_authorized');
+    }
+    let result;
+    try{result=await finance.backCredit(db,a,s,actorId);}
+    catch(error){
+      await finish(tenantId,a.id,actorId,{state:'uncertain',evidence:{...s.evidence,reason:'credit_backing_requires_reconciliation'},
+        errorCode:error.code||'credit_backing_outcome_uncertain'});
+      throw error;
+    }
+    await finish(tenantId,a.id,actorId,result);
+    return lifecycle(tenantId,a.id);
+  }
   async function notify(tenantId, actorId, input) {
     const a = await amendment(tenantId, input.amendmentId);
     const life = await lifecycle(tenantId, a.id);
@@ -148,7 +165,10 @@ export function createMemberAmendmentSettlementService({
           ? (s.state === 'awaiting_payment' ? `Additional payment required: ${amount}. ${s.evidence?.paymentUrl || 'Contact the membership team for the invoice payment link.'}` : `Additional payment verified: ${amount}.`)
           : s?.choice === 'refund'
             ? (s.evidence?.kind === 'recorded_manual_refund' ? `Bank-reconciled manual refund recorded: ${amount}.` : `A manual cash refund of ${amount} must be made and bank-reconciled. No automatic refund has been sent.`)
-            : s?.choice === 'credit' ? `Retained credit note: ${amount}. This is not a cash refund.` : 'No financial difference.';
+            : s?.choice === 'credit' ? (s.context?.memberCreditLiabilityBinding
+              ? (life.application ? `Member credit issued: ${amount}. This is iConnect membership credit, not a cash refund.`
+                : `Member credit of ${amount} is being prepared and is not yet available to spend.`)
+              : `Retained credit note: ${amount}. This is not a cash refund.`) : 'No financial difference.';
         const text = `Membership amendment ${a.id}\n${applied ? 'Membership change applied.' : 'Membership change settlement update. This message does not confirm an applied membership change.'}\n${financial}\nOriginal renewal date remains ${a.quote.term.renewalDate}.`;
         outcome = await deliver({
           tenantId, to: recipients.join(','), subject: applied ? 'Membership change applied' : 'Membership change settlement update',
@@ -167,7 +187,7 @@ export function createMemberAmendmentSettlementService({
     }
     return lifecycle(tenantId, a.id);
   }
-  return { lifecycle, settle, reconcile, apply, notify };
+  return { lifecycle, settle, reconcile, apply, notify,backCredit };
 }
 
 export async function runMemberAmendmentRecovery({ db, service = createMemberAmendmentSettlementService({ db }),

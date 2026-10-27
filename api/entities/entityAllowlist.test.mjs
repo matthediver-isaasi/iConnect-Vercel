@@ -16,6 +16,15 @@ const clientEntityNames = [
   ),
 ].map((match) => match[1]);
 
+test('membership-credit accounting evidence is not exposed by generic entity routes', () => {
+  for (const source of [indexSource, byIdSource]) {
+    const tables = [...source.matchAll(/^\s+'[^']+':\s*'([^']+)',/gm)].map(match => match[1]);
+    for (const table of ['member_credit_backing_claim', 'member_membership_credit', 'member_credit_expiry_review']) {
+      assert.equal(tables.includes(table), false, `${table} must remain service-only`);
+    }
+  }
+});
+
 test('generic entity routes resolve tables only through the explicit allowlist', () => {
   for (const source of [indexSource, byIdSource]) {
     assert.match(source, /entityTableByNormalizedName/);

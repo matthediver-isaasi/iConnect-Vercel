@@ -96,7 +96,8 @@ export async function discoverMembershipVouchers(db, token, now = new Date(), au
   if (personalEnabled) {
     const { data, error: voucherError } = await db.from('voucher').select('*')
       .eq('tenant_id', token.tenant_id).eq('member_id', token.member_id).is('organization_id', null)
-      .eq('status', 'active').gt('value', 0).gt('expires_at', now.toISOString());
+      .eq('status', 'active').gt('value', 0)
+      .or(`expires_at.gt.${now.toISOString()},and(expires_at.is.null,funding_source.eq.membership_change)`);
     if (voucherError) throw new Error('Could not load personal membership credit');
     candidates.push(...(data || []));
   }
@@ -107,7 +108,7 @@ export async function discoverMembershipVouchers(db, token, now = new Date(), au
     if (voucherError) throw new Error('Could not load permitted organisation credit');
     candidates.push(...(data || []));
   }
-  const context = { tenantId: token.tenant_id, memberId: token.member_id,
+  const context = { tenantId: token.tenant_id, memberId: token.member_id,allowMembershipChangeCredit:true,
     allowOrganization: organizationEnabled, isAuthenticated: organizationEnabled,
     organizationId: authority?.organization?.id, organization: authority?.organization,
     roleId: authority?.roleId, settings, currency: token.currency || 'GBP', now };

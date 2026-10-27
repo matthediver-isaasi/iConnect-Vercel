@@ -3,6 +3,16 @@ import assert from 'node:assert/strict';
 import { normalizeVoucherSettings, voucherDisplayName, voucherOwnerType } from '../../shared/voucherPolicy.js';
 import { canReadVoucher, assertVoucherEligible, releaseVoucherCredit } from './voucherCreditService.js';
 
+test('new membership credit supports no expiry only in membership payment contexts',()=>{
+ const v={tenant_id:'t',member_id:'m',value:10,status:'active',currency:'GBP',expires_at:null,
+  funding_source:'membership_change'};
+ const c={tenantId:'t',memberId:'m',settings:{individual_vouchers_enabled:true},allowMembershipChangeCredit:true};
+ assert.equal(assertVoucherEligible(v,c),v);
+ assert.throws(()=>assertVoucherEligible(v,{...c,allowMembershipChangeCredit:false}),/membership payments only/);
+ assert.throws(()=>assertVoucherEligible({...v,expires_at:'2020-01-01'},c),/available/);
+ assert.throws(()=>assertVoucherEligible({...v,funding_source:'other'},c),/available/);
+});
+
 test('owner names are independent, trimmed, default-off and fail-closed ownership', () => {
   assert.deepEqual(normalizeVoucherSettings(), {
     individual_vouchers_enabled: false, organization_voucher_display_name: 'Training Voucher',

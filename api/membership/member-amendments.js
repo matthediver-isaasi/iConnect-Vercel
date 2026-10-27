@@ -6,6 +6,7 @@ import { createMemberChangeAuthorityResolver } from '../_lib/memberChangeAuthori
 import { createMemberChangeExecutionService } from '../_lib/memberChangeExecution.js';
 import { createMemberMonthlyChangeExecution } from '../_lib/memberMonthlyChangeExecution.js';
 import { readMemberMonthlyChanges } from '../_lib/memberMonthlyChangeRead.js';
+import {listMemberCreditExpiryReviews,reviewMemberCreditExpiry} from '../_lib/memberCreditExpiryReview.js';
 
 export function createMemberAmendmentsHandler({
   db = supabase, getContext = getTenantContext, isAdmin = hasAdminAccess,
@@ -28,6 +29,12 @@ export function createMemberAmendmentsHandler({
         return res.status(403).json({ error: 'Membership finance permission required' });
       }
       const actorId = context.tenantUserId || context.memberId;
+      if(req.method==='GET'&&req.query?.action==='credit_expiry_reviews'){
+        return res.json(await listMemberCreditExpiryReviews(db,context.tenantId,req.query.after));
+      }
+      if(req.method==='POST'&&req.body?.action==='review_credit_expiry'){
+        return res.json(await reviewMemberCreditExpiry(db,context.tenantId,actorId,req.body));
+      }
       if (!actorId) return res.status(403).json({ error: 'An authenticated audit identity is required' });
       const amendments = service || createMemberAmendmentsService({ db });
       if(req.method==='POST' && ['execute_change','resume_change'].includes(req.body?.action)) {

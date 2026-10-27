@@ -12,7 +12,7 @@ function fixture(){
    member_membership_amendment_application:[],
    member_membership_amendment_notification:[],
  };
- const db={rpc:async()=>({data:true}),from(table){
+ const db={rpc:async(name)=>({data:name==='member_credit_execution_available'?false:true}),from(table){
    let rows=tables[table]||[];
    return {select(){return this},eq(k,v){rows=rows.filter(r=>r[k]===v);return this},
      in(k,values){rows=rows.filter(r=>values.includes(r[k]));return this},
@@ -45,5 +45,5 @@ test('first recovery validates a saved authority but never starts financial exec
  assert.equal(result.nextAction,'execute');assert.equal(result.execution,null);
  await assert.rejects(service.resume({...context,tenantId:id(9)},{authorityId:id(3)}),{status:404});
  await assert.rejects(service.execute(context,{authorityId:id(3),approve:true,reason:'Approve',settlementChoice:'credit'}),
-   /supported settlement choice/);
+   /reviewed migration/);
 });

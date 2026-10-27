@@ -17,6 +17,7 @@ function dbFor(current = settlement, history = {}) {
   return {
     calls,
     async rpc(name, args) {
+      if(name==='member_credit_funding_proofs')return {data:[]};
       calls.push({ name, args });
       if (name === 'membership_voucher_pin_accounting') return { data: { ...current, accounting_binding: args.p_binding } };
       return { data: { ...current, state: 'committed', history_record_id: 'history' } };

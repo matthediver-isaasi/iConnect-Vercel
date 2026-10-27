@@ -81,10 +81,14 @@ export function assertVoucherEligible(voucher, context) {
     }
   }
   const now = new Date(context.now ?? Date.now()).getTime();
-  const expires = Date.parse(voucher.expires_at);
+  const membershipCredit=voucher.funding_source==='membership_change'&&!!voucher.member_id;
+  if(membershipCredit&&context.allowMembershipChangeCredit!==true){
+    throw new VoucherCreditError('This credit is available for eligible membership payments only');
+  }
+  const expires = membershipCredit&&voucher.expires_at==null ? Infinity : Date.parse(voucher.expires_at);
   const starts = voucher.valid_from == null ? -Infinity : Date.parse(voucher.valid_from);
   if (voucher.status !== 'active' || !(Number(voucher.value) > 0)
-    || !Number.isFinite(expires) || expires <= now || Number.isNaN(starts) || starts > now) {
+    || (expires!==Infinity&&!Number.isFinite(expires)) || expires <= now || Number.isNaN(starts) || starts > now) {
     throw new VoucherCreditError('Voucher is not currently available');
   }
   if ((voucher.currency || 'GBP').toUpperCase() !== (context.currency || 'GBP').toUpperCase()) {

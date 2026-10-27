@@ -21,6 +21,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useAdminBalancesRealtime } from "@/hooks/useAdminBalancesRealtime";
 import { useSavedExportReports } from "@/hooks/useSavedExportReports";
 import ExportReportSwitcher from "@/components/ExportReportSwitcher";
+import MembershipCreditExpiryReviews from "@/components/MembershipCreditExpiryReviews";
 import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
 import { adminFetch } from '@/lib/adminFetch';
 import { useTicketViewerKey } from '@/hooks/useTicketViewerKey';
@@ -1366,6 +1367,8 @@ export default function VoucherManagementPage() {
             </Button>
           </div>
         </div>
+
+        <MembershipCreditExpiryReviews />
 
         <Card className="border-slate-200 shadow-sm mb-6">
           <CardContent className="p-4">

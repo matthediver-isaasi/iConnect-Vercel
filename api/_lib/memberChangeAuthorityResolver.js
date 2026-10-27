@@ -62,8 +62,11 @@ export function createMemberChangeAuthorityResolver({
       targetTerm:{startDate:q.effectiveDate,renewalDate:anniversary.toISOString().slice(0,10)},
     });
     const settlement=planMembershipChangeSettlement({calculation,policy,issuedAt:`${q.effectiveDate}T00:00:00Z`});
-    let creditLiabilityBinding=null;
-    if(settlement.surplusEligibleMinor>0 && settlement.surplusHandling==='credit'){
+    let creditLiabilityBinding=null,creditEligibilityError=null;
+    if(settlement.surplusEligibleMinor>0 && ['credit','approval'].includes(settlement.surplusHandling)){
+     try{
+      const enabled=await one('system_settings',context,{setting_key:'individual_vouchers_enabled'});
+      if(![true,'true'].includes(enabled?.setting_value))fail('Enable individual member vouchers before issuing membership credit.');
       const setting=await one('system_settings',context,{setting_key:'xero_voucher_clearing_account_code'});
       creditLiabilityBinding=await creditLiability(context.tenantId,{
         accountCode:setting?.setting_value,currency:q.currency,
@@ -71,11 +74,16 @@ export function createMemberChangeAuthorityResolver({
       if(creditLiabilityBinding.providerTenantId!==proof.providerTenantId){
         fail('Credit liability account and original payment belong to different accounting organisations.');
       }
+     }catch(error){
+      if(settlement.surplusHandling==='credit')throw error;
+      creditLiabilityBinding=null;
+      creditEligibilityError='Member credit is unavailable until the individual-voucher scheme and original liability account can be verified.';
+     }
     }
     return {version:1,tenantId:context.tenantId,memberId:context.memberId,action:'change',
       request,sourceSnapshot:source,targetSnapshot:q.targetSnapshot.config,
       targetBandSnapshot:q.targetSnapshot.band||null,governingSnapshot:governing,
-      pricingSnapshot:q.targetSnapshot,policySnapshot,calculation,fundingEvidence,settlement,creditLiabilityBinding,
+      pricingSnapshot:q.targetSnapshot,policySnapshot,calculation,fundingEvidence,settlement,creditLiabilityBinding,creditEligibilityError,
       executionEnabled:false};
   };
 }

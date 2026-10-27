@@ -43,21 +43,29 @@ export function createMemberChangeExecutionService({db,settlement=createMemberAm
       // together. A failed transaction remains recoverable from settled state.
       life=await settlement.apply(context.tenantId,context.actorId,args);
     }
-    return {execution,...life};
+    return {execution,...life,...(life.settlement?.evidence?.kind==='awaiting_member_credit_backing'?{nextAction:'back_credit'}:{})};
   }
   async function execute(context,input) {
     validate(context,input);
     if(input.approve!==true || typeof input.reason!=='string' || !input.reason.trim()
-      || input.reason.trim().length>2000 || !['collect','refund','none'].includes(input.settlementChoice)) {
+      || input.reason.trim().length>2000 || !['collect','refund','none','credit'].includes(input.settlementChoice)) {
       fail('Explicit approval, reason and supported settlement choice are required',400);
+    }
+    if(input.settlementChoice==='credit'){
+      const ready=await db.rpc('member_credit_execution_available',{});
+      if(ready.error||ready.data!==true)fail('Member credit execution requires the reviewed migration.',503);
     }
     const execution=amendmentResult(await db.rpc('begin_member_change_execution',{
       p_tenant_id:context.tenantId,p_member_id:context.memberId,p_authority_id:input.authorityId,
       p_actor_id:context.actorId,p_choice:input.settlementChoice,p_reason:input.reason.trim(),
     }));
-    await settlement.settle(context.tenantId,context.actorId,{
+    const life=await settlement.settle(context.tenantId,context.actorId,{
       amendmentId:execution.amendment_id,settlementChoice:execution.settlement_choice,
     });
+    if(execution.settlement_choice==='credit'&&!life.application
+      &&life.settlement?.evidence?.kind==='awaiting_member_credit_backing'){
+      await settlement.backCredit(context.tenantId,context.actorId,{amendmentId:execution.amendment_id});
+    }
     return resume(context,input);
   }
   return {execute,resume};

@@ -1,3 +1,4 @@
+import {verifyMemberCreditRedemption} from './memberCreditRedemption.js';
 import { invoiceReferenceFromRow } from './feeTokenInvoiceReference.js';
 import { monthlyFundingSlice, fundedMonthlySnapshot, fundedInstalmentDate } from './membershipVoucherMonthly.js';
 import { accountMembershipVoucherSettlement } from './membershipVoucherAccounting.js';
@@ -141,6 +142,8 @@ export async function postMembershipVoucherMonthlyPayment({
       }
     }
     if (perInstalment) {
+      await (deps.verifyMemberCreditRedemption||verifyMemberCreditRedemption)(db,loaded.tenant_id,slice.allocations,accountingProvider,
+        {providerName:reference.provider});
       const status = await accountingProvider.fetchInvoiceStatus(reference.invoiceId, loaded.tenant_id);
       if (!status || status.voided || Math.round(Number(status.totalAmt) * 100) !== slice.grossMinor) {
         throw new Error('Gross instalment invoice no longer matches the frozen purchase');
