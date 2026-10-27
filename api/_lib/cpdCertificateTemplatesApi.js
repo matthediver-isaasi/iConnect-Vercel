@@ -1,4 +1,5 @@
 import multer from 'multer';
+import { validateCertificateText } from '../../shared/cpdCertificateDisplay.js';
 import { supabase as defaultSupabase } from './database.js';
 import { getTenantContext } from './tenantContext.js';
 import { isResourceExcluded } from './roleVisibility.js';
@@ -43,9 +44,10 @@ export async function authorizeCpdTemplates(req, dependencies = {}) {
   return { context };
 }
 
-function validPlaceholders(input) {
+export function validPlaceholders(input) {
   if (!Array.isArray(input)) throw new Error('placeholders must be an array');
   return input.map((p, index) => {
+    validateCertificateText(p.text_template);
     const key = String(p.placeholder_key || '').trim();
     if (!/^[A-Za-z][A-Za-z0-9_.-]{0,99}$/.test(key)) throw new Error('Placeholder keys must be valid');
     const numeric = ['page_number', 'x', 'y', 'width', 'height', 'font_size', 'line_height', 'minimum_font_size'];
@@ -66,6 +68,7 @@ function validPlaceholders(input) {
       throw new Error('Invalid placeholder typography');
     }
     return {
+      text_template: p.text_template ?? null,
       placeholder_key: key, page_number: Number(p.page_number), x: Number(p.x), y: Number(p.y),
       label: p.label == null ? null : String(p.label).slice(0, 200),
       field_type: ['text', 'date', 'number'].includes(p.field_type) ? p.field_type : 'text',

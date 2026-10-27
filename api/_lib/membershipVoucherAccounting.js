@@ -1,7 +1,7 @@
 import { invoiceReferenceFromRow, invoiceReferenceColumns } from './feeTokenInvoiceReference.js';
 import { pinMembershipAccountingBinding } from './membershipVoucherAccountingBinding.js';
 import {verifyMemberCreditRedemption} from './memberCreditRedemption.js';
-import {recordMemberCreditRedemption,claimMemberCreditFunding,recoverMemberCreditFunding,postMemberCreditFunding} from './memberCreditRedemptionReceipt.js';
+import {claimMemberCreditFunding, postMemberCreditFunding, recordMemberCreditRedemption, recoverMemberCreditFunding} from './memberCreditRedemptionReceipt.js';
 
 /** Explicit funding against a gross invoice. Never a fee discount, never a
  * synthetic Stripe payment. Existing invoice identity always wins.

@@ -1,5 +1,5 @@
 import {verifyMemberCreditRedemption} from './memberCreditRedemption.js';
-import {recordMemberCreditRedemption,claimMemberCreditFunding,recoverMemberCreditFunding,postMemberCreditFunding} from './memberCreditRedemptionReceipt.js';
+import {claimMemberCreditFunding, postMemberCreditFunding, recordMemberCreditRedemption, recoverMemberCreditFunding} from './memberCreditRedemptionReceipt.js';
 import { invoiceReferenceFromRow } from './feeTokenInvoiceReference.js';
 import { monthlyFundingSlice, fundedMonthlySnapshot, fundedInstalmentDate } from './membershipVoucherMonthly.js';
 import { accountMembershipVoucherSettlement } from './membershipVoucherAccounting.js';

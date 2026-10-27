@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { certificateDependencies } from '../../shared/cpdCertificateDisplay.js';
 import { JSDOM } from 'jsdom';
 import createDOMPurify from 'dompurify';
 import { realCertificatePlaceholders, renderAttendeeCertificate } from './attendeeCpdCertificate.js';
@@ -31,7 +32,7 @@ export async function prepareManualCertificate(db, tenantId, member, input) {
   const result = await db.from('cpd_certificate_placeholder').select('*').eq('tenant_id', tenantId)
     .eq('template_id', template.id).order('page_number').order('display_order').order('id');
   if (result.error) throw result.error;
-  const keys = new Set((result.data || []).map(p => p.placeholder_key));
+  const keys = new Set((result.data || []).flatMap(certificateDependencies));
   if (!keys.has('cpd.cpd_points') || !['cpd.activity_title','historic_event_title','event.name'].some(k => keys.has(k))) {
     throw problem('This certificate must contain CPD points and an event/activity title field.');
   }

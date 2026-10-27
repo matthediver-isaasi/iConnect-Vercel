@@ -3,6 +3,7 @@ import { PDFDocument, rgb } from "pdf-lib";
 import { readFile } from "node:fs/promises";
 import { serializeCertificatePlaceholder } from '../client/src/lib/cpdCertificateContract.js';
 import { layoutPlaceholder } from '../api/_lib/cpdCertificatePdf.js';
+import { CPD_TEXT_EXAMPLE } from '../shared/cpdCertificateDisplay.js';
 
 // The application code and PDF.js run through the existing Vite preview.
 // Only the HTML shell, access hook, certificate API and PDF bytes are fixture-owned.
@@ -146,6 +147,13 @@ Map.prototype.getOrInsert ||= function(key, value) {
       return route.fulfill({ contentType: "text/html", body: fixtureHtml });
     }
     const json = value => route.fulfill({ contentType: "application/json", body: JSON.stringify(value) });
+    if (url.pathname === "/api/cpd-certificate-templates/fixture-template" && req.method() === "PUT") {
+      const body = req.postDataJSON();
+      template.placeholders = body.placeholders;
+      template.version++;
+      return json({ template });
+    }
+    if (url.pathname === "/api/cpd-certificate-templates") return json({ templates: [] });
     if (url.pathname === "/api/cpd-certificate-templates/fixture-template" && req.method() === "GET") {
       if (delay) await new Promise(resolve => setTimeout(resolve, delay));
       return json({ template, placeholders: template.placeholders });
@@ -202,6 +210,30 @@ async function measure(page) {
     };
   });
 }
+
+test('authored CPD text saves, reopens, duplicates and previews as a flowing sentence', async ({ page, request }) => {
+  await mount(page, request, { fields: [], direct: false });
+  await page.getByRole('button', { name: 'Add text block', exact: true }).click();
+  const editor = page.getByLabel('Certificate text', { exact: true });
+  await expect(editor).toHaveValue(CPD_TEXT_EXAMPLE);
+  await editor.fill('{{unsupported}}');
+  await expect(page.getByRole('alert')).toContainText('Unsupported certificate token');
+  await editor.fill(CPD_TEXT_EXAMPLE);
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByText('Unsaved', { exact: true })).toHaveCount(0);
+  await page.reload();
+  await page.getByTestId('certificate-page').getByText(CPD_TEXT_EXAMPLE, { exact: true }).click();
+  await expect(editor).toHaveValue(CPD_TEXT_EXAMPLE);
+  await page.getByRole('button', { name: /Duplicate/ }).click();
+  await expect(editor).toHaveValue(CPD_TEXT_EXAMPLE);
+  await page.getByRole('button', { name: /Remove/ }).click();
+  await page.getByRole('button', { name: 'Preview', exact: true }).click();
+  for (const points of ['8', '6.5', '0']) {
+    await page.getByLabel('Preview CPD points', { exact: true }).fill(points);
+    await expect(page.getByTestId('certificate-page').getByText(CPD_TEXT_EXAMPLE.replace('{{number_of_cpd_points}}', points), { exact: true })).toHaveCount(1);
+  }
+  await page.screenshot({ path: '/tmp/cpd-inline-preview.jpg' });
+});
 
 function aligned(g, size, { fit = true, fitHeight = false } = {}) {
   const tolerance = 2;

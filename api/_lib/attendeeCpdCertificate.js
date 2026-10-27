@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { certificateDependencies, resolveCertificateText } from '../../shared/cpdCertificateDisplay.js';
 import { resolveEventCpdCertificate, loadCertificateConfig } from './eventCpdCertificateRules.js';
 import { renderCpdCertificatePdf } from './cpdCertificatePdf.js';
 import { loadCpdEmailTemplate, prepareCpdEmail } from './eventCpdEmail.js';
@@ -22,9 +23,12 @@ async function one(db, table, tenantId, id) {
 // supplied a default. Member points come only from the immutable booking ledger;
 // guest certificate points are explicitly separate evidence, never an award.
 export function realCertificatePlaceholders(placeholders, values) {
-  const missing = (placeholders || []).filter(p => p.missing_policy === 'error'
-    && (values[p.placeholder_key] == null || String(values[p.placeholder_key]).trim() === ''))
-    .map(p => p.placeholder_key);
+  const missing = (placeholders || []).flatMap(p => {
+    const dependencies = certificateDependencies(p);
+    if (p.missing_policy !== 'error') return [];
+    if (p.text_template != null) return resolveCertificateText(p, values) == null ? dependencies : [];
+    return dependencies.filter(key => values[key] == null || String(values[key]).trim() === '');
+  });
   return {
     missing: [...new Set(missing)],
     placeholders: (placeholders || []).map(({ sample_value, default_value, ...p }) => ({

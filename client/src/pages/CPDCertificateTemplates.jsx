@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { CPD_TEXT_EXAMPLE, validateCertificateText } from '../../../shared/cpdCertificateDisplay.js';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -291,6 +292,7 @@ export function TemplateDesigner({ id }) {
   const [zoom, setZoom] = useState('fit-width');
   const [preview, setPreview] = useState(() => new URLSearchParams(window.location.search).get('preview') === '1');
   const [saving, setSaving] = useState(false);
+  const [samplePoints, setSamplePoints] = useState('8');
   const [sourceUrl, setSourceUrl] = useState('');
   const { data, isLoading, error } = useQuery({
     queryKey: ['cpd-certificate-template', id],
@@ -345,6 +347,13 @@ export function TemplateDesigner({ id }) {
   }, [scale, page]);
 
   const update = patch => setDraft(old => ({ ...old, fields: old.fields.map(f => f.id === selectedId ? { ...f, ...patch } : f) }));
+  const addText = () => {
+    const next = normalizeBox({ ...DEFAULT_FIELD, id: crypto.randomUUID(), key: `text.${crypto.randomUUID()}`,
+      label: 'Text block', text_template: CPD_TEXT_EXAMPLE, multiline: true, required: true,
+      width: 500, height: 100, page: currentPage }, page);
+    setDraft(old => ({ ...old, fields: [...old.fields, next] }));
+    setSelectedId(next.id);
+  };
   const addField = field => {
     const isDate = ['event.start_date', 'event.end_date', 'cpd.activity_start_date', 'cpd.activity_end_date'].includes(field.key);
     const next = normalizeBox({ ...DEFAULT_FIELD, id: crypto.randomUUID(), key: field.key, label: field.label, sample: field.sample || field.label, page: currentPage, ...(isDate ? { field_type: 'date' } : {}) }, page);
@@ -405,7 +414,7 @@ export function TemplateDesigner({ id }) {
   const testPdf = async () => {
     if (missing.length && !window.confirm(`${missing.length} field(s) have no sample value and will be blank. Generate the test PDF anyway?`)) return;
     try {
-      const values = certificateSampleValues(draft.fields);
+      const values = certificateSampleValues(draft.fields, draft.fields.some(f => f.text_template != null) ? samplePoints : undefined);
       const response = await fetch(certificateTemplateEndpoints(id).render, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ values }) });
       if (!response.ok) throw new Error((await response.json().catch(() => ({}))).message || 'Could not generate test PDF');
       const blob = await response.blob(); const url = URL.createObjectURL(blob);
@@ -413,7 +422,8 @@ export function TemplateDesigner({ id }) {
     } catch (e) { toast.error(e.message); }
   };
   const leave = () => { if (!dirty || window.confirm('Discard unsaved certificate changes?')) navigate('/CPDCertificateTemplates'); };
-  const missing = draft?.fields?.filter(f => !String(certificatePreviewValue(f) ?? '').trim()) || [];
+  const previewValues = { 'cpd.cpd_points': samplePoints };
+  const missing = draft?.fields?.filter(f => !String(certificatePreviewValue(f, previewValues) ?? '').trim()) || [];
 
   if (isLoading || !draft) return <div className="p-12 text-center">{error ? error.message : 'Loading designer…'}</div>;
   const isActive = draft.status === 'active';
@@ -442,6 +452,7 @@ export function TemplateDesigner({ id }) {
       </div>
       <div className={`grid grid-cols-1 ${viewing ? '' : 'xl:grid-cols-[260px_minmax(0,1fr)_300px]'}`}>
         {!preview && !isActive && <aside className="bg-white border-r p-4 space-y-5">
+          <Button variant="outline" onClick={addText}><Plus className="w-3 h-3 mr-2" />Add text block</Button>
           <section><h2 className="font-semibold mb-2">Built-in fields</h2>
             <div className="space-y-1">{BUILTIN_FIELDS.map(([key, label, sample]) =>
               <Button key={key} variant="ghost" size="sm" className="w-full justify-start" onClick={() => addField({ key, label, sample })}><Plus className="w-3 h-3 mr-2" />{label}</Button>)}</div></section>
@@ -459,6 +470,9 @@ export function TemplateDesigner({ id }) {
               <option value={0.5}>50%</option><option value={0.75}>75%</option><option value={1}>100%</option><option value={1.5}>150%</option><option value={2}>200%</option>
             </select>
             <span className="text-xs text-slate-500">{Math.round(scale * 100)}% · {page.width} × {page.height} pt</span>
+            {draft.fields.some(f => f.text_template != null) && <label className="text-xs">Preview CPD points
+              <Input aria-label="Preview CPD points" type="number" step="any" className="w-24" value={samplePoints} onChange={e => setSamplePoints(e.target.value)} />
+            </label>}
           </div>
           <div ref={containerRef} data-testid="certificate-viewport" className="overflow-auto p-6" style={{ height: viewportHeight, scrollbarGutter: 'stable both-edges' }}>
             <div data-testid="certificate-page" className="relative mx-auto bg-white shadow-xl overflow-hidden" style={{ width: pointsToPixels(page.width, scale), height: pointsToPixels(page.height, scale) }}>
@@ -466,10 +480,10 @@ export function TemplateDesigner({ id }) {
                 <div className="absolute inset-0 grid place-items-center text-slate-400"><FileText />PDF unavailable</div>}
               {draft.fields.filter(f => Number(f.page || 1) === currentPage).map(field => {
                 const active = field.id === selectedId;
-                const rawValue = certificatePreviewValue(field);
+                const rawValue = certificatePreviewValue(field, previewValues);
                 const value = viewing
                   ? (rawValue !== null && rawValue !== undefined && rawValue !== '' ? formatCertificateValue(rawValue, field) : `Missing: ${field.label || field.key}`)
-                  : `{{${field.key}}}`;
+                  : field.text_template ?? `{{${field.key}}}`;
                 return <div key={field.id} onPointerDown={e => {
                   if (viewing) return; e.preventDefault(); setSelectedId(field.id);
                   interaction.current = { startX: e.clientX, startY: e.clientY, original: field, type: 'move' };
@@ -580,20 +594,29 @@ function CustomFieldForm({ onAdd }) {
 }
 
 function FieldInspector({ field, update, duplicate, remove, pages }) {
+  let textError = '';
+  try { validateCertificateText(field.text_template); } catch (error) { textError = error.message; }
   const setNumber = key => e => update({ [key]: Number(e.target.value) });
   const isDate = field.field_type === 'date' || field.key?.includes('date') || field.key?.includes('issued_at');
   const isNumber = field.field_type === 'number' || field.key?.includes('hours');
   return <div className="space-y-4">
     <div><h2 className="font-semibold">{field.label || field.key}</h2><code className="text-xs text-slate-500">{field.key}</code></div>
     <div><Label>Field label</Label><Input value={field.label || ''} onChange={e => update({ label: e.target.value })} /></div>
-    <div><Label>Data key</Label><Input value={field.key || ''} onChange={e => update({ key: e.target.value })} /></div>
+    {field.text_template != null ? <div>
+      <Label htmlFor="certificate-authored-text">Certificate text</Label>
+      <textarea id="certificate-authored-text" className="border rounded p-2 w-full min-h-32" value={field.text_template} onChange={e => update({ text_template: e.target.value })} />
+      <Button size="sm" variant="outline" onClick={() => update({ text_template: `${field.text_template}{{number_of_cpd_points}}` })}>Insert CPD points token</Button>
+      <p className="text-xs mt-2">Only {'{{number_of_cpd_points}}'} is supported. It inserts the numeric award without “points”. Preview CPD points are illustrative only.</p>
+      <p className="text-xs mt-2">Example: {CPD_TEXT_EXAMPLE}</p>
+      {textError && <p role="alert" className="text-sm text-red-600">{textError}</p>}
+    </div> : <div><Label>Data key</Label><Input value={field.key || ''} onChange={e => update({ key: e.target.value })} /></div>}
     <div><Label>Field type</Label><select className="border rounded h-9 w-full" value={field.field_type || (isDate ? 'date' : isNumber ? 'number' : 'text')} onChange={e => update({ field_type: e.target.value })}><option>text</option><option>date</option><option>number</option></select></div>
     <div className="grid grid-cols-2 gap-2">
       <div><Label>Page</Label><select className="border rounded h-9 w-full" value={field.page} onChange={setNumber('page')}>{pages.map((_, i) => <option key={i}>{i + 1}</option>)}</select></div>
       {['x', 'y', 'width', 'height'].map(key => <div key={key}><Label>{key[0].toUpperCase() + key.slice(1)} (pt)</Label><Input type="number" step="0.5" value={field[key]} onChange={setNumber(key)} /></div>)}
     </div>
-    <div><Label>Sample / preview value</Label><textarea className="border rounded p-2 w-full min-h-16" value={field.sample || ''} onChange={e => update({ sample: e.target.value })} /></div>
-    <div><Label>Default value when data is missing</Label><Input value={field.default_value || ''} onChange={e => update({ default_value: e.target.value })} /></div>
+    {field.text_template == null && <><div><Label>Sample / preview value</Label><textarea className="border rounded p-2 w-full min-h-16" value={field.sample || ''} onChange={e => update({ sample: e.target.value })} /></div>
+    <div><Label>Default value when data is missing</Label><Input value={field.default_value || ''} onChange={e => update({ default_value: e.target.value })} /></div></>}
     <div><Label>Font family</Label><select className="border rounded h-9 w-full" value={field.font_family} onChange={e => update({ font_family: e.target.value })}>
       <option value="Helvetica">Helvetica</option><option value="Times">Times Roman</option><option value="Courier">Courier</option>
     </select></div>
@@ -611,7 +634,7 @@ function FieldInspector({ field, update, duplicate, remove, pages }) {
     {[['multiline', 'Allow multiple lines'], ['shrink_to_fit', 'Shrink text to fit'], ['required', 'Warn when missing']].map(([key, label]) =>
       <div className="flex items-center justify-between" key={key}><Label>{label}</Label><Switch checked={!!field[key]} onCheckedChange={value => update({ [key]: value })} /></div>)}
     <div className="flex gap-2 pt-2"><Button variant="outline" onClick={duplicate}><Copy className="w-4 h-4 mr-1" />Duplicate</Button>
-      <Button variant="outline" className="text-red-600" onClick={remove}><Trash2 className="w-4 h-4" /></Button></div>
+      <Button aria-label="Remove field" variant="outline" className="text-red-600" onClick={remove}><Trash2 className="w-4 h-4" /></Button></div>
     <p className="text-xs text-slate-500 flex gap-1"><Move className="w-3 h-3" />All geometry is stored in PDF points (1/72 inch), independent of zoom.</p>
   </div>;
 }

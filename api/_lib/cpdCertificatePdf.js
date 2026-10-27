@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { degrees, PDFDocument, StandardFonts, rgb } from 'pdf-lib';
-import { certificateDisplayValue } from '../../shared/cpdCertificateDisplay.js';
+import { certificateDisplayValue, resolveCertificateText } from '../../shared/cpdCertificateDisplay.js';
 
 export const MAX_CPD_TEMPLATE_BYTES = 10 * 1024 * 1024;
 const FONT = {
@@ -112,10 +112,12 @@ export function layoutPlaceholder(placeholder, values, font = null) {
       : supplied;
   let value = placeholder.placeholder_key === 'cpd.cpd_points' && typeof resolved === 'string' && !resolved.trim()
     ? resolved : formatValue(resolved, placeholder.format);
-  value = certificateDisplayValue(placeholder.placeholder_key, value);
+   value = placeholder.text_template != null
+     ? resolveCertificateText(placeholder, values)
+     : certificateDisplayValue(placeholder.placeholder_key, value);
   if (value === null) {
     if (placeholder.missing_policy === 'error') throw new Error(`Missing value: ${placeholder.placeholder_key}`);
-    value = placeholder.missing_policy === 'literal' ? `{{${placeholder.placeholder_key}}}` : '';
+    value = placeholder.text_template == null && placeholder.missing_policy === 'literal' ? `{{${placeholder.placeholder_key}}}` : '';
   }
   const width = Number(placeholder.width), height = Number(placeholder.height);
   let size = Number(placeholder.font_size || 12);

@@ -1,4 +1,6 @@
 import test from 'node:test';
+import { CPD_TEXT_EXAMPLE } from '../../shared/cpdCertificateDisplay.js';
+import { layoutPlaceholder } from './cpdCertificatePdf.js';
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import { PDFDocument } from 'pdf-lib';
@@ -13,6 +15,26 @@ const bookingId = '33333333-3333-4333-8333-333333333333';
 const eventId = '44444444-4444-4444-8444-444444444444';
 const templateId = '55555555-5555-4555-8555-555555555555';
 const identity = { tenantId, bookingId, bookingSource: 'standard' };
+test('inline points use attendee ledger for both booking sources, never designer defaults', async () => {
+  for (const source of ['standard', 'complex']) {
+    const f = await fixture(source);
+    f.db.rows.cpd_certificate_placeholder = [field('text.credits', {
+      text_template: CPD_TEXT_EXAMPLE, sample_value: '999', default_value: '999', missing_policy: 'error',
+    })];
+    f.db.rows.member = [{ id: 'member', tenant_id: tenantId, email: f.booking.attendee_email }];
+    for (const points of [8, 2.5, 0]) {
+      f.db.rows.member_cpd_points_ledger = [{ id: 'award', tenant_id: tenantId, member_id: 'member',
+        booking_type: source === 'standard' ? 'booking' : 'complex_event_booking',
+        booking_id: bookingId, event_id: eventId, event_type: source === 'standard' ? 'event' : 'complex_event', points_value: points }];
+      const result = await resolveAttendeeCertificate(f.db, { ...f.identity, memberCertificateId: 'member' });
+      assert.equal(result.available, true);
+      assert.equal(layoutPlaceholder(result.placeholders[0], result.values).value,
+        CPD_TEXT_EXAMPLE.replace('{{number_of_cpd_points}}', String(points)));
+    }
+    f.db.rows.member_cpd_points_ledger = [];
+    assert.match((await resolveAttendeeCertificate(f.db, { ...f.identity, memberCertificateId: 'member' })).reason, /cpd.cpd_points/);
+  }
+});
 const field = (key, extra = {}) => ({
   id: randomUUID(), tenant_id: tenantId, template_id: templateId, placeholder_key: key,
   page_number: 1, display_order: 0, x: 20, y: 20, width: 350, height: 35,
