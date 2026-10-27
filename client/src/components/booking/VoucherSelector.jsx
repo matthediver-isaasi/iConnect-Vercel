@@ -3,15 +3,18 @@ import React, { useEffect, useMemo } from "react";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Ticket, Calendar, AlertCircle, Loader2 } from "lucide-react";
-import { format } from "date-fns";
 import { useBookingVouchers } from './useBookingVouchers';
 import { voucherDisplayName, voucherOwnerType } from '../../../../shared/voucherPolicy.js';
+import { compareVoucherExpiry, voucherExpiryTime, VoucherExpiry, isMembershipChangeVoucher } from "@/components/vouchers/VoucherPresentation";
 
 export default function VoucherSelector({ memberInfo, organizationInfo, selectedVouchers, onVoucherToggle, maxAmount, eventStartDate = null, restrictToEventDate = false, manualOrder = false, onManualOrderChange = null }) {
   // When the tenant disallows using vouchers past their expiry for a later event,
   // a voucher is only eligible if it expires AFTER the event's start date.
   const eventStart = restrictToEventDate && eventStartDate ? new Date(eventStartDate) : null;
   const isVoucherEligible = (voucher) => {
+    // The server's voucherCreditService permits generated member credit only
+    // for membership payments. A null expiry must not unlock event spending.
+    if (isMembershipChangeVoucher(voucher)) return false;
     if (!eventStart || isNaN(eventStart.getTime())) return true;
     if (!voucher.expires_at) return true;
     return new Date(voucher.expires_at) > eventStart;
@@ -28,19 +31,15 @@ export default function VoucherSelector({ memberInfo, organizationInfo, selected
       code: v.code,
       value: v.value,
       expires_at: v.expires_at,
-      expiryTimestamp: new Date(v.expires_at).getTime()
+      expiryTimestamp: voucherExpiryTime(v)
     })));
     
     // First-expiry-first-used ordering (mirrors the server-side booking
     // paths): earliest expiry first, then earliest allocation date.
     const sortedVouchers = [...rawVouchers].sort((a, b) => {
-      const dateA = new Date(a.expires_at).getTime();
-      const dateB = new Date(b.expires_at).getTime();
-      
       // Primary sort: by expiry date (ascending - soonest first)
-      if (dateA !== dateB) {
-        return dateA - dateB;
-      }
+      const expiryOrder = compareVoucherExpiry(a, b);
+      if (expiryOrder) return expiryOrder;
       
       // Secondary sort: by allocation date (ascending - earliest first)
       const issuedA = new Date(a.issued_at || a.created_at || 0).getTime();
@@ -55,7 +54,7 @@ export default function VoucherSelector({ memberInfo, organizationInfo, selected
       code: v.code,
       value: v.value,
       expires_at: v.expires_at,
-      expiryTimestamp: new Date(v.expires_at).getTime()
+      expiryTimestamp: voucherExpiryTime(v)
     })));
     
     return sortedVouchers;
@@ -222,9 +221,9 @@ export default function VoucherSelector({ memberInfo, organizationInfo, selected
           const remainingValue = usageInfo?.remainingValue || 0;
           const showRemainingValue = isSelected && !isFullyUsed && remainingValue > 0;
           
-          const expiryDate = new Date(voucher.expires_at);
-          const daysUntilExpiry = Math.ceil((expiryDate - new Date()) / (1000 * 60 * 60 * 24));
-          const isExpiringSoon = daysUntilExpiry <= 30;
+          const expiryDate = voucher.expires_at ? new Date(voucher.expires_at) : null;
+          const daysUntilExpiry = expiryDate ? Math.ceil((expiryDate - new Date()) / (1000 * 60 * 60 * 24)) : null;
+          const isExpiringSoon = daysUntilExpiry !== null && daysUntilExpiry >= 0 && daysUntilExpiry <= 30;
           
           // Determine background color based on usage
           let bgColor = 'bg-white';
@@ -283,7 +282,7 @@ export default function VoucherSelector({ memberInfo, organizationInfo, selected
                   <div className="flex items-center gap-1 text-xs">
                     <Calendar className="w-3 h-3 text-slate-400" />
                     <span className={isExpiringSoon ? 'text-warning font-medium' : 'text-slate-500'}>
-                      {voucher.expires_at ? `Expires ${format(expiryDate, 'MMM d, yyyy')}` : 'No expiry'}
+                      <VoucherExpiry voucher={voucher} />
                       {isExpiringSoon && ` (${daysUntilExpiry} days)`}
                     </span>
                   </div>
@@ -291,7 +290,9 @@ export default function VoucherSelector({ memberInfo, organizationInfo, selected
                   {!isEligible && (
                     <div className="mt-2 pt-2 border-t border-warning/30">
                       <p className="text-xs text-warning font-medium" data-testid={`text-voucher-ineligible-${voucher.id}`}>
-                        This voucher expires before the event takes place, so it can't be used for this booking.
+                        {isMembershipChangeVoucher(voucher)
+                          ? "This membership-change credit is available for eligible membership payments only, not event bookings."
+                          : "This voucher expires before the event takes place, so it can't be used for this booking."}
                       </p>
                     </div>
                   )}

@@ -138,7 +138,9 @@ export function administerVoucher(db, input) {
   });
 }
 
-export function refundVoucherAllocation(db, input) {
+export async function refundVoucherAllocation(db, input) {
+  const backed=await (await import('./memberCreditReturn.js')).returnBackedMemberCredit(db,input);
+  if(backed.applicable)return backed.result;
   return rpc(db, 'voucher_credit_refund_allocation', {
     p_tenant_id: input.tenantId, p_allocation_id: input.allocationId,
     p_refund_key: input.refundKey, p_cumulative_minor: input.cumulativeMinor,

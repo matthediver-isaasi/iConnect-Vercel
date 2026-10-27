@@ -22,6 +22,7 @@ import { useAdminBalancesRealtime } from "@/hooks/useAdminBalancesRealtime";
 import { useSavedExportReports } from "@/hooks/useSavedExportReports";
 import ExportReportSwitcher from "@/components/ExportReportSwitcher";
 import MembershipCreditExpiryReviews from "@/components/MembershipCreditExpiryReviews";
+import { isMembershipChangeVoucher, membershipCreditManagementNotice, VoucherExpiry, MembershipCreditNotice } from "@/components/vouchers/VoucherPresentation";
 import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
 import { adminFetch } from '@/lib/adminFetch';
 import { useTicketViewerKey } from '@/hooks/useTicketViewerKey';
@@ -220,6 +221,12 @@ export default function VoucherManagementPage() {
     staleTime: 0,
     refetchOnMount: true,
   });
+  const editingProtectedCredit = !!editingVoucher?.id && isMembershipChangeVoucher(vouchers.find(v => v.id === editingVoucher.id));
+  const deletingProtectedCredit = !!voucherToDelete?.id && isMembershipChangeVoucher(vouchers.find(v => v.id === voucherToDelete.id));
+  useEffect(() => {
+    if (editingProtectedCredit) { setEditingVoucher(null); setShowDialog(false); }
+    if (deletingProtectedCredit) { setVoucherToDelete(null); setShowDeleteConfirm(false); }
+  }, [editingProtectedCredit, deletingProtectedCredit]);
 
   const { data: organizations = [] } = useQuery({
     queryKey: ['organizations', ...viewerKey],
@@ -387,12 +394,13 @@ export default function VoucherManagementPage() {
   // Prune selection when the underlying voucher list changes (e.g. deletions)
   useEffect(() => {
     if (selectedVoucherIds.size === 0 || vouchers.length === 0) return;
-    const validIds = new Set(vouchers.map(v => v.id));
+    const validIds = new Set(vouchers.filter(v => !isMembershipChangeVoucher(v)).map(v => v.id));
     const next = new Set([...selectedVoucherIds].filter(id => validIds.has(id)));
     if (next.size !== selectedVoucherIds.size) setSelectedVoucherIds(next);
   }, [vouchers]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleVoucherSelected = (id) => {
+    if (isMembershipChangeVoucher(vouchers.find(v => v.id === id))) return;
     setSelectedVoucherIds(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
@@ -400,23 +408,24 @@ export default function VoucherManagementPage() {
     });
   };
 
-  const allOnPageSelected = paginatedVouchers.length > 0 && paginatedVouchers.every(v => selectedVoucherIds.has(v.id));
-  const someOnPageSelected = paginatedVouchers.some(v => selectedVoucherIds.has(v.id));
+  const editableOnPage = paginatedVouchers.filter(v => !isMembershipChangeVoucher(v));
+  const allOnPageSelected = editableOnPage.length > 0 && editableOnPage.every(v => selectedVoucherIds.has(v.id));
+  const someOnPageSelected = editableOnPage.some(v => selectedVoucherIds.has(v.id));
 
   const toggleSelectAllOnPage = () => {
     setSelectedVoucherIds(prev => {
       const next = new Set(prev);
       if (allOnPageSelected) {
-        paginatedVouchers.forEach(v => next.delete(v.id));
+        editableOnPage.forEach(v => next.delete(v.id));
       } else {
-        paginatedVouchers.forEach(v => next.add(v.id));
+        editableOnPage.forEach(v => next.add(v.id));
       }
       return next;
     });
   };
 
   const selectedVouchers = useMemo(
-    () => vouchers.filter(v => selectedVoucherIds.has(v.id)),
+    () => vouchers.filter(v => selectedVoucherIds.has(v.id) && !isMembershipChangeVoucher(v)),
     [vouchers, selectedVoucherIds]
   );
 
@@ -431,7 +440,7 @@ export default function VoucherManagementPage() {
     const skipped = [];
     let movesIntoPast = 0;
     for (const v of selectedVouchers) {
-      if (!v.expires_at) {
+      if (!v.expires_at || isMembershipChangeVoucher(v)) {
         skipped.push(v);
         continue;
       }
@@ -444,6 +453,7 @@ export default function VoucherManagementPage() {
   }, [selectedVouchers, bulkExpiryDays, bulkExpiryDirection]);
 
   const openBulkExpiryDialog = () => {
+    if (!selectedVouchers.length) return;
     setBulkExpiryDays("");
     setBulkExpiryDirection("extend");
     setShowBulkExpiryDialog(true);
@@ -464,6 +474,7 @@ export default function VoucherManagementPage() {
     let updated = 0;
     const failures = [];
     for (const { voucher, newDate } of adjustable) {
+      if (isMembershipChangeVoucher(voucher) || isMembershipChangeVoucher(vouchers.find(v => v.id === voucher.id))) continue;
       // Recompute status from the new expiry, consistent with how the rest of
       // the voucher system derives expired/active from expires_at. 'used'
       // vouchers keep their status.
@@ -554,7 +565,10 @@ export default function VoucherManagementPage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }) => base44.entities.Voucher.update(id, data),
+    mutationFn: ({ id, data }) => {
+      if (isMembershipChangeVoucher(data) || isMembershipChangeVoucher(vouchers.find(v => v.id === id))) throw new Error(membershipCreditManagementNotice);
+      return base44.entities.Voucher.update(id, data);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['vouchers-admin'] });
       queryClient.invalidateQueries({ queryKey: ['voucher-transactions'] });
@@ -568,7 +582,10 @@ export default function VoucherManagementPage() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id) => base44.entities.Voucher.delete(id),
+    mutationFn: (id) => {
+      if (isMembershipChangeVoucher(vouchers.find(v => v.id === id))) throw new Error(membershipCreditManagementNotice);
+      return base44.entities.Voucher.delete(id);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['vouchers-admin'] });
       setShowDeleteConfirm(false);
@@ -1025,6 +1042,7 @@ export default function VoucherManagementPage() {
   };
 
   const handleEdit = (voucher) => {
+    if (isMembershipChangeVoucher(voucher)) { toast.error(membershipCreditManagementNotice); return; }
     setOwnerMode(voucherOwnerType(voucher));
     const issuedSource = voucher.issued_at || voucher.created_at;
     setEditingVoucher({
@@ -1040,6 +1058,7 @@ export default function VoucherManagementPage() {
   };
 
   const handleDelete = (voucher) => {
+    if (isMembershipChangeVoucher(voucher)) { toast.error(membershipCreditManagementNotice); return; }
     if (voucher.status === 'used') {
       toast.error('Cannot delete a voucher that has been used');
       return;
@@ -1049,6 +1068,10 @@ export default function VoucherManagementPage() {
   };
 
   const handleSave = async () => {
+    if (isMembershipChangeVoucher(editingVoucher) || isMembershipChangeVoucher(vouchers.find(v => v.id === editingVoucher?.id))) {
+      toast.error(membershipCreditManagementNotice);
+      return;
+    }
     if (!voucherOwnerType(editingVoucher)) {
       toast.error('Exactly one organisation or individual member owner is required');
       return;
@@ -1187,11 +1210,8 @@ export default function VoucherManagementPage() {
                     Awarded: {format(new Date(selectedVoucher.issued_at || selectedVoucher.created_at), 'dd MMM yyyy')}
                   </p>
                 )}
-                {selectedVoucher.expires_at && (
-                  <p className="text-xs text-slate-400 mt-1">
-                    Expires: {format(new Date(selectedVoucher.expires_at), 'dd MMM yyyy')}
-                  </p>
-                )}
+                <p className="text-xs text-slate-400 mt-1"><VoucherExpiry voucher={selectedVoucher} pattern="dd MMM yyyy" prefix="Expires: " /></p>
+                <MembershipCreditNotice voucher={selectedVoucher} />
               </div>
             </div>
           </div>
@@ -1529,6 +1549,7 @@ export default function VoucherManagementPage() {
                   <div className="flex items-center gap-2">
                     <Checkbox
                       checked={allOnPageSelected ? true : (someOnPageSelected ? 'indeterminate' : false)}
+                      disabled={!editableOnPage.length}
                       onCheckedChange={toggleSelectAllOnPage}
                       aria-label="Select all vouchers on this page"
                       data-testid="checkbox-select-all-page"
@@ -1553,6 +1574,7 @@ export default function VoucherManagementPage() {
                       <Button
                         size="sm"
                         onClick={openBulkExpiryDialog}
+                        disabled={!selectedVouchers.length}
                         className="bg-blue-600 hover:bg-blue-700"
                         data-testid="button-bulk-adjust-expiry"
                       >
@@ -1565,7 +1587,8 @@ export default function VoucherManagementPage() {
                 {paginatedVouchers.map((voucher) => {
                   const org = organizations.find(o => o.id === voucher.organization_id);
                   const isExpired = voucher.expires_at && new Date(voucher.expires_at) < new Date();
-                  const canDelete = voucher.status !== 'used';
+                  const protectedCredit = isMembershipChangeVoucher(voucher);
+                  const canDelete = voucher.status !== 'used' && !protectedCredit;
                   
                   return (
                     <Card 
@@ -1580,7 +1603,7 @@ export default function VoucherManagementPage() {
                     >
                       <CardContent className="p-4">
                         <div className="flex items-start justify-between gap-4">
-                          <div
+                          {!protectedCredit && <div
                             className="flex-shrink-0 pt-1"
                             onClick={(e) => e.stopPropagation()}
                           >
@@ -1590,7 +1613,7 @@ export default function VoucherManagementPage() {
                               aria-label={`Select voucher ${voucher.code}`}
                               data-testid={`checkbox-select-voucher-${voucher.id}`}
                             />
-                          </div>
+                          </div>}
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-3 mb-2 flex-wrap">
                               <Ticket className="w-5 h-5 text-blue-600 flex-shrink-0" />
@@ -1614,19 +1637,18 @@ export default function VoucherManagementPage() {
                                   </span>
                                 </div>
                               )}
-                              {voucher.expires_at && (
-                                <div className="flex items-center gap-1">
-                                  <CalendarIcon className="w-4 h-4" />
-                                  <span className={isExpired ? 'text-red-600' : ''}>
-                                    Expires: {format(new Date(voucher.expires_at), 'MMM d, yyyy')}
-                                  </span>
-                                </div>
-                              )}
+                              <div className="flex items-center gap-1">
+                                <CalendarIcon className="w-4 h-4" />
+                                <span className={isExpired ? 'text-red-600' : ''}>
+                                  <VoucherExpiry voucher={voucher} prefix="Expires: " />
+                                </span>
+                              </div>
                             </div>
                             
                             {voucher.description && (
                               <p className="text-sm text-slate-500 mt-2">{voucher.description}</p>
                             )}
+                            <MembershipCreditNotice voucher={voucher} />
                             
                             {voucher.used_at && (
                               <p className="text-xs text-slate-400 mt-2">
@@ -1635,7 +1657,7 @@ export default function VoucherManagementPage() {
                             )}
                           </div>
                           
-                          <div className="flex gap-2 flex-shrink-0">
+                          {!protectedCredit && <div className="flex gap-2 flex-shrink-0">
                             <Button
                               variant="outline"
                               size="sm"
@@ -1656,7 +1678,7 @@ export default function VoucherManagementPage() {
                                 <Trash2 className="w-3 h-3" />
                               </Button>
                             )}
-                          </div>
+                          </div>}
                         </div>
                       </CardContent>
                     </Card>

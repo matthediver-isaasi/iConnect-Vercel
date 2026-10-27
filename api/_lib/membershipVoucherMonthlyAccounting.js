@@ -1,4 +1,5 @@
 import {verifyMemberCreditRedemption} from './memberCreditRedemption.js';
+import {recordMemberCreditRedemption,claimMemberCreditFunding,recoverMemberCreditFunding,postMemberCreditFunding} from './memberCreditRedemptionReceipt.js';
 import { invoiceReferenceFromRow } from './feeTokenInvoiceReference.js';
 import { monthlyFundingSlice, fundedMonthlySnapshot, fundedInstalmentDate } from './membershipVoucherMonthly.js';
 import { accountMembershipVoucherSettlement } from './membershipVoucherAccounting.js';
@@ -142,20 +143,30 @@ export async function postMembershipVoucherMonthlyPayment({
       }
     }
     if (perInstalment) {
-      await (deps.verifyMemberCreditRedemption||verifyMemberCreditRedemption)(db,loaded.tenant_id,slice.allocations,accountingProvider,
+      const creditProofs=await (deps.verifyMemberCreditRedemption||verifyMemberCreditRedemption)(db,loaded.tenant_id,slice.allocations,accountingProvider,
         {providerName:reference.provider});
       const status = await accountingProvider.fetchInvoiceStatus(reference.invoiceId, loaded.tenant_id);
       if (!status || status.voided || Math.round(Number(status.totalAmt) * 100) !== slice.grossMinor) {
         throw new Error('Gross instalment invoice no longer matches the frozen purchase');
       }
       for (const allocation of slice.allocations) {
-        const applied = await accountingProvider.applyStripePaymentToInvoice({
+        const fundingClaim=await claimMemberCreditFunding(db,{tenantId:loaded.tenant_id,allocation,proofs:creditProofs,
+          invoiceId:reference.invoiceId,
+          reference:`${allocation.displayName} (${allocation.ownerType === 'member' ? 'Personal' : 'Organisation'}) ${allocation.id}:${receipt.ordinal}`});
+        const applied = fundingClaim?.existing
+          ? await recoverMemberCreditFunding({tenantId:loaded.tenant_id,claim:fundingClaim,provider:accountingProvider})
+          : await postMemberCreditFunding({db,tenantId:loaded.tenant_id,allocation,claim:fundingClaim,
+            post:paymentAttemptObserver=>accountingProvider.applyStripePaymentToInvoice({
+          paymentAttemptObserver,
           appTenantId: loaded.tenant_id, expectedProviderContext, invoiceId: reference.invoiceId, amount: allocation.amountMinor / 100,
           paymentReference: `${allocation.displayName} (${allocation.ownerType === 'member' ? 'Personal' : 'Organisation'}) ${allocation.id}:${receipt.ordinal}`,
           bankAccountSettingKey: reference.provider === 'xero' ? 'xero_voucher_clearing_account_code' : 'quickbooks_voucher_clearing_account_id',
           strictBankAccount: true, idempotencyKey: `membership-credit-slice:${receipt.id}:${allocation.id}`,
-        });
+        })});
         if (!applied?.payment_recorded) throw new Error('Instalment voucher clearing payment was not confirmed');
+        await recordMemberCreditRedemption(db,{tenantId:loaded.tenant_id,allocation,proofs:creditProofs,
+          invoiceId:reference.invoiceId,result:applied,provider:accountingProvider,
+          reference:`${allocation.displayName} (${allocation.ownerType === 'member' ? 'Personal' : 'Organisation'}) ${allocation.id}:${receipt.ordinal}`});
       }
     }
     if (cashMinor > 0) {

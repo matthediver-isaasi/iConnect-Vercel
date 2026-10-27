@@ -26,12 +26,13 @@ test('fixed monthly authority uses verified receipt accounting and quotes only t
    select(){return this},eq(k,v){selected=selected.filter(r=>r[k]===undefined||r[k]===v);return this},order(){return this},
    async maybeSingle(){return {data:selected[0]||null}},async limit(n){return {data:selected.slice(0,n)}},
    async range(a,b){return {data:selected.slice(a,b+1)}}};}};
- const proof=await readMemberFixedMonthlyFunding({db,input:base,funding,
+ const verify=()=>readMemberFixedMonthlyFunding({db,input:base,funding,
    readInvoice:async(_,invoiceId)=>({InvoiceID:invoiceId,Type:'ACCREC',Status:'PAID',CurrencyCode:'GBP',
      Contact:{ContactID:'contact'},LineItems:[{}],SubTotal:10,TotalTax:0,Total:10})});
  let providerTarget;
  const purchases={async reconcileFunding(request){providerTarget=request.target;
-   return {...proof,input:base,prepared:{funding,quote:{amountMinor:2000,collectionDates:dates.slice(6)}}};}};
+   return {...await verify(),input:base,prepared:{funding,quote:{
+    amountMinor:target.flat_cost===120?1000:2000,collectionDates:dates.filter(d=>d>=request.effectiveDate)}}};}};
  const selection={configId:target.id,effectiveDate:'2024-07-02',reason:'Approved upgrade'};
  const result=await resolveMemberFixedChangeAuthority({db,purchases,context,selection,base});
  assert.equal(providerTarget.termTotalMinor,18000);
@@ -40,5 +41,23 @@ test('fixed monthly authority uses verified receipt accounting and quotes only t
  assert.equal(result.calculation.finance.available.grossMinor,0);
  assert.equal(result.monthlyExecution.providerFunding.settledGrossMinor,6000);
  funding.settledGrossMinor=7000;
- await assert.rejects(resolveMemberFixedChangeAuthority({db,purchases,context,selection,base}),/received cash changed/);
+ await assert.rejects(resolveMemberFixedChangeAuthority({db,purchases,context,selection,base}),/received cash changed|missing past collections/);
+ funding.payments.push({id:'p6',date:dates[6],amountMinor:1000,settled:true});
+ rows.push({...rows[0],external_payment_id:'p6',accounting_invoice_id:'invp6'});
+ base.effectiveDate=selection.effectiveDate='2024-07-03';
+ target.flat_cost=120;
+ const unchanged=await resolveMemberFixedChangeAuthority({db,purchases,context,selection,base});
+ assert.equal(providerTarget.termTotalMinor,12000);
+ assert.equal(unchanged.calculation.finance.available.grossMinor,967);
+ assert.equal(unchanged.calculation.futureObligationMinor,5000);
+ assert.equal(unchanged.monthlyExecution.unchangedPriceCarry,true);
+ assert.equal(unchanged.calculation.surplusMinor,0);
+ base.authority.provider=funding.provider='gocardless';
+ base.agreement.metadata.dd={...base.agreement.metadata.card};
+ target.dd_enabled=true;
+ data.gocardless_payments=rows.map(r=>({...r,gocardless_payment_id:r.external_payment_id}));
+ const dd=await resolveMemberFixedChangeAuthority({db,purchases,context,selection,base});
+ assert.equal(dd.monthlyExecution.unchangedPriceCarry,true);
+ assert.equal(dd.monthlyExecution.providerTarget.termTotalMinor,12000);
+ assert.equal(dd.monthlyExecution.providerTarget.createInlinePrice,undefined);
 });

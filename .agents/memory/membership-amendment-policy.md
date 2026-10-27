@@ -54,6 +54,25 @@ spendable value without restoring its liability backing.
 issuance before enabling liability-backed member credit. Preserve ownership and
 expiry; unresolved return accounting must not silently create available credit.
 
+External funding claims and whole-purchase credit release must serialize on the
+same purchase authority. Recover an existing claim by reading accounting rather
+than repeating a payment write.
+
+**Why:** A compensation can otherwise restore spendable credit while a concurrent
+or uncertain funding request still consumes its liability backing.
+
+**How to apply:** Fence releases before provider calls and retain unresolved
+claims until the accounting debit and any return have been reconciled.
+
+A membership-credit provenance label alone is not proof of accounting backing.
+Reserve that label for verified issuance and require its immutable backing record.
+
+**Why:** Ordinary voucher creation must not manufacture apparently liability-backed
+credit by selecting a funding-source label.
+
+**How to apply:** Validate provenance on creation, reservation and accounting
+funding, including imported or legacy rows whose labels have no backing record.
+
 For variable-monthly membership changes, service used is measured against
 membership-start anniversaries, not scheduled or actual collection dates.
 
@@ -139,3 +158,25 @@ repeating the call or email can duplicate an externally accepted operation.
 operations read-only, and commit entitlement application, collection-hold
 release and notification scheduling together. Unknown email acceptance requires
 review rather than an automatic resend.
+
+A verified pre-payment throttle or documented rejection of the actual funding POST may grant one delayed,
+serialized retry; a throttle during subsequent readback is not that evidence.
+Credit returns must require complete accounting for the affected collection,
+not merely debit evidence from an earlier instalment.
+
+**Why:** Blanket retry prohibition strands definitively rejected payments, while
+blanket retry permission duplicates uncertain ones. Aggregate debit totals can
+also conceal a later instalment whose accounting never finished.
+
+**How to apply:** Capture write-stage outcomes, consume retry permission atomically,
+and keep unknown outcomes read-only. Block credit restoration until the affected
+collection and outstanding funding claims have verified accounting evidence.
+
+Carrying already-paid service value through an unchanged-price monthly change
+must not also issue wallet credit for the same value.
+
+**Why:** Preserving the original remaining collection obligation already accounts
+for that payment; issuing separate spendable credit would give it twice.
+
+**How to apply:** Keep unchanged-price carry distinct from a financial settlement,
+and preserve verified cash ownership and the original renewal boundary.

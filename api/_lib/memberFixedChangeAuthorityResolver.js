@@ -3,6 +3,7 @@ import {resolveAnnualMemberTargetPrice} from './memberAmendmentQuote.js';
 import {calculateAmendmentTerms,amendmentTermDays,prorateAmendmentMoney} from './memberAmendmentCalculation.js';
 import {resolveMembershipChangeBehaviour,readMembershipChangePolicy} from './membershipChangePolicy.js';
 import {monthlyAmendmentFingerprint} from './memberAmendmentMonthly.js';
+import {monthlyInvoiceMinor as minor} from './memberMonthlyHistoricalPrices.js';
 const fail=message=>{throw Object.assign(new Error(message),{status:422,code:'fixed_monthly_quote_unavailable'});};
 export async function resolveMemberFixedChangeAuthority({db,purchases,context,selection,base}){
   const one=async(table,filters)=>{
@@ -40,7 +41,12 @@ export async function resolveMemberFixedChangeAuthority({db,purchases,context,se
   // This is only a preliminary schedule quote. The receipt/date/invoice join
   // below must independently verify every expected past collection.
   const expectedPaid=base.authority.collectionDates.filter(date=>date<request.effectiveDate).length*terms.monthly_amount_minor;
-  const providerTarget={currency:base.authority.currency,termTotalMinor:expectedPaid+remaining.grossMinor,
+  const signed=source.commitment_snapshot?.amounts;
+  const unchangedPrice=!!signed&&targetPrice.netMinor===minor(signed.final_cost)
+    &&targetPrice.vatMinor===minor(signed.vat_amount)&&targetPrice.grossMinor===minor(signed.total_with_vat)
+    &&targetPrice.grossMinor===minor(terms.plan_total);
+  const providerTarget={currency:base.authority.currency,
+    termTotalMinor:unchangedPrice?targetPrice.grossMinor:expectedPaid+remaining.grossMinor,
     ...(card?{createInlinePrice:true}:{})};
   const reconciled=await purchases.reconcileFunding({
     tenantId:context.tenantId,memberId:context.memberId,amendmentId:base.amendmentId,
@@ -53,9 +59,11 @@ export async function resolveMemberFixedChangeAuthority({db,purchases,context,se
     frequency:'monthly',pricingBasis:'annual_instalments',sourcePrice:reconciled.sourcePrice,
     term,effectiveDate:request.effectiveDate,evidence:reconciled.fundingEvidence,behaviour:'retain_term',targetPrice,
   });
-  if(calculation.finance.blockers.length || calculation.finance.available.grossMinor!==0
-    || calculation.surplusMinor!==0 || calculation.futureObligationMinor!==remaining.grossMinor
-    || reconciled.prepared.quote.amountMinor*reconciled.prepared.quote.collectionDates.length!==remaining.grossMinor) {
+  if(calculation.finance.blockers.length || (!unchangedPrice&&calculation.finance.available.grossMinor!==0)
+    || calculation.surplusMinor!==0
+    || (!unchangedPrice&&calculation.futureObligationMinor!==remaining.grossMinor)
+    || (unchangedPrice&&calculation.futureObligationMinor!==targetPrice.grossMinor-expectedPaid)
+    || reconciled.prepared.quote.amountMinor*reconciled.prepared.quote.collectionDates.length!==calculation.futureObligationMinor) {
     fail('Outstanding obligations, prepaid value or uneven instalments require settlement before changing the schedule.');
   }
   await readMembershipChangePolicy(db,context.tenantId);
@@ -65,7 +73,7 @@ export async function resolveMemberFixedChangeAuthority({db,purchases,context,se
     pricingSnapshot:{config,band,vatSetting,discounts:[],vatOverrides:[]},policySnapshot,
     calculation,fundingEvidence:reconciled.fundingEvidence,
     settlement:{requiresApproval:true,surplusHandling:'none',moneyMoved:false,entitlementApplied:false},
-    monthlyExecution:{version:1,providerTarget,providerAuthority:reconciled.input.authority,
+    monthlyExecution:{version:1,unchangedPriceCarry:unchangedPrice,providerTarget,providerAuthority:reconciled.input.authority,
       providerFunding:reconciled.prepared.funding},
     executionEnabled:false};
 }

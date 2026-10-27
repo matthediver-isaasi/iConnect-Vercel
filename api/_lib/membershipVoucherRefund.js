@@ -50,10 +50,17 @@ export async function membershipVoucherRefundContext(db, payment, replacementExp
     byAllocation.set(allocation.id,{ ...allocation, amountMinor: allocation.amountMinor + (existing?.amountMinor || 0) });
   }
   const allocations = [...byAllocation.values()];
-  const sources = await db.from('voucher').select('id,expires_at').eq('tenant_id',payment.tenant_id)
+  const sources = await db.from('voucher').select('id,expires_at,funding_source').eq('tenant_id',payment.tenant_id)
     .in('id',allocations.map(a => a.voucherId));
   if (sources.error || sources.data?.length !== new Set(allocations.map(a => a.voucherId)).size) throw new Error('Original voucher refund owners could not be verified');
-  const expired = sources.data.filter(v => Date.parse(v.expires_at) <= Date.now());
+  if(sources.data.some(v=>v.funding_source==='membership_change')
+    && receipts.data.some(r=>r.accounting_status!=='complete')){
+    throw new Error('Complete the affected membership instalment accounting before returning backed credit.');
+  }
+  // Backed membership credit returns to its original expiry and finance review.
+  // It must not request (or promise) a replacement expiry like ordinary vouchers.
+  const expired = sources.data.filter(v => v.funding_source !== 'membership_change'
+    && Date.parse(v.expires_at) <= Date.now());
   const newExpiryDate = replacementExpiry && /^\d{4}-\d{2}-\d{2}$/.test(replacementExpiry)
     ? `${replacementExpiry}T23:59:59.000Z` : replacementExpiry;
   if (expired.length && (!newExpiryDate || !Number.isFinite(Date.parse(newExpiryDate)) || Date.parse(newExpiryDate) <= Date.now())) {

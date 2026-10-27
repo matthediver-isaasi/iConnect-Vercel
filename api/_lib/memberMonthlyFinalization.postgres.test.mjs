@@ -216,6 +216,40 @@ test('fixed monthly application is atomic with hold release and survives replay'
     await finish(a);
     assert.equal((await admin.query('SELECT amount_minor FROM membership_payment_plans')).rows[0].amount_minor,1000);
     assert.equal((await admin.query('SELECT count(*)::int n FROM member_monthly_change_notification')).rows[0].n,1);
+    await admin.query(readFileSync('supabase/migrations/202612310038_member_monthly_unchanged_price.sql','utf8'));
+    await admin.query('TRUNCATE member_amendment_provider_operation CASCADE');
+    const carrySource=(await admin.query(`UPDATE member_membership_history SET commitment_snapshot=$1 RETURNING to_jsonb(member_membership_history) v`,
+      [{payment_frequency:'monthly',amounts:{final_cost:20,vat_amount:0,total_with_vat:20}}])).rows[0].v;
+    const carryFunding={payments:[{id:'paid',amountMinor:1000}],settledGrossMinor:1000,pendingGrossMinor:0};
+    const money={netMinor:1000,vatMinor:0,grossMinor:1000};
+    const carryAuthority={...fixedAuthority,sourceSnapshot:carrySource,
+      fundingEvidence:{complete:true,settledFunding:[{...money,id:'paid',sourceRecordId:carrySource.id,
+        currency:'GBP',state:'settled',ownerType:'member',ownerId:carrySource.member_id,kind:'cash',invoiceEvidenceId:'invoice'}]},
+      monthlyExecution:{unchangedPriceCarry:true,providerTarget:{termTotalMinor:2000},providerFunding:carryFunding},
+      calculation:{...fixedAuthority.calculation,currency:'GBP',targetFullPrice:{netMinor:2000,vatMinor:0,grossMinor:2000},
+        finance:{blockers:[],available:money,settled:money}}};
+    const carryPrepared={...fixedPrepared,input:{...fixedPrepared.input,purchase:carrySource},funding:carryFunding};
+    await admin.query('UPDATE member_change_authority SET authority=$1',[carryAuthority]);
+    await admin.query(`INSERT INTO member_amendment_provider_operation
+      (id,tenant_id,member_id,source_record_id,plan_id,actor_id,operation_key,prepared,fingerprint,state,claim_token,evidence)
+      VALUES($1,$2,$3,$4,$5,$6,'monthly-carry',$7,$8,'provider_applied',$9,$10)`,
+      [id(8),id(1),id(2),id(3),id(5),id(9),carryPrepared,'a'.repeat(64),id(10),
+        {...evidence,evidence:{funding:carryFunding}}]);
+    await a.query('SELECT approve_member_monthly_finalization($1,$2,$3,$4)',[id(1),id(8),id(9),'Approved retained-term change']);
+    // An ownership change or a monetary change must not inherit this exception.
+    for(const altered of [
+      {...carryAuthority,monthlyExecution:{...carryAuthority.monthlyExecution,unchangedPriceCarry:false}},
+      {...carryAuthority,calculation:{...carryAuthority.calculation,targetFullPrice:{netMinor:1900,vatMinor:100,grossMinor:2000}}},
+      {...carryAuthority,fundingEvidence:{complete:true,settledFunding:[{...carryAuthority.fundingEvidence.settledFunding[0],ownerType:'organisation'}]}},
+    ]){
+      await admin.query('UPDATE member_change_authority SET authority=$1',[altered]);
+      await assert.rejects(finish(a),/Verified monthly approval/);
+    }
+    await admin.query('UPDATE member_change_authority SET authority=$1',[carryAuthority]);
+    await finish(a);
+    assert.equal((await admin.query('SELECT state FROM member_amendment_provider_operation')).rows[0].state,'finalized');
+    assert.equal((await admin.query('SELECT count(*)::int n FROM member_monthly_change_notification')).rows[0].n,1);
+    await assert.rejects(a.query('SELECT member_monthly_unchanged_price_carry($1,$2)',[carryAuthority,carryPrepared.input]),{code:'42501'});
   } finally {
     for (const c of clients) await c.end();
     if (started) command('pg_ctl', ['-D', h.data, '-m', 'immediate', '-w', 'stop']);

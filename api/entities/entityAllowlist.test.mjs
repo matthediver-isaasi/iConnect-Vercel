@@ -19,7 +19,7 @@ const clientEntityNames = [
 test('membership-credit accounting evidence is not exposed by generic entity routes', () => {
   for (const source of [indexSource, byIdSource]) {
     const tables = [...source.matchAll(/^\s+'[^']+':\s*'([^']+)',/gm)].map(match => match[1]);
-    for (const table of ['member_credit_backing_claim', 'member_membership_credit', 'member_credit_expiry_review']) {
+    for (const table of ['member_credit_backing_claim', 'member_membership_credit', 'member_credit_expiry_review','member_credit_redemption','member_credit_funding_claim','member_credit_funding_retry']) {
       assert.equal(tables.includes(table), false, `${table} must remain service-only`);
     }
   }

@@ -12,21 +12,70 @@ and a paginated, finance-gated expiry-review panel in Voucher Management.
 Expiry preserves the remaining voucher value for review and does not post a
 write-off. Historical retained-credit-note behaviour is unchanged.
 
-New migration files, **not applied to DEST or SOURCE**:
+Applied to **live DEST** (project `lvmzliemqnieeoruhkik`) after isolated tests
+and a rollback-only rehearsal; **SOURCE was not changed**:
 - `202612310027_member_credit_backing_claim.sql`
 - `202612310029_member_credit_issuance.sql`
+- `202612310030_member_credit_redemption_evidence.sql`
+- `202612310031_member_credit_return_verification.sql`
+- `202612310032_member_credit_funding_claims.sql`
+- `202612310033_member_credit_variable_reservation_scope.sql`
+- `202612310034_member_credit_unused_release.sql`
+- `202612310035_member_credit_provenance.sql`
+- `202612310036_member_credit_incomplete_funding_returns.sql`
+- `202612310037_member_credit_funding_retries.sql`
+- `202612310038_member_monthly_unchanged_price.sql`
 
-The latter deliberately returns false from the capability RPC. Its isolated
+The issuance migration deliberately returns false from the capability RPC. Its isolated
 test opens that gate only in disposable PostgreSQL to exercise issuance,
 rollback and repeat-call behaviour with the real voucher issuance routine.
 
-Release blocker discovered while checking the complete credit lifecycle:
-the existing cash-refund path can restore consumed voucher value after provider
-refund confirmation without verifying reversal of the corresponding accounting
-clearing payment. Original credit-note backing alone is insufficient proof for
-that restored value. Persisted redemption/return accounting evidence and
-reconciliation must cover that path before enabling new liability-backed credit.
-Do not enable the capability merely because initial issuance tests pass.
+Redemption now captures independently verified Xero payment evidence. Returns
+check original payment IDs and complete reference-filtered payment evidence
+before restoring credit; partial/repeated returns preserve the original owner,
+voucher and expiry. Whole-purchase release is fenced against funding claims.
+Existing claims recover by reading accounting, never by blindly posting again.
+The retry exception is a verified pre-payment throttle or documented rejection of the actual payment POST:
+its throttle evidence grants one delayed, serialized retry. Replaying old
+throttle evidence cannot reopen an already-consumed grant. An uncertain POST or
+a throttle during later readback remains discovery-only. Returns also require
+the affected collection's accounting to be complete and all funding claims to
+have captured debit evidence, rather than using an earlier instalment's entries.
+Non-cash liability payments cannot stand in for bank-reconciled cash refunds.
+Voucher-funded source memberships are rejected by the upfront cash-only resolver
+rather than being relabelled as wholly member-owned cash.
+
+Variable-monthly reservation scope now checks the stored membership period,
+owning member and bounded instalment ordinal. Unposted value can be released
+after all claimed funding has been reconciled; it does not require a fabricated
+accounting reversal. The membership-change provenance marker is reserved for
+verified issuance, and a marker without its immutable backing record cannot
+authorize reservation or funding. Expired backed-credit refund preflight retains
+the original expiry rather than requesting a replacement date.
+
+Both annual-invoice and per-instalment funding paths have an isolated integrated
+lost-receipt test: retry reads the existing Xero payment and records its evidence
+without posting another payment. These use mocked providers, not live writes.
+Do not enable the capability before the corresponding server code is deployed
+and the complete collection/return integration has been verified.
+
+Fixed monthly changes now admit paid-value carry when the original full net,
+VAT and gross price are unchanged, future instalments remain, and verified
+member-owned cash covers that carry. The remaining original obligation is
+preserved: no wallet credit, refund or additional charge is created. Both Stripe
+and fixed Direct Debit resolver paths are tested; atomic finalization rejects
+changed prices/tax or organisation ownership and retains notification scheduling.
+This does not enable monthly changes that require financial settlement.
+
+Verification for this increment: 365 backend tests and 150 mounted frontend
+tests passed; production build passed. RLS, public access denial, direct service
+write denial and internal-function execution denial were checked on DEST.
+New credits display “No expiry” correctly and do not expose ordinary
+edit/delete/extend actions. Normal member and organisation vouchers retain their
+existing controls. The unsigned local preview did not reach the protected page
+because its tenant lookup failed; the signed-in UI was not visually verified.
+No additional authored migration remains unapplied; further
+execution work will require additional migrations.
 
 Monthly surplus settlement, replacement-term and cancellation execution also
 remain outside the connected upfront path. No live financial transactions have

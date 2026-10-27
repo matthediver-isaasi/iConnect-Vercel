@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {verifyMemberCreditRedemption} from './memberCreditRedemption.js';
 function fixture(){
- const proof={amendment:{tenant_id:'tenant'},settlement:{tenant_id:'tenant'},binding:{accountCode:'850',accountId:'liability'}};
+ const proof={allocationId:'allocation',amendment:{tenant_id:'tenant'},settlement:{tenant_id:'tenant'},binding:{accountCode:'850',accountId:'liability'}};
  let result={state:'settled',evidence:{kind:'member_credit_backed',liabilityAccountId:'liability'}};
  const db={rpc:async()=>({data:[proof]}),from(){return {select(){return this},eq(){return this},
   maybeSingle:async()=>({data:{setting_value:'850'}}),limit:async()=>({data:[{id:'backed-credit'}]})}}};

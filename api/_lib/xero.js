@@ -107,12 +107,14 @@ async function safeXeroJson(response, context) {
       const error = new Error(`[Xero ${context}] HTTP ${response.status}: ${JSON.stringify(errorData).substring(0, 500)}`);
       error.status = response.status;
       error.statusCode = response.status;
+      error.retryAfter = response.headers.get('retry-after');
       throw error;
     }
     const text = await response.text();
     const error = new Error(`[Xero ${context}] HTTP ${response.status} (non-JSON response): ${text.substring(0, 300)}`);
     error.status = response.status;
     error.statusCode = response.status;
+    error.retryAfter = response.headers.get('retry-after');
     throw error;
   }
   if (!contentType.includes('application/json')) {
@@ -1183,7 +1185,9 @@ export async function applyStripePaymentToXeroInvoice({
   ddAccountingMigration = null,
   expectedContact = null,
   idempotencyKey = null,
+  paymentAttemptObserver = null,
 }, dependencies = {}) {
+  if(paymentAttemptObserver)paymentAttemptObserver.state='not_sent';
   if (!appTenantId) throw new Error('appTenantId is required');
   if (!xeroInvoiceId) throw new Error('xeroInvoiceId is required');
   if (stripePaymentIntentId && !validStripePaymentIntentId(stripePaymentIntentId)) {
@@ -1329,11 +1333,16 @@ export async function applyStripePaymentToXeroInvoice({
           'Accept': 'application/json',
         };
         if (idempotencyKey) payHeaders['Idempotency-Key'] = String(idempotencyKey).slice(0, 128);
+        if(paymentAttemptObserver)paymentAttemptObserver.state='unknown';
         const payResp = await fetch('https://api.xero.com/api.xro/2.0/Payments', {
           method: 'POST',
           headers: payHeaders,
           body: JSON.stringify({ Payments: [paymentPayload] }),
         });
+        if(paymentAttemptObserver&&payResp.status===429){
+          paymentAttemptObserver.state='rate_limited';
+          paymentAttemptObserver.retryAfter=payResp.headers.get('retry-after');
+        }
         const payData = await safeXeroJson(payResp, 'payment-create');
         if (pilotBankAccount) await verifyPilotPayment(payData, {
           fetch, accessToken, xeroTenantId, invoiceId: xeroInvoiceId, contactId: pilotContactId,
@@ -1341,6 +1350,7 @@ export async function applyStripePaymentToXeroInvoice({
           revenueCode: ddAccountingMigration.snapshot.revenue_account_code,
         });
         if (payData?.Payments?.[0]?.PaymentID) {
+          if(paymentAttemptObserver)paymentAttemptObserver.state='posted';
           paymentRecorded = true;
           paymentId = payData.Payments[0].PaymentID;
           console.log(`[Xero] Payment recorded against existing invoice ${invoice.InvoiceNumber} - PaymentID: ${paymentId}`);

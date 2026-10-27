@@ -1,6 +1,7 @@
 import { invoiceReferenceFromRow, invoiceReferenceColumns } from './feeTokenInvoiceReference.js';
 import { pinMembershipAccountingBinding } from './membershipVoucherAccountingBinding.js';
 import {verifyMemberCreditRedemption} from './memberCreditRedemption.js';
+import {recordMemberCreditRedemption,claimMemberCreditFunding,recoverMemberCreditFunding,postMemberCreditFunding} from './memberCreditRedemptionReceipt.js';
 
 /** Explicit funding against a gross invoice. Never a fee discount, never a
  * synthetic Stripe payment. Existing invoice identity always wins.
@@ -24,7 +25,7 @@ export async function accountMembershipVoucherSettlement(db, token, settlement, 
     ? facade.getAccountingProviderByName(reference?.provider || settlement.accounting_provider)
     : await facade.getAccountingProvider(token.tenant_id);
   const funding = settlement.funding;
-  await (deps.verifyMemberCreditRedemption||verifyMemberCreditRedemption)(db,token.tenant_id,funding.allocations,provider);
+  const creditProofs=await (deps.verifyMemberCreditRedemption||verifyMemberCreditRedemption)(db,token.tenant_id,funding.allocations,provider);
   const description = funding.allocations.map(a =>
     `${a.displayName} (${a.ownerType === 'member' ? 'Personal' : 'Organisation'}): ${funding.currency} ${(a.amountMinor / 100).toFixed(2)}`).join('; ');
   const expectedProviderContext = await pinMembershipAccountingBinding(db, settlement, reference?.provider || provider.name, deps);
@@ -66,7 +67,14 @@ export async function accountMembershipVoucherSettlement(db, token, settlement, 
   // Reuse the provider's explicit-amount payment primitive with a dedicated
   // clearing account and no Stripe identifier. No fallback to a cash account.
   for (const allocation of funding.allocations) {
-    const result = await provider.applyStripePaymentToInvoice({
+    const fundingClaim=await claimMemberCreditFunding(db,{tenantId:token.tenant_id,allocation,proofs:creditProofs,
+      invoiceId:reference.invoiceId,
+      reference:`${allocation.displayName} (${allocation.ownerType === 'member' ? 'Personal' : 'Organisation'}) ${allocation.id}`});
+    const result = fundingClaim?.existing
+      ? await recoverMemberCreditFunding({tenantId:token.tenant_id,claim:fundingClaim,provider})
+      : await postMemberCreditFunding({db,tenantId:token.tenant_id,allocation,claim:fundingClaim,
+        post:paymentAttemptObserver=>provider.applyStripePaymentToInvoice({
+      paymentAttemptObserver,
       appTenantId: token.tenant_id, expectedProviderContext, invoiceId: reference.invoiceId,
       amount: allocation.amountMinor / 100,
       paymentReference: `${allocation.displayName} (${allocation.ownerType === 'member' ? 'Personal' : 'Organisation'}) ${allocation.id}`,
@@ -74,8 +82,11 @@ export async function accountMembershipVoucherSettlement(db, token, settlement, 
         ? 'xero_voucher_clearing_account_code' : 'quickbooks_voucher_clearing_account_id',
       strictBankAccount: true,
       idempotencyKey: `membership-credit-funding:${allocation.id}`,
-    });
+    })});
     if (!result?.payment_recorded) throw new Error('Voucher clearing account payment not confirmed; configure the dedicated voucher clearing account and retry accounting');
+    await recordMemberCreditRedemption(db,{tenantId:token.tenant_id,allocation,proofs:creditProofs,
+      invoiceId:reference.invoiceId,result,provider,
+      reference:`${allocation.displayName} (${allocation.ownerType === 'member' ? 'Personal' : 'Organisation'}) ${allocation.id}`});
   }
   if (funding.remainingMinor > 0 && !deps.onlyFunding) {
     if (!pi?.id || pi.amount !== funding.remainingMinor || pi.status !== 'succeeded') throw new Error('Verified cash evidence required for accounting');

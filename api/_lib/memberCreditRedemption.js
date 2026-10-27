@@ -22,6 +22,7 @@ export async function verifyMemberCreditRedemption(db,tenantId,allocations,provi
   providerForTenant:async()=>concrete,
  });
  for(const proof of data){
+  if(!proof.allocationId)throw new Error('Member credit redemption evidence migration is required before funding.');
   if(proof.amendment?.tenant_id!==tenantId||proof.settlement?.tenant_id!==tenantId
     ||proof.binding?.accountCode!==setting.data.setting_value){
     throw new Error('Membership credit must redeem against its original accounting liability.');
@@ -32,4 +33,5 @@ export async function verifyMemberCreditRedemption(db,tenantId,allocations,provi
     throw new Error('Membership credit backing has changed; finance review is required.');
   }
  }
+ return data;
 }

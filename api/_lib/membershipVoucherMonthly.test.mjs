@@ -4,7 +4,7 @@ import { monthlyVoucherCreditLimit, fundedMonthlySnapshot, monthlyFundingSlice, 
   releaseMembershipVoucherMonthly } from './membershipVoucherMonthly.js';
 import { postMembershipVoucherMonthlyPayment, postMembershipVoucherMonthlyCashBatch, accountFullyFundedMonthlyMembership } from './membershipVoucherMonthlyAccounting.js';
 import { createGuardedPortalMembershipIntent } from './membershipVoucherSettlement.js';
-import { reconcileMembershipVoucherCashRefund } from './membershipVoucherRefund.js';
+import { reconcileMembershipVoucherCashRefund, membershipVoucherRefundContext } from './membershipVoucherRefund.js';
 
 const base = { plan_total: 100, monthly_amount_minor: 2500, monthly_amount: 25,
   currency: 'GBP', instalment_count: 4, membership_year: '2026', invoicing_mode: 'annual',
@@ -74,6 +74,7 @@ function fixture({ accounting = 'xero', mode = 'annual', full = false, rail = 's
     gocardless_refunds: [],voucher_allocation_refund:[],
   };
   const db = { async rpc(name, args) {
+    if(name==='member_credit_return_context')return {data:{applicable:false}};
     if(name==='member_credit_funding_proofs')return {data:[]};
     if (name === 'voucher_credit_refund_allocation') {
       let row=tables.voucher_allocation_refund.find(r=>r.allocation_id===args.p_allocation_id && r.refund_key===args.p_refund_key);
@@ -253,6 +254,75 @@ test('confirmed DD refund without API status uses signed mirror and restores exa
   f.tables.gocardless_refunds[0].status='failed';
   await assert.rejects(reconcileMembershipVoucherCashRefund(f.db,payment,refunds),/financial reconciliation/);
 });
+
+test('expired backed membership credit keeps its original expiry while ordinary credit requires approval',async()=>{
+  const f=fixture({mode:'per_instalment',rail:'gocardless'});
+  await postMembershipVoucherMonthlyCashBatch({db:f.db,agreement:f.agreement,provider:'gocardless',
+    externalReference:'PMexpiry',cashMinor:4500,currency:'GBP'},{facade:f.facade});
+  const payment={tenant_id:'tenant',gocardless_payment_id:'PMexpiry',amount_minor:4500};
+  f.tables.voucher[0].expires_at='2000-01-01';
+  await assert.rejects(membershipVoucherRefundContext(f.db,payment),/Approve a future replacement/);
+  f.tables.voucher[0].funding_source='membership_change';
+  const context=await membershipVoucherRefundContext(f.db,payment);
+  assert.deepEqual(context.reversalOptions.voucherReplacements,[]);
+  f.tables.membership_voucher_collection[0].accounting_status='failed';
+  await assert.rejects(membershipVoucherRefundContext(f.db,payment),/affected membership instalment accounting/);
+});
+
+for(const mode of ['annual','per_instalment']){
+ test(`${mode} backed funding recovers a lost receipt without repeating its accounting payment`,async()=>{
+  const f=fixture({mode});
+  const provider=await f.facade.getAccountingProvider();
+  provider.getRawAccessToken=async()=>({accessToken:'isolated-test-only',tenantId:'company'});
+  const proof={allocationId:'a',binding:{providerTenantId:'company',accountId:'liability'}};
+  const baseRpc=f.db.rpc.bind(f.db),claims=new Map(),events=[];
+  let loseReceipt=true,posted=null,posts=0;
+  f.db.rpc=async(name,args)=>{
+   if(name==='claim_member_credit_funding'){
+    events.push('claim');
+    const existing=claims.has(args.p_context.reference);
+    claims.set(args.p_context.reference,args.p_context);
+    return {data:{existing,context:args.p_context}};
+   }
+   if(name==='record_member_credit_redemption'){
+    events.push('receipt');
+    if(loseReceipt){loseReceipt=false;return {error:{message:'Isolated lost receipt response'}};}
+    return {data:args.p_evidence};
+   }
+   return baseRpc(name,args);
+  };
+  const originalApply=provider.applyStripePaymentToInvoice.bind(provider);
+  provider.applyStripePaymentToInvoice=async input=>{
+   const result=await originalApply(input);
+   if(/ a(?::\d+)?$/.test(input.paymentReference||'')){
+    posts++;events.push('post');
+    posted={PaymentID:'isolated-liability-payment',Status:'AUTHORISED',
+     Invoice:{InvoiceID:input.invoiceId},Account:{AccountID:'liability'},
+     Reference:input.paymentReference,Amount:input.amount};
+    return {...result,payment_id:posted.PaymentID};
+   }
+   return result;
+  };
+  const previousFetch=globalThis.fetch;
+  globalThis.fetch=async(url,options)=>{
+   assert.equal(new URL(url).hostname,'api.xero.com');
+   assert.equal(options.method,'GET');
+   events.push('read');
+   return {ok:true,json:async()=>({Payments:posted?[posted]:[]})};
+  };
+  try{
+   const input={db:f.db,agreement:f.agreement,provider:'stripe',
+    externalReference:'in_backed',cashMinor:1500,currency:'GBP',stripePaymentIntentId:'pi_backed'};
+   const deps={facade:f.facade,verifyMemberCreditRedemption:async()=>[proof]};
+   await assert.rejects(postMembershipVoucherMonthlyCashBatch(input,deps),/evidence needs recovery/);
+   assert.deepEqual(events.slice(0,4),['claim','post','read','receipt']);
+   await postMembershipVoucherMonthlyCashBatch(input,deps);
+   assert.equal(posts,1);
+   assert.equal(f.invoices.length,1);
+   assert.equal(events.filter(x=>x==='receipt').length,2);
+  }finally{globalThis.fetch=previousFetch;}
+ });
+}
 test('authenticated annual checkout preserves provider identity and rejects cross-entrypoint races before cash', async () => {
   const f = fixture();
   let intent = null, creations = 0, basis = null, conflict = false;

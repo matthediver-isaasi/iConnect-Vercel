@@ -22,7 +22,9 @@ const bundle = await build({
     setup(builder) {
       builder.onResolve({ filter: /^react(?:\/.*)?$/ }, args => ({ path: args.path, external: true }));
       builder.onResolve({ filter: /^react-router-dom$/ }, () => ({ path: "router", namespace: "fixture" }));
-      builder.onResolve({ filter: /^@\// }, args => /(?:directDebitConsentSummary|membershipFeeCopy)$/.test(args.path)
+      builder.onResolve({ filter: /^@\// }, args => args.path.endsWith("/vouchers/VoucherPresentation")
+        ? { path: resolve("client/src/components/vouchers/VoucherPresentation.jsx") }
+        : /(?:directDebitConsentSummary|membershipFeeCopy)$/.test(args.path)
         ? { path: resolve(`client/src/lib/${args.path.split('/').at(-1)}.js`) }
         : { path: args.path, namespace: "fixture" });
       builder.onLoad({ filter: /.*/, namespace: "fixture" }, ({ path }) => ({
@@ -305,6 +307,19 @@ const deferred = () => {
 };
 const voucherResponse = (body, status = 200) => new Response(JSON.stringify(body), { status });
 const creditPanel = () => document.querySelector('[aria-label="Available membership credit"]');
+test("membership payment credit choice displays No expiry without changing quote or payment requests", async () => {
+  const view = await mount(fixture("stripe_upfront"), "", undefined, {
+    enabled: true,
+    vouchers: [{ id: "no-expiry-credit", code: "PERSONAL-CREDIT", ownerType: "member", displayName: "Personal credit", value: 43.27, expires_at: null }],
+  });
+  try {
+    await waitFor(() => creditPanel()?.querySelector('input[type="checkbox"]'));
+    const label = creditPanel().querySelector('input[type="checkbox"]').closest("label");
+    assert.match(label.textContent, /PERSONAL-CREDIT.*No expiry/);
+    assert.doesNotMatch(label.textContent, /1970|Expired/);
+    assert.equal(view.calls.filter(Boolean).length, 0);
+  } finally { await view.cleanup(); }
+});
 test("available-credit panel immediately shows accessible skeletons and spinner until empty discovery succeeds", async () => {
   const gate = deferred();
   const data = { ...fixture("stripe_upfront"), tenant: { name: "iConnect" } };

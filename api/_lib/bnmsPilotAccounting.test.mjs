@@ -110,6 +110,22 @@ function fixture(change = {}) {
   return { calls, deps, args, remoteInvoice: invoice };
 }
 
+test('funding observer distinguishes a rejected payment POST from a later read throttle',async()=>{
+ for(const throttlePayment of [true,false]){
+  const {args,deps}=fixture(),original=deps.fetch,observer={};
+  deps.fetch=async(url,init={})=>{
+   if((throttlePayment&&init.method==='POST'&&url.endsWith('/Payments'))
+    ||(!throttlePayment&&url.endsWith('/OnlineInvoice')))
+    return Response.json({ErrorNumber:10},{status:429,headers:{'retry-after':'120'}});
+   return original(url,init);
+  };
+  const result=await applyStripePaymentToXeroInvoice({...args,
+   idempotencyKey:args.paymentIdempotencyKey,paymentAttemptObserver:observer},deps);
+  assert.equal(observer.state,throttlePayment?'rate_limited':'posted');
+  assert.equal(result.payment_recorded,!throttlePayment);
+ }
+});
+
 function alphaFixture(revenue = '200') {
   const memberId = 'alpha-test-member', mapping = alphaAccountingMapping(revenue);
   const agreement = { id: 'alpha-agreement', tenant_id: tenant, member_id: memberId,

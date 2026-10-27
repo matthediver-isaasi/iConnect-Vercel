@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import BuyFundsModal from "@/components/balances/BuyFundsModal";
 import { useTicketViewerKey } from '@/hooks/useTicketViewerKey';
 import { voucherDisplayName, voucherOwnerType } from '../../../shared/voucherPolicy.js';
+import { compareVoucherExpiry, VoucherExpiry, MembershipCreditNotice } from "@/components/vouchers/VoucherPresentation";
 
 export default function BalancesPage({ hasBanner }) {
   const { memberInfo, organizationInfo, isFeatureExcluded, refreshOrganizationInfo } = useMemberAccess();
@@ -208,9 +209,7 @@ export default function BalancesPage({ hasBanner }) {
     }
     
     // Sort active by expiry date (soonest first)
-    active.sort((a, b) => 
-      new Date(a.expires_at).getTime() - new Date(b.expires_at).getTime()
-    );
+    active.sort(compareVoucherExpiry);
     
     // Sort expired by expiry date (most recently expired first)
     expired.sort((a, b) => 
@@ -546,9 +545,9 @@ export default function BalancesPage({ hasBanner }) {
                   ) : (
                     <div className="grid md:grid-cols-2 gap-4">
                       {activeVouchers.map((voucher) => {
-                        const expiryDate = new Date(voucher.expires_at);
-                        const daysUntilExpiry = differenceInDays(expiryDate, new Date());
-                        const isExpiringSoon = daysUntilExpiry <= 30 && daysUntilExpiry >= 0;
+                        const expiryDate = voucher.expires_at ? new Date(voucher.expires_at) : null;
+                        const daysUntilExpiry = expiryDate ? differenceInDays(expiryDate, new Date()) : null;
+                        const isExpiringSoon = daysUntilExpiry !== null && daysUntilExpiry <= 30 && daysUntilExpiry >= 0;
                         
                         return (
                           <Card 
@@ -583,10 +582,11 @@ export default function BalancesPage({ hasBanner }) {
                                 <span className={
                                   isExpiringSoon ? 'text-warning font-medium' : 'text-slate-500'
                                 }>
-                                  Expires {format(expiryDate, 'MMM d, yyyy')}
+                                  <VoucherExpiry voucher={voucher} />
                                   {isExpiringSoon && ` (${daysUntilExpiry} days)`}
                                 </span>
                               </div>
+                              <MembershipCreditNotice voucher={voucher} />
 
                               {isExpiringSoon && (
                                 <div className="flex items-start gap-2 mt-3 p-2 bg-warning/10 rounded-lg">

@@ -32,6 +32,9 @@ export function createMemberChangeAuthorityResolver({
     const preview=await amendments.preview(context.tenantId,request);
     if(!preview.canCreate || !preview.quote) fail(preview.blockers?.join(' ') || 'Purchase evidence is unavailable.');
     const q=preview.quote, source=q.sourceSnapshot;
+    if(await one('membership_voucher_settlement',context,{history_record_id:source.id})){
+      fail('This membership used voucher funding. Its original funding ownership needs a supported settlement path; it cannot be treated as entirely paid in cash.');
+    }
     if(source.config_id===q.targetSnapshot.config.id && (source.band_id||null)===(q.targetSnapshot.band?.id||null)) {
       fail('Select a different membership structure or tier.');
     }

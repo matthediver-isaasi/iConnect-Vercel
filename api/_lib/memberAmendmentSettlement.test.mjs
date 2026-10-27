@@ -22,6 +22,7 @@ function financeFixture({ credit = false } = {}) {
   const payments = {
     [uuid(63)]: { PaymentID: uuid(63), Invoice: { InvoiceID: invoice.InvoiceID }, Status: 'AUTHORISED', Account: { AccountID: uuid(64) }, Amount: 100 },
   };
+  const bankAccounts=[{AccountID:uuid(64),Type:'BANK'}];
   const calls = [];
   const documents = [];
   const makeDoc = (args, isCredit = false) => ({
@@ -47,7 +48,12 @@ function financeFixture({ credit = false } = {}) {
     calls.push({ path: pathname, method: options.method, body: options.body, key: options.headers['Idempotency-Key'] });
     let body;
     if (pathname === `Invoices/${invoice.InvoiceID}`) body = { Invoices: [invoice] };
+    else if(pathname==='Accounts')body={Accounts:bankAccounts};
     else if (pathname.startsWith('Payments/')) body = { Payments: [payments[pathname.split('/')[1]]] };
+    else if(pathname==='Payments'){
+      const where=new URL(url).searchParams.get('where');
+      body={Payments:Object.values(payments).filter(p=>where===`Reference==${JSON.stringify(p.Reference)}`)};
+    }
     else if (pathname.endsWith('/OnlineInvoice')) body = { OnlineInvoices: [{ OnlineInvoiceUrl: 'https://invoice.example.invalid/pay' }] };
     else if (pathname === 'CreditNotes' && options.method === 'POST') {
       const payload = JSON.parse(options.body).CreditNotes[0];
@@ -68,7 +74,7 @@ function financeFixture({ credit = false } = {}) {
   const finance = createMemberAmendmentFinance({ providerForTenant: async () => provider, fetcher,
     paymentIntentForTenant: async () => ({ paymentIntent: originalCard,
       stripe: { charges: { retrieve: async () => originalCharge } } }) });
-  return { ...f, a, finance, invoice, payments, documents, calls, provider, makeDoc, originalCard, originalCharge };
+  return { ...f, a, finance, invoice, payments, documents, calls, provider, makeDoc, originalCard, originalCharge,bankAccounts };
 }
 
 test('money validation rejects mixed-sign/tax-only and imprecise amounts; independent quoted VAT is retained', () => {
@@ -77,6 +83,29 @@ test('money validation rejects mixed-sign/tax-only and imprecise amounts; indepe
   assert.throws(() => amendmentMoney({ delta: { netMinor: 100, vatMinor: -100, grossMinor: 0 } }, 'none'), /Mixed-sign/);
   assert.deepEqual(amendmentMoney({ delta: { netMinor: -101, vatMinor: -21, grossMinor: -122 } }, 'credit'),
     { netMinor: 101, taxMinor: 21, grossMinor: 122 });
+});
+
+test('funding recovery is read-only and rejects absent or duplicate accounting payments',async()=>{
+  const f=financeFixture();
+  const context=await f.finance.prepare(f.a,'collect');
+  const p=f.payments[uuid(63)];
+  p.Reference='member-funding:isolated';
+  const binding={providerTenantId:context.xeroTenantId,accountId:p.Account.AccountID};
+  const entry={invoiceId:f.invoice.InvoiceID,reference:p.Reference,amountMinor:10000};
+  const result=await f.finance.findCreditFundingPayment(f.tenantId,binding,entry);
+  assert.equal(result.payment_id,p.PaymentID);
+  f.payments[uuid(68)]={...p,PaymentID:uuid(68)};
+  await assert.rejects(f.finance.findCreditFundingPayment(f.tenantId,binding,entry),/no single confirmed payment/);
+  delete f.payments[uuid(63)];delete f.payments[uuid(68)];
+  await assert.rejects(f.finance.findCreditFundingPayment(f.tenantId,binding,entry),/no single confirmed payment/);
+  assert.ok(f.calls.every(c=>c.method==='GET'));
+});
+
+test('non-cash liability payments cannot become original cash settlement evidence',async()=>{
+  const f=financeFixture();
+  f.a.quote.sourceSnapshot.payment_method='invoice';
+  f.bankAccounts[0].Type='CURRENTLIABILITY';
+  await assert.rejects(f.finance.verifyOriginal(f.a),/not non-cash liability/);
 });
 
 test('source evidence reader verifies provider payments without creating accounting documents', async () => {
@@ -208,6 +237,9 @@ test('retained credit and manual cash refund are exclusive; refund requires cons
   const verified = await f.finance.inspect(f.a, refund);
   assert.equal(verified.state, 'settled');
   assert.equal(verified.evidence.retainedCreditMinor, 0);
+  f.bankAccounts[0].Type='CURRENTLIABILITY';
+  await assert.rejects(f.finance.inspect(f.a,refund),/not non-cash liability/);
+  f.bankAccounts[0].Type='BANK';
   await assert.rejects(f.finance.inspect(f.a, credit), /consumed/);
   doc.Allocations = [{ Amount: doc.Total }];
   await assert.rejects(f.finance.inspect(f.a, refund), /cash refund plus retained credit/);

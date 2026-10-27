@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { membershipCreditEstimate } from "../lib/membershipCreditEstimate";
+import { VoucherExpiry } from "@/components/vouchers/VoucherPresentation";
 import GoCardlessDropinFlow from "@/components/gocardless/GoCardlessDropinFlow";
 import { directDebitHasFixedTermTotal, directDebitCollectionPolicy } from "@/lib/directDebitConsentSummary";
 import { membershipPeriod, membershipHeading, annualMembershipFeeLabel, memberDate, activationText, memberDirectDebitPolicy as directDebitPolicyText, memberFirstCollection as directDebitFirstCollectionText, reusesDirectDebit, creditOwnerLabel } from "@/lib/membershipFeeCopy";
@@ -792,7 +793,9 @@ export default function MembershipFeePage() {
                         setCreditSelection(selected => event.target.checked
                           ? [...selected, voucher.id] : selected.filter(id => id !== voucher.id));
                       }} />
-                    <span>{creditOwnerLabel(voucher)} – {formatCurrency(voucher.value, data?.currency)} ({voucher.code})</span>
+                    <span>{creditOwnerLabel(voucher)} – {formatCurrency(voucher.value, data?.currency)} ({voucher.code})
+                      <span className="block text-xs text-slate-500"><VoucherExpiry voucher={voucher} /></span>
+                    </span>
                   </label>
                 ))}
                 <Button type="button" variant="outline" disabled={!creditSelection.length || quotingCredit || creatingPayment || processingPayment || !!data?.voucherFunding}

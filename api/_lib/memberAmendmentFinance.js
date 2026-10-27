@@ -5,6 +5,7 @@ import { discoverInvoiceCredits } from './invoiceCreditDiscovery.js';
 import { retrieveTenantPaymentIntent } from './stripeCredentials.js';
 import { verifyMemberCreditLiability } from './memberCreditLiability.js';
 import {inspectMemberCreditBacking,executeMemberCreditBacking} from './memberCreditBacking.js';
+import {verifyMemberCreditReturnPayments,readMemberCreditReturnPayments} from './memberCreditReturnEvidence.js';
 
 const fail = (message) => { throw new AmendmentError(message, 422, 'finance_evidence_required'); };
 export function amendmentMinor(value, label = 'provider amount') {
@@ -34,6 +35,13 @@ export function createMemberAmendmentFinance({
   providerForTenant = getAccountingProvider, fetcher = fetch,
   paymentIntentForTenant = retrieveTenantPaymentIntent,
 } = {}) {
+  async function verifyBankAccounts(request,ids){
+    const rows=(await request('Accounts'))?.Accounts;
+    if(!Array.isArray(rows)||!ids.length||ids.some(id=>{
+      const matches=rows.filter(a=>a.AccountID===id);
+      return matches.length!==1||matches[0].Type!=='BANK';
+    }))fail('Cash settlement requires verified bank accounts, not non-cash liability transfers.');
+  }
   async function verifyOriginalCard(amendment) {
     const q = amendment.quote;
     const source = q.sourceSnapshot;
@@ -108,6 +116,7 @@ export function createMemberAmendmentFinance({
       fail('Mixed or unidentified source revenue/tax lines need accounting review.');
     }
     let originalPaid = 0;
+    const originalBankIds=new Set();
     const originalPaymentIds = new Set();
     for (const item of invoice.Payments) {
       if (!item.PaymentID) fail('Original invoice payment ownership is missing.');
@@ -122,7 +131,9 @@ export function createMemberAmendmentFinance({
       const amount = amendmentMinor(payment.Amount);
       if (amount <= 0) fail('Original invoice payment amount must be positive.');
       originalPaid += amount;
+      originalBankIds.add(payment.Account.AccountID);
     }
+    if(source.payment_method!=='stripe')await verifyBankAccounts(request,[...originalBankIds]);
     if (originalPaid !== q.originalFullTerm.grossMinor) fail('Original invoice payment total differs from the purchased commitment.');
     const coverage = await discoverInvoiceCredits({
       provider: 'xero', invoiceId,
@@ -300,6 +311,7 @@ export function createMemberAmendmentFinance({
     if (doc.Allocations?.length) fail('Refund credit note was allocated to an invoice; cash refund plus retained credit is prohibited.');
     let refunded = 0;
     const paymentIds = [];
+    const refundBankIds=new Set();
     if (doc.Payments.length > 25) fail('Refund payment coverage exceeds the safe verification bound.');
     for (const entry of doc.Payments) {
       if (!entry.PaymentID) fail('Manual refund payment identity is missing.');
@@ -312,7 +324,9 @@ export function createMemberAmendmentFinance({
       if (amount <= 0) fail('Refund payment amount must be positive.');
       refunded += amount;
       paymentIds.push(p.PaymentID);
+      refundBankIds.add(p.Account.AccountID);
     }
+    await verifyBankAccounts(request,[...refundBankIds]);
     if (refunded !== c.amounts.grossMinor) fail('Recorded cash refund amount differs from the approved adjustment.');
     return { state: 'settled', evidence: { ...evidence, kind: 'recorded_manual_refund', paymentIds, retainedCreditMinor: 0 } };
   }
@@ -344,5 +358,36 @@ export function createMemberAmendmentFinance({
     return executeMemberCreditBacking({db,tenantId:amendment.tenant_id,amendmentId:amendment.id,actorId,
       request,inspect:()=>inspect(amendment,settlement)});
   }
-  return { prepare, execute, inspect, verifyOriginal, verifyCreditLiability,backCredit };
+  async function verifyCreditFundingPayment(tenantId,binding,entry){
+    const {request,xeroTenantId}=await client(tenantId);
+    if(xeroTenantId!==binding.providerTenantId)fail('Accounting organisation changed before funding verification.');
+    const rows=(await request(`Payments/${encodeURIComponent(entry.paymentId)}`))?.Payments;
+    if(!Array.isArray(rows)||rows.length!==1||rows[0].PaymentID!==entry.paymentId)
+      fail('Exact member-credit funding payment could not be verified.');
+    return verifyMemberCreditReturnPayments({entries:[entry],payments:rows,
+      expectedActiveMinor:entry.amountMinor,accountId:binding.accountId});
+  }
+  async function verifyCreditReturn(tenantId,binding,entries,expectedActiveMinor){
+    const {request,xeroTenantId}=await client(tenantId);
+    if(xeroTenantId!==binding.providerTenantId)fail('Accounting organisation changed before credit return.');
+    const payments=await readMemberCreditReturnPayments({entries,request});
+    return verifyMemberCreditReturnPayments({entries,payments,expectedActiveMinor,accountId:binding.accountId});
+  }
+  async function findCreditFundingPayment(tenantId,binding,entry){
+    const {request,xeroTenantId}=await client(tenantId);
+    if(xeroTenantId!==binding.providerTenantId)fail('Accounting organisation changed before funding recovery.');
+    const where=`Reference==${JSON.stringify(entry.reference)}`;
+    const rows=(await request(`Payments?where=${encodeURIComponent(where)}&page=1&pageSize=100`))?.Payments;
+    if(!Array.isArray(rows)||rows.length>=100||rows.some(p=>p.Reference!==entry.reference))
+      fail('Complete funding recovery evidence is required.');
+    const active=rows.filter(p=>p.Status!=='DELETED');
+    if(active.length!==1||!active[0].PaymentID)
+      fail('Funding claim has no single confirmed payment. Finance reconciliation is required; no repeat payment was posted.');
+    const result=verifyMemberCreditReturnPayments({
+      entries:[{...entry,paymentId:active[0].PaymentID}],payments:active,
+      expectedActiveMinor:entry.amountMinor,accountId:binding.accountId,
+    });
+    return {payment_recorded:result.verified,payment_id:active[0].PaymentID};
+  }
+  return { prepare, execute, inspect, verifyOriginal, verifyCreditLiability,backCredit,verifyCreditFundingPayment,verifyCreditReturn,findCreditFundingPayment };
 }

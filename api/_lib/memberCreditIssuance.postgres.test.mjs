@@ -26,13 +26,21 @@ test('backed credit issuance/application roll back together; expiry preserves va
    await admin.query(voucherFixture.match(new RegExp(`CREATE TABLE ${table}\\([\\s\\S]*?;`))[0]);
   }
   await admin.query(readFileSync('supabase/migrations/202610200001_individual_voucher_credit.sql','utf8'));
+  await admin.query(readFileSync('supabase/migrations/202610200014_voucher_allocation_refunds.sql','utf8'));
   await admin.query(`CREATE FUNCTION fail_credit_issue_fixture() RETURNS trigger LANGUAGE plpgsql AS $$
    BEGIN IF current_setting('test.fail_issue',true)='yes' THEN RAISE EXCEPTION 'Injected issuance failure'; END IF;
    RETURN NEW; END $$;
    CREATE TRIGGER fixture_issue_failure BEFORE INSERT ON voucher FOR EACH ROW EXECUTE FUNCTION fail_credit_issue_fixture();`);
   for(const file of ['202612310020_member_membership_amendments.sql','202612310021_member_amendment_settlement.sql',
    '202612310023_member_change_authority.sql','202612310024_member_change_execution.sql',
-   '202612310027_member_credit_backing_claim.sql','202612310029_member_credit_issuance.sql']){
+   '202612310027_member_credit_backing_claim.sql','202612310029_member_credit_issuance.sql',
+   '202612310030_member_credit_redemption_evidence.sql','202612310031_member_credit_return_verification.sql',
+   '202612310032_member_credit_funding_claims.sql',
+   '202612310033_member_credit_variable_reservation_scope.sql',
+   '202612310034_member_credit_unused_release.sql',
+   '202612310035_member_credit_provenance.sql',
+   '202612310036_member_credit_incomplete_funding_returns.sql',
+   '202612310037_member_credit_funding_retries.sql']){
    await admin.query(readFileSync(`supabase/migrations/${file}`,'utf8'));
   }
   assert.equal((await admin.query('SELECT member_credit_execution_available() ready')).rows[0].ready,false);
@@ -87,7 +95,83 @@ test('backed credit issuance/application roll back together; expiry preserves va
   for(let i=0;i<2;i++)await a.query('SELECT apply_member_membership_amendment($1,$2,$3)',args);
   const vouchers=(await admin.query('SELECT * FROM voucher')).rows;
   assert.equal(vouchers.length,1);assert.equal(vouchers[0].expires_at,null);
+  await assert.rejects(a.query('SELECT voucher_admin_write($1,$2,$3,$4,$5,$6)',
+   [f.tenantId,null,'issue',{funding_source:'membership_change'},'admin','forged-provenance']),/reserved for verified/);
   assert.equal(Math.round(Number(vouchers[0].value)*100),amount);
+  const allocated=Math.min(amount,500),allocationId=uuid(91);
+  const purchase=await insert('voucher_credit_purchase',{tenant_id:f.tenantId,purchase_key:'membership:receipt-fixture',
+   request:{},state:'committed',payable_minor:allocated,currency:'GBP',member_id:f.memberId});
+  await insert('voucher_credit_allocation',{id:allocationId,purchase_id:purchase.id,tenant_id:f.tenantId,
+   voucher_id:vouchers[0].id,owner_member_id:f.memberId,owner_display_name:'Member',amount_minor:allocated,ordinal:0});
+  const funded=allocated-100;
+  const debit={provider:'xero',providerTenantId:'books',accountId:'liability',reference:'funding:fixture',
+   invoiceId:'invoice',paymentId:'funding-payment',amountMinor:funded};
+  await assert.rejects(a.query('SELECT record_member_credit_redemption($1,$2,$3)',[f.tenantId,allocationId,debit]),/Frozen funding claim/);
+  const {paymentId:_,...fundingContext}=debit;
+  for(let i=0;i<2;i++){
+   const claimed=(await a.query('SELECT claim_member_credit_funding($1,$2,$3) claim',
+    [f.tenantId,allocationId,fundingContext])).rows[0].claim;
+   assert.equal(claimed.existing,i===1);
+  }
+  await assert.rejects(a.query('SELECT voucher_credit_transition($1,$2,$3,$4)',
+   [f.tenantId,purchase.purchase_key,'release','refunded']),/Reconcile claimed liability/);
+  await assert.rejects(a.query('SELECT member_credit_return_context($1,$2,$3,$4)',
+   [f.tenantId,allocationId,'cash-a',1]),/outstanding funding claims/);
+  const throttleArgs=[f.tenantId,allocationId,debit.reference,'initial',60];
+  await a.query('SELECT record_member_credit_funding_throttle($1,$2,$3,$4,$5)',throttleArgs);
+  const waiting=(await a.query('SELECT claim_member_credit_funding($1,$2,$3) v',
+   [f.tenantId,allocationId,fundingContext])).rows[0].v;
+  assert.equal(waiting.existing,true);assert.ok(waiting.retryAfter>0);
+  await admin.query("UPDATE member_credit_funding_retry SET not_before=now()-interval '1 second'");
+  const retry=(await a.query('SELECT claim_member_credit_funding($1,$2,$3) v',
+   [f.tenantId,allocationId,fundingContext])).rows[0].v;
+  assert.equal(retry.existing,false);assert.notEqual(retry.attempt,'initial');
+  // Replaying the original rejection must not reopen a consumed attempt.
+  await a.query('SELECT record_member_credit_funding_throttle($1,$2,$3,$4,$5)',throttleArgs);
+  assert.equal((await a.query('SELECT claim_member_credit_funding($1,$2,$3) v',
+   [f.tenantId,allocationId,fundingContext])).rows[0].v.existing,true);
+  await assert.rejects(a.query('SELECT claim_member_credit_funding_before_retry($1,$2,$3)',
+   [f.tenantId,allocationId,fundingContext]),/permission denied/);
+  for(let i=0;i<2;i++)await a.query('SELECT record_member_credit_redemption($1,$2,$3)',[f.tenantId,allocationId,debit]);
+  assert.equal((await admin.query('SELECT count(*)::int n FROM member_credit_redemption')).rows[0].n,1);
+  await assert.rejects(a.query('SELECT record_member_credit_redemption($1,$2,$3)',
+   [f.tenantId,allocationId,{...debit,paymentId:'other'}]),/Immutable funding evidence/);
+  await assert.rejects(a.query('SELECT record_member_credit_redemption($1,$2,$3)',
+   [f.tenantId,allocationId,{...debit,reference:'second',paymentId:'second',amountMinor:1}]),/Frozen funding claim/);
+  await assert.rejects(a.query('SELECT claim_member_credit_funding($1,$2,$3)',
+   [f.tenantId,allocationId,{...fundingContext,reference:'second',amountMinor:101}]),/exceed original allocation/);
+  await assert.rejects(a.query('SELECT record_member_credit_redemption($1,$2,$3)',
+   [uuid(92),allocationId,debit]),/allocation not found/);
+  await assert.rejects(a.query("UPDATE member_credit_redemption SET amount_minor=1"),/permission denied/);
+  await admin.query("SET app.voucher_credit_write='yes'");
+  await admin.query('UPDATE voucher SET value=value-$1/100.0 WHERE id=$2',[allocated,vouchers[0].id]);
+  await admin.query("SET app.voucher_credit_write=''");
+  await assert.rejects(a.query('SELECT voucher_credit_refund_allocation($1,$2,$3,$4,$5)',
+   [f.tenantId,allocationId,'cash-a',100,{}]),/Accounting-verified/);
+  const returnArgs=[f.tenantId,allocationId,'cash-a',100,funded-100,{}];
+  await a.query('SELECT apply_verified_member_credit_return($1,$2,$3,$4,$5,$6)',returnArgs);
+  await a.query('SELECT apply_verified_member_credit_return($1,$2,$3,$4,$5,$6)',returnArgs);
+  await assert.rejects(a.query('SELECT apply_verified_member_credit_return($1,$2,$3,$4,$5,$6)',
+   [f.tenantId,allocationId,'cash-b',100,funded-100,{}]),/evidence changed/);
+  await a.query('SELECT apply_verified_member_credit_return($1,$2,$3,$4,$5,$6)',
+   [f.tenantId,allocationId,'cash-b',100,funded-200,{}]);
+  await admin.query("SET app.voucher_credit_write='yes'; UPDATE voucher SET expires_at=now()-interval '1 day',status='expired'; SET app.voucher_credit_write=''");
+  const expiry=(await admin.query('SELECT expires_at FROM voucher')).rows[0].expires_at;
+  await a.query('SELECT apply_verified_member_credit_return($1,$2,$3,$4,$5,$6)',
+   [f.tenantId,allocationId,'cash-a',funded-100,0,{}]);
+  const restored=(await admin.query('SELECT * FROM voucher')).rows;
+  assert.equal(restored.length,1);assert.equal(restored[0].status,'expired');
+  assert.equal(restored[0].expires_at.toISOString(),expiry.toISOString());
+  assert.equal(Math.round(Number(restored[0].value)*100),amount-100);
+  await a.query('SELECT voucher_credit_transition($1,$2,$3,$4)',
+   [f.tenantId,purchase.purchase_key,'release','refunded']);
+  assert.equal(Math.round(Number((await admin.query('SELECT value FROM voucher')).rows[0].value)*100),amount);
+  await assert.rejects(a.query('SELECT claim_member_credit_funding($1,$2,$3)',
+   [f.tenantId,allocationId,fundingContext]),/not committed/);
+  await assert.rejects(a.query('SELECT voucher_credit_refund_before_member_credit($1,$2,$3,$4,$5)',
+   [f.tenantId,allocationId,'bypass',1,{}]),/permission denied/);
+  // Restore fixture time state for the independent expiry-admin checks below.
+  await admin.query("SET app.voucher_credit_write='yes'; UPDATE voucher SET expires_at=null,status='active'; SET app.voucher_credit_write=''");
   assert.equal((await a.query('SELECT * FROM list_member_credit_expiry_reviews($1)',[f.tenantId])).rows.length,0);
   await assert.rejects(a.query('SELECT voucher_admin_write($1,$2,$3,$4,$5,$6)',
    [f.tenantId,vouchers[0].id,'expire',{},'admin','expire']),/no expiry/);
@@ -100,6 +184,32 @@ test('backed credit issuance/application roll back together; expiry preserves va
   assert.equal(reviewed.needsReview,false);assert.equal(reviewed.availableMinor,amount);
   await assert.rejects(a.query('SELECT apply_member_amendment_before_credit($1,$2,$3)',args),{code:'42501'});
   await assert.rejects(a.query('DELETE FROM member_membership_credit'),{code:'42501'});
+  await admin.query(`CREATE TABLE membership_voucher_settlement(
+   id uuid PRIMARY KEY,tenant_id uuid,history_record_id uuid,purchase_key text);
+   CREATE TABLE membership_variable_voucher_period(
+   settlement_id uuid,tenant_id uuid,instalment_count integer);`);
+  const variableId=uuid(94),variableRoot=`variable-membership:${uuid(95)}:${uuid(96)}`;
+  await admin.query('INSERT INTO membership_voucher_settlement VALUES($1,$2,$3,$4)',
+   [variableId,f.tenantId,f.current.id,variableRoot]);
+  await admin.query('INSERT INTO membership_variable_voucher_period VALUES($1,$2,12)',[variableId,f.tenantId]);
+  for(const [tenant,member,key,expected] of [
+   [f.tenantId,f.memberId,`${variableRoot}:1`,true],
+   [f.tenantId,f.memberId,`${variableRoot}:12`,true],
+   [f.tenantId,f.memberId,`${variableRoot}:13`,false],
+   [f.tenantId,f.memberId,`${variableRoot}:01`,false],
+   [uuid(99),f.memberId,`${variableRoot}:1`,false],
+   [f.tenantId,uuid(99),`${variableRoot}:1`,false],
+   [f.tenantId,f.memberId,'variable-membership:forged:1',false],
+  ])assert.equal((await admin.query('SELECT member_credit_membership_purchase_scope($1,$2,$3) allowed',
+   [tenant,member,key])).rows[0].allowed,expected);
+  await assert.rejects(a.query('SELECT member_credit_membership_purchase_scope($1,$2,$3)',
+   [f.tenantId,f.memberId,`${variableRoot}:1`]),/permission denied/);
+  await admin.query("SET app.voucher_credit_write='on';UPDATE voucher SET expires_at=NULL,status='active';RESET app.voucher_credit_write");
+  const reserveArgs=[f.tenantId,`${variableRoot}:1`,f.memberId,f.memberId,[vouchers[0].id],1,'GBP',false,false];
+  await a.query('SELECT voucher_credit_reserve($1,$2,$3,$4,$5,$6,$7,$8,$9)',reserveArgs);
+  await a.query('SELECT voucher_credit_transition($1,$2,$3,$4)',
+   [f.tenantId,`${variableRoot}:1`,'release','cancelled']);
+  assert.equal(Math.round(Number((await admin.query('SELECT value FROM voucher')).rows[0].value)*100),amount);
   await a.query('RESET ROLE; SET ROLE authenticated');
   await assert.rejects(a.query('SELECT review_member_credit_expiry($1,$2,$3,$4)',reviewArgs),{code:'42501'});
  }finally{
