@@ -45,10 +45,11 @@ test('surplus preview pins accounting readiness and refuses another accounting o
    currency:'GBP',effectiveDate:'2026-07-01',
    term:{startDate:'2026-01-01',renewalDate:'2027-01-01'},
    fundingEvidence:{provider:'xero',providerTenantId:'books',sourceInvoiceId:'invoice',paymentIds:['paid'],paidMinor:10000}};
- const db={from(table){return {select(){return this},eq(){return this},async maybeSingle(){
+  let creditExpiryDays=null;
+  const db={from(table){return {select(){return this},eq(){return this},async maybeSingle(){
    return {data:table==='membership_tier_config'?{id:id(4),tenant_id:id(1)}:
      table==='system_settings'?{setting_value:'850'}:
-     table==='membership_change_policy'?{policy:{...MEMBERSHIP_CHANGE_POLICY_DEFAULTS,surplusHandling:'credit'},revision:1}:null};
+      table==='membership_change_policy'?{policy:{...MEMBERSHIP_CHANGE_POLICY_DEFAULTS,surplusHandling:'credit',creditExpiryDays},revision:1}:null};
  }}}};
  let books='books',reads=0;
  const resolve=createMemberChangeAuthorityResolver({db,amendments:{preview:async()=>({canCreate:true,quote})},
@@ -59,6 +60,15 @@ test('surplus preview pins accounting readiness and refuses another accounting o
  const request={configId:id(5),effectiveDate:'2026-07-01',reason:'Change membership'};
  const authority=await resolve(context,request);
  assert.equal(reads,1);assert.equal(authority.creditLiabilityBinding.accountId,'liability');
+  assert.equal(authority.settlement.creditExpiresAt,null);
+  assert.equal(authority.settlement.creditExpiryLiabilityTreatment,'manual_review');
+  creditExpiryDays=90;
+  const expiring=await resolve(context,request);
+  assert.equal(expiring.settlement.creditExpiresAt,'2026-09-29T00:00:00.000Z');
+  assert.equal(expiring.settlement.creditExpiryLiabilityTreatment,'manual_review');
+  assert.equal(expiring.settlement.moneyMoved,false);
+  assert.equal(expiring.entitlementApplied,undefined);
+  assert.equal(expiring.executionEnabled,false);
  books='other-books';
  await assert.rejects(resolve(context,request),/different accounting organisations/);
 });

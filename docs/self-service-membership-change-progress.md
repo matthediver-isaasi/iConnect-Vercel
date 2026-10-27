@@ -6,6 +6,14 @@ The owner selected iConnect-only member credit with liability accounting.
 New surplus must not remain independently spendable as an accounting credit
 note as well as a member voucher.
 
+The owner also selected **manual accounting review on expiry**. Expiry must
+stop redemption without automatically writing off the remaining liability.
+This rule is now captured in newly resolved credit/approval settlement plans;
+it is not a browser-selected or tenant-selected automatic posting instruction.
+Default no-expiry credit remains unchanged. The expiry review queue and the
+backed-credit issuance/expiry lifecycle are still to be implemented; recording
+the policy in a quote does not create a review item or an accounting entry.
+
 The existing membership-voucher redemption path already posts explicit funding
 against gross invoices using the dedicated voucher clearing account. Therefore
 credit readiness uses that same mapping, not a separate issuance-only account.

@@ -93,6 +93,11 @@ export function planMembershipChangeSettlement({calculation, policy, issuedAt}) 
     changeType:direction,requiresApproval,
     status:blockers.length?'requires_reconciliation':requiresApproval?'pending_approval':'ready_for_settlement',
     surplusHandling,creditExpiresAt,
+    // A fixed server-owned rule, not a tenant/browser-selectable write-off
+    // instruction. Approval may subsequently choose credit, so freeze the rule
+    // for that path too. Expiry is not proof of an accounting adjustment.
+    creditExpiryLiabilityTreatment:
+      ['credit','approval'].includes(surplusHandling) ? 'manual_review' : null,
     surplusEligibleMinor:surplusEligible?calculation.surplusMinor:0,
     paymentDueMinor:calculation.paymentDueMinor,
     futureObligationMinor:calculation.futureObligationMinor,

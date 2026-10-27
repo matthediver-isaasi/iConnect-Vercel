@@ -23,6 +23,15 @@ defaulting to no expiry.
 **How to apply:** Keep newly issued surplus separate from reversals of previously
 used vouchers; returning an existing voucher must preserve its original expiry.
 
+Expired membership-change credit requires manual accounting review. Expiry
+stops spending but must not automatically write off its remaining liability.
+
+**Why:** The owner explicitly selected manual accounting review.
+
+**How to apply:** Preserve the remaining accounting liability and its evidence
+for finance review; do not invent a write-off account or automatically recognise
+income when a credit expires. No-expiry credit does not enter expiry review.
+
 New surplus is iConnect-only member credit backed by liability accounting,
 not a simultaneously spendable accounting credit note.
 
