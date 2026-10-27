@@ -1,6 +1,7 @@
 import {amendmentResult} from './memberAmendmentSettlement.js';
 import {createMemberCancellationAccounting} from './memberCancellationAccounting.js';
 import {monthlyAmendmentFingerprint} from './memberAmendmentMonthly.js';
+import {inspectMemberCancellationBalance} from './memberCancellationBalance.js';
 const fail=message=>{throw Object.assign(new Error(message),{status:409,code:'cancellation_execution_conflict'});};
 
 /** Private journal executor. Its caller must resolve and approve the financial
@@ -32,7 +33,7 @@ export function createMemberCancellationFinancialExecution({db,accountingForTena
   }
   const client=await accountingForTenant(context.tenantId);
   if(client.xeroTenantId!==financial.source_evidence.providerTenantId)fail('Accounting tenant changed.');
-  return {record,financial,steps,adapter:createMemberCancellationAccounting({
+  return {record,financial,steps,client,adapter:createMemberCancellationAccounting({
    request:client.request,providerTenantId:client.xeroTenantId,
   })};
  }
@@ -80,5 +81,17 @@ export function createMemberCancellationFinancialExecution({db,accountingForTena
    p_step_key:stepKey,p_claim_token:operation.claim_token,p_evidence:evidence,
   }));
  }
- return {run};
+ async function reconcileBalance(context,id){
+  const scope=await load(context,id);
+  const result=await inspectMemberCancellationBalance({
+   plan:scope.financial.plan,steps:scope.steps,adapter:scope.adapter,request:scope.client.request,
+  });
+  if(result.state==='awaiting_reconciliation')return result;
+  const record=amendmentResult(await db.rpc('record_member_cancellation_balance',{
+   p_tenant_id:context.tenantId,p_member_id:context.memberId,p_id:id,p_actor_id:context.actorId,
+   p_state:result.state,p_evidence:result.evidence,
+  }));
+  return {...result,record};
+ }
+ return {run,reconcileBalance};
 }
