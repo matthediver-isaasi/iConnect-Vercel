@@ -51,7 +51,8 @@ export function memberCreditBackingPayload(context,creditNoteId){
 }
 
 // A durable claim is consumed before the external write. Existing claims never
-// authorize another write, including after process death or a lost response.
+// authorize another write after process death or a lost response. Only a
+// persisted definitive throttling response can grant a bounded retry.
 export async function executeMemberCreditBacking({db,tenantId,amendmentId,actorId,inspect,request}){
   const before=await inspect();
   if(before.state==='settled')return before;
@@ -61,6 +62,8 @@ export async function executeMemberCreditBacking({db,tenantId,amendmentId,actorI
     p_document_id:before.evidence.documentId,
   });
   if(claim.error)throw Object.assign(new Error('Member credit backing could not be reserved.'),{status:503,code:'credit_backing_reservation_failed'});
+  if(claim.data?.retryAfter)throw Object.assign(new Error('Accounting provider retry delay has not elapsed.'),
+    {status:429,code:'accounting_rate_limited',retryAfter:claim.data.retryAfter});
   if(claim.data?.claimed!==true)return inspect();
   // Only the immutable context returned by the claim can choose the account,
   // amount or reference; never use caller-supplied financial fields.
@@ -68,6 +71,22 @@ export async function executeMemberCreditBacking({db,tenantId,amendmentId,actorI
   const payload=memberCreditBackingPayload(context,claim.data.documentId);
   // Xero documents PUT for creating payments. No bank fallback and no
   // IsReconciled assertion: this is a liability entry, not a cash refund.
-  await request('Payments',{method:'PUT',key:`${context.reference}:member-credit`,body:payload});
+  try{
+    await request('Payments',{method:'PUT',key:`${context.reference}:member-credit`,body:payload});
+  }catch(error){
+    // Keep subsequent verification outside this catch: a read failure after a
+    // successful write must never authorize a second financial write.
+    if(error?.status===429&&error?.code==='accounting_rate_limited'){
+      const delay=Number(error.retryAfter);
+      const recorded=await db.rpc('record_member_credit_backing_throttle',{
+        p_tenant_id:tenantId,p_amendment_id:amendmentId,p_actor_id:actorId,
+        p_attempt:claim.data.attempt||'initial',
+        p_delay_seconds:Number.isFinite(delay)?Math.max(1,Math.min(86400,Math.ceil(delay))):60,
+      });
+      if(recorded.error)throw Object.assign(new Error('Rate-limit outcome could not be recorded; reconcile before retrying.'),
+        {status:503,code:'credit_backing_throttle_record_failed'});
+    }
+    throw error;
+  }
   return inspect();
 }

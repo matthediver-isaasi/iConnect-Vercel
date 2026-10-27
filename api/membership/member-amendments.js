@@ -7,11 +7,13 @@ import { createMemberChangeExecutionService } from '../_lib/memberChangeExecutio
 import { createMemberMonthlyChangeExecution } from '../_lib/memberMonthlyChangeExecution.js';
 import { readMemberMonthlyChanges } from '../_lib/memberMonthlyChangeRead.js';
 import {listMemberCreditExpiryReviews,reviewMemberCreditExpiry} from '../_lib/memberCreditExpiryReview.js';
+import {createMemberReplacementExecutionService} from '../_lib/memberReplacementExecution.js';
+import {MEMBER_REPLACEMENT_PROTOCOL,replacementLifecycle} from '../_lib/memberReplacementRead.js';
 
 export function createMemberAmendmentsHandler({
   db = supabase, getContext = getTenantContext, isAdmin = hasAdminAccess,
   hasFinance = hasFeatureAccess, service = null, authorityService = null, executionService = null,
-  monthlyExecutionService = null,
+  monthlyExecutionService = null,replacementExecutionService=null,
 } = {}) {
   return async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -47,6 +49,15 @@ export function createMemberAmendmentsHandler({
         if(error) return res.status(503).json({error:'Confirmed membership authority could not be read'});
         if(!saved) return res.status(404).json({error:'Confirmed membership authority not found'});
         const monthly=saved.authority?.sourceSnapshot?.commitment_snapshot?.payment_frequency==='monthly';
+        if(!monthly&&saved.authority?.calculation?.behaviour==='new_term'){
+          const ready=await db.rpc('member_replacement_execution_available',{p_protocol:MEMBER_REPLACEMENT_PROTOCOL});
+          if(ready.error||ready.data!==true)return res.status(503).json({error:'Replacement execution requires the reviewed database release.'});
+          const actor={tenantId:context.tenantId,memberId:req.body.memberId,actorId,actorKind:'admin'};
+          const service=replacementExecutionService||createMemberReplacementExecutionService({db});
+          const result=await service[req.body.action==='execute_change'?'execute':'resume'](actor,
+            {...req.body,choice:req.body.settlementChoice});
+          return res.json(replacementLifecycle(saved.authority,result));
+        }
         if(monthly){
           const ready=await db.rpc('monthly_change_execution_available',{});
           if(ready.error||ready.data!==true)return res.status(503).json({error:'Monthly membership execution requires the reviewed database migration.'});
@@ -91,6 +102,9 @@ export function createMemberAmendmentsHandler({
       }
       return res.status(400).json({ error: 'action must be preview, create, settle, reconcile, apply or notify' });
     } catch (error) {
+      if(error.status===429&&Number.isFinite(Number(error.retryAfter))){
+        res.setHeader('Retry-After',String(Math.max(1,Math.min(86400,Math.ceil(Number(error.retryAfter))))));
+      }
       return res.status(error.status || 500).json({
         error: error.status ? error.message : 'Membership amendment request failed',
         code: error.code || 'internal_error',

@@ -40,6 +40,9 @@ export function createMemberChangeAuthorityResolver({
     }
     const governing=await one('membership_tier_config',context,{id:source.config_id});
     const behaviour=resolveMembershipChangeBehaviour(source,governing);
+    if(behaviour==='new_term'&&q.effectiveDate===source.term_start_date){
+      fail('The new term would start on the existing start date. Retain the current renewal date for this change.');
+    }
     const policySnapshot=await one('membership_change_policy',context,{});
     const policy=validateMembershipChangePolicy(policySnapshot?.policy || {...MEMBERSHIP_CHANGE_POLICY_DEFAULTS});
     const proof=q.fundingEvidence;

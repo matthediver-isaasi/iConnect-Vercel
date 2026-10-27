@@ -77,6 +77,14 @@ export function createMemberAmendmentFinance({
           Accept: 'application/json', 'Content-Type': 'application/json', ...(key ? { 'Idempotency-Key': key } : {}),
         }, ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(Math.min(12000, remaining)),
       });
+      if (response.status === 429) {
+        const error = new AmendmentError('Accounting provider rate limit reached; retry after the requested delay.', 429, 'accounting_rate_limited');
+        const header = response.headers?.get('retry-after');
+        const delay = header && /^\d+$/.test(header) ? Number(header)
+          : header ? Math.ceil((Date.parse(header) - Date.now()) / 1000) : 60;
+        error.retryAfter = Number.isFinite(delay) ? Math.min(86400, Math.max(1, delay)) : 60;
+        throw error;
+      }
       if (!response.ok) throw new AmendmentError('Accounting provider request failed; reconciliation may be required.', 502, 'accounting_request_failed');
       const result = await response.json();
       if (result?.ErrorNumber || result?.Elements?.some(e => e.HasErrors)) fail('Accounting provider rejected the amendment document.');
@@ -389,5 +397,6 @@ export function createMemberAmendmentFinance({
     });
     return {payment_recorded:result.verified,payment_id:active[0].PaymentID};
   }
-  return { prepare, execute, inspect, verifyOriginal, verifyCreditLiability,backCredit,verifyCreditFundingPayment,verifyCreditReturn,findCreditFundingPayment };
+  return { prepare, execute, inspect, verifyOriginal, verifyCreditLiability,backCredit,verifyCreditFundingPayment,verifyCreditReturn,findCreditFundingPayment,
+    accountingClient:client };
 }

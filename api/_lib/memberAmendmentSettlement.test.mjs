@@ -3,6 +3,19 @@ import assert from 'node:assert/strict';
 import { amendmentFixture, uuid } from '../../scripts/test-support/member-amendment-fixtures.mjs';
 import { buildMemberAmendmentQuote } from './memberAmendmentQuote.js';
 import { amendmentMoney, amendmentMinor, createMemberAmendmentFinance } from './memberAmendmentFinance.js';
+test('accounting transport exposes only definitive throttling as retryable',async()=>{
+ for(const [status,header,expected] of [[429,'90',90],[429,'invalid',60],[429,'9999999',86400],[500,'90',null]]){
+  const finance=createMemberAmendmentFinance({
+   providerForTenant:async()=>({name:'xero',getRawAccessToken:async()=>({accessToken:'fixture',tenantId:'books'})}),
+   fetcher:async()=>({ok:false,status,headers:{get:()=>header}}),
+  });
+  await assert.rejects(finance.verifyCreditLiability('tenant',{accountCode:'850',currency:'GBP'}),error=>{
+   assert.equal(error.status,status===429?429:502);
+   assert.equal(error.retryAfter,expected??undefined);
+   return true;
+  });
+ }
+});
 import { createMemberAmendmentSettlementService, resolveMemberAmendmentOverlay, runMemberAmendmentRecovery } from './memberAmendmentSettlement.js';
 import { createMemberAmendmentRecoveryHandler } from '../cron/member-amendments.js';
 

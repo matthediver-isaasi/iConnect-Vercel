@@ -2,6 +2,37 @@
 
 ## Step 3 staged financial lifecycle — 27 October 2026
 
+### Continued execution work
+
+Migration `202612310041_member_credit_backing_retries.sql` is applied to live
+DEST after 27 focused tests and a rollback rehearsal. A definitive HTTP 429 on
+the liability payment can authorize one delayed retry. Claims remain protected;
+timeouts, failed post-write reads and unknown responses do not authorize another
+payment.
+
+Replacement-term accounting now has a full new invoice, explicit transfer of
+unused original value, separate surplus notes, a claimed-step journal, and
+cash/refund/backing verification. Atomic application and backed-credit issuance
+have been tested with real rolling-term constraints, concurrent retries and
+injected failures. Original signed dates and accounting receipts are preserved.
+Migrations 042–044 are now applied to live DEST after 175 financial regressions,
+additional native rolling/credit-redemption tests, a rollback rehearsal and access
+checks. Migration 045 subsequently added checkout/collection holds, with native
+tests covering quote, agreement and direct-history conflicts, rollback, and
+release after successful application. Its DEST rollback rehearsal and access
+checks passed before application. Eighteen completed migrations are applied to
+DEST; SOURCE is unchanged.
+Migration 046 is now applied to live DEST after 220 regressions and a rollback
+rehearsal with access checks, bringing the applied total to nineteen. It adds
+claimed recovery/email jobs and the versioned upfront-replacement release gate.
+The new backend connects payment-request emails, read-only automatic financial
+recovery, atomic application and confirmation emails. Unknown email acceptance
+never permits automatic resend. New server deployment is required for those
+workers and administrative controls; applying SQL alone does not deploy them.
+Do not describe Step 3 as complete or the whole feature as ready for member
+testing: monthly financial adjustments and cancellation execution remain
+unfinished. The FormBuilder/member-facing initiation flow is also not connected.
+
 **Step 3 is not complete. The supported paid-upfront personal-credit path now
 requires the matching server protocol; older servers remain disabled.**
 

@@ -1,6 +1,7 @@
 import { createMemberAmendmentProviderOperations } from './memberAmendmentProviderOperations.js';
 import { runMemberAmendmentProviderRecovery } from './memberAmendmentProviderRecovery.js';
 import { runMemberMonthlyChangeNotifications } from './memberMonthlyChangeNotifications.js';
+import {runMemberReplacementRecovery} from './memberReplacementRecovery.js';
 
 export async function runMemberMonthlyFinalizationRecovery({
   db, service = createMemberAmendmentProviderOperations({ db }),
@@ -42,24 +43,29 @@ export async function runMemberMonthlyFinalizationRecovery({
 export async function runMemberMonthlyRecovery({ db, budgetMs = 7500,
   runFinalization = runMemberMonthlyFinalizationRecovery,
   runProvider = runMemberAmendmentProviderRecovery,
-  runNotifications = runMemberMonthlyChangeNotifications }) {
+   runNotifications = runMemberMonthlyChangeNotifications,runReplacements=runMemberReplacementRecovery }) {
   const started = Date.now();
+   // Reserve an independent slice so a slow legacy provider read cannot
+   // indefinitely starve replacement payment emails and completion recovery.
+   const replacementRun=Promise.resolve().then(()=>runReplacements({db,budgetMs:budgetMs/4}))
+    .catch(error=>({outcomes:[],error:error.code||'replacement_recovery_failed'}));
   // Approved completion takes priority. Its own fresh provider read can also
   // resolve uncertainty; neither runner may repeat a provider mutation.
-  let finalization, provider, notifications;
-  try { finalization = await runFinalization({ db, budgetMs: budgetMs / 3 }); }
+   let finalization, provider, notifications,replacements;
+   try { finalization = await runFinalization({ db, budgetMs: budgetMs / 4 }); }
   catch (error) {
     finalization = { enabled: true, outcomes: [], error: error.code || 'monthly_finalization_failed' };
   }
   try {
-    provider = await runProvider({ db, budgetMs: Math.max(0, 2 * budgetMs / 3 - (Date.now() - started)) });
+     provider = await runProvider({ db, budgetMs: Math.max(0, budgetMs / 2 - (Date.now() - started)) });
   } catch (error) {
     provider = { enabled: true, outcomes: [], error: error.code || 'monthly_recovery_failed' };
   }
   try {
-    notifications = await runNotifications({ db, budgetMs: Math.max(0, budgetMs - (Date.now() - started)) });
+     notifications = await runNotifications({ db, budgetMs: Math.max(0, 3 * budgetMs / 4 - (Date.now() - started)) });
   } catch (error) {
     notifications = { outcomes: [], error: error.code || 'monthly_notifications_failed' };
   }
-  return { finalization, provider, notifications };
+   replacements=await replacementRun;
+   return { finalization, provider, notifications,replacements };
 }

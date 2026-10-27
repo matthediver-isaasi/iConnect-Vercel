@@ -1,4 +1,5 @@
 import {MEMBER_CREDIT_PROTOCOL} from './memberCreditProtocol.js';
+import {readMemberReplacements} from './memberReplacementRead.js';
 export async function readMemberMonthlyChanges(db,tenantId,memberId){
   const ready=await db.rpc('monthly_change_execution_available',{});
   if(ready.error){
@@ -28,6 +29,7 @@ export async function readMemberMonthlyChanges(db,tenantId,memberId){
   const authorities=await pages('member_change_authority','id,authority,created_at',{member_id:memberId});
   const monthly=authorities.filter(row=>row.authority?.sourceSnapshot?.commitment_snapshot?.payment_frequency==='monthly');
   const upfront=authorities.filter(row=>row.authority?.sourceSnapshot?.commitment_snapshot?.payment_frequency==='upfront');
+  const replacements=await readMemberReplacements(db,tenantId,memberId,upfront);
   const executions=upfront.length?await pages('member_change_execution','*',{member_id:memberId}):[];
   async function related(table){
     const rows=[];
@@ -53,9 +55,10 @@ export async function readMemberMonthlyChanges(db,tenantId,memberId){
     if(error||!Array.isArray(data))throw Object.assign(new Error('Monthly notification state could not be read.'),{status:503});
     notifications.push(...data);
   }
-  return {monthlyExecutionAvailable:true,monthlyExecutionNotice:null,
+  return {monthlyExecutionAvailable:true,monthlyExecutionNotice:null,replacementExecutionAvailable:replacements.replacementExecutionAvailable,
     financialExecutionAvailable:true,memberCreditExecutionAvailable:!creditReady.error&&creditReady.data===true,
     financialChanges:upfront.map(row=>{
+      if(replacements.records.has(row.id))return {...row,...replacements.records.get(row.id)};
       const execution=executions.find(e=>e.authority_id===row.id);
       const settlement=settlements.find(s=>s.amendment_id===execution?.amendment_id);
       return {...row,execution:execution||null,

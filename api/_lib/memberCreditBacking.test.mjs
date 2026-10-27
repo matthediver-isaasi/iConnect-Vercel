@@ -63,3 +63,28 @@ test('failed reservation cannot submit a financial write',async()=>{
   request:async()=>assert.fail('No external write allowed'),
  }),{code:'credit_backing_reservation_failed'});
 });
+test('only an explicit throttled write records a retry, never a failed follow-up read',async()=>{
+ const f=fixture(),pending={state:'awaiting_payment',evidence:{kind:'awaiting_member_credit_backing',documentId:'note'}};
+ const throttled=()=>Object.assign(Error('Rate limited'),{status:429,code:'accounting_rate_limited',retryAfter:90});
+ for(const mode of ['write429','timeout','read429','recordFailure','cooldown']){
+  const calls=[];let reads=0,writes=0;
+  const args={tenantId:'tenant',amendmentId:'amendment',actorId:'actor',
+   db:{rpc:async(name,values)=>{
+    calls.push({name,values});
+    if(name==='record_member_credit_backing_throttle')return mode==='recordFailure'?{error:{code:'error'}}:{data:{}};
+    return {data:{claimed:mode!=='cooldown',attempt:'retry-id',context:f.context,documentId:'note',
+      ...(mode==='cooldown'?{retryAfter:30}:{})}};
+   }},
+   inspect:async()=>{if(++reads>1&&mode==='read429')throw throttled();return pending},
+   request:async()=>{writes++;if(['write429','recordFailure'].includes(mode))throw throttled();
+     if(mode==='timeout')throw Error('Timed out');},
+  };
+  await assert.rejects(executeMemberCreditBacking(args));
+  const recorded=calls.filter(c=>c.name==='record_member_credit_backing_throttle');
+  assert.equal(recorded.length,['write429','recordFailure'].includes(mode)?1:0,mode);
+  if(recorded.length)assert.deepEqual(recorded[0].values,{
+   p_tenant_id:'tenant',p_amendment_id:'amendment',p_actor_id:'actor',p_attempt:'retry-id',p_delay_seconds:90,
+  });
+  assert.equal(writes,mode==='cooldown'?0:1);
+ }
+});

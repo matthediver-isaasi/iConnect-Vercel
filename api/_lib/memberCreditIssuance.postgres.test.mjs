@@ -45,6 +45,7 @@ test('backed credit issuance/application roll back together; expiry preserves va
   }
   assert.equal((await admin.query('SELECT member_credit_execution_available() ready')).rows[0].ready,false);
    await admin.query(readFileSync('supabase/migrations/202612310040_member_credit_protocol.sql','utf8'));
+   await admin.query(readFileSync('supabase/migrations/202612310041_member_credit_backing_retries.sql','utf8'));
    assert.equal((await admin.query('SELECT member_credit_execution_available() ready')).rows[0].ready,false);
    assert.equal((await admin.query("SELECT member_credit_execution_available('unknown') ready")).rows[0].ready,false);
    for(const role of ['anon','authenticated']){
@@ -91,7 +92,25 @@ test('backed credit issuance/application roll back together; expiry preserves va
   await a.query('SELECT reserve_member_amendment_settlement($1,$2,$3,$4,$5)',[...args,'credit',context]);
   await a.query('SELECT finish_member_amendment_settlement($1,$2,$3,$4,$5)',
    [...args,'awaiting_payment',{kind:'awaiting_member_credit_backing',verified:true,documentId:'note'}]);
-  await a.query('SELECT claim_member_credit_backing($1,$2,$3,$4)',[...args,'note']);
+  const claimBacking=async()=>(await a.query('SELECT claim_member_credit_backing($1,$2,$3,$4) v',[...args,'note'])).rows[0].v;
+  assert.equal((await claimBacking()).attempt,'initial');
+  assert.equal((await claimBacking()).claimed,false,'unknown outcomes cannot be retried');
+  await assert.rejects(a.query('SELECT record_member_credit_backing_throttle($1,$2,$3,$4,$5)',
+    [...args,'unknown',60]),/Unknown backing attempt/);
+  const backingRetry=(await a.query('SELECT record_member_credit_backing_throttle($1,$2,$3,$4,$5) v',
+    [...args,'initial',60])).rows[0].v;
+  assert.equal((await claimBacking()).claimed,false);
+  assert.ok((await claimBacking()).retryAfter>0);
+  assert.equal((await a.query('SELECT record_member_credit_backing_throttle($1,$2,$3,$4,$5) v',
+    [...args,'initial',60])).rows[0].v.id,backingRetry.id);
+  await assert.rejects(a.query("UPDATE member_credit_backing_retry SET not_before=now()"),{code:'42501'});
+  await admin.query("UPDATE member_credit_backing_retry SET not_before=now()-interval '1 second'");
+  assert.equal((await claimBacking()).attempt,backingRetry.id);
+  assert.equal((await claimBacking()).claimed,false,'a consumed retry is not a reusable write lease');
+  for(const role of ['anon','authenticated','service_role']){
+   assert.equal((await admin.query('SELECT has_function_privilege($1,$2,$3) allowed',
+     [role,'public.claim_member_credit_backing_before_retry(uuid,uuid,uuid,text)','EXECUTE'])).rows[0].allowed,false);
+  }
   await a.query('SELECT finish_member_amendment_settlement($1,$2,$3,$4,$5)',
    [...args,'settled',{kind:'member_credit_backed',verified:true,documentId:'note',
     liabilityAccountId:'liability',paymentId:'payment',retainedCreditMinor:0}]);

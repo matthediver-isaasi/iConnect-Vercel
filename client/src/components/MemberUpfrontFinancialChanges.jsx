@@ -36,14 +36,19 @@ function treatment(authority) {
 function blockers(authority) {
   return [...list(authority?.calculation?.blockers), ...list(authority?.calculation?.finance?.blockers), ...list(authority?.settlement?.blockers)];
 }
-function supported(authority, memberId, tenantId) {
+function supported(authority, memberId, tenantId, replacementAvailable = false) {
   return authority?.action === "change" && authority.memberId === memberId && authority.tenantId === tenantId
     && authority.sourceSnapshot?.commitment_snapshot?.payment_frequency === "upfront"
     && !!authority.sourceSnapshot?.id && authority.calculation?.sourceRecordId === authority.sourceSnapshot.id
     && !!authority.targetSnapshot?.id && authority.calculation?.version === 2
-    && authority.calculation.behaviour === "retain_term"
+    && (authority.calculation.behaviour === "retain_term"
+      ? authority.calculation.newTerm?.renewalDate === authority.sourceSnapshot.membership_renewal_date
+      : replacementAvailable && authority.calculation.behaviour === "new_term"
+        && typeof authority.calculation.newTerm?.startDate === "string"
+        && authority.calculation.newTerm?.startDate === authority.calculation.effectiveDate
+        && authority.calculation.newTerm.startDate !== authority.sourceSnapshot.term_start_date
+        && authority.calculation.newTerm.renewalDate > authority.calculation.newTerm.startDate)
     && !!authority.sourceSnapshot.membership_renewal_date
-    && authority.calculation.newTerm?.renewalDate === authority.sourceSnapshot.membership_renewal_date
     && /^[A-Z]{3}$/.test(authority.calculation.currency || "")
     && authority.fundingEvidence?.complete === true
     && authority.fundingEvidence.sourceRecordId === authority.sourceSnapshot.id
@@ -77,7 +82,8 @@ function FinancialSummary({ authority, creditEnabled = false, selectedTreatment 
   const creditEligible = creditEnabled && !!authority?.creditLiabilityBinding && !authority?.creditEligibilityError;
   return <div className="space-y-2 text-sm">
     <p>Source: {source?.commitment_snapshot?.config?.name || source?.structureName || "Historical upfront purchase"}{source?.tier_label ? ` · ${source.tier_label}` : ""}</p>
-    <p>Source term: {date(source?.term_start_date)} to {date(source?.term_end_date)}. Original renewal boundary: {date(source?.membership_renewal_date)} · retained.</p>
+    <p>Source term: {date(source?.term_start_date)} to {date(source?.term_end_date)}. Original renewal boundary: {date(source?.membership_renewal_date)}{calculation?.behaviour === "new_term" ? " · replaced after settlement." : " · retained."}</p>
+    {calculation?.behaviour === "new_term" && <p>New term: {date(calculation.newTerm?.startDate)} to renewal on {date(calculation.newTerm?.renewalDate)}. The new invoice records the full term price; unused paid value is transferred from the original purchase.</p>}
     <p>Selected target: {authority?.targetSnapshot?.name || "Not supplied"} · {authority?.targetBandSnapshot?.label || authority?.targetBandSnapshot?.name || (authority?.targetSnapshot?.pricing_model === "flat" ? "Flat price" : "Band not supplied")}</p>
     <p>Effective: {date(calculation?.effectiveDate)}</p>
     <dl className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -134,6 +140,7 @@ export default function MemberUpfrontFinancialChanges({ memberId, tenantId, data
   const valid = !!(selected && (flat || list(selected.bands).some(item => String(item.id) === form.bandId))
     && /^\d{4}-\d{2}-\d{2}$/.test(form.effectiveDate) && form.reason.trim() && form.reason.length <= 2000);
   const available = data?.financialExecutionAvailable === true;
+  const replacementAvailable = data?.replacementExecutionAvailable === true;
   const creditEnabled = available && data?.memberCreditExecutionAvailable === true;
   const upfront = data?.current?.commitment_snapshot?.payment_frequency === "upfront";
   const locked = !!pending || !!metadata || !!saved || !!recovery.error || !actionsEnabled;
@@ -151,7 +158,7 @@ export default function MemberUpfrontFinancialChanges({ memberId, tenantId, data
   async function submit(action) {
     if (busy.current || !actionsEnabled || saved || recovery.error) return;
     if (action === "preview_change" && (!upfront || !valid || metadata)) return;
-    if (action === "confirm_change" && (!available || (!attempt.current && (!valid || !preview?.fingerprint || preview.sourceStamp !== sourceStamp || preview.authority?.sourceSnapshot?.id !== data?.current?.id || !supported(preview.authority, memberId, tenantId))))) return;
+    if (action === "confirm_change" && (!available || (!attempt.current && (!valid || !preview?.fingerprint || preview.sourceStamp !== sourceStamp || preview.authority?.sourceSnapshot?.id !== data?.current?.id || !supported(preview.authority, memberId, tenantId, replacementAvailable))))) return;
     if (action === "recover_change" && !metadata) return;
     busy.current = true;
     const token = ++serial.current;
@@ -194,7 +201,7 @@ export default function MemberUpfrontFinancialChanges({ memberId, tenantId, data
     }
   }
   return <section aria-label="Upfront financial changes" data-testid="upfront-financial-changes" className="rounded-md border p-4 space-y-4">
-    <div className="space-y-1"><h3 className="font-medium">Upfront financial change · retained term</h3>
+    <div className="space-y-1"><h3 className="font-medium">Upfront financial change · {replacementAvailable ? "retained or replacement term" : "retained term"}</h3>
       <p className="text-sm text-muted-foreground">Separate from legacy change requests. Preview and save authority, check financial evidence, then explicitly approve collection, liability-backed member credit, or manual refund. No replacement term or monthly settlement is offered here.</p>
     </div>
     {!available && <p role="status" className="rounded-md bg-muted/50 p-3 text-sm">Upfront financial execution and authority saving are unavailable on this server. Existing records remain visible for read-only review and recovery. No financial write can be started here.</p>}
@@ -224,8 +231,8 @@ export default function MemberUpfrontFinancialChanges({ memberId, tenantId, data
     {preview && <div data-testid="upfront-financial-preview" aria-live="polite" className="rounded-md border p-3 space-y-3">
       <p className="font-medium text-sm">Financial preview only — no authority saved</p>
       <FinancialSummary authority={preview.authority} creditEnabled={creditEnabled} />
-      {!supported(preview.authority, memberId, tenantId) && <p role="alert" className="text-sm text-amber-800 dark:text-amber-300">Unsupported or blocked personal, cash-backed retained-term authority. No financial fallback is available.</p>}
-      {!metadata && <Button type="button" disabled={!!pending || !available || !actionsEnabled || !supported(preview.authority, memberId, tenantId)} onClick={() => submit("confirm_change")}>Save upfront financial authority</Button>}
+      {!supported(preview.authority, memberId, tenantId, replacementAvailable) && <p role="alert" className="text-sm text-amber-800 dark:text-amber-300">Unsupported or blocked personal, cash-backed authority. No financial fallback is available.</p>}
+      {!metadata && <Button type="button" disabled={!!pending || !available || !actionsEnabled || !supported(preview.authority, memberId, tenantId, replacementAvailable)} onClick={() => submit("confirm_change")}>Save upfront financial authority</Button>}
     </div>}
     {metadata && !saved && <div role="status" className="rounded-md border p-3 space-y-2 text-sm">
       <p>Confirmation outcome unconfirmed. The original request key and fingerprint are retained; no new authority key can be created. Only operational recovery metadata is stored, never reasons or personal form data.</p>
@@ -235,12 +242,12 @@ export default function MemberUpfrontFinancialChanges({ memberId, tenantId, data
     {error && <p role="alert" className="text-sm text-amber-800 dark:text-amber-300">{error}</p>}
     {saved && <p role="status" className="text-sm">Upfront financial authority saved · {saved.id}. Saving is not approval, settlement or membership application.</p>}
     <div className="space-y-3"><h4 className="text-sm font-medium">Upfront financial authority history</h4>
-      {!history.length ? <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">No upfront financial authorities recorded. Legacy membership requests and original purchase history are unchanged.</p> : history.map(record => <FinancialExecution key={record.id} record={record} memberId={memberId} tenantId={tenantId} available={available} creditEnabled={creditEnabled} enabled={actionsEnabled} post={post} onRefresh={onRefresh} />)}
+      {!history.length ? <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">No upfront financial authorities recorded. Legacy membership requests and original purchase history are unchanged.</p> : history.map(record => <FinancialExecution key={record.id} record={record} memberId={memberId} tenantId={tenantId} available={available} replacementAvailable={replacementAvailable} creditEnabled={creditEnabled} enabled={actionsEnabled} post={post} onRefresh={onRefresh} />)}
     </div>
   </section>;
 }
 
-function FinancialExecution({ record, memberId, tenantId, available, creditEnabled, enabled, post, onRefresh }) {
+function FinancialExecution({ record, memberId, tenantId, available, replacementAvailable, creditEnabled, enabled, post, onRefresh }) {
   const [outcome, setOutcome] = useState(null);
   const [pending, setPending] = useState(null);
   const [error, setError] = useState("");
@@ -263,7 +270,8 @@ function FinancialExecution({ record, memberId, tenantId, available, creditEnabl
   const lifecycle = outcome || record;
   const settlement = lifecycle.settlement;
   const application = isApplication(lifecycle.application) ? lifecycle.application : null;
-  const safe = supported(record.authority, memberId, tenantId);
+  const safe = supported(record.authority, memberId, tenantId, replacementAvailable);
+  const replacement = record.authority?.calculation?.behaviour === "new_term";
   const policy = treatment(record.authority);
   const execution = executionLock || lifecycle.execution || record.execution;
   const choice = execution ? execution.settlement_choice : policy === "approval" ? selectedChoice : policy;
@@ -343,14 +351,14 @@ function FinancialExecution({ record, memberId, tenantId, available, creditEnabl
     {application ? <div role="status" className="rounded-md bg-muted/50 p-3 space-y-1">
       <p className="font-medium">Upfront membership application confirmed</p>
       <p>Application: {application.id} · Effective: {date(application.effective_date)} · Expires: {date(application.expires_on)}</p>
-      <p>Original renewal boundary retained: {date(record.authority?.sourceSnapshot?.membership_renewal_date)}</p>
+      <p>{replacement ? "New renewal boundary" : "Original renewal boundary retained"}: {date(replacement ? record.authority?.calculation?.newTerm?.renewalDate : record.authority?.sourceSnapshot?.membership_renewal_date)}</p>
       {choice === "credit" && <p>iConnect member credit may be used only according to its recorded liability-backed credit terms. This application is not a cash refund.</p>}
     </div> : safe && <div className="space-y-3 border-t pt-3">
       <p className="text-muted-foreground">Check / recover is read-only financial recovery: it never starts collection, refunds or credit backing. Only a separately approved execute action may start financial writes.</p>
       <Button type="button" variant="outline" disabled={!!pending || !enabled} onClick={() => run("resume_change")}>{pending === "resume_change" ? "Recovering financial evidence…" : "Check / recover upfront financial change"}</Button>
       {(canExecute || canChoose) && available && <div className="rounded-md border p-3 space-y-3">
         <p className="font-medium">{outcome?.nextAction === "back_credit" ? "Approve liability backing for iConnect member credit" : "Approve upfront financial execution"}</p>
-        <p>{treatments[choice] || "Choose a permitted treatment before approving."} The original term is retained. Approval applies only to this saved authority and its existing execution identity.</p>
+        <p>{treatments[choice] || "Choose a permitted treatment before approving."} {replacement ? "A new term replaces the original after verified settlement." : "The original term is retained."} Approval applies only to this saved authority and its existing execution identity.</p>
         {policy === "approval" && <div className="space-y-1.5">
           <Label htmlFor={`financial-treatment-${record.id}`}>Surplus financial treatment (required)</Label>
           <select id={`financial-treatment-${record.id}`} required value={choice || ""} disabled={!!execution || !!pending || !enabled} onChange={event => changeChoice(event.target.value)} className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
@@ -363,7 +371,7 @@ function FinancialExecution({ record, memberId, tenantId, available, creditEnabl
           <Textarea id={`financial-approval-reason-${record.id}`} required maxLength={2000} value={reason} disabled={!!pending || !enabled || !canExecute} onChange={event => setReason(event.target.value)} />
         </div>
         <div className="flex items-start gap-2"><input id={`financial-approve-${record.id}`} type="checkbox" required checked={approval && approvalFor.current === choice} disabled={!!pending || !enabled || !canExecute} onChange={event => { setApproval(event.target.checked); approvalFor.current = event.target.checked ? choice : null; }} className="mt-1" />
-          <Label htmlFor={`financial-approve-${record.id}`}>I explicitly approve this financial treatment and retained-term change (required).</Label>
+          <Label htmlFor={`financial-approve-${record.id}`}>I explicitly approve this financial treatment and {replacement ? "replacement-term" : "retained-term"} change (required).</Label>
         </div>
         <Button type="button" disabled={!!pending || !enabled || !canExecute || !approval || approvalFor.current !== choice || !reason.trim()} onClick={() => run("execute_change")}>Approve and execute upfront financial change</Button>
       </div>}

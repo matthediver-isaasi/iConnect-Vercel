@@ -134,6 +134,37 @@ const approvalEvidence = () => ({
   creditLiabilityBinding: { accountId: "liability-account", providerTenantId: "accounting-org" },
 });
 
+test("replacement-term execution requires its own release capability and shows the new renewal boundary", async () => {
+  const replacement = authority();
+  replacement.calculation.behaviour = "new_term";
+  replacement.calculation.newTerm = { startDate: "2027-01-17", renewalDate: "2028-01-17" };
+  let mounted = await mount({ data: historyFixture(replacement) });
+  try {
+    assert.equal(button("Check / recover upfront financial change"), undefined);
+  } finally { await mounted.cleanup(); }
+  const data = { ...historyFixture(replacement), replacementExecutionAvailable: true };
+  mounted = await mount({ data, post: payload => {
+    if (payload.action === "resume_change") return json(life({ nextAction: "execute" }));
+    assert.equal(payload.action, "execute_change");
+    assert.equal(payload.settlementChoice, "collect");
+    assert.equal(payload.approve, true);
+    return json(life({
+      execution: { id: "replacement-execution", settlement_choice: "collect" },
+      settlement: { state: "settled", choice: "collect" },
+      application: { ...application, expires_on: "2028-01-17" },
+    }));
+  } });
+  try {
+    await click(button("Check / recover upfront financial change"));
+    await waitFor(() => !!button("Approve and execute upfront financial change"));
+    assert.match(financialPanel().textContent, /replacement-term change/);
+    await approve();
+    await waitFor(() => financialPanel().textContent.includes("Upfront membership application confirmed"));
+    assert.match(financialPanel().textContent, /New renewal boundary: 2028-01-17/);
+    assert.doesNotMatch(financialPanel().textContent, /Original renewal boundary retained:/);
+  } finally { await mounted.cleanup(); }
+});
+
 test("separate upfront form leaves the legacy form intact and previews exact retained-term selection", async () => {
   window.localStorage.clear();
   const view = await mount();

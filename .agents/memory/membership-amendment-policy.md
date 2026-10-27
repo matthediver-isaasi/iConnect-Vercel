@@ -17,6 +17,25 @@ records, not form answers; revalidate eligibility and finances at confirmation.
 Cancellation of access, renewal, collections and mandates are separate actions.
 Never convert organisation-funded value into personal credit automatically.
 
+A replacement term requires accounting evidence for its full value, not merely
+an invoice for the extra cash collected.
+
+**Why:** A difference-only invoice cannot substantiate the new purchase's full
+price or distinguish inherited paid value from new cash. It also loses the
+source and destination revenue/tax classifications.
+
+**How to apply:** Preserve the original purchase; explicitly transfer its unused
+value to the new invoice. Separate transferable value from surplus returned or
+issued as personal credit, retaining original tax totals to the penny.
+
+Replacement lineage is not renewal lineage: never use `previous_term_id` for
+an overlapping replacement term or rewrite the original signed dates to fit it.
+
+**Why:** Rolling membership enforces adjacent dates for renewals and excludes
+overlapping signed terms even after ordinary expiry. A replacement needs its
+own protected retirement/application authority, including consumed checkout
+reservations; a simplified test schema does not exercise those guards.
+
 New financial protocols must not become available to an older deployed server
 merely because a database migration has been applied.
 
@@ -213,3 +232,14 @@ for that payment; issuing separate spendable credit would give it twice.
 
 **How to apply:** Keep unchanged-price carry distinct from a financial settlement,
 and preserve verified cash ownership and the original renewal boundary.
+
+Replacement holds must cover upfront checkout reservations and direct history
+writes as well as recurring billing agreements.
+
+**Why:** Checking only the current purchase can allow a second payment path to
+reserve the replacement interval after accounting starts. The final membership
+insert then fails even though financial documents have already been issued.
+
+**How to apply:** Use the same rolling-membership lock for admission and
+application across all three paths. Retain holds through unknown provider
+outcomes; a worker lease expiring is not authority to release a financial hold.
