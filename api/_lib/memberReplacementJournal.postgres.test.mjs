@@ -54,7 +54,7 @@ test('replacement accounting journal claims once, recovers observations and isol
    '202612310045_member_replacement_collection_holds.sql','202612310046_member_replacement_recovery.sql',
    '202612310047_member_cancellation_journal.sql','202612310048_member_cancellation_access.sql',
    '202612310049_member_cancellation_admission.sql','202612310050_member_cancellation_recovery.sql',
-   '202612310051_member_cancellation_finance.sql']){
+   '202612310051_member_cancellation_finance.sql','202612310052_member_cancellation_credit.sql']){
    await admin.query(readFileSync(`supabase/migrations/${file}`,'utf8'));
   }
   const today=new Date().toISOString().slice(0,10),f=amendmentFixture(today);
@@ -300,7 +300,8 @@ test('replacement accounting journal claims once, recovers observations and isol
   const cleared=(await admin.query('SELECT cleared_by_history_id,calculation FROM member_cancellation_request WHERE id=$1',[cancelId])).rows[0];
   assert.equal(cleared.cleared_by_history_id,rejoined.id);
   assert.equal(cleared.calculation.paymentDueMinor,1000);
-  const cancelPolicy={...MEMBERSHIP_CHANGE_POLICY_DEFAULTS,cancellationTiming:'immediate'};
+  const cancelPolicy={...MEMBERSHIP_CHANGE_POLICY_DEFAULTS,cancellationTiming:'immediate',
+   cancellationUnusedValue:'tenant_surplus_policy',surplusHandling:'credit'};
   await admin.query('INSERT INTO membership_change_policy(tenant_id,policy,revision) VALUES($1,$2,1)',[f.tenantId,cancelPolicy]);
   const admittedAuthority={tenantId:f.tenantId,memberId:cancelMember,actorId:uuid(9),
    reason:'Cancel the distinct new purchase',timing:'immediate',effectiveDate:today,sourceSnapshot:rejoined,
@@ -357,7 +358,62 @@ test('replacement accounting journal claims once, recovers observations and isol
   assert.equal((await admin.query('SELECT membership_cancelled FROM member WHERE id=$1',[cancelMember])).rows[0].membership_cancelled,accessBeforeFinancialSettlement);
   assert.equal((await admin.query('SELECT status FROM member_membership_history WHERE id=$1',[cancelSource.id])).rows[0].status,'cancelled_by_request');
   await assert.rejects(a.query('DELETE FROM member_cancellation_finance WHERE request_id=$1',[cancelId]),/permission denied/);
+  const creditCancelId=admission[0].rows[0].v.id;
+  const liability={provider:'xero',kind:'iconnect_member_credit_liability',providerTenantId:'xero-tenant',
+   currency:rejoined.currency,accountId:'liability-account',accountCode:'900'};
+  const penny={netMinor:1,vatMinor:0,grossMinor:1};
+  const creditSteps=[
+   {key:'surplus_note',kind:'credit_note',providerTenantId:'xero-tenant',contactId:'payer',
+    currency:rejoined.currency,amount:penny,reference:`MC:${creditCancelId}:surplus`},
+   {key:'backing',kind:'backing_payment',providerTenantId:'xero-tenant',contactId:'payer',
+    currency:rejoined.currency,amount:penny,reference:`MC:${creditCancelId}:surplus`,
+    creditStep:'surplus_note',liabilityBinding:liability},
+  ];
+  const creditCancelPlan={requestId:creditCancelId,memberId:cancelMember,sourceRecordId:rejoined.id,
+   currency:rejoined.currency,choice:'credit',debtMinor:0,surplusMinor:1,returnAmount:penny,steps:creditSteps};
+  await a.query('SELECT prepare_member_cancellation_finance($1,$2,$3,$4,$5,$6,$7)',[
+   f.tenantId,cancelMember,creditCancelId,uuid(9),creditCancelPlan,
+   {...cancellationCalc,sourceRecordId:rejoined.id,surplusMinor:1,
+    finance:{personalFundingOnly:true,settled:penny,voucherFunding:[],organisationFunding:[]}},
+   {...cancellationEvidence,sourceRecordId:rejoined.id},
+  ]);
+  for(const step of creditSteps){
+   const claim=(await a.query('SELECT claim_member_cancellation_finance_step($1,$2,$3,$4,$5) v',
+    [f.tenantId,cancelMember,creditCancelId,uuid(9),step.key])).rows[0].v.operation;
+   await a.query('SELECT observe_member_cancellation_finance_step($1,$2,$3,$4,$5,$6,$7)',
+    [f.tenantId,cancelMember,creditCancelId,uuid(9),step.key,claim.claim_token,
+     {state:'observed',id:step.key==='surplus_note'?'cancel-note':'cancel-backing'}]);
+  }
+  const backingProof={verified:true,requestId:creditCancelId,currency:rejoined.currency,
+   kind:'member_credit_backed',documentId:'cancel-note',paymentId:'cancel-backing',
+   liabilityAccountId:'liability-account',retainedCreditMinor:0};
+  await assert.rejects(a.query('SELECT record_member_cancellation_balance($1,$2,$3,$4,$5,$6)',
+   [f.tenantId,cancelMember,creditCancelId,uuid(9),'settled',{...backingProof,paymentId:'foreign'}]),/Exact observed/);
+  assert.equal((await admin.query('SELECT count(*) FROM member_cancellation_finance_application WHERE request_id=$1',
+   [creditCancelId])).rows[0].count,'0');
+  await Promise.all([a,b].map(c=>c.query('SELECT record_member_cancellation_balance($1,$2,$3,$4,$5,$6)',
+   [f.tenantId,cancelMember,creditCancelId,uuid(9),'settled',backingProof])));
+  assert.equal((await admin.query('SELECT count(*) FROM member_membership_credit WHERE amendment_id=$1',
+   [creditCancelId])).rows[0].count,'1');
+  const cancelCredit=(await admin.query('SELECT * FROM member_membership_credit WHERE amendment_id=$1',
+   [creditCancelId])).rows[0];
+  const cancelPurchase=await insert('voucher_credit_purchase',{tenant_id:f.tenantId,
+   purchase_key:'membership:cancellation-proof',request:{},state:'committed',payable_minor:1,
+   currency:rejoined.currency,member_id:cancelMember});
+  await insert('voucher_credit_allocation',{id:uuid(78),purchase_id:cancelPurchase.id,
+   tenant_id:f.tenantId,voucher_id:cancelCredit.voucher_id,owner_member_id:cancelMember,
+   owner_display_name:'Member',amount_minor:1,ordinal:0});
+  const cancelProofs=(await a.query('SELECT member_credit_funding_proofs($1,$2) v',
+   [f.tenantId,[uuid(78)]])).rows;
+  assert.equal(cancelProofs.length,1);
+  assert.equal(cancelProofs[0].v.amendment.execution_kind,'cancellation');
+  assert.equal(cancelProofs[0].v.amendment.cancellationProof.record.id,creditCancelId);
+  assert.equal(cancelProofs[0].v.settlement.evidence.paymentId,'cancel-backing');
+  assert.equal((await a.query('SELECT member_credit_funding_proofs($1,$2)',[uuid(99),[uuid(78)]])).rows.length,0);
+  assert.equal((await admin.query('SELECT membership_cancelled FROM member WHERE id=$1',[cancelMember])).rows[0].membership_cancelled,true);
   for(const role of ['anon','authenticated','service_role']){
+   assert.equal((await admin.query('SELECT has_function_privilege($1,$2,$3) allowed',
+    [role,'public.issue_member_cancellation_credit(uuid,uuid,uuid,jsonb)','EXECUTE'])).rows[0].allowed,false);
    assert.equal((await admin.query('SELECT has_function_privilege($1,$2,$3) allowed',
     [role,'public.issue_member_replacement_credit(uuid,uuid,uuid,jsonb)','EXECUTE'])).rows[0].allowed,false);
   }

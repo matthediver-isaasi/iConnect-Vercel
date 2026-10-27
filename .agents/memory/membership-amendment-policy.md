@@ -273,3 +273,15 @@ unused future instalments into retained revenue.
 **How to apply:** Preserve verified payment identities at approval and verify
 payment timing when evidence changes. Unknown timing requires financial review,
 not an assumed zero balance or automatic forfeiture.
+
+Verify issued membership credit through the shared redemption path, not just
+through issuance and accounting-backing checks.
+
+**Why:** A credit can pass native issuance and backing tests yet remain
+unspendable when the consuming accounting verifier interprets its money
+representation differently.
+
+**How to apply:** Each new credit origin needs a protected provenance test and
+an integration test through the actual redemption verifier. Preserve compatible
+money representations, but reject contradictory amounts rather than choosing
+one silently.

@@ -17,21 +17,39 @@ Debt reductions use fully allocated notes per original invoice. Refundable or
 liability-backed surplus uses a separate note. Notification outcomes retain the
 provider message identity; only proven non-submission permits retry.
 
-Migrations **047–051 remain unapplied**. These are draft migrations, not a live
-release. No live provider money or membership records were changed by this
-continuation. The server bundle compiles and **83 focused tests pass**, including
+Migrations **047–052 are applied to live DEST**, with their exact function bodies
+and access protections independently verified after a successful rollback
+rehearsal. No cancellations were created and no member access was changed.
+SOURCE was not modified. Both the foundation and financial migration batches
+passed rollback rehearsals followed by application and independent read-only
+verification. The financial verification covers ten private tables and sixteen
+function bodies/permission contracts. These applied migrations are immutable.
+No live provider money or membership records were changed by this continuation.
+**171 focused tests pass**, including
 native PostgreSQL claim, access, isolation and finalization checks. The
 application starts cleanly. The workspace preview still reports the existing
 default-tenant lookup failure, so signed-in UI verification was not performed.
 
+Cancellation settlement now has read-only debt/refund verification and an
+atomic, replay-safe credit issuance path. Credit redemption re-verifies original
+payment identities, current provider receipts and liability backing. Native
+tests cover rollback on invalid backing, concurrent finalization, tenant-scoped
+provenance and preserving cancelled access. The shared document verifier accepts
+the existing VAT amount representations but rejects conflicting values.
+The internal financial coordinator resumes only approved immutable plans,
+limits work per continuation, and never interprets cancellation approval as
+permission to choose financial treatment. Verified partial refunds remain
+outstanding rather than being marked settled. The server bundle compiles and
+the application starts cleanly.
+
 Step 3 is **not complete**. The cancellation protocol is not connected to a
 public/admin API, UI or the production cron. Remaining execution work includes
-the authoritative monthly financial evidence resolver, cancellation-specific
-credit issuance/redemption proofs, refund/balance completion, original-funder
+the authoritative monthly financial evidence resolver, original-funder
 returns, in-flight collection handling, and scheduled-cancellation versus
-renewal/purchase races. The credit finalization branch deliberately fails closed
-until its companion issuance function exists. Do not apply these draft
-migrations or enable cancellation based only on the journal tests.
+renewal/purchase races. Payment/balance verification and credit issuance now exist
+internally, with a tested internal coordinator, but still need their production
+API/worker wiring and the remaining safety paths above. Do not enable
+cancellation based only on the journal tests or the applied schema.
 
 ### Continued execution work
 

@@ -93,6 +93,17 @@ export function createMemberAmendmentFinance({
     return { provider, request, xeroTenantId };
   }
   async function verifyOriginal(amendment) {
+    if(amendment.execution_kind==='cancellation'){
+      const {request,xeroTenantId}=await client(amendment.tenant_id);
+      const {verifyCancellationCreditSource}=await import('./memberCancellationCreditSource.js');
+      return verifyCancellationCreditSource({amendment,request,xeroTenantId,verifyBankAccounts,
+        verifyCard:verifyOriginalCard,verifyMonthlyCash:async record=>{
+          const [{supabase},{createMemberCancellationCashReader}]=await Promise.all([
+            import('./database.js'),import('./memberCancellationCash.js'),
+          ]);
+          return createMemberCancellationCashReader({db:supabase}).read(record);
+        }});
+    }
     const q = amendment.quote;
     const source = q.sourceSnapshot;
     if (source.billing_agreement_id || source.commitment_snapshot?.payment_frequency !== 'upfront') {
@@ -227,11 +238,14 @@ export function createMemberAmendmentFinance({
   function verifyDocument(doc, context, choice) {
     const isInvoice = choice === 'collect';
     const id = isInvoice ? doc?.InvoiceID : doc?.CreditNoteID;
+    const taxMinor=context.amounts.taxMinor??context.amounts.vatMinor;
+    if(context.amounts.taxMinor!=null&&context.amounts.vatMinor!=null
+      &&context.amounts.taxMinor!==context.amounts.vatMinor)fail('Conflicting reserved VAT amounts.');
     if (!id || doc.Contact?.ContactID !== context.contactId || doc.CurrencyCode !== context.currency
         || doc.Reference !== context.reference || !['AUTHORISED', 'PAID'].includes(doc.Status)
         || doc.Type !== (isInvoice ? 'ACCREC' : 'ACCRECCREDIT')
         || amendmentMinor(doc.SubTotal) !== context.amounts.netMinor
-        || amendmentMinor(doc.TotalTax) !== context.amounts.taxMinor
+        || amendmentMinor(doc.TotalTax) !== taxMinor
         || amendmentMinor(doc.Total) !== context.amounts.grossMinor
         || doc.LineItems?.length !== 1
         || doc.LineItems[0].AccountCode !== context.accountCode || doc.LineItems[0].TaxType !== context.taxCode) {
@@ -256,6 +270,7 @@ export function createMemberAmendmentFinance({
     }
     const { request, xeroTenantId } = await client(amendment.tenant_id);
     if (xeroTenantId !== c.xeroTenantId) fail('Accounting connection changed; original organisation reconciliation is required.');
+    if(amendment.execution_kind==='cancellation')await verifyOriginal(amendment);
     const invoice = settlement.choice === 'collect';
     const resource = invoice ? 'Invoices' : 'CreditNotes';
     const query = encodeURIComponent(`Reference=="${c.reference}"`);
@@ -297,7 +312,7 @@ export function createMemberAmendmentFinance({
       return { state: 'settled', evidence: { ...evidence, kind: 'collected', paymentIds } };
     }
     if (settlement.choice === 'credit') {
-      await verifyOriginalCard(amendment);
+      if(amendment.execution_kind!=='cancellation')await verifyOriginalCard(amendment);
       if(c.memberCreditLiabilityBinding){
         const current=await verifyMemberCreditLiability({request,providerTenantId:xeroTenantId,
           accountCode:c.memberCreditLiabilityBinding.accountCode,currency:c.currency});

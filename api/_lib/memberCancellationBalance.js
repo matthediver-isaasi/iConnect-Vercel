@@ -81,7 +81,11 @@ export async function inspectMemberCancellationBalance({plan,steps,adapter,reque
   }
   const accounts=(await request('Accounts'))?.Accounts;
   if(!Array.isArray(accounts)||[...refundBanks].some(id=>accounts.filter(a=>a.AccountID===id&&a.Type==='BANK').length!==1)
-   ||refunded!==plan.surplusMinor||minor(note.RemainingCredit)!==0)fail('Full cash refund is not verified.');
+   ||refunded>plan.surplusMinor||minor(note.RemainingCredit)<0
+   ||refunded+minor(note.RemainingCredit)!==plan.surplusMinor)fail('Full cash refund is not verified.');
+  if(refunded<plan.surplusMinor)return {state:'awaiting_refund',evidence:{...base,
+   documentId:note.CreditNoteID,paymentIds:[...refunds],refundedMinor:refunded,
+   remainingMinor:plan.surplusMinor-refunded,requiredPaymentReference:`${descriptor.reference}:refund`}};
   return {state:'settled',evidence:{...base,kind:'refund_paid',documentId:note.CreditNoteID,
    paymentIds:[...refunds],refundedMinor:refunded}};
  }

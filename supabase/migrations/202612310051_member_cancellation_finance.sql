@@ -72,6 +72,10 @@ BEGIN
   OR (p_plan->>'choice' IN ('credit','refund') AND ((p_plan->>'surplusMinor')::bigint=0 OR (p_plan->>'debtMinor')::bigint<>0))
   OR (p_plan->>'choice'='none' AND ((p_plan->>'debtMinor')::bigint<>0 OR (p_plan->>'surplusMinor')::bigint<>0))
  THEN RAISE EXCEPTION 'Financial amounts do not match the verified cancellation calculation'; END IF;
+ IF p_plan->>'choice' IN ('credit','refund') AND (
+  r.authority->'policySnapshot'->'policy'->>'cancellationUnusedValue' IS DISTINCT FROM 'tenant_surplus_policy'
+  OR NOT COALESCE(r.authority->'policySnapshot'->'policy'->>'surplusHandling' IN (p_plan->>'choice','approval'),false)
+ ) THEN RAISE EXCEPTION 'Surplus treatment differs from the approved cancellation policy'; END IF;
  IF NULLIF(r.authority->'providerPrepared','null'::jsonb) IS NOT NULL AND NOT EXISTS(
   SELECT 1 FROM public.member_cancellation_provider_stop WHERE id=p_id AND state='stopped'
  ) THEN RAISE EXCEPTION 'Provider collections must be stopped before financial writes'; END IF;
