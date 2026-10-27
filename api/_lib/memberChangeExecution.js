@@ -1,5 +1,6 @@
 import {createMemberAmendmentSettlementService,amendmentResult} from './memberAmendmentSettlement.js';
 import {AMENDMENT_UUID} from './memberAmendments.js';
+import {MEMBER_CREDIT_PROTOCOL} from './memberCreditProtocol.js';
 
 const fail=(message,status=409)=>{throw Object.assign(new Error(message),{status,code:'change_execution_conflict'});};
 // Called only after the existing finance-admin endpoint authorizes context.
@@ -52,12 +53,13 @@ export function createMemberChangeExecutionService({db,settlement=createMemberAm
       fail('Explicit approval, reason and supported settlement choice are required',400);
     }
     if(input.settlementChoice==='credit'){
-      const ready=await db.rpc('member_credit_execution_available',{});
+      const ready=await db.rpc('member_credit_execution_available',{p_protocol:MEMBER_CREDIT_PROTOCOL});
       if(ready.error||ready.data!==true)fail('Member credit execution requires the reviewed migration.',503);
     }
-    const execution=amendmentResult(await db.rpc('begin_member_change_execution',{
+    const execution=amendmentResult(await db.rpc(input.settlementChoice==='credit'?'begin_member_credit_execution':'begin_member_change_execution',{
       p_tenant_id:context.tenantId,p_member_id:context.memberId,p_authority_id:input.authorityId,
       p_actor_id:context.actorId,p_choice:input.settlementChoice,p_reason:input.reason.trim(),
+      ...(input.settlementChoice==='credit'?{p_protocol:MEMBER_CREDIT_PROTOCOL}:{}),
     }));
     const life=await settlement.settle(context.tenantId,context.actorId,{
       amendmentId:execution.amendment_id,settlementChoice:execution.settlement_choice,

@@ -2,7 +2,39 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createMemberChangeExecutionService,runMemberChangeExecutionRecovery} from './memberChangeExecution.js';
 import {createMemberAmendmentRecoveryHandler} from '../cron/member-amendments.js';
+import {MEMBER_CREDIT_PROTOCOL} from './memberCreditProtocol.js';
 const uuid=n=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
+test('credit execution uses the matching protocol and only applies after backing',async()=>{
+ const context={tenantId:uuid(1),memberId:uuid(2),actorId:uuid(3),actorKind:'admin'};
+ const execution={authority_id:uuid(4),amendment_id:uuid(5),settlement_choice:'credit'};
+ const calls=[];let life={settlement:null};let available=true;
+ const db={
+  async rpc(name,args){
+   calls.push(name);assert.equal(args.p_protocol,MEMBER_CREDIT_PROTOCOL);
+   if(name==='member_credit_execution_available')return {data:available};
+   assert.equal(name,'begin_member_credit_execution');
+   assert.equal(args.p_tenant_id,context.tenantId);
+   assert.equal(args.p_member_id,context.memberId);
+   return {data:execution};
+  },
+  from(){return {select(){return this},eq(){return this},async maybeSingle(){return {data:execution}}};},
+ };
+ const service=createMemberChangeExecutionService({db,settlement:{
+  async lifecycle(){return life},
+  async settle(){calls.push('settle');life={settlement:{state:'awaiting_payment',
+    evidence:{kind:'awaiting_member_credit_backing'}}};return life},
+  async backCredit(){calls.push('back');life={settlement:{state:'settled'}};return life},
+  async reconcile(){calls.push('reconcile');return life},
+  async apply(){assert.equal(life.settlement.state,'settled');calls.push('apply');
+    life={...life,application:{id:'application'}};return life},
+ }});
+ const input={authorityId:uuid(4),approve:true,reason:'Approved credit',settlementChoice:'credit'};
+ assert.ok((await service.execute(context,input)).application);
+ assert.deepEqual(calls,['member_credit_execution_available','begin_member_credit_execution','settle','back','reconcile','apply']);
+ available=false;calls.length=0;
+ await assert.rejects(service.execute(context,input),{status:503});
+ assert.deepEqual(calls,['member_credit_execution_available']);
+});
 function fixture(){
  const context={tenantId:uuid(1),memberId:uuid(2),actorId:uuid(3),actorKind:'admin'};
  const input={authorityId:uuid(4),approve:true,reason:'Approve',settlementChoice:'collect'};

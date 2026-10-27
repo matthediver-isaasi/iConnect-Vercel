@@ -46,7 +46,7 @@ export async function resolveMemberFixedChangeAuthority({db,purchases,context,se
     &&targetPrice.vatMinor===minor(signed.vat_amount)&&targetPrice.grossMinor===minor(signed.total_with_vat)
     &&targetPrice.grossMinor===minor(terms.plan_total);
   const providerTarget={currency:base.authority.currency,
-    termTotalMinor:unchangedPrice?targetPrice.grossMinor:expectedPaid+remaining.grossMinor,
+    termTotalMinor:minor(terms.plan_total),
     ...(card?{createInlinePrice:true}:{})};
   const reconciled=await purchases.reconcileFunding({
     tenantId:context.tenantId,memberId:context.memberId,amendmentId:base.amendmentId,
@@ -59,12 +59,33 @@ export async function resolveMemberFixedChangeAuthority({db,purchases,context,se
     frequency:'monthly',pricingBasis:'annual_instalments',sourcePrice:reconciled.sourcePrice,
     term,effectiveDate:request.effectiveDate,evidence:reconciled.fundingEvidence,behaviour:'retain_term',targetPrice,
   });
-  if(calculation.finance.blockers.length || (!unchangedPrice&&calculation.finance.available.grossMinor!==0)
+  const targetNominal=band?.nominal_code||config.nominal_code;
+  const targetTax=band?band.vat_rate:config.flat_vat_rate;
+  const prepaidCashCarry=!unchangedPrice&&calculation.finance.available.grossMinor>0
+    &&calculation.finance.original.vatMinor===0&&targetPrice.vatMinor===0
+    &&calculation.finance.settled.vatMinor===0&&calculation.finance.consumed.vatMinor===0
+    &&calculation.finance.voucherFunding.length===0&&calculation.finance.personalFundingOnly
+    &&typeof targetNominal==='string'&&targetNominal.length>0
+    &&typeof targetTax==='string'&&targetTax.length>0
+    &&reconciled.fundingEvidence.settledFunding.every(p=>p.nominalCode===targetNominal&&p.taxType===targetTax);
+  if(calculation.finance.blockers.length || (!unchangedPrice&&!prepaidCashCarry&&calculation.finance.available.grossMinor!==0)
     || calculation.surplusMinor!==0
-    || (!unchangedPrice&&calculation.futureObligationMinor!==remaining.grossMinor)
-    || (unchangedPrice&&calculation.futureObligationMinor!==targetPrice.grossMinor-expectedPaid)
-    || reconciled.prepared.quote.amountMinor*reconciled.prepared.quote.collectionDates.length!==calculation.futureObligationMinor) {
+    || calculation.futureObligationMinor<=0
+    || (!unchangedPrice&&!prepaidCashCarry&&calculation.futureObligationMinor!==remaining.grossMinor)
+    || (unchangedPrice&&calculation.futureObligationMinor!==targetPrice.grossMinor-expectedPaid)) {
     fail('Outstanding obligations, prepaid value or uneven instalments require settlement before changing the schedule.');
+  }
+  providerTarget.termTotalMinor=expectedPaid+calculation.futureObligationMinor;
+  const prepared=unchangedPrice?reconciled.prepared:await purchases.prepare({
+    tenantId:context.tenantId,memberId:context.memberId,amendmentId:base.amendmentId,
+    effectiveDate:request.effectiveDate,target:providerTarget,
+  });
+  if((!unchangedPrice&&(monthlyAmendmentFingerprint(prepared.input.purchase)!==monthlyAmendmentFingerprint(source)
+    ||monthlyAmendmentFingerprint(prepared.funding)!==monthlyAmendmentFingerprint(reconciled.prepared.funding)
+    ||monthlyAmendmentFingerprint(prepared.input.authority)!==monthlyAmendmentFingerprint(reconciled.input.authority)))
+    ||!Number.isSafeInteger(prepared.quote.amountMinor)||prepared.quote.amountMinor<=0
+    ||prepared.quote.amountMinor*prepared.quote.collectionDates.length!==calculation.futureObligationMinor){
+    fail('Funding changed or the future obligation cannot be collected in exact instalments.');
   }
   await readMembershipChangePolicy(db,context.tenantId);
   const policySnapshot=await one('membership_change_policy',{});
@@ -73,7 +94,7 @@ export async function resolveMemberFixedChangeAuthority({db,purchases,context,se
     pricingSnapshot:{config,band,vatSetting,discounts:[],vatOverrides:[]},policySnapshot,
     calculation,fundingEvidence:reconciled.fundingEvidence,
     settlement:{requiresApproval:true,surplusHandling:'none',moneyMoved:false,entitlementApplied:false},
-    monthlyExecution:{version:1,unchangedPriceCarry:unchangedPrice,providerTarget,providerAuthority:reconciled.input.authority,
+    monthlyExecution:{version:1,unchangedPriceCarry:unchangedPrice,prepaidCashCarry,providerTarget,providerAuthority:reconciled.input.authority,
       providerFunding:reconciled.prepared.funding},
     executionEnabled:false};
 }

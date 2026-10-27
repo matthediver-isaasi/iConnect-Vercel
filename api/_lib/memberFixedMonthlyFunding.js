@@ -52,7 +52,8 @@ export async function readMemberFixedMonthlyFunding({db,input,funding,readInvoic
     const netMinor=minor(invoice.SubTotal),vatMinor=minor(invoice.TotalTax),grossMinor=minor(invoice.Total);
     if(netMinor+vatMinor!==grossMinor || grossMinor!==payment.amountMinor)fail('Invoice and verified receipt amounts differ.');
     settledFunding.push({id:`${authority.provider}:${payment.id}`,sourceRecordId:purchase.id,currency:authority.currency,
-      state:'settled',ownerType:'member',ownerId:memberId,kind:'cash',netMinor,vatMinor,grossMinor,invoiceEvidenceId:invoiceId});
+      state:'settled',ownerType:'member',ownerId:memberId,kind:'cash',netMinor,vatMinor,grossMinor,invoiceEvidenceId:invoiceId,
+      nominalCode:invoice.LineItems[0].AccountCode||null,taxType:invoice.LineItems[0].TaxType||null});
   }
   if(authority.collectionDates.filter(date=>date<effectiveDate)
     .some(date=>funding.payments.filter(p=>p.date===date).length!==1)

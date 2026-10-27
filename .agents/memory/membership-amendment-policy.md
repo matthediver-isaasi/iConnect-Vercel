@@ -17,6 +17,29 @@ records, not form answers; revalidate eligibility and finances at confirmation.
 Cancellation of access, renewal, collections and mandates are separate actions.
 Never convert organisation-funded value into personal credit automatically.
 
+New financial protocols must not become available to an older deployed server
+merely because a database migration has been applied.
+
+**Why:** Liability-backed credit depends on matching issuance, redemption and
+return handling; old code can create accounting side effects before discovering
+that it cannot complete the new workflow.
+
+**How to apply:** Require the supported server protocol at the privileged
+execution boundary, keep legacy readiness closed, and ensure transaction-local
+capabilities cannot leak into a pooled connection.
+
+Carrying prepaid cash into a changed membership must preserve its accounting
+classification or perform an explicit accounting reallocation.
+
+**Why:** Reducing future collections alone can leave prepaid revenue assigned to
+the old service's account or tax classification. Even two zero-VAT codes can
+represent different tax treatments.
+
+**How to apply:** Verify the original invoices' actual revenue and tax codes
+against the destination treatment, rather than assuming current configuration
+describes historical postings. Do not also issue spendable credit for value
+already offset against future collections.
+
 Immediate cancellation charges only for service already used, including unpaid
 amounts for that service; unused future annual instalments do not remain payable.
 

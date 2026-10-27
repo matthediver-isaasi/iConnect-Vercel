@@ -250,6 +250,70 @@ test('fixed monthly application is atomic with hold release and survives replay'
     assert.equal((await admin.query('SELECT state FROM member_amendment_provider_operation')).rows[0].state,'finalized');
     assert.equal((await admin.query('SELECT count(*)::int n FROM member_monthly_change_notification')).rows[0].n,1);
     await assert.rejects(a.query('SELECT member_monthly_unchanged_price_carry($1,$2)',[carryAuthority,carryPrepared.input]),{code:'42501'});
+    await admin.query(readFileSync('supabase/migrations/202612310039_member_monthly_prepaid_cash_carry.sql','utf8'));
+    const cashCarry={...carryAuthority,
+      targetSnapshot:{...carryAuthority.targetSnapshot,nominal_code:'400',flat_vat_rate:'NONE'},
+      fundingEvidence:{...carryAuthority.fundingEvidence,settledFunding:
+        carryAuthority.fundingEvidence.settledFunding.map(p=>({...p,nominalCode:'400',taxType:'NONE'}))},
+      monthlyExecution:{...carryAuthority.monthlyExecution,unchangedPriceCarry:false,prepaidCashCarry:true},
+      calculation:{...carryAuthority.calculation,action:'change',behaviour:'retain_term',surplusMinor:0,
+        futureObligationMinor:1000,newCost:{netMinor:1500,vatMinor:0,grossMinor:1500},
+        finance:{...carryAuthority.calculation.finance,personalFundingOnly:true,voucherFunding:[],
+          original:{netMinor:2000,vatMinor:0,grossMinor:2000},
+          consumed:{netMinor:500,vatMinor:0,grossMinor:500},
+          available:{netMinor:500,vatMinor:0,grossMinor:500}}}};
+    const allows=async value=>(await admin.query('SELECT member_monthly_prepaid_cash_carry($1,$2) ok',
+      [value,carryPrepared.input])).rows[0].ok;
+    assert.equal(await allows(cashCarry),true);
+    for(const alter of [
+      x=>x.monthlyExecution.prepaidCashCarry=false,
+      x=>x.calculation.finance.available.grossMinor=501,
+      x=>x.calculation.finance.consumed.vatMinor=1,
+      x=>x.calculation.finance.voucherFunding=['voucher'],
+      x=>x.fundingEvidence.settledFunding[0].ownerType='organization',
+      x=>x.monthlyExecution.providerTarget.termTotalMinor=2001,
+      x=>x.calculation.surplusMinor=1,
+    ]){
+      const value=structuredClone(cashCarry);alter(value);assert.equal(await allows(value),false);
+    }
+    await assert.rejects(a.query('SELECT member_monthly_prepaid_cash_carry($1,$2)',[cashCarry,carryPrepared.input]),{code:'42501'});
+    // Exercise the new exception through the public finalizer, not just its
+    // predicate. Paid cash is carried once; original purchase values survive.
+    await admin.query('TRUNCATE member_amendment_provider_operation CASCADE');
+    await admin.query(`ALTER TABLE membership_tier_config ADD COLUMN nominal_code text,
+      ADD COLUMN flat_vat_rate text`);
+    const pricedTarget=(await admin.query(`UPDATE membership_tier_config
+      SET nominal_code='400',flat_vat_rate='NONE' RETURNING to_jsonb(membership_tier_config) v`)).rows[0].v;
+    const pricedCarry=structuredClone(cashCarry);
+    pricedCarry.targetSnapshot=pricedTarget;
+    pricedCarry.calculation.targetFullPrice={netMinor:2667,vatMinor:0,grossMinor:2667};
+    pricedCarry.calculation.newCost={netMinor:2002,vatMinor:0,grossMinor:2002};
+    pricedCarry.calculation.futureObligationMinor=1501;
+    pricedCarry.calculation.finance.consumed={netMinor:499,vatMinor:0,grossMinor:499};
+    pricedCarry.calculation.finance.available={netMinor:501,vatMinor:0,grossMinor:501};
+    pricedCarry.monthlyExecution.providerTarget.termTotalMinor=2501;
+    const pricedPrepared={...carryPrepared,quote:{...carryPrepared.quote,amountMinor:1501}};
+    await admin.query('UPDATE member_change_authority SET authority=$1',[pricedCarry]);
+    await admin.query(`INSERT INTO member_amendment_provider_operation
+      (id,tenant_id,member_id,source_record_id,plan_id,actor_id,operation_key,prepared,fingerprint,state,claim_token,evidence)
+      VALUES($1,$2,$3,$4,$5,$6,'monthly-prepaid-price-change',$7,$8,'provider_applied',$9,$10)`,
+      [id(8),id(1),id(2),id(3),id(5),id(9),pricedPrepared,'a'.repeat(64),id(10),
+        {...evidence,evidence:{funding:carryFunding}}]);
+    await a.query('SELECT approve_member_monthly_finalization($1,$2,$3,$4)',
+      [id(1),id(8),id(9),'Approved retained-term change']);
+    await admin.query(`CREATE TRIGGER fail_future_amount_update
+      BEFORE UPDATE OF amount_minor ON membership_payment_plans
+      FOR EACH ROW EXECUTE FUNCTION fail_future_amount_update()`);
+    await assert.rejects(finish(a),/injected operational amount failure/);
+    assert.equal((await admin.query('SELECT state FROM member_amendment_provider_operation')).rows[0].state,'provider_applied');
+    assert.equal((await admin.query('SELECT count(*)::int n FROM member_monthly_change_notification')).rows[0].n,0);
+    await admin.query('DROP TRIGGER fail_future_amount_update ON membership_payment_plans');
+    await Promise.all([finish(a),finish(b)]);
+    assert.equal((await admin.query('SELECT state FROM member_amendment_provider_operation')).rows[0].state,'finalized');
+    assert.equal((await admin.query('SELECT amount_minor FROM membership_payment_plans')).rows[0].amount_minor,1501);
+    assert.equal((await admin.query('SELECT count(*)::int n FROM member_monthly_change_notification')).rows[0].n,1);
+    assert.deepEqual((await admin.query('SELECT commitment_snapshot FROM member_membership_history')).rows[0].commitment_snapshot,
+      carrySource.commitment_snapshot);
   } finally {
     for (const c of clients) await c.end();
     if (started) command('pg_ctl', ['-D', h.data, '-m', 'immediate', '-w', 'stop']);

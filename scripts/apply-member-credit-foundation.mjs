@@ -9,7 +9,9 @@ const redemption=process.argv.includes('--redemption');
 const variable=process.argv.includes('--variable-scope');
 const returnGuard=process.argv.includes('--return-guard');
 const unchangedPrice=process.argv.includes('--unchanged-price');
-const files=unchangedPrice?['202612310038_member_monthly_unchanged_price.sql']:returnGuard?['202612310036_member_credit_incomplete_funding_returns.sql',
+const prepaidCarry=process.argv.includes('--prepaid-carry');
+const protocol=process.argv.includes('--credit-protocol');
+const files=protocol?['202612310040_member_credit_protocol.sql']:prepaidCarry?['202612310039_member_monthly_prepaid_cash_carry.sql']:unchangedPrice?['202612310038_member_monthly_unchanged_price.sql']:returnGuard?['202612310036_member_credit_incomplete_funding_returns.sql',
  '202612310037_member_credit_funding_retries.sql']:variable?['202612310033_member_credit_variable_reservation_scope.sql',
  '202612310034_member_credit_unused_release.sql','202612310035_member_credit_provenance.sql']:redemption?['202612310030_member_credit_redemption_evidence.sql',
  '202612310031_member_credit_return_verification.sql','202612310032_member_credit_funding_claims.sql']:
@@ -46,7 +48,8 @@ try {
    'claim_member_credit_backing','apply_member_amendment_before_credit',
    'voucher_admin_write_before_member_credit','voucher_credit_reserve_before_member_credit',
    'member_credit_funding_proofs','review_member_credit_expiry','list_member_credit_expiry_reviews',
-   'member_credit_execution_available')`);
+   'member_credit_execution_available')
+   AND (proname<>'member_credit_execution_available' OR pronargs=0)`);
  if(functions.rowCount!==8||functions.rows.some(r=>r.anonymous_execute||r.authenticated_execute
    ||(r.proname.includes('before_credit')||r.proname.includes('before_member_credit')
     ?r.service_execute:!r.service_execute)))throw new Error('Credit function permissions failed');
@@ -90,17 +93,31 @@ try {
   if(!secure.rls||secure.anon_read||secure.auth_read||secure.direct_write||secure.bypass
     ||secure.anon_execute||secure.auth_execute||!secure.service_execute)throw new Error('Funding retry protections failed');
  }
- if(unchangedPrice){
+ if(unchangedPrice||prepaidCarry){
   for(const role of ['anon','authenticated','service_role']){
    const r=await db.query('SELECT has_function_privilege($1,$2,$3) allowed',
-    [role,'public.member_monthly_unchanged_price_carry(jsonb,jsonb)','EXECUTE']);
+    [role,prepaidCarry?'public.member_monthly_prepaid_cash_carry(jsonb,jsonb)':'public.member_monthly_unchanged_price_carry(jsonb,jsonb)','EXECUTE']);
    if(r.rows[0].allowed)throw new Error('Internal unchanged-price predicate is exposed');
+  }
+ }
+ if(protocol){
+  const ready=(await db.query(`SELECT
+    member_credit_execution_available('liability-backed-member-credit-v1') supported,
+    member_credit_execution_available('unknown') unsupported,
+    member_credit_execution_available() legacy`)).rows[0];
+  if(!ready.supported||ready.unsupported||ready.legacy)throw new Error('Credit protocol isolation failed');
+  for(const signature of ['member_credit_execution_available(text)',
+    'begin_member_credit_execution(uuid,uuid,uuid,uuid,text,text,text)']){
+   for(const role of ['anon','authenticated','service_role']){
+    const r=await db.query('SELECT has_function_privilege($1,$2,$3) allowed',[role,`public.${signature}`,'EXECUTE']);
+    if(r.rows[0].allowed!==(role==='service_role'))throw new Error('Credit protocol access protection failed');
+   }
   }
  }
  await db.query("NOTIFY pgrst, 'reload schema'");
  await db.query(apply?'COMMIT':'ROLLBACK');
  console.log(JSON.stringify({target:PROJECT,applied:apply,tables:checks.rows,functions:functions.rows,
-  executionEnabled:false}));
+  legacyCreditExecutionEnabled:false,protocolCreditExecutionEnabled:protocol?true:null}));
 }catch(error){
  await db.query('ROLLBACK');
  console.error('Migration rolled back:',error.message);

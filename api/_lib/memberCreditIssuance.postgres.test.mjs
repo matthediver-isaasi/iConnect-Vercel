@@ -44,9 +44,13 @@ test('backed credit issuance/application roll back together; expiry preserves va
    await admin.query(readFileSync(`supabase/migrations/${file}`,'utf8'));
   }
   assert.equal((await admin.query('SELECT member_credit_execution_available() ready')).rows[0].ready,false);
-  // This disposable fixture deliberately opens the gate to exercise the
-  // financial transaction; the shipped migration remains closed.
-  await admin.query('CREATE OR REPLACE FUNCTION member_credit_execution_available() RETURNS boolean LANGUAGE sql AS $$ SELECT true $$');
+   await admin.query(readFileSync('supabase/migrations/202612310040_member_credit_protocol.sql','utf8'));
+   assert.equal((await admin.query('SELECT member_credit_execution_available() ready')).rows[0].ready,false);
+   assert.equal((await admin.query("SELECT member_credit_execution_available('unknown') ready")).rows[0].ready,false);
+   for(const role of ['anon','authenticated']){
+     assert.equal((await admin.query('SELECT has_function_privilege($1,$2,$3) allowed',
+       [role,'public.begin_member_credit_execution(uuid,uuid,uuid,uuid,text,text,text)','EXECUTE'])).rows[0].allowed,false);
+   }
   const today=new Date().toISOString().slice(0,10),f=amendmentFixture(today);f.config.flat_cost=50;
   await admin.query('INSERT INTO tenant VALUES($1)',[f.tenantId]);
   await admin.query('INSERT INTO member(id,tenant_id) VALUES($1,$2)',[f.memberId,f.tenantId]);
@@ -75,8 +79,12 @@ test('backed credit issuance/application roll back together; expiry preserves va
   await a.query('SET ROLE service_role');
   const saved=(await a.query('SELECT confirm_member_change_authority($1,$2,$3,$4,$5,$6) v',
    [f.tenantId,f.memberId,uuid(7),'admin','credit-authority',authority])).rows[0].v;
-  const execution=(await a.query('SELECT begin_member_change_execution($1,$2,$3,$4,$5,$6) v',
-   [f.tenantId,f.memberId,saved.id,uuid(7),'credit','Approved surplus'])).rows[0].v;
+   await assert.rejects(a.query('SELECT begin_member_change_execution($1,$2,$3,$4,$5,$6)',
+    [f.tenantId,f.memberId,saved.id,uuid(7),'credit','Legacy server']));
+   const execution=(await a.query('SELECT begin_member_credit_execution($1,$2,$3,$4,$5,$6,$7) v',
+    [f.tenantId,f.memberId,saved.id,uuid(7),'credit','Approved surplus','liability-backed-member-credit-v1'])).rows[0].v;
+   assert.equal((await a.query('SELECT member_credit_execution_available() ready')).rows[0].ready,false,
+     'protocol capability must not leak into the pooled connection');
   const args=[f.tenantId,execution.amendment_id,uuid(7)],amount=-calculation.delta.grossMinor;
   const context={memberCreditLiabilityBinding:binding,xeroTenantId:'books',currency:'GBP',
    amounts:{grossMinor:amount},reference:`MA:${execution.amendment_id}`,issueDate:today};

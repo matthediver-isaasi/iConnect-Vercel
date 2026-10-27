@@ -10,7 +10,7 @@ test('fixed monthly authority uses verified receipt accounting and quotes only t
    commitment_snapshot:{payment_frequency:'monthly',amounts},term_start_date:'2024-01-01',membership_renewal_date:'2025-01-01'};
  const target={id:id(5),tenant_id:id(1),structure_scope_type:'member',billing_period:'annual',
    start_mode:'immediate',effective_from:'2024-01-01',is_active:true,currency:'GBP',
-   pricing_model:'flat',flat_cost:240,flat_vat_rate:'NONE'};
+    pricing_model:'flat',flat_cost:240,flat_vat_rate:'NONE',nominal_code:'400'};
  const dates=Array.from({length:12},(_,i)=>`2024-${String(i+1).padStart(2,'0')}-02`);
  const base={tenantId:id(1),memberId:id(2),effectiveDate:'2024-07-02',amendmentId:'preview',
    purchase:source,agreement:{id:id(6),metadata:{card:{plan_total:120,monthly_amount_minor:1000}}},
@@ -28,9 +28,14 @@ test('fixed monthly authority uses verified receipt accounting and quotes only t
    async range(a,b){return {data:selected.slice(a,b+1)}}};}};
  const verify=()=>readMemberFixedMonthlyFunding({db,input:base,funding,
    readInvoice:async(_,invoiceId)=>({InvoiceID:invoiceId,Type:'ACCREC',Status:'PAID',CurrencyCode:'GBP',
-     Contact:{ContactID:'contact'},LineItems:[{}],SubTotal:10,TotalTax:0,Total:10})});
+      Contact:{ContactID:'contact'},LineItems:[{AccountCode:'400',TaxType:'NONE'}],SubTotal:10,TotalTax:0,Total:10})});
  let providerTarget;
- const purchases={async reconcileFunding(request){providerTarget=request.target;
+  const purchases={async prepare(request){
+    providerTarget=request.target;
+    const collectionDates=dates.filter(d=>d>=request.effectiveDate);
+    return {input:base,funding,quote:{collectionDates,
+      amountMinor:(request.target.termTotalMinor-funding.settledGrossMinor)/collectionDates.length}};
+  },async reconcileFunding(request){providerTarget=request.target;
    return {...await verify(),input:base,prepared:{funding,quote:{
     amountMinor:target.flat_cost===120?1000:2000,collectionDates:dates.filter(d=>d>=request.effectiveDate)}}};}};
  const selection={configId:target.id,effectiveDate:'2024-07-02',reason:'Approved upgrade'};
@@ -60,4 +65,12 @@ test('fixed monthly authority uses verified receipt accounting and quotes only t
  assert.equal(dd.monthlyExecution.unchangedPriceCarry,true);
  assert.equal(dd.monthlyExecution.providerTarget.termTotalMinor,12000);
  assert.equal(dd.monthlyExecution.providerTarget.createInlinePrice,undefined);
+  target.flat_cost=130.06;
+  const carry=await resolveMemberFixedChangeAuthority({db,purchases,context,selection,base});
+  assert.equal(carry.monthlyExecution.prepaidCashCarry,true);
+  assert.equal(carry.calculation.finance.available.grossMinor,967);
+  assert.equal(carry.calculation.futureObligationMinor,5500);
+  assert.equal(carry.monthlyExecution.providerTarget.termTotalMinor,12500);
+  target.flat_cost=130;
+  await assert.rejects(resolveMemberFixedChangeAuthority({db,purchases,context,selection,base}),/exact instalments/);
 });

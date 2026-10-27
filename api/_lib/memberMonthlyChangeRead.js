@@ -1,3 +1,4 @@
+import {MEMBER_CREDIT_PROTOCOL} from './memberCreditProtocol.js';
 export async function readMemberMonthlyChanges(db,tenantId,memberId){
   const ready=await db.rpc('monthly_change_execution_available',{});
   if(ready.error){
@@ -8,7 +9,7 @@ export async function readMemberMonthlyChanges(db,tenantId,memberId){
     throw Object.assign(new Error('Monthly membership readiness could not be checked.'),{status:503});
   }
   if(ready.data!==true)throw Object.assign(new Error('Monthly membership execution is unavailable.'),{status:503});
-  const creditReady=await db.rpc('member_credit_execution_available',{});
+  const creditReady=await db.rpc('member_credit_execution_available',{p_protocol:MEMBER_CREDIT_PROTOCOL});
   if(creditReady.error&&!['PGRST202','42883'].includes(creditReady.error.code)){
     throw Object.assign(new Error('Member credit readiness could not be checked.'),{status:503});
   }

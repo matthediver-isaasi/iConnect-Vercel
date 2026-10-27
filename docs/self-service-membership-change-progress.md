@@ -2,7 +2,52 @@
 
 ## Step 3 staged financial lifecycle — 27 October 2026
 
-**Step 3 is not complete and personal-credit execution remains disabled.**
+**Step 3 is not complete. The supported paid-upfront personal-credit path now
+requires the matching server protocol; older servers remain disabled.**
+
+### Paid-upfront credit protocol
+
+Migration `202612310040_member_credit_protocol.sql` is applied to live DEST after
+39 focused tests and a rollback rehearsal. The real SQL issuance/redemption/
+return test now uses the production protocol entry point, rather than replacing
+the readiness function with an always-true fixture.
+
+New server code checks the versioned capability and uses a service-only credit
+execution entry point. Its transaction-local capability is restored before
+returning, including failure paths; legacy callers cannot initiate credit.
+Existing approval, immutable liability backing, atomic membership/voucher
+application, redemption and verified-return protections remain required.
+
+This makes the supported paid-upfront retained-term credit option available
+after deployment of matching server code. It does not enable monthly surplus,
+replacement-term or cancellation execution. No live credit has been issued.
+Thirteen completed migrations are applied to DEST; SOURCE is unchanged.
+
+Verification: the 44 mounted admin-screen tests and server bundle passed.
+The workflow restarted cleanly. The prepaid-cash exception also passed through
+the real PostgreSQL finalizer with an injected operational-write failure,
+concurrent replay, one notification, and unchanged original purchase economics.
+This is isolated test evidence, not a live provider transaction or signed-in
+browser verification.
+
+### Fixed-monthly prepaid cash
+
+The connected fixed-monthly execution path now permits a price change to offset
+verified unused personal cash against positive future instalments. It first
+reconciles the original schedule and invoices, then prepares the new schedule
+and rejects changed funding, changed purchase authority or fractional pennies.
+This is limited to zero-VAT service with matching explicit revenue-account and
+tax codes on every original invoice and the target; it does not mint a second
+credit, refund money, or transfer organisation/voucher funding.
+
+Migration `202612310039_member_monthly_prepaid_cash_carry.sql` was applied to live
+DEST after 36 focused tests and a rollback rehearsal. Private helper execution
+is denied to public/browser/service roles; existing finalization holds, approval
+and provider verification remain in force. SOURCE was unchanged. Twelve completed
+migrations were applied at that stage; no authored migration remains pending.
+
+The end-to-end cancellation, replacement-term and monthly surplus settlement
+paths remain unfinished. The carry increment itself does not issue personal credit.
 
 ### Immediate cancellation policy confirmed
 
