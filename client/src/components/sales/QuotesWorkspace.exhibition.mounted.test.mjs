@@ -88,6 +88,7 @@ async function mount(options = {}) {
       state.quote.currentVersion.lines = command.lines.map(payload => {
         const previous = state.quote.currentVersion.lines.find(line => line.id === payload.id);
         const next = { ...previous, description: payload.description, quantity: payload.quantity };
+        if (state.regenerateLineIds) next.id = crypto.randomUUID();
         if (payload.exhibitionSelections !== undefined) {
           next.catalogue_snapshot = { ...previous.catalogue_snapshot, exhibition: { ...previous.catalogue_snapshot.exhibition, selections: payload.exhibitionSelections.map(item => ({ ...item, reference: item.spaceId === "new" ? "EX-21" : "EX-17", priceMinor: item.spaceId === "new" ? 21175 : 17350, currency: "GBP" })) } };
         }
@@ -231,4 +232,31 @@ test("cancel and reopen pass expectedVersion and accepted/converted proposals ne
       } finally { await fixture.close(); }
     }
   } finally { dom.window.confirm = originalConfirm; }
+});
+
+test("bundle survives ordinary-line removal and subsequent saves use reloaded line IDs", async () => {
+  const quote = freshQuote();
+  const bundle = quote.currentVersion.lines[0];
+  bundle.catalogue_kind = "bundle";
+  bundle.catalogue_id = "bundle";
+  bundle.sales_quote_bundle_component = [{ product_snapshot: { name: "Stand" }, quantity: 1 }];
+  quote.currentVersion.lines.push({
+    id: "f13b462e-d457-478b-89d5-71b3c7e3f432", catalogue_kind: "free_text",
+    description: "Ordinary line", quantity: 1, standard_unit_price_minor: 100,
+    quoted_unit_price_minor: 100, tax_rate_bps: 0,
+  });
+  const fixture = await mount({ quote, regenerateLineIds: true });
+  try {
+    await click(fixture.host.querySelector('[aria-label="Delete line 2"]'));
+    await click(button(fixture.host, "Save draft")); await settle();
+    assert.equal(fixture.state.commands[0].lines.length, 1);
+    assert.equal(fixture.state.commands[0].lines[0].id, lineId);
+    const reloadedId = fixture.state.quote.currentVersion.lines[0].id;
+    assert.notEqual(reloadedId, lineId);
+    assert.match(fixture.host.textContent, /EX-17/);
+    await click(button(fixture.host, "Save draft")); await settle();
+    assert.equal(fixture.state.commands[1].expectedVersion, 8);
+    assert.equal(fixture.state.commands[1].lines[0].id, reloadedId);
+    assert.equal(fixture.state.quote.currentVersion.lines[0].sales_quote_bundle_component.length, 1);
+  } finally { await fixture.close(); }
 });

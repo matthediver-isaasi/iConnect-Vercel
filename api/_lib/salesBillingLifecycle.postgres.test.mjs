@@ -8,6 +8,7 @@ import pg from 'pg';
 import { createLocalPostgresHarness } from '../../scripts/test-support/local-postgres-harness.mjs';
 import { buildBillingSchedule } from '../../shared/salesBilling.js';
 import { scheduleInvoiceLines } from './salesInvoiceSchedule.js';
+import { verifyDraftComponentReplacement } from './salesDraftComponentReplacement.fixture.mjs';
 
 test('real Sales migration chain: draft, issue, amendment, staff/public acceptance and immutable schedules', { timeout: 120000 }, async () => {
   const h = await createLocalPostgresHarness('sales-billing-lifecycle-');
@@ -32,8 +33,8 @@ test('real Sales migration chain: draft, issue, amendment, staff/public acceptan
       CREATE TABLE organization(id uuid PRIMARY KEY,tenant_id uuid,name text,UNIQUE(tenant_id,id));
       CREATE TABLE tenant_identity(id varchar PRIMARY KEY,first_name text,last_name text,email text);
       CREATE TABLE tenant_user(id uuid PRIMARY KEY,tenant_id uuid,identity_id varchar,first_name text,last_name text,email text);
-      CREATE TABLE event(id uuid PRIMARY KEY,tenant_id uuid,pricing_config jsonb);
-      CREATE TABLE complex_event(id uuid PRIMARY KEY,tenant_id uuid);
+      CREATE TABLE event(id uuid PRIMARY KEY,tenant_id uuid,pricing_config jsonb,title text);
+      CREATE TABLE complex_event(id uuid PRIMARY KEY,tenant_id uuid,title text);
       CREATE TABLE complex_event_ticket_class(id uuid PRIMARY KEY,tenant_id uuid,complex_event_id uuid,
         is_group_ticket boolean DEFAULT false,group_size integer,available_count integer,is_unlimited_tickets boolean DEFAULT true);
       CREATE TABLE member(id uuid PRIMARY KEY,tenant_id uuid,organization_id uuid,identity_id text,first_name text,last_name text,email text);
@@ -56,11 +57,13 @@ test('real Sales migration chain: draft, issue, amendment, staff/public acceptan
       '202610180004_sales_billing_configuration',
       '202610180007_sales_quote_line_ticket_snapshot', '202610180008_sales_customer_fulfilment',
       '202610180009_sales_ticket_value_attribution',
+      '202610260001_sales_exhibition_inventory',
     ];
     for (const name of migrations) {
       try { await db.query(readFileSync(`supabase/migrations/${name}.sql`, 'utf8')); }
       catch (error) { error.message = `${name}: ${error.message}`; throw error; }
     }
+    await verifyDraftComponentReplacement(db);
     const tenant = randomUUID(), actor = randomUUID();
     await db.query('INSERT INTO tenant VALUES($1)', [tenant]);
     const terms = { id: randomUUID(), name: '14 days', days: 14 };
@@ -121,7 +124,7 @@ test('real Sales migration chain: draft, issue, amendment, staff/public acceptan
     await db.query(`INSERT INTO opportunity(id,tenant_id,name,organization_id,stage_id,owner_kind,owner_id,created_by_kind,created_by_id)
       VALUES($1,$2,'Ticket sale',$3,(SELECT id FROM opportunity_stage WHERE tenant_id=$2 LIMIT 1),'tenant_user',$4,'tenant_user',$4)`,
       [opportunity, tenant, organization, actor]);
-    await db.query(`INSERT INTO event VALUES($1,$2,'{"ticket_classes":[{"id":"delegate","name":"Delegate","capacity":20,"is_unlimited":true}]}')`,
+    await db.query(`INSERT INTO event(id,tenant_id,pricing_config) VALUES($1,$2,'{"ticket_classes":[{"id":"delegate","name":"Delegate","capacity":20,"is_unlimited":true}]}')`,
       [event, tenant]);
     await db.query(`INSERT INTO sales_catalogue_product(id,tenant_id,code,name,currency,standard_price_minor,tax_treatment)
       VALUES($1,$2,'DIRECT','Catalogue without event','GBP',9900,'zero_rated')`, [product, tenant]);
