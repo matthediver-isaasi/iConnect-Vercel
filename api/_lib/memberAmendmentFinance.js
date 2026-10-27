@@ -3,6 +3,7 @@ import { getAccountingProvider } from './accountingProvider.js';
 import { buildXeroSalesInvoicePayload } from './xero.js';
 import { discoverInvoiceCredits } from './invoiceCreditDiscovery.js';
 import { retrieveTenantPaymentIntent } from './stripeCredentials.js';
+import { verifyMemberCreditLiability } from './memberCreditLiability.js';
 
 const fail = (message) => { throw new AmendmentError(message, 422, 'finance_evidence_required'); };
 export function amendmentMinor(value, label = 'provider amount') {
@@ -315,5 +316,9 @@ export function createMemberAmendmentFinance({
     }
     return inspect(amendment, settlement);
   }
-  return { prepare, execute, inspect, verifyOriginal };
+  async function verifyCreditLiability(tenantId,{accountCode,currency}) {
+    const {request,xeroTenantId}=await client(tenantId);
+    return verifyMemberCreditLiability({request,providerTenantId:xeroTenantId,accountCode,currency});
+  }
+  return { prepare, execute, inspect, verifyOriginal, verifyCreditLiability };
 }

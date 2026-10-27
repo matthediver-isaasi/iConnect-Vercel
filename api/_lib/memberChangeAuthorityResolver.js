@@ -3,6 +3,7 @@ import { calculateAmendmentTerms } from './memberAmendmentCalculation.js';
 import { MEMBERSHIP_CHANGE_POLICY_DEFAULTS, validateMembershipChangePolicy,
   resolveMembershipChangeBehaviour, planMembershipChangeSettlement } from './membershipChangePolicy.js';
 import { createMemberDynamicChangeAuthorityResolver } from './memberDynamicChangeAuthorityResolver.js';
+import { createMemberAmendmentFinance } from './memberAmendmentFinance.js';
 
 const fail = message => { throw Object.assign(new Error(message), {status:422,code:'authority_evidence_required'}); };
 // Production read-only adapter. Existing verified upfront evidence is admitted;
@@ -10,6 +11,7 @@ const fail = message => { throw Object.assign(new Error(message), {status:422,co
 export function createMemberChangeAuthorityResolver({
   db, amendments=createMemberAmendmentsService({db}),
   monthlyResolve=createMemberDynamicChangeAuthorityResolver({db}),
+  creditLiability=(tenantId,input)=>createMemberAmendmentFinance().verifyCreditLiability(tenantId,input),
 }) {
   async function one(table, context, filters) {
     let query=db.from(table).select('*').eq('tenant_id',context.tenantId);
@@ -60,10 +62,20 @@ export function createMemberChangeAuthorityResolver({
       targetTerm:{startDate:q.effectiveDate,renewalDate:anniversary.toISOString().slice(0,10)},
     });
     const settlement=planMembershipChangeSettlement({calculation,policy,issuedAt:`${q.effectiveDate}T00:00:00Z`});
+    let creditLiabilityBinding=null;
+    if(settlement.surplusEligibleMinor>0 && settlement.surplusHandling==='credit'){
+      const setting=await one('system_settings',context,{setting_key:'xero_voucher_clearing_account_code'});
+      creditLiabilityBinding=await creditLiability(context.tenantId,{
+        accountCode:setting?.setting_value,currency:q.currency,
+      });
+      if(creditLiabilityBinding.providerTenantId!==proof.providerTenantId){
+        fail('Credit liability account and original payment belong to different accounting organisations.');
+      }
+    }
     return {version:1,tenantId:context.tenantId,memberId:context.memberId,action:'change',
       request,sourceSnapshot:source,targetSnapshot:q.targetSnapshot.config,
       targetBandSnapshot:q.targetSnapshot.band||null,governingSnapshot:governing,
-      pricingSnapshot:q.targetSnapshot,policySnapshot,calculation,fundingEvidence,settlement,
+      pricingSnapshot:q.targetSnapshot,policySnapshot,calculation,fundingEvidence,settlement,creditLiabilityBinding,
       executionEnabled:false};
   };
 }

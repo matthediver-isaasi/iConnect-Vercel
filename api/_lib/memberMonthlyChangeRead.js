@@ -3,7 +3,7 @@ export async function readMemberMonthlyChanges(db,tenantId,memberId){
   if(ready.error){
     if(['PGRST202','42883'].includes(ready.error.code))return {
       monthlyExecutionAvailable:false,monthlyExecutionNotice:'Monthly membership changes require the reviewed database migration.',
-      monthlyChanges:[],
+      monthlyChanges:[],financialExecutionAvailable:false,memberCreditExecutionAvailable:false,financialChanges:[],
     };
     throw Object.assign(new Error('Monthly membership readiness could not be checked.'),{status:503});
   }
@@ -13,13 +13,31 @@ export async function readMemberMonthlyChanges(db,tenantId,memberId){
     for(let offset=0;;offset+=500){
       let q=db.from(table).select(columns).eq('tenant_id',tenantId);
       for(const [k,v] of Object.entries(filters))q=q.eq(k,v);
-      const {data,error}=await q.order(table==='member_monthly_change_notification'?'operation_id':'id').range(offset,offset+499);
+      const order=table==='member_monthly_change_notification'?'operation_id':
+        table==='member_change_execution'?'authority_id':'id';
+      const {data,error}=await q.order(order).range(offset,offset+499);
       if(error||!Array.isArray(data))throw Object.assign(new Error('Monthly membership history could not be read.'),{status:503});
       all.push(...data);if(data.length<500)return all;
     }
   }
   const authorities=await pages('member_change_authority','id,authority,created_at',{member_id:memberId});
   const monthly=authorities.filter(row=>row.authority?.sourceSnapshot?.commitment_snapshot?.payment_frequency==='monthly');
+  const upfront=authorities.filter(row=>row.authority?.sourceSnapshot?.commitment_snapshot?.payment_frequency==='upfront');
+  const executions=upfront.length?await pages('member_change_execution','*',{member_id:memberId}):[];
+  async function related(table){
+    const rows=[];
+    for(let start=0;start<executions.length;start+=100){
+      const {data,error}=await db.from(table).select('*').eq('tenant_id',tenantId)
+        .in('amendment_id',executions.slice(start,start+100).map(e=>e.amendment_id));
+      if(error||!Array.isArray(data))throw Object.assign(new Error('Financial change history could not be read.'),{status:503});
+      rows.push(...data);
+    }
+    return rows;
+  }
+  const [settlements,applications,financialNotifications]=await Promise.all([
+    related('member_membership_amendment_settlement'),related('member_membership_amendment_application'),
+    related('member_membership_amendment_notification'),
+  ]);
   const ops=monthly.length?await pages('member_amendment_provider_operation',
     'id,operation_key,state,evidence,prepared,created_at,updated_at',{member_id:memberId}):[];
   const notifications=[];
@@ -31,6 +49,18 @@ export async function readMemberMonthlyChanges(db,tenantId,memberId){
     notifications.push(...data);
   }
   return {monthlyExecutionAvailable:true,monthlyExecutionNotice:null,
+    financialExecutionAvailable:true,memberCreditExecutionAvailable:false,
+    financialChanges:upfront.map(row=>{
+      const execution=executions.find(e=>e.authority_id===row.id);
+      const settlement=settlements.find(s=>s.amendment_id===execution?.amendment_id);
+      return {...row,execution:execution||null,
+        settlement:settlement?{id:settlement.id,choice:settlement.choice,state:settlement.state,evidence:settlement.evidence,
+          updated_at:settlement.updated_at}:null,
+        application:applications.find(a=>a.amendment_id===execution?.amendment_id)||null,
+        notifications:financialNotifications.filter(n=>n.amendment_id===execution?.amendment_id)
+          .map(n=>({kind:n.kind,state:n.state,updated_at:n.updated_at})),
+      };
+    }).sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at))),
     monthlyChanges:monthly.map(row=>{
       const operation=ops.find(op=>op.operation_key===`monthly-change:${row.id}`);
       return {...row,operation:operation?{id:operation.id,state:operation.state,

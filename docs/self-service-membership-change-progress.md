@@ -1,5 +1,45 @@
 # Self-service membership changes: implementation boundary
 
+## Step 3 financial execution — accounting decision and initial guard
+
+The owner selected iConnect-only member credit with liability accounting.
+New surplus must not remain independently spendable as an accounting credit
+note as well as a member voucher.
+
+The existing membership-voucher redemption path already posts explicit funding
+against gross invoices using the dedicated voucher clearing account. Therefore
+credit readiness uses that same mapping, not a separate issuance-only account.
+For Xero credit-policy previews, the server now verifies an active,
+payment-enabled CURRENTLIABILITY account, matching base currency and the same
+accounting organisation as the original payment. Its identity is included in
+the confirmed authority; confirmation re-resolves it rather than trusting
+browser-supplied account details.
+
+This is a read-only prerequisite, **not completed credit issuance or Step 3**.
+No provider transfer, voucher or new financial execution is enabled by this
+guard. Still required: durable accounting-transfer claims and reconciliation,
+atomic backed-credit issuance with membership application, no-expiry consumer
+coverage, redemption binding enforcement, and the subsequent replacement-term
+and cancellation execution paths. Preserve the existing retained-credit-note
+semantics for historical settlements.
+
+The admin Membership tab now also exposes the shared upfront financial-change
+flow: preview, confirmation, separate explicit approval, collection-invoice
+links, recorded/manual refund status, and read-only recovery/history. A first
+recovery checks the saved authority and returns an approval-required state
+instead of failing because execution has not yet begun. Confirmation recovery
+does not persist personal form data in browser storage.
+
+Personal credit remains independently disabled in BOTH the server execution
+choice validator and the UI capability flag. A verified liability account is
+not permission to issue credit. Existing retained-credit-note settlements keep
+their historical semantics. Replacement terms, cancellation and monthly balance
+settlement are not enabled by the upfront controls.
+
+268 focused backend/database and mounted UI tests passed; the production build
+passed. No database migration was needed or applied for this update. No live
+payment, refund, credit, invoice or membership was changed during verification.
+
 ## Current connected monthly delivery — 26 October 2026
 
 This section supersedes the historical implementation notes below.

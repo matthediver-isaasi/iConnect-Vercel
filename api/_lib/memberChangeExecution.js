@@ -15,11 +15,21 @@ export function createMemberChangeExecutionService({db,settlement=createMemberAm
     const row=amendmentResult(await db.from('member_change_execution').select('*')
       .eq('tenant_id',context.tenantId).eq('member_id',context.memberId)
       .eq('authority_id',input.authorityId).maybeSingle());
-    if(!row) fail('No approved execution exists',404);
     return row;
   }
   async function resume(context,input) {
     const execution=await load(context,input);
+    if(!execution){
+      const saved=amendmentResult(await db.from('member_change_authority').select('authority')
+        .eq('tenant_id',context.tenantId).eq('member_id',context.memberId).eq('id',input.authorityId).maybeSingle());
+      if(!saved || saved.authority?.version!==1 || saved.authority?.action!=='change'
+        || saved.authority?.sourceSnapshot?.commitment_snapshot?.payment_frequency!=='upfront'){
+        fail('No supported confirmed financial change exists',404);
+      }
+      // A confirmed preview is not a financial instruction. The browser must
+      // collect a separate explicit approval; recovery never starts settlement.
+      return {execution:null,settlement:null,application:null,notifications:[],nextAction:'execute'};
+    }
     const args={amendmentId:execution.amendment_id};
     let life=await settlement.lifecycle(context.tenantId,execution.amendment_id);
     if(life.application) return {execution,...life};

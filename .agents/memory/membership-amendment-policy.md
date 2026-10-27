@@ -23,6 +23,17 @@ defaulting to no expiry.
 **How to apply:** Keep newly issued surplus separate from reversals of previously
 used vouchers; returning an existing voucher must preserve its original expiry.
 
+New surplus is iConnect-only member credit backed by liability accounting,
+not a simultaneously spendable accounting credit note.
+
+**Why:** The owner explicitly chose iConnect credit with liability accounting.
+Issuing an independent voucher while retaining a spendable accounting credit
+note would expose the same surplus twice.
+
+**How to apply:** Require a configured tenant liability account, verify that
+issuance and redemption use that same account, and do not release usable credit
+until its accounting backing and membership application are committed safely.
+
 For variable-monthly membership changes, service used is measured against
 membership-start anniversaries, not scheduled or actual collection dates.
 

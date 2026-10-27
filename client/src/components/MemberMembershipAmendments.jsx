@@ -10,6 +10,7 @@ import { FileText, History, Lock } from "lucide-react";
 import { adminFetch } from "@/lib/adminFetch";
 import MemberMembershipAmendmentLifecycle from "./MemberMembershipAmendmentLifecycle";
 import MemberMonthlyMembershipAmendments from "./MemberMonthlyMembershipAmendments";
+import MemberUpfrontFinancialChanges from "./MemberUpfrontFinancialChanges";
 
 const endpoint = "/api/membership/member-amendments";
 const dateLabel = value => {
@@ -308,6 +309,11 @@ function AmendmentPanel({ memberId, tenantId }) {
                />
             </li>)}</ol>}
         </section>
+        {(current?.commitment_snapshot?.payment_frequency === "upfront" || data?.financialChanges?.length > 0) && <MemberUpfrontFinancialChanges
+          key={`${tenantId || ""}:${memberId}:financial`}
+          memberId={memberId} tenantId={tenantId} data={data} actionsEnabled={!isError}
+          readResponse={readResponse} onRefresh={refetch}
+        />}
       </>}
     </CardContent>
   </Card>;
