@@ -10,6 +10,41 @@ import { isMemberSessionFenceRevoked } from './session.js';
 
 const TENANT = 'tenant-a';
 
+test('cancelled membership blocks portal sessions without changing separate team access',async()=>{
+ const member={id:'cancelled-member',tenant_id:TENANT,organization_id:null,membership_cancelled:true};
+ const client=db({members:[member]});
+ const portal=await evaluateMemberOrganisationLoginAccess({
+  supabase:client,memberId:member.id,tenantId:TENANT,checkMembershipCancellation:true,
+ });
+ assert.equal(portal.blocked,true);
+ assert.deepEqual(portal.causes,['membership_cancelled']);
+ const staff=await evaluateMemberOrganisationLoginAccess({
+  supabase:client,memberId:member.id,tenantId:TENANT,checkMembershipCancellation:false,
+ });
+ assert.equal(staff.blocked,false);
+});
+
+test('pre-rollout cancellation-column compatibility does not swallow database failures',async()=>{
+ let code='42703',reads=0;
+ const client={from(){
+  let columns;const q={select(value){columns=value;return q},eq(){return q},
+   async maybeSingle(){reads++;
+    if(columns.includes('membership_cancelled'))return {error:{code,message:'fixture'}};
+    return {data:{id:'member',tenant_id:null,organization_id:null}};
+   }};
+  return q;
+ }};
+ const legacy=await evaluateMemberOrganisationLoginAccess({
+  supabase:client,memberId:'member',checkMembershipCancellation:true,
+ });
+ assert.equal(legacy.blocked,false);assert.equal(reads,2);
+ code='08006';reads=0;
+ await assert.rejects(evaluateMemberOrganisationLoginAccess({
+  supabase:client,memberId:'member',checkMembershipCancellation:true,
+ }),error=>error.code==='SESSION_UNAVAILABLE');
+ assert.equal(reads,1);
+});
+
 function db({ organizations = [], settings = [], members = [], preferences = [] } = {}) {
   const tables = {
     organization: organizations,

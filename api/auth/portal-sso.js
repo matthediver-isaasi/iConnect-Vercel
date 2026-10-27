@@ -65,8 +65,8 @@ export default async function handler(req, res) {
     }
 
     // Membership pause (Task #3586): paused members cannot enter via SSO.
-    if (member.membership_paused === true) {
-      console.log('[Portal SSO] Member membership paused');
+    if (member.membership_paused === true || member.membership_cancelled === true) {
+      console.log('[Portal SSO] Member membership access restricted');
       return res.redirect('/login?error=account_disabled');
     }
 

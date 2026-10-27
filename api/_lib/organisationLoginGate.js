@@ -242,14 +242,23 @@ export async function evaluateMemberOrganisationLoginAccess({
   memberId,
   tenantId,
   member: suppliedMember,
+  checkMembershipCancellation = false,
 } = {}) {
   let member = suppliedMember || null;
   if (!member && memberId) {
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('member')
-      .select('id, tenant_id, organization_id')
+      .select(checkMembershipCancellation
+        ? 'id, tenant_id, organization_id, membership_cancelled'
+        : 'id, tenant_id, organization_id')
       .eq('id', memberId)
       .maybeSingle();
+    if (checkMembershipCancellation && ['42703', 'PGRST204'].includes(error?.code)) {
+      // Pre-rollout schemas cannot create cancellation requests. Preserve the
+      // existing organisation fence without swallowing other read failures.
+      ({ data, error } = await supabase.from('member').select('id, tenant_id, organization_id')
+        .eq('id', memberId).maybeSingle());
+    }
     if (error) throw sessionUnavailable(error);
     if (!data) {
       return {
@@ -262,6 +271,14 @@ export async function evaluateMemberOrganisationLoginAccess({
   }
   if (!member) {
     return { blocked: true, causes: ['member_unresolved'], message: DEFAULT_GATE_BLOCKED_MESSAGE };
+  }
+  if (checkMembershipCancellation && member.membership_cancelled === true) {
+    return {
+      blocked: true,
+      causes: ['membership_cancelled'],
+      message: 'This membership has been cancelled. Paying an outstanding invoice does not reactivate it.',
+      tenantId: member.tenant_id || tenantId || null,
+    };
   }
 
   let effectiveTenantId = tenantId || member.tenant_id || null;

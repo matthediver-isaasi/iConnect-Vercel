@@ -2,6 +2,37 @@
 
 ## Step 3 staged financial lifecycle — 27 October 2026
 
+### Cancellation continuation: internal implementation, not released
+
+The cancellation work now includes owned provider-stop preparation and
+read-only recovery; immediate access termination without erasing debt; scoped
+approval/idempotency; member-session enforcement that preserves staff access;
+scheduled job leases; verified card/DD cash reading; earned-debt and surplus
+document planning; and a private financial step journal/executor. Verified
+upfront cancellation finances also have a preview/approval boundary that
+recovers lost commit responses and refuses to treat later receipts as
+pre-cancellation cash.
+
+Debt reductions use fully allocated notes per original invoice. Refundable or
+liability-backed surplus uses a separate note. Notification outcomes retain the
+provider message identity; only proven non-submission permits retry.
+
+Migrations **047–051 remain unapplied**. These are draft migrations, not a live
+release. No live provider money or membership records were changed by this
+continuation. The server bundle compiles and **83 focused tests pass**, including
+native PostgreSQL claim, access, isolation and finalization checks. The
+application starts cleanly. The workspace preview still reports the existing
+default-tenant lookup failure, so signed-in UI verification was not performed.
+
+Step 3 is **not complete**. The cancellation protocol is not connected to a
+public/admin API, UI or the production cron. Remaining execution work includes
+the authoritative monthly financial evidence resolver, cancellation-specific
+credit issuance/redemption proofs, refund/balance completion, original-funder
+returns, in-flight collection handling, and scheduled-cancellation versus
+renewal/purchase races. The credit finalization branch deliberately fails closed
+until its companion issuance function exists. Do not apply these draft
+migrations or enable cancellation based only on the journal tests.
+
 ### Continued execution work
 
 Migration `202612310041_member_credit_backing_retries.sql` is applied to live

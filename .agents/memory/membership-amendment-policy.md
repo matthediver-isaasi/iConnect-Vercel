@@ -252,3 +252,24 @@ insert then fails even though financial documents have already been issued.
 **How to apply:** Use the same rolling-membership lock for admission and
 application across all three paths. Retain holds through unknown provider
 outcomes; a worker lease expiring is not authority to release a financial hold.
+
+Cancellation debt reductions and spendable surplus need separate accounting
+credit notes.
+
+**Why:** Liability backing verifies the full, unallocated surplus note.
+Combining unpaid-invoice reductions with cash surplus can leave an external
+write successful but unverifiable by the backing/recovery contract.
+
+**How to apply:** Fully allocate each debt-reduction note to its original
+invoice. Use a separate surplus note for refunds or liability backing, with
+the backing payment referencing that same surplus note.
+
+Do not treat money first verified after cancellation as automatically
+pre-cancellation, non-refundable prepaid value.
+
+**Why:** The tenant's prepaid-value policy must not turn a late collection of
+unused future instalments into retained revenue.
+
+**How to apply:** Preserve verified payment identities at approval and verify
+payment timing when evidence changes. Unknown timing requires financial review,
+not an assumed zero balance or automatic forfeiture.

@@ -40,7 +40,9 @@ export const MEMBER_PAUSE_FIELDS = Object.freeze([
 export function stripMemberPauseFields(body) {
   const stripped = [];
   if (!body || typeof body !== 'object') return stripped;
-  for (const f of MEMBER_PAUSE_FIELDS) {
+  // Cancellation is a separate lifecycle, but shares this generic-write fence.
+  // Do not add it to the pause SELECT list: older schemas still need pause reads.
+  for (const f of [...MEMBER_PAUSE_FIELDS, 'membership_cancelled']) {
     if (f in body) {
       delete body[f];
       stripped.push(f);

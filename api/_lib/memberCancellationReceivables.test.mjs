@@ -77,3 +77,23 @@ test('does not mutate the calculation or provider snapshot',()=>{
  plan(value);
  assert.deepEqual(value,before);
 });
+
+test('per-instalment invoices reduce later unused service first without duplicating earned debt',()=>{
+ const value=input({billed:12000,paid:3000,earned:4000});
+ const base=value.evidence.invoices[0];
+ value.evidence.invoices=[
+  {...base,id:'paid-first',status:'PAID',serviceStartDate:'2026-01-01',
+   amount:money(3000),paid:money(3000),due:money(0)},
+  {...base,id:'second',serviceStartDate:'2026-02-01',amount:money(3000),paid:money(0),due:money(3000)},
+  {...base,id:'third',serviceStartDate:'2026-03-01',amount:money(3000),paid:money(0),due:money(3000)},
+  {...base,id:'fourth',serviceStartDate:'2026-04-01',amount:money(3000),paid:money(0),due:money(3000)},
+ ];
+ const result=plan(value);
+ assert.deepEqual(result.creditAllocations,[
+  {invoiceId:'fourth',amountMinor:3000},{invoiceId:'third',amountMinor:3000},{invoiceId:'second',amountMinor:2000},
+ ]);
+ assert.equal(result.existingInvoiceDebtMinor,1000);
+ assert.equal(result.additionalInvoice.grossMinor,0);
+ value.evidence.invoices[1].accountCode='other-revenue';
+ assert.throws(()=>plan(value),/Different revenue/);
+});

@@ -242,6 +242,12 @@ export default async function handler(req, res) {
       }
 
       // Membership pause (Task #3586): paused members cannot log in via mobile.
+      if (member.membership_cancelled === true) {
+        return res.status(403).json({
+          success: false,
+          error: 'This membership has been cancelled. Paying an outstanding invoice does not reactivate it.',
+        });
+      }
       if (member.membership_paused === true) {
         return res.status(403).json({ success: false, error: 'Your membership is currently paused. Please contact an administrator.' });
       }

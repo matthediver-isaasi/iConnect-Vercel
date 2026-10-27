@@ -14,10 +14,10 @@ export function amendmentDay(value) {
   if (!Number.isFinite(ms) || new Date(ms).toISOString().slice(0,10) !== value) fail('Invalid calendar date.');
   return ms / 86400000;
 }
-export function amendmentTermDays(startDate, renewalDate, effectiveDate) {
+export function amendmentTermDays(startDate, renewalDate, effectiveDate, {allowTermEnd=false}={}) {
   const start = amendmentDay(startDate), renewal = amendmentDay(renewalDate), effective = amendmentDay(effectiveDate);
   const totalDays = renewal - start, remainingDays = renewal - effective;
-  if (totalDays <= 0 || remainingDays <= 0 || remainingDays > totalDays) fail('The effective date must be within the current term.');
+  if (totalDays <= 0 || remainingDays < 0 || (!allowTermEnd && remainingDays === 0) || remainingDays > totalDays) fail('The effective date must be within the current term.');
   return {totalDays,remainingDays,elapsedDays:totalDays-remainingDays};
 }
 function minor(value) {

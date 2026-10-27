@@ -92,6 +92,7 @@ for (const email of [
 for (const [changes, reason] of [
   [{ login_enabled: false }, 'login_disabled'],
   [{ membership_paused: true }, 'membership_paused'],
+  [{ membership_cancelled: true }, 'membership_cancelled'],
   [{ is_guest: true, guest_expires_at: '2000-01-01T00:00:00Z' }, 'guest_expired'],
   [{ email: 'deleted_fixture@deleted.local' }, 'no_member'],
 ]) {

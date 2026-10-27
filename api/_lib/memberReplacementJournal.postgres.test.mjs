@@ -9,6 +9,7 @@ import {amendmentFixture,uuid} from '../../scripts/test-support/member-amendment
 import {calculateAmendmentTerms} from './memberAmendmentCalculation.js';
 import {planMemberReplacementFinance} from './memberReplacementFinancialPlan.js';
 import {buildMemberReplacementHistory} from './memberReplacementHistory.js';
+import {MEMBERSHIP_CHANGE_POLICY_DEFAULTS} from './membershipChangePolicy.js';
 
 test('replacement accounting journal claims once, recovers observations and isolates tenants',{timeout:120000},async()=>{
  const h=await createLocalPostgresHarness('replacement-journal-'),clients=[];let started=false;
@@ -50,7 +51,10 @@ test('replacement accounting journal claims once, recovers observations and isol
    '202612310035_member_credit_provenance.sql','202612310036_member_credit_incomplete_funding_returns.sql',
    '202612310037_member_credit_funding_retries.sql','202612310042_member_replacement_journal.sql',
    '202612310043_member_replacement_application.sql','202612310044_member_replacement_credit.sql',
-   '202612310045_member_replacement_collection_holds.sql','202612310046_member_replacement_recovery.sql']){
+   '202612310045_member_replacement_collection_holds.sql','202612310046_member_replacement_recovery.sql',
+   '202612310047_member_cancellation_journal.sql','202612310048_member_cancellation_access.sql',
+   '202612310049_member_cancellation_admission.sql','202612310050_member_cancellation_recovery.sql',
+   '202612310051_member_cancellation_finance.sql']){
    await admin.query(readFileSync(`supabase/migrations/${file}`,'utf8'));
   }
   const today=new Date().toISOString().slice(0,10),f=amendmentFixture(today);
@@ -256,6 +260,103 @@ test('replacement accounting journal claims once, recovers observations and isol
   assert.equal((await admin.query("SELECT state FROM member_replacement_job WHERE execution_id=$1 AND kind='confirmation'",[creditExecution.id])).rows[0].state,'uncertain');
   assert.equal((await a.query("SELECT claim_member_replacement_job($1,$2,'confirmation') v",[f.tenantId,creditExecution.id])).rows[0].v,null);
   assert.equal((await a.query('SELECT member_credit_funding_proofs($1,$2)',[uuid(99),[uuid(47)]])).rows.length,0);
+  // Cancellation changes access independently of uncollected service debt.
+  // Exercise the real rolling constraints, not a simplified history table.
+  const cancelMember=uuid(72),cancelId=uuid(74);
+  await admin.query('INSERT INTO member(id,tenant_id) VALUES($1,$2)',[cancelMember,f.tenantId]);
+  const cancelInput=amendmentFixture(today).current;
+  Object.assign(cancelInput,{id:uuid(73),member_id:cancelMember,payment_method:'invoice'});
+  cancelInput.commitment_snapshot.payment_method='invoice';
+  const cancelSource=await insert('member_membership_history',cancelInput);
+  await assert.rejects(admin.query('UPDATE member SET membership_cancelled=true WHERE id=$1',[cancelMember]),/protected lifecycle/);
+  await insert('member_cancellation_request',{
+   id:cancelId,tenant_id:f.tenantId,member_id:cancelMember,source_record_id:cancelSource.id,
+   actor_id:uuid(9),request_key:'cancel-access-test',reason:'Approved immediate cancellation',
+   effective_date:today,timing:'immediate',source_snapshot:cancelSource,
+   calculation:{action:'cancel',sourceRecordId:cancelSource.id,membershipEndExclusiveDate:today,
+    accessWaitsForSettlement:false,paymentReactivatesMembership:false,cancellationChargeBasis:'service_used',
+    paymentDueMinor:1000,settlementStatus:'not_started'},
+  });
+  const accessArgs=[f.tenantId,cancelMember,cancelId,uuid(9)];
+  await admin.query(`CREATE FUNCTION reject_cancel_access_fixture() RETURNS trigger LANGUAGE plpgsql AS $$
+   BEGIN RAISE EXCEPTION 'injected access failure'; END $$;
+   CREATE TRIGGER reject_cancel_access_fixture BEFORE UPDATE OF membership_cancelled ON member
+   FOR EACH ROW WHEN(NEW.membership_cancelled) EXECUTE FUNCTION reject_cancel_access_fixture()`);
+  await assert.rejects(a.query('SELECT apply_member_cancellation_access($1,$2,$3,$4)',accessArgs),/injected access failure/);
+  assert.equal((await admin.query('SELECT status FROM member_membership_history WHERE id=$1',[cancelSource.id])).rows[0].status,'active');
+  assert.equal((await admin.query('SELECT access_ended_at FROM member_cancellation_request WHERE id=$1',[cancelId])).rows[0].access_ended_at,null);
+  await admin.query('DROP TRIGGER reject_cancel_access_fixture ON member');
+  const ended=await Promise.all([a,b].map(c=>c.query('SELECT apply_member_cancellation_access($1,$2,$3,$4) v',accessArgs)));
+  assert.equal(ended[0].rows[0].v.access_ended_at,ended[1].rows[0].v.access_ended_at);
+  assert.equal(ended[0].rows[0].v.calculation.paymentDueMinor,1000);
+  assert.equal((await admin.query('SELECT membership_cancelled FROM member WHERE id=$1',[cancelMember])).rows[0].membership_cancelled,true);
+  assert.equal((await admin.query("SELECT count(*) FROM member_cancellation_event WHERE request_id=$1 AND kind='access_ended'",[cancelId])).rows[0].count,'1');
+  await assert.rejects(admin.query('UPDATE member SET membership_cancelled=false WHERE id=$1',[cancelMember]),/protected lifecycle/);
+  await assert.rejects(admin.query("UPDATE member_membership_history SET status='active',payment_status='paid' WHERE id=$1",[cancelSource.id]),/cannot reactivate/);
+  const preserved=(await admin.query('SELECT to_jsonb(h) v FROM member_membership_history h WHERE id=$1',[cancelSource.id])).rows[0].v;
+  assert.deepEqual(preserved,{...cancelSource,status:'cancelled_by_request'});
+  const rejoined=await insert('member_membership_history',{...creditHistory,id:uuid(75),member_id:cancelMember});
+  assert.equal((await admin.query('SELECT membership_cancelled FROM member WHERE id=$1',[cancelMember])).rows[0].membership_cancelled,false);
+  const cleared=(await admin.query('SELECT cleared_by_history_id,calculation FROM member_cancellation_request WHERE id=$1',[cancelId])).rows[0];
+  assert.equal(cleared.cleared_by_history_id,rejoined.id);
+  assert.equal(cleared.calculation.paymentDueMinor,1000);
+  const cancelPolicy={...MEMBERSHIP_CHANGE_POLICY_DEFAULTS,cancellationTiming:'immediate'};
+  await admin.query('INSERT INTO membership_change_policy(tenant_id,policy,revision) VALUES($1,$2,1)',[f.tenantId,cancelPolicy]);
+  const admittedAuthority={tenantId:f.tenantId,memberId:cancelMember,actorId:uuid(9),
+   reason:'Cancel the distinct new purchase',timing:'immediate',effectiveDate:today,sourceSnapshot:rejoined,
+   policySnapshot:{policy:cancelPolicy,revision:1},providerPrepared:null,
+   calculation:{action:'cancel',sourceRecordId:rejoined.id,membershipEndExclusiveDate:today,
+    accessWaitsForSettlement:false,paymentReactivatesMembership:false,cancellationChargeBasis:'service_used',
+    paymentDueMinor:null,settlementStatus:'requires_reconciliation'}};
+  const admissionArgs=[f.tenantId,cancelMember,uuid(9),'new-cancel-request','a'.repeat(64),admittedAuthority];
+  const admission=await Promise.all([a,b].map(c=>c.query('SELECT begin_member_cancellation($1,$2,$3,$4,$5,$6) v',admissionArgs)));
+  assert.equal(admission[0].rows[0].v.id,admission[1].rows[0].v.id);
+  assert.ok(admission[0].rows[0].v.access_ended_at);
+  assert.equal(admission[0].rows[0].v.financial_state,'awaiting_reconciliation');
+  assert.equal(admission[0].rows[0].v.calculation.paymentDueMinor,null);
+  await assert.rejects(a.query('SELECT begin_member_cancellation($1,$2,$3,$4,$5,$6)',
+   [...admissionArgs.slice(0,5),{...admittedAuthority,reason:'changed'}]),/different evidence/);
+  const dueCancellationJobs=await Promise.all([a,b].map(c=>c.query('SELECT * FROM claim_member_cancellation_jobs(2)')));
+  const cancellationClaims=dueCancellationJobs.flatMap(result=>result.rows);
+  assert.equal(cancellationClaims.length,4);
+  assert.equal(new Set(cancellationClaims.map(row=>row.id)).size,4);
+  const notificationClaim=cancellationClaims.find(row=>row.kind.startsWith('notify_'));
+  assert.ok(notificationClaim);
+  await assert.rejects(a.query('SELECT finish_member_cancellation_job($1,$2,$3)',
+   [notificationClaim.id,notificationClaim.claim_token,'pending']),/cannot be retried/);
+  assert.equal((await a.query('SELECT finish_member_cancellation_job($1,$2,$3) v',
+   [notificationClaim.id,uuid(79),'done'])).rows[0].v,false);
+  await admin.query("UPDATE member_cancellation_job SET claimed_at=now()-interval '10 minutes' WHERE id=$1",[notificationClaim.id]);
+  await a.query('SELECT * FROM claim_member_cancellation_jobs(1)');
+  assert.equal((await admin.query('SELECT state FROM member_cancellation_job WHERE id=$1',[notificationClaim.id])).rows[0].state,'uncertain');
+  const accessBeforeFinancialSettlement=(await admin.query('SELECT membership_cancelled FROM member WHERE id=$1',[cancelMember])).rows[0].membership_cancelled;
+  const cancellationPlan={requestId:cancelId,memberId:cancelMember,sourceRecordId:cancelSource.id,
+   currency:cancelSource.currency,choice:'none',debtMinor:0,surplusMinor:0,steps:[{key:'original',kind:'original_invoice',
+    providerTenantId:'xero-tenant',contactId:'payer',currency:cancelSource.currency}]};
+  const cancellationCalc={sourceRecordId:cancelSource.id,action:'cancel',effectiveDate:today,
+   membershipEndExclusiveDate:today,accessWaitsForSettlement:false,paymentReactivatesMembership:false,
+   paymentDueMinor:0,surplusMinor:0};
+  const cancellationEvidence={complete:true,sourceRecordId:cancelSource.id,currency:cancelSource.currency,
+   providerTenantId:'xero-tenant',contactId:'payer'};
+  await a.query('SELECT prepare_member_cancellation_finance($1,$2,$3,$4,$5,$6,$7)',
+   [f.tenantId,cancelMember,cancelId,uuid(9),cancellationPlan,cancellationCalc,cancellationEvidence]);
+  const financeClaims=await Promise.all([a,b].map(c=>c.query('SELECT claim_member_cancellation_finance_step($1,$2,$3,$4,$5) v',
+   [f.tenantId,cancelMember,cancelId,uuid(9),'original'])));
+  assert.equal(financeClaims.filter(c=>c.rows[0].v.claimed).length,1);
+  const financialClaim=financeClaims.find(c=>c.rows[0].v.claimed).rows[0].v.operation;
+  const observeArgs=[f.tenantId,cancelMember,cancelId,uuid(9),'original',financialClaim.claim_token];
+  await a.query('SELECT observe_member_cancellation_finance_step($1,$2,$3,$4,$5,$6,$7)',
+   [...observeArgs,{state:'uncertain'}]);
+  await assert.rejects(a.query('SELECT observe_member_cancellation_finance_step($1,$2,$3,$4,$5,$6,$7)',
+   [...observeArgs,{state:'not_submitted',provenNotSubmitted:true}]),/not proof/);
+  await a.query('SELECT observe_member_cancellation_finance_step($1,$2,$3,$4,$5,$6,$7)',
+   [...observeArgs,{state:'observed',id:'verified-original'}]);
+  await a.query('SELECT record_member_cancellation_balance($1,$2,$3,$4,$5,$6)',
+   [f.tenantId,cancelMember,cancelId,uuid(9),'settled',{
+    verified:true,requestId:cancelId,currency:cancelSource.currency,kind:'zero_balance'}]);
+  assert.equal((await admin.query('SELECT membership_cancelled FROM member WHERE id=$1',[cancelMember])).rows[0].membership_cancelled,accessBeforeFinancialSettlement);
+  assert.equal((await admin.query('SELECT status FROM member_membership_history WHERE id=$1',[cancelSource.id])).rows[0].status,'cancelled_by_request');
+  await assert.rejects(a.query('DELETE FROM member_cancellation_finance WHERE request_id=$1',[cancelId]),/permission denied/);
   for(const role of ['anon','authenticated','service_role']){
    assert.equal((await admin.query('SELECT has_function_privilege($1,$2,$3) allowed',
     [role,'public.issue_member_replacement_credit(uuid,uuid,uuid,jsonb)','EXECUTE'])).rows[0].allowed,false);

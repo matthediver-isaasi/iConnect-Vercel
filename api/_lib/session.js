@@ -29,6 +29,7 @@ async function readMemberSessionAccessFence(sessionData) {
     supabase,
     memberId: sessionData?.memberId,
     tenantId: sessionData?.tenantId || null,
+    checkMembershipCancellation: !sessionData?.userType || sessionData.userType === 'member',
   });
   if (access.blocked) return { allowed: false, access };
 
@@ -837,8 +838,9 @@ async function readSessionMember(req, existingSession) {
     // Membership pause (Task #3586): paused members lose access immediately,
     // mirroring the login-disabled enforcement. login_enabled itself is not
     // rewritten, so resume never overrides a separate manual disable.
-    if (member.membership_paused === true) {
-      console.log('[Session] Member membership paused, rejecting session:', member.id);
+    if (member.membership_paused === true
+      || (member.membership_cancelled === true && (!session.data.userType || session.data.userType === 'member'))) {
+      console.log('[Session] Member membership access restricted, rejecting session:', member.id);
       await supabase.from('session').delete().eq('sid', session.id);
       return null;
     }

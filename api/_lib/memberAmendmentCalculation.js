@@ -26,7 +26,7 @@ const zero=()=>({netMinor:0,vatMinor:0,grossMinor:0});
  * authority and must not be silently applied or counted twice.
  */
 export function reconcileAmendmentFunding({
-  sourceRecordId,memberId,currency,frequency,pricingBasis,sourcePrice,term,effectiveDate,evidence,
+  sourceRecordId,memberId,currency,frequency,pricingBasis,sourcePrice,term,effectiveDate,evidence,allowTermEnd=false,
 }) {
   if (!sourceRecordId || !memberId || !/^[A-Z]{3}$/.test(currency||'')) fail('Purchase identity and currency are required.');
   if (!Intl.supportedValuesOf('currency').includes(currency)
@@ -39,7 +39,7 @@ export function reconcileAmendmentFunding({
   if(frequency==='monthly' && pricingBasis==='monthly_price' && !evidence?.variableMonthlyService) {
     fail('Variable monthly pricing requires anniversary-period service evidence.');
   }
-  const days=amendmentTermDays(term.startDate,term.renewalDate,effectiveDate);
+  const days=amendmentTermDays(term.startDate,term.renewalDate,effectiveDate,{allowTermEnd});
   const original=amendmentMoneyParts(sourcePrice);
   if (!evidence || evidence.sourceRecordId!==sourceRecordId || evidence.currency!==currency
     || evidence.asOfDate!==effectiveDate || evidence.complete!==true
@@ -96,7 +96,7 @@ export function reconcileAmendmentFunding({
 
 export function calculateAmendmentTerms({
   sourceRecordId,memberId,currency,frequency,pricingBasis,sourcePrice,term,effectiveDate,evidence,
-  behaviour,targetPrice,targetTerm,action='change',cancellationTiming='immediate',
+  behaviour,targetPrice,targetTerm,action='change',cancellationTiming='immediate',settlementAtTermEnd=false,
 }) {
   if(!['change','cancel'].includes(action))fail('Unsupported membership operation.');
   if(!['retain_term','new_term'].includes(behaviour))fail('An explicit governing term policy is required.');
@@ -104,7 +104,11 @@ export function calculateAmendmentTerms({
   if(frequency==='monthly' && pricingBasis==='monthly_price' && action==='change') {
     fail('Variable monthly target pricing requires an effective-dated collection quote, not an assumed fixed term total.');
   }
-  const finance=reconcileAmendmentFunding({sourceRecordId,memberId,currency,frequency,pricingBasis,sourcePrice,term,effectiveDate,evidence});
+  if(settlementAtTermEnd&&(action!=='cancel'||cancellationTiming!=='end_of_term'||effectiveDate!==term.renewalDate)){
+    fail('Final cancellation settlement must use the exact purchased term end.');
+  }
+  const finance=reconcileAmendmentFunding({sourceRecordId,memberId,currency,frequency,pricingBasis,sourcePrice,term,effectiveDate,evidence,
+    allowTermEnd:settlementAtTermEnd});
   let newCost=zero(),newTerm=null,unused=finance.available;
   if(action==='change') {
     const full=amendmentMoneyParts(targetPrice);
@@ -122,29 +126,31 @@ export function calculateAmendmentTerms({
     unused=zero();
   }
   const immediateCancellation=action==='cancel'&&cancellationTiming==='immediate';
+  const finalCancellation=immediateCancellation||settlementAtTermEnd;
   // Cancellation settles delivered service, not the uncollected annual
   // commitment. outstandingDue is reconciliation evidence, not another amount
   // to add: it can describe the same service debt already present here.
-  const delta=immediateCancellation
+  const delta=finalCancellation
     ? subtract(finance.consumed,finance.settled) : subtract(newCost,unused);
   const blockers=[...finance.blockers];
   // An existing annual invoice can contain unearned future fees as well as
   // earned debt. Do not create a second receivable for the same service debt.
-  if(immediateCancellation)blockers.push('cancellation_receivables_reconciliation_required');
+  if(finalCancellation)blockers.push('cancellation_receivables_reconciliation_required');
   if(frequency==='monthly')blockers.push('provider_schedule_coordination_required');
   if((delta.netMinor<0&&delta.vatMinor>0)||(delta.netMinor>0&&delta.vatMinor<0))blockers.push('mixed_tax_adjustment');
   return {
     version:2,action,behaviour,effectiveDate,cancellationTiming:action==='cancel'?cancellationTiming:null,
     membershipEndExclusiveDate:action==='cancel'?(cancellationTiming==='end_of_term'?term.renewalDate:effectiveDate):null,
     sourceRecordId,currency,finance,newTerm,newCost,unused,delta,blockers,
-    ...(immediateCancellation?{
+    ...(finalCancellation?{
       cancellationChargeBasis:'service_used',
       accessWaitsForSettlement:false,
       paymentReactivatesMembership:false,
+      settlementAtTermEnd,
     }:{}),
     targetFullPrice:action==='change'?amendmentMoneyParts(targetPrice):null,
-    paymentDueMinor:frequency==='monthly'&&!immediateCancellation?null:Math.max(delta.grossMinor,0),
-    futureObligationMinor:frequency==='monthly'?(immediateCancellation?0:Math.max(delta.grossMinor,0)):null,
+    paymentDueMinor:frequency==='monthly'&&!finalCancellation?null:Math.max(delta.grossMinor,0),
+    futureObligationMinor:frequency==='monthly'?(finalCancellation?0:Math.max(delta.grossMinor,0)):null,
     surplusMinor:Math.max(-delta.grossMinor,0),
     canAutomaticallySettle:blockers.length===0,
     // Calculation is never evidence of application, approval or provider success.

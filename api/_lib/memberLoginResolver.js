@@ -243,6 +243,15 @@ export function computeEffectiveLoginStatus(member, extra = {}) {
     };
   }
 
+  if (member.membership_cancelled === true) {
+    return {
+      canLogin: false,
+      reason: 'membership_cancelled',
+      message: 'This membership has been cancelled. Paying an outstanding invoice does not reactivate it.',
+      duplicateActiveMembers,
+    };
+  }
+
   // Membership pause (Task #3586): blocks access like login_disabled but via
   // its own flag, so resume can restore access without touching the manual
   // login-enabled toggle.

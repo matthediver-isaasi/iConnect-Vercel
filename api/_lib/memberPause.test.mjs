@@ -10,6 +10,13 @@ import {
   getPausedMemberIdSet,
 } from './memberPause.js';
 
+test('generic writes cannot set cancellation, without changing pause projection fields',()=>{
+ const body={membership_cancelled:false,first_name:'Member'};
+ assert.deepEqual(stripMemberPauseFields(body),['membership_cancelled']);
+ assert.deepEqual(body,{first_name:'Member'});
+ assert.equal(MEMBER_PAUSE_FIELDS.includes('membership_cancelled'),false);
+});
+
 test('stripMemberPauseFields removes every pause field and reports them', () => {
   const body = {
     first_name: 'Jo',
