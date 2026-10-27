@@ -65,19 +65,23 @@ export function agendaLineDetail(line) {
   return '';
 }
 
+export async function fetchTrainingAgendaLines(eventId, client = supabase) {
+  const lines = [];
+  for (let offset = 0; ; offset += 500) {
+    const { data, error } = await client.from('event_agenda_item')
+      .select('id, start_date, start_time, end_date, end_time, description, item_type, location, zoom_webinar_id, zoom_meeting_id, lms_url, sort_order')
+      .eq('event_id', eventId).order('id').range(offset, offset + 499);
+    if (error) throw new Error(`Unable to load training agenda: ${error.message}`);
+    lines.push(...(data || []));
+    if ((data || []).length < 500) break;
+  }
+  return lines.sort((a, b) => String(a.start_date || '').localeCompare(String(b.start_date || '')) ||
+    String(a.start_time || '').localeCompare(String(b.start_time || '')) || (a.sort_order || 0) - (b.sort_order || 0));
+}
+
 export async function fetchTrainingAgendaData(eventId, client = supabase) {
   if (!eventId || !client) return null;
-  const { data: lines, error } = await client
-    .from('event_agenda_item')
-    .select('id, start_date, start_time, end_date, end_time, description, item_type, location, zoom_webinar_id, zoom_meeting_id, lms_url, sort_order')
-    .eq('event_id', eventId)
-    .order('start_date', { ascending: true })
-    .order('start_time', { ascending: true, nullsFirst: true })
-    .order('sort_order', { ascending: true });
-  if (error) {
-    console.error('[trainingAgenda] agenda fetch error:', error.message);
-    return null;
-  }
+  const lines = await fetchTrainingAgendaLines(eventId, client);
   if (!lines || lines.length === 0) return { lines: [], agendaScheduleHtml: '' };
 
   // Resolve zoom join urls (local PKs on the line).
@@ -86,11 +90,13 @@ export async function fetchTrainingAgendaData(eventId, client = supabase) {
   const joinByWebinar = {};
   const joinByMeeting = {};
   if (webinarIds.length > 0) {
-    const { data } = await client.from('zoom_webinar').select('id, join_url, topic').in('id', webinarIds);
+    const { data, error } = await client.from('zoom_webinar').select('id, join_url, topic').in('id', webinarIds);
+    if (error) throw new Error('Unable to resolve training webinar links');
     for (const w of data || []) joinByWebinar[w.id] = w;
   }
   if (meetingIds.length > 0) {
-    const { data } = await client.from('zoom_meeting').select('id, join_url, topic').in('id', meetingIds);
+    const { data, error } = await client.from('zoom_meeting').select('id, join_url, topic').in('id', meetingIds);
+    if (error) throw new Error('Unable to resolve training meeting links');
     for (const m of data || []) joinByMeeting[m.id] = m;
   }
   for (const line of lines) {

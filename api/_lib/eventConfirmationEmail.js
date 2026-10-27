@@ -5,6 +5,7 @@ import { buildIcs, buildEventUid, buildSessionUid } from './icsBuilder.js';
 import { buildQrImageUrl, ensureBookingToken, ensureComplexSessionTokens } from './checkinService.js';
 import { fetchTrainingAgendaData, applyAgendaPlaceholders } from './trainingAgenda.js';
 import { resolveEventEmailSurvey } from './campaignEventSurvey.js';
+import { trainingReminderTargets, trainingReminderEvent } from './trainingReminderTargets.js';
 
 export function parseCcField(cc) {
   if (!cc || typeof cc !== 'string') return [];
@@ -694,6 +695,10 @@ export function replacePlaceholders(template, data) {
 
   result = result.replace(/\{\{event_name\}\}/gi, event?.title || '');
   result = result.replace(/\{\{event_date\}\}/gi, formatEventDate(event?.start_date, event?.timezone));
+  const eventTime = event?.start_date ? new Date(event.start_date).toLocaleTimeString('en-GB', {
+    hour: '2-digit', minute: '2-digit', timeZone: event.timezone || 'UTC',
+  }) : '';
+  result = result.replace(/\{\{event_time\}\}|\[\[event\.time\]\]/gi, () => eventTime);
   result = result.replace(/\{\{event_location\}\}/gi, event?.is_online ? 'Online Event' : (event?.location || ''));
   result = result.replace(/\{\{attendee_first_name\}\}/gi, booking?.attendee_first_name || '');
   result = result.replace(/\{\{attendee_last_name\}\}/gi, booking?.attendee_last_name || '');
@@ -806,7 +811,7 @@ export function formatBodyAsHtml(body) {
 //
 // Returns { found, subject, html, isComplex } — found=false when the event
 // does not exist in either table for the given tenant.
-export async function renderEventEmailPreview({ eventId, tenantId, subject, body, event_survey_assignment_id }) {
+export async function renderEventEmailPreview({ eventId, tenantId, subject, body, event_survey_assignment_id, reminder, sessionId, now = new Date() }) {
   if (!supabase) return { found: false };
 
   let eventQuery = supabase
@@ -860,6 +865,31 @@ export async function renderEventEmailPreview({ eventId, tenantId, subject, body
     trainingAgendaData = await fetchTrainingAgendaData(eventId);
   }
 
+  let reminderContext = null;
+  let trainingAgendaLine = null;
+  if (event.is_training && reminder?.email_type === 'reminder') {
+    if (!trainingAgendaData) throw new Error('Unable to load training agenda');
+    const calculation = trainingReminderTargets(event, reminder, trainingAgendaData.lines, now);
+    const selected = sessionId
+      ? calculation.eligible.find(t => t.sessionId === sessionId)
+      : calculation.eligible[0];
+    reminderContext = {
+      timezone: calculation.timezone,
+      entries: calculation.eligible.map(t => ({
+        id: t.sessionId, sessionDate: t.anchor?.toISOString() || null,
+        sendAt: t.scheduledTime.toISOString(), description: t.line?.description || 'Specific date/time reminder',
+        legacyTime: !!t.legacyTime,
+      })),
+      selectedId: selected?.sessionId || null,
+      sendAt: selected?.scheduledTime.toISOString() || null,
+      emptyReason: !selected ? 'No eligible future reminder for this selection. Elapsed reminder times are not caught up; check the agenda and reminder timing.' : null,
+      warnings: calculation.skipped,
+    };
+    if (!selected) return { found: true, subject: '', html: '', isComplex: false, reminderContext };
+    trainingAgendaLine = selected.line;
+    event = trainingReminderEvent(event, selected);
+  }
+
   // Clearly-labelled sample attendee/booking values so nothing renders blank.
   const sampleBooking = {
     id: 'sample-booking-id',
@@ -877,14 +907,14 @@ export async function renderEventEmailPreview({ eventId, tenantId, subject, body
   let renderedSubject = replacePlaceholders(surveyContent.subject || '', { event, booking: sampleBooking, complexEventData });
   let renderedBody = replacePlaceholders(surveyContent.body || '', { event, booking: sampleBooking, complexEventData });
   if (!event.is_complex) {
-    renderedSubject = applyAgendaPlaceholders(renderedSubject, { agendaData: trainingAgendaData });
-    renderedBody = applyAgendaPlaceholders(renderedBody, { agendaData: trainingAgendaData });
+    renderedSubject = applyAgendaPlaceholders(renderedSubject, { agendaData: trainingAgendaData, line: trainingAgendaLine });
+    renderedBody = applyAgendaPlaceholders(renderedBody, { agendaData: trainingAgendaData, line: trainingAgendaLine });
   }
 
   // The real send appends entrance-QR cards for in-person events. Mirror that
   // with a sample QR (no token creation side effects) so admins see the shape.
   let qrHtml = '';
-  if (!event.is_online && event.qr_on_confirmation !== false) {
+  if (reminder?.email_type !== 'reminder' && !event.is_online && event.qr_on_confirmation !== false) {
     qrHtml = `<div style="font-family: Arial, sans-serif;margin-top:24px;">
       <h3 style="font-size:16px;color:#333333;margin:0 0 8px 0;text-align:center;">Your entrance QR code${event.is_complex ? 's' : ''}</h3>
       ${renderQrCard(buildQrImageUrl('SAMPLE-PREVIEW-TOKEN'), 'Sample QR code — each attendee receives their own unique code')}
@@ -896,6 +926,7 @@ export async function renderEventEmailPreview({ eventId, tenantId, subject, body
     subject: renderedSubject,
     html: formatBodyAsHtml(renderedBody) + qrHtml,
     isComplex: !!event.is_complex,
+    reminderContext,
   };
 }
 

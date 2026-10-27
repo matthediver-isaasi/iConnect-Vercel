@@ -1,6 +1,7 @@
 import { supabase } from './database.js';
 import { pickDayAnchorSessions } from './complexEventReminders.js';
-import { fromZonedTime, formatInTimeZone } from 'date-fns-tz';
+import { trainingReminderTargets, trainingTargetSnapshot } from './trainingReminderTargets.js';
+import { fetchTrainingAgendaLines } from './trainingAgenda.js';
 
 export function isAbsoluteReminder(email) {
   return (
@@ -55,6 +56,8 @@ function emptyResult() {
     bookingsConsidered: 0,
     schedulingFailures: [],
     skipped: [],
+    preserved: 0,
+    cancelled: 0,
   };
 }
 
@@ -233,41 +236,37 @@ export async function scheduleReminderEmails(eventId) {
   }
 }
 
-// Task #3419: Training-event reminders. The single configured schedule is
-// applied to EACH agenda line: every relative reminder offset produces one
-// scheduled_email row per (booking, agenda line), anchored to the line's
-// start date. The line's wall-clock anchor time is the event's own start
-// time-of-day in the event timezone (fallback 09:00), so "1 day before"
-// behaves consistently with the event-level reminder.
-// Dedupe key stays (event_email_id, booking_id, session_id) with session_id
-// holding the agenda line id; re-saving never double-schedules, and pending
-// rows for deleted/retyped lines are cancelled on reconcile.
-// Absolute (specific date/time) reminders remain once per booking, session_id NULL.
-export async function scheduleTrainingEventReminderEmails(event, client = supabase) {
+// Training reminders use stable per-entry identity; confirmations and complex
+// calendar-day rules are deliberately separate. Saving templates never calls this.
+export async function scheduleTrainingEventReminderEmails(event, client = supabase, { bookingId = null, now = new Date() } = {}) {
   const result = emptyResult();
   const bookingSet = new Set();
   const failureBag = new Map();
   const eventId = event.id;
-  const timezone = event.timezone || 'Europe/London';
 
   try {
     const { data: reminderEmails, error: emailsError } = await client
       .from('event_email')
       .select('*')
       .eq('event_id', eventId)
-      .eq('email_type', 'reminder')
-      .eq('is_enabled', true);
+      .eq('email_type', 'reminder');
     if (emailsError) {
       result.error = emailsError.message;
       return result;
     }
     if (!reminderEmails || reminderEmails.length === 0) return result;
 
-    const { data: bookings, error: bookingsError } = await client
-      .from('booking')
-      .select('id, attendee_email')
-      .eq('event_id', eventId)
-      .neq('status', 'cancelled');
+    const bookings = [];
+    let bookingsError = null;
+    for (let offset = 0; ; offset += 500) {
+      let query = client.from('booking').select('id, attendee_email, status')
+        .eq('event_id', eventId).order('id').range(offset, offset + 499);
+      if (bookingId) query = query.eq('id', bookingId);
+      const page = await query;
+      if (page.error) { bookingsError = page.error; break; }
+      bookings.push(...(page.data || []));
+      if ((page.data || []).length < 500) break;
+    }
     if (bookingsError) {
       result.error = bookingsError.message;
       return result;
@@ -280,39 +279,16 @@ export async function scheduleTrainingEventReminderEmails(event, client = supaba
       return result;
     }
 
-    const { data: agendaLines, error: agendaError } = await client
-      .from('event_agenda_item')
-      .select('id, start_date, end_date, item_type, sort_order')
-      .eq('event_id', eventId)
-      .order('sort_order', { ascending: true });
-    if (agendaError) {
-      result.error = agendaError.message;
-      return result;
-    }
-
-    // Anchor wall-clock time: the event's start time-of-day in event timezone.
-    let anchorTime = '09:00:00';
-    if (event.start_date) {
-      try {
-        anchorTime = formatInTimeZone(new Date(event.start_date), timezone, 'HH:mm:ss');
-      } catch { /* keep default */ }
-    }
-    const lineAnchors = (agendaLines || [])
-      .filter((l) => l.start_date)
-      .map((l) => {
-        let anchor = null;
-        try {
-          anchor = fromZonedTime(`${l.start_date}T${anchorTime}`, timezone);
-        } catch { anchor = null; }
-        return anchor && !isNaN(anchor.getTime()) ? { line: l, anchor } : null;
-      })
-      .filter(Boolean);
-    const lineIds = new Set(lineAnchors.map((a) => a.line.id));
+    const agendaLines = await fetchTrainingAgendaLines(eventId, client);
 
     for (const email of reminderEmails) {
-      const isAbsolute = isAbsoluteReminder(email);
+      const calculation = trainingReminderTargets(event, email, agendaLines, now);
+      result.skipped.push(...calculation.skipped.map(s => ({ ...s, event_email_id: email.id })));
+      if (!calculation.eligible.length) result.skipped.push({ event_email_id: email.id, reason: 'No future reminder times' });
 
       for (const booking of bookings) {
+        const targets = email.is_enabled && booking.status !== 'cancelled' ? calculation.eligible : [];
+        const targetIds = new Set(targets.map(t => t.sessionId));
         // Reconcile: cancel pending line-bound rows whose line no longer exists.
         const { data: existingRows, error: existingRowsError } = await client
           .from('scheduled_email')
@@ -322,35 +298,28 @@ export async function scheduleTrainingEventReminderEmails(event, client = supaba
           .eq('status', 'pending');
         if (existingRowsError) {
           recordWriteFailure(failureBag, email, existingRowsError, booking.id);
+          continue;
         } else {
           const obsoleteIds = (existingRows || [])
-            .filter((r) => r.session_id != null && !lineIds.has(r.session_id))
+            .filter((r) => !targetIds.has(r.session_id || null))
             .map((r) => r.id);
           if (obsoleteIds.length > 0) {
-            const { error: cancelError } = await client
+            const { data: cancelled, error: cancelError } = await client
               .from('scheduled_email')
               .update({ status: 'cancelled' })
-              .in('id', obsoleteIds);
+              .in('id', obsoleteIds)
+              .eq('status', 'pending').select('id');
             if (cancelError) recordWriteFailure(failureBag, email, cancelError, booking.id);
+            else result.cancelled += cancelled?.length || 0;
           }
         }
 
-        const targets = isAbsolute
-          ? [{ sessionId: null, anchor: null }]
-          : lineAnchors.map((a) => ({ sessionId: a.line.id, anchor: a.anchor }));
-
-        if (!isAbsolute && targets.length === 0) {
-          result.skipped.push({ event_email_id: email.id, email_type: email.email_type, reason: 'no_agenda_lines' });
-          break; // same for every booking
-        }
-
         for (const target of targets) {
-          const scheduledTime = calculateScheduledTime(target.anchor, email);
-          if (!scheduledTime || scheduledTime <= new Date()) continue;
+          const scheduledTime = target.scheduledTime;
 
           let lookup = client
             .from('scheduled_email')
-            .select('id')
+            .select('id, status, error_message')
             .eq('event_email_id', email.id)
             .eq('booking_id', booking.id);
           lookup = target.sessionId ? lookup.eq('session_id', target.sessionId) : lookup.is('session_id', null);
@@ -361,11 +330,17 @@ export async function scheduleTrainingEventReminderEmails(event, client = supaba
           }
 
           if (existing) {
-            const { error: updateError } = await client
+            // Failed/claimed outcomes may have reached the provider. Never retry
+            // them through this administrative scheduling operation.
+            if (!['pending', 'cancelled'].includes(existing.status)) { result.preserved++; continue; }
+            const { data: updated, error: updateError } = await client
               .from('scheduled_email')
-              .update({ scheduled_send_time: scheduledTime.toISOString(), status: 'pending' })
-              .eq('id', existing.id);
+              .update({ scheduled_send_time: scheduledTime.toISOString(), status: 'pending',
+                training_target_snapshot: trainingTargetSnapshot(event, email, target), error_message: null })
+              .eq('id', existing.id)
+              .eq('status', existing.status).select('id');
             if (updateError) { recordWriteFailure(failureBag, email, updateError, booking.id); continue; }
+            if (!updated?.length) { result.preserved++; continue; }
           } else {
             const { error: insertError } = await client
               .from('scheduled_email')
@@ -376,8 +351,12 @@ export async function scheduleTrainingEventReminderEmails(event, client = supaba
                 scheduled_send_time: scheduledTime.toISOString(),
                 status: 'pending',
                 session_id: target.sessionId,
+                training_target_snapshot: trainingTargetSnapshot(event, email, target),
               });
-            if (insertError) { recordWriteFailure(failureBag, email, insertError, booking.id); continue; }
+            if (insertError) {
+              if (insertError.code !== '23505') recordWriteFailure(failureBag, email, insertError, booking.id);
+              continue;
+            }
           }
 
           result.requeued += 1;

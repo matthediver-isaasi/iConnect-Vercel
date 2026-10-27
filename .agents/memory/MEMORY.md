@@ -143,6 +143,7 @@
 - [Git authentication authority](git-authentication-authority.md) — connection health and public reads do not prove push authentication; a successful bypass is not a permanent repair.
 - [Event speaker audiences](event-speaker-audience-policy.md) — linked member email is authoritative; ad-hoc speakers stay external and normal consent applies.
 - [Training agenda timezone policy](training-agenda-timezone-policy.md) — event-zone wall clocks; reject DST gaps/overlaps until occurrence choices can be persisted.
+- [Training reminder delivery policy](training-reminder-delivery-policy.md) — per-entry scope, elapsed offsets, explicit existing-booking scheduling and non-retryable unknown delivery outcomes.
 - [Event display timezone policy](event-display-timezone-policy.md) — audience timezones are display-only; scheduling and date-only agendas stay unchanged.
 - [Node request header copies](node-request-header-copies.md) — object spread drops inherited request headers; use explicit headers and real IncomingMessage test fixtures.
 - [Public bookmark query loops](public-bookmark-query-loop.md) — guest-only 401 loops can clear shared queries and blank unrelated public carousels.

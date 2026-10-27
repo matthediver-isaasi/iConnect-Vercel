@@ -870,7 +870,7 @@ export default function EditEvent() {
         const skippedSuffix = result.skipped?.length
           ? ` (${formatSkippedSummary(result.skipped)})`
           : '';
-        toast.success(`Queued ${result.requeued} reminder(s) for ${result.bookingsScheduled} booking(s)${skippedSuffix}`);
+        toast.success(`Queued ${result.requeued} reminder(s) for ${result.bookingsScheduled} booking(s). Preserved ${result.preserved || 0} sent/claimed reminder(s); cancelled ${result.cancelled || 0} obsolete reminder(s).${skippedSuffix}`);
       }
       queryClient.invalidateQueries({ queryKey: ['event-emails', eventId] });
     } catch (err) {
@@ -4946,6 +4946,12 @@ export default function EditEvent() {
                 mode="event"
                 eventId={eventId}
               />
+              {!loadingEmails && eventEmails.length > 0 && (
+                <p className="text-sm text-slate-600">
+                  Save Email Settings saves templates only. Then use Re-queue reminders to activate eligible future reminders for existing bookings.
+                  New bookings receive eligible reminders automatically. Sent or claimed training reminders are never re-sent.
+                </p>
+              )}
               {!loadingEmails && eventEmails.length > 0 && (
                 <div className="flex flex-wrap justify-end gap-2 pt-2">
                   <Button

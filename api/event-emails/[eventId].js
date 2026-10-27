@@ -13,6 +13,18 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Event ID is required' });
   }
 
+  const ctx = await getTenantContext(req);
+  if (!ctx.isAuthenticated) return res.status(401).json({ error: 'Authentication required' });
+  if (!ctx.tenantId || !await hasAdminAccess(ctx)) return res.status(403).json({ error: 'Admin access required' });
+  let owned = false;
+  for (const table of ['event', 'complex_event']) {
+    const { data, error } = await supabase.from(table).select('id').eq('id', eventId)
+      .eq('tenant_id', ctx.tenantId).maybeSingle();
+    if (error) return res.status(500).json({ error: 'Unable to verify event ownership' });
+    if (data) { owned = true; break; }
+  }
+  if (!owned) return res.status(404).json({ error: 'Event not found' });
+
   if (req.method === 'GET') {
     try {
       const { data, error } = await supabase
@@ -75,6 +87,12 @@ export default async function handler(req, res) {
 
       const idsToDelete = [...existingIds].filter(id => !incomingIds.has(id));
       if (idsToDelete.length > 0) {
+        const { data: history, error: historyError } = await supabase.from('scheduled_email')
+          .select('id').in('event_email_id', idsToDelete).limit(1);
+        if (historyError) return res.status(500).json({ error: 'Unable to check reminder history' });
+        if (history?.length) return res.status(409).json({
+          error: 'This reminder has scheduling history. Disable it instead of deleting it to preserve delivery history.',
+        });
         const { error: deleteError } = await supabase
           .from('event_email')
           .delete()

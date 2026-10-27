@@ -20,6 +20,7 @@ import { isResourceExcluded } from '../_lib/roleVisibility.js';
 import { sendEmail, replacePlaceholders } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
 import { scheduleComplexEventReminders } from '../_lib/complexEventReminders.js';
+import { scheduleTrainingEventReminderEmails } from '../_lib/scheduleReminders.js';
 import { getZoomAccessTokenForTenant } from '../_lib/zoomClient.js';
 import { getXeroCredentials } from '../_lib/xeroCredentials.js';
 import { getAccountingProvider, getAccountingProviderByName, buildInvoiceColumnUpdate } from '../_lib/accountingProvider.js';
@@ -324,12 +325,18 @@ async function scheduleBookingReminderEmails(bookingId, eventId, attendeeEmail, 
 
     const { data: event, error: eventError } = await supabase
       .from('event')
-      .select('id, start_date, title')
+      .select('id, start_date, title, is_training, timezone')
       .eq('id', eventId)
       .single();
 
     if (eventError || !event) {
       console.log('[scheduleBookingReminderEmails] No event found');
+      return;
+    }
+
+    if (event.is_training) {
+      const result = await scheduleTrainingEventReminderEmails(event, supabase, { bookingId });
+      if (result.error || result.schedulingFailures.length) console.error('[training reminders]', result);
       return;
     }
 

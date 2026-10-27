@@ -2,14 +2,15 @@ import { sendEmail } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
 import { resolveEventEmailSurvey } from '../_lib/campaignEventSurvey.js';
 import { buildInboxDelivery } from '../_lib/transactionalInbox.js';
-import { fetchComplexEventData, parseCcField } from '../_lib/eventConfirmationEmail.js';
+import { fetchComplexEventData, parseCcField, replacePlaceholders as renderPlaceholders } from '../_lib/eventConfirmationEmail.js';
 import { fetchTrainingAgendaData, applyAgendaPlaceholders, safeHttpUrl } from '../_lib/trainingAgenda.js';
+import { trainingReminderEvent, validateTrainingReminder } from '../_lib/trainingReminderTargets.js';
 
 export default async function handler(req, res) {
   const authHeader = req.headers.authorization;
   const cronSecret = process.env.CRON_SECRET;
   
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
     console.log('[cron/send-event-reminders] Unauthorized request');
     return res.status(401).json({ error: 'Unauthorized' });
   }
@@ -58,14 +59,29 @@ export default async function handler(req, res) {
 
     let sentCount = 0;
     let failedCount = 0;
+    const skipped = [];
 
     for (const scheduledEmail of pendingEmails) {
+      // Use an existing terminal status as a fail-closed claim: a crash or an
+      // ambiguous provider outcome requires investigation, never automatic retry.
+      const { data: claimed, error: claimError } = await supabase.from('scheduled_email')
+        .update({ status: 'failed', error_message: 'Delivery claimed; outcome unknown. Do not re-send without checking delivery history.' })
+        .eq('id', scheduledEmail.id).eq('status', 'pending')
+        .eq('scheduled_send_time', scheduledEmail.scheduled_send_time).select('id');
+      if (claimError || !claimed?.length) continue;
       try {
-        const eventEmail = scheduledEmail.event_email;
+        const { data: eventEmail, error: configError } = await supabase.from('event_email')
+          .select('*').eq('id', scheduledEmail.event_email_id).maybeSingle();
+        if (configError) throw configError;
         if (!eventEmail) {
           console.log(`[cron/send-event-reminders] No event_email found for scheduled_email ${scheduledEmail.id}`);
           await markAsFailed(scheduledEmail.id, 'Event email configuration not found');
           failedCount++;
+          continue;
+        }
+        if (!eventEmail.is_enabled || eventEmail.email_type !== 'reminder') {
+          await markAsCancelled(scheduledEmail.id, 'Reminder disabled or no longer a reminder');
+          skipped.push({ id: scheduledEmail.id, reason: 'Reminder disabled or no longer a reminder' });
           continue;
         }
 
@@ -115,9 +131,10 @@ export default async function handler(req, res) {
           continue;
         }
 
-        if (booking.status === 'cancelled') {
+        if (booking.status === 'cancelled' || booking.event_id !== eventEmail.event_id) {
           console.log(`[cron/send-event-reminders] Booking ${scheduledEmail.booking_id} is cancelled, skipping`);
-          await markAsCancelled(scheduledEmail.id);
+          await markAsCancelled(scheduledEmail.id, 'Booking cancelled or no longer belongs to event');
+          skipped.push({ id: scheduledEmail.id, reason: 'Booking cancelled or no longer belongs to event' });
           continue;
         }
 
@@ -199,6 +216,23 @@ export default async function handler(req, res) {
         let trainingAgendaLine = null;
         if (!event.is_complex) {
           trainingAgendaData = await fetchTrainingAgendaData(event.id);
+          if (event.is_training) {
+            if (!trainingAgendaData) throw new Error('Unable to load training agenda; delivery suppressed');
+            // Read the additive column only for training events. A deployment
+            // ahead of the migration must not stop unrelated event reminders.
+            const { data: targetState, error: targetStateError } = await supabase.from('scheduled_email')
+              .select('training_target_snapshot').eq('id', scheduledEmail.id).single();
+            if (targetStateError) throw new Error('Training reminder target verification unavailable; check the target-snapshot migration before scheduling delivery');
+            const validation = validateTrainingReminder(event, eventEmail,
+              { ...scheduledEmail, training_target_snapshot: targetState?.training_target_snapshot },
+              trainingAgendaData.lines);
+            if (validation.reason) {
+              await markAsCancelled(scheduledEmail.id, validation.reason);
+              skipped.push({ id: scheduledEmail.id, reason: validation.reason });
+              continue;
+            }
+            event = trainingReminderEvent(event, validation.target);
+          }
           if (scheduledEmail.session_id && trainingAgendaData?.lines) {
             trainingAgendaLine = trainingAgendaData.lines.find(l => l.id === scheduledEmail.session_id) || null;
             // Prefer the line's own join link for {{zoom_link}} on Online
@@ -211,13 +245,13 @@ export default async function handler(req, res) {
         }
 
         const surveyContent = await resolveEventEmailSurvey(supabase, eventEmail, event, isComplexEvent ? 'complex_event' : 'event');
-        let subject = replacePlaceholders(surveyContent.subject, {
+        let subject = renderPlaceholders(surveyContent.subject, {
           event,
           booking,
           complexEventData
         });
 
-        let body = replacePlaceholders(surveyContent.body, {
+        let body = renderPlaceholders(surveyContent.body, {
           event,
           booking,
           complexEventData
@@ -247,13 +281,15 @@ export default async function handler(req, res) {
         });
 
         if (emailResult.success) {
-          await supabase
+          const { error: sentError } = await supabase
             .from('scheduled_email')
             .update({
               status: 'sent',
-              sent_at: new Date().toISOString()
+              sent_at: new Date().toISOString(),
+              error_message: null
             })
             .eq('id', scheduledEmail.id);
+          if (sentError) throw new Error('Provider accepted delivery but recording success failed; check delivery history');
           
           sentCount++;
           console.log(`[cron/send-event-reminders] Sent reminder to ${scheduledEmail.attendee_email}`);
@@ -274,7 +310,8 @@ export default async function handler(req, res) {
     return res.status(200).json({
       message: 'Reminder emails processed',
       sent: sentCount,
-      failed: failedCount
+      failed: failedCount,
+      skipped
     });
 
   } catch (err) {
@@ -293,11 +330,12 @@ async function markAsFailed(emailId, errorMessage) {
     .eq('id', emailId);
 }
 
-async function markAsCancelled(emailId) {
+async function markAsCancelled(emailId, reason = 'Reminder no longer eligible') {
   await supabase
     .from('scheduled_email')
     .update({
-      status: 'cancelled'
+      status: 'cancelled',
+      error_message: reason
     })
     .eq('id', emailId);
 }

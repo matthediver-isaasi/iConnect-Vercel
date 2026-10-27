@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { readEventEmailSaveResponse } from "./eventEmailSaveResponse.js";
 import CampaignEventSurveySettings from '@/components/CampaignEventSurveySettings';
 import { Button } from "@/components/ui/button";
@@ -192,23 +192,27 @@ export default function EventEmailSettingsEditor({
   const [codeViewMode, setCodeViewMode] = useState({});
   // Preview modal state: null | { emailId, loading, error, subject, html }
   const [preview, setPreview] = useState(null);
+  const previewRequest = useRef(0);
 
-  const openPreview = async (email) => {
+  const openPreview = async (email, sessionId = null) => {
+    const requestId = ++previewRequest.current;
     setPreview({ emailId: email.id, loading: true, error: null, subject: "", html: "" });
     try {
       const response = await fetch(`/api/event-emails/${eventId}/preview`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ subject: email.subject || "", body: email.body || "", event_survey_assignment_id: email.event_survey_assignment_id || null }),
+        body: JSON.stringify({ subject: email.subject || "", body: email.body || "", event_survey_assignment_id: email.event_survey_assignment_id || null, reminder: email, sessionId }),
       });
       const result = await response.json().catch(() => ({}));
+      if (requestId !== previewRequest.current) return;
       if (!response.ok) {
         setPreview({ emailId: email.id, loading: false, error: result.error || `Preview failed (${response.status})`, subject: "", html: "" });
         return;
       }
-      setPreview({ emailId: email.id, loading: false, error: null, subject: result.subject || "", html: result.html || "" });
+      setPreview({ emailId: email.id, email, reminderContext: result.reminderContext, loading: false, error: null, subject: result.subject || "", html: result.html || "" });
     } catch (err) {
+      if (requestId !== previewRequest.current) return;
       setPreview({ emailId: email.id, loading: false, error: err.message || "Network error", subject: "", html: "" });
     }
   };
@@ -545,12 +549,12 @@ export default function EventEmailSettingsEditor({
         </div>
       ))}
 
-      <Dialog open={!!preview} onOpenChange={(open) => { if (!open) setPreview(null); }}>
+      <Dialog open={!!preview} onOpenChange={(open) => { if (!open) { previewRequest.current++; setPreview(null); } }}>
         <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Email preview</DialogTitle>
             <DialogDescription>
-              Rendered with sample attendee details (e.g. "Jane Example"). This is how the email will look to recipients.
+              Unsaved draft with sample attendee details (e.g. "Jane Example"). Preview never sends or queues an email.
             </DialogDescription>
           </DialogHeader>
           {preview?.loading ? (
@@ -568,6 +572,27 @@ export default function EventEmailSettingsEditor({
             </div>
           ) : preview ? (
             <div className="flex flex-col min-h-0 flex-1 space-y-3">
+              {preview.reminderContext && (
+                <div className="rounded border p-3 text-sm space-y-2" data-testid="training-reminder-context">
+                  <p>Timezone: {preview.reminderContext.timezone}</p>
+                  {preview.reminderContext.emptyReason ? <p role="status">{preview.reminderContext.emptyReason}</p> : <>
+                    <label htmlFor="training-reminder-session">Training agenda entry</label>
+                    <select id="training-reminder-session" className="block w-full border rounded p-2"
+                      value={preview.reminderContext.selectedId || ""}
+                      onChange={e => openPreview(preview.email, e.target.value)}>
+                      {preview.reminderContext.entries.map(entry => (
+                        <option key={entry.id || "absolute"} value={entry.id || ""}>
+                          {entry.sessionDate ? new Date(entry.sessionDate).toLocaleString("en-GB", { timeZone: preview.reminderContext.timezone }) : "Once per booking"} — {entry.description}{entry.legacyTime ? " (legacy date-only time)" : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <p>Intended send time: {new Date(preview.reminderContext.sendAt).toLocaleString("en-GB", { timeZone: preview.reminderContext.timezone })}</p>
+                  </>}
+                  <p>Each relative reminder applies once per dated agenda entry, including separate entries on the same day. A date range uses its start only. Day offsets are 24-hour periods. Elapsed send times are not caught up.</p>
+                  <p>Legacy date-only entries use the event's start clock time on that entry's own date (09:00 if absent). The full agenda token always shows the full schedule.</p>
+                  {preview.reminderContext.warnings?.map(w => <p key={w.session_id} role="alert">{w.reason}</p>)}
+                </div>
+              )}
               <div>
                 <Label className="text-xs uppercase tracking-wide text-slate-500">Subject</Label>
                 <div className="mt-1 p-2 border rounded-md bg-slate-50 text-sm font-medium break-words" data-testid="email-preview-subject">
