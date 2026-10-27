@@ -9,6 +9,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Check, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import ZoomRegistrationEvidence from "./ZoomRegistrationEvidence";
 
 const formatStart = (iso) => {
   if (!iso) return "";
@@ -46,6 +47,7 @@ export default function ChangeZoomDialog({
   targetLabel = "event",
   initialType = "webinar",
   onSuccess,
+  currentTarget,
 }) {
   const [type, setType] = useState(initialType);
   const [targetId, setTargetId] = useState("");
@@ -58,9 +60,19 @@ export default function ChangeZoomDialog({
   const [impactCount, setImpactCount] = useState(null);
   const [cancelOld, setCancelOld] = useState(true);
   const [registerNew, setRegisterNew] = useState(true);
-  const [resendEmails, setResendEmails] = useState(true);
+  const [resendEmails, setResendEmails] = useState(false);
   const [convertInPerson, setConvertInPerson] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [evidence, setEvidence] = useState(null);
+  const [evidenceError, setEvidenceError] = useState(null);
+  const [checkingEvidence, setCheckingEvidence] = useState(false);
+  const [enableRegistration, setEnableRegistration] = useState(false);
+  const [outcome, setOutcome] = useState(null);
+  const [detectedCurrent, setDetectedCurrent] = useState(null);
+  const isEvent = endpointBase.startsWith('/api/events/');
+  const isReconcile = mode === 'reconcile';
+  const current = currentTarget || detectedCurrent;
+  const sameTarget = targetId && targetId === current?.[`zoom_${type}_id`];
 
   const isAttach = mode === "attach";
   const isDetach = mode === "detach";
@@ -68,21 +80,24 @@ export default function ChangeZoomDialog({
   useEffect(() => {
     if (!open) return;
     setType(initialType);
-    setTargetId("");
+    setTargetId(isReconcile ? currentTarget?.[`zoom_${initialType}_id`] || "" : "");
     setShowPast(false);
     setSearch("");
     setDateFrom("");
     setDateTo("");
-    setCancelOld(!isAttach);
+    setCancelOld(!isAttach && !isReconcile);
     setRegisterNew(!isDetach);
-    setResendEmails(!isDetach);
+    setResendEmails(false);
+    setOutcome(null);
+    setDetectedCurrent(null);
+    setEnableRegistration(false);
     setConvertInPerson(false);
     setImpactCount(null);
 
     if (!isAttach) {
       fetch(`${endpointBase}/change-zoom`, { credentials: "include" })
         .then(r => (r.ok ? r.json() : null))
-        .then(d => setImpactCount(d?.confirmedBookings ?? null))
+        .then(d => { setImpactCount(d?.confirmedBookings ?? null); setDetectedCurrent(d?.current || null); })
         .catch(() => setImpactCount(null));
     }
 
@@ -92,13 +107,28 @@ export default function ChangeZoomDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
+  useEffect(() => {
+    if (!open || !isEvent || !targetId || isDetach) return;
+    let active = true;
+    setCheckingEvidence(true);
+    setEvidence(null);
+    setEvidenceError(null);
+    setEnableRegistration(false);
+    fetch(`${endpointBase}/change-zoom?zoom_${type}_id=${encodeURIComponent(targetId)}`, { credentials: 'include' })
+      .then(async r => { const d = await r.json(); if (!r.ok) throw new Error(d.error || 'Preflight failed'); return d; })
+      .then(d => { if (active) { setEvidence(d); setImpactCount(d.confirmedBookings); } })
+      .catch(e => { if (active) setEvidenceError(e); })
+      .finally(() => { if (active) setCheckingEvidence(false); });
+    return () => { active = false; };
+  }, [open, targetId, type, endpointBase, isEvent, isDetach]);
+
   const loadItems = (t, includePast) => {
     setLoadingItems(true);
     const qs = includePast ? "" : "?upcoming=true";
     fetch(`/api/zoom/${t === "meeting" ? "meetings" : "webinars"}${qs}`, { credentials: "include" })
-      .then(r => r.json())
+      .then(r => { if (!r.ok) throw new Error('Could not load Zoom targets'); return r.json(); })
       .then(d => setItems(Array.isArray(d) ? d : (d?.data || [])))
-      .catch(() => setItems([]))
+      .catch(e => { setItems([]); toast.error(e.message); })
       .finally(() => setLoadingItems(false));
   };
 
@@ -124,31 +154,42 @@ export default function ChangeZoomDialog({
       toast.error(`Please select a ${type}`);
       return;
     }
+    if (resendEmails && !confirm('Send confirmation emails to the confirmed attendees now? This is separate from registration and may repeat previously sent emails.')) return;
     setSubmitting(true);
+    setOutcome(null);
     try {
       const body = {
         zoom_webinar_id: type === "webinar" ? targetId : null,
         zoom_meeting_id: type === "meeting" ? targetId : null,
-        cancelOld,
+        cancelOld: sameTarget ? false : cancelOld,
         registerNew,
         resendConfirmations: resendEmails,
+        ...(isEvent ? { enableRegistration } : {}),
       };
+      const totals = { cancelled: 0, registered: 0, existing: 0, pending: 0, denied: 0, skipped: 0, missingEmail: 0, failed: 0, emailed: 0, errors: [] };
+      let cursor = null, result;
+      do {
       const resp = await fetch(`${endpointBase}/change-zoom`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ ...body, afterBookingId: cursor }),
       });
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));
         throw new Error(err.error || "Change Zoom failed");
       }
-      const result = await resp.json();
-      const verb = isAttach ? "attached" : "updated";
-      toast.success(`Zoom ${verb}. Cancelled ${result.cancelled || 0}, registered ${result.registered || 0}, emailed ${result.emailed || 0}.`);
-      if (result.errors?.length) console.warn("[change-zoom] errors:", result.errors);
-      onOpenChange(false);
+      result = await resp.json();
+      for (const key of Object.keys(totals)) {
+        if (key === 'errors') totals.errors.push(...(result.errors || []));
+        else totals[key] += result[key] || 0;
+      }
+      setOutcome({ ...totals });
       if (onSuccess) onSuccess(result);
+      cursor = result.nextCursor || null;
+      } while (cursor);
+      if (totals.errors.length || totals.failed || totals.missingEmail || totals.pending || totals.denied) toast.warning('Zoom action completed with items needing attention. See the results below.');
+      else toast.success('Zoom action completed. See registration results below.');
     } catch (err) {
       toast.error(`Failed to ${isAttach ? "attach" : "change"} Zoom: ${err.message}`);
     } finally {
@@ -196,6 +237,7 @@ export default function ChangeZoomDialog({
     attach: "Attach Zoom Link",
     change: "Change Zoom Link",
     detach: "Detach Zoom Link",
+    reconcile: "Reconcile Zoom registrations",
   };
 
   return (
@@ -205,10 +247,11 @@ export default function ChangeZoomDialog({
           <DialogTitle>{titleByMode[mode]}</DialogTitle>
           <DialogDescription>
             {isAttach
-              ? `Attach a Zoom ${type} to this ${targetLabel}. Confirmed attendees will be registered with Zoom and (optionally) emailed the new join link.`
+              ? `Attach a Zoom ${type} and make this ${targetLabel} online. Attendee registration and emails are separate choices below.`
               : isDetach
                 ? `Remove the Zoom link from this ${targetLabel}. Existing confirmed attendees can be cancelled from the previous Zoom.`
-                : `Switch this ${targetLabel} to a different Zoom ${type}. Existing confirmed attendees can be cancelled from the previous Zoom and re-registered against the new one.`}
+                 : isReconcile ? 'Retry missing registrations for the current Zoom target. Existing registrations are retained. Emails are off by default.'
+                 : `Switch this ${targetLabel} to a different Zoom ${type}. Existing confirmed attendees can be cancelled from the previous Zoom and re-registered against the new one.`}
             {impactCount !== null && !isAttach && (
               <span className="block mt-2 font-medium text-foreground" data-testid="text-change-zoom-impact">
                 Impact: {impactCount} confirmed booking{impactCount === 1 ? "" : "s"} would be affected.
@@ -218,7 +261,7 @@ export default function ChangeZoomDialog({
         </DialogHeader>
 
         <div className="space-y-4 py-2">
-          {!isDetach && (
+          {!isDetach && !isReconcile && (
             <>
               <div>
                 <Label className="mb-2 block">Type</Label>
@@ -322,8 +365,8 @@ export default function ChangeZoomDialog({
                           className="flex items-start justify-between gap-2"
                           data-testid={`option-zoom-${it.id}`}
                         >
-                          <span className="break-words whitespace-normal min-w-0 flex-1">{it.topic || it.title || it.id}</span>
-                          <span className="shrink-0 text-xs text-muted-foreground">{formatStart(it.start_time)}</span>
+                          <span className="break-words whitespace-normal min-w-0 flex-1">{it.topic || it.title || it.id} — {it.zoom_meeting_id || it.zoom_webinar_id} {it.id === current?.[`zoom_${type}_id`] ? '(current target)' : ''}</span>
+                          <span className="shrink-0 text-xs text-muted-foreground">{formatStart(it.start_time)} {it.timezone}</span>
                           <Check className={`h-4 w-4 shrink-0 ${targetId === it.id ? "opacity-100" : "opacity-0"}`} />
                         </CommandItem>
                       ))
@@ -334,8 +377,28 @@ export default function ChangeZoomDialog({
             </>
           )}
 
+          {!isDetach && !isReconcile && (current?.zoom_meeting_id || current?.zoom_webinar_id) && <Button type="button" variant="outline" onClick={() => {
+            setType(current.zoom_meeting_id ? 'meeting' : 'webinar');
+            setTargetId(current.zoom_meeting_id || current.zoom_webinar_id);
+            setCancelOld(false);
+            setRegisterNew(true);
+            setResendEmails(false);
+          }}>Use current Zoom target to reconcile registrations</Button>}
+          {sameTarget && <p className="text-sm">Current target: existing registrations will not be cancelled. Missing registrations are processed in batches; keep this dialog open.</p>}
+          {isEvent && targetId && !isDetach && <ZoomRegistrationEvidence evidence={evidence} loading={checkingEvidence} error={evidenceError} />}
+          {isEvent && registerNew && evidence?.live?.registration_required === false && (
+            <div className="p-3 border rounded space-y-2">
+              <p>Zoom registration is disabled. Enabling it requires attendees to use registration-specific links; previously shared links and emails may no longer provide direct access. Existing emails are not updated. Zoom may send its own registration notifications.</p>
+              <label className="flex gap-2"><Checkbox checked={enableRegistration} onCheckedChange={v => setEnableRegistration(v === true)} /> Enable registration and register confirmed attendees</label>
+              <p>Alternatively, uncheck “Register confirmed attendees” to attach only.</p>
+            </div>
+          )}
+          {outcome && <div role="status" className="p-3 border rounded" data-testid="zoom-action-outcome">
+            <p>Newly registered: {outcome.registered}; already registered: {outcome.existing}; pending: {outcome.pending}; denied: {outcome.denied}; skipped: {outcome.skipped}; missing email: {outcome.missingEmail}; failed: {outcome.failed}; cancelled: {outcome.cancelled}; emailed: {outcome.emailed}.</p>
+            {outcome.errors.map((e, i) => <p key={i}>{e.phase}: {e.message}</p>)}
+          </div>}
           <div className="space-y-2 pt-2 border-t">
-            {!isAttach && (
+            {!isAttach && !isReconcile && !sameTarget && (
               <div className="flex items-center space-x-2">
                 <Checkbox
                   id={`cz-${targetLabel}-cancel-old`}
@@ -358,7 +421,7 @@ export default function ChangeZoomDialog({
                     data-testid="checkbox-change-zoom-register-new"
                   />
                   <Label htmlFor={`cz-${targetLabel}-register-new`} className="cursor-pointer text-sm">
-                    Register confirmed attendees with new Zoom
+                    Register confirmed attendees
                   </Label>
                 </div>
                 <div className="flex items-center space-x-2">
@@ -374,7 +437,7 @@ export default function ChangeZoomDialog({
                 </div>
               </>
             )}
-            {!isAttach && (
+            {!isAttach && !isReconcile && (
               <div className="flex items-center space-x-2 pt-2 border-t">
                 <Checkbox
                   id={`cz-${targetLabel}-convert-in-person`}
@@ -424,12 +487,12 @@ export default function ChangeZoomDialog({
             <Button
               type="button"
               onClick={handleAttachOrChange}
-              disabled={submitting || !targetId}
+              disabled={submitting || !targetId || (isEvent && (checkingEvidence || !evidence?.live || (registerNew && !evidence.live.registration_required && !enableRegistration)))}
               data-testid="button-change-zoom-confirm"
             >
               {submitting
                 ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" />{isAttach ? "Attaching…" : "Updating…"}</>)
-                : (isAttach ? "Attach Zoom Link" : "Update Zoom Link")}
+                : (isReconcile ? "Reconcile registrations" : isAttach ? "Attach Zoom Link" : "Update Zoom Link")}
             </Button>
           )}
         </DialogFooter>

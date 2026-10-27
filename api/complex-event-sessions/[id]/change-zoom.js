@@ -3,10 +3,10 @@ import { getTenantContext, hasAdminAccess } from '../../_lib/tenantContext.js';
 import {
   cancelZoomRegistrant,
   cancelZoomMeetingRegistrant,
-  registerZoomWebinarAttendee,
-  registerZoomMeetingAttendee,
 } from '../../_lib/zoomClient.js';
 import { sendConfirmationEmailsFromTemplate } from '../../_lib/eventConfirmationEmail.js';
+import { zoomAuthority } from '../../_lib/eventZoomRegistration.js';
+import { listZoomRegistrations, registerWithZoom } from '../../_lib/zoomRegistration.js';
 
 // Loads a zoom_webinar / zoom_meeting row from the local table by its PK.
 // Returns the cached row including the external Zoom resource ID + URLs +
@@ -17,6 +17,7 @@ async function loadLocalZoomRecord(table, pkId, tenantId) {
     .from(table)
     .select('*')
     .eq('id', pkId)
+    .eq('tenant_id', tenantId)
     .maybeSingle();
   if (error) {
     // Surface DB errors (e.g. missing column) as a real error instead of
@@ -45,18 +46,20 @@ function externalZoomIdFromLocal(table, row) {
 // A booking impacts a session if its ticket grants access to a track that
 // includes the session, OR the ticket has all_tracks=true.
 async function resolveSessionScopedBookings(session, tenantId) {
-  const { data: stRows } = await supabase
+  const { data: stRows, error: trackError } = await supabase
     .from('complex_event_session_track')
     .select('complex_event_track_id')
     .eq('complex_event_session_id', session.id)
     .eq('tenant_id', tenantId);
+  if (trackError) throw new Error('Session track lookup failed');
   const trackIds = (stRows || []).map(r => r.complex_event_track_id).filter(Boolean);
 
-  const { data: tcRows } = await supabase
+  const { data: tcRows, error: ticketError } = await supabase
     .from('complex_event_ticket_class')
     .select('id, all_tracks, linked_track_ids')
     .eq('complex_event_id', session.complex_event_id)
     .eq('tenant_id', tenantId);
+  if (ticketError) throw new Error('Session ticket lookup failed');
 
   const matchingTcIds = (tcRows || []).filter(tc => {
     if (tc.all_tracks) return true;
@@ -66,15 +69,21 @@ async function resolveSessionScopedBookings(session, tenantId) {
 
   if (matchingTcIds.length === 0) return [];
 
-  const { data: bookings } = await supabase
+  const bookings = [];
+  for (let offset = 0; ; offset += 500) {
+  const { data, error } = await supabase
     .from('complex_event_booking')
     .select('id, attendee_email, attendee_first_name, attendee_last_name, status, event_id, tenant_id, total_paid, ticket_class_id')
     .eq('event_id', session.complex_event_id)
     .eq('tenant_id', tenantId)
     .eq('status', 'confirmed')
-    .in('ticket_class_id', matchingTcIds);
-
-  return bookings || [];
+    .in('ticket_class_id', matchingTcIds).order('id').range(offset, offset + 499);
+  if (error || !data) throw new Error('Session booking lookup failed');
+  bookings.push(...data);
+  if (data.length < 500) break;
+  if (bookings.length >= 50000) throw new Error('Too many session bookings');
+  }
+  return bookings;
 }
 
 export default async function handler(req, res) {
@@ -92,13 +101,23 @@ export default async function handler(req, res) {
 
   // GET → preview the attendee impact count for this session.
   if (req.method === 'GET') {
+    try {
     const { data: session } = await supabase
       .from('complex_event_session')
-      .select('id, complex_event_id, tenant_id')
+      .select('id, complex_event_id, tenant_id, zoom_meeting_id, zoom_webinar_id')
       .eq('id', id).eq('tenant_id', tenantId).single();
     if (!session) return res.status(404).json({ error: 'Session not found' });
     const bookings = await resolveSessionScopedBookings(session, tenantId);
-    return res.status(200).json({ confirmedBookings: bookings.length });
+    const current = { zoom_meeting_id: null, zoom_webinar_id: null };
+    for (const kind of ['meeting', 'webinar']) {
+      if (!session[`zoom_${kind}_id`]) continue;
+      const { data, error } = await supabase.from(`zoom_${kind}`).select('id')
+        .eq('tenant_id', tenantId).eq(`zoom_${kind}_id`, session[`zoom_${kind}_id`]).maybeSingle();
+      if (error) throw new Error('Current Zoom target lookup failed');
+      current[`zoom_${kind}_id`] = data?.id || null;
+    }
+    return res.status(200).json({ confirmedBookings: bookings.length, current });
+    } catch (error) { return res.status(502).json({ error: error.message }); }
   }
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   // Inputs are LOCAL zoom_webinar / zoom_meeting PKs (UUIDs) coming from the
@@ -108,8 +127,9 @@ export default async function handler(req, res) {
     zoom_meeting_id: meetingLocalPk = null,
     cancelOld = true,
     registerNew = true,
-    resendConfirmations = true,
+    resendConfirmations = false,
     convert_to_in_person = false,
+    afterBookingId = null,
   } = req.body || {};
 
   if (webinarLocalPk && meetingLocalPk) {
@@ -139,6 +159,19 @@ export default async function handler(req, res) {
 
     const newExternalWebinarId = externalZoomIdFromLocal('zoom_webinar', newLocalWebinar);
     const newExternalMeetingId = externalZoomIdFromLocal('zoom_meeting', newLocalMeeting);
+    const sameTarget = priorExternalWebinarId === newExternalWebinarId && priorExternalMeetingId === newExternalMeetingId;
+    const allBookings = await resolveSessionScopedBookings(session, tenantId);
+    if (!sameTarget && allBookings.length > 25 && (registerNew || cancelOld || resendConfirmations)) {
+      return res.status(409).json({ error: 'For more than 25 bookings, attach without attendee actions first, then select the current Zoom target to reconcile registrations. Existing registrations will not be cancelled.' });
+    }
+    if (afterBookingId && !sameTarget) return res.status(409).json({ error: 'Zoom target changed; restart reconciliation.' });
+    const bookings = allBookings.filter(b => !afterBookingId || b.id > afterBookingId).slice(0, 25);
+    let authority = null, registrants = null;
+    if ((registerNew || resendConfirmations) && (newLocalWebinar || newLocalMeeting)) {
+      authority = await zoomAuthority(tenantId, newLocalWebinar || newLocalMeeting, newLocalMeeting ? 'meetings' : 'webinars');
+      if (registerNew && !authority.live.registration_required) return res.status(409).json({ error: 'Registration is disabled in Zoom. Enable it in Zoom first, or uncheck registration to attach only.' });
+      if (authority.live.registration_required) registrants = await listZoomRegistrations(authority.token, authority.kind, authority.id);
+    }
 
     // Build session update.  For complex_event_session, store EXTERNAL Zoom
     // IDs (consistent with sync-zoom).  Pull join/start/registration URLs +
@@ -150,12 +183,13 @@ export default async function handler(req, res) {
       zoom_join_url: newLocal?.join_url || null,
       zoom_start_url: newLocal?.start_url || null,
       zoom_registration_url: newLocal?.registration_url || null,
+      ...(newLocal ? { online_provider: 'zoom' } : {}),
     };
     if (newExternalWebinarId) sessionUpdate.zoom_type = 'webinar';
     else if (newExternalMeetingId) sessionUpdate.zoom_type = 'meeting';
     else sessionUpdate.zoom_type = null;
 
-    if (newLocal?.start_time) {
+    if (newLocal?.start_time && !sameTarget) {
       sessionUpdate.start_time = newLocal.start_time;
       // Local zoom_meeting/zoom_webinar use `duration_minutes`; fall back to
       // `duration` for any legacy rows.
@@ -178,8 +212,16 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: updErr.message });
     }
 
-    const bookings = await resolveSessionScopedBookings(session, tenantId);
-    const summary = { cancelled: 0, registered: 0, emailed: 0, errors: [], bookingsConsidered: bookings.length };
+    const summary = { cancelled: 0, registered: 0, existing: 0, skipped: 0, pending: 0, denied: 0, failed: 0, missingEmail: 0, emailed: 0, errors: [], bookingsConsidered: bookings.length };
+    const recordResult = (r, bookingId) => {
+      if (r?.skipped) summary.skipped++;
+      else if (r?.outcome === 'pending' || r?.outcome === 'denied') summary[r.outcome]++;
+      else if (r?.success && r.already_registered) summary.existing++;
+      else if (r?.success) summary.registered++;
+      else summary.failed++;
+      if (!r?.success) summary.errors.push({ bookingId, phase: 'register', message: r?.error || r?.outcome || 'Register failed' });
+      return r?.success ? r.join_url || null : null;
+    };
 
     // Helpers expect objects shaped like the local zoom row (registerZoom*).
     const newWebinarForRegister = newLocalWebinar
@@ -190,20 +232,20 @@ export default async function handler(req, res) {
       : null;
 
     for (const b of bookings) {
-      if (!b.attendee_email) continue;
+      if (!b.attendee_email?.trim()) { summary.missingEmail++; continue; }
       const attendee = {
         first_name: b.attendee_first_name || '',
         last_name: b.attendee_last_name || '',
         email: b.attendee_email,
       };
 
-      if (cancelOld) {
+      if (cancelOld && !sameTarget) {
         try {
           if (priorExternalWebinarId) {
-            await cancelZoomRegistrant(tenantId, priorExternalWebinarId, b.attendee_email);
+            if (!await cancelZoomRegistrant(tenantId, priorExternalWebinarId, b.attendee_email)) throw new Error('Zoom cancellation failed');
             summary.cancelled += 1;
           } else if (priorExternalMeetingId) {
-            await cancelZoomMeetingRegistrant(tenantId, priorExternalMeetingId, b.attendee_email);
+            if (!await cancelZoomMeetingRegistrant(tenantId, priorExternalMeetingId, b.attendee_email)) throw new Error('Zoom cancellation failed');
             summary.cancelled += 1;
           }
         } catch (err) { summary.errors.push({ bookingId: b.id, phase: 'cancel', message: err.message }); }
@@ -213,18 +255,24 @@ export default async function handler(req, res) {
       if (registerNew) {
         try {
           if (newWebinarForRegister) {
-            const r = await registerZoomWebinarAttendee(tenantId, newWebinarForRegister, attendee);
-            if (r?.success) { summary.registered += 1; personalizedJoinUrl = r.join_url || null; }
-            else if (r && !r.success) summary.errors.push({ bookingId: b.id, phase: 'register', message: r.error || 'Register failed' });
+            const r = await registerWithZoom(authority.token, authority.kind, authority.id, attendee, registrants);
+            personalizedJoinUrl = recordResult(r, b.id);
           } else if (newMeetingForRegister) {
-            const r = await registerZoomMeetingAttendee(tenantId, newMeetingForRegister, attendee);
-            if (r?.success) { summary.registered += 1; personalizedJoinUrl = r.join_url || null; }
-            else if (r && !r.success) summary.errors.push({ bookingId: b.id, phase: 'register', message: r.error || 'Register failed' });
+            const r = await registerWithZoom(authority.token, authority.kind, authority.id, attendee, registrants);
+            personalizedJoinUrl = recordResult(r, b.id);
           }
-        } catch (err) { summary.errors.push({ bookingId: b.id, phase: 'register', message: err.message }); }
+        } catch (err) { summary.failed++; summary.errors.push({ bookingId: b.id, phase: 'register', message: err.message }); }
       }
 
+      if (!registerNew && authority?.live.registration_required) {
+        const existing = registrants.get(b.attendee_email.trim().toLowerCase());
+        if (existing?.status === 'approved') personalizedJoinUrl = existing.join_url || null;
+      }
       if (resendConfirmations) {
+        if (authority?.live.registration_required && !personalizedJoinUrl) {
+          summary.errors.push({ bookingId: b.id, phase: 'email', message: 'Email not sent: registration did not supply an approved join link' });
+          continue;
+        }
         try {
           const results = await sendConfirmationEmailsFromTemplate(
             session.complex_event_id, b, attendee, personalizedJoinUrl, null, tenantId,
@@ -247,13 +295,14 @@ export default async function handler(req, res) {
       side_effects: { cancelOld: !!cancelOld, registerNew: !!registerNew, resendConfirmations: !!resendConfirmations },
       outcome: { cancelled: summary.cancelled, registered: summary.registered, emailed: summary.emailed, errors: summary.errors.length },
     };
-    await supabase
+    const { error: historyError } = await supabase
       .from('complex_event_session')
       .update({ history_log: [...prevHistory, historyEntry] })
       .eq('id', id).eq('tenant_id', tenantId);
 
-    console.log(`[ChangeZoomSession] session=${id} tenant=${tenantId} summary=${JSON.stringify(summary)}`);
-    return res.status(200).json({ success: true, ...summary });
+    if (historyError) summary.errors.push({ phase: 'history', message: 'Actions completed but history could not be saved' });
+    const hasMore = sameTarget && allBookings.some(b => b.id > bookings.at(-1)?.id);
+    return res.status(200).json({ success: summary.errors.length === 0, ...summary, nextCursor: hasMore ? bookings.at(-1).id : null });
   } catch (err) {
     console.error('[ChangeZoomSession] error:', err);
     return res.status(500).json({ error: err.message || 'Failed to change Zoom link' });

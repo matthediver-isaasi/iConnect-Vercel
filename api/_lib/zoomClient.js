@@ -1,6 +1,7 @@
 import { supabase } from './database.js';
 import { getSessionMember, getSessionTenantUser } from './session.js';
 import crypto from 'crypto';
+import { readZoomRegistration, listZoomRegistrations, registerWithZoom } from './zoomRegistration.js';
 
 const ENCRYPTION_KEY = process.env.INTEGRATION_ENCRYPTION_KEY || process.env.SESSION_SECRET;
 
@@ -244,50 +245,21 @@ export async function cancelZoomRegistrant(tenantId, zoomWebinarId, email) {
 }
 
 export async function registerZoomWebinarAttendee(tenantId, webinar, attendee) {
+  return registerVerifiedAttendee(tenantId, 'webinars', webinar.zoom_webinar_id, attendee);
+}
+
+async function registerVerifiedAttendee(tenantId, kind, id, attendee) {
   try {
-    if (!webinar.zoom_webinar_id) {
-      return { success: false, error: 'Webinar not synced with Zoom' };
-    }
-
-    if (!webinar.registration_required) {
-      return { success: true, skipped: true, reason: 'Registration not required' };
-    }
-
+    if (!id) return { success: false, outcome: 'failed', error: 'Not synced with Zoom' };
+    if (!attendee.email?.trim()) return { success: false, outcome: 'missing_email', error: 'Missing attendee email' };
     const token = await getZoomAccessTokenForTenant(tenantId);
-
-    const zoomResponse = await fetch(
-      `https://api.zoom.us/v2/webinars/${webinar.zoom_webinar_id}/registrants`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          first_name: attendee.first_name || 'Guest',
-          last_name: attendee.last_name || 'Attendee',
-          email: attendee.email,
-          auto_approve: true
-        })
-      }
-    );
-
-    if (!zoomResponse.ok) {
-      const errorData = await zoomResponse.json().catch(() => ({}));
-      if (errorData.code === 3027) {
-        console.log(`[ZoomClient] ${attendee.email} already registered for webinar ${webinar.zoom_webinar_id}`);
-        return { success: true, already_registered: true };
-      }
-      console.error(`[ZoomClient] Registration error for ${attendee.email}:`, JSON.stringify(errorData));
-      return { success: false, error: errorData.message || 'Zoom registration failed', code: errorData.code };
+    const live = await readZoomRegistration(token, kind, id);
+    if (!live.registration_required) {
+      return { success: false, skipped: true, outcome: 'skipped', error: 'Registration is disabled in Zoom. An administrator must explicitly enable it.' };
     }
-
-    const zoomData = await zoomResponse.json();
-    console.log(`[ZoomClient] Registered ${attendee.email} for webinar ${webinar.zoom_webinar_id}, join_url: ${zoomData.join_url}`);
-    return { success: true, registrant_id: zoomData.registrant_id, join_url: zoomData.join_url };
+    return await registerWithZoom(token, kind, id, attendee, await listZoomRegistrations(token, kind, id));
   } catch (err) {
-    console.error(`[ZoomClient] Registration exception for ${attendee.email}:`, err.message);
-    return { success: false, error: err.message };
+    return { success: false, outcome: 'failed', error: err.message };
   }
 }
 
@@ -351,51 +323,7 @@ export async function cancelZoomMeetingRegistrant(tenantId, zoomMeetingId, email
 }
 
 export async function registerZoomMeetingAttendee(tenantId, meeting, attendee) {
-  try {
-    if (!meeting.zoom_meeting_id) {
-      return { success: false, error: 'Meeting not synced with Zoom' };
-    }
-
-    if (!meeting.registration_required) {
-      return { success: true, skipped: true, reason: 'Registration not required' };
-    }
-
-    const token = await getZoomAccessTokenForTenant(tenantId);
-
-    const zoomResponse = await fetch(
-      `https://api.zoom.us/v2/meetings/${meeting.zoom_meeting_id}/registrants`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          first_name: attendee.first_name || 'Guest',
-          last_name: attendee.last_name || 'Attendee',
-          email: attendee.email,
-          auto_approve: true
-        })
-      }
-    );
-
-    if (!zoomResponse.ok) {
-      const errorData = await zoomResponse.json().catch(() => ({}));
-      if (errorData.code === 3027) {
-        console.log(`[ZoomClient] ${attendee.email} already registered for meeting ${meeting.zoom_meeting_id}`);
-        return { success: true, already_registered: true };
-      }
-      console.error(`[ZoomClient] Meeting registration error for ${attendee.email}:`, JSON.stringify(errorData));
-      return { success: false, error: errorData.message || 'Zoom meeting registration failed', code: errorData.code };
-    }
-
-    const zoomData = await zoomResponse.json();
-    console.log(`[ZoomClient] Registered ${attendee.email} for meeting ${meeting.zoom_meeting_id}, join_url: ${zoomData.join_url}`);
-    return { success: true, registrant_id: zoomData.registrant_id, join_url: zoomData.join_url };
-  } catch (err) {
-    console.error(`[ZoomClient] Meeting registration exception for ${attendee.email}:`, err.message);
-    return { success: false, error: err.message };
-  }
+  return registerVerifiedAttendee(tenantId, 'meetings', meeting.zoom_meeting_id, attendee);
 }
 
 function isZoomEvent(evt) {

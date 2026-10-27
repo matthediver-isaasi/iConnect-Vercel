@@ -153,3 +153,4 @@
 - [Individual training funds](individual-training-fund-terminology.md) — member-owned vouchers, not legacy organisation funds; valid for all membership renewal types.
 - [Member payment wording](member-payment-wording.md) — simplify copy without inventing dates, membership types, mandate reuse or renewal promises.
 - [Member activity chronology](member-activity-chronology.md) — historical renewal invoices belong alongside other activity, ordered by occurrence rather than import date.
+- [Zoom recovery approval](zoom-recovery-approval.md) — read-only diagnosis is not permission for live registration changes or message sends.

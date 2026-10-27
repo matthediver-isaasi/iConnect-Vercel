@@ -74,6 +74,7 @@ import EventSurveysSection from "@/components/surveys/EventSurveysSection";
 import EventOptionListsEditor from "@/components/events/EventOptionListsEditor";
 import { isAttendeeOptionsCollectionEnabled } from "@/lib/attendeeOptionsSetting";
 import ChangeZoomDialog from "@/components/events/ChangeZoomDialog";
+import ZoomRegistrationEvidence from "@/components/events/ZoomRegistrationEvidence";
 import { FocalPointPicker } from "@/components/FocalPointPicker";
 import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
 import SpeakerAwardsSection, { configToFormState, formStateToConfig } from "@/components/events/SpeakerAwardsSection";
@@ -392,6 +393,17 @@ export default function EditEvent() {
   // State to track if timezone fetch failed
   const [timezoneFetchFailed, setTimezoneFetchFailed] = useState(false);
   const [timezoneResolved, setTimezoneResolved] = useState(false);
+  const zoomEvidenceQuery = useQuery({
+    queryKey: ['event-zoom-evidence', eventId, formData.zoom_meeting_id, formData.zoom_webinar_id],
+    queryFn: async () => {
+      const r = await fetch(`/api/events/${eventId}/change-zoom`, { credentials: 'include' });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Could not check Zoom');
+      return data;
+    },
+    enabled: !!eventId && isAdmin && !!(formData.zoom_meeting_id || formData.zoom_webinar_id),
+    retry: false,
+  });
 
   // Fetch timezone from linked Zoom webinar record if event has one
   const { data: linkedZoomWebinar, isLoading: loadingZoomWebinar, isError: errorZoomWebinar } = useQuery({
@@ -4549,6 +4561,9 @@ export default function EditEvent() {
                 </Button>
               ) : (
                 <>
+                  <Button type="button" variant="outline" size="sm" onClick={() => setZoomLinkDialog({ open: true, mode: 'reconcile' })}>
+                    Reconcile registrations
+                  </Button>
                   <Button
                     type="button"
                     variant="outline"
@@ -4572,6 +4587,8 @@ export default function EditEvent() {
                 </>
               )}
             </div>
+
+            {(formData.zoom_meeting_id || formData.zoom_webinar_id) && <ZoomRegistrationEvidence evidence={zoomEvidenceQuery.data} loading={zoomEvidenceQuery.isFetching} error={zoomEvidenceQuery.error} />}
 
             {/* Zoom Sync Status (only meaningful when Zoom is attached) */}
             {(formData.zoom_meeting_id || formData.zoom_webinar_id) && (
@@ -5088,9 +5105,20 @@ export default function EditEvent() {
           mode={zoomLinkDialog.mode}
           targetLabel="event"
           initialType={formData.zoom_meeting_id ? 'meeting' : 'webinar'}
-          onSuccess={() => {
+          currentTarget={{ zoom_meeting_id: formData.zoom_meeting_id, zoom_webinar_id: formData.zoom_webinar_id }}
+          onSuccess={(result) => {
+            if (result.eventPatch) {
+              const { is_online, timezone, ...patch } = result.eventPatch;
+              setFormData(previous => ({ ...previous, ...patch }));
+              if (is_online !== undefined) setIsOnlineEvent(is_online);
+              if (patch.zoom_meeting_id || patch.zoom_webinar_id) setOnlineProvider('zoom');
+              if (timezone) setEventTimezone(timezone);
+              setSelectedMeetingId(patch.zoom_meeting_id || '');
+              if (patch.zoom_meeting_id) setZoomType('meeting');
+              else if (patch.zoom_webinar_id) setZoomType('webinar');
+            }
             queryClient.invalidateQueries({ queryKey: ['event', eventId] });
-            window.location.reload();
+            queryClient.invalidateQueries({ queryKey: ['event-zoom-evidence', eventId] });
           }}
         />
           )}

@@ -79,10 +79,6 @@ export async function sendConfirmationEmailsFromTemplate(eventId, booking, atten
 
     event.zoom_join_url = zoomJoinUrl;
 
-    if (zoomJoinUrl) {
-      console.log(`[sendConfirmationEmailsFromTemplate] Using Zoom link for ${attendee?.email || booking?.attendee_email}: ${zoomJoinUrl.substring(0, 50)}...`);
-    }
-
     let complexEventData = null;
     if (event.is_complex) {
       complexEventData = await fetchComplexEventData(eventId, booking?.ticket_class_id || booking?.ticketClassId, booking?.ticket_class_name || booking?.ticketClassName, event.tenant_id, event.timezone);

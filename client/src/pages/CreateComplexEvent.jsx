@@ -5259,7 +5259,6 @@ export default function CreateComplexEvent() {
           // task-692: refetch the mutated session and patch local state
           // (avoid a hard reload which would drop unsaved editor state).
           const sid = sessionZoomDialog.sessionId;
-          setSessionZoomDialog({ open: false, mode: 'change', sessionId: null });
           if (!sid) return;
           try {
             const resp = await fetch(`/api/complex-event-sessions/${sid}`, { credentials: 'include' });
@@ -5276,6 +5275,7 @@ export default function CreateComplexEvent() {
                   zoom_join_url: fresh.zoom_join_url ?? null,
                   zoom_start_url: fresh.zoom_start_url ?? null,
                   zoom_registration_url: fresh.zoom_registration_url ?? null,
+                  online_provider: fresh.online_provider ?? prev.online_provider,
                   start_time: fresh.start_time ?? prev.start_time,
                   duration_minutes: fresh.duration_minutes ?? prev.duration_minutes,
                 };
