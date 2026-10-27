@@ -94,6 +94,7 @@ export default function ZoomWebinarProvisioning() {
     duration_minutes: 60,
     timezone: "Europe/London",
     registration_required: false,
+    participant_video: true,
     host_id: ""
   });
   
@@ -466,6 +467,7 @@ export default function ZoomWebinarProvisioning() {
       duration_minutes: 60,
       timezone: "Europe/London",
       registration_required: false,
+      participant_video: true,
       host_id: ""
     });
   };
@@ -613,6 +615,7 @@ export default function ZoomWebinarProvisioning() {
       start_time: startTimeLocal,
       duration_minutes: meetingFormData.duration_minutes,
       timezone: meetingFormData.timezone,
+      participant_video: meetingFormData.participant_video,
       host_id: meetingFormData.host_id || undefined
     });
   };
@@ -2209,7 +2212,10 @@ export default function ZoomWebinarProvisioning() {
       </AlertDialog>
 
       {/* Meeting Create Dialog */}
-      <Dialog open={showMeetingCreateDialog} onOpenChange={setShowMeetingCreateDialog}>
+      <Dialog open={showMeetingCreateDialog} onOpenChange={(open) => {
+        setShowMeetingCreateDialog(open);
+        if (!open) resetMeetingForm();
+      }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -2305,6 +2311,21 @@ export default function ZoomWebinarProvisioning() {
                 onChange={(e) => setMeetingFormData(prev => ({ ...prev, duration_minutes: parseInt(e.target.value) || 60 }))}
                 data-testid="input-meeting-duration"
               />
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-4">
+                <Label htmlFor="meeting-participant-video">Participant video on entry</Label>
+                <Switch
+                  id="meeting-participant-video"
+                  aria-describedby="meeting-participant-video-help"
+                  checked={meetingFormData.participant_video}
+                  onCheckedChange={(checked) => setMeetingFormData(prev => ({ ...prev, participant_video: checked }))}
+                />
+              </div>
+              <p id="meeting-participant-video-help" className="text-sm text-muted-foreground">
+                Off starts participants with video off. They can still enable their video later.
+              </p>
             </div>
 
             {zoomUsers.length > 0 && (

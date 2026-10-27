@@ -68,8 +68,13 @@ export default async function handler(req, res) {
         timezone = 'Europe/London',
         host_id,
         created_by_member_id,
-        registration_required = false
+        registration_required = false,
+        participant_video = true
       } = req.body;
+
+      if (typeof participant_video !== 'boolean') {
+        return res.status(400).json({ error: 'participant_video must be a boolean' });
+      }
       
       if (!topic || !start_time) {
         return res.status(400).json({ error: 'topic and start_time are required' });
@@ -88,7 +93,7 @@ export default async function handler(req, res) {
         agenda: agenda || '',
         settings: {
           host_video: true,
-          participant_video: true,
+          participant_video,
           join_before_host: false,
           mute_upon_entry: true,
           waiting_room: true,
