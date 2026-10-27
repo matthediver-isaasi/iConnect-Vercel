@@ -82,6 +82,17 @@ paths remain unfinished. The carry increment itself does not issue personal cred
 
 ### Immediate cancellation policy confirmed
 
+Access ends immediately even when a service-used balance is unpaid. That balance
+remains debt; paying it does not reactivate membership. Refund completion is also
+independent of access termination. The calculation and settlement policy now
+carry this explicit rule and reject older cancellation calculations without it.
+
+The internal receivables planner distinguishes crediting unearned annual
+receivables from creating a missing earned-service invoice, avoiding duplicate
+debt. It preserves net/VAT values and rejects ambiguous or adjusted evidence.
+This is planning only: access/provider termination and execution are not enabled
+by this addition. No new database migration was needed or applied for it.
+
 Immediate cancellation charges only for service already delivered, not unused
 future annual instalments. The shared calculation now compares verified delivered
 service with actual settled funding, separately preserves net/VAT amounts, and

@@ -69,6 +69,15 @@ service. Do not accelerate or keep collecting the unused annual balance.
 Prepaid surplus still follows the existing cancellation credit/refund policy;
 end-of-term cancellation remains a separate operation.
 
+Immediate cancellation ends membership access immediately even when a
+service-used balance remains unpaid. Keep that balance as outstanding debt;
+paying it must not reactivate membership. Refund processing is separate too.
+
+**Why:** The owner explicitly chose “Immediately; retain any unpaid balance”.
+**How to apply:** Do not reuse the upgrade settlement-before-entitlement gate
+for cancellation. Track access termination independently of accounting and
+provider recovery, without treating an unconfirmed provider stop as successful.
+
 New surplus credit from membership changes has tenant-configurable expiry,
 defaulting to no expiry.
 **Why:** The owner explicitly selected this policy.

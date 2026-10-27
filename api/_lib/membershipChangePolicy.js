@@ -72,6 +72,7 @@ export function planMembershipChangeSettlement({calculation, policy, issuedAt}) 
   const cancelling=calculation.action==='cancel';
   const immediateCancellation=cancelling&&calculation.cancellationTiming==='immediate';
   if(immediateCancellation&&(calculation.cancellationChargeBasis!=='service_used'
+    ||calculation.accessWaitsForSettlement!==false||calculation.paymentReactivatesMembership!==false
     ||!Number.isSafeInteger(calculation.paymentDueMinor)||calculation.paymentDueMinor<0)){
     throw Object.assign(new Error('Cancellation calculation must be refreshed using the service-used policy.'),{status:409});
   }
@@ -96,7 +97,9 @@ export function planMembershipChangeSettlement({calculation, policy, issuedAt}) 
   }
   return {
     changeType:direction,requiresApproval,
-    ...(immediateCancellation?{cancellationChargeBasis:'service_used'}:{}),
+    ...(immediateCancellation?{cancellationChargeBasis:'service_used',
+      accessWaitsForSettlement:false,paymentReactivatesMembership:false,
+      accessEndExclusiveDate:calculation.membershipEndExclusiveDate}:{}),
     status:blockers.length?'requires_reconciliation':requiresApproval?'pending_approval':'ready_for_settlement',
     surplusHandling,creditExpiresAt,
     // A fixed server-owned rule, not a tenant/browser-selectable write-off

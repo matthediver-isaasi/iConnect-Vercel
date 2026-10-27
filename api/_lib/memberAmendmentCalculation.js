@@ -139,6 +139,8 @@ export function calculateAmendmentTerms({
     sourceRecordId,currency,finance,newTerm,newCost,unused,delta,blockers,
     ...(immediateCancellation?{
       cancellationChargeBasis:'service_used',
+      accessWaitsForSettlement:false,
+      paymentReactivatesMembership:false,
     }:{}),
     targetFullPrice:action==='change'?amendmentMoneyParts(targetPrice):null,
     paymentDueMinor:frequency==='monthly'&&!immediateCancellation?null:Math.max(delta.grossMinor,0),
