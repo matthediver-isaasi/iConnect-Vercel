@@ -1,3 +1,4 @@
+import { bundleInvoiceDescription } from '../../shared/salesBundleLabels.js';
 import { listCatalogueTaxOptions, getDefaultProductTaxCode, resolveSalesTaxCode } from './salesCatalogueTaxOptions.js';
 import { createHash } from 'node:crypto';
 import { calculateQuoteLine, calculateQuoteTotals, normalizeSalesInvoiceStatus, validateCurrency } from '../../shared/salesContracts.js';
@@ -400,7 +401,7 @@ export async function buildInvoice(db, tenantId, sale, version, lines, providerN
     customerReference: version.customer_reference,
     idempotencyKey: null,
     lines: validatedLines.map((line) => ({
-      description: line.description, quantity: String(line.quantity),
+      description: bundleInvoiceDescription(line), quantity: String(line.quantity),
       unitPriceMinor: Number(line.quoted_unit_price_minor), netMinor: Number(line.net_minor),
       taxMinor: Number(line.tax_minor), grossMinor: Number(line.gross_minor),
       discountBps: Number(line.discount_bps),
@@ -508,7 +509,7 @@ export async function createSalesInvoice(db, tenantId, actor, saleId, command = 
   const found = await existingLink(db, tenantId, saleId, provider.name);
   if (found) return { invoice: mapSalesInvoiceLink(found), existing: true };
   if (!['accepted', 'converted'].includes(version.status)) throw new SalesHttpError(409, 'Sale source quote version is not accepted');
-  const { data: lines, error: lineError } = await db.from('sales_quote_line').select('*')
+  const { data: lines, error: lineError } = await db.from('sales_quote_line').select('*,sales_quote_bundle_component(*)')
     .eq('tenant_id', tenantId).eq('quote_version_id', version.id).order('display_order');
   if (lineError) throw lineError;
   const { data: claimData, error: claimError } = await db.rpc('claim_sales_accounting_invoice_attempt', {

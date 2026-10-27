@@ -73,7 +73,7 @@ const productTicketReference = product => product?.event_reference_kind ? {
   kind: product.event_reference_kind, eventId: product.event_id, ticketTypeId: product.ticket_type_id,
 } : null;
 
-async function resolveLine(db, tenantId, line, index, allowPriceOverride, previous) {
+async function resolveLine(db, tenantId, line, index, allowPriceOverride, previous, categories) {
   const preserveTax = previous && previous.catalogue_kind === line.kind
     && (previous.catalogue_id || null) === (line.catalogueId || null)
     && (!line.taxCode || (line.taxCode.provider === previous.catalogue_snapshot?.tax_code?.provider
@@ -139,9 +139,15 @@ async function resolveLine(db, tenantId, line, index, allowPriceOverride, previo
     if (error) throw error;
     components = await Promise.all((data || []).map(async (component) => {
       const product = await one(db, 'sales_catalogue_product', tenantId, component.product_id, 'Bundle product');
+      if (product.category_id && !categories.has(product.category_id)) {
+        categories.set(product.category_id, one(db, 'sales_catalogue_category', tenantId, product.category_id, 'Bundle product category'));
+      }
+      const category = product.category_id ? await categories.get(product.category_id) : null;
+      const categoryProduct = { ...product, categoryId: product.category_id || null,
+        categoryName: category?.name || 'Uncategorised' };
       return {
         productId: component.product_id, quantity: component.quantity,
-        productSnapshot: await freezeQuoteTicketProduct(db, tenantId, product, productTicketReference(product),
+        productSnapshot: await freezeQuoteTicketProduct(db, tenantId, categoryProduct, productTicketReference(product),
           Number(amounts.quantity) * Number(component.quantity)),
       };
     }));
@@ -181,8 +187,9 @@ export async function prepareQuoteDraft(db, tenantId, actor, draft, allowPriceOv
       for (let unit = 0; unit < quantity; unit++) expanded.push({ ...line, quantity: '1', ...(unit ? { id: undefined, exhibitionSelections: [] } : {}) });
     } else expanded.push(line);
   }
+  const categories = new Map();
   const lines = await Promise.all(expanded.map(async (line, index) => ({ ...await resolveLine(
-    db, tenantId, { ...line, currency: draft.currency }, index, allowPriceOverride, previousLines.get(line.id),
+    db, tenantId, { ...line, currency: draft.currency }, index, allowPriceOverride, previousLines.get(line.id), categories,
   ), sourceLineId: line.id })));
   let billingSchedule = null;
   if (draft.scheduledBilling === true) {

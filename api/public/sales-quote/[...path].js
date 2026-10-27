@@ -55,7 +55,7 @@ function scrub(value) {
     .map(([key, item]) => [key, scrub(item)]));
 }
 export function clearPublicSalesQuoteRateLimits() { buckets.clear(); }
-function publicQuoteDto(quote, version) {
+export function publicQuoteDto(quote, version) {
   const address = version.address_snapshot || {};
   return {
     quoteNumber: quote.quote_number || null, version: version.version_number, status: version.status,
@@ -78,6 +78,7 @@ function publicQuoteDto(quote, version) {
       taxRateBps: line.tax_rate_bps, netMinor: line.net_minor, taxMinor: line.tax_minor, grossMinor: line.gross_minor,
       bundleComponents: (line.sales_quote_bundle_component || []).map((component) => ({
         name: component.product_snapshot?.name || null, quantity: component.quantity,
+        ...(component.product_snapshot?.categoryName ? { categoryName: component.product_snapshot.categoryName } : {}),
       })),
     })),
   };

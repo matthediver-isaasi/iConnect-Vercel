@@ -1,3 +1,4 @@
+import { bundleProductName } from '../../shared/salesBundleLabels.js';
 import { jsPDF } from 'jspdf';
 import { toWinAnsi } from './pdfWinAnsi.js';
 import sharp from 'sharp';
@@ -96,7 +97,7 @@ export function buildSalesQuotePdf({ quote, version, tenant }) {
       doc.setFontSize(10);
     }
     for (const component of line.sales_quote_bundle_component || []) {
-      text(`  - ${component.product_snapshot?.name || 'Bundle item'} x ${component.quantity}`, margin + 3, { width: 90, leading: 4 });
+      text(`  - ${bundleProductName(component)} x ${component.quantity}`, margin + 3, { width: 90, leading: 4 });
     }
     y += 2;
   }

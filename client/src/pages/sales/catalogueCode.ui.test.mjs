@@ -36,10 +36,94 @@ const built = await build({
 const mod = new Module(`${process.cwd()}/catalogue-code-fixture.cjs`);
 mod.paths = Module._nodeModulePaths(process.cwd());
 mod._compile(built.outputFiles[0].text, `${process.cwd()}/catalogue-code-fixture.cjs`);
-const { EditDialog: RawEditDialog, CatalogueTable, default: Catalogue } = mod.exports;
+const { EditDialog: RawEditDialog, CatalogueTable, BundleItems, default: Catalogue } = mod.exports;
 const EditDialog = (props) => React.createElement(RawEditDialog, { showInternalCode: true, showSku: true, ...props });
 globalThis.catalogueSettingsFixture = { data: { showInternalCode: true, showSku: true }, isPending: false, isError: false };
 after(() => dom.window.close());
+
+for (const mode of ["row", "copySource"]) test(`category-first bundle ${mode} preserves identity, order and strict payload`, async () => {
+  const products = [{ id: "p1", categoryId: "c1", name: "Delegate ticket" },
+    { id: "p2", categoryId: "c2", name: "Delegate ticket" }, { id: "p3", name: "Other" }];
+  let saved;
+  const select = async (label, value) => act(async () => {
+    const control = document.querySelector(`[aria-label="${label}"]`);
+    control.value = value;
+    control.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  });
+  const click = async label => act(async () => document.querySelector(`[aria-label="${label}"]`).click());
+  await renderFixture(EditDialog, {
+    config: { type: "bundles", [mode]: { id: "bundle", code: "BUNDLE", name: "Bundle", sellingPriceMinor: 100,
+      items: [{ productId: "p1", quantity: 2 }, { productId: "p2", quantity: 3 }, { productId: "p3", quantity: 1 }] } },
+    categories: [{ id: "c1", name: "Conference A" }, { id: "c2", name: "Conference B" }, { id: "empty", name: "Empty" }],
+    products, events: {}, onClose() {}, onSave(data) { saved = data; },
+  }, async () => {
+    const value = label => document.querySelector(`[aria-label="${label}"]`).value;
+    assert.equal(value("Included category 1"), "c1");
+    assert.equal(value("Included category 2"), "c2");
+    assert.equal(value("Included category 3"), "uncategorised");
+    assert.deepEqual([...document.querySelector('[aria-label="Included product 1"]').options].map(o => o.value), ["", "p1"]);
+    await select("Included category 1", "empty");
+    assert.equal(value("Included product 1"), "");
+    await submitForm();
+    assert.equal(saved, undefined);
+    await click("Move item 1 down");
+    assert.equal(value("Included category 2"), "empty");
+    await select("Included category 2", "c1");
+    await select("Included product 2", "p1");
+    await click("Remove item 1");
+    assert.equal(value("Included category 1"), "c1");
+    assert.equal(value("Quantity 1"), "2");
+    await submitForm();
+    assert.deepEqual(saved.items, [{ productId: "p1", quantity: 2 }, { productId: "p3", quantity: 1 }]);
+    assert.ok(saved.items.every(item => Object.keys(item).sort().join() === "productId,quantity"));
+  });
+});
+
+test("bundle loading and unavailable selections retain saved product IDs until explicit replacement", async () => {
+  const items = [{ productId: "old", quantity: 2 }, { productId: "missing", quantity: 3 }];
+  const props = { form: { items }, update() { assert.fail("Loading must not mutate saved items"); },
+    categories: [], products: [], loading: true };
+  await renderFixture(BundleItems, props, async root => {
+    assert.equal(document.querySelector('[aria-label="Included product 1"]').value, "old");
+    assert.equal(document.querySelector('[aria-label="Included category 1"]').disabled, true);
+    await act(async () => root.render(React.createElement(BundleItems, { ...props, loading: false,
+      products: [{ id: "old", categoryId: "archived-category", name: "Old", isActive: false }],
+      categories: [{ id: "archived-category", name: "Archive", isActive: false }] })));
+    assert.equal(document.querySelector('[aria-label="Included category 1"]').value, "archived-category");
+    assert.match(document.querySelector('[aria-label="Included category 1"]').textContent, /Archive \(archived\)/);
+    assert.equal(document.querySelector('[aria-label="Included product 2"]').value, "missing");
+    assert.equal(items[0].productId, "old");
+  });
+});
+
+test("bundle summary distinguishes duplicate names by category", async () => {
+  await renderFixture(CatalogueTable, { type: "bundles", rows: [{ id: "bundle", name: "Bundle",
+    items: [{ productId: "one", quantity: 2 }, { productId: "two", quantity: 3 }] }],
+    products: [{ id: "one", name: "Delegate", categoryId: "a" }, { id: "two", name: "Delegate", categoryId: "b" }],
+    categories: [{ id: "a", name: "Conference A" }, { id: "b", name: "Conference B" }] }, async () => {
+    assert.match(document.body.textContent, /2 × Conference A — Delegate · 3 × Conference B — Delegate/);
+  });
+});
+
+test("agreement renders qualified frozen/public/preview components and escapes category text", async () => {
+  const output = await build({ entryPoints: ["client/src/components/sales/AgreementDocument.jsx"],
+    bundle: true, write: false, packages: "external", platform: "node", format: "cjs", jsx: "automatic",
+    alias: { "@": `${process.cwd()}/client/src` } });
+  const documentModule = new Module(`${process.cwd()}/agreement-category-fixture.cjs`);
+  documentModule.paths = Module._nodeModulePaths(process.cwd());
+  documentModule._compile(output.outputFiles[0].text, `${process.cwd()}/agreement-category-fixture.cjs`);
+  const components = [{ quantity: 2, product_snapshot: { name: "Delegate", categoryName: "<img src=x> Conference A" } },
+    { quantity: 1, product_snapshot: { name: "Legacy" } }];
+  for (const shape of ["sales_quote_bundle_component", "components", "bundleComponents"]) {
+    const value = shape === "bundleComponents" ? components.map(c => ({ ...c.product_snapshot, quantity: c.quantity })) : components;
+    await renderFixture(documentModule.exports.default, { quote: { currency: "GBP", lines: [
+      { description: "Package", quantity: 1, [shape]: value }] } }, async () => {
+      assert.match(document.body.textContent, /2 × <img src=x> Conference A — Delegate/);
+      assert.match(document.body.textContent, /1 × Legacy/);
+      assert.equal(document.querySelector('img[src="x"]'), null);
+    });
+  }
+});
 
 async function renderFixture(Component, props, check) {
   const host = document.createElement("div"); document.body.append(host);

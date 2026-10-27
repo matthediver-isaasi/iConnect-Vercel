@@ -85,13 +85,16 @@ export default function Catalogue({ section = "categories" }) {
       </div>
       {catalogue.isLoading ? <Skeleton /> : catalogue.isError ? <Failure onRetry={() => catalogue.refetch()} /> : rows.length === 0 ? <Empty type={tab} onCreate={canManage ? () => setDialog({ type: tab, scopeKey: settings.scopeKey }) : null} /> : <div className="overflow-x-auto"><CatalogueTable rows={rows} type={tab} showInternalCode={showInternalCode} showSku={showSku} canManage={canManage} categories={asList(categories.data)} products={asList(products.data)} onEdit={(row) => setDialog({ type: tab, row, scopeKey: settings.scopeKey })} onDuplicate={(copySource) => setDialog({ type: tab, copySource, scopeKey: settings.scopeKey })} onArchive={(row) => { const action = row.isActive === false || row.archivedAt ? catalogue.restore : catalogue.archive; action.mutate(row.id, { onError: onMutationError }); }} onMove={move} /></div>}
     </section>}
-    <EditDialog config={canManage && dialog?.scopeKey === settings.scopeKey ? dialog : null} showInternalCode={showInternalCode} showSku={showSku} categories={asList(categories.data)} categoriesLoading={categories.isLoading} products={asList(products.data)} events={events.data || {}} onClose={() => setDialog(null)} onSave={(data) => dialog?.row ? catalogue.update.mutateAsync({ id: dialog.row.id, data }, { onSuccess: onSaved, onError: onMutationError }) : catalogue.create.mutateAsync(data, { onSuccess: onSaved, onError: onMutationError })} saving={catalogue.create.isPending || catalogue.update.isPending} />
+    <EditDialog config={canManage && dialog?.scopeKey === settings.scopeKey ? dialog : null} showInternalCode={showInternalCode} showSku={showSku} categories={asList(categories.data)} categoriesLoading={categories.isLoading} productsLoading={products.isLoading} catalogueError={categories.isError || products.isError} products={asList(products.data)} events={events.data || {}} onClose={() => setDialog(null)} onSave={(data) => dialog?.row ? catalogue.update.mutateAsync({ id: dialog.row.id, data }, { onSuccess: onSaved, onError: onMutationError }) : catalogue.create.mutateAsync(data, { onSuccess: onSaved, onError: onMutationError })} saving={catalogue.create.isPending || catalogue.update.isPending} />
   </div>;
 }
 
 export function CatalogueTable({ rows, type, categories, products, onEdit, onDuplicate, onArchive, onMove, showInternalCode = false, showSku = false, canManage = false }) {
   const categoryName = (id) => categories.find((item) => String(item.id) === String(id))?.name || "Uncategorised";
-  const productName = (id) => products.find((item) => String(item.id) === String(id))?.name || "Unavailable product";
+  const productName = (id) => {
+    const product = products.find((item) => String(item.id) === String(id));
+    return product ? `${categoryName(product.categoryId)} — ${product.name}` : "Unavailable product";
+  };
   return <Table className="min-w-[680px]">
     <TableHeader><TableRow className="bg-slate-50 hover:bg-slate-50">
       <TableHead>{type === "categories" ? "Category" : type === "products" ? "Product" : "Bundle"}</TableHead>
@@ -117,7 +120,7 @@ export function CatalogueTable({ rows, type, categories, products, onEdit, onDup
   </Table>;
 }
 
-export function EditDialog({ config, categories, categoriesLoading, products, events, onClose, onSave, saving, showInternalCode = false, showSku = false }) {
+export function EditDialog({ config, categories, categoriesLoading, productsLoading = false, catalogueError = false, products, events, onClose, onSave, saving, showInternalCode = false, showSku = false }) {
   const type = config?.type; const [form, setForm] = useState(blank[type] || blank.categories);
   const [categoryCodeEdited, setCategoryCodeEdited] = useState(false);
   const [selectedTaxId, setSelectedTaxId] = useState("");
@@ -198,6 +201,8 @@ export function EditDialog({ config, categories, categoriesLoading, products, ev
     }
     if (type === "bundles") {
       try {
+        if (categoriesLoading || productsLoading || catalogueError) throw new Error("Wait for categories and products to load successfully before saving.");
+        if ((form.items || []).some(item => !item.productId)) throw new Error("Choose a product for every included item, or remove the empty row.");
         Object.assign(data, bundlePricesForSaving(form));
         data.billingGroups = groupsForSaving(form.billingGroups, form.items, data.sellingPriceMinor, { copying: Boolean(config.copySource) });
         if (config.copySource) data.copySourceId = config.copySource.id;
@@ -229,7 +234,8 @@ export function EditDialog({ config, categories, categoriesLoading, products, ev
     {type === "products" && <ProductFields form={form} update={update} categories={categories} events={events} existing={config.row} showSku={showSku} taxOptions={taxOptions} selectedTaxId={selectedTaxId} onTaxChange={(value) => { copyTaxInitialized.current = true; setSelectedTaxId(value); }} />}
     {type === "products" && <ProductSpaceRequirement value={form.spaceRequirementId} onChange={value => update("spaceRequirementId", value)} />}
      {type === "bundles" && <BundleFields form={form} update={update} />}
-     {type === "bundles" && <BundleItems form={form} update={update} products={products} />}
+      {type === "bundles" && <BundleItems form={form} update={update} products={products} categories={categories} loading={categoriesLoading || productsLoading || catalogueError} />}
+      {type === "bundles" && catalogueError && <p role="alert">Categories or products could not be loaded. Close and reopen the editor to retry; saved items have not been changed.</p>}
       {type === "bundles" && <BundleBillingGroups key={config.row?.id || config.copySource?.id || "new"} form={form} update={update} products={products} />}
     {type === "bundles" && <Field label="Description" wide><Textarea value={form.description || ""} onChange={(e) => update("description", e.target.value)} /></Field>}
    </div>{formError && <p role="alert" className="mt-4 text-sm font-medium text-red-600">{formError}</p>}<DialogFooter className="mt-7"><Button type="button" variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={saving || submittingNow || Boolean(categoryError) || (type === "categories" && categoriesLoading)} type="submit" className="bg-blue-600 text-white hover:bg-blue-700">{saving || submittingNow ? "Saving…" : categoriesLoading && type === "categories" ? "Checking codes…" : "Save catalogue item"}</Button></DialogFooter></form></DialogContent></Dialog>;
@@ -292,9 +298,9 @@ function ProductSelect(props) {
 }
 
 function BundleFields({ form, update }) { return <><Field label="Currency"><Input required maxLength="3" value={form.currency || "GBP"} onChange={(e) => update("currency", e.target.value.toUpperCase())} /></Field><Field label={`Selling price (${form.currency || "GBP"}, excl. VAT)`}><Input aria-label="Selling price" required type="text" inputMode="decimal" placeholder="125.00" value={form.sellingPriceMinor ?? ""} onChange={(e) => update("sellingPriceMinor", e.target.value)} /><p className="mt-1 text-xs text-slate-500">Enter a currency amount, e.g. 125.00, excluding VAT.</p></Field><Field label={`Minimum price (${form.currency || "GBP"}, excl. VAT)`}><Input aria-label="Minimum price" type="text" inputMode="decimal" value={form.minimumPriceMinor ?? ""} onChange={(e) => update("minimumPriceMinor", e.target.value)} /></Field><Field label="Presentation mode"><Select value={form.presentationMode || "bundle"} onValueChange={(v) => update("presentationMode", v)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="bundle">Single bundle line</SelectItem><SelectItem value="itemised">Itemised products</SelectItem></SelectContent></Select></Field><Field label="Available from"><Input type="date" value={form.availableFrom || ""} onChange={(e) => update("availableFrom", e.target.value)} /></Field><Field label="Available to"><Input type="date" value={form.availableTo || ""} onChange={(e) => update("availableTo", e.target.value)} /></Field></>; }
-function BundleItems({ form, update, products }) {
+export function BundleItems({ form, update, products, categories = [], loading = false }) {
   const items = form.items || [];
-  const add = () => update("items", [...items, { productId: "", quantity: 1 }]);
+  const add = () => update("items", [...items, { productId: "", quantity: 1, editorKey: crypto.randomUUID(), editorCategory: "" }]);
   const patch = (index, key, value) => update("items", items.map((item, i) => i === index ? { ...item, [key]: key === "quantity" ? Number(value) : value } : item));
   const move = (index, direction) => {
     const next = [...items];
@@ -304,12 +310,21 @@ function BundleItems({ form, update, products }) {
   return <div className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
     <div className="mb-2 flex items-center justify-between"><Label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Included products</Label><Button type="button" variant="outline" size="sm" onClick={add}><Plus className="mr-1 h-3.5 w-3.5" />Add item</Button></div>
     {items.map((item, index) => {
+      const selected = products.find(product => String(product.id) === String(item.productId));
+      const category = item.editorCategory ?? (selected ? String(selected.categoryId || "uncategorised") : "");
+      const filtered = products.filter(product => String(product.categoryId || "uncategorised") === category && product.isActive !== false && !product.archivedAt);
       const available = products.some((product) => String(product.id) === String(item.productId) && product.isActive !== false && !product.archivedAt);
-      return <div key={index} className="mb-2 flex flex-wrap gap-2">
-        <ProductSelect aria-label={`Included product ${index + 1}`} className="min-w-36 flex-1 rounded-md border bg-white p-2 text-sm" value={String(item.productId || "")} onChange={(event) => patch(index, "productId", event.target.value)}>
-          <option value="">Choose product</option>
+      return <div key={item.editorKey || item.id || item.productId || index} className="mb-2 flex flex-wrap gap-2">
+        <ProductSelect aria-label={`Included category ${index + 1}`} disabled={loading} value={category} onChange={event => update("items", items.map((row, i) => i === index ? { ...row, editorCategory: event.target.value, productId: "" } : row))}>
+          <option value="">{loading ? "Loading categories…" : "Choose category"}</option>
+          <option value="uncategorised">Uncategorised</option>
+          {category && category !== "uncategorised" && !categories.some(c => String(c.id) === category) && <option value={category}>Saved category (unavailable)</option>}
+          {categories.filter(c => c.isActive !== false && !c.archivedAt || String(c.id) === category).map(c => <option key={c.id} value={String(c.id)}>{c.name}{c.isActive === false || c.archivedAt ? " (archived)" : ""}</option>)}
+        </ProductSelect>
+        <ProductSelect required disabled={loading || !category} aria-label={`Included product ${index + 1}`} className="min-w-36 flex-1 rounded-md border bg-white p-2 text-sm" value={String(item.productId || "")} onChange={(event) => patch(index, "productId", event.target.value)}>
+          <option value="">{category && !filtered.length ? "No active products in this category" : "Choose product"}</option>
           {item.productId && !available && <option value={String(item.productId)}>Unavailable product ({item.productId}) — replace or remove</option>}
-          {products.filter((product) => product.isActive !== false && !product.archivedAt).map((product) => <option key={product.id} value={String(product.id)}>{product.name}</option>)}
+          {filtered.map((product) => <option key={product.id} value={String(product.id)}>{product.name}</option>)}
         </ProductSelect>
         <Input aria-label={`Quantity ${index + 1}`} className="w-20 bg-white" type="number" min="1" value={item.quantity} onChange={(e) => patch(index, "quantity", e.target.value)} />
         <Button type="button" variant="ghost" size="icon" aria-label={`Move item ${index + 1} up`} disabled={index === 0} onClick={() => move(index, -1)}><ChevronUp className="h-4 w-4" /></Button>

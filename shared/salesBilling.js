@@ -1,5 +1,6 @@
 import { parseQuoteQuantity } from './salesContracts.js';
 import { percentageInstalmentErrors } from './salesBillingConfiguration.js';
+import { bundleInvoiceDescription, bundleProductName } from './salesBundleLabels.js';
 
 function componentQuantity(quantity, multiplier) {
   const { units, scale } = parseQuoteQuantity(quantity);
@@ -72,7 +73,7 @@ export function buildBillingSchedule({ lines, currency, recipient, timezone, tim
         if (Number((BigInt(netMinor) * BigInt(line.taxRateBps) + 5000n) / 10000n) !== taxMinor) {
           throw new Error('Percentage instalment tax rounding cannot be represented by the provider; adjust percentages');
         }
-        return { linePosition, name: line.description, description: line.description, quantity: '1',
+        return { linePosition, name: line.description, description: bundleInvoiceDescription(line), quantity: '1',
           netMinor, taxMinor, grossMinor: netMinor + taxMinor,
           taxCode: line.catalogueSnapshot?.tax_code || null, taxRateBps: line.taxRateBps };
       });
@@ -109,11 +110,12 @@ export function buildBillingSchedule({ lines, currency, recipient, timezone, tim
       groups.push({ ...group, id: newId(), sourceGroupId: group.id, linePosition, position: groups.length,
         bundleLineLabel: `Line ${linePosition + 1}: ${line.description || line.catalogueSnapshot?.name || 'Bundle'}`,
         bundleQuantity: line.quantity,
-        invoiceLines: [{ name: group.name, description: group.name, quantity: '1', netMinor: nets[index],
+        invoiceLines: [{ name: group.name, description: bundleInvoiceDescription({ ...line, description: group.name },
+          line.components.filter(c => group.productIds.includes(c.productId))), quantity: '1', netMinor: nets[index],
           taxMinor: taxes[index], grossMinor: nets[index] + taxes[index],
           taxCode: line.catalogueSnapshot?.tax_code || null, taxRateBps: line.taxRateBps }],
         contents: line.components.filter(c => group.productIds.includes(c.productId)).map(c => ({
-          productId: c.productId, name: c.productSnapshot.name,
+          productId: c.productId, name: bundleProductName(c),
           quantity: componentQuantity(line.quantity, c.quantity),
           componentQuantity: c.quantity, bundleQuantity: line.quantity,
         })), netMinor: nets[index], taxMinor: taxes[index], grossMinor: nets[index] + taxes[index],
@@ -125,7 +127,7 @@ export function buildBillingSchedule({ lines, currency, recipient, timezone, tim
     groups.push({ id: newId(), name: 'Remainder', position: groups.length, linePosition: null,
       timing: { kind: 'acceptance', days: 0 }, paymentTerms: remainderPaymentTerms,
       invoiceLines: remainder.map(({ line, linePosition }) => ({ linePosition, name: line.description,
-        description: line.description, quantity: '1', netMinor: line.netMinor, taxMinor: line.taxMinor,
+        description: bundleInvoiceDescription(line), quantity: '1', netMinor: line.netMinor, taxMinor: line.taxMinor,
         grossMinor: line.grossMinor, taxCode: line.catalogueSnapshot?.tax_code || null, taxRateBps: line.taxRateBps })),
       contents: remainder.map(({ line, linePosition }) => ({ linePosition, name: line.description, quantity: line.quantity,
         netMinor: line.netMinor, taxMinor: line.taxMinor, grossMinor: line.grossMinor,

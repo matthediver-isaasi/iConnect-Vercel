@@ -71,7 +71,7 @@ export function scheduleInvoiceLines(snapshot) {
     }
   }
   return entries.map((line, index) => ({
-    description: line.name || snapshot.name, quantity: '1', quoted_unit_price_minor: line.netMinor,
+    description: line.description ?? line.name ?? snapshot.name, quantity: '1', quoted_unit_price_minor: line.netMinor,
     discount_bps: 0, tax_rate_bps: line.taxRateBps, net_minor: line.netMinor,
     tax_minor: line.taxMinor, gross_minor: line.grossMinor, display_order: index,
     catalogue_snapshot: { tax_code: line.taxCode },
