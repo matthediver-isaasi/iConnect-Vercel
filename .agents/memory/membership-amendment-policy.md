@@ -17,6 +17,16 @@ records, not form answers; revalidate eligibility and finances at confirmation.
 Cancellation of access, renewal, collections and mandates are separate actions.
 Never convert organisation-funded value into personal credit automatically.
 
+Immediate cancellation charges only for service already used, including unpaid
+amounts for that service; unused future annual instalments do not remain payable.
+
+**Why:** The owner explicitly selected “Charge only for service used”.
+
+**How to apply:** Reconcile actual settled funding against verified delivered
+service. Do not accelerate or keep collecting the unused annual balance.
+Prepaid surplus still follows the existing cancellation credit/refund policy;
+end-of-term cancellation remains a separate operation.
+
 New surplus credit from membership changes has tenant-configurable expiry,
 defaulting to no expiry.
 **Why:** The owner explicitly selected this policy.

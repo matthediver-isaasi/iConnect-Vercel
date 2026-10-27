@@ -104,6 +104,70 @@ test('immediate cancellation computes unused value but does not terminate a prov
   assert.equal(q.membershipEndExclusiveDate,'2024-07-02');
   assert.equal(q.surplusMinor,5000);assert.equal(q.entitlementApplied,false);
 });
+test('immediate annual-instalment cancellation charges service only, not the unused annual balance',()=>{
+  for(const [paid,due,surplus] of [[6000,0,0],[4000,2000,0],[7000,0,1000]]){
+    const f=fixture();
+    Object.assign(f,{frequency:'monthly',pricingBasis:'annual_instalments',sourcePrice:money(12000),action:'cancel'});
+    f.evidence.settledFunding[0]={...f.evidence.settledFunding[0],...money(paid)};
+    f.evidence.deliveredService={sourceRecordId:f.sourceRecordId,throughExclusiveDate:f.effectiveDate,verified:true,...money(6000)};
+    // This is the same debt, not an additional fee.
+    f.evidence.outstandingDue=money(due);
+    const q=calculateAmendmentTerms(f);
+    assert.equal(q.cancellationChargeBasis,'service_used');
+    assert.equal(q.paymentDueMinor,due);
+    assert.equal(q.futureObligationMinor,0);
+    assert.equal(q.surplusMinor,surplus);
+    assert.ok(q.blockers.includes('cancellation_receivables_reconciliation_required'));
+    assert.equal(q.canAutomaticallySettle,false);
+    const plan=planMembershipChangeSettlement({calculation:q,
+      policy:{...MEMBERSHIP_CHANGE_POLICY_DEFAULTS,cancellationTiming:'immediate',
+        cancellationUnusedValue:'tenant_surplus_policy',surplusHandling:'credit'},issuedAt:'2024-07-02'});
+    assert.equal(plan.paymentDueMinor,due);
+    assert.equal(plan.surplusEligibleMinor,surplus);
+    assert.equal(plan.cancellationChargeBasis,'service_used');
+    assert.equal(plan.retainedPrepaidMinor,0);
+    assert.ok(plan.blockers.includes('cancellation_receivables_reconciliation_required'));
+    const noRefund=planMembershipChangeSettlement({calculation:q,
+      policy:{...MEMBERSHIP_CHANGE_POLICY_DEFAULTS,cancellationTiming:'immediate'},issuedAt:'2024-07-02'});
+    assert.equal(noRefund.surplusEligibleMinor,0);
+    assert.equal(noRefund.retainedPrepaidMinor,surplus);
+    if(due)assert.ok(plan.blockers.includes('outstanding_obligations'));
+    const old={...q};delete old.cancellationChargeBasis;
+    assert.throws(()=>planMembershipChangeSettlement({calculation:old,
+      policy:MEMBERSHIP_CHANGE_POLICY_DEFAULTS,issuedAt:'2024-07-02'}),/must be refreshed/);
+  }
+});
+test('immediate cancellation never treats in-flight collections or another owner’s funding as settled personal cash',()=>{
+  for(const mutate of [
+    f=>f.evidence.pendingCollections.push('pending-payment'),
+    f=>f.evidence.failedCollections.push('failed-payment'),
+    f=>f.evidence.settledFunding[0].ownerType='organization',
+  ]){
+    const f={...fixture(),action:'cancel'};mutate(f);
+    const q=calculateAmendmentTerms(f);
+    const plan=planMembershipChangeSettlement({calculation:q,
+      policy:{...MEMBERSHIP_CHANGE_POLICY_DEFAULTS,cancellationTiming:'immediate',
+        cancellationUnusedValue:'tenant_surplus_policy',surplusHandling:'credit'},issuedAt:'2024-07-02'});
+    assert.equal(q.canAutomaticallySettle,false);
+    assert.equal(plan.status,'requires_reconciliation');
+    assert.equal(plan.moneyMoved,false);
+    assert.equal(plan.entitlementApplied,false);
+  }
+});
+test('cancellation preserves tax components and never turns excluded future service into credit',()=>{
+  const f=fixture();
+  Object.assign(f,{frequency:'monthly',pricingBasis:'annual_instalments',sourcePrice:money(10000,2000),action:'cancel'});
+  f.evidence.settledFunding[0]={...f.evidence.settledFunding[0],...money(4000,800)};
+  f.evidence.deliveredService={sourceRecordId:f.sourceRecordId,throughExclusiveDate:f.effectiveDate,verified:true,...money(5000,1000)};
+  const q=calculateAmendmentTerms(f);
+  assert.deepEqual(q.delta,money(1000,200));
+  assert.equal(q.paymentDueMinor,1200);
+  assert.equal(q.surplusMinor,0);
+  const end=calculateAmendmentTerms({...f,cancellationTiming:'end_of_term'});
+  assert.equal(end.cancellationChargeBasis,undefined);
+  assert.equal(end.paymentDueMinor,null);
+  assert.equal(end.membershipEndExclusiveDate,f.term.renewalDate);
+});
 test('end-of-term cancellation retains remaining service, with no refund today',()=>{
   const q=calculateAmendmentTerms({...fixture(),action:'cancel',cancellationTiming:'end_of_term'});
   assert.equal(q.membershipEndExclusiveDate,'2025-01-01');

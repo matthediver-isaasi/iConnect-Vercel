@@ -121,17 +121,28 @@ export function calculateAmendmentTerms({
     // legitimately due for this term remain obligations of the existing plan.
     unused=zero();
   }
-  const delta=subtract(newCost,unused);
+  const immediateCancellation=action==='cancel'&&cancellationTiming==='immediate';
+  // Cancellation settles delivered service, not the uncollected annual
+  // commitment. outstandingDue is reconciliation evidence, not another amount
+  // to add: it can describe the same service debt already present here.
+  const delta=immediateCancellation
+    ? subtract(finance.consumed,finance.settled) : subtract(newCost,unused);
   const blockers=[...finance.blockers];
+  // An existing annual invoice can contain unearned future fees as well as
+  // earned debt. Do not create a second receivable for the same service debt.
+  if(immediateCancellation)blockers.push('cancellation_receivables_reconciliation_required');
   if(frequency==='monthly')blockers.push('provider_schedule_coordination_required');
   if((delta.netMinor<0&&delta.vatMinor>0)||(delta.netMinor>0&&delta.vatMinor<0))blockers.push('mixed_tax_adjustment');
   return {
     version:2,action,behaviour,effectiveDate,cancellationTiming:action==='cancel'?cancellationTiming:null,
     membershipEndExclusiveDate:action==='cancel'?(cancellationTiming==='end_of_term'?term.renewalDate:effectiveDate):null,
     sourceRecordId,currency,finance,newTerm,newCost,unused,delta,blockers,
+    ...(immediateCancellation?{
+      cancellationChargeBasis:'service_used',
+    }:{}),
     targetFullPrice:action==='change'?amendmentMoneyParts(targetPrice):null,
-    paymentDueMinor:frequency==='monthly'?null:Math.max(delta.grossMinor,0),
-    futureObligationMinor:frequency==='monthly'?Math.max(delta.grossMinor,0):null,
+    paymentDueMinor:frequency==='monthly'&&!immediateCancellation?null:Math.max(delta.grossMinor,0),
+    futureObligationMinor:frequency==='monthly'?(immediateCancellation?0:Math.max(delta.grossMinor,0)):null,
     surplusMinor:Math.max(-delta.grossMinor,0),
     canAutomaticallySettle:blockers.length===0,
     // Calculation is never evidence of application, approval or provider success.

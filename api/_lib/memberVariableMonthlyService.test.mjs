@@ -14,6 +14,27 @@ function price(f,ordinal,start,end,net,vat=0) {
     serviceStartDate:start,serviceEndExclusiveDate:end,verified:true,...money(net,vat)});
   return f;
 }
+test('variable monthly cancellation uses anniversary service, not an annual-price assumption',()=>{
+  const f=price(fixture('2026-01-15','2027-01-15','2026-01-30'),1,'2026-01-15','2026-02-15',1000);
+  const consumed=reconcileVariableMonthlyService(f).grossMinor;
+  for(const paid of [200,1000]){
+    const q=calculateAmendmentTerms({
+      sourceRecordId:f.sourceRecordId,memberId:'member',currency:f.currency,
+      frequency:'monthly',pricingBasis:'monthly_price',sourcePrice:money(0),
+      term:f.term,effectiveDate:f.throughExclusiveDate,behaviour:'retain_term',action:'cancel',
+      evidence:{sourceRecordId:f.sourceRecordId,currency:f.currency,asOfDate:f.throughExclusiveDate,
+        complete:true,pendingCollections:[],failedCollections:[],outstandingDue:money(0),
+        variableMonthlyService:f.evidence,
+        settledFunding:[{id:'payment',sourceRecordId:f.sourceRecordId,currency:f.currency,state:'settled',
+          ownerType:'member',ownerId:'member',kind:'cash',...money(paid)}]},
+    });
+    assert.equal(q.cancellationChargeBasis,'service_used');
+    assert.equal(q.paymentDueMinor,Math.max(consumed-paid,0));
+    assert.equal(q.surplusMinor,Math.max(paid-consumed,0));
+    assert.equal(q.futureObligationMinor,0);
+    assert.equal(q.canAutomaticallySettle,false);
+  }
+});
 test('uses each evidenced monthly price and prorates service days, not annual price/12',()=>{
   const f=price(price(fixture(),1,'2026-01-15','2026-02-15',1000,200),
     2,'2026-02-15','2026-03-15',2000,400);

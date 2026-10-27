@@ -4,6 +4,30 @@
 
 **Step 3 is not complete and personal-credit execution remains disabled.**
 
+### Immediate cancellation policy confirmed
+
+Immediate cancellation charges only for service already delivered, not unused
+future annual instalments. The shared calculation now compares verified delivered
+service with actual settled funding, separately preserves net/VAT amounts, and
+does not add `outstandingDue` again when it describes that same service debt.
+Monthly cancellation reports zero future service obligation and an explicit
+current service balance. Variable monthly service still uses anniversary-period
+historical prices, not an assumed annual total.
+
+Prepaid surplus continues to follow the tenant's existing refund/credit policy;
+non-refundable prepaid value is identified separately. End-of-term cancellation
+is unchanged. Old immediate-cancellation calculations must be refreshed.
+
+These calculations do not execute a cancellation. Existing receivables must be
+reconciled before collection: an annual invoice may need its unearned balance
+credited, whereas earned debt may already have an invoice and must not be billed
+twice. The calculation explicitly blocks automatic settlement pending that
+reconciliation. Provider termination and membership cancellation remain unwired.
+
+Verification: 171 focused calculation, policy, authority, provider-operation and
+monthly regression tests passed. No migration was required for this policy
+increment, and no live financial or membership records were changed.
+
 The code now includes a durable, service-only claim before the Xero liability
 payment; exact non-cash backing verification; atomic voucher issuance with
 membership application; no-expiry membership-credit discovery; liability
