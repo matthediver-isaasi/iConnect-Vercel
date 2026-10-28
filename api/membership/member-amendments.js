@@ -10,11 +10,12 @@ import {listMemberCreditExpiryReviews,reviewMemberCreditExpiry} from '../_lib/me
 import {createMemberReplacementExecutionService} from '../_lib/memberReplacementExecution.js';
 import {MEMBER_REPLACEMENT_PROTOCOL,replacementLifecycle} from '../_lib/memberReplacementRead.js';
 import {createMemberChangeFormSettings} from '../_lib/memberChangeFormSettings.js';
+import {createMemberCancellationFinance} from '../_lib/memberCancellationFinance.js';
 
 export function createMemberAmendmentsHandler({
   db = supabase, getContext = getTenantContext, isAdmin = hasAdminAccess,
   hasFinance = hasFeatureAccess, service = null, authorityService = null, executionService = null,
-  monthlyExecutionService = null,replacementExecutionService=null,
+  monthlyExecutionService = null,replacementExecutionService=null,cancellationFinanceService=null,
 } = {}) {
   return async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -46,6 +47,37 @@ export function createMemberAmendmentsHandler({
           :await settings.save(context.tenantId,actorId,req.body));
       }
       const amendments = service || createMemberAmendmentsService({ db });
+      if(req.method==='GET'&&req.query?.action==='cancellation_finances'){
+        if(!AMENDMENT_UUID.test(req.query.memberId||'')||(req.query.after&&!AMENDMENT_UUID.test(req.query.after))){
+          return res.status(400).json({error:'Valid member and pagination identifiers are required'});
+        }
+        let query=db.from('member_cancellation_request')
+          .select('id,financial_state,effective_date,timing,access_ended_at')
+          .eq('tenant_id',context.tenantId).eq('member_id',req.query.memberId)
+          .not('access_ended_at','is',null).order('id').limit(51);
+        if(req.query.after)query=query.gt('id',req.query.after);
+        const {data,error}=await query;
+        if(error||!Array.isArray(data))return res.status(503).json({error:'Cancellation financial history could not be loaded'});
+        return res.json({records:data.slice(0,50),nextCursor:data.length>50?data[49].id:null});
+      }
+      if(req.method==='POST'&&['preview_cancellation_finance','confirm_cancellation_finance','recover_cancellation_finance'].includes(req.body?.action)){
+        if(!AMENDMENT_UUID.test(req.body.memberId||'')||!AMENDMENT_UUID.test(req.body.requestId||'')){
+          return res.status(400).json({error:'Valid member and cancellation identifiers are required'});
+        }
+        const finance=cancellationFinanceService||createMemberCancellationFinance({db});
+        const actor={tenantId:context.tenantId,memberId:req.body.memberId,actorId,actorKind:'admin'};
+        const {requestId,choice,expectedFingerprint,approve}=req.body;
+        if(req.body.action==='preview_cancellation_finance')return res.json(await finance.preview(actor,requestId,{choice}));
+        if(req.body.action==='confirm_cancellation_finance'){
+          if(approve!==true||!/^[a-f0-9]{64}$/i.test(expectedFingerprint||'')){
+            return res.status(400).json({error:'Explicit approval and the current preview fingerprint are required'});
+          }
+          return res.json(await finance.confirm(actor,requestId,{choice,expectedFingerprint,approve:true}));
+        }
+        // Recovery resumes an existing approval only. Never accept browser
+        // operation limits, balances, provider IDs, or financial treatment.
+        return res.json(await finance.recover(actor,requestId));
+      }
       if(req.method==='POST' && ['execute_change','resume_change'].includes(req.body?.action)) {
         if(!AMENDMENT_UUID.test(req.body?.memberId||'') || !AMENDMENT_UUID.test(req.body?.authorityId||'')) {
           return res.status(400).json({error:'Valid memberId and authorityId are required'});

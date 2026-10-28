@@ -11,6 +11,7 @@ import { adminFetch } from "@/lib/adminFetch";
 import MemberMembershipAmendmentLifecycle from "./MemberMembershipAmendmentLifecycle";
 import MemberMonthlyMembershipAmendments from "./MemberMonthlyMembershipAmendments";
 import MemberUpfrontFinancialChanges from "./MemberUpfrontFinancialChanges";
+import MemberCancellationFinancialRecovery from "./MemberCancellationFinancialRecovery";
 
 const endpoint = "/api/membership/member-amendments";
 const dateLabel = value => {
@@ -314,6 +315,7 @@ function AmendmentPanel({ memberId, tenantId }) {
           memberId={memberId} tenantId={tenantId} data={data} actionsEnabled={!isError}
           readResponse={readResponse} onRefresh={refetch}
         />}
+        <MemberCancellationFinancialRecovery memberId={memberId} tenantId={tenantId} actionsEnabled={!isError} />
       </>}
     </CardContent>
   </Card>;

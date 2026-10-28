@@ -1,5 +1,27 @@
 # Self-service membership changes: implementation boundary
 
+## Cancellation finance administrative integration
+
+The existing cancellation-finance coordinator is now connected to the
+finance-admin API and member amendment screen for **already-applied**
+cancellations. It provides bounded tenant/member-scoped history, preview,
+fingerprint-bound explicit approval, and recovery of approved operations.
+Recovery cannot choose a financial treatment or accept client-supplied amounts,
+provider identities or execution limits. Unknown confirmation results lock the
+UI into recovery rather than permitting blind repeat approval.
+
+This does not expose cancellation admission or end membership access. Monthly
+financial cases without the dedicated resolver and unsupported original-funding
+cases still fail closed. Cancellation creation, scheduled execution and worker
+wiring remain separate unfinished work. The member-facing Step 4 journey is
+also still unfinished.
+
+Verification: 96 mounted tests across the affected membership panels passed,
+including 12 new cancellation-finance tests. The relevant financial services and
+API tests pass, including scoped pagination and failed-read handling. No database
+migration was needed or applied for this integration; existing DEST migrations
+provide its protected storage. No live financial action was executed in testing.
+
 ## Step 4 started: protected FormBuilder configuration
 
 The requested delivery order is now to progress Step 3 as far as possible,

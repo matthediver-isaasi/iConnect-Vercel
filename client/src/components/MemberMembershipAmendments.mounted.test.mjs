@@ -88,6 +88,7 @@ async function mount({ data = fixture(), get, post } = {}) {
     assert.equal(options.credentials, "include");
     assert.equal(options.headers["X-Tenant-Id"], "tenant-safe");
     assert.match(url, /^\/api\/membership\/member-amendments/);
+    if (url.includes("action=cancellation_finances")) return json({ records: [], nextCursor: null });
     calls.push({ url, payload: options.body ? JSON.parse(options.body) : null });
     return options.method === "POST" ? (post ? post(JSON.parse(options.body)) : json(quote())) : get ? get() : json(data);
   };

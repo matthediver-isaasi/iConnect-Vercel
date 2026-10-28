@@ -110,6 +110,7 @@ async function mount({ data = fixture(), get, post } = {}) {
   globalThis.fetch = async (url, options = {}) => {
     assert.match(url, /^\/api\/membership\/member-amendments/);
     assert.equal(options.credentials, "include");
+    if (url.includes("action=cancellation_finances")) return json({ records: [], nextCursor: null });
     const payload = options.body ? JSON.parse(options.body) : null;
     calls.push({ payload, tenantId: options.headers["X-Tenant-Id"] });
     return payload ? post ? post(payload) : json({ authority: authority(), fingerprint }) : get ? get() : json(data);
