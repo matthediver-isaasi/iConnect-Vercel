@@ -34,3 +34,13 @@ all of those attendees from an attendance-filtered audience.
 **How to apply:** Use current attended outcomes for active targets alongside
 existing check-in evidence, scoped by tenant and booking source. Do not manufacture
 check-ins or replay CPD/certificate actions to make recipients appear.
+
+Zoom participant-report `duration` is seconds, not minutes. Preserve seconds
+through normalization and compare against the configured minute threshold × 60.
+
+**Why:** A readiness review exposed a conversion that could treat 20 seconds
+as 20 minutes. Generic attendance-engine tests did not cover the provider adapter.
+
+**How to apply:** Test the actual Zoom-response conversion at threshold boundaries
+and across rejoins. Do not infer provider units from legacy database column names;
+round only for display, not qualification.
