@@ -2410,9 +2410,10 @@ export default async function handler(req, res, dependencies = {}) {
         const hostHeader = req.headers['x-forwarded-host'] || req.headers.host || '';
         const origin = hostHeader ? `${protocol}://${hostHeader}` : (process.env.VITE_APP_URL || '');
         console.log('[Public Form Submission] Sending submitter Word copy to:', submitterCopyEmail.trim());
-        const copyResult = await sendSubmitterCopyEmail({
-          form,
+        const copyResult = await (dependencies.sendSubmitterCopyEmail || sendSubmitterCopyEmail)({
+          form: relationshipForm,
           submission,
+          visibilityOptions: submissionVisibilityOptions,
           recipientEmail: submitterCopyEmail.trim(),
           origin,
         });

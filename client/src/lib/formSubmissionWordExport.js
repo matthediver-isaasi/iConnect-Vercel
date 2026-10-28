@@ -232,6 +232,9 @@ function formatResponseValueToJson(value, fieldDef, resolvers, submissionData = 
   if (isRepeatableRowsField(fieldDef)) {
     const text = formatRepeatableRowsText(fieldDef, value, {
       submissionData,
+      includeCell: r.includeRepeatableCell
+        ? (child, rowIndex) => r.includeRepeatableCell(fieldDef, child, rowIndex)
+        : undefined,
       formatCell: (cellValue, child, row) => {
         if (child?.type === 'relationship_dropdown') {
           const resolveRecordLabel = typeof r.resolveRelationshipLabel === 'function'
@@ -261,6 +264,7 @@ function formatResponseValueToJson(value, fieldDef, resolvers, submissionData = 
       for (const [rowIndex, row] of (Array.isArray(value) ? value : []).entries()) {
         if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
         for (const child of fileChildren) {
+          if (r.includeRepeatableCell && !r.includeRepeatableCell(fieldDef, child, rowIndex)) continue;
           if (row[child.id] == null || row[child.id] === '') continue;
           const resolved = r.resolveFile(row[child.id]);
           if (resolved) files.push({

@@ -116,6 +116,7 @@ export function formatRepeatableRows(field, value, options = {}) {
   const rows = inputRows.map((row, rowIndex) => ({
     rowId: row._row_id ?? row.row_id ?? `row-${rowIndex + 1}`,
     cells: columns.map(({ id, child }) => {
+      if (options.includeCell && !options.includeCell(child, rowIndex)) return '';
       const rawValue = row[id];
       const displayValue = containsFormNotListedValue(rawValue)
         ? resolveFormNotListedDisplayValue(child, rawValue, options.submissionData, { parentField: field, row })
@@ -141,8 +142,9 @@ export function formatRepeatableRowsText(field, value, options = {}) {
   const { columns, rows } = formatRepeatableRows(field, value, options);
   if (!rows.length) return '';
   return rows.map((row, rowIndex) => {
-    const cells = columns.map((column, columnIndex) =>
-      `${column.label}: ${row.cells[columnIndex] || options.emptyValue || '-'}`);
+    const cells = columns.flatMap((column, columnIndex) =>
+      options.includeCell && !options.includeCell(column.child, rowIndex) ? [] :
+      [`${column.label}: ${row.cells[columnIndex] || options.emptyValue || '-'}`]);
     return [`Row ${rowIndex + 1}`, ...cells].join('\n');
   }).join('\n\n');
 }

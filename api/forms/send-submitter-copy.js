@@ -4,8 +4,8 @@
 // "email me a copy" checkbox with a valid email address.
 //
 // Reuses the same DOCX builder as the admin Form Submissions Word Export
-// (api/admin/form-submissions-word-export.js) so the output is identical
-// to what an admin would download for that submission. All tenant-scoped
+// (api/admin/form-submissions-word-export.js), with a respondent-only projection
+// rather than the administrator's complete answer view. All tenant-scoped
 // lookups (members / organisations / roles / categories / custom fields /
 // tenant logo) run with the form's own tenant_id, so there is no risk of
 // cross-tenant data leakage.
@@ -14,6 +14,7 @@
 // returned result object. The caller MUST NOT let an email failure block
 // the form submission itself (per task spec).
 import { createClient } from '@supabase/supabase-js';
+import { prepareSubmitterCopy } from '../_lib/submitterCopyProjection.js';
 import { submissionUsesAnonymousCompletion } from '../_lib/surveyCompletionBoundary.js';
 import { Packer } from 'docx';
 import {
@@ -35,7 +36,7 @@ import {
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
-const supabase = supabaseUrl && supabaseServiceKey
+const defaultSupabase = supabaseUrl && supabaseServiceKey
   ? createClient(supabaseUrl, supabaseServiceKey)
   : null;
 
@@ -198,9 +199,8 @@ function buildServerResolvers(maps, origin) {
 }
 
 // Default selectedOptions for a submitter copy: include the standard
-// submission metadata followed by every field on the form (in order),
-// using the field label as the column label. This mirrors what an admin
-// would pick when exporting "everything" for a single submission.
+// submission metadata followed by every respondent-visible field (in order).
+// The supplied form has already been projected using server visibility.
 function buildDefaultSelectedOptions(form) {
   const opts = [
     { key: '__form_name', label: 'Form' },
@@ -230,7 +230,18 @@ function buildDefaultSelectedOptions(form) {
  * @param {string} [args.origin] - base URL used for secure file links inside the DOCX
  * @returns {Promise<{success: boolean, error?: string, messageId?: string, skipped?: boolean}>}
  */
-export async function sendSubmitterCopyEmail({ form, submission, recipientEmail, origin = '' }) {
+export async function sendSubmitterCopyEmail(args, dependencies = {}) {
+  try {
+    return await generateAndSendSubmitterCopy(args, dependencies);
+  } catch (error) {
+    console.error('[SubmitterCopy] Failed:', error.message);
+    return { success: false, error: 'Failed to send submitter copy' };
+  }
+}
+
+async function generateAndSendSubmitterCopy({ form, submission, recipientEmail, origin = '', visibilityOptions }, dependencies) {
+  const db = dependencies.supabase || defaultSupabase;
+  const supabase = db;
   if (!supabase) {
     return { success: false, error: 'Database not configured' };
   }
@@ -248,6 +259,10 @@ export async function sendSubmitterCopyEmail({ form, submission, recipientEmail,
   if (!tenantId) {
     return { success: false, error: 'Form is missing tenant_id' };
   }
+
+  const copy = await prepareSubmitterCopy({ db, form, submission, visibilityOptions });
+  form = copy.form;
+  submission = copy.submission;
 
   // Tenant info for title block + logo + branded From address.
   const { data: tenantRow } = await supabase
@@ -340,6 +355,7 @@ export async function sendSubmitterCopyEmail({ form, submission, recipientEmail,
     customFieldDefById,
     relationshipLabelsByRecordId,
   }, (origin || '').replace(/\/+$/, ''));
+  resolvers.includeRepeatableCell = copy.includeRepeatableCell;
 
   const safeLogoUrl = isSafePublicLogoUrl(tenantLogoUrl) ? tenantLogoUrl : '';
   const tenantLogo = safeLogoUrl ? await loadTenantLogo(safeLogoUrl) : null;
@@ -372,13 +388,13 @@ export async function sendSubmitterCopyEmail({ form, submission, recipientEmail,
     <p>If you didn't request this email, you can safely ignore it.</p>
   `;
 
-  const inboxDelivery = await buildInboxDelivery({
+  const inboxDelivery = await (dependencies.buildInboxDelivery || buildInboxDelivery)({
     tenantId,
     email: recipientEmail,
     labelKey: 'forms',
   });
 
-  const emailResult = await sendEmail({
+  const emailResult = await (dependencies.sendEmail || sendEmail)({
     to: recipientEmail,
     subject,
     html,
@@ -394,7 +410,8 @@ export async function sendSubmitterCopyEmail({ form, submission, recipientEmail,
   return emailResult;
 }
 
-export default async function handler(req, res) {
+export default async function handler(req, res, dependencies = {}) {
+  const db = dependencies.supabase || defaultSupabase;
   // This module is primarily used as a helper imported by
   // api/public/form-submission.js, but is exposed as an HTTP endpoint too
   // so it can be re-used by internal callers in the future. It deliberately
@@ -403,7 +420,7 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
-  if (!supabase) {
+  if (!db) {
     return res.status(503).json({ error: 'Database not configured' });
   }
   const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET;
@@ -416,23 +433,24 @@ export default async function handler(req, res) {
     if (!form_id || !submission_id || !recipient_email) {
       return res.status(400).json({ error: 'form_id, submission_id and recipient_email are required' });
     }
-    const { data: form } = await supabase
+    const { data: form } = await db
       .from('form')
-      .select('id, name, tenant_id, fields, allow_submitter_email_copy')
+      .select('*')
       .eq('id', form_id)
       .single();
     if (!form) return res.status(404).json({ error: 'Form not found' });
     if (!form.allow_submitter_email_copy) {
       return res.json({ success: true, skipped: true, reason: 'Form does not allow submitter copies' });
     }
-    const { data: submission } = await supabase
+    const { data: submission } = await db
       .from('form_submission')
       .select('*')
       .eq('id', submission_id)
       .eq('tenant_id', form.tenant_id)
+      .eq('form_id', form.id)
       .single();
     if (!submission) return res.status(404).json({ error: 'Submission not found' });
-    const result = await sendSubmitterCopyEmail({ form, submission, recipientEmail: recipient_email, origin });
+    const result = await sendSubmitterCopyEmail({ form, submission, recipientEmail: recipient_email, origin }, dependencies);
     return res.json(result);
   } catch (error) {
     console.error('[SubmitterCopy] Error:', error);

@@ -262,6 +262,7 @@ export async function submitThroughRealProcessor({
   idempotencyKey = null,
   attempts = 1,
   failProcessorOnce = false,
+  sendSubmitterCopyEmail,
 }) {
   const boundary = makeBoundaryDatabase(form, processorOptions.existingOrganization, {
     member: processorOptions.existingMember,
@@ -291,6 +292,7 @@ export async function submitThroughRealProcessor({
     },
   };
   const dependencies = {
+    ...(sendSubmitterCopyEmail ? { sendSubmitterCopyEmail } : {}),
     supabase: boundary.client,
     tenantData: { id: form.tenant_id, slug: 'compatibility', domain: 'compatibility.test' },
     publicBaseUrl: 'https://compatibility.test',

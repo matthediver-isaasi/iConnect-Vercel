@@ -14,3 +14,9 @@ Row-local visibility must also be evaluated against retained raw rows before pro
 **Why:** A hidden dropdown can retain the answer that reveals another field in the same row. Evaluating a second time after removing the source changes the result, and pruning client payloads loses both restoration and server authority.
 
 **How to apply:** Keep raw rows for storage, rule evaluation and validation; use a separate effective view for mappings and emails. Never add a row-hidden child to the form-wide hidden-ID set. Audit specialized validators as well as the general repeatable validator.
+
+Submitter-requested copies follow respondent visibility, not administrator export visibility or general notification policies. Visible unanswered questions still belong in the copy.
+
+**Why:** The owner explicitly requires hidden labels and retained internal answers to be omitted, while retaining blank visible questions. Treating missing answers as hidden would silently remove legitimate questions; changing shared export defaults would remove administrator evidence.
+
+**How to apply:** Keep this policy specific to the submitter-copy consumer, including row-local labels and supporting-file links. Preserve administrator exports and other notification policies unless separately authorized.
