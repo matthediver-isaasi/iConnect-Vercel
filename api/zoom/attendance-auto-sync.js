@@ -1,6 +1,8 @@
 import { supabase } from '../_lib/database.js';
 import { syncAttendanceForMeeting, syncAttendanceForAgendaItem } from '../_lib/zoomAttendanceService.js';
 
+// Vercel sends CRON_SECRET for scheduled GET requests. Retain the existing
+// POST integration secret without allowing it to override cron authentication.
 const AUTO_SYNC_SECRET = process.env.ZOOM_AUTO_SYNC_SECRET;
 
 async function resolveZoomApiId(tenantId, localId, type) {
@@ -14,14 +16,14 @@ async function resolveZoomApiId(tenantId, localId, type) {
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
 
-  if (req.method !== 'POST') {
+  if (req.method !== 'POST' && req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
@@ -29,14 +31,17 @@ export default async function handler(req, res) {
     return res.status(503).json({ error: 'Database not configured' });
   }
 
-  if (!AUTO_SYNC_SECRET) {
-    return res.status(403).json({ error: 'Auto-sync is not configured. Set ZOOM_AUTO_SYNC_SECRET environment variable.' });
+  const expectedSecret = req.method === 'GET'
+    ? process.env.CRON_SECRET
+    : (AUTO_SYNC_SECRET || process.env.CRON_SECRET);
+  if (!expectedSecret) {
+    return res.status(403).json({ error: 'Attendance auto-sync authentication is not configured.' });
   }
 
   const authHeader = req.headers.authorization;
   const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
 
-  if (bearerToken !== AUTO_SYNC_SECRET) {
+  if (bearerToken !== expectedSecret) {
     return res.status(401).json({ error: 'Invalid or missing auto-sync secret.' });
   }
 
@@ -48,21 +53,23 @@ export default async function handler(req, res) {
 
     const results = [];
 
-    const { data: regularEvents } = await supabase
+    const { data: regularEvents, error: eventsError } = await supabase
       .from('event')
       .select('id, title, tenant_id, zoom_meeting_id, zoom_webinar_id, end_date, is_complex')
       .not('zoom_meeting_id', 'is', null)
       .lt('end_date', cutoffTime)
       .gt('end_date', maxAge)
       .eq('is_complex', false);
+    if (eventsError) throw eventsError;
 
-    const { data: regularEventsWebinar } = await supabase
+    const { data: regularEventsWebinar, error: webinarsError } = await supabase
       .from('event')
       .select('id, title, tenant_id, zoom_meeting_id, zoom_webinar_id, end_date, is_complex')
       .not('zoom_webinar_id', 'is', null)
       .lt('end_date', cutoffTime)
       .gt('end_date', maxAge)
       .eq('is_complex', false);
+    if (webinarsError) throw webinarsError;
 
     const allRegularEvents = [];
     const seenEventIds = new Set();
@@ -95,11 +102,12 @@ export default async function handler(req, res) {
       }
     }
 
-    const { data: sessions } = await supabase
+    const { data: sessions, error: sessionsError } = await supabase
       .from('complex_event_session')
       .select('id, title, tenant_id, complex_event_id, zoom_meeting_id, zoom_webinar_id, end_time')
       .lt('end_time', cutoffTime)
       .gt('end_time', maxAge);
+    if (sessionsError) throw sessionsError;
 
     const zoomSessions = (sessions || []).filter(s => s.zoom_meeting_id || s.zoom_webinar_id);
 
@@ -125,16 +133,17 @@ export default async function handler(req, res) {
       }
     }
 
-    const { data: agendaItems } = await supabase
+    const { data: agendaItems, error: agendaError } = await supabase
       .from('event_agenda_item')
       .select('id, event_id, tenant_id, description, zoom_meeting_id, zoom_webinar_id, end_date')
       .or('zoom_meeting_id.not.is.null,zoom_webinar_id.not.is.null')
-      .lt('end_date', cutoffTime.slice(0, 10))
+      .lte('end_date', cutoffTime.slice(0, 10))
       .gt('end_date', maxAge.slice(0, 10));
+    if (agendaError) throw agendaError;
 
     for (const item of agendaItems || []) {
       try {
-        const result = await syncAttendanceForAgendaItem(item.tenant_id, item.id);
+        const result = await syncAttendanceForAgendaItem(item.tenant_id, item.id, { endedBefore: cutoffTime });
         results.push({ agendaItemId: item.id, eventId: item.event_id, title: item.description, ...result });
       } catch (err) {
         console.error(`[ZoomAttendanceAutoSync] Error syncing agenda item "${item.id}":`, err.message);

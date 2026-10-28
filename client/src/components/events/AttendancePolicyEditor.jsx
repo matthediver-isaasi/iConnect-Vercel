@@ -14,6 +14,7 @@ export default function AttendancePolicyEditor({
   allowInheritance = false,
   parentPolicy = null,
   targetSupported = true,
+  defaultPolicyOnly = false,
   providerAvailability = { zoom: true, teams: true },
   label = 'Attendance tracking',
   testId = 'attendance-policy',
@@ -98,7 +99,12 @@ export default function AttendancePolicyEditor({
       <p className="text-xs font-medium text-slate-600" data-testid={`${testId}-effective`}>
         Effective policy: {describeAttendancePolicy(effective)}
       </p>
-      {effective.attendance_tracking_enabled && !targetSupported && (
+      {effective.attendance_tracking_enabled && defaultPolicyOnly && (
+        <p className="text-xs text-slate-500">
+          Agenda items inherit this policy. Link an online meeting to each item you want to track. The event’s own meeting is tracked separately.
+        </p>
+      )}
+      {effective.attendance_tracking_enabled && !targetSupported && !defaultPolicyOnly && (
         <p className="text-xs text-amber-700" role="alert">
           Link a supported {effective.attendance_provider === 'teams' ? 'Teams meeting' : 'Zoom meeting or webinar'} to use attendance tracking for this target.
         </p>

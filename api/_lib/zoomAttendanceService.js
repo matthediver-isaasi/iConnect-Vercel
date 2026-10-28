@@ -53,7 +53,16 @@ async function fetchZoomParticipants(token, zoomId, zoomType) {
     page++;
   } while (nextPageToken && page < maxPages);
 
+  if (nextPageToken) throw new Error('Zoom attendance report exceeded the page limit; incomplete report was not applied');
   return { participants: allParticipants, error: null };
+}
+
+export function zoomDurationSeconds(participant) {
+  const seconds = Number(participant.duration);
+  if (participant.duration == null || !Number.isFinite(seconds) || seconds < 0) {
+    throw new Error('Zoom attendance report contains an invalid duration');
+  }
+  return seconds;
 }
 
 async function matchParticipantsToBookings(tenantId, eventId, isComplexEvent, participants) {
@@ -287,7 +296,8 @@ export async function syncAttendanceForMeeting({
       participant_name: p.name || p.user_name || null,
       join_time: p.join_time || null,
       leave_time: p.leave_time || null,
-      duration_minutes: p.duration != null ? Math.round(p.duration) : 0,
+      duration_minutes: Math.round(zoomDurationSeconds(p) / 60),
+      duration_seconds: zoomDurationSeconds(p),
       matched_booking_id: match?.booking_id || null,
       matched_member_id: match?.member_id || null,
       synced_at: now,
@@ -303,7 +313,7 @@ export async function syncAttendanceForMeeting({
     }
     const key = `${rec.zoom_meeting_id}|${rec.participant_email}|${rec.join_time}`;
     const existing = deduped.get(key);
-    if (!existing || rec.duration_minutes > existing.duration_minutes) {
+    if (!existing || rec.duration_seconds > existing.duration_seconds) {
       deduped.set(key, rec);
     }
   }
@@ -322,7 +332,7 @@ export async function syncAttendanceForMeeting({
       name: record.participant_name,
       joinedAt: record.join_time,
       leftAt: record.leave_time,
-      durationSeconds: Math.max(0, record.duration_minutes * 60),
+      durationSeconds: record.duration_seconds,
       providerParticipantId,
       metadata: { zoomType: zoomType || 'meeting' },
     };
@@ -399,7 +409,7 @@ export async function syncAttendanceForMeeting({
 
   const batchSize = 100;
   for (let i = 0; i < records.length; i += batchSize) {
-    const batch = records.slice(i, i + batchSize);
+    const batch = records.slice(i, i + batchSize).map(({ duration_seconds, ...record }) => record);
     const { error: insertError } = await supabase
       .from('zoom_attendance')
       .insert(batch);
@@ -496,7 +506,7 @@ export async function syncAttendanceForEvent(tenantId, eventId) {
   };
 }
 
-export async function syncAttendanceForAgendaItem(tenantId, agendaItemId) {
+export async function syncAttendanceForAgendaItem(tenantId, agendaItemId, { endedBefore = null } = {}) {
   const { data: agenda, error } = await supabase.from('event_agenda_item')
     .select('id,event_id,zoom_meeting_id,zoom_webinar_id,end_date,end_time')
     .eq('tenant_id', tenantId).eq('id', agendaItemId).single();
@@ -513,10 +523,14 @@ export async function syncAttendanceForAgendaItem(tenantId, agendaItemId) {
   const { data: event, error: eventError } = await supabase.from('event').select('timezone')
     .eq('tenant_id', tenantId).eq('id', agenda.event_id).single();
   if (eventError) throw new Error(`Failed to resolve agenda event timezone: ${eventError.message}`);
+  const scheduledEndAt = agendaScheduledEndAt(agenda.end_date, agenda.end_time, event?.timezone);
+  if (endedBefore && (!scheduledEndAt || Date.parse(scheduledEndAt) >= Date.parse(endedBefore))) {
+    return { success: true, skipped: true, reason: 'Agenda report is not due yet' };
+  }
   return syncAttendanceForMeeting({
     tenantId, eventId: agenda.event_id, complexEventSessionId: null, agendaItemId: agenda.id,
     zoomMeetingId: zoom[zoomIdColumn], zoomType, isComplexEvent: false,
-    scheduledEndAt: agendaScheduledEndAt(agenda.end_date, agenda.end_time, event?.timezone),
+    scheduledEndAt,
   });
 }
 

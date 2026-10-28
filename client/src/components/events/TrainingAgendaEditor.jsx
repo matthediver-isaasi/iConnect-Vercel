@@ -275,6 +275,7 @@ export default function TrainingAgendaEditor({
       {onEventAttendancePolicyChange && (
         <AttendancePolicyEditor
           value={eventAttendancePolicy}
+          defaultPolicyOnly
           onChange={onEventAttendancePolicyChange}
           targetSupported={(lines || []).some((line) => (
             agendaTypeBehaviour(line.item_type, agendaItemTypes) === 'zoom'
