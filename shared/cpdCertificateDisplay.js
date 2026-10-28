@@ -1,4 +1,8 @@
 export const CPD_TEXT_EXAMPLE = 'This course provides {{number_of_cpd_points}} CPD credits in accordance with the CPD Scheme of The Royal College of Radiologists';
+export function isMissingAuthoredCertificateText(field) {
+  return field.text_template == null
+    && /^text\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(field.key || field.placeholder_key || '');
+}
 export function validateCertificateText(text) {
   if (text == null) return;
   if (typeof text !== 'string' || text.length > 10000) throw new Error('Certificate text must be at most 10000 characters');

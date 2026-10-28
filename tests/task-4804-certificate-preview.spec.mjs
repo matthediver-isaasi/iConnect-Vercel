@@ -91,7 +91,7 @@ function html({ react, dependency }) {
     </script></body></html>`;
 }
 
-async function mount(page, request, { active = false, direct = true, delay = 80, fields } = {}) {
+async function mount(page, request, { active = false, direct = true, delay = 80, fields, saveFailure } = {}) {
   const fixtureHtml = html(await modules(request));
   const state = { writes: [], unexpected: [], errors: [], consoleErrors: [], failedRequests: [], pdfRequests: [] };
   page.on("pageerror", error => state.errors.push(error.stack || error.message));
@@ -149,6 +149,10 @@ Map.prototype.getOrInsert ||= function(key, value) {
     const json = value => route.fulfill({ contentType: "application/json", body: JSON.stringify(value) });
     if (url.pathname === "/api/cpd-certificate-templates/fixture-template" && req.method() === "PUT") {
       const body = req.postDataJSON();
+      if (saveFailure === 'schema') return route.fulfill({ status: 503, contentType: 'application/json',
+        body: JSON.stringify({ error: 'Certificate text storage needs a database update. Keep this editor open.' }) });
+      if (saveFailure === 'silent') return json({ template: { ...template,
+        placeholders: body.placeholders.map(p => ({ ...p, text_template: null })) } });
       template.placeholders = body.placeholders;
       template.version++;
       return json({ template });
@@ -233,6 +237,34 @@ test('authored CPD text saves, reopens, duplicates and previews as a flowing sen
     await expect(page.getByTestId('certificate-page').getByText(CPD_TEXT_EXAMPLE.replace('{{number_of_cpd_points}}', points), { exact: true })).toHaveCount(1);
   }
   await page.screenshot({ path: '/tmp/cpd-inline-preview.jpg' });
+});
+
+for (const saveFailure of ['schema', 'silent']) {
+  test(`failed ${saveFailure} save retains authored draft`, async ({ page, request }) => {
+    await mount(page, request, { fields: [], direct: false, saveFailure });
+    await page.getByRole('button', { name: 'Add text block', exact: true }).click();
+    const editor = page.getByLabel('Certificate text', { exact: true });
+    await editor.fill(`Edited: ${CPD_TEXT_EXAMPLE}`);
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(page.getByRole('alert')).toContainText(/database update|draft has been kept/);
+    await expect(editor).toHaveValue(`Edited: ${CPD_TEXT_EXAMPLE}`);
+    await expect(page.getByText('Unsaved', { exact: true })).toBeVisible();
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await expect(editor).toHaveValue(`Edited: ${CPD_TEXT_EXAMPLE}`);
+  });
+}
+
+test('lost authored text is explicit and can be restored without guessing', async ({ page, request }) => {
+  await mount(page, request, { direct: false, fields: [{ ...FIELD,
+    key: 'text.6ca3f824-21ec-46c7-ab08-67e0acb283ff', sample: '', text_template: null }] });
+  await page.getByTestId('certificate-page').getByText('Saved text unavailable — enter original wording').click();
+  const editor = page.getByLabel('Certificate text', { exact: true });
+  await expect(editor).toHaveValue('');
+  await editor.fill(`Verified: ${CPD_TEXT_EXAMPLE}`);
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByText('Unsaved', { exact: true })).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByTestId('certificate-page').getByText(`Verified: ${CPD_TEXT_EXAMPLE}`, { exact: true })).toBeVisible();
 });
 
 function aligned(g, size, { fit = true, fitHeight = false } = {}) {

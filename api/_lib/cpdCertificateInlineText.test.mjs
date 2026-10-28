@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { PDFDocument } from 'pdf-lib';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { CPD_TEXT_EXAMPLE, validateCertificateText } from '../../shared/cpdCertificateDisplay.js';
-import { serializeCertificatePlaceholder, certificatePreviewValue, certificateSampleValues } from '../../client/src/lib/cpdCertificateContract.js';
+import { serializeCertificatePlaceholder, certificatePreviewValue, certificateSampleValues, assertCertificateTextSaved } from '../../client/src/lib/cpdCertificateContract.js';
 import { validPlaceholders } from './cpdCertificateTemplatesApi.js';
 import { layoutPlaceholder, renderCpdCertificatePdf } from './cpdCertificatePdf.js';
 import { realCertificatePlaceholders } from './attendeeCpdCertificate.js';
@@ -16,6 +16,12 @@ const field = { key: 'text.credits', label: 'Credits', text_template: CPD_TEXT_E
   font_size: 18, minimum_font_size: 8, align: 'left', required: true, multiline: true };
 const placeholder = validPlaceholders([serializeCertificatePlaceholder(field)])[0];
 const expected = value => CPD_TEXT_EXAMPLE.replace('{{number_of_cpd_points}}', String(value));
+test('browser rejects incomplete success responses rather than replacing its draft', () => {
+  for (const actual of [undefined, [], [{ ...placeholder, text_template: null }]]) {
+    assert.throws(() => assertCertificateTextSaved([placeholder], actual), /draft has been kept/);
+  }
+  assert.doesNotThrow(() => assertCertificateTextSaved([placeholder], [{ ...placeholder }]));
+});
 test('API save/load/duplicate projection retains authored text independently of samples', () => {
   const stored = JSON.parse(JSON.stringify(placeholder));
   assert.equal(validPlaceholders([stored])[0].text_template, CPD_TEXT_EXAMPLE);

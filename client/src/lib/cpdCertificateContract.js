@@ -4,6 +4,14 @@
 import { certificateDatePlaceholderValues } from '../../../shared/eventCpdCertificatePolicy.js';
 import { certificateDisplayValue, resolveCertificateText, validateCertificateText } from '../../../shared/cpdCertificateDisplay.js';
 
+export function assertCertificateTextSaved(expected, actual) {
+  const signature = fields => (fields || []).map(f =>
+    JSON.stringify([f.placeholder_key || f.key, f.text_template ?? null])).sort();
+  if (!Array.isArray(actual) || JSON.stringify(signature(expected)) !== JSON.stringify(signature(actual))) {
+    throw new Error('The server did not confirm the certificate text. Your draft has been kept. Keep this editor open and contact an administrator before retrying.');
+  }
+}
+
 export function serializeCertificatePlaceholder(field) {
   validateCertificateText(field.text_template);
   return {

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { CPD_TEXT_EXAMPLE, validateCertificateText } from '../../../shared/cpdCertificateDisplay.js';
+import { CPD_TEXT_EXAMPLE, validateCertificateText, isMissingAuthoredCertificateText } from '../../../shared/cpdCertificateDisplay.js';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -21,7 +21,7 @@ import {
 } from '@/lib/cpdCertificateGeometry';
 import {
   certificateSampleValues, certificateTemplateEndpoints, formatCertificateValue, certificatePreviewValue,
-  serializeCertificatePlaceholder,
+  serializeCertificatePlaceholder, assertCertificateTextSaved,
 } from '@/lib/cpdCertificateContract';
 
 const CAPABILITY = 'cpd.certificate-templates';
@@ -292,15 +292,19 @@ export function TemplateDesigner({ id }) {
   const [zoom, setZoom] = useState('fit-width');
   const [preview, setPreview] = useState(() => new URLSearchParams(window.location.search).get('preview') === '1');
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [samplePoints, setSamplePoints] = useState('8');
   const [sourceUrl, setSourceUrl] = useState('');
   const { data, isLoading, error } = useQuery({
     queryKey: ['cpd-certificate-template', id],
     queryFn: () => api(`/${id}`),
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
   const source = data ? draftFromResponse(data) : null;
   useEffect(() => {
     if (!source) return;
+    if (draft?.id === id && JSON.stringify(draft) !== savedSnapshot) return;
     const next = source;
     setDraft(next);
     setSavedSnapshot(JSON.stringify(next));
@@ -384,7 +388,11 @@ export function TemplateDesigner({ id }) {
 
   const save = async () => {
     setSaving(true);
+    setSaveError('');
     try {
+      if (draft.fields.some(isMissingAuthoredCertificateText)) {
+        throw new Error('A text block has no retained wording. Select it and enter the verified original text, or remove it, before saving. No wording has been guessed.');
+      }
       const placeholders = draft.fields.map((field, displayOrder) =>
         serializeCertificatePlaceholder({ ...field, display_order: displayOrder }));
       const payload = {
@@ -393,10 +401,11 @@ export function TemplateDesigner({ id }) {
         expectedVersion: draft.version,
         placeholders,
       };
-      const result = unwrapTemplate(await api(`/${id}`, { method: 'PUT', body: JSON.stringify(payload) })) || payload;
+      const result = unwrapTemplate(await api(`/${id}`, { method: 'PUT', body: JSON.stringify(payload) }));
+      assertCertificateTextSaved(placeholders, result?.placeholders);
       const next = draftFromResponse({ ...payload, ...result, placeholders: result.placeholders || payload.placeholders });
       setDraft(next); setSavedSnapshot(JSON.stringify(next)); toast.success('Template saved');
-    } catch (e) { toast.error(e.message); } finally { setSaving(false); }
+    } catch (e) { setSaveError(e.message); toast.error(e.message); } finally { setSaving(false); }
   };
   const replacePdf = async file => {
     if (!file) return;
@@ -444,6 +453,7 @@ export function TemplateDesigner({ id }) {
         {!isActive && <Button variant="outline" onClick={() => setPreview(v => !v)}>{preview ? 'Edit' : 'Preview'}</Button>}
         {!isActive && <Button onClick={save} disabled={!dirty || saving}><Save className="w-4 h-4 mr-2" />{saving ? 'Saving…' : 'Save'}</Button>}
       </header>
+      {saveError && <div role="alert" className="bg-red-50 border-b border-red-200 px-5 py-3 text-sm text-red-900">{saveError}</div>}
       {missing.length > 0 && <div className="bg-amber-50 border-b border-amber-200 px-5 py-2 text-sm text-amber-900">
         Preview warning: {missing.length} field(s) have no sample value.
       </div>}
@@ -483,7 +493,7 @@ export function TemplateDesigner({ id }) {
                 const rawValue = certificatePreviewValue(field, previewValues);
                 const value = viewing
                   ? (rawValue !== null && rawValue !== undefined && rawValue !== '' ? formatCertificateValue(rawValue, field) : `Missing: ${field.label || field.key}`)
-                  : field.text_template ?? `{{${field.key}}}`;
+                  : field.text_template ?? (isMissingAuthoredCertificateText(field) ? 'Saved text unavailable — enter original wording' : `{{${field.key}}}`);
                 return <div key={field.id} onPointerDown={e => {
                   if (viewing) return; e.preventDefault(); setSelectedId(field.id);
                   interaction.current = { startX: e.clientX, startY: e.clientY, original: field, type: 'move' };
@@ -602,10 +612,11 @@ function FieldInspector({ field, update, duplicate, remove, pages }) {
   return <div className="space-y-4">
     <div><h2 className="font-semibold">{field.label || field.key}</h2><code className="text-xs text-slate-500">{field.key}</code></div>
     <div><Label>Field label</Label><Input value={field.label || ''} onChange={e => update({ label: e.target.value })} /></div>
-    {field.text_template != null ? <div>
+    {field.text_template != null || isMissingAuthoredCertificateText(field) ? <div>
       <Label htmlFor="certificate-authored-text">Certificate text</Label>
-      <textarea id="certificate-authored-text" className="border rounded p-2 w-full min-h-32" value={field.text_template} onChange={e => update({ text_template: e.target.value })} />
-      <Button size="sm" variant="outline" onClick={() => update({ text_template: `${field.text_template}{{number_of_cpd_points}}` })}>Insert CPD points token</Button>
+      {isMissingAuthoredCertificateText(field) && <p className="text-sm text-amber-800">The original wording was not retained. Enter only verified wording; the example has not been substituted.</p>}
+      <textarea id="certificate-authored-text" className="border rounded p-2 w-full min-h-32" value={field.text_template ?? ''} onChange={e => update({ text_template: e.target.value })} />
+      <Button size="sm" variant="outline" onClick={() => update({ text_template: `${field.text_template ?? ''}{{number_of_cpd_points}}` })}>Insert CPD points token</Button>
       <p className="text-xs mt-2">Only {'{{number_of_cpd_points}}'} is supported. It inserts the numeric award without “points”. Preview CPD points are illustrative only.</p>
       <p className="text-xs mt-2">Example: {CPD_TEXT_EXAMPLE}</p>
       {textError && <p role="alert" className="text-sm text-red-600">{textError}</p>}

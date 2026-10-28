@@ -100,7 +100,7 @@ async function getTemplate(id, tenantId, db = supabase) {
   return { ...data, placeholders: placeholders || [] };
 }
 
-async function replacePlaceholders(template, tenantId, placeholders) {
+async function replacePlaceholders(template, tenantId, placeholders, supabase = defaultSupabase) {
   const rows = validPlaceholders(placeholders).map((p) => ({ ...p, tenant_id: tenantId, template_id: template.id }));
   const geometry = Array.isArray(template.source_geometry) ? template.source_geometry : [];
   for (const row of rows) {
@@ -237,7 +237,7 @@ export async function handleCpdTemplates(req, res, operation = 'collection', dep
       }
     }
 
-    const template = await getTemplate(id, tenantId);
+    const template = await getTemplate(id, tenantId, supabase);
     if (!template) return res.status(404).json({ error: 'Template not found' });
 
     if (operation === 'item') {
@@ -262,7 +262,7 @@ export async function handleCpdTemplates(req, res, operation = 'collection', dep
         }
         const placeholders = validPlaceholders(req.body.placeholders ?? template.placeholders);
         validateGeometryAgainstSource(placeholders, template.source_geometry || []);
-        const { error } = await supabase.rpc('save_cpd_certificate_template', {
+        const { error } = await supabase.rpc('save_cpd_certificate_template_checked', {
           p_template_id: id,
           p_tenant_id: tenantId,
           p_expected_version: Number(req.body.expectedVersion),
@@ -272,12 +272,16 @@ export async function handleCpdTemplates(req, res, operation = 'collection', dep
           p_actor: actor(context),
         });
         if (error) {
+          if (['PGRST202', '42883', '42703'].includes(error.code)
+            || String(error.message || '').includes('cpd_text_schema_incompatible')) {
+            return res.status(503).json({ error: 'Certificate text storage needs a database update. Your changes have not been saved. Keep this editor open and ask an administrator to apply the certificate authored-text and checked-save migrations, then retry.' });
+          }
           if (error.code === '40001' || String(error.message || '').includes('cpd_template_conflict')) {
             return res.status(409).json({ error: 'Template was modified by another user; refresh and retry' });
           }
           throw error;
         }
-        return res.json({ template: await getTemplate(id, tenantId) });
+        return res.json({ template: await getTemplate(id, tenantId, supabase) });
       }
     }
 
@@ -310,7 +314,7 @@ export async function handleCpdTemplates(req, res, operation = 'collection', dep
         }
       }
       try {
-        await replacePlaceholders(copy, tenantId, template.placeholders);
+        await replacePlaceholders(copy, tenantId, template.placeholders, supabase);
       } catch (placeholderError) {
         if (template.source_path) {
           await supabase.storage.from(PRIVATE_BUCKET).remove([
@@ -320,7 +324,7 @@ export async function handleCpdTemplates(req, res, operation = 'collection', dep
         await supabase.from('cpd_certificate_template').delete().eq('id', copy.id).eq('tenant_id', tenantId);
         throw placeholderError;
       }
-      return res.status(201).json({ template: await getTemplate(copy.id, tenantId) });
+      return res.status(201).json({ template: await getTemplate(copy.id, tenantId, supabase) });
     }
 
     if (operation === 'lifecycle' && req.method === 'POST') {
