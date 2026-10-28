@@ -59,6 +59,7 @@ import { validateScoreFieldConfig, validateSurveyForPublish, getScoreRange, getS
 import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
 import SurveyEventAssignmentsPanel from "@/components/surveys/SurveyEventAssignmentsPanel";
 import FormSubmissionAlerts from "@/components/forms/FormSubmissionAlerts";
+import MemberChangeFormSettings from "@/components/MemberChangeFormSettings";
 import FormBuilderEmailTemplatePicker from "@/components/forms/FormBuilderEmailTemplatePicker";
 import { useFormAlertTenant } from "@/hooks/useFormAlerts";
 import {
@@ -13784,6 +13785,11 @@ export default function FormBuilderPage() {
               />
             </CardContent>
           </Card>
+          <MemberChangeFormSettings
+            formId={formId || null}
+            tenantContext={alertTenantId}
+            persistedAuthentication={existingForm?.require_authentication}
+          />
         </TabsContent>
 
         {/* Submission Settings Tab */}

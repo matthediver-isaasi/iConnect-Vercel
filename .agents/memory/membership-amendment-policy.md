@@ -285,3 +285,13 @@ representation differently.
 an integration test through the actual redemption verifier. Preserve compatible
 money representations, but reject contradictory amounts rather than choosing
 one silently.
+
+FormBuilder opt-in is configuration, not financial or release authority.
+
+**Why:** Ordinary form definitions and submissions must not select another
+member, bypass finance approval, or enable unfinished payment paths.
+
+**How to apply:** Keep opt-in and target selections protected from generic form
+submission writes. A member journey must independently verify session ownership,
+current form access, target eligibility and the financial release gate at each
+preview and confirmation.

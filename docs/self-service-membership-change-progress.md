@@ -1,5 +1,38 @@
 # Self-service membership changes: implementation boundary
 
+## Step 4 started: protected FormBuilder configuration
+
+The requested delivery order is now to progress Step 3 as far as possible,
+build Step 4 alongside the remaining blocked financial paths, and define manual
+test parameters and seek approval only after the complete feature set is
+assembled. Automated implementation checks continue throughout.
+
+FormBuilder now has separately saved membership-change configuration with
+explicit opt-in and active member-structure selections. Saved authentication is
+required before opt-in. The settings endpoint uses the existing finance-admin
+gate and session tenant/actor, never submitted identity. Revision checks protect
+concurrent edits; unavailable selections are retained until explicitly removed.
+Disabling remains possible when a saved structure is no longer active.
+Existing form submissions, registrations and financial behaviour are unchanged.
+
+Migration **202612310053_membership_change_forms.sql is applied to live DEST**.
+The exact migration and its permissions passed a rollback rehearsal and an
+independent post-application check. SOURCE was unchanged. Configuration is
+private, its audit history is append-only, and deleting a form removes its active
+configuration without deleting the audit.
+
+Verification for this slice: 13 mounted UI tests, five API/authentication tests
+and one native PostgreSQL concurrency/permissions test pass. The server bundle
+and FormBuilder syntax checks pass. Signed-in UI verification is still limited
+by the workspace's existing tenant-resolution problem.
+
+This is **configuration, not the completed member journey**. No membership,
+payment, refund or credit is triggered by opting in. The member's current-purchase
+resolution, eligible-target journey, financial preview, request/approval and
+status UI still need connecting to the shared backend. Step 3's unresolved
+financial paths below remain blocked; do not label the whole feature ready for
+manual approval or enable financial execution based on these settings.
+
 ## Step 3 staged financial lifecycle — 27 October 2026
 
 ### Cancellation continuation: internal implementation, not released

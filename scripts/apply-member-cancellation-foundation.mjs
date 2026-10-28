@@ -5,7 +5,8 @@ import {connectDestination,PROJECT} from './annual-meeting-destination.mjs';
 // Private storage only. Does not create cancellation requests, stop providers,
 // enable public routes, issue credit, send mail or execute financial operations.
 const apply=process.argv.includes('--apply'),verifyOnly=process.argv.includes('--verify');
-const finance=process.argv.includes('--finance');
+const forms=process.argv.includes('--forms');
+const finance=process.argv.includes('--finance')||forms;
 if(apply&&verifyOnly)throw Error('Choose application or verification, not both');
 const pinned=[
  ['202612310047_member_cancellation_journal.sql','fc3e713b03aea311b148927a47d64ffb7a745ca272dc98713973357eb4a0d258'],
@@ -17,6 +18,8 @@ if(finance)pinned.push(
  ['202612310051_member_cancellation_finance.sql','5437b4a98612c9ec9ed9262324514ec67adb726d00a17f70c9a587370c3cad2d'],
  ['202612310052_member_cancellation_credit.sql','d5c69e6e244d8d1485472ff46d46154f880fd2b2de613bd1fe8a92f1ce133171'],
 );
+if(forms)pinned.push(['202612310053_membership_change_forms.sql',
+ '7ecd1c9ab6fe354c966f625adbe8033b5331fdcb4e9c871aaf97dbf80a05f1d5']);
 const sources=pinned.map(([file,hash])=>{
  const sql=readFileSync(`supabase/migrations/${file}`,'utf8');
  if(createHash('sha256').update(sql).digest('hex')!==hash)throw Error(`Migration differs from reviewed hash: ${file}`);
@@ -27,20 +30,22 @@ const tables=['member_cancellation_request','member_cancellation_provider_stop',
  'member_cancellation_purchase_candidate','member_cancellation_job'];
 if(finance)tables.push('member_cancellation_finance','member_cancellation_finance_step',
  'member_cancellation_finance_application','member_credit_backing_claim','member_membership_credit');
+if(forms)tables.push('membership_change_form','membership_change_form_history');
 const serviceFunctions=new Set(['claim_member_cancellation_provider_stop','record_member_cancellation_provider_stop',
  'apply_member_cancellation_access','begin_member_cancellation','claim_member_cancellation_jobs','finish_member_cancellation_job']);
 if(finance)for(const name of ['prepare_member_cancellation_finance','claim_member_cancellation_finance_step',
  'observe_member_cancellation_finance_step','record_member_cancellation_balance','member_credit_funding_proofs'])serviceFunctions.add(name);
+if(forms)serviceFunctions.add('save_membership_change_form');
 const functions=sources.flatMap(({sql})=>[...sql.matchAll(/CREATE FUNCTION public\.(\w+)\([\s\S]*?\bAS \$\$([\s\S]*?)\$\$;/g)]
  .map(m=>({name:m[1],body:m[2].trim()})));
-if(functions.length!==(finance?16:10))throw Error('Cancellation function contract changed');
+if(functions.length!==(forms?17:finance?16:10))throw Error('Cancellation function contract changed');
 const db=await connectDestination();
 try{
  await db.query(verifyOnly?'BEGIN READ ONLY':'BEGIN');
  await db.query("SET LOCAL lock_timeout='10s'; SET LOCAL statement_timeout='120s'");
  if(!verifyOnly){
   await db.query("SELECT pg_advisory_xact_lock(hashtextextended('member-credit-foundation-migrations',0))");
-  for(const {sql} of finance?sources.slice(4):sources)await db.query(sql.replace(/^BEGIN;$/m,'').replace(/^COMMIT;$/m,''));
+  for(const {sql} of forms?sources.slice(6):finance?sources.slice(4):sources)await db.query(sql.replace(/^BEGIN;$/m,'').replace(/^COMMIT;$/m,''));
  }
  const tableChecks=(await db.query(`SELECT c.relname,c.relrowsecurity,
   has_table_privilege('anon',c.oid,'SELECT,INSERT,UPDATE,DELETE') anon_access,
@@ -64,7 +69,7 @@ try{
    ||!r.proconfig?.some(v=>v==='search_path=pg_catalog, public');
  }))throw Error('Cancellation function bodies or access protections failed');
  const flags=(await db.query(`SELECT count(*)::integer AS cancelled_members FROM member WHERE membership_cancelled=true`)).rows[0];
- if(!verifyOnly&&flags.cancelled_members!==0)throw Error('A storage migration must not cancel existing members');
+ if(!verifyOnly&&!forms&&flags.cancelled_members!==0)throw Error('A storage migration must not cancel existing members');
  await db.query(apply?'COMMIT':'ROLLBACK');
  console.log(JSON.stringify({target:PROJECT,applied:apply,verified:verifyOnly,
   migrations:sources.map(({file,hash})=>({file,sha256:hash})),

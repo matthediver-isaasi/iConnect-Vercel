@@ -9,6 +9,7 @@ import { readMemberMonthlyChanges } from '../_lib/memberMonthlyChangeRead.js';
 import {listMemberCreditExpiryReviews,reviewMemberCreditExpiry} from '../_lib/memberCreditExpiryReview.js';
 import {createMemberReplacementExecutionService} from '../_lib/memberReplacementExecution.js';
 import {MEMBER_REPLACEMENT_PROTOCOL,replacementLifecycle} from '../_lib/memberReplacementRead.js';
+import {createMemberChangeFormSettings} from '../_lib/memberChangeFormSettings.js';
 
 export function createMemberAmendmentsHandler({
   db = supabase, getContext = getTenantContext, isAdmin = hasAdminAccess,
@@ -38,6 +39,12 @@ export function createMemberAmendmentsHandler({
         return res.json(await reviewMemberCreditExpiry(db,context.tenantId,actorId,req.body));
       }
       if (!actorId) return res.status(403).json({ error: 'An authenticated audit identity is required' });
+      if((req.method==='GET'?req.query?.action:req.body?.action)==='form_change_settings'){
+        const settings=createMemberChangeFormSettings({db});
+        return res.json(req.method==='GET'
+          ?await settings.read(context.tenantId,req.query.formId)
+          :await settings.save(context.tenantId,actorId,req.body));
+      }
       const amendments = service || createMemberAmendmentsService({ db });
       if(req.method==='POST' && ['execute_change','resume_change'].includes(req.body?.action)) {
         if(!AMENDMENT_UUID.test(req.body?.memberId||'') || !AMENDMENT_UUID.test(req.body?.authorityId||'')) {
