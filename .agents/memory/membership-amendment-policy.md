@@ -295,3 +295,14 @@ member, bypass finance approval, or enable unfinished payment paths.
 submission writes. A member journey must independently verify session ownership,
 current form access, target eligibility and the financial release gate at each
 preview and confirmation.
+
+Enable cancellation recovery by reviewed job family, not by enabling the whole
+generic cancellation queue.
+
+**Why:** Financial settlement recovery may be ready before scheduled access
+termination and renewal-race safeguards; a generic claim could start those
+unreviewed actions incidentally.
+
+**How to apply:** Financial-only workers must select already-applied cancellations
+with an owned approved financial plan and reject lifecycle jobs independently
+in both the database selector and the worker.

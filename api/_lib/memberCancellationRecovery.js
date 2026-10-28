@@ -6,6 +6,7 @@ import {amendmentResult} from './memberAmendmentSettlement.js';
 export function createMemberCancellationRecovery({
  db,requests=createMemberCancellationRequests({db}),finance,notify,
  now=()=>Date.now(),
+ claimRpc='claim_member_cancellation_jobs',allowedKinds=null,
 }){
  async function finish(job,state,message=null,delay=60,result={}){
   return amendmentResult(await db.rpc('finish_member_cancellation_job',{
@@ -17,13 +18,14 @@ export function createMemberCancellationRecovery({
   // Claim only one at a time: do not hold unsent notification claims while
   // another provider consumes the invocation budget.
   while(outcomes.length<Math.max(1,Math.min(limit,20))&&now()-started<budgetMs){
-   const claim=await db.rpc('claim_member_cancellation_jobs',{p_limit:1});
+   const claim=await db.rpc(claimRpc,{p_limit:1});
    if(claim.error?.code==='PGRST202')return {available:false,outcomes};
    const jobs=amendmentResult(claim)||[];
    if(!jobs.length)break;
    const job=jobs[0];
    let outcome;
    try{
+    if(allowedKinds&&!allowedKinds.includes(job.kind))throw Error('Recovery job kind is not enabled');
     const record=amendmentResult(await db.from('member_cancellation_request').select('*')
      .eq('id',job.request_id).maybeSingle());
     if(!record?.authority||record.id!==job.request_id)throw Error('Approved cancellation unavailable');

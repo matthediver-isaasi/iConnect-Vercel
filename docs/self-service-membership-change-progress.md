@@ -1,5 +1,26 @@
 # Self-service membership changes: implementation boundary
 
+## Approved cancellation finance background recovery
+
+The existing amendment cron now also resumes approved cancellation-finance work
+and final-balance notifications within its shared invocation budget. Its separate
+database selector excludes lifecycle, access notices, unapplied cancellations,
+withdrawn requests and cancellations without an owned approved financial plan.
+It cannot admit cancellations or stop subscriptions. Unknown email outcomes are
+not resent, and a missing queue or failed cancellation recovery does not hide
+completed legacy recovery.
+
+Migration **202612310054_member_cancellation_finance_worker.sql is applied to
+live DEST** after disposable PostgreSQL tests, rollback rehearsal and independent
+post-application verification. SOURCE was untouched. Sixteen focused checks pass.
+No live job processing, email delivery or financial writes were triggered by
+verification. Application code must still be deployed for the cron integration
+to run in production.
+
+Cancellation admission/scheduled access execution and the remaining monthly and
+original-funding paths are still blocked pending their safeguards. The Step 4
+member journey remains unfinished; this is not end-to-end feature completion.
+
 ## Cancellation finance administrative integration
 
 The existing cancellation-finance coordinator is now connected to the
