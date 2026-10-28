@@ -374,3 +374,25 @@ test('all view keeps archived status, pagination and search; archived duplicate 
     assert.deepEqual(JSON.parse(view.calls.find(call => call.options.method === 'POST').options.body), { action: 'duplicate' });
   } finally { await view.cleanup(); }
 });
+
+test('PDF action is accessible for begun sends, including archived campaigns, but not preparations or drafts', async () => {
+  const records = [
+    { status: 'sending' }, { status: 'sent' }, { status: 'paused', sent_count: 2 },
+    { status: 'failed', sent_count: 1 }, { status: 'cancelled', sent_at: '2026-01-01' },
+    { status: 'sent', archived_at: '2026-01-02' },
+    { status: 'draft' }, { status: 'scheduled' },
+    { status: 'failed', sent_at: '2026-01-01', preparation_generation: 'prep', preparation: { phase: 'failed' } },
+  ].map((record, index) => ({ ...campaign, ...record, id: `pdf-${index}` }));
+  const view = await mount({ records });
+  try {
+    await click(byId('campaign-view-all'));
+    await waitFor(() => byId('row-campaign-pdf-5'), 'archived campaign');
+    for (let i = 0; i < records.length; i++) {
+      const button = byId(`button-download-pdf-pdf-${i}`);
+      assert.equal(!!button, i < 6);
+      if (button) assert.match(button.getAttribute('aria-label'), /Download PDF for Spring briefing/);
+    }
+    assert.equal(view.calls.some(call => /\/api\/email-campaigns\/pdf-/.test(call.url)), false);
+    assert.equal(view.calls.some(call => call.options.method), false);
+  } finally { await view.cleanup(); }
+});

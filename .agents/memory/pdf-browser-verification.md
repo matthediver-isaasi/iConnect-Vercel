@@ -20,3 +20,9 @@ Validate actual rendered text widths, not only the PDF writer's wrap calculation
 **Why:** jsPDF's built-in Helvetica wrapping and PDF.js's measured text widths differed enough for a supposedly margin-safe answer to extend about 1.6 mm into the right margin.
 
 **How to apply:** Assert extracted text x + width against page margins and visually inspect rendered output; retain a small wrap-width guard for standard-font exports.
+
+Rasterized HTML exports also require independent inspection of the downloaded PDF, not just a successful download or source screenshot.
+
+**Why:** Browser HTML capture can shift text baselines enough to overlap adjacent image content even though the source layout and PDF structure are valid.
+
+**How to apply:** Render representative first, middle and final PDF pages with an independent reader and check headings, image boundaries and pagination. Poppler can provide this evidence without adding PDF.js compatibility shims to older test browsers.

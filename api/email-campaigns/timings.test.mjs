@@ -59,6 +59,32 @@ test('admin authorization dependency failure never permits timing reads', async 
   assert.equal(reads, 0);
 });
 
+test('all administrative by-id reads require authentication and tenant admin authority', async () => {
+  for (const query of [{}, { stats: 'true' }, { heatmap: 'true' }, { recipients: 'true' }]) {
+    for (const [context, allowed, status] of [
+      [{ tenantId: 'tenant-a' }, true, 401],
+      [admin, false, 403],
+      [{ ...admin, tenantMismatch: true }, true, 403],
+    ]) {
+      const handler = await route({ getTenantContext: async () => context, hasAdminAccess: async () => allowed,
+        getCampaign: () => assert.fail('unauthorized campaign read'),
+        getCampaignStats: () => assert.fail('unauthorized statistics'),
+        getClickHeatmapData: () => assert.fail('unauthorized heatmap'),
+        getCampaignRecipients: () => assert.fail('unauthorized recipients') });
+      const res = response();
+      await handler({ method: 'GET', query: { id: 'campaign-a', ...query } }, res);
+      assert.equal(res.statusCode, status);
+    }
+  }
+  const handler = await route({ getCampaign: async (id, tenant) => {
+    assert.equal(id, 'campaign-a'); assert.equal(tenant, 'tenant-a');
+    return { success: true, campaign: { id, html_content: 'Saved campaign' } };
+  } });
+  const res = response();
+  await handler({ method: 'GET', query: { id: 'campaign-a', tenantId: 'attacker' } }, res);
+  assert.equal(res.body.html_content, 'Saved campaign');
+});
+
 test('authorized GET passes session tenant, not query tenant; timings takes precedence over other reads', async () => {
   const db = {};
   const result = { campaign: { id: 'campaign-a' }, timings: { completed_at: null } };

@@ -30,6 +30,7 @@ import { defaultEmailDesign } from '@/components/email-builder/types';
 import DOMPurify from 'dompurify';
 import TestSendDialog from '@/components/TestSendDialog';
 import { getCampaignSendFeedback } from '@shared/campaignSendFeedback.js';
+import { canDownloadCampaignPdf } from '@/lib/campaignPdfEligibility';
 
 export default function EmailCampaigns() {
   const navigate = useNavigate();
@@ -41,6 +42,23 @@ export default function EmailCampaigns() {
   const [campaignSearch, setCampaignSearch] = useState('');
   const [lifecycleError, setLifecycleError] = useState('');
   const lifecycleBusy = useRef(false);
+  const pdfBusy = useRef(new Set());
+  const [pdfDownloads, setPdfDownloads] = useState(new Set());
+  const handleDownloadPdf = async (campaign) => {
+    if (pdfBusy.current.has(campaign.id)) return;
+    pdfBusy.current.add(campaign.id);
+    setPdfDownloads(new Set(pdfBusy.current));
+    try {
+      const { downloadCampaignPdf } = await import('@/lib/campaignPdf');
+      await downloadCampaignPdf(campaign.id);
+      toast.success('Campaign PDF downloaded. This is a generic saved preview, not a recipient-specific delivery archive.');
+    } catch (error) {
+      toast.error(error.message || 'PDF download failed. Please retry.');
+    } finally {
+      pdfBusy.current.delete(campaign.id);
+      setPdfDownloads(new Set(pdfBusy.current));
+    }
+  };
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
   const [previewData, setPreviewData] = useState(null);
   const [showStatsDialog, setShowStatsDialog] = useState(false);
@@ -1490,6 +1508,17 @@ export default function EmailCampaigns() {
                                 data-testid={`button-preview-email-${campaign.id}`}
                               >
                                 <Eye className="w-4 h-4" />
+                              </Button>
+                            )}
+                            {canDownloadCampaignPdf(campaign) && (
+                              <Button variant="ghost" size="icon"
+                                onClick={() => handleDownloadPdf(campaign)}
+                                disabled={pdfDownloads.has(campaign.id)}
+                                aria-busy={pdfDownloads.has(campaign.id)}
+                                aria-label={`Download PDF for ${campaign.name || campaign.subject}`}
+                                title="Download PDF — generic saved campaign preview"
+                                data-testid={`button-download-pdf-${campaign.id}`}>
+                                {pdfDownloads.has(campaign.id) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                               </Button>
                             )}
                             {campaign.status === 'sent' && (

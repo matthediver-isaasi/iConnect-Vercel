@@ -26,6 +26,12 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'GET') {
+    // Administrative reads share the list endpoint's authority. Group managers
+    // retain their separately group-scoped /api/member-campaigns/:id endpoint.
+    if (!tenantContext.isAuthenticated) return res.status(401).json({ error: 'Authentication required' });
+    if (tenantContext.tenantMismatch || !await hasAdminAccess(tenantContext)) {
+      return res.status(403).json({ error: 'Tenant administrator access required' });
+    }
     if (req.query.removal === 'true') {
       if (!tenantContext.isAuthenticated) return res.status(401).json({ error: 'Authentication required' });
       if (tenantContext.tenantMismatch || !await hasAdminAccess(tenantContext)) {
