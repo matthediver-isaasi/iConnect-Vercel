@@ -1036,22 +1036,22 @@ export default function CreateComplexEvent() {
       });
       const result = await response.json();
       if (!response.ok) {
-        throw new Error(result?.error || 'Failed to re-queue reminders');
+        throw new Error(result?.error || 'Failed to re-queue reminders and follow-ups');
       }
       if (result.schedulingFailures?.length || result.error) {
         toast.error(formatSchedulingFailures(result));
       } else if ((result.requeued || 0) === 0 && result.skipped?.length > 0) {
-        toast.error(`No reminders queued — ${formatSkippedSummary(result.skipped)}`);
+        toast.error(`No reminders or follow-ups queued — ${formatSkippedSummary(result.skipped)}`);
       } else {
         const skippedSuffix = result.skipped?.length
           ? ` (${formatSkippedSummary(result.skipped)})`
           : '';
-        toast.success(`Queued ${result.requeued} reminder(s) for ${result.bookingsScheduled} booking(s)${skippedSuffix}`);
+        toast.success(`Queued ${result.requeued} reminder/follow-up email(s) for ${result.bookingsScheduled} booking(s). Preserved ${result.preserved || 0} sent/claimed email(s); cancelled ${result.cancelled || 0} obsolete email(s).${skippedSuffix}`);
       }
       queryClient.invalidateQueries({ queryKey: ['event-emails', editId] });
     } catch (err) {
       console.error('Re-queue reminders error:', err);
-      toast.error(err.message || 'Failed to re-queue reminders');
+      toast.error(err.message || 'Failed to re-queue reminders and follow-ups');
     } finally {
       setIsRequeueingEmails(false);
     }
@@ -4719,10 +4719,10 @@ export default function CreateComplexEvent() {
                     Email Configuration
                   </CardTitle>
                   <CardDescription>
-                    Configure confirmation and reminder emails for this event. Reminders are scheduled relative to each session's start time.
+                    Configure confirmation, reminder and follow-up emails. Reminders are relative to session starts; follow-ups are relative to event, programme day or session ends.
                   </CardDescription>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button
                     type="button"
                     variant="outline"
@@ -4743,6 +4743,11 @@ export default function CreateComplexEvent() {
                     <Plus className="h-4 w-4 mr-1" />
                     Reminder
                   </Button>
+                  <Button type="button" variant="outline" size="sm"
+                    onClick={() => addEventEmail('follow_up')}
+                    data-testid="button-add-follow-up-email">
+                    <Plus className="h-4 w-4 mr-1" />Follow-up
+                  </Button>
                 </div>
               </div>
             </CardHeader>
@@ -4750,7 +4755,7 @@ export default function CreateComplexEvent() {
               {!isEditMode && eventEmails.length > 0 && (
                 <div className="flex items-start gap-2 p-3 rounded-md border border-blue-200 bg-blue-50 text-blue-800 text-sm" data-testid="note-emails-saved-on-create">
                   <Mail className="h-4 w-4 shrink-0 mt-0.5" />
-                  <span>These email settings will be saved when you create the event.</span>
+                  <span>These email settings will be saved when you create the event. Saving never schedules emails.</span>
                 </div>
               )}
               <EventEmailSettingsEditor
@@ -4764,7 +4769,10 @@ export default function CreateComplexEvent() {
                 mode="session"
                 eventId={isEditMode ? editId : null}
               />
-              {isEditMode && !loadingEmails && eventEmails.length > 0 && (
+              {isEditMode && <p className="text-sm text-slate-600">
+                Save Email Settings only stores configuration; it never schedules emails. After saving, use Re-queue reminders and follow-ups for eligible future emails to existing bookings. Sent or claimed emails are not re-sent.
+              </p>}
+              {isEditMode && !loadingEmails && (
                 <div className="flex flex-wrap justify-end gap-2 pt-2">
                   <Button
                     type="button"
@@ -4779,7 +4787,7 @@ export default function CreateComplexEvent() {
                         Re-queueing...
                       </>
                     ) : (
-                      <>Re-queue reminders</>
+                      <>Re-queue reminders and follow-ups</>
                     )}
                   </Button>
                   <Button

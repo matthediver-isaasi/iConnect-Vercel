@@ -2,6 +2,7 @@ import { getSessionMember } from '../../../../_lib/session.js';
 import { createClient } from '@supabase/supabase-js';
 import { isResourceExcluded } from '../../../../_lib/roleVisibility.js';
 import { sendConfirmationEmailsFromTemplate } from '../../../../_lib/eventConfirmationEmail.js';
+import { scheduleEventFollowUps } from '../../../../_lib/eventFollowUps.js';
 import { isGroupAdminForEventRequest } from '../../../../_lib/groupAdminEventWrite.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -378,6 +379,10 @@ export default async function handler(req, res) {
         }
         existingEmails.add(email);
         insertedBookings.push({ booking: insertedBooking, isGuest });
+        // Configuration-only saves do not queue; a committed attendee booking
+        // does, regardless of the separate "send confirmations" import choice.
+        const followUps = await scheduleEventFollowUps(supabase, eventId, { bookingId: insertedBooking.id });
+        if (followUps.error) results.warnings.push({ email, reason: `Follow-up scheduling failed: ${followUps.error}` });
 
         if (isGuest && isMembersOnlyClass) {
           results.warnings.push({

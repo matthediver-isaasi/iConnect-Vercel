@@ -3607,10 +3607,10 @@ export default function CreateEvent() {
                     Email Configuration
                   </CardTitle>
                   <CardDescription>
-                    Configure confirmation and reminder emails for this event. They will be saved when the event is created.
+                    Configure confirmation, reminder and follow-up emails. Creating the event saves these settings; it does not schedule emails.
                   </CardDescription>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button
                     type="button"
                     variant="outline"
@@ -3631,6 +3631,11 @@ export default function CreateEvent() {
                     <Plus className="h-4 w-4 mr-1" />
                     Reminder
                   </Button>
+                  <Button type="button" variant="outline" size="sm"
+                    onClick={() => setEventEmails(prev => [...prev, createEmptyEmail('follow_up')])}
+                    data-testid="button-add-follow-up-email">
+                    <Plus className="h-4 w-4 mr-1" />Follow-up
+                  </Button>
                 </div>
               </div>
             </CardHeader>
@@ -3641,6 +3646,7 @@ export default function CreateEvent() {
                 emailTemplates={emailTemplates}
                 eventTimezone={formData.timezone || 'Europe/London'}
                 mode="event"
+                hasProgramme={isTraining || agendaLines.length > 0}
               />
               <EventRegistrationCommunication kind="simple" value={communicationCategories} onChange={setCommunicationCategories} />
             </CardContent>

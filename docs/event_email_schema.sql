@@ -1,4 +1,8 @@
 -- Event Email Configuration Table
+-- For post-event follow-ups, apply the additive migration
+-- supabase/migrations/202612310060_event_email_follow_ups.sql after this
+-- baseline and its prerequisites; do not recreate the legacy unique index
+-- below on an already-migrated follow-up database.
 -- Run this SQL in your Supabase SQL Editor to create the event_email table
 
 -- Create event_email table for storing email configurations per event

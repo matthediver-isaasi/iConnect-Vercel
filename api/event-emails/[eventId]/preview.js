@@ -8,6 +8,9 @@
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, hasAdminAccess } from '../../_lib/tenantContext.js';
 import { renderEventEmailPreview } from '../../_lib/eventConfirmationEmail.js';
+import { loadFollowUpEvent, loadFollowUpProgramme, calculateBookingFollowUps } from '../../_lib/eventFollowUps.js';
+import { renderFollowUp } from '../../_lib/eventFollowUpRendering.js';
+import { validateFollowUpConfig } from '../../_lib/eventFollowUpTargets.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -32,6 +35,35 @@ export default async function handler(req, res) {
   }
 
   try {
+    if (req.body?.reminder?.email_type === 'follow_up') {
+      try { validateFollowUpConfig(req.body.reminder); }
+      catch (error) { return res.status(400).json({ error: error.message }); }
+      const event = await loadFollowUpEvent(supabase, eventId);
+      if (event.tenant_id !== ctx.tenantId) return res.status(404).json({ error: 'Event not found' });
+      const programme = await loadFollowUpProgramme(supabase, event);
+      const booking = { event_id: event.id, status: 'confirmed', attendee_first_name: 'Jane',
+        attendee_last_name: 'Example', attendee_email: 'jane.example@example.com',
+        booking_reference: 'SAMPLE-REF-001', ticket_class_id: req.body.ticketClassId || null };
+      const email = { ...req.body.reminder, subject, body,
+        event_survey_assignment_id: req.body.event_survey_assignment_id || null };
+      const calculation = calculateBookingFollowUps(event, email, programme, booking, new Date());
+      const target = req.body.sessionId ? calculation.eligible.find(t => t.key === req.body.sessionId) : calculation.eligible[0];
+      const reminderContext = {
+        isFollowUp: true, scope: email.follow_up_scope, timezone: calculation.timezone,
+        ticketClasses: programme.tickets.map(t => ({ id: t.id, name: t.name })),
+        selectedTicketClassId: booking.ticket_class_id,
+        entries: calculation.eligible.map(t => ({ id: t.key, sessionId: t.key, sessionDate: t.end.toISOString(),
+          description: t.label, sendAt: t.scheduledTime.toISOString() })),
+        selectedId: target?.key || null, sendAt: target?.scheduledTime.toISOString() || null,
+        emptyReason: target ? null : event.is_complex && email.follow_up_scope !== 'event' && !booking.ticket_class_id
+          ? 'Choose a sample ticket class to preview entitled day/session follow-ups.'
+          : 'No eligible future follow-up. Check explicit end times, ticket entitlement and delay; missed send times are not caught up.',
+        warnings: calculation.skipped,
+      };
+      const rendered = target ? await renderFollowUp(supabase,
+        { event, booking, programme, target, timezone: calculation.timezone }, email) : { subject: '', html: '' };
+      return res.status(200).json({ ...rendered, is_complex: event.is_complex, reminderContext });
+    }
     const result = await renderEventEmailPreview({
       eventId,
       tenantId: ctx.tenantId,

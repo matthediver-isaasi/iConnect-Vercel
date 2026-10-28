@@ -860,22 +860,22 @@ export default function EditEvent() {
       });
       const result = await response.json();
       if (!response.ok) {
-        throw new Error(result?.error || 'Failed to re-queue reminders');
+        throw new Error(result?.error || 'Failed to re-queue reminders and follow-ups');
       }
       if (result.schedulingFailures?.length || result.error) {
         toast.error(formatSchedulingFailures(result));
       } else if ((result.requeued || 0) === 0 && result.skipped?.length > 0) {
-        toast.error(`No reminders queued — ${formatSkippedSummary(result.skipped)}`);
+        toast.error(`No reminders or follow-ups queued — ${formatSkippedSummary(result.skipped)}`);
       } else {
         const skippedSuffix = result.skipped?.length
           ? ` (${formatSkippedSummary(result.skipped)})`
           : '';
-        toast.success(`Queued ${result.requeued} reminder(s) for ${result.bookingsScheduled} booking(s). Preserved ${result.preserved || 0} sent/claimed reminder(s); cancelled ${result.cancelled || 0} obsolete reminder(s).${skippedSuffix}`);
+        toast.success(`Queued ${result.requeued} reminder/follow-up email(s) for ${result.bookingsScheduled} booking(s). Preserved ${result.preserved || 0} sent/claimed email(s); cancelled ${result.cancelled || 0} obsolete email(s).${skippedSuffix}`);
       }
       queryClient.invalidateQueries({ queryKey: ['event-emails', eventId] });
     } catch (err) {
       console.error('Re-queue reminders error:', err);
-      toast.error(err.message || 'Failed to re-queue reminders');
+      toast.error(err.message || 'Failed to re-queue reminders and follow-ups');
     } finally {
       setIsRequeueingEmails(false);
     }
@@ -4899,17 +4899,17 @@ export default function EditEvent() {
           {/* Email Configuration Section */}
           <Card className="border-slate-200 shadow-sm mb-6">
             <CardHeader className="pb-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-4">
                 <div>
                   <CardTitle className="text-lg flex items-center gap-2">
                     <Mail className="h-5 w-5 text-blue-600" />
                     Email Configuration
                   </CardTitle>
                   <CardDescription>
-                    Configure confirmation and reminder emails for this event
+                    Configure confirmation, reminder and follow-up emails for this event
                   </CardDescription>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button
                     type="button"
                     variant="outline"
@@ -4930,6 +4930,11 @@ export default function EditEvent() {
                     <Plus className="h-4 w-4 mr-1" />
                     Reminder
                   </Button>
+                  <Button type="button" variant="outline" size="sm"
+                    onClick={() => addEventEmail('follow_up')}
+                    data-testid="button-add-follow-up-email">
+                    <Plus className="h-4 w-4 mr-1" />Follow-up
+                  </Button>
                 </div>
               </div>
             </CardHeader>
@@ -4944,15 +4949,16 @@ export default function EditEvent() {
                 isTimezoneLoading={isTimezoneLoading}
                 loading={loadingEmails}
                 mode="event"
+                hasProgramme={isTraining || agendaLines.length > 0}
                 eventId={eventId}
               />
               {!loadingEmails && eventEmails.length > 0 && (
                 <p className="text-sm text-slate-600">
-                  Save Email Settings saves templates only. Then use Re-queue reminders to activate eligible future reminders for existing bookings.
-                  New bookings receive eligible reminders automatically. Sent or claimed training reminders are never re-sent.
+                  Save Email Settings only stores configuration; it never schedules emails. Then use Re-queue reminders and follow-ups to activate eligible future emails for existing bookings.
+                  New bookings receive eligible reminders and follow-ups automatically. Sent or claimed emails are not re-sent.
                 </p>
               )}
-              {!loadingEmails && eventEmails.length > 0 && (
+              {!loadingEmails && (
                 <div className="flex flex-wrap justify-end gap-2 pt-2">
                   <Button
                     type="button"
@@ -4967,7 +4973,7 @@ export default function EditEvent() {
                         Re-queueing...
                       </>
                     ) : (
-                      <>Re-queue reminders</>
+                      <>Re-queue reminders and follow-ups</>
                     )}
                   </Button>
                   <Button

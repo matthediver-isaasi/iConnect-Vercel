@@ -21,6 +21,7 @@ import { sendEmail, replacePlaceholders } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
 import { scheduleComplexEventReminders } from '../_lib/complexEventReminders.js';
 import { scheduleTrainingEventReminderEmails } from '../_lib/scheduleReminders.js';
+import { scheduleEventFollowUps } from '../_lib/eventFollowUps.js';
 import { getZoomAccessTokenForTenant } from '../_lib/zoomClient.js';
 import { getXeroCredentials } from '../_lib/xeroCredentials.js';
 import { getAccountingProvider, getAccountingProviderByName, buildInvoiceColumnUpdate } from '../_lib/accountingProvider.js';
@@ -300,6 +301,8 @@ async function sendConfirmationEmailsFromTemplate(eventId, booking, attendee, pe
 
 async function scheduleBookingReminderEmails(bookingId, eventId, attendeeEmail, ticketClassId) {
   if (!supabase) return;
+  const followUps = await scheduleEventFollowUps(supabase, eventId, { bookingId });
+  if (followUps.error) console.error('[follow-ups]', followUps.error);
   
   try {
     const { data: reminderEmails, error: emailsError } = await supabase
@@ -1463,6 +1466,10 @@ const functionHandlers = {
       if (priorAttempt.member_id !== member.id || priorAttempt.fingerprint !== registrationFingerprint) {
         throw new Error('Programme registration attempt changed');
       }
+      for (const booking of priorAttempt.result?.bookings || []) {
+        const followUps = await scheduleEventFollowUps(supabase, eventId, { bookingId: booking.id });
+        if (followUps.error) console.error('[createBooking] Follow-up replay scheduling:', followUps.error);
+      }
       return programRegistrationReplay(priorAttempt.result, bookingReference);
     }
 
@@ -1804,6 +1811,12 @@ const functionHandlers = {
       p_attempt_id: attemptId, p_fingerprint: registrationFingerprint, p_owner_type: ownerType,
     });
     if (consumeError) throw new Error(consumeError.message);
+    // The entitlement RPC has committed. Queue future follow-ups independently
+    // of confirmation/Zoom side effects; retries preserve claimed/sent history.
+    for (const booking of consumed.bookings || []) {
+      const followUps = await scheduleEventFollowUps(supabase, eventId, { bookingId: booking.id });
+      if (followUps.error) console.error('[createBooking] Follow-up scheduling:', followUps.error);
+    }
     // A concurrent retry can have reached the RPC before the first commit.
     // Only the transaction winner performs external registration/email effects.
     if (consumed.replayed) return programRegistrationReplay(consumed, bookingReference);

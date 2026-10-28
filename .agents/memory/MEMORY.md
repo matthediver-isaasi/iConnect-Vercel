@@ -155,3 +155,4 @@
 - [Member payment wording](member-payment-wording.md) — simplify copy without inventing dates, membership types, mandate reuse or renewal promises.
 - [Member activity chronology](member-activity-chronology.md) — historical renewal invoices belong alongside other activity, ordered by occurrence rather than import date.
 - [Zoom recovery approval](zoom-recovery-approval.md) — read-only diagnosis is not permission for live registration changes or message sends.
+- [Event follow-up policy](event-follow-up-policy.md) — day and overall-event ends use full programme completion, not recipient-specific final sessions.

@@ -15,7 +15,7 @@ import { TimezoneAwareDateTimeInput } from "@/components/events/TimezoneAwareDat
 import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
 
-// Shared confirmation/reminder email settings editor for events.
+// Shared confirmation/reminder/follow-up email settings editor for events.
 // Extracted from EditEvent.jsx / CreateComplexEvent.jsx (Task #3263) so the
 // same UI can run against pure local state during event creation (no event ID
 // required) as well as in edit mode.
@@ -45,18 +45,25 @@ export const getTimingOptions = (mode = "event") => {
 export const createEmptyEmail = (emailType = "reminder", mode = "event") => ({
   id: `email-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
   email_type: emailType,
-  timing_type: emailType === "booking_confirmation" ? null : "1_day_before",
+  timing_type: emailType === "reminder" ? "1_day_before" : null,
+  ...(emailType === "follow_up" ? {
+    follow_up_scope: "event",
+    follow_up_delay: 0,
+    follow_up_unit: "hours",
+  } : {}),
   custom_hours_before: null,
   custom_unit: "hours",
   custom_send_at: null,
   subject: emailType === "booking_confirmation"
     ? "Your booking confirmation for {{event_name}}"
-    : "Reminder: {{event_name}} is coming up!",
+    : emailType === "follow_up" ? "Thank you for attending {{event_name}}" : "Reminder: {{event_name}} is coming up!",
   body: emailType === "booking_confirmation"
     ? (mode === "session"
         ? "Dear {{attendee_first_name}},\n\nThank you for booking {{event_name}}.\n\nHere is your personal schedule:\n\n{{session_schedule}}\n\nA calendar file with all your sessions is attached so you can add the full programme to your calendar.\n\nWe look forward to seeing you!"
         : "Dear {{attendee_first_name}},\n\nThank you for booking {{event_name}}.\n\nEvent Date: {{event_date}}\nLocation: {{event_location}}\n{{#zoom_link}}Join Link: {{zoom_link}}{{/zoom_link}}\n\nWe look forward to seeing you!")
-    : "Dear {{attendee_first_name}},\n\nThis is a reminder that {{event_name}} is coming up soon.\n\nEvent Date: {{event_date}}\nLocation: {{event_location}}\n{{#zoom_link}}Join Link: {{zoom_link}}{{/zoom_link}}\n\nSee you there!",
+    : emailType === "follow_up"
+      ? "Dear {{attendee_first_name}},\n\nThank you for joining us for {{follow_up_target}}.\n\nWe hope to see you again soon."
+      : "Dear {{attendee_first_name}},\n\nThis is a reminder that {{event_name}} is coming up soon.\n\nEvent Date: {{event_date}}\nLocation: {{event_location}}\n{{#zoom_link}}Join Link: {{zoom_link}}{{/zoom_link}}\n\nSee you there!",
   cc: "",
   is_enabled: true,
   isNew: true,
@@ -66,6 +73,7 @@ export const createEmptyEmail = (emailType = "reminder", mode = "event") => ({
 export const getEmailRowLabel = (email, mode = "event") => {
   const before = mode === "session" ? "before session" : "before event";
   if (email.email_type === "booking_confirmation") return "Booking confirmation email";
+  if (email.email_type === "follow_up") return `Follow-up — ${email.follow_up_delay ?? 0} ${email.follow_up_unit || "hours"} after ${email.follow_up_scope || "event"}`;
   if (email.email_type === "reminder") {
     if (email.timing_type === "custom") {
       const unit = email.custom_unit || "hours";
@@ -97,10 +105,10 @@ export const formatSchedulingFailures = (scheduling) => {
   if (failures.length > 0) {
     const totalBookings = failures.reduce((s, f) => s + (f.failed_booking_count || 0), 0);
     const reasons = Array.from(new Set(failures.map((f) => f.reason).filter(Boolean))).slice(0, 2).join("; ");
-    parts.push(`${failures.length} reminder(s) could not be queued for ${totalBookings} booking(s)${reasons ? ` — ${reasons}` : ""}`);
+    parts.push(`${failures.length} reminder/follow-up configuration(s) could not be queued for ${totalBookings} booking(s)${reasons ? ` — ${reasons}` : ""}`);
   }
   if (scheduling.error) parts.push(`scheduler error: ${scheduling.error}`);
-  return parts.join(" · ") || "reminders could not be queued";
+  return parts.join(" · ") || "reminders and follow-ups could not be queued";
 };
 
 export const formatSkippedSummary = (skipped) => {
@@ -114,12 +122,23 @@ export const formatSkippedSummary = (skipped) => {
 // PUT the email configuration for an event. Returns { response, result }.
 // Throws on network/unreadable responses; callers inspect response.ok for API errors.
 export const putEventEmails = async (eventId, emails, isComplexEvent = false) => {
+  const normalizedEmails = emails.map(email => {
+    if (email.email_type !== "follow_up") return email;
+    const delay = Number(email.follow_up_delay ?? 0);
+    if (!Number.isFinite(delay) || delay < 0) throw new Error(`${getEmailRowLabel(email)}: delay must be a nonnegative number`);
+    const scope = email.follow_up_scope || "event";
+    const unit = email.follow_up_unit || "hours";
+    if (!["event", "day", "session"].includes(scope) || !["minutes", "hours", "days"].includes(unit)) {
+      throw new Error(`${getEmailRowLabel(email)}: invalid follow-up scope or unit`);
+    }
+    return { ...email, follow_up_scope: scope, follow_up_delay: delay, follow_up_unit: unit };
+  });
   const response = await fetch(`/api/event-emails/${eventId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
     body: JSON.stringify(
-      isComplexEvent ? { emails, is_complex_event: true } : { emails }
+      isComplexEvent ? { emails: normalizedEmails, is_complex_event: true } : { emails: normalizedEmails }
     ),
   });
   const result = await readEventEmailSaveResponse(response);
@@ -187,6 +206,7 @@ export default function EventEmailSettingsEditor({
   isTimezoneLoading = false,
   loading = false,
   mode = "event",
+  hasProgramme = mode === "session",
   eventId = null,
 }) {
   const [codeViewMode, setCodeViewMode] = useState({});
@@ -194,26 +214,27 @@ export default function EventEmailSettingsEditor({
   const [preview, setPreview] = useState(null);
   const previewRequest = useRef(0);
 
-  const openPreview = async (email, sessionId = null) => {
+  const openPreview = async (email, sessionId = null, ticketClassId = null) => {
     const requestId = ++previewRequest.current;
-    setPreview({ emailId: email.id, loading: true, error: null, subject: "", html: "" });
+    const draft = { emailId: email.id, email, sessionId, ticketClassId };
+    setPreview({ ...draft, loading: true, error: null, subject: "", html: "" });
     try {
       const response = await fetch(`/api/event-emails/${eventId}/preview`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ subject: email.subject || "", body: email.body || "", event_survey_assignment_id: email.event_survey_assignment_id || null, reminder: email, sessionId }),
+        body: JSON.stringify({ subject: email.subject || "", body: email.body || "", event_survey_assignment_id: email.event_survey_assignment_id || null, reminder: email, sessionId, ticketClassId }),
       });
       const result = await response.json().catch(() => ({}));
       if (requestId !== previewRequest.current) return;
       if (!response.ok) {
-        setPreview({ emailId: email.id, loading: false, error: result.error || `Preview failed (${response.status})`, subject: "", html: "" });
+        setPreview({ ...draft, loading: false, error: result.error || `Preview failed (${response.status})`, subject: "", html: "" });
         return;
       }
-      setPreview({ emailId: email.id, email, reminderContext: result.reminderContext, loading: false, error: null, subject: result.subject || "", html: result.html || "" });
+      setPreview({ ...draft, ticketClassId: result.reminderContext?.ticketClassId ?? result.reminderContext?.selectedTicketClassId ?? result.ticketClassId ?? ticketClassId, ticketClasses: result.ticketClasses ?? result.reminderContext?.ticketClasses ?? [], reminderContext: result.reminderContext, loading: false, error: null, subject: result.subject || "", html: result.html || "" });
     } catch (err) {
       if (requestId !== previewRequest.current) return;
-      setPreview({ emailId: email.id, loading: false, error: err.message || "Network error", subject: "", html: "" });
+      setPreview({ ...draft, loading: false, error: err.message || "Network error", subject: "", html: "" });
     }
   };
   const timingOptions = getTimingOptions(mode);
@@ -242,6 +263,7 @@ export default function EventEmailSettingsEditor({
           }
         : e
     ));
+    onRowEdited?.(emailId);
     toast.success(`Loaded template: ${template.name}`);
   };
 
@@ -259,7 +281,7 @@ export default function EventEmailSettingsEditor({
       <div className="text-center py-8 text-slate-500">
         <Mail className="h-12 w-12 mx-auto mb-3 text-slate-300" />
         <p>No email configurations yet</p>
-        <p className="text-sm mt-1">Add a confirmation or reminder email to get started</p>
+        <p className="text-sm mt-1">Add a confirmation, reminder or follow-up email to get started</p>
       </div>
     );
   }
@@ -269,14 +291,19 @@ export default function EventEmailSettingsEditor({
       {emails.map((email) => (
         <div
           key={email.id}
-          className={`p-4 border rounded-lg ${email.email_type === "booking_confirmation" ? "border-green-200 bg-green-50" : "border-blue-200 bg-blue-50"}`}
+          className={`p-4 border rounded-lg ${email.email_type === "booking_confirmation" ? "border-green-200 bg-green-50" : email.email_type === "follow_up" ? "border-amber-200 bg-amber-50" : "border-blue-200 bg-blue-50"}`}
         >
-          <div className="flex items-start justify-between mb-3">
+          <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
             <div className="flex items-center gap-2">
               {email.email_type === "booking_confirmation" ? (
                 <Badge variant="outline" className="bg-green-100 text-green-700 border-green-300">
                   <Check className="h-3 w-3 mr-1" />
                   Confirmation
+                </Badge>
+              ) : email.email_type === "follow_up" ? (
+                <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-300">
+                  <Mail className="h-3 w-3 mr-1" />
+                  Follow-up
                 </Badge>
               ) : (
                 <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-300">
@@ -335,6 +362,51 @@ export default function EventEmailSettingsEditor({
                 <div className="text-xs mt-0.5 break-words">
                   {saveErrors[email.id]}
                 </div>
+              </div>
+            </div>
+          )}
+
+          {email.email_type === "follow_up" && (
+            <div className="mb-4 space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr] gap-3">
+                <div>
+                  <Label htmlFor={`follow-up-scope-${email.id}`}>Send after</Label>
+                  <Select value={email.follow_up_scope || "event"} onValueChange={value => updateEmail(email.id, "follow_up_scope", value)}>
+                    <SelectTrigger id={`follow-up-scope-${email.id}`} className="bg-white mt-1" data-testid={`select-follow-up-scope-${email.id}`}><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="event">After event</SelectItem>
+                      {hasProgramme && <SelectItem value="day">After each programme day</SelectItem>}
+                      {hasProgramme && <SelectItem value="session">After each session</SelectItem>}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor={`follow-up-delay-${email.id}`}>Delay</Label>
+                  <Input id={`follow-up-delay-${email.id}`} type="number" min="0" step="any"
+                    value={email.follow_up_delay ?? 0}
+                    onChange={e => updateEmail(email.id, "follow_up_delay", e.target.value === "" ? "" : Number(e.target.value))}
+                    className="bg-white mt-1" data-testid={`input-follow-up-delay-${email.id}`} />
+                </div>
+                <div>
+                  <Label htmlFor={`follow-up-unit-${email.id}`}>Unit</Label>
+                  <Select value={email.follow_up_unit || "hours"} onValueChange={value => updateEmail(email.id, "follow_up_unit", value)}>
+                    <SelectTrigger id={`follow-up-unit-${email.id}`} className="bg-white mt-1" data-testid={`select-follow-up-unit-${email.id}`}><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="minutes">Minutes</SelectItem>
+                      <SelectItem value="hours">Hours</SelectItem>
+                      <SelectItem value="days">Days</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              {Number(email.follow_up_delay) < 0 && <p role="alert" className="text-sm text-red-700">Delay must be a nonnegative number.</p>}
+              <div className="text-xs text-amber-900 space-y-1">
+                <p>Send {email.follow_up_delay || 0} {email.follow_up_unit || "hours"} after the {email.follow_up_scope === "day" ? "programme day" : email.follow_up_scope === "session" ? "session" : "event"} ends. Each follow-up has its own template, timing and enable switch.</p>
+                {hasProgramme && <>
+                  <p>After-day timing is anchored to the end of the final programme session for that start day, regardless of the attendee's ticket entitlement. Overnight sessions belong to their start day in the event timezone, even if they end the next day.</p>
+                  <p>A continuous date range is not split into daily targets. For after-day emails, add separately timed daily programme entries.</p>
+                </>}
+                <p>Saving only stores settings; it never schedules emails. After saving, use Re-queue reminders and follow-ups for existing bookings.</p>
               </div>
             </div>
           )}
@@ -545,6 +617,9 @@ export default function EventEmailSettingsEditor({
             <p className="text-xs text-slate-500 mt-1">
               Available placeholders: {'{{event_name}}'}, {'{{event_date}}'}, {'{{event_location}}'}, {'{{attendee_first_name}}'}, {'{{zoom_link}}'}, {'{{event_sponsors}}'} (or [[event.sponsors]], standalone body paragraph only){mode === "session" ? <>, {'{{session_schedule}}'}</> : <>, {'{{agenda_schedule}}'}</>}
             </p>
+            {email.email_type === "follow_up" && <p className="text-xs text-amber-900 mt-2">
+              Follow-up placeholders: {'{{follow_up_target}}'} — target name; {'{{follow_up_end}}'} — target end in the event timezone; {'{{follow_up_scope}}'} — event, day or session. Preview a target to see sample values.
+            </p>}
           </div>
         </div>
       ))}
@@ -568,29 +643,46 @@ export default function EventEmailSettingsEditor({
               data-testid="email-preview-error"
             >
               <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-              <span className="break-words">{preview.error}</span>
+              <div><p className="break-words">{preview.error}</p>
+                <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => openPreview(preview.email, preview.sessionId, preview.ticketClassId)}>Retry preview</Button>
+              </div>
             </div>
           ) : preview ? (
             <div className="flex flex-col min-h-0 flex-1 space-y-3">
+              {preview.ticketClasses?.length > 0 && (
+                <div className="text-sm space-y-1">
+                  <Label htmlFor="email-preview-ticket">Sample ticket entitlement</Label>
+                  <select id="email-preview-ticket" className="block w-full border rounded p-2"
+                    value={preview.ticketClassId || ""}
+                    onChange={e => openPreview(preview.email, null, e.target.value || null)}>
+                    <option value="">Server-selected sample ticket</option>
+                    {preview.ticketClasses.map(ticket => <option key={ticket.id} value={ticket.id}>{ticket.name}</option>)}
+                  </select>
+                  <p className="text-xs text-slate-500">Eligible sample ticket choices supplied by the server. No booking data is used.</p>
+                </div>
+              )}
               {preview.reminderContext && (
                 <div className="rounded border p-3 text-sm space-y-2" data-testid="training-reminder-context">
+                  {preview.reminderContext.isFollowUp && <p className="font-medium">Follow-up preview — after {preview.reminderContext.scope}</p>}
                   <p>Timezone: {preview.reminderContext.timezone}</p>
                   {preview.reminderContext.emptyReason ? <p role="status">{preview.reminderContext.emptyReason}</p> : <>
-                    <label htmlFor="training-reminder-session">Training agenda entry</label>
+                    <label htmlFor="training-reminder-session">{preview.reminderContext.isFollowUp ? "Follow-up target" : mode === "session" ? "Session" : "Training agenda entry"}</label>
                     <select id="training-reminder-session" className="block w-full border rounded p-2"
                       value={preview.reminderContext.selectedId || ""}
-                      onChange={e => openPreview(preview.email, e.target.value)}>
-                      {preview.reminderContext.entries.map(entry => (
-                        <option key={entry.id || "absolute"} value={entry.id || ""}>
+                      onChange={e => openPreview(preview.email, e.target.value, preview.ticketClassId)}>
+                      {(preview.reminderContext.entries || []).map(entry => (
+                        <option key={entry.sessionId ?? entry.id ?? "absolute"} value={entry.sessionId ?? entry.id ?? ""}>
                           {entry.sessionDate ? new Date(entry.sessionDate).toLocaleString("en-GB", { timeZone: preview.reminderContext.timezone }) : "Once per booking"} — {entry.description}{entry.legacyTime ? " (legacy date-only time)" : ""}
                         </option>
                       ))}
                     </select>
-                    <p>Intended send time: {new Date(preview.reminderContext.sendAt).toLocaleString("en-GB", { timeZone: preview.reminderContext.timezone })}</p>
+                    <p>Intended send time: {preview.reminderContext.sendAt ? new Date(preview.reminderContext.sendAt).toLocaleString("en-GB", { timeZone: preview.reminderContext.timezone }) : "Not scheduled for this target"}</p>
                   </>}
-                  <p>Each relative reminder applies once per dated agenda entry, including separate entries on the same day. A date range uses its start only. Day offsets are 24-hour periods. Elapsed send times are not caught up.</p>
-                  <p>Legacy date-only entries use the event's start clock time on that entry's own date (09:00 if absent). The full agenda token always shows the full schedule.</p>
-                  {preview.reminderContext.warnings?.map(w => <p key={w.session_id} role="alert">{w.reason}</p>)}
+                  {!preview.reminderContext.isFollowUp && <>
+                    <p>Each relative reminder applies once per dated agenda entry, including separate entries on the same day. A date range uses its start only. Day offsets are 24-hour periods. Elapsed send times are not caught up.</p>
+                    <p>Legacy date-only entries use the event's start clock time on that entry's own date (09:00 if absent). The full agenda token always shows the full schedule.</p>
+                  </>}
+                  {preview.reminderContext.warnings?.map((w, index) => <p key={`${w.session_id || index}-${index}`} role="alert">{typeof w === "string" ? w : w.reason}</p>)}
                 </div>
               )}
               <div>

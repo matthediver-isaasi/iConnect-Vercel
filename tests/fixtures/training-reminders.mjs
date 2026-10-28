@@ -37,7 +37,9 @@ export function fakeClient(tables, { missingTrainingSnapshot = false } = {}) {
         let error = null;
         if (insert) {
           if (table === 'scheduled_email' && all.some(r => r.booking_id === insert.booking_id &&
-            r.event_email_id === insert.event_email_id && (r.session_id ?? null) === (insert.session_id ?? null))) {
+            r.event_email_id === insert.event_email_id && (insert.follow_up_target_key != null
+              ? r.follow_up_target_key === insert.follow_up_target_key
+              : r.follow_up_target_key == null && (r.session_id ?? null) === (insert.session_id ?? null)))) {
             error = { code: '23505', message: 'Duplicate target' }; rows = [];
           } else { const row = { id: `row${next++}`, ...insert }; all.push(row); rows = [row]; }
         }

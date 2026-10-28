@@ -742,6 +742,7 @@ test('shared GC lifecycle processor is idempotent when recovery replays confirme
     membership_payment_plans: [{
       id: 'plan-1', tenant_id: 'tenant-a', billing_agreement_id: 'agreement-1',
       status: 'first_payment_pending', gocardless_subscription_id: 'SB_1',
+      collection_stopped_at: null,
       amount_minor: 508, currency: 'GBP', retry_count: 0,
     }],
     gocardless_payments: [{

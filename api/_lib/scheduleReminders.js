@@ -2,6 +2,7 @@ import { supabase } from './database.js';
 import { pickDayAnchorSessions } from './complexEventReminders.js';
 import { trainingReminderTargets, trainingTargetSnapshot } from './trainingReminderTargets.js';
 import { fetchTrainingAgendaLines } from './trainingAgenda.js';
+import { scheduleEventFollowUps } from './eventFollowUps.js';
 
 export function isAbsoluteReminder(email) {
   return (
@@ -665,6 +666,7 @@ export async function scheduleComplexEventReminderEmails(eventId, client = supab
 }
 
 export async function scheduleRemindersForEvent(eventId) {
+  const followUps = await scheduleEventFollowUps(supabase, eventId);
   const { data: emails } = await supabase
     .from('event_email')
     .select('is_complex_event')
@@ -682,8 +684,15 @@ export async function scheduleRemindersForEvent(eventId) {
     if (complexEvent) isComplex = true;
   }
 
-  if (isComplex) {
-    return { mode: 'complex', ...(await scheduleComplexEventReminderEmails(eventId)) };
-  }
-  return { mode: 'standard', ...(await scheduleReminderEmails(eventId)) };
+  const reminders = isComplex ? await scheduleComplexEventReminderEmails(eventId) : await scheduleReminderEmails(eventId);
+  return {
+    ...reminders, mode: isComplex ? 'complex' : 'standard', followUps,
+    requeued: reminders.requeued + followUps.requeued,
+    bookingsScheduled: Math.max(reminders.bookingsScheduled, followUps.bookingsScheduled),
+    bookingsConsidered: Math.max(reminders.bookingsConsidered, followUps.bookingsConsidered),
+    preserved: (reminders.preserved || 0) + followUps.preserved,
+    cancelled: (reminders.cancelled || 0) + followUps.cancelled,
+    skipped: [...reminders.skipped, ...followUps.skipped],
+    error: [reminders.error, followUps.error].filter(Boolean).join('; ') || null,
+  };
 }

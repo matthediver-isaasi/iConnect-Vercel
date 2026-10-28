@@ -5,6 +5,8 @@ import { buildInboxDelivery } from '../_lib/transactionalInbox.js';
 import { fetchComplexEventData, parseCcField, replacePlaceholders as renderPlaceholders } from '../_lib/eventConfirmationEmail.js';
 import { fetchTrainingAgendaData, applyAgendaPlaceholders, safeHttpUrl } from '../_lib/trainingAgenda.js';
 import { trainingReminderEvent, validateTrainingReminder } from '../_lib/trainingReminderTargets.js';
+import { validateFollowUpDelivery } from '../_lib/eventFollowUps.js';
+import { renderFollowUp } from '../_lib/eventFollowUpRendering.js';
 
 export default async function handler(req, res) {
   const authHeader = req.headers.authorization;
@@ -77,6 +79,36 @@ export default async function handler(req, res) {
           console.log(`[cron/send-event-reminders] No event_email found for scheduled_email ${scheduledEmail.id}`);
           await markAsFailed(scheduledEmail.id, 'Event email configuration not found');
           failedCount++;
+          continue;
+        }
+        if (eventEmail.email_type === 'follow_up') {
+          const { data: row, error: rowError } = await supabase.from('scheduled_email').select('*').eq('id', scheduledEmail.id).single();
+          if (rowError) throw rowError;
+          const validation = await validateFollowUpDelivery(supabase, row, eventEmail);
+          if (validation.reason) {
+            await markAsCancelled(row.id, validation.reason);
+            skipped.push({ id: row.id, reason: validation.reason });
+            continue;
+          }
+          const rendered = await renderFollowUp(supabase, validation, eventEmail);
+          const inboxDelivery = await buildInboxDelivery({ tenantId: validation.event.tenant_id,
+            memberId: validation.booking.member_id || null, email: validation.booking.attendee_email, labelKey: 'events' });
+          // Re-read authority after rendering/provider-independent lookups.
+          const { data: latestConfig, error: latestError } = await supabase.from('event_email').select('*').eq('id', eventEmail.id).maybeSingle();
+          if (latestError) throw latestError;
+          const latest = latestConfig && await validateFollowUpDelivery(supabase, row, latestConfig);
+          if (!latest || latest.reason || JSON.stringify(latestConfig) !== JSON.stringify(eventEmail)) {
+            await markAsCancelled(row.id, latest?.reason || 'Follow-up configuration changed during preparation');
+            continue;
+          }
+          const cc = parseCcField(eventEmail.cc);
+          const delivery = await sendEmail({ to: validation.booking.attendee_email, ...rendered,
+            cc: cc.length ? cc : undefined, tenantId: validation.event.tenant_id, inboxDelivery });
+          if (!delivery.success) throw new Error(delivery.error || 'Follow-up delivery outcome unknown');
+          const { error: sentError } = await supabase.from('scheduled_email')
+            .update({ status: 'sent', sent_at: new Date().toISOString(), error_message: null }).eq('id', row.id).eq('status', 'failed');
+          if (sentError) throw new Error('Provider accepted delivery but recording success failed; check delivery history');
+          sentCount++;
           continue;
         }
         if (!eventEmail.is_enabled || eventEmail.email_type !== 'reminder') {

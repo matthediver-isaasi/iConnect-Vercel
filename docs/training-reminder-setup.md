@@ -1,3 +1,9 @@
+# Post-event follow-ups
+
+For independent end-based event/day/session messages, see
+[Post-event email follow-up setup](event-follow-up-setup.md).
+The before-start reminder rules below are unchanged.
+
 # Training reminders
 
 ## Tenant setup

@@ -8,6 +8,7 @@ import { needsPublicTicketMemberCreation } from '../_lib/publicTicketMemberCreat
 import { PUBLIC_INVOICE_PO, validatePublicInvoicePo, requirePublicInvoicePoBalance } from '../_lib/publicInvoicePo.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { scheduleComplexEventReminders } from '../_lib/complexEventReminders.js';
+import { scheduleEventFollowUps } from '../_lib/eventFollowUps.js';
 import { getSessionMember } from '../_lib/session.js';
 import { getStripeCredentials } from '../_lib/stripeCredentials.js';
 import { sanitizeOptionSelections, isAttendeeOptionsCollectionEnabled, EMPTY_OPTION_SELECTIONS } from '../_lib/eventOptionSelections.js';
@@ -1486,6 +1487,10 @@ async function processBooking(req, res) {
     }
 
     try {
+      for (const booking of bookings) {
+        const result = await scheduleEventFollowUps(supabase, event_id, { bookingId: booking.id });
+        if (result.error) console.error('[Complex Event Booking] Follow-up scheduling:', result.error);
+      }
       const { data: reminderEmails } = await supabase
         .from('event_email')
         .select('*')

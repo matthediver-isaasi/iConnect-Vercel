@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { resolveEventEmailSurvey, usesEventSurvey } from '../_lib/campaignEventSurvey.js';
+import { validateFollowUpConfig } from '../_lib/eventFollowUpTargets.js';
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -52,6 +53,9 @@ export default async function handler(req, res) {
       if (!Array.isArray(emails)) {
         return res.status(400).json({ error: 'Emails must be an array' });
       }
+      try {
+        for (const email of emails) validateFollowUpConfig(email);
+      } catch (error) { return res.status(400).json({ error: error.message }); }
       const surveyEmails = emails.filter(email => email.event_survey_assignment_id ||
         usesEventSurvey({ subject: email.subject, html_content: email.body }));
       if (surveyEmails.length) {
@@ -144,6 +148,11 @@ export default async function handler(req, res) {
           is_complex_event: is_complex_event || false,
           updated_at: new Date().toISOString()
         };
+        if (email.email_type === 'follow_up') Object.assign(emailData, {
+          follow_up_scope: email.follow_up_scope, follow_up_delay: email.follow_up_delay,
+          follow_up_unit: email.follow_up_unit, timing_type: null,
+          custom_hours_before: null, custom_unit: null, custom_send_at: null,
+        });
 
         if (email.isNew || !existingIds.has(email.id)) {
           const { data: inserted, error: insertError } = await supabase
