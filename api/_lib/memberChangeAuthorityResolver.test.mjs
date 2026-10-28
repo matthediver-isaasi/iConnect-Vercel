@@ -31,3 +31,15 @@ test('production resolver builds confirmation authority from provider-backed pre
  await assert.rejects(service.confirm(context,{selection,fingerprint:preview.fingerprint,key:'request-key'}),/changed/);
  await assert.rejects(service.preview({...context,actorKind:'member',actorId:id(2)},selection),/FormBuilder/);
 });
+test('monthly member requests keep their form revision without pretending to be an administrator',async()=>{
+ const member={tenantId:id(1),memberId:id(2),actorId:id(2),actorKind:'member'};
+ let seen=null;
+ const resolve=createMemberChangeAuthorityResolver({db:{},
+  amendments:{source:async()=>({current:{commitment_snapshot:{payment_frequency:'monthly'}}})},
+  authorizeMember:async()=>({formId:id(3),revision:4}),
+  monthlyResolve:async context=>{seen=context;return {version:1};}});
+ const result=await resolve(member,{configId:id(6),reason:'Change'});
+ assert.equal(seen.actorKind,'member');
+ assert.deepEqual(result.formBinding,{formId:id(3),revision:4});
+ await assert.rejects(resolve({...member,actorId:id(99)},{configId:id(6),reason:'Change'}),/FormBuilder/);
+});

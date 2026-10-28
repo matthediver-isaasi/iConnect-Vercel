@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Loader2, ChevronLeft, ChevronRight, CheckCircle2, Save, Copy, Check, AlertTriangle, Printer } from "lucide-react";
 import FormRenderer, { RepeatableAvailabilityProbe } from "../components/forms/FormRenderer";
 import FormPaymentSubmit from "../components/forms/FormPaymentSubmit";
+import MemberChangeFormLink from "@/components/MemberChangeFormLink";
 import { useFormPaymentReturn, FormPaymentReturnScreen } from "../components/forms/FormPaymentReturn";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -3096,6 +3097,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
           <CardHeader>
             <CardTitle>{form.name}</CardTitle>
             {form.description && <CardDescription className="whitespace-pre-line">{form.description}</CardDescription>}
+            <MemberChangeFormLink formId={form.id} disabled={!!urlPrefillMemberId || !!previewOrigin} />
             <div className="mt-3">
               <DepartmentCurrentSetNotice
                 state={departmentCurrentSet}
@@ -3423,6 +3425,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
           <CardHeader>
             <CardTitle>{form.name}</CardTitle>
             {form.description && <CardDescription className="whitespace-pre-line">{form.description}</CardDescription>}
+            <MemberChangeFormLink formId={form.id} disabled={!!urlPrefillMemberId || !!previewOrigin} />
             <div className="mt-3">
               <DepartmentCurrentSetNotice
                 state={departmentCurrentSet}

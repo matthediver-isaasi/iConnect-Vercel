@@ -14,6 +14,7 @@ const fail = message => {
 export function createMemberDynamicChangeAuthorityResolver({
   db, purchases = createMemberMonthlyPurchaseAuthority({ db }),
   price = resolveDynamicCollectionPrice,
+  authorizeMember=null,
 }) {
   async function one(table, tenantId, filters) {
     let q = db.from(table).select('*').eq('tenant_id', tenantId);
@@ -29,7 +30,9 @@ export function createMemberDynamicChangeAuthorityResolver({
     if (data.length) fail('This structure has pricing overrides requiring separate financial reconciliation.');
   }
   return async (context, selection) => {
-    if (context.actorKind !== 'admin' || !context.actorId || !context.tenantId || !context.memberId) {
+    const memberAllowed=context.actorKind==='member'&&context.actorId===context.memberId&&authorizeMember
+      &&await authorizeMember(context,selection);
+    if ((context.actorKind !== 'admin'&&!memberAllowed) || !context.actorId || !context.tenantId || !context.memberId) {
       fail('Authenticated finance-admin context is required.');
     }
     if (selection?.action && selection.action !== 'change') fail('This quote cannot cancel a membership.');

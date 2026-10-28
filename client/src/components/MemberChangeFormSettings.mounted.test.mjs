@@ -157,7 +157,12 @@ test("enabled configuration requires persisted authentication and an active sele
       enabled: true, targetConfigIds: ["associate"], revision: 3,
     });
     assert.equal(button("Save membership-change settings").disabled, true);
-    assert.match(view.container.textContent, /does not yet enable the member journey or financial operations/);
+    assert.match(view.container.textContent, /separate member request and administrator review journey/);
+    assert.match(view.container.textContent, /Ordinary form submission is unchanged/);
+    const reviewLink = [...view.container.querySelectorAll("a")].find(link => link.textContent === "Open member review journey");
+    assert.equal(reviewLink.getAttribute("href"), "/MembershipChange?formId=form-settings");
+    assert.equal(reviewLink.getAttribute("rel"), "noopener noreferrer");
+    assert.equal(view.container.querySelector('input[readonly]').value, "https://isolated.example.test/MembershipChange?formId=form-settings");
   } finally { await view.cleanup(); }
 });
 

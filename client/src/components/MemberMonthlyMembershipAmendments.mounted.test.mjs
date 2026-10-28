@@ -21,6 +21,8 @@ const bundle = await build({
     name: "monthly-isolated-boundaries",
     setup(builder) {
       builder.onResolve({ filter: /^react(?:\/.*)?$/ }, args => ({ path: args.path, external: true }));
+      builder.onResolve({ filter: /^\.\/MemberChangeRequestReview$/ }, () => ({ path: "request-review", namespace: "review-fixture" }));
+      builder.onLoad({ filter: /.*/, namespace: "review-fixture" }, () => ({ contents: "export default function Review(){return null;}", loader: "js" }));
       builder.onResolve({ filter: /^@\// }, args => ({ path: args.path, namespace: "fixture" }));
       builder.onLoad({ filter: /.*/, namespace: "fixture" }, ({ path }) => ({
         loader: "js",

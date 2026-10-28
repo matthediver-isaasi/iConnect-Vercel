@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createMemberDynamicChangeAuthorityResolver } from './memberDynamicChangeAuthorityResolver.js';
 import { createMemberChangeAuthorityService } from './memberChangeAuthority.js';
 const id=n=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
-function fixture(){
+function fixture(authorizeMember=null){
   const source={id:id(3),tenant_id:id(1),member_id:id(2),config_id:id(4),
     commitment_snapshot:{payment_frequency:'monthly'},term_start_date:'2026-01-01',membership_renewal_date:'2027-01-01'};
   const governing={id:id(4),tenant_id:id(1),start_mode:'immediate'};
@@ -31,8 +31,23 @@ function fixture(){
   const purchases={load:async()=>input,reconcileFunding:async()=>({input,prepared:{funding:providerFunding},fundingEvidence})};
   const price=async()=>({config_id:target.id,band_id:null,monthly_amount_minor:900});
   return {context,selection,source,target,governing,input,data,db,fundingEvidence,
-    resolve:createMemberDynamicChangeAuthorityResolver({db,purchases,price})};
+    resolve:createMemberDynamicChangeAuthorityResolver({db,purchases,price,authorizeMember})};
 }
+test('monthly member quotations require a trusted form gate and exact session ownership',async()=>{
+ const ordinary=fixture();
+ const member={...ordinary.context,actorKind:'member',actorId:ordinary.context.memberId};
+ await assert.rejects(ordinary.resolve(member,ordinary.selection),/finance-admin/);
+ let checks=0;
+ const allowed=fixture(async context=>{
+  checks++;assert.equal(context.actorId,context.memberId);return {formId:id(8),revision:1};
+ });
+ const quote=await allowed.resolve(member,allowed.selection);
+ assert.equal(checks,1);assert.equal(quote.monthlyExecution.providerTarget.amountMinor,900);
+ await assert.rejects(allowed.resolve({...member,actorId:id(99)},allowed.selection),/finance-admin/);
+ assert.equal(checks,1);
+ const denied=fixture(async()=>false);
+ await assert.rejects(denied.resolve(member,denied.selection),/finance-admin/);
+});
 test('production monthly quote preserves term and does not invent an annual total',async()=>{
   const f=fixture(),q=await f.resolve(f.context,{...f.selection,target:{amountMinor:1}});
   assert.equal(q.monthlyExecution.providerTarget.amountMinor,900);

@@ -1531,6 +1531,9 @@ const getPageVisibility = (pageName) => {
   // tenant, window and ordinary member-only checks), not FormView's generic
   // portal setting. This exposes only the resolver shell, never a form.
   if (pageName === 'FormView' && /^\/survey\/[^/]+\/?$/i.test(location.pathname)) return 'hybrid';
+  // Render only the request shell before login. The page verifies a validated
+  // member session, and every data/action endpoint enforces member ownership.
+  if (pageName === 'MembershipChange') return 'hybrid';
   // First check dynamic settings
   if (pageVisibilitySettings[pageName]) {
     return pageVisibilitySettings[pageName];

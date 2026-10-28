@@ -1,5 +1,47 @@
 # Self-service membership changes: implementation boundary
 
+## Member requests and administrator review
+
+The protected FormBuilder opt-in now exposes `/MembershipChange?formId=…`.
+The normal FormView also discovers this link through a session-owned API check,
+in both standard and card-swipe layouts. Guests, on-behalf-of views and management
+previews do not probe it, and ordinary submissions remain unchanged.
+Authenticated members can discover eligible structures, preview a server-backed
+change, explicitly submit for review, recover an uncertain submission and
+withdraw a pending request. Ordinary form submission behaviour is unchanged.
+Upfront and supported monthly quotation use the shared resolvers; member actors
+are not impersonated as administrators. Existing financial/evidence blockers
+remain enforced.
+
+Finance administrators can review requests in the member amendment panel.
+Approval re-resolves evidence and atomically creates the canonical financial
+authority, making it available to the existing financial panels. It does not
+itself collect money, refund, apply membership or claim those operations succeeded.
+Changed dates/evidence require a fresh request. Pending requests are separate
+from immutable financial authority so withdrawal/rejection cannot strand its
+source-purchase slot.
+
+Migration **202612310055_member_change_requests.sql is applied to live DEST**.
+Disposable PostgreSQL concurrency/permission checks, rollback rehearsal and
+post-application verification passed: 14 private tables and 20 functions across
+the scoped migration set. SOURCE was untouched; no real financial actions or
+emails were initiated. No migration for this request/review slice remains pending.
+
+Verification includes 142 mounted UI regressions and 20 backend identity,
+eligibility, evidence, monthly quotation and native approval tests. The
+authenticated UI has not been visually verified in the workspace preview.
+Application code still needs deployment to reach the live site.
+
+**This is not whole-feature completion.** Requests currently always enter
+administrator review; tenant-policy automatic execution is not connected.
+Scheduled/immediate cancellation admission, late-payment and renewal races,
+remaining monthly cancellation financial evidence and original-funding return
+paths remain unfinished. Do not advertise unrestricted self-service execution
+or start the final whole-feature manual acceptance phase yet.
+
+The sections below record earlier implementation boundaries; this section
+supersedes their statements that no member request/review journey exists.
+
 ## Approved cancellation finance background recovery
 
 The existing amendment cron now also resumes approved cancellation-finance work

@@ -10,9 +10,11 @@ const fail = message => { throw Object.assign(new Error(message), {status:422,co
 // unsupported monthly/adjusted funding is refused, never fabricated from price.
 export function createMemberChangeAuthorityResolver({
   db, amendments=createMemberAmendmentsService({db}),
-  monthlyResolve=createMemberDynamicChangeAuthorityResolver({db}),
+  monthlyResolve=null,
   creditLiability=(tenantId,input)=>createMemberAmendmentFinance().verifyCreditLiability(tenantId,input),
+  authorizeMember=null,
 }) {
+  const resolveMonthly=monthlyResolve||createMemberDynamicChangeAuthorityResolver({db,authorizeMember});
   async function one(table, context, filters) {
     let query=db.from(table).select('*').eq('tenant_id',context.tenantId);
     for(const [key,value] of Object.entries(filters)) query=query.eq(key,value);
@@ -21,13 +23,15 @@ export function createMemberChangeAuthorityResolver({
     return data;
   }
   return async (context, selection) => {
-    if(context.actorKind!=='admin') fail('Member initiation requires the opted-in FormBuilder flow.');
+    const formBinding=context.actorKind==='member'&&context.actorId===context.memberId&&authorizeMember?await authorizeMember(context,selection):null;
+    if(context.actorKind!=='admin'&&!formBinding) fail('Member initiation requires the opted-in FormBuilder flow.');
     if(selection?.action && selection.action!=='change') fail('Cancellation evidence is not yet available.');
     const request=normalizeAmendmentRequest({...selection,memberId:context.memberId,settlementChoice:'defer'});
     const sourceContext=typeof amendments.source==='function'
       ? await amendments.source(context.tenantId,context.memberId) : null;
     if(sourceContext?.current?.commitment_snapshot?.payment_frequency==='monthly') {
-      return monthlyResolve(context,selection);
+      const result=await resolveMonthly(context,selection);
+      return {...result,...(formBinding?{formBinding}:{})};
     }
     const preview=await amendments.preview(context.tenantId,request);
     if(!preview.canCreate || !preview.quote) fail(preview.blockers?.join(' ') || 'Purchase evidence is unavailable.');
@@ -90,6 +94,6 @@ export function createMemberChangeAuthorityResolver({
       request,sourceSnapshot:source,targetSnapshot:q.targetSnapshot.config,
       targetBandSnapshot:q.targetSnapshot.band||null,governingSnapshot:governing,
       pricingSnapshot:q.targetSnapshot,policySnapshot,calculation,fundingEvidence,settlement,creditLiabilityBinding,creditEligibilityError,
-      executionEnabled:false};
+      executionEnabled:false,...(formBinding?{formBinding}:{})};
   };
 }

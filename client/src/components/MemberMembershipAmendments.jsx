@@ -12,6 +12,7 @@ import MemberMembershipAmendmentLifecycle from "./MemberMembershipAmendmentLifec
 import MemberMonthlyMembershipAmendments from "./MemberMonthlyMembershipAmendments";
 import MemberUpfrontFinancialChanges from "./MemberUpfrontFinancialChanges";
 import MemberCancellationFinancialRecovery from "./MemberCancellationFinancialRecovery";
+import MemberChangeRequestReview from "./MemberChangeRequestReview";
 
 const endpoint = "/api/membership/member-amendments";
 const dateLabel = value => {
@@ -170,6 +171,7 @@ function AmendmentPanel({ memberId, tenantId }) {
        <p className="text-sm text-muted-foreground">{isMonthly ? "Preview a retained-term monthly membership change, save its authority, then explicitly approve execution. Preview and saving never change the provider or membership." : "Preview and record an upfront personal membership change, then follow its separate settlement and application history. Saving a proposal does not collect payment, issue a refund, or change entitlement."}</p>
     </CardHeader>
     <CardContent className="space-y-5">
+      <MemberChangeRequestReview memberId={memberId} tenantId={tenantId} actionsEnabled={!isError} />
       <div className="rounded-md border bg-muted/50 p-3 text-sm flex items-start gap-2">
         <Lock className="w-4 h-4 shrink-0 mt-0.5" />
          <div className="space-y-1">

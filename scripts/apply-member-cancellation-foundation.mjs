@@ -5,7 +5,8 @@ import {connectDestination,PROJECT} from './annual-meeting-destination.mjs';
 // Private storage only. Does not create cancellation requests, stop providers,
 // enable public routes, issue credit, send mail or execute financial operations.
 const apply=process.argv.includes('--apply'),verifyOnly=process.argv.includes('--verify');
-const worker=process.argv.includes('--worker');
+const requests=process.argv.includes('--requests');
+const worker=process.argv.includes('--worker')||requests;
 const forms=process.argv.includes('--forms')||worker;
 const finance=process.argv.includes('--finance')||forms;
 if(apply&&verifyOnly)throw Error('Choose application or verification, not both');
@@ -23,6 +24,8 @@ if(forms)pinned.push(['202612310053_membership_change_forms.sql',
  '7ecd1c9ab6fe354c966f625adbe8033b5331fdcb4e9c871aaf97dbf80a05f1d5']);
 if(worker)pinned.push(['202612310054_member_cancellation_finance_worker.sql',
  'd243f703ea98c41c770683180aea05f3d4f67fe4c3b1b3434d65fd290b6ca426']);
+if(requests)pinned.push(['202612310055_member_change_requests.sql',
+ '3e91404eaff8da52936789d7a8b28de6d68797f13093f5c04ed8feac603724cc']);
 const sources=pinned.map(([file,hash])=>{
  const sql=readFileSync(`supabase/migrations/${file}`,'utf8');
  if(createHash('sha256').update(sql).digest('hex')!==hash)throw Error(`Migration differs from reviewed hash: ${file}`);
@@ -34,22 +37,24 @@ const tables=['member_cancellation_request','member_cancellation_provider_stop',
 if(finance)tables.push('member_cancellation_finance','member_cancellation_finance_step',
  'member_cancellation_finance_application','member_credit_backing_claim','member_membership_credit');
 if(forms)tables.push('membership_change_form','membership_change_form_history');
+if(requests)tables.push('member_change_request','member_change_request_event');
 const serviceFunctions=new Set(['claim_member_cancellation_provider_stop','record_member_cancellation_provider_stop',
  'apply_member_cancellation_access','begin_member_cancellation','claim_member_cancellation_jobs','finish_member_cancellation_job']);
 if(finance)for(const name of ['prepare_member_cancellation_finance','claim_member_cancellation_finance_step',
  'observe_member_cancellation_finance_step','record_member_cancellation_balance','member_credit_funding_proofs'])serviceFunctions.add(name);
 if(forms)serviceFunctions.add('save_membership_change_form');
 if(worker)serviceFunctions.add('claim_member_cancellation_finance_jobs');
+if(requests)for(const name of ['submit_member_change_request','review_member_change_request'])serviceFunctions.add(name);
 const functions=sources.flatMap(({sql})=>[...sql.matchAll(/CREATE FUNCTION public\.(\w+)\([\s\S]*?\bAS \$\$([\s\S]*?)\$\$;/g)]
  .map(m=>({name:m[1],body:m[2].trim()})));
-if(functions.length!==(worker?18:forms?17:finance?16:10))throw Error('Cancellation function contract changed');
+if(functions.length!==(requests?20:worker?18:forms?17:finance?16:10))throw Error('Cancellation function contract changed');
 const db=await connectDestination();
 try{
  await db.query(verifyOnly?'BEGIN READ ONLY':'BEGIN');
  await db.query("SET LOCAL lock_timeout='10s'; SET LOCAL statement_timeout='120s'");
  if(!verifyOnly){
   await db.query("SELECT pg_advisory_xact_lock(hashtextextended('member-credit-foundation-migrations',0))");
-  for(const {sql} of worker?sources.slice(7):forms?sources.slice(6):finance?sources.slice(4):sources)await db.query(sql.replace(/^BEGIN;$/m,'').replace(/^COMMIT;$/m,''));
+  for(const {sql} of requests?sources.slice(8):worker?sources.slice(7):forms?sources.slice(6):finance?sources.slice(4):sources)await db.query(sql.replace(/^BEGIN;$/m,'').replace(/^COMMIT;$/m,''));
  }
  const tableChecks=(await db.query(`SELECT c.relname,c.relrowsecurity,
   has_table_privilege('anon',c.oid,'SELECT,INSERT,UPDATE,DELETE') anon_access,

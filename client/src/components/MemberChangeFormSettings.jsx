@@ -26,8 +26,8 @@ export default function MemberChangeFormSettings({ formId, tenantContext, persis
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="rounded-md border border-blue-100 bg-blue-50 p-3 text-sm text-slate-700">
-          Configuration only. Saving these settings does not yet enable the member journey or financial operations.
-          No membership changes, payments, refunds or credits will run.
+          These settings enable a separate member request and administrator review journey. Ordinary form submission is unchanged.
+          Saving settings, submitting requests and approving review do not automatically change membership or run payments, refunds or credits.
         </div>
         {!formId ? (
           <p className="text-sm text-muted-foreground">Save this form first to configure membership changes.</p>
@@ -158,7 +158,7 @@ function SettingsSession({ formId, tenantContext, persistedAuthentication }) {
       draftRef.current = selection(data);
       setDraft(draftRef.current);
       setConflict(false);
-      setMessage("Membership-change settings saved. Member journey and financial operations remain disabled.");
+      setMessage("Membership-change settings saved. Share the separate member review link below. No automatic membership changes or financial transactions will run.");
     } catch (failure) {
       if (!current(id) || failure.name === "AbortError") return;
       setError(failure);
@@ -197,7 +197,7 @@ function SettingsSession({ formId, tenantContext, persistedAuthentication }) {
               <input type="checkbox" className="mt-1 h-4 w-4 accent-blue-600" checked={draft.enabled}
                 onChange={event => edit({ ...draft, enabled: event.target.checked })} />
               <span className="text-sm"><span className="font-medium">Enable membership-change configuration</span>
-                <span className="mt-1 block text-muted-foreground">Stores this form’s eligibility and target choices only. You can disable it without clearing selections.</span>
+                  <span className="mt-1 block text-muted-foreground">Allows authenticated members to preview an eligible membership change and request administrator review through the separate link. Upfront and monthly availability depends on server eligibility and financial evidence checks. You can disable it without clearing selections.</span>
               </span>
             </label>
             <div className="space-y-2">
@@ -239,6 +239,15 @@ function SettingsSession({ formId, tenantContext, persistedAuthentication }) {
             </div>
           )}
           {saved.formActive === false && <p className="text-sm text-muted-foreground">This form is inactive. Saving this configuration does not activate it.</p>}
+          <div className="space-y-2 rounded-md border bg-muted/30 p-4 text-sm">
+            <p className="font-medium">Separate membership review link</p>
+            <p className="text-muted-foreground">Share this link with members, not the ordinary form link. Ordinary form submission is unchanged. Members must sign in and the saved form must be active, require authentication and have membership changes enabled. Approval does not execute any financial operation.</p>
+            <a className="block break-all font-medium underline underline-offset-4" target="_blank" rel="noopener noreferrer" href={`/MembershipChange?formId=${encodeURIComponent(formId)}`}>Open member review journey</a>
+            <label className="block text-xs text-muted-foreground" htmlFor={`member-change-link-${formId}`}>Copy and share this link</label>
+            <input id={`member-change-link-${formId}`} className="w-full rounded-md border bg-background p-2 text-xs" readOnly
+              onFocus={event => event.target.select()}
+              value={`${window.location.origin}/MembershipChange?formId=${encodeURIComponent(formId)}`} />
+          </div>
           <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 pt-4">
             <Button type="button" onClick={save} disabled={blocked || conflict || !dirty || authenticationRequired || targetRequired || unavailableTargets}>
               {saving ? "Saving settings…" : "Save membership-change settings"}

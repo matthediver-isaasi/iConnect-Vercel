@@ -200,6 +200,7 @@ const FormManagement = lazy(() => import("./FormManagement"));
 const FormBuilder = lazy(() => import("./FormBuilder"));
 
 import FormView from "./FormView";
+import MembershipChange from "./MembershipChange";
 
 import EmbedForm from "./EmbedForm";
 import CaseStudyUpload from "./CaseStudyUpload";
@@ -711,6 +712,7 @@ const PAGES = {
     FormBuilder: FormBuilder,
     
     FormView: FormView,
+    MembershipChange: MembershipChange,
     
     MemberDirectorySettings: MemberDirectorySettings,
     
@@ -1230,6 +1232,7 @@ function PagesContent() {
                 <Route path="/FormBuilder" element={<FormBuilder />} />
                 
                 <Route path="/FormView" element={<FormView />} />
+                <Route path="/MembershipChange" element={<MembershipChange />} />
                 <Route path="/survey/:token" element={<SurveyAssignmentRoute />} />
                 
                 <Route path="/MemberDirectorySettings" element={<MemberDirectorySettings />} />

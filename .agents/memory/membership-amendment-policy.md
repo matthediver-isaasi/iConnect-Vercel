@@ -306,3 +306,14 @@ unreviewed actions incidentally.
 **How to apply:** Financial-only workers must select already-applied cancellations
 with an owned approved financial plan and reject lifecycle jobs independently
 in both the database selector and the worker.
+
+Pending member review requests must remain separate from immutable financial
+authority until approval.
+
+**Why:** Financial authority reserves the source purchase. Creating it for an
+unreviewed request can strand that purchase when the member withdraws or an
+administrator rejects the request.
+
+**How to apply:** Revalidate the original financial evidence on approval and
+atomically create authority with the review decision. Treat approval as permission
+for separate processing, not evidence that money moved or membership changed.

@@ -11,11 +11,12 @@ import {createMemberReplacementExecutionService} from '../_lib/memberReplacement
 import {MEMBER_REPLACEMENT_PROTOCOL,replacementLifecycle} from '../_lib/memberReplacementRead.js';
 import {createMemberChangeFormSettings} from '../_lib/memberChangeFormSettings.js';
 import {createMemberCancellationFinance} from '../_lib/memberCancellationFinance.js';
+import {createMemberChangeRequests} from '../_lib/memberChangeRequests.js';
 
 export function createMemberAmendmentsHandler({
   db = supabase, getContext = getTenantContext, isAdmin = hasAdminAccess,
   hasFinance = hasFeatureAccess, service = null, authorityService = null, executionService = null,
-  monthlyExecutionService = null,replacementExecutionService=null,cancellationFinanceService=null,
+  monthlyExecutionService = null,replacementExecutionService=null,cancellationFinanceService=null,memberRequestsService=null,
 } = {}) {
   return async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -25,6 +26,21 @@ export function createMemberAmendmentsHandler({
       const context = await getContext(req);
       if (!context?.isAuthenticated) return res.status(401).json({ error: 'Authentication required' });
       if (context.tenantMismatch) return res.status(409).json({ error: 'Tenant context mismatch' });
+      const action=req.method==='GET'?req.query?.action:req.body?.action;
+      if(['member_change_availability','member_change_context','member_change_preview','member_change_submit','member_change_recover','member_change_withdraw'].includes(action)){
+        if(!context.tenantId||!AMENDMENT_UUID.test(context.memberId||''))return res.status(403).json({error:'Sign in with your member account'});
+        if((['member_change_context','member_change_availability'].includes(action))!==(req.method==='GET'))return res.status(405).json({error:'Method not allowed'});
+        const input=req.method==='GET'?req.query:req.body;
+        const actor={tenantId:context.tenantId,memberId:context.memberId,actorId:context.memberId,actorKind:'member',
+          formId:input.formId,req};
+        const requests=memberRequestsService||createMemberChangeRequests({db});
+        if(action==='member_change_availability')return res.json(await requests.availability(actor));
+        if(action==='member_change_context')return res.json(await requests.contextInfo(actor));
+        if(action==='member_change_preview')return res.json(await requests.preview(actor,input.selection));
+        if(action==='member_change_submit')return res.json(await requests.submit(actor,input));
+        if(action==='member_change_recover')return res.json({record:await requests.recover(actor,input.key,input.fingerprint)});
+        return res.json(await requests.review(actor,{id:input.id,action:'withdraw',reason:'Withdrawn by member'}));
+      }
       if (!context.tenantId || !await isAdmin(context)) return res.status(403).json({ error: 'Tenant admin access required' });
       // Tenant-account administrators without a member role follow the existing
       // monthly-finance gate; role-bearing accounts also need finance visibility.
@@ -40,6 +56,18 @@ export function createMemberAmendmentsHandler({
         return res.json(await reviewMemberCreditExpiry(db,context.tenantId,actorId,req.body));
       }
       if (!actorId) return res.status(403).json({ error: 'An authenticated audit identity is required' });
+      if(action==='member_change_requests'||action==='review_member_change_request'){
+        const input=req.method==='GET'?req.query:req.body;
+        if(!AMENDMENT_UUID.test(input.memberId||''))return res.status(400).json({error:'A valid member is required'});
+        const actor={tenantId:context.tenantId,memberId:input.memberId,actorId,actorKind:'admin'};
+        const requests=memberRequestsService||createMemberChangeRequests({db});
+        if(req.method==='GET'&&action==='member_change_requests')return res.json({requests:await requests.records(actor)});
+        if(req.method==='POST'&&action==='review_member_change_request'){
+          if(!['approve','reject'].includes(input.decision))return res.status(400).json({error:'Approve or reject the request'});
+          return res.json(await requests.review(actor,{id:input.id,action:input.decision,reason:input.reason}));
+        }
+        return res.status(405).json({error:'Method not allowed'});
+      }
       if((req.method==='GET'?req.query?.action:req.body?.action)==='form_change_settings'){
         const settings=createMemberChangeFormSettings({db});
         return res.json(req.method==='GET'
