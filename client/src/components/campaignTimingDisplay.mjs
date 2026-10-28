@@ -1,5 +1,5 @@
 // The timings endpoint returns evidence, not inferred dates. Keep missing values
-// visible and never substitute updated_at or the last recipient timestamp.
+// visible. Successful-send duration is independent of lifecycle completion.
 export function formatCampaignTimestamp(value, timeZone) {
   if (!value || !Number.isFinite(Date.parse(value))) return null;
   return new Intl.DateTimeFormat(undefined, {
@@ -36,9 +36,14 @@ export function validateCampaignTimings(data, campaignId) {
     ((Number.isFinite(start) && finished < start) || (Number.isFinite(created) && finished < created));
   if (ongoing || invalidFinish) {
     timings.completed_at = null;
-    timings.send_duration_ms = null;
-    timings.overall_duration_ms = null;
     if (invalidFinish) timings.notes.push('The recorded completion predates the current campaign start or creation and has been ignored.');
   }
+  const first = Date.parse(timings.first_recipient_sent_at);
+  const last = Date.parse(timings.last_recipient_sent_at);
+  const validWindow = Number.isFinite(first) && Number.isFinite(last) && last >= first &&
+    (!Number.isFinite(created) || first >= created) &&
+    (!Number.isFinite(start) || first >= start);
+  timings.send_duration_ms = validWindow ? last - first : null;
+  timings.overall_duration_ms = timings.send_duration_ms;
   return { ...data, timings };
 }

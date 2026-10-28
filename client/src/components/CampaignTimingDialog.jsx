@@ -74,8 +74,8 @@ export default function CampaignTimingDialog({ campaign, open, onOpenChange, onI
         <dl className="grid gap-3 rounded-lg border bg-muted/30 p-4 sm:grid-cols-3">
           {[
             ['Preparation duration', timings.preparation_duration_ms],
-            ['Send duration', ongoing ? null : timings.send_duration_ms],
-            ['Overall duration', ongoing ? null : timings.overall_duration_ms],
+            ['Send duration', timings.send_duration_ms],
+            ['Overall duration', timings.overall_duration_ms],
           ].map(([label, duration]) => <div key={label}>
             <dt className="text-xs text-muted-foreground">{label}</dt>
             <dd className="mt-1 font-medium tabular-nums">{formatCampaignDuration(duration)}</dd>
@@ -83,7 +83,7 @@ export default function CampaignTimingDialog({ campaign, open, onOpenChange, onI
         </dl>
         <div className="space-y-2 text-xs leading-relaxed text-muted-foreground">
           <p>Successful-send timestamps are application-recorded recipient sent_at values, not independently verified Mailgun acceptance or delivery times. The last recorded email is not the campaign finish.</p>
-          <p>Durations require both recorded endpoints. Missing dates are not estimated from the last update; overall and send durations include any pauses.</p>
+          <p>Send duration and overall duration both measure the first to the last recorded successful send, including any gaps between them. Preparation and time after the last successful send are excluded, even if the campaign is paused or cancelled.</p>
           {timings.notes?.map((note, index) => <p key={index}>{note}</p>)}
           {['sending', 'preparing'].includes(current?.status) && <p role="status">Refreshes every 5 seconds while this dialog is open.</p>}
         </div>

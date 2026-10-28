@@ -53,8 +53,8 @@ test('timings authorize tenant-scoped parent before generation and bounded first
   const result = await readCampaignTimings(db, 'campaign-a', 'tenant-a');
   assert.deepEqual(result.campaign.preparation, prep);
   assert.equal(result.timings.preparation_duration_ms, 4 * 60000);
-  assert.equal(result.timings.send_duration_ms, 15 * 60000);
-  assert.equal(result.timings.overall_duration_ms, 20 * 60000);
+  assert.equal(result.timings.send_duration_ms, 10 * 60000);
+  assert.equal(result.timings.overall_duration_ms, 10 * 60000);
   assert.equal(result.timings.first_recipient_sent_at, at(15));
   assert.equal(result.timings.last_recipient_sent_at, at(25));
   assert.equal(reads.length, 4);
@@ -89,14 +89,14 @@ test('campaign without preparation generation never reads preparation', async ()
   assert.equal(result.timings.preparation_duration_ms, null);
 });
 
-test('valid timing evidence uses workflow start and recorded completion, including gaps', () => {
+test('durations use first and last successes, independently of workflow completion', () => {
   const timings = campaignTimingEvidence(campaign, { phase: 'complete', completed_at: at(14) }, at(15), at(25));
   assert.equal(timings.started_at, at(10));
   assert.equal(timings.scheduled_at, at(5));
   assert.equal(timings.completed_at, at(30));
-  assert.equal(timings.send_duration_ms, 900000);
-  assert.equal(timings.overall_duration_ms, 1200000);
-  assert.match(timings.notes.join(' '), /gaps and pauses/);
+  assert.equal(timings.send_duration_ms, 600000);
+  assert.equal(timings.overall_duration_ms, 600000);
+  assert.match(timings.notes.join(' '), /gaps between successful sends/);
 });
 
 test('missing, malformed and chronologically invalid completion never invent duration', () => {
@@ -107,8 +107,8 @@ test('missing, malformed and chronologically invalid completion never invent dur
     assert.equal(timings.completed_at, null);
     assert.equal(timings.preparation_completed_at, null);
     assert.equal(timings.preparation_duration_ms, null);
-    assert.equal(timings.send_duration_ms, null);
-    assert.equal(timings.overall_duration_ms, null);
+    assert.equal(timings.send_duration_ms, 600000);
+    assert.equal(timings.overall_duration_ms, 600000);
     assert.match(timings.notes.join(' '), /last update is not used/);
   }
 });
@@ -118,8 +118,8 @@ test('ongoing states ignore stale campaign completion; unfinished preparation ig
     const timings = campaignTimingEvidence({ ...campaign, status }, { phase: 'materializing', completed_at: at(14) }, at(15), at(25));
     assert.equal(timings.completed_at, null);
     assert.equal(timings.preparation_completed_at, null);
-    assert.equal(timings.send_duration_ms, null);
-    assert.equal(timings.overall_duration_ms, null);
+    assert.equal(timings.send_duration_ms, 600000);
+    assert.equal(timings.overall_duration_ms, 600000);
     assert.equal(timings.started_at, ['draft', 'scheduled'].includes(status) ? null : at(10));
   }
 });
@@ -128,7 +128,7 @@ test('terminal failure/cancellation retain actual completion but missing success
   for (const status of ['sent', 'failed', 'cancelled']) {
     const timings = campaignTimingEvidence({ ...campaign, status }, null, null, null);
     assert.equal(timings.completed_at, at(30));
-    assert.equal(timings.overall_duration_ms, 1200000);
+    assert.equal(timings.overall_duration_ms, null);
     assert.equal(timings.send_duration_ms, null);
   }
 });
@@ -141,5 +141,14 @@ test('recipient evidence before this campaign run or invalid timestamps is ignor
     assert.equal(timings.send_duration_ms, null);
   }
   const timings = campaignTimingEvidence({ ...campaign, completed_at: at(12) }, null, at(15), at(25));
-  assert.equal(timings.send_duration_ms, null, 'negative duration must not be displayed');
+  assert.equal(timings.send_duration_ms, 600000, 'early completion must not suppress successful-send evidence');
+});
+
+test('cancelled campaign without completion retains duration; single success is zero; missing or reversed evidence stays unknown', () => {
+  const cancelled = {...campaign, status:'cancelled', completed_at:null};
+  assert.equal(campaignTimingEvidence(cancelled,null,at(15),at(25)).overall_duration_ms,600000);
+  assert.equal(campaignTimingEvidence(cancelled,null,at(15),at(15)).send_duration_ms,0);
+  for(const [first,last] of [[null,at(25)],[at(15),null],[at(25),at(15)]]){
+    assert.equal(campaignTimingEvidence(cancelled,null,first,last).send_duration_ms,null);
+  }
 });

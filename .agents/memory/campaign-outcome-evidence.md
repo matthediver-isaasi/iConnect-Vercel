@@ -42,3 +42,13 @@ do not prove that a timed-out request never reached the provider.
 **How to apply:** Automatically retry only fenced, demonstrably unsubmitted
 claims. Reconcile uncertain submissions from exact positive provider evidence;
 do not extend this authority to blind resends or hide the historical gap.
+
+Reported send duration and overall duration both use first successful send to
+last successful send, independently of sending, cancelled or completed status.
+Keep workflow start, finish, preparation and interruption records separate.
+
+**Why:** The owner explicitly requires this definition so a hung campaign or
+later cancellation does not inflate or erase the successful-send duration.
+
+**How to apply:** Preserve gaps between successful sends, but exclude time after
+the final success. Do not replace missing success evidence with updated_at.

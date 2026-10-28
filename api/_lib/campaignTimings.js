@@ -21,7 +21,7 @@ export function campaignTimingEvidence(campaign, preparation, first, last) {
     return at && (!started || at >= started) ? at : null;
   };
   const firstSent = recipientTime(first), lastSent = recipientTime(last);
-  notes.push('Campaign start is the recorded send-workflow start. Send duration runs from the first recorded successful send to campaign completion, including gaps and pauses.');
+  notes.push('Send duration and overall duration both run from the first recorded successful send to the last recorded successful send, regardless of campaign status. Preparation and time after the last successful send are excluded; gaps between successful sends remain included.');
   return {
     scheduled_at: timestamp(campaign.scheduled_at), started_at: started,
     preparation_started_at: preparation ? started : null,
@@ -29,8 +29,8 @@ export function campaignTimingEvidence(campaign, preparation, first, last) {
     first_recipient_sent_at: firstSent, last_recipient_sent_at: lastSent,
     completed_at: completed,
     preparation_duration_ms: duration(preparation ? started : null, prepEnd),
-    send_duration_ms: duration(firstSent, completed),
-    overall_duration_ms: duration(started, completed), notes,
+    send_duration_ms: duration(firstSent, lastSent),
+    overall_duration_ms: duration(firstSent, lastSent), notes,
   };
 }
 

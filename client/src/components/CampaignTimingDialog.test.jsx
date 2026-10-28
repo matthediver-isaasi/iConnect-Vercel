@@ -81,6 +81,20 @@ test('formats missing values, timezone-specific timestamps and nonnegative durat
   assert.notEqual(formatCampaignTimestamp('2026-04-02T09:00:00Z', 'UTC'), formatCampaignTimestamp('2026-04-02T09:00:00Z', 'America/New_York'));
 });
 
+test('cancelled campaigns without completion render successful-send durations', async () => {
+  await mounted(async ({render}) => {
+    await render({open:true});
+    const durations = [...document.querySelectorAll('dd')].filter(node => node.textContent === '2m 25s');
+    assert.equal(durations.length, 2);
+    assert.match(document.body.textContent, /cancelled/);
+    assert.match(document.body.textContent, /time after the last successful send are excluded/);
+  }, () => {
+    const data=payload('alpha','cancelled');
+    data.timings.completed_at=null;
+    return {ok:true,json:async()=>data};
+  });
+});
+
 test('rejects missing endpoint and mismatched campaign responses', () => {
   assert.throws(() => validateCampaignTimings(campaign, 'alpha'), /not available/);
   assert.throws(() => validateCampaignTimings(payload('beta'), 'alpha'), /not available/);
@@ -90,8 +104,8 @@ test('never shows ongoing finish or invalid historical completion as a finish', 
   for (const status of ['draft', 'scheduled', 'preparing', 'sending', 'paused']) {
     const result = validateCampaignTimings(payload('alpha', status), 'alpha');
     assert.equal(result.timings.completed_at, null);
-    assert.equal(result.timings.overall_duration_ms, null);
-    assert.equal(result.timings.send_duration_ms, null);
+    assert.equal(result.timings.overall_duration_ms, 145000);
+    assert.equal(result.timings.send_duration_ms, 145000);
   }
   const historic = payload();
   historic.timings.completed_at = '2026-03-30T09:00:00Z';
@@ -111,7 +125,7 @@ test('loads only on open, shows recorded evidence and timezone, opens statistics
     assert.equal(calls[0].options.credentials, 'include');
     assert.ok(calls[0].options.signal);
     assert.match(document.body.textContent, /All times in/);
-    assert.match(document.body.textContent, /3m 17s/);
+    assert.match(document.body.textContent, /2m 25s/);
     assert.match(document.body.textContent, /not independently verified Mailgun/);
     assert.match(document.body.textContent, /Preparation completion was not recorded/);
     await click('Open statistics');
@@ -129,14 +143,14 @@ test('has a loading skeleton, retryable error and no stale details after switchi
     assert.match(document.body.textContent, /Timings could not be loaded/);
     await click('Try again');
     assert.equal(calls.length, 2);
-    assert.match(document.body.textContent, /3m 17s/);
+    assert.match(document.body.textContent, /2m 25s/);
     await render({ open: true, campaign: { ...campaign, id: 'beta', name: 'May briefing' } });
     assert.ok(document.querySelector('[aria-label="Loading campaign timings"]'));
     assert.doesNotMatch(document.body.textContent, /3m 17s/);
     await act(async () => resolveSecond({ ok: true, json: async () => payload('beta') }));
     await act(async () => new Promise(resolve => setTimeout(resolve, 25)));
     assert.match(document.body.textContent, /May briefing/);
-    assert.match(document.body.textContent, /3m 17s/);
+    assert.match(document.body.textContent, /2m 25s/);
   }, (url, options, count) => {
     if (count === 1) return { ok: false, json: async () => ({ error: 'Read temporarily unavailable' }) };
     if (url.includes('/beta?')) return new Promise(resolve => { resolveSecond = resolve; });
