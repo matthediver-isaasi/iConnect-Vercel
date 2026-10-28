@@ -487,7 +487,7 @@ export default function ChangeZoomDialog({
             <Button
               type="button"
               onClick={handleAttachOrChange}
-              disabled={submitting || !targetId || (isEvent && (checkingEvidence || !evidence?.live || (registerNew && !evidence.live.registration_required && !enableRegistration)))}
+               disabled={submitting || !targetId || (isEvent && (checkingEvidence || !evidence?.live || evidence.confirmedBookings == null || !!evidence.bookingError || (registerNew && !evidence.live.registration_required && !enableRegistration)))}
               data-testid="button-change-zoom-confirm"
             >
               {submitting

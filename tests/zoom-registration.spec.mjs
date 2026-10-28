@@ -1,4 +1,26 @@
 import { test, expect } from '@playwright/test';
+for (const live of [true, false]) test(`booking failure retains ${live ? 'live' : 'cached'} meeting evidence and blocks reconciliation`, async ({page}) => {
+  let posts=0;
+  await page.route('**/api/**', route => {
+    if(route.request().method()==='POST') posts++;
+    return route.fulfill({json:{
+      confirmedBookings:null, bookingError:'Confirmed booking lookup failed; no attendee actions were performed.',
+      cached:{topic:'Cached meeting',numericId:'123',registration_required:false},
+      live:live?{topic:'Live meeting',numericId:'123',registration_required:true}:null,
+      counts:null,
+    }});
+  });
+  await page.goto('/tests/fixtures/zoom-registration.html');
+  await page.getByText('Manage Zoom').click();
+  const panel=page.getByTestId('zoom-registration-evidence');
+  await expect(panel).toContainText(live?'Live meeting':'Cached meeting');
+  await expect(panel).toContainText(live?'verified live in Zoom':'cached, not verified');
+  await expect(panel).toContainText('Confirmed bookings: unavailable');
+  await expect(panel).toContainText('Registration counts unavailable');
+  await expect(panel).toContainText('Reconciliation is blocked');
+  await expect(page.getByTestId('button-change-zoom-confirm')).toBeDisabled();
+  expect(posts).toBe(0);
+});
 test('disabled registration requires explicit consent, retries pages without emails or cancellation, retains draft', async ({ page }) => {
   const posts = [];
   await page.route('**/api/**', route => {

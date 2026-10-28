@@ -10,7 +10,8 @@ export default function ZoomRegistrationEvidence({ evidence, loading, error }) {
     <p className="font-medium">{data.topic}</p>
     <p>Zoom ID: {data.numericId}</p>
     <p>{data.start_time ? new Date(data.start_time).toLocaleString(undefined, { timeZone: data.timezone || 'UTC' }) : 'Schedule unavailable'} ({data.timezone || 'UTC'})</p>
-    <p>Registration: {data.registration_required ? 'enabled' : 'disabled'} — {evidence.live ? 'verified live in Zoom' : 'cached, not verified'}</p>
+    <p>Registration: {data.registration_required == null ? 'unavailable' : data.registration_required ? 'enabled' : 'disabled'} — {evidence.live ? 'verified live in Zoom' : 'cached, not verified'}</p>
+    {evidence.bookingError && <p role="alert">Booking evidence unavailable: {evidence.bookingError} Reconciliation is blocked.</p>}
     {evidence.error && <p role="alert">{evidence.error}</p>}
     {evidence.live?.join_url && <div className="flex gap-3">
       <a href={evidence.live.join_url} target="_blank" rel="noopener noreferrer" className="underline">Open attendee join link</a>

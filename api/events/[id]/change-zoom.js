@@ -46,13 +46,16 @@ export default async function handler(req, res) {
     try {
       const { data: event, error } = await supabase.from('event').select('id,zoom_meeting_id,zoom_webinar_id').eq('id', id).eq('tenant_id', tenantId).single();
       if (error || !event) return res.status(404).json({ error: 'Event not found' });
-      const bookings = await confirmedZoomBookings(id, tenantId);
+      let bookings = null, bookingError = null;
+      try { bookings = await confirmedZoomBookings(id, tenantId); }
+      catch (error) { bookingError = error.message; }
       const meetingId = req.query.zoom_meeting_id || (!req.query.zoom_webinar_id && event.zoom_meeting_id);
       const webinarId = req.query.zoom_webinar_id || (!req.query.zoom_meeting_id && event.zoom_webinar_id);
       const record = await loadZoomRecord(meetingId ? 'zoom_meeting' : 'zoom_webinar', meetingId || webinarId, tenantId);
       if ((meetingId || webinarId) && !record) return res.status(404).json({ error: 'Zoom target not found' });
       return res.status(200).json({
-        confirmedBookings: bookings.length,
+        confirmedBookings: bookings?.length ?? null,
+        bookingError,
         current: { zoom_meeting_id: event.zoom_meeting_id, zoom_webinar_id: event.zoom_webinar_id },
         ...(record ? await zoomEvidence(tenantId, record, meetingId ? 'meetings' : 'webinars', bookings) : {}),
       });

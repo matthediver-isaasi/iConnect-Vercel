@@ -6,10 +6,17 @@ export async function confirmedZoomBookings(eventId, tenantId) {
   const rows = [];
   for (let offset = 0; ; offset += 500) {
     const { data, error } = await supabase.from('booking')
-      .select('id, attendee_email, attendee_first_name, attendee_last_name, status, event_id, tenant_id, total_cost, discount_amount, free_tickets')
+      .select('id, attendee_email, attendee_first_name, attendee_last_name, status, event_id, tenant_id, total_cost, booking_reference, ticket_price, ticket_class_name, ticket_class_id, member_id')
       .eq('event_id', eventId).eq('tenant_id', tenantId).eq('status', 'confirmed')
       .order('id').range(offset, offset + 499);
-    if (error || !data) throw new Error('Confirmed booking lookup failed; no attendee actions were performed.');
+    if (error || !Array.isArray(data)) {
+      // Never log raw database messages/details: they may contain row values.
+      const code = /^[A-Z0-9]{5,12}$/.test(error?.code || '') ? error.code : 'UNKNOWN';
+      console.error('[ZoomBookingLookup]', { code, table: 'booking', operation: 'confirmed-event-page', offset });
+      const failure = new Error('Confirmed booking lookup failed; no attendee actions were performed.');
+      failure.code = code;
+      throw failure;
+    }
     rows.push(...data);
     if (data.length < 500) return rows;
     if (rows.length >= 50000) throw new Error('Too many bookings for interactive reconciliation');
@@ -29,6 +36,7 @@ export async function zoomEvidence(tenantId, record, kind, bookings) {
     const authority = await zoomAuthority(tenantId, record, kind);
     let counts = null, registrationError = null;
     try {
+      if (!Array.isArray(bookings)) return { cached, live: authority.live, counts: null };
       const records = await listZoomRegistrations(authority.token, kind, authority.id);
       counts = { approved: 0, pending: 0, denied: 0, missing: 0, missingEmail: 0 };
       for (const b of bookings) {
