@@ -13,7 +13,8 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { parseISO, format } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link } from "react-router-dom";
+import { useEventFilterParams } from "@/hooks/useEventFilterParams";
 import { getFocalPointStyle } from "@/components/FocalPointPicker";
 import { computeComplexEventDayInfo } from "@/lib/complexEventDays";
 import TenantCtaButton from "@/components/common/TenantCtaButton";
@@ -186,7 +187,7 @@ export default function EventsPage({
   const isAdmin = !hookIsFeatureExcluded('events.browse-events.create');
   const queryClient = useQueryClient();
   const { eventTypes } = useEventTypes();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams, updateFilterParams] = useEventFilterParams();
   // Seed search + sort from the URL so filtered/sorted event views are shareable
   // and bookmarkable (category + type are already URL-backed via searchParams).
   const [searchQuery, setSearchQuery] = useState(() => searchParams.get("search") || "");
@@ -653,14 +654,6 @@ export default function EventsPage({
   // Uses { replace: true } so adjusting filters doesn't flood browser history;
   // genuine navigation (shared links, back/forward) still restores state because
   // the values above are derived directly from `searchParams`.
-  const updateFilterParams = useCallback((mutate) => {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      mutate(next);
-      return next;
-    }, { replace: true });
-  }, [setSearchParams]);
-
   const setSelectedEventType = useCallback((type) => {
     updateFilterParams((next) => {
       if (!type || type === "all") {
