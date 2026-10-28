@@ -58,6 +58,14 @@ for (const registration_required of [false, true]) {
 }
 
 for (const value of [null, 'false', 'true', '', 0, 1, [], {}]) {
+  test(`rejects invalid registration_required ${JSON.stringify(value)} without side effects`, async()=>{
+    const result=await create({registration_required:value});
+    assert.equal(result.res.code,400);
+    assert.equal(result.res.body.error,'registration_required must be a boolean');
+    assert.equal(result.tokenCalls,0);
+    assert.equal(result.calls.length,0);
+    assert.equal(result.inserts.length,0);
+  });
   test(`rejects invalid participant_video ${JSON.stringify(value)} before provider or database writes`, async () => {
     const result = await create({ participant_video: value });
     assert.equal(result.res.code, 400);

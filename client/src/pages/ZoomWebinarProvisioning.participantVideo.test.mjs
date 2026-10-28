@@ -21,6 +21,7 @@ const reset = source.match(/const resetMeetingForm = \(\) => \{[\s\S]*?\n  \};/)
 const submit = source.match(/const handleMeetingCreate = \(\) => \{[\s\S]*?\n  \};/)[0];
 const control = source.match(/<div className="space-y-2">\s*<div className="flex items-center justify-between gap-4">\s*<Label htmlFor="meeting-participant-video">[\s\S]*?<\/p>\s*<\/div>/)[0];
 const close = source.match(/<Dialog open=\{showMeetingCreateDialog\} onOpenChange=\{([\s\S]*?)\}>/)[1];
+const registration = source.match(/<div className="flex items-center justify-between gap-4 p-4 bg-slate-50 rounded-lg">[\s\S]*?data-testid="switch-meeting-registration"[\s\S]*?<\/div>/)[0];
 const bundle = await build({
   stdin: { contents: `
     import React, {useState} from 'react';
@@ -34,7 +35,7 @@ const bundle = await build({
       const toast = {error: message => {throw new Error(message)}};
       ${submit}
       return <><button onClick={() => {resetMeetingForm(); setShowMeetingCreateDialog(true)}}>Open</button>
-        {showMeetingCreateDialog && <>${control}
+        {showMeetingCreateDialog && <>${control}${registration}
           <button onClick={() => setMeetingFormData(prev => ({...prev, topic:'Fixture', host_id:'host', start_date:'2030-01-02', start_time:'12:00'}))}>Fill</button>
           <button onClick={handleMeetingCreate}>Submit</button>
           <button onClick={() => {setShowMeetingCreateDialog(false); resetMeetingForm()}}>Cancel</button>
@@ -65,6 +66,12 @@ test('creation control defaults On, submits both booleans and resets after cance
   await click('Fill');
   await click('Submit');
   assert.equal(sent.at(-1).participant_video, true);
+  const registrationToggle = () => container.querySelector('#meeting-registration');
+  assert.equal(registrationToggle().getAttribute('aria-checked'),'false');
+  assert.equal(sent.at(-1).registration_required,false);
+  await act(async()=>registrationToggle().click());
+  await click('Submit');
+  assert.equal(sent.at(-1).registration_required,true);
   await act(async () => toggle().click());
   await click('Submit');
   assert.equal(sent.at(-1).participant_video, false);
@@ -72,6 +79,8 @@ test('creation control defaults On, submits both booleans and resets after cance
     await click(action);
     await click('Open');
     assert.equal(toggle().getAttribute('aria-checked'), 'true');
+    assert.equal(registrationToggle().getAttribute('aria-checked'),'false');
+    await act(async()=>registrationToggle().click());
     await act(async () => toggle().click());
   }
   await click('Open');

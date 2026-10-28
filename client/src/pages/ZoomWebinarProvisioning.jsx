@@ -616,6 +616,7 @@ export default function ZoomWebinarProvisioning() {
       duration_minutes: meetingFormData.duration_minutes,
       timezone: meetingFormData.timezone,
       participant_video: meetingFormData.participant_video,
+      registration_required: meetingFormData.registration_required,
       host_id: meetingFormData.host_id || undefined
     });
   };
@@ -2326,6 +2327,22 @@ export default function ZoomWebinarProvisioning() {
               <p id="meeting-participant-video-help" className="text-sm text-muted-foreground">
                 Off starts participants with video off. They can still enable their video later.
               </p>
+            </div>
+
+            <div className="flex items-center justify-between gap-4 p-4 bg-slate-50 rounded-lg">
+              <div>
+                <Label htmlFor="meeting-registration">Require Registration</Label>
+                <p id="meeting-registration-help" className="text-sm text-slate-500">
+                  Attendees must register with Zoom before joining. Registrations are approved automatically.
+                </p>
+              </div>
+              <Switch
+                id="meeting-registration"
+                aria-describedby="meeting-registration-help"
+                checked={meetingFormData.registration_required}
+                onCheckedChange={(checked) => setMeetingFormData(prev => ({ ...prev, registration_required: checked }))}
+                data-testid="switch-meeting-registration"
+              />
             </div>
 
             {zoomUsers.length > 0 && (

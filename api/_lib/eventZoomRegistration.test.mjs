@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 const source = readFileSync(new URL('./eventZoomRegistration.js', import.meta.url), 'utf8')
   .replace(/import[\s\S]*?from\s+['"][^'"]+['"];?/g, '')
   .replaceAll('export async function', 'async function');
-function helper({ failPage = -1 } = {}) {
+function helper({ failPage = -1, registrationRequired = true, liveError = false } = {}) {
   const calls = [], logs = [];
   const db = { from(table) {
     const call = { table, filters: [] }; calls.push(call);
@@ -25,7 +25,7 @@ function helper({ failPage = -1 } = {}) {
   const fns = new Function('supabase', 'console', 'getZoomAccessTokenForTenant', 'readZoomRegistration', 'listZoomRegistrations',
     source + '; return {confirmedZoomBookings, zoomEvidence};')(
       db, {error: (...args) => logs.push(args)}, async()=> 'token',
-      async()=>({topic:'Live meeting',numericId:'123',registration_required:true}),
+      async()=>{if(liveError)throw Error('Live unavailable');return {topic:'Live meeting',numericId:'123',registration_required:registrationRequired};},
       async()=> { throw Error('Registrant lookup must not run without bookings'); });
   return {...fns, calls, logs};
 }
@@ -39,6 +39,19 @@ test('real projection preserves email fields, tenant/event/status scopes and sta
     assert.doesNotMatch(c.columns,/discount_amount|free_tickets/);
     for(const field of ['member_id','booking_reference','ticket_price','ticket_class_name','ticket_class_id','total_cost']) assert.ok(c.columns.split(', ').includes(field));
   }
+});
+test('live disabled registration skips registrant requests, without inventing zero counts', async()=>{
+  const h=helper({registrationRequired:false});
+  const e=await h.zoomEvidence('tenant',{zoom_meeting_id:'123',registration_required:true},'meetings',[]);
+  assert.equal(e.counts,null);
+  assert.equal(e.registrationError,null);
+  assert.equal(e.live.registration_required,false);
+});
+test('cached disabled registration never masks unavailable live evidence', async()=>{
+  const h=helper({liveError:true});
+  const e=await h.zoomEvidence('tenant',{zoom_meeting_id:'123',registration_required:false},'meetings',[]);
+  assert.equal(e.live,null);
+  assert.match(e.error,/Live unavailable/);
 });
 test('later-page failure discards partial results and logs only safe context', async()=>{
   const h=helper({failPage:1});

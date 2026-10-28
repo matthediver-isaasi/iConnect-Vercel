@@ -75,6 +75,9 @@ export default async function handler(req, res) {
       if (typeof participant_video !== 'boolean') {
         return res.status(400).json({ error: 'participant_video must be a boolean' });
       }
+      if (typeof registration_required !== 'boolean') {
+        return res.status(400).json({ error: 'registration_required must be a boolean' });
+      }
       
       if (!topic || !start_time) {
         return res.status(400).json({ error: 'topic and start_time are required' });

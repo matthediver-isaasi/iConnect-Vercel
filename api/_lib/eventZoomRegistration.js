@@ -34,6 +34,9 @@ export async function zoomEvidence(tenantId, record, kind, bookings) {
   const cached = { topic: record.topic, numericId: String(record[kind === 'meetings' ? 'zoom_meeting_id' : 'zoom_webinar_id']), start_time: record.start_time, timezone: record.timezone, registration_required: record.registration_required };
   try {
     const authority = await zoomAuthority(tenantId, record, kind);
+    if (authority.live.registration_required === false) {
+      return { cached, live: authority.live, counts: null, registrationError: null };
+    }
     let counts = null, registrationError = null;
     try {
       if (!Array.isArray(bookings)) return { cached, live: authority.live, counts: null };

@@ -22,6 +22,8 @@ export default function ZoomRegistrationEvidence({ evidence, loading, error }) {
     </div>}
     <p>Confirmed bookings: {evidence.confirmedBookings ?? 'unavailable'}</p>
     {evidence.counts ? <p>Approved: {evidence.counts.approved}; pending: {evidence.counts.pending}; denied: {evidence.counts.denied}; missing: {evidence.counts.missing}; missing email: {evidence.counts.missingEmail}.</p>
-      : <p>Registration counts unavailable. {evidence.registrationError}</p>}
+      : evidence.live?.registration_required === false
+        ? <p>Zoom registration is not enabled. Registration counts are not applicable.</p>
+        : <p>Registration counts unavailable. {evidence.registrationError}</p>}
   </div>;
 }
