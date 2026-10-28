@@ -12,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Input } from "@/components/ui/input";
 import CampaignDeliverySummary from "./communications/CampaignDeliverySummary";
 import CampaignTimingDialog from "./CampaignTimingDialog";
-import { campaignRecipientLabel, isExcludedCampaignRecipient } from "../../../shared/campaignDeliverySummary.js";
+import { campaignRecipientLabel, isExcludedCampaignRecipient, campaignDisplayStatus } from "../../../shared/campaignDeliverySummary.js";
 import { Label } from "@/components/ui/label";
 import { 
   Mail, Plus, Pencil, Trash2, Send, Eye, BarChart3, Copy,
@@ -1044,6 +1044,8 @@ export default function EmailCampaigns() {
       scheduled: { label: 'Scheduled', variant: 'outline', className: 'border-blue-500 text-blue-600' },
       preparing: { label: 'Preparing', variant: 'outline', className: 'border-warning/50 text-warning' },
       sending: { label: 'Sending', variant: 'outline', className: 'border-warning/50 text-warning' },
+      needs_attention: { label: 'Needs attention', variant: 'destructive' },
+      completed_with_failures: { label: 'Completed with failures', variant: 'outline', className: 'border-warning/50 text-warning' },
       paused: { label: 'Paused', variant: 'outline', className: 'border-slate-400 text-slate-600' },
       sent: { label: 'Sent', variant: 'outline', className: 'border-green-500 text-green-600' },
       failed: { label: 'Failed', variant: 'destructive' },
@@ -1286,7 +1288,7 @@ export default function EmailCampaigns() {
                         <TableCell>
                           <div className="flex flex-col gap-1">
                             <div className="flex items-center gap-1 flex-wrap">
-                              {getStatusBadge(campaign.status)}
+                              {getStatusBadge(campaignDisplayStatus(campaign))}
                               <Button
                                 type="button"
                                 variant="ghost"

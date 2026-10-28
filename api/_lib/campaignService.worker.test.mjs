@@ -77,6 +77,25 @@ function install(t, size) {
     email: `attendee-${index}@example.test`, delivery_is_test: null,
   }));
   const originalFrom = supabase.from;
+  const originalRpc = supabase.rpc;
+  supabase.rpc = async (name, args) => {
+    if (name === 'campaign_claim_batch_recipient') {
+      const row = rows.find(r => r.id === args.p_recipient_id && r.status === 'pending');
+      if (!row) return { data: null, error: null };
+      row.status = 'processing';
+      return { data: { ...row, _claim_token: `claim-${row.id}` }, error: null };
+    }
+    if (name === 'campaign_transition_batch_claims') {
+      for (const token of args.p_tokens) {
+        const row = rows.find(r => `claim-${r.id}` === token);
+        assert.ok(row);
+        if (args.p_action === 'release') row.status = 'pending';
+      }
+      return { data: args.p_tokens.length, error: null };
+    }
+    throw new Error(`Unexpected journal RPC: ${name}`);
+  };
+  t.after(() => { supabase.rpc = originalRpc; });
   supabase.from = table => {
     let action = 'select', value, fields, countRequested = false, head = false;
     const filters = [];

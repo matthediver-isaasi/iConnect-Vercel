@@ -1,5 +1,7 @@
 import { supabase } from '../_lib/database.js';
-import { syncCampaignEvents } from '../_lib/mailgunEventSync.js';
+import { syncCampaignEvents, fetchMailgunEvents } from '../_lib/mailgunEventSync.js';
+import { recoverCampaignAcceptance } from '../_lib/campaignAcceptanceRecovery.js';
+import { finalizeCampaignDelivery } from '../_lib/campaignClaimJournal.js';
 
 const OVERALL_BUDGET_MS = 55_000;
 const MIN_USEFUL_BUDGET_MS = 12_000;
@@ -27,7 +29,7 @@ export default async function handler(req, res) {
     const { data: campaigns, error: campaignsError } = await supabase
       .from('email_campaign')
       .select('id, tenant_id, from_email, status, sent_at')
-      .in('status', ['sent', 'paused'])
+      .in('status', ['sent', 'paused', 'sending'])
       .gte('sent_at', thirtyDaysAgo)
       .order('sent_at', { ascending: false });
 
@@ -60,6 +62,9 @@ export default async function handler(req, res) {
       if (domain) tenantDomains.set(t.id, domain);
     }
 
+    // Reconcile unresolved transport outcomes before spending the budget on
+    // engagement history for already-completed campaigns.
+    campaigns.sort((a,b) => Number(b.status==='sending')-Number(a.status==='sending'));
     const results = [];
     let campaignsSynced = 0;
     let totalProcessed = 0;
@@ -67,7 +72,27 @@ export default async function handler(req, res) {
     let totalErrors = 0;
 
     for (let idx = 0; idx < campaigns.length; idx++) {
+      if (Date.now()+6000>=startTime+OVERALL_BUDGET_MS) break;
       const campaign = campaigns[idx];
+      if (['sending','paused'].includes(campaign.status)) {
+        const domain=tenantDomains.get(campaign.tenant_id);
+        if (domain) {
+          try {
+            const recovered=await recoverCampaignAcceptance(supabase,campaign,domain,fetchMailgunEvents,
+              Math.min(startTime+OVERALL_BUDGET_MS-2000,Date.now()+12000));
+            if (recovered && campaign.status==='sending') {
+              await finalizeCampaignDelivery(supabase,campaign.id,campaign.tenant_id);
+            }
+          } catch(error) {
+            totalErrors++;
+            console.error('[Campaign acceptance recovery] Failed:',campaign.id,error.message);
+          }
+        }
+      }
+      // The general engagement synchronizer persists whole recipient snapshots.
+      // Do not race it against active send-result writes; the acceptance-only
+      // path above uses a processing CAS and never regresses engagement history.
+      if (campaign.status==='sending') continue;
       const elapsed = Date.now() - startTime;
       const remaining = OVERALL_BUDGET_MS - elapsed;
 

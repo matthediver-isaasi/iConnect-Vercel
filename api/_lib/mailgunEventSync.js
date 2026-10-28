@@ -17,6 +17,7 @@ export async function fetchMailgunEvents(domain, params) {
   }
   const response = await fetch(url.toString(), {
     method: 'GET',
+    signal: AbortSignal.timeout(5000),
     headers: { 'Authorization': authHeader }
   });
   if (!response.ok) {

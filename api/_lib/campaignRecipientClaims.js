@@ -2,7 +2,7 @@
 // its own pending -> processing CAS and the caller's fresh send-time gates.
 // A worker crash therefore leaves unread candidates pending, not stranded.
 export function createCampaignRecipientClaimer(db, campaignId, {
-  pageSize = 50, deadline, now = Date.now,
+  pageSize = 50, deadline, now = Date.now, journal = false,
 } = {}) {
   const parsed = Number(pageSize);
   const size = Number.isFinite(parsed) ? Math.max(1, Math.min(100, Math.floor(parsed))) : 50;
@@ -35,6 +35,15 @@ export function createCampaignRecipientClaimer(db, campaignId, {
       const id = await takeCandidate();
       if (id == null || expired()) return [];
       metrics.claimWrites++;
+      if (journal && typeof db.rpc === 'function') {
+        const { data, error } = await db.rpc('campaign_claim_batch_recipient', {
+          p_campaign_id: campaignId, p_recipient_id: id,
+        });
+        if (error) throw error;
+        if (data) return [data];
+        metrics.claimCollisions++;
+        continue;
+      }
       const { data, error } = await db.from('email_campaign_recipient')
         .update({ status: 'processing' }).eq('campaign_id', campaignId)
         .eq('id', id).eq('status', 'pending').select();

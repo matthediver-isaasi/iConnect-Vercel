@@ -30,3 +30,15 @@ The apparent hour-long send delay was a reporting/reconciliation delay.
 **How to apply:** Require complete audience evidence before recovering a transport
 completion timestamp. Preserve original records and the later repair time in an
 audit. Do not remove real gaps from elapsed times or equate acceptance with delivery.
+
+Legacy processing rows without submission-stage evidence must remain uncertain
+even when a Mailgun search returns no acceptance. Display needs-attention instead
+of pretending the campaign completed; preserve the interruption in its timings.
+
+**Why:** The owner approved safe recovery and truthful campaign statuses after a
+newsletter stopped with unresolved recipients. Negative provider search results
+do not prove that a timed-out request never reached the provider.
+
+**How to apply:** Automatically retry only fenced, demonstrably unsubmitted
+claims. Reconcile uncertain submissions from exact positive provider evidence;
+do not extend this authority to blind resends or hide the historical gap.

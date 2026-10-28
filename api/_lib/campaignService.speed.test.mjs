@@ -6,6 +6,9 @@ import { readFile } from 'node:fs/promises';
 import { replacePlaceholders } from './emailService.js';
 import { sanitizeSlotHtml, htmlSlotToPlainText } from './slotHtmlSanitizer.js';
 import { campaignSendConcurrency } from './campaignDrain.js';
+import { transitionCampaignClaims, recoverUnsubmittedCampaignClaims } from './campaignClaimJournal.js';
+import { activeWaitingEmails } from './eventWaitingAudience.js';
+import { jobCategoryCampaignMembers } from './jobAlerts.js';
 
 // Execute the real recipient implementation with explicit in-memory boundaries.
 // The isolated runner additionally denies all network/DB/provider access.
@@ -47,8 +50,11 @@ function fixture({ providerResult = { success: true, messageId: '<accepted>' }, 
     return query;
   } };
   const functions = vm.runInNewContext(`${source};({sendToRecipient, prepareCampaignBatchRender, campaignNeedsRecipientOrganization})`, {
+    transitionCampaignClaims,
+    activeWaitingEmails,
+    jobCategoryCampaignMembers,
     process: { env: {} }, crypto, Buffer, supabase: db,
-    console: { log() {}, warn() {}, error() {} },
+    console: { log() {}, warn() {}, error(...args) { if (process.env.DEBUG_CAMPAIGN_TESTS) console.error(...args); } },
     campaignAddressSuppressed: async () => false,
     prepareCampaignSurveyDelivery: async () => null,
     finishCampaignSurveyDelivery: async () => {},
@@ -228,6 +234,7 @@ test('worker invocation stops at first rate-limited campaign instead of admittin
     };
     ({processSendingCampaigns});`, {
     process: { env: {} }, crypto, Buffer, supabase: db, campaigns, batchCalls, batchCaps, campaignSendConcurrency,
+    recoverUnsubmittedCampaignClaims: async () => 0,
     console: { log() {}, warn() {}, error() {} },
     resolveCampaignEventSurvey: async () => null,
   });

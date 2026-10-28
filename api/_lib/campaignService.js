@@ -15,6 +15,7 @@ import { discoverAudienceCustomObjects, resolveCustomObjectConditions, validateC
 import { sendEmail, replacePlaceholders, sendPreparedCampaignBatch } from './emailService.js';
 import { BULK_TRANSPORT, bulkCampaignCompatible, newCampaignTransport } from './campaignBulkTransport.js';
 import { finishPreparedCampaignBatch } from './campaignBulkDrain.js';
+import { transitionCampaignClaims, recoverUnsubmittedCampaignClaims, finalizeCampaignDelivery } from './campaignClaimJournal.js';
 import { persistCampaignDeliveryProvenance, verifyCampaignDeliveryProvenance } from './campaignDeliveryProvenance.js';
 import { bulkRecipientEligibility } from './campaignBulkEligibility.js';
 import { jobCategoryCampaignMembers } from './jobAlerts.js';
@@ -3152,28 +3153,32 @@ export async function processSendingCampaigns(options = {}) {
         results.push({ campaignId: sc.id, error: error.message });
         continue;
       }
-      const { count: pendingCount } = await supabase
+      await recoverUnsubmittedCampaignClaims(supabase, sc.id);
+      const { count: pendingCount, error: pendingReadError } = await supabase
         .from('email_campaign_recipient')
         .select('*', { count: 'exact', head: true })
         .eq('campaign_id', sc.id)
         .eq('status', 'pending');
 
-      const { count: processingCount } = await supabase
+      if (pendingReadError) throw pendingReadError;
+      const { count: processingCount, error: processingReadError } = await supabase
         .from('email_campaign_recipient')
         .select('*', { count: 'exact', head: true })
         .eq('campaign_id', sc.id)
         .eq('status', 'processing');
 
+      if (processingReadError) throw processingReadError;
       if ((!pendingCount || pendingCount === 0) && (!processingCount || processingCount === 0)) {
         // Race-condition guard: refuse to mark sent if NO recipient rows
         // exist at all for this campaign id. That state means another
         // worker (or sendCampaign itself) is still in the middle of
         // inserting recipients — completing here would orphan all of them.
-        const { count: anyRowCount } = await supabase
+        const { count: anyRowCount, error: totalReadError } = await supabase
           .from('email_campaign_recipient')
           .select('*', { count: 'exact', head: true })
           .eq('campaign_id', sc.id);
 
+        if (totalReadError) throw totalReadError;
         if (!shouldMarkCampaignSent({
           pendingCount: pendingCount || 0,
           processingCount: processingCount || 0,
@@ -3185,13 +3190,8 @@ export async function processSendingCampaigns(options = {}) {
         }
 
         const outcome = await getCampaignSendOutcome(sc.id, 'sending');
-        const { data: completedRows } = await supabase.from('email_campaign').update({
-          status: outcome.status,
-          completed_at: new Date().toISOString(),
-          sent_count: outcome.sent
-        }).eq('id', sc.id).eq('tenant_id', sc.tenant_id).eq('status', 'sending').select('id');
-
-        if (!completedRows?.length) {
+        const completion = await finalizeCampaignDelivery(supabase, sc.id, sc.tenant_id);
+        if (!completion.complete) {
           const freshCampaign = await getCampaign(sc.id, sc.tenant_id);
           results.push({ campaignId: sc.id, name: sc.name, ...outcome, status: freshCampaign.campaign?.status || 'changed', remaining: 0 });
           continue;
@@ -3267,11 +3267,11 @@ export async function processSendingCampaigns(options = {}) {
           results.push({ campaignId: sc.id, name: sc.name, ...batchResult, status: freshCampaign.campaign.status });
           continue;
         }
-        await supabase.from('email_campaign').update({
-          status: batchResult.status,
-          completed_at: new Date().toISOString(),
-          sent_count: batchResult.sent
-        }).eq('id', sc.id).eq('tenant_id', sc.tenant_id).eq('status', 'sending');
+        const completion = await finalizeCampaignDelivery(supabase, sc.id, sc.tenant_id);
+        if (!completion.complete) {
+          results.push({ campaignId: sc.id, status: completion.status, reason: 'completion_recheck' });
+          continue;
+        }
         console.log(`[Campaign Service] Campaign ${sc.id} (${sc.name}) completed with status '${batchResult.status}'`);
       }
 
@@ -3899,6 +3899,7 @@ export async function sendToRecipient(recipient, campaign, tenantId, tenantSlug,
       testMode: testDestination ? false : campaignRecipientTestMode(recipient, campaign)
     }, options.prepareOnly ? { prepareOnly: true } : testDestination ? {} : {
       beforeSubmit: async messageData => {
+        await transitionCampaignClaims(supabase, [recipient], 'submit');
         await persistCampaignDeliveryProvenance(supabase, campaign.id, [{ recipient }], messageData);
         providerSubmitted = true;
       },
@@ -4242,6 +4243,10 @@ async function checkCampaignBatchGate(campaignId, tenantId, campaign, preparing 
 
 async function releaseClaimedRecipients(claimedRecipients, status = 'pending', reason = null) {
   if (!claimedRecipients.length) return;
+  if (status === 'pending' && claimedRecipients.some(r => r._claim_token)) {
+    await transitionCampaignClaims(supabase, claimedRecipients, 'release');
+    return;
+  }
   const { error } = await supabase
     .from('email_campaign_recipient')
     .update({ status, ...(reason ? { error_message: reason } : {}) })
@@ -4276,6 +4281,7 @@ export async function sendBatch(campaignId, tenantId, campaign, tenantSlug, requ
   const prepared = [];
   const setupMs = Math.max(0, Date.now() - batchStartedAt);
   const recipientClaimer = createCampaignRecipientClaimer(supabase, campaignId, {
+    journal: useBulk,
     pageSize: options.claimPageSize ?? process.env.CAMPAIGN_CLAIM_PAGE_SIZE ?? 50,
     deadline: options.deadline,
     now: options.now || Date.now,
@@ -4340,7 +4346,10 @@ export async function sendBatch(campaignId, tenantId, campaign, tenantSlug, requ
           },
           release,
           submit: entries => (options.submitBulk || sendPreparedCampaignBatch)(campaignId, entries.map(e => e.prepared), options.deadline, {
-            beforeSubmit: messageData => persistCampaignDeliveryProvenance(supabase, campaignId, entries, messageData),
+            beforeSubmit: async messageData => {
+              await persistCampaignDeliveryProvenance(supabase, campaignId, entries, messageData);
+              await transitionCampaignClaims(supabase, entries.map(e => e.recipient), 'submit');
+            },
           }),
           persist: async (entries, values) => {
             const { error } = await supabase.from('email_campaign_recipient').update(values)

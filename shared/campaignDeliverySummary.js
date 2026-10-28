@@ -17,6 +17,13 @@ export function campaignRecipientLabel(row) {
 
 export const RECONCILIATION_GUIDANCE = 'Check the recipient list and provider delivery logs with an administrator. Reconcile existing message evidence before any resend; do not resume, duplicate or retry these recipients to resolve uncertainty.';
 
+export function campaignDisplayStatus(campaign) {
+  const summary = campaign.delivery_summary;
+  if (campaign.status === 'sending' && summary?.reconciliationAlert) return 'needs_attention';
+  if (campaign.status === 'sent' && summary?.failed > 0) return 'completed_with_failures';
+  return campaign.status;
+}
+
 // Legacy recipients have no claim timestamp. This is explicitly a campaign-age
 // warning, NOT a claim that every processing row has been idle for 30 minutes.
 export function campaignReconciliationAlert(campaign, processing, now = Date.now()) {
