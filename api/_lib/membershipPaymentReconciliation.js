@@ -727,6 +727,9 @@ export async function fireWorkflowForPaidRow(
   const trigger = deps.trigger || triggerWorkflows;
 
   const isOrg = table === ORG_TABLE;
+  if (!isOrg && ['cancelled_by_request', 'replaced'].includes(row.status)) {
+    return { fired: false, skippedReason: 'retired-membership-purchase' };
+  }
   const entityType = isOrg ? 'organization' : 'member';
   const entityId = isOrg ? row.organization_id : row.member_id;
   if (!entityId) {
@@ -751,6 +754,9 @@ export async function fireWorkflowForPaidRow(
     }
     console.warn(`[membershipPaymentReconciliation] entity ${entityType}#${entityId} not found; skipping workflow trigger`);
     return { fired: false, skippedReason: 'entity-not-found' };
+  }
+  if (!isOrg && entity.membership_cancelled === true) {
+    return { fired: false, skippedReason: 'membership-cancelled' };
   }
 
   const invoiceNumber = row.accounting_invoice_number || row.xero_invoice_number || null;

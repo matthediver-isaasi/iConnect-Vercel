@@ -98,16 +98,20 @@ export async function applyStatusTransition(
   if (!table) throw new Error(`Unknown entityType: ${entityType}`);
   if (!entityId) throw new Error('entityId is required');
   if (!ALL_STATUSES.includes(toStatus)) throw new Error(`Unknown status: ${toStatus}`);
+  const activation = entityType === 'payment_plan' && toStatus === STATUS.ACTIVE;
 
   const { data: row, error: rowErr } = await db
     .from(table)
-    .select('id, tenant_id, status')
+    .select(activation ? 'id, tenant_id, status, collection_stopped_at' : 'id, tenant_id, status')
     .eq('id', entityId)
     .maybeSingle();
   if (rowErr) throw new Error(`Failed to load ${table}#${entityId}: ${rowErr.message}`);
   if (!row) return { applied: false, fromStatus: null, toStatus, skippedReason: 'row-not-found' };
 
   const fromStatus = row.status || null;
+  if (activation && row.collection_stopped_at) {
+    return { applied: false, fromStatus, toStatus, skippedReason: 'collections-stopped' };
+  }
   if (fromStatus === toStatus) {
     return { applied: false, fromStatus, toStatus, skippedReason: 'no-change' };
   }
@@ -122,6 +126,9 @@ export async function applyStatusTransition(
   updateQuery = fromStatus === null
     ? updateQuery.is('status', null)
     : updateQuery.eq('status', fromStatus);
+  // Cancellation may stop collections without changing the status. Fence that
+  // independent state in the write, not just in the preceding read.
+  if (activation) updateQuery = updateQuery.is('collection_stopped_at', null);
   const { data: updated, error: upErr } = await updateQuery.select('id');
   if (upErr) throw new Error(`Failed to update ${table}#${entityId}: ${upErr.message}`);
   if (!updated || updated.length === 0) {

@@ -719,6 +719,9 @@ export async function activateMembershipForCardAgreement(agreement, { trigger, d
     .maybeSingle();
   if (error) throw new Error(`load membership history for agreement failed: ${error.message}`);
   if (!row) return { updated: false, detail: 'no membership history row linked to agreement' };
+  if (['cancelled_by_request', 'replaced'].includes(row.status)) {
+    return { updated: false, activated: false, detail: 'Retired membership purchase; payment cannot restore access' };
+  }
   if (row.payment_status === 'unverified') return { updated: false, detail: 'Payment unverified; activation withheld' };
   if (row.status === 'active') return { updated: false, detail: 'membership already active' };
 
@@ -731,12 +734,15 @@ export async function activateMembershipForCardAgreement(agreement, { trigger, d
   if (!nextStatus || nextStatus === row.status) {
     return { updated: false, detail: `no status change for trigger=${trigger} rule=${snapshot.activation_rule}` };
   }
-  const { error: upErr } = await db
+  const { data: activatedRow, error: upErr } = await db
     .from(table)
     .update(schedule)
     .eq('id', row.id)
-    .eq('status', row.status);
+    .eq('status', row.status)
+    .select('id')
+    .maybeSingle();
   if (upErr) throw new Error(`update membership history failed: ${upErr.message}`);
+  if (!activatedRow) return { updated: false, activated: false, detail: 'Membership changed during activation; access was not restored' };
   return { updated: true, activated: nextStatus === 'active', detail: `membership history -> ${nextStatus} (trigger=${trigger})` };
 }
 
@@ -745,11 +751,12 @@ export async function recordCardPaymentProgress(agreement, { db: dbArg } = {}) {
   const db = dbArg || supabase;
   const table = membershipHistoryTableForAgreement(agreement);
   if (!table) return { updated: false };
-  const { data: row } = await db
+  const { data: row, error: readError } = await db
     .from(table)
     .select('id, payment_status')
     .eq('billing_agreement_id', agreement.id)
     .maybeSingle();
+  if (readError) throw new Error(`load membership payment progress failed: ${readError.message}`);
   if (!row || row.payment_status === 'unverified' || row.payment_status === 'paid' || row.payment_status === 'partial') {
     return { updated: false };
   }
@@ -915,8 +922,9 @@ export async function settleCardPlanCompletion({ plan, agreement, stripe = null,
       }
       workflowClaim.plan = delivery.plan || workflowClaim.plan;
       if (delivery.shouldDispatch) {
+        let workflowResult;
         try {
-          await fireWorkflowForPaidRow({
+          workflowResult = await fireWorkflowForPaidRow({
             table: historyTable,
             row: rowForWorkflow,
             snapshot: { payment_status: 'unpaid' },
@@ -938,7 +946,7 @@ export async function settleCardPlanCompletion({ plan, agreement, stripe = null,
           }
           throw err;
         }
-        workflowFired = true;
+        workflowFired = workflowResult?.fired === true;
         workflowClaim.plan = await completeCompletionWorkflowDelivery({
           db,
           plan: workflowClaim.plan,

@@ -1,5 +1,40 @@
 # Self-service membership changes: implementation boundary
 
+## Late-payment and pending-cancellation safeguards
+
+The shared Stripe and Direct Debit activation paths now refuse retired purchases
+and require a successful compare-and-swap before reporting restored access.
+Collection-stop state also fences payment-plan activation, including a stop
+committed between the read and write. Payment-progress recording remains available;
+Stripe payment-progress read failures now propagate rather than being treated as
+missing records. Membership-paid workflows skip known retired purchases and
+members whose cancellation flag remains set.
+
+Arrears-role restoration checks the source purchase inside the member-row lock.
+It does not restore an old purchase's role after cancellation or replacement,
+including where a separate new membership has subsequently restored access.
+The preservation outcome is allowed by the existing outcome CHECK constraint.
+
+Pending cancellation and competing purchases now serialize on the member:
+new personal history, quotes, agreements and competing amendment authorities are
+blocked while the cancellation is pending. Admission refuses another unresolved
+purchase/payment arrangement and sources with existing amendment authority.
+Routine receipt/status enrichment and organisational quotes remain unaffected.
+This is a safety boundary, not a newly enabled public cancellation journey.
+
+Migrations `202612310056`–`202612310058` were applied to live DEST
+(`lvmzliemqnieeoruhkik`) after isolated native tests and rollback rehearsals.
+Verification checked 14 protected tables, 24 function contracts, the role-outcome
+constraint and all six new trigger attachments. SOURCE was not changed.
+The broad payment regression suite passed 628 tests; the subsequent native
+purchase/cancellation concurrency test passed separately.
+
+The whole feature remains incomplete: automatic policy execution, the complete
+cancellation journey/recovery wiring, monthly cancellation financial evidence,
+original voucher/organisation funding returns and handling unresolved provider
+collections still require completion. These safeguards do not authorize those
+unfinished paths to run.
+
 ## Member requests and administrator review
 
 The protected FormBuilder opt-in now exposes `/MembershipChange?formId=…`.

@@ -712,6 +712,7 @@ function fakeDb(resolver) {
         select() { return chain; },
         eq() { return chain; },
         neq() { return chain; },
+        is() { return chain; },
         update() { return chain; },
         insert() { return chain; },
         maybeSingle() { return Promise.resolve(resolver(table)); },

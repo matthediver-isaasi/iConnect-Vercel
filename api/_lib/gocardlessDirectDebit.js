@@ -749,6 +749,9 @@ export async function activateMembershipForAgreement(agreement, { trigger, db: d
     .maybeSingle();
   if (error) throw new Error(`load membership history for agreement failed: ${error.message}`);
   if (!row) return { updated: false, detail: 'no membership history row linked to agreement' };
+  if (['cancelled_by_request', 'replaced'].includes(row.status)) {
+    return { updated: false, activated: false, detail: 'Retired membership purchase; payment cannot restore access' };
+  }
   if (row.payment_status === 'unverified') return { updated: false, detail: 'Payment unverified; activation withheld' };
   if (row.status === 'active') return { updated: false, detail: 'membership already active' };
 
@@ -759,12 +762,15 @@ export async function activateMembershipForAgreement(agreement, { trigger, db: d
     return { updated: false, detail: `no status change for trigger=${trigger} rule=${snapshot.activation_rule}` };
   }
 
-  const { error: upErr } = await db
+  const { data: activatedRow, error: upErr } = await db
     .from(table)
     .update(schedule)
     .eq('id', row.id)
-    .eq('status', row.status);
+    .eq('status', row.status)
+    .select('id')
+    .maybeSingle();
   if (upErr) throw new Error(`update membership history failed: ${upErr.message}`);
+  if (!activatedRow) return { updated: false, activated: false, detail: 'Membership changed during activation; access was not restored' };
   return { updated: true, activated: nextStatus === 'active', detail: `membership history -> ${nextStatus} (trigger=${trigger})` };
 }
 

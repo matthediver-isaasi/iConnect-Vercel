@@ -7,6 +7,21 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { fireWorkflowForPaidRow } from './membershipPaymentReconciliation.js';
 
+test('retired purchases cannot emit membership-paid lifecycle workflows',async()=>{
+ for(const status of ['cancelled_by_request','replaced']){
+  const result=await fireWorkflowForPaidRow({table:'member_membership_history',
+   row:{id:'old',member_id:'member',status},snapshot:{}},
+   {db:{from(){throw Error('Must not hydrate or dispatch retired purchases');}},
+    trigger(){throw Error('Must not trigger');}});
+  assert.deepEqual(result,{fired:false,skippedReason:'retired-membership-purchase'});
+ }
+ const db=makeDb({id:'member',membership_cancelled:true}),trigger=makeTrigger();
+ const result=await fireWorkflowForPaidRow({table:'member_membership_history',
+  row:{id:'old',member_id:'member',status:'active'},snapshot:{}},{db,trigger});
+ assert.equal(result.skippedReason,'membership-cancelled');
+ assert.equal(trigger.fired.length,0);
+});
+
 function makeDb(entity) {
   const calls = [];
   return {

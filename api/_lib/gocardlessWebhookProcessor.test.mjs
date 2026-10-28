@@ -1245,8 +1245,8 @@ test('mandate reconciliation resumes after an interrupted membership payment-pro
       if (table === 'member_membership_history') {
         const originalMaybeSingle = query.maybeSingle.bind(query);
         query.maybeSingle = () => {
-          historyReadCount += 1;
-          if (historyReadCount === 2) {
+          if (query.op === 'select') historyReadCount += 1;
+          if (query.op === 'select' && historyReadCount === 2) {
             return Promise.resolve({ data: null, error: { message: 'injected payment-progress read failure' } });
           }
           return originalMaybeSingle();

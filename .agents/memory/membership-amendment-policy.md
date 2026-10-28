@@ -317,3 +317,21 @@ administrator rejects the request.
 **How to apply:** Revalidate the original financial evidence on approval and
 atomically create authority with the review decision. Treat approval as permission
 for separate processing, not evidence that money moved or membership changed.
+
+Arrears recovery must retain source-purchase identity after a new membership
+restores access; the member's current cancellation flag alone is insufficient.
+
+**Why:** A late receipt for a retired purchase could otherwise restore its former
+role over the role selected by the new purchase.
+
+**How to apply:** Check the owned original purchase under the member lock before
+restoring roles. Keep receipt evidence separate from access restoration.
+
+Native tests for new financial or lifecycle outcomes must include the baseline
+CHECK constraints, not only a simplified table with matching columns.
+
+**Why:** A function can compile and pass a reduced fixture while its new outcome
+is rejected by the deployed table's existing constraint.
+
+**How to apply:** Include original constraints in the fixture and verify the
+deployed constraint contract alongside function bodies and grants.
