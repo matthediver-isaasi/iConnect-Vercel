@@ -301,7 +301,10 @@ test('rolling commitment migration and atomic guards on isolated PostgreSQL', { 
         assert.equal(completedPlan.status, 'expired');
         assert.ok(completedPlan.completed_at);
         if (prepaidSuccessor) {
-          assert.deepEqual((await db.query(`SELECT * FROM ${historyTable} WHERE id=$1`, [prepaidSuccessor.id])).rows[0], prepaidSuccessor,
+          // pg may decode dates under the test's frozen Date constructor.
+          // Compare persisted JSON values, not native/frozen Date prototypes.
+          const successorAfter = (await db.query(`SELECT * FROM ${historyTable} WHERE id=$1`, [prepaidSuccessor.id])).rows[0];
+          assert.deepEqual(JSON.parse(JSON.stringify(successorAfter)), JSON.parse(JSON.stringify(prepaidSuccessor)),
             'old collections, failed retries and completion must not alter the scheduled prepaid successor');
           assert.equal((await db.query('SELECT count(*)::int count FROM membership_billing_agreements WHERE membership_successor_election_id=$1',
             [prepaidSuccessor.membership_successor_election_id])).rows[0].count, 0);

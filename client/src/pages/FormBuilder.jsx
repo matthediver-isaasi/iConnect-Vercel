@@ -28,7 +28,8 @@ import { toast } from "sonner";
 import { FLAG_COLOR_OPTIONS, getFlagColorClasses } from "@/lib/flagColors";
 import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { createPageUrl } from "@/utils";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
+import { captureFormEditorBaseline, prepareFormEditorUpdate, formEditorPatch } from "@/lib/formEditorSave";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { Columns2, Columns3, ArrowRight, Settings2, Wand2, Building2, CreditCard } from "lucide-react";
@@ -10851,6 +10852,12 @@ function FieldCard({
 }
 
 export default function FormBuilderPage() {
+  const location = useLocation();
+  return <FormBuilderEditor key={new URLSearchParams(location.search).get('formId') || 'new'} />;
+}
+
+function FormBuilderEditor() {
+  const editorBaseline = useRef(null);
   const { isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
   const alertTenantId = useFormAlertTenant();
   const canManageFormAlerts = isAccessReady && !isFeatureExcluded('page_FormBuilder');
@@ -11489,11 +11496,13 @@ export default function FormBuilderPage() {
   };
 
   useEffect(() => {
-    if (existingForm) {
+    // Background refetches must not replace a user's unsaved work or regenerate
+    // migration IDs underneath the editor baseline.
+    if (existingForm && existingForm.id === formId && !editorBaseline.current) {
       // Migrate to new entity_pipelines format
       const entityPipelines = migrateToEntityPipelines(existingForm);
       
-      setFormData({
+      const hydratedForm = {
         name: existingForm.name || "",
         description: existingForm.description || "",
         slug: existingForm.slug || "",
@@ -11584,7 +11593,7 @@ export default function FormBuilderPage() {
           version: STRUCTURED_ACTIONS_VERSION,
           actions: Array.isArray(existingForm.structured_actions?.actions)
             ? existingForm.structured_actions.actions
-            : [],
+            : Array.isArray(existingForm.structured_actions) ? existingForm.structured_actions : [],
         },
         is_contract: existingForm.is_contract || false,
         blank_layout: existingForm.blank_layout || false,
@@ -11599,7 +11608,9 @@ export default function FormBuilderPage() {
         form_type: existingForm.form_type || 'standard',
         survey_settings: existingForm.survey_settings || {},
         survey_audit_log: Array.isArray(existingForm.survey_audit_log) ? existingForm.survey_audit_log : []
-      });
+      };
+      editorBaseline.current = captureFormEditorBaseline(existingForm, hydratedForm);
+      setFormData(hydratedForm);
     }
   }, [existingForm]);
 
@@ -11663,7 +11674,11 @@ export default function FormBuilderPage() {
         : data;
       return await base44.entities.Form.update(id, saveData, { headers });
     },
-    onSuccess: (savedForm) => {
+    onSuccess: (savedForm, variables) => {
+      editorBaseline.current = captureFormEditorBaseline(
+        { ...editorBaseline.current?.persisted, ...variables.data, ...savedForm },
+        variables.editorSnapshot,
+      );
       if (savedForm?.survey_settings) {
         setFormData(prev => ({
           ...prev,
@@ -12733,31 +12748,15 @@ export default function FormBuilderPage() {
 
     console.log('[FormBuilder] All validation passed, submitting form');
     
-    // Remove temporary UI-only flags before saving
-    const { _ccCustomMode, _bccCustomMode, ...dataToSave } = formData;
-
-    // Survey audit trail is SERVER-authored: the entity API strips any
-    // client-supplied survey_audit_log and appends create/edit/archive
-    // entries itself, so never send it from the builder.
-    delete dataToSave.survey_audit_log;
-    dataToSave.structured_actions = {
-      version: STRUCTURED_ACTIONS_VERSION,
-      actions: structuredActions,
-    };
-
-    // Strip blank/whitespace-only option rows so empty "Add Option" rows are
-    // never persisted (image_options fields keep their own structure).
-    dataToSave.fields = (dataToSave.fields || []).map((f) => {
-      if (!Array.isArray(f.options) || f.type === 'image_options') return f;
-      const cleaned = f.options.filter(
-        (opt) => typeof opt !== 'string' || opt.trim() !== ''
-      );
-      return cleaned.length === f.options.length ? f : { ...f, options: cleaned };
-    });
+    // Normalize once, then restore unchanged persisted configuration before
+    // both client validation and the server's authoritative save validation.
+    const dataToSave = formEditorPatch(
+      prepareFormEditorUpdate(formData, editorBaseline.current), editorBaseline.current,
+    );
 
     const mutationAccessSave = validateFormMutationAccessSave({
-      form: dataToSave,
-      previousForm: existingForm || null,
+      form: { ...editorBaseline.current?.persisted, ...dataToSave },
+      previousForm: editorBaseline.current?.persisted || null,
       isCreate: !formId,
     });
     if (!mutationAccessSave.ok) {
@@ -12778,11 +12777,11 @@ export default function FormBuilderPage() {
             const headers = protectedFormUpdateHeaders(password, {
               deactivation: deactivating,
             });
-            await updateFormMutation.mutateAsync({ id: formId, data: dataToSave, headers });
+            await updateFormMutation.mutateAsync({ id: formId, data: dataToSave, headers, editorSnapshot: formData });
           },
         });
       } else {
-        updateFormMutation.mutate({ id: formId, data: dataToSave });
+        updateFormMutation.mutate({ id: formId, data: dataToSave, editorSnapshot: formData });
       }
     } else {
       console.log('[FormBuilder] Creating new form');

@@ -3,6 +3,8 @@ import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { build } from 'esbuild';
+import { hydrateForm } from '../../tests/helpers/formBuilderHydration.mjs';
+import { captureFormEditorBaseline, prepareFormEditorUpdate, formEditorPatch } from '../../client/src/lib/formEditorSave.js';
 
 const fixtureSlot = '__formGroupInitialSelectionBoundaryFixture';
 const TENANT_ID = 'ff2df806-b321-4254-b651-3af11fccf1db';
@@ -33,6 +35,8 @@ async function loadHandler(entryPoint) {
           return `export const ${local} = (...args) => args.at(-1);`;
         }
         if (imported === 'constrainGenericCommitmentMutation') return `export const ${local} = (_table, query) => query;`;
+        if (imported === 'gatePublicTicketMemberPolicy') return `export const ${local} = async (_entity, body) => body;`;
+        if (imported === 'validateStructuredActionsContract') return `export const ${local} = actions => actions;`;
         if (['validateFormWidthPayload', 'validateEventDisplayModePayload'].includes(imported)) {
           return `export const ${local} = () => null;`;
         }
@@ -55,7 +59,8 @@ async function loadHandler(entryPoint) {
       setup(builder) {
         builder.onResolve({ filter: /.*/ }, args => {
           if (args.importer !== absoluteEntry || !directImports.has(args.path)
-            || args.path.endsWith('/formGroupInitialSelection.js')) return undefined;
+            || args.path.endsWith('/formGroupInitialSelection.js')
+            || args.path.endsWith('/formMutationContract.js')) return undefined;
           return { path: args.path, namespace: 'group-selection-fixture' };
         });
         builder.onLoad({ filter: /.*/, namespace: 'group-selection-fixture' }, args => {
@@ -96,14 +101,14 @@ function field(config) {
   };
 }
 
-function database({ persistedFields = [field()], groupLookupError = null } = {}) {
+function database({ persistedFields = [field()], groupLookupError = null, persistedForm = {}, collision = false } = {}) {
   const rows = {
     organization: [{ id: 'organization', tenant_id: TENANT_ID }],
     organization_group: [
       { id: GROUP_ID, tenant_id: TENANT_ID, name: 'Owned' },
       { id: FOREIGN_GROUP_ID, tenant_id: 'other-tenant', name: 'Foreign' },
     ],
-    form: [{ id: FORM_ID, tenant_id: TENANT_ID, fields: persistedFields }],
+    form: [{ id: FORM_ID, tenant_id: TENANT_ID, fields: persistedFields, ...persistedForm }],
   };
   const calls = [];
   const writes = [];
@@ -140,8 +145,10 @@ function database({ persistedFields = [field()], groupLookupError = null } = {})
         if (table === 'organization_group' && groupLookupError) return { data: null, error: groupLookupError };
         let selected = (rows[table] || []).filter(row => predicates.every(predicate => predicate(row)));
         if (write) {
+          if (collision) return { data: null, error: { code: '23505', message: 'duplicate slug' } };
           writes.push({ table, ...write });
           selected = [{ id: FORM_ID, ...selected[0], ...write.value }];
+          rows[table] = selected;
         }
         return { data: singular ? selected[0] || null : selected, error: null };
       }
@@ -149,6 +156,36 @@ function database({ persistedFields = [field()], groupLookupError = null } = {})
     },
   };
 }
+
+test('real PATCH preserves legacy slug-only configuration; rejects sensitive changes and slug collisions', async () => {
+  const persisted = {
+    is_active: true, slug: 'legacy-v3', require_authentication: false, mutation_access_policy: null,
+    fields: [{ id: 'email', type: 'email' }],
+    entity_pipelines: { members: [{ mappings: [{ target_field: 'email' }] }], organisations: [] },
+    structured_actions: { version: 1, actions: [{ operation: 'upsert', target: { kind: 'organization_group' } }] },
+  };
+  const editor = hydrateForm(persisted);
+  const baseline = captureFormEditorBaseline(persisted, editor);
+  const body = formEditorPatch(prepareFormEditorUpdate({ ...editor, slug: 'legacy' }, baseline), baseline);
+  const db = database({ persistedForm: persisted });
+  const { res } = await save('PATCH', body, db);
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body));
+  assert.equal(res.body.slug, 'legacy');
+  assert.deepEqual(res.body.fields, persisted.fields);
+  assert.deepEqual(res.body.entity_pipelines, persisted.entity_pipelines);
+  const reload = await db.from('form').select('*').eq('id', FORM_ID).single();
+  assert.equal(reload.data.slug, 'legacy');
+  const invalid = await save('PATCH', { ...body, mutation_access_policy: { version: 1, mode: 'applicant_continuation' } },
+    database({ persistedForm: persisted }));
+  assert.equal(invalid.res.statusCode, 422);
+  assert.equal(invalid.db.writes.length, 0);
+  const conflict = await save('PATCH', body, database({ persistedForm: persisted, collision: true }));
+  assert.ok(conflict.res.statusCode >= 400);
+  assert.equal(conflict.db.writes.length, 0);
+  const foreign = await save('PATCH', body, database({ persistedForm: persisted }), { tenantId: 'foreign', effectiveTenantId: 'foreign' });
+  assert.ok(foreign.res.statusCode >= 400);
+  assert.equal(foreign.db.writes.length, 0);
+});
 
 async function save(method, body, db = database(), context = {}) {
   globalThis[fixtureSlot] = {

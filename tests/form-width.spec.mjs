@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { validateFormMutationAccessSave } from "../shared/formMutationContract.js";
 
 const FORM_ID = "form-width-fixture";
 const FORM_SLUG = "form-width-fixture";
@@ -234,6 +235,8 @@ async function installFixtures(page) {
     }
     if (path === `/api/entities/Form/${FORM_ID}` && method === "PATCH") {
       const patch = request.postDataJSON() || {};
+      const validation = validateFormMutationAccessSave({ form: { ...state.form, ...patch }, previousForm: state.form });
+      if (!validation.ok) return json(route, { error: validation.error }, 422);
       state.form = { ...state.form, ...patch };
       state.saves.push(patch);
       return json(route, state.form);
@@ -297,6 +300,41 @@ async function expectNoHorizontalOverflow(page) {
   expect(dimensions.documentWidth).toBeLessThanOrEqual(dimensions.viewportWidth + 1);
   expect(dimensions.bodyWidth).toBeLessThanOrEqual(dimensions.viewportWidth + 1);
 }
+
+test('legacy slug-only save preserves mutation configuration across reload and repeated saves', async ({ page }) => {
+  const state = await installFixtures(page);
+  state.form = {
+    ...formFixture(), slug: 'legacy-form-v3', pages: [],
+    fields: [{ id: 'email', type: 'email', label: 'Email' }],
+    mutation_access_policy: null,
+    entity_action: 'create', member_entity_action: 'none', organization_entity_action: 'none',
+    entity_pipelines: { members: [{ id: 'primary', mappings: [
+      { id: 'email-mapping', source_field_id: 'email', source_type: 'field', target_type: 'core',
+        target_field: 'email', target_entity: 'member' },
+    ] }], organisations: [] },
+    structured_actions: { version: 1, actions: [] },
+  };
+  const original = structuredClone(state.form);
+  await page.goto(`/FormBuilder?formId=${FORM_ID}`, { waitUntil: 'domcontentloaded' });
+  await page.getByRole('tab', { name: 'Form Settings', exact: true }).click();
+  const slugInput = page.locator('input[value="legacy-form-v3"]');
+  await expect(slugInput).toBeVisible();
+  await slugInput.fill('legacy-form');
+  await page.getByRole('button', { name: 'Save Form', exact: true }).click();
+  await expect.poll(() => state.saves.length).toBe(1);
+  expect(state.form.fields).toEqual(original.fields);
+  expect(state.form.entity_pipelines).toEqual(original.entity_pipelines);
+  expect(state.form.mutation_access_policy).toBeNull();
+  expect(state.form.entity_action).toBe('create');
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.getByRole('tab', { name: 'Form Settings', exact: true }).click();
+  await expect(page.locator('input[value="legacy-form"]')).toBeVisible();
+  await page.locator('input[value="legacy-form"]').fill('legacy-form-second');
+  await page.getByRole('button', { name: 'Save Form', exact: true }).click();
+  await expect.poll(() => state.saves.length).toBe(2);
+  expect(state.form.fields).toEqual(original.fields);
+  expect(state.unexpectedWrites).toEqual([]);
+});
 
 async function expectConstrainedContainer(page, viewportWidth) {
   const box = await formWidthBox(page);
