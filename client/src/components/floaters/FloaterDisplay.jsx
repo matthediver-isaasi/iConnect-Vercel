@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
+import FormConsentNotice from '@/components/forms/FormConsentNotice';
+import { useFormConsentSettings } from '@/lib/useFormConsentSettings';
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import FormRenderer from "../forms/FormRenderer";
@@ -103,14 +105,7 @@ export default function FloaterDisplay({
   }, []);
 
   // Fetch default consent message from public endpoint (works without auth)
-  const { data: defaultConsentMessage } = useQuery({
-    queryKey: ['formDefaultConsentMessage'],
-    queryFn: async () => {
-      const data = await publicClient.getFormConsentMessage();
-      return data.message || '';
-    },
-    staleTime: 5 * 60 * 1000 // Cache for 5 minutes
-  });
+  const consentConfiguration = useFormConsentSettings();
 
   // Fetch full member record to get job_title (was base44.entities.Member.list)
   const { data: memberRecord, isLoading: memberRecordLoading, error: memberRecordError, refetch: retryMemberRecord } = useQuery({
@@ -605,11 +600,7 @@ export default function FloaterDisplay({
                       </Button>
                     )}
                   </div>
-                  {currentStep === selectedForm.fields.length - 1 && defaultConsentMessage && (
-                    <p className="text-xs text-slate-500 text-center mt-2" data-testid="text-consent-message">
-                      {defaultConsentMessage}
-                    </p>
-                  )}
+                  {currentStep === selectedForm.fields.length - 1 && <FormConsentNotice configuration={consentConfiguration} />}
                 </div>
               ) : (
                 <form onSubmit={handleFormSubmit} className="space-y-6">
@@ -676,11 +667,7 @@ export default function FloaterDisplay({
                       )}
                     </Button>
                   </div>
-                  {defaultConsentMessage && (
-                    <p className="text-xs text-slate-500 text-center mt-2" data-testid="text-consent-message">
-                      {defaultConsentMessage}
-                    </p>
-                  )}
+                  <FormConsentNotice configuration={consentConfiguration} />
                 </form>
               )}
             </>

@@ -1,4 +1,6 @@
 import { evaluateScoreCondition } from '@/lib/surveyConditions';
+import FormConsentNotice from '@/components/forms/FormConsentNotice';
+import { useFormConsentSettings } from '@/lib/useFormConsentSettings';
 import { useState, useMemo, useEffect, useRef, useCallback, useContext } from "react";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
@@ -132,14 +134,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   const [isSavingDraft, setIsSavingDraft] = useState(false);
 
   // Fetch default consent message from public endpoint (works without auth)
-  const { data: defaultConsentMessage } = useQuery({
-    queryKey: ['formDefaultConsentMessage'],
-    queryFn: async () => {
-      const data = await publicClient.getFormConsentMessage();
-      return data.message || '';
-    },
-    staleTime: 5 * 60 * 1000 // Cache for 5 minutes
-  });
+  const consentConfiguration = useFormConsentSettings();
   
   // Track if prefill has been applied and defaults initialized
   const [prefillApplied, setPrefillApplied] = useState(false);
@@ -2283,11 +2278,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                   {submitControl.message}
                 </p>
               )}
-              {isLastStep && defaultConsentMessage && (
-                <p className="text-xs text-slate-500 text-center mt-2" data-testid="text-consent-message">
-                  {defaultConsentMessage}
-                </p>
-              )}
+              {isLastStep && <FormConsentNotice configuration={consentConfiguration} />}
             </div>
           </Card>
         </div>
@@ -2591,11 +2582,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                 {submitControl.message}
               </p>
             )}
-            {(isLastPage || !hasPages) && defaultConsentMessage && (
-              <p className="text-xs text-slate-500 text-center mt-2" data-testid="text-consent-message">
-                {defaultConsentMessage}
-              </p>
-            )}
+            {(isLastPage || !hasPages) && <FormConsentNotice configuration={consentConfiguration} />}
           </CardContent>
         </Card>
       </div>

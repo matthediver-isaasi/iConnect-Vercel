@@ -131,6 +131,7 @@ import { GROUP_FIELDS_KEY } from '../../../shared/memberGroupCustomFields.js';
 import { validateGroupValueWrite, projectGroupCustomFields } from '../../_lib/memberGroupCustomFields.js';
 
 const DEDICATED_ORGANISATION_DIRECTORY_SETTINGS = new Set([
+  'form_privacy_settings_url',
   GROUP_FIELDS_KEY,
   'org_directory_filterable_back_fields',
   'org_directory_allow_csv_download',

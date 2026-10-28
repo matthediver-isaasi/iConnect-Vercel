@@ -1,3 +1,4 @@
+- [Form consent privacy destination](form-consent-privacy-policy.md) — Form Settings owns this independent URL; never substitute the branding Privacy Policy URL.
 - [Survey nested RPC contracts](survey-nested-rpc-contracts.md) — invitation tests must use the real nested allowlist; generic P0001 is not proof of completion.
 # Form and submission topics
 

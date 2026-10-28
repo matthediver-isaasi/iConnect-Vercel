@@ -1,4 +1,5 @@
 import { withEventConsentNonce } from '@/lib/eventConsentRequest.mjs';
+import { adminFetch } from '@/lib/adminFetch';
 /**
  * Public Client for Multi-Tenant SaaS
  * 
@@ -885,6 +886,18 @@ class PublicClient {
   // Form Consent Message
   async getFormConsentMessage() {
     return this._fetch('/api/public/form-consent-message');
+  }
+
+  async saveFormPrivacySettingsUrl(privacy_settings_url) {
+    const response = await adminFetch('/api/public/form-consent-message', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ privacy_settings_url }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Failed to save privacy settings');
+    return result;
   }
   
   // Job Postings

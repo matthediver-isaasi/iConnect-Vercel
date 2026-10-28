@@ -8,7 +8,6 @@
 - [Membership tier scheduling](membership-tier-scheduling.md) — a config is "in effect" by date range, not just effective_to IS NULL; switch-over caps the old config to newStart-1.
 - [base44 new field needs a DB column](base44-new-field-migration.md) — adding a new property to an existing base44 entity requires a migration; the column-per-field table does not auto-create columns.
 - [Canvas rendering and layout](canvas-rendering-layout-index.md) — index of durable rules for V1/V2 geometry, reflow, block rendering, editor behavior, symbols, links, and footers.
-- [Canvas audit realms](canvas-audit-realms.md) — axe must execute in the preview realm; foreign-node contexts can silently audit the editor instead.
 - [Testimonials compatibility](testimonials-carousel-compatibility.md) — legacy scroll rows require explicit pagination opt-in; preserve authored fixed frames.
 - [Canvas member personalisation](canvas-member-personalisation.md) — display-only TipTap tokens use a fresh viewer snapshot, never cached identity or design-wide replacement.
 - [Event operations](event-operations-index.md) — attendee flags, reminders, timing, deleted bookings, counts, CPD rewards, revenue and ticket releases.
@@ -145,7 +144,6 @@
 - [Training agenda timezone policy](training-agenda-timezone-policy.md) — event-zone wall clocks; reject DST gaps/overlaps until occurrence choices can be persisted.
 - [Training reminder delivery policy](training-reminder-delivery-policy.md) — per-entry scope, elapsed offsets, explicit existing-booking scheduling and non-retryable unknown delivery outcomes.
 - [Event display timezone policy](event-display-timezone-policy.md) — audience timezones are display-only; scheduling and date-only agendas stay unchanged.
-- [Node request header copies](node-request-header-copies.md) — object spread drops inherited request headers; use explicit headers and real IncomingMessage test fixtures.
 - [Public bookmark query loops](public-bookmark-query-loop.md) — guest-only 401 loops can clear shared queries and blank unrelated public carousels.
 - [Public branding boundaries](public-branding-freshness.md) — fresh authority across serverless readers; linked favicon normalization and rollout constraints.
 - [Portable npm downloads](portable-npm-downloads.md) — dependency updates can record workspace-only registry URLs that break Vercel installs.

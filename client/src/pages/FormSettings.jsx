@@ -13,6 +13,8 @@ import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import { getReadableTextColor } from "@/components/RoleBadge";
+import { publicClient } from "@/api/publicClient";
+import { FORM_PRIVACY_SETTINGS_KEY, safeFormPrivacyUrl } from "../../../shared/formConsentSettings.js";
 
 const STATS_CARD_DEFS = [
   { key: 'submissions', defaultLabel: 'Submissions', defaultColour: '#dbeafe', Icon: FileText },
@@ -24,6 +26,7 @@ export default function FormSettingsPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [consentMessage, setConsentMessage] = useState("");
+  const [privacySettingsUrl, setPrivacySettingsUrl] = useState("");
   const [settingId, setSettingId] = useState(null);
   const [newsletterFormId, setNewsletterFormId] = useState("");
   const [newsletterSettingId, setNewsletterSettingId] = useState(null);
@@ -85,6 +88,7 @@ export default function FormSettingsPage() {
       return {
         id: consentSetting?.id || null,
         consent_message: consentSetting?.setting_value || "",
+        privacy_settings_url: allSettings.find(s => s.setting_key === FORM_PRIVACY_SETTINGS_KEY)?.setting_value || "",
         newsletter_setting_id: newsletterSetting?.id || null,
         newsletter_form_id: newsletterSetting?.setting_value || "",
         stats_bar_setting_id: statsBarSetting?.id || null,
@@ -112,6 +116,7 @@ export default function FormSettingsPage() {
   useEffect(() => {
     if (formSettings) {
       setConsentMessage(formSettings.consent_message || "");
+      setPrivacySettingsUrl(formSettings.privacy_settings_url || "");
       setSettingId(formSettings.id || null);
       setNewsletterFormId(formSettings.newsletter_form_id || "");
       setNewsletterSettingId(formSettings.newsletter_setting_id || null);
@@ -126,6 +131,10 @@ export default function FormSettingsPage() {
 
   const saveSettingsMutation = useMutation({
     mutationFn: async (newConsentMessage) => {
+      if (privacySettingsUrl.trim() && !safeFormPrivacyUrl(privacySettingsUrl)) {
+        throw new Error('Enter a valid HTTP or HTTPS Privacy Settings URL.');
+      }
+      await publicClient.saveFormPrivacySettingsUrl(privacySettingsUrl.trim());
       if (settingId) {
         return await base44.entities.SystemSettings.update(settingId, {
           setting_value: newConsentMessage
@@ -143,11 +152,12 @@ export default function FormSettingsPage() {
         setSettingId(data.id);
       }
       queryClient.invalidateQueries({ queryKey: ['formDefaultSettings'] });
+      queryClient.invalidateQueries({ queryKey: ['formDefaultConsentMessage'] });
       toast.success('Form settings saved successfully');
     },
     onError: (error) => {
       console.error('Failed to save form settings:', error);
-      toast.error('Failed to save form settings');
+      toast.error(error.message || 'Failed to save form settings');
     }
   });
 
@@ -615,6 +625,17 @@ export default function FormSettingsPage() {
                 rows={4}
                 className="resize-none"
               />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="privacy-settings-url">Privacy Settings URL</Label>
+              <Input id="privacy-settings-url" type="url"
+                data-testid="input-privacy-settings-url"
+                value={privacySettingsUrl}
+                onChange={(e) => setPrivacySettingsUrl(e.target.value)}
+                placeholder="https://example.com/privacy-settings" />
+              <p className="text-sm text-slate-500">
+                Optional. Appears below the consent message and opens in a new tab.
+              </p>
             </div>
             <Button 
               onClick={handleSave} 

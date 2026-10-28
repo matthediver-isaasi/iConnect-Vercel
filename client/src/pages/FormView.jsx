@@ -1,5 +1,7 @@
 import { applySurveyPresentation, surveySuccessMessage, surveyIntroText, showSurveyProgress, surveyProgress } from '@/lib/surveyPresentation';
 import { evaluateScoreCondition } from '@/lib/surveyConditions';
+import FormConsentNotice from '@/components/forms/FormConsentNotice';
+import { useFormConsentSettings } from '@/lib/useFormConsentSettings';
 import { mergeSurveyInvitationPrefill } from '../../../shared/surveyInvitationPrefill.js';
 import { isEnhancedAnonymousSurvey } from '../../../shared/surveyCompletionPolicy.js';
 import { anonymousSurveySubmissionPayload } from '@/lib/anonymousSurveySubmission';
@@ -534,14 +536,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   }, [setForceBlankLayout]);
 
   // Fetch default consent message from public endpoint (works without auth)
-  const { data: defaultConsentMessage } = useQuery({
-    queryKey: ['formDefaultConsentMessage'],
-    queryFn: async () => {
-      const data = await publicClient.getFormConsentMessage();
-      return data.message || '';
-    },
-    staleTime: 5 * 60 * 1000 // Cache for 5 minutes
-  });
+  const consentConfiguration = useFormConsentSettings();
 
   // Load draft if resume token is in URL
   const { data: draftData, isLoading: isDraftLoading, isError: draftFetchError, ...draftQuery } = useQuery({
@@ -3379,11 +3374,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                 {departmentCurrentSetBlocked}
               </p>
             )}
-            {isLastStep && defaultConsentMessage && (
-              <p className="text-xs text-slate-500 text-center mt-2" data-testid="text-consent-message">
-                {defaultConsentMessage}
-              </p>
-            )}
+            {isLastStep && <FormConsentNotice configuration={consentConfiguration} />}
           </div>
         </Card>
         </FormPrefillBoundary>
@@ -3909,11 +3900,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                 {departmentCurrentSetBlocked}
               </p>
             )}
-            {(isLastPage || !hasPages) && defaultConsentMessage && (
-              <p className="text-xs text-slate-500 text-center mt-2" data-testid="text-consent-message">
-                {defaultConsentMessage}
-              </p>
-            )}
+            {(isLastPage || !hasPages) && <FormConsentNotice configuration={consentConfiguration} />}
           </CardContent>
         </Card>
       </div>

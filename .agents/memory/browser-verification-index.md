@@ -1,3 +1,5 @@
+- [Canvas audit realms](canvas-audit-realms.md) — axe must execute in the preview realm; foreign-node contexts can silently audit the editor instead.
+- [Node request header copies](node-request-header-copies.md) — object spread drops inherited request headers; use explicit headers and real IncomingMessage fixtures.
 - [Radix test DOM order](radix-test-dom-order.md) — initialise JSDOM before importing dialog components or mounted portals may never appear.
 ---
 name: Verification boundaries

@@ -11,6 +11,8 @@ import FormRenderer, { RepeatableAvailabilityProbe } from "../components/forms/F
 import { groupInitialSelectionSurfaceReady, hasGroupInitialSelectionAnswer } from "@/lib/formGroupInitialSelection";
 import { toast, Toaster } from "sonner";
 import { publicClient } from "@/api/publicClient";
+import FormConsentNotice from '@/components/forms/FormConsentNotice';
+import { useFormConsentSettings } from '@/lib/useFormConsentSettings';
 import { base44 } from "@/api/base44Client";
 import { buildPrefillValues, resolveEffectivePrefillIds, resolveMemberSourceOrgId, shouldWaitForPrefillCustomValues, shouldWaitForPrefillOrgEntity, isFieldValueFilled } from "@/lib/formFieldPrefill";
 import { useSubmissionIdempotencyKey } from "@/lib/useSubmissionIdempotencyKey";
@@ -95,6 +97,7 @@ export default function EmbedFormPage() {
 }
 
 function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavigation }) {
+  const consentConfiguration = useFormConsentSettings();
   const { slug } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   
@@ -1758,6 +1761,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
                 </Button>
               )}
             </div>
+            {isLastStep && <FormConsentNotice configuration={consentConfiguration} />}
           </div>
         </Card>
       </div>
@@ -1988,6 +1992,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
               />
               </div>
             )}
+            {currentPageIndex >= pages.length - 1 && <FormConsentNotice configuration={consentConfiguration} />}
           </div>
         </CardContent>
       </Card>
