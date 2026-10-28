@@ -10,9 +10,11 @@ Duplicating an event copies its currently active category selections.
 
 Required migration: `supabase/migrations/202610260001_event_registration_consent.sql`.
 
-- **Pending** on external Supabase **DEST**, project `lvmzliemqnieeoruhkik`.
-- **Not applied** to DEST, legacy SOURCE, or Replit's database during development.
-- Applied and exercised only in a disposable local PostgreSQL test database.
+- **Applied on 2026-10-28** to external Supabase **DEST**, project
+  `lvmzliemqnieeoruhkik`, following explicit user approval.
+- Legacy SOURCE and Replit's database were not changed.
+- Functional consent scenarios were exercised only in disposable local PostgreSQL;
+  no live registration or consent submissions were performed.
 - On 2026-10-26, `node scripts/check-event-registration-consent-destination.mjs`
   verified the pinned DEST SQL connection with certificate verification and a
   read-only transaction. Both new tables are absent. The existing atomic
@@ -20,11 +22,46 @@ Required migration: `supabase/migrations/202610260001_event_registration_consent
 - The Supabase connector denied the metadata query; the documented, pinned
   destination SQL connection completed the same read-only check.
 
-Apply the reviewed migration to DEST through the approved migration process
-before releasing the matching application changes. Applying it is a separate
-production action requiring approval. Do not apply it to SOURCE or add it to
-automatic startup. No application deployment or production data writes were
-performed.
+### Approved application and post-commit evidence
+
+`node scripts/apply-event-registration-consent.mjs --preflight` confirmed
+the prerequisite columns, atomic consent function and subscriber unique index.
+Both new tables and all three functions were absent, with no conflicting history
+entry. The runner pins DEST's REST origin, SQL host, database and project username,
+and verifies TLS with the Supabase CA. It never falls back to SOURCE.
+
+`node scripts/apply-event-registration-consent.mjs --apply` committed only the
+reviewed migration and its `supabase_migrations.schema_migrations` entry together,
+with bounded lock/statement timeouts and checks before commit.
+
+- Migration SHA-256:
+  `e0ee36cee5693a4c8fb9113cc416b4ddfb3466c3a3849f7e54e14a8dbf8dce87`.
+- History version `202610260001`, name `event_registration_consent`, stores the
+  exact reviewed SQL in `statements`.
+- A separate `--verify` read-only transaction confirmed both tables, column and
+  constraint counts, enabled RLS with no browser policies, private grants, exact
+  function bodies, security-definer/search-path settings, and enabled AFTER DELETE
+  row triggers on `event` and `complex_event`.
+- SQL reads under `SET LOCAL ROLE service_role` succeeded for both new tables.
+- The original destination preflight now reports both tables present and all
+  prerequisites present.
+- Read-only service-role REST queries equivalent to the settings handler's data
+  reads succeeded for the reported event: event lookup, active category lookup,
+  and private configuration lookup. This also confirms REST schema availability.
+- The deployed endpoint returned **403** without authentication. The reported
+  EditEvent URL rendered the sign-in screen. No authenticated browser session
+  was available, so the signed-in settings screen and authenticated application
+  request were **not verified**.
+
+No existing subscriptions, saved category selections, bookings or payments were
+changed by this operation. No emails were sent and no consent was granted.
+No application deployment was performed. Refresh the event editor to retry its
+settings read against the now-installed schema.
+
+The runner defaults to offline hash review; `--preflight` and `--verify` are
+read-only. Reapplying stops if any migration objects or history already exist,
+rather than replacing possibly changed definitions. Do not add this operation to
+automatic startup or run it against SOURCE.
 
 ## Consent and purchaser authority
 
