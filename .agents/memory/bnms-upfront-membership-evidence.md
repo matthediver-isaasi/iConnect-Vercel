@@ -3,6 +3,16 @@ name: BNMS upfront membership evidence
 description: Operator-attested current membership establishment is distinct from verified invoice settlement and future billing authority.
 ---
 
+After a reconstruction, verify the full FormBuilder renewal context with its
+real pricing simulator, not only the annual eligibility calculation.
+
+**Why:** A correctly reconstructed and eligible term still produced a blocked
+member renewal form because the separate pricing evidence query failed.
+
+**How to apply:** Use read-only context discovery against the repaired record,
+confirm both eligible renewal and successful successor pricing, and distinguish
+that verification from authenticated browser testing or payment execution.
+
 BNMS authorised correcting zero-day grace copied into reconstructed paid
 upfront terms where the approved current schedule allows 90 days. Do not treat
 a genuine checkout's older zero-day policy as the same reconstruction error.

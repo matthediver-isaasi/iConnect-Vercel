@@ -1378,7 +1378,7 @@ async function simulateMembershipForMember(tenantId, memberId, options = {}) {
   // Do not turn an uncertain legacy price/year into a quote, invoice or
   // automatic renewal. Independently evidenced later purchases remain usable.
   const { data: unverifiedHistory, error: historyVerificationError } = await supabase
-    .from('member_membership_history').select('id, tenant_id, member_id, organization_id, membership_year, payment_status, status, term_start_date, term_end_date, billing_agreement_id, previous_term_id')
+    .from('member_membership_history').select('id, tenant_id, member_id, membership_year, payment_status, status, term_start_date, term_end_date, billing_agreement_id, previous_term_id')
     .eq('tenant_id', tenantId).eq('member_id', memberId);
   if (historyVerificationError || findUnresolvedUnverifiedHistory(unverifiedHistory || [], {
     previousTerm: options.previousTerm, targetYear, historyId: options.expiryOnlyHistoryId,
