@@ -25,6 +25,35 @@ export function createMemberCancellationRequests({
  async function preview(context,selection){
   check(context);return authority.preview(context,selection);
  }
+ async function records(context,{after}={}){
+  check(context);
+  if(after&&!uuid.test(after))fail('Invalid cancellation history cursor.');
+  let q=db.from('member_cancellation_request').select('*')
+   .eq('tenant_id',context.tenantId).eq('member_id',context.memberId).order('id').limit(51);
+  if(after)q=q.gt('id',after);
+  const rows=amendmentResult(await q);
+  if(!Array.isArray(rows))fail('Cancellation history could not be loaded.');
+  return {records:rows.slice(0,50),nextCursor:rows.length>50?rows[49].id:null};
+ }
+ async function recoverKey(context,{key,fingerprint}){
+  check(context);
+  if(typeof key!=='string'||!/^[A-Za-z0-9_.:-]{8,128}$/.test(key)
+   ||!/^[a-f0-9]{64}$/.test(fingerprint||''))fail('Original confirmation key and fingerprint required.');
+  const record=await owned(context,{request_key:key});
+  if(!record)return {record:null,provider:null};
+  if(record.fingerprint!==fingerprint)fail('The confirmation belongs to a different preview.');
+  return recover(context,record.id);
+ }
+ async function withdraw(context,{id,reason}){
+  check(context);
+  if(!uuid.test(id||'')||typeof reason!=='string'||!reason.trim()||reason.trim().length>2000){
+   fail('A valid cancellation and withdrawal reason are required.');
+  }
+  const record=amendmentResult(await db.rpc('withdraw_member_cancellation',{
+   p_tenant_id:context.tenantId,p_member_id:context.memberId,p_id:id,p_actor_id:context.actorId,p_reason:reason.trim(),
+  }));
+  return {record};
+ }
  async function recover(context,id){
   if(!uuid.test(id||''))fail('A valid cancellation request is required.');
   let record=await owned(context,{id});
@@ -77,5 +106,5 @@ export function createMemberCancellationRequests({
   }
   return {record,provider};
  }
- return {preview,confirm,recover};
+ return {preview,confirm,recover,recoverKey,withdraw,records};
 }

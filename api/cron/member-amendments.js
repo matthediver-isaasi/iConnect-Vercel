@@ -2,12 +2,12 @@ import { supabase } from '../_lib/database.js';
 import { runMemberAmendmentRecovery } from '../_lib/memberAmendmentSettlement.js';
 import {runMemberChangeExecutionRecovery} from '../_lib/memberChangeExecution.js';
 import {runMemberMonthlyRecovery} from '../_lib/memberMonthlyFinalizationRecovery.js';
-import {runMemberCancellationFinanceRecovery} from '../_lib/memberCancellationFinanceWorker.js';
+import {runMemberCancellationRecovery} from '../_lib/memberCancellationFinanceWorker.js';
 
 export function createMemberAmendmentRecoveryHandler({ db = supabase, run = runMemberAmendmentRecovery,
   runExecutions=runMemberChangeExecutionRecovery,
   runMonthly=runMemberMonthlyRecovery,
-  runCancellations=runMemberCancellationFinanceRecovery,
+  runCancellations=runMemberCancellationRecovery,
   secret = () => process.env.CRON_SECRET } = {}) {
   return async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');

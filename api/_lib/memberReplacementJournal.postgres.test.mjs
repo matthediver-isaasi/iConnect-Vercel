@@ -54,7 +54,8 @@ test('replacement accounting journal claims once, recovers observations and isol
    '202612310045_member_replacement_collection_holds.sql','202612310046_member_replacement_recovery.sql',
    '202612310047_member_cancellation_journal.sql','202612310048_member_cancellation_access.sql',
    '202612310049_member_cancellation_admission.sql','202612310050_member_cancellation_recovery.sql',
-   '202612310051_member_cancellation_finance.sql','202612310052_member_cancellation_credit.sql']){
+   '202612310051_member_cancellation_finance.sql','202612310052_member_cancellation_credit.sql',
+   '202612310059_withdraw_pending_cancellation.sql']){
    await admin.query(readFileSync(`supabase/migrations/${file}`,'utf8'));
   }
   const today=new Date().toISOString().slice(0,10),f=amendmentFixture(today);
@@ -425,6 +426,35 @@ test('replacement accounting journal claims once, recovers observations and isol
     assert.equal((await admin.query('SELECT has_function_privilege($1,$2,$3) allowed',
      [role,`public.${signature}`,'EXECUTE'])).rows[0].allowed,false);
    }
+  }
+  const withdrawingMember=uuid(901);
+  await admin.query('INSERT INTO member(id,tenant_id) VALUES($1,$2)',[withdrawingMember,f.tenantId]);
+  const withdrawingSource=await insert('member_membership_history',{...creditHistory,id:uuid(902),member_id:withdrawingMember});
+  const pendingCancellation=await insert('member_cancellation_request',{
+   id:uuid(903),tenant_id:f.tenantId,member_id:withdrawingMember,source_record_id:withdrawingSource.id,
+   actor_id:uuid(9),request_key:'scheduled-withdraw-fixture',reason:'Scheduled cancellation',
+   timing:'end_of_term',effective_date:withdrawingSource.membership_renewal_date,
+   source_snapshot:withdrawingSource,calculation:{},
+  });
+  const withdrawal=[f.tenantId,withdrawingMember,pendingCancellation.id,uuid(9),'Member wishes to continue'];
+  await assert.rejects(a.query('SELECT withdraw_member_cancellation($1,$2,$3,$4,$5)',
+   [uuid(999),...withdrawal.slice(1)]),/Owned member/);
+  const withdrawals=await Promise.all([a,b].map(c=>c.query('SELECT withdraw_member_cancellation($1,$2,$3,$4,$5) v',withdrawal)));
+  assert.ok(withdrawals[0].rows[0].v.withdrawn_at);
+  assert.equal(withdrawals[0].rows[0].v.withdrawn_at,withdrawals[1].rows[0].v.withdrawn_at);
+  assert.equal((await admin.query("SELECT count(*) FROM member_cancellation_event WHERE request_id=$1 AND kind='withdrawn'",
+   [pendingCancellation.id])).rows[0].count,'1');
+  assert.equal((await admin.query('SELECT membership_cancelled FROM member WHERE id=$1',[withdrawingMember])).rows[0].membership_cancelled,false);
+  const reapproved={...admittedAuthority,memberId:withdrawingMember,sourceSnapshot:withdrawingSource,
+   calculation:{...admittedAuthority.calculation,sourceRecordId:withdrawingSource.id}};
+  const again=(await a.query('SELECT begin_member_cancellation($1,$2,$3,$4,$5,$6) v',
+   [f.tenantId,withdrawingMember,uuid(9),'new-after-withdrawal','c'.repeat(64),reapproved])).rows[0].v;
+  assert.ok(again.access_ended_at);
+  await assert.rejects(a.query('SELECT withdraw_member_cancellation($1,$2,$3,$4,$5)',
+   [f.tenantId,withdrawingMember,again.id,uuid(9),'Too late']),/already ended/);
+  for(const role of ['anon','authenticated']){
+   assert.equal((await admin.query('SELECT has_function_privilege($1,$2,$3) allowed',
+    [role,'withdraw_member_cancellation(uuid,uuid,uuid,uuid,text)','EXECUTE'])).rows[0].allowed,false);
   }
  }finally{
   for(const c of clients)await c.end();

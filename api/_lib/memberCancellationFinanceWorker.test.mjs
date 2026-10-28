@@ -1,3 +1,20 @@
+test('complete cancellation worker can resume a due lifecycle without starting unapproved finances',async()=>{
+ const {runMemberCancellationRecovery}=await import('./memberCancellationFinanceWorker.js');
+ const calls=[],record={id:'request',tenant_id:'tenant',member_id:'member',actor_id:'actor',authority:{}};
+ const jobs=[{id:'job',request_id:'request',kind:'lifecycle',claim_token:'lease'}];
+ const db={async rpc(name,args){
+  calls.push([name,args]);
+  if(name==='claim_member_cancellation_jobs')return {data:jobs.splice(0,1)};
+  if(name==='finish_member_cancellation_job')return {data:true};
+  throw Error(name);
+ },from(){const q={select(){return q},eq(){return q},async maybeSingle(){return {data:record}}};return q;}};
+ const result=await runMemberCancellationRecovery({db,requests:{async recover(context,id){
+  assert.equal(context.memberId,'member');assert.equal(id,'request');
+  return {record:{...record,access_ended_at:'2026-10-28T00:00:00Z'},provider:null};
+ }},finance:{recover(){throw Error('Financial approval is separate');}},notify:{}});
+ assert.equal(result.outcomes[0].state,'done');
+ assert.equal(calls.filter(c=>c[0]==='claim_member_cancellation_jobs').length,1);
+});
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {runMemberCancellationFinanceRecovery} from './memberCancellationFinanceWorker.js';

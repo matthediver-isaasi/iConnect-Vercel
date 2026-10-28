@@ -59,7 +59,7 @@ function AuthoritySummary({ authority, operation }) {
   </div>;
 }
 
-export default function MemberMonthlyMembershipAmendments({ memberId, tenantId, data, actionsEnabled, readResponse, onRefresh }) {
+export default function MemberMonthlyMembershipAmendments({ memberId, tenantId, data, actionsEnabled, readResponse, onRefresh, selectedAuthority }) {
   const storageKey = `membership-monthly-confirm:${JSON.stringify([tenantId || "", memberId])}`;
   const [recovery] = useState(() => {
     try {
@@ -189,12 +189,12 @@ export default function MemberMonthlyMembershipAmendments({ memberId, tenantId, 
     {saved && <p role="status" className="text-sm">Monthly authority saved · {saved.id}. Saving did not execute a provider change or confirm membership application.</p>}
     <div className="space-y-3">
       <h4 className="font-medium text-sm">Monthly authority and operation history</h4>
-      {!records.length ? <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">No monthly authorities recorded. Original membership and collection evidence remain unchanged.</p> : records.map(record => <MonthlyOperation key={record.id} memberId={memberId} record={record} available={data?.monthlyExecutionAvailable === true} enabled={actionsEnabled} post={post} onRefresh={onRefresh} />)}
+      {!records.length ? <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">No monthly authorities recorded. Original membership and collection evidence remain unchanged.</p> : records.map(record => <MonthlyOperation key={record.id} memberId={memberId} record={record} available={data?.monthlyExecutionAvailable === true} enabled={actionsEnabled} post={post} onRefresh={onRefresh} selection={selectedAuthority?.id === record.id ? selectedAuthority.revision : null} />)}
     </div>
   </section>;
 }
 
-function MonthlyOperation({ memberId, record, available, enabled, post, onRefresh }) {
+function MonthlyOperation({ memberId, record, available, enabled, post, onRefresh, selection }) {
   const [outcome, setOutcome] = useState(null);
   const [approval, setApproval] = useState(false);
   const [reason, setReason] = useState("");
@@ -202,6 +202,15 @@ function MonthlyOperation({ memberId, record, available, enabled, post, onRefres
   const [error, setError] = useState("");
   const busy = useRef(false);
   const alive = useRef(true);
+  const article = useRef(null);
+  useEffect(() => {
+    if (selection == null) return;
+    article.current?.focus();
+    article.current?.scrollIntoView?.({ block: "nearest", behavior: "auto" });
+    setApproval(false);
+    setReason("");
+    setOutcome(previous => previous ? { ...previous, nextAction: undefined } : null);
+  }, [selection]);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const operation = outcome?.operation || record.operation;
   // Only concrete application evidence establishes completion; provider state alone does not.
@@ -228,7 +237,7 @@ function MonthlyOperation({ memberId, record, available, enabled, post, onRefres
       if (!alive.current) return;
       if (isApplication(result?.application)) {
         setOutcome(result);
-        void onRefresh();
+        void onRefresh(result);
       } else if (action === "resume_change" && ((result?.state === "not_started" && result.nextAction === "execute") || (result?.operation && result.nextAction === "approve_finalization"))) {
         setOutcome(result);
       } else {
@@ -241,7 +250,8 @@ function MonthlyOperation({ memberId, record, available, enabled, post, onRefres
       if (alive.current) setPending(null);
     }
   }
-  return <article data-testid={`monthly-authority-${record.id}`} className="rounded-md border p-3 space-y-3 text-sm">
+  return <article ref={article} tabIndex={-1} data-testid={`monthly-authority-${record.id}`} aria-label={selection != null ? "Selected approved monthly financial authority" : undefined} className={`rounded-md border p-3 space-y-3 text-sm ${selection != null ? "ring-2 ring-primary ring-offset-2" : ""}`}>
+    {selection != null && <p className="font-medium">Selected approved request · review the existing monthly operation below</p>}
     <div className="flex flex-wrap justify-between gap-2"><h5 className="font-medium break-all">Authority {record.id}</h5><Badge variant="outline">{application ? "Application confirmed" : "Application not confirmed"}</Badge></div>
     <AuthoritySummary authority={record.authority} operation={operation} />
     {available && !safe && <p role="alert">Execution is blocked: confirmed monthly execution or member-binding evidence is missing or unsupported. No provider action is available for this authority.</p>}

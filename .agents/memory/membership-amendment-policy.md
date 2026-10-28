@@ -272,7 +272,8 @@ unused future instalments into retained revenue.
 
 **How to apply:** Preserve verified payment identities at approval and verify
 payment timing when evidence changes. Unknown timing requires financial review,
-not an assumed zero balance or automatic forfeiture.
+not an assumed zero balance or automatic forfeiture. A Direct Debit collection
+date alone does not establish when the money was received.
 
 Verify issued membership credit through the shared redemption path, not just
 through issuance and accounting-backing checks.

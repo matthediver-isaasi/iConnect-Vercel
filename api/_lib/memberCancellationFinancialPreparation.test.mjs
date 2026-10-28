@@ -59,6 +59,6 @@ test('late, changed or monthly cash cannot be relabelled as refundable upfront m
  delete f.record.authority.financialEvidence;
  await assert.rejects(f.service.preview(f.context,REQUEST_ID),/timing needs review/);
  f.record.authority.sourceSnapshot.commitment_snapshot.payment_frequency='monthly';
- await assert.rejects(f.service.preview(f.context,REQUEST_ID),/dedicated resolver/);
+ await assert.rejects(f.service.preview(f.context,REQUEST_ID),{code:'cancellation_cash_unverified'});
  assert.equal(f.writes,0);
 });

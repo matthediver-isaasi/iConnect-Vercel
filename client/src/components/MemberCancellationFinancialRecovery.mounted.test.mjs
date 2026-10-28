@@ -329,3 +329,19 @@ test("unreadable confirmation response offers recovery instead of a repeat confi
     assert.equal(mounted.calls.filter(call => call.payload?.approve).length, 1);
   } finally { await mounted.cleanup(); }
 });
+
+test("request lifecycle refresh rediscovers cancellation finances without discarding a current plan", async () => {
+  const mounted = await mount();
+  try {
+    await prepare();
+    await click(document.querySelector('input[type="checkbox"]'));
+    const lists = () => mounted.calls.filter(call => !call.payload).length;
+    const before = lists();
+    await act(async () => mounted.render({ refreshVersion: 1 }));
+    await waitFor(() => lists() > before);
+    assert.ok(confirmButton());
+    assert.equal(document.querySelector('input[type="checkbox"]').checked, true);
+    assert.equal(confirmButton().disabled, false);
+    assert.equal(mounted.calls.filter(call => call.payload?.approve).length, 0);
+  } finally { await mounted.cleanup(); }
+});

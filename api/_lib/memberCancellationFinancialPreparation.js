@@ -5,12 +5,14 @@ import {calculateAmendmentTerms} from './memberAmendmentCalculation.js';
 import {planMemberCancellationFinance} from './memberCancellationFinancialPlan.js';
 import {monthlyAmendmentFingerprint} from './memberAmendmentMonthly.js';
 import {planMembershipChangeSettlement} from './membershipChangePolicy.js';
+import {createMemberCancellationMonthlyFinance} from './memberCancellationMonthlyFinance.js';
 const fail=message=>{throw Object.assign(new Error(message),{status:409,code:'cancellation_financial_review_required'});};
 
 /** Internal approval boundary. Browser amounts, invoice IDs and liability
  * accounts are never financial authority. Monthly evidence must be supplied
  * by a server-owned resolver, not substituted with an upfront purchase. */
 export function createMemberCancellationFinancialPreparation({db,finance,resolveMonthly,now=()=>new Date()}){
+ resolveMonthly ||= createMemberCancellationMonthlyFinance({db,finance});
  async function row(table,context,filters){
   let q=db.from(table).select('*').eq('tenant_id',context.tenantId);
   for(const [key,value] of Object.entries(filters))q=q.eq(key,value);

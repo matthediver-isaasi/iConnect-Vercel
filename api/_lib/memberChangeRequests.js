@@ -4,6 +4,7 @@ import {createMemberChangeAuthorityService} from './memberChangeAuthority.js';
 import {resolveFormAccess} from './formAccessPolicy.js';
 import {monthlyAmendmentFingerprint} from './memberAmendmentMonthly.js';
 import {amendmentResult} from './memberAmendmentSettlement.js';
+import {attachMemberRequestProgress} from './memberChangeRequestProgress.js';
 const fail=(message,status=409)=>{throw Object.assign(new Error(message),{status});};
 const keyValid=key=>typeof key==='string'&&/^[A-Za-z0-9_.:-]{8,128}$/.test(key);
 export function memberRequestSummary(authority){
@@ -74,7 +75,7 @@ export function createMemberChangeRequests({db,amendments=createMemberAmendments
    blockers:data.blockers||[],structures:(data.structures||[])
     .filter(c=>settings.target_config_ids.includes(c.id)).map(c=>({id:c.id,name:c.name,
      pricingModel:c.pricing_model,bands:(c.bands||[]).map(b=>({id:b.id,label:b.label||b.name}))})),
-   requests:await records(context),requiresReview:true};
+   requests:await attachMemberRequestProgress(db,context,await records(context)),requiresReview:true};
  }
  async function availability(context){
   try{await form(context);return {available:true};}

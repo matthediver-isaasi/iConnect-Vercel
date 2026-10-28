@@ -8,13 +8,13 @@ import { adminFetch } from "@/lib/adminFetch";
 import { memberChangeEndpoint, readMemberChangeResponse } from "@/lib/memberChangeRequests";
 import { MemberChangeRequestRecord } from "./MemberChangeRequestSummary";
 
-export default function MemberChangeRequestReview({ memberId, tenantId, actionsEnabled = true }) {
+export default function MemberChangeRequestReview({ memberId, tenantId, actionsEnabled = true, onSelectApprovedAuthority }) {
   const scope = useFormAlertTenant("commerce.monthly-finance-report");
   if (scope.status !== "ready" || scope.tenantId !== tenantId) return <section className="space-y-2 rounded-md border p-4" aria-label="Member request review"><h3 className="font-medium">Member-submitted requests</h3><p role={scope.status === "loading" ? "status" : "alert"} className="text-sm text-muted-foreground">{scope.status === "loading" ? "Verifying finance administrator access…" : "Your tenant or finance access could not be verified. Reload or sign in again before reviewing requests."}</p></section>;
-  return <MemberChangeReviewSession key={`${memberId}:${tenantId}:${scope.scopeKey}`} memberId={memberId} tenantId={tenantId} scope={scope} actionsEnabled={actionsEnabled} />;
+  return <MemberChangeReviewSession key={`${memberId}:${tenantId}:${scope.scopeKey}`} memberId={memberId} tenantId={tenantId} scope={scope} actionsEnabled={actionsEnabled} onSelectApprovedAuthority={onSelectApprovedAuthority} />;
 }
 
-export function MemberChangeReviewSession({ memberId, tenantId, scope, actionsEnabled }) {
+export function MemberChangeReviewSession({ memberId, tenantId, scope, actionsEnabled, onSelectApprovedAuthority }) {
   const queryClient = useQueryClient();
   const [requests, setRequests] = useState(null);
   const [busy, setBusy] = useState("");
@@ -64,7 +64,7 @@ export function MemberChangeReviewSession({ memberId, tenantId, scope, actionsEn
         setRequests(old => old.map(record => record.id === result.id ? result : record));
         setDraft(null);
         setMessage(result.state === "approved"
-          ? "Approved. Financial authority is available in the separate administrator financial panel. No payment, refund or membership change was executed."
+          ? "Approved for processing only. Select Review financial processing to check the saved authority and explicitly approve its permitted treatment. No payment, refund or membership change was executed."
           : "Request rejected. No financial authority was created by this rejection.");
         if (result.state === "approved") void queryClient.invalidateQueries({ queryKey: ["member-amendments", tenantId, memberId] });
       }
@@ -90,6 +90,17 @@ export function MemberChangeReviewSession({ memberId, tenantId, scope, actionsEn
     {message && <p role="status" className="text-sm">{message}</p>}
     {requests?.length === 0 && <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">This member has not submitted any membership review requests.</p>}
     {requests?.map(record => <MemberChangeRequestRecord key={record.id} record={record}>
+      {record.state === "approved" && <div className="space-y-2 border-t pt-3">
+        <p className="text-sm text-muted-foreground">The request summary does not establish settlement policy, liability backing or current execution status. Review the original saved authority in the financial controls below; no zero balance or refund eligibility is inferred.</p>
+        <Button size="sm" variant="outline" disabled={disabled || !record.authorityId || !onSelectApprovedAuthority} onClick={() => {
+          try {
+            scopeRef.current.assertCurrent();
+            onSelectApprovedAuthority(record.authorityId);
+          } catch (failure) { setError(failure); }
+        }}>Review financial processing</Button>
+        {!record.authorityId && <p role="alert" className="text-sm">Approved authority reference is missing. Reload requests or contact finance support; do not create another authority.</p>}
+        {!onSelectApprovedAuthority && <p className="text-sm">Open this member’s administrator financial controls to process the saved authority.</p>}
+      </div>}
       {record.state === "pending" && (draft?.id === record.id ? <form className="space-y-3 border-t pt-3" onSubmit={event => { event.preventDefault(); void run(draft); }}>
         <p className="text-sm font-medium">{draft.decision === "approve" ? "Approve financial authority only" : "Reject request"}</p>
         <Label htmlFor={`review-reason-${record.id}`}>Review reason (required)</Label>

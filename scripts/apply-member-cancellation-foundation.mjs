@@ -5,7 +5,8 @@ import {connectDestination,PROJECT} from './annual-meeting-destination.mjs';
 // Private storage only. Does not create cancellation requests, stop providers,
 // enable public routes, issue credit, send mail or execute financial operations.
 const apply=process.argv.includes('--apply'),verifyOnly=process.argv.includes('--verify');
-const renewalFence=process.argv.includes('--renewal-fence');
+const withdrawal=process.argv.includes('--withdrawal');
+const renewalFence=process.argv.includes('--renewal-fence')||withdrawal;
 const retirement=process.argv.includes('--retirement')||renewalFence;
 const requests=process.argv.includes('--requests')||retirement;
 const worker=process.argv.includes('--worker')||requests;
@@ -34,6 +35,8 @@ if(retirement)pinned.push(['202612310057_retired_membership_role_outcome.sql',
  '464c8a917910ad21dc0f07cc4a59578b5041da730de83f5604edd25c1979d748']);
 if(renewalFence)pinned.push(['202612310058_pending_cancellation_conflicts.sql',
  'bb080610d629502be4fbf03b063c8ce038dedbe4e68da66993a8f1fd2ca416e2']);
+if(withdrawal)pinned.push(['202612310059_withdraw_pending_cancellation.sql',
+ 'f58d38b1339f1e08aa2caac53626e0c4336687e96644f63dec80f25aee564313']);
 const sources=pinned.map(([file,hash])=>{
  const sql=readFileSync(`supabase/migrations/${file}`,'utf8');
  if(createHash('sha256').update(sql).digest('hex')!==hash)throw Error(`Migration differs from reviewed hash: ${file}`);
@@ -54,16 +57,31 @@ if(forms)serviceFunctions.add('save_membership_change_form');
 if(worker)serviceFunctions.add('claim_member_cancellation_finance_jobs');
 if(requests)for(const name of ['submit_member_change_request','review_member_change_request'])serviceFunctions.add(name);
 if(retirement)serviceFunctions.add('restore_membership_arrears_fallback_role');
+if(withdrawal)serviceFunctions.add('withdraw_member_cancellation');
 const functions=sources.flatMap(({sql})=>[...sql.matchAll(/CREATE (?:OR REPLACE )?FUNCTION public\.(\w+)\([\s\S]*?\bAS \$\$([\s\S]*?)\$\$;/g)]
  .map(m=>({name:m[1],body:m[2].trim()})));
-if(functions.length!==(renewalFence?24:retirement?21:requests?20:worker?18:forms?17:finance?16:10))throw Error('Cancellation function contract changed');
+if(withdrawal){
+ const admission=functions.find(fn=>fn.name==='begin_member_cancellation');
+ if(!admission?.body.includes('WHERE source_record_id=h.id)'))throw Error('Unexpected original admission contract');
+ admission.body=admission.body.replace('WHERE source_record_id=h.id)','WHERE source_record_id=h.id AND withdrawn_at IS NULL)');
+}
+if(functions.length!==(withdrawal?25:renewalFence?24:retirement?21:requests?20:worker?18:forms?17:finance?16:10))throw Error('Cancellation function contract changed');
 const db=await connectDestination();
 try{
  await db.query(verifyOnly?'BEGIN READ ONLY':'BEGIN');
  await db.query("SET LOCAL lock_timeout='10s'; SET LOCAL statement_timeout='120s'");
  if(!verifyOnly){
   await db.query("SELECT pg_advisory_xact_lock(hashtextextended('member-credit-foundation-migrations',0))");
-  for(const {sql} of renewalFence?sources.slice(11):retirement?sources.slice(9):requests?sources.slice(8):worker?sources.slice(7):forms?sources.slice(6):finance?sources.slice(4):sources)await db.query(sql.replace(/^BEGIN;$/m,'').replace(/^COMMIT;$/m,''));
+  for(const {sql} of withdrawal?sources.slice(12):renewalFence?sources.slice(11):retirement?sources.slice(9):requests?sources.slice(8):worker?sources.slice(7):forms?sources.slice(6):finance?sources.slice(4):sources)await db.query(sql.replace(/^BEGIN;$/m,'').replace(/^COMMIT;$/m,''));
+ }
+ if(withdrawal){
+  const index=(await db.query(`SELECT i.indisunique,i.indisvalid,pg_get_expr(i.indpred,i.indrelid) predicate
+   FROM pg_index i WHERE i.indexrelid='public.member_cancellation_active_source'::regclass`)).rows[0];
+  const old=(await db.query(`SELECT 1 FROM pg_constraint WHERE conrelid='public.member_cancellation_request'::regclass
+   AND conname='member_cancellation_request_source_record_id_key'`)).rowCount;
+  if(!index?.indisunique||!index.indisvalid||index.predicate!=='(withdrawn_at IS NULL)'||old){
+   throw Error('Cancellation withdrawal source uniqueness contract differs');
+  }
  }
  if(renewalFence){
   const attached=(await db.query(`SELECT c.relname,p.proname,t.tgtype,t.tgenabled

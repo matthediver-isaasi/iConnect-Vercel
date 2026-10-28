@@ -1,5 +1,67 @@
 # Self-service membership changes: implementation boundary
 
+## Current connected delivery boundary
+
+The default cancellation financial preparation now resolves fixed Stripe,
+fixed Direct Debit and variable Direct Debit receipts against owned Xero
+invoices and payments. Annual unpaid invoices are reduced rather than
+duplicated as a second debt. Variable service follows membership-start
+anniversaries. Unknown collections, mismatched cash, unverified accounting,
+unsupported original funding and late/undated retained surplus fail closed.
+
+Finance administrators can preview, explicitly confirm, recover and withdraw
+a pending cancellation from the membership panel. Withdrawal cannot restore
+already-ended access; it releases the pending source reservation without
+deleting its audit history. The existing protected cron now handles lifecycle,
+access notifications and approved financial recovery, not just finance jobs.
+
+Approved FormBuilder change requests have a handoff into their exact existing
+financial authority and controls. Member request history now distinguishes
+processing, awaiting payment/refund/reconciliation and applied outcomes.
+It does not expose administrative financial evidence.
+
+Migration **202612310059_withdraw_pending_cancellation.sql** was rehearsed,
+applied and verified on DEST **lvmzliemqnieeoruhkik**. Earlier migrations
+through 058 remain applied. No live charge, refund, voucher issuance or
+membership cancellation was performed during this implementation.
+
+### Still not a completed self-service release
+
+- FormBuilder requests still require administrator review, including when
+  the saved policy allows automatic approval. Member-originated execution
+  needs explicit, audited authorization through every existing financial
+  and monthly-provider boundary; impersonating an administrator is not a fix.
+- Member-facing cancellation admission is not connected. The new cancellation
+  controls are finance-admin controls, not a member self-service capability.
+- Cancellation with original voucher/organisation funding still requires
+  the original-owner return path; it must not issue that value as personal cash.
+- Unsubmitted dynamic collection reservations and missing monthly accounting
+  evidence remain explicit reconciliation blockers, not invented zero balances.
+- Signed-in tenant UI and real provider/accounting sandbox journeys have not
+  been verified by this workspace's unauthenticated screenshot.
+
+### Preview checks for the implemented administrator paths
+
+Use isolated test members and test provider/accounting organisations only.
+
+1. Submit a change from an enabled authenticated form. Approve the exact request,
+   then use **Review financial processing**. Verify the selected authority
+   matches that request and no payment occurs merely from approving the request.
+2. Exercise collect, credit, refund and zero-balance outcomes where supported.
+   Interrupt a response; recover before retrying. Verify one financial operation,
+   unchanged renewal boundary where selected, and application only after settlement.
+3. Cancel a verified monthly purchase partway through the term. Preview must
+   distinguish already-billed debt from a new invoice and preserve VAT.
+4. For variable Direct Debit, verify service dates follow membership anniversaries,
+   not the collection day. Unknown collections must block financial approval.
+5. Schedule a cancellation, withdraw it, then request cancellation again.
+   The withdrawn request remains visible; access and payment setup stay unchanged
+   until the new cancellation takes effect.
+6. Verify a late payment cannot reactivate cancelled access. Notifications must
+   distinguish access ending from the final financial outcome.
+7. Check member history shows **applied** only after persisted application.
+   A failed status read must say unavailable, not approved, paid or applied.
+
 ## Late-payment and pending-cancellation safeguards
 
 The shared Stripe and Direct Debit activation paths now refuse retired purchases

@@ -29,12 +29,12 @@ async function readResponse(response) {
 }
 
 // Remount on either scope change; detached requests can never populate the new scope.
-export default function MemberCancellationFinancialRecovery({ memberId, tenantId, actionsEnabled = false }) {
+export default function MemberCancellationFinancialRecovery({ memberId, tenantId, actionsEnabled = false, refreshVersion = 0 }) {
   if (!memberId) return null;
-  return <CancellationFinances key={JSON.stringify([tenantId, memberId])} memberId={memberId} tenantId={tenantId} actionsEnabled={actionsEnabled} />;
+  return <CancellationFinances key={JSON.stringify([tenantId, memberId])} memberId={memberId} tenantId={tenantId} actionsEnabled={actionsEnabled} refreshVersion={refreshVersion} />;
 }
 
-function CancellationFinances({ memberId, tenantId, actionsEnabled }) {
+function CancellationFinances({ memberId, tenantId, actionsEnabled, refreshVersion }) {
   const [records, setRecords] = useState([]);
   const [cursor, setCursor] = useState(null);
   const [pending, setPending] = useState(true);
@@ -43,6 +43,7 @@ function CancellationFinances({ memberId, tenantId, actionsEnabled }) {
   const alive = useRef(false);
   const busy = useRef(false);
   const serial = useRef(0);
+  const refreshedVersion = useRef(refreshVersion);
   async function load(after = null) {
     if (busy.current) return;
     busy.current = true;
@@ -74,6 +75,11 @@ function CancellationFinances({ memberId, tenantId, actionsEnabled }) {
     void load();
     return () => { alive.current = false; serial.current += 1; busy.current = false; };
   }, []);
+  useEffect(() => {
+    if (pending || refreshedVersion.current === refreshVersion) return;
+    refreshedVersion.current = refreshVersion;
+    void load();
+  }, [refreshVersion, pending]);
   return <section aria-label="Applied cancellation finances" className="rounded-md border p-4 space-y-4">
     <div className="space-y-1">
       <h3 className="font-medium">Applied cancellation finances</h3>

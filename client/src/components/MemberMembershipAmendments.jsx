@@ -12,6 +12,7 @@ import MemberMembershipAmendmentLifecycle from "./MemberMembershipAmendmentLifec
 import MemberMonthlyMembershipAmendments from "./MemberMonthlyMembershipAmendments";
 import MemberUpfrontFinancialChanges from "./MemberUpfrontFinancialChanges";
 import MemberCancellationFinancialRecovery from "./MemberCancellationFinancialRecovery";
+import MemberCancellationRequests from "./MemberCancellationRequests";
 import MemberChangeRequestReview from "./MemberChangeRequestReview";
 
 const endpoint = "/api/membership/member-amendments";
@@ -82,6 +83,14 @@ function AmendmentPanel({ memberId, tenantId }) {
   const [pending, setPending] = useState(null);
   const [requestError, setRequestError] = useState("");
   const [saved, setSaved] = useState(null);
+  const [cancellationRevision, setCancellationRevision] = useState(0);
+  const [approvedAuthority, setApprovedAuthority] = useState(null);
+  function selectApprovedAuthority(id) {
+    // Request summaries deliberately omit frozen policy and funding evidence.
+    // Select the original lifecycle controls, never create a replacement authority.
+    setApprovedAuthority(previous => ({ id, revision: (previous?.revision || 0) + 1 }));
+    void refetch();
+  }
   const attempt = useRef(null);
   const ambiguousSave = useRef(false);
   const generation = useRef(0);
@@ -165,13 +174,35 @@ function AmendmentPanel({ memberId, tenantId }) {
     } : previous);
     void refetch();
   }
+  function refreshFinancial(outcome) {
+    void refetch();
+    if (outcome?.application) {
+      void queryClient.invalidateQueries({ queryKey: ["member-membership", memberId] });
+      void queryClient.invalidateQueries({ queryKey: ["member-detail", memberId] });
+      void queryClient.invalidateQueries({ queryKey: ["member-membership-instalments"] });
+    }
+  }
+  function refreshCancellation() {
+    void queryClient.invalidateQueries({ queryKey });
+    // Scheduling, applying and withdrawing all change the access lifecycle.
+    void queryClient.invalidateQueries({ queryKey: ["member-membership", memberId] });
+    void queryClient.invalidateQueries({ queryKey: ["member-detail", memberId] });
+    void queryClient.invalidateQueries({ queryKey: ["member-membership-instalments"] });
+    setCancellationRevision(value => value + 1);
+  }
   return <Card data-testid="member-amendments">
     <CardHeader>
       <CardTitle className="text-base flex items-center gap-2"><FileText className="w-4 h-4" />Membership change requests</CardTitle>
        <p className="text-sm text-muted-foreground">{isMonthly ? "Preview a retained-term monthly membership change, save its authority, then explicitly approve execution. Preview and saving never change the provider or membership." : "Preview and record an upfront personal membership change, then follow its separate settlement and application history. Saving a proposal does not collect payment, issue a refund, or change entitlement."}</p>
     </CardHeader>
     <CardContent className="space-y-5">
-      <MemberChangeRequestReview memberId={memberId} tenantId={tenantId} actionsEnabled={!isError} />
+      <MemberChangeRequestReview memberId={memberId} tenantId={tenantId} actionsEnabled={!isError && !isFetching} onSelectApprovedAuthority={selectApprovedAuthority} />
+      {approvedAuthority && <div role="status" className="rounded-md border bg-muted/50 p-3 text-sm space-y-2">
+        <p>Selected approved authority: <span className="break-all">{approvedAuthority.id}</span>. Review its highlighted financial controls below. Check / recover before explicit execution approval; approval of the member request alone does not settle or apply the change.</p>
+        {isFetching ? <p>Refreshing financial authority and settlement evidence…</p>
+          : ![...(data?.financialChanges || []), ...(data?.monthlyChanges || [])].some(record => record.id === approvedAuthority.id)
+            && <><p role="alert">The saved authority is not available in financial history. Processing is blocked; reload or contact finance support. No financial treatment has been inferred from the request summary.</p><Button size="sm" variant="outline" onClick={() => refetch()}>Reload selected financial authority</Button></>}
+      </div>}
       <div className="rounded-md border bg-muted/50 p-3 text-sm flex items-start gap-2">
         <Lock className="w-4 h-4 shrink-0 mt-0.5" />
          <div className="space-y-1">
@@ -203,8 +234,8 @@ function AmendmentPanel({ memberId, tenantId }) {
           </dl>
         </div>}
          {(isMonthly || data?.monthlyChanges?.length > 0) && <MemberMonthlyMembershipAmendments
-           memberId={memberId} tenantId={tenantId} data={data} actionsEnabled={!isError}
-           readResponse={readResponse} onRefresh={refetch}
+           memberId={memberId} tenantId={tenantId} data={data} actionsEnabled={!isError && !isFetching} selectedAuthority={approvedAuthority}
+           readResponse={readResponse} onRefresh={refreshFinancial}
          />}
          {!isMonthly && (!canPreview ? <p className="text-sm text-muted-foreground">Preview is unavailable for this member or your current permissions. Existing membership operations are unchanged.</p> :
           <form className="space-y-4" onSubmit={event => { event.preventDefault(); void submit("preview"); }}>
@@ -314,10 +345,11 @@ function AmendmentPanel({ memberId, tenantId }) {
         </section>
         {(current?.commitment_snapshot?.payment_frequency === "upfront" || data?.financialChanges?.length > 0) && <MemberUpfrontFinancialChanges
           key={`${tenantId || ""}:${memberId}:financial`}
-          memberId={memberId} tenantId={tenantId} data={data} actionsEnabled={!isError}
-          readResponse={readResponse} onRefresh={refetch}
+          memberId={memberId} tenantId={tenantId} data={data} actionsEnabled={!isError && !isFetching} selectedAuthority={approvedAuthority}
+          readResponse={readResponse} onRefresh={refreshFinancial}
         />}
-        <MemberCancellationFinancialRecovery memberId={memberId} tenantId={tenantId} actionsEnabled={!isError} />
+        <MemberCancellationRequests memberId={memberId} tenantId={tenantId} actionsEnabled={!isError} onChange={refreshCancellation} />
+        <MemberCancellationFinancialRecovery refreshVersion={cancellationRevision} memberId={memberId} tenantId={tenantId} actionsEnabled={!isError} />
       </>}
     </CardContent>
   </Card>;

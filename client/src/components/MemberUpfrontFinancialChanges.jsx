@@ -105,7 +105,7 @@ function FinancialSummary({ authority, creditEnabled = false, selectedTreatment 
 
 // Isolated from legacy proposal/settlement flows. Storage contains operational
 // key/fingerprint only: never selection, free-text reasons or personal form data.
-export default function MemberUpfrontFinancialChanges({ memberId, tenantId, data, actionsEnabled, readResponse, onRefresh }) {
+export default function MemberUpfrontFinancialChanges({ memberId, tenantId, data, actionsEnabled, readResponse, onRefresh, selectedAuthority }) {
   const key = `membership-upfront-financial-confirm:${JSON.stringify([tenantId || "", memberId])}`;
   const [recovery] = useState(() => {
     try {
@@ -242,12 +242,12 @@ export default function MemberUpfrontFinancialChanges({ memberId, tenantId, data
     {error && <p role="alert" className="text-sm text-amber-800 dark:text-amber-300">{error}</p>}
     {saved && <p role="status" className="text-sm">Upfront financial authority saved · {saved.id}. Saving is not approval, settlement or membership application.</p>}
     <div className="space-y-3"><h4 className="text-sm font-medium">Upfront financial authority history</h4>
-      {!history.length ? <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">No upfront financial authorities recorded. Legacy membership requests and original purchase history are unchanged.</p> : history.map(record => <FinancialExecution key={record.id} record={record} memberId={memberId} tenantId={tenantId} available={available} replacementAvailable={replacementAvailable} creditEnabled={creditEnabled} enabled={actionsEnabled} post={post} onRefresh={onRefresh} />)}
+      {!history.length ? <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">No upfront financial authorities recorded. Legacy membership requests and original purchase history are unchanged.</p> : history.map(record => <FinancialExecution key={record.id} record={record} memberId={memberId} tenantId={tenantId} available={available} replacementAvailable={replacementAvailable} creditEnabled={creditEnabled} enabled={actionsEnabled} post={post} onRefresh={onRefresh} selection={selectedAuthority?.id === record.id ? selectedAuthority.revision : null} />)}
     </div>
   </section>;
 }
 
-function FinancialExecution({ record, memberId, tenantId, available, replacementAvailable, creditEnabled, enabled, post, onRefresh }) {
+function FinancialExecution({ record, memberId, tenantId, available, replacementAvailable, creditEnabled, enabled, post, onRefresh, selection }) {
   const [outcome, setOutcome] = useState(null);
   const [pending, setPending] = useState(null);
   const [error, setError] = useState("");
@@ -258,6 +258,16 @@ function FinancialExecution({ record, memberId, tenantId, available, replacement
   const approvalFor = useRef(null);
   const busy = useRef(false);
   const alive = useRef(true);
+  const article = useRef(null);
+  useEffect(() => {
+    if (selection == null) return;
+    article.current?.focus();
+    article.current?.scrollIntoView?.({ block: "nearest", behavior: "auto" });
+    setApproval(false);
+    approvalFor.current = null;
+    setReason("");
+    setOutcome(previous => previous ? { ...previous, nextAction: undefined } : null);
+  }, [selection]);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   useEffect(() => {
     if (record.execution) {
@@ -323,7 +333,7 @@ function FinancialExecution({ record, memberId, tenantId, available, replacement
       if (!isLifecycle(result)) throw new Error("Financial lifecycle evidence is incomplete. No application or completed outcome is confirmed; recover this authority.");
       if (result.execution) setExecutionLock(previous => previous?.settlement_choice ? previous : result.execution);
       setOutcome(action === "resume_change" ? result : { ...result, nextAction: undefined });
-      void onRefresh();
+      void onRefresh(result);
     } catch (failure) {
       if (alive.current) setError(failure.message || "Financial outcome unconfirmed. Recover this authority; do not submit a new execution.");
     } finally {
@@ -331,7 +341,8 @@ function FinancialExecution({ record, memberId, tenantId, available, replacement
       if (alive.current) setPending(null);
     }
   }
-  return <article data-testid={`financial-authority-${record.id}`} className="rounded-md border p-3 space-y-3 text-sm">
+  return <article ref={article} tabIndex={-1} data-testid={`financial-authority-${record.id}`} aria-label={selection != null ? "Selected approved upfront financial authority" : undefined} className={`rounded-md border p-3 space-y-3 text-sm ${selection != null ? "ring-2 ring-primary ring-offset-2" : ""}`}>
+    {selection != null && <p className="font-medium">Selected approved request · review settlement and explicitly approve processing below</p>}
     <div className="flex flex-wrap justify-between gap-2"><h5 className="font-medium break-all">Financial authority {record.id}</h5><Badge variant="outline">{application ? "Application confirmed" : "Application not confirmed"}</Badge></div>
     <FinancialSummary authority={record.authority} creditEnabled={creditEnabled} selectedTreatment={choice} executionLocked={!!execution} />
     <p className="whitespace-pre-wrap break-words">Recorded change reason: {record.authority?.request?.reason || "Not supplied"}</p>
@@ -342,11 +353,13 @@ function FinancialExecution({ record, memberId, tenantId, available, replacement
     {(lifecycle.execution?.last_error || lifecycle.execution?.error) && <p role="alert">Execution error: {message(lifecycle.execution.last_error || lifecycle.execution.error)}</p>}
     {settlement?.evidence?.reason && <p role="alert">Settlement evidence: {settlement.evidence.reason}</p>}
     {settlement?.last_error && <p role="alert">Finance error: {message(settlement.last_error)}</p>}
-    {settlement?.state === "awaiting_payment" && <div className="space-y-1">
+    {settlement?.state === "awaiting_payment" && choice === "collect" && <div className="space-y-1">
       <p>Awaiting collection — verified payment and membership application are not yet confirmed.</p>
       {url ? <a className="underline underline-offset-4" href={url} target="_blank" rel="noopener noreferrer">Open verified payment invoice</a> : <p>Verified payment link is unavailable. No untrusted or inferred URL is offered.</p>}
     </div>}
     {settlement?.state === "settled" && !application && <p role="status">Settlement recorded, but membership application is not confirmed.{choice === "credit" ? " Member credit is not spendable yet." : ""} Recover to verify application evidence.</p>}
+    {(settlement?.state === "awaiting_refund" || (settlement?.state === "awaiting_payment" && choice === "refund")) && !application && <p role="status">Awaiting manual refund and bank-reconciliation evidence. Cash has not been confirmed refunded; membership application is not confirmed.</p>}
+    {["awaiting_reconciliation", "uncertain", "conflict"].includes(settlement?.state) && !application && <p role="status">Awaiting finance reconciliation. Recover the existing authority; do not repeat execution or promise a completed refund.</p>}
     {lifecycle.application && !application && <p role="alert">Application evidence is incomplete. Completion is not confirmed.</p>}
     {application ? <div role="status" className="rounded-md bg-muted/50 p-3 space-y-1">
       <p className="font-medium">Upfront membership application confirmed</p>
