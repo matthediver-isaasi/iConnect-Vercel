@@ -1685,3 +1685,17 @@ mtime_ms = 1793189404919
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/ef51c0ae-d69e-4818-b076-fd63f845158c/83e14cc4-0eb9-457c-9f34-a2df487aa926"
 storage_version_token = "1793189417556578"
 content_type = "application/pdf"
+
+[[outputs]]
+id = "sEl2TanWplxRaAkQxDt7t"
+uri = "file://generated-artifacts/gfi-fast-track-evidence/145-recipient-review.csv"
+type = "table"
+title = "Fast Track – 26 October: 145-recipient evidence review"
+description = "Complete recipient list with names, email addresses, member/recipient IDs, missing send evidence, local and Mailgun event counts, and older-campaign message attribution. Contains personal data; share only with authorised campaign administrators."
+logical_id = "743c1c43-4e89-4d52-b7c3-64130b488261"
+content_hash = "sha256:7675d35af8e5a35d0801026b1b3ec004aaefa362cebbbf1b85aa86b48b9257cf"
+size = 35666
+mtime_ms = 1793206235607
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/743c1c43-4e89-4d52-b7c3-64130b488261/f0e23823-c32d-4aa1-b2b2-07b185f4ae94"
+storage_version_token = "1793206246866427"
+content_type = "text/csv"
