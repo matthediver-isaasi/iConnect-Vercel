@@ -4,6 +4,7 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
+    "test:speaker-selection": "node scripts/run-isolated-tests.mjs node --test client/src/components/SpeakerSelectionModal.mounted.test.mjs client/src/lib/eventAgendaPersistence.test.mjs",
     "test:testimonials-carousel": "node scripts/run-isolated-tests.mjs node --import tsx --test client/src/components/canvas/blocks/TestimonialsCarousel.test.jsx",
     "test:testimonials-carousel:browser": "playwright test --config=tests/testimonials-carousel.config.mjs",
     "test:form-preview-return:browser": "playwright test --config=tests/form-width.config.mjs --grep='management preview'",

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,7 +13,18 @@ export function SpeakerSelectionModal({
   onConfirm 
 }) {
   const [searchTerm, setSearchTerm] = useState('');
-  const [tempSelected, setTempSelected] = useState(selectedSpeakerIds);
+  const [tempSelected, setTempSelected] = useState(() => [...selectedSpeakerIds]);
+  const wasOpen = useRef(false);
+
+  useEffect(() => {
+    // Parents open this controlled dialog directly, without onOpenChange firing.
+    // Snapshot only on opening: new arrays/catalogue refreshes must not reset a draft.
+    if (open && !wasOpen.current) {
+      setTempSelected([...selectedSpeakerIds]);
+      setSearchTerm('');
+    }
+    wasOpen.current = open;
+  }, [open, selectedSpeakerIds]);
 
   const filteredSpeakers = useMemo(() => {
     if (!searchTerm.trim()) return speakers;
@@ -47,10 +58,6 @@ export function SpeakerSelectionModal({
   };
 
   const handleOpenChange = (isOpen) => {
-    if (isOpen) {
-      setTempSelected(selectedSpeakerIds);
-      setSearchTerm('');
-    }
     onOpenChange(isOpen);
   };
 
