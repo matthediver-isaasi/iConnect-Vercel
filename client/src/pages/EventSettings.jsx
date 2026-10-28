@@ -1,9 +1,11 @@
 
-import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import React, { useState, useEffect, useRef } from "react";
+import { base44 as base44Api } from "@/api/base44Client";
+import { createEventSettingsWriter, createSettingsCollector, saveCollectedSettings, EVENT_SETTINGS_SAVE_KEYS } from "@/lib/eventSettingsSaving";
+import { DEFAULT_TBC_ANCHOR, normalizeTbcAnchor, isValidTbcAnchor } from "@/lib/tbcEventsBanner";
+import { EventSettingsSaveBoundary, Button, CardContent, Dialog, DialogContent } from "@/components/events/EventSettingsSaveBoundary";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -16,7 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { AGENDA_ITEM_TYPES_SETTING_KEY, parseAgendaItemTypes, AGENDA_TYPE_BEHAVIOUR_OPTIONS, inferAgendaTypeBehaviour } from "@/hooks/useAgendaItemTypes";
@@ -28,6 +30,10 @@ import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
 
 export default function EventSettingsPage() {
+  const hydrated = useRef(false);
+  const acknowledgedRows = useRef([]);
+  const writeGeneration = useRef(0);
+  const [settingsReady, setSettingsReady] = useState(false);
   const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [cancellationDeadlineHours, setCancellationDeadlineHours] = useState(24);
@@ -55,6 +61,7 @@ export default function EventSettingsPage() {
   const [featuredHeaderIconColor, setFeaturedHeaderIconColor] = useState("#b45309");
   // TBC events banner (pre-registration section demarcation on /events)
   const [tbcBannerEnabled, setTbcBannerEnabled] = useState(false);
+  const [tbcBannerAnchor, setTbcBannerAnchor] = useState(DEFAULT_TBC_ANCHOR);
   const [tbcBannerMode, setTbcBannerMode] = useState("solid");
   const [tbcBannerColor, setTbcBannerColor] = useState("#eff6ff");
   const [tbcBannerFrom, setTbcBannerFrom] = useState("#dbeafe");
@@ -169,6 +176,23 @@ export default function EventSettingsPage() {
   const [seatLabelSoldOut, setSeatLabelSoldOut] = useState("");
   
   const queryClient = useQueryClient();
+  const settingsWriter = createEventSettingsWriter({
+    entity: base44Api.entities.SystemSettings,
+    getRows: () => acknowledgedRows.current,
+    acknowledge: row => {
+      writeGeneration.current += 1;
+      acknowledgedRows.current = [...acknowledgedRows.current.filter(item => item.setting_key !== row.setting_key), row];
+      queryClient.setQueryData(['system-settings'], acknowledgedRows.current);
+      queryClient.invalidateQueries({ queryKey: ['public-system-settings'] });
+      queryClient.invalidateQueries({ queryKey: ['event-display-settings'] });
+    },
+  });
+  const base44 = {
+    ...base44Api,
+    entities: new Proxy(base44Api.entities, {
+      get: (target, key) => key === 'SystemSettings' ? settingsWriter : target[key],
+    }),
+  };
 
   useEffect(() => {
     if (isAccessReady) {
@@ -187,9 +211,19 @@ export default function EventSettingsPage() {
     refetchOnMount: true,
   });
 
-  const { data: settings = [], isLoading: loadingSettings, isError: settingsLoadFailed } = useQuery({
+  const { data: settings = [], isLoading: loadingSettings, isError: settingsLoadFailed, isFetchedAfterMount: settingsFetchedAfterMount, isFetching: fetchingSettings } = useQuery({
     queryKey: ['system-settings'],
-    queryFn: () => base44.entities.SystemSettings.list(),
+    queryFn: async ({ signal }) => {
+      const generation = writeGeneration.current;
+      const rows = await base44Api.entities.SystemSettings.list({ signal });
+      if (!Array.isArray(rows)) throw new Error('Invalid settings response');
+      // A request that started before a successful write cannot undo that
+      // acknowledgement. Later authoritative reads update the write baseline,
+      // but never replace this mounted editor's drafts.
+      if (signal.aborted || generation !== writeGeneration.current) return acknowledgedRows.current;
+      acknowledgedRows.current = rows;
+      return rows;
+    },
     staleTime: 0,
     refetchOnMount: true,
   });
@@ -203,6 +237,11 @@ export default function EventSettingsPage() {
 
   // Load current setting values
   useEffect(() => {
+    // This mounted editor owns its drafts. Refetches (including other cards'
+    // save invalidations) must not rehydrate them. A new visit loads afresh.
+    if (loadingSettings || fetchingSettings || !settingsFetchedAfterMount || settingsLoadFailed || hydrated.current) return;
+    hydrated.current = true;
+    setSettingsReady(true);
     const deadlineSetting = settings.find(s => s.setting_key === 'cancellation_deadline_hours');
     if (deadlineSetting) {
       setCancellationDeadlineHours(parseInt(deadlineSetting.setting_value) || 0);
@@ -425,6 +464,7 @@ export default function EventSettingsPage() {
       try {
         const cfg = JSON.parse(tbcBannerSetting.setting_value);
         setTbcBannerEnabled(cfg.enabled === true);
+        setTbcBannerAnchor(normalizeTbcAnchor(cfg.sectionAnchor));
         setTbcBannerMode(cfg.mode || 'solid');
         if (cfg.mode === 'gradient') {
           setTbcBannerFrom(cfg.from || '#dbeafe');
@@ -441,7 +481,7 @@ export default function EventSettingsPage() {
         console.error('Failed to parse TBC events banner config:', e);
       }
     }
-  }, [settings]);
+  }, [settings, loadingSettings, settingsLoadFailed, settingsFetchedAfterMount, fetchingSettings]);
 
   const syncEventsMutation = useMutation({
     mutationFn: () => base44.functions.invoke('syncBackstageEvents', {}),
@@ -454,18 +494,28 @@ export default function EventSettingsPage() {
     }
   });
 
-  const handleSaveSettings = async () => {
-    if (loadingSettings || settingsLoadFailed) {
+  const handleSaveSettings = async (event) => {
+    const keys = event.currentTarget.dataset.saveKeys?.split(' ')
+      || EVENT_SETTINGS_SAVE_KEYS[event.currentTarget.dataset.testid];
+    const collector = createSettingsCollector(settings);
+    // Keep the existing serialization and validation contracts, without doing
+    // network I/O until the intended section has been selected below.
+    const base44 = { entities: { SystemSettings: collector } };
+    if (!settingsReady || fetchingSettings || loadingSettings || settingsLoadFailed) {
       toast.error(
-        loadingSettings
+          !settingsReady || fetchingSettings || loadingSettings
           ? 'Please wait for settings to finish loading before saving.'
           : 'Settings could not be loaded. Reload the page before saving.'
       );
       return;
     }
     const trimmedPoEmail = (poSubmissionNotificationEmail || '').trim();
-    if (trimmedPoEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedPoEmail)) {
+    if (keys?.includes('po_submission_notification_email') && trimmedPoEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedPoEmail)) {
       toast.error('Please enter a valid PO submission notification email address (or leave it blank).');
+      return;
+    }
+    if (keys?.includes('tbc_events_banner') && !isValidTbcAnchor(tbcBannerAnchor)) {
+      toast.error('Use a section anchor starting with a letter, followed by letters, numbers, hyphens or underscores (up to 80 characters). Do not include #.');
       return;
     }
     setIsSaving(true);
@@ -899,11 +949,6 @@ export default function EventSettingsPage() {
       const featuredBgValue = featuredBgMode === 'gradient'
         ? JSON.stringify({ mode: 'gradient', from: featuredBgFrom, to: featuredBgTo, ...featuredHeaderColors })
         : JSON.stringify({ mode: 'solid', color: featuredBgColor, ...featuredHeaderColors });
-      // Load seat availability labels
-    setSeatLabelUnlimited(settings.find(s => s.setting_key === 'seat_label_unlimited')?.setting_value || '');
-    setSeatLabelAvailable(settings.find(s => s.setting_key === 'seat_label_available')?.setting_value || '');
-    setSeatLabelSoldOut(settings.find(s => s.setting_key === 'seat_label_sold_out')?.setting_value || '');
-
     const featuredBgSetting = settings.find(s => s.setting_key === 'featured_events_background');
 
       if (featuredBgSetting) {
@@ -921,6 +966,7 @@ export default function EventSettingsPage() {
 
       // Save TBC events banner config
       const tbcBannerCommon = {
+        sectionAnchor: normalizeTbcAnchor(tbcBannerAnchor),
         enabled: tbcBannerEnabled,
         textColor: tbcBannerTextColor,
         iconColor: tbcBannerIconColor,
@@ -946,20 +992,22 @@ export default function EventSettingsPage() {
         });
       }
       
+      await saveCollectedSettings(collector.entries, keys, settingsWriter);
       queryClient.invalidateQueries({ queryKey: ['system-settings'] });
       queryClient.invalidateQueries({ queryKey: ['public-system-settings'] });
       queryClient.invalidateQueries({ queryKey: ['/api/public/system-settings'] });
       queryClient.invalidateQueries({ queryKey: ['event-display-settings'] });
       toast.success('Settings saved successfully');
     } catch (error) {
-      toast.error('Failed to save settings: ' + error.message);
+      toast.error('Could not save all selected settings. Your draft is retained for retry: ' + error.message);
     } finally {
       setIsSaving(false);
     }
   };
 
-  const handleSyncEvents = () => {
-    syncEventsMutation.mutate();
+  const handleSyncEvents = async () => {
+    try { await syncEventsMutation.mutateAsync(); }
+    catch { /* The mutation's onError supplies the failure feedback. */ }
   };
 
   // Event Types handlers
@@ -1740,6 +1788,7 @@ export default function EventSettingsPage() {
         const storedMember = localStorage.getItem('agcas_member');
         const memberInfo = storedMember ? JSON.parse(storedMember) : null;
         
+        if (!memberInfo?.email) throw new Error('User session not found. Please log in again.');
         if (memberInfo?.email) {
           const uploadResponse = await base44.functions.invoke('uploadProgramImage', {
             imageBase64,
@@ -1749,7 +1798,7 @@ export default function EventSettingsPage() {
           
           if (uploadResponse.data?.imageUrl) {
             programData.image_url = uploadResponse.data.imageUrl;
-          }
+          } else throw new Error(uploadResponse.data?.error || 'Program image upload failed. Your draft has been retained.');
         }
       }
 
@@ -1777,7 +1826,11 @@ export default function EventSettingsPage() {
   }
 
   return (
+    <EventSettingsSaveBoundary unavailable={!settingsReady || fetchingSettings || settingsLoadFailed}>
     <div className="min-h-screen p-4 md:p-8">
+      {settingsLoadFailed && <p role="alert" className="mb-4 rounded-lg bg-red-50 p-4 text-red-800">Settings could not be loaded. Reload the page before editing or saving.</p>}
+      {!settingsReady && !settingsLoadFailed && <p role="status" className="mb-4 text-slate-600">Loading settings…</p>}
+      {settingsReady && fetchingSettings && <p role="status" className="mb-4 text-slate-600">Refreshing saved settings… Your drafts are retained.</p>}
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-8">
           <div>
@@ -1881,6 +1934,7 @@ export default function EventSettingsPage() {
                     onClick={handleSaveSettings}
                     disabled={isSaving}
                     className="ml-auto"
+                    data-save-keys="cancellation_deadline_hours allow_ticket_transfer allow_ticket_cancellation allow_ticket_transfer__dev allow_ticket_cancellation__dev"
                   >
                     <Save className="w-4 h-4 mr-2" />
                     Save Settings
@@ -2205,6 +2259,7 @@ export default function EventSettingsPage() {
                     onClick={handleSaveSettings}
                     disabled={isSaving}
                     size="sm"
+                    data-save-keys="xero_invoice_enabled xero_sales_account_code xero_invoice_status xero_stripe_bank_account_code"
                   >
                     <Save className="w-4 h-4 mr-2" />
                     Save
@@ -2334,6 +2389,7 @@ export default function EventSettingsPage() {
                       onClick={handleSaveSettings}
                       disabled={isSaving}
                       size="sm"
+                      data-save-keys="event_default_vat_rate"
                     >
                       <Save className="w-4 h-4 mr-2" />
                       Save
@@ -2841,6 +2897,23 @@ export default function EventSettingsPage() {
                     className="max-w-md"
                     data-testid="input-tbc-banner-jump-description"
                   />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="tbc-section-anchor">Section anchor</Label>
+                  <Input
+                    id="tbc-section-anchor"
+                    value={tbcBannerAnchor}
+                    onChange={event => setTbcBannerAnchor(event.target.value)}
+                    placeholder={DEFAULT_TBC_ANCHOR}
+                    aria-invalid={!isValidTbcAnchor(tbcBannerAnchor)}
+                    aria-describedby="tbc-anchor-help"
+                    data-testid="input-tbc-section-anchor"
+                  />
+                  <p id="tbc-anchor-help" className="text-sm text-slate-500">
+                    Start with a letter; use letters, numbers, hyphens or underscores, without #.
+                    Leave blank for the default. Example: <code>/events#{normalizeTbcAnchor(tbcBannerAnchor)}</code>.
+                    {' '}Existing /events#tbc-events-banner links continue to work.
+                  </p>
                 </div>
                 <RadioGroup
                   value={tbcBannerMode}
@@ -4620,5 +4693,6 @@ export default function EventSettingsPage() {
         </DialogContent>
       </Dialog>
     </div>
+    </EventSettingsSaveBoundary>
   );
 }

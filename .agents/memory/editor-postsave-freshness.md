@@ -8,6 +8,18 @@ After saving an editor, keep its form loaded until the authoritative refresh com
 
 **How to apply:** Await a successful refresh before adopting server values. Preserve the submitted form on refresh failure and preserve newer edits made during the request. Distinguish a successful save followed by a failed reload from a failed save.
 
+On return visits, cached query data is not authoritative initial-load evidence.
+Draft protection must not freeze a cached snapshot before the mount's fetch
+finishes. Keep subsequent server-read baselines separate from preserved drafts.
+
+**Why:** Otherwise a local equality check can report “saved” without writing,
+even after a refetch shows that the persisted value differs. Initial-load locking
+and dirty-draft preservation are separate requirements.
+
+**How to apply:** Require a successful fetch after mount before enabling edits;
+update the persistence baseline on authoritative refetches without replacing
+drafts, and fence reads started before a write acknowledgement.
+
 Legacy editors need a raw persisted snapshot separate from a hydrated,
 save-normalized baseline. Compare user edits against the latter, then omit
 unchanged authority/configuration keys from PATCH requests.

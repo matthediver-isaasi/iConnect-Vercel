@@ -4,6 +4,22 @@
 export const DEFAULT_TBC_BANNER_TITLE = 'Events open for pre-registration';
 export const DEFAULT_TBC_JUMP_LABEL = 'Jump to pre-registration events';
 export const DEFAULT_TBC_JUMP_DESCRIPTION = 'Some events are open for pre-registration while their dates are confirmed.';
+export const DEFAULT_TBC_ANCHOR = 'tbc-events-banner';
+
+export function isValidTbcAnchor(value) {
+  return typeof value === 'string' && (!value.trim() || /^[A-Za-z][A-Za-z0-9_-]{0,79}$/.test(value.trim()));
+}
+
+export function normalizeTbcAnchor(value) {
+  return isValidTbcAnchor(value) && value.trim() ? value.trim() : DEFAULT_TBC_ANCHOR;
+}
+
+export function isTbcHash(hash, anchor) {
+  try {
+    const fragment = decodeURIComponent((hash || '').replace(/^#/, ''));
+    return fragment === DEFAULT_TBC_ANCHOR || fragment === normalizeTbcAnchor(anchor);
+  } catch { return false; }
+}
 
 /**
  * Parse the tbc_events_banner system setting. Returns the parsed config when

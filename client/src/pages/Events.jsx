@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useTicketViewerKey } from "@/hooks/useTicketViewerKey";
+import { useTbcSectionNavigation } from "@/hooks/useTbcSectionNavigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -69,6 +70,8 @@ import {
   getTbcBannerTitle,
   getTbcJumpLabel,
   getTbcJumpDescription,
+  normalizeTbcAnchor,
+  DEFAULT_TBC_ANCHOR,
 } from "@/lib/tbcEventsBanner";
 import { listAllOrganizationsForAdmin } from '@/lib/adminOrgList';
 import { resolveEventCtaLabel } from '@/lib/eventCtaLabel';
@@ -379,7 +382,7 @@ export default function EventsPage({
   const isLoading = isLoadingSimple || isLoadingComplex;
 
   // Query for all system settings (using public endpoint for unauthenticated access)
-  const { data: systemSettings = [] } = useQuery({
+  const { data: systemSettings = [], isLoading: loadingSystemSettings } = useQuery({
     queryKey: ['public-system-settings'],
     queryFn: () => publicClient.listSystemSettings()
   });
@@ -817,16 +820,19 @@ export default function EventsPage({
   const showTbcBanner = tbcBannerPlacement.show;
   const tbcBannerStyle = getTbcBannerStyle(tbcBannerConfig);
   const tbcBannerTitle = getTbcBannerTitle(tbcBannerConfig);
+  const tbcAnchor = normalizeTbcAnchor(tbcBannerConfig?.sectionAnchor);
+  useTbcSectionNavigation({ anchor: tbcAnchor, visible: showTbcBanner, loading: isLoading || loadingSystemSettings });
   const scrollToTbcBanner = () => {
-    document.getElementById('tbc-events-banner')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (showTbcBanner) document.getElementById(tbcAnchor)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
   const tbcBannerNode = showTbcBanner ? (
     <div
-      id="tbc-events-banner"
+      id={tbcAnchor}
       className="col-span-full rounded-lg p-4 flex items-center gap-2 scroll-mt-24"
-      style={tbcBannerStyle}
+      style={{ ...tbcBannerStyle, scrollMarginTop: '10rem', position: 'relative' }}
       data-testid="banner-tbc-events"
     >
+      {tbcAnchor !== DEFAULT_TBC_ANCHOR && <span id={DEFAULT_TBC_ANCHOR} aria-hidden="true" style={{ position: 'absolute', top: 0, scrollMarginTop: '10rem' }} />}
       <Clock className="h-5 w-5 shrink-0" style={{ color: tbcBannerConfig.iconColor || '#2563eb' }} />
       <h2 className="text-lg font-semibold" style={{ color: tbcBannerConfig.textColor || '#1e3a8a' }}>
         {tbcBannerTitle}
