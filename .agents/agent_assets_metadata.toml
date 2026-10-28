@@ -1657,3 +1657,17 @@ mtime_ms = 1792746010931
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/11b7710d-2213-485b-8dff-dfbe1499cff9/63e2f36c-d806-4a34-aea2-f4262366f267"
 storage_version_token = "1792746033203742"
 content_type = "text/html"
+
+[[outputs]]
+id = "xNaNHCOTKbvspBIQpoMT8"
+uri = "file://guides/membership-changes-user-guide.html"
+type = "html"
+title = "Membership changes — user guide"
+description = "A plain-English, printable guide for members and administrators: requesting and processing changes, payments, credit, refunds, cancellation, status messages and current limitations."
+logical_id = "739151ee-f64f-41bd-a28d-cb4c75b358bb"
+content_hash = "sha256:e45f4c7603ed8cd9b9e5b462dfe7f407aef394e1920f253c7db70cbd826f75f4"
+size = 10747
+mtime_ms = 1793189306396
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/739151ee-f64f-41bd-a28d-cb4c75b358bb/aa9522a2-39c0-448f-b1d2-486dcd9a5bee"
+storage_version_token = "1793189316187911"
+content_type = "text/html"

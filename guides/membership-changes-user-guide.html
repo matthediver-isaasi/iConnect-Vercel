@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Membership changes — user guide</title>
+<style>
+body{font:17px/1.65 system-ui,sans-serif;color:#213044;background:#f2f5f8;margin:0}
+main{max-width:850px;margin:32px auto;padding:40px;background:white;border-radius:12px}
+h1,h2,h3{line-height:1.25;color:#16354a}h2{margin-top:38px}
+.note{background:#eef5fa;border-left:4px solid #3980a6;padding:16px 20px}
+.caution{background:#fff7e7;border-left:4px solid #b88125;padding:16px 20px}
+table{border-collapse:collapse;width:100%;font-size:15px}td,th{text-align:left;vertical-align:top;border-bottom:1px solid #dce2e8;padding:12px}
+small{color:#556575}a{color:#175d87}li{margin:8px 0}
+@media(max-width:600px){main{margin:0;padding:22px;border-radius:0}body{font-size:16px}}
+@media print{body{background:white}main{margin:0;max-width:none;padding:0}.note,.caution{break-inside:avoid}h2{break-after:avoid}}
+</style>
+<main>
+<h1>Changing or cancelling a membership</h1>
+<p><strong>A guide for members and membership administrators</strong><br><small>Prepared by Replit Agent · 28 October 2026 · Current implementation for preview testing</small></p>
+<div class="note"><strong>The key distinction:</strong> requesting a change, approving it, completing its financial arrangements and applying the new membership are separate stages. An approval message does not mean that a payment or refund has happened.</div>
+
+<h2>1. What is now available?</h2>
+<p>Members can request a change to their membership through an enabled membership-change form. Administrators can review the request and use its saved financial details to process the change.</p>
+<p>Supported processing includes additional-payment invoices, eligible member credit, refund handling and changes to supported monthly payment arrangements. Administrators also have cancellation controls, with separate handling of access and the final financial balance.</p>
+<p>The system retains the original purchase and records the change separately, so the membership team can see what was requested, approved and applied.</p>
+
+<h2>2. How a member requests a change</h2>
+<ol>
+<li><strong>Sign in and open the membership-change form</strong> provided by your membership team.</li>
+<li><strong>Choose an offered membership structure</strong> and, where relevant, the appropriate pricing band. Enter the reason for the change.</li>
+<li>Select <strong>Preview request</strong>. Check the proposed membership, dates and any available financial figures.</li>
+<li>Confirm that you have reviewed the information, then select <strong>Submit for review</strong>.</li>
+<li>Check the request history for progress. A pending request can be withdrawn before it is approved.</li>
+</ol>
+<p>Submitting a request does not immediately change the membership or take payment. If the form reports missing information or an unresolved existing change, contact the membership team rather than submitting duplicate requests.</p>
+<div class="caution"><strong>Current release:</strong> all member-submitted changes still require administrator review, even where the organisation's saved policy allows automatic approval. Automatic approval is not yet connected.</div>
+
+<h2>3. How an administrator processes a request</h2>
+<ol>
+<li>Open the member's record and select the <strong>Membership</strong> tab. Processing controls require the appropriate administration and finance permissions.</li>
+<li>Review the member's request. Record a reason for approving or rejecting it and confirm your decision.</li>
+<li>For an approved request, select <strong>Review financial processing</strong>. This takes you to the financial controls for that specific approved change.</li>
+<li>Check the proposed membership, dates, financial treatment and any warnings. Select a permitted treatment where a choice is offered.</li>
+<li>Enter the required financial approval reason and explicitly confirm processing. This is separate from approving the member's initial request.</li>
+<li>Monitor the result. Payment, refund or provider checks may still be outstanding before the change can be applied.</li>
+</ol>
+<p>For an administrator-led change, use the preview and confirmation controls in the Membership tab. Always work from the current saved proposal rather than creating another proposal to get around a processing warning.</p>
+
+<h2>4. How money and membership dates are handled</h2>
+<h3>If an additional amount is due</h3>
+<p>The supported financial flow creates the additional invoice. The change remains pending until the required settlement has been verified. Creating an invoice is not evidence that it has been paid.</p>
+<h3>If there is eligible unused value</h3>
+<p>The available treatment depends on the organisation's policy and verified payment history:</p>
+<ul>
+<li><strong>Member credit:</strong> eligible value can become personal credit held in iConnect, with the corresponding accounting records. Any expiry follows the configured policy; the default is no expiry.</li>
+<li><strong>Refund:</strong> refund handling requires a separately completed, recorded and bank-reconciled refund. Selecting this option does not automatically send money back to a card or bank account.</li>
+</ul>
+<p>A credit note is an accounting adjustment. It is not, on its own, proof of either a cash refund or spendable member credit.</p>
+<h3>If there is no financial difference</h3>
+<p>A supported change can proceed without an extra collection or refund, but it still requires confirmation and successful application.</p>
+<h3>Monthly payments</h3>
+<p>Supported monthly card and Direct Debit changes use the saved membership and payment arrangement. Do not assume that editing a price elsewhere automatically updates an existing card agreement.</p>
+<p>For cancellation, unpaid future instalments are not treated as money already received. For variable monthly Direct Debit, service periods follow the membership-start anniversaries, not the dates on which collections happened.</p>
+<h3>Renewal date</h3>
+<p>A supported change can retain the existing renewal date or start a replacement term, as permitted by the configured change rules. Check the dates in the preview: an upgrade does not automatically mean a fresh twelve-month membership.</p>
+
+<h2>5. Cancelling a membership</h2>
+<p>Cancellation is currently an <strong>administrator action</strong> in the member's Membership tab, not a member self-service option.</p>
+<ol>
+<li>Enter the cancellation reason and preview it.</li>
+<li>Check the effective date. The organisation's cancellation policy determines whether it takes effect immediately or at the end of the term.</li>
+<li>Explicitly confirm the cancellation.</li>
+<li>Review cancellation finances separately using <strong>Preview cancellation finances</strong>, then approve the permitted financial treatment.</li>
+</ol>
+<ul>
+<li><strong>Immediate cancellation ends membership access immediately.</strong> A balance for service already used may remain payable.</li>
+<li>A scheduled cancellation can be withdrawn before access has ended. Withdrawal keeps the history; it does not erase the original request.</li>
+<li>Once access has ended, withdrawal cannot restore it.</li>
+<li>Paying an old outstanding invoice does not restart a cancelled membership.</li>
+<li>Ending access does not mean that all payment-provider or accounting checks are complete.</li>
+</ul>
+<p>Background processing supports scheduled cancellations and recovery. Separate notifications distinguish membership access ending from the final financial balance being resolved. Neither notification should be assumed sent until delivery is confirmed.</p>
+
+<h2>6. Understanding progress messages</h2>
+<table>
+<thead><tr><th>Message</th><th>What it means</th></tr></thead>
+<tbody>
+<tr><td>Pending review</td><td>The membership team has not yet approved or rejected the request.</td></tr>
+<tr><td>Approved for processing</td><td>The request is approved, but financial processing or application has not been confirmed.</td></tr>
+<tr><td>Processing / applying</td><td>Work is in progress. Do not assume the new membership is active yet.</td></tr>
+<tr><td>Awaiting payment</td><td>The required payment has not yet been verified.</td></tr>
+<tr><td>Awaiting refund</td><td>The refund still needs to be completed and verified.</td></tr>
+<tr><td>Awaiting reconciliation</td><td>The team needs to verify an existing financial or payment-provider outcome before proceeding.</td></tr>
+<tr><td>Membership change applied</td><td>The new membership has been applied. This label alone is not a cash-refund receipt.</td></tr>
+<tr><td>Processing status unavailable</td><td>The latest position could not be loaded. Refresh or contact the team; it does not mean processing failed or completed.</td></tr>
+</tbody></table>
+<p><strong>If a screen times out:</strong> use the recovery or refresh action first. The original operation may already exist. Do not create a second request or repeat a payment/refund simply because the response was lost.</p>
+
+<h2>7. Making a change form available</h2>
+<p>In FormBuilder, save an active form that requires members to sign in. Enable its membership-change settings, choose the membership structures it may offer and save those settings. Give members the resulting form link.</p>
+<p>Enabling the form does not change existing memberships or start billing. It makes the request journey available to members who are allowed to access that form.</p>
+
+<h2>8. Cases still needing attention</h2>
+<div class="caution">
+<ul>
+<li><strong>Automatic policy-based approval:</strong> not yet connected; administrators must review member requests.</li>
+<li><strong>Member self-service cancellation:</strong> not yet available; the membership team must use the admin controls.</li>
+<li><strong>Cancellation funded by original vouchers or organisation money:</strong> the original-owner return process is not complete. Do not convert that funding into personal cash or credit as a workaround.</li>
+<li><strong>Some variable Direct Debit collections:</strong> an unsubmitted collection or missing accounting evidence can block the financial outcome pending investigation.</li>
+</ul>
+</div>
+<p>Unknown amounts are not zero balances. Where records cannot establish the correct outcome, the system stops financial processing rather than guessing.</p>
+<p><strong>Testing recommendation:</strong> start with clearly documented test memberships and test payment/accounting arrangements. Check the original membership, requested change, financial documents and final membership together. A preview branch alone should not be assumed to isolate live payments, emails or accounting records.</p>
+</main>
+</html>
