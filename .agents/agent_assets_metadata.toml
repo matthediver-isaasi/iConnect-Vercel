@@ -1671,3 +1671,17 @@ mtime_ms = 1793189306396
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/739151ee-f64f-41bd-a28d-cb4c75b358bb/aa9522a2-39c0-448f-b1d2-486dcd9a5bee"
 storage_version_token = "1793189316187911"
 content_type = "text/html"
+
+[[outputs]]
+id = "0Mo1wmOx0vCcJgrHHlmhe"
+uri = "file://guides/membership-changes-user-guide.pdf"
+type = "pdf"
+title = "Membership changes — PDF user guide"
+description = "The complete five-page guide for members and administrators, formatted for downloading, sharing and printing."
+logical_id = "ef51c0ae-d69e-4818-b076-fd63f845158c"
+content_hash = "sha256:7959bdf23c9ef10c6b421ee2e0c88dd53d8520227520bee9213cf828cf3e5232"
+size = 49794
+mtime_ms = 1793189404919
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/ef51c0ae-d69e-4818-b076-fd63f845158c/83e14cc4-0eb9-457c-9f34-a2df487aa926"
+storage_version_token = "1793189417556578"
+content_type = "application/pdf"
