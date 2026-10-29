@@ -4,6 +4,7 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
+    "test:registration-anchors:browser": "playwright test --config=tests/event-registration-price-paid.config.mjs --grep='anchored'",
     "test:sales-catalogue-dialog:browser": "node --test tests/sales-product-dialog.browser.test.mjs",
     "test:campaign-pdf": "node scripts/run-isolated-tests.mjs node --test client/src/lib/campaignPdfEligibility.test.mjs client/src/components/EmailCampaigns.lifecycle.mounted.test.mjs api/email-campaigns/timings.test.mjs api/member-campaigns/authorization.test.mjs",
     "test:campaign-pdf:browser": "playwright test --config=tests/campaign-pdf.config.mjs",

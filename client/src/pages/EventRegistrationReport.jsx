@@ -1,4 +1,5 @@
 import AdminEventWaitingList from "@/components/events/AdminEventWaitingList";
+import "./EventRegistrationReport.css";
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
 import GuestRegistrationMemberDialog from "@/components/events/GuestRegistrationMemberDialog";
@@ -2193,12 +2194,12 @@ export default function EventRegistrationReport() {
                     {' '}Voucher, Training Fund and Account amounts reflect only allocations recorded in this app. A recorded zero on an imported registration does not establish its external payment history; imported financial history may be unavailable.
                     {' '}Credits are successful post-booking refunds or accounting credit notes recorded in iConnect, not vouchers, training funds or account allocations used at checkout. £0.00 means No credits recorded in iConnect. Historical references without amounts show Amount not recorded. Pending and failed actions are not applied credits. Unknown amounts or allocations prevent a complete total. Reloading reads local records only.
                   </p>
-                  <div className="overflow-x-auto">
+                  <div className="registration-report-scroll" role="region" aria-label="Registrations table" tabIndex={0}>
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b text-left">
-                          <th scope="col" className="pb-3 pr-1 font-medium text-muted-foreground whitespace-nowrap w-[68px]">Actions</th>
-                          <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Name</th>
+                          <th scope="col" data-pinned="actions" className="pb-3 pr-1 font-medium text-muted-foreground whitespace-nowrap">Actions</th>
+                          <th scope="col" data-pinned="name" className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Name</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Event</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Int. Ref</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Organisation</th>
@@ -2255,10 +2256,10 @@ export default function EventRegistrationReport() {
 
                             return (
                               <tr key={attendee.id} className={`border-b last:border-0 ${registrationMemberHighlight(attendee)}`} data-testid={`row-booking-${attendee.id}`}>
-                                <td className="py-3 pr-1">
+                                <td data-pinned="actions" className="py-3 pr-1">
                                   {renderActionIcons(attendee, group)}
                                 </td>
-                                <td className="py-3 pr-3">
+                                <td data-pinned="name" className="py-3 pr-3">
                                   <div className="font-medium whitespace-nowrap">
                                     {`${attendee.attendee_first_name || ''} ${attendee.attendee_last_name || ''}`.trim() || 'Unknown'}
                                   </div>
@@ -2450,8 +2451,8 @@ export default function EventRegistrationReport() {
                                 style={{ borderTopWidth: '2px' }}
                                 data-testid={`row-booker-header-${headerKey}`}
                               >
-                                <td className="py-2 pr-1"></td>
-                                <td className="py-2 pr-3">
+                                <td data-pinned="actions" className="py-2 pr-1"></td>
+                                <td data-pinned="name" className="py-2 pr-3">
                                   <div className="flex items-center gap-2 flex-wrap">
                                     <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
                                       {group.attendeeCount}
@@ -2504,10 +2505,10 @@ export default function EventRegistrationReport() {
                                 style={isFirstRowInGroup ? { borderTopWidth: '2px' } : undefined}
                                 data-testid={`row-booking-${attendee.id}`}
                               >
-                                <td className="py-2 pr-1">
+                                <td data-pinned="actions" className="py-2 pr-1">
                                   {renderActionIcons(attendee, group)}
                                 </td>
-                                <td className="py-2 pr-3">
+                                <td data-pinned="name" className="py-2 pr-3">
                                   <div className="flex items-center gap-2 flex-wrap">
                                     {isFirst && !showBookerHeader && (
                                       <Badge variant="secondary" className="text-[10px] px-1.5 py-0">

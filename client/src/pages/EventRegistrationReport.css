@@ -1,0 +1,90 @@
+.registration-report-scroll {
+  --report-actions-width: 76px;
+  --report-name-width: clamp(120px, 18vw, 240px);
+  overflow: auto;
+  max-height: 65vh;
+  max-height: 65dvh;
+  isolation: isolate;
+}
+
+.registration-report-scroll:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+/* Separate borders stay attached to sticky cells in both scroll directions. */
+.registration-report-scroll table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.registration-report-scroll th,
+.registration-report-scroll td {
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.registration-report-scroll tr[style*="border-top-width"] > td {
+  border-top: 2px solid hsl(var(--border));
+}
+
+.registration-report-scroll thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: hsl(var(--card));
+  padding-top: 12px;
+}
+
+/* Explicit roles, not cell positions: group financial cells use rowSpan. */
+.registration-report-scroll [data-pinned] {
+  position: sticky;
+  z-index: 2;
+  background: hsl(var(--card));
+  box-sizing: border-box;
+}
+
+.registration-report-scroll [data-pinned="actions"] {
+  left: 0;
+  width: var(--report-actions-width);
+  min-width: var(--report-actions-width);
+  max-width: var(--report-actions-width);
+}
+
+.registration-report-scroll [data-pinned="actions"] > div {
+  flex-wrap: wrap;
+}
+
+.registration-report-scroll [data-pinned="name"] {
+  left: var(--report-actions-width);
+  width: var(--report-name-width);
+  min-width: var(--report-name-width);
+  max-width: var(--report-name-width);
+  overflow-wrap: anywhere;
+  box-shadow: 1px 0 hsl(var(--border));
+}
+
+.registration-report-scroll [data-pinned="name"] * {
+  white-space: normal;
+  min-width: 0;
+}
+
+/* Composite translucent row tints onto an opaque card to prevent bleed-through. */
+.registration-report-scroll tr.bg-amber-50\/60 [data-pinned] {
+  background: linear-gradient(rgb(255 251 235 / .6), rgb(255 251 235 / .6)), hsl(var(--card));
+}
+
+.dark .registration-report-scroll tr.dark\:bg-amber-950\/20 [data-pinned] {
+  background: linear-gradient(rgb(69 26 3 / .2), rgb(69 26 3 / .2)), hsl(var(--card));
+}
+
+.registration-report-scroll tr.bg-muted\/30 [data-pinned] {
+  background: linear-gradient(hsl(var(--muted) / .3), hsl(var(--muted) / .3)), hsl(var(--card));
+}
+
+.registration-report-scroll thead [data-pinned] {
+  z-index: 4;
+}
+
+.registration-report-scroll tfoot td {
+  border-top: 2px solid hsl(var(--border));
+}

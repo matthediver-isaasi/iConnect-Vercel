@@ -11,7 +11,7 @@ const handlerSource = source.slice(
   source.indexOf('  const handleClearFilters = () => {'),
 );
 const emptyFilters = {
-  eventId: null, eventName: '', internalReference: '', dateFrom: '',
+  eventId: null, eventKind: 'simple', eventName: '', internalReference: '', dateFrom: '',
   dateTo: '', eventDateFrom: '', eventDateTo: '',
 };
 

@@ -544,7 +544,7 @@ function json(route, body, status = 200) {
   });
 }
 
-async function installFixture(page, { bookingGroups, paymentSettings = [], paymentSettingsStatus = 200 } = {}) {
+async function installFixture(page, { bookingGroups, paymentSettings = [], paymentSettingsStatus = 200, attendance = false } = {}) {
   const state = { writes: [], unexpectedExternal: [] };
   const reportGroups = bookingGroups
     || [bookingGroup(NET_ATTENDEE), bookingGroup(PENDING_ATTENDEE)];
@@ -604,7 +604,7 @@ async function installFixture(page, { bookingGroups, paymentSettings = [], payme
           summary: {},
           hasZoomForSelectedEvents: false,
           hasTeamsForSelectedEvents: false,
-          hasAttendanceForSelectedEvents: false,
+          hasAttendanceForSelectedEvents: attendance,
         });
       }
       return json(route, { events: [EVENT] });
@@ -683,6 +683,94 @@ test('failed payment settings leave the generated report usable without optional
   await expect(page.getByTestId('text-total-vouchers')).toHaveCount(0);
   await expect(page.getByTestId('text-total-fund')).toHaveCount(0);
   await expect(page.getByTestId('text-total-revenue')).toBeVisible();
+});
+
+for (const width of [1440, 390]) {
+  test(`anchored registration headings and identity at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 850 });
+    const groups = creditFixtureGroups();
+    groups[0].attendees[0].attendee_first_name = 'VeryLongUnbrokenAttendeeName'.repeat(3);
+    groups[0].attendees[0].attendee_email = `${'longemail'.repeat(8)}@example.invalid`;
+    groups[1].attendees[0].is_booker = true;
+    groups[1].attendees[0].member_id = 'fixture-member';
+    groups.push(...paginationFixtureGroups());
+    const state = await openGeneratedReport(page, {
+      bookingGroups: groups,
+      attendance: width === 390,
+      paymentSettings: [
+        { setting_key: 'event_allow_voucher_payment', setting_value: width === 1440 },
+        { setting_key: 'event_allow_training_fund_payment', setting_value: width === 390 },
+      ],
+    });
+    const region = page.getByRole('region', { name: 'Registrations table' });
+    await expect(region).toBeVisible();
+    const geometry = () => region.evaluate(el => {
+      const box = el.getBoundingClientRect();
+      return {
+        left: box.left, top: box.top, width: box.width, height: box.height,
+        scrollWidth: el.scrollWidth, scrollHeight: el.scrollHeight,
+        headers: [...el.querySelectorAll('thead th')].map(cell => ({
+          label: cell.textContent, x: cell.getBoundingClientRect().x, y: cell.getBoundingClientRect().y,
+        })),
+        pins: [...el.querySelectorAll('tbody [data-pinned]')].map(cell => ({
+          role: cell.dataset.pinned, x: cell.getBoundingClientRect().x,
+          width: cell.getBoundingClientRect().width, scrollWidth: cell.scrollWidth,
+          clientWidth: cell.clientWidth, bg: getComputedStyle(cell).backgroundColor,
+        })),
+      };
+    });
+    const before = await geometry();
+    expect(before.scrollWidth).toBeGreaterThan(before.width);
+    expect(before.scrollHeight).toBeGreaterThan(before.height);
+    expect(before.height).toBeLessThanOrEqual(850 * .65 + 1);
+    expect(before.headers.some(h => h.label === 'Voucher')).toBe(width === 1440);
+    expect(before.headers.some(h => h.label === 'Fund')).toBe(width === 390);
+    await expect(region.locator('[data-testid="text-attended-credit-single"]')).toHaveCount(width === 390 ? 1 : 0);
+    await region.evaluate(el => { el.scrollLeft = 650; el.scrollTop = 180; });
+    await page.waitForTimeout(100);
+    const after = await geometry();
+    for (const header of after.headers) expect(Math.abs(header.y - after.top)).toBeLessThan(2);
+    expect(after.headers[0].x).toBeCloseTo(before.headers[0].x, 0);
+    expect(after.headers[1].x).toBeCloseTo(before.headers[1].x, 0);
+    expect(after.headers[2].x).toBeLessThan(before.headers[2].x - 600);
+    after.pins.forEach((cell, i) => {
+      expect(cell.x).toBeCloseTo(before.pins[i].x, 0);
+      expect(cell.scrollWidth).toBeLessThanOrEqual(cell.clientWidth + 1);
+      expect(cell.bg).not.toBe('rgba(0, 0, 0, 0)');
+    });
+    expect(after.pins.filter(p => p.role === 'name').every(p =>
+      Math.abs(p.x - after.left - 76) < 2)).toBe(true);
+    await region.scrollIntoViewIfNeeded();
+    const cornerOnTop = await region.evaluate(el => {
+      const corner = el.querySelector('thead [data-pinned="name"]');
+      const rect = corner.getBoundingClientRect();
+      return corner.contains(document.elementFromPoint(rect.x + 10, rect.y + 10));
+    });
+    expect(cornerOnTop).toBe(true);
+    await page.screenshot({ path: `/tmp/registration-anchors-${width}.png` });
+    await expect(region.locator('[data-testid^="row-booker-header-"] [data-pinned]')).toHaveCount(2);
+    await expect(region.getByTestId('badge-booker-credit-standard-a')).toBeVisible();
+    // Open a real row action after horizontal scrolling without submitting it.
+    await region.evaluate(el => { el.scrollTop = 0; });
+    await region.getByTestId('button-cancel-credit-single').click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await page.evaluate(() => document.documentElement.classList.add('dark'));
+    expect((await geometry()).pins.every(p => p.bg !== 'rgba(0, 0, 0, 0)')).toBe(true);
+    expect(state.writes).toEqual([]);
+    expect(state.unexpectedExternal).toEqual([]);
+  });
+}
+
+test('anchored short registration report uses natural height', async ({ page }) => {
+  await openGeneratedReport(page);
+  const region = page.getByRole('region', { name: 'Registrations table' });
+  const sizes = await region.evaluate(el => ({
+    height: el.clientHeight, tableHeight: el.querySelector('table').offsetHeight,
+    viewport: innerHeight,
+  }));
+  expect(sizes.height).toBeLessThan(sizes.viewport * .65);
+  expect(Math.abs(sizes.height - sizes.tableHeight)).toBeLessThan(2);
 });
 
 async function readDownload(download) {
