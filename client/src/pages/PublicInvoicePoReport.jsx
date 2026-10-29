@@ -1,6 +1,6 @@
 import { useId, useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarDays, Search, RefreshCw } from "lucide-react";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { adminFetch } from "@/lib/adminFetch";
@@ -10,6 +10,8 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import PublicInvoicePoRegistrations from "@/components/events/PublicInvoicePoRegistrations";
 import PublicInvoicePoFormAnswers from "@/components/events/PublicInvoicePoFormAnswers";
+import GuestRegistrationMemberDialog from "@/components/events/GuestRegistrationMemberDialog";
+import { PUBLIC_INVOICE_PO_BILLING_KEY } from "@/hooks/usePublicInvoicePoBilling";
 
 function ReportSkeleton() {
   return <div role="status" aria-label="Loading registrations" className="space-y-4 py-6">
@@ -73,10 +75,13 @@ function EventFilter({ events, selected, onSelect }) {
 }
 
 export default function PublicInvoicePoReport() {
-  const { isAccessReady, isFeatureExcluded, memberInfo, sessionValidated } = useMemberAccess();
+  const { isAccessReady, isFeatureExcluded, memberInfo, sessionValidated, isAdmin } = useMemberAccess();
+  const client = useQueryClient();
+  const canCreateGuestMember = isAccessReady && isAdmin && !isFeatureExcluded("admin.role-management");
   const allowed = isAccessReady && sessionValidated && !!memberInfo?.tenant_id
     && !isFeatureExcluded("events.public-invoice-po-report");
   const identity = `${memberInfo?.tenant_id || ""}:${memberInfo?.id || ""}`;
+  const [memberTarget, setMemberTarget] = useState(null);
   const [selection, setSelection] = useState(null);
   const selected = selection?.identity === identity ? selection.event : null;
   const query = useQuery({
@@ -114,8 +119,22 @@ export default function PublicInvoicePoReport() {
       <Button variant="outline" onClick={() => query.refetch()}>Retry</Button>
     </CardContent></Card> : query.data && <PublicInvoicePoRegistrations
       key={`${identity}:${selected?.id || "all"}`} groups={groups} allGroups={groups} organizations={query.data.organizations || {}}
+      tenantId={memberInfo?.tenant_id} viewerId={memberInfo?.id} canCreateGuestMember={canCreateGuestMember}
+      onCreateMember={target => { if (canCreateGuestMember) setMemberTarget({ ...target, sessionIdentity: identity }); }}
       renderFormAnswers={(group, email) => <PublicInvoicePoFormAnswers group={group} email={email}
         submissions={query.data.formSubmissions || []} formsById={query.data.formsById || {}}
         labels={query.data.relationshipLabelsByRecordId || {}} />} />}
+    {canCreateGuestMember && memberTarget?.sessionIdentity === identity && <GuestRegistrationMemberDialog
+      key={`${identity}:${memberTarget.bookingId}:${memberTarget.isComplex}:${memberTarget.identity}`}
+      {...memberTarget} tenantId={memberInfo?.tenant_id} viewerId={memberInfo?.id}
+      onClose={() => setMemberTarget(null)}
+      onSuccess={async () => {
+        setMemberTarget(null);
+        await Promise.all([
+          client.invalidateQueries({ queryKey: PUBLIC_INVOICE_PO_BILLING_KEY }),
+          client.invalidateQueries({ queryKey: ["public-invoice-po-report"] }),
+          client.invalidateQueries({ queryKey: ["event-registration-report"] }),
+        ]);
+      }} />}
   </main>;
 }

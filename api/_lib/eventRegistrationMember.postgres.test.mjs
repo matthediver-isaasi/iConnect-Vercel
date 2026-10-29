@@ -116,6 +116,22 @@ test('atomic guest conversion: tenant scope, exact financial preservation, race/
       await assert.rejects(db.query(groupSql, [...args(47), id(20)]), { code: '42501' });
       await db.query('RESET ROLE');
     }
+    await db.query('RESET ROLE');
+    await db.query(await readFile(new URL('../../supabase/migrations/202612090004_public_invoice_booker_member.sql',import.meta.url),'utf8'));
+    await booking(99);
+    await db.query(`UPDATE booking SET payment_method='public_invoice_po',
+      purchaser_context='{"classification":"public_non_member","details":{"email":"member99@example.invalid"}}' WHERE id=$1`,[id(99)]);
+    const originalBookerBooking=(await db.query('SELECT to_jsonb(b) data FROM booking b WHERE id=$1',[id(99)])).rows[0].data;
+    const purchaserSql='SELECT create_public_invoice_booker($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) result';
+    await db.query('SET ROLE authenticated');await assert.rejects(db.query(purchaserSql,args(99)),{code:'42501'});
+    await db.query('SET ROLE service_role');
+    await assert.rejects(db.query(purchaserSql,args(99,{5:'other@example.invalid'})),{code:'P0001'});
+    const booker=(await db.query(purchaserSql,args(99))).rows[0].result;
+    assert.ok(booker.member.id);
+    await assert.rejects(db.query(purchaserSql,args(99)),{code:'23505'});
+    await db.query('RESET ROLE');
+    assert.deepEqual((await db.query('SELECT to_jsonb(b) data FROM booking b WHERE id=$1',[id(99)])).rows[0].data,originalBookerBooking,
+      'Creating a different booker never reassigns attendee membership or changes finance');
   } finally {
     await other?.end(); await db?.end();
     if (started) execFileSync('pg_ctl', ['-D', cluster, '-m', 'immediate', '-w', 'stop'], { stdio: 'pipe' });

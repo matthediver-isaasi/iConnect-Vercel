@@ -70,5 +70,25 @@ export async function loadMemberActivityInvoices(db, { tenantId, memberId, canAc
     readAll(db, 'historical_member_invoice', ARCHIVE_COLUMNS, tenantId, memberId),
     readAll(db, 'member_membership_history', CURRENT_COLUMNS, tenantId, memberId),
   ]);
-  return mergeMemberActivityInvoices(archive, current, canAccessInvoices);
+  const result = mergeMemberActivityInvoices(archive, current, canAccessInvoices);
+  let eventInvoices;
+  try {
+    eventInvoices = await readAll(db, 'public_invoice_po_billing',
+      'id,invoice_id,invoice_number,invoice_date,amount,currency,provider,invoice_status,payment_status,checked_at',
+      tenantId, memberId);
+  } catch (error) {
+    if (!['42P01','PGRST205'].includes(error.code)) throw error;
+    eventInvoices = [];
+  }
+  for (const row of eventInvoices) {
+    if (!row.invoice_id) continue;
+    if (row.provider === 'xero' && archive.some(a => a.xero_document_id === row.invoice_id)) continue;
+    result.push({id:`event-invoice:${row.id}`,invoice_number:row.invoice_number,invoice_date:row.invoice_date,
+      amount_minor:Math.round(Number(row.amount)*100),currency:row.currency,record_kind:'invoice',
+      description:'Event booking invoice',status:row.invoice_status,accounting_status:row.invoice_status,
+      accounting_payment_status:row.payment_status,accounting_status_checked_at:row.checked_at,
+      can_download:false});
+  }
+  return result.sort((a,b)=>timestamp(b.activity_date||b.invoice_date)-timestamp(a.activity_date||a.invoice_date)
+    || String(a.id).localeCompare(String(b.id)));
 }

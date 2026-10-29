@@ -250,7 +250,7 @@ export async function enqueueCheckoutEventInvoice({
   db, tenantId, source, bookingGroupReference, event, amount, currency,
   paymentMethod, paymentIntentId, paymentIntent, contact, purchaseOrderNumber,
   poToFollow, buildLines, booker, now = new Date(),
-}, { enqueue, logger = console } = {}) {
+}, { enqueue, captureAccountingEvent, logger = console } = {}) {
   if (paymentMethod === 'public_invoice_po' || paymentMethod === 'free' || Number(amount) <= 0) {
     return { status: 'not_applicable' };
   }
@@ -283,7 +283,7 @@ export async function enqueueCheckoutEventInvoice({
         return await (await import('./accountingEventSource.js')).enqueueQuickBooksEventInvoice({
           db, tenantId, source, bookingGroupReference, event, amount, currency,
           paymentMethod, paymentIntentId, paymentIntent, contact, purchaseOrderNumber, poToFollow, buildLines, booker, now,
-        }, context);
+        }, context, { capture: captureAccountingEvent });
       } catch (error) {
         // Never hand accepted/uncertain QuickBooks work to the Xero writer.
         logger.error('[Event invoice recovery] QuickBooks capture unavailable');

@@ -46,12 +46,12 @@ async function chooseRole() {
 async function submit() {
   await act(async () => document.querySelector("form").dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })));
 }
-async function mount(onSuccess = () => {}) {
+async function mount(onSuccess = () => {}, identity) {
   const node = document.createElement("div");
   document.body.appendChild(node);
   const root = createRoot(node);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
-  await act(async () => root.render(<QueryClientProvider client={client}><MemoryRouter><GuestRegistrationMemberDialog bookingId="booking-a" isComplex tenantId="tenant-a" viewerId="admin-a" onClose={() => {}} onSuccess={onSuccess} /></MemoryRouter></QueryClientProvider>));
+  await act(async () => root.render(<QueryClientProvider client={client}><MemoryRouter><GuestRegistrationMemberDialog bookingId="booking-a" isComplex tenantId="tenant-a" viewerId="admin-a" identity={identity} onClose={() => {}} onSuccess={onSuccess} /></MemoryRouter></QueryClientProvider>));
   await settle();
   return async () => {
     await act(async () => root.unmount());
@@ -89,7 +89,7 @@ test("loads authoritative details, requires explicit role, submits edits without
     await submit();
     await settle();
     const body = JSON.parse(calls.find(call => call.options.method === "POST").options.body);
-    assert.deepEqual(body, { bookingId: "booking-a", isComplex: true, first_name: "Amended", last_name: "Lee", email: "ari@example.test", supplied_organization_name: "Reviewed company", organization_id: null, role_id: "role-a" });
+    assert.deepEqual(body, { bookingId: "booking-a", isComplex: true, identity: "attendee", first_name: "Amended", last_name: "Lee", email: "ari@example.test", supplied_organization_name: "Reviewed company", organization_id: null, role_id: "role-a" });
     assert.equal(result.member.id, "member-a");
     assert.match(document.body.textContent, /no email will be sent/);
   } finally { await cleanup(); }
@@ -324,11 +324,49 @@ test("roles requiring an effective date have no assumed date and send the explic
 test("report preserves permission gating, linked-member precedence, actions header and booking-only member patch", () => {
   const source = readFileSync(new URL("../../pages/EventRegistrationReport.jsx", import.meta.url), "utf8");
   assert.match(source, /isAccessReady && isAdmin && !isFeatureExcluded\("admin.role-management"\)/);
-  assert.match(source, /attendee\.member_id \? \([\s\S]*canCreateGuestMember && \(attendee\.is_guest_booking \|\| !attendee\.organization_id\)/);
+  assert.match(source, /\(attendee\.member_id \|\| attendee\.linked_member_id\) \? \([\s\S]*canCreateGuestMember && \(attendee\.is_guest_booking \|\| !attendee\.organization_id\)/);
   assert.match(source, /<th scope="col"[^>]*>Actions<\/th>/);
   assert.match(source, /\{ \.\.\.attendee, member_id: data\.member\.id \}/);
   assert.match(source, /cancelQueries\(\{ queryKey: \["event-registration-report"\] \}\)/);
   assert.match(source, /invalidateQueries\(\{ queryKey: \["event-registration-report"\] \}\)/);
   assert.doesNotMatch(source, /is_guest_booking: false/);
   assert.match(source, /isComplex: group\.bookingSource === "complex_event_booking"/);
+});
+
+test("purchaser identity uses original booker prefill and is sent with GET and POST", async () => {
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, options });
+    return options.method === "POST" ? json({ member: { id: "booker-member" } }) : json({
+      ...payload, registration: { ...payload.registration, first_name: "Leila", email: "booker@example.test" },
+    });
+  };
+  const cleanup = await mount(() => {}, "purchaser");
+  try {
+    assert.match(document.body.textContent, /Create member for booking contact/);
+    assert.equal(document.getElementById("guest-member-first_name").value, "Leila");
+    assert.equal(new URL(calls[0].url, "https://tenant.example.test").searchParams.get("identity"), "purchaser");
+    await chooseRole();
+    await submit();
+    await settle();
+    const body = JSON.parse(calls.find(call => call.options.method === "POST").options.body);
+    assert.equal(body.identity, "purchaser");
+    assert.equal(body.email, "booker@example.test");
+  } finally { await cleanup(); }
+});
+
+test("default attendee identity and linked_member_id prevent duplicate member creation", async () => {
+  const calls = [], successes = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, options });
+    return json({ ...payload, registration: { ...payload.registration, linked_member_id: "linked-member" } });
+  };
+  const cleanup = await mount(data => successes.push(data));
+  try {
+    assert.equal(new URL(calls[0].url, "https://tenant.example.test").searchParams.get("identity"), "attendee");
+    assert.ok(!button("Create Member"));
+    await click(button("Update report and close"));
+    assert.equal(successes[0].member.id, "linked-member");
+    assert.equal(calls.filter(call => call.options.method === "POST").length, 0);
+  } finally { await cleanup(); }
 });

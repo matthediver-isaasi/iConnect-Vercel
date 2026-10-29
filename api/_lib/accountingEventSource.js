@@ -27,7 +27,7 @@ async function rpc(db, name, args) {
 }
 
 /** Capture only new checkout evidence; never load prices or infer historical invoices. */
-export async function enqueueQuickBooksEventInvoice(input, context) {
+export async function enqueueQuickBooksEventInvoice(input, context, { capture } = {}) {
   const { db, tenantId, source, bookingGroupReference, event, contact, buildLines, now } = input;
   const currency = String(input.currency || '').toUpperCase();
   const paymentMethod = input.paymentMethod === 'card' ? 'stripe' : 'invoice';
@@ -58,10 +58,11 @@ export async function enqueueQuickBooksEventInvoice(input, context) {
       });
     } catch { snapshot.invoice.reviewReason = 'original_stripe_evidence_required'; }
   }
-  const row = await rpc(db, 'capture', {
+  const captureArgs = {
     p_tenant: tenantId, p_source: source, p_group: bookingGroupReference,
     p_connection: context.provider.connectionId, p_company: context.provider.realmId, p_snapshot: snapshot,
-  });
+  };
+  const row = capture ? await capture(captureArgs) : await rpc(db, 'capture', captureArgs);
   if (!row?.id) fail('ACCOUNTING_EVENT_CAPTURE_NOT_CONFIRMED', true);
   return { status: row.state === 'complete' ? 'complete' : row.state === 'review' ? 'needs_review' : 'pending', queued: true };
 }

@@ -60,6 +60,36 @@ test('event queue SQL: atomic capture, immutable evidence, original payment owne
     assert.equal((await db.query('SELECT accounting_invoice_id FROM booking')).rows[0].accounting_invoice_id, 'invoice');
     await db.query('SET ROLE authenticated');
     await assert.rejects(db.query('SELECT accounting_event_due()'));
+    // Explicit public-PO approval can invoice an old registration without
+    // manufacturing a payment or pretending it was a fresh checkout.
+    await db.query('RESET ROLE');
+    await db.query(`CREATE TABLE member(id uuid PRIMARY KEY,tenant_id uuid,email text);
+      CREATE TABLE role(id uuid,tenant_id uuid,requires_effective_from_date boolean,max_members integer);
+      ALTER TABLE booking ADD COLUMN purchaser_context jsonb,ADD COLUMN total_cost numeric,ADD COLUMN currency text;
+      ALTER TABLE complex_event_booking ADD COLUMN purchaser_context jsonb,ADD COLUMN total_cost numeric,ADD COLUMN currency text;`);
+    for(const name of ['202612090003_public_invoice_po_billing.sql','202612090004_public_invoice_booker_member.sql'])
+      await db.query(readFileSync(new URL('../../supabase/migrations/'+name,import.meta.url),'utf8'));
+    await db.query(`INSERT INTO member VALUES($1,$1,'booker@example.invalid');
+      `,[t]);
+    const bookingId=(await db.query(`INSERT INTO booking(tenant_id,event_id,booking_group_reference,payment_method,payment_status,total_cost,currency,created_at,purchaser_context)
+      VALUES($1,$2,'public-po','public_invoice_po','unpaid',20,'GBP',now()-interval '5 days',
+      '{"classification":"public_non_member","details":{"email":"booker@example.invalid"}}') RETURNING id`,[t,event])).rows[0].id;
+    const originals=(await db.query(`SELECT jsonb_agg(to_jsonb(b) ORDER BY id) rows FROM booking b WHERE id=$1`,[bookingId])).rows[0].rows;
+    const invoiceSnapshot={version:1,preparation:true,environment:'production',invoice:{amount:20,currency:'GBP',paymentMethod:'invoice',eventId:event,capturedAt:new Date().toISOString(),
+      contact:{name:'Booker',email:'booker@example.invalid',provenance:{kind:'member',id:t}}},
+      payment:null,linkage:{source:'booking',group:'public-po'},approvalProvider:{connectionId:t,realmId:'realm'}};
+    const approve=()=>db.query('SELECT public_invoice_po_bill($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) result',
+      [t,'booking','public-po',t,'admin',JSON.stringify(originals),20,'GBP','quickbooks',invoiceSnapshot]);
+    await db.query('SET ROLE authenticated');await assert.rejects(approve());
+    await db.query('RESET ROLE');
+    const approval=(await approve()).rows[0].result;
+    assert.equal((await approve()).rows[0].result.id,approval.id,'repeat approval cannot invoice twice');
+    const converted=(await db.query('SELECT * FROM booking WHERE id=$1',[bookingId])).rows[0];
+    assert.equal(converted.payment_method,'invoice');
+    assert.equal(converted.payment_status,'unpaid');
+    assert.equal(converted.stripe_payment_intent_id,null);
+    assert.equal(converted.purchaser_context.invoice_approval_id,approval.id);
+    assert.equal((await db.query(`SELECT count(*)::int n FROM accounting_request_queue WHERE source_id='public-po'`)).rows[0].n,1);
   } finally {
     await db?.end();
     spawnSync('pg_ctl', ['-D', h.data, '-m', 'immediate', '-w', 'stop']);

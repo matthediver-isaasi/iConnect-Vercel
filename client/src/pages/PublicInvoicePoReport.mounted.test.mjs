@@ -24,8 +24,11 @@ const bundle = await build({
     setup(builder) {
       builder.onResolve({ filter: /^@\/hooks\/useMemberAccess$/ }, () => ({ path: "access", namespace: "fixture" }));
       builder.onResolve({ filter: /^@\/lib\/adminFetch$/ }, () => ({ path: "fetch", namespace: "fixture" }));
+      builder.onResolve({ filter: /^@\/contexts\/MemberTerminologyContext$/ }, () => ({ path: "terminology", namespace: "fixture" }));
       builder.onLoad({ filter: /.*/, namespace: "fixture" }, args => ({
-        contents: args.path === "access"
+        contents: args.path === "terminology"
+          ? "export function useMemberTerminology() { return {getMemberDetailUrl: id => '/Members/' + id}; }"
+          : args.path === "access"
           ? "export function useMemberAccess() { return globalThis.__poFixture.access; }"
           : "export function adminFetch(url, options) { return globalThis.__poFixture.fetch(url, options); }",
         loader: "js",

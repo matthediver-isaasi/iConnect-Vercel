@@ -40,8 +40,10 @@ export function makeEventRegistrationMemberHandler({ db, getContext, adminAccess
       ))) return res.status(403).json({ error: 'Report and role-management administrator access is required.' });
       const input = req.method === 'POST' ? reviewedMemberInput(req.body) : registrationMemberInput(req.query);
       const table = input.isComplex ? 'complex_event_booking' : 'booking';
+      const identity = (req.method === 'POST' ? req.body : req.query)?.identity || 'attendee';
+      if (!['attendee', 'purchaser'].includes(identity)) reject('Invalid registration contact.');
       if (req.method === 'POST') {
-        const { data, error } = await db.rpc('create_member_from_event_registration', {
+        const { data, error } = await db.rpc(identity === 'purchaser' ? 'create_public_invoice_booker' : 'create_member_from_event_registration', {
           p_tenant_id: ctx.tenantId, p_booking_id: input.bookingId, p_complex: input.isComplex,
           p_first_name: input.first_name, p_last_name: input.last_name, p_email: input.email,
           p_supplied_organization_name: input.supplied_organization_name,
@@ -60,6 +62,9 @@ export function makeEventRegistrationMemberHandler({ db, getContext, adminAccess
         .eq('id', input.bookingId).eq('tenant_id', ctx.tenantId).maybeSingle();
       if (error) reject('Unable to load the registration.', 503);
       if (!booking) reject('Registration not found.', 404);
+      const purchaser = identity === 'purchaser' ? booking.purchaser_context?.details : null;
+      if (identity === 'purchaser' && (booking.purchaser_context?.classification !== 'public_non_member'
+        || !purchaser?.email || !['public_invoice_po','invoice'].includes(booking.payment_method))) reject('Original Invoice / PO booker details are unavailable.', 409);
       if (!booking.member_id && !input.isComplex && booking.is_guest_booking !== true && booking.organization_id) reject('This is not a guest registration.', 409);
       if (!booking.member_id && input.isComplex && booking.organization_id) reject('This is not a guest registration.', 409);
       const { data: event, error: eventError } = await db.from(input.isComplex ? 'complex_event' : 'event')
@@ -70,6 +75,13 @@ export function makeEventRegistrationMemberHandler({ db, getContext, adminAccess
         { id: booking.id, isComplex: input.isComplex },
       ]);
       const linkedMemberId = booking.member_id || existingLinks.get(`${input.isComplex ? 'complex' : 'simple'}:${booking.id}`) || null;
+      let bookerMemberId = null;
+      if (purchaser) {
+        const result = await db.from('member').select('id,email').eq('tenant_id', ctx.tenantId)
+          .ilike('email', purchaser.email.trim().replace(/[%_\\]/g, '\\$&')).limit(2);
+        if (result.error || result.data?.length > 1) reject('The original booker account needs review.', 409);
+        bookerMemberId = result.data?.[0]?.id || null;
+      }
       const rolesQuery = db.from('role').select('id,name,requires_effective_from_date,max_members').eq('tenant_id', ctx.tenantId).order('name').order('id');
       // Bound search results; never return another tenant's organisations.
       let orgQuery = db.from('organization').select('id,name').eq('tenant_id', ctx.tenantId).order('name').order('id').limit(50);
@@ -93,10 +105,10 @@ export function makeEventRegistrationMemberHandler({ db, getContext, adminAccess
       return res.json({
         registration: {
           bookingId: booking.id, isComplex: input.isComplex, eventTitle: event.title,
-          ticketName: booking.ticket_class_name, first_name: booking.attendee_first_name || '',
-          last_name: booking.attendee_last_name || '', email: booking.attendee_email || '',
-          supplied_organization_name: booking.guest_organisation_name || booking.attendee_organization || '',
-          member_id: linkedMemberId, phone: booking.attendee_phone || '',
+          ticketName: booking.ticket_class_name, first_name: purchaser ? purchaser.first_name || '' : booking.attendee_first_name || '',
+          last_name: purchaser ? purchaser.last_name || '' : booking.attendee_last_name || '', email: purchaser ? purchaser.email : booking.attendee_email || '',
+          supplied_organization_name: purchaser ? purchaser.organization || purchaser.organization_name || '' : booking.guest_organisation_name || booking.attendee_organization || '',
+          member_id: purchaser ? bookerMemberId : linkedMemberId, phone: purchaser ? purchaser.phone || '' : booking.attendee_phone || '',
           job_title: booking.attendee_job_title || '', booking_reference: booking.booking_reference || '',
         },
          roles, organisations: orgs.data || [], associations,

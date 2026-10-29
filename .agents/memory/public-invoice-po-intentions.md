@@ -5,6 +5,20 @@ description: Why record-only registrations must remain separate from invoicing a
 
 Public Invoice / PO is a registration intention, not an invoice or a receivable. Do not introduce collection, invoice recovery, accounting contacts, or automatic conversion as an incidental extension of booking processing.
 
+The owner now authorises a separate, explicit administrator **Generate invoice**
+action after the original booker has a member account. It is one invoice for the
+whole booking, billed to the original booker—not separate attendee invoices.
+Creating an attendee account alone must never trigger invoicing.
+
+**Why:** The owner confirmed that multi-attendee bookings remain the original
+booker's financial responsibility. Invoice creation records no payment; settlement
+is performed externally and checked against the accounting package.
+
+**How to apply:** Preserve original registration/purchaser evidence and require
+reviewed whole-booking approval before converting an intention into an invoice.
+Use durable duplicate prevention, retain the record in the public-PO report, and
+link the receivable to the original booker independently of attendee membership.
+
 **Why:** The user deliberately replaced a broader account/affiliation workflow with a record-only option. A distinct method name alone is insufficient: older accounting paths can be selected by remaining balance rather than payment method.
 
 **How to apply:** Exclude this method explicitly at financial side-effect boundaries. Preserve confirmed registration/capacity independently of unpaid settlement. Purchaser classification is checkout-time evidence, not the attendee's current membership; later attendee account linkage must neither reclassify the purchase nor make it vanish from reporting.

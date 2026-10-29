@@ -38,6 +38,7 @@ import {
 } from "@/lib/relationshipDisplayLabels";
 import { toast } from "sonner";
 import PublicInvoicePoRegistrations from "@/components/events/PublicInvoicePoRegistrations";
+import { PUBLIC_INVOICE_PO_BILLING_KEY } from "@/hooks/usePublicInvoicePoBilling";
 import PublicInvoicePoFormAnswers from "@/components/events/PublicInvoicePoFormAnswers";
 import EventInvoiceStatus from "@/components/booking/EventInvoiceStatus";
 import { eventInvoiceAwaited, eventInvoiceId, eventInvoiceNeedsAttention, eventInvoiceNumber, eventInvoiceRefetchInterval, eventInvoiceRetryAt } from "../../../shared/eventInvoiceRecoveryPresentation.mjs";
@@ -562,7 +563,7 @@ export default function EventRegistrationReport() {
     if (!target || !data.member?.id) return;
     // Stop older report requests before patching only the new member link.
     await queryClient.cancelQueries({ queryKey: ["event-registration-report"] });
-    queryClient.setQueriesData({ queryKey: ["event-registration-report"] }, old => {
+    if (target.identity !== "purchaser") queryClient.setQueriesData({ queryKey: ["event-registration-report"] }, old => {
       if (!old?.bookingGroups) return old;
       return {
         ...old,
@@ -576,7 +577,9 @@ export default function EventRegistrationReport() {
       };
     });
     setGuestMemberTarget(null);
-    toast.success(data.alreadyLinked ? "Registration already linked to a member" : "Member created and linked to registration");
+    toast.success(data.alreadyLinked ? "Member account already linked" : target.identity === "purchaser" ? "Booker account created" : "Member created and linked to registration");
+    queryClient.invalidateQueries({ queryKey: PUBLIC_INVOICE_PO_BILLING_KEY });
+    queryClient.invalidateQueries({ queryKey: ["public-invoice-po-report"] });
     queryClient.invalidateQueries({ queryKey: ["event-registration-report"] });
     queryClient.invalidateQueries({ queryKey: ["event-registration-report-events"] });
   };
@@ -1653,10 +1656,10 @@ export default function EventRegistrationReport() {
     const cpdIdentity = cpdRegistrationIdentity(attendee, group);
     return (
       <div className="flex items-center gap-0.5 mr-1">
-        {attendee.member_id ? (
+        {(attendee.member_id || attendee.linked_member_id) ? (
           <Tooltip>
             <TooltipTrigger asChild>
-              <Link to={getMemberDetailUrl(attendee.member_id)} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-primary hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              <Link to={getMemberDetailUrl(attendee.member_id || attendee.linked_member_id)} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-primary hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 aria-label={`View linked member profile for ${attendee.attendee_first_name || "attendee"}`}
                 onClick={event => event.stopPropagation()} data-testid={`linked-member-${attendee.id}`}>
                 <UserCheck className="h-3.5 w-3.5" aria-hidden="true" />
@@ -2658,7 +2661,9 @@ export default function EventRegistrationReport() {
       )}
 
       {reportGenerated && reportData && (
-        <PublicInvoicePoRegistrations groups={filteredGroups} allGroups={bookingGroups} organizations={organizations} renderFormAnswers={renderPublicInvoiceFormAnswers} />
+        <PublicInvoicePoRegistrations groups={filteredGroups} allGroups={bookingGroups} organizations={organizations} renderFormAnswers={renderPublicInvoiceFormAnswers}
+          tenantId={memberInfo?.tenant_id} viewerId={memberInfo?.id} canCreateGuestMember={canCreateGuestMember}
+          onCreateMember={target => { if (canCreateGuestMember && !guestMemberTarget) setGuestMemberTarget(target); }} />
       )}
       {accessChecked && <AdminEventWaitingList memberInfo={memberInfo} eventId={appliedFilters?.eventId} eventKind={appliedFilters?.eventKind || 'simple'} />}
 
@@ -2768,7 +2773,7 @@ export default function EventRegistrationReport() {
       </Dialog>
 
       {guestMemberTarget && canCreateGuestMember && <GuestRegistrationMemberDialog
-        key={`${memberInfo?.tenant_id}:${memberInfo?.id}:${guestMemberTarget.isComplex}:${guestMemberTarget.bookingId}`}
+        key={`${memberInfo?.tenant_id}:${memberInfo?.id}:${guestMemberTarget.isComplex}:${guestMemberTarget.bookingId}:${guestMemberTarget.identity || "attendee"}`}
         {...guestMemberTarget}
         tenantId={memberInfo?.tenant_id}
         viewerId={memberInfo?.id}

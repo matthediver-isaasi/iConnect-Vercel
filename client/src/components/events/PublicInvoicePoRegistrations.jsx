@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import PublicInvoicePoBilling from "@/components/events/PublicInvoicePoBilling";
 
 const PAGE_SIZE = 10;
 const attendeeFields = {
@@ -33,25 +34,33 @@ function Details({ entries }) {
   </dl>;
 }
 
-export default function PublicInvoicePoRegistrations({ groups, allGroups, organizations, renderFormAnswers }) {
+export default function PublicInvoicePoRegistrations({ groups = [], allGroups = groups, organizations = {}, renderFormAnswers = () => null, canCreateGuestMember = false, onCreateMember, canManageInvoice = true, tenantId, viewerId }) {
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState(null);
+  const [billingOpen, setBillingOpen] = useState(false);
   const matching = groups.filter(group => group.isPublicInvoicePo);
   const pages = Math.max(1, Math.ceil(matching.length / PAGE_SIZE));
-  useEffect(() => { setPage(1); setSelected(null); }, [groups]);
+  useEffect(() => { setPage(1); }, [groups]);
+  useEffect(() => {
+    // Report refreshes after account creation must not close the billing panel.
+    setSelected(previous => previous ? allGroups.find(group => group.eventId === previous.eventId
+      && group.bookingSource === previous.bookingSource
+      && (previous.groupRef ? group.groupRef === previous.groupRef : group.attendees.some(attendee => attendee.id === previous.attendees[0]?.id))) || previous : null);
+  }, [allGroups]);
   const date = value => value ? new Date(value).toLocaleString() : 'Not recorded';
   return <>
     <Card data-testid="public-invoice-po-registrations">
       <CardHeader><CardTitle>Public Invoice / PO Registrations</CardTitle></CardHeader>
       <CardContent className="space-y-4">
-        <p className="text-sm text-muted-foreground">Invoice intentions only. No invoice or payment has been created by this registration method.</p>
+        <p className="text-sm text-muted-foreground">This registration method records an invoice intention, not a payment. Manage the whole-booking invoice separately.</p>
         {matching.length === 0 ? <p className="text-sm">No public Invoice / PO registrations match the current filters.</p> :
           <div className="divide-y">{matching.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map(group => {
             const first = group.attendees[0];
             const purchaser = group.publicInvoicePurchaser || {};
             return <button type="button" key={`${group.eventId}-${first.id}`} className="w-full text-left rounded-md p-3 hover:bg-muted focus-visible:outline focus-visible:outline-2" onClick={() => {
               // Filters may hide individual attendees. Details always show the complete booking.
-              setSelected(allGroups.find(g => g.eventId === group.eventId && (group.groupRef ? g.groupRef === group.groupRef : g.attendees.some(a => a.id === first.id))) || group);
+              setBillingOpen(false);
+              setSelected(allGroups.find(g => g.eventId === group.eventId && g.bookingSource === group.bookingSource && (group.groupRef ? g.groupRef === group.groupRef : g.attendees.some(a => a.id === first.id))) || group);
             }}>
               <p className="font-medium">{[purchaser.first_name, purchaser.last_name].filter(Boolean).join(' ') || [first.attendee_first_name, first.attendee_last_name].filter(Boolean).join(' ')}</p>
               <p className="text-sm break-words">{purchaser.email || first.attendee_email}</p>
@@ -80,8 +89,17 @@ export default function PublicInvoicePoRegistrations({ groups, allGroups, organi
             <Details entries={Object.entries(selected.publicInvoicePurchaser || {}).map(([key, value]) => [key.replaceAll('_', ' '), value])} />
             {renderFormAnswers(selected, selected.publicInvoicePurchaser?.email)}
           </section>
+          {canManageInvoice && selected.attendees[0] && <div className="space-y-3">
+            <Button variant="outline" onClick={() => setBillingOpen(open => !open)} aria-expanded={billingOpen}>{billingOpen ? "Hide invoice" : "Manage invoice"}</Button>
+            {billingOpen && <PublicInvoicePoBilling bookingId={selected.attendees[0].id}
+              isComplex={selected.bookingSource === "complex_event_booking"} tenantId={tenantId} viewerId={viewerId}
+              canCreateGuestMember={canCreateGuestMember} onCreateMember={onCreateMember} />}
+          </div>}
           {selected.attendees.map((attendee, index) => <section key={attendee.id} className="border-t pt-4 space-y-3">
-            <h3 className="font-semibold">Attendee {index + 1}</h3>
+            <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold">Attendee {index + 1}</h3>
+              {(attendee.member_id || attendee.linked_member_id) ? <span className="text-sm text-muted-foreground">Member account linked</span> : canCreateGuestMember && onCreateMember && <Button size="sm" variant="outline"
+                onClick={() => onCreateMember({ bookingId: attendee.id, isComplex: selected.bookingSource === "complex_event_booking", identity: "attendee" })}>Create member</Button>}
+            </div>
             <Details entries={[...Object.entries(attendeeFields).map(([key, label]) => [label, attendee[key]]), ['Organisation', organizations[attendee.organization_id]], ['Payment method', attendee.payment_method === 'public_invoice_po' ? 'Invoice / PO' : attendee.payment_method]]} />
             {attendee.attendee_email?.toLowerCase() !== selected.publicInvoicePurchaser?.email?.toLowerCase() && renderFormAnswers(selected, attendee.attendee_email)}
           </section>)}

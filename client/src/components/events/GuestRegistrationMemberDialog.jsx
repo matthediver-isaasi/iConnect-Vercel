@@ -17,7 +17,7 @@ export async function readMemberResponse(response) {
 }
 
 // The parent mounts a new dialog for each frozen registration identity.
-export default function GuestRegistrationMemberDialog({ bookingId, isComplex, tenantId, viewerId, onClose, onSuccess }) {
+export default function GuestRegistrationMemberDialog({ bookingId, isComplex, tenantId, viewerId, onClose, onSuccess, identity = "attendee" }) {
   const { getMemberDetailUrl } = useMemberTerminology();
   const [form, setForm] = useState(null);
   const [organisationSearch, setOrganisationSearch] = useState("");
@@ -33,10 +33,10 @@ export default function GuestRegistrationMemberDialog({ bookingId, isComplex, te
     mounted.current = true;
     return () => { mounted.current = false; };
   }, []);
-  const params = new URLSearchParams({ bookingId, isComplex: String(!!isComplex) });
+  const params = new URLSearchParams({ bookingId, isComplex: String(!!isComplex), identity });
   const url = `${MEMBER_ENDPOINT}?${params}`;
   const details = useQuery({
-    queryKey: ["event-registration-member", tenantId, viewerId, bookingId, !!isComplex],
+    queryKey: ["event-registration-member", tenantId, viewerId, bookingId, !!isComplex, identity],
     queryFn: async ({ signal }) => {
       const data = await readMemberResponse(await fetch(url, { credentials: "include", signal }));
       if (!data.registration || !Array.isArray(data.roles) || !Array.isArray(data.associations)) {
@@ -63,7 +63,7 @@ export default function GuestRegistrationMemberDialog({ bookingId, isComplex, te
     return () => clearTimeout(timer);
   }, [organisationSearch]);
   const organisationResults = useQuery({
-    queryKey: ["event-registration-member-organisations", tenantId, viewerId, bookingId, !!isComplex, search],
+    queryKey: ["event-registration-member-organisations", tenantId, viewerId, bookingId, !!isComplex, identity, search],
     queryFn: async ({ signal }) => {
       const data = await readMemberResponse(await fetch(`${url}&organisationSearch=${encodeURIComponent(search)}`, { credentials: "include", signal }));
       if (!Array.isArray(data.associations)) throw new Error("Organisations and groups could not be loaded. Please retry.");
@@ -78,7 +78,7 @@ export default function GuestRegistrationMemberDialog({ bookingId, isComplex, te
   const selectedRole = roles.find(role => role.id === roleId);
   const submit = async event => {
     event.preventDefault();
-    if (pending.current || !form || registration?.member_id || details.isFetching) return;
+    if (pending.current || !form || registration?.member_id || registration?.linked_member_id || details.isFetching) return;
     if (!form.first_name.trim() || !form.last_name.trim() || !form.email.trim() || !roles.some(role => role.id === roleId)) {
       setError("First name, last name, email and a role are required.");
       return;
@@ -96,7 +96,7 @@ export default function GuestRegistrationMemberDialog({ bookingId, isComplex, te
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          bookingId, isComplex: !!isComplex,
+          bookingId, isComplex: !!isComplex, identity,
           ...Object.fromEntries(Object.entries(form).map(([key, value]) => [key, value.trim()])),
           ...(organisation?.type === "organization_group"
             ? { organization_group_id: organisation.id }
@@ -118,8 +118,8 @@ export default function GuestRegistrationMemberDialog({ bookingId, isComplex, te
     <Dialog open onOpenChange={open => { if (!open && !pending.current) onClose(); }}>
       <DialogContent className="w-[calc(100%-2rem)] sm:max-w-3xl min-w-0 max-h-[90dvh] overflow-y-auto" onEscapeKeyDown={event => { if (pending.current) event.preventDefault(); }} onPointerDownOutside={event => { if (pending.current) event.preventDefault(); }}>
         <DialogHeader>
-          <DialogTitle>Create member from guest registration</DialogTitle>
-          <DialogDescription>Review the registrant’s details and choose their access role before creating a member.</DialogDescription>
+          <DialogTitle>{identity === "purchaser" ? "Create member for booking contact" : "Create member from guest registration"}</DialogTitle>
+          <DialogDescription>{identity === "purchaser" ? "Review the original booker’s details and choose their access role. Attendee identities will remain unchanged." : "Review the registrant’s details and choose their access role before creating a member."}</DialogDescription>
         </DialogHeader>
         {details.isFetching && <div role="status" aria-live="polite" className="space-y-3">
           <span className="text-sm text-muted-foreground">Loading authoritative registration details…</span>
@@ -136,10 +136,10 @@ export default function GuestRegistrationMemberDialog({ bookingId, isComplex, te
             <div><dt className="text-muted-foreground">Ticket</dt><dd>{registration.ticketName || "Not supplied"}</dd></div>
             <div><dt className="text-muted-foreground">Guest-entered organisation (reference)</dt><dd>{registration.supplied_organization_name || "Not supplied"}</dd></div>
           </dl>
-          {registration.member_id ? <div className="space-y-3">
+          {(registration.member_id || registration.linked_member_id) ? <div className="space-y-3">
             <p role="status" className="text-sm">This registration is already linked to a member. No new member will be created.</p>
-            <Link className="text-primary underline text-sm" to={getMemberDetailUrl(registration.member_id)}>View linked member profile</Link>
-            <Button className="block" onClick={() => onSuccess({ member: { id: registration.member_id }, alreadyLinked: true })}>Update report and close</Button>
+            <Link className="text-primary underline text-sm" to={getMemberDetailUrl(registration.member_id || registration.linked_member_id)}>View linked member profile</Link>
+            <Button className="block" onClick={() => onSuccess({ member: { id: registration.member_id || registration.linked_member_id }, alreadyLinked: true })}>Update report and close</Button>
           </div> : form && <form onSubmit={submit} className="min-w-0 space-y-4">
             <fieldset disabled={busy} className="min-w-0 space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
