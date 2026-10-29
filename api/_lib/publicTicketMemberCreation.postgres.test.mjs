@@ -203,7 +203,7 @@ test('policy migration: exact tenant emails, private execution, defaults, idempo
     await db.query(`CREATE TABLE public.organization(id uuid PRIMARY KEY,tenant_id uuid,name text);
       CREATE TABLE public.organization_group(LIKE public.organization INCLUDING ALL);
       CREATE TABLE public.preference_field(id uuid PRIMARY KEY,tenant_id uuid,entity_scope text);
-      CREATE TABLE public.organization_preference_value(tenant_id uuid,organization_id uuid,field_id uuid,value text);
+      CREATE TABLE public.organization_preference_value(organization_id uuid,field_id uuid,value text);
       CREATE TABLE public.organization_group_preference_value(tenant_id uuid,organization_group_id uuid,field_id uuid,value text);
       ALTER TABLE member ADD COLUMN organization_group_id uuid;
       ALTER TABLE event ADD COLUMN IF NOT EXISTS status text DEFAULT 'published';
@@ -236,6 +236,38 @@ test('policy migration: exact tenant emails, private execution, defaults, idempo
     await assert.rejects(db.query("SELECT event_registration_association_options($1,$1,false)",[a]),{code:'42501'});
     await db.query('RESET ROLE');
     await db.query(`INSERT INTO booking(id,tenant_id,event_id,status,payment_method) VALUES($1,$1,$1,'confirmed','public_invoice_po')`,[a]);
+    // Match the real schema: organisation values do not have tenant_id.
+    await db.query("INSERT INTO organization VALUES($1,$1,'Allowed Organisation'),($2,$2,'Other tenant organisation')",[a,b]);
+    await db.query('UPDATE event SET registration_association_config=$2 WHERE id=$1',
+      [a,{organizations:{enabled:true},groups:{enabled:false},role_id:roleId}]);
+    await assert.rejects(db.query("SELECT event_registration_association_options($1,$1,false)",[a]),{code:'42703'});
+    await db.query(await readFile(new URL('../../supabase/migrations/202612090009_registration_association_value_scope.sql',import.meta.url),'utf8'));
+    const orgField='00000000-0000-4000-8000-000000000301';
+    await db.query("INSERT INTO preference_field VALUES($1,$2,'organization')",[orgField,a]);
+    await db.query("INSERT INTO organization_preference_value VALUES($1,$3,'[\"Eligible\"]'),($2,$3,'Eligible')",[a,b,orgField]);
+    const lookup=async()=> (await db.query("SELECT event_registration_association_options($1,$1,false) choices",[a])).rows[0].choices;
+    assert.deepEqual((await lookup()).options,[{kind:'organization',id:a,name:'Allowed Organisation'}]);
+    await db.query('UPDATE event SET registration_association_config=$2 WHERE id=$1',
+      [a,{organizations:{enabled:true,field_id:orgField,value:'Eligible'},groups:{enabled:true,field_id:a,value:'Eligible'},role_id:roleId}]);
+    assert.deepEqual((await lookup()).options.map(o=>o.kind),['group','organization']);
+    await db.query("UPDATE organization_group_preference_value SET tenant_id=$1",[b]);
+    assert.deepEqual((await lookup()).options.map(o=>o.kind),['organization']);
+    await db.query("UPDATE organization_group_preference_value SET tenant_id=$1",[a]);
+    await db.query('UPDATE event SET registration_association_config=$2 WHERE id=$1',
+      [a,{organizations:{enabled:true,field_id:orgField,value:'Missing'},groups:{enabled:false},role_id:roleId}]);
+    assert.equal((await lookup()).options.length,0);
+    await db.query("UPDATE preference_field SET tenant_id=$1 WHERE id=$2",[b,orgField]);
+    await assert.rejects(lookup(),/Filter field unavailable/);
+    for(const role of ['anon','authenticated']){
+      await db.query(`SET ROLE ${role}`);
+      await assert.rejects(lookup(),{code:'42501'});
+      await db.query('RESET ROLE');
+    }
+    await db.query('UPDATE event SET registration_association_config=$2 WHERE id=$1',
+      [a,{groups:{enabled:true,field_id:a,value:'Eligible'},organizations:{enabled:false},role_id:roleId}]);
+    await db.query('SET ROLE service_role');
+    assert.deepEqual((await lookup()).options,[{kind:'group',id:a,name:'Allowed Group'}]);
+    await db.query('RESET ROLE');
     const associatedSnapshot=makeSnapshot(['associated@example.invalid']);
     associatedSnapshot.association_role_id=roleId;
     associatedSnapshot.people[0].association={kind:'group',id:a,name:'Allowed Group'};

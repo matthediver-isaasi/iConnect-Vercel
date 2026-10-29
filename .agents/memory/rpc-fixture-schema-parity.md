@@ -1,6 +1,6 @@
 ---
 name: RPC fixture schema parity
-description: Validate cross-table key types against deployed metadata before relying on isolated PostgreSQL tests.
+description: Validate key types and ownership columns against deployed metadata before relying on isolated PostgreSQL tests.
 ---
 Match isolated RPC fixture types to deployed metadata, particularly at identity
 boundaries. UUID-shaped values do not establish that a legacy column is UUID.
@@ -18,3 +18,14 @@ not merely migration installation. Include unified owner/admin sessions with no
 legacy user row and at least one non-UUID-shaped text identity. A member-only
 fixture can completely miss the fallback identity join, even when it tests
 permissions, transactions and retries thoroughly.
+
+Do not give analogous tables identical ownership columns in fixtures without
+checking their deployed definitions.
+
+**Why:** An organisation-search regression escaped tests because the fixture
+invented a tenant column on a value table whose tenant ownership is inherited
+from its parent. The analogous group-value table actually has that column.
+
+**How to apply:** Check column presence as well as types. Exercise each table
+branch, including an unfiltered search: SQL still resolves columns inside a
+filter branch even when that filter is disabled.
