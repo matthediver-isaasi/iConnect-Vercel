@@ -46,7 +46,7 @@ export const DialogHeader = Box, DialogTitle = Box, DialogDescription = Box;
 `;
 const bundle = await build({
   stdin: {
-    contents: eventEmailSurfaceFixtureSource(),
+    contents: eventEmailSurfaceFixtureSource() + "\nexport {EventEmailSettingsEditor};",
     resolveDir: process.cwd(), sourcefile: "email-follow-up-fixtures.jsx", loader: "jsx",
   },
   bundle: true, write: false, packages: "external", platform: "node", format: "cjs", jsx: "automatic", logLevel: "silent",
@@ -97,7 +97,7 @@ async function mount(Surface, props = {}, previewResponse = null, schedulingResu
       saved = payload.emails.map((email, index) => ({...email, id: `saved-${index}`, isNew: false}));
       return json(saved);
     }
-    if (url === "/api/event-emails/fixture-event/preview" && options.method === "POST") {
+    if (/^\/api\/event-emails\/[^/]+\/preview$/.test(url) && options.method === "POST") {
       return previewHandler ? previewHandler(payload) : json({subject: "Thank you", html: "<p>Sample target</p>"});
     }
     if (url === "/api/event-emails/fixture-event/reschedule" && options.method === "POST") {
@@ -112,6 +112,7 @@ async function mount(Surface, props = {}, previewResponse = null, schedulingResu
   return {
     calls, saved: () => saved,
     preview: handler => { previewHandler = handler; },
+    render: async nextProps => { await act(async () => root.render(React.createElement(Surface, nextProps))); },
     cleanup: async () => { await act(async () => root.unmount()); host.remove(); },
   };
 }
@@ -295,5 +296,140 @@ test("preview loading and stale responses never overwrite the latest target", as
     await act(async () => finishFirst(json({subject: "Stale draft", html: "<p>Stale</p>"})));
     await settle();
     assert.equal(byId("email-preview-subject").textContent, "Latest draft");
+  } finally { await fixture.cleanup(); }
+});
+
+const attendee = (id, first = "Priya") => ({
+  id, attendee_first_name: first, attendee_last_name: "Shah", attendee_email: `${id}@example.test`,
+});
+const buttonNamed = text => [...document.querySelectorAll("button")].find(button => button.textContent.includes(text));
+const selectAttendee = id => click(buttonNamed(`${id}@example.test`));
+const previewResult = payload => ({
+  subject: payload.bookingId ? `For ${payload.bookingId}` : "Sample",
+  html: "<p>Preview only</p>",
+  ...(payload.bookingId ? {attendee: {name: "Priya Shah", email: `${payload.bookingId}@example.test`}} : {}),
+  previewNotice: "No Zoom registration is created.",
+  reminderContext: {
+    timezone: "Europe/London", selectedId: payload.sessionId || "agenda-a",
+    entries: [{id: "agenda-a", description: "First session"}, {id: "agenda-b", description: "Second session"}],
+  },
+});
+
+for (const type of ["booking_confirmation", "reminder"]) {
+  test(`${type}: attendee preview keeps selection through target changes and retry; sample remains available`, async () => {
+    const email = createEmptyEmail(type);
+    let fail = false;
+    const fixture = await mount(surfaces.EditEventFixture, {initial: [email]}, payload =>
+      payload.action === "attendees" ? json({items: [attendee("booking-a")], hasMore: false})
+        : fail ? json({error: "Temporarily unavailable"}, 503) : json(previewResult(payload)));
+    try {
+      await click(byId(`button-preview-email-${email.id}`));
+      const sample = fixture.calls.find(call => !call.payload.action);
+      assert.equal(sample.payload.bookingId, undefined);
+      assert.match(document.body.textContent, /live Zoom join links are omitted/);
+      await selectAttendee("booking-a");
+      assert.equal(fixture.calls.at(-1).payload.bookingId, "booking-a");
+      assert.match(byId("email-preview-attendee").textContent, /booking-a@example.test/);
+      assert.match(byId("email-preview-notice").textContent, /No Zoom registration/);
+      await change(document.getElementById("training-reminder-session"), "agenda-b");
+      assert.equal(fixture.calls.at(-1).payload.bookingId, "booking-a");
+      assert.equal(fixture.calls.at(-1).payload.sessionId, "agenda-b");
+      fail = true;
+      await change(document.getElementById("training-reminder-session"), "agenda-a");
+      assert.ok(byId("email-preview-error"));
+      assert.match(byId("email-preview-selected-attendee").textContent, /Priya Shah/);
+      fail = false;
+      await click(buttonNamed("Retry preview"));
+      assert.equal(fixture.calls.at(-1).payload.bookingId, "booking-a");
+      await click(buttonNamed("Use sample attendee"));
+      assert.equal(fixture.calls.at(-1).payload.bookingId, undefined);
+      assert.equal(byId("email-preview-selected-attendee"), null);
+      assert.ok(fixture.calls.every(call => call.url.endsWith("/preview") && call.method === "POST"));
+    } finally { await fixture.cleanup(); }
+  });
+}
+
+test("attendee list searches, paginates and retries without losing the selection", async () => {
+  const email = createEmptyEmail("reminder");
+  let failMore = true;
+  const fixture = await mount(surfaces.EditEventFixture, {initial: [email]}, payload => {
+    if (!payload.action) return json(previewResult(payload));
+    if (payload.search) return json({items: payload.search === "missing" ? [] : [attendee("booking-c", "Mara")], hasMore: false});
+    if (payload.offset && failMore) return json({error: "Lookup temporarily unavailable"}, 503);
+    return json({items: [attendee(payload.offset ? "booking-b" : "booking-a")], hasMore: !payload.offset});
+  });
+  try {
+    await click(byId(`button-preview-email-${email.id}`));
+    await selectAttendee("booking-a");
+    await click(buttonNamed("Load more attendees"));
+    assert.match(document.body.textContent, /Lookup temporarily unavailable/);
+    assert.match(byId("email-preview-selected-attendee").textContent, /booking-a/);
+    failMore = false;
+    await click(buttonNamed("Retry attendees"));
+    assert.equal(fixture.calls.at(-1).payload.offset, 1);
+    assert.ok(buttonNamed("booking-a@example.test"));
+    assert.ok(buttonNamed("booking-b@example.test"));
+    assert.equal(buttonNamed("Load more attendees"), undefined);
+    await change(document.getElementById("email-preview-attendee-search"), "Mara");
+    assert.deepEqual(fixture.calls.at(-1).payload, {action: "attendees", search: "Mara", offset: 0});
+    assert.equal(buttonNamed("booking-a@example.test"), undefined);
+    assert.match(byId("email-preview-selected-attendee").textContent, /booking-a/);
+    await selectAttendee("booking-c");
+    assert.equal(fixture.calls.at(-1).payload.bookingId, "booking-c");
+    await change(document.getElementById("email-preview-attendee-search"), "missing");
+    assert.match(document.body.textContent, /No confirmed attendees match/);
+    await click(buttonNamed("Use sample attendee"));
+    assert.equal(fixture.calls.at(-1).payload.bookingId, undefined);
+  } finally { await fixture.cleanup(); }
+});
+
+test("stale searches and preview renders cannot replace the latest attendee", async () => {
+  const email = createEmptyEmail("booking_confirmation");
+  let finishLookup, finishPreview;
+  const fixture = await mount(surfaces.EditEventFixture, {initial: [email]}, payload => {
+    if (payload.action) {
+      if (payload.search === "old") return new Promise(resolve => { finishLookup = resolve; });
+      return json({items: [attendee("booking-a"), attendee("booking-b", "Nadia")], hasMore: false});
+    }
+    if (payload.bookingId === "booking-a") return new Promise(resolve => { finishPreview = resolve; });
+    return json(previewResult(payload));
+  });
+  try {
+    await click(byId(`button-preview-email-${email.id}`));
+    await change(document.getElementById("email-preview-attendee-search"), "old");
+    await change(document.getElementById("email-preview-attendee-search"), "new");
+    await act(async () => finishLookup(json({items: [attendee("stale")], hasMore: true})));
+    assert.equal(buttonNamed("stale@example.test"), undefined);
+    await selectAttendee("booking-a");
+    assert.ok(byId("email-preview-loading"));
+    await selectAttendee("booking-b");
+    await act(async () => finishPreview(json({subject: "Stale attendee", html: "<p>Stale</p>"})));
+    assert.equal(byId("email-preview-subject").textContent, "For booking-b");
+    assert.match(byId("email-preview-selected-attendee").textContent, /Nadia/);
+  } finally { await fixture.cleanup(); }
+});
+
+test("new email/event resets attendee; follow-ups never request attendee lookup", async () => {
+  const first = createEmptyEmail("reminder"), second = createEmptyEmail("booking_confirmation"), followUp = createEmptyEmail("follow_up");
+  const props = {emails: [first, second, followUp], setEmails: () => {}, eventId: "fixture-event"};
+  const fixture = await mount(surfaces.EventEmailSettingsEditor, props, payload =>
+    payload.action ? json({items: [attendee("booking-a")], hasMore: false}) : json(previewResult(payload)));
+  try {
+    await click(byId(`button-preview-email-${first.id}`));
+    await selectAttendee("booking-a");
+    await click(byId(`button-preview-email-${second.id}`));
+    assert.equal(byId("email-preview-selected-attendee"), null);
+    assert.equal(fixture.calls.filter(call => !call.payload.action).at(-1).payload.bookingId, undefined);
+    await selectAttendee("booking-a");
+    await fixture.render({...props, eventId: "another-event"});
+    assert.equal(document.querySelector('[role="dialog"]'), null);
+    await click(byId(`button-preview-email-${first.id}`));
+    assert.equal(byId("email-preview-selected-attendee"), null);
+    assert.ok(fixture.calls.at(-1).url.includes("/another-event/"));
+    const count = fixture.calls.length;
+    await click(byId(`button-preview-email-${followUp.id}`));
+    assert.equal(fixture.calls.length, count + 1);
+    assert.equal(document.getElementById("email-preview-attendee-search"), null);
+    assert.equal(fixture.calls.at(-1).payload.bookingId, undefined);
   } finally { await fixture.cleanup(); }
 });

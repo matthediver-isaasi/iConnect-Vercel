@@ -106,6 +106,11 @@ export async function fetchTrainingAgendaData(eventId, client = supabase) {
     line.zoom_topic = z?.topic || null;
   }
 
+  return { lines, agendaScheduleHtml: buildAgendaScheduleHtml(lines) };
+}
+
+export function buildAgendaScheduleHtml(lines) {
+  if (!lines.length) return '';
   const rows = lines.map((line) => {
     const dates = escapeHtml(formatAgendaLineDates(line));
     const detail = escapeHtml(agendaLineDetail(line));
@@ -117,7 +122,7 @@ export async function fetchTrainingAgendaData(eventId, client = supabase) {
   }).join('');
 
   const agendaScheduleHtml = `<table style="border-collapse:collapse; width:100%; font-size:14px;"><tbody>${rows}</tbody></table>`;
-  return { lines, agendaScheduleHtml };
+  return agendaScheduleHtml;
 }
 
 export function applyAgendaPlaceholders(template, { agendaData, line } = {}) {

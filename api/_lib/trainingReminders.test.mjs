@@ -93,6 +93,8 @@ let harness;
 async function loadHarness() {
   if (harness) return harness;
   const stubs = {
+    'zoomClient.js': 'export const getZoomAccessTokenForTenant = async () => "fixture-token";',
+    'zoomRegistration.js': 'export const readZoomRegistration = async (token, kind, id) => ({registration_required:!!globalThis.__trainingTest.registrationRequired, join_url:`https://example.test/nov${id}`}); export const zoomRequest = async () => ({registrants:globalThis.__trainingTest.registrants || []});',
     'database.js': 'export const supabase = { from: (...args) => globalThis.__trainingTest.db.from(...args) };',
     'emailService.js': 'export const sendEmail = async args => globalThis.__trainingTest.send(args);',
     'transactionalInbox.js': 'export const buildInboxDelivery = async () => null;',
@@ -100,7 +102,7 @@ async function loadHarness() {
     'checkinService.js': 'export const buildQrImageUrl = () => ""; export const ensureBookingToken = async () => ""; export const ensureComplexSessionTokens = async () => [];',
   };
   const output = await build({
-    stdin: { contents: 'export { default as cron } from "./api/cron/send-event-reminders.js"; export { renderEventEmailPreview } from "./api/_lib/eventConfirmationEmail.js";', resolveDir: process.cwd() },
+    stdin: { contents: 'export { default as cron } from "./api/cron/send-event-reminders.js"; export { renderEventEmailPreview, sendConfirmationEmailsFromTemplate } from "./api/_lib/eventConfirmationEmail.js";', resolveDir: process.cwd() },
     bundle: true, write: false, platform: 'node', format: 'esm',
     plugins: [{ name: 'isolated-training', setup(b) {
       b.onResolve({ filter: /\.js$/ }, args => {
@@ -114,11 +116,31 @@ async function loadHarness() {
   return harness;
 }
 
+test('confirmation sender uses approved links and never falls back when registration is missing', async () => {
+  const { sendConfirmationEmailsFromTemplate } = await loadHarness();
+  const data = fixture(), sends = [];
+  data.event[0].zoom_meeting_id = 'zoom3';
+  data.event[0].is_online = true;
+  data.event_email[0].email_type = 'confirmation';
+  const url = 'https://zoom.us/w/123?tk=isolated-fixture';
+  globalThis.__trainingTest = { db: fakeClient(data), registrationRequired: true,
+    registrants: [{ email: 'fixture@example.test', join_url: url }],
+    send: async args => { sends.push(args); return { success: true }; } };
+  let result = await sendConfirmationEmailsFromTemplate('event', data.booking[0], { email: 'fixture@example.test' });
+  assert.equal(result[0].success, true);
+  assert.ok(sends[0].html.includes(url));
+  assert.ok(!sends[0].html.includes('https://example.test'));
+  globalThis.__trainingTest.registrants = [];
+  result = await sendConfirmationEmailsFromTemplate('event', data.booking[0], { email: 'fixture@example.test' }, 'https://example.test/unsafe-fallback');
+  assert.equal(result[0].success, false);
+  assert.equal(sends.length, 1, 'no send when personalised registration lookup fails');
+});
+
 test('real preview pipeline selects upcoming entry, correct link and full agenda; confirmation unchanged', async () => {
   const { renderEventEmailPreview } = await loadHarness();
   const data = fixture();
   globalThis.__trainingTest = { db: fakeClient(data), send: () => { throw new Error('Preview must never send'); } };
-  const input = { eventId: 'event', tenantId: 'tenant', ...data.event_email[0], reminder: data.event_email[0], now };
+  const input = { eventId: 'event', tenantId: 'tenant', ...data.event_email[0], reminder: data.event_email[0], previewBooking: data.booking[0], now };
   const first = await renderEventEmailPreview(input);
   assert.equal(first.reminderContext.selectedId, 'nov3');
   assert.match(first.subject, /3 November 2026.*09:15/);

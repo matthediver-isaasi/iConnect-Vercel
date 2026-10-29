@@ -9,7 +9,7 @@ export function fixture() {
       { id: 'nov5', event_id: 'event', start_date: '2026-11-05', start_time: '09:15:00', item_type: 'Online', zoom_meeting_id: 'zoom5' },
     ],
     booking: [{ id: 'booking', event_id: 'event', attendee_email: 'fixture@example.test', status: 'confirmed' }],
-    zoom_meeting: [{ id: 'zoom3', join_url: 'https://example.test/nov3' }, { id: 'zoom5', join_url: 'https://example.test/nov5' }],
+    zoom_meeting: [{ id: 'zoom3', tenant_id: 'tenant', zoom_meeting_id: '3', join_url: 'https://example.test/nov3' }, { id: 'zoom5', tenant_id: 'tenant', zoom_meeting_id: '5', join_url: 'https://example.test/nov5' }],
     scheduled_email: [],
   };
 }

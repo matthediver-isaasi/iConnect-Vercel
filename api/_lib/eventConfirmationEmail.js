@@ -6,6 +6,7 @@ import { buildQrImageUrl, ensureBookingToken, ensureComplexSessionTokens } from 
 import { fetchTrainingAgendaData, applyAgendaPlaceholders } from './trainingAgenda.js';
 import { resolveEventEmailSurvey } from './campaignEventSurvey.js';
 import { trainingReminderTargets, trainingReminderEvent } from './trainingReminderTargets.js';
+import { createEventEmailZoomResolver, personaliseEmailZoomTargets } from './eventEmailZoomLinks.js';
 
 export function parseCcField(cc) {
   if (!cc || typeof cc !== 'string') return [];
@@ -93,6 +94,10 @@ export async function sendConfirmationEmailsFromTemplate(eventId, booking, atten
       trainingAgendaData = await fetchTrainingAgendaData(eventId);
     }
 
+    await personaliseEmailZoomTargets(
+      createEventEmailZoomResolver(supabase, event.tenant_id, attendee?.email || booking?.attendee_email),
+      event, complexEventData, trainingAgendaData, buildSessionScheduleHtml,
+    );
     const icsAttachment = buildIcsAttachment(event, booking, complexEventData);
 
     const bookingData = {
@@ -162,6 +167,7 @@ export async function sendConfirmationEmailsFromTemplate(eventId, booking, atten
     }
 
   } catch (err) {
+    results.push({ email: attendee?.email || booking?.attendee_email, success: false, error: err.message });
     console.error('[sendConfirmationEmailsFromTemplate] Error:', err.message);
   }
 
@@ -448,6 +454,7 @@ async function fetchComplexEventData(eventId, ticketClassId, ticketClassName, te
       sessions: accessibleSessions,
       ticketClass,
       accessibleTracks,
+      trackColours,
       sessionScheduleHtml
     };
   } catch (err) {
@@ -811,7 +818,7 @@ export function formatBodyAsHtml(body) {
 //
 // Returns { found, subject, html, isComplex } — found=false when the event
 // does not exist in either table for the given tenant.
-export async function renderEventEmailPreview({ eventId, tenantId, subject, body, event_survey_assignment_id, reminder, sessionId, now = new Date() }) {
+export async function renderEventEmailPreview({ eventId, tenantId, subject, body, event_survey_assignment_id, reminder, sessionId, previewBooking = null, now = new Date() }) {
   if (!supabase) return { found: false };
 
   let eventQuery = supabase
@@ -857,7 +864,7 @@ export async function renderEventEmailPreview({ eventId, tenantId, subject, body
   // session, day-grouped with tracks/times/locations/join links.
   let complexEventData = null;
   if (event.is_complex) {
-    complexEventData = await fetchComplexEventData(eventId, null, null, event.tenant_id, event.timezone);
+    complexEventData = await fetchComplexEventData(eventId, previewBooking?.ticket_class_id || null, previewBooking?.id || null, event.tenant_id, event.timezone);
   }
 
   let trainingAgendaData = null;
@@ -865,6 +872,10 @@ export async function renderEventEmailPreview({ eventId, tenantId, subject, body
     trainingAgendaData = await fetchTrainingAgendaData(eventId);
   }
 
+  await personaliseEmailZoomTargets(
+    createEventEmailZoomResolver(supabase, event.tenant_id, previewBooking?.attendee_email, { sample: !previewBooking }),
+    event, complexEventData, trainingAgendaData, buildSessionScheduleHtml,
+  );
   let reminderContext = null;
   let trainingAgendaLine = null;
   if (event.is_training && reminder?.email_type === 'reminder') {
@@ -891,7 +902,7 @@ export async function renderEventEmailPreview({ eventId, tenantId, subject, body
   }
 
   // Clearly-labelled sample attendee/booking values so nothing renders blank.
-  const sampleBooking = {
+  const sampleBooking = previewBooking || {
     id: 'sample-booking-id',
     attendee_first_name: 'Jane',
     attendee_last_name: 'Example',
@@ -927,6 +938,10 @@ export async function renderEventEmailPreview({ eventId, tenantId, subject, body
     html: formatBodyAsHtml(renderedBody) + qrHtml,
     isComplex: !!event.is_complex,
     reminderContext,
+    attendee: previewBooking ? { name: `${previewBooking.attendee_first_name || ''} ${previewBooking.attendee_last_name || ''}`.trim(), email: previewBooking.attendee_email } : null,
+    previewNotice: previewBooking
+      ? 'Real attendee data. Zoom links are private to this attendee. Previewing does not send email or create a registration. QR codes remain samples.'
+      : 'Sample data. Select a confirmed attendee to preview their personalised Zoom link.',
   };
 }
 

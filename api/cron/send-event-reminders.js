@@ -1,8 +1,9 @@
 import { sendEmail } from '../_lib/emailService.js';
+import { createEventEmailZoomResolver, personaliseEmailZoomTargets } from '../_lib/eventEmailZoomLinks.js';
 import { supabase } from '../_lib/database.js';
 import { resolveEventEmailSurvey } from '../_lib/campaignEventSurvey.js';
 import { buildInboxDelivery } from '../_lib/transactionalInbox.js';
-import { fetchComplexEventData, parseCcField, replacePlaceholders as renderPlaceholders } from '../_lib/eventConfirmationEmail.js';
+import { fetchComplexEventData, buildSessionScheduleHtml, parseCcField, replacePlaceholders as renderPlaceholders } from '../_lib/eventConfirmationEmail.js';
 import { fetchTrainingAgendaData, applyAgendaPlaceholders, safeHttpUrl } from '../_lib/trainingAgenda.js';
 import { trainingReminderEvent, validateTrainingReminder } from '../_lib/trainingReminderTargets.js';
 import { validateFollowUpDelivery } from '../_lib/eventFollowUps.js';
@@ -277,6 +278,12 @@ export default async function handler(req, res) {
         }
 
         const surveyContent = await resolveEventEmailSurvey(supabase, eventEmail, event, isComplexEvent ? 'complex_event' : 'event');
+        await personaliseEmailZoomTargets(
+          createEventEmailZoomResolver(supabase, event.tenant_id, scheduledEmail.attendee_email),
+          event, complexEventData, trainingAgendaData, buildSessionScheduleHtml,
+        );
+        if (trainingAgendaLine) event.zoom_join_url = trainingAgendaLine.zoom_join_url || '';
+
         let subject = renderPlaceholders(surveyContent.subject, {
           event,
           booking,

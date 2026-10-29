@@ -1,4 +1,5 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
+import EmailPreviewAttendees from "./EmailPreviewAttendees";
 import { readEventEmailSaveResponse } from "./eventEmailSaveResponse.js";
 import CampaignEventSurveySettings from '@/components/CampaignEventSurveySettings';
 import { Button } from "@/components/ui/button";
@@ -213,27 +214,36 @@ export default function EventEmailSettingsEditor({
   // Preview modal state: null | { emailId, loading, error, subject, html }
   const [preview, setPreview] = useState(null);
   const previewRequest = useRef(0);
+  const currentEventId = useRef(eventId);
+  currentEventId.current = eventId;
 
-  const openPreview = async (email, sessionId = null, ticketClassId = null) => {
+  useEffect(() => {
+    previewRequest.current++;
+    setPreview(null);
+    return () => { previewRequest.current++; };
+  }, [eventId]);
+
+  const openPreview = async (email, sessionId = null, ticketClassId = null, selectedAttendee = null) => {
     const requestId = ++previewRequest.current;
-    const draft = { emailId: email.id, email, sessionId, ticketClassId };
+    const bookingId = email.email_type === "follow_up" ? null : selectedAttendee?.id ?? null;
+    const draft = { eventId, emailId: email.id, email, sessionId, ticketClassId, bookingId, selectedAttendee };
     setPreview({ ...draft, loading: true, error: null, subject: "", html: "" });
     try {
       const response = await fetch(`/api/event-emails/${eventId}/preview`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ subject: email.subject || "", body: email.body || "", event_survey_assignment_id: email.event_survey_assignment_id || null, reminder: email, sessionId, ticketClassId }),
+        body: JSON.stringify({ subject: email.subject || "", body: email.body || "", event_survey_assignment_id: email.event_survey_assignment_id || null, reminder: email, sessionId, ticketClassId, ...(bookingId != null ? { bookingId } : {}) }),
       });
       const result = await response.json().catch(() => ({}));
-      if (requestId !== previewRequest.current) return;
+      if (requestId !== previewRequest.current || eventId !== currentEventId.current) return;
       if (!response.ok) {
         setPreview({ ...draft, loading: false, error: result.error || `Preview failed (${response.status})`, subject: "", html: "" });
         return;
       }
-      setPreview({ ...draft, ticketClassId: result.reminderContext?.ticketClassId ?? result.reminderContext?.selectedTicketClassId ?? result.ticketClassId ?? ticketClassId, ticketClasses: result.ticketClasses ?? result.reminderContext?.ticketClasses ?? [], reminderContext: result.reminderContext, loading: false, error: null, subject: result.subject || "", html: result.html || "" });
+      setPreview({ ...draft, attendee: result.attendee, previewNotice: result.previewNotice, ticketClassId: result.reminderContext?.ticketClassId ?? result.reminderContext?.selectedTicketClassId ?? result.ticketClassId ?? ticketClassId, ticketClasses: result.ticketClasses ?? result.reminderContext?.ticketClasses ?? [], reminderContext: result.reminderContext, loading: false, error: null, subject: result.subject || "", html: result.html || "" });
     } catch (err) {
-      if (requestId !== previewRequest.current) return;
+      if (requestId !== previewRequest.current || eventId !== currentEventId.current) return;
       setPreview({ ...draft, loading: false, error: err.message || "Network error", subject: "", html: "" });
     }
   };
@@ -624,14 +634,26 @@ export default function EventEmailSettingsEditor({
         </div>
       ))}
 
-      <Dialog open={!!preview} onOpenChange={(open) => { if (!open) { previewRequest.current++; setPreview(null); } }}>
-        <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
+      <Dialog open={!!preview && preview.eventId === eventId} onOpenChange={(open) => { if (!open) { previewRequest.current++; setPreview(null); } }}>
+        <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Email preview</DialogTitle>
             <DialogDescription>
-              Unsaved draft with sample attendee details (e.g. "Jane Example"). Preview never sends or queues an email.
+              Unsaved draft with sample or selected attendee details. Preview never sends or queues an email.
             </DialogDescription>
           </DialogHeader>
+          {preview && preview.email.email_type !== "follow_up" && (
+            <EmailPreviewAttendees key={`${eventId}:${preview.emailId}`} eventId={eventId}
+              selected={preview.selectedAttendee}
+              onSelect={attendee => openPreview(preview.email, preview.sessionId, preview.ticketClassId, attendee)} />
+          )}
+          {preview && preview.email.email_type !== "follow_up" && !preview.bookingId && (
+            <p className="text-sm rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-900" role="status">
+              Sample preview: live Zoom join links are omitted. Select a confirmed attendee to preview their available personal links.
+            </p>
+          )}
+          {preview?.previewNotice && <p role="status" className="text-sm text-slate-600" data-testid="email-preview-notice">{preview.previewNotice}</p>}
+          {preview?.attendee && <p className="text-sm break-words" data-testid="email-preview-attendee">Rendered for: {preview.attendee.name} — {preview.attendee.email}</p>}
           {preview?.loading ? (
             <div className="flex items-center justify-center py-12" data-testid="email-preview-loading">
               <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
@@ -644,12 +666,12 @@ export default function EventEmailSettingsEditor({
             >
               <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
               <div><p className="break-words">{preview.error}</p>
-                <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => openPreview(preview.email, preview.sessionId, preview.ticketClassId)}>Retry preview</Button>
+                <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => openPreview(preview.email, preview.sessionId, preview.ticketClassId, preview.selectedAttendee)}>Retry preview</Button>
               </div>
             </div>
           ) : preview ? (
             <div className="flex flex-col min-h-0 flex-1 space-y-3">
-              {preview.ticketClasses?.length > 0 && (
+              {!preview.bookingId && preview.ticketClasses?.length > 0 && (
                 <div className="text-sm space-y-1">
                   <Label htmlFor="email-preview-ticket">Sample ticket entitlement</Label>
                   <select id="email-preview-ticket" className="block w-full border rounded p-2"
@@ -669,7 +691,7 @@ export default function EventEmailSettingsEditor({
                     <label htmlFor="training-reminder-session">{preview.reminderContext.isFollowUp ? "Follow-up target" : mode === "session" ? "Session" : "Training agenda entry"}</label>
                     <select id="training-reminder-session" className="block w-full border rounded p-2"
                       value={preview.reminderContext.selectedId || ""}
-                      onChange={e => openPreview(preview.email, e.target.value, preview.ticketClassId)}>
+                      onChange={e => openPreview(preview.email, e.target.value, preview.ticketClassId, preview.selectedAttendee)}>
                       {(preview.reminderContext.entries || []).map(entry => (
                         <option key={entry.sessionId ?? entry.id ?? "absolute"} value={entry.sessionId ?? entry.id ?? ""}>
                           {entry.sessionDate ? new Date(entry.sessionDate).toLocaleString("en-GB", { timeZone: preview.reminderContext.timezone }) : "Once per booking"} — {entry.description}{entry.legacyTime ? " (legacy date-only time)" : ""}

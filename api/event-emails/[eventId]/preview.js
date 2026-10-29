@@ -11,8 +11,11 @@ import { renderEventEmailPreview } from '../../_lib/eventConfirmationEmail.js';
 import { loadFollowUpEvent, loadFollowUpProgramme, calculateBookingFollowUps } from '../../_lib/eventFollowUps.js';
 import { renderFollowUp } from '../../_lib/eventFollowUpRendering.js';
 import { validateFollowUpConfig } from '../../_lib/eventFollowUpTargets.js';
+import { listPreviewAttendees, loadPreviewBooking } from '../../_lib/eventEmailPreviewAttendees.js';
 
 export default async function handler(req, res) {
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -30,11 +33,21 @@ export default async function handler(req, res) {
   if (!eventId) return res.status(400).json({ error: 'Event ID is required' });
 
   const { subject, body } = req.body || {};
+  if (req.body?.action === 'attendees') {
+    try {
+      return res.status(200).json(await listPreviewAttendees(supabase, ctx.tenantId, eventId, req.body.search, req.body.offset));
+    } catch (error) {
+      return res.status(error.status || 500).json({ error: error.status ? error.message : 'Unable to load attendees' });
+    }
+  }
   if (typeof subject !== 'string' && typeof body !== 'string') {
     return res.status(400).json({ error: 'subject or body is required' });
   }
 
   try {
+    const previewBooking = req.body?.bookingId
+      ? await loadPreviewBooking(supabase, ctx.tenantId, eventId, req.body.bookingId)
+      : null;
     if (req.body?.reminder?.email_type === 'follow_up') {
       try { validateFollowUpConfig(req.body.reminder); }
       catch (error) { return res.status(400).json({ error: error.message }); }
@@ -65,6 +78,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ ...rendered, is_complex: event.is_complex, reminderContext });
     }
     const result = await renderEventEmailPreview({
+      previewBooking,
       eventId,
       tenantId: ctx.tenantId,
       subject: typeof subject === 'string' ? subject : '',
@@ -79,8 +93,12 @@ export default async function handler(req, res) {
       html: result.html,
       is_complex: result.isComplex,
       reminderContext: result.reminderContext,
+      attendee: result.attendee,
+      previewNotice: result.previewNotice,
     });
   } catch (err) {
+    if (err.status === 404) return res.status(404).json({ error: err.message });
+    if (err.code === 'ZOOM_EMAIL_LINK_UNAVAILABLE') return res.status(409).json({ error: err.message });
     if (err.message?.startsWith('Event survey:')) return res.status(400).json({ error: err.message });
     console.error('[event-emails preview] Error:', err);
     return res.status(500).json({ error: 'Failed to render preview' });
