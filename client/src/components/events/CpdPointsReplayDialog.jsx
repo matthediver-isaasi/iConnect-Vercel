@@ -14,7 +14,21 @@ const LABELS = {
   unmatched_member: "Unmatched member", ineligible: "Cancelled / ineligible",
   evaluation_error: "Evaluation error", pending: "Pending", awarded: "Awarded",
   unchanged: "Unchanged / skipped", retrying: "Retrying", failed: "Terminal failure",
+  registration_only_hold: "Imported registration on hold",
 };
+const REASONS = {
+  already_awarded: "No new points: an award already exists. This does not mean zero points were earned. Existing awards, including adjusted or reversed awards, are not topped up or re-awarded.",
+  registration_only_hold: "No new points: this registration was imported with awards on hold. An administrator must review and authorise release before reprocessing.",
+  no_rule: "No new points: no applicable CPD points rule was found.",
+  no_award: "No new points: the effective rule is configured not to award points.",
+  missing_attendance: "No new points: qualifying verified attendance is required.",
+  unmatched_member: "No new points: the attendee could not be matched to a unique member.",
+  ineligible: "No new points: this registration is cancelled or otherwise ineligible.",
+  evaluation_error: "Eligibility could not be evaluated. Resolve the error and run a new preview.",
+};
+function outcomeReason(row) {
+  return REASONS[row.detail] || REASONS[row.status || row.outcome];
+}
 const PAGE_SIZE = 50;
 const MAX_AUTO_PAGES = 20;
 const MAX_POLLS = 60;
@@ -222,7 +236,16 @@ export default function CpdPointsReplayDialog({ scope, scopeLabel, replayId: ini
           </>
         ) : preview && (
           <div className="space-y-2 text-sm">
-            <p role="status">{preview.complete ? "Preview complete" : "Preview incomplete — confirmation is unavailable"} · {preview.totals.registrations} unique registrations · {preview.totals.eligible} eligible · <strong>{preview.totals.proposed_points} proposed points</strong></p>
+            <p role="status">{preview.complete ? "Preview complete" : "Preview incomplete — confirmation is unavailable"} · {preview.totals.registrations} unique registrations · {preview.totals.eligible} eligible for new points · <strong>{preview.totals.proposed_points} additional / new points</strong></p>
+            <p className="text-muted-foreground">Additional / new points are what this reprocessing would add, not the attendee&apos;s total earned CPD. Already awarded means no new award will be created, not that zero points were earned.</p>
+            <dl className="flex flex-wrap gap-x-5 gap-y-2 rounded border bg-muted/40 p-3" aria-label="Preview outcome counts">
+              {Object.entries(rows.reduce((counts, row) => {
+                const key = row.detail === "registration_only_hold" ? row.detail : row.outcome;
+                counts[key] = (counts[key] || 0) + 1;
+                return counts;
+              }, {})).map(([key, count]) => <div key={key} className="flex gap-1"><dt>{LABELS[key] || key}:</dt><dd className="font-semibold">{count}</dd></div>)}
+            </dl>
+            {!preview.complete && <p className="text-xs text-muted-foreground">Outcome counts cover the registrations checked so far.</p>}
             {!busy && !stale && !preview.complete && <Button type="button" variant="outline" onClick={() => loadPreview(true)}>Continue read-only preview</Button>}
             {preview.complete && !canConfirm && !stale && <p>No confirmation is available: there are no eligible registrations, or the evaluation is incomplete or contains errors.</p>}
           </div>
@@ -238,14 +261,14 @@ export default function CpdPointsReplayDialog({ scope, scopeLabel, replayId: ini
               <thead><tr className="border-b bg-muted">
                 <th className="p-2 text-left">Registration</th>
                 {!replayId && <><th className="p-2 text-left">Effective rule</th><th className="p-2 text-left">Trigger</th></>}
-                <th className="p-2 text-left">{replayId ? "Awarded points" : "Proposed points"}</th>
+                <th className="p-2 text-left">{replayId ? "Awarded points" : "Additional / new points"}</th>
                 <th className="p-2 text-left">{replayId ? "Actual outcome" : "Predicted outcome"}</th>
               </tr></thead>
               <tbody>{visibleRows.map(row => <tr key={cpdRegistrationKey(row)} className="border-b last:border-0">
                 <td className="p-2"><span>{row.attendee_name || "Unnamed attendee"}</span><span className="block text-xs text-muted-foreground break-all">{row.booking_source} · {row.booking_id}<br />Event: {row.event_id}</span></td>
                 {!replayId && <><td className="p-2">{row.rule ? `${row.rule.ticket_id ? "Ticket override" : "Event-wide"}: ${row.rule.no_award ? "No award" : `${row.rule.points} points`}` : "No rule"}</td><td className="p-2">{row.trigger === "registration" ? "Registration" : row.trigger === "attendance" ? "Verified attendance" : "—"}</td></>}
                 <td className="p-2">{replayId ? row.points ?? "—" : row.proposed_points}</td>
-                <td className="p-2">{LABELS[row.status || row.outcome] || row.status || row.outcome}{row.detail && <span className="block text-xs text-muted-foreground">{row.detail}</span>}</td>
+                <td className="p-2">{LABELS[row.detail === "registration_only_hold" ? row.detail : row.status || row.outcome] || row.status || row.outcome}{outcomeReason(row) && <span className="block text-xs text-muted-foreground">{outcomeReason(row)}</span>}{row.detail && row.detail !== "registration_only_hold" && <span className="block text-xs text-muted-foreground">{row.detail}</span>}</td>
               </tr>)}</tbody>
             </table>
           </div>

@@ -205,3 +205,209 @@ test("strict-mode remount still produces a complete read-only preview", async ()
     assert.ok(button("Confirm reprocessing"));
   } finally { await view.cleanup(); }
 });
+
+const checkbox = label => [...document.querySelectorAll("label")].find(node => node.textContent === label)?.querySelector("input");
+const toggle = label => act(async () => checkbox(label).click());
+const certificateOption = "Send/resend CPD certificate emails";
+
+test("zero-new-points explanations and outcome counts preserve the distinction from earned points", async () => {
+  const outcomes = ["already_awarded", "registration_only_hold", "no_rule", "missing_attendance"];
+  globalThis.fetch = async () => json({
+    ...preview, preview_token: null,
+    rows: outcomes.map((outcome, index) => ({ ...row, booking_id: `booking-${index}`, outcome, proposed_points: "0" })),
+    totals: { registrations: 4, eligible: 0, proposed_points: "0" },
+  });
+  const view = await mount();
+  try {
+    await tick();
+    assert.match(document.body.textContent, /0 additional \/ new points/);
+    assert.doesNotMatch(document.body.textContent, /Proposed points|registration_only_hold/);
+    assert.match(document.body.textContent, /does not mean zero points were earned/);
+    assert.match(document.body.textContent, /administrator must review and authorise release/);
+    const counts = document.querySelector('[aria-label="Preview outcome counts"]');
+    assert.match(counts.textContent, /Already awarded:1/);
+    assert.match(counts.textContent, /Imported registration on hold:1/);
+    assert.match(document.body.textContent, /qualifying verified attendance is required/);
+    assert.equal(button("Confirm reprocessing"), undefined);
+    assert.ok(checkbox(certificateOption), "follow-up options remain available with no additional points");
+  } finally { await view.cleanup(); }
+});
+
+test("certificate option exposes real selected-attendee PDF; preview never sends or awards; deliberate send stays separate", async () => {
+  const calls = [];
+  const revoked = [];
+  const oldCreate = URL.createObjectURL, oldRevoke = URL.revokeObjectURL;
+  URL.createObjectURL = () => "blob:selected-attendee";
+  URL.revokeObjectURL = url => revoked.push(url);
+  const second = { ...row, booking_id: "booking-2", attendee_name: "Samira Walsh", booking_source: "complex" };
+  globalThis.fetch = async (url, options) => {
+    const body = options.body && JSON.parse(options.body);
+    calls.push({ url, options, body });
+    if (url.includes("event-cpd-points-replay")) return json({ ...preview, rows: [row, second], totals: { registrations: 2, eligible: 2, proposed_points: "3" } });
+    if (!body) return json({ available: true, can_send: true, fingerprint: url.includes("booking-2") ? "snapshot-2" : "snapshot-1" });
+    if (body.action === "preview") return new Response("%PDF-1.4", { headers: { "Content-Type": "application/pdf" } });
+    if (body.action === "send") return json({ success: true });
+    throw new Error("Unexpected action");
+  };
+  const view = await mount();
+  try {
+    await tick();
+    assert.equal(button("Preview certificate PDF"), undefined);
+    await toggle("Send/resend badge notification emails");
+    assert.equal(button("Preview certificate PDF"), undefined, "badge-only option has no PDF");
+    await toggle("Send/resend badge notification emails");
+    await toggle(certificateOption);
+    assert.ok(button("Preview certificate PDF"));
+    assert.equal(calls.length, 1, "selecting certificate does not send, award, or even request a PDF");
+    await act(async () => {
+      const select = document.querySelector("select");
+      select.value = cpdRegistrationKey(second);
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await click("Preview certificate PDF");
+    await tick();
+    const post = calls.find(item => item.body?.action === "preview" && item.url.includes("attendee-cpd-certificate"));
+    assert.deepEqual(post.body, { booking_id: "booking-2", booking_source: "complex", action: "preview", expected_fingerprint: "snapshot-2" });
+    assert.equal(post.options.credentials, "include");
+    assert.match(calls[1].url, /booking_id=booking-2&booking_source=complex/);
+    assert.equal(calls[1].options.credentials, "include");
+    assert.match(document.querySelector("iframe").title, /Samira Walsh/);
+    assert.equal(document.querySelector("iframe").src, "blob:selected-attendee");
+    assert.ok(calls.every(item => !item.body || item.body.action === "preview"), "PDF inspection cannot send or confirm awards");
+    assert.equal(button("Confirm send/resend to 2 eligible email deliveries"), undefined);
+    await click("Review recipients and eligibility");
+    await tick();
+    assert.equal(calls.filter(item => item.body?.action === "send").length, 0);
+    await click("Confirm send/resend to 2 eligible email deliveries");
+    await tick();
+    const sends = calls.filter(item => item.body?.action === "send");
+    assert.equal(sends.length, 2);
+    assert.equal(sends[1].body.expected_fingerprint, "snapshot-2");
+    assert.equal(sends[1].body.confirmed, true);
+    assert.equal(sends[1].body.deliberate_resend, true);
+    assert.ok(sends[1].body.request_id);
+    assert.equal(sends[1].body.award_confirmed, undefined);
+    await toggle(certificateOption);
+    assert.equal(document.querySelector("iframe"), null);
+    assert.deepEqual(revoked, ["blob:selected-attendee"]);
+  } finally {
+    await view.cleanup();
+    URL.createObjectURL = oldCreate; URL.revokeObjectURL = oldRevoke;
+  }
+});
+
+test("changing attendees aborts pending PDF requests and discards stale responses; unmount revokes the current PDF", async () => {
+  let resolvePdf, oldSignal;
+  let created = 0;
+  const revoked = [];
+  const oldCreate = URL.createObjectURL, oldRevoke = URL.revokeObjectURL;
+  URL.createObjectURL = () => `blob:pdf-${++created}`;
+  URL.revokeObjectURL = url => revoked.push(url);
+  const second = { ...row, booking_id: "booking-2", attendee_name: "Samira Walsh" };
+  globalThis.fetch = async (url, options) => {
+    const body = options.body && JSON.parse(options.body);
+    if (url.includes("event-cpd-points-replay")) return json({ ...preview, rows: [row, second], totals: { registrations: 2, eligible: 2, proposed_points: "3" } });
+    if (!body) return json({ available: true, fingerprint: "current" });
+    if (body.booking_id === row.booking_id) {
+      oldSignal = options.signal;
+      return new Promise(resolve => { resolvePdf = resolve; });
+    }
+    return new Response("%PDF-1.4", { headers: { "Content-Type": "application/pdf" } });
+  };
+  const view = await mount();
+  try {
+    await toggle(certificateOption);
+    await click("Preview certificate PDF");
+    await tick();
+    assert.match(document.body.textContent, /Preparing the selected attendee/);
+    await act(async () => {
+      const select = document.querySelector("select");
+      select.value = cpdRegistrationKey(second);
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    assert.equal(oldSignal.aborted, true);
+    await act(async () => resolvePdf(new Response("%PDF-old", { headers: { "Content-Type": "application/pdf" } })));
+    await tick();
+    assert.equal(created, 0, "stale response must not create an object URL");
+    assert.equal(document.querySelector("iframe"), null);
+    await click("Preview certificate PDF");
+    await tick();
+    assert.equal(created, 1);
+    assert.match(document.querySelector("iframe").title, /Samira Walsh/);
+  } finally {
+    await view.cleanup();
+    URL.createObjectURL = oldCreate; URL.revokeObjectURL = oldRevoke;
+  }
+  assert.deepEqual(revoked, ["blob:pdf-1"]);
+});
+
+test("PDF errors have a retry that reloads authenticated metadata and the fingerprint", async () => {
+  let metadataReads = 0;
+  const fingerprints = [];
+  const oldCreate = URL.createObjectURL, oldRevoke = URL.revokeObjectURL;
+  URL.createObjectURL = () => "blob:retry";
+  URL.revokeObjectURL = () => {};
+  globalThis.fetch = async (url, options) => {
+    const body = options.body && JSON.parse(options.body);
+    if (url.includes("event-cpd-points-replay")) return json(preview);
+    if (!body) return json({ available: true, fingerprint: `revision-${++metadataReads}` });
+    assert.equal(body.action, "preview");
+    fingerprints.push(body.expected_fingerprint);
+    return fingerprints.length === 1 ? json({ error: "Certificate data changed. Reload and preview." }, 409)
+      : new Response("%PDF-1.4", { headers: { "Content-Type": "application/pdf" } });
+  };
+  const view = await mount();
+  try {
+    await toggle(certificateOption);
+    await click("Preview certificate PDF");
+    await tick();
+    assert.match(document.querySelector('[role="alert"]').textContent, /Certificate data changed/);
+    assert.equal(document.querySelector("iframe"), null);
+    await click("Retry certificate PDF preview");
+    await tick();
+    assert.deepEqual(fingerprints, ["revision-1", "revision-2"]);
+    assert.ok(document.querySelector("iframe"));
+  } finally {
+    await view.cleanup();
+    URL.createObjectURL = oldCreate; URL.revokeObjectURL = oldRevoke;
+  }
+});
+
+test("switching away from a displayed PDF revokes it immediately; unavailable attendees cannot request a PDF", async () => {
+  const revoked = [], actions = [];
+  const oldCreate = URL.createObjectURL, oldRevoke = URL.revokeObjectURL;
+  URL.createObjectURL = () => "blob:first-attendee";
+  URL.revokeObjectURL = url => revoked.push(url);
+  const second = { ...row, booking_id: "booking-2", attendee_name: "Samira Walsh" };
+  globalThis.fetch = async (url, options) => {
+    const body = options.body && JSON.parse(options.body);
+    if (url.includes("event-cpd-points-replay")) return json({ ...preview, rows: [row, second], totals: { registrations: 2, eligible: 2, proposed_points: "3" } });
+    if (!body) return json(url.includes("booking-2")
+      ? { available: false, reason: "No certificate template is configured." }
+      : { available: true, fingerprint: "current" });
+    actions.push(body);
+    return new Response("%PDF-1.4", { headers: { "Content-Type": "application/pdf" } });
+  };
+  const view = await mount();
+  try {
+    await toggle(certificateOption);
+    await click("Preview certificate PDF");
+    await tick();
+    assert.ok(document.querySelector("iframe"));
+    await act(async () => {
+      const select = document.querySelector("select");
+      select.value = cpdRegistrationKey(second);
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    assert.equal(document.querySelector("iframe"), null);
+    assert.deepEqual(revoked, ["blob:first-attendee"]);
+    await click("Preview certificate PDF");
+    await tick();
+    assert.match(document.querySelector('[role="alert"]').textContent, /No certificate template/);
+    assert.equal(actions.length, 1, "unavailable metadata must not proceed to a PDF POST");
+    assert.equal(document.querySelector("iframe"), null);
+  } finally {
+    await view.cleanup();
+    URL.createObjectURL = oldCreate; URL.revokeObjectURL = oldRevoke;
+  }
+});

@@ -5,6 +5,12 @@ description: Durable integrity rules for event-driven CPD point awards, retries,
 
 CPD points use a signed, append-only ledger. Never make a mutable total authoritative, and never edit or delete an award to correct it; append a linked reversal or future adjustment instead.
 
+The owner approved releasing the 64 registration-only imports for BNMS Autumn Meeting 2026 for CPD points and attendee certificate eligibility, not badge awards or automatic email sends.
+
+**Why:** The original import deliberately prohibited awards; the later owner instruction explicitly changed the CPD requirement. Deleting that original hold would lose its provenance and unintentionally permit badge processing.
+
+**How to apply:** Preserve the original import evidence and separate release authority. Subsequent reprocessing must preserve existing positive awards; certificate previews are read-only and sends still require explicit confirmation and valid sender configuration.
+
 **Why:** Earned points must remain auditable against the event rule and attendance evidence that existed at award time, even after configuration, bookings, or provider outcomes change.
 
 **How to apply:** Snapshot the effective rule, ticket, trigger, and evidence on every award. A ticket rule replaces the entire event-wide rule before trigger evaluation. Retry unresolved evidence through an outbox while enforcing one positive award per event/booking occurrence. Bind evidence reversals to the exact snapshotted attendance target so an unrelated session cannot remove valid points.
