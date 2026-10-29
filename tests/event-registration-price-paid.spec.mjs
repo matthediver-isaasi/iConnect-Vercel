@@ -544,7 +544,7 @@ function json(route, body, status = 200) {
   });
 }
 
-async function installFixture(page, { bookingGroups, paymentSettings = [], paymentSettingsStatus = 200, attendance = false } = {}) {
+async function installFixture(page, { bookingGroups, paymentSettings = [], paymentSettingsStatus = 200, attendance = false, cpdReplay = false } = {}) {
   const state = { writes: [], unexpectedExternal: [] };
   const reportGroups = bookingGroups
     || [bookingGroup(NET_ATTENDEE), bookingGroup(PENDING_ATTENDEE)];
@@ -593,6 +593,7 @@ async function installFixture(page, { bookingGroups, paymentSettings = [], payme
     }
 
     if (url.pathname === "/api/auth/me") return json(route, ADMIN);
+    if (cpdReplay && url.pathname === "/api/admin/event-cpd-points-replay") return json(route, { replays: [] });
     if (url.pathname === "/api/entities/SystemSettings") return json(route, paymentSettings, paymentSettingsStatus);
     if (url.pathname === "/api/auth/tenant-user-me") return json(route, { authenticated: false }, 401);
     if (url.pathname === "/api/reports/event-registration-report") {
@@ -696,6 +697,7 @@ for (const width of [1440, 390]) {
     groups.push(...paginationFixtureGroups());
     const state = await openGeneratedReport(page, {
       bookingGroups: groups,
+      cpdReplay: true,
       attendance: width === 390,
       paymentSettings: [
         { setting_key: 'event_allow_voucher_payment', setting_value: width === 1440 },
@@ -704,6 +706,30 @@ for (const width of [1440, 390]) {
     });
     const region = page.getByRole('region', { name: 'Registrations table' });
     await expect(region).toBeVisible();
+    // Exercise the maximum action set in both standalone and grouped rows.
+    for (const id of ['credit-single', 'credit-standard-a']) {
+      const row = region.getByTestId(`row-booking-${id}`);
+      const actions = row.locator('[data-pinned="actions"]');
+      await expect(actions.getByTestId(`select-cpd-standard-${id}`)).toBeVisible();
+      const controls = actions.locator('button, a');
+      await expect(controls).toHaveCount(6);
+      const layout = await actions.evaluate(cell => {
+        const box = cell.getBoundingClientRect();
+        const controls = [...cell.querySelectorAll('button, a')].map(control => {
+          const rect = control.getBoundingClientRect();
+          return { left: rect.left, right: rect.right, centerY: rect.y + rect.height / 2,
+            width: rect.width, checkbox: control.getAttribute('role') === 'checkbox' };
+        });
+        return { left: box.left, right: box.right, height: cell.firstElementChild.getBoundingClientRect().height, controls };
+      });
+      expect(layout.height).toBe(28);
+      for (const control of layout.controls) {
+        expect(control.width).toBe(control.checkbox ? 16 : 28);
+        expect(control.centerY).toBeCloseTo(layout.controls[0].centerY, 0);
+        expect(control.left).toBeGreaterThanOrEqual(layout.left);
+        expect(control.right).toBeLessThanOrEqual(layout.right);
+      }
+    }
     const geometry = () => region.evaluate(el => {
       const box = el.getBoundingClientRect();
       return {
@@ -738,8 +764,12 @@ for (const width of [1440, 390]) {
       expect(cell.scrollWidth).toBeLessThanOrEqual(cell.clientWidth + 1);
       expect(cell.bg).not.toBe('rgba(0, 0, 0, 0)');
     });
+    const actionsWidth = await region.evaluate(el =>
+      parseFloat(getComputedStyle(el).getPropertyValue('--report-actions-width')));
+    expect(after.pins.filter(p => p.role === 'actions').every(p =>
+      Math.abs(p.width - actionsWidth) < 2)).toBe(true);
     expect(after.pins.filter(p => p.role === 'name').every(p =>
-      Math.abs(p.x - after.left - 76) < 2)).toBe(true);
+      Math.abs(p.x - after.left - actionsWidth) < 2)).toBe(true);
     await region.scrollIntoViewIfNeeded();
     const cornerOnTop = await region.evaluate(el => {
       const corner = el.querySelector('thead [data-pinned="name"]');
@@ -871,9 +901,7 @@ test("explicit payment intentions and unavailable imported financial history sur
   await expect(financialCells(page, "guest-import").totalAfterDiscount).toHaveText("Unavailable");
   await expect(financialCells(page, "member-import").voucher).toHaveText("-");
   await expect(financialCells(page, "member-import").fund).toHaveText("-");
-  await expect(page.getByTestId("text-price-paid-explanation")).toContainText(
-    "A recorded zero on an imported registration does not establish its external payment history",
-  );
+  await expect(page.getByTestId("text-price-paid-explanation")).toHaveCount(0);
   await expect(page.getByTestId("text-total-revenue")).toHaveText("Unavailable");
   await expect(page.getByTestId("text-total-vouchers")).toHaveText("£0.00");
   await expect(page.getByTestId("text-total-fund")).toHaveText("£0.00");
@@ -896,8 +924,7 @@ test("Price Paid is visible with net and pending semantics and selected by defau
   await expect(page.getByRole("columnheader", { name: "Price Paid", exact: true })).toBeVisible();
   await expect(page.getByTestId("text-price-paid-nettie")).toHaveText("£18.25");
   await expect(page.getByTestId("text-price-paid-penny")).toHaveText("Pending/unpaid — £40.00");
-  await expect(page.getByTestId("text-price-paid-explanation"))
-    .toContainText("net ticket price after discounts and credits");
+  await expect(page.getByTestId("text-price-paid-explanation")).toHaveCount(0);
 
   await page.getByTestId("button-export-csv").click();
   const pricePaidCheckbox = page.getByTestId("checkbox-column-std:pricePaid");
@@ -1263,10 +1290,7 @@ test("Credits align once across singleton, grouped and external-booker layouts",
 
   await expect(page.getByTestId("text-total-credits"))
     .toHaveText("£32.00 · US$7.50 · Pending: 1");
-  await expect(page.getByTestId("text-price-paid-explanation"))
-    .toContainText("issued after booking");
-  await expect(page.getByTestId("text-price-paid-explanation"))
-    .toContainText("do not include vouchers, training funds or account allocations");
+  await expect(page.getByTestId("text-price-paid-explanation")).toHaveCount(0);
 
   await page.getByTestId("button-export-csv").click();
   await expect(page.getByTestId("checkbox-column-std:credits"))

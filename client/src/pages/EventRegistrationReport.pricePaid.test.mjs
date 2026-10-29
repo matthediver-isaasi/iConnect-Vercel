@@ -6,6 +6,10 @@ import { financialAmount, financialExport, financialCurrency, paymentMethodLabel
 
 const source = readFileSync(new URL('./EventRegistrationReport.jsx', import.meta.url), 'utf8');
 
+test('report omits the removed financial explanation', () => {
+  assert.doesNotMatch(source, /text-price-paid-explanation|Price Paid is the net ticket price|Reloading reads local records only/);
+});
+
 test('price paid formatter distinguishes net, pending, and unavailable values', () => {
   assert.equal(formatRegistrationPricePaid({ price_paid_status: 'net', price_paid: 12 }), '£12.00');
   assert.equal(formatRegistrationPricePaid({ price_paid_status: 'net', price_paid: 12.345 }), '£12.35');
@@ -135,7 +139,6 @@ test('unavailable historical gross snapshots are never rendered or exported as z
   assert.doesNotMatch(footer, /hasUnavailableTicketTotal|hasUnavailableDiscount/);
   assert.match(footer, /formatCurrency\(filteredSummary\.totalTicketPrice\)/);
   assert.match(footer, /formatCurrency\(filteredSummary\.totalFooterDiscount\)/);
-  assert.match(source, /Historical Invoice \/ PO registrations with offer-adjusted prices/);
 });
 
 test('payment labels use explicit intent in both badge and CSV, not total cost', () => {
@@ -146,12 +149,8 @@ test('payment labels use explicit intent in both badge and CSV, not total cost',
   assert.match(source, /const label = paymentMethodLabel\(method\)/);
   assert.match(source, /key: 'std:paymentMethod'[\s\S]*?paymentMethodLabel\(gp\.paymentMethod\)/);
   assert.doesNotMatch(source, /Number\(totalCost\) === 0/);
-  assert.match(source, /Voucher, Training Fund and Account amounts reflect only allocations recorded in this app/);
-  assert.match(source, /recorded zero on an imported registration does not establish its external payment history/);
 });
 
-test('report explains net and pending Price Paid semantics', () => {
-  assert.match(source, /net ticket price after discounts and credits/);
-  assert.match(source, /not a payment-provider settlement or refund ledger/);
-  assert.match(source, /Pending\/unpaid amounts have not been received/);
+test('removed financial explanation is not retained elsewhere in the report', () => {
+  assert.doesNotMatch(source, /net ticket price after discounts and credits|not a payment-provider settlement or refund ledger|Pending\/unpaid amounts have not been received/);
 });

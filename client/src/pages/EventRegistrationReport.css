@@ -1,5 +1,6 @@
 .registration-report-scroll {
-  --report-actions-width: 76px;
+  /* Five 28px icons, a 16px checkbox, gaps, and cell/control spacing. */
+  --report-actions-width: 180px;
   --report-name-width: clamp(120px, 18vw, 240px);
   overflow: auto;
   max-height: 65vh;
@@ -51,7 +52,13 @@
 }
 
 .registration-report-scroll [data-pinned="actions"] > div {
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.registration-report-scroll [data-pinned="actions"] > div > *,
+.registration-report-scroll [data-pinned="actions"] > div > div > * {
+  flex-shrink: 0;
 }
 
 .registration-report-scroll [data-pinned="name"] {
