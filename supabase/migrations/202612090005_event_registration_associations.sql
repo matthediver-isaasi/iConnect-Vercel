@@ -1,6 +1,30 @@
 BEGIN;
 ALTER TABLE public.event ADD COLUMN registration_association_config jsonb;
 ALTER TABLE public.complex_event ADD COLUMN registration_association_config jsonb;
+-- Legacy event-table grants must not authorise browser-controlled signup roles.
+-- Do not alter the existing event RLS/grants as part of this feature.
+CREATE FUNCTION public.guard_registration_association_config()
+RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER SET search_path=pg_catalog AS $$
+BEGIN
+ IF current_user NOT IN ('postgres','service_role','supabase_admin')
+   AND NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=current_user AND rolsuper) THEN
+   IF TG_OP='INSERT' THEN
+     IF NEW.registration_association_config IS NOT NULL THEN
+       RAISE EXCEPTION 'Registration account settings require server authorization' USING ERRCODE='42501';
+     END IF;
+   ELSIF NEW.registration_association_config IS DISTINCT FROM OLD.registration_association_config THEN
+     RAISE EXCEPTION 'Registration account settings require server authorization' USING ERRCODE='42501';
+   END IF;
+ END IF;
+ RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION public.guard_registration_association_config() FROM PUBLIC,anon,authenticated;
+CREATE TRIGGER event_registration_association_config_guard
+ BEFORE INSERT OR UPDATE OF registration_association_config ON public.event
+ FOR EACH ROW EXECUTE FUNCTION public.guard_registration_association_config();
+CREATE TRIGGER complex_registration_association_config_guard
+ BEFORE INSERT OR UPDATE OF registration_association_config ON public.complex_event
+ FOR EACH ROW EXECUTE FUNCTION public.guard_registration_association_config();
 CREATE FUNCTION public.registration_association_value_matches(p_stored text,p_value text)
 RETURNS boolean LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
 DECLARE parsed jsonb;

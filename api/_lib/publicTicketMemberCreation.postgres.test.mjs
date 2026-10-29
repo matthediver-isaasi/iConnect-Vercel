@@ -210,10 +210,18 @@ test('policy migration: exact tenant emails, private execution, defaults, idempo
       ALTER TABLE event ADD COLUMN IF NOT EXISTS pricing_config jsonb DEFAULT '{}';`);
     for(const name of ['202612090005_event_registration_associations.sql','202612090006_event_registration_association_accounts.sql'])
       await db.query(await readFile(new URL('../../supabase/migrations/'+name,import.meta.url),'utf8'));
+    await db.query('GRANT SELECT,UPDATE ON event TO anon,authenticated; GRANT SELECT,UPDATE ON event TO service_role');
+    for(const untrusted of ['anon','authenticated']){
+      await db.query(`SET ROLE ${untrusted}`);
+      await assert.rejects(db.query("UPDATE event SET registration_association_config='{}' WHERE id=$1",[a]),{code:'42501'});
+      await db.query('RESET ROLE');
+    }
     await db.query(`INSERT INTO organization_group VALUES($1,$1,'Allowed Group'),($2,$2,'Another tenant');
       `,[a,b]);
+    await db.query('SET ROLE service_role');
     await db.query('UPDATE event SET registration_association_config=$2 WHERE id=$1',
       [a,{groups:{enabled:true},organizations:{enabled:false},role_id:roleId}]);
+    await db.query('RESET ROLE');
     const choices=(await db.query("SELECT event_registration_association_options($1,$1,false) choices",[a])).rows[0].choices;
     assert.deepEqual(choices.options,[{kind:'group',id:a,name:'Allowed Group'}]);
     await db.query("INSERT INTO preference_field VALUES($1,$1,'organization_group')",[a]);
