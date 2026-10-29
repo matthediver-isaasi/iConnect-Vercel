@@ -21,3 +21,12 @@ Login-disabled contacts would leave those registrants unable to book again.
 preserve paid-checkout snapshots for recovery, never adopt or reassign an existing
 email, and keep Other and authenticated bookings on their existing paths.
 Selecting an association does not establish paid membership or marketing consent.
+
+The event registration dropdown must offer every eligible organisation/group
+without requiring a search to reveal additional records.
+
+**Why:** The owner explicitly rejected a truncated list with a “refine your
+search” notice because guests could miss that notice and assume an entry was absent.
+
+**How to apply:** Preserve the enabled-source and custom-field filters. Search
+may narrow the complete list, but must not be necessary to access its later entries.

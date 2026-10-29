@@ -258,6 +258,20 @@ test('policy migration: exact tenant emails, private execution, defaults, idempo
     assert.equal((await lookup()).options.length,0);
     await db.query("UPDATE preference_field SET tenant_id=$1 WHERE id=$2",[b,orgField]);
     await assert.rejects(lookup(),/Filter field unavailable/);
+    await db.query(await readFile(new URL('../../supabase/migrations/202612090010_registration_association_complete_options.sql',import.meta.url),'utf8'));
+    await db.query(`INSERT INTO organization SELECT md5('extra-org-'||n)::uuid,$1,'Extra org '||lpad(n::text,3,'0') FROM generate_series(1,60) n;
+      `,[a]);
+    await db.query(`INSERT INTO organization_group SELECT md5('extra-group-'||n)::uuid,$1,'Extra group '||lpad(n::text,3,'0') FROM generate_series(1,60) n`,[a]);
+    await db.query('UPDATE event SET registration_association_config=$2 WHERE id=$1',
+      [a,{organizations:{enabled:true},groups:{enabled:true},role_id:roleId}]);
+    const completeOptions=await lookup();
+    assert.equal(completeOptions.options.length,122);
+    assert.equal(completeOptions.hasMore,false);
+    assert.equal(completeOptions.options.filter(o=>o.kind==='organization').length,61);
+    assert.ok(completeOptions.options.every(o=>o.id!==b));
+    const searched=(await db.query("SELECT event_registration_association_options($1,$1,false,'Extra org 060') choices",[a])).rows[0].choices;
+    assert.equal(searched.options.length,1);
+    assert.equal(searched.options[0].name,'Extra org 060');
     for(const role of ['anon','authenticated']){
       await db.query(`SET ROLE ${role}`);
       await assert.rejects(lookup(),{code:'42501'});

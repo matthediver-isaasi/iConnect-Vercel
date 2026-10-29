@@ -76,7 +76,7 @@ test("guest selection shows names only, keeps kind/id, searches, and Other clear
     return { enabled: true, options: [
       { kind: "organization", id: "org-1", name: "Northfield Institute" },
       { kind: "group", id: "group-1", name: "Regional Research Network" },
-    ], hasMore: true };
+    ], hasMore: false };
   };
   const app = await mount(Field, { eventId: "event-1", eventKind: "complex" });
   try {
@@ -109,6 +109,20 @@ test("disabled feature and unavailable API retain original organisation entry", 
       assert.equal(app.value().organization, "Original flow");
     } finally { await app.close(); }
   }
+});
+
+test("complete dropdown renders entries beyond the old cap without requiring a search",async()=>{
+  publicClient.getEventRegistrationAssociations=async()=>({enabled:true,hasMore:false,
+    options:Array.from({length:125},(_,i)=>({kind:i%2?'group':'organization',id:`record-${i}`,name:`Choice ${i+1}`}))});
+  const app=await mount(Field,{eventId:"complete-options",eventKind:"simple"});
+  try{
+    await click(document.querySelector('[role="combobox"]'));
+    assert.ok(button("Choice 1"));
+    assert.ok(button("Choice 125"));
+    assert.equal(document.body.textContent.includes("Refine your search"),false);
+    await click(button("Choice 125"));
+    assert.equal(app.value().registration_association.id,"record-124");
+  }finally{await app.close();}
 });
 
 test("configuration defaults off, toggles are independent, real metadata is scoped", async () => {
