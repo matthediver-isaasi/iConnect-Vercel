@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -16,13 +16,16 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Loader2, User, Mail, FileText, Trophy, Search, Users, Shield, Calendar, Clock, Edit, X, ChevronLeft, ChevronRight, UserPlus, Link, Copy, Check, UserCheck, Infinity as InfinityIcon, AlertTriangle } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarPicker } from "@/components/ui/calendar";
-import { formatDistanceToNow, differenceInCalendarDays, format } from "date-fns";
+import { formatDistanceToNow, format } from "date-fns";
 import { toast } from "sonner";
 import { sendTeamMemberInvite } from "@/api/functions";
 import InviteMemberDialog from "@/components/InviteMemberDialog";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import GuestAccessControl, { getGuestStatus } from "@/components/GuestAccessControl";
 import { canClearTeamRole, canShowTeamRoleControl, getAssignableTeamRoles } from "@/lib/teamRoleAssignment";
+import { TEAM_COLUMNS, sortTeamMembers, paginateTeamMembers, formatTeamDate, activityState, loadTeamMembers } from "@/lib/teamDirectory.mjs";
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableCaption } from "@/components/ui/table";
+import { LayoutGrid, List, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 
@@ -33,7 +36,10 @@ export default function TeamPage({ hasBanner }) {
   const [selectedRoleId, setSelectedRoleId] = useState("all");
   const [showDisabled, setShowDisabled] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage] = useState(9);
+  const [itemsPerPage, setItemsPerPage] = useState(9);
+  const [view, setView] = useState("cards");
+  const [sortKey, setSortKey] = useState("first_name");
+  const [sortDirection, setSortDirection] = useState("asc");
   const [editingMember, setEditingMember] = useState(null);
   const [showInviteDialog, setShowInviteDialog] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
@@ -67,13 +73,9 @@ export default function TeamPage({ hasBanner }) {
   };
 
   // Fetch members from the same organization directly via server-side filter
-  const { data: teamMembers = [], isLoading: membersLoading } = useQuery({
+  const { data: teamMembers = [], isLoading: membersLoading, isError: membersError, refetch: retryMembers } = useQuery({
     queryKey: ['team-members', memberInfo?.organization_id],
-    queryFn: async () => {
-      if (!memberInfo?.organization_id) return [];
-      // Use server-side filter to only fetch members from this organization
-      return base44.entities.Member.filter({ organization_id: memberInfo.organization_id });
-    },
+    queryFn: ({ signal }) => loadTeamMembers(base44.entities.Member, memberInfo.organization_id, signal),
     enabled: !!memberInfo?.organization_id
   });
 
@@ -93,10 +95,10 @@ export default function TeamPage({ hasBanner }) {
   });
 
   // Fetch roles
-  const { data: roles = [] } = useQuery({
+  const { data: roles = [], isLoading: rolesLoading, isError: rolesError, refetch: retryRoles } = useQuery({
     queryKey: ['roles'],
-    queryFn: async () => {
-      return await base44.entities.Role.list();
+    queryFn: async ({ signal }) => {
+      return await base44.entities.Role.listAll({ sort: { id: 'asc' }, signal });
     }
   });
 
@@ -250,7 +252,6 @@ export default function TeamPage({ hasBanner }) {
   const showRoleBadge = cardSettings.show_role_badge !== false;
   const showJobTitle = cardSettings.show_job_title !== false;
   const showEmail = cardSettings.show_email !== false;
-  const showLastActivity = cardSettings.show_last_activity !== false;
   const showLoginToggle = cardSettings.show_login_toggle !== false;
   const showEventsCount = cardSettings.show_events_count !== false;
   const showArticlesCount = cardSettings.show_articles_count !== false;
@@ -509,16 +510,53 @@ export default function TeamPage({ hasBanner }) {
   }, [teamMembers, searchQuery, selectedRoleId, showDisabled]);
 
   // Pagination
-  const totalPages = Math.ceil(filteredMembers.length / itemsPerPage);
-  const paginatedMembers = useMemo(() => {
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    return filteredMembers.slice(startIndex, startIndex + itemsPerPage);
-  }, [filteredMembers, currentPage, itemsPerPage]);
+  const sortedMembers = useMemo(
+    () => sortTeamMembers(filteredMembers, roles, sortKey, sortDirection),
+    [filteredMembers, roles, sortKey, sortDirection],
+  );
+  const pagination = useMemo(
+    () => paginateTeamMembers(sortedMembers, currentPage, itemsPerPage),
+    [sortedMembers, currentPage, itemsPerPage],
+  );
+  const { members: paginatedMembers, totalPages, page: visiblePage } = pagination;
 
-  // Reset to page 1 when filters change
+  const paginationInputs = JSON.stringify([searchQuery, selectedRoleId, showDisabled, sortKey, sortDirection, itemsPerPage]);
+  const previousPaginationInputs = useRef(paginationInputs);
+  // Reset and clamp in one effect so a data shrink cannot overwrite a filter reset.
   useEffect(() => {
-    setCurrentPage(1);
-  }, [searchQuery, selectedRoleId, showDisabled]);
+    if (previousPaginationInputs.current !== paginationInputs) {
+      previousPaginationInputs.current = paginationInputs;
+      setCurrentPage(1);
+    } else if (currentPage !== visiblePage) {
+      setCurrentPage(visiblePage);
+    }
+  }, [paginationInputs, currentPage, visiblePage]);
+
+  const changeSort = (key) => {
+    if (sortKey === key) setSortDirection(direction => direction === 'asc' ? 'desc' : 'asc');
+    else {
+      setSortKey(key);
+      setSortDirection('asc');
+    }
+  };
+
+  const renderActivity = (member) => {
+    const state = activityState(member);
+    return (
+      <div className="text-xs text-slate-600">
+        {state === 'recorded' ? (
+          <>
+            <span className="block">{formatTeamDate(member.last_activity)}</span>
+            <span className="block text-slate-500">
+              {formatDistanceToNow(new Date(member.last_activity), { addSuffix: true })}
+            </span>
+          </>
+        ) : state === 'never' ? (
+          <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-800">Never logged in</Badge>
+        ) : 'Unknown'}
+      </div>
+    );
+  };
 
   const handleToggleLogin = (member, newValue) => {
     toggleLoginMutation.mutate({ memberId: member.id, newValue });
@@ -668,12 +706,31 @@ export default function TeamPage({ hasBanner }) {
 
   const primaryDomain = orgVerifiedDomains[0] || '';
 
-  const isLoading = membersLoading;
+  const isLoading = membersLoading || rolesLoading;
 
   if (isLoading) {
     return (
-      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      <div className="min-h-[100dvh] p-4 md:p-8 max-w-7xl mx-auto" role="status" aria-label="Loading team">
+        <div className="h-12 w-56 bg-slate-200 rounded mb-8 animate-pulse" />
+        <div className="h-24 bg-slate-100 rounded-lg mb-6 animate-pulse" />
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {Array.from({ length: 6 }, (_, index) => <div key={index} className="h-64 bg-slate-100 border border-slate-200 rounded-lg animate-pulse" />)}
+        </div>
+      </div>
+    );
+  }
+
+  if (membersError || rolesError) {
+    return (
+      <div className="min-h-[100dvh] p-4 md:p-8 max-w-7xl mx-auto">
+        <Card className="border-slate-200">
+          <CardContent className="p-8 text-center" role="alert">
+            <AlertTriangle className="w-8 h-8 text-amber-600 mx-auto mb-3" />
+            <h1 className="text-xl font-semibold text-slate-900 mb-2">Unable to load the complete team</h1>
+            <p className="text-slate-600 mb-4">Please try again. No partial member list is shown.</p>
+            <Button onClick={() => { retryMembers(); retryRoles(); }}>Retry</Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -884,18 +941,128 @@ export default function TeamPage({ hasBanner }) {
           </Card>
 
           {/* Members Grid */}
+          <div className="mb-4 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="flex gap-1" role="group" aria-label="Team view">
+                <Button variant={view === 'cards' ? 'default' : 'outline'} aria-pressed={view === 'cards'} onClick={() => setView('cards')}>
+                  <LayoutGrid className="w-4 h-4 mr-2" /> Cards
+                </Button>
+                <Button variant={view === 'list' ? 'default' : 'outline'} aria-pressed={view === 'list'} onClick={() => setView('list')}>
+                  <List className="w-4 h-4 mr-2" /> List
+                </Button>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="team-sort" className="text-xs text-slate-600">Sort by</Label>
+                <Select value={sortKey} onValueChange={setSortKey}>
+                  <SelectTrigger id="team-sort" className="w-40"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {TEAM_COLUMNS.map(column => <SelectItem key={column.key} value={column.key}>{column.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button variant="outline" onClick={() => setSortDirection(direction => direction === 'asc' ? 'desc' : 'asc')} aria-label={`Sort direction: ${sortDirection === 'asc' ? 'ascending' : 'descending'}. Reverse sort direction`}>
+                {sortDirection === 'asc' ? <ArrowUp className="w-4 h-4 mr-2" /> : <ArrowDown className="w-4 h-4 mr-2" />}
+                {['created_on', 'last_activity'].includes(sortKey)
+                  ? (sortDirection === 'asc' ? 'Oldest first' : 'Newest first')
+                  : (sortDirection === 'asc' ? 'A–Z' : 'Z–A')}
+              </Button>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="team-page-size" className="text-xs text-slate-600">Members per page</Label>
+              <Select value={String(itemsPerPage)} onValueChange={value => setItemsPerPage(value === 'all' ? 'all' : Number(value))}>
+                <SelectTrigger id="team-page-size" className="w-full md:w-48"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {[9, 25, 50, 100].map(size => <SelectItem key={size} value={String(size)}>{size}</SelectItem>)}
+                  <SelectItem value="all">Show all members</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <p className="mb-4 text-sm text-slate-600" role="status" aria-live="polite">
+            Showing {pagination.start}–{pagination.end} of {pagination.total} {pagination.total === 1 ? 'member' : 'members'}
+          </p>
           {paginatedMembers.length === 0 ? (
             <Card className="border-slate-200">
               <CardContent className="p-12 text-center">
                 <Users className="w-16 h-16 text-slate-300 mx-auto mb-4" />
                 <h3 className="text-xl font-semibold text-slate-900 mb-2">No members found</h3>
                 <p className="text-slate-600">
-                  {searchQuery || showDisabled ? 'Try adjusting your search criteria or filters' : 'No team members available'}
+                  {searchQuery || selectedRoleId !== 'all' || showDisabled ? 'Try adjusting your search criteria or filters' : 'No team members available'}
                 </p>
               </CardContent>
             </Card>
           ) : (
             <>
+              {view === 'list' ? (
+                <Card className="border-slate-200 overflow-hidden">
+                  <div role="region" aria-label="Team member list, scroll horizontally to see all columns" tabIndex={0} className="overflow-x-auto focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600">
+                  <Table className="min-w-[940px]">
+                    <TableCaption className="sr-only">Team directory. Sort using the column headers. Scroll horizontally on smaller screens.</TableCaption>
+                    <TableHeader>
+                      <TableRow>
+                        {TEAM_COLUMNS.map(column => (
+                          <TableHead key={column.key} scope="col" aria-sort={sortKey === column.key ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                            <Button variant="ghost" size="sm" className="px-1 whitespace-nowrap" onClick={() => changeSort(column.key)}>
+                              {column.label}
+                              {sortKey === column.key
+                                ? (sortDirection === 'asc' ? <ArrowUp className="ml-2 w-3 h-3" /> : <ArrowDown className="ml-2 w-3 h-3" />)
+                                : <ArrowUpDown className="ml-2 w-3 h-3 text-slate-400" />}
+                            </Button>
+                          </TableHead>
+                        ))}
+                        <TableHead scope="col">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {paginatedMembers.map(member => {
+                        const role = roles.find(candidate => candidate.id === member.role_id);
+                        const guestStatus = getGuestStatus(member);
+                        const canManageAccess = !isFeatureExcluded('element_TeamLoginAccessToggle');
+                        const assignableRoles = getAssignableTeamRoles(roles, memberRole, member.role_id);
+                        const loginEnabled = member.login_enabled ?? true;
+                        return (
+                          <TableRow key={member.id} className={activityState(member) === 'never' ? 'bg-amber-50/50 hover:bg-amber-50/80' : ''}>
+                            <TableCell className="align-top font-medium text-slate-900">{member.first_name || '—'}</TableCell>
+                            <TableCell className="align-top">{member.last_name || '—'}</TableCell>
+                            <TableCell className="align-top"><span className="break-all">{member.email || '—'}</span></TableCell>
+                            <TableCell className="align-top whitespace-nowrap">{formatTeamDate(member.created_on)}</TableCell>
+                            <TableCell className="align-top min-w-40">
+                              {role ? <RoleBadge role={role} /> : <span className="text-slate-500">—</span>}
+                              {guestStatus && <Badge variant="secondary" className="ml-1">Guest</Badge>}
+                              {canShowTeamRoleControl(isFeatureExcluded) && assignableRoles.length > 0 && (
+                                <Select value={member.role_id || undefined} onValueChange={roleId => selectInlineRole(member, roleId)} disabled={assignRoleMutation.isPending}>
+                                  <SelectTrigger className="mt-2" aria-label={`Role for ${member.first_name} ${member.last_name}`} data-testid={`select-team-role-${member.id}`}>
+                                    <SelectValue placeholder="Select role" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {assignableRoles.map(candidate => <SelectItem key={candidate.id} value={candidate.id}>{candidate.name}</SelectItem>)}
+                                  </SelectContent>
+                                </Select>
+                              )}
+                            </TableCell>
+                            <TableCell className="align-top min-w-36">{renderActivity(member)}</TableCell>
+                            <TableCell className="align-top min-w-48 space-y-3">
+                              {!isFeatureExcluded('element_TeamEditMember') && (
+                                <Button variant="outline" size="sm" onClick={() => handleEditClick(member)} aria-label={`Edit ${member.first_name} ${member.last_name}`}>
+                                  <Edit className="w-3 h-3 mr-2" />Edit
+                                </Button>
+                              )}
+                              {showLoginToggle && orderedSections.includes('login_toggle') && canManageAccess && (
+                                <div className="flex items-center justify-between gap-3">
+                                  <Label htmlFor={`list-login-${member.id}`} className="text-xs">Login Access <span className="text-slate-500">({loginEnabled ? 'Active' : 'Inactive'})</span></Label>
+                                  <Switch id={`list-login-${member.id}`} checked={loginEnabled} onCheckedChange={checked => handleToggleLogin(member, checked)} disabled={toggleLoginMutation.isPending} />
+                                </div>
+                              )}
+                              {guestStatus && <GuestAccessControl member={member} canManage={canManageAccess} layout="inline-row" />}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                  </div>
+                </Card>
+              ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {paginatedMembers.map(member => {
                   const stats = memberStats[member.id] || {};
@@ -914,7 +1081,7 @@ export default function TeamPage({ hasBanner }) {
                   return (
                     <Card 
                       key={member.id} 
-                      className={`border-slate-200 transition-shadow ${canEditMember ? 'hover:shadow-lg cursor-pointer' : ''}`}
+                      className={`${activityState(member) === 'never' ? 'border-amber-200 bg-amber-50/40' : 'border-slate-200'} transition-shadow ${canEditMember ? 'hover:shadow-lg cursor-pointer' : ''}`}
                       onClick={canEditMember ? () => handleEditClick(member) : undefined}
                     >
                       <CardHeader className="pb-3">
@@ -967,12 +1134,24 @@ export default function TeamPage({ hasBanner }) {
                           </div>
 
                           {canEditMember && (
-                            <Edit className="w-4 h-4 text-slate-400" data-testid={`icon-edit-member-${member.id}`} />
+                            <Button variant="ghost" size="icon" aria-label={`Edit ${member.first_name} ${member.last_name}`} onClick={(event) => { event.stopPropagation(); handleEditClick(member); }}>
+                              <Edit className="w-4 h-4 text-slate-400" data-testid={`icon-edit-member-${member.id}`} />
+                            </Button>
                           )}
                         </div>
                       </CardHeader>
 
                       <CardContent className="space-y-3" onClick={(e) => e.stopPropagation()}>
+                        <div className="space-y-2 border-b border-slate-100 pb-3">
+                          <div className="flex items-start gap-2">
+                            <Calendar className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                            <span className="text-xs text-slate-600">Date joined: {formatTeamDate(member.created_on)}</span>
+                          </div>
+                          <div className="flex items-start gap-2">
+                            <Clock className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                            <div><span className="text-xs text-slate-500">Last activity</span>{renderActivity(member)}</div>
+                          </div>
+                        </div>
                         {guestStatus && (
                           <GuestAccessControl
                             member={member}
@@ -1012,14 +1191,9 @@ export default function TeamPage({ hasBanner }) {
                                 </div>
                               ) : null;
                             case 'last_activity':
-                              return showLastActivity && member.last_activity ? (
-                                <div key="last_activity" className="flex items-center gap-2">
-                                  <Clock className="w-4 h-4 text-slate-400 flex-shrink-0" />
-                                  <span className="text-xs text-slate-600">
-                                    Last active {formatDistanceToNow(new Date(member.last_activity), { addSuffix: true })}
-                                  </span>
-                                </div>
-                              ) : null;
+                              // Required activity metadata is always shown above,
+                              // independently of optional card sections.
+                              return null;
                             case 'login_toggle':
                               return showLoginToggle && !isFeatureExcluded('element_TeamLoginAccessToggle') ? (
                                 <div key="login_toggle" className="flex items-center justify-between pt-2 pb-2 border-y border-slate-200">
@@ -1146,42 +1320,50 @@ export default function TeamPage({ hasBanner }) {
                   );
                 })}
               </div>
+              )}
 
               {/* Pagination */}
               {totalPages > 1 && (
-                <div className="mt-6 flex justify-center items-center gap-2">
+                <nav aria-label="Team pagination" className="mt-6 flex justify-center items-center gap-2">
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                    disabled={currentPage === 1}
+                    onClick={() => setCurrentPage(Math.max(1, visiblePage - 1))}
+                    disabled={visiblePage === 1}
+                    aria-label="Previous page"
                   >
                     <ChevronLeft className="w-4 h-4" />
                   </Button>
                   
                   <div className="flex items-center gap-1">
-                    {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).filter(page => page === 1 || page === totalPages || Math.abs(page - visiblePage) <= 1).map((page, index, pages) => (
+                      <React.Fragment key={page}>
+                      {index > 0 && page - pages[index - 1] > 1 && <span className="px-1 text-slate-500" aria-hidden="true">…</span>}
                       <Button
-                        key={page}
-                        variant={currentPage === page ? "default" : "outline"}
+                        variant={visiblePage === page ? "default" : "outline"}
                         size="sm"
                         onClick={() => setCurrentPage(page)}
                         className="w-9"
+                        aria-label={`Page ${page}`}
+                        aria-current={visiblePage === page ? 'page' : undefined}
                       >
                         {page}
                       </Button>
+                      </React.Fragment>
                     ))}
                   </div>
 
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                    disabled={currentPage === totalPages}
+                    onClick={() => setCurrentPage(Math.min(totalPages, visiblePage + 1))}
+                    disabled={visiblePage === totalPages}
+                    aria-label="Next page"
                   >
                     <ChevronRight className="w-4 h-4" />
                   </Button>
-                </div>
+                  <span className="sr-only">Page {visiblePage} of {totalPages}</span>
+                </nav>
               )}
             </>
           )}
