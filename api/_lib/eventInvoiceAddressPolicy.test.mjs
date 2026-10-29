@@ -217,7 +217,7 @@ test('producer uses frozen personal address, not subsequent charge address; miss
 });
 
 for (const legacy of [false, true]) test(`writer strips addresses when customer appears later (legacy=${legacy})`, async () => {
-  const row = { tenant_id: 'tenant', snapshot: { provider, contact, paymentMethod: 'stripe',
+  const row = { tenant_id: 'tenant', booking_group_reference: 'BOOK-ADDRESS', snapshot: { provider, contact, paymentMethod: 'stripe',
     invoice: { Contact: { Name: contact.name, Addresses: [{ AddressLine1: 'MUST NOT SEND' }] }, LineItems: [{ Description: 'Ticket' }] },
     ...(!legacy ? { invoiceAddressPolicy: { version: 1, tenantId: 'tenant', memberId: 'member', provider, contact,
       address: { source: 'structured', address } } } : {}) } };
@@ -239,7 +239,7 @@ for (const legacy of [false, true]) test(`writer strips addresses when customer 
 });
 
 for (const collision of [false, true]) test(`absent customer uses create-only PUT, concurrent collision cannot upsert (collision=${collision})`, async () => {
-  const row = { tenant_id: 'tenant', snapshot: { provider, contact, paymentMethod: 'stripe',
+  const row = { tenant_id: 'tenant', booking_group_reference: 'BOOK-ADDRESS', snapshot: { provider, contact, paymentMethod: 'stripe',
     invoice: { Contact: { Name: contact.name, EmailAddress: contact.email, Addresses: [{ AddressLine1: 'Selected' }] },
       LineItems: [{ Description: 'Ticket' }] } } };
   const calls = [];

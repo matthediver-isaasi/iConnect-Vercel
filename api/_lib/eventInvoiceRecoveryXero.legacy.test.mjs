@@ -95,6 +95,31 @@ test('fully paginated legacy invoice/payment adoption accepts PO/TBC and full PI
   await assert.rejects(adapter.createPayment(invoice), /payment_creation_ambiguous/);
 });
 
+test('contact verification tolerates whitespace only and retains financial and ID guards', async () => {
+  const row = job();
+  delete row.snapshot.legacyDiscovery;
+  row.invoice_id = 'old-invoice';
+  row.snapshot.invoice.Contact = { Name: ' Marina  Prpic ' };
+  const { adapter } = await fixture({ row });
+  const invoice = oldInvoice({
+    Contact: { Name: 'Marina Prpic' },
+    LineItems: [{ ...oldInvoice().LineItems[0],
+      Description: row.snapshot.invoice.LineItems[0].Description }],
+  });
+  for (const name of ['Marina Prpic', ' Marina\t Prpic ', 'Marina\u00a0Prpic']) {
+    assert.doesNotThrow(() => adapter.validateInvoice({ ...invoice, Contact: { Name: name } }));
+  }
+  for (const name of ['Marina Other', 'MarinaPrpic', '', 'marina prpic']) {
+    assert.throws(() => adapter.validateInvoice({ ...invoice, Contact: { Name: name } }),
+      /invoice_evidence_mismatch/);
+  }
+  assert.throws(() => adapter.validateInvoice({ ...invoice, Total: 200 }), /invoice_evidence_mismatch/);
+  assert.throws(() => adapter.validateInvoice({ ...invoice, InvoiceID: 'other' }), /invoice_evidence_mismatch/);
+  row.snapshot.invoice.Contact = { ContactID: 'expected-id', Name: 'Marina Prpic' };
+  assert.throws(() => adapter.validateInvoice({ ...invoice,
+    Contact: { ContactID: 'wrong-id', Name: 'Marina Prpic' } }), /invoice_evidence_mismatch/);
+});
+
 test('processor adopts paid legacy evidence and journals both IDs without starting a write', async () => {
   const f = await fixture();
   const result = await processEventInvoiceRecovery({ db: f.db,

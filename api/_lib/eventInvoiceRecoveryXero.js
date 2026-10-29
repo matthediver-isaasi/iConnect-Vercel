@@ -9,6 +9,9 @@ const day = value => {
 };
 const tracking = value => JSON.stringify((value || []).map(item =>
   [item.Name, item.Option]).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))));
+// Xero can collapse whitespace in contact names. Preserve every non-space
+// character: this is formatting tolerance, not fuzzy customer matching.
+const contactName = value => String(value || '').trim().replace(/\s+/gu, ' ');
 function credential(value) {
   if (typeof value !== 'string' || !value.includes(':')) return value;
   const secret = process.env.INTEGRATION_ENCRYPTION_KEY || process.env.SESSION_SECRET;
@@ -429,7 +432,7 @@ export async function createEventInvoiceRecoveryXero({
         || (snapshot.invoice.Contact.ContactID && invoice.Contact?.ContactID !== snapshot.invoice.Contact.ContactID)
         || (preparedContact?.ContactID && invoice.Contact?.ContactID !== preparedContact.ContactID)
         || (!snapshot.invoice.Contact.ContactID && !preparedContact?.ContactID
-          && (String(invoice.Contact?.Name || '').trim() !== snapshot.invoice.Contact.Name.trim()
+          && (contactName(invoice.Contact?.Name) !== contactName(snapshot.invoice.Contact.Name)
             || (legacy && (!snapshot.contact?.email || String(invoice.Contact?.EmailAddress || '').trim().toLowerCase()
               !== snapshot.contact.email.trim().toLowerCase()))))) {
         throw new EventInvoiceRecoveryError('invoice_evidence_mismatch');
