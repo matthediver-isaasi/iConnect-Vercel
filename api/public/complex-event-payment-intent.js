@@ -5,6 +5,7 @@ import { assertPublicTicketPurchaser } from '../_lib/publicTicketEmail.js';
 import { preparePublicTicketPurchase, bindPublicTicketPayment } from '../_lib/publicTicketMemberPurchase.js';
 import { needsPublicTicketMemberCreation } from '../_lib/publicTicketMemberCreation.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+import { assertEventCodeOfConduct } from '../_lib/eventCodeOfConduct.js';
 import { getStripeCredentials } from '../_lib/stripeCredentials.js';
 import { createClient } from '@supabase/supabase-js';
 import { getSessionMember } from '../_lib/session.js';
@@ -48,6 +49,7 @@ export default async function handler(req, res) {
   try {
     const tenant = await resolveTenantFromRequest(req);
     if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
+    await assertEventCodeOfConduct(supabase, tenant.id, req.body);
 
     const { event_id: requestedEventId, ticket_class_id: requestedTicketClassId, attendee_count = 1, discount_code, items,
       purchaser_email: purchaserEmail,

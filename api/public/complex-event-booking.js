@@ -7,6 +7,7 @@ import { preparePublicTicketPurchase, bindPublicTicketPayment, completePublicTic
 import { needsPublicTicketMemberCreation } from '../_lib/publicTicketMemberCreation.js';
 import { PUBLIC_INVOICE_PO, validatePublicInvoicePo, requirePublicInvoicePoBalance } from '../_lib/publicInvoicePo.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+import { assertEventCodeOfConduct } from '../_lib/eventCodeOfConduct.js';
 import { scheduleComplexEventReminders } from '../_lib/complexEventReminders.js';
 import { scheduleEventFollowUps } from '../_lib/eventFollowUps.js';
 import { getSessionMember } from '../_lib/session.js';
@@ -69,6 +70,16 @@ export default async function handler(req, res) {
     status(code) { status = code; return capture; },
     json(body) { return body; },
   };
+  // Validate before the credit wrapper can reserve any balances.
+  if (req.method === 'POST') {
+    try {
+      const tenant = await resolveTenantFromRequest(req);
+      const db = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+      await assertEventCodeOfConduct(db, tenant?.id, req.body);
+    } catch (error) {
+      return res.status(error.statusCode || 503).json({ error: error.message, code: error.code });
+    }
+  }
   const result = await handleBookingWithCredits(req, capture);
   if (result?.success && !result.communication_offer) {
     try {

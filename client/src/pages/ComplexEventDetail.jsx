@@ -858,6 +858,8 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
         discount_code: ci.discountCode || undefined
       }));
       return publicClient.createComplexEventPaymentIntent({
+        code_of_conduct_accepted: data.code_of_conduct_accepted,
+        code_of_conduct_content: data.code_of_conduct_content,
         event_id: event.id,
         purchaser_email: data.purchaser_email,
         purchaser_info: data.purchaser_info || null,
@@ -893,6 +895,8 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
         }));
       }
       return publicClient.submitComplexEventBooking({
+        code_of_conduct_accepted: data.code_of_conduct_accepted,
+        code_of_conduct_content: data.code_of_conduct_content,
         event_id: event.id,
         items,
         payment_method: data.payment_method,

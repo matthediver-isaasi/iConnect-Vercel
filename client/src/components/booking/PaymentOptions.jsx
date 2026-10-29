@@ -1,4 +1,6 @@
 import WaitingListCheckout from "./WaitingListCheckout";
+import { useEventCodeOfConduct } from "@/hooks/useEventCodeOfConduct";
+import CodeOfConductAcceptance from "./CodeOfConductAcceptance";
 import { offerEventRegistrationConsent, cancelEventRegistrationConsent } from "./EventRegistrationConsent";
 import { v4 as uuidv4 } from "uuid";
 import { requireAttendeeJobTitle, missingAttendeeJobTitle } from "../../../../shared/attendeeJobTitleRequirement.js";
@@ -348,7 +350,7 @@ function InlineDonationSection({ donationConfig, event, paymentEmail, bookingRef
 }
 
 // Stripe Payment Form Component
-function StripePaymentForm({ clientSecret, onSuccess, onCancel, amount, returnUrl }) {
+function StripePaymentForm({ clientSecret, onSuccess, onCancel, amount, returnUrl, bookingBlocked = false }) {
   const stripe = useStripe();
   const elements = useElements();
   const [processing, setProcessing] = useState(false);
@@ -357,7 +359,7 @@ function StripePaymentForm({ clientSecret, onSuccess, onCancel, amount, returnUr
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!stripe || !elements) {
+    if (!stripe || !elements || bookingBlocked) {
       return;
     }
 
@@ -418,7 +420,7 @@ function StripePaymentForm({ clientSecret, onSuccess, onCancel, amount, returnUr
         </Button>
         <Button
           type="submit"
-          disabled={!stripe || processing}
+          disabled={!stripe || processing || bookingBlocked}
           className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
         >
           {processing ? (
@@ -689,6 +691,22 @@ function NormalPaymentOptions({
     && Array.isArray(eventPaymentSettings)
     ? resolveEventPaymentPolicy(eventPaymentSettings)
     : null;
+  const codeOfConduct = useEventCodeOfConduct(eventPaymentSettings, event?.id,
+    !eventPaymentSettingsLoading && !eventPaymentSettingsError && Array.isArray(eventPaymentSettings));
+  const liveCodeOfConduct = useRef(codeOfConduct);
+  liveCodeOfConduct.current = codeOfConduct;
+  useEffect(() => {
+    // An unconfirmed card form must not outlive the conduct version it was
+    // opened for. Already-paid recovery below retains its original snapshot.
+    setShowStripeModal(false);
+    setStripeClientSecret(null);
+    setStripePaymentIntentId(null);
+  }, [codeOfConduct.content, codeOfConduct.required]);
+  const guardCodeOfConduct = () => {
+    if (liveCodeOfConduct.current.canProceed) return true;
+    toast.error('Please accept the Code of Conduct before booking.');
+    return false;
+  };
   const trainingFundAllowedRoles = organizationInfo?.training_fund_allowed_role_ids || [];
   const voucherAllowedRoles = organizationInfo?.voucher_allowed_role_ids || [];
   const memberRoleId = memberInfo?.role_id;
@@ -837,6 +855,8 @@ function NormalPaymentOptions({
         if (savedPayload.isComplexEvent && complexEventApi) {
           const savedPaymentSelection = resolveSavedPaidEventPaymentSelection(savedPayload);
           const complexPayload = {
+            code_of_conduct_accepted: savedPayload.code_of_conduct_accepted,
+            code_of_conduct_content: savedPayload.code_of_conduct_content,
             payment_method: 'card',
             purchaser_info: savedPayload.purchaser_info || savedPayload.purchaserInfo,
             purchase_request_id: savedPayload.purchase_request_id,
@@ -1031,6 +1051,7 @@ function NormalPaymentOptions({
   // Calculate remaining balance automatically (discount applied before vouchers/TF)
   const remainingBalance = Math.max(0, costAfterDiscount - voucherAmount - effectiveTrainingFundAmount);
   const currentPurchaseFingerprint = eventPurchaseRequestFingerprint({
+    codeOfConduct: { content: codeOfConduct.content, required: codeOfConduct.required, accepted: codeOfConduct.accepted },
     eventId: event.id, source: isComplexEvent ? "complex" : "simple",
     tenantId: memberInfo?.tenant_id || activeTenant || event.tenant_id,
     member: !isGuestCheckout ? memberInfo : null,
@@ -1158,6 +1179,7 @@ function NormalPaymentOptions({
 
   // Handle program event booking (existing logic)
   const handleProgramBooking = async () => {
+    if (!guardCodeOfConduct()) return;
     if (!guardAttendeeJobTitles()) return;
     // Validate attendees have all required information
     if (registrationMode === 'colleagues' || registrationMode === 'self') {
@@ -1198,6 +1220,7 @@ function NormalPaymentOptions({
 
     try {
       const programPayload = {
+        ...codeOfConduct.payload,
         eventId: event.id,
         memberEmail: memberInfo.email,
         attendees: (registrationMode === 'colleagues' || registrationMode === 'self') ? attendees.filter(a => a.isValid) : [],
@@ -1239,6 +1262,7 @@ function NormalPaymentOptions({
   };
 
   const handleOneOffBooking = async () => {
+    if (!guardCodeOfConduct()) return;
     if (!guardAttendeeJobTitles()) return;
     if (!guardTicketBooking()) return;
     console.log('[PaymentOptions] handleOneOffBooking called', {
@@ -1334,6 +1358,7 @@ function NormalPaymentOptions({
   };
 
   const proceedToStripePayment = async (paymentEmail) => {
+    if (!guardCodeOfConduct()) return;
     if (stripeAttempt.current) return;
     if (!guardAttendeeJobTitles()) return;
     if (!guardTicketBooking()) return;
@@ -1362,6 +1387,7 @@ function NormalPaymentOptions({
 
       if (isComplexEvent && complexEventApi) {
         const piPayload = {
+          ...liveCodeOfConduct.current.payload,
           ...invoiceAddressSelectionPayload(invoiceAddressSelection),
           purchaser_info: purchaseIdentity(purchaserInfo),
           purchase_request_id: getPurchaseRequestId(),
@@ -1413,6 +1439,7 @@ function NormalPaymentOptions({
         
         if (!guardTicketBooking()) return;
         const response = await base44.functions.invoke('createStripePaymentIntent', {
+          ...liveCodeOfConduct.current.payload,
           ...invoiceAddressSelectionPayload(invoiceAddressSelection),
           purchaserInfo: requiresPurchaserIdentity ? purchaseIdentity(purchaserInfo) : (isGuestCheckout ? purchaseIdentity(guestInfo) : purchaseIdentity(memberInfo)),
           guestInfo: isGuestCheckout ? (requiresPurchaserIdentity ? purchaseIdentity(purchaserInfo) : guestInfo) : null,
@@ -1469,6 +1496,7 @@ function NormalPaymentOptions({
         ? attendees 
         : attendees.filter(a => a.isValid);
       const savedPayload = {
+        ...liveCodeOfConduct.current.payload,
         purchaserInfo: requiresPurchaserIdentity ? purchaseIdentity(purchaserInfo) : (isGuestCheckout ? purchaseIdentity(guestInfo) : purchaseIdentity(memberInfo)),
         purchaser_info: purchaseIdentity(purchaserInfo),
         purchase_request_id: getPurchaseRequestId(),
@@ -1538,6 +1566,7 @@ function NormalPaymentOptions({
 
 
   const processOneOffBooking = async (stripePaymentId = null, testMode = false, paidPaymentSnapshot = null) => {
+    if (!stripePaymentId && !guardCodeOfConduct()) return;
     if (!stripePaymentId && !guardAttendeeJobTitles()) return;
     // Paid returns must reach server verification/compensation rather than
     // silently abandoning an already captured payment.
@@ -1563,6 +1592,10 @@ function NormalPaymentOptions({
 
       if (isComplexEvent && complexEventApi) {
         const complexPayload = {
+          ...(paidPaymentSnapshot ? {
+            code_of_conduct_accepted: paidPaymentSnapshot.code_of_conduct_accepted,
+            code_of_conduct_content: paidPaymentSnapshot.code_of_conduct_content,
+          } : codeOfConduct.payload),
           purchaser_info: paidPaymentSnapshot?.purchaser_info || purchaseIdentity(purchaserInfo),
           purchase_request_id: paidPaymentSnapshot?.purchase_request_id || getPurchaseRequestId(),
           _savedCartItems: paidPaymentSnapshot?.complexCartItems,
@@ -1639,6 +1672,10 @@ function NormalPaymentOptions({
         console.log('[PaymentOptions] Valid attendees after filter:', JSON.stringify(validAttendees));
         
         const bookingPayload = {
+          ...(paidPaymentSnapshot ? {
+            code_of_conduct_accepted: paidPaymentSnapshot.code_of_conduct_accepted,
+            code_of_conduct_content: paidPaymentSnapshot.code_of_conduct_content,
+          } : codeOfConduct.payload),
           purchaserInfo: paidPaymentSnapshot?.purchaserInfo || (requiresPurchaserIdentity ? purchaseIdentity(purchaserInfo) : (isGuestCheckout ? purchaseIdentity(guestInfo) : purchaseIdentity(memberInfo))),
           purchaser_info: paidPaymentSnapshot?.purchaser_info || purchaseIdentity(purchaserInfo),
           purchase_request_id: paidPaymentSnapshot?.purchase_request_id || getPurchaseRequestId(),
@@ -1847,6 +1884,7 @@ function NormalPaymentOptions({
   };
 
   const handleSubmit = async () => {
+    if (!guardCodeOfConduct()) return;
     if (!guardAttendeeJobTitles()) return;
     if (!guardTicketBooking()) return;
     if (!guardPurchaseIdentity()) return;
@@ -2387,7 +2425,7 @@ function NormalPaymentOptions({
   // For one-off events, also block if no tickets available for user's role
   // Also block if event is sold out or if attendees are missing required names
   // Also require terms acceptance if terms exist
-  const termsRequirementMet = !hasBookingTerms || termsAccepted;
+  const termsRequirementMet = (!hasBookingTerms || termsAccepted) && codeOfConduct.canProceed;
   const paymentPolicyReady = !memberInfo || totalCost <= 0 || eventPaymentPolicy !== null;
   const canProceed = !purchaseIdentityError && !ticketBookingUnavailable && paymentPolicyReady && !isSoldOut && !isRegistrationClosed && !hasAttendeesWithMissingNames && termsRequirementMet && (
     (isComplexEvent || isOneOffEvent)
@@ -2699,6 +2737,7 @@ function NormalPaymentOptions({
                 </div>
               )}
 
+              <CodeOfConductAcceptance policy={codeOfConduct} />
               {hasBookingTerms && collectThirdPartyConsent && setThirdPartyConsent && (
                 <div className="flex items-start gap-2">
                   <Checkbox
@@ -2822,6 +2861,7 @@ function NormalPaymentOptions({
               <Elements stripe={stripePromise} options={{ clientSecret: stripeClientSecret }}>
                 <StripePaymentForm
                   clientSecret={stripeClientSecret}
+                  bookingBlocked={!codeOfConduct.canProceed}
                   onSuccess={handleStripePaymentSuccess}
                   onCancel={() => {
                     setShowStripeModal(false);

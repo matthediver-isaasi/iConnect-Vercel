@@ -1,4 +1,5 @@
 import { supabase } from '../_lib/database.js';
+import { assertEventCodeOfConduct } from '../_lib/eventCodeOfConduct.js';
 import { getSessionMember } from '../_lib/session.js';
 import { waitingListAccess, normalizeWaitingRequest, buildWaitingEntries, listWaitingEntries, validWaitingId } from '../_lib/eventWaitingList.js';
 
@@ -22,6 +23,7 @@ export default async function handler(req, res) {
       }
       return res.json({ withdrawn:data });
     }
+    await assertEventCodeOfConduct(supabase, member.tenant_id, req.body);
     const request = normalizeWaitingRequest(req.body);
     const { data: previous, error: previousError } = await supabase.from('event_waiting_registration')
       .select('id,request_hash').eq('tenant_id',member.tenant_id).eq('booker_member_id',member.id)

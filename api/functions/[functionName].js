@@ -10,6 +10,7 @@ import { enqueueCheckoutEventInvoice, eventInvoiceContact, simpleEventInvoiceLin
 import { prepareEventInvoiceAddressPolicy, createPolicyPaymentIntent, assertEventInvoicePaymentOwner } from '../_lib/eventInvoiceAddressPolicy.js';
 import { PUBLIC_INVOICE_PO, validatePublicInvoicePo, requirePublicInvoicePoBalance } from '../_lib/publicInvoicePo.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+import { assertEventCodeOfConduct } from '../_lib/eventCodeOfConduct.js';
 import { resolveTicketPrice, isTicketVisibleToUser } from '../_lib/complexEventPricing.js';
 import crypto from 'crypto';
 import { programRegistrationFingerprint, programRegistrationReplay } from '../_lib/programRegistrationAttempt.js';
@@ -6996,6 +6997,12 @@ export default async function handler(req, res) {
       });
     }
 
+    if (['createBooking', 'createOneOffEventBooking'].includes(functionName)
+      || (functionName === 'createStripePaymentIntent' && req.body?.metadata?.event_id
+        && req.body?.metadata?.payment_type !== 'donation')) {
+      const tenant = await resolveTenantFromRequest(req);
+      await assertEventCodeOfConduct(supabase, tenant?.id, req.body);
+    }
     const result = functionName === 'createOneOffEventBooking'
       ? await runBookingCreditAttempt({ db: supabase, req, body: req.body, source: 'booking',
         work: () => handlerFn(req.body, req) })

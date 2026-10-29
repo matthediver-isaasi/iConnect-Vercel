@@ -73,3 +73,11 @@ test("blocked session storage still retains ID in memory and partial writes do n
   assert.equal(resolveEventPurchaseRequest({ ...input, previous: first }).id, first.id);
   assert.equal(generated, 1);
 });
+
+test("conduct acceptance and exact version are part of checkout identity", () => {
+  const first = eventPurchaseRequestFingerprint({ ...checkout, codeOfConduct: { content: '<p>First</p>', required: true, accepted: true } });
+  const updated = eventPurchaseRequestFingerprint({ ...checkout, codeOfConduct: { content: '<p>Updated</p>', required: true, accepted: true } });
+  const unchecked = eventPurchaseRequestFingerprint({ ...checkout, codeOfConduct: { content: '<p>First</p>', required: true, accepted: false } });
+  assert.notEqual(first, updated);
+  assert.notEqual(first, unchecked);
+});

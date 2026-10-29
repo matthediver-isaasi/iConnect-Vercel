@@ -1,4 +1,6 @@
 import { ticketMemberPolicy } from "@/utils/publicTicketMembers";
+import { useEventCodeOfConduct } from "@/hooks/useEventCodeOfConduct";
+import CodeOfConductAcceptance from "@/components/booking/CodeOfConductAcceptance";
 import { offerEventRegistrationConsent, cancelEventRegistrationConsent } from "@/components/booking/EventRegistrationConsent";
 import { requireAttendeeJobTitle, missingAttendeeJobTitle } from "../../../shared/attendeeJobTitleRequirement.js";
 
@@ -590,6 +592,7 @@ export function EventDetailsExperience({
   });
 
   // Reset terms acceptance when event changes or terms content changes
+  const codeOfConduct = useEventCodeOfConduct(systemSettings, eventId, !titleSettingsLoading && !titleSettingsError);
   // This must be placed before any early returns to maintain hooks order
   const termsSettingValue = Array.isArray(systemSettings) 
     ? systemSettings.find(s => s.setting_key === 'event_booking_terms')?.setting_value || ''
@@ -1529,7 +1532,7 @@ export function EventDetailsExperience({
   const hasBookingTerms = bookingTerms && bookingTerms.trim() !== '' && bookingTerms !== '<p><br></p>';
   
   // Terms must be accepted if they exist
-  const termsRequirementMet = !hasBookingTerms || termsAccepted;
+  const termsRequirementMet = (!hasBookingTerms || termsAccepted) && codeOfConduct.canProceed;
 
   // Third-party consent: organiser-controlled per event via pricing_config
   const collectThirdPartyConsent = (() => {
@@ -1581,6 +1584,10 @@ export function EventDetailsExperience({
   };
 
   const handleConfirmBooking = async () => {
+    if (!codeOfConduct.canProceed) {
+      toast.error('Please accept the Code of Conduct before booking.');
+      return;
+    }
     if (waitingListEnabled) return;
     if (titleSettingsLoading || titleSettingsError) {
       toast.error('Attendee requirements could not be loaded. Please wait or retry.');
@@ -1650,6 +1657,7 @@ export function EventDetailsExperience({
     try {
       console.log('[EventDetails] About to call createBooking API');
       const requestPayload = {
+        ...codeOfConduct.payload,
         eventId: event.id,
         memberEmail: currentMemberInfo.email,
         attendees: registrationMode === 'colleagues' || registrationMode === 'self' ? attendees.filter((a) => a.isValid) : [],
@@ -2462,6 +2470,7 @@ export function EventDetailsExperience({
                               </div>
                             )}
 
+                            <CodeOfConductAcceptance policy={codeOfConduct} />
                             {hasBookingTerms && collectThirdPartyConsent && (
                               <div className="flex items-start gap-2">
                                 <Checkbox

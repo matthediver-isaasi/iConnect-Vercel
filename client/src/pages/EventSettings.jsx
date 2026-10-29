@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useRef } from "react";
+import { EVENT_CODE_OF_CONDUCT_KEY, parseEventCodeOfConduct, hasCodeOfConductContent } from "@/lib/eventCodeOfConduct.mjs";
 import { base44 as base44Api } from "@/api/base44Client";
 import { createEventSettingsWriter, createSettingsCollector, saveCollectedSettings, EVENT_SETTINGS_SAVE_KEYS } from "@/lib/eventSettingsSaving";
 import { DEFAULT_TBC_ANCHOR, normalizeTbcAnchor, isValidTbcAnchor } from "@/lib/tbcEventsBanner";
@@ -152,6 +153,8 @@ export default function EventSettingsPage() {
   // Booking terms and conditions
   const [bookingTerms, setBookingTerms] = useState("");
   const [savingBookingTerms, setSavingBookingTerms] = useState(false);
+  const [codeOfConduct, setCodeOfConduct] = useState({ content: '', required: false });
+  const [savingCodeOfConduct, setSavingCodeOfConduct] = useState(false);
   
   // Transfer role restriction
   const [transferRestrictByRole, setTransferRestrictByRole] = useState(true);
@@ -393,6 +396,7 @@ export default function EventSettingsPage() {
     }
     
     // Load booking terms and conditions
+    setCodeOfConduct(parseEventCodeOfConduct(settings));
     const bookingTermsSetting = settings.find(s => s.setting_key === 'event_booking_terms');
     if (bookingTermsSetting?.setting_value) {
       setBookingTerms(bookingTermsSetting.setting_value);
@@ -1364,6 +1368,31 @@ export default function EventSettingsPage() {
       toast.error('Failed to save booking terms: ' + (error.message || 'Unknown error'));
     } finally {
       setSavingBookingTerms(false);
+    }
+  };
+
+  const handleSaveCodeOfConduct = async () => {
+    if (!settingsReady || fetchingSettings || settingsLoadFailed) {
+      toast.error('Please wait for settings to finish loading before saving.');
+      return;
+    }
+    if (codeOfConduct.required && !hasCodeOfConductContent(codeOfConduct.content)) {
+      toast.error('Enter Code of Conduct content before requiring acceptance.');
+      return;
+    }
+    setSavingCodeOfConduct(true);
+    try {
+      await settingsWriter.create({
+        setting_key: EVENT_CODE_OF_CONDUCT_KEY,
+        setting_value: JSON.stringify(codeOfConduct),
+        description: 'Tenant-wide event Code of Conduct and booking acceptance requirement',
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/public/system-settings'] });
+      toast.success('Code of Conduct saved successfully');
+    } catch (error) {
+      toast.error('Failed to save Code of Conduct: ' + error.message);
+    } finally {
+      setSavingCodeOfConduct(false);
     }
   };
 
@@ -3819,6 +3848,43 @@ export default function EventSettingsPage() {
         </Card>
 
         {/* Programs Section */}
+        <Card className="border-slate-200 shadow-sm mb-8">
+          <CardHeader className="border-b border-slate-200">
+            <div className="flex items-center gap-2">
+              <FileText className="w-5 h-5 text-blue-600" />
+              <CardTitle>Code of Conduct</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-6">
+            <div className="space-y-4">
+              <p className="text-sm text-slate-600">Set the Code of Conduct for all event bookings.</p>
+              <div className="space-y-2">
+                <Label>Code of Conduct Content</Label>
+                <div className="border rounded-md">
+                  <ReactQuill value={codeOfConduct.content}
+                    onChange={content => setCodeOfConduct(current => ({ ...current, content }))}
+                    placeholder="Enter your Code of Conduct here..." theme="snow"
+                    modules={{ toolbar: [[{ header: [1, 2, 3, false] }], ['bold', 'italic', 'underline'], [{ list: 'ordered' }, { list: 'bullet' }], ['link'], ['clean']] }}
+                    style={{ minHeight: '200px' }} data-testid="input-code-of-conduct" />
+                </div>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <Label htmlFor="require-code-of-conduct">Require acceptance during event booking</Label>
+                <Switch id="require-code-of-conduct" checked={codeOfConduct.required}
+                  onCheckedChange={required => setCodeOfConduct(current => ({ ...current, required }))}
+                  data-testid="switch-require-code-of-conduct" />
+              </div>
+              <div className="pt-4 border-t border-slate-200">
+                <Button onClick={handleSaveCodeOfConduct} disabled={savingCodeOfConduct || !settingsReady}
+                  data-testid="button-save-code-of-conduct">
+                  {savingCodeOfConduct ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                  {savingCodeOfConduct ? 'Saving...' : 'Save Code of Conduct'}
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         <Card className="border-slate-200 shadow-sm mb-8">
           <CardHeader className="border-b border-slate-200">
             <div className="flex items-center justify-between gap-2">

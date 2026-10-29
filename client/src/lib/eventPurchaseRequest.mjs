@@ -3,7 +3,7 @@
 export function eventPurchaseRequestFingerprint({
   eventId, source, tenantId, member, purchaser, attendees, tickets, selectedTicket, cart,
   ticketCount, registrationMode, paymentMethod, amount, totalCost,
-  discount, voucherIds, voucherOrderManual, voucherAmount, trainingFundAmount, allocationTicketId,
+  discount, voucherIds, voucherOrderManual, voucherAmount, trainingFundAmount, allocationTicketId, codeOfConduct,
 }) {
   return JSON.stringify({
     version: 2, eventId, source, tenantId: tenantId || null,
@@ -11,6 +11,7 @@ export function eventPurchaseRequestFingerprint({
     purchaser, attendees, tickets, selectedTicket, cart, ticketCount, registrationMode, paymentMethod,
     amount, totalCost, discount, voucherIds, voucherOrderManual, voucherAmount, trainingFundAmount,
     allocationTicketId: allocationTicketId || null,
+    ...(codeOfConduct ? { codeOfConduct } : {}),
   });
 }
 

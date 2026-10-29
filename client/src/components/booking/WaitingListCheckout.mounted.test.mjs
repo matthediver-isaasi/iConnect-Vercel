@@ -30,13 +30,14 @@ const bundle = await build({
     name: 'isolated-waiting-checkout',
     setup(build) {
       build.onResolve({ filter: /^@\/|^uuid$|^@tanstack\/react-query$|^react-router-dom$/ }, args => {
-        if (args.path === '@/lib/eventWaitingList.mjs') return { path: new URL('../../lib/eventWaitingList.mjs', import.meta.url).pathname };
+        if (args.path === '@/lib/eventWaitingList.mjs' || args.path === '@/lib/eventCodeOfConduct.mjs') return { path: new URL(`../../lib/${args.path.split('/').pop()}`, import.meta.url).pathname };
+        if (args.path === '@/hooks/useEventCodeOfConduct') return { path: new URL('../../hooks/useEventCodeOfConduct.js', import.meta.url).pathname };
         return { path: args.path, namespace: 'isolated' };
       });
       build.onLoad({ filter: /.*/, namespace: 'isolated' }, args => {
         let contents;
         if (args.path === 'uuid') contents = `export const v4 = () => '9a475cac-16b2-49ba-b394-4735ed6a8b1e';`;
-        else if (args.path === '@tanstack/react-query') contents = `export const useQuery = () => ({ data: [], isLoading: false, isError: false }); export const useQueryClient = () => ({ invalidateQueries() {} });`;
+        else if (args.path === '@tanstack/react-query') contents = `export const useQuery = () => ({ data: globalThis.__waitingListTest.settings || [], isLoading: false, isError: false }); export const useQueryClient = () => ({ invalidateQueries() {} });`;
         else if (args.path === 'react-router-dom') contents = `import React from 'react'; export const Link = ({to,children,...props}) => <a href={to} {...props}>{children}</a>;`;
         else if (args.path.endsWith('useMemberAccess')) contents = `export const useMemberAccess = () => ({ authResolved: true, sessionValidated: true, roleStatus: 'ready' });`;
         else if (args.path.endsWith('useEventLogin')) contents = `export const useEventLogin = () => ({ openLogin: globalThis.__waitingListTest.login, loginModal: null });`;
@@ -44,7 +45,7 @@ const bundle = await build({
         else if (args.path.endsWith('publicClient')) contents = `export const publicClient = { listSystemSettings: async () => [] };`;
         else if (args.path.endsWith('/button')) contents = `import React from 'react'; export const Button = ({children,variant,...props}) => <button {...props}>{children}</button>;`;
         else if (args.path.endsWith('/checkbox')) contents = `import React from 'react'; export const Checkbox = ({onCheckedChange,...props}) => <input type="checkbox" onChange={e => onCheckedChange(e.target.checked)} {...props} />;`;
-        else contents = `import React from 'react'; const Box = ({children,...props}) => <div {...props}>{children}</div>; export const Card=Box, CardHeader=Box, CardTitle=Box, CardContent=Box;`;
+        else contents = `import React from 'react'; const Box = ({children,...props}) => <div {...props}>{children}</div>; export const Dialog = ({open,children}) => open ? <div role="dialog">{children}</div> : null; export const Card=Box, CardHeader=Box, CardTitle=Box, CardContent=Box, DialogContent=Box, DialogHeader=Box, DialogTitle=Box;`;
         return { contents, loader: 'jsx', resolveDir: process.cwd() };
       });
     },
@@ -68,7 +69,7 @@ async function mount(props) {
   document.body.appendChild(host);
   const root = createRoot(host);
   await act(async () => { root.render(React.createElement(Checkout, props)); });
-  return { host, close: async () => { await act(async () => root.unmount()); host.remove(); } };
+  return { host, rerender: async props => { await act(async () => root.render(React.createElement(Checkout, props))); }, close: async () => { await act(async () => root.unmount()); host.remove(); } };
 }
 async function click(element) {
   await act(async () => { element.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
@@ -101,6 +102,72 @@ test('guests must log in, and incomplete attendees cannot submit', async () => {
   const invalid = await mount({ ...defaults, attendees: [{ first_name: 'Mira', email: 'invalid' }] });
   assert.equal(invalid.host.querySelector('[data-testid="button-join-waiting-list"]').disabled, true);
   await invalid.close();
+});
+
+test('required Code of Conduct is separate from terms, resets with content/event, and sends exact HTML', async () => {
+  calls.length = 0;
+  fail = false;
+  const content = '<h2>Our Code</h2><p>Respect everyone &amp; their views.</p>';
+  const settings = html => [{ setting_key: 'event_code_of_conduct', setting_value: JSON.stringify({ content: html, required: true }) }];
+  globalThis.__waitingListTest.settings = settings(content);
+  const props = { ...defaults, hasBookingTerms: true, termsAccepted: true };
+  const view = await mount(props);
+  const button = () => view.host.querySelector('[data-testid="button-join-waiting-list"]');
+  const checkbox = () => view.host.querySelector('[data-testid="checkbox-code-of-conduct"]');
+  assert.equal(button().disabled, true);
+  assert.equal(checkbox().checked, false);
+  assert.match(view.host.textContent, /View Code of Conduct/);
+  await click(view.host.querySelector('[data-testid="link-code-of-conduct"]'));
+  assert.match(view.host.querySelector('[role="dialog"]').textContent, /Respect everyone & their views/);
+  await click(checkbox());
+  assert.equal(button().disabled, false);
+  globalThis.__waitingListTest.settings = settings(content + '<p>Updated</p>');
+  await view.rerender(props);
+  assert.equal(checkbox().checked, false);
+  assert.equal(button().disabled, true);
+  await click(checkbox());
+  await view.rerender({ ...props, event: { ...props.event, id: 'other-event' } });
+  assert.equal(checkbox().checked, false);
+  await click(checkbox());
+  await click(button());
+  assert.equal(calls[0].code_of_conduct_accepted, true);
+  assert.equal(calls[0].code_of_conduct_content, content + '<p>Updated</p>');
+  await view.close();
+  globalThis.__waitingListTest.settings = [];
+});
+
+test('disabled conduct is hidden and required rich-content dialog is sanitized', async () => {
+  const content = '<p>Everyone is welcome.</p><img src=x onerror="alert(1)"><script>alert(1)</script>';
+  globalThis.__waitingListTest.settings = [{ setting_key: 'event_code_of_conduct', setting_value: JSON.stringify({ content, required: false }) }];
+  const view = await mount(defaults);
+  assert.equal(view.host.querySelector('[data-testid="button-join-waiting-list"]').disabled, false);
+  assert.equal(view.host.querySelector('[data-testid="checkbox-code-of-conduct"]'), null);
+  globalThis.__waitingListTest.settings = [{ setting_key: 'event_code_of_conduct', setting_value: JSON.stringify({ content, required: true }) }];
+  await view.rerender(defaults);
+  await click(view.host.querySelector('[data-testid="link-code-of-conduct"]'));
+  const dialog = view.host.querySelector('[role="dialog"]');
+  assert.match(dialog.textContent, /Everyone is welcome/);
+  assert.equal(dialog.querySelector('script'), null);
+  assert.equal(dialog.querySelector('img').hasAttribute('onerror'), false);
+  await view.close();
+  globalThis.__waitingListTest.settings = [];
+});
+
+test('switching back to a previously accepted version does not restore acceptance', async () => {
+  const setPolicy = content => {
+    globalThis.__waitingListTest.settings = [{ setting_key: 'event_code_of_conduct', setting_value: JSON.stringify({ content, required: true }) }];
+  };
+  setPolicy('<p>First version</p>');
+  const view = await mount(defaults);
+  await click(view.host.querySelector('[data-testid="checkbox-code-of-conduct"]'));
+  setPolicy('<p>Second version</p>');
+  await view.rerender(defaults);
+  setPolicy('<p>First version</p>');
+  await view.rerender(defaults);
+  assert.equal(view.host.querySelector('[data-testid="checkbox-code-of-conduct"]').checked, false);
+  assert.equal(view.host.querySelector('[data-testid="button-join-waiting-list"]').disabled, true);
+  await view.close();
+  globalThis.__waitingListTest.settings = [];
 });
 test('complex preferences retain each selected ticket/session without a normal booking call', async () => {
   fail = false;
