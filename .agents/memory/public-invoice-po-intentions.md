@@ -10,6 +10,15 @@ action after the original booker has a member account. It is one invoice for the
 whole booking, billed to the original booker—not separate attendee invoices.
 Creating an attendee account alone must never trigger invoicing.
 
+Invoice approval must not rewrite the immutable purchaser context, even to add
+an approval identifier. Keep approval authority separate from historical identity.
+
+**Why:** The live purchaser-context trigger rejects metadata additions too; an
+isolated billing fixture without that trigger can pass while production fails.
+
+**How to apply:** Include the real purchaser immutability guard in invoice
+conversion tests. Preserve it rather than relaxing it to permit billing metadata.
+
 **Why:** The owner confirmed that multi-attendee bookings remain the original
 booker's financial responsibility. Invoice creation records no payment; settlement
 is performed externally and checked against the accounting package.
