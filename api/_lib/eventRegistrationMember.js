@@ -16,9 +16,12 @@ export function reviewedMemberInput(body) {
   }
   result.email = result.email.toLowerCase();
   if (!result.first_name || !result.last_name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(result.email)) reject('First name, last name and a valid email are required.');
-  if (!uuid(body.role_id) || (body.organization_id && !uuid(body.organization_id))) reject('Select a valid role and organisation.');
+   if (!uuid(body.role_id) || (body.organization_id != null && !uuid(body.organization_id))
+     || (body.organization_group_id != null && !uuid(body.organization_group_id))) reject('Select a valid role and organisation or group.');
+   if (body.organization_id && body.organization_group_id) reject('Select either an organisation or a group, not both.');
   result.role_id = body.role_id;
   result.organization_id = body.organization_id || null;
+   result.organization_group_id = body.organization_group_id || null;
   result.role_effective_from = body.role_effective_from || null;
   if (result.role_effective_from && !isStrictIsoDate(result.role_effective_from)) reject('Enter a valid role effective date.');
   return result;
@@ -43,6 +46,7 @@ export function makeEventRegistrationMemberHandler({ db, getContext, adminAccess
           p_first_name: input.first_name, p_last_name: input.last_name, p_email: input.email,
           p_supplied_organization_name: input.supplied_organization_name,
           p_organization_id: input.organization_id, p_role_id: input.role_id,
+           p_organization_group_id: input.organization_group_id,
           p_role_effective_from: input.role_effective_from,
         });
         if (error) {
@@ -69,8 +73,10 @@ export function makeEventRegistrationMemberHandler({ db, getContext, adminAccess
       const rolesQuery = db.from('role').select('id,name,requires_effective_from_date,max_members').eq('tenant_id', ctx.tenantId).order('name').order('id');
       // Bound search results; never return another tenant's organisations.
       let orgQuery = db.from('organization').select('id,name').eq('tenant_id', ctx.tenantId).order('name').order('id').limit(50);
+       let groupQuery = db.from('organization_group').select('id,name').eq('tenant_id', ctx.tenantId).order('name').order('id').limit(50);
       const search = String(req.query.organisationSearch || '').trim().slice(0, 150);
       if (search) orgQuery = orgQuery.filter('name', 'imatch', search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+       if (search) groupQuery = groupQuery.filter('name', 'imatch', search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
       const roles = [];
       for (let offset = 0; ;) {
         const page = await rolesQuery.range(offset, offset + 199);
@@ -78,8 +84,12 @@ export function makeEventRegistrationMemberHandler({ db, getContext, adminAccess
         if (!page.data?.length) break;
         roles.push(...page.data); offset += page.data.length;
       }
-      const orgs = await orgQuery;
-      if (orgs.error) reject('Unable to search tenant organisations.', 503);
+       const [orgs, groups] = await Promise.all([orgQuery, groupQuery]);
+       if (orgs.error || groups.error) reject('Unable to search organisations and groups.', 503);
+       const associations = [
+         ...(orgs.data || []).map(row => ({ ...row, type: 'organization' })),
+         ...(groups.data || []).map(row => ({ ...row, type: 'organization_group' })),
+       ].sort((a, b) => a.name.localeCompare(b.name, 'en') || a.type.localeCompare(b.type) || a.id.localeCompare(b.id)).slice(0, 50);
       return res.json({
         registration: {
           bookingId: booking.id, isComplex: input.isComplex, eventTitle: event.title,
@@ -89,7 +99,7 @@ export function makeEventRegistrationMemberHandler({ db, getContext, adminAccess
           member_id: linkedMemberId, phone: booking.attendee_phone || '',
           job_title: booking.attendee_job_title || '', booking_reference: booking.booking_reference || '',
         },
-        roles, organisations: orgs.data || [],
+         roles, organisations: orgs.data || [], associations,
       });
     } catch (error) {
       return res.status(error.status || 500).json({ error: error.status ? error.message : 'Unable to process the registration.' });

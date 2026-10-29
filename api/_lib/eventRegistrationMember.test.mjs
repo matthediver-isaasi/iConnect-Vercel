@@ -12,6 +12,8 @@ test('reviewed fields are bounded and normalized without inferring organisation'
   assert.equal(result.organization_id, null);
   for (const patch of [{ isComplex: 'anything' }, { email: 'bad' }, { role_id: null },
     { first_name: '' }, { last_name: 'a'.repeat(251) }, { organization_id: 'bad' },
+    { organization_group_id: 'bad' }, { organization_group_id: false },
+    { organization_id: tenantId, organization_group_id: tenantId },
     { role_effective_from: '2026-02-30' }, { supplied_organization_name: {} }]) {
     assert.throws(() => reviewedMemberInput({ ...body, ...patch }));
   }
@@ -33,6 +35,14 @@ test('server-selected tenant and reviewed input alone reach atomic RPC', async (
   assert.equal(r.calls[0].args.p_tenant_id, tenantId);
   assert.equal(r.calls[0].args.p_email, 'test@example.invalid');
   assert.equal('payment_method' in r.calls[0].args, false);
+});
+test('explicit group selection reaches the atomic RPC without an organisation', async () => {
+  const r = await request({}, { method: 'POST', body: { ...body, organization_group_id: tenantId } });
+  assert.equal(r.calls[0].args.p_organization_group_id, tenantId);
+  assert.equal(r.calls[0].args.p_organization_id, null);
+  const invalid = await request({}, { method: 'POST', body: { ...body, organization_id: tenantId, organization_group_id: tenantId } });
+  assert.equal(invalid.status, 400);
+  assert.equal(invalid.calls.length, 0);
 });
 test('authentication, tenant mismatch, group-admin and role-management denials never write', async () => {
   for (const [override, status] of [
@@ -58,6 +68,7 @@ test('GET returns only tenant-owned booking, roles and literal organisation sear
     event: [{ id: tenantId, tenant_id: tenantId, title: 'Fixture' }],
     role: [{ id: 'role', tenant_id: tenantId, name: 'Member' }, { id: 'other-role', tenant_id: 'other', name: 'Other' }],
     organization: [{ id: 'org', tenant_id: tenantId, name: 'A*B' }, { id: 'other-org', tenant_id: 'other', name: 'A*B' }, { id: 'wildcard', tenant_id: tenantId, name: 'AXYZB' }],
+    organization_group: [{ id: 'org', tenant_id: tenantId, name: 'A*B' }, { id: 'outside', tenant_id: 'other', name: 'A*B' }, { id: 'early', tenant_id: tenantId, name: 'A*B Alpha' }],
   };
   const db = { from(table) {
     let rows = tables[table] || [], single = false;
@@ -79,6 +90,18 @@ test('GET returns only tenant-owned booking, roles and literal organisation sear
   assert.equal(r.payload.registration.supplied_organization_name, 'Typed only');
   assert.deepEqual(r.payload.roles.map(r => r.id), ['role']);
   assert.deepEqual(r.payload.organisations.map(r => r.id), ['org']);
+  assert.deepEqual(r.payload.associations.map(r => [r.id, r.type]), [
+    ['org', 'organization'], ['org', 'organization_group'], ['early', 'organization_group'],
+  ]);
   const outside = await request({ db, getContext: async () => ({ tenantId: 'other', isAuthenticated: true }) }, req);
   assert.equal(outside.status, 404);
+  const failingDb = { from(table) {
+    if (table !== 'organization_group') return db.from(table);
+    const q = { select: () => q, eq: () => q, order: () => q, limit: () => q, filter: () => q,
+      then(resolve) { return Promise.resolve({ error: { message: 'Unavailable' } }).then(resolve); } };
+    return q;
+  } };
+  const failure = await request({ db: failingDb }, req);
+  assert.equal(failure.status, 503);
+  assert.equal(failure.payload.associations, undefined);
 });

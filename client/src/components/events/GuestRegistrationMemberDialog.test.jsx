@@ -25,6 +25,7 @@ const payload = {
   registration: { bookingId: "booking-a", isComplex: true, eventTitle: "Annual Assembly", ticketName: "Day delegate", first_name: "Ari", last_name: "Lee", email: "ari@example.test", supplied_organization_name: "Guest Company", member_id: null },
   roles: [{ id: "role-a", name: "Event member" }],
   organisations: [{ id: "org-a", name: "Tenant Company" }],
+  associations: [{ id: "org-a", name: "Tenant Company", type: "organization" }],
 };
 const json = (data, status = 200) => new Response(JSON.stringify(data), { status });
 const settle = (ms = 25) => act(async () => { await new Promise(resolve => setTimeout(resolve, ms)); });
@@ -102,7 +103,7 @@ test("explicit organisation selection, duplicate-email errors and synchronous do
   };
   const cleanup = await mount();
   try {
-    await click(button("Tenant Company"));
+    await click(button("Tenant CompanyOrganisation"));
     await chooseRole();
     await act(async () => {
       const form = document.querySelector("form");
@@ -132,6 +133,48 @@ test("authoritatively linked registrations show profile instead of create form",
     await click(button("Update report and close"));
     assert.deepEqual(result, { member: { id: "member-existing" }, alreadyLinked: true });
   } finally { await cleanup(); }
+});
+
+test("same-ID and same-name typed choices persist through search and clear without implicit links", async () => {
+  const bodies = [];
+  globalThis.fetch = async (url, options) => {
+    if (options.method === "POST") {
+      bodies.push(JSON.parse(options.body));
+      return json({ member: { id: "member-a" } });
+    }
+    return json({ ...payload, associations: url.includes("organisationSearch=") ? [] : [
+      { id: "shared", name: "Same name", type: "organization" },
+      { id: "shared", name: "Same name", type: "organization_group" },
+    ] });
+  };
+  const cleanup = await mount();
+  try {
+    assert.equal(document.querySelector('label[for="guest-member-org-search"]').textContent, "Organisation or group (optional)");
+    await click(button("Same nameOrganisation"));
+    await click(button("Same nameOrganisation Group"));
+    assert.equal(button("Same nameOrganisation").getAttribute("aria-pressed"), "false");
+    assert.equal(button("Same nameOrganisation Group").getAttribute("aria-pressed"), "true");
+    await input("guest-member-org-search", "No results");
+    await settle(350);
+    await settle();
+    assert.match(document.body.textContent, /Selected: Same name · Organisation Group/);
+    assert.match(document.body.textContent, /No organisations or groups found/);
+    await chooseRole();
+    await submit();
+    assert.equal(bodies[0].organization_group_id, "shared");
+    assert.equal("organization_id" in bodies[0], false);
+    await click(button("Clear selection"));
+    await submit();
+    assert.equal(bodies[1].organization_id, null);
+    assert.equal("organization_group_id" in bodies[1], false);
+  } finally { await cleanup(); }
+});
+
+test("member details resolves the direct group for members without an organisation", () => {
+  const source = readFileSync(new URL("../../pages/MemberDetail.jsx", import.meta.url), "utf8");
+  assert.match(source, /member\?\.organization_group_id/);
+  assert.match(source, /orgGroups\.find\(g => g\.id === derivedGroupId\)/);
+  assert.match(source, /\{displayedGroup\.name\}/);
 });
 
 test("failed authoritative load offers retry and no create action", async () => {
@@ -183,7 +226,7 @@ test("organisation search failures allow retry without losing reviewed names or 
     await click(button("Retry search"));
     await settle();
     assert.equal(document.getElementById("guest-member-first_name").value, "Reviewed Ari");
-    assert.ok(button("Tenant Company"));
+    assert.ok(button("Tenant CompanyOrganisation"));
     assert.doesNotMatch(document.body.textContent, /Selected:/);
     await chooseRole();
     await submit();

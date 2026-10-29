@@ -39,7 +39,7 @@ export default function GuestRegistrationMemberDialog({ bookingId, isComplex, te
     queryKey: ["event-registration-member", tenantId, viewerId, bookingId, !!isComplex],
     queryFn: async ({ signal }) => {
       const data = await readMemberResponse(await fetch(url, { credentials: "include", signal }));
-      if (!data.registration || !Array.isArray(data.roles) || !Array.isArray(data.organisations)) {
+      if (!data.registration || !Array.isArray(data.roles) || !Array.isArray(data.associations)) {
         throw new Error("Registration details could not be loaded. Please retry.");
       }
       return data;
@@ -64,12 +64,16 @@ export default function GuestRegistrationMemberDialog({ bookingId, isComplex, te
   }, [organisationSearch]);
   const organisationResults = useQuery({
     queryKey: ["event-registration-member-organisations", tenantId, viewerId, bookingId, !!isComplex, search],
-    queryFn: async ({ signal }) => readMemberResponse(await fetch(`${url}&organisationSearch=${encodeURIComponent(search)}`, { credentials: "include", signal })),
+    queryFn: async ({ signal }) => {
+      const data = await readMemberResponse(await fetch(`${url}&organisationSearch=${encodeURIComponent(search)}`, { credentials: "include", signal }));
+      if (!Array.isArray(data.associations)) throw new Error("Organisations and groups could not be loaded. Please retry.");
+      return data;
+    },
     enabled: !!registration && !!search,
     retry: false,
   });
   const searching = organisationSearch.trim() !== search || (!!search && organisationResults.isFetching);
-  const organisations = search ? organisationResults.data?.organisations || [] : details.data?.organisations || [];
+  const organisations = search ? organisationResults.data?.associations || [] : details.data?.associations || [];
   const roles = details.data?.roles || [];
   const selectedRole = roles.find(role => role.id === roleId);
   const submit = async event => {
@@ -94,7 +98,10 @@ export default function GuestRegistrationMemberDialog({ bookingId, isComplex, te
         body: JSON.stringify({
           bookingId, isComplex: !!isComplex,
           ...Object.fromEntries(Object.entries(form).map(([key, value]) => [key, value.trim()])),
-          organization_id: organisation?.id || null, role_id: roleId,
+          ...(organisation?.type === "organization_group"
+            ? { organization_group_id: organisation.id }
+            : { organization_id: organisation?.id || null }),
+          role_id: roleId,
           ...(selectedRole?.requires_effective_from_date ? { role_effective_from: roleEffectiveFrom } : {}),
         }),
       }));
@@ -143,14 +150,14 @@ export default function GuestRegistrationMemberDialog({ bookingId, isComplex, te
                 </div>)}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="guest-member-org-search">Tenant organisation (optional)</Label>
-                <Input id="guest-member-org-search" placeholder="Search existing tenant organisations" value={organisationSearch} onChange={event => setOrganisationSearch(event.target.value)} aria-describedby="guest-member-org-help" />
-                <p id="guest-member-org-help" className="text-xs text-muted-foreground">Typing or editing an organisation name does not link it. Select an existing tenant organisation explicitly.</p>
-                {organisation && <div className="flex items-center justify-between gap-2 rounded-md border p-2 text-sm"><span>Selected: {organisation.name}</span><Button type="button" variant="ghost" size="sm" onClick={() => setOrganisation(null)}>Clear selection</Button></div>}
+                <Label htmlFor="guest-member-org-search">Organisation or group (optional)</Label>
+                <Input id="guest-member-org-search" placeholder="Search organisations and groups" value={organisationSearch} onChange={event => setOrganisationSearch(event.target.value)} aria-describedby="guest-member-org-help" />
+                <p id="guest-member-org-help" className="text-xs text-muted-foreground">Typing or editing a company name does not link it. Select an existing organisation or group explicitly.</p>
+                {organisation && <div className="flex items-center justify-between gap-2 rounded-md border p-2 text-sm"><span>Selected: {organisation.name} · {organisation.type === "organization_group" ? "Organisation Group" : "Organisation"}</span><Button type="button" variant="ghost" size="sm" onClick={() => setOrganisation(null)}>Clear selection</Button></div>}
                 <div aria-live="polite" className="text-sm">
-                  {searching ? <p role="status">Searching organisations…</p> : search && organisationResults.isError ? <div role="alert"><p className="text-destructive">{organisationResults.error.message}</p><Button type="button" variant="outline" size="sm" onClick={() => organisationResults.refetch()}>Retry search</Button></div> : <div className="max-h-32 overflow-y-auto space-y-1">
-                    {!organisations.length && <p className="text-muted-foreground">No organisations found. You can continue without selecting one.</p>}
-                    {organisations.map(org => <Button key={org.id} type="button" variant={organisation?.id === org.id ? "secondary" : "ghost"} className="w-full justify-start" aria-pressed={organisation?.id === org.id} onClick={() => setOrganisation(org)}>{org.name}</Button>)}
+                  {searching ? <p role="status">Searching organisations and groups…</p> : search && organisationResults.isError ? <div role="alert"><p className="text-destructive">{organisationResults.error.message}</p><Button type="button" variant="outline" size="sm" onClick={() => organisationResults.refetch()}>Retry search</Button></div> : <div className="max-h-32 overflow-y-auto space-y-1">
+                    {!organisations.length && <p className="text-muted-foreground">No organisations or groups found. You can continue without selecting one.</p>}
+                    {organisations.map(org => <Button key={`${org.type}:${org.id}`} type="button" variant={organisation?.id === org.id && organisation?.type === org.type ? "secondary" : "ghost"} className="w-full justify-start gap-2" aria-pressed={organisation?.id === org.id && organisation?.type === org.type} onClick={() => setOrganisation(org)}>{org.name}<span className="text-xs text-muted-foreground">{org.type === "organization_group" ? "Organisation Group" : "Organisation"}</span></Button>)}
                   </div>}
                 </div>
               </div>

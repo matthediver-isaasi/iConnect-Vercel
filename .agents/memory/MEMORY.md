@@ -156,3 +156,4 @@
 - [Event follow-up policy](event-follow-up-policy.md) — day and overall-event ends use full programme completion, not recipient-specific final sessions.
 - [Certificate text recovery](certificate-authored-text-recovery.md) — example wording is not recovery evidence; schema repair and guarded content restoration are separate.
 - [Team directory dates](team-directory-date-policy.md) — original record creation is the join date; recorded activity and login permission are independent.
+- [Guest registration associations](guest-registration-association-policy.md) — explicit direct group selection never implies an organisation or changes historical registration details.
