@@ -428,7 +428,7 @@ export default function MembershipSettings() {
                         <SelectValue placeholder="Select VAT rate" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="none">No VAT rate (provider default)</SelectItem>
+                        <SelectItem value="none" disabled>Not configured — select an accounting tax rate</SelectItem>
                         {vatRates.map((rate) => (
                           <SelectItem key={rate.taxType} value={rate.taxType}>
                             {rate.name}{rate.effectiveRate != null ? ` (${rate.effectiveRate}%)` : ''}

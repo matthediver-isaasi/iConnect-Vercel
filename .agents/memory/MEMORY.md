@@ -14,6 +14,7 @@
 - [Member Group topics](member-group-index.md) — custom-field ownership, role naming, scoped lists, resource links, admin redaction and event access.
 - [PostgREST and pagination topics](postgrest-pagination-index.md) — index of durable rules for PostgREST caps, stable ranged pages, bounded exports, large filters, and exact totals.
 - [Membership invoice boundaries](membership-invoice-index.md) — duplicate prevention, override display, add-on lines and PO contracts.
+- [Accounting tax choices](accounting-tax-choice-policy.md) — connected tax selectors must use provider codes, never iConnect no-VAT defaults.
 - [Background worker self-trigger](background-worker-self-trigger.md) — a self-re-triggering chunked worker needs a handoff bypass on its heartbeat lock, or the chain blocks itself and falls back to cron pace.
 - [Reindex concurrency guard](reindex-concurrency-guard.md) — historical background-worker pattern; Member Content now uses the dedicated operation authority documented below, not system_settings.
 - [Member-content reindex operation authority](member-content-reindex-operations.md) — CRON_SECRET is fail-closed; use the dedicated service-only operations singleton/RPCs, never browser-writable system_settings.

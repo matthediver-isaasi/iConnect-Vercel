@@ -4555,7 +4555,7 @@ export default function CreateComplexEvent() {
                         </div>
                       </div>
 
-                      {availableVatRates.length > 0 && !isGroupLimited && (
+                      {!isGroupLimited && (
                         <div className="space-y-1.5">
                           <Label>VAT Rate</Label>
                           <Select
@@ -4576,10 +4576,10 @@ export default function CreateComplexEvent() {
                             }}
                           >
                             <SelectTrigger data-testid={`select-vat-${ticket._localId}`}>
-                              <SelectValue placeholder="No VAT" />
+                              <SelectValue placeholder="Select an accounting tax rate" />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="_none">No VAT</SelectItem>
+                              <SelectItem value="_none" disabled>Not configured — select an accounting tax rate</SelectItem>
                               {availableVatRates.map((rate) => (
                                 <SelectItem key={rate.taxType} value={rate.taxType}>
                                   {rate.name} ({rate.effectiveRate}%)

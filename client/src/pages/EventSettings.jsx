@@ -2362,7 +2362,8 @@ export default function EventSettingsPage() {
                     </Label>
                     <p className="text-xs text-slate-500">
                       This VAT rate will be automatically applied to new ticket classes when creating events.
-                      Sync VAT rates from Xero in Admin Setup if none are available.
+                      Select a synced accounting tax rate, including for zero-rated or exempt tickets.
+                      Sync rates from your accounting package in Admin Setup if none are available.
                     </p>
                   </div>
                   <div className="flex items-center gap-4">
@@ -2395,7 +2396,7 @@ export default function EventSettingsPage() {
                         <SelectValue placeholder="Select VAT rate..." />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="none">No VAT / Tax Exempt</SelectItem>
+                        <SelectItem value="none" disabled>Not configured — select an accounting tax rate</SelectItem>
                         {(() => {
                           const vatRates = settings.find(s => s.setting_key === 'xero_vat_rates');
                           if (vatRates?.setting_value) {

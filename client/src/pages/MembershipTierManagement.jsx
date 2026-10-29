@@ -2821,7 +2821,7 @@ export default function MembershipTierManagement() {
                         <SelectValue placeholder="Select VAT rate" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="__none">No VAT</SelectItem>
+                        <SelectItem value="__none" disabled>Not configured — select an accounting tax rate</SelectItem>
                         {availableVatRates.map(rate => (
                           <SelectItem key={rate.taxType} value={rate.taxType}>
                             {rate.name} ({rate.effectiveRate}%)
@@ -2916,7 +2916,7 @@ export default function MembershipTierManagement() {
               />
             </div>
             <p className="text-sm text-muted-foreground">The {periodLabel.toLowerCase()} fee charged to all {isMemberScoped ? 'members' : 'organisations'}</p>
-            {availableVatRates.length > 0 && (
+            {(
               <div className="space-y-1 mt-3">
                 <Label>VAT Rate</Label>
                 <div className="max-w-xs">
@@ -2943,10 +2943,10 @@ export default function MembershipTierManagement() {
                     disabled={!isEditable}
                   >
                     <SelectTrigger data-testid="select-flat-vat-rate">
-                      <SelectValue placeholder="No VAT" />
+                      <SelectValue placeholder="Select an accounting tax rate" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="__none">No VAT</SelectItem>
+                      <SelectItem value="__none" disabled>Not configured — select an accounting tax rate</SelectItem>
                       {availableVatRates.map(rate => (
                         <SelectItem key={rate.taxType} value={rate.taxType}>
                           {rate.name}
@@ -2955,7 +2955,11 @@ export default function MembershipTierManagement() {
                     </SelectContent>
                   </Select>
                 </div>
-                <p className="text-sm text-muted-foreground">Select the VAT rate to apply to the flat membership cost</p>
+                <p className="text-sm text-muted-foreground">
+                  Select a synced accounting tax rate, including for zero-rated or exempt membership.
+                  {!config.flat_vat_rate && ' No accounting tax rate is configured; review this before invoicing.'}
+                  {availableVatRates.length === 0 && ' Sync tax rates from your accounting package in Admin Setup.'}
+                </p>
               </div>
             )}
             <div className="space-y-1 mt-3">
@@ -3114,10 +3118,10 @@ export default function MembershipTierManagement() {
                           disabled={!isEditable}
                         >
                           <SelectTrigger data-testid={`select-band-vat-${index}`}>
-                            <SelectValue placeholder="No VAT" />
+                            <SelectValue placeholder="Select an accounting tax rate" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="__none">No VAT</SelectItem>
+                            <SelectItem value="__none" disabled>Not configured — select an accounting tax rate</SelectItem>
                             {availableVatRates.map(rate => (
                               <SelectItem key={rate.taxType} value={rate.taxType}>
                                 {rate.name}

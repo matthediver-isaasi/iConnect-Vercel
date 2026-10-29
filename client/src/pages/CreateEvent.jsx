@@ -3328,7 +3328,7 @@ export default function CreateEvent() {
                               <SelectValue placeholder="Select VAT rate..." />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="none">No VAT / Tax Exempt</SelectItem>
+                              <SelectItem value="none" disabled>Not configured — select an accounting tax rate</SelectItem>
                               {availableVatRates.map((rate) => (
                                 <SelectItem key={rate.taxType} value={rate.taxType}>
                                   {rate.name} ({rate.effectiveRate}%)
@@ -3338,7 +3338,7 @@ export default function CreateEvent() {
                           </Select>
                           {availableVatRates.length === 0 && (
                             <p className="text-xs text-warning">
-                              No VAT rates available. Sync rates from Xero in Admin Setup.
+                              No tax rates available. Sync rates from your accounting package in Admin Setup.
                             </p>
                           )}
                           {ticket.vat_rate_key && (
