@@ -67,12 +67,14 @@ test('event queue SQL: atomic capture, immutable evidence, original payment owne
       CREATE TABLE role(id uuid,tenant_id uuid,requires_effective_from_date boolean,max_members integer);
       ALTER TABLE booking ADD COLUMN purchaser_context jsonb,ADD COLUMN total_cost numeric,ADD COLUMN currency text;
       ALTER TABLE complex_event_booking ADD COLUMN purchaser_context jsonb,ADD COLUMN total_cost numeric,ADD COLUMN currency text;`);
+    await db.query('CREATE TABLE event(id uuid); CREATE TABLE complex_event(id uuid)');
+    await db.query(readFileSync(new URL('../../supabase/migrations/202607200001_public_invoice_po.sql',import.meta.url),'utf8'));
     for(const name of ['202612090003_public_invoice_po_billing.sql','202612090004_public_invoice_booker_member.sql'])
       await db.query(readFileSync(new URL('../../supabase/migrations/'+name,import.meta.url),'utf8'));
     await db.query(`INSERT INTO member VALUES($1,$1,'booker@example.invalid');
       `,[t]);
     const bookingId=(await db.query(`INSERT INTO booking(tenant_id,event_id,booking_group_reference,payment_method,payment_status,total_cost,currency,created_at,purchaser_context)
-      VALUES($1,$2,'public-po','public_invoice_po','unpaid',20,'GBP',now()-interval '5 days',
+      VALUES($1,$2,'public-po','public_invoice_po','pending',20,'GBP',now()-interval '5 days',
       '{"classification":"public_non_member","details":{"email":"booker@example.invalid"}}') RETURNING id`,[t,event])).rows[0].id;
     const originals=(await db.query(`SELECT jsonb_agg(to_jsonb(b) ORDER BY id) rows FROM booking b WHERE id=$1`,[bookingId])).rows[0].rows;
     const invoiceSnapshot={version:1,preparation:true,environment:'production',invoice:{amount:20,currency:'GBP',paymentMethod:'invoice',eventId:event,capturedAt:new Date().toISOString(),
@@ -80,16 +82,45 @@ test('event queue SQL: atomic capture, immutable evidence, original payment owne
       payment:null,linkage:{source:'booking',group:'public-po'},approvalProvider:{connectionId:t,realmId:'realm'}};
     const approve=()=>db.query('SELECT public_invoice_po_bill($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) result',
       [t,'booking','public-po',t,'admin',JSON.stringify(originals),20,'GBP','quickbooks',invoiceSnapshot]);
+    await assert.rejects(approve(),/Purchaser context is immutable/);
+    await db.query(readFileSync(new URL('../../supabase/migrations/202612090007_public_po_approval_guard.sql',import.meta.url),'utf8'));
+    await assert.rejects(db.query("UPDATE booking SET payment_method='invoice' WHERE id=$1",[bookingId]),/matching invoice approval/);
+    await assert.rejects(db.query("UPDATE booking SET purchaser_context='{}' WHERE id=$1",[bookingId]),/Purchaser context is immutable/);
     await db.query('SET ROLE authenticated');await assert.rejects(approve());
     await db.query('RESET ROLE');
     const approval=(await approve()).rows[0].result;
     assert.equal((await approve()).rows[0].result.id,approval.id,'repeat approval cannot invoice twice');
     const converted=(await db.query('SELECT * FROM booking WHERE id=$1',[bookingId])).rows[0];
     assert.equal(converted.payment_method,'invoice');
-    assert.equal(converted.payment_status,'unpaid');
+    assert.equal(converted.payment_status,'pending');
     assert.equal(converted.stripe_payment_intent_id,null);
-    assert.equal(converted.purchaser_context.invoice_approval_id,approval.id);
+    assert.equal(converted.public_invoice_po_billing_id,approval.id);
+    assert.deepEqual(converted.purchaser_context,originals[0].purchaser_context);
+    await assert.rejects(db.query('UPDATE booking SET public_invoice_po_billing_id=NULL WHERE id=$1',[bookingId]),/matching invoice approval/);
     assert.equal((await db.query(`SELECT count(*)::int n FROM accounting_request_queue WHERE source_id='public-po'`)).rows[0].n,1);
+    await db.query('SET ROLE anon');
+    await assert.rejects(approve(),{code:'42501'});
+    await db.query('RESET ROLE');
+    // An approval cannot be borrowed by another booking or source table.
+    const otherId=(await db.query(`INSERT INTO booking(tenant_id,event_id,booking_group_reference,payment_method,payment_status,total_cost,currency,purchaser_context)
+      VALUES($1,$2,'other-po','public_invoice_po','pending',20,'GBP',$3) RETURNING id`,
+      [t,event,originals[0].purchaser_context])).rows[0].id;
+    await assert.rejects(db.query("UPDATE booking SET payment_method='invoice',public_invoice_po_billing_id=$2 WHERE id=$1",
+      [otherId,approval.id]),/matching invoice approval/);
+    // Multi-day events use the same guarded transition and preserve provenance.
+    await db.query('ALTER TABLE complex_event_booking ADD COLUMN ticket_price numeric');
+    const complexId=(await db.query(`INSERT INTO complex_event_booking(tenant_id,event_id,booking_group_reference,payment_method,payment_status,ticket_price,currency,purchaser_context)
+      VALUES($1,$2,'complex-po','public_invoice_po','pending',20,'GBP',$3) RETURNING id`,
+      [t,event,originals[0].purchaser_context])).rows[0].id;
+    const complexOriginals=(await db.query('SELECT jsonb_agg(to_jsonb(b)) rows FROM complex_event_booking b WHERE id=$1',[complexId])).rows[0].rows;
+    const complexSnapshot={...invoiceSnapshot,linkage:{source:'complex_event_booking',group:'complex-po'}};
+    const complexApproval=(await db.query('SELECT public_invoice_po_bill($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) result',
+      [t,'complex_event_booking','complex-po',t,'admin',JSON.stringify(complexOriginals),20,'GBP','quickbooks',complexSnapshot])).rows[0].result;
+    assert.equal(complexApproval.queued,true);
+    const complexConverted=(await db.query('SELECT * FROM complex_event_booking WHERE id=$1',[complexId])).rows[0];
+    assert.deepEqual(complexConverted.purchaser_context,complexOriginals[0].purchaser_context);
+    assert.equal(complexConverted.payment_status,'pending');
+    assert.equal(complexConverted.public_invoice_po_billing_id,complexApproval.id);
   } finally {
     await db?.end();
     spawnSync('pg_ctl', ['-D', h.data, '-m', 'immediate', '-w', 'stop']);
