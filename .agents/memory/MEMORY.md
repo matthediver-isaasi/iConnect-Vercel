@@ -156,4 +156,5 @@
 - [Event follow-up policy](event-follow-up-policy.md) — day and overall-event ends use full programme completion, not recipient-specific final sessions.
 - [Certificate text recovery](certificate-authored-text-recovery.md) — example wording is not recovery evidence; schema repair and guarded content restoration are separate.
 - [Exhibition bundle sales](exhibition-bundle-sales.md) — Bronze/Silver/Gold/Platinum packages by event; stand-size mappings in guidance are illustrative.
+- [Accounting diagnostic finalization](accounting-diagnostic-finalization.md) — note cleanup can fail after successful settlement; verify provider evidence before replaying finance.
 - [Team directory dates](team-directory-date-policy.md) — original record creation is the join date; recorded activity and login permission are independent.
