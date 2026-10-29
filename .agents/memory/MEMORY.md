@@ -11,7 +11,6 @@
 - [Testimonials compatibility](testimonials-carousel-compatibility.md) — legacy scroll rows require explicit pagination opt-in; preserve authored fixed frames.
 - [Canvas member personalisation](canvas-member-personalisation.md) — display-only TipTap tokens use a fresh viewer snapshot, never cached identity or design-wide replacement.
 - [Event operations](event-operations-index.md) — attendee flags, reminders, timing, deleted bookings, counts, CPD rewards, revenue and ticket releases.
-- [Issued CPD certificates](issued-cpd-certificate-policy.md) — retain completed PDFs independently of templates; capture time is not historical delivery evidence.
 - [Member Group topics](member-group-index.md) — custom-field ownership, role naming, scoped lists, resource links, admin redaction and event access.
 - [PostgREST and pagination topics](postgrest-pagination-index.md) — index of durable rules for PostgREST caps, stable ranged pages, bounded exports, large filters, and exact totals.
 - [Membership invoice boundaries](membership-invoice-index.md) — duplicate prevention, override display, add-on lines and PO contracts.
@@ -154,7 +153,5 @@
 - [Member payment wording](member-payment-wording.md) — simplify copy without inventing dates, membership types, mandate reuse or renewal promises.
 - [Member activity chronology](member-activity-chronology.md) — historical renewal invoices belong alongside other activity, ordered by occurrence rather than import date.
 - [Zoom recovery approval](zoom-recovery-approval.md) — read-only diagnosis is not permission for live registration changes or message sends.
-- [Event follow-up policy](event-follow-up-policy.md) — day and overall-event ends use full programme completion, not recipient-specific final sessions.
-- [Certificate text recovery](certificate-authored-text-recovery.md) — example wording is not recovery evidence; schema repair and guarded content restoration are separate.
 - [Team directory dates](team-directory-date-policy.md) — original record creation is the join date; recorded activity and login permission are independent.
 - [Guest registration associations](guest-registration-association-policy.md) — explicit direct group selection never implies an organisation or changes historical registration details.

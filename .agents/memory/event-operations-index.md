@@ -12,6 +12,9 @@ description: Index of event timing, booking lifecycle, attendance rewards and re
 - [Speaker awards](speaker-award-timing-lifecycle.md) — assignment badges versus event-start vouchers.
 - [CPD badges](event-cpd-badge-awards.md) — attendee identity, whole-config overrides and transactional outbox.
 - [CPD points](event-cpd-points-ledger.md) — append-only signed evidence ledger.
+- [Issued CPD certificates](issued-cpd-certificate-policy.md) — retain completed PDFs independently of templates; capture time is not historical delivery evidence.
+- [Certificate text recovery](certificate-authored-text-recovery.md) — example wording is not recovery evidence; schema repair and guarded restoration are separate.
+- [Event follow-up policy](event-follow-up-policy.md) — day and overall-event ends use full programme completion, not recipient-specific final sessions.
 - [Event revenue](event-revenue-basis.md) — booked value versus cash and historical evidence.
 - [Ticket releases](ticket-release-boundaries.md) — new-purchase gates, existing allocations and DST ambiguity.
 - [Email editing boundary](event-email-edit-policy.md) — saving confirmation or reminder messages must never trigger a send or resend.
