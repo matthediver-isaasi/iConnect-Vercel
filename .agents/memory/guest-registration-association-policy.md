@@ -30,3 +30,12 @@ search” notice because guests could miss that notice and assume an entry was a
 
 **How to apply:** Preserve the enabled-source and custom-field filters. Search
 may narrow the complete list, but must not be necessary to access its later entries.
+
+Exclude organisation and organisation-group names containing “Zombie”,
+case-insensitively, from event registration association choices.
+
+**Why:** The owner explicitly requires these records to be absent from the list.
+
+**How to apply:** Enforce this in discovery, search and exact-ID eligibility
+checks, not just browser rendering. Do not delete records or alter historical
+bookings, existing associations or the Other/free-text route.

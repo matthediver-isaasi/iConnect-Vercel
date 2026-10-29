@@ -272,6 +272,18 @@ test('policy migration: exact tenant emails, private execution, defaults, idempo
     const searched=(await db.query("SELECT event_registration_association_options($1,$1,false,'Extra org 060') choices",[a])).rows[0].choices;
     assert.equal(searched.options.length,1);
     assert.equal(searched.options[0].name,'Extra org 060');
+    await db.query(await readFile(new URL('../../supabase/migrations/202612090011_registration_association_exclude_zombie.sql',import.meta.url),'utf8'));
+    const zombieOrg='00000000-0000-4000-8000-000000000401';
+    const zombieGroup='00000000-0000-4000-8000-000000000402';
+    await db.query("INSERT INTO organization VALUES($1,$2,'Hospital — ZoMbIe archive')",[zombieOrg,a]);
+    await db.query("INSERT INTO organization_group VALUES($1,$2,'ZOMBIE Group')",[zombieGroup,a]);
+    assert.equal((await lookup()).options.length,122);
+    const zombieSearch=(await db.query("SELECT event_registration_association_options($1,$1,false,'zombie') choices",[a])).rows[0].choices;
+    assert.deepEqual(zombieSearch.options,[]);
+    for(const [kind,id] of [['organization',zombieOrg],['group',zombieGroup]]){
+      const exact=(await db.query("SELECT event_registration_association_options($1,$1,false,'',$2,$3) choices",[a,kind,id])).rows[0].choices;
+      assert.deepEqual(exact.options,[]);
+    }
     for(const role of ['anon','authenticated']){
       await db.query(`SET ROLE ${role}`);
       await assert.rejects(lookup(),{code:'42501'});
