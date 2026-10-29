@@ -119,6 +119,7 @@ test("configuration defaults off, toggles are independent, real metadata is scop
   };
   const app = await mount(Config, { roles: [{ id: "role-1", name: "Event contact" }] }, normalizeRegistrationAssociationConfig());
   try {
+    assert.ok(app.container.querySelector("section").classList.contains("bg-white"));
     const switches = app.container.querySelectorAll('[role="switch"]');
     assert.equal(switches[0].getAttribute("aria-checked"), "false");
     assert.equal(switches[1].getAttribute("aria-checked"), "false");

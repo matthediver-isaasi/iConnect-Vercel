@@ -60,7 +60,7 @@ export default function RegistrationAssociationConfig({ value, onChange, roles =
   const config = normalizeRegistrationAssociationConfig(value);
   const enabled = config.organizations.enabled || config.groups.enabled;
   const eligible = roles.filter(isProvisionableRole);
-  return <section className="space-y-4 rounded-lg border border-slate-200 p-4" aria-labelledby={`${id}-title`}>
+  return <section className="space-y-4 rounded-lg border border-slate-200 bg-white p-4" aria-labelledby={`${id}-title`}>
     <div>
       <h3 id={`${id}-title`} className="text-base font-medium text-slate-900">Guest registration organisations and groups</h3>
       <p className="mt-1 text-sm text-slate-500">Let guests search existing organisations and groups by name. Guests can always choose Other and enter their organisation.</p>

@@ -41,7 +41,7 @@ export async function loadPublicPoBilling(db,tenantId,bookingId,isComplex){
  const amount=Math.round(lines.reduce((s,l)=>s+l.amount,0)*100)/100;
  if(!member)reason='Create the original booker’s member account first.';
  const fingerprint=hash({rows,member,event:lines,currency});
- const invoice=o?{id:o.invoice_id||null,number:o.invoice_number,provider:o.provider,status:o.invoice_status,paymentStatus:o.payment_status}:null;
+ const invoice=o?{id:o.invoice_id||null,number:o.invoice_number,provider:o.provider,status:o.invoice_status,paymentStatus:o.payment_status,emailStatus:o.email_status||'legacy_review',emailSentAt:o.email_sent_at||null}:null;
  return {public:{booker,member,amount,currency,lines,fingerprint,canGenerate:!reason&&!o,reason,invoice},
    source,group,rows,event,operation:o};
 }

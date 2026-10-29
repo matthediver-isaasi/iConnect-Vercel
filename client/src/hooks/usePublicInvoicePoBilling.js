@@ -23,7 +23,8 @@ export function usePublicInvoicePoBilling({ bookingId, isComplex, tenantId, view
     retry: false,
     staleTime: 0,
     refetchOnMount: "always",
-    refetchInterval: query => ["queued","pending","processing","retry"].includes(query.state.data?.invoice?.status || query.state.data?.status) ? 5000 : false,
+    refetchInterval: query => ["queued","pending","processing","retry"].includes(query.state.data?.invoice?.status || query.state.data?.status)
+      || ["pending","preparing","sending"].includes(query.state.data?.invoice?.emailStatus) ? 5000 : false,
   });
   const generate = useMutation({
     mutationFn: async fingerprint => readResponse(await adminFetch(PUBLIC_INVOICE_PO_BILLING_ENDPOINT, {

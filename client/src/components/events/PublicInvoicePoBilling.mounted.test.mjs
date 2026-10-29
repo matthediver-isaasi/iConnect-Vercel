@@ -129,7 +129,7 @@ test("explicit confirmation posts whole-booking identity and fingerprint, then p
     await view.open();
     await click(button("Generate invoice"));
     assert.equal(view.calls.filter(call => call.options.method === "POST").length, 0);
-    assert.ok(document.body.textContent.includes("No payment will be recorded and no automated email will be sent"));
+    assert.ok(document.body.textContent.includes("Once created, it will be emailed to them automatically. No payment will be recorded."));
     await click(button("Cancel"));
     assert.equal(view.calls.filter(call => call.options.method === "POST").length, 0);
     await click(button("Generate invoice"));

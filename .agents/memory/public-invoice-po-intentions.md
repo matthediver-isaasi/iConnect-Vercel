@@ -20,6 +20,16 @@ delivery to the booker; merely creating the receivable in Xero/QB is insufficien
 acceptance. Preserve the original booker as recipient, avoid duplicate sends on
 worker retries, and keep record-only registration and member creation email-free.
 
+Do not bulk-email existing invoice approvals when enabling automatic delivery.
+Previously created invoices require explicit delivery review or scoped approval.
+
+**Why:** The rollout approval covered new automatic delivery and one specifically
+approved existing invoice, not unsolicited retrospective delivery to all bookers.
+
+**How to apply:** Keep historical approvals outside the automatic send queue.
+Uncertain provider acceptance must require review, not a blind retry; an accepted
+invoice email is not evidence that the invoice has been paid.
+
 Invoice approval must not rewrite the immutable purchaser context, even to add
 an approval identifier. Keep approval authority separate from historical identity.
 

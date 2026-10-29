@@ -121,6 +121,14 @@ test('event queue SQL: atomic capture, immutable evidence, original payment owne
     assert.deepEqual(complexConverted.purchaser_context,complexOriginals[0].purchaser_context);
     assert.equal(complexConverted.payment_status,'pending');
     assert.equal(complexConverted.public_invoice_po_billing_id,complexApproval.id);
+    await db.query(readFileSync(new URL('../../supabase/migrations/202612090008_public_po_invoice_email.sql',import.meta.url),'utf8'));
+    assert.equal((await db.query("SELECT count(*)::int n FROM public_invoice_po_billing WHERE email_status<>'legacy_review'")).rows[0].n,0);
+    const emailPermissions=(await db.query(`SELECT
+      NOT has_column_privilege('anon','public_invoice_po_billing','email_status','UPDATE') a,
+      NOT has_column_privilege('authenticated','public_invoice_po_billing','email_status','UPDATE') b,
+      has_column_privilege('service_role','public_invoice_po_billing','email_status','UPDATE') c`)).rows[0];
+    assert.ok(Object.values(emailPermissions).every(Boolean));
+    assert.equal((await db.query("SELECT column_default FROM information_schema.columns WHERE table_name='public_invoice_po_billing' AND column_name='email_status'")).rows[0].column_default,"'pending'::text");
   } finally {
     await db?.end();
     spawnSync('pg_ctl', ['-D', h.data, '-m', 'immediate', '-w', 'stop']);
