@@ -16,6 +16,7 @@ import { buildBrandedSalesQuotePdf } from '../../_lib/salesQuotePdf.js';
 import { hasSalesAgreement, prepareSalesAgreement, getSalesAgreement, agreementDto, agreementPdf, downloadSalesAgreement, finalizeAndNotifySalesAgreement } from '../../_lib/salesAgreement.js';
 import { listSigningRequests, requestSalesAgreementSignature, validateSigningRequest } from '../../_lib/salesAgreementSigningRequests.js';
 import { canonicalQuoteBaseUrl, sendQuote, previewQuoteEmail, validateQuoteEmail } from '../../_lib/salesQuoteDelivery.js';
+import { hasActiveQuoteLink, scopeActiveQuoteLinks } from '../../_lib/salesQuoteActiveLink.js';
 import {
   createSalesInvoice, getSalesInvoicePresentation, refreshSalesInvoiceStatus,
   salesInvoicePermissions,
@@ -92,8 +93,11 @@ export function createSalesQuotesHandler(dependencies = {}) {
         ]);
         const accounting = await getSalesInvoicePresentation(db, actor.tenantId, { quoteId: id }, dependencies);
         const draft = quote.currentVersion?.status === 'draft';
+        const hasActiveDeliveryLink = await hasActiveQuoteLink(db, actor.tenantId, id, quote.currentVersion?.id);
+        res.setHeader('Cache-Control', 'private, no-store');
         return res.status(200).json({
           ...quote,
+          hasActiveDeliveryLink,
           ...(hasSalesAgreement(quote.currentVersion) ? { agreement: agreementDto(await getSalesAgreement(db, quote.currentVersion.id)) } : {}),
           permissions: {
             canView: true,
@@ -305,9 +309,14 @@ export function createSalesQuotesHandler(dependencies = {}) {
         }));
       }
       if (req.method === 'POST' && id && action === 'revoke') {
-        let query = db.from('sales_quote_delivery_token').update({
+        const quote = await getQuote(db, actor.tenantId, id);
+        if (req.body?.version != null && Number(req.body.version) !== Number(quote.current_version)) {
+          throw new SalesHttpError(409, 'The proposal version has changed. Refresh before revoking its link.');
+        }
+        if (!quote.currentVersion?.id) throw new SalesHttpError(404, 'Active delivery token not found');
+        let query = scopeActiveQuoteLinks(db.from('sales_quote_delivery_token').update({
           revoked_at: new Date().toISOString(), revoked_by: actor.actorId,
-        }).eq('tenant_id', actor.tenantId).eq('quote_id', id).is('revoked_at', null);
+        }), actor.tenantId, id, quote.currentVersion.id);
         if (req.body?.tokenId) query = query.eq('id', req.body.tokenId);
         const { data, error } = await query.select('*');
         if (error) throw error;

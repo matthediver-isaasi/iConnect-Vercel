@@ -96,9 +96,14 @@ async function mount(options = {}) {
       });
       return structuredClone(state.quote);
     }
-    if (config.method === "POST") { state.commands.push({ action: new URL(path, dom.window.location.origin).searchParams.get("action"), ...JSON.parse(config.body) }); return state.quote; }
+    if (config.method === "POST") {
+      const command = { action: new URL(path, dom.window.location.origin).searchParams.get("action"), ...JSON.parse(config.body) };
+      state.commands.push(command);
+      if (state.onPost) { state.onPost(command, state); afterPatch = true; }
+      return state.quote;
+    }
     if (afterPatch && state.failReload) throw new Error("Reload connection failed");
-    if (afterPatch && state.deferReload) await new Promise(resolve => { state.finishReload = resolve; });
+    if (afterPatch && state.deferReload && path === "/api/sales/quotes/quote") await new Promise(resolve => { state.finishReload = resolve; });
     return structuredClone(state.quote);
   };
   globalThis.quoteExhibitionFixture = state;
@@ -118,6 +123,60 @@ async function replace(fixture) {
   const select = fixture.host.querySelector('select[aria-label="Space for slot slot"]');
   await act(async () => { select.value = "new"; select.dispatchEvent(new dom.window.Event("change", { bubbles: true })); });
 }
+test("issued proposal without an active link never submits revocation", async () => {
+  const quote = freshQuote();
+  quote.status = "issued";
+  quote.currentVersion.status = "issued";
+  quote.hasActiveDeliveryLink = false;
+  const fixture = await mount({ quote });
+  try {
+    assert.equal(button(fixture.host, "Revoke link").disabled, true);
+    await click(button(fixture.host, "Revoke link"));
+    assert.equal(fixture.state.commands.length, 0);
+    assert.match(fixture.host.textContent, /No active customer link/);
+    assert.match(fixture.host.querySelector('[aria-current="step"]').textContent, /Ready to send/);
+  } finally { await fixture.close(); }
+});
+
+test("revocation remains busy through authoritative refresh and then disables the revoked link", async () => {
+  const quote = freshQuote();
+  quote.status = "sent";
+  quote.currentVersion.status = "sent";
+  quote.hasActiveDeliveryLink = true;
+  const fixture = await mount({
+    quote, deferReload: true,
+    onPost(command, state) {
+      assert.equal(command.action, "revoke");
+      state.quote.hasActiveDeliveryLink = false;
+    },
+  });
+  try {
+    assert.equal(button(fixture.host, "Revoke link").disabled, false);
+    await click(button(fixture.host, "Revoke link")); await settle();
+    assert.deepEqual(fixture.state.commands, [{ action: "revoke", version: 1 }]);
+    assert.equal(button(fixture.host, "Revoke link").disabled, true);
+    assert.equal(fixture.host.querySelector("fieldset").disabled, true);
+    await act(async () => fixture.state.finishReload()); await settle(); await settle();
+    assert.equal(fixture.host.querySelector("fieldset").disabled, false);
+    assert.equal(button(fixture.host, "Revoke link").disabled, true);
+    assert.match(fixture.host.textContent, /No active customer link/);
+    assert.match(fixture.host.querySelector('[aria-current="step"]').textContent, /Awaiting customer/);
+  } finally { await fixture.close(); }
+});
+
+test("failed metadata refresh cannot leave a stale active link enabled", async () => {
+  const quote = freshQuote();
+  quote.status = "sent";
+  quote.currentVersion.status = "sent";
+  quote.hasActiveDeliveryLink = true;
+  const fixture = await mount({ quote, failReload: true, onPost() {} });
+  try {
+    await click(button(fixture.host, "Revoke link")); await settle(); await settle();
+    assert.equal(button(fixture.host, "Revoke link").disabled, true);
+    assert.match(fixture.host.textContent, /Active link status could not be verified/);
+  } finally { await fixture.close(); }
+});
+
 after(() => { globalThis.fetch = originalFetch; delete globalThis.quoteExhibitionFixture; dom.window.close(); });
 
 test("picker persists full draft, expected version and saved line identity; remains busy until authoritative reload", async () => {

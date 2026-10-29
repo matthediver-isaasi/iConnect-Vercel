@@ -4,7 +4,7 @@ import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, ChevronLeft, ChevronRight,
-  Download, Eye, GitCompare, History, Link2Off, Loader2, PackagePlus,
+  Download, Eye, GitCompare, History, Loader2, PackagePlus,
   Plus, RefreshCw, Search, Send, Trash2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -46,6 +46,8 @@ import { billingScheduleOf, percentageInstalmentsForEditing, percentageInstalmen
 import { useSalesSettingsScope } from "./useSalesSettings";
 import QuoteExhibitionSpaces from "./QuoteExhibitionSpaces";
 import { exhibitionSelectionPayload, hasExhibitionHolds, lineRequiresExhibition, selectionsOf, withExhibitionSelection } from "./exhibition";
+import ProposalProgress from "./ProposalProgress";
+import RevokeQuoteLink from "./RevokeQuoteLink";
 
 const list = (value) => Array.isArray(value) ? value : value?.items || value?.data || value?.results || value?.quotes || [];
 const idOf = (value) => value?.id || value?._id;
@@ -509,17 +511,25 @@ function QuoteEditor() {
   });
   const deliveryAction = useMutation({
     mutationFn: ({ action: actionName, extra = {} }) => request(`/api/sales/quotes/${id}?action=${actionName}`, { method: "POST", body: JSON.stringify(extra) }),
-    onSuccess: (_, variables) => {
-      qc.invalidateQueries({ queryKey: ["sales-quotes"] });
-      qc.invalidateQueries({ queryKey: ["sales-quote", id] });
-      qc.invalidateQueries({ queryKey: ["quote-delivery-history", id] });
-      qc.invalidateQueries({ queryKey: ["quote-signing-requests", id] });
+    onSuccess: async (_, variables) => {
+      // Keep the mutation pending until authoritative link metadata has
+      // reloaded. A failed reload leaves revocation disabled, not stale-enabled.
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["sales-quotes"] }),
+        qc.invalidateQueries({ queryKey: ["sales-quote", id] }),
+        qc.invalidateQueries({ queryKey: ["quote-delivery-history", id] }),
+        qc.invalidateQueries({ queryKey: ["quote-signing-requests", id] }),
+        qc.invalidateQueries({ queryKey: ["quote-history", id] }),
+      ]);
       if (variables.action === "send") setSendOpen(false);
       if (variables.action === "request-signature") setSendOpen(false);
       if (["send", "request-signature"].includes(variables.action)) setSigningRequest(null);
       toast({ title: variables.action === "send" ? `${naming.singular} sent` : variables.action === "request-signature" ? "Colleague signature requested" : "Customer link revoked" });
     },
-    onError: (error) => toast({ title: "Delivery action failed", description: error.message, variant: "destructive" }),
+    onError: (error) => {
+      qc.invalidateQueries({ queryKey: ["sales-quote", id] });
+      toast({ title: "Delivery action failed", description: error.message, variant: "destructive" });
+    },
   });
   const pdf = useMutation({
     mutationFn: ({ preview: shouldPreview, version = quote.versionNumber || quote.version_number || 1 }) => quotePdf(id, version).then((blob) => ({ blob, shouldPreview, version })),
@@ -566,7 +576,12 @@ function QuoteEditor() {
       {!isNew && status === "draft" && allowed(["canIssue", "can_issue", "issue"], false) && <Button disabled={action.isPending || !form.lines.length || isDirty} title={isDirty ? "Save the latest draft before issuing" : "Finalise this version so it can be sent"} onClick={() => action.mutate({ action: "issue" })}><Send className="mr-2 h-4 w-4" />Issue {naming.singular}</Button>}
       {!isNew && <><Button variant="outline" disabled={pdf.isPending || isDirty} title={isDirty ? "Save your changes before generating a PDF" : ""} onClick={() => pdf.mutate({ preview: true })}><Eye className="mr-2 h-4 w-4" />{status === "draft" ? "Preview draft PDF" : "Preview PDF"}</Button><Button variant="outline" disabled={pdf.isPending || isDirty} onClick={() => pdf.mutate({ preview: false })}><Download className="mr-2 h-4 w-4" />Download PDF</Button></>}
       {!isNew && ["issued", "sent"].includes(status) && <Button disabled={deliveryAction.isPending || action.isPending} onClick={() => setSendOpen(true)}><Send className="mr-2 h-4 w-4" />Send</Button>}
-      {!isNew && ["issued", "sent"].includes(status) && <Button variant="outline" disabled={deliveryAction.isPending || action.isPending} onClick={() => deliveryAction.mutate({ action: "revoke" })}><Link2Off className="mr-2 h-4 w-4" />Revoke link</Button>}
+      {!isNew && ["issued", "sent"].includes(status) && <RevokeQuoteLink status={status}
+        hasActiveDeliveryLink={detail.data?.hasActiveDeliveryLink}
+        loading={detail.isFetching || detail.isLoading || !scope.ready}
+        error={detail.error} permitted={allowed(["canTransition", "can_transition", "transition"], false)}
+        pending={deliveryAction.isPending || action.isPending}
+        onRevoke={() => deliveryAction.mutate({ action: "revoke", extra: { version: quote.versionNumber } })} />}
       {!isNew && !["draft", "superseded", "accepted", "converted", "declined", "rejected", "expired"].includes(status) && allowed(["canAmend", "can_amend", "amend"], false) && <AmendQuoteButton pending={action.isPending || deliveryAction.isPending} onAmend={() => action.mutateAsync({ action: "amend" })} />}
       {!isNew && <AcceptQuoteButton status={status} permitted={allowed(["canTransition", "can_transition", "transition"], false)} pending={action.isPending} onAccept={extra => action.mutateAsync({ action: "transition", extra })} />}
       {!isNew && status === "accepted" && allowed(["canTransition", "can_transition", "transition"], false) && <Button variant="outline" onClick={() => action.mutate({ action: "transition", extra: { status: "converted" } })}>Convert</Button>}
@@ -575,6 +590,7 @@ function QuoteEditor() {
         if (window.confirm(reopen ? "Reopen as draft? Previously released spaces will not be reclaimed." : "Cancel this unsold proposal and release its exhibition spaces? The proposal will be marked declined.")) action.mutate({ action: reopen ? "exhibition-reopen" : "exhibition-cancel" });
       }}>{["declined", "expired"].includes(status) ? "Reopen proposal" : "Cancel proposal"}</Button>}
     </div></div>
+    <ProposalProgress status={status} singular={naming.singular} />
     {["declined", "expired"].includes(status) && <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">This proposal is {status}. Any exhibition references below are historical, not current holds. Reopening creates a draft and does not reclaim released spaces; select available inventory again.</p>}
     {!isNew && status === "draft" && <p className="rounded border bg-slate-50 p-3 text-sm">Save draft → preview the draft PDF → Issue {naming.singular} → Send. Issuing locks this version for delivery.{!allowed(["canIssue"], false) && ` Your role does not have permission to issue ${naming.plural}.`}{isDirty && " Save your latest changes first."}</p>}
     {!isNew && <SendQuoteDialog quote={quote} signingRequest={signingRequest} onRequestSignature={extra => deliveryAction.mutateAsync({ action: "request-signature", extra })} request={request} quoteId={id} version={quote.versionNumber || quote.version_number || quote.version} contacts={contacts} open={sendOpen} onOpenChange={value => { setSendOpen(value); if (!value) setSigningRequest(null); }} pending={deliveryAction.isPending} initialRecipient={signingRequest?.draft?.recipient || quote.agreement?.contact?.email || contacts.find(contact => contact.id === form.billingContactId)?.email || contacts.find(contact => contact.id === form.customerContactId)?.email || quote.recipient || quote.customerEmail || quote.customer_email || ""} onSend={(extra) => deliveryAction.mutateAsync({ action: "send", extra })} />}
