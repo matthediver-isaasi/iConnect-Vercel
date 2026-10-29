@@ -13,3 +13,4 @@ description: Task modes, collaborator scope, board responsiveness and dashboard 
 - [Commercial Event capacity](commercial-event-capacity.md) — confirmed delegates and unused sale allocations share atomic capacity accounting.
 - [Quote delivery bearer safety](quote-delivery-bearer-safety.md) — delivery activation, hashed tokens and explicitly allowlisted public evidence.
 - [Exhibition inventory authority](exhibition-inventory-authority.md) — proposal Event authority and explicit live-action boundaries.
+- [Exhibition bundle sales](exhibition-bundle-sales.md) — Bronze/Silver/Gold/Platinum packages by event; example size mappings are not approved configuration.

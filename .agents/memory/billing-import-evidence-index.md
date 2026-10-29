@@ -1,6 +1,7 @@
 # Billing, import, and evidence topics
 
 - [Accounting temporary failures](accounting-transient-retry-policy.md) — rate limits and transient failures do not consume genuine retry allowances.
+- [Accounting diagnostic finalization](accounting-diagnostic-finalization.md) — note cleanup can fail after successful settlement; verify provider evidence before replaying finance.
 - [Payment quote cache authority](payment-quote-cache-authority.md) — validation-changing answers belong in quote keys.
 - [Catalogue tax-code authority](catalogue-tax-authority.md) — freeze provider tax identities; preserve legacy tax evidence.
 - [New-member incentive evidence](new-member-incentive-evidence.md) — preserve original entitlement less usage, not current pricing.

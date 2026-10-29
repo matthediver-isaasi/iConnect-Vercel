@@ -10,8 +10,9 @@ import { useDateFormat } from "@/hooks/useDateFormat";
 import RelatedOpportunityActivity from "@/components/opportunities/RelatedOpportunityActivity";
 import ActivityInvoiceActions from "@/components/ActivityInvoiceActions";
 import { HistoricalInvoicesTable } from "@/components/membership/HistoricalInvoices";
-import { useAllHistoricalInvoices, useHistoricalInvoiceTenant } from "@/hooks/useHistoricalInvoices";
-import { bookingActivityDate, mergeHistoricalInvoiceActivity, validActivityDate } from "@/lib/memberActivityDates";
+import { useHistoricalInvoiceTenant } from "@/hooks/useHistoricalInvoices";
+import { useAllHistoricalInvoices, mergeHistoricalInvoiceActivity } from "@/components/membership/activityInvoices";
+import { bookingActivityDate, validActivityDate } from "@/lib/memberActivityDates";
 
 /**
  * Shared member Activity timeline.
@@ -347,12 +348,12 @@ function MemberActivityTimelineContent({
         {anyBookingsLoading ? (
           <div role="status" aria-label="Loading activity" className="space-y-3 animate-pulse py-4">
             {[0, 1, 2].map(row => <div key={row} className="h-16 rounded-lg bg-muted" />)}
-            <span className="sr-only">Loading activity and historical invoices…</span>
+            <span className="sr-only">Loading activity and invoices…</span>
           </div>
         ) : invoices.error ? (
           <div role="alert" className="space-y-3 text-sm text-destructive">
             <p>{invoices.error.message}</p>
-            <p>The complete activity timeline cannot be shown until historical invoices have loaded.</p>
+            <p>The complete activity timeline cannot be shown until invoices have loaded.</p>
             <Button type="button" variant="outline" size="sm" disabled={invoices.isFetching} onClick={() => invoices.refetch()}>Retry</Button>
           </div>
         ) : unifiedBookings.length === 0 ? (
@@ -483,7 +484,7 @@ function MemberActivityTimelineContent({
           </div>
         )}
         {!anyBookingsLoading && !invoices.error && invoices.data?.total > 0 && (
-          <p className="mt-4 text-xs text-muted-foreground">Historical invoices are read-only records, not evidence of current membership entitlement. Invoice dates determine their position; unknown dates appear last.</p>
+          <p className="mt-4 text-xs text-muted-foreground">Historical invoices are read-only records, not evidence of current membership entitlement. Historical invoice dates and membership payment or start dates determine their position; unknown dates appear last.</p>
         )}
         {!anyBookingsLoading && !invoices.error && totalPages > 1 && (
           <nav aria-label="Activity pages" className="mt-4 flex flex-wrap items-center justify-between gap-3">

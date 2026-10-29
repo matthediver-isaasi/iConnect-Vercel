@@ -1,20 +1,28 @@
 import { supabase } from '../_lib/database.js';
 import { historicalInvoiceAccess, UUID_RE, accessError } from '../_lib/historicalInvoiceAccess.js';
+import { loadMemberActivityInvoices } from '../_lib/memberActivityInvoices.js';
 
 export function createHistoricalInvoicesHandler(dependencies = {}) {
   const db = dependencies.db === undefined ? supabase : dependencies.db;
   return async (req, res) => {
     res.setHeader('Cache-Control', 'private, no-store');
     if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
-    const { memberId, page = '0' } = req.query || {};
+    const { memberId, page = '0', includeMembership = 'false' } = req.query || {};
     if (typeof memberId !== 'string' || !UUID_RE.test(memberId) ||
-        typeof page !== 'string' || !/^\d{1,6}$/.test(page)) {
+        typeof page !== 'string' || !/^\d{1,6}$/.test(page) || !['true', 'false'].includes(includeMembership)) {
       return res.status(400).json({ error: 'A valid memberId and page are required' });
     }
     try {
       const access = await historicalInvoiceAccess(req, dependencies);
       if (!access.isAdmin && memberId !== access.memberId) throw accessError(403, 'Not authorized to view these invoices');
       const offset = Number(page) * 50;
+      if (includeMembership === 'true') {
+        const records = await loadMemberActivityInvoices(db, {
+          tenantId: access.tenantId, memberId, canAccessInvoices: access.canAccessInvoices,
+        });
+        return res.json({ records: records.slice(offset, offset + 50), total: records.length,
+          canAccessInvoices: access.canAccessInvoices });
+      }
       const { data, error, count } = await db.from('historical_member_invoice')
         .select('id,invoice_number,invoice_date,amount_minor,currency,description,record_kind,status,accounting_status,accounting_payment_status,accounting_status_checked_at,accounting_status_error', { count: 'exact' })
         .eq('tenant_id', access.tenantId).eq('member_id', memberId)

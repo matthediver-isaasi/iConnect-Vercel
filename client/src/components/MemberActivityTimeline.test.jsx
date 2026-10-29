@@ -7,8 +7,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import MemberActivityTimeline from "./MemberActivityTimeline.jsx";
 import { HistoricalInvoicesTable } from "./membership/HistoricalInvoices.jsx";
-import { fetchAllHistoricalInvoices, historicalInvoicesQueryKey } from "../hooks/useHistoricalInvoices.js";
-import { bookingActivityDate, mergeHistoricalInvoiceActivity } from "../lib/memberActivityDates.js";
+import { fetchAllHistoricalInvoices, fetchHistoricalInvoices, historicalInvoicesQueryKey } from "../hooks/useHistoricalInvoices.js";
+import { bookingActivityDate } from "../lib/memberActivityDates.js";
+import { activityInvoicesQueryKey, fetchAllHistoricalInvoices as fetchAllActivityInvoices, mergeHistoricalInvoiceActivity } from "./membership/activityInvoices.js";
 import { setActiveTenantId } from "../api/base44Client.js";
 
 const invoice = {
@@ -16,6 +17,67 @@ const invoice = {
   created_at: "2026-08-01", description: "Historical membership renewal",
   record_kind: "invoice", status: "Paid", amount_minor: 12340, currency: "GBP", can_download: true,
 };
+
+const membershipInvoice = {
+  ...invoice, source: "membership", id: "current", invoice_number: "MEM-482",
+  invoice_date: null, activity_date: "2024-03-18", date_label: "Payment date",
+  description: "Annual membership", status: "paid",
+};
+
+test("membership dates interleave with archive dates and colliding IDs remain distinct", () => {
+  const rows = mergeHistoricalInvoiceActivity([{ key: "event", date: "2023-05-12" }], [
+    { ...invoice, id: "current" },
+    membershipInvoice,
+    { ...membershipInvoice, id: "start", activity_date: "2022-09-03", date_label: "Membership starts" },
+    { ...membershipInvoice, id: "unknown", activity_date: null, invoice_date: "2099-01-01" },
+  ]);
+  assert.deepEqual(rows.map(row => row.key), [
+    "membership-invoice-current", "event", "membership-invoice-start", "historical-invoice-current", "membership-invoice-unknown",
+  ]);
+  assert.equal(rows.at(-1).date, null);
+});
+
+test("Activity opts into membership on every page while historical-only reads and keys stay unchanged", async () => {
+  const calls = [];
+  const first = Array.from({ length: 50 }, (_, i) => ({ ...invoice, id: `old-${i}` }));
+  const request = async (url, options) => {
+    calls.push({ url, options });
+    return { ok: true, json: async () => ({
+      records: new URL(url, "http://localhost").searchParams.get("page") === "0"
+        ? first : [{ ...membershipInvoice, id: "old-0" }],
+      total: 51, canAccessInvoices: true,
+    }) };
+  };
+  const signal = new AbortController().signal;
+  const result = await fetchAllActivityInvoices({ memberId: "member", tenantId: "tenant", signal, request });
+  assert.equal(result.records.length, 51);
+  assert.deepEqual(calls.map(({ url }) => new URL(url, "http://localhost").searchParams.get("includeMembership")), ["true", "true"]);
+  for (const { options } of calls) {
+    assert.equal(options.credentials, "include");
+    assert.equal(options.headers["X-Tenant-Id"], "tenant");
+    assert.equal(options.signal, signal);
+  }
+  await fetchHistoricalInvoices({ memberId: "member", request });
+  assert.equal(new URL(calls.at(-1).url, "http://localhost").searchParams.has("includeMembership"), false);
+  assert.notDeepEqual(activityInvoicesQueryKey("tenant", "member"), historicalInvoicesQueryKey("tenant", "member", "all"));
+});
+
+test("membership rows label the actual date and recorded status without archive provenance", () => {
+  for (const record of [
+    membershipInvoice,
+    { ...membershipInvoice, activity_date: "2024-02-01", date_label: "Membership starts" },
+    { ...membershipInvoice, activity_date: null, date_label: "Date unavailable" },
+  ]) {
+    const html = renderToStaticMarkup(<HistoricalInvoicesTable activity records={[{
+      ...record, accounting_status_checked_at: "2025-01-02", accounting_payment_status: "WRONG",
+    }]} canAccessInvoices />);
+    assert.match(html, /Membership/);
+    assert.match(html, new RegExp(record.date_label));
+    assert.match(html, /Recorded payment status/);
+    assert.match(html, />paid</);
+    assert.doesNotMatch(html, /Historical|Imported|Xero|WRONG|Invoice date|Unknown/);
+  }
+});
 
 test("event starts, not booking creation or invoice import dates, determine interleaving", () => {
   const activity = [
@@ -137,12 +199,12 @@ test("mounted timeline waits for ALL pages, globally sorts, paginates without lo
   const first = Array.from({ length: 50 }, (_, i) => ({ ...invoice, id: `invoice-${String(i).padStart(2, "0")}` }));
   first[49] = { ...first[49], invoice_date: null };
   const request = async url => {
-    if (url.endsWith("page=1")) {
+    if (new URL(url, "http://localhost").searchParams.get("page") === "1") {
       await new Promise(resolve => { resolvePage = resolve; });
       if (fail) return { ok: false, json: async () => ({ error: "Second page unavailable" }) };
     }
     return { ok: true, json: async () => ({
-      records: url.endsWith("page=0") ? first : [{ ...invoice, id: "newest", invoice_date: "2024-01-01" }],
+      records: new URL(url, "http://localhost").searchParams.get("page") === "0" ? first : [{ ...membershipInvoice, id: "newest" }],
       total: 51, canAccessInvoices: true,
     }) };
   };
@@ -163,12 +225,13 @@ test("mounted timeline waits for ALL pages, globally sorts, paginates without lo
     await act(async () => { resolvePage(); await settle(); });
     await act(async () => { await settle(); });
     assert.deepEqual(rowIds(container).slice(0, 4), [
-      "row-historical-invoice-newest", "row-checkin-booking", "row-booking-simple-booking", "row-historical-invoice-invoice-00",
+      "row-membership-invoice-newest", "row-checkin-booking", "row-booking-simple-booking", "row-historical-invoice-invoice-00",
     ]);
     assert.equal(rowIds(container).length, 50);
     assert.match(container.textContent, /Page 1 of 2 · 55 activities/);
     assert.match(container.textContent, /not evidence of current membership entitlement/);
     assert.equal(container.querySelector("table"), null);
+    assert.match(container.querySelector('[data-testid="row-membership-invoice-newest"]').textContent, /Payment date: 18\/03\/2024/);
     const pageOne = rowIds(container);
     await act(async () => { [...container.querySelectorAll("button")].find(button => button.textContent === "Next").click(); });
     const pageTwo = rowIds(container);
@@ -191,10 +254,10 @@ test("member/tenant changes reset client pagination and prevent old invoice acti
   const other = seededClient("tenant-2");
   for (const query of other.getQueryCache().getAll()) client.setQueryData(query.queryKey, query.state.data);
   other.clear();
-  client.setQueryData(historicalInvoicesQueryKey("tenant-1", "member-1", "all"), {
+  client.setQueryData(activityInvoicesQueryKey("tenant-1", "member-1"), {
     records: Array.from({ length: 51 }, (_, i) => ({ ...invoice, id: `first-${i}` })), total: 51, canAccessInvoices: true,
   });
-  client.setQueryData(historicalInvoicesQueryKey("tenant-2", "member-1", "all"), {
+  client.setQueryData(activityInvoicesQueryKey("tenant-2", "member-1"), {
     records: [{ ...invoice, id: "second", invoice_number: "SECOND" }], total: 1, canAccessInvoices: false,
   });
   try {
@@ -294,7 +357,7 @@ test("disabled Activity does not fetch archive pages and empty archives retain t
     client.setQueryData(["member-detail-bookings", "member-1", undefined, "tenant-1"], []);
     client.setQueryData(["member-detail-complex-bookings", "member-1", undefined, "tenant-1"], []);
     client.setQueryData(["member-detail-group-activity", "member-1", "tenant-1"], []);
-    client.setQueryData(historicalInvoicesQueryKey("tenant-1", "member-1", "all"), { records: [], total: 0, canAccessInvoices: false });
+    client.setQueryData(activityInvoicesQueryKey("tenant-1", "member-1"), { records: [], total: 0, canAccessInvoices: false });
     await act(async () => root.render(<MemoryRouter><QueryClientProvider client={client}>
       <MemberActivityTimeline memberId="member-1" activeTenantId="tenant-1" request={request} />
     </QueryClientProvider></MemoryRouter>));
@@ -303,5 +366,38 @@ test("disabled Activity does not fetch archive pages and empty archives retain t
   } finally {
     await act(async () => root.unmount());
     client.clear();
+  }
+});
+
+test("mounted membership actions use personal membership routes, tenant auth and both permission gates", async () => {
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  const calls = [];
+  const request = async (url, options) => {
+    calls.push({ url, options });
+    return { ok: false, json: async () => ({ error: "Permission changed" }) };
+  };
+  try {
+    await act(async () => root.render(<HistoricalInvoicesTable activity records={[membershipInvoice]} canAccessInvoices tenantId="tenant-current" request={request} />));
+    for (const action of ["View", "Download"]) {
+      await act(async () => { container.querySelector(`[aria-label="${action} invoice MEM-482"]`).click(); await settle(); });
+      assert.match(container.querySelector('[role="alert"]').textContent, /Permission changed/);
+    }
+    assert.deepEqual(calls.map(call => call.url), [
+      "/api/membership-invoice/current?source=personal&inline=true",
+      "/api/membership-invoice/current?source=personal&inline=false",
+    ]);
+    for (const { options } of calls) {
+      assert.equal(options.credentials, "include");
+      assert.equal(options.headers["X-Tenant-Id"], "tenant-current");
+    }
+    for (const [access, downloadable] of [[false, true], [true, false], [true, undefined]]) {
+      await act(async () => root.render(<HistoricalInvoicesTable activity records={[{ ...membershipInvoice, can_download: downloadable }]} canAccessInvoices={access} request={request} />));
+      assert.equal(container.querySelector('[aria-label="View invoice MEM-482"]'), null);
+      assert.equal(container.querySelector('[aria-label="Download invoice MEM-482"]'), null);
+    }
+    assert.equal(calls.length, 2);
+  } finally {
+    await act(async () => root.unmount());
   }
 });

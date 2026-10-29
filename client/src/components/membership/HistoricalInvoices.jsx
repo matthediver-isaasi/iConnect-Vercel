@@ -29,6 +29,12 @@ export function historicalInvoiceUrl(recordId, inline = false) {
   return `/api/membership/historical-invoice?${new URLSearchParams({ recordId, inline: String(inline) })}`;
 }
 
+export function activityInvoiceUrl(record, inline = false) {
+  return record.source === "membership"
+    ? `/api/membership-invoice/${encodeURIComponent(record.id)}?${new URLSearchParams({ source: "personal", inline: String(inline) })}`
+    : historicalInvoiceUrl(record.id, inline);
+}
+
 export function historicalStoredInvoiceFilename(disposition, record) {
   return historicalInvoiceFilename(disposition, {
     id: record.id,
@@ -75,32 +81,33 @@ export function HistoricalInvoicesTable({ records, canAccessInvoices, tenantId, 
     const controller = new AbortController();
     controllers.current.add(controller);
     try {
-      const response = await request(historicalInvoiceUrl(record.id, action === "view"), {
+      const response = await request(activityInvoiceUrl(record, action === "view"), {
         credentials: "include",
         signal: controller.signal,
         headers: tenantId ? { "X-Tenant-Id": tenantId } : {},
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
-        throw new Error(payload.error || "Historical invoice could not be accessed");
+        throw new Error(payload.error || "Invoice could not be accessed");
       }
       const blob = await response.blob();
       if (!blob.size || (blob.type && !["application/pdf", "application/octet-stream"].includes(blob.type.split(";")[0]))) {
-        throw new Error("The historical invoice response was not a PDF");
+        throw new Error("The invoice response was not a PDF");
       }
       if (!mounted.current || controller.signal.aborted) return;
       const objectUrl = URL.createObjectURL(blob);
-      const filename = historicalStoredInvoiceFilename(response.headers?.get?.("content-disposition"), record);
+      const storedFilename = historicalStoredInvoiceFilename(response.headers?.get?.("content-disposition"), record);
+      const filename = record.source === "membership" ? storedFilename.replace(/^historical-invoice-/, "membership-invoice-") : storedFilename;
       if (action === "view") {
         if (previewUrl.current) URL.revokeObjectURL(previewUrl.current);
         previewUrl.current = objectUrl;
-        setPreview({ objectUrl, filename, number: record.invoice_number });
+        setPreview({ objectUrl, filename, number: record.invoice_number, membership: record.source === "membership" });
       } else {
         try { download(objectUrl, filename); } finally { URL.revokeObjectURL(objectUrl); }
       }
     } catch (error) {
       if (mounted.current && error?.name !== "AbortError") {
-        setActionError({ id: record.id, action, message: error.message || "Historical invoice could not be accessed" });
+        setActionError({ id: record.id, action, message: error.message || "Invoice could not be accessed" });
       }
     } finally {
       controllers.current.delete(controller);
@@ -129,11 +136,13 @@ export function HistoricalInvoicesTable({ records, canAccessInvoices, tenantId, 
             </tr>
           </thead>}
           <Body>{records.map(record => (
-            <Row key={record.id} className={activity ? "flex flex-wrap items-start gap-x-3 bg-slate-50 rounded-lg" : "border-t align-top"} data-testid={`row-historical-invoice-${record.id}`}>
+            <Row key={`${record.source === "membership" ? "membership" : "historical"}-${record.id}`} className={activity ? "flex flex-wrap items-start gap-x-3 bg-slate-50 rounded-lg" : "border-t align-top"} data-testid={`row-${record.source === "membership" ? "membership" : "historical"}-invoice-${record.id}`}>
               <Cell className="p-3 min-w-[180px]">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span>{formatHistoricalInvoiceDate(record.invoice_date)}</span>
-                  <Badge variant="secondary">Historical</Badge>
+                  <span>{record.source === "membership"
+                    ? `${record.date_label || "Date unavailable"}${record.activity_date ? `: ${formatHistoricalInvoiceDate(record.activity_date)}` : ""}`
+                    : formatHistoricalInvoiceDate(record.invoice_date)}</span>
+                  <Badge variant="secondary">{record.source === "membership" ? "Membership" : "Historical"}</Badge>
                 </div>
                 <p className="mt-1 text-muted-foreground">{record.description || "Description not supplied"}</p>
               </Cell>
@@ -148,20 +157,21 @@ export function HistoricalInvoicesTable({ records, canAccessInvoices, tenantId, 
               <Cell className="p-3">
                 <p>{({ invoice: "Invoice", credit: "Credit", overpayment: "Overpayment" })[record.record_kind] || "Unknown kind"}</p>
                 <Badge variant="outline" className="mt-1">
-                  {record.accounting_status_checked_at
+                  {record.source !== "membership" && record.accounting_status_checked_at
                     ? record.accounting_payment_status || record.accounting_status || "Unknown status"
                     : record.status || "Unknown status"}
                 </Badge>
-                {record.accounting_status_checked_at && (
+                {record.source !== "membership" && record.accounting_status_checked_at && (
                   <p className="mt-1 text-xs text-muted-foreground">
                     Xero checked {formatHistoricalInvoiceDate(record.accounting_status_checked_at.slice(0, 10))}
                     {record.accounting_status_refresh_pending ? " · refresh pending" : ""}
                   </p>
                 )}
-                {record.status && record.accounting_status_checked_at && (
+                {record.source !== "membership" && record.status && record.accounting_status_checked_at && (
                   <p className="mt-1 text-xs text-muted-foreground">Imported status: {record.status}</p>
                 )}
-                {!record.accounting_status_checked_at && record.record_kind === "invoice" && (
+                {record.source === "membership" && <p className="mt-1 text-xs text-muted-foreground">Recorded payment status</p>}
+                {record.source !== "membership" && !record.accounting_status_checked_at && record.record_kind === "invoice" && (
                   <p className="mt-1 text-xs text-muted-foreground">
                     Xero status not yet verified{record.accounting_status_refresh_pending ? " · refresh pending" : ""}
                   </p>
@@ -199,10 +209,10 @@ export function HistoricalInvoicesTable({ records, canAccessInvoices, tenantId, 
         <DialogContent className="max-w-4xl">
           <DialogHeader>
             <DialogTitle>Invoice {preview?.number || ""}</DialogTitle>
-            <DialogDescription>Historical invoice PDF</DialogDescription>
+            <DialogDescription>{preview?.membership ? "Membership invoice PDF" : "Historical invoice PDF"}</DialogDescription>
           </DialogHeader>
           {preview && <>
-            <iframe title={`Historical invoice ${preview.number || "PDF"}`} className="h-[70vh] w-full rounded border"
+            <iframe title={`${preview.membership ? "Membership" : "Historical"} invoice ${preview.number || "PDF"}`} className="h-[70vh] w-full rounded border"
               src={`${preview.objectUrl}#view=Fit&navpanes=0&toolbar=0`} />
             <div className="flex justify-end">
               <Button type="button" variant="outline" onClick={() => download(preview.objectUrl, preview.filename)}>
