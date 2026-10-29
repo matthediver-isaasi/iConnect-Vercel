@@ -73,6 +73,10 @@ test("loads authoritative details, requires explicit role, submits edits without
     assert.equal(calls[0].options.credentials, "include");
     assert.equal(document.getElementById("guest-member-first_name").value, "Ari");
     assert.match(document.body.textContent, /Guest-entered organisation \(reference\).*Guest Company/);
+    assert.equal(document.querySelector('label[for="guest-member-role"]').textContent, "Role *");
+    assert.equal(document.getElementById("guest-member-role").textContent, "Choose a role");
+    assert.deepEqual([...document.querySelectorAll("dl dt")].map(node => node.textContent), ["Event", "Ticket", "Guest-entered organisation (reference)"]);
+    assert.doesNotMatch(document.querySelector("dl").textContent, /booking-a|Complex event|Registration/);
     assert.ok(button("Create Member").disabled);
     await submit();
     assert.equal(calls.filter(call => call.options.method === "POST").length, 0);
@@ -177,6 +181,62 @@ test("member details resolves the direct group for members without an organisati
   assert.match(source, /\{displayedGroup\.name\}/);
 });
 
+test("wide responsive dialog wraps long organisation and group choices and selected values without changing their payloads or exposing UUIDs", async () => {
+  const uuid = "d167ba84-761a-4f12-a25c-365cb7ca36f7";
+  const longName = `International Association of Regional Community Partners ${"LongUnbrokenOrganisationName".repeat(12)}`;
+  for (const type of ["organization", "organization_group"]) {
+    const choice = { id: `original-${type}-id`, name: longName, type };
+    let body;
+    globalThis.fetch = async (_url, options) => {
+      if (options.method === "POST") {
+        body = JSON.parse(options.body);
+        return json({ member: { id: "member-long-name" } });
+      }
+      return json({ ...payload, registration: { ...payload.registration, bookingId: uuid }, associations: [choice] });
+    };
+    const cleanup = await mount();
+    try {
+      const dialog = document.querySelector('[role="dialog"]');
+      assert.ok(dialog.classList.contains("sm:max-w-3xl"));
+      assert.ok(dialog.classList.contains("w-[calc(100%-2rem)]"));
+      assert.ok(document.querySelector("fieldset").classList.contains("min-w-0"));
+      assert.doesNotMatch(dialog.textContent, new RegExp(uuid));
+      assert.equal([...document.querySelectorAll("dt")].some(node => node.textContent === "Registration"), false);
+      const panel = document.querySelector('section[aria-labelledby="guest-member-org-results-label"]');
+      assert.ok(panel.classList.contains("border"));
+      assert.equal(document.getElementById(panel.getAttribute("aria-labelledby")).textContent, "Select an organisation or group");
+      const result = panel.querySelector("li button");
+      for (const token of ["h-auto", "min-w-0", "whitespace-normal", "break-words", "[overflow-wrap:anywhere]", "text-left"]) {
+        assert.ok(result.classList.contains(token), `Result needs ${token}`);
+      }
+      assert.equal(result.querySelector("span").textContent, longName);
+      assert.equal(result.getAttribute("aria-pressed"), "false");
+      await click(result);
+      assert.equal(result.getAttribute("aria-pressed"), "true");
+      const selected = [...dialog.querySelectorAll("span")].find(node => node.textContent.startsWith("Selected:"));
+      assert.ok(selected.textContent.includes(longName));
+      for (const token of ["min-w-0", "whitespace-normal", "break-words", "[overflow-wrap:anywhere]"]) {
+        assert.ok(selected.classList.contains(token), `Selected value needs ${token}`);
+      }
+      assert.ok(selected.parentElement.classList.contains("flex-wrap"));
+      await chooseRole();
+      await submit();
+      await settle();
+      const key = type === "organization_group" ? "organization_group_id" : "organization_id";
+      const otherKey = type === "organization_group" ? "organization_id" : "organization_group_id";
+      assert.equal(body[key], choice.id);
+      assert.equal(otherKey in body, false);
+      await click(button("Clear selection"));
+      assert.equal(result.getAttribute("aria-pressed"), "false");
+      assert.doesNotMatch(dialog.textContent, /Selected:/);
+      await submit();
+      await settle();
+      assert.equal(body.organization_id, null);
+      assert.equal("organization_group_id" in body, false);
+    } finally { await cleanup(); }
+  }
+});
+
 test("failed authoritative load offers retry and no create action", async () => {
   let failure = true;
   globalThis.fetch = async () => failure ? json({ error: "Permission denied" }, 403) : json({ ...payload, roles: [] });
@@ -187,7 +247,7 @@ test("failed authoritative load offers retry and no create action", async () => 
     failure = false;
     await click(button("Retry loading details"));
     await settle();
-    assert.match(document.body.textContent, /No tenant roles are available/);
+    assert.match(document.body.textContent, /No roles are available/);
     assert.ok(button("Create Member").disabled);
   } finally { await cleanup(); }
 });
