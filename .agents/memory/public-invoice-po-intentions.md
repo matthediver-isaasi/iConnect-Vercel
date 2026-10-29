@@ -10,6 +10,16 @@ action after the original booker has a member account. It is one invoice for the
 whole booking, billed to the original booker—not separate attendee invoices.
 Creating an attendee account alone must never trigger invoicing.
 
+After an administrator-approved public PO invoice is successfully created, it
+must be emailed automatically to the original booker.
+
+**Why:** The owner clarified that successful invoice creation must include
+delivery to the booker; merely creating the receivable in Xero/QB is insufficient.
+
+**How to apply:** Send after confirmed accounting creation, not merely queue
+acceptance. Preserve the original booker as recipient, avoid duplicate sends on
+worker retries, and keep record-only registration and member creation email-free.
+
 Invoice approval must not rewrite the immutable purchaser context, even to add
 an approval identifier. Keep approval authority separate from historical identity.
 
