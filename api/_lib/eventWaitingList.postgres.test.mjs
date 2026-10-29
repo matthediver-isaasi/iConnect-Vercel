@@ -63,6 +63,45 @@ test('waiting list storage: isolation, idempotency, atomicity, withdrawal and bo
     sql(`UPDATE event SET waiting_list_enabled=false; INSERT INTO booking(event_id,status) VALUES('${event}','confirmed');`);
     sql(create(event,'simple','40000000-0000-4000-8000-000000000005'),false);
     assert.equal(sql(`SELECT count(*) FROM event_waiting_registration;`),'2','failed creates are atomic');
+    // Guest imports retain source booking evidence without inventing a member.
+    sql(`ALTER TABLE event ADD COLUMN pricing_config jsonb;
+      ALTER TABLE booking ADD COLUMN tenant_id uuid, ADD COLUMN attendee_email text,
+        ADD COLUMN attendee_first_name text, ADD COLUMN attendee_last_name text;
+      UPDATE booking SET tenant_id='${tenant}';
+      INSERT INTO booking(id,event_id,status,tenant_id,attendee_email,attendee_first_name,attendee_last_name)
+        VALUES('50000000-0000-4000-8000-000000000001','${event}','confirmed','${tenant}','guest@example.invalid','Guest','Person');
+      UPDATE event SET waiting_list_enabled=true,pricing_config='{"ticket_classes":[{"id":"interest","name":"Interest","price":0}]}';`);
+    sql(readFileSync(new URL('../../supabase/migrations/202612090002_guest_waiting_list_import.sql',import.meta.url),'utf8'));
+    const guestBooking='50000000-0000-4000-8000-000000000001';
+    const guestKey='60000000-0000-4000-8000-000000000001';
+    const importGuest=(t=tenant,k=guestKey,sha='a'.repeat(64))=>`SELECT import_guest_event_waiting_registration('${t}','${guestBooking}','${sha}','Owner approved import','${k}');`;
+    const beforeBookings=sql('SELECT jsonb_agg(to_jsonb(b) ORDER BY id)::text FROM booking b;');
+    sql(`SET ROLE anon; ${importGuest()}`,false);
+    sql(`SET ROLE authenticated; ${importGuest()}`,false);
+    sql(importGuest(other),false);
+    const guestId=sql(`SET ROLE service_role; ${importGuest()}`);
+    assert.equal(sql(importGuest()),guestId,'guest replay idempotent');
+    sql(importGuest(tenant,guestKey,'b'.repeat(64)),false);
+    sql(importGuest(tenant,'60000000-0000-4000-8000-000000000002'),false,'no duplicate guest under a second key');
+    const guestEntry=sql(`SELECT id FROM event_waiting_entry WHERE registration_id='${guestId}';`);
+    assert.equal(sql(`SELECT booker_member_id IS NULL AND member_id IS NULL FROM event_waiting_entry WHERE id='${guestEntry}';`),'t');
+    assert.equal(sql('SELECT jsonb_agg(to_jsonb(b) ORDER BY id)::text FROM booking b;'),beforeBookings);
+    for(const who of [`'${member}'`,`'${colleague}'`,'NULL']) {
+      for(const scope of ['attendee','registration'])
+        sql(`SELECT withdraw_event_waiting_entry('${tenant}',${who},'${guestEntry}','${scope}');`,false);
+    }
+    sql(`UPDATE event_waiting_registration SET booker_member_id='${member}',registration_source='member',import_provenance=NULL WHERE id='${guestId}';`,false);
+    sql(`UPDATE event_waiting_entry SET member_id='${member}' WHERE id='${guestEntry}';`,false);
+    sql(`UPDATE event_waiting_entry SET tenant_id='${other}' WHERE id='${guestEntry}';`,false);
+    sql(`INSERT INTO event_waiting_registration(tenant_id,event_id,event_kind,booker_member_id,idempotency_key,request_hash)
+      VALUES('${tenant}','${event}','simple',NULL,gen_random_uuid(),'hash');`,false);
+    // Existing member paths still register and withdraw after the migration.
+    const finalId=sql(create(event,'simple','40000000-0000-4000-8000-000000000006'));
+    const finalEntry=sql(`SELECT id FROM event_waiting_entry WHERE registration_id='${finalId}' AND member_id='${member}';`);
+    assert.equal(sql(`SELECT withdraw_event_waiting_entry('${tenant}','${member}','${finalEntry}','registration');`),'2');
+    // Read-only admin listing includes guests; ordinary member filters do not.
+    assert.equal(sql(`SELECT count(*) FROM event_waiting_entry WHERE id='${guestEntry}' AND status='active';`),'1');
+    assert.equal(sql(`SELECT count(*) FROM event_waiting_entry WHERE id='${guestEntry}' AND (booker_member_id='${member}' OR member_id='${member}');`),'0');
   } finally {
     if(started) run('pg_ctl',['-D',data,'-m','immediate','-w','stop']);
     rmSync(root,{recursive:true,force:true});

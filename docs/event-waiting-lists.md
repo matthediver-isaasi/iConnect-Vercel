@@ -51,6 +51,29 @@ payment intents, convert paid bookings, or provide a new payment-recovery policy
 No ranking, promotion, payment collection, conversion or automatic allocation is
 included. Joining does not change general marketing consent.
 
+## Guest imports
+
+Administrative imports can retain guests without creating member accounts or
+inventing a member booker. This is not public guest signup. The protected
+`import_guest_event_waiting_registration` operation requires a confirmed,
+tenant-owned source booking with names and email, a source-file hash, an actor
+and an idempotency key. It currently supports standard waiting-list events with
+one free interest ticket. Multiple/paid ticket choices require explicit review.
+
+Guest records remain visible in the administrative waiting list and available
+to explicitly selected waiting-list campaign audiences. They have no member
+portal ownership or automatic account linkage. Joining/importing does not send
+messages or run booking workflows. The original booking is never converted or
+deleted. Withdrawal authorization uses null-safe comparisons so an absent booker
+does not grant access to another member.
+
+The guest-storage migration is
+`supabase/migrations/202612090002_guest_waiting_list_import.sql`.
+It was applied to live DEST on 2026-10-29 following owner approval.
+`scripts/import-gfi-guest-waiting-list.mjs` is the source-hash-pinned import
+runner; default execution rolls back and `--apply` commits. Replays perform
+no additional imports and do not reinstate withdrawn entries.
+
 ## Verification
 
 Use `scripts/run-isolated-tests.mjs --allow-local-postgres` for the dedicated

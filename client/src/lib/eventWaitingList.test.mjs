@@ -81,7 +81,7 @@ test('waiting list ignores ticket release schedules without weakening normal boo
 test('campaign editor supports direct waiting-list audience for save and previews with the shared event picker', () => {
   const campaign = source('../pages/EmailCampaignEdit.jsx');
   assert.match(campaign, /value="event_waiting_list">Event waiting list/);
-  assert.match(campaign, /<EventAudiencePicker value={selectedEventIds}/);
+  assert.match(campaign, /<EventAudiencePicker\s+waitingListOnly=\{directAudienceType === 'event_waiting_list'\}\s+value=\{selectedEventIds\}/);
   assert.match(campaign, /saveData\.target_audiences = campaignTargetAudiences/);
   assert.match(campaign, /targetAudiences: campaignTargetAudiences/);
   assert.doesNotMatch(source('../pages/CommunicationsManagement.jsx'), /value="event_waiting_list"/);
