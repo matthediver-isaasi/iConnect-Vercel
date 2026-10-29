@@ -200,6 +200,59 @@ test('policy migration: exact tenant emails, private execution, defaults, idempo
     await assert.rejects(db.query(invokeBatch, [badBatchId, JSON.stringify([{ ...bookingRow, attendee_email: 'forged@example.com' }])]), { code: '23514' });
     assert.equal((await db.query('SELECT available_seats FROM public.event WHERE id=$1', [a])).rows[0].available_seats, 1);
     assert.equal((await db.query('SELECT * FROM public.booking')).rowCount, 1);
+    await db.query(`CREATE TABLE public.organization(id uuid PRIMARY KEY,tenant_id uuid,name text);
+      CREATE TABLE public.organization_group(LIKE public.organization INCLUDING ALL);
+      CREATE TABLE public.preference_field(id uuid PRIMARY KEY,tenant_id uuid,entity_scope text);
+      CREATE TABLE public.organization_preference_value(tenant_id uuid,organization_id uuid,field_id uuid,value text);
+      CREATE TABLE public.organization_group_preference_value(tenant_id uuid,organization_group_id uuid,field_id uuid,value text);
+      ALTER TABLE member ADD COLUMN organization_group_id uuid;
+      ALTER TABLE event ADD COLUMN IF NOT EXISTS status text DEFAULT 'published';
+      ALTER TABLE event ADD COLUMN IF NOT EXISTS pricing_config jsonb DEFAULT '{}';`);
+    for(const name of ['202612090005_event_registration_associations.sql','202612090006_event_registration_association_accounts.sql'])
+      await db.query(await readFile(new URL('../../supabase/migrations/'+name,import.meta.url),'utf8'));
+    await db.query(`INSERT INTO organization_group VALUES($1,$1,'Allowed Group'),($2,$2,'Another tenant');
+      `,[a,b]);
+    await db.query('UPDATE event SET registration_association_config=$2 WHERE id=$1',
+      [a,{groups:{enabled:true},organizations:{enabled:false},role_id:roleId}]);
+    const choices=(await db.query("SELECT event_registration_association_options($1,$1,false) choices",[a])).rows[0].choices;
+    assert.deepEqual(choices.options,[{kind:'group',id:a,name:'Allowed Group'}]);
+    await db.query("INSERT INTO preference_field VALUES($1,$1,'organization_group')",[a]);
+    await db.query("INSERT INTO organization_group_preference_value VALUES($1,$1,$1,'[\"Eligible\",\"Other value\"]')",[a]);
+    await db.query('UPDATE event SET registration_association_config=$2 WHERE id=$1',
+      [a,{groups:{enabled:true,field_id:a,value:'Eligible'},organizations:{enabled:false},role_id:roleId}]);
+    assert.equal((await db.query("SELECT event_registration_association_options($1,$1,false) choices",[a])).rows[0].choices.options.length,1);
+    await db.query('UPDATE event SET registration_association_config=$2 WHERE id=$1',
+      [a,{groups:{enabled:true,field_id:a,value:'Not eligible'},organizations:{enabled:false},role_id:roleId}]);
+    assert.equal((await db.query("SELECT event_registration_association_options($1,$1,false) choices",[a])).rows[0].choices.options.length,0);
+    await db.query('SET ROLE authenticated');
+    await assert.rejects(db.query("SELECT event_registration_association_options($1,$1,false)",[a]),{code:'42501'});
+    await db.query('RESET ROLE');
+    await db.query(`INSERT INTO booking(id,tenant_id,event_id,status,payment_method) VALUES($1,$1,$1,'confirmed','public_invoice_po')`,[a]);
+    const associatedSnapshot=makeSnapshot(['associated@example.invalid']);
+    associatedSnapshot.association_role_id=roleId;
+    associatedSnapshot.people[0].association={kind:'group',id:a,name:'Allowed Group'};
+    const associatedPurchase='00000000-0000-4000-8000-000000000211';
+    await db.query(`INSERT INTO public_ticket_member_purchase(id,tenant_id,event_id,event_kind,snapshot,state,booking_ids,completion_evidence)
+      VALUES($1,$2,$2,'simple',$3,'ready',ARRAY[$2::uuid],'{"status":"unpaid","complete_batch":true}')`,
+      [associatedPurchase,a,associatedSnapshot]);
+    assert.deepEqual(await provision(associatedPurchase),{state:'completed',created:1});
+    const associatedMember=(await db.query("SELECT * FROM member WHERE email='associated@example.invalid'")).rows[0];
+    assert.equal(associatedMember.login_enabled,true);
+    assert.equal(associatedMember.organization_group_id,a);
+    assert.equal(associatedMember.organization_id,null);
+    assert.equal(associatedMember.role_id,roleId);
+    assert.equal((await provision(associatedPurchase)).replayed,true);
+    // Legacy unpaid contacts remain excluded, and association never constitutes
+    // invoice creation or financial settlement.
+    await prepare('00000000-0000-4000-8000-000000000212',['other-po@example.invalid'],'ready',{status:'unpaid',complete_batch:true});
+    assert.notEqual((await provision('00000000-0000-4000-8000-000000000212')).state,'completed');
+    assert.equal((await db.query("SELECT * FROM member WHERE email='other-po@example.invalid'")).rowCount,0);
+    const defaultSnapshot={...batchSnapshot,association_role_id:roleId,
+      booking_items:[{...batchSnapshot.booking_items[0],ticket_id:'default'}]};
+    await db.query('UPDATE event SET available_seats=2,pricing_config=$2 WHERE id=$1',[a,{}]);
+    const defaultId='00000000-0000-4000-8000-000000000213';
+    await db.query(prepareSql,[defaultId,a,a,'simple',defaultSnapshot]);
+    assert.equal((await db.query(invokeBatch,[defaultId,JSON.stringify([{...bookingRow,ticket_class_id:null}])])).rows[0].rows.length,1);
   } finally {
     if (db) await db.end();
     if (started) execFileSync('pg_ctl', ['-D', cluster, '-m', 'immediate', '-w', 'stop'], { stdio: 'pipe' });

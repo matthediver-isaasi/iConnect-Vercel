@@ -2,6 +2,7 @@ import {
   PublicTicketMemberError, buildPublicTicketMemberSnapshot,
   loadPublicTicketMemberRoles, preflightPublicTicketMembers,
 } from './publicTicketMemberCreation.js';
+import {hasRegistrationAssociation,resolveRegistrationAssociations} from './eventRegistrationAssociations.js';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const unavailable = () => new PublicTicketMemberError(
@@ -28,9 +29,14 @@ export async function loadPublicTicketPurchase(db, { tenantId, eventId, eventKin
 
 export async function preparePublicTicketPurchase({
   db, tenantId, eventId, eventKind, requestId, purchaser, items, authenticatedMember,
-  resumeExisting = false,
+  resumeExisting = false, registrationMethod = null,
 }) {
-  const enabled = items.some(item => item.ticket?.create_member_records === true);
+  const selectedAssociations=hasRegistrationAssociation(purchaser,items);
+  // Invoice/PO previously creates no automatic ticket contacts. Only explicit
+  // selections opt into account creation on this unpaid path.
+  if(selectedAssociations&&registrationMethod==='public_invoice_po')
+    items=items.map(item=>({...item,ticket:{...item.ticket,create_member_records:false}}));
+  const enabled = items.some(item => item.ticket?.create_member_records === true)||selectedAssociations;
   if (!enabled && !resumeExisting) return null;
   if (!enabled && !requestId) return null;
   if (!uuid.test(requestId || '')) {
@@ -40,19 +46,36 @@ export async function preparePublicTicketPurchase({
     tenantId, eventId, eventKind, requestId, allowMissingSchema: !enabled,
   });
   if (!enabled && !existing) return null;
+  let associationRole=null;
+  if(existing?.snapshot.association_role_id){
+    associationRole={id:existing.snapshot.association_role_id,tenant_id:tenantId};
+    const restore=person=>{
+      const prior=existing.snapshot.people.find(p=>p.identity.email===person?.email?.trim().toLowerCase())?.association;
+      const supplied=person?.registration_association;
+      if((prior?.id||null)!==(supplied?.id||null)||(prior?.kind||null)!==(supplied?.kind||null))
+        throw new PublicTicketMemberError('PURCHASE_CHANGED','Organisation selection changed. Start a new checkout.',409);
+      return prior?{...person,organization:prior.name,registration_association:prior}:person;
+    };
+    purchaser=restore(purchaser);
+    items=items.map(item=>({...item,attendees:item.attendees.map(restore)}));
+  }else if(selectedAssociations){
+    const resolved=await resolveRegistrationAssociations({db,tenantId,eventId,eventKind,purchaser,items,authenticatedMember});
+    if(!resolved)throw new PublicTicketMemberError('SIGN_IN_REQUIRED','Please use the authenticated booking flow.',409);
+    ({purchaser,items}=resolved);associationRole=resolved.role;
+  }
   const roles = existing && resumeExisting
     ? existing.snapshot.ticket_policies.map(policy => ({ id: policy.role_id, tenant_id: tenantId }))
     : await loadPublicTicketMemberRoles(db, tenantId, items.map(item => item.ticket));
   const effectiveItems = existing && resumeExisting ? items.map(item => {
-    const policy = existing.snapshot.ticket_policies.find(value => value.ticket_id === String(item.ticket.id));
-    return policy ? { ...item, ticket: { ...item.ticket, visibility_mode: 'public_only', create_member_records: true, new_member_role_id: policy.role_id } } : item;
+    const policy = existing.snapshot.ticket_policies.find(value => value.ticket_id === String(item.ticket.id??'default'));
+    return policy ? { ...item, ticket: { ...item.ticket, visibility_mode: 'public_only', create_member_records: policy.create_member_records??true, new_member_role_id: policy.role_id } } : item;
   }) : items;
-  const snapshot = buildPublicTicketMemberSnapshot({ tenantId, purchaser, items: effectiveItems, roles });
+  const snapshot = buildPublicTicketMemberSnapshot({ tenantId, purchaser, items: effectiveItems, roles, associationRole });
   if (authenticatedMember?.tenant_id === tenantId) {
     throw new PublicTicketMemberError('PUBLIC_ONLY_MEMBER', 'Members cannot purchase Public only tickets.', 403);
   }
   if (!existing) {
-    await preflightPublicTicketMembers({ db, tenantId, purchaser, items, roles, authenticatedMember });
+    await preflightPublicTicketMembers({ db, tenantId, purchaser, items, roles, authenticatedMember, associationRole });
   }
   // SQL compares immutable canonical snapshots under a row lock. A supplied
   // UUID is only an idempotency key; it cannot authorize changed identities.
@@ -99,7 +122,7 @@ export async function completePublicTicketMembers({
   db, purchase, tenantId, bookingIds, paymentStatus, paymentIntentId = null,
 }) {
   if (!purchase) return { state: 'not_applicable' };
-  if (!['paid', 'free'].includes(paymentStatus) || !bookingIds?.length) {
+  if ((!['paid', 'free'].includes(paymentStatus) && !(paymentStatus==='unpaid'&&purchase.snapshot?.association_role_id)) || !bookingIds?.length) {
     return { state: 'excluded' };
   }
   // Call only after ALL bookings, capacity checks and reversible financial work
@@ -139,6 +162,8 @@ export async function recoverPublicTicketMembers({ db, purchase, loadPaymentInte
     if (bookings.some(booking => booking.payment_method !== 'card'
         || booking.stripe_payment_intent_id !== intent.id)) throw unavailable();
     paymentStatus = 'paid';
+  } else if(purchase.snapshot?.association_role_id&&bookings.every(b=>b.payment_method==='public_invoice_po')){
+    paymentStatus='unpaid';
   } else if (bookings.some(booking => booking.payment_method !== 'free')) {
     throw new PublicTicketMemberError('PAYMENT_NOT_ELIGIBLE', 'This is not a confirmed free purchase.', 409);
   }

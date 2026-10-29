@@ -4,6 +4,7 @@ import { enforceAttendeeJobTitles } from '../_lib/attendeeJobTitleRequirement.js
 import { assertPublicTicketPurchaser } from '../_lib/publicTicketEmail.js';
 import { preparePublicTicketPurchase, bindPublicTicketPayment } from '../_lib/publicTicketMemberPurchase.js';
 import { needsPublicTicketMemberCreation } from '../_lib/publicTicketMemberCreation.js';
+import {hasRegistrationAssociation} from '../_lib/eventRegistrationAssociations.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { assertEventCodeOfConduct } from '../_lib/eventCodeOfConduct.js';
 import { getStripeCredentials } from '../_lib/stripeCredentials.js';
@@ -217,7 +218,8 @@ export default async function handler(req, res) {
       ticket: getTicketClassFromConfig(allTicketClasses, item.ticket_class_id),
       attendees: isMultiTicket ? items[index]?.attendees : req.body.attendees,
     }));
-    if (needsPublicTicketMemberCreation(provisioningItems.map(item => item.ticket).filter(ticket => !isPrivateTicket(ticket)), isMember ? member : null, tenant.id)) {
+    if (needsPublicTicketMemberCreation(provisioningItems.map(item => item.ticket).filter(ticket => !isPrivateTicket(ticket)), isMember ? member : null, tenant.id)
+      ||(!isMember&&hasRegistrationAssociation(req.body.purchaser_info,provisioningItems))) {
       if (provisioningItems.some((item, index) => !Array.isArray(item.attendees)
           || item.attendees.length !== normalizedItems[index].attendee_count)) {
         return res.status(400).json({ error: 'Provide complete attendee details matching each ticket quantity before payment.' });

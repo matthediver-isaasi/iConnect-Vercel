@@ -5,6 +5,10 @@ description: Product boundaries for opt-in CRM contact creation from public-faci
 
 Admin-reviewed conversion in the Event Registration Report is a deliberate exception to checkout's disabled-login rule: the administrator reviews the identity, explicitly selects a role and optionally an organisation, then enables login.
 
+Explicit selection through the event's combined organisation/group selector is
+another owner-approved exception: see [Guest registration association policy](guest-registration-association-policy.md).
+Other/free-text checkout retains the default contact-only policy below.
+
 **Why:** The user requested active platform access for this manual operation, while preserving the guest registration and its original payment information. This is not permission to activate automatic checkout contacts or infer paid membership.
 
 **How to apply:** Keep the manual and automatic paths separate. A later member link must not reinterpret historical guest/purchaser provenance or imply marketing consent. Duplicate existing members require review, not silent activation or reassignment.

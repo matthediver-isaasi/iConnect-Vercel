@@ -15,6 +15,9 @@ export function normalizePublicInvoicePurchaser(info = {}) {
     last_name: String(info.last_name || '').trim(),
     email: String(info.email || '').trim().toLowerCase(),
     organization: String(info.organization || '').trim(),
+    ...(info.registration_association ? { registration_association: {
+      kind: info.registration_association.kind, id: info.registration_association.id,
+    } } : {}),
     phone: String(info.phone || '').trim(),
     job_title: String(info.job_title || '').trim(),
   };

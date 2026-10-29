@@ -1,3 +1,4 @@
+import RegistrationAssociationField from "@/components/booking/RegistrationAssociationField";
 import TenantEventTimeDisplay from "@/components/events/TenantEventTimeDisplay";
 import { reconcilePrivateCart, mergeAllocationTicket } from "@/utils/privateTicketAudience";
 import { useTicketViewerKey } from "@/hooks/useTicketViewerKey";
@@ -102,7 +103,7 @@ function TrackAccessIndicator({ ticket, tracks }) {
   );
 }
 
-function AddAttendeeModal({ open, onOpenChange, ticketClass, memberInfo, organizationInfo, onAddAttendee, existingEmails, isGroupEvent = false, allocationContext = null, requireJobTitle = false }) {
+function AddAttendeeModal({ open, onOpenChange, ticketClass, memberInfo, organizationInfo, onAddAttendee, existingEmails, isGroupEvent = false, allocationContext = null, requireJobTitle = false, eventId }) {
   const [selfJobTitle, setSelfJobTitle] = useState(memberInfo?.job_title || '');
   const [externalJobTitle, setExternalJobTitle] = useState('');
   useEffect(() => { if (open) setSelfJobTitle(memberInfo?.job_title || ''); }, [open, memberInfo?.job_title]);
@@ -110,6 +111,7 @@ function AddAttendeeModal({ open, onOpenChange, ticketClass, memberInfo, organiz
   const [externalLastName, setExternalLastName] = useState('');
   const [externalEmail, setExternalEmail] = useState('');
   const [externalOrganization, setExternalOrganization] = useState('');
+  const [externalAssociation, setExternalAssociation] = useState(null);
   useEffect(() => {
     if (!open || !allocationContext) return;
     setExternalEmail(allocationContext.delegateEmail || '');
@@ -123,6 +125,7 @@ function AddAttendeeModal({ open, onOpenChange, ticketClass, memberInfo, organiz
     setExternalLastName('');
     setExternalEmail('');
     setExternalOrganization('');
+    setExternalAssociation(null);
     setExternalJobTitle('');
   };
 
@@ -189,6 +192,7 @@ function AddAttendeeModal({ open, onOpenChange, ticketClass, memberInfo, organiz
       last_name: externalLastName.trim(),
       email: email,
       organization: externalOrganization.trim(),
+      ...(!memberInfo && externalAssociation ? { registration_association: externalAssociation } : {}),
       job_title: externalJobTitle.trim(),
       isSelf: false
     });
@@ -300,13 +304,19 @@ function AddAttendeeModal({ open, onOpenChange, ticketClass, memberInfo, organiz
                 disabled={Boolean(allocationContext)}
               data-testid="input-external-email"
             />
-            <Input
+            {!memberInfo && open && !allocationContext ? <RegistrationAssociationField
+              eventId={eventId} eventKind="complex"
+              placeholder="Organisation (optional)"
+              value={{ organization: externalOrganization, registration_association: externalAssociation }}
+              onChange={patch => { setExternalOrganization(patch.organization); setExternalAssociation(patch.registration_association); }}
+              data-testid="input-external-org"
+            /> : <Input
               placeholder="Organisation (optional)"
               value={externalOrganization}
               onChange={(e) => setExternalOrganization(e.target.value)}
                 disabled={Boolean(allocationContext)}
               data-testid="input-external-org"
-            />
+            />}
             <div className="flex gap-2">
               <Button
                 onClick={handleExternalSubmit}
@@ -886,6 +896,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
             first_name: (a.first_name || '').trim(),
             last_name: (a.last_name || '').trim(),
             organization: (a.organization || '').trim(),
+            ...(a.registration_association ? { registration_association: a.registration_association } : {}),
             phone: (a.phone || '').trim(),
             job_title: (a.job_title || '').trim(),
             dietary_selections: a.dietary_selections || [],
@@ -920,6 +931,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
           first_name: (a.first_name || '').trim(),
           last_name: (a.last_name || '').trim(),
           organization: (a.organization || '').trim(),
+          ...(a.registration_association ? { registration_association: a.registration_association } : {}),
           phone: (a.phone || '').trim(),
           job_title: (a.job_title || '').trim(),
           dietary_selections: a.dietary_selections || [],
@@ -1139,6 +1151,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
       totalCost={grandTotal}
       oneOffCostDetails={oneOffCostDetails}
       isComplexEvent={true}
+      onGuestLoginRequired={openLogin}
       complexEventApi={complexEventApi}
       onComplexBookingComplete={onBookingComplete}
       renderAsCard={false}
@@ -1298,6 +1311,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
       </CardContent>
 
       <AddAttendeeModal
+        eventId={event.id}
         requireJobTitle={requireAttendeeJobTitle(systemSettings)}
         open={attendeeModalOpen}
         onOpenChange={setAttendeeModalOpen}

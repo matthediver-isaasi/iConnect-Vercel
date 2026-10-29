@@ -6,6 +6,7 @@ import { assertPublicTicketPurchaser } from '../_lib/publicTicketEmail.js';
 import { publicTicketSimpleBaseTotal, validatePublicTicketSimpleCharge } from '../_lib/publicTicketSimpleQuote.js';
 import { preparePublicTicketPurchase, bindPublicTicketPayment, completePublicTicketMembers, assertPublicTicketPaymentEvidence, loadPublicTicketPurchase } from '../_lib/publicTicketMemberPurchase.js';
 import { needsPublicTicketMemberCreation } from '../_lib/publicTicketMemberCreation.js';
+import {hasRegistrationAssociation} from '../_lib/eventRegistrationAssociations.js';
 import { enqueueCheckoutEventInvoice, eventInvoiceContact, simpleEventInvoiceLines } from '../_lib/eventInvoiceProducer.js';
 import { prepareEventInvoiceAddressPolicy, createPolicyPaymentIntent, assertEventInvoicePaymentOwner } from '../_lib/eventInvoiceAddressPolicy.js';
 import { PUBLIC_INVOICE_PO, validatePublicInvoicePo, requirePublicInvoicePoBalance } from '../_lib/publicInvoicePo.js';
@@ -818,7 +819,8 @@ const functionHandlers = {
             charge: { amount: Math.round(amount * 100), currency, metadata, selectedVoucherIds, voucherOrderManual, trainingFundAmount },
           });
         }
-        if (!isPrivateTicket(ticket) && needsPublicTicketMemberCreation([ticket], ticketPurchaser, tenantId)) {
+        if (!isPrivateTicket(ticket) && (needsPublicTicketMemberCreation([ticket], ticketPurchaser, tenantId)
+          || (!ticketPurchaser&&hasRegistrationAssociation(params.purchaserInfo,[{attendees:params.attendees}])))) {
           await validatePublicTicketSimpleCharge({
             ticket, attendees: params.attendees, tenantId, eventId: event.id,
             discountCode: params.discountCode, amount,
@@ -2051,6 +2053,7 @@ const functionHandlers = {
         first_name: guestInfo.first_name,
         last_name: guestInfo.last_name,
         organization: guestInfo.organization,
+        registration_association:guestInfo.registration_association,
         phone: guestInfo.phone,
         job_title: guestInfo.job_title,
         dietary_selections: guestInfo.dietary_selections,
@@ -2135,7 +2138,8 @@ const functionHandlers = {
     }
     let publicTicketPurchase = null;
     const ticketPurchaser = await getSessionMember(req);
-    const needsPublicContactCreation = needsPublicTicketMemberCreation([provisioningTicket], ticketPurchaser, event.tenant_id);
+    const selectedRegistrationAssociation=!ticketPurchaser&&hasRegistrationAssociation(params.purchaserInfo||purchaserInfo,[{attendees:bookingAttendees}]);
+    const needsPublicContactCreation = needsPublicTicketMemberCreation([provisioningTicket], ticketPurchaser, event.tenant_id)||selectedRegistrationAssociation;
     // Completed public purchases replay their immutable original booking.
     if (!privateTicketError && !previousPublicPurchase?.booking_ids?.length) {
       const titleRejection = await checkBookingAttendeeJobTitles({
@@ -2148,16 +2152,17 @@ const functionHandlers = {
       });
       if (titleRejection) return titleRejection;
     }
-    if (!privateTicketError && !isPrivateTicket(provisioningTicket) && (needsPublicContactCreation || previousPublicPurchase) && paymentMethod !== PUBLIC_INVOICE_PO) {
+    if (!privateTicketError && !isPrivateTicket(provisioningTicket) && (needsPublicContactCreation || previousPublicPurchase)
+      && (paymentMethod !== PUBLIC_INVOICE_PO||selectedRegistrationAssociation)) {
       if (!isGuestBooking || selectedVoucherIds.length || Number(trainingFundAmount) || Number(accountAmount)
-          || allocationContext || !['card', 'free'].includes(paymentMethod) || _testMode) {
+          || allocationContext || !['card', 'free',...(selectedRegistrationAssociation?[PUBLIC_INVOICE_PO]:[])].includes(paymentMethod) || _testMode) {
         return { success: false, error: 'Public ticket member creation requires a guest card or free checkout without account credits.' };
       }
       publicTicketPurchase = await preparePublicTicketPurchase({
         db: supabase, tenantId: event.tenant_id, eventId: event.id, eventKind: 'simple',
         requestId: params.purchase_request_id, purchaser: params.purchaserInfo || purchaserInfo,
         items: [{ ticket: provisioningTicket || { id: ticketClassId }, attendees: bookingAttendees }],
-        authenticatedMember: await getSessionMember(req), resumeExisting: true,
+        authenticatedMember: await getSessionMember(req), resumeExisting: true, registrationMethod:paymentMethod,
       });
       if ((paymentMethod === 'card' && !stripePaymentIntentId)
           || (paymentMethod === 'free' && publicTicketPurchase.stripe_payment_intent_id)) {
@@ -2166,7 +2171,7 @@ const functionHandlers = {
       const replay = await replayPublicTicketBooking(supabase, publicTicketPurchase);
       if (replay) return replay;
       ticketsRequired = bookingAttendees.length;
-      totalCost = publicTicketSimpleBaseTotal(provisioningTicket, ticketsRequired);
+      if(provisioningTicket)totalCost = publicTicketSimpleBaseTotal(provisioningTicket, ticketsRequired);
     }
     if (paymentMethod === 'card' && stripePaymentIntentId && !_testMode && !publicTicketPurchase) {
       const { data: existingBookings, error } = await supabase.from('booking')

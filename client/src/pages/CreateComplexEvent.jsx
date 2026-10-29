@@ -1,3 +1,5 @@
+import RegistrationAssociationConfig from "@/components/events/RegistrationAssociationConfig";
+import { normalizeRegistrationAssociationConfig, validateRegistrationAssociationConfig } from "@/lib/registrationAssociations";
 import WaitingListTimingField from "@/components/events/WaitingListTimingField";
 import EventRegistrationCommunication, { saveEventRegistrationCommunication } from "@/components/events/EventRegistrationCommunication";
 import PublicTicketMemberFields from "@/components/events/PublicTicketMemberFields";
@@ -653,6 +655,7 @@ export default function CreateComplexEvent() {
   const [checkingSlug, setCheckingSlug] = useState(false);
 
   const [formData, setFormData] = useState({
+    registration_association_config: normalizeRegistrationAssociationConfig(),
     title: "",
     slug: "",
     description: "",
@@ -1194,6 +1197,7 @@ export default function CreateComplexEvent() {
       setSpeakerAwards(configToFormState(existingEvent.speaker_award_config));
 
       setFormData({
+        registration_association_config: normalizeRegistrationAssociationConfig(existingEvent.registration_association_config),
         title: existingEvent.title || "",
         slug: existingEvent.slug || "",
         description: existingEvent.description || "",
@@ -1814,7 +1818,10 @@ export default function CreateComplexEvent() {
   };
 
   const handleSave = async (skipClashCheck = false, badgeRemovalDecision = null) => {
-    const memberPolicyErrors = validateTicketMemberPolicies(isGroupLimited ? [] : ticketClasses, roles);
+    const memberPolicyErrors = [
+      ...validateRegistrationAssociationConfig(formData.registration_association_config, roles),
+      ...validateTicketMemberPolicies(isGroupLimited ? [] : ticketClasses, roles),
+    ];
     if (memberPolicyErrors.length) {
       toast.error(memberPolicyErrors[0]);
       return;
@@ -1972,6 +1979,7 @@ export default function CreateComplexEvent() {
     setSaving(true);
     try {
       const eventPayload = {
+        registration_association_config: normalizeRegistrationAssociationConfig(formData.registration_association_config),
         title: formData.title,
         slug: formData.slug,
         description: formData.description || null,
@@ -3836,6 +3844,10 @@ export default function CreateComplexEvent() {
         </TabsContent>
 
         <TabsContent value="tickets" forceMount className={activeSection !== 'tickets' ? 'hidden' : ''}>
+          <div className="mb-6">
+            <RegistrationAssociationConfig value={formData.registration_association_config} roles={roles}
+              onChange={config => setFormData(prev => ({ ...prev, registration_association_config: config }))} />
+          </div>
             <PublicTicketMemberDiagnostics eventId={editId} />
         <Card className="border-slate-200 shadow-sm">
           <CardHeader className="pb-4">

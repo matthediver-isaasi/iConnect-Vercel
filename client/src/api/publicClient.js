@@ -250,6 +250,11 @@ class PublicClient {
   }
   
   // Events
+  async getEventRegistrationAssociations(eventId, eventKind = 'simple', q = '') {
+    const params = new URLSearchParams({ event_id: eventId, event_kind: eventKind, q });
+    return this._fetch(`/api/public/event-registration-associations?${params}`, { credentials: 'include' });
+  }
+
   async listEvents() {
     return this._fetch('/api/public/events');
   }

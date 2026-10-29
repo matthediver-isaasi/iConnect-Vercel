@@ -9,6 +9,7 @@ import { assertGenericPrivateTicketBooking } from '../../_lib/privateTicketAcces
 import { isTicketAudienceEntity, ticketAudienceProjectionError, loadTicketAudienceReadContext, scopeTicketAudienceQuery, projectTicketAudienceRows } from '../../_lib/ticketAudienceRead.js';
 import { gatePublicTicketMemberPolicy } from '../../_lib/publicTicketMemberReleaseGate.js';
 import { validatePublicTicketMemberPolicyWrite } from '../../_lib/publicTicketMemberCreation.js';
+import {validateRegistrationAssociationConfig} from '../../_lib/eventRegistrationAssociations.js';
 import { triggerWorkflows, triggerPreferenceWorkflows } from '../../_lib/workflows.js';
 import { triggerZohoCrmSync, awaitZohoCrmSyncForResponse } from '../../_lib/zohoCrmSync.js';
 import {
@@ -2100,6 +2101,10 @@ export default async function handler(req, res, dependencies = {}) {
         if (guardedBody !== sanitizedBody) {
           for (const k of Object.keys(sanitizedBody)) delete sanitizedBody[k];
           Object.assign(sanitizedBody, guardedBody);
+        }
+        if (['event','complexevent'].includes(entityNorm)&&Object.hasOwn(sanitizedBody,'registration_association_config')) {
+          sanitizedBody.registration_association_config=await validateRegistrationAssociationConfig(supabase,tenantCtx.tenantId,
+            sanitizedBody.registration_association_config,await hasAdminAccess(tenantCtx));
         }
         if (validatesTicketRelease) {
           if (existingError) return res.status(500).json({ error: 'Failed to load ticket release settings for update' });

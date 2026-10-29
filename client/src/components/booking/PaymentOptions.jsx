@@ -1,3 +1,4 @@
+import RegistrationAssociationField from "./RegistrationAssociationField";
 import WaitingListCheckout from "./WaitingListCheckout";
 import { useEventCodeOfConduct } from "@/hooks/useEventCodeOfConduct";
 import CodeOfConductAcceptance from "./CodeOfConductAcceptance";
@@ -481,6 +482,7 @@ function NormalPaymentOptions({
   checkGuestEmailIsMember = null,
   checkingMemberEmail = false,
   guestEmailIsMember = false,
+  onGuestLoginRequired = null,
   isComplexEvent = false,
   complexEventApi = null,
   onComplexBookingComplete = null,
@@ -538,7 +540,7 @@ function NormalPaymentOptions({
   const [purchaseOrderNumber, setPurchaseOrderNumber] = useState('');
   const memberCreationTickets = (checkoutTicketClasses || (selectedTicketClass ? [selectedTicketClass] : []))
     .filter(ticket => !memberInfo && ticketMemberPolicy(ticket).create_member_records);
-  const requiresPurchaserIdentity = memberCreationTickets.length > 0;
+  const ticketRequiresPurchaserIdentity = memberCreationTickets.length > 0;
   const purchaseRequestId = useRef(null);
   const purchaseRequestFingerprint = useRef(null);
   const getPurchaseRequestId = () => {
@@ -556,20 +558,28 @@ function NormalPaymentOptions({
     purchaseRequestFingerprint.current = resolved.fingerprint;
     return purchaseRequestId.current;
   };
-  const [separatePurchaserInfo, setPurchaserInfo] = useState(() => requiresPurchaserIdentity ? purchaseIdentity() : ({
+  const [separatePurchaserInfo, setPurchaserInfo] = useState(() => ticketRequiresPurchaserIdentity ? purchaseIdentity() : ({
     first_name: guestInfo?.first_name || '',
     last_name: guestInfo?.last_name || '',
     email: guestInfo?.email || '',
     organization: guestInfo?.organization || '',
+    registration_association: guestInfo?.registration_association || null,
     phone: guestInfo?.phone || '',
     job_title: guestInfo?.job_title || ''
   }));
-  const selfBookingChoiceRequired = requiresPurchaserIdentity && isGuestCheckout
+  const hasRegistrationAssociations = !memberInfo && Boolean(guestInfo?.registration_association
+    || separatePurchaserInfo.registration_association || attendees.some(person => person.registration_association));
+  const requiresPurchaserIdentity = ticketRequiresPurchaserIdentity || hasRegistrationAssociations;
+  // Association-only simple/group bookings already collect the purchaser's
+  // full identity in the guest form; do not introduce a hidden self-choice gate.
+  const associationSelfPurchaser = hasRegistrationAssociations && !ticketRequiresPurchaserIdentity
+    && (!isComplexEvent || !!event?.member_group_id);
+  const selfBookingChoiceRequired = ticketRequiresPurchaserIdentity && isGuestCheckout
     && (!isComplexEvent || !!event?.member_group_id) && guestBookingForSelf !== undefined;
-  const purchaserInfo = selfBookingChoiceRequired && guestBookingForSelf === true
+  const purchaserInfo = associationSelfPurchaser || (selfBookingChoiceRequired && guestBookingForSelf === true)
     ? purchaseIdentity(guestInfo) : separatePurchaserInfo;
   const showPurchaserFields = requiresPurchaserIdentity
-    && (!selfBookingChoiceRequired || guestBookingForSelf === false);
+    && !associationSelfPurchaser && (!selfBookingChoiceRequired || guestBookingForSelf === false);
   const [showStripeModal, setShowStripeModal] = useState(false);
   const [stripeClientSecret, setStripeClientSecret] = useState(null);
   const [stripePaymentIntentId, setStripePaymentIntentId] = useState(null);
@@ -596,9 +606,33 @@ function NormalPaymentOptions({
       attendees: item.attendees || [],
     }))
     : [{ ticketClass: selectedTicketClass, attendees: attendees || [] }];
+  const associationIdentityError = hasRegistrationAssociations
+    && (!purchaserInfo.first_name?.trim() || !purchaserInfo.last_name?.trim()
+      || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(purchaserInfo.email || "") || !purchaserInfo.organization?.trim())
+    ? "Please provide first name, last name, a valid email and organisation for the purchaser." : null;
   const purchaseIdentityError = selfBookingChoiceRequired && guestBookingForSelf === null
     ? "Please choose whether you are booking for yourself."
-    : requiresPurchaserIdentity ? validatePurchaseIdentities(purchaserInfo, identityItems) : null;
+    : associationIdentityError || (ticketRequiresPurchaserIdentity ? validatePurchaseIdentities(purchaserInfo, identityItems) : null);
+  const guardGuestIdentityEmails = async () => {
+    if (memberInfo || !isGuestCheckout) return true;
+    const emails = [...new Set([purchaserInfo, guestInfo, ...attendees]
+      .map(person => person?.email?.trim().toLowerCase()).filter(Boolean))];
+    try {
+      for (const email of emails) {
+        const result = await publicClient.checkMemberEmail(email);
+        if (result?.isMember) {
+          toast.error("This email belongs to an existing member. Please log in to continue.");
+          onGuestLoginRequired?.();
+          return false;
+        }
+      }
+      return true;
+    } catch {
+      if (!hasRegistrationAssociations) return true;
+      toast.error("Unable to check registration email addresses. Please retry.");
+      return false;
+    }
+  };
   const guardPurchaseIdentity = () => {
     if (purchaseIdentityError) {
       toast.error(purchaseIdentityError);
@@ -628,12 +662,13 @@ function NormalPaymentOptions({
   }, [ticketBookingUnavailable]);
 
   useEffect(() => {
-    if (!guestInfo || requiresPurchaserIdentity) return;
+    if (!guestInfo || ticketRequiresPurchaserIdentity) return;
     setPurchaserInfo({
       first_name: guestInfo.first_name || '',
       last_name: guestInfo.last_name || '',
       email: guestInfo.email || '',
       organization: guestInfo.organization || '',
+      registration_association: guestInfo.registration_association || null,
       phone: guestInfo.phone || '',
       job_title: guestInfo.job_title || ''
     });
@@ -642,9 +677,10 @@ function NormalPaymentOptions({
     guestInfo?.last_name,
     guestInfo?.email,
     guestInfo?.organization,
+    guestInfo?.registration_association,
     guestInfo?.phone,
     guestInfo?.job_title,
-    requiresPurchaserIdentity
+    ticketRequiresPurchaserIdentity
   ]);
   
   // 3D Secure return handling state
@@ -1363,6 +1399,7 @@ function NormalPaymentOptions({
     if (!guardAttendeeJobTitles()) return;
     if (!guardTicketBooking()) return;
     if (!guardPurchaseIdentity()) return;
+    if (!await guardGuestIdentityEmails()) return;
     if (requiresPurchaserIdentity) paymentEmail = purchaseIdentity(purchaserInfo).email;
     const chargeAmount = remainingBalance;
     const attempt = {};
@@ -1530,12 +1567,13 @@ function NormalPaymentOptions({
         savedPayload.accountAmount = remainingBalancePaymentMethod === 'account' ? remainingBalance : 0;
         savedPayload.purchaseOrderNumber = remainingBalancePaymentMethod === 'account' ? purchaseOrderNumber.trim() : null;
         savedPayload.poToFollow = remainingBalancePaymentMethod === 'account' ? poSupplyLater : false;
-      } else if (isGuestCheckout) {
+      } else if (isGuestCheckout && guestInfo) {
         savedPayload.guestInfo = {
           first_name: guestInfo.first_name,
           last_name: guestInfo.last_name,
           email: guestInfo.email,
           organization: guestInfo.organization,
+          registration_association: guestInfo.registration_association || null,
           phone: guestInfo.phone || null,
           job_title: guestInfo.job_title || null,
           dietary_selections: guestInfo.dietary_selections || [],
@@ -1572,6 +1610,7 @@ function NormalPaymentOptions({
     // silently abandoning an already captured payment.
     if (!stripePaymentId && !guardTicketBooking()) return;
     if (!stripePaymentId && !guardPurchaseIdentity()) return;
+    if (!stripePaymentId && !await guardGuestIdentityEmails()) return;
     console.log('[PaymentOptions] processOneOffBooking started');
     doSetSubmitting(true);
 
@@ -1605,6 +1644,7 @@ function NormalPaymentOptions({
             first_name: (a.first_name || '').trim(),
             last_name: (a.last_name || '').trim(),
             organization: (a.organization || '').trim(),
+            ...(a.registration_association ? { registration_association: a.registration_association } : {}),
             phone: (a.phone || '').trim(),
             job_title: (a.job_title || '').trim(),
             dietary_selections: a.dietary_selections || [],
@@ -1715,6 +1755,7 @@ function NormalPaymentOptions({
             last_name: guestInfo.last_name,
             email: guestInfo.email,
             organization: guestInfo.organization,
+            registration_association: guestInfo.registration_association || null,
             phone: guestInfo.phone || null,
             job_title: guestInfo.job_title || null,
             dietary_selections: guestInfo.dietary_selections || [],
@@ -2218,10 +2259,11 @@ function NormalPaymentOptions({
                               onChange={(e) => setPurchaserInfo(prev => ({ ...prev, email: e.target.value }))}
                               data-testid="input-purchaser-email"
                             />
-                            <Input
+                            <RegistrationAssociationField
+                              eventId={event.id} eventKind={isComplexEvent ? "complex" : "simple"}
                               placeholder="Organisation"
-                              value={purchaserInfo.organization}
-                              onChange={(e) => setPurchaserInfo(prev => ({ ...prev, organization: e.target.value }))}
+                              value={purchaserInfo}
+                              onChange={patch => setPurchaserInfo(prev => ({ ...prev, ...patch }))}
                               data-testid="input-purchaser-organization"
                             />
                             <Input
@@ -2832,14 +2874,14 @@ function NormalPaymentOptions({
             <CardTitle className="text-xl">{resolveTbcSummaryTitle(tbcBookingReplacement, totalCost)}</CardTitle>
           </CardHeader>
           <CardContent className="pt-6 space-y-6">
-            {showPurchaserFields && <PurchaserIdentityFields value={purchaserInfo} onChange={setPurchaserInfo} />}
+            {showPurchaserFields && <PurchaserIdentityFields value={purchaserInfo} onChange={setPurchaserInfo} eventId={event.id} eventKind={isComplexEvent ? "complex" : "simple"} />}
             {purchaseIdentityError && <p role="alert" className="text-sm text-amber-700">{purchaseIdentityError}</p>}
             {mainContent}
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-6">
-          {showPurchaserFields && <PurchaserIdentityFields value={purchaserInfo} onChange={setPurchaserInfo} />}
+          {showPurchaserFields && <PurchaserIdentityFields value={purchaserInfo} onChange={setPurchaserInfo} eventId={event.id} eventKind={isComplexEvent ? "complex" : "simple"} />}
           {purchaseIdentityError && <p role="alert" className="text-sm text-amber-700">{purchaseIdentityError}</p>}
           {mainContent}
         </div>

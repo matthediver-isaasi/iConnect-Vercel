@@ -4,6 +4,7 @@ import { optionalEventRegistrationConsent, recoverEventRegistrationConsent } fro
 import { replayPublicTicketBooking, compensatePublicTicketCapacity } from '../_lib/publicTicketMemberRecovery.js';
 import { assertPublicTicketPurchaser } from '../_lib/publicTicketEmail.js';
 import { preparePublicTicketPurchase, bindPublicTicketPayment, completePublicTicketMembers, assertPublicTicketPaymentEvidence, loadPublicTicketPurchase } from '../_lib/publicTicketMemberPurchase.js';
+import {hasRegistrationAssociation} from '../_lib/eventRegistrationAssociations.js';
 import { needsPublicTicketMemberCreation } from '../_lib/publicTicketMemberCreation.js';
 import { PUBLIC_INVOICE_PO, validatePublicInvoicePo, requirePublicInvoicePoBalance } from '../_lib/publicInvoicePo.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
@@ -265,16 +266,17 @@ async function processBooking(req, res) {
       if (titleRejection) return res.status(titleRejection.statusCode).json(titleRejection);
     }
     const ticketPurchaser = await getSessionMember(req);
-    const needsPublicContactCreation = needsPublicTicketMemberCreation(provisioningItems.map(item => item.ticket).filter(ticket => !isPrivateTicket(ticket)), ticketPurchaser, tenant.id);
-    if (!privateTicketError && (previousPublicPurchase || needsPublicContactCreation) && payment_method !== PUBLIC_INVOICE_PO) {
+    const selectedRegistrationAssociation=!ticketPurchaser&&hasRegistrationAssociation(purchaserInfo,provisioningItems);
+    const needsPublicContactCreation = needsPublicTicketMemberCreation(provisioningItems.map(item => item.ticket).filter(ticket => !isPrivateTicket(ticket)), ticketPurchaser, tenant.id)||selectedRegistrationAssociation;
+    if (!privateTicketError && (previousPublicPurchase || needsPublicContactCreation) && (payment_method !== PUBLIC_INVOICE_PO||selectedRegistrationAssociation)) {
       if (selected_voucher_ids?.length || Number(requestedTrainingFundAmount) || allocationContext
-          || !['card', 'free'].includes(payment_method)) {
+          || !['card', 'free',...(selectedRegistrationAssociation?[PUBLIC_INVOICE_PO]:[])].includes(payment_method)) {
         return res.status(400).json({ error: 'Public ticket member creation requires a guest card or free checkout without account credits.' });
       }
       publicTicketPurchase = await preparePublicTicketPurchase({
         db: supabase, tenantId: tenant.id, eventId: event.id, eventKind: 'complex',
         requestId: req.body.purchase_request_id, purchaser: purchaserInfo,
-        items: provisioningItems, authenticatedMember: await getSessionMember(req), resumeExisting: true,
+        items: provisioningItems, authenticatedMember: await getSessionMember(req), resumeExisting: true,registrationMethod:payment_method,
       });
       const replay = await replayPublicTicketBooking(supabase, publicTicketPurchase);
       if (replay) return res.status(replay.success ? 200 : 409).json(replay);

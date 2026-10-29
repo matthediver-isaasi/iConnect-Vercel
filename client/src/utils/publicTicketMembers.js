@@ -31,6 +31,11 @@ export function purchaseIdentity(person = {}) {
     last_name: String(person.last_name || "").trim(),
     email: String(person.email || "").trim().toLowerCase(),
     organization: String(person.organization || "").trim(),
+    ...(person.phone ? { phone: String(person.phone).trim() } : {}),
+    ...(person.job_title ? { job_title: String(person.job_title).trim() } : {}),
+    ...(person.registration_association ? { registration_association: {
+      kind: person.registration_association.kind, id: person.registration_association.id,
+    } } : {}),
   };
 }
 

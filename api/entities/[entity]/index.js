@@ -13,6 +13,7 @@ import { assertGenericPrivateTicketBooking } from '../../_lib/privateTicketAcces
 import { isTicketAudienceEntity, ticketAudienceProjectionError, loadTicketAudienceReadContext, scopeTicketAudienceQuery, projectTicketAudienceRows } from '../../_lib/ticketAudienceRead.js';
 import { gatePublicTicketMemberPolicy } from '../../_lib/publicTicketMemberReleaseGate.js';
 import { validatePublicTicketMemberPolicyWrite } from '../../_lib/publicTicketMemberCreation.js';
+import {validateRegistrationAssociationConfig} from '../../_lib/eventRegistrationAssociations.js';
 import { generatePasswordSetupUrl, hasSetPasswordToken, replaceSetPasswordToken } from '../../_lib/passwordSetupUrl.js';
 import { triggerWorkflows, triggerPreferenceWorkflows, recheckRecordCreateWorkflows } from '../../_lib/workflows.js';
 import { triggerZohoCrmSync, awaitZohoCrmSyncForResponse } from '../../_lib/zohoCrmSync.js';
@@ -2719,6 +2720,13 @@ export default async function handler(req, res) {
       }
 
       // Validate only the authorized payload; release scheduling never grants
+      if (['event','complexevent'].includes(entityNorm)) {
+        for (const record of Array.isArray(sanitizedBody)?sanitizedBody:[sanitizedBody]) {
+          if (Object.hasOwn(record,'registration_association_config'))
+            record.registration_association_config=await validateRegistrationAssociationConfig(supabase,tenantCtx.tenantId,
+              record.registration_association_config,await hasAdminAccess(tenantCtx));
+        }
+      }
       // additional audience access or changes the event-write guardrails.
       if (entityNorm === 'event' || entityNorm === 'complexeventticketclass') {
         try {

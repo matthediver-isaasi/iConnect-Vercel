@@ -1,3 +1,4 @@
+import RegistrationAssociationField from "@/components/booking/RegistrationAssociationField";
 import { ticketMemberPolicy } from "@/utils/publicTicketMembers";
 import { useEventCodeOfConduct } from "@/hooks/useEventCodeOfConduct";
 import CodeOfConductAcceptance from "@/components/booking/CodeOfConductAcceptance";
@@ -2257,11 +2258,12 @@ export function EventDetailsExperience({
                       <Label htmlFor="guest-organization" className={isGuestFormDisabled ? "text-slate-400" : ""}>
                         Organisation <span className="text-red-500">*</span>
                       </Label>
-                      <Input
+                      <RegistrationAssociationField
+                        eventId={eventId}
+                        value={guestInfo}
                         id="guest-organization"
                         placeholder="Your company or organisation"
-                        value={guestInfo.organization}
-                        onChange={(e) => setGuestInfo({...guestInfo, organization: e.target.value})}
+                        onChange={patch => setGuestInfo(prev => ({ ...prev, ...patch }))}
                         disabled={isGuestFormDisabled || allocationMode}
                         className={isGuestFormDisabled || allocationMode ? "bg-slate-100 cursor-not-allowed" : ""}
                         data-testid="input-guest-organization"
@@ -2891,6 +2893,7 @@ export function EventDetailsExperience({
                     isValid: true,
                     isGuest: true,
                     organization: guestInfo.organization,
+                    registration_association: guestInfo.registration_association || null,
                     phone: guestInfo.phone,
                     job_title: guestInfo.job_title,
                     dietary_selections: guestInfo.dietary_selections,
@@ -2927,6 +2930,7 @@ export function EventDetailsExperience({
               thirdPartyConsent={thirdPartyConsent}
               setThirdPartyConsent={setThirdPartyConsent}
               checkGuestEmailIsMember={checkGuestEmailIsMember}
+              onGuestLoginRequired={openLogin}
               checkingMemberEmail={checkingMemberEmail}
               guestEmailIsMember={guestEmailIsMember}
               allocationContext={allocationMode ? { token: allocationToken, id: allocationContext.id, ticketTypeId: allocationContext.ticketTypeId } : null}

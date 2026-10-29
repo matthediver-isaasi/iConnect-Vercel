@@ -1,3 +1,5 @@
+import RegistrationAssociationConfig from "@/components/events/RegistrationAssociationConfig";
+import { normalizeRegistrationAssociationConfig, validateRegistrationAssociationConfig } from "@/lib/registrationAssociations";
 import WaitingListTimingField from "@/components/events/WaitingListTimingField";
 import EventRegistrationCommunication, { saveEventRegistrationCommunication } from "@/components/events/EventRegistrationCommunication";
 import PublicTicketMemberFields from "@/components/events/PublicTicketMemberFields";
@@ -360,6 +362,7 @@ export default function EditEvent() {
   const [newPresetAmount, setNewPresetAmount] = useState('');
 
   const [formData, setFormData] = useState({
+    registration_association_config: normalizeRegistrationAssociationConfig(),
     title: "",
     summary: "",
     description: "",
@@ -1132,6 +1135,7 @@ export default function EditEvent() {
       const isImmediateLoad = event.status === SIMPLE_EVENT_TIMING.IMMEDIATE;
       const suppressScheduleLoad = isTbcEvent || isImmediateLoad;
       setFormData({
+        registration_association_config: normalizeRegistrationAssociationConfig(event.registration_association_config),
         title: event.title || "",
         summary: event.summary || "",
         description: event.description || "",
@@ -1581,6 +1585,7 @@ export default function EditEvent() {
     if (checkingClashes) return;
 
     const releaseErrors = [
+      ...validateRegistrationAssociationConfig(formData.registration_association_config, roles),
       ...validateTicketReleases(isOneOffEvent ? ticketClasses : []),
       ...validateTicketMemberPolicies(isOneOffEvent && !isGroupLimited ? ticketClasses : [], roles),
     ];
@@ -1829,6 +1834,7 @@ export default function EditEvent() {
       resolvedStatus === SIMPLE_EVENT_TIMING.TBC || isImmediateSave;
 
     const eventData = {
+      registration_association_config: normalizeRegistrationAssociationConfig(formData.registration_association_config),
       title: formData.title,
       slug: slug || null,
       summary: formData.summary || null,
@@ -3429,6 +3435,10 @@ export default function EditEvent() {
             </CardContent>
           </Card>
           )}
+            <div className="mb-6">
+              <RegistrationAssociationConfig value={formData.registration_association_config} roles={roles} loading={loadingRoles}
+                onChange={config => setFormData(prev => ({ ...prev, registration_association_config: config }))} />
+            </div>
           </TabsContent>
 
           <TabsContent value="tickets" forceMount className={TAB_PANEL_CLASS}>

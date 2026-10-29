@@ -86,15 +86,16 @@ export async function validatePublicTicketMemberPolicyWrite({
   await loadPublicTicketMemberRoles(db, tenantId, enabled);
 }
 
-export function buildPublicTicketMemberSnapshot({ tenantId, purchaser, items, roles }) {
+export function buildPublicTicketMemberSnapshot({ tenantId, purchaser, items, roles, associationRole = null }) {
   if (!Array.isArray(items) || items.length > 100) {
     fail('INVALID_ITEMS', 'A bounded list of ticket items is required.');
   }
-  const enabled = items.filter(item => item.ticket?.create_member_records === true);
+  const enabled = items.filter(item => item.ticket?.create_member_records === true
+    || (associationRole && (purchaser?.registration_association || item.attendees?.some(p=>p.registration_association))));
   if (!enabled.length) return null;
   const people = new Map();
   const ticketPolicies = [];
-  const add = (identity, roleId, link) => {
+  const add = (identity, roleId, link, association = null) => {
     const existing = people.get(identity.email);
     if (existing && existing.role_id !== roleId) {
       fail('ROLE_CONFLICT', 'The same person would receive different roles. Choose tickets with the same new-member role.');
@@ -104,6 +105,9 @@ export function buildPublicTicketMemberSnapshot({ tenantId, purchaser, items, ro
       fail('IDENTITY_CONFLICT', 'The same email has conflicting contact details. Correct the purchaser and attendee details.');
     }
     const person = existing || { identity, role_id: roleId, links: [] };
+    if (existing && JSON.stringify(existing.association||null)!==JSON.stringify(association))
+      fail('IDENTITY_CONFLICT','The same email has different organisation selections.');
+    if (association) person.association = association;
     if (!person.links.some(prior => JSON.stringify(prior) === JSON.stringify(link))) {
       person.links.push(link);
     }
@@ -112,27 +116,31 @@ export function buildPublicTicketMemberSnapshot({ tenantId, purchaser, items, ro
   const buyer = publicTicketIdentity(purchaser, 'The purchaser');
   for (const item of enabled) {
     const ticket = item.ticket;
-    if (!['public_only', 'members_and_public'].includes(ticket.visibility_mode)) {
+    if (!associationRole && !['public_only', 'members_and_public'].includes(ticket.visibility_mode)) {
       fail('INVALID_TICKET_POLICY', 'Member creation is only available on Public only or Members & Public tickets.');
     }
     const role = roles.find(candidate => candidate.id === ticket.new_member_role_id);
-    const roleId = assertPublicTicketRole(role, tenantId);
+    const roleId = ticket.create_member_records === true ? assertPublicTicketRole(role, tenantId) : assertPublicTicketRole(associationRole,tenantId);
     if (!Array.isArray(item.attendees) || !item.attendees.length || item.attendees.length > 100) {
       fail('IDENTITY_REQUIRED', 'Provide the attendees receiving each ticket before payment.');
     }
-    ticketPolicies.push({ ticket_id: String(ticket.id), role_id: roleId, attendee_count: item.attendees.length });
-    add(buyer, roleId, { kind: 'purchaser' });
+    ticketPolicies.push({ ticket_id: String(ticket.id??'default'), role_id: roleId, attendee_count: item.attendees.length,
+      ...(associationRole?{create_member_records:ticket.create_member_records===true}:{}) });
+    if (ticket.create_member_records === true || purchaser?.registration_association)
+      add(buyer,purchaser?.registration_association?associationRole.id:roleId,{kind:'purchaser'},purchaser?.registration_association||null);
     item.attendees.forEach((attendee, index) => {
-      add(publicTicketIdentity(attendee, 'Each attendee'), roleId, {
-        kind: 'attendee', ticket_id: String(ticket.id), item_index: items.indexOf(item), index,
-      });
+      if (ticket.create_member_records !== true && !attendee.registration_association) return;
+      add(publicTicketIdentity(attendee, 'Each attendee'), attendee.registration_association?associationRole.id:roleId, {
+        kind: 'attendee', ticket_id: String(ticket.id??'default'), item_index: items.indexOf(item), index,
+      },attendee.registration_association||null);
     });
   }
   if (people.size > 101) fail('TOO_MANY_PEOPLE', 'A purchase can create at most 101 contact records.');
   return {
     version: 1, tenant_id: tenantId, purchaser: buyer, ticket_policies: ticketPolicies,
+    ...(associationRole?{association_role_id:associationRole.id}:{}),
     booking_items: items.map(item => ({
-      ticket_id: String(item.ticket.id),
+      ticket_id: String(item.ticket.id??'default'),
       attendees: (item.attendees || []).map(person => ({
         email: normalizePublicTicketEmail(person.email),
         first_name: typeof person.first_name === 'string' ? person.first_name.trim() : '',
@@ -162,10 +170,10 @@ export async function lookupPublicTicketMemberEmails(db, tenantId, emails) {
 }
 
 export async function preflightPublicTicketMembers({
-  db, tenantId, authenticatedMember, purchaser, items, roles,
+  db, tenantId, authenticatedMember, purchaser, items, roles, associationRole = null,
 }) {
   const publicOnly = items.some(item => item.ticket?.visibility_mode === 'public_only');
-  const snapshot = buildPublicTicketMemberSnapshot({ tenantId, purchaser, items, roles });
+  const snapshot = buildPublicTicketMemberSnapshot({ tenantId, purchaser, items, roles, associationRole });
   if (!publicOnly && !snapshot) return null;
   if (authenticatedMember?.tenant_id === tenantId) {
     fail('PUBLIC_ONLY_MEMBER', 'Members cannot purchase Public only tickets. Choose a member ticket.', 403);
@@ -176,6 +184,7 @@ export async function preflightPublicTicketMembers({
   }
   const existing = await lookupPublicTicketMemberEmails(db, tenantId, [
     buyerEmail, ...(snapshot?.people.map(person => person.identity.email) || []),
+    ...(associationRole?items.flatMap(item=>item.attendees.map(person=>person.email)):[]),
   ]);
   if (existing.has(buyerEmail)) {
     fail('PUBLIC_ONLY_MEMBER', 'Members must sign in and choose a member ticket.', 409);
