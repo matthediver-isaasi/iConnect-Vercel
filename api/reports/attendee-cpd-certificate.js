@@ -7,6 +7,7 @@ import { CERTIFICATE_BOOKINGS, resolveAttendeeCertificate, renderAttendeeCertifi
 import { prepareCpdEmail } from '../_lib/eventCpdEmail.js';
 import { prepareCertificateSurveyLinks, setCertificateSurveyGrantsDelivery } from '../_lib/certificateSurveyGrants.js';
 import { resolveBadgeNotification } from '../_lib/cpdBadgeNotification.js';
+import { retainIssuedCertificate } from '../_lib/issuedCpdCertificates.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const redactCredential = value => typeof value === 'string'
@@ -163,7 +164,7 @@ export async function handleAttendeeCertificate(req, res, deps = {}) {
           throw new Error('Points award recorded but certificate must be reviewed before sending.');
         }
       }
-      const pdf = badgeOnly ? null : await render(db, resolved);
+      let pdf = badgeOnly ? null : await render(db, resolved);
       // Recheck just before the provider boundary: cancellation, changed email,
       // template/configuration changes, guest evidence and ledger corrections invalidate consent.
       const current = await resolve(db, identity);
@@ -202,6 +203,7 @@ export async function handleAttendeeCertificate(req, res, deps = {}) {
           resolveTransactionalPreferences: false,
         };
       }
+      if (pdf && !isTest) pdf = await retainIssuedCertificate(db, current, pdf, 'attendee_send');
       attempted = true;
       const result = await (deps.send || sendEmail)({
         tenantId: context.tenantId, to: recipient,

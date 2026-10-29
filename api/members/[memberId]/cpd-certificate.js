@@ -6,6 +6,7 @@ import { resolveMember } from '../../_lib/eventCpdBadgeService.js';
 import { resolveAttendeeCertificate, renderAttendeeCertificate } from '../../_lib/attendeeCpdCertificate.js';
 import { resolveHistoricCertificate } from '../../_lib/historicCpdCertificate.js';
 import { resolveManualCertificate } from '../../_lib/manualCpdAwards.js';
+import { retainIssuedCertificate } from '../../_lib/issuedCpdCertificates.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const sources = { booking: 'standard', complex_event_booking: 'complex' };
@@ -123,7 +124,7 @@ export function createMemberCpdCertificateHandler(deps = {}) {
         memberCertificateId: memberId, row };
       const resolved = await resolveCertificate(db, input);
       if (!resolved.available) return res.status(409).json({ error: resolved.reason || 'Certificate unavailable.' });
-      const pdf = await render(db, resolved);
+      let pdf = await render(db, resolved);
       const currentRow = await eligibility(db, tenantId, memberId, singleId);
       if (!currentRow || ['booking_id', 'booking_type', 'event_id', 'points_value']
         .some(key => String(currentRow[key]) !== String(row[key]))) {
@@ -133,6 +134,7 @@ export function createMemberCpdCertificateHandler(deps = {}) {
       if (!current.available || current.fingerprint !== resolved.fingerprint) {
         return res.status(409).json({ error: 'Certificate changed. Reload before downloading.' });
       }
+      pdf = await retainIssuedCertificate(db, current, pdf, 'member_download');
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="cpd-certificate-${singleId}.pdf"`);
       return res.status(200).send(pdf);

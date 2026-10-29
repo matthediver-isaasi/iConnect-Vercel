@@ -82,7 +82,7 @@ test('historic and manual issuance resolve inline-only points from their existin
     let single = false; const filters = [];
     const q = { select: () => q, order: () => q, eq(k, v) { filters.push(r => r[k] === v); return q; },
       maybeSingle() { single = true; return q; },
-      then(resolve, reject) { const data = rows[table].filter(r => filters.every(f => f(r)));
+      then(resolve, reject) { const data = (rows[table] || []).filter(r => filters.every(f => f(r)));
         return Promise.resolve({ data: single ? data[0] : data }).then(resolve, reject); } };
     return q;
   }, storage: { from: () => ({ download: async () => ({ data: new Blob([bytes]) }) }) } };

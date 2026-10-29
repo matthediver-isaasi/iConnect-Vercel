@@ -149,6 +149,7 @@ async function fixture(source = 'booking') {
     let offset = 0; let count = Infinity; let ordering = null;
     const q = {
       select() { return q; },
+      insert(value) { (db.rows[table] ||= []).push(value); return Promise.resolve({ error: null }); },
       eq(key, value) { conditions.push(row => String(row[key]) === String(value)); return q; },
       ilike(key, value) { conditions.push(row => row[key]?.toLowerCase() === value.toLowerCase()); return q; },
       order(key) { ordering = key; return q; },
@@ -164,7 +165,13 @@ async function fixture(source = 'booking') {
     }
     return q;
   };
+  const stored = new Map();
   db.storage = { from(bucket) {
+    if (bucket === 'issued-cpd-certificates') return {
+      async upload(path, pdf) { stored.set(path, Buffer.from(pdf)); return { error: null }; },
+      async download(path) { return stored.has(path) ? { data: new Blob([stored.get(path)]) } : { error: new Error('missing') }; },
+      async remove(paths) { paths.forEach(path => stored.delete(path)); return { error: null }; },
+    };
     assert.equal(bucket, 'private-uploads');
     return { async download(path) { assert.equal(path, `${tenant}/source.pdf`); return { data: new Blob([bytes]) }; } };
   } };
@@ -189,6 +196,34 @@ async function request(f, query = { ledger_entry_id: awardId, format: 'pdf' }, o
     ...query } }, res);
   return output;
 }
+
+test('issued event and historic PDFs survive template deletion and name edits; reversals still block access', async () => {
+  for (const make of [() => fixture('booking'), () => fixture('complex_event_booking'), historicFixture]) {
+    const f = await make();
+    const first = await request(f);
+    assert.equal(first.statusCode, 200, JSON.stringify(first.body));
+    assert.equal(f.db.rows.issued_cpd_certificate.length, 1);
+    f.db.rows.cpd_certificate_template = [];
+    f.db.rows.cpd_certificate_placeholder = [];
+    f.db.rows.historic_cpd_certificate = [];
+    f.db.rows.event_cpd_certificate_config = [];
+    f.db.rows.member[0].first_name = 'Updated name';
+    const again = await request(f);
+    assert.equal(again.statusCode, 200, JSON.stringify(again.body));
+    assert.deepEqual(again.body, first.body, 'downloads must return identical stored bytes');
+    const metadata = await request(f, { ledger_entry_ids: awardId });
+    assert.equal(metadata.body.certificates[awardId].available, true);
+    f.db.rows.member_cpd_points_ledger.push({ tenant_id: tenant, member_id: memberId, reversal_of: awardId });
+    assert.equal((await request(f)).statusCode, 404);
+  }
+});
+
+test('a missing saved PDF fails closed rather than generating a replacement', async () => {
+  const f = await fixture();
+  assert.equal((await request(f)).statusCode, 200);
+  f.db.rows.issued_cpd_certificate[0].source_path = `${tenant}/issued-cpd/missing.pdf`;
+  assert.equal((await request(f)).statusCode, 503);
+});
 
 test('both event types render actual ledger-backed PDFs, without email or survey access', async () => {
   for (const source of ['booking', 'complex_event_booking']) {

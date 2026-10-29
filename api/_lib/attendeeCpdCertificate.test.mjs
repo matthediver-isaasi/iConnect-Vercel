@@ -117,12 +117,48 @@ async function fixture(source = 'standard') {
     member: [], event_cpd_points_rule: [],
     attendee_cpd_certificate_delivery: [],
   });
+  const stored = new Map();
   db.storage = { from(bucket) {
+    if (bucket === 'issued-cpd-certificates') return {
+      async upload(path, pdf) { stored.set(path, Buffer.from(pdf)); return { error: null }; },
+      async download(path) { return stored.has(path) ? { data: new Blob([stored.get(path)]) } : { error: new Error('missing') }; },
+      async remove(paths) { paths.forEach(path => stored.delete(path)); return { error: null }; },
+    };
     assert.equal(bucket, 'private-uploads');
     return { async download(path) { assert.equal(path, template.source_path); return { data: new Blob([bytes]) }; } };
   } };
   return { db, booking, event, template, config, bytes, identity: { ...identity, bookingSource: source } };
 }
+
+test('preview and test email do not issue; real send and resend use a retained PDF after template removal', async () => {
+  const f = await fixture(); claims(f);
+  let resolved = await resolveAttendeeCertificate(f.db, f.identity);
+  const base = { booking_id: bookingId, booking_source: 'standard', expected_fingerprint: resolved.fingerprint };
+  assert.equal((await invoke(f, { ...base, action: 'preview' })).statusCode, 200);
+  assert.equal(f.db.rows.issued_cpd_certificate?.length || 0, 0);
+  const testSend = await invoke(f, { ...base, action: 'test-send', confirmed: true,
+    test_recipient: 'test@example.test', request_id: randomUUID() }, { send: async () => ({ success: true }) });
+  assert.equal(testSend.statusCode, 200);
+  assert.equal(f.db.rows.issued_cpd_certificate?.length || 0, 0);
+  let original;
+  const first = await invoke(f, { ...base, action: 'send', confirmed: true, request_id: randomUUID() }, {
+    send: async opts => { original = opts.attachments[0].data; return { success: true }; },
+  });
+  assert.equal(first.statusCode, 200, JSON.stringify(first.body));
+  assert.equal(f.db.rows.issued_cpd_certificate.length, 1);
+  f.db.rows.cpd_certificate_template = [];
+  f.db.rows.cpd_certificate_placeholder = [];
+  resolved = await resolveAttendeeCertificate(f.db, f.identity);
+  assert.equal(resolved.available, true);
+  const second = await invoke(f, { ...base, expected_fingerprint: resolved.fingerprint,
+    action: 'send', confirmed: true, deliberate_resend: true, request_id: randomUUID() }, {
+    send: async opts => { assert.deepEqual(opts.attachments[0].data, original); return { success: true }; },
+  });
+  assert.equal(second.statusCode, 200, JSON.stringify(second.body));
+  assert.equal(f.db.rows.issued_cpd_certificate.length, 1);
+  f.booking.attendee_email = 'someone-else@example.test';
+  assert.equal((await resolveAttendeeCertificate(f.db, f.identity)).available, false);
+});
 
 test('regular and complex guests resolve real data without attendance or points awards, and render actual PDFs', async () => {
   for (const source of ['standard', 'complex']) {
@@ -585,7 +621,8 @@ test('guest certificate uses ticket override instead of event points; preview an
     assert.equal(r.values['cpd.cpd_points'], '5');
     f.booking.ticket_class_id = 'ticket';
     f.db.rows.event_cpd_points_rule[1].active = false;
-    assert.equal((await resolveAttendeeCertificate(f.db, f.identity)).values['cpd.cpd_points'], '8');
+    // A later rule edit does not rewrite a guest certificate already issued.
+    assert.equal((await resolveAttendeeCertificate(f.db, f.identity)).values['cpd.cpd_points'], '5');
   }
 });
 

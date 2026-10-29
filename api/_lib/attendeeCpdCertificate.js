@@ -6,6 +6,7 @@ import { loadCpdEmailTemplate, prepareCpdEmail } from './eventCpdEmail.js';
 import { prepareCertificateSurveyLinks } from './certificateSurveyGrants.js';
 import { resolveMember, decideAttendanceEvidence } from './eventCpdBadgeService.js';
 import { resolveEffectiveCpdPointsRule } from './eventCpdPointsService.js';
+import { loadIssuedCertificate, readIssuedCertificate, awardSignature } from './issuedCpdCertificates.js';
 
 export const CERTIFICATE_BOOKINGS = { standard: 'booking', complex: 'complex_event_booking' };
 export const certificateFingerprint = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -132,8 +133,11 @@ export async function resolveAttendeeCertificate(db, { tenantId, bookingId, book
   if (['cancelled', 'canceled', 'transferred', 'refunded'].includes(booking.status)) {
     return { ...base, reason: 'This booking is cancelled, transferred or refunded.' };
   }
+  const certificateIdentity = { tenantId, key: `${bookingSource}:${bookingId}` };
+  const issuedCertificate = emailOnly ? null : await loadIssuedCertificate(db, tenantId, certificateIdentity.key);
+  const saved = issuedCertificate?.snapshot;
   let ticketId = booking.ticket_class_id;
-  if (ticketId == null || ticketId === '') {
+  if (!saved && (ticketId == null || ticketId === '')) {
     let tickets = event.pricing_config?.ticket_classes || [];
     if (eventType === 'complex') {
       const result = await db.from('complex_event_ticket_class').select('id,name')
@@ -151,7 +155,7 @@ export async function resolveAttendeeCertificate(db, { tenantId, bookingId, book
   }
   let policy;
   try {
-    policy = await resolveEventCpdCertificate(db, {
+    policy = saved?.policy || await resolveEventCpdCertificate(db, {
       tenantId, eventType, eventId: booking.event_id, ticketId,
     });
   } catch (error) {
@@ -159,6 +163,12 @@ export async function resolveAttendeeCertificate(db, { tenantId, bookingId, book
       return { ...base, reason: 'The booked ticket no longer belongs to this event.' };
     }
     throw error;
+  }
+  if (saved && !memberCertificateId) {
+    // Freeze the issued PDF, not the current email selection or survey delivery.
+    const config = await loadCertificateConfig(db, tenantId, eventType, booking.event_id);
+    policy = { ...policy, email_template_id: config.eventRule?.email_template_id ?? null,
+      email_selection_missing: !Object.hasOwn(config.eventRule || {}, 'email_template_id') };
   }
   if (emailOnly && !policy.available) {
     const config=await loadCertificateConfig(db,tenantId,eventType,booking.event_id);
@@ -173,12 +183,12 @@ export async function resolveAttendeeCertificate(db, { tenantId, bookingId, book
       }};
   }
   if (!emailOnly && !policy.available) return { ...base, reason: `Certificate unavailable: ${policy.reason.replaceAll('_', ' ')}.` };
-  const template = emailOnly ? {} : await one(db, 'cpd_certificate_template', tenantId, policy.template_id);
-  if (!emailOnly && (!template || template.status !== 'active' || template.source_bucket !== 'private-uploads'
+  const template = emailOnly ? {} : saved?.template || await one(db, 'cpd_certificate_template', tenantId, policy.template_id);
+  if (!emailOnly && !saved && (!template || template.status !== 'active' || template.source_bucket !== 'private-uploads'
     || !template.source_path?.startsWith(`${tenantId}/`))) {
     return { ...base, reason: 'The active tenant-private certificate template is unavailable.' };
   }
-  const { data: fields, error } = emailOnly ? {data:[],error:null} : await db.from('cpd_certificate_placeholder').select('*')
+  const { data: fields, error } = emailOnly ? {data:[],error:null} : saved ? { data: saved.placeholders, error: null } : await db.from('cpd_certificate_placeholder').select('*')
     .eq('tenant_id', tenantId).eq('template_id', template.id)
     .order('page_number').order('display_order').order('id');
   if (error) throw error;
@@ -235,6 +245,14 @@ export async function resolveAttendeeCertificate(db, { tenantId, bookingId, book
       values['cpd.cpd_points'] = Number(rule.points_value);
     }
   }
+  const currentAwardSignature = certificateFingerprint({
+    ledger: awardSignature(pointsRows), memberId: attendeeMemberId || null,
+    recipient: recipient.toLowerCase(),
+  });
+  if (saved && saved.award_signature !== currentAwardSignature) {
+    return { ...base, reason: 'The points award has changed since this certificate was issued. Please ask an administrator to review it.' };
+  }
+  if (saved) Object.assign(values, saved.values);
   const real = realCertificatePlaceholders(fields, values);
   if (!attendeeName || real.missing.length) return { ...base, reason: !attendeeName
     ? 'The attendee name is missing.' : `Required certificate data is unavailable: ${real.missing.join(', ')}.` };
@@ -246,7 +264,8 @@ export async function resolveAttendeeCertificate(db, { tenantId, bookingId, book
       values, placeholders: real.placeholders, pointsRows,
     });
     return { ...base, available: true, fingerprint, template_name: template.name,
-      template, placeholders: real.placeholders, values };
+      template, placeholders: real.placeholders, values, certificateIdentity, issuedCertificate,
+      certificatePolicy: policy, awardSignature: currentAwardSignature };
   }
   const emailValues = {
     attendee_name: attendeeName, attendee_first_name: firstName, attendee_last_name: lastName,
@@ -289,10 +308,12 @@ export async function resolveAttendeeCertificate(db, { tenantId, bookingId, book
     email_values: emailValues, email_selection: emailSelection, survey_list: surveyList,
     survey_list_enabled: usesSurveyList, event_id: booking.event_id,
     send_reason: email.reason || (validCertificateRecipient(recipient) ? null : 'The attendee booking has no valid email address.'),
-    template_name: template.name, template, placeholders: real.placeholders, values, provenance };
+    template_name: template.name, template, placeholders: real.placeholders, values, provenance,
+    certificateIdentity, issuedCertificate, certificatePolicy: policy, awardSignature: currentAwardSignature };
 }
 
 export async function renderAttendeeCertificate(db, resolved) {
+  if (resolved.issuedCertificate) return readIssuedCertificate(db, resolved.issuedCertificate);
   const { data, error } = await db.storage.from('private-uploads').download(resolved.template.source_path);
   if (error || !data) throw new Error('The private certificate PDF could not be read');
   const bytes = Buffer.from(await data.arrayBuffer());

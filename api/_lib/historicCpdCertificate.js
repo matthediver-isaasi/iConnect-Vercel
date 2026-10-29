@@ -2,9 +2,18 @@ import { certificateFingerprint, realCertificatePlaceholders } from './attendeeC
 import { createHash } from 'node:crypto';
 import { inspectPdf, renderCpdCertificatePdf } from './cpdCertificatePdf.js';
 import { hasHistoricCertificateFields } from '../../shared/historicCpdCertificateContract.js';
+import { loadIssuedCertificate, awardSignature } from './issuedCpdCertificates.js';
 
 const unavailable = () => ({ available: false, reason: 'Historic certificate unavailable. Please contact your administrator.' });
 export async function resolveHistoricCertificate(db, { tenantId, memberCertificateId, row }) {
+  const certificateIdentity = { tenantId, key: `historic:${row.id}` };
+  const signature = awardSignature([row]);
+  const issuedCertificate = await loadIssuedCertificate(db, tenantId, certificateIdentity.key);
+  if (issuedCertificate) {
+    if (issuedCertificate.snapshot.award_signature !== signature) return unavailable();
+    return { available: true, ...issuedCertificate.snapshot, certificateIdentity, issuedCertificate,
+      awardSignature: signature, fingerprint: certificateFingerprint(issuedCertificate.snapshot) };
+  }
   const get = async (table, column, value) => {
     const result = await db.from(table).select('*').eq('tenant_id', tenantId).eq(column, value).maybeSingle();
     if (result.error) throw result.error;
@@ -43,5 +52,6 @@ export async function resolveHistoricCertificate(db, { tenantId, memberCertifica
     await renderCpdCertificatePdf(bytes, real.placeholders, values);
   } catch { return unavailable(); }
   return { available: true, template, placeholders: real.placeholders, values,
+    certificateIdentity, awardSignature: signature,
     fingerprint: certificateFingerprint({ designation, template, placeholders: real.placeholders, values, awardId: row.id }) };
 }
