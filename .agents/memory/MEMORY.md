@@ -155,3 +155,4 @@
 - [Zoom recovery approval](zoom-recovery-approval.md) — read-only diagnosis is not permission for live registration changes or message sends.
 - [Event follow-up policy](event-follow-up-policy.md) — day and overall-event ends use full programme completion, not recipient-specific final sessions.
 - [Certificate text recovery](certificate-authored-text-recovery.md) — example wording is not recovery evidence; schema repair and guarded content restoration are separate.
+- [Exhibition bundle sales](exhibition-bundle-sales.md) — Bronze/Silver/Gold/Platinum packages by event; stand-size mappings in guidance are illustrative.

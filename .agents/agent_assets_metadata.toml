@@ -1699,3 +1699,17 @@ mtime_ms = 1793206235607
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/743c1c43-4e89-4d52-b7c3-64130b488261/f0e23823-c32d-4aa1-b2b2-07b185f4ae94"
 storage_version_token = "1793206246866427"
 content_type = "text/csv"
+
+[[outputs]]
+id = "Y9fX8lAXtEbhbjGcFxhhy"
+uri = "file://generated-artifacts/exhibition-bundle-guide/Exhibition-Bundles-User-Guide.pdf"
+type = "pdf"
+title = "Exhibition Bundles — User Guide"
+description = "A three-page, non-technical guide to setting up Bronze, Silver, Gold and Platinum packages, event-specific stand inventory, and allocating stands on proposals."
+logical_id = "51d6bf2a-b247-40f4-8f0a-b7ca8cba0c83"
+content_hash = "sha256:ac61e604e6d60fff19838681f607112be9eb92a29ddd9b0c3388cab877cdc590"
+size = 38950
+mtime_ms = 1793260757011
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/51d6bf2a-b247-40f4-8f0a-b7ca8cba0c83/338f9652-5d95-49e6-bd37-0be2bdb35154"
+storage_version_token = "1793260766455148"
+content_type = "application/pdf"
