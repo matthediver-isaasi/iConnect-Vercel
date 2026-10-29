@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { CPD_REPLAY_ENDPOINT, canConfirmCpdPreview, cpdRegistrationKey, readCpdReplayResponse } from "@/lib/cpdPointsReplay";
+import { formatCpdPoints } from "@/lib/formatCpdPoints";
 
 const LABELS = {
   eligible: "Eligible", already_awarded: "Already awarded", no_rule: "No rule",
@@ -220,12 +221,11 @@ export default function CpdPointsReplayDialog({ scope, scopeLabel, replayId: ini
          )}
         {replayId ? (
           <>
-            <p className="text-xs break-all">Processing ID: {replayId}</p>
             {result && <>
               <p className="text-sm">Reason: {result.reason}</p>
               <div className="flex flex-wrap gap-3 text-sm" aria-label="Processing totals">
                 {["registrations", "pending", "awarded", "unchanged", "retrying", "failed"].map(key => <span key={key}>{key === "registrations" ? "Registrations" : LABELS[key]}: <strong>{result.totals[key]}</strong></span>)}
-                <span>Actual points awarded: <strong>{result.totals.awarded_points}</strong></span>
+                <span>Actual points awarded: <strong>{formatCpdPoints(result.totals.awarded_points)}</strong></span>
               </div>
               <p role="status" className="text-sm">{result.complete
                 ? Number(result.totals.failed) > 0 ? "Processing finished with failures. Review the rows below." : "Processing finished. Review the actual outcomes below."
@@ -236,7 +236,7 @@ export default function CpdPointsReplayDialog({ scope, scopeLabel, replayId: ini
           </>
         ) : preview && (
           <div className="space-y-2 text-sm">
-            <p role="status">{preview.complete ? "Preview complete" : "Preview incomplete — confirmation is unavailable"} · {preview.totals.registrations} unique registrations · {preview.totals.eligible} eligible for new points · <strong>{preview.totals.proposed_points} additional / new points</strong></p>
+            <p role="status">{preview.complete ? "Preview complete" : "Preview incomplete — confirmation is unavailable"} · {preview.totals.registrations} unique registrations · {preview.totals.eligible} eligible for new points · <strong>{formatCpdPoints(preview.totals.proposed_points)} additional / new points</strong></p>
             <p className="text-muted-foreground">Additional / new points are what this reprocessing would add, not the attendee&apos;s total earned CPD. Already awarded means no new award will be created, not that zero points were earned.</p>
             <dl className="flex flex-wrap gap-x-5 gap-y-2 rounded border bg-muted/40 p-3" aria-label="Preview outcome counts">
               {Object.entries(rows.reduce((counts, row) => {
@@ -265,9 +265,9 @@ export default function CpdPointsReplayDialog({ scope, scopeLabel, replayId: ini
                 <th className="p-2 text-left">{replayId ? "Actual outcome" : "Predicted outcome"}</th>
               </tr></thead>
               <tbody>{visibleRows.map(row => <tr key={cpdRegistrationKey(row)} className="border-b last:border-0">
-                <td className="p-2"><span>{row.attendee_name || "Unnamed attendee"}</span><span className="block text-xs text-muted-foreground break-all">{row.booking_source} · {row.booking_id}<br />Event: {row.event_id}</span></td>
-                {!replayId && <><td className="p-2">{row.rule ? `${row.rule.ticket_id ? "Ticket override" : "Event-wide"}: ${row.rule.no_award ? "No award" : `${row.rule.points} points`}` : "No rule"}</td><td className="p-2">{row.trigger === "registration" ? "Registration" : row.trigger === "attendance" ? "Verified attendance" : "—"}</td></>}
-                <td className="p-2">{replayId ? row.points ?? "—" : row.proposed_points}</td>
+                <td className="p-2"><span>{row.attendee_name || "Unnamed attendee"}</span></td>
+                {!replayId && <><td className="p-2">{row.rule ? `${row.rule.ticket_id ? "Ticket override" : "Event-wide"}: ${row.rule.no_award ? "No award" : `${formatCpdPoints(row.rule.points)} points`}` : "No rule"}</td><td className="p-2">{row.trigger === "registration" ? "Registration" : row.trigger === "attendance" ? "Verified attendance" : "—"}</td></>}
+                <td className="p-2">{formatCpdPoints(replayId ? row.points : row.proposed_points)}</td>
                 <td className="p-2">{LABELS[row.detail === "registration_only_hold" ? row.detail : row.status || row.outcome] || row.status || row.outcome}{outcomeReason(row) && <span className="block text-xs text-muted-foreground">{outcomeReason(row)}</span>}{row.detail && row.detail !== "registration_only_hold" && <span className="block text-xs text-muted-foreground">{row.detail}</span>}</td>
               </tr>)}</tbody>
             </table>

@@ -258,12 +258,16 @@ test("certificate option exposes real selected-attendee PDF; preview never sends
     await toggle("Send/resend badge notification emails");
     await toggle(certificateOption);
     assert.ok(button("Preview certificate PDF"));
+    assert.deepEqual([...document.querySelectorAll("select option")].map(option => option.textContent), ["Example Attendee", "Samira Walsh"]);
+    assert.doesNotMatch(document.body.textContent, /booking-1|booking-2|event-1|\bstandard\b|\bcomplex\b/);
     assert.equal(calls.length, 1, "selecting certificate does not send, award, or even request a PDF");
     await act(async () => {
       const select = document.querySelector("select");
       select.value = cpdRegistrationKey(second);
       select.dispatchEvent(new Event("change", { bubbles: true }));
     });
+    assert.match(document.body.textContent, /Selected: Samira Walsh/);
+    assert.doesNotMatch(document.body.textContent, /booking-2|\bcomplex\b/);
     await click("Preview certificate PDF");
     await tick();
     const post = calls.find(item => item.body?.action === "preview" && item.url.includes("attendee-cpd-certificate"));
@@ -409,5 +413,58 @@ test("switching away from a displayed PDF revokes it immediately; unavailable at
   } finally {
     await view.cleanup();
     URL.createObjectURL = oldCreate; URL.revokeObjectURL = oldRevoke;
+  }
+});
+
+test("preview hides technical identities and formats rule, row, and total points without rounding", async () => {
+  const bookingId = "f7b3a87c-9b7a-4034-82ae-683ac365a421";
+  const eventId = "ca021832-6c6f-4c7e-942e-c1eccf64a1df";
+  for (const [raw, formatted] of [["8.000000", "8"], ["1.500000", "1.5"], ["0.000001", "0.000001"]]) {
+    const input = {
+      ...preview,
+      rows: [{ ...row, booking_id: bookingId, event_id: eventId, rule: { ...row.rule, points: raw }, proposed_points: raw }],
+      totals: { registrations: 1, eligible: 1, proposed_points: raw },
+    };
+    globalThis.fetch = async () => json(input);
+    const view = await mount();
+    try {
+      await tick();
+      const cells = document.querySelectorAll("tbody tr td");
+      assert.equal(cells[0].textContent, "Example Attendee");
+      assert.equal(cells[1].textContent, `Event-wide: ${formatted} points`);
+      assert.equal(cells[3].textContent, formatted);
+      assert.ok(document.body.textContent.includes(`${formatted} additional / new points`));
+      for (const technical of [bookingId, eventId, "standard"]) assert.equal(document.body.textContent.includes(technical), false);
+      assert.equal(input.rows[0].proposed_points, raw, "formatting must not mutate preview amounts");
+    } finally { await view.cleanup(); }
+  }
+});
+
+test("results hide processing and registration identities and format awarded rows and totals exactly", async () => {
+  const replayId = "55d1f187-bd54-4c65-96e6-257952ca4949";
+  const bookingId = "f7b3a87c-9b7a-4034-82ae-683ac365a421";
+  const eventId = "ca021832-6c6f-4c7e-942e-c1eccf64a1df";
+  for (const [raw, formatted] of [["8.000000", "8"], ["1.500000", "1.5"], ["0.000001", "0.000001"]]) {
+    const calls = [];
+    globalThis.fetch = async (url, options) => {
+      calls.push({url, options});
+      return json({
+        rows: [{ ...identity, booking_id: bookingId, event_id: eventId, attendee_name: "Example Attendee", status: "awarded", points: raw }],
+        reason: "Recover missing points", complete: true, total: 1,
+        totals: { registrations: 1, pending: 0, awarded: 1, unchanged: 0, retrying: 0, failed: 0, awarded_points: raw },
+      });
+    };
+    const view = await mount({replayId});
+    try {
+      await tick();
+      const cells = document.querySelectorAll("tbody tr td");
+      assert.equal(cells[0].textContent, "Example Attendee");
+      assert.equal(cells[1].textContent, formatted);
+      assert.ok(document.body.textContent.includes(`Actual points awarded: ${formatted}`));
+      for (const technical of [replayId, bookingId, eventId, "Processing ID", "standard"])
+        assert.equal(document.body.textContent.includes(technical), false, technical);
+      assert.ok(calls[0].url.includes(`replay_id=${replayId}`), "internal processing identity remains in the request");
+      assert.equal(calls[0].options.credentials, "include");
+    } finally { await view.cleanup(); }
   }
 });

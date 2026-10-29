@@ -170,10 +170,10 @@ export default function CpdFollowUpActions({registrations,ready,onBusyChange}){
       {registrations.length>1&&<label className="block space-y-1 text-sm">
         <span>Attendee for PDF preview</span>
         <select className="block w-full rounded border bg-background p-2" value={pdfRegistration?cpdRegistrationKey(pdfRegistration):""} disabled={busy} onChange={e=>setSelectedRegistration(e.target.value)}>
-          {registrations.map(row=><option key={cpdRegistrationKey(row)} value={cpdRegistrationKey(row)}>{row.attendee_name||"Unnamed attendee"} · {row.booking_source} · {row.booking_id}</option>)}
+          {registrations.map(row=><option key={cpdRegistrationKey(row)} value={cpdRegistrationKey(row)}>{row.attendee_name||"Unnamed attendee"}</option>)}
         </select>
       </label>}
-      {pdfRegistration&&<p className="text-xs text-muted-foreground">Selected: {pdfRegistration.attendee_name||"Unnamed attendee"} · {pdfRegistration.booking_source} · {pdfRegistration.booking_id}</p>}
+      {pdfRegistration&&<p className="text-xs text-muted-foreground">Selected: {pdfRegistration.attendee_name||"Unnamed attendee"}</p>}
       {ready&&pdfRegistration?<CertificatePdfPreview key={cpdRegistrationKey(pdfRegistration)} registration={pdfRegistration} disabled={busy}/>:<p className="text-sm">PDF preview is unavailable until points processing is ready and a registration is available.</p>}
     </div>}
     {(options.badgeEmail||options.certificate)&&<>
