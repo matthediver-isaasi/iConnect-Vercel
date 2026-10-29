@@ -1513,7 +1513,7 @@ async function processBooking(req, res) {
       communication_offer: await optionalEventRegistrationConsent(supabase, {
         tenantId: tenant.id, eventKind: 'complex', eventId: event_id,
         purchaseReference: bookingGroupRef, purchaser: authenticatedMember,
-        guestEmail: purchaserInfo?.email, allocation: allocationContext,
+        guestIdentity: purchaserInfo, allocation: allocationContext,
         recoveryNonce: req.body.communication_nonce,
       }),
       member_creation: memberCreation,

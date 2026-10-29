@@ -113,3 +113,34 @@ These are isolated tests, not live Stripe settlement or signed-in tenant
 end-to-end evidence. The development preview starts successfully but its root
 returns “Tenant not found”; authenticated tenant screens were not visually
 verified. Browser tests do not bypass application authentication.
+
+## Purchaser name snapshots
+
+The additive `202610290001_event_registration_consent_names.sql` migration
+was applied to verified DEST on 2026-10-29 using
+`scripts/apply-event-registration-consent-names.mjs`.
+SHA256: `69ce8a20a7c3d5e11463cb37de751e77bc662b98b8d141fd97d8b3fcc30b8b16`.
+The runner requires `--apply --review-sha256=<hash>`, pins REST and SQL project
+identity, verifies TLS, checks the old function before replacement, and verifies
+the new function and private grants transactionally. SOURCE was untouched.
+Apply this migration before releasing the matching application code in any
+other environment. No historical names were backfilled or messages sent.
+
+Names are optional, trimmed and bounded to 255 characters at fresh issuance,
+from the same purchaser object as the email. Recovery returns only the original
+capability; completion accepts no identity fields. Existing nameless offers
+remain valid. The completion transaction fills only blank names in selected
+guest categories, preserving nonblank names and normalized-email matches.
+Member profiles and the generic public signup endpoint are unchanged.
+
+Verification passed: 9 isolated consent unit tests, the disposable PostgreSQL
+suite (including names, multi-list replay, blank/nonblank names, legacy email
+casing, nameless offers, skip, rollback and global-suppression locking), and
+5 isolated browser tests including pending-offer recovery after reload.
+The simple/complex booking-handler suite also passed 46 tests with its one
+pre-existing TODO retained. It asserts that a different attendee's identity
+cannot replace the purchaser identity passed to consent issuance. Its isolated
+follow-up scheduler stub was brought up to date; no real scheduler was invoked.
+The application workflow starts, but the local root still shows the documented
+“Tenant not found” error from the legacy runtime database. Live tenant booking
+screens were not visually verified.

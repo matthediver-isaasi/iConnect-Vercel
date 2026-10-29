@@ -1,6 +1,24 @@
 import { test, expect } from '@playwright/test';
 const offer = { communication_offer: { id: 'purchase', token: 't'.repeat(43) } };
 const categories = [{id:'one',name:'News'}, {id:'two',name:'Events'}];
+test('reload recovers only the capability; identity is never editable in completion',async({page})=>{
+  const writes=[];
+  await page.route('**/api/public/event-registration-consent',route=>{
+    const body=route.request().postDataJSON();
+    if(body.action!=='choices')writes.push(body);
+    return route.fulfill({json:body.action==='choices'?{categories}:{completed:true}});
+  });
+  await page.evaluate(offer=>{void window.showOffer(offer);},offer);
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.reload();
+  await page.evaluate(()=>{void window.showOffer(null);});
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.getByRole('dialog').getByText('News',{exact:true}).click();
+  await page.getByRole('dialog').getByText('Events',{exact:true}).click();
+  await page.getByRole('button',{name:'Subscribe to selected'}).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  expect(writes).toEqual([{...offer.communication_offer,action:'subscribe',category_ids:['one','two']}]);
+});
 test.beforeEach(async ({ page }) => {
   await page.route('**/api/admin/event-registration-communication**', route =>
     route.fulfill({json:{categories,category_ids:['two']}}));

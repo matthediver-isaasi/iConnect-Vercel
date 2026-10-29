@@ -5,6 +5,33 @@ import { createEventRegistrationConsentHandler } from '../public/event-registrat
 import { createEventRegistrationCommunicationHandler } from '../admin/event-registration-communication.js';
 
 const token = 'a'.repeat(43);
+test('guest names are normalized snapshots and recovery cannot replace them', async () => {
+  for (const eventKind of ['simple','complex']) {
+    const db=fixture();
+    db.tables.event_registration_consent=[];
+    db.tables.event_registration_communication[0].event_kind=eventKind;
+    const input={tenantId:'tenant',eventKind,eventId:'event',purchaseReference:'new',
+      guestIdentity:{email:' Booker@example.test ',first_name:'  Jo ',last_name:' Booker '},
+      recoveryNonce:'b'.repeat(64)};
+    const issued=await issueEventRegistrationConsent(db,input);
+    const row=db.tables.event_registration_consent[0];
+    assert.equal(row.email,'booker@example.test');
+    assert.equal(row.first_name,'Jo');assert.equal(row.last_name,'Booker');
+    row.expires_at=new Date(Date.now()+60000).toISOString();
+    assert.deepEqual(await recoverEventRegistrationConsent(db,{...input,guestIdentity:{email:'attendee@example.test',first_name:'Attendee'}}),issued);
+    assert.equal(row.first_name,'Jo');
+    assert.deepEqual(Object.keys(issued).sort(),['id','token']);
+    await issueEventRegistrationConsent(db,{...input,guestIdentity:null,guestEmail:'old@example.test'});
+    assert.equal(db.tables.event_registration_consent.at(-1).first_name,null);
+  }
+});
+test('completion ignores editable identity and uses only stored capability',async()=>{
+  const db=fixture();const row=db.tables.event_registration_consent[0];
+  row.member_id=null;row.email='booker@example.test';row.first_name='Booker';
+  const res=await call(db,{action:'subscribe',category_ids:['open'],first_name:'Attendee',email:'other@example.test'},null);
+  assert.equal(res.code,200);
+  assert.deepEqual(Object.keys(db.calls[0].args).sort(),['p_category_ids','p_id','p_member_id','p_token_hash']);
+});
 const member = { id:'member',tenant_id:'tenant',email:'member@example.test',role_id:'role',login_enabled:true };
 function fixture() {
   const tables = {

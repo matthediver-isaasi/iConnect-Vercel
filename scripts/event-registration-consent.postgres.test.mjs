@@ -38,6 +38,7 @@ test('event opt-in SQL: isolated configuration, subscribe-only writes, suppressi
     await db.query(readFileSync('supabase/migrations/20260826_atomic_email_preference_global_state.sql','utf8'));
     await db.query(readFileSync('supabase/migrations/20260831_repair_atomic_email_preference_global_state.sql','utf8'));
     await db.query(readFileSync('supabase/migrations/202610260001_event_registration_consent.sql','utf8'));
+    await db.query(readFileSync('supabase/migrations/202610290001_event_registration_consent_names.sql','utf8'));
     const tenant = randomUUID(), foreign = randomUUID(), event = randomUUID(), member = randomUUID(), role = randomUUID();
     const a = randomUUID(), b = randomUUID(), privateCategory = randomUUID(), foreignCategory = randomUUID();
     await db.query('insert into event values($1,$2)', [event,tenant]);
@@ -47,10 +48,10 @@ test('event opt-in SQL: isolated configuration, subscribe-only writes, suppressi
     const configure = ids => db.query('select set_event_registration_communication($1,$2,$3,$4)',[tenant,'simple',event,ids]);
     await assert.rejects(configure([foreignCategory]), /Category unavailable/);
     await configure([a,b,privateCategory]);
-    const offer = async (email, memberId = null) => {
+    const offer = async (email, memberId = null, first = null, last = null) => {
       const id = randomUUID();
-      await db.query(`insert into event_registration_consent(id,tenant_id,event_kind,event_id,purchase_reference,member_id,email,token_hash)
-        values($1::uuid,$2,'simple',$3,$1::text,$4,$5,$1::text)`, [id,tenant,event,memberId,email]);
+      await db.query(`insert into event_registration_consent(id,tenant_id,event_kind,event_id,purchase_reference,member_id,email,token_hash,first_name,last_name)
+        values($1::uuid,$2,'simple',$3,$1::text,$4,$5,$1::text,$6,$7)`, [id,tenant,event,memberId,email,first,last]);
       return (ids, asMember = memberId) => db.query('select complete_event_registration_consent($1,$2,$3,$4)', [id,id,asMember,ids]);
     };
     const memberOffer = await offer('member@example.test',member);
@@ -69,6 +70,22 @@ test('event opt-in SQL: isolated configuration, subscribe-only writes, suppressi
     await assert.rejects((await offer('member@example.test',member))([b]), /Category unavailable/);
     await assert.rejects((await offer('restricted@example.test'))([b]), /Category unavailable/);
     await db.query('delete from communication_category_role');
+    const named = await offer('booker@example.test',null,'Jo','Booker');
+    await named([a,b]);
+    await named([a,b]);
+    const names = async email => (await db.query('select first_name,last_name from email_subscriber where lower(trim(email))=$1 order by first_name',[email])).rows;
+    assert.deepEqual(await names('booker@example.test'),Array(2).fill({first_name:'Jo',last_name:'Booker'}));
+    await db.query(`update email_subscriber set first_name=' ',last_name='Kept',opted_out=true where email='booker@example.test' and communication_category_id=$1`,[a]);
+    await (await offer('booker@example.test',null,'Filled','Replacement'))([a]);
+    assert.deepEqual(await names('booker@example.test'),[{first_name:'Filled',last_name:'Kept'},{first_name:'Jo',last_name:'Booker'}]);
+    await db.query(`update email_subscriber set email=' BOOKER@example.test ' where email='booker@example.test' and communication_category_id=$1`,[a]);
+    await (await offer('booker@example.test',null,'Overwrite','Overwrite'))([a]);
+    assert.equal((await names('booker@example.test')).length,2);
+    assert.deepEqual(await names('guest@example.test'),[{first_name:null,last_name:null}]);
+    await (await offer('named-skip@example.test',null,'Skip','Me'))([]);
+    assert.deepEqual(await names('named-skip@example.test'),[]);
+    await assert.rejects((await offer('rollback@example.test',null,'No','Write'))([a,privateCategory]), /Category unavailable/);
+    assert.deepEqual(await names('rollback@example.test'),[]);
     await db.query(`select set_email_preference_global_state($1,'guest@example.test',null,true,null,$2)`,[tenant,[a,b]]);
     await assert.rejects((await offer('guest@example.test'))([b]), /Subscription unavailable/);
     assert.equal((await db.query(`select count(*) from email_unsubscribe where unsubscribe_type='all'`)).rows[0].count,'1');

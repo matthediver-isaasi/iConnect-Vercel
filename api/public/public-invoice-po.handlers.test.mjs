@@ -180,6 +180,7 @@ function fixture({ enabled = true, member = null, memberEmail = null, free = fal
         return args[0].work();
       }
       if (name === 'checkBookingAttendeeJobTitles') return null;
+      if (name === 'scheduleEventFollowUps') return { error: null };
       if (name === 'optionalEventRegistrationConsent') return { id:'consent-offer',token:'fixture-offer' };
       if (name === 'recoverEventRegistrationConsent') return null;
       if (name === 'assertSimplePrivateTicketsAccessible' || name === 'assertPrivateTicketsAccessible') return;
@@ -309,7 +310,8 @@ for (const kind of ['simple', 'complex']) {
       assert.equal(result.bookings.length, 2, JSON.stringify(result.res.body));
       const consentCalls = result.calls.filter(call => call.dependency === 'optionalEventRegistrationConsent');
       assert.equal(consentCalls.length, 1, 'one booker offer for the successful purchase, not each attendee');
-      assert.equal(consentCalls[0].consent.guestEmail, purchaser.email);
+      assert.deepEqual(consentCalls[0].consent.guestIdentity, purchaser);
+      assert.notEqual(consentCalls[0].consent.guestIdentity.first_name, attendee.first_name);
       assert.equal(consentCalls[0].consent.purchaser, null);
       for (const booking of result.bookings) {
         assert.equal(booking.status, 'confirmed');

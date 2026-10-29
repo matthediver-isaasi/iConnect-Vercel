@@ -30,13 +30,16 @@ export async function cloneEventRegistrationCommunication(db, tenantId, kind, fr
 // Called only at the fresh, fulfilled purchase boundary, never for allocation
 // claims, payment initiation, raw booking lookups or historical replay.
 export async function issueEventRegistrationConsent(db, {
-  tenantId, eventKind, eventId, purchaseReference, purchaser, guestEmail, allocation, recoveryNonce,
+  tenantId, eventKind, eventId, purchaseReference, purchaser, guestEmail, guestIdentity, allocation, recoveryNonce,
 }) {
   if (allocation || !purchaseReference) return null;
   const config = await consentData(db.from('event_registration_communication').select('category_ids')
     .eq('tenant_id', tenantId).eq('event_kind', eventKind).eq('event_id', eventId).maybeSingle());
   if (!config?.category_ids?.length) return null;
-  const email = String(purchaser?.email || guestEmail || '').trim().toLowerCase();
+  const email = String(purchaser?.email || guestIdentity?.email || guestEmail || '').trim().toLowerCase();
+  // Snapshot only the identity supplying the email, never an attendee fallback.
+  const identity = purchaser || guestIdentity;
+  const name = value => typeof value === 'string' ? value.trim().slice(0, 255) || null : null;
   if (!email || !email.includes('@')) return null;
   if (purchaser && purchaser.tenant_id !== tenantId && purchaser.organization?.tenant_id !== tenantId) return null;
   const token = /^[a-f0-9]{64}$/.test(recoveryNonce || '')
@@ -45,7 +48,8 @@ export async function issueEventRegistrationConsent(db, {
   const { data, error } = await db.from('event_registration_consent').insert({
     tenant_id: tenantId, event_kind: eventKind, event_id: eventId,
     purchase_reference: purchaseReference, member_id: purchaser?.id || null,
-    email, token_hash: consentHash(token),
+    email, first_name: name(identity?.first_name), last_name: name(identity?.last_name),
+    token_hash: consentHash(token),
     recovery_hash: /^[a-f0-9]{64}$/.test(recoveryNonce || '') ? consentHash(recoveryNonce) : null,
   }).select('id').single();
   if (error?.code === '23505') return null; // Never renew a completed/dismissed purchase.

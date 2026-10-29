@@ -3909,7 +3909,7 @@ const functionHandlers = {
     response.communication_offer = paymentMethod === 'card' && !stripePaymentIntentId ? null : await optionalEventRegistrationConsent(supabase, {
       tenantId: event.tenant_id, eventKind: 'simple', eventId: event.id,
       purchaseReference: bookingReference, purchaser: bookingSessionMember,
-      guestEmail: purchaserInfo?.email || params.purchaserInfo?.email || guestInfo?.email,
+      guestIdentity: purchaserInfo?.email ? purchaserInfo : params.purchaserInfo?.email ? params.purchaserInfo : guestInfo,
       allocation: allocationContext,
       recoveryNonce: params.communication_nonce,
     });
