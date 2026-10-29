@@ -1,12 +1,11 @@
 // Isolated browser fixtures: real modal and hooks, no authentication bypass in
 // the application and no requests to real tenant/accounting services.
-// Run after npm run build so the fixture uses the application's compiled CSS.
+// Compile the current application CSS so layout assertions cannot use stale assets.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 import { chromium } from 'playwright';
 import { createServer } from 'node:http';
-import { readFile, readdir } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 
 let browser, server, origin;
@@ -25,17 +24,22 @@ before(async () => {
       import {MemoryRouter} from 'react-router-dom';
       import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
       import {EditDialog} from './client/src/pages/sales/Catalogue.jsx';
-      const edit = new URLSearchParams(location.search).has('edit');
+      const params = new URLSearchParams(location.search);
+      const edit = params.has('edit');
+      const type = params.get('type') || 'products';
+      const products = Array.from({length:8},(_,i)=>({id:'p'+i,name:'Fixture product '+i,categoryId:'category',standardPriceMinor:1000}));
       const row = {id:'existing',name:'Existing product',code:'EXISTING',currency:'GBP',
+        sellingPriceMinor:8000, items:products.map(p=>({productId:p.id,quantity:1})),
+        billingGroups:products.map((p,i)=>({id:'g'+i,name:'Milestone '+i,productIds:[p.id],allocatedMinor:1000,timing:{kind:'acceptance',days:0},paymentTerms:{id:'terms',name:'30 days',days:30}})),
         standardPriceMinor:12500,minimumPriceMinor:null,costMinor:0,
         taxRateBps:2000,taxTreatment:'standard',capacityMetadata:{venueZone:'Hall A',nested:{keep:true}}};
-      const config={type:'products', ...(edit?{row}:{})};
+      const config={type, ...(edit?{row}:params.has('copy')?{copySource:row}:{})};
       const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
       createRoot(document.getElementById('root')).render(
         <MemoryRouter><QueryClientProvider client={client}>
           <EditDialog showInternalCode showSku config={config} categories={[{id:'category',name:'Training'}]} categoriesLoading={false}
-            products={[]} events={{items:[{id:'event',name:'Fixture event',kind:'complex',ticketOptions:[{id:'ticket',name:'Group place',delegateCapacity:4}]}]}}
-            saving={false} onClose={()=>{}} onSave={data=>{window.savedProduct=data}} />
+            products={products} events={{items:[{id:'event',name:'Fixture event',kind:'complex',ticketOptions:[{id:'ticket',name:'Group place',delegateCapacity:4}]}]}}
+            saving={false} onClose={()=>{window.dialogClosed=true}} onSave={data=>{window.savedProduct=data}} />
         </QueryClientProvider></MemoryRouter>);
     `, resolveDir: process.cwd(), loader: 'jsx' },
     bundle: true, write: false, format: 'iife', jsx: 'automatic',
@@ -46,7 +50,7 @@ before(async () => {
       setup(builder) {
         builder.onResolve({ filter: /\/useSalesSettings$/ }, () => ({ path: 'settings', namespace: 'settings-fixture' }));
         builder.onLoad({ filter: /.*/, namespace: 'settings-fixture' }, () => ({
-          contents: "export const useSalesSettings=()=>({data:{showInternalCode:true,showSku:true},isPending:false,isError:false}); export const useSalesSettingsScope=()=>({scopeKey:'fixture',ready:true});",
+          contents: "export const useSalesSettings=()=>({ready:true,data:{showInternalCode:true,showSku:true,billingPresets:{paymentTerms:[{id:'terms',name:'30 days',days:30,isActive:true,isDefault:true}]}},isPending:false,isError:false}); export const useSalesSettingsScope=()=>({scopeKey:'fixture',ready:true});",
         }));
         builder.onResolve({ filter: /base44Client$/ }, () => ({ path: 'api', namespace: 'fixture' }));
         builder.onLoad({ filter: /.*/, namespace: 'fixture' }, () => ({
@@ -55,18 +59,19 @@ before(async () => {
       },
     }],
   });
-  const cssFiles = (await readdir('dist/public/assets')).filter(name => /^index-.*\.css$/.test(name));
-  assert.ok(cssFiles.length, 'Run npm run build first');
-  const css = await readFile(`dist/public/assets/${cssFiles[0]}`);
+  const css = execFileSync('node', ['node_modules/tailwindcss/lib/cli.js', '-i', 'client/src/index.css'], { maxBuffer: 10 * 1024 * 1024 });
   server = createServer((req, res) => {
     if (req.url === '/fixture.js') { res.setHeader('Content-Type', 'text/javascript'); return res.end(output.outputFiles[0].text); }
     if (req.url === '/fixture.css') { res.setHeader('Content-Type', 'text/css'); return res.end(css); }
     if (req.url === '/api/sales/catalogue/tax-options') {
       res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify(options));
     }
+    if (req.url.startsWith('/api/sales/exhibition?')) {
+      res.setHeader('Content-Type', 'application/json'); return res.end('{"items":[]}');
+    }
     if (req.url.startsWith('/api/')) { res.statusCode = 500; return res.end('Unexpected fixture API'); }
     res.setHeader('Content-Type', 'text/html');
-    res.end('<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>');
+    res.end('<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"></head><body><div id="root"></div><div style="height:3000px">Underlying page</div><script src="/fixture.js"></script></body></html>');
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   origin = `http://127.0.0.1:${server.address().port}`;
@@ -77,7 +82,7 @@ after(async () => {
   if (server) await new Promise(resolve => server.close(resolve));
 });
 async function open(viewport, suffix = '', failTax = false) {
-  const page = await browser.newPage({ viewport });
+  const page = await browser.newPage({ viewport, hasTouch: true });
   await page.route('**/*', route => {
     const url = route.request().url();
     if (!url.startsWith(origin)) return route.abort();
@@ -142,3 +147,134 @@ test('existing product retains money, tax and hidden metadata when tax lookup fa
     assert.deepEqual(saved.capacityMetadata, { venueZone: 'Hall A', nested: { keep: true } });
   } finally { await page.close(); }
 });
+
+for (const viewport of [{ width: 1024, height: 480 }, { width: 360, height: 640 }]) {
+  test(`bundle scroll ownership and keyboard viewport at ${viewport.width}px`, async () => {
+    const page = await open(viewport, '?type=bundles&edit=1');
+    try {
+      const metrics = await page.locator('form').evaluate(form => {
+        const dialog = form.closest('[role=dialog]');
+        return { formHeight: form.clientHeight, formScrollHeight: form.scrollHeight, formOverflow: getComputedStyle(form).overflowY,
+          dialogHeight: dialog.clientHeight, dialogScrollHeight: dialog.scrollHeight, dialogOverflow: getComputedStyle(dialog).overflowY };
+      });
+      console.log('Bundle scroll metrics', viewport.width, metrics);
+      // Simulate the visual viewport shrinking and panning when a keyboard opens.
+      await page.evaluate(() => {
+        Object.defineProperty(window.visualViewport, 'height', { configurable: true, value: 300 });
+        Object.defineProperty(window.visualViewport, 'offsetTop', { configurable: true, value: 40 });
+        window.visualViewport.dispatchEvent(new Event('resize'));
+      });
+      await page.waitForFunction(() => {
+        const rect = document.querySelector('[role=dialog]').getBoundingClientRect();
+        return rect.y >= 40 && rect.bottom <= 340;
+      });
+      const rect = await page.getByRole('dialog').boundingBox();
+      assert.ok(rect.y >= 40 && rect.y + rect.height <= 340, `Dialog outside visible keyboard viewport: ${JSON.stringify(rect)}`);
+      assert.equal(metrics.formOverflow, 'auto');
+      assert.ok(metrics.formScrollHeight > metrics.formHeight);
+      await page.locator('textarea').fill('Keyboard viewport description');
+      await page.keyboard.press('Tab');
+      assert.equal(await page.getByRole('button', { name: 'Cancel', exact: true }).evaluate(el => el === document.activeElement), true);
+      await page.keyboard.press('Tab');
+      const save = page.getByRole('button', { name: 'Save catalogue item' });
+      assert.equal(await save.evaluate(el => el === document.activeElement), true);
+      const saveRect = await save.boundingBox();
+      assert.ok(saveRect.y >= rect.y && saveRect.y + saveRect.height <= rect.y + rect.height);
+      await page.keyboard.press('Enter');
+      assert.equal(await page.evaluate(() => window.savedProduct.description), 'Keyboard viewport description');
+      // Restore from keyboard, then resize the actual browser viewport as well.
+      await page.evaluate(() => {
+        delete window.visualViewport.height;
+        delete window.visualViewport.offsetTop;
+        window.visualViewport.dispatchEvent(new Event('scroll'));
+      });
+      await page.setViewportSize({ width: viewport.width, height: 400 });
+      await page.waitForFunction(() => document.querySelector('[role=dialog]').getBoundingClientRect().bottom <= 400);
+    } finally { await page.close(); }
+  });
+
+  for (const mode of ['add', 'edit', 'copy']) {
+    test(`bundle ${mode}: growing content, wheel, touch and actions at ${viewport.width}px`, async () => {
+      const page = await open(viewport, `?type=bundles&${mode}=1`);
+      try {
+        const form = page.locator('form');
+        if (mode === 'add') {
+          await page.getByLabel('Name', { exact: true }).fill('Fixture bundle');
+          await page.getByLabel('Internal code', { exact: true }).fill('FIXTURE');
+          await page.getByLabel('Selling price', { exact: true }).fill('80.00');
+          for (let i = 1; i <= 8; i++) {
+            await page.getByRole('button', { name: 'Add item', exact: true }).click();
+            await page.getByLabel(`Included category ${i}`, { exact: true }).selectOption('category');
+            await page.getByLabel(`Included product ${i}`, { exact: true }).selectOption(`p${i - 1}`);
+            await page.getByRole('button', { name: 'Add billing group', exact: true }).click();
+            await page.getByLabel(`Billing group ${i} name`, { exact: true }).fill(`Milestone ${i}`);
+            await page.getByLabel(`Billing group for product ${i}`, { exact: true }).selectOption({ label: `Milestone ${i}` });
+          }
+          await page.getByRole('button', { name: 'Apply suggested allocations' }).click();
+        }
+        // Presentation mode is the remaining portalled Radix select in bundles.
+        await page.getByRole('combobox').filter({ has: page.locator('span') }).first().click();
+        await page.getByRole('option', { name: 'Itemised products', exact: true }).click();
+        await form.evaluate(el => { el.scrollTop = 0; });
+        const dialog = await page.getByRole('dialog').boundingBox();
+        assert.ok(dialog.x >= 0 && dialog.x + dialog.width <= viewport.width);
+        assert.equal(await form.evaluate(el => el.scrollWidth <= el.clientWidth), true);
+        await page.mouse.move(dialog.x + 8, dialog.y + dialog.height / 2);
+        await page.mouse.wheel(0, 700);
+        await page.waitForFunction(() => document.querySelector('form').scrollTop > 100);
+        const beforeTouch = await form.evaluate(el => el.scrollTop);
+        const session = await page.context().newCDPSession(page);
+        const x = Math.round(dialog.x + 8);
+        const y = Math.round(dialog.y + dialog.height - 60);
+        await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+        for (let offset = 20; offset <= 160; offset += 20) {
+          await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y - offset }] });
+          await page.waitForTimeout(20);
+        }
+        await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        await page.waitForFunction(previous => document.querySelector('form').scrollTop > previous, beforeTouch);
+        await session.detach();
+        // Wheel, not automation's scrollIntoView, must reveal the lower controls.
+        await page.waitForTimeout(500); // Allow touch momentum to finish before switching inputs.
+        await page.mouse.move(dialog.x + 8, dialog.y + dialog.height / 2);
+        await page.mouse.wheel(0, 20000);
+        await page.waitForFunction(() => {
+          const el = document.querySelector('form');
+          return el.scrollHeight - el.scrollTop - el.clientHeight < 2;
+        });
+        assert.equal(await page.evaluate(() => window.scrollY), 0);
+        assert.equal(await page.getByRole('dialog').evaluate(el => el.scrollTop), 0);
+        const close = await page.getByRole('button', { name: 'Close', exact: true }).boundingBox();
+        assert.ok(close.y >= dialog.y && close.y + close.height <= dialog.y + dialog.height);
+        const save = page.getByRole('button', { name: 'Save catalogue item' });
+        const saveRect = await save.boundingBox();
+        assert.ok(saveRect.y >= dialog.y && saveRect.y + saveRect.height <= dialog.y + dialog.height);
+        await page.locator('textarea').fill(`${mode} lower description`);
+        await page.screenshot({ path: `/tmp/sales-bundle-${mode}-${viewport.width}.png` });
+        await save.click();
+        const saved = await page.evaluate(() => window.savedProduct);
+        assert.equal(saved.description, `${mode} lower description`);
+        assert.equal(saved.items.length, 8);
+        assert.equal(saved.billingGroups.length, 8);
+        assert.equal(saved.sellingPriceMinor, 8000);
+        assert.equal(saved.presentationMode, 'itemised');
+        assert.equal(saved.copySourceId, mode === 'copy' ? 'existing' : undefined);
+        await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+        assert.equal(await page.evaluate(() => window.dialogClosed), true);
+      } finally { await page.close(); }
+    });
+  }
+
+  test(`category editor still saves at ${viewport.width}px`, async () => {
+    const page = await open(viewport, '?type=categories');
+    try {
+      await page.getByLabel('Name', { exact: true }).fill('Fixture category');
+      await page.locator('textarea').fill('Category description');
+      await page.getByRole('button', { name: 'Save catalogue item' }).click();
+      const saved = await page.evaluate(() => window.savedProduct);
+      assert.equal(saved.name, 'Fixture category');
+      assert.equal(saved.description, 'Category description');
+      assert.ok(saved.code);
+    } finally { await page.close(); }
+  });
+}

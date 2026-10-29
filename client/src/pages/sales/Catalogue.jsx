@@ -122,6 +122,7 @@ export function CatalogueTable({ rows, type, categories, products, onEdit, onDup
 
 export function EditDialog({ config, categories, categoriesLoading, productsLoading = false, catalogueError = false, products, events, onClose, onSave, saving, showInternalCode = false, showSku = false }) {
   const type = config?.type; const [form, setForm] = useState(blank[type] || blank.categories);
+  const boundedDialog = type === "products" || type === "bundles";
   const [categoryCodeEdited, setCategoryCodeEdited] = useState(false);
   const [selectedTaxId, setSelectedTaxId] = useState("");
   const [formError, setFormError] = useState("");
@@ -131,7 +132,7 @@ export function EditDialog({ config, categories, categoriesLoading, productsLoad
   const copyTaxInitialized = useRef(false);
   const taxOptions = useCatalogueTaxOptions(Boolean(config && type === "products"));
   useEffect(() => {
-    if (!config || type !== "products") return;
+    if (!config || !boundedDialog) return;
     const visual = window.visualViewport;
     const measure = () => setViewport({ height: visual?.height || window.innerHeight, top: visual?.offsetTop || 0 });
     measure();
@@ -143,7 +144,7 @@ export function EditDialog({ config, categories, categoriesLoading, productsLoad
       visual?.removeEventListener("scroll", measure);
       window.removeEventListener("resize", measure);
     };
-  }, [config, type]);
+  }, [config, boundedDialog]);
   useEffect(() => {
     if (config) {
       const source = config.copySource;
@@ -223,11 +224,10 @@ export function EditDialog({ config, categories, categoriesLoading, productsLoad
       setSubmittingNow(false);
     }
   };
-  const productDialog = type === "products";
   const margin = viewport ? Math.max(12, viewport.height * 0.05) : 12;
-  // Scroll inside the Radix content boundary, with no nested Select portals.
+  // Keep the form as the scroll owner inside the Radix content boundary.
   // Visual viewport sizing keeps the form reachable when a mobile keyboard opens.
-  return <Dialog open onOpenChange={(open) => !open && onClose()}><DialogContent className={`max-h-[90dvh] w-[calc(100vw-2rem)] max-w-2xl border-slate-200 bg-white ${productDialog ? "top-[5dvh] translate-y-0 overflow-hidden p-0" : "overflow-y-auto"}`} style={productDialog && viewport ? { top: viewport.top + margin, maxHeight: Math.max(1, viewport.height - margin * 2) } : undefined}><form onSubmit={submit} className={productDialog ? "min-h-0 overflow-y-auto overscroll-contain p-6" : undefined} style={productDialog ? { maxHeight: "inherit", WebkitOverflowScrolling: "touch", touchAction: "pan-y" } : undefined}><DialogHeader><DialogTitle className="text-2xl font-semibold text-slate-950">{config.row ? "Edit" : "Add"} {singular[type]}</DialogTitle><DialogDescription>{type === "products" ? "Enter decimal amounts, e.g. 125.00. All prices exclude VAT." : type === "bundles" ? "Set the included products and their display order." : "Organise how your sales catalogue is browsed."}</DialogDescription></DialogHeader><div className="mt-6 grid gap-4 sm:grid-cols-2">
+  return <Dialog open onOpenChange={(open) => !open && onClose()}><DialogContent className={`max-h-[90dvh] w-[calc(100vw-2rem)] max-w-2xl border-slate-200 bg-white ${boundedDialog ? "top-[5dvh] flex flex-col translate-y-0 overflow-hidden p-0" : "overflow-y-auto"}`} style={boundedDialog && viewport ? { top: viewport.top + margin, maxHeight: Math.max(1, viewport.height - margin * 2) } : undefined}><form onSubmit={submit} className={boundedDialog ? "min-h-0 overflow-y-auto overscroll-contain p-6" : undefined} style={boundedDialog ? { WebkitOverflowScrolling: "touch", touchAction: "pan-y" } : undefined}><DialogHeader><DialogTitle className="text-2xl font-semibold text-slate-950">{config.row ? "Edit" : "Add"} {singular[type]}</DialogTitle><DialogDescription>{type === "products" ? "Enter decimal amounts, e.g. 125.00. All prices exclude VAT." : type === "bundles" ? "Set the included products and their display order." : "Organise how your sales catalogue is browsed."}</DialogDescription></DialogHeader><div className="mt-6 grid gap-4 sm:grid-cols-2">
     <Field label="Name"><Input aria-label="Name" required maxLength={255} value={form.name || ""} onChange={(e) => updateName(e.target.value)} /></Field>
      {type !== "categories" && showInternalCode && <Field label="Internal code"><Input aria-label="Internal code" required maxLength={64} autoCapitalize="characters" spellCheck={false} aria-invalid={Boolean(categoryError)} aria-describedby="internal-code-help internal-code-error" value={form.code || ""} onChange={(e) => update("code", e.target.value.toUpperCase())} /><p id="internal-code-help" className="mt-1 text-xs text-slate-500">Use 1–64 uppercase letters, numbers, underscores, or hyphens. Start with a letter or number. Lowercase letters are converted to uppercase.</p>{categoryError && <p id="internal-code-error" role="alert" className="mt-1 text-xs font-medium text-red-600">Enter a valid code: start with a letter or number, then use only uppercase letters, numbers, underscores, or hyphens (maximum 64 characters).</p>}</Field>}
      {type === "categories" && <><Field label="Category code"><Input required maxLength={64} aria-invalid={Boolean(categoryError)} aria-describedby="category-code-help category-code-error" value={form.code || ""} onChange={(e) => updateCategoryCode(e.target.value)} /><p id="category-code-help" className="mt-1 text-xs text-slate-500">1–64 uppercase letters, numbers, underscores, or hyphens. Codes must be unique.</p>{categoryError && <p id="category-code-error" className="mt-1 text-xs font-medium text-red-600">{categoryError}</p>}</Field><Field label="Description" wide><Textarea value={form.description || ""} onChange={(e) => update("description", e.target.value)} /></Field></>}

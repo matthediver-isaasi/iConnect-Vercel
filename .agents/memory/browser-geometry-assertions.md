@@ -25,3 +25,9 @@ Native keyboard focus on a multiline textarea may reveal only its caret row in a
 **Why:** Chromium does not necessarily scroll the whole textarea into view when tabbing, even when the control fits. A full-element intersection assertion can reject usable native scrolling.
 
 **How to apply:** Verify the focused textarea intersects the visible region and accepts keyboard text; separately verify scrolling exposes its remaining content and subsequent controls.
+
+When mixing touch and wheel input in browser tests, allow touch momentum to settle and move the mouse back onto container padding.
+
+**Why:** A wheel event during touch inertia or over a native select can be consumed without moving the intended form, falsely suggesting broken overflow.
+
+**How to apply:** Assert touch changes the scroll offset independently, then target a non-interactive part of the scroller for wheel assertions. Wait for geometry to settle after visual-viewport changes too.
