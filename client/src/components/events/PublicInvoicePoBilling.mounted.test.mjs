@@ -53,7 +53,7 @@ const group = {
 };
 const initial = {
   booker: group.publicInvoicePurchaser, member: { id: "booker-member" }, amount: 173.42, currency: "GBP",
-  lines: [{ description: "Two delegates", amount: 173.42, taxType: "OUTPUT2" }],
+  lines: [{ description: "Two delegates", amount: 173.42, taxType: "OUTPUT2", taxPercentage: 20 }],
   fingerprint: "booking-fingerprint", canGenerate: true, reason: null, invoice: null,
 };
 async function mount({ payload = initial, permitted = true, fetcher } = {}) {
@@ -100,7 +100,8 @@ test("billing loads only on demand and keeps original booker distinct from filte
     assert.equal(request.options.credentials, "include");
     assert.ok(document.body.textContent.includes("Ravi"));
     assert.ok(document.body.textContent.includes("booker@example.test"));
-    assert.ok(document.body.textContent.includes("OUTPUT2"));
+    assert.ok(document.body.textContent.includes("VAT: 20% (included in the price)"));
+    assert.ok(!document.body.textContent.includes("OUTPUT2"));
     assert.ok(!button("Generate invoice"));
     assert.equal(document.querySelectorAll("button").length > 0, true);
     await click(button("Create member"));
@@ -196,6 +197,22 @@ test("booker creation refreshes billing in place without creating an attendee li
     assert.ok(button("Hide invoice"));
     assert.ok(button("Create member"), "unlinked attendee remains distinct from original booker");
     assert.ok(!button("Create booker account"));
+    assert.equal(view.calls.filter(call => call.options.method === "POST").length, 0);
+  } finally { await view.close(); }
+});
+
+test("VAT labels use the configured rate, not an inferred provider code", async () => {
+  const view = await mount({ fetcher: async () => json({ ...initial, lines: [
+    { description: "Reduced", amount: 105, taxType: "REDUCED", taxPercentage: 5 },
+    { description: "Zero", amount: 100, taxType: "ZERO", taxPercentage: 0 },
+    { description: "Missing", amount: 100, taxType: "OUTPUT2", taxPercentage: null },
+  ] }) });
+  try {
+    await view.open();
+    await until(() => document.body.textContent.includes("VAT: 5% (included in the price)"));
+    assert.ok(document.body.textContent.includes("VAT: 0% (no VAT charged)"));
+    assert.ok(document.body.textContent.includes("VAT: rate unavailable"));
+    assert.ok(!document.body.textContent.includes("OUTPUT2"));
     assert.equal(view.calls.filter(call => call.options.method === "POST").length, 0);
   } finally { await view.close(); }
 });

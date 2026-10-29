@@ -9,6 +9,13 @@ function money(amount, currency) {
   catch { return `${amount} ${currency || ""}`; }
 }
 
+function vatLabel(line) {
+  const rate = line.taxPercentage;
+  if (!line.taxType || typeof rate !== "number" || !Number.isFinite(rate) || rate < 0) return "VAT: rate unavailable";
+  if (rate === 0) return "VAT: 0% (no VAT charged)";
+  return `VAT: ${rate}% (included in the price)`;
+}
+
 export default function PublicInvoicePoBilling({ bookingId, isComplex, tenantId, viewerId, canCreateGuestMember = false, onCreateMember }) {
   const { billing, generate } = usePublicInvoicePoBilling({ bookingId, isComplex, tenantId, viewerId });
   const [confirmation, setConfirmation] = useState(false);
@@ -38,7 +45,7 @@ export default function PublicInvoicePoBilling({ bookingId, isComplex, tenantId,
       </dl>
       <div className="space-y-2"><h4 className="text-sm font-medium">Booking lines and tax summary</h4>
         {data.lines?.length ? <ul className="divide-y text-sm">{data.lines.map((line, index) => <li key={index} className="flex flex-wrap justify-between gap-2 py-2">
-          <span className="min-w-0 break-words">{line.description}<span className="block text-xs text-muted-foreground">Tax: {line.taxType || "Not supplied"}</span></span>
+          <span className="min-w-0 break-words">{line.description}<span className="block text-xs text-muted-foreground">{vatLabel(line)}</span></span>
           <span>{money(line.amount, data.currency)}</span>
         </li>)}</ul> : <p className="text-sm text-muted-foreground">No invoice lines available. Review the booking before generating an invoice.</p>}
       </div>
