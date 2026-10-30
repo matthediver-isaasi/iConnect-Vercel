@@ -2,6 +2,7 @@ import {
   PublicTicketMemberError, buildPublicTicketMemberSnapshot,
   loadPublicTicketMemberRoles, preflightPublicTicketMembers,
 } from './publicTicketMemberCreation.js';
+import { publicTicketMemberPolicy } from '../../shared/publicTicketMemberPolicy.js';
 import {hasRegistrationAssociation,resolveRegistrationAssociations} from './eventRegistrationAssociations.js';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -32,10 +33,11 @@ export async function preparePublicTicketPurchase({
   resumeExisting = false, registrationMethod = null,
 }) {
   const selectedAssociations=hasRegistrationAssociation(purchaser,items);
+  items = items.map(item => ({ ...item, ticket: { ...item.ticket, ...publicTicketMemberPolicy(item.ticket) } }));
   // Invoice/PO previously creates no automatic ticket contacts. Only explicit
   // selections opt into account creation on this unpaid path.
-  if(selectedAssociations&&registrationMethod==='public_invoice_po')
-    items=items.map(item=>({...item,ticket:{...item.ticket,create_member_records:false}}));
+  if(registrationMethod==='public_invoice_po')
+    items=items.map(item=>({...item,ticket:{...item.ticket,create_member_records:item.ticket.auto_create_guest_accounts === true}}));
   const enabled = items.some(item => item.ticket?.create_member_records === true)||selectedAssociations;
   if (!enabled && !resumeExisting) return null;
   if (!enabled && !requestId) return null;
@@ -68,7 +70,7 @@ export async function preparePublicTicketPurchase({
     : await loadPublicTicketMemberRoles(db, tenantId, items.map(item => item.ticket));
   const effectiveItems = existing && resumeExisting ? items.map(item => {
     const policy = existing.snapshot.ticket_policies.find(value => value.ticket_id === String(item.ticket.id??'default'));
-    return policy ? { ...item, ticket: { ...item.ticket, visibility_mode: 'public_only', create_member_records: policy.create_member_records??true, new_member_role_id: policy.role_id } } : item;
+    return policy ? { ...item, ticket: { ...item.ticket, audience_mode: 'legacy', visibility_mode: 'public_only', create_member_records: policy.create_member_records??true, auto_create_guest_accounts: policy.auto_create_guest_accounts === true, new_member_role_id: policy.role_id } } : item;
   }) : items;
   const snapshot = buildPublicTicketMemberSnapshot({ tenantId, purchaser, items: effectiveItems, roles, associationRole });
   if (authenticatedMember?.tenant_id === tenantId) {
@@ -122,7 +124,7 @@ export async function completePublicTicketMembers({
   db, purchase, tenantId, bookingIds, paymentStatus, paymentIntentId = null,
 }) {
   if (!purchase) return { state: 'not_applicable' };
-  if ((!['paid', 'free'].includes(paymentStatus) && !(paymentStatus==='unpaid'&&purchase.snapshot?.association_role_id)) || !bookingIds?.length) {
+  if ((!['paid', 'free'].includes(paymentStatus) && !(paymentStatus==='unpaid'&&(purchase.snapshot?.association_role_id || purchase.snapshot?.guest_accounts))) || !bookingIds?.length) {
     return { state: 'excluded' };
   }
   // Call only after ALL bookings, capacity checks and reversible financial work
@@ -162,7 +164,7 @@ export async function recoverPublicTicketMembers({ db, purchase, loadPaymentInte
     if (bookings.some(booking => booking.payment_method !== 'card'
         || booking.stripe_payment_intent_id !== intent.id)) throw unavailable();
     paymentStatus = 'paid';
-  } else if(purchase.snapshot?.association_role_id&&bookings.every(b=>b.payment_method==='public_invoice_po')){
+  } else if((purchase.snapshot?.association_role_id || purchase.snapshot?.guest_accounts)&&bookings.every(b=>b.payment_method==='public_invoice_po')){
     paymentStatus='unpaid';
   } else if (bookings.some(booking => booking.payment_method !== 'free')) {
     throw new PublicTicketMemberError('PAYMENT_NOT_ELIGIBLE', 'This is not a confirmed free purchase.', 409);

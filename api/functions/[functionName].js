@@ -5,7 +5,7 @@ import { replayPublicTicketBooking, compensatePublicTicketCapacity } from '../_l
 import { assertPublicTicketPurchaser } from '../_lib/publicTicketEmail.js';
 import { publicTicketSimpleBaseTotal, validatePublicTicketSimpleCharge } from '../_lib/publicTicketSimpleQuote.js';
 import { preparePublicTicketPurchase, bindPublicTicketPayment, completePublicTicketMembers, assertPublicTicketPaymentEvidence, loadPublicTicketPurchase } from '../_lib/publicTicketMemberPurchase.js';
-import { needsPublicTicketMemberCreation } from '../_lib/publicTicketMemberCreation.js';
+import { needsPublicTicketMemberCreation, createsGuestAccounts } from '../_lib/publicTicketMemberCreation.js';
 import {hasRegistrationAssociation} from '../_lib/eventRegistrationAssociations.js';
 import { enqueueCheckoutEventInvoice, eventInvoiceContact, simpleEventInvoiceLines } from '../_lib/eventInvoiceProducer.js';
 import { prepareEventInvoiceAddressPolicy, createPolicyPaymentIntent, assertEventInvoicePaymentOwner } from '../_lib/eventInvoiceAddressPolicy.js';
@@ -2138,7 +2138,7 @@ const functionHandlers = {
     }
     let publicTicketPurchase = null;
     const ticketPurchaser = await getSessionMember(req);
-    const selectedRegistrationAssociation=!ticketPurchaser&&hasRegistrationAssociation(params.purchaserInfo||purchaserInfo,[{attendees:bookingAttendees}]);
+    const selectedRegistrationAssociation=!ticketPurchaser&&(hasRegistrationAssociation(params.purchaserInfo||purchaserInfo,[{attendees:bookingAttendees}]) || createsGuestAccounts(provisioningTicket));
     const needsPublicContactCreation = needsPublicTicketMemberCreation([provisioningTicket], ticketPurchaser, event.tenant_id)||selectedRegistrationAssociation;
     // Completed public purchases replay their immutable original booking.
     if (!privateTicketError && !previousPublicPurchase?.booking_ids?.length) {

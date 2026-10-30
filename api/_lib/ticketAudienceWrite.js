@@ -69,7 +69,8 @@ async function normalizeTicket({ db, tenantId, ticket, explicitMode }) {
   if (ticket.role_match_only != null && ticket.role_match_only !== false) {
     invalid('Selected-members tickets cannot also use role_match_only.');
   }
-  if ((ticket.create_member_records != null && ticket.create_member_records !== false)
+  if ((ticket.auto_create_guest_accounts != null && ticket.auto_create_guest_accounts !== false)
+    || (ticket.create_member_records != null && ticket.create_member_records !== false)
     || (ticket.new_member_role_id != null && ticket.new_member_role_id !== '')) {
     invalid('Selected-members tickets cannot create member/contact records.');
   }

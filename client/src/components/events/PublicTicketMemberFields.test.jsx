@@ -7,6 +7,8 @@ for (const key of ["window", "document", "navigator", "HTMLElement", "Element", 
   globalThis[key] = key === "window" ? dom.window : dom.window[key];
 }
 globalThis.getComputedStyle = dom.window.getComputedStyle;
+globalThis.localStorage = dom.window.localStorage;
+globalThis.sessionStorage = dom.window.sessionStorage;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const React = (await import("react")).default;
 globalThis.React = React;
@@ -31,11 +33,11 @@ test("member creation controls render for both public audiences; toggle exposes 
   assert.equal(host.querySelector('[role="switch"]').getAttribute("aria-checked"), "false");
   assert.equal(host.querySelector('[role="combobox"]'), null);
   await act(async () => host.querySelector('[role="switch"]').click());
-  assert.deepEqual(changed, { create_member_records: true, new_member_role_id: null });
+  assert.deepEqual(changed, { auto_create_guest_accounts: true, create_member_records: true, new_member_role_id: null });
   await act(async () => render({ ...ticket, ...changed, new_member_role_id: "contact" }));
   assert.ok(host.querySelector('[aria-label="Role for new members"]'));
   await act(async () => host.querySelector('[role="switch"]').click());
-  assert.deepEqual(changed, { create_member_records: false, new_member_role_id: null });
+  assert.deepEqual(changed, { auto_create_guest_accounts: false, create_member_records: false, new_member_role_id: null });
   await act(async () => root.unmount());
   host.remove();
 });

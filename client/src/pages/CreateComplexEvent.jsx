@@ -2248,7 +2248,7 @@ export default function CreateComplexEvent() {
         const ticket = ticketClasses[ti];
         const tcPayload = {
           ...serializeTicketRelease(ticket),
-          ...ticketMemberPolicy(isGroupLimited ? { ...ticket, create_member_records: false, new_member_role_id: null } : ticket),
+          ...ticketMemberPolicy(isGroupLimited ? { ...ticket, create_member_records: false, auto_create_guest_accounts: false, new_member_role_id: null } : ticket),
           complex_event_id: eventId,
           name: ticket.name || "Standard Ticket",
           price: isGroupLimited ? 0 : (parseFloat(ticket.price) || 0),

@@ -1925,7 +1925,7 @@ export default function EditEvent() {
       const formattedTicketClasses = ticketClasses.map(ticket => {
         const ticketData = {
           ...serializeTicketRelease(ticket),
-          ...ticketMemberPolicy(isGroupLimited ? { ...ticket, create_member_records: false, new_member_role_id: null } : ticket),
+          ...ticketMemberPolicy(isGroupLimited ? { ...ticket, create_member_records: false, auto_create_guest_accounts: false, new_member_role_id: null } : ticket),
           id: ticket.id,
           name: ticket.name,
           // Group-limited events allow free tickets only.

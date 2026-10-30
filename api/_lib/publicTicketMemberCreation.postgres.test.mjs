@@ -319,6 +319,30 @@ test('policy migration: exact tenant emails, private execution, defaults, idempo
     const defaultId='00000000-0000-4000-8000-000000000213';
     await db.query(prepareSql,[defaultId,a,a,'simple',defaultSnapshot]);
     assert.equal((await db.query(invokeBatch,[defaultId,JSON.stringify([{...bookingRow,ticket_class_id:null}])])).rows[0].rows.length,1);
+    await db.query(await readFile(new URL('../../supabase/migrations/202612090013_ticket_guest_accounts.sql',import.meta.url),'utf8'));
+    await prepare('00000000-0000-4000-8000-000000000215',['legacy-unpaid@example.invalid'],'ready',{status:'unpaid',complete_batch:true});
+    assert.notEqual((await provision('00000000-0000-4000-8000-000000000215')).state,'completed');
+    assert.equal((await db.query("SELECT * FROM member WHERE email='legacy-unpaid@example.invalid'")).rowCount,0);
+    const guestSnapshot=makeSnapshot(['unlinked-account@example.invalid']);
+    guestSnapshot.guest_accounts=true;
+    guestSnapshot.people[0].guest_account=true;
+    const guestPurchase='00000000-0000-4000-8000-000000000214';
+    await db.query(`INSERT INTO public_ticket_member_purchase(id,tenant_id,event_id,event_kind,snapshot,state,booking_ids,completion_evidence)
+      VALUES($1,$2,$2,'simple',$3,'ready',ARRAY[$2::uuid],'{"status":"unpaid","complete_batch":true}')`,
+      [guestPurchase,a,guestSnapshot]);
+    assert.deepEqual(await provision(guestPurchase),{state:'completed',created:1});
+    const guestMember=(await db.query("SELECT * FROM member WHERE email='unlinked-account@example.invalid'")).rows[0];
+    assert.equal(guestMember.login_enabled,true);
+    assert.equal(guestMember.organization_id,null);
+    assert.equal(guestMember.organization_group_id,null);
+    assert.equal(guestMember.supplied_organization_name,'Supplied, not verified');
+    assert.equal((await provision(guestPurchase)).replayed,true);
+    for(const untrusted of ['anon','authenticated']){
+      await db.query(`SET ROLE ${untrusted}`);
+      await assert.rejects(db.query('SELECT ticket_guest_accounts_ready()'),{code:'42501'});
+      await assert.rejects(db.query('SELECT provision_public_ticket_members($1)',[guestPurchase]),{code:'42501'});
+      await db.query('RESET ROLE');
+    }
   } finally {
     if (db) await db.end();
     if (started) execFileSync('pg_ctl', ['-D', cluster, '-m', 'immediate', '-w', 'stop'], { stdio: 'pipe' });

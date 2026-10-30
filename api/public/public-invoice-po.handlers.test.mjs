@@ -18,7 +18,7 @@ async function loadHandler(path) {
   const replacements = new Map();
   for (const [, names, specifier] of source.matchAll(imports)) {
     if (specifier.startsWith('node:') || specifier === 'crypto') continue;
-    if (/publicTicket|publicInvoicePo|complexEventPricing|ticketAccess|ticketAudience|ticketReleaseAccess|eventOptionSelections|attendeeJobTitleEnrichment/.test(specifier)) continue;
+    if (/publicTicket|publicInvoicePo|complexEventPricing|ticketAccess|ticketAudience|ticketReleaseAccess|eventOptionSelections|attendeeJobTitleEnrichment|eventRegistrationAssociations/.test(specifier)) continue;
     const exports = [];
     if (names.trim().startsWith('{')) {
       for (const entry of names.replace(/[{}]/g, '').split(',').map(s => s.trim()).filter(Boolean)) {
@@ -180,6 +180,7 @@ function fixture({ enabled = true, member = null, memberEmail = null, free = fal
         return args[0].work();
       }
       if (name === 'checkBookingAttendeeJobTitles') return null;
+      if (name === 'assertEventCodeOfConduct') return null;
       if (name === 'scheduleEventFollowUps') return { error: null };
       if (name === 'optionalEventRegistrationConsent') return { id:'consent-offer',token:'fixture-offer' };
       if (name === 'recoverEventRegistrationConsent') return null;
@@ -206,11 +207,12 @@ function fixture({ enabled = true, member = null, memberEmail = null, free = fal
 
 async function invoke(kind, options = {}, bodyOverride = {}) {
   const state = fixture(options);
-  if (options.provisioning) {
+  if (options.provisioning || options.guestAccounts) {
     for (const ticket of [...state.rows.event[0].pricing_config.ticket_classes, ...state.rows.complex_event_ticket_class]) {
       ticket.create_member_records = true;
       ticket.new_member_role_id = 'contact-role';
       ticket.visibility_mode = 'public_only';
+      if(options.guestAccounts) ticket.auto_create_guest_accounts=true;
     }
   }
   globalThis[slot] = state;
@@ -233,6 +235,21 @@ async function invoke(kind, options = {}, bodyOverride = {}) {
 }
 
 for (const kind of ['simple', 'complex']) {
+  test(`${kind}: opted-in Other guests enter account creation for unpaid PO without settlement`,async()=>{
+    const contact={...attendee,organization:'Typed hospital'};
+    const result=await invoke(kind,{guestAccounts:true},{
+      purchase_request_id:'00000000-0000-4000-8000-000000000001',
+      ...(kind==='simple'?{purchaserInfo:purchaser,attendees:[contact,{...contact,email:'second@example.test'}]}:
+        {items:[{ticket_class_id:'ticket-a',attendees:[contact,{...contact,email:'second@example.test'}]}]}),
+    });
+    assert.equal(result.res.body.success,true,JSON.stringify(result.res.body));
+    const receipt=result.rows.public_ticket_member_purchase[0];
+    assert.equal(receipt.snapshot.guest_accounts,true);
+    assert.ok(receipt.snapshot.people.every(p=>p.guest_account && !p.association));
+    assert.equal(receipt.completion_evidence.status,'unpaid');
+    assert.ok(result.calls.some(c=>c.rpc==='provision_public_ticket_members'));
+    assert.deepEqual(result.unexpected,[]);
+  });
   for (const refundFails of [false, true]) {
     test(`${kind}: atomic capacity loss ${refundFails ? 'durably queues provider retry' : 'refunds captured payment'} without bookings or contacts`, async () => {
       const contact = { ...attendee, organization: 'Attendee company' };

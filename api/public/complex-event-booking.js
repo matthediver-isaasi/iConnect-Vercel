@@ -5,6 +5,7 @@ import { replayPublicTicketBooking, compensatePublicTicketCapacity } from '../_l
 import { assertPublicTicketPurchaser } from '../_lib/publicTicketEmail.js';
 import { preparePublicTicketPurchase, bindPublicTicketPayment, completePublicTicketMembers, assertPublicTicketPaymentEvidence, loadPublicTicketPurchase } from '../_lib/publicTicketMemberPurchase.js';
 import {hasRegistrationAssociation} from '../_lib/eventRegistrationAssociations.js';
+import { createsGuestAccounts } from '../_lib/publicTicketMemberCreation.js';
 import { needsPublicTicketMemberCreation } from '../_lib/publicTicketMemberCreation.js';
 import { PUBLIC_INVOICE_PO, validatePublicInvoicePo, requirePublicInvoicePoBalance } from '../_lib/publicInvoicePo.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
@@ -266,7 +267,7 @@ async function processBooking(req, res) {
       if (titleRejection) return res.status(titleRejection.statusCode).json(titleRejection);
     }
     const ticketPurchaser = await getSessionMember(req);
-    const selectedRegistrationAssociation=!ticketPurchaser&&hasRegistrationAssociation(purchaserInfo,provisioningItems);
+    const selectedRegistrationAssociation=!ticketPurchaser&&(hasRegistrationAssociation(purchaserInfo,provisioningItems) || provisioningItems.some(item => createsGuestAccounts(item.ticket)));
     const needsPublicContactCreation = needsPublicTicketMemberCreation(provisioningItems.map(item => item.ticket).filter(ticket => !isPrivateTicket(ticket)), ticketPurchaser, tenant.id)||selectedRegistrationAssociation;
     if (!privateTicketError && (previousPublicPurchase || needsPublicContactCreation) && (payment_method !== PUBLIC_INVOICE_PO||selectedRegistrationAssociation)) {
       if (selected_voucher_ids?.length || Number(requestedTrainingFundAmount) || allocationContext

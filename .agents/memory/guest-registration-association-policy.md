@@ -40,7 +40,7 @@ case-insensitively, from event registration association choices.
 checks, not just browser rendering. Do not delete records or alter historical
 bookings, existing associations or the Other/free-text route.
 
-The planned per-ticket automatic guest-account option applies only to tickets
+The per-ticket automatic guest-account option applies only to tickets
 that allow public/guest bookings, never member-only tickets.
 
 **Why:** The owner explicitly ruled out offering guest-account configuration
@@ -51,3 +51,15 @@ eligibility server-side even if a previously saved setting remains enabled.
 For eligible tickets, the requested extension covers Other/free-text guests
 without inventing an organisation/group association; explicit known-association
 selection retains its existing account-creation behaviour.
+
+Automatic guest accounts are a separate opt-in from legacy contact-only ticket
+creation; do not silently activate legacy contacts or previously configured
+contact-only tickets.
+
+**Why:** The approved extension permits sign-in-enabled, unlinked guest accounts,
+while the earlier contact-only policy deliberately did not grant login.
+
+**How to apply:** Keep existing purchase snapshots unchanged. The new option
+covers confirmed paid, free and unpaid Invoice/PO registrations without implying
+payment, paid membership or consent. Retain Other as descriptive organisation
+text, not an association.

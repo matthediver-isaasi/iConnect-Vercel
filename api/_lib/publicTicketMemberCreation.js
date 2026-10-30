@@ -1,6 +1,10 @@
 // These helpers accept tickets loaded by the server, never submitted ticket
 // objects. Kept independent of payment and session state so both event systems
 // can use the same pre-payment contract.
+import { publicTicketMemberPolicy } from '../../shared/publicTicketMemberPolicy.js';
+export const createsGuestAccounts = ticket => publicTicketMemberPolicy(ticket).auto_create_guest_accounts === true;
+const normalizedTicket = ticket => ({ ...ticket, ...publicTicketMemberPolicy(ticket) });
+
 export class PublicTicketMemberError extends Error {
   constructor(code, message, status = 400) {
     super(message);
@@ -21,7 +25,7 @@ export const normalizePublicTicketEmail = value => (
 // Existing members buying shared-audience tickets keep the normal member flow.
 // Public-only tickets still enter preflight, which rejects member purchasers.
 export function needsPublicTicketMemberCreation(tickets, member, tenantId) {
-  return tickets.some(ticket => ticket?.create_member_records === true
+  return tickets.map(normalizedTicket).some(ticket => ticket?.create_member_records === true
     && (ticket.visibility_mode === 'public_only' || !tenantId || member?.tenant_id !== tenantId));
 }
 
@@ -55,14 +59,14 @@ export function assertPublicTicketRole(role, tenantId) {
 }
 
 export async function loadPublicTicketMemberRoles(db, tenantId, tickets) {
-  const ids = [...new Set(tickets.filter(ticket => ticket?.create_member_records === true)
+  const ids = [...new Set(tickets.map(normalizedTicket).filter(ticket => ticket?.create_member_records === true)
     .map(ticket => ticket.new_member_role_id))];
   if (!ids.length) return [];
   if (ids.some(id => typeof id !== 'string' || !id) || ids.length > 100) {
     fail('ROLE_NOT_PROVISIONABLE', 'Select a role for each enabled ticket.');
   }
   const { data, error } = await db.from('role')
-    .select('id,tenant_id,is_admin,is_tenant_admin,requires_effective_from_date,max_members')
+    .select('id,tenant_id,is_admin,is_tenant_admin,requires_effective_from_date,requires_organization,max_members')
     .eq('tenant_id', tenantId).in('id', ids);
   if (error || !Array.isArray(data)) {
     fail('ROLE_VALIDATION_UNAVAILABLE', 'Unable to validate ticket member roles.', 503);
@@ -75,6 +79,11 @@ export async function validatePublicTicketMemberPolicyWrite({
   db, tenantId, tickets, authorizedToAssignRoles,
 }) {
   if (!Array.isArray(tickets)) fail('INVALID_TICKET_POLICY', 'Ticket classes must be a list.');
+  tickets = tickets.map(ticket => {
+    if (ticket.auto_create_guest_accounts != null && typeof ticket.auto_create_guest_accounts !== 'boolean')
+      fail('INVALID_TICKET_POLICY', 'Guest account creation must be on or off.');
+    return ticket.auto_create_guest_accounts === true ? { ...ticket, create_member_records: true } : ticket;
+  });
   const enabled = tickets.filter(ticket => ticket?.create_member_records === true);
   if (!enabled.length) return;
   if (!authorizedToAssignRoles) {
@@ -90,12 +99,16 @@ export function buildPublicTicketMemberSnapshot({ tenantId, purchaser, items, ro
   if (!Array.isArray(items) || items.length > 100) {
     fail('INVALID_ITEMS', 'A bounded list of ticket items is required.');
   }
+  if (items.some(item => (item.ticket?.create_member_records || item.ticket?.auto_create_guest_accounts)
+      && (item.ticket?.audience_mode === 'selected_members' || !['public_only','members_and_public'].includes(item.ticket?.visibility_mode))))
+    fail('INVALID_TICKET_POLICY', 'Member creation is only available on public tickets.');
+  items = items.map(item => ({ ...item, ticket: normalizedTicket(item.ticket) }));
   const enabled = items.filter(item => item.ticket?.create_member_records === true
     || (associationRole && (purchaser?.registration_association || item.attendees?.some(p=>p.registration_association))));
   if (!enabled.length) return null;
   const people = new Map();
   const ticketPolicies = [];
-  const add = (identity, roleId, link, association = null) => {
+  const add = (identity, roleId, link, association = null, account = false) => {
     const existing = people.get(identity.email);
     if (existing && existing.role_id !== roleId) {
       fail('ROLE_CONFLICT', 'The same person would receive different roles. Choose tickets with the same new-member role.');
@@ -108,6 +121,7 @@ export function buildPublicTicketMemberSnapshot({ tenantId, purchaser, items, ro
     if (existing && JSON.stringify(existing.association||null)!==JSON.stringify(association))
       fail('IDENTITY_CONFLICT','The same email has different organisation selections.');
     if (association) person.association = association;
+    if (account) person.guest_account = true;
     if (!person.links.some(prior => JSON.stringify(prior) === JSON.stringify(link))) {
       person.links.push(link);
     }
@@ -116,7 +130,7 @@ export function buildPublicTicketMemberSnapshot({ tenantId, purchaser, items, ro
   const buyer = publicTicketIdentity(purchaser, 'The purchaser');
   for (const item of enabled) {
     const ticket = item.ticket;
-    if (!associationRole && !['public_only', 'members_and_public'].includes(ticket.visibility_mode)) {
+    if (ticket.audience_mode === 'selected_members' || !['public_only', 'members_and_public'].includes(ticket.visibility_mode)) {
       fail('INVALID_TICKET_POLICY', 'Member creation is only available on Public only or Members & Public tickets.');
     }
     const role = roles.find(candidate => candidate.id === ticket.new_member_role_id);
@@ -125,19 +139,21 @@ export function buildPublicTicketMemberSnapshot({ tenantId, purchaser, items, ro
       fail('IDENTITY_REQUIRED', 'Provide the attendees receiving each ticket before payment.');
     }
     ticketPolicies.push({ ticket_id: String(ticket.id??'default'), role_id: roleId, attendee_count: item.attendees.length,
+      ...(createsGuestAccounts(ticket) ? { auto_create_guest_accounts: true } : {}),
       ...(associationRole?{create_member_records:ticket.create_member_records===true}:{}) });
     if (ticket.create_member_records === true || purchaser?.registration_association)
-      add(buyer,purchaser?.registration_association?associationRole.id:roleId,{kind:'purchaser'},purchaser?.registration_association||null);
+      add(buyer,purchaser?.registration_association?associationRole.id:roleId,{kind:'purchaser'},purchaser?.registration_association||null,createsGuestAccounts(ticket));
     item.attendees.forEach((attendee, index) => {
       if (ticket.create_member_records !== true && !attendee.registration_association) return;
       add(publicTicketIdentity(attendee, 'Each attendee'), attendee.registration_association?associationRole.id:roleId, {
         kind: 'attendee', ticket_id: String(ticket.id??'default'), item_index: items.indexOf(item), index,
-      },attendee.registration_association||null);
+      },attendee.registration_association||null,createsGuestAccounts(ticket));
     });
   }
   if (people.size > 101) fail('TOO_MANY_PEOPLE', 'A purchase can create at most 101 contact records.');
   return {
     version: 1, tenant_id: tenantId, purchaser: buyer, ticket_policies: ticketPolicies,
+    ...(enabled.some(item => createsGuestAccounts(item.ticket)) ? { guest_accounts: true } : {}),
     ...(associationRole?{association_role_id:associationRole.id}:{}),
     booking_items: items.map(item => ({
       ticket_id: String(item.ticket.id??'default'),

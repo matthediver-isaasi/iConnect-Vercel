@@ -6,6 +6,14 @@ export async function gatePublicTicketMemberPolicy(entity, body, db) {
   const records = Array.isArray(body) ? body : [body];
   const tickets = records.flatMap(record => name === 'event'
     ? record?.pricing_config?.ticket_classes || [] : [record]);
+  if (tickets.some(ticket => ticket?.auto_create_guest_accounts === true)) {
+    const ready = await db?.rpc('ticket_guest_accounts_ready');
+    if (ready?.error || ready?.data !== true) {
+      const error = new Error('Automatic guest accounts require the guest-account database migration before they can be enabled.');
+      error.status = 409;
+      throw error;
+    }
+  }
   if (!tickets.some(ticket => ticket && ('create_member_records' in ticket || 'new_member_role_id' in ticket))) return body;
   const readiness = db ? await db.rpc('public_ticket_member_creation_ready') : { error: { code: 'PGRST202' } };
   if (readiness.data === true && !readiness.error) return body;

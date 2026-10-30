@@ -52,6 +52,6 @@ test('private and disabled ticket policies never expose a provisioning role', ()
 
 test('complex event reads and projects both checkout policy fields', () => {
   const source = readFileSync('api/public/complex-event.js', 'utf8');
-  assert.match(source, /\.select\('[^']*create_member_records, new_member_role_id'\)/);
+  assert.match(source, /\.select\('[^']*create_member_records, new_member_role_id, auto_create_guest_accounts[^']*'\)/);
   assert.match(source, /\.\.\.publicTicketMemberPolicy\(tc\)/);
 });
