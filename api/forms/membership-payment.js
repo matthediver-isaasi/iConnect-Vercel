@@ -11,6 +11,7 @@ import { buildInvoiceColumnUpdate } from '../_lib/accountingProvider.js';
 import { resolveDdOffer } from '../_lib/gocardlessDirectDebit.js';
 import { getGocardlessCredentials } from '../_lib/gocardlessCredentials.js';
 import { loadFormMembershipRenewalContext } from '../_lib/formMembershipRenewalContext.js';
+import { resolveFormRenewalSelection, FormRenewalSelectionError } from '../_lib/formRenewalSelection.js';
 import { resolveFormMembershipOrganizationId } from '../_lib/formMembershipOwner.js';
 import { reserveMembershipSuccessor } from '../_lib/membershipSuccessorElection.js';
 import { changeRenewalPaymentMethod, RenewalSwitchError, beginRenewalProviderWork, finishRenewalProviderWork } from '../_lib/renewalPaymentSwitch.js';
@@ -60,6 +61,7 @@ export default async function handler(req, res) {
     }
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (error) {
+    if (error instanceof FormRenewalSelectionError) return res.status(400).json({ error: error.message });
     console.error('[FormMembershipPayment] Error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
@@ -74,9 +76,14 @@ async function getMemberById(memberId) {
   return member;
 }
 
-async function renewalContext(tenantId, member, organizationId) {
+async function renewalContext(tenantId, member, organizationId, req = null, fieldOverrides = {}) {
+  const input = req?.method === 'GET' ? req.query : req?.body;
+  const renewalSelection = req ? await resolveFormRenewalSelection(supabase, {
+    req, tenantId, formId: input?.formId, paymentFieldId: input?.paymentFieldId, fieldOverrides,
+  }) : null;
   const context = await loadFormMembershipRenewalContext(supabase, {
     tenantId, memberId: member.id, organizationId,
+    renewalSelection,
     simulate: organizationId ? simulateMembershipForOrg : simulateMembershipForMember,
   });
   return { ...context, organizationId };
@@ -253,7 +260,7 @@ async function handleGet(req, res, resolvedTenantId) {
   }
   if (req.query.configId) explicitConfigId = req.query.configId;
 
-  const context = await renewalContext(tenantId, member, organizationId);
+  const context = await renewalContext(tenantId, member, organizationId, req, fieldOverrides);
   if (context.renewal.state !== 'joining' && !context.simulation) {
     return res.json({ renewal: context.renewal, memberScoped: isMemberScoped,
       stripeEnabled: false, directDebit: null, cardMonthly: null });
@@ -459,7 +466,7 @@ async function handlePost(req, res, resolvedTenantId) {
       : isMemberScoped
         ? (await import('../membership/direct-debit.js')).default
         : (await import('../membership/org-direct-debit.js')).default;
-    const context = await renewalContext(tenantId, member, organizationId);
+    const context = await renewalContext(tenantId, member, organizationId, req, fieldOverrides);
     const method = action === 'start_direct_debit' ? 'direct_debit' : 'monthly_card';
     if (context.renewal.state !== 'joining') {
       const simulation = context.simulation;
@@ -488,7 +495,7 @@ async function handlePost(req, res, resolvedTenantId) {
   }
 
   if (action === 'create_payment') {
-    const context = req.membershipPaymentContext?.source === 'member-portal' ? null : await renewalContext(tenantId, member, organizationId);
+    const context = req.membershipPaymentContext?.source === 'member-portal' ? null : await renewalContext(tenantId, member, organizationId, req, fieldOverrides);
     if (context && context.renewal.state !== 'joining' && !context.simulation) {
       return res.status(409).json({ error: 'Renewal is not currently available.', renewal: context.renewal });
     }

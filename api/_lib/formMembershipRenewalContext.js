@@ -18,7 +18,7 @@ async function allRows(query) {
 
 /** Server-only discovery. No request-supplied structure, year or price is used. */
 export async function loadFormMembershipRenewalContext(db, {
-  tenantId, memberId, organizationId = null, simulate, now = new Date(),
+  tenantId, memberId, organizationId = null, simulate, now = new Date(), renewalSelection = null,
 }) {
   // Rollout is schema-gated. Before the reviewed migration is installed, keep
   // existing payment behavior; never enable elections without their DB fence.
@@ -57,6 +57,11 @@ export async function loadFormMembershipRenewalContext(db, {
   const assigned = evidence.expiryOnlyPolicies[previous?.id];
   const priorConfig = previous?.effective_commitment_snapshot?.config
     || previous?.renewal_policy_snapshot || previous?.commitment_snapshot?.config || previous?.incentive_snapshot?.config;
+  if (renewalSelection && (organizationId || assigned
+      || renewalSelection.fieldId !== priorConfig?.structure_field_id)) {
+    return { renewal: { state: 'review_required', eligible: false,
+      message: 'This membership class cannot be selected for the saved membership. Please contact the membership team.' }, simulation: null };
+  }
   let successorConfig = null;
   if (previous?.term_end_date && (priorConfig || assigned)) {
     const start = toDateString(addDays(previous.term_end_date, 1));
@@ -67,7 +72,7 @@ export async function loadFormMembershipRenewalContext(db, {
       equal(config.start_mode || 'fixed_date', priorConfig.start_mode || 'fixed_date')
       && equal(config.structure_scope_type || 'organization', priorConfig.structure_scope_type || 'organization')
       && equal(config.structure_field_id, priorConfig.structure_field_id)
-      && equal(config.structure_match_value, priorConfig.structure_match_value)))
+      && equal(config.structure_match_value, renewalSelection?.value ?? priorConfig.structure_match_value)))
       && (!config.effective_from || config.effective_from <= start)
       && (!config.effective_to || config.effective_to >= start));
     if (eligible.length === 1) successorConfig = eligible[0];
@@ -126,6 +131,7 @@ export async function loadFormMembershipRenewalContext(db, {
   const simulation = await simulate(tenantId, ownerId, {
     source: 'form-renewal', mode: 'manual', configId: successorConfig.id,
     asOfDate: renewal.successorStart, termStartDate: renewal.successorStart,
+    ...(renewalSelection ? { fieldOverrides: { [renewalSelection.fieldId]: renewalSelection.value } } : {}),
     ...(assigned ? { expiryOnlyHistoryId: previous.id }
       : successorConfig.start_mode === 'immediate' ? { previousTerm: previous } : {}),
   });
@@ -151,6 +157,7 @@ export async function loadFormMembershipRenewalContext(db, {
     annual_renewal_state: 'open',
   };
   simulation.formRenewal = { ...renewal };
+  if (renewalSelection) simulation.formRenewal.selection = { ...renewalSelection };
   renewal.quoteKey = createHash('sha256').update(JSON.stringify({
     ownerId, previous: previous.id, year: simulation.membershipYear,
     config: simulation.config, net: simulation.finalCost, gross: simulation.totalWithVat,

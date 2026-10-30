@@ -45,6 +45,57 @@ function fixture({ paused = false, election = null, now = '2026-11-01T00:00:00Z'
   return { db, config, predecessor, calls, tables, options: { tenantId: 'tenant', memberId: 'member', simulate, now: new Date(now) } };
 }
 
+test('form class choice selects the next-term schedule without changing the predecessor', async () => {
+  for (const [from, to] of [['Associate', 'Overseas associate'], ['Overseas associate', 'Associate']]) {
+    const f = fixture();
+    Object.assign(f.config, { structure_field_id: 'class', structure_match_value: from });
+    const target = { ...f.config, id: 'target', structure_match_value: to };
+    f.tables.membership_tier_config.push(target);
+    const original = structuredClone(f.predecessor);
+    f.options.renewalSelection = { fieldId: 'class', value: to, formId: 'form', paymentFieldId: 'payment' };
+    f.options.simulate = async (tenant, owner, options) => {
+      f.calls.push(options);
+      return { success: true, config: target, finalCost: 90, totalWithVat: 90,
+        membershipYear: { start: '2027-01-01', end: '2027-12-31' } };
+    };
+    const result = await loadFormMembershipRenewalContext(f.db, f.options);
+    assert.equal(result.renewal.eligible, true);
+    assert.equal(result.simulation.config.id, 'target');
+    assert.equal(result.simulation.totalWithVat, 90);
+    assert.equal(f.calls[0].termStartDate, '2027-01-01');
+    assert.deepEqual(f.calls[0].fieldOverrides, { class: to });
+    assert.deepEqual(result.simulation.formRenewal.selection, f.options.renewalSelection);
+    assert.deepEqual(f.predecessor, original);
+    const election = { id: 'reserved', tenant_id: 'tenant', member_id: 'member',
+      previous_term_id: 'prior', status: 'reserved', origin: 'form', payment_method: 'upfront',
+      term_start_date: '2027-01-01', term_end_date: '2027-12-31',
+      quote: { payerMemberId: 'member', simulation: result.simulation } };
+    f.tables.membership_successor_election.push(election);
+    // Once reserved, answer edits must not reprice the provider's payment.
+    f.options.renewalSelection.value = from;
+    const resumed = await loadFormMembershipRenewalContext(f.db, f.options);
+    assert.equal(resumed.renewal.state, 'renewal_pending');
+    assert.equal(resumed.simulation.config.id, 'target');
+    assert.equal(resumed.simulation.formRenewal.selection.value, to);
+    assert.equal(f.calls.length, 1);
+  }
+});
+
+test('ambiguous or missing class schedules never fall back to the old class', async () => {
+  for (const copies of [0, 2]) {
+    const f = fixture();
+    Object.assign(f.config, { structure_field_id: 'class', structure_match_value: 'Associate' });
+    for (let i = 0; i < copies; i++) f.tables.membership_tier_config.push({
+      ...f.config, id: `target-${i}`, structure_match_value: 'Overseas associate',
+    });
+    f.options.renewalSelection = { fieldId: 'class', value: 'Overseas associate' };
+    const result = await loadFormMembershipRenewalContext(f.db, f.options);
+    assert.equal(result.renewal.eligible, false);
+    assert.equal(result.simulation, null);
+    assert.equal(f.calls.length, 0);
+  }
+});
+
 for (const method of ['monthly_card', 'direct_debit']) {
   test(`${method} form re-entry preserves pending election after successor history has started`, async () => {
     const f = fixture();

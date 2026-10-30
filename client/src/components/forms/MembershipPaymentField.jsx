@@ -38,7 +38,7 @@ function isBelowStripeMinimum(amount, currency) {
   return parseFloat(amount || 0) < min;
 }
 
-export default function MembershipPaymentField({ value, onChange, disabled, field, allFormValues = {}, resolvedMemberId = null }) {
+export default function MembershipPaymentField({ value, onChange, disabled, field, allFormValues = {}, resolvedMemberId = null, formId = null }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -97,6 +97,9 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
   const buildOverrideParams = () => {
     const overrides = buildFieldOverrides();
     const params = [];
+    if (formId && field.id) {
+      params.push(`formId=${encodeURIComponent(formId)}`, `paymentFieldId=${encodeURIComponent(field.id)}`);
+    }
     if (Object.keys(overrides).length > 0) {
       params.push(`fieldOverrides=${encodeURIComponent(JSON.stringify(overrides))}`);
     }
@@ -109,6 +112,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
   const getOverrideBody = () => {
     const overrides = buildFieldOverrides();
     const body = {};
+    if (formId && field.id) Object.assign(body, { formId, paymentFieldId: field.id });
     if (Object.keys(overrides).length > 0) body.fieldOverrides = overrides;
     if (field.membership_config_id) body.configId = field.membership_config_id;
     return body;
@@ -162,6 +166,8 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
     const overridesKey = JSON.stringify(overrides);
     if (overridesKey === prevOverridesRef.current) return;
     prevOverridesRef.current = overridesKey;
+    // Do not allow checkout against the previous class during the debounce.
+    setLoading(true);
     if (fetchInProgressRef.current) {
       pendingRefetchRef.current = true;
       return;

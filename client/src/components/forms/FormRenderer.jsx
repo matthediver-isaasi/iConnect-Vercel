@@ -4171,6 +4171,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
       case 'membership_payment':
         return (
           <MembershipPaymentField
+            formId={formId}
             key={membershipPaymentMemberId || 'no-member'}
             resolvedMemberId={membershipPaymentMemberId}
             value={value}

@@ -5705,6 +5705,9 @@ function MembershipPaymentSettings({ field, originalIndex, allFields, updateFiel
         When renewal choices are enabled on the server, existing members are recognised from their saved membership.
         Renewal uses the current purchased structure's renewal window and the successor structure's payment options;
         no separate renewal window is configured on this form. Changes apply to the next term only.
+        To offer different membership classes at renewal, select a member schedule below and map its
+        tier-selection field to a choice field on this form. The selected answer determines the matching
+        next-term schedule, without changing the current purchased membership.
       </p>
 
       <div className="space-y-2">

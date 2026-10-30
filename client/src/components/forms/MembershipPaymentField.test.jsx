@@ -151,9 +151,10 @@ const renewalQuote = (method = 'upfront') => ({
   renewal: { state: 'renewal_pending', eligible: false, selectedMethod: method, electionId: 'election', switchState: 'idle' },
 });
 
-async function mountRenewal(quote, postResponse = { released: true }, afterRelease) {
+async function mountRenewal(quote, postResponse = { released: true }, afterRelease, props = {}) {
   window.history.replaceState({}, '', '/forms/renew');
   const posts = [];
+  const gets = [];
   let current = quote;
   globalThis.fetch = async (input, options) => {
     if (options?.method === 'POST') {
@@ -164,15 +165,16 @@ async function mountRenewal(quote, postResponse = { released: true }, afterRelea
       };
       return new Response(JSON.stringify(result), { status: result.error ? 409 : 200 });
     }
+    gets.push(String(input));
     return new Response(JSON.stringify(String(input).includes('payment-plan') ? { currentPlan: null } : current));
   };
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
   await act(async () => {
-    root.render(<MembershipPaymentField field={{ id: 'payment' }} resolvedMemberId="member" />);
+    root.render(<MembershipPaymentField field={{ id: 'payment' }} resolvedMemberId="member" {...props} />);
   });
-  return { host, posts,
+  return { host, posts, gets,
     card: id => [...host.querySelectorAll('button[aria-pressed]')].find(button => button.textContent.includes({
       upfront: 'Pay in full by card', monthly_card: 'Pay monthly by card', direct_debit: 'Pay monthly by Direct Debit',
     }[id])),
@@ -180,6 +182,30 @@ async function mountRenewal(quote, postResponse = { released: true }, afterRelea
   };
 }
 const click = async button => act(async () => { assert.ok(button); button.click(); });
+
+test('class mapping and saved form identity accompany quotes and every payment method', async () => {
+  for (const method of ['upfront', 'monthly_card', 'direct_debit']) {
+    const mounted = await mountRenewal({
+      ...renewalQuote(), renewal: { state: 'eligible_renewal', eligible: true, quoteKey: 'class-quote' },
+    }, { error: 'Test stops before provider work' }, undefined, {
+      formId: 'renew-form',
+      field: { id: 'payment', membership_config_id: 'base', field_mappings: { class: 'answer' } },
+      allFormValues: { answer: 'Overseas associate' },
+    });
+    const quote = new URL(mounted.gets.find(url => url.includes('/api/forms/membership-payment')), 'https://test.invalid');
+    assert.equal(quote.searchParams.get('formId'), 'renew-form');
+    assert.equal(quote.searchParams.get('paymentFieldId'), 'payment');
+    assert.deepEqual(JSON.parse(quote.searchParams.get('fieldOverrides')), { class: 'Overseas associate' });
+    await click(mounted.card(method));
+    const testId = { upfront: 'button-pay-membership', monthly_card: 'button-monthly-card', direct_debit: 'button-direct-debit' }[method];
+    await click(mounted.host.querySelector(`[data-testid="${testId}-payment"]`));
+    assert.equal(mounted.posts.length, 1);
+    assert.equal(mounted.posts[0].formId, 'renew-form');
+    assert.equal(mounted.posts[0].paymentFieldId, 'payment');
+    assert.deepEqual(mounted.posts[0].fieldOverrides, { class: 'Overseas associate' });
+    await mounted.close();
+  }
+});
 
 test('abandoned card renewals retain all eligible cards and allow same-method continuation without cancellation', async () => {
   for (const method of ['upfront', 'monthly_card']) {

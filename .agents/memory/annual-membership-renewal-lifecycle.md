@@ -13,6 +13,17 @@ fixed schedule does not cover that requirement.
 class selection. Verify server quote and settlement support before recommending
 payment-field configuration; do not change the current paid term to obtain a quote.
 
+Answer-driven renewal selection must be authorised by the saved form's mapped
+choice field, not an arbitrary submitted schedule ID. Once payment has reserved
+a successor quote, changed answers must not silently reprice that reservation.
+
+**Why:** A joining form's flexible fee inputs are not authority to replace a
+paid term or alter an in-progress provider payment.
+
+**How to apply:** Keep selection limited to the existing selector family and
+authored choices, preserve the predecessor boundary, and reuse the reserved
+quote across payment methods and recovery.
+
 Annual renewal settings belong to the dated tier configuration snapshot and must not reuse monthly Direct Debit/card grace or arrears fields. A renewal term starts the day after the prior persisted term ends and runs for a full year whether payment is early or during grace.
 
 Committed annual fallback-role workflow events retain their own delivery authority,
