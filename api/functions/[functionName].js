@@ -1828,7 +1828,12 @@ const functionHandlers = {
 
     // Never register a Zoom attendee before the entitlement transaction commits.
     // Existing Zoom 3027 ("already registered") handling remains in place.
-    if (eventIsZoom && matchingWebinar && (registrationMode === 'self' || registrationMode === 'colleagues')) {
+    if (event.zoom_meeting_id && (registrationMode === 'self' || registrationMode === 'colleagues')) {
+      const { registerBookingZoomMeeting } = await import('../_lib/bookingZoomMeeting.js');
+      zoomRegistrationResults.push(...await registerBookingZoomMeeting(
+        supabase, event, createdBookings, getZoomAccessTokenForTenant));
+    }
+    if (!event.zoom_meeting_id && eventIsZoom && matchingWebinar && (registrationMode === 'self' || registrationMode === 'colleagues')) {
       for (const attendee of (attendees || [])) {
         const result = await registerWithZoom(matchingWebinar, {
           email: attendee.email, first_name: attendee.first_name || 'Guest', last_name: attendee.last_name || 'Attendee',
@@ -3343,9 +3348,14 @@ const functionHandlers = {
       }
     }
 
-    // Register attendees with Zoom if this is a Zoom webinar event
+    // Meetings and webinars are distinct Zoom resources.
     let zoomRegistrationResults = [];
-    if (event.zoom_webinar_id) {
+    if (event.zoom_meeting_id) {
+      const { registerBookingZoomMeeting } = await import('../_lib/bookingZoomMeeting.js');
+      zoomRegistrationResults = await registerBookingZoomMeeting(
+        supabase, event, createdBookings, getZoomAccessTokenForTenant);
+    }
+    if (event.zoom_webinar_id && !event.zoom_meeting_id) {
       console.log('[createOneOffEventBooking] Event has zoom_webinar_id:', event.zoom_webinar_id);
       
       // Fetch the webinar details
@@ -3897,7 +3907,7 @@ const functionHandlers = {
     }
 
     // Add Zoom registration results if applicable
-    if (event.zoom_webinar_id && zoomRegistrationResults.length > 0) {
+    if ((event.zoom_webinar_id || event.zoom_meeting_id) && zoomRegistrationResults.length > 0) {
       response.zoom_registration = {
         webinar_id: event.zoom_webinar_id,
         registrations: zoomRegistrationResults,
@@ -6009,6 +6019,12 @@ const functionHandlers = {
       .eq('id', eventId)
       .single();
 
+    if (!eventError && event?.zoom_meeting_id) {
+      const { registerBookingZoomMeeting } = await import('../_lib/bookingZoomMeeting.js');
+      const results = await registerBookingZoomMeeting(supabase, event, bookings, getZoomAccessTokenForTenant);
+      return { success: results.every(result => result.success), results,
+        registered: results.filter(result => result.success).length };
+    }
     if (eventError || !event || !event.zoom_webinar_id) {
       return { success: true, message: 'Event has no Zoom webinar', registered: 0 };
     }
