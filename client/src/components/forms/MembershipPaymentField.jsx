@@ -100,6 +100,8 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
     if (formId && field.id) {
       params.push(`formId=${encodeURIComponent(formId)}`, `paymentFieldId=${encodeURIComponent(field.id)}`);
     }
+    const answer = allFormValues[field.membership_schedule_mapping?.source_field_id];
+    if (typeof answer === 'string') params.push(`renewalScheduleAnswer=${encodeURIComponent(answer)}`);
     if (Object.keys(overrides).length > 0) {
       params.push(`fieldOverrides=${encodeURIComponent(JSON.stringify(overrides))}`);
     }
@@ -113,6 +115,8 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
     const overrides = buildFieldOverrides();
     const body = {};
     if (formId && field.id) Object.assign(body, { formId, paymentFieldId: field.id });
+    const answer = allFormValues[field.membership_schedule_mapping?.source_field_id];
+    if (typeof answer === 'string') body.renewalScheduleAnswer = answer;
     if (Object.keys(overrides).length > 0) body.fieldOverrides = overrides;
     if (field.membership_config_id) body.configId = field.membership_config_id;
     return body;
@@ -161,9 +165,9 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
   useEffect(() => {
     if (!memberId || paymentComplete || paymentMode) return;
     const mappings = field.field_mappings;
-    if (!mappings || Object.keys(mappings).length === 0) return;
+    if ((!mappings || Object.keys(mappings).length === 0) && !field.membership_schedule_mapping) return;
     const overrides = buildFieldOverrides();
-    const overridesKey = JSON.stringify(overrides);
+    const overridesKey = JSON.stringify([overrides, allFormValues[field.membership_schedule_mapping?.source_field_id]]);
     if (overridesKey === prevOverridesRef.current) return;
     prevOverridesRef.current = overridesKey;
     // Do not allow checkout against the previous class during the debounce.
@@ -174,7 +178,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
     }
     const timer = setTimeout(() => fetchFees(), 500);
     return () => clearTimeout(timer);
-  }, [allFormValues, field.field_mappings, memberId, paymentComplete, paymentMode]);
+  }, [allFormValues, field.field_mappings, field.membership_schedule_mapping, memberId, paymentComplete, paymentMode]);
 
   const fetchFees = () => {
     const requestId = ++feeRequestRef.current;
@@ -183,7 +187,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
     fetchInProgressRef.current = true;
     pendingRefetchRef.current = false;
     const overrideStr = buildOverrideParams();
-    prevOverridesRef.current = JSON.stringify(buildFieldOverrides());
+    prevOverridesRef.current = JSON.stringify([buildFieldOverrides(), allFormValues[field.membership_schedule_mapping?.source_field_id]]);
     return fetch(`/api/forms/membership-payment?memberId=${encodeURIComponent(memberId)}${overrideStr}`, { credentials: 'include' })
       .then(async (res) => {
         if (!res.ok) {

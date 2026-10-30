@@ -207,6 +207,29 @@ test('class mapping and saved form identity accompany quotes and every payment m
   }
 });
 
+test('explicit schedule answer is sent for all payment methods without a base schedule', async () => {
+  for (const method of ['upfront', 'monthly_card', 'direct_debit']) {
+    const mounted = await mountRenewal({
+      ...renewalQuote(), renewal: { state: 'eligible_renewal', eligible: true, quoteKey: 'explicit-quote' },
+    }, { error: 'Test stops before provider work' }, undefined, {
+      formId: 'renew-form',
+      field: { id: 'payment', membership_schedule_mapping: { source_field_id: 'answer',
+        entries: [{ value: 'Overseas associate', config_id: 'overseas' }] } },
+      allFormValues: { answer: 'Overseas associate' },
+    });
+    const quote = new URL(mounted.gets.find(url => url.includes('/api/forms/membership-payment')), 'https://test.invalid');
+    assert.equal(quote.searchParams.get('renewalScheduleAnswer'), 'Overseas associate');
+    assert.equal(quote.searchParams.has('configId'), false);
+    await click(mounted.card(method));
+    const testId = { upfront: 'button-pay-membership', monthly_card: 'button-monthly-card', direct_debit: 'button-direct-debit' }[method];
+    await click(mounted.host.querySelector(`[data-testid="${testId}-payment"]`));
+    assert.equal(mounted.posts.length, 1);
+    assert.equal(mounted.posts[0].renewalScheduleAnswer, 'Overseas associate');
+    assert.equal(mounted.posts[0].configId, undefined);
+    await mounted.close();
+  }
+});
+
 test('abandoned card renewals retain all eligible cards and allow same-method continuation without cancellation', async () => {
   for (const method of ['upfront', 'monthly_card']) {
     const mounted = await mountRenewal(renewalQuote(method));

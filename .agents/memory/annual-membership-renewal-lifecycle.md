@@ -20,9 +20,19 @@ a successor quote, changed answers must not silently reprice that reservation.
 **Why:** A joining form's flexible fee inputs are not authority to replace a
 paid term or alter an in-progress provider payment.
 
-**How to apply:** Keep selection limited to the existing selector family and
-authored choices, preserve the predecessor boundary, and reuse the reserved
-quote across payment methods and recovery.
+**How to apply:** Keep selection limited to administrator-authored choices and
+explicit schedule mappings, preserve the predecessor boundary, and reuse the
+reserved quote across payment methods and recovery.
+
+Renewal configuration must show an explicit source-answer → schedule mapping.
+Do not ask administrators to pick a “base” schedule whose scope implicitly
+selects a different schedule.
+
+**Why:** The owner rejected that indirect configuration as unintelligible.
+They need to see and control exactly which schedule each field value selects.
+
+**How to apply:** Present a source field and one schedule selector per answer.
+Resolve the saved schedule ID, never infer a substitute from matching labels.
 
 Annual renewal settings belong to the dated tier configuration snapshot and must not reuse monthly Direct Debit/card grace or arrears fields. A renewal term starts the day after the prior persisted term ends and runs for a full year whether payment is early or during grace.
 

@@ -80,6 +80,7 @@ async function renewalContext(tenantId, member, organizationId, req = null, fiel
   const input = req?.method === 'GET' ? req.query : req?.body;
   const renewalSelection = req ? await resolveFormRenewalSelection(supabase, {
     req, tenantId, formId: input?.formId, paymentFieldId: input?.paymentFieldId, fieldOverrides,
+    scheduleAnswer: input?.renewalScheduleAnswer,
   }) : null;
   const context = await loadFormMembershipRenewalContext(supabase, {
     tenantId, memberId: member.id, organizationId,

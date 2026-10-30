@@ -55,6 +55,7 @@ import TimezoneSelect from "@/components/TimezoneSelect";
 import FormOwnersSelector from "@/components/forms/FormOwnersSelector";
 import { SCORE_CONDITION_OPERATORS } from "@/lib/surveyConditions";
 import { hasMembershipStructureAction, findUnrevealedHidden } from "@/lib/formHiddenReachability";
+import MembershipScheduleMappingSettings from "@/components/forms/MembershipScheduleMappingSettings";
 import ScoreField from "@/components/forms/ScoreField";
 import { validateScoreFieldConfig, validateSurveyForPublish, getScoreRange, getScoreWeight } from "../../../api/_lib/surveyScoring.js";
 import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
@@ -5650,18 +5651,20 @@ function MembershipStructureActionSettings({ action, ruleId, fields, updateActio
 
 function MembershipPaymentSettings({ field, originalIndex, allFields, updateField }) {
   const [tierConfigs, setTierConfigs] = useState([]);
+  const [schedulesLoading, setSchedulesLoading] = useState(true);
+  const [schedulesError, setSchedulesError] = useState(null);
   const [requiredFields, setRequiredFields] = useState([]);
   const [loadingFields, setLoadingFields] = useState(false);
 
   useEffect(() => {
     fetch('/api/membership/tiers', { credentials: 'include' })
-      .then(res => res.ok ? res.json() : null)
+      .then(res => { if (!res.ok) throw new Error('Could not load membership schedules.'); return res.json(); })
       .then(data => {
-        if (data?.activeConfigs) {
-          setTierConfigs(data.activeConfigs);
-        }
+        if (!Array.isArray(data?.activeConfigs)) throw new Error('Could not load membership schedules.');
+        setTierConfigs(data.activeConfigs);
       })
-      .catch(() => {});
+      .catch(error => setSchedulesError(error.message))
+      .finally(() => setSchedulesLoading(false));
   }, []);
 
   useEffect(() => {
@@ -5705,12 +5708,13 @@ function MembershipPaymentSettings({ field, originalIndex, allFields, updateFiel
         When renewal choices are enabled on the server, existing members are recognised from their saved membership.
         Renewal uses the current purchased structure's renewal window and the successor structure's payment options;
         no separate renewal window is configured on this form. Changes apply to the next term only.
-        To offer different membership classes at renewal, select a member schedule below and map its
-        tier-selection field to a choice field on this form. The selected answer determines the matching
-        next-term schedule, without changing the current purchased membership.
       </p>
 
-      <div className="space-y-2">
+      <MembershipScheduleMappingSettings field={field} allFields={allFields}
+        tierConfigs={tierConfigs} loading={schedulesLoading} error={schedulesError}
+        onChange={patch => updateField(originalIndex, patch)} />
+
+      {!field.membership_schedule_mapping && <div className="space-y-2">
         <Label htmlFor={`membership-schedule-${field.id}`} className="text-xs">Membership Schedule</Label>
         <p className="text-xs text-slate-500">
           Select which membership schedule to use for fee calculation. Required to enable field mapping.
@@ -5736,9 +5740,9 @@ function MembershipPaymentSettings({ field, originalIndex, allFields, updateFiel
             ))}
           </SelectContent>
         </Select>
-      </div>
+      </div>}
 
-      {field.membership_config_id && requiredFields.length > 0 && (
+      {!field.membership_schedule_mapping && field.membership_config_id && requiredFields.length > 0 && (
         <div className="space-y-2">
           <Label className="text-xs font-medium">Field Mappings</Label>
           <p className="text-xs text-slate-500">

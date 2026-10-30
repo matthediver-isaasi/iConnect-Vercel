@@ -96,6 +96,26 @@ test('ambiguous or missing class schedules never fall back to the old class', as
   }
 });
 
+test('explicit schedule selection uses its ID even when multiple schedules share the same class', async () => {
+  const f = fixture();
+  Object.assign(f.config, { structure_field_id: 'class', structure_match_value: 'Associate' });
+  const target = { ...f.config, id: 'target', structure_match_value: 'Overseas associate' };
+  f.tables.membership_tier_config.push(target, { ...target, id: 'another-overseas-schedule' });
+  f.options.renewalSelection = { configId: 'target', fieldId: 'class', value: 'Overseas associate' };
+  f.options.simulate = async (_tenant, _member, options) => {
+    assert.equal(options.configId, 'target');
+    assert.equal(options.termStartDate, '2027-01-01');
+    return { success: true, config: target, finalCost: 75, totalWithVat: 75,
+      membershipYear: { start: '2027-01-01', end: '2027-12-31' } };
+  };
+  const result = await loadFormMembershipRenewalContext(f.db, f.options);
+  assert.equal(result.simulation.config.id, 'target');
+  target.effective_to = '2026-12-31';
+  const unavailable = await loadFormMembershipRenewalContext(f.db, f.options);
+  assert.equal(unavailable.simulation, null);
+  assert.equal(unavailable.renewal.eligible, false);
+});
+
 for (const method of ['monthly_card', 'direct_debit']) {
   test(`${method} form re-entry preserves pending election after successor history has started`, async () => {
     const f = fixture();

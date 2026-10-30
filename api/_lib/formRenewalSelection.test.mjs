@@ -50,3 +50,45 @@ test('unmapped and legacy callers retain the original renewal path', async () =>
   f.payment.field_mappings = {};
   assert.equal(await resolveFormRenewalSelection(f.db, f.input, allowed), null);
 });
+
+function explicitFixture() {
+  const f = fixture();
+  f.form.fields[1].type = 'radio';
+  f.payment.membership_config_id = null;
+  f.payment.field_mappings = {};
+  f.payment.membership_schedule_mapping = { source_field_id: 'answer',
+    entries: [{ value: 'Associate', config_id: 'base' }, { value: 'Overseas associate', config_id: 'base' }] };
+  f.input.scheduleAnswer = 'Overseas associate';
+  f.config.structure_match_value = 'Different schedule class label';
+  return f;
+}
+test('explicit value-to-schedule mapping selects exact saved ID independently of answer naming', async () => {
+  const f = explicitFixture();
+  assert.deepEqual(await resolveFormRenewalSelection(f.db, f.input, allowed), {
+    configId: 'base', fieldId: 'class', value: 'Different schedule class label',
+    sourceValue: 'Overseas associate', formId: 'form', paymentFieldId: 'payment',
+  });
+});
+test('explicit mapping never falls back for unmapped, missing, duplicate or invalid schedules', async () => {
+  for (const mutate of [
+    f => { f.input.scheduleAnswer = 'Other'; },
+    f => { f.input.scheduleAnswer = undefined; },
+    f => { f.payment.membership_schedule_mapping.entries = []; },
+    f => { f.payment.membership_schedule_mapping.entries.push({ value: 'Overseas associate', config_id: 'base' }); },
+    f => { f.config.id = 'missing'; },
+    f => { f.config.tenant_id = 'other'; },
+    f => { f.config.is_active = false; },
+    f => { f.config.structure_scope_type = 'organization'; },
+    f => { f.form.fields[1].type = 'checkbox'; },
+    f => { f.payment.membership_schedule_mapping.source_field_id = 'missing'; },
+  ]) {
+    const f = explicitFixture(); mutate(f);
+    await assert.rejects(resolveFormRenewalSelection(f.db, f.input, allowed), /valid answer|unique membership schedule|unavailable/);
+  }
+});
+test('explicit mapping still enforces authentication and saved form access', async () => {
+  const f = explicitFixture();
+  await assert.rejects(resolveFormRenewalSelection(f.db, f.input, async () => ({ allowed: false })), /access/);
+  f.form.require_authentication = false;
+  await assert.rejects(resolveFormRenewalSelection(f.db, f.input, allowed), /unavailable/);
+});
