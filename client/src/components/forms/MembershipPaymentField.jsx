@@ -754,8 +754,8 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div>
               <p className="text-sm font-medium" data-testid="text-membership-year">{membershipTermLabel(data.membershipYear)}</p>
-              {data.tierLabel && (
-                <p className="text-xs text-muted-foreground" data-testid="text-tier-label">{data.tierLabel}</p>
+              {(data.scheduleName || data.tierLabel) && (
+                <p className="text-xs text-muted-foreground" data-testid="text-tier-label">{data.scheduleName || data.tierLabel}</p>
               )}
             </div>
             {data.entityName && (
@@ -969,7 +969,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
                       {firstCollectionText}
                     </p>
                   )}
-                  {dd.scope === 'organization' && (
+                  {dd.scope === 'organization' && !field.membership_schedule_mapping && (
                     <div className="space-y-2 pt-1" data-testid={`dd-payer-choice-${field.id}`}>
                       <p className="text-xs font-medium">Who will set up the Direct Debit?</p>
                       <label className="flex items-start gap-2 text-sm cursor-pointer">

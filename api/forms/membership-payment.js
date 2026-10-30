@@ -324,6 +324,7 @@ async function handleGet(req, res, resolvedTenantId) {
     totalWithVat,
     currency,
     tierLabel,
+    scheduleName: simResult.config?.name || null,
     costBreakdown,
     stripeEnabled: !!stripePublishableKey,
     stripePublishableKey,
