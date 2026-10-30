@@ -3,6 +3,16 @@ name: Annual membership renewal lifecycle
 description: Durable boundaries between annual renewal policy, term continuity, recurring agreements, and expiry enforcement.
 ---
 
+BNMS Associate renewal forms must accommodate form-derived Member Class of either
+“Associate” or “Overseas associate”, as their joining form does.
+
+**Why:** The owner explicitly uses one form for both classes; recommending a single
+fixed schedule does not cover that requirement.
+
+**How to apply:** Distinguish same-class renewal from an answer-driven next-term
+class selection. Verify server quote and settlement support before recommending
+payment-field configuration; do not change the current paid term to obtain a quote.
+
 Annual renewal settings belong to the dated tier configuration snapshot and must not reuse monthly Direct Debit/card grace or arrears fields. A renewal term starts the day after the prior persisted term ends and runs for a full year whether payment is early or during grace.
 
 Committed annual fallback-role workflow events retain their own delivery authority,
