@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { createFormCopy } from "../../../shared/formDuplication.js";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -409,20 +410,11 @@ export default function FormManagementPage() {
 
   const duplicateFormMutation = useMutation({
     mutationFn: async (form) => {
-      const { id, created_date, updated_date, created_by, submission_count, archived_at, ...formData } = form;
-
-      const newForm = {
-        ...formData,
-        name: `Copy of ${form.name}`,
-        slug: `${form.slug}-copy-${Date.now()}`,
-        submission_count: 0
-      };
-
-      return await base44.entities.Form.create(newForm);
+      return await base44.entities.Form.create(createFormCopy(form));
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['forms'] });
-      toast.success('Form duplicated successfully');
+      toast.success('Form copied as inactive. Review its settings before activating it.');
     },
     onError: (error) => {
       const roleError = formRoleValidationError(error, 'copy');

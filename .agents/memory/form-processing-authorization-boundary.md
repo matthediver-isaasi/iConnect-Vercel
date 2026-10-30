@@ -14,3 +14,13 @@ Synthetic invocations that reuse a record writer must also reuse the caller's ve
 **Why:** A wrapper can accidentally elevate an ordinary submitter by manufacturing administrator flags, or let stale hidden companion answers satisfy required fields and mutate records.
 
 **How to apply:** Pass the real processing authorization through wrappers, and apply authoritative visibility before building mapped payloads or checking required values.
+
+Form duplication should produce an inactive copy, preserving mappings rather
+than inheriting publication status or weakening mutation-access checks.
+
+**Why:** Duplicating an active legacy form is a new-form write, not a grant to
+republish its historical access contract. Administrators need to edit the copy
+before choosing its access policy and activating it.
+
+**How to apply:** Keep activation validation intact and leave the source form
+unchanged. An editable draft is not evidence of safe public execution.
