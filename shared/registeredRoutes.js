@@ -7,7 +7,7 @@ import { BUILTIN_MEMBER_ALIASES } from './memberAliases.js';
 const extra = `
 / /ResetPassword /reset-password /auth/login /auth/reset-password
 /MemberDemo /BnmsMemberDemo /galleries /GalleryDirectory /RoleAccessConfigManagement
-/VoucherManagement /MonthlyFinanceReport /MembershipPaymentReport /DirectDebitAdmin
+/VoucherManagement /MonthlyFinanceReport /MembershipPaymentReport /MembershipChange /DirectDebitAdmin
 /TrainingFundManagement /MyBookings /CancellationRequests /booking-agents /SurveyReports
 /CanvasPageEditor /MicrositeManagement /about-me /Preferences /BadgeManagement
 /organisations /OrganisationGroups /DueDiligenceDashboard /DueDiligenceConfig

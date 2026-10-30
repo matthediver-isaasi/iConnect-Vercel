@@ -51,6 +51,21 @@ test('every literal registered route is covered; dynamic CMS routes are not', ()
   assert.equal(matchesRegisteredRoute('/sales/proposals/example'), false);
 });
 
+test('membership change direct links survive homepage fallback and reserve their slug', async () => {
+  const db = database({ redirect_mapping: [rule()] });
+  for (const path of [
+    '/MembershipChange?formId=e86b2a16-e5bc-4c18-9329-6862cb2a2a4b',
+    '/membershipchange/',
+    '/MembershipChange/?formId=example',
+  ]) {
+    assert.equal(await resolveRouteOutcome(db, tenant, path), 'existing');
+    assert.deepEqual(await resolveUnknownPagePolicy(db, tenant, path), { found: false, route_outcome: 'existing' });
+  }
+  assert.equal(isReservedPageSlug('MembershipChange'), true);
+  assert.equal(isReservedMemberSlug('membershipchange'), true);
+  assert.ok(!db.calls.some(call => call.table === 'redirect_mapping'));
+});
+
 test('Sales aliases require fresh tenant settings and only collection/new/id shapes', async () => {
   const tables = { sales_settings: [
     { tenant_id: 'a', quote_url_segment: 'proposals' },
