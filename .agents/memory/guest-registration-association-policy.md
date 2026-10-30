@@ -39,3 +39,15 @@ case-insensitively, from event registration association choices.
 **How to apply:** Enforce this in discovery, search and exact-ID eligibility
 checks, not just browser rendering. Do not delete records or alter historical
 bookings, existing associations or the Other/free-text route.
+
+The planned per-ticket automatic guest-account option applies only to tickets
+that allow public/guest bookings, never member-only tickets.
+
+**Why:** The owner explicitly ruled out offering guest-account configuration
+for member-only tickets.
+
+**How to apply:** Hide this option for member-only tickets and enforce public
+eligibility server-side even if a previously saved setting remains enabled.
+For eligible tickets, the requested extension covers Other/free-text guests
+without inventing an organisation/group association; explicit known-association
+selection retains its existing account-creation behaviour.
