@@ -56,15 +56,55 @@ function fixture() {
   const simulator = createMembershipSimulator(db);
   const simulate = async (tenant, member, options) => {
     calls.push(options);
+    const selectedConfig = tables.membership_tier_config.find(row => row.id === options.configId);
     const context = await simulator.resolveRollingSimulationContext(db,
-      { tenantId: tenant, memberId: member, config, options });
+      { tenantId: tenant, memberId: member, config: selectedConfig, options });
     assert.equal(context.expiryOnlyRenewal, true);
-    return { success: true, config, membershipYear: context.window, annualCost: 120,
+    return { success: true, config: selectedConfig, membershipYear: context.window, annualCost: 120,
       finalCost: 120, totalWithVat: 120, vatAmount: 0, currency: 'GBP' };
   };
   return { history, config, policy, input, tables, db, calls, simulator,
     options: { tenantId, memberId: 'member', now: input.now, simulate } };
 }
+
+test('mapped expiry-only renewals preserve historical evidence and use selected annual successor', async () => {
+  for (const answer of ['Associate', 'Overseas associate']) {
+    const f = fixture();
+    const target = { ...f.config, id: 'target', name: answer, structure_match_value: answer };
+    f.tables.membership_tier_config.push(target);
+    const selection = { configId: target.id, formId: 'form', paymentFieldId: 'payment',
+      sourceValue: answer, fieldId: 'class', value: answer };
+    const before = structuredClone(f.tables);
+    const result = await loadFormMembershipRenewalContext(f.db, { ...f.options, renewalSelection: selection });
+    assert.equal(result.renewal.eligible, true);
+    assert.equal(result.simulation.config.id, target.id);
+    assert.equal(result.renewal.successorStart, '2026-09-26');
+    assert.equal(result.renewal.successorEnd, '2027-09-25');
+    assert.deepEqual(result.simulation.formRenewal.selection, selection);
+    assert.equal(result.simulation.previousTerm, null);
+    assert.deepEqual(f.tables, before);
+  }
+});
+
+test('mapped expiry-only renewals require installed reservation support and eligible schedule', async () => {
+  for (const invalid of ['migration', 'inactive', 'future', 'organization', 'monthly']) {
+    const f = fixture();
+    const target = { ...f.config, id: 'target' };
+    if (invalid === 'inactive') target.is_active = false;
+    if (invalid === 'future') target.effective_from = '2027-01-01';
+    if (invalid === 'organization') target.structure_scope_type = 'organization';
+    if (invalid === 'monthly') target.billing_period = 'monthly';
+    f.tables.membership_tier_config.push(target);
+    if (invalid === 'migration') f.db.rpc = async name => ({
+      data: name !== 'form_expiry_only_mapped_renewal_supported',
+    });
+    const result = await loadFormMembershipRenewalContext(f.db, { ...f.options,
+      renewalSelection: { configId: 'target', formId: 'form', paymentFieldId: 'payment' } });
+    assert.equal(result.renewal.eligible, false, invalid);
+    assert.equal(result.simulation, null, invalid);
+    assert.equal(f.calls.length, 0, invalid);
+  }
+});
 
 test('assigned expiry-only evidence keeps history unknown and quotes a full independent successor', async () => {
   const f = fixture();

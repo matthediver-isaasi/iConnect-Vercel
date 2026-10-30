@@ -9,6 +9,12 @@ Saved individual-renewal schedule mappings must never fall back to organisation 
 
 **How to apply:** Fail closed before fallback pricing, including when renewal schema capability is unavailable. Test with an established individual term to verify renewal options; do not fabricate history for a test account.
 
+Approved expiry-only imports may select a different annual successor through an explicit saved form mapping. The original assignment still owns historical expiry and the renewal window; it must not be rewritten to match the new schedule.
+
+**Why:** The owner requires the same Associate/Overseas Associate renewal form to support imported members, without adjusting their historical records for testing.
+
+**How to apply:** Verify the mapping at quote and reservation boundaries, keep the next start at prior expiry plus one day, preserve pending quotes, and require the mapped-reservation capability before offering payment.
+
 BNMS Associate renewal forms must accommodate form-derived Member Class of either
 “Associate” or “Overseas associate”, as their joining form does.
 

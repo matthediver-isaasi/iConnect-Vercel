@@ -68,7 +68,7 @@ export async function loadFormMembershipRenewalContext(db, {
   const assigned = evidence.expiryOnlyPolicies[previous?.id];
   const priorConfig = previous?.effective_commitment_snapshot?.config
     || previous?.renewal_policy_snapshot || previous?.commitment_snapshot?.config || previous?.incentive_snapshot?.config;
-  if (renewalSelection && (organizationId || assigned
+  if (renewalSelection && (organizationId || (assigned && !renewalSelection.configId)
       || (!renewalSelection.configId && renewalSelection.fieldId !== priorConfig?.structure_field_id))) {
     return { renewal: { state: 'review_required', eligible: false,
       message: 'This membership class cannot be selected for the saved membership. Please contact the membership team.' }, simulation: null };
@@ -79,7 +79,9 @@ export async function loadFormMembershipRenewalContext(db, {
     const configs = await allRows(db.from('membership_tier_config').select('*').eq('tenant_id', tenantId));
     const equal = (a, b) => String(a ?? '').trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
     const eligible = configs.filter(config => config.is_active !== false
-      && (assigned ? config.id === assigned.configId : (
+      && (assigned ? (config.id === (renewalSelection?.configId || assigned.configId)
+        && config.structure_scope_type === 'member' && config.billing_period === 'annual'
+        && config.start_mode === 'immediate') : (
       equal(config.start_mode || 'fixed_date', priorConfig.start_mode || 'fixed_date')
       && equal(config.structure_scope_type || 'organization', priorConfig.structure_scope_type || 'organization')
       && (renewalSelection?.configId ? config.id === renewalSelection.configId
@@ -89,7 +91,7 @@ export async function loadFormMembershipRenewalContext(db, {
       && (!config.effective_to || config.effective_to >= start));
     if (eligible.length === 1) successorConfig = eligible[0];
   }
-  const renewal = assessFormMembershipRenewalEvidence({ ...evidence, successorConfig });
+  const renewal = assessFormMembershipRenewalEvidence({ ...evidence, successorConfig, renewalSelection });
   if (renewalSelection?.configId && renewal.state === 'joining') {
     return { renewal: { state: 'review_required', eligible: false,
       message: 'This form is for renewing an existing membership. Please contact the membership team.' }, simulation: null };
@@ -139,7 +141,8 @@ export async function loadFormMembershipRenewalContext(db, {
   if (renewal.state === 'next_term_purchased') return { renewal, simulation: null };
   if (!renewal.eligible) return { renewal, simulation: null };
   if (assigned) {
-    const { data, error } = await db.rpc('form_expiry_only_renewal_supported');
+    const { data, error } = await db.rpc(renewalSelection?.configId
+      ? 'form_expiry_only_mapped_renewal_supported' : 'form_expiry_only_renewal_supported');
     if (error && !['42883', 'PGRST202'].includes(error.code)) throw new Error('Expiry-only reservation capability unavailable');
     if (error || data !== true) return { renewal: { ...renewal, eligible: false,
       state: 'review_required', reason: 'expiry_only_reservation_migration_required' }, simulation: null };
@@ -148,7 +151,7 @@ export async function loadFormMembershipRenewalContext(db, {
     source: 'form-renewal', mode: 'manual', configId: successorConfig.id,
     asOfDate: renewal.successorStart, termStartDate: renewal.successorStart,
     ...(renewalSelection?.fieldId ? { fieldOverrides: { [renewalSelection.fieldId]: renewalSelection.value } } : {}),
-    ...(assigned ? { expiryOnlyHistoryId: previous.id }
+    ...(assigned ? { expiryOnlyHistoryId: previous.id, renewalScheduleSelection: renewalSelection }
       : successorConfig.start_mode === 'immediate' ? { previousTerm: previous } : {}),
   });
   if (!simulation?.success || simulation.existingRecord) {

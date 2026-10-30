@@ -151,7 +151,10 @@ async function resolveRollingSimulationContext(client, {
       && hasFormExpiryOnlyProvenance(history, tenantId)
       && await loadExpiryOnlyRenewalPolicy(client, { tenantId, history });
     const start = policy && toDateString(addDays(policy.expiryDate, 1));
-    if (!policy || history.member_id !== memberId || config?.id !== policy.configId
+    const selection = options.renewalScheduleSelection;
+    const selectedConfigId = selection?.configId && selection.formId && selection.paymentFieldId
+      ? selection.configId : policy?.configId;
+    if (!policy || history.member_id !== memberId || config?.id !== selectedConfigId
         || config.tenant_id !== tenantId || config.structure_scope_type !== 'member'
         || config.billing_period !== 'annual' || config.is_active === false
         || (config.effective_from && config.effective_from > start)

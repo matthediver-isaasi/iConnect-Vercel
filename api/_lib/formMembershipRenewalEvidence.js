@@ -17,7 +17,7 @@ const review = reason => ({ state: 'review_required', eligible: false, reason })
  */
 export function assessFormMembershipRenewalEvidence({
   tenantId, memberId, organizationId = null, histories, agreements,
-  successorConfig = null, paused = false, now = new Date(), expiryOnlyPolicies = {},
+  successorConfig = null, paused = false, now = new Date(), expiryOnlyPolicies = {}, renewalSelection = null,
 }) {
   if (!tenantId || (!!memberId === !!organizationId)
       || !Array.isArray(histories) || !Array.isArray(agreements)) {
@@ -124,7 +124,8 @@ export function assessFormMembershipRenewalEvidence({
       return { ...common, state: 'current_membership', eligible: false, reason: 'current_payment_not_settled' };
     }
     if (!successorConfig || successorConfig.tenant_id !== tenantId
-        || (assigned && (successorConfig.id !== assigned.configId || successorConfig.billing_period !== 'annual'))
+        || (assigned && (successorConfig.id !== (renewalSelection?.configId || assigned.configId)
+          || successorConfig.billing_period !== 'annual'))
         || successorConfig.structure_scope_type !== (organizationId ? 'organization' : 'member')
         || successorConfig.is_active === false
         || (successorConfig.effective_from && successorConfig.effective_from > nextStart)
