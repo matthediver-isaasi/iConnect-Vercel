@@ -3,6 +3,12 @@ name: Annual membership renewal lifecycle
 description: Durable boundaries between annual renewal policy, term continuity, recurring agreements, and expiry enforcement.
 ---
 
+Saved individual-renewal schedule mappings must never fall back to organisation checkout or new-member joining when the viewer lacks an individual term.
+
+**Why:** An organisation-affiliated test account with no personal history was offered the organisation's Direct Debit setup and billing-contact invitation instead of individual renewal choices.
+
+**How to apply:** Fail closed before fallback pricing, including when renewal schema capability is unavailable. Test with an established individual term to verify renewal options; do not fabricate history for a test account.
+
 BNMS Associate renewal forms must accommodate form-derived Member Class of either
 “Associate” or “Overseas associate”, as their joining form does.
 

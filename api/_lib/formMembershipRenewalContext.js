@@ -20,9 +20,15 @@ async function allRows(query) {
 export async function loadFormMembershipRenewalContext(db, {
   tenantId, memberId, organizationId = null, simulate, now = new Date(), renewalSelection = null,
 }) {
+  // A saved individual schedule mapping must never fall through to an
+  // organisation checkout simply because the viewer has no personal history.
+  if (renewalSelection && organizationId) {
+    return { renewal: { state: 'individual_term_required', eligible: false }, simulation: null };
+  }
   // Rollout is schema-gated. Before the reviewed migration is installed, keep
   // existing payment behavior; never enable elections without their DB fence.
   if (!await membershipSuccessorElectionsEnabled(db, tenantId)) {
+    if (renewalSelection) return { renewal: { state: 'review_required', eligible: false }, simulation: null };
     return { renewal: { state: 'joining', eligible: false, renewalChoicesUnavailable: true }, simulation: null };
   }
   const ownerColumn = organizationId ? 'organization_id' : 'member_id';
@@ -41,7 +47,12 @@ export async function loadFormMembershipRenewalContext(db, {
   const evidence = { ...scope, histories, agreements, now, paused: owners[0].membership_paused === true };
   if (evidence.paused) return { renewal: { state: 'paused', eligible: false }, simulation: null };
   const retained = histories.filter(row => !['cancelled', 'canceled', 'void', 'expired_checkout'].includes(row.status));
-  if (!retained.length) return { renewal: assessFormMembershipRenewalEvidence(evidence), simulation: null };
+  if (!retained.length) return {
+    renewal: renewalSelection
+      ? { state: 'individual_term_required', eligible: false }
+      : assessFormMembershipRenewalEvidence(evidence),
+    simulation: null,
+  };
   evidence.expiryOnlyPolicies = {};
   if (!organizationId) {
     for (const history of retained.filter(row => row.term_start_date == null)) {

@@ -11,6 +11,26 @@ import { readFileSync } from 'node:fs';
 import { incentiveFieldsFromSavedQuote } from './membershipIncentiveSnapshot.js';
 import { saveFormMembershipPaymentQuote } from './formMembershipPaymentQuote.js';
 
+test('mapped personal renewal cannot fall through to organisation checkout', async () => {
+  const result = await loadFormMembershipRenewalContext({}, {
+    tenantId: 'tenant', memberId: 'member', organizationId: 'org',
+    renewalSelection: { configId: 'personal' },
+    simulate: () => { throw new Error('Must not price the organisation'); },
+  });
+  assert.equal(result.renewal.state, 'individual_term_required');
+  assert.equal(result.simulation, null);
+});
+
+test('mapped renewal without a personal term cannot become a new joining checkout', async () => {
+  const f = fixture();
+  f.tables.member_membership_history = [];
+  f.options.renewalSelection = { configId: 'structure' };
+  const result = await loadFormMembershipRenewalContext(f.db, f.options);
+  assert.equal(result.renewal.state, 'individual_term_required');
+  assert.equal(result.simulation, null);
+  assert.equal(f.calls.length, 0);
+});
+
 function fixture({ paused = false, election = null, now = '2026-11-01T00:00:00Z' } = {}) {
   const config = { id: 'structure', tenant_id: 'tenant', start_mode: 'fixed_date',
     structure_scope_type: 'member', billing_period: 'annual', renewal_open_days: 60, renewal_grace_days: 7,

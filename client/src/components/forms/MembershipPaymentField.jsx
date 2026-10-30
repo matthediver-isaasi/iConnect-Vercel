@@ -710,6 +710,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
     continuing_arrangement: 'Your membership renews automatically with your existing monthly payments. You do not need to renew here.',
     paused: 'Your membership is paused. Please contact the membership team to restart it.',
     review_required: 'We need to check your membership details before you can renew. Please contact the membership team for help.',
+    individual_term_required: 'This form renews an existing individual membership, but we could not find an individual membership term to renew for your account. Please contact the membership team.',
   };
   if (isRenewal && !canPay && !data.membershipYear) {
     return (
