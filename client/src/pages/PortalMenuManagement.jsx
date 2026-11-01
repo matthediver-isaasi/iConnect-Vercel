@@ -228,6 +228,7 @@ const builtInPages = [
   { value: "VolunteerBoard", label: "Volunteer Board" },
   { value: "VoucherManagement", label: "Voucher Management" },
   { value: "MonthlyFinanceReport", label: "Monthly Finance Report" },
+  { value: "StripePayoutReport", label: "Stripe Payout Reconciliation" },
   { value: "ViewPage", label: "View Page" },
   { value: "WallOfFameManagement", label: "Wall of Fame" },
   { value: "WorkflowManagement", label: "Workflow Management" },
