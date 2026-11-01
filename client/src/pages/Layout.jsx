@@ -446,6 +446,12 @@ const adminNavigationItems = [
     featureId: "page_MembershipPaymentReport"
   },
   {
+    title: "Stripe Payout Reconciliation",
+    url: createPageUrl("StripePayoutReport"),
+    icon: CreditCard,
+    featureId: "commerce.stripe-payout-report"
+  },
+  {
     title: "NMC Membership Report",
     url: createPageUrl("NMCMembershipReport"),
     icon: BookOpen,
@@ -1686,6 +1692,7 @@ useEffect(() => {
 
   // Pages that should use the bare layout (no new header/footer)
   adminPages.push("NMCMembershipReport");
+  adminPages.push("StripePayoutReport");
   adminPages.push("PublicInvoicePoReport");
   const bareLayoutPages = [];
 
@@ -1809,6 +1816,7 @@ useEffect(() => {
     'PendingPurchaseOrdersReport': 'page_admin_PendingPurchaseOrdersReport',
     'MonthlyFinanceReport': 'page_admin_MonthlyFinanceReport',
     'MembershipPaymentReport': 'page_admin_MembershipPaymentReport',
+    'StripePayoutReport': 'commerce.stripe-payout-report',
     'NMCMembershipReport': NMC_REPORT_FEATURE,
     'EventRegistrationReport': 'page_admin_EventRegistrationReport',
     'PublicInvoicePoReport': 'events.public-invoice-po-report',

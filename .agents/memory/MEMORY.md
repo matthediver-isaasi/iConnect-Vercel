@@ -156,3 +156,4 @@
 - [Zoom recovery approval](zoom-recovery-approval.md) — read-only diagnosis is not permission for live registration changes or message sends.
 - [Team directory dates](team-directory-date-policy.md) — original record creation is the join date; recorded activity and login permission are independent.
 - [Guest registration associations](guest-registration-association-policy.md) — explicit direct group selection never implies an organisation or changes historical registration details.
+- [Stripe payout reporting policy](stripe-payout-report-policy.md) — BNMS reconciliation is read-only; historical matching claims require evidence, and multiple invoice links never imply allocations.

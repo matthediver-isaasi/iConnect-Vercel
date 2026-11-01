@@ -3,6 +3,9 @@
   "buildCommand": "npx vite build",
   "outputDirectory": "dist/public",
   "functions": {
+    "api/admin/stripe-payout-report/index.js": {
+      "maxDuration": 30
+    },
     "api/zoom/attendance-auto-sync.js": {
       "maxDuration": 300
     },

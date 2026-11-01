@@ -1,0 +1,25 @@
+.stripe-payout-report { --payout-ink: #243a48; --payout-tint: #edf4f5; color: var(--payout-ink); }
+.stripe-payout-report .payout-heading { border-left: 3px solid #397580; padding-left: 16px; }
+.stripe-payout-report .payout-kicker { color: #52747b; font-size: 11px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; }
+.stripe-payout-report .payout-scroll { max-width: 100%; overflow-x: auto; border: 1px solid #dbe5e8; border-radius: 6px; }
+.stripe-payout-report table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.stripe-payout-report th { padding: 11px 14px; background: var(--payout-tint); text-align: left; color: #47616b; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.stripe-payout-report td { padding: 12px 14px; border-top: 1px solid #e3eaed; vertical-align: top; }
+.stripe-payout-report .payout-selected { background: #edf6f5; }
+.stripe-payout-report .payout-number { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.stripe-payout-report .payout-id { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 11px; overflow-wrap: anywhere; }
+.stripe-payout-report .payout-checks { display: flex; flex-wrap: wrap; gap: 8px; }
+.stripe-payout-report .payout-check { padding: 7px 11px; border: 1px solid #dbe5e8; border-radius: 5px; background: #f3f7f8; font-size: 12px; }
+.stripe-payout-report .payout-check[data-tone="good"] { background: #edf6f1; color: #28624b; border-color: #cbe3d6; }
+.stripe-payout-report .payout-check[data-tone="review"] { background: #fbf5e9; color: #886223; border-color: #ebdfc5; }
+.stripe-payout-report .payout-empty { padding: 40px 20px; text-align: center; background: #f6f9fa; border: 1px dashed #d2e0e4; border-radius: 6px; }
+.stripe-payout-report .payout-evidence { min-width: 280px; max-width: 380px; }
+.stripe-payout-report .payout-evidence dl { display: grid; grid-template-columns: 86px 1fr; gap: 5px 10px; }
+.stripe-payout-report .payout-evidence dt { color: #617882; font-size: 11px; }
+.stripe-payout-report .payout-evidence dd { margin: 0; }
+.stripe-payout-report .payout-invoice { margin-bottom: 10px; overflow-wrap: anywhere; }
+.stripe-payout-report .payout-invoice a { color: #246574; text-decoration: underline; text-underline-offset: 3px; }
+@media print {
+  .stripe-payout-report button, .stripe-payout-report .payout-filters { display: none; }
+  .stripe-payout-report .payout-scroll { overflow: visible; }
+}

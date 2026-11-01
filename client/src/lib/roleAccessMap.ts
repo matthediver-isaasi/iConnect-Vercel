@@ -182,6 +182,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
         label: "Individual Membership Payment Report"
       },
       {
+        id: "commerce.stripe-payout-report",
+        label: "Stripe Payout Reconciliation"
+      },
+      {
         id: "commerce.gocardless-dd",
         label: "Direct Debit Console"
       },
@@ -1332,6 +1336,8 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_MonthlyFinanceReport": "commerce.monthly-finance-report",
   "page_admin_MonthlyFinanceReport": "commerce.monthly-finance-report",
   "page_MembershipPaymentReport": "commerce.membership-payment-report",
+  "page_StripePayoutReport": "commerce.stripe-payout-report",
+  "page_admin_StripePayoutReport": "commerce.stripe-payout-report",
   "page_NMCMembershipReport": "membership.nmc-membership-report",
   "page_admin_NMCMembershipReport": "membership.nmc-membership-report",
   "page_admin_MembershipPaymentReport": "commerce.membership-payment-report",

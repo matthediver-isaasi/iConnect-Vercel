@@ -1755,3 +1755,17 @@ mtime_ms = 1793522187846
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/6c8a86dc-6755-4bcb-bb1c-f95560f7c43c/1dde79e7-1627-4947-91bd-d21208d165f4"
 storage_version_token = "1793522189105643"
 content_type = "text/csv"
+
+[[outputs]]
+id = "1vfwd6wOFAabnYBeDJPl_"
+uri = "file://generated-artifacts/stripe-payout/BNMS-Stripe-Payout-Reconciliation-Guide.pdf"
+type = "pdf"
+title = "BNMS Stripe Payout Reconciliation Guide"
+description = "Finance staff guide with safe example screen, CSV instructions and reconciliation limitations."
+logical_id = "74b67fd3-0e3a-4a69-8df5-e62aded68d5b"
+content_hash = "sha256:d52d198b7282bb50dc93d007260b9e1abbb28944370a36c50df2c0fae2ad06a1"
+size = 2069558
+mtime_ms = 1793522881252
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/74b67fd3-0e3a-4a69-8df5-e62aded68d5b/2953f843-eb31-476c-9d0e-dde43a670aed"
+storage_version_token = "1793523013536000"
+content_type = "application/pdf"
