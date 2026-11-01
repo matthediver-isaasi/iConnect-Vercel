@@ -62,6 +62,8 @@ export default function TestimonialsCarousel({ settings, children: cards, asEdit
       onBlurCapture={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setFocus(false); }}
       onKeyDown={(e) => {
         if (!active || e.altKey || e.ctrlKey || e.metaKey) return;
+        // Let the quote viewport use native scrolling keys (including Home/End).
+        if (viewport.current?.contains(e.target)) return;
         if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
           e.preventDefault(); move(e.key === 'ArrowRight' ? 1 : -1);
         } else if (e.key === 'Home' || e.key === 'End') {
@@ -80,7 +82,10 @@ export default function TestimonialsCarousel({ settings, children: cards, asEdit
       }}>
       {/* Vertical scrolling is intentional for authored fixed-height frames:
           long quotes remain readable and the controls never get clipped. */}
-      <div ref={viewport} data-testid="testimonials-quote-viewport" style={{ flex: '1 1 auto', minHeight: 0, overflowX: 'hidden', overflowY: 'auto', touchAction: 'pan-y' }}>
+      <div ref={viewport} data-testid="testimonials-quote-viewport"
+        role="region" aria-label="Testimonial quotes" tabIndex={asEditor ? undefined : 0}
+        className="focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-blue-600"
+        style={{ flex: '1 1 auto', minHeight: 0, overflowX: 'hidden', overflowY: 'auto', touchAction: 'pan-y' }}>
         <div style={{ display: 'flex', alignItems: 'stretch', transform: `translateX(-${current * 100}%)`, transition: reduced || asEditor ? 'none' : `transform ${settings.transitionMs}ms ease` }}>
           {Array.from({ length: pages }, (_, index) => (
             <div key={index} role="group" aria-roledescription="slide" aria-label={`Page ${index + 1} of ${pages}`}

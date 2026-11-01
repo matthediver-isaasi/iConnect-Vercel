@@ -88,6 +88,13 @@ test('page navigation, responsive width, partial page, edits, editor safety and 
   try {
     await render();
     assert.equal(container.firstChild.dataset.perPage, '3');
+    const viewport = container.querySelector('[data-testid="testimonials-quote-viewport"]');
+    assert.equal(viewport.tabIndex, 0);
+    assert.equal(viewport.getAttribute('aria-label'), 'Testimonial quotes');
+    const scrollEnd = new window.KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true });
+    await act(async () => viewport.dispatchEvent(scrollEnd));
+    assert.equal(scrollEnd.defaultPrevented, false);
+    assert.equal(page(), 1);
     await click('Next testimonials');
     await click('Next testimonials');
     assert.equal(page(), 3);
@@ -128,6 +135,7 @@ test('page navigation, responsive width, partial page, edits, editor safety and 
     await act(async () => mediaListeners.forEach((cb) => cb()));
     editor = true;
     await render();
+    assert.equal(viewport.hasAttribute('tabindex'), false);
     assert.equal(timers.size, 0);
     const before = page();
     await key('ArrowRight');
@@ -138,6 +146,7 @@ test('page navigation, responsive width, partial page, edits, editor safety and 
     await render();
     assert.equal(timers.size, 0);
     assert.equal(container.querySelector('[aria-label="Next testimonials"]'), null);
+    assert.equal(viewport.tabIndex, 0, 'single-page quotes must also be keyboard scrollable');
   } finally {
     await act(async () => root.unmount());
     assert.equal(timers.size, 0);

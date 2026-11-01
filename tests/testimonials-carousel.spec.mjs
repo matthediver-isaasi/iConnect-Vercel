@@ -1,4 +1,27 @@
 import { test, expect } from '@playwright/test';
+import axe from 'axe-core';
+
+test('testimonial scroll regions are keyboard accessible across layouts', async ({ page, request }) => {
+  await mount(page, request);
+  for (const layout of ['single', 'grid', 'legacy', 'paged']) {
+    await page.evaluate(layout => window.changeFixture({
+      layout: ['legacy', 'paged'].includes(layout) ? 'carousel' : layout,
+      carousel: layout === 'paged' ? { perPage: { desktop: 1 } } : undefined,
+    }), layout);
+    const region = layout === 'paged'
+      ? page.getByTestId('testimonials-quote-viewport')
+      : page.getByRole('region', { name: 'Testimonials', exact: true });
+    await expect(region).toHaveAttribute('tabindex', '0');
+    await region.focus();
+    await expect(region).toBeFocused();
+    await page.addScriptTag({ content: axe.source });
+    const violations = await page.evaluate(async () => {
+      const result = await window.axe.run(document, { runOnly: ['scrollable-region-focusable'] });
+      return result.violations.map(v => ({ id: v.id, nodes: v.nodes.map(n => n.target) }));
+    });
+    expect(violations).toEqual([]);
+  }
+});
 
 const typography = [
   { id: 'styled', name: 'Styled attribution', color: '#b91c1c', font_weight: 300, font_family: 'Georgia', font_size: 18, line_height: 1.5, letter_spacing: 2, text_transform: 'uppercase', margin_bottom: 7 },

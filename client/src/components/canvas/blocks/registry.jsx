@@ -4105,7 +4105,8 @@ function TestimonialsRender({ block, breakpoint, asEditor = false }) {
   return carousel ? (
     <TestimonialsCarousel settings={carousel} asEditor={asEditor}>{cards}</TestimonialsCarousel>
   ) : (
-    <div className={`w-full h-full overflow-auto ${containerClass}`}>{cards}</div>
+    <div role="region" aria-label="Testimonials" tabIndex={asEditor ? undefined : 0}
+      className={`w-full h-full overflow-auto focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-blue-600 ${containerClass}`}>{cards}</div>
   );
 }
 
