@@ -1713,3 +1713,31 @@ mtime_ms = 1793260757011
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/51d6bf2a-b247-40f4-8f0a-b7ca8cba0c83/338f9652-5d95-49e6-bd37-0be2bdb35154"
 storage_version_token = "1793260766455148"
 content_type = "application/pdf"
+
+[[outputs]]
+id = "GsoEbhnzdYUjpSpTO7JXK"
+uri = "file://generated-artifacts/bnms-expiry-only-audit/BNMS-membership-evidence-review.csv"
+type = "table"
+title = "BNMS — review of 134 unexpired memberships"
+description = "Invoice-by-invoice findings, retained expiry dates and reasons requiring further review. No membership changes applied."
+logical_id = "24684ab8-151d-43ed-93fe-9f9bbb426510"
+content_hash = "sha256:d79316815b57b52d2652bb93ff53c909cb813c8b38701b776f528507ab69e23a"
+size = 62305
+mtime_ms = 1793519932146
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/24684ab8-151d-43ed-93fe-9f9bbb426510/b0b38af6-5ef3-46b3-a5e2-4f4271c5d5cb"
+storage_version_token = "1793519970169500"
+content_type = "text/csv"
+
+[[outputs]]
+id = "nn2zihZs6qc3sDvCheJmJ"
+uri = "file://generated-artifacts/bnms-expiry-only-audit/BNMS-reconstruction-candidates.csv"
+type = "table"
+title = "BNMS — 13 verified reconstruction candidates"
+description = "Proposed annual dates, membership-only amounts, schedules and linked Xero invoices. All 13 have authorised, reconciled payments."
+logical_id = "19a82360-b372-4521-9ddc-c13159a69185"
+content_hash = "sha256:a1f6bb34be943bb40af99b9977a0498a50374eaf23e508546735901044871efd"
+size = 1935
+mtime_ms = 1793519962962
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/19a82360-b372-4521-9ddc-c13159a69185/fae94b7c-b3cf-4fec-b4cf-183ee2c27f61"
+storage_version_token = "1793519970808155"
+content_type = "text/csv"
