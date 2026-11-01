@@ -223,6 +223,19 @@ require independent allocation evidence before recording a financial commitment.
 Owner approval of a shortlist does not justify using a subsequently discovered
 bundled total as membership value; hold that row and complete the safe rows.
 
+For owner-approved historical reconstruction, assess the linked paid invoice
+together with retained expiry, member class and the date-applicable annual
+schedule. Exact invoice/start-date equality and the words “annual” or “one year”
+on the invoice are not mandatory evidence requirements.
+
+**Why:** The owner challenged an overly restrictive review that held otherwise
+supported annual memberships solely for wording or normal invoice-date offsets.
+
+**How to apply:** Preserve the approved expiry and document the authority for the
+reconstructed annual term. Still hold older-cycle-only evidence, competing
+invoices, identity conflicts and unallocated bundles; a reference alone is not
+proof of an amount or a particular coverage period.
+
 A changed current email may be corroborated by an original import email and
 the same unique legacy account number on the Xero contact.
 

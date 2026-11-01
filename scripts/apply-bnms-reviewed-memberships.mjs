@@ -5,12 +5,13 @@ import { buildRollingCommitment } from '../api/_lib/rollingMembershipCommitment.
 const mode=process.argv[2];
 assert.ok(['dry-run','apply'].includes(mode));
 const dir='generated-artifacts/bnms-expiry-only-audit';
-const approved=JSON.parse(fs.readFileSync(`${dir}/candidate-payment-verification.json`)).results;
+const second=process.argv.includes('--second-pass');
+const approved=second?(await import('./bnms-second-pass-candidates.mjs')).candidates:JSON.parse(fs.readFileSync(`${dir}/candidate-payment-verification.json`)).results;
 const review=JSON.parse(fs.readFileSync(`${dir}/live-review.json`));
 const allowed=['200007791','200008208','200007761','200008200','200007805','200007857','200007768','200008260','200008158','200007509','200008210'];
-const rows=approved.filter(r=>allowed.includes(r.invoice));
-assert.equal(rows.length,11);
-assert.equal(new Set(rows.map(r=>r.memberId)).size,11);
+let rows=second?approved:approved.filter(r=>allowed.includes(r.invoice));
+assert.equal(rows.length,second?109:11);
+assert.equal(new Set(rows.map(r=>r.memberId)).size,rows.length);
 const tenant='ff2df806-b321-4254-b651-3af11fccf1db';
 process.env.SUPABASE_URL=process.env.DEST_SUPABASE_URL;
 process.env.SUPABASE_SERVICE_KEY=process.env.DEST_SUPABASE_KEY;
@@ -18,12 +19,28 @@ const {getValidXeroAccessToken}=await import('../api/_lib/xero.js');
 const {selectCanvasCommitment,buildCanvasSummary}=await import('../api/membership/canvas-summary.js');
 const auth=await getValidXeroAccessToken(tenant);
 assert.equal(auth.tenantId,'3d57dce6-2205-462f-abf6-9c7cbf00be23');
-async function get(path){
+async function get(path,attempt=0){
+  await new Promise(resolve=>setTimeout(resolve,1200));
   const r=await fetch(`https://api.xero.com/api.xro/2.0/${path}`,{headers:{Authorization:`Bearer ${auth.accessToken}`,'xero-tenant-id':auth.tenantId,Accept:'application/json'},signal:AbortSignal.timeout(30000)});
-  assert.equal(r.status,200,'Provider verification failed; no repairs applied');
+  if(r.status===429){
+    assert.ok(attempt<4,'Persistent provider rate limit');
+    await new Promise(resolve=>setTimeout(resolve,Math.max(60,Number(r.headers.get('retry-after'))||60)*1000));
+    return get(path,attempt+1);
+  }
+  assert.equal(r.status,200,`Provider read failed (${path.split('/')[0]} HTTP ${r.status})`);
   return r.json();
 }
+const evidenceFile=`${dir}/verified-${second?'second':'first'}-provider-evidence.json`;
+const cached=process.argv.includes('--reuse-evidence')?JSON.parse(fs.readFileSync(evidenceFile)):null;
+if(cached)assert.ok(Date.now()-Date.parse(cached.checkedAt)<15*60*1000,'Provider evidence expired');
+const providerHolds=cached?.providerHolds||[];
 for(const r of rows){
+  if(cached){
+    const saved=cached.rows.find(v=>v.memberId===r.memberId&&v.invoice===r.invoice);
+    if(!saved){assert.ok(providerHolds.some(h=>h.memberId===r.memberId));continue;}
+    r.live=saved.live;continue;
+  }
+  try{
   const prior=review.reports.find(m=>m.memberId===r.memberId);
   const candidate=prior.evidence.find(i=>i.number===r.invoice);
   const i=(await get(`Invoices/${candidate.id}`)).Invoices[0];
@@ -34,9 +51,12 @@ for(const r of rows){
   const lines=i.LineItems.filter(l=>/membership/i.test(l.Description));
   assert.equal(lines.length,1);
   const line=lines[0];
-  assert.match(line.Description,/^1 year's (full|junior|trainee) membership\)?$/i);
+  if(second){
+    assert.equal(line.Description,candidate.membershipLine.description);
+    assert.doesNotMatch(line.Description,/event|congress|conference|attending|incl(?:uding|\.)|ticket|bundle/i);
+  }else assert.match(line.Description,/^1 year's (full|junior|trainee) membership\)?$/i);
   assert.equal(line.LineAmount,r.membershipLine.amount);assert.equal(line.TaxAmount,0);
-  assert.equal(line.TaxType,'ZERORATEDOUTPUT');
+  assert.ok(['ZERORATEDOUTPUT','NONE'].includes(line.TaxType));
   const payments=[];
   for(const p of i.Payments){
     const actual=(await get(`Payments/${p.PaymentID}`)).Payments[0];
@@ -47,7 +67,19 @@ for(const r of rows){
   assert.ok(payments.length);
   assert.ok(Math.abs(payments.reduce((n,p)=>n+p.Amount,0)-i.Total)<0.005);
   r.live={invoice:i,line,payments,prior};
+  console.log(`Verified ${r.invoice}`);
+  }catch(error){
+    if(!second)throw error;
+    providerHolds.push({memberId:r.memberId,name:r.name,invoice:r.invoice,reason:error.message});
+    console.log(`Held ${r.invoice}: ${error.message}`);
+  }
+  fs.writeFileSync(`${evidenceFile}.partial`,JSON.stringify({
+    checkedAt:new Date().toISOString(),rows:rows.filter(row=>row.live),providerHolds
+  }),{mode:0o600});
 }
+rows=rows.filter(r=>r.live);
+assert.ok(rows.length);
+if(!cached)fs.writeFileSync(evidenceFile,JSON.stringify({checkedAt:new Date().toISOString(),rows,providerHolds}),{mode:0o600});
 const db=await connectDestination();
 const receipts=[];
 try{
@@ -128,6 +160,6 @@ try{
   assert.equal(afterAll.length,allBefore.length);
   assert.deepEqual(afterAll.filter(h=>!ids.has(h.member_id)),allBefore.filter(h=>!ids.has(h.member_id)));
   await db.query(mode==='apply'?'COMMIT':'ROLLBACK');
-  fs.writeFileSync(`${dir}/reconstruction-${mode}.json`,JSON.stringify({checkedAt:new Date().toISOString(),receipts},null,2),{mode:0o600});
+  fs.writeFileSync(`${dir}/reconstruction-${second?'second-':''}${mode}.json`,JSON.stringify({checkedAt:new Date().toISOString(),receipts},null,2),{mode:0o600});
   console.log(JSON.stringify({mode,members:receipts.length,replays:receipts.filter(r=>r.replay).length,activeAndPaid:receipts.length,otherHistoriesUnchanged:true}));
 }catch(error){await db.query('ROLLBACK');throw error;}finally{await db.end();}

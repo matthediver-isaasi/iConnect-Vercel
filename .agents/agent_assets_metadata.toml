@@ -1769,3 +1769,17 @@ mtime_ms = 1793522881252
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/74b67fd3-0e3a-4a69-8df5-e62aded68d5b/2953f843-eb31-476c-9d0e-dde43a670aed"
 storage_version_token = "1793523013536000"
 content_type = "application/pdf"
+
+[[outputs]]
+id = "3vhFLCsp1zfqMCdp996fi"
+uri = "file://generated-artifacts/bnms-expiry-only-audit/BNMS-current-membership-repair-results.csv"
+type = "table"
+title = "BNMS membership repairs — all 134 outcomes"
+description = "113 memberships reconstructed, including 102 in this pass; 21 unchanged with individual review reasons. Includes invoice links by number, membership dates and amounts."
+logical_id = "5fc8fe71-147a-4857-968a-9f18e2bbbfd2"
+content_hash = "sha256:936ba52c8e41003c6ef3733b47c662a61b7249c9fe881a512afdbf5603dac48e"
+size = 18961
+mtime_ms = 1793525201115
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/5fc8fe71-147a-4857-968a-9f18e2bbbfd2/5f57c62d-3aee-4a11-96c9-634e397b15a5"
+storage_version_token = "1793525201978240"
+content_type = "text/csv"
