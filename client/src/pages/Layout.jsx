@@ -1,4 +1,5 @@
 import { refreshRoleSettingsQueries, subscribeRoleSettingsCopy } from "@/lib/roleSettingsCopy";
+import { MainLandmarkContext } from "@/contexts/MainLandmarkContext";
 
 import React, { useEffect, useLayoutEffect, useState, useRef, useMemo } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -3622,6 +3623,7 @@ useEffect(() => {
               Skip to main content
             </a>
             <main id="main-content" tabIndex={-1} ref={mainContentRef} className={`flex-1 ${isCanvasEditor ? 'flex flex-col overflow-hidden' : 'overflow-y-auto overflow-x-hidden'} min-h-0 overscroll-contain focus:outline-none${hasPortalPageBg ? '' : ' bg-gradient-to-br from-slate-50 to-blue-50'}`} style={hasPortalPageBg ? portalPageBgStyle : undefined}>
+              <MainLandmarkContext.Provider value={true}>
               {pageOwned && !chromeReady && (
                 <div role="status" aria-live="polite" className="p-6 text-sm text-muted-foreground">
                   Loading page…
@@ -3651,6 +3653,7 @@ useEffect(() => {
                     </BannerProvider>
                   </div>
                 ) : null}
+              </MainLandmarkContext.Provider>
             </main>
 
             <footer className="flex-shrink-0 flex-grow-0 bg-white border-t border-slate-200 py-2">

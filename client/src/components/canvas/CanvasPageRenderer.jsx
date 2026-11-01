@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCanvasStageTag } from "@/contexts/MainLandmarkContext";
 import {
   normalizeCanvasDesign,
   resolveBlockAtBreakpoint,
@@ -509,6 +510,7 @@ function useAnchorSmoothScroll(containerRef, enabled) {
  * it via `minHeight` so blocks that are pushed down are never clipped.
  */
 function CanvasPageStage({ children, lcpBlockId, forcedBreakpoint, windowBp, activeBp, pinStageWidth, embedded = false }) {
+  const StageTag = useCanvasStageTag(embedded);
   const reflow = useAccordionReflow();
   // Baseline stage height at the active breakpoint from stored geometry.
   const baseHeight = useMemo(
@@ -534,7 +536,6 @@ function CanvasPageStage({ children, lcpBlockId, forcedBreakpoint, windowBp, act
     ? { width: BREAKPOINT_WIDTHS[forcedBreakpoint], maxWidth: BREAKPOINT_WIDTHS[forcedBreakpoint] }
     : null;
 
-  const StageTag = embedded ? 'div' : 'main';
   return (
     <StageTag
       id={embedded ? undefined : "canvas-main-content"}
@@ -566,6 +567,7 @@ function CanvasPageRendererContent({
   editorPreview = false,
   auditPreviewView = null,
 }) {
+  const EmptyStageTag = useCanvasStageTag(embedded);
   const baseDesign = useMemo(() => normalizeCanvasDesign(page?.canvas_design), [page?.canvas_design]);
   // Task #2570 — v2 (flow / auto-layout) documents take a separate render path
   // (CanvasFlowStage, driven by resolveFlowLayout). v1 (absolute) documents keep
@@ -728,7 +730,7 @@ function CanvasPageRendererContent({
             Skip to content
           </a>}
           <style>{A11Y_DEFAULTS_CSS}</style>
-          {React.createElement(embedded ? 'div' : 'main', {
+          {React.createElement(EmptyStageTag, {
             id: embedded ? undefined : 'canvas-main-content',
             tabIndex: embedded ? undefined : -1,
             className: "min-h-[40vh] flex items-center justify-center focus:outline-none",
@@ -786,7 +788,7 @@ function CanvasPageRendererContent({
           Skip to content
         </a>}
         <style>{A11Y_DEFAULTS_CSS}</style>
-        {React.createElement(embedded ? 'div' : 'main', {
+        {React.createElement(EmptyStageTag, {
           id: embedded ? undefined : 'canvas-main-content',
           tabIndex: embedded ? undefined : -1,
           className: "min-h-[40vh] flex items-center justify-center focus:outline-none",
@@ -823,8 +825,8 @@ function CanvasPageRendererContent({
         (a) the host shell can own the page's single top-level <main>, and
         (b) block-level section landmarks (header/nav/aside/footer) are
         never nested inside a redundant <main>.
-        We promote the inner stage to <main id="canvas-main-content"> so the
-        skip-to-content link has a valid target.
+        The inner stage keeps id="canvas-main-content" for skip navigation.
+        It is a main landmark only when no surrounding shell owns one.
       */}
       <AccordionReflowProvider
         blocks={children}

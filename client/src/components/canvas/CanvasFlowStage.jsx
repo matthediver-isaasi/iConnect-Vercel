@@ -1,4 +1,5 @@
 import React, { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCanvasStageTag } from "@/contexts/MainLandmarkContext";
 import {
   resolveBlockAtBreakpoint,
   isFlowContainerType,
@@ -153,6 +154,7 @@ function FlowNode({ node, box, breakpoint, isAuto, isPriority, hydrated, registe
 }
 
 export default function CanvasFlowStage({ design, forceBreakpoint, lcpBlockId, embedded = false }) {
+  const StageTag = useCanvasStageTag(embedded);
   const stageRef = useRef(null);
   const nodeRefs = useRef({});
   const [measured, setMeasured] = useState({});
@@ -292,7 +294,6 @@ export default function CanvasFlowStage({ design, forceBreakpoint, lcpBlockId, e
       }
     : { maxWidth: BREAKPOINT_WIDTHS.desktop };
 
-  const StageTag = embedded ? "div" : "main";
   return (
     <StageTag
       id={embedded ? undefined : "canvas-main-content"}

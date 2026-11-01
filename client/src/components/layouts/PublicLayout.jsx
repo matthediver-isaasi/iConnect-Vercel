@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo } from "react";
+import { MainLandmarkContext } from "@/contexts/MainLandmarkContext";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { base44 } from "@/api/base44Client";
@@ -440,9 +441,11 @@ export default function PublicLayout({ children, currentPageName }) {
 
         {/* Main Content Area - wrapped in BannerProvider for below-first-element banners */}
         <main id="main-content" tabIndex={-1} className="flex-1 focus:outline-none">
+          <MainLandmarkContext.Provider value={true}>
           <BannerProvider belowFirstElementBanners={forceBlankLayout ? [] : belowFirstElementBanners}>
             {children}
           </BannerProvider>
+          </MainLandmarkContext.Provider>
         </main>
 
         {/* Public Footer */}

@@ -1,6 +1,28 @@
 import { test, expect } from '@playwright/test';
 import axe from 'axe-core';
 
+for (const version of [1, 2]) {
+  test(`v${version} main landmark ownership preserves Canvas geometry and skip target`, async ({ page, request }) => {
+    await mount(page, request, 'public', version, false, true);
+    const stage = page.locator('#canvas-main-content');
+    await expect(stage).toHaveJSProperty('tagName', 'MAIN');
+    const before = await stage.boundingBox();
+    await page.evaluate(() => window.toggleShell(true));
+    await expect(stage).toHaveJSProperty('tagName', 'DIV');
+    await expect(page.locator('main')).toHaveCount(1);
+    expect(await stage.boundingBox()).toEqual(before);
+    await expect(stage).toHaveAttribute('tabindex', '-1');
+    await page.getByTestId('link-skip-to-content').focus();
+    await page.keyboard.press('Enter');
+    await expect(stage).toBeFocused();
+    await page.addScriptTag({ content: axe.source });
+    const violations = await page.evaluate(async () => (await window.axe.run(document, {
+      runOnly: ['landmark-main-is-top-level', 'landmark-no-duplicate-main'],
+    })).violations.map(v => v.id));
+    expect(violations).toEqual([]);
+  });
+}
+
 test('testimonial scroll regions are keyboard accessible across layouts', async ({ page, request }) => {
   await mount(page, request);
   for (const layout of ['single', 'grid', 'legacy', 'paged']) {
@@ -30,7 +52,7 @@ const typography = [
   { id: 'weight-only', name: 'Weight only', font_weight: 300 },
 ];
 
-async function mount(page, request, surface = 'public', version = 1, loading = false) {
+async function mount(page, request, surface = 'public', version = 1, loading = false, landmarkTest = false) {
   const response = await request.get('/src/components/canvas/CanvasBuilder.jsx');
   const source = await response.text();
   const react = source.match(/from\s+"([^"]*\/\.vite\/deps\/react\.js\?[^"]*)"/)?.[1];
@@ -65,6 +87,7 @@ async function mount(page, request, surface = 'public', version = 1, loading = f
       const {default: CanvasStage} = await import('/src/components/canvas/CanvasStage.jsx');
       const {default: CanvasFlowEditorStage} = await import('/src/components/canvas/CanvasFlowEditorStage.jsx');
       const {default: CanvasPageRenderer} = await import('/src/components/canvas/CanvasPageRenderer.jsx');
+      const {MainLandmarkContext} = await import('/src/contexts/MainLandmarkContext.jsx');
       const h = React.createElement;
       const initial = createBlock('testimonials', {id:'quotes'});
       initial.bp.desktop = {x:0,y:0,w:1200,h:280};
@@ -72,6 +95,8 @@ async function mount(page, request, surface = 'public', version = 1, loading = f
         items:Array.from({length:7},(_,i)=>({quote:'Quote '+(i+1)+' — '+ 'A longer testimonial. '.repeat(i===2?35:3),author:'Author '+(i+1),role:'Member'}))};
       const saved = localStorage.getItem('testimonials-fixture');
       function App() {
+        const [shell,setShell] = React.useState(false);
+        window.toggleShell = setShell;
         const [block,setBlock] = React.useState(saved ? JSON.parse(saved) : initial);
         const [width,setWidth] = React.useState(1200);
         window.resizeFixture = setWidth;
@@ -82,13 +107,14 @@ async function mount(page, request, surface = 'public', version = 1, loading = f
         const design = normalizeCanvasDesign(${version}===1
           ? {version:1,root:{sections:[{id:'root',children:[positioned]}]}}
           : {version:2,root:{sections:[{id:'root',type:'section',flow:{padTop:0,padBottom:0,padLeft:0,padRight:0},children:[{...positioned,flow:{heightMode:'fixed',height:280}}]}]}});
-        return h('div',null,
+        return h(shell ? 'main' : 'div',shell ? {id:'main-content'} : null,
+          h(MainLandmarkContext.Provider,{value:shell},
           h('div',{style:{width,transform:'scale(0.8)',transformOrigin:'top left'},'data-testid':'fixture-stage'},
             ${JSON.stringify(surface)}==='editor'
               ? (${version}===1
                 ? h(CanvasStage,{blocks:[positioned],selectedIds:[],breakpoint:'desktop',canvasWidth:width,canvasHeight:300,onSelect:()=>window.selected=true,onApplyGeometry:()=>{},showGrid:false})
                 : h(CanvasFlowEditorStage,{design,canvasWidth:width,canvasHeight:300,onSelect:()=>window.selected=true,showGrid:false}))
-              : h(CanvasPageRenderer,{page:{id:'fixture',canvas_design:design},symbols:[],embedded:true})),
+              : h(CanvasPageRenderer,{page:{id:'fixture',canvas_design:design},symbols:[],embedded:${!landmarkTest}}))),
           ${JSON.stringify(surface)}==='editor' && h('div',{style:{width:300,marginTop:40}},h(def.Inspector,{block,update:fn=>setBlock(fn)})));
       }
       window.__TENANT_TYPOGRAPHY_STYLES__=${loading ? 'undefined' : JSON.stringify(typography)};
