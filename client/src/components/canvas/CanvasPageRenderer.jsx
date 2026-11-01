@@ -28,6 +28,7 @@ import CanvasFlowStage from "./CanvasFlowStage";
 import { CanvasEditorPageProvider } from "./CanvasEditorPageContext";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { installPreviewAudit } from "@/lib/canvasRenderedAudit";
+import { waitForCanvasPreviewResources } from "@/lib/canvasPreviewResources";
 
 // Phase 7 — Hooks that fetch the tenant Canvas theme and any referenced
 // symbols. Both are best-effort; failures degrade to "no theme" and
@@ -650,8 +651,9 @@ function CanvasPageRendererContent({
 
   // When this renderer is shown inside the Canvas Page Editor's preview
   // iframe (`?_canvasPreview=<nonce>`), notify the editor once the page
-  // tree is mounted, images attached to blocks have loaded, and webfonts
-  // are ready. The editor uses this handshake to wait for the SPA to
+  // tree is mounted and eager images/webfonts have had a bounded settling
+  // period. Lazy images need not load until scrolled into view. The editor
+  // uses this handshake to wait for the SPA to
   // finish rendering before kicking off an axe-core scan — replacing the
   // old fixed `setTimeout(400)` wait that scanned a partially-rendered
   // DOM. We re-fire whenever the resolved `design` changes (e.g. symbols
@@ -672,6 +674,7 @@ function CanvasPageRendererContent({
       return;
     }
     let cancelled = false;
+    const resourcesAbort = new AbortController();
     let disposeRunner;
     const rafIds = [];
     const send = () => {
@@ -685,20 +688,7 @@ function CanvasPageRendererContent({
       } catch { /* cross-origin parents will just miss the signal */ }
     };
     const ready = async () => {
-      try {
-        const imgs = Array.from(document.images || []);
-        await Promise.all(imgs.map((img) => (
-          img.complete
-            ? Promise.resolve()
-            : new Promise((res) => {
-                img.addEventListener('load', res, { once: true });
-                img.addEventListener('error', res, { once: true });
-              })
-        )));
-      } catch { /* best-effort */ }
-      try {
-        if (document.fonts && document.fonts.ready) await document.fonts.ready;
-      } catch { /* best-effort */ }
+      await waitForCanvasPreviewResources(document, { signal: resourcesAbort.signal });
       if (cancelled) return;
       await new Promise((res) => {
         rafIds.push(requestAnimationFrame(() => {
@@ -712,6 +702,7 @@ function CanvasPageRendererContent({
     const t = setTimeout(ready, 0);
     return () => {
       cancelled = true;
+      resourcesAbort.abort();
       disposeRunner?.();
       clearTimeout(t);
       rafIds.forEach((id) => cancelAnimationFrame(id));

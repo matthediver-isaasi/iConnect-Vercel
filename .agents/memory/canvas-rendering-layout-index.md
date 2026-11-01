@@ -29,6 +29,7 @@ Use the focused topic that matches the change:
 - [Route-owned chrome decisions](route-owned-chrome.md)
 - [Canvas dashboard embedding](canvas-dashboard-embedding.md) — reuse dashboard authorization and presentation within the authored frame.
 - [Canvas preview authorization](canvas-preview-authorization.md) — positively verify editor access before returning preview content.
+- [Audit resource readiness](canvas-audit-resource-readiness.md) — lazy and stalled assets must not block the handshake; resource settling is separate from identity.
 - [Embedded form intrinsic layout](form-embed-intrinsic-layout.md) — measure content independently of the iframe viewport; coordinate navigation and layout.
 - [Positioned table overflow](positioned-table-overflow.md) — contain positioned descendants so a scroller cannot expand the document.
 - [Table wrapping without geometry repair](canvas-table-wrap-geometry.md) — old no-wrap frames need read-time editor reflow, not automatic saved-height repairs.
