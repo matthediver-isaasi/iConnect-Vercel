@@ -212,6 +212,17 @@ itemise a year's membership: preserve the membership line amount, never copy the
 whole event invoice total into membership cost. Paid invoice evidence alone
 does not confirm coverage dates; cohort reconstruction still needs approval.
 
+A single invoice line mentioning “one year's membership” may still be a combined
+event-and-membership package. Do not classify it as separately itemised membership.
+
+**Why:** A review incorrectly shortlisted two paid bundled-event lines as
+membership-only amounts; final reconstruction checks caught the error before writes.
+
+**How to apply:** Check the whole line description for event/package wording and
+require independent allocation evidence before recording a financial commitment.
+Owner approval of a shortlist does not justify using a subsequently discovered
+bundled total as membership value; hold that row and complete the safe rows.
+
 A changed current email may be corroborated by an original import email and
 the same unique legacy account number on the Xero contact.
 

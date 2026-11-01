@@ -73,6 +73,7 @@ const reports=cohort.map(row=>{
     const lines=(i.LineItems||[]).filter(l=>/membership/i.test(l.Description||''));
     if(lines.length!==1)issues.push('Membership line is ambiguous');
     const l=lines[0];
+    if(l&&/event|congress|conference|attending|incl(?:uding|\.)|ticket|bundle/i.test(l.Description||''))issues.push('Bundled event and membership line: membership-only value is unproven');
     if(l&&(!Number.isFinite(l.LineAmount)||l.LineAmount<=0))issues.push('Membership value is unavailable');
     if(l&&/upgrade|balance|difference|pro.?rat|instalment|monthly/i.test(l.Description||''))issues.push('May be partial membership consideration');
     const invoiceDate=(i.DateString||'').slice(0,10);
