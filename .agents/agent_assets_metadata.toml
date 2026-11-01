@@ -1761,13 +1761,13 @@ id = "1vfwd6wOFAabnYBeDJPl_"
 uri = "file://generated-artifacts/stripe-payout/BNMS-Stripe-Payout-Reconciliation-Guide.pdf"
 type = "pdf"
 title = "BNMS Stripe Payout Reconciliation Guide"
-description = "Finance staff guide with safe example screen, CSV instructions and reconciliation limitations."
+description = "Three-page finance guide covering payouts, invoice links, CSV exports and exceptions. Regenerated from the merged guide source; the original example screenshot was not available."
 logical_id = "74b67fd3-0e3a-4a69-8df5-e62aded68d5b"
-content_hash = "sha256:d52d198b7282bb50dc93d007260b9e1abbb28944370a36c50df2c0fae2ad06a1"
-size = 2069558
-mtime_ms = 1793522881252
-storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/74b67fd3-0e3a-4a69-8df5-e62aded68d5b/2953f843-eb31-476c-9d0e-dde43a670aed"
-storage_version_token = "1793523013536000"
+content_hash = "sha256:175c1e56b35ba0e217fe7d7c5894b0e22e0a9f036dfc77fbd2f66cb747fd55e3"
+size = 273201
+mtime_ms = 1793543667074
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/74b67fd3-0e3a-4a69-8df5-e62aded68d5b/d1a4c63c-1d11-4093-b99c-d6ec768a04ec"
+storage_version_token = "1793543676226084"
 content_type = "application/pdf"
 
 [[outputs]]
