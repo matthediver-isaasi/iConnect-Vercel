@@ -663,6 +663,7 @@ export default function PublicHeader() {
             <a
               key={key}
               href={cfg.url}
+              aria-label={`${({ linkedin: 'LinkedIn', twitter: 'X (Twitter)', facebook: 'Facebook', instagram: 'Instagram', youtube: 'YouTube' })[key]} (opens in a new tab)`}
               target="_blank"
               rel="noopener noreferrer"
               className={`w-7 h-7 rounded flex items-center justify-center transition-colors ${hoverClass}`}
