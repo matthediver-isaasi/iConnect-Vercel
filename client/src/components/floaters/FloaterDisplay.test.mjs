@@ -17,6 +17,12 @@ test('floater form submissions use the public client submission contract', () =>
   assert.doesNotMatch(source, /\.from\("form_submission"\)\s*\.insert/);
 });
 
+test('floating controls are inside a named landmark without changing their positioning', () => {
+  assert.match(source, /!selectedForm && <aside aria-label="Floating tools" data-testid="floater-landmark">[\s\S]*?visibleFloaters\.map[\s\S]*?style=\{getPositionStyles\(floater\)\}[\s\S]*?<\/aside>/);
+  assert.match(source, /position: "fixed"/);
+  assert.match(source, /onClick=\{\(\) => handleFloaterClick\(floater\)\}/);
+});
+
 test('floater visibility receives responsive and validated-session state', () => {
   assert.match(source, /const isMobile = useIsMobile\(\)/);
   assert.match(source, /resolveDisplayedFloaters\(\{[\s\S]*isMobile,[\s\S]*authResolved,[\s\S]*sessionValidated,/);

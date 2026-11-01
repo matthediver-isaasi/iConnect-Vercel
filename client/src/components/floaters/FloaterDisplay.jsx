@@ -469,7 +469,8 @@ export default function FloaterDisplay({
 
   return (
     <>
-      {!selectedForm && visibleFloaters.map((floater) => (
+      {!selectedForm && <aside aria-label="Floating tools" data-testid="floater-landmark">
+        {visibleFloaters.map((floater) => (
         <div
           key={floater.id}
           style={getPositionStyles(floater)}
@@ -484,7 +485,8 @@ export default function FloaterDisplay({
             style={getImageStyles(floater)}
           />
         </div>
-      ))}
+        ))}
+      </aside>}
 
       <Dialog open={!!selectedForm} onOpenChange={(open) => !open && closeDialog()}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
