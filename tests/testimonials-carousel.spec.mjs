@@ -1,6 +1,13 @@
 import { test, expect } from '@playwright/test';
 
-async function mount(page, request, surface = 'public', version = 1) {
+const typography = [
+  { id: 'styled', name: 'Styled attribution', color: '#b91c1c', font_weight: 300, font_family: 'Georgia', font_size: 18, line_height: 1.5, letter_spacing: 2, text_transform: 'uppercase', margin_bottom: 7 },
+  { id: 'partial', name: 'Size only', font_size: 20 },
+  { id: 'color-only', name: 'Colour only', color: '#b91c1c' },
+  { id: 'weight-only', name: 'Weight only', font_weight: 300 },
+];
+
+async function mount(page, request, surface = 'public', version = 1, loading = false) {
   const response = await request.get('/src/components/canvas/CanvasBuilder.jsx');
   const source = await response.text();
   const react = source.match(/from\s+"([^"]*\/\.vite\/deps\/react\.js\?[^"]*)"/)?.[1];
@@ -8,9 +15,15 @@ async function mount(page, request, surface = 'public', version = 1) {
   const dep = name => react.replace(/react\.js\?/, `${name}.js?`);
   const errors = [];
   page.on('pageerror', e => { errors.push(e.message); console.error(e.message); });
-  await page.route('**/*', route => new URL(route.request().url()).pathname.startsWith('/api/')
-    ? route.fulfill({ contentType: 'application/json', body: '[]' })
-    : route.continue());
+  let releaseStyles;
+  const stylesReady = new Promise(resolve => { releaseStyles = resolve; });
+  await page.route('**/*', async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (!path.startsWith('/api/')) return route.continue();
+    if (path.includes('typography-styles') && loading) await stylesReady;
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify(path.includes('typography-styles') ? typography : []) });
+  });
+  await page.exposeFunction('releaseFixtureStyles', () => releaseStyles());
   await page.route('**/__testimonials-fixture', route => route.fulfill({
     contentType: 'text/html',
     body: `<!doctype html><html><body style="margin:0"><div id="root"></div><script type="module">
@@ -33,7 +46,7 @@ async function mount(page, request, surface = 'public', version = 1) {
       const initial = createBlock('testimonials', {id:'quotes'});
       initial.bp.desktop = {x:0,y:0,w:1200,h:280};
       initial.content = {...initial.content, layout:'carousel', carousel:{perPage:{desktop:3,tablet:2,mobile:1},loop:false},
-        items:Array.from({length:7},(_,i)=>({quote:'Quote '+(i+1)+' — '+ 'A longer testimonial. '.repeat(i===2?35:3),author:'Author '+(i+1)}))};
+        items:Array.from({length:7},(_,i)=>({quote:'Quote '+(i+1)+' — '+ 'A longer testimonial. '.repeat(i===2?35:3),author:'Author '+(i+1),role:'Member'}))};
       const saved = localStorage.getItem('testimonials-fixture');
       function App() {
         const [block,setBlock] = React.useState(saved ? JSON.parse(saved) : initial);
@@ -55,7 +68,7 @@ async function mount(page, request, surface = 'public', version = 1) {
               : h(CanvasPageRenderer,{page:{id:'fixture',canvas_design:design},symbols:[],embedded:true})),
           ${JSON.stringify(surface)}==='editor' && h('div',{style:{width:300,marginTop:40}},h(def.Inspector,{block,update:fn=>setBlock(fn)})));
       }
-      window.__TENANT_TYPOGRAPHY_STYLES__=[];
+      window.__TENANT_TYPOGRAPHY_STYLES__=${loading ? 'undefined' : JSON.stringify(typography)};
       createRoot(document.getElementById('root')).render(h(MemoryRouter,null,h(QueryClientProvider,{client:new QueryClient({defaultOptions:{queries:{retry:false}}})},h(App))));
     </script></body></html>`,
   }));
@@ -63,6 +76,86 @@ async function mount(page, request, surface = 'public', version = 1) {
   await expect(page.getByTestId('testimonials-carousel')).toBeVisible({ timeout: 20000 });
   return errors;
 }
+
+for (const surface of ['editor', 'public']) {
+  for (const version of [1, 2]) {
+    test(`v${version} ${surface} attribution inheritance and quote visibility across layouts and widths`, async ({ page, request }) => {
+      const errors = await mount(page, request, surface, version);
+      await page.evaluate(() => window.changeFixture({ showQuoteMark: undefined }));
+      await expect(page.locator('figure').first().locator('svg')).toHaveCount(1);
+      for (const width of [1200, 375]) {
+        await page.setViewportSize({ width: width === 375 ? 400 : 1600, height: 1000 });
+        await page.evaluate(w => window.resizeFixture(w), width);
+        for (const layout of ['single', 'grid', 'legacy', 'paged']) {
+          await page.evaluate(layout => window.changeFixture({
+            layout: ['legacy', 'paged'].includes(layout) ? 'carousel' : layout,
+            carousel: layout === 'paged' ? { perPage: { desktop: 3, mobile: 1 } } : undefined,
+            attributionTypographyStyleId: 'styled', showQuoteMark: true,
+          }), layout);
+          const figure = page.locator('figure').first();
+          const caption = figure.locator('figcaption');
+          const author = caption.getByText('Author 1', { exact: true });
+          const role = caption.getByText('Member', { exact: true });
+          for (const text of [author, role]) {
+            await expect(text).toHaveCSS('color', 'rgb(185, 28, 28)');
+            await expect(text).toHaveCSS('font-weight', '300');
+            await expect(text).toHaveCSS('font-family', 'Georgia');
+            await expect(text).toHaveCSS('font-size', '18px');
+            await expect(text).toHaveCSS('line-height', '27px');
+            await expect(text).toHaveCSS('letter-spacing', '2px');
+            await expect(text).toHaveCSS('text-transform', 'uppercase');
+          }
+          await expect(caption).toHaveCSS('margin-bottom', '7px');
+          if (layout === 'single') await page.screenshot({ path: `test-results/testimonials-carousel/styles-${surface}-v${version}-${width}.png` });
+          await expect(figure.locator('svg')).toHaveCount(1);
+          const quoteTop = await figure.locator('blockquote').evaluate(el => el.offsetTop);
+          const frameLocator = page.locator(surface === 'editor' && version === 2 ? '[data-block-id="quotes"]' : '[data-cb="quotes"]').first();
+          const frame = await frameLocator.boundingBox();
+          if (surface === 'editor') await page.getByTestId('toggle-testimonials-quote-mark').click();
+          else await page.evaluate(() => window.changeFixture({ showQuoteMark: false }));
+          await expect(figure.locator('svg')).toHaveCount(0);
+          expect(await figure.locator('blockquote').evaluate(el => el.offsetTop)).toBeLessThan(quoteTop);
+          await expect(figure.locator('blockquote')).toContainText('Quote 1');
+          await expect(author).toBeVisible();
+          expect((await frameLocator.boundingBox()).height).toBe(frame.height);
+          await expect(page.getByTestId('testimonials-carousel')).toHaveCount(layout === 'paged' ? 1 : 0);
+          if (layout === 'legacy') await expect(figure).toHaveCSS('min-width', '240px');
+
+          for (const id of ['partial', 'deleted', '']) {
+            await page.evaluate(id => window.changeFixture({ attributionTypographyStyleId: id }), id);
+            await expect(author).toHaveCSS('color', 'rgb(15, 23, 42)');
+            await expect(author).toHaveCSS('font-weight', '500');
+            await expect(role).toHaveCSS('color', 'rgb(100, 116, 139)');
+          }
+          await page.evaluate(() => window.changeFixture({ attributionTypographyStyleId: 'color-only' }));
+          await expect(author).toHaveCSS('font-weight', '500');
+          await expect(author).toHaveCSS('color', 'rgb(185, 28, 28)');
+          await expect(role).toHaveCSS('color', 'rgb(185, 28, 28)');
+          await page.evaluate(() => window.changeFixture({ attributionTypographyStyleId: 'weight-only' }));
+          await expect(author).toHaveCSS('font-weight', '300');
+          await expect(author).toHaveCSS('color', 'rgb(15, 23, 42)');
+          await expect(role).toHaveCSS('color', 'rgb(100, 116, 139)');
+        }
+      }
+      await page.evaluate(() => window.saveFixture());
+      await page.reload();
+      await expect(page.locator('figure').first().locator('svg')).toHaveCount(0);
+      await expect(page.locator('figure').first().locator('figcaption')).toContainText('Author 1');
+      if (surface === 'editor') await expect(page.getByTestId('toggle-testimonials-quote-mark')).toHaveAttribute('data-state', 'unchecked');
+      expect(errors).toEqual([]);
+    });
+  }
+}
+
+test('pending attribution stays hidden until styles resolve, then inherits the selected style', async ({ page, request }) => {
+  await mount(page, request, 'public', 1, true);
+  await page.evaluate(() => window.changeFixture({ attributionTypographyStyleId: 'styled' }));
+  const caption = page.locator('figcaption').first();
+  await expect(caption).toHaveCSS('visibility', 'hidden');
+  await page.evaluate(() => window.releaseFixtureStyles());
+  await expect(caption).toHaveCSS('visibility', 'visible');
+  await expect(caption.getByText('Author 1', { exact: true })).toHaveCSS('color', 'rgb(185, 28, 28)');
+});
 
 for (const version of [1, 2]) {
   test(`v${version} public sizing, partial page, keyboard, touch, long quotes and reduced motion`, async ({ page, request }) => {

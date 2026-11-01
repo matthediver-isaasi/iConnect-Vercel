@@ -912,6 +912,7 @@ export const BLOCK_DEFAULTS = {
     style: { background: 'transparent', borderWidth: 0 },
     content: {
       layout: 'grid', // single | carousel | grid
+      showQuoteMark: true,
       items: [
         { quote: 'A glowing review of your work.', author: 'Jane Smith', role: 'Customer', photo: '' },
       ],

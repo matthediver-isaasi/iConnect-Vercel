@@ -4089,15 +4089,15 @@ function TestimonialsRender({ block, breakpoint, asEditor = false }) {
           className={`rounded-md border ${carousel ? 'min-w-0' : 'min-w-[240px] snap-start'}`}
           style={{ padding: cardPadding, background: cardBg, borderColor: cardBorder, ...(carousel ? { overflowWrap: 'anywhere' } : {}) }}
         >
-          <Quote className="w-4 h-4 text-slate-400 mb-1" aria-hidden="true" />
+          {c.showQuoteMark !== false && <Quote className="w-4 h-4 text-slate-400 mb-1" aria-hidden="true" />}
           <blockquote className={quoteInline ? 'text-slate-800' : 'text-sm text-slate-800'} style={quoteInline || undefined}>{t.quote}</blockquote>
           <figcaption className={`mt-2 flex items-center gap-2 ${attributionInline ? 'text-slate-600' : 'text-xs text-slate-600'}`} style={attributionInline || undefined}>
             {t.photo ? (
               <img src={t.photo} alt="" loading="lazy" decoding="async" className="w-6 h-6 rounded-full object-cover" />
             ) : null}
             <div>
-              <div className="font-medium text-slate-900">{t.author}</div>
-              {t.role && <div className="text-slate-500">{t.role}</div>}
+              <div className={`${attributionInline?.fontWeight != null ? '' : 'font-medium'} ${attributionInline?.color ? '' : 'text-slate-900'}`}>{t.author}</div>
+              {t.role && <div className={attributionInline?.color ? undefined : 'text-slate-500'}>{t.role}</div>}
             </div>
           </figcaption>
         </figure>
@@ -4130,6 +4130,12 @@ function TestimonialsInspector({ block, update }) {
           { value: 'grid', label: 'Grid' },
         ]}
         testId="select-testimonials-layout"
+      />
+      <ToggleField
+        label="Show quote mark"
+        value={c.showQuoteMark !== false}
+        onChange={(v) => set({ showQuoteMark: v })}
+        testId="toggle-testimonials-quote-mark"
       />
       <NumberField
         label="Card padding (px)"

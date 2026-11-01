@@ -47,6 +47,25 @@ test('bounded settings preserve legacy absence and survive JSON/layout normaliza
   }
   const legacy = createBlock('testimonials');
   assert.equal(legacy.content.carousel, undefined);
+  assert.equal(legacy.content.showQuoteMark, true);
+});
+
+test('quote visibility survives save/reload without changing legacy pagination or authored frames', () => {
+  for (const showQuoteMark of [undefined, true, false]) {
+    for (const layout of ['single', 'grid', 'carousel']) {
+      const block = createBlock('testimonials');
+      block.content.layout = layout;
+      if (showQuoteMark === undefined) delete block.content.showQuoteMark;
+      else block.content.showQuoteMark = showQuoteMark;
+      const frames = structuredClone(block.bp);
+      const saved = normalizeCanvasDesign(JSON.parse(JSON.stringify({
+        version: 1, root: { sections: [{ id: 'root', children: [block] }] },
+      }))).root.sections[0].children[0];
+      assert.equal(saved.content.showQuoteMark !== false, showQuoteMark !== false);
+      assert.equal(saved.content.carousel, undefined);
+      assert.deepEqual(saved.bp, frames);
+    }
+  }
 });
 
 test('page navigation, responsive width, partial page, edits, editor safety and timer lifecycle', async () => {
