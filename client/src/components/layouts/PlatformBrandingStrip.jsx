@@ -1,4 +1,5 @@
 import React from "react";
+import { platformBrandingTextColor } from "@/lib/platformBrandingContrast";
 
 const PLATFORM_LOGO_URL = "https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68efc20f3e0a30fafad6dde7/fe03f7c5e_linked-aa.png";
 
@@ -36,7 +37,7 @@ export default function PlatformBrandingStrip({
       </a>
       <p
         className="text-xs"
-        style={{ color: platformBranding?.textColor || "#64748b" }}
+        style={{ color: platformBrandingTextColor(platformBranding) }}
       >
         {platformDefaults.platformBrandingText}
       </p>

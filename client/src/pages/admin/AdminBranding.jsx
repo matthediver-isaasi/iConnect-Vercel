@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { DEFAULT_PLATFORM_TEXT_COLOR, platformBrandingTextColor } from "@/lib/platformBrandingContrast";
 import { useNavigate, Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -363,7 +364,7 @@ export default function AdminBranding() {
     platform_branding: {
       showPlatformBranding: true,
       backgroundColor: '#000000',
-      textColor: '#64748b'
+      textColor: DEFAULT_PLATFORM_TEXT_COLOR
     }
   });
 
@@ -572,7 +573,7 @@ export default function AdminBranding() {
               platform_branding: {
                 showPlatformBranding: t?.platform_branding?.showPlatformBranding !== false,
                 backgroundColor: t?.platform_branding?.backgroundColor || '#000000',
-                textColor: t?.platform_branding?.textColor || '#64748b'
+                textColor: t?.platform_branding?.textColor || DEFAULT_PLATFORM_TEXT_COLOR
               }
             });
             
@@ -4605,7 +4606,7 @@ export default function AdminBranding() {
                           platform_branding: { ...prev.platform_branding, textColor: e.target.value }
                         }))}
                         className="flex-1 bg-slate-900/50 border-slate-600 text-white font-mono"
-                        placeholder="#64748b"
+                        placeholder={DEFAULT_PLATFORM_TEXT_COLOR}
                         data-testid="input-platform-text-color-text"
                       />
                     </div>
@@ -4623,7 +4624,7 @@ export default function AdminBranding() {
                   >
                     <p 
                       className="text-xs"
-                      style={{ color: formData.platform_branding.textColor }}
+                      style={{ color: platformBrandingTextColor(formData.platform_branding) }}
                     >
                       {platformDefaults.platformBrandingText}
                     </p>

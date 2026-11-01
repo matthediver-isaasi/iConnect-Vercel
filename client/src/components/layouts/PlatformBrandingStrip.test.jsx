@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { platformBrandingTextColor } from "../../lib/platformBrandingContrast.js";
+import { contrastRatio } from "../../lib/canvasA11y.js";
 
 import PlatformBrandingStrip, {
   shouldShowPlatformBranding,
@@ -12,6 +14,24 @@ const defaults = {
   platformBrandingText: "Powered by Example",
   platformBrandingUrl: "https://example.com",
 };
+
+test("branding colours meet normal-text contrast on dark and light backgrounds", () => {
+  for (const branding of [
+    undefined,
+    { backgroundColor: "#000000", textColor: "#64748b" },
+    { backgroundColor: "#ffffff" },
+    { backgroundColor: "#ffffff", textColor: "#eeeeee" },
+    { backgroundColor: "#777777", textColor: "#777777" },
+    { backgroundColor: "#123456", textColor: "#ABCDEF" },
+  ]) {
+    const color = platformBrandingTextColor(branding);
+    assert.ok(contrastRatio(color, branding?.backgroundColor || "#000000") >= 4.5);
+    const html = renderToStaticMarkup(<PlatformBrandingStrip platformBranding={branding} platformDefaults={defaults} />);
+    assert.ok(html.includes(`color:${color}`));
+    assert.match(html, /class="text-xs"/);
+  }
+  assert.equal(platformBrandingTextColor({ backgroundColor: "#123456", textColor: "#ABCDEF" }), "#ABCDEF");
+});
 
 test("platform branding is enabled by default and only explicit false hides it", () => {
   assert.equal(shouldShowPlatformBranding(undefined), true);
