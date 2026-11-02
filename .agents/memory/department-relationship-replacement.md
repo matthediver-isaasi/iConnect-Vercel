@@ -3,6 +3,12 @@ name: Department relationship replacement
 description: Safe replacement and rollback behavior for member-to-Department custom-object relationships.
 ---
 
+Renewal affiliation editing must be a generic, opt-in FormBuilder capability, not a BNMS-specific special case. Derive scopes from configured relationship definitions and member ownership; preserve existing add-only forms.
+
+**Why:** The owner explicitly required support across tenants when authorizing this work on 2 November 2026.
+
+**How to apply:** Do not hardcode tenant IDs, department object IDs, field IDs or schedule names in the reconciliation engine. A tenant's renewal form is configuration layered on the shared capability.
+
 Do not assume changing a member's primary Organisation automatically removes their Department links. The historical primary-only cleanup was deliberately superseded to preserve valid secondary-organisation affiliations. Renewal flows must explicitly distinguish retained, added and removed memberships, including secondary sites.
 
 **Why:** A department can belong to a valid secondary affiliation even after the primary Organisation changes. The old primary-only assumption caused an incorrect renewal assessment; live verification on 2026-11-02 confirmed the replacement policy.
