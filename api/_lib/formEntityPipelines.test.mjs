@@ -326,6 +326,11 @@ test('a new paid completion transport timeout waits without marking the remote o
   const previousAppUrl = process.env.APP_URL;
   const previousSessionSecret = process.env.SESSION_SECRET;
   const previousFetch = globalThis.fetch;
+  const previousNow = Date.now;
+  const now = Date.now();
+  // Keep reservation overhead from consuming the transport's 25ms budget
+  // under parallel suite load. The actual abort timer still runs normally.
+  Date.now = () => now;
   process.env.APP_URL = 'https://configured-internal.example';
   process.env.SESSION_SECRET = 'form-pipeline-operation-test-secret';
   const rpcCalls = [];
@@ -357,9 +362,8 @@ test('a new paid completion transport timeout waits without marking the remote o
       form: FORM_WITH_PIPELINES,
       completionOperationId: '00000000-0000-4000-8000-000000000001',
       observeLateSuccess: true,
-      // The runner reserves five seconds for outcome persistence, so this
-      // reaches its transport deadline immediately without a slow test.
-      deadlineAt: Date.now() + 5_025,
+      // Exercise a transport timeout, not an already-expired admission deadline.
+      deadlineAt: now + 5_025,
     });
     assert.equal(result.failed, true);
     assert.equal(result.ambiguous, undefined);
@@ -373,6 +377,7 @@ test('a new paid completion transport timeout waits without marking the remote o
     if (previousSessionSecret === undefined) delete process.env.SESSION_SECRET;
     else process.env.SESSION_SECRET = previousSessionSecret;
     globalThis.fetch = previousFetch;
+    Date.now = previousNow;
   }
 });
 

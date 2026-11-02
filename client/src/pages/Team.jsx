@@ -37,7 +37,7 @@ export default function TeamPage({ hasBanner }) {
   const [showDisabled, setShowDisabled] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(9);
-  const [view, setView] = useState("cards");
+  const [view, setView] = useState("list");
   const [sortKey, setSortKey] = useState("first_name");
   const [sortDirection, setSortDirection] = useState("asc");
   const [editingMember, setEditingMember] = useState(null);

@@ -45,6 +45,8 @@ async function select(page, label, value) {
 
 test('card/list metadata, all six header directions, shared sorts and keyboard views', async ({ page }) => {
   const state = await fixture(page);
+  await expect(page.getByRole('button', { name: 'List', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'Cards', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Cards', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByText('Never logged in', { exact: true })).toBeVisible();
   await expect(page.getByText('Unknown', { exact: true })).toBeVisible();
@@ -75,6 +77,34 @@ test('card/list metadata, all six header directions, shared sorts and keyboard v
   await expect(page.getByRole('button', { name: /Sort direction/ })).toContainText('Oldest first');
   await page.screenshot({ path: '/tmp/team-directory-cards.png' });
   expect(state.writes).toEqual([]);
+});
+
+test('list is the default on load and reload; toggling preserves filters, sort and pagination', async ({ page }) => {
+  await fixture(page, { count: 61 });
+  const list = page.getByRole('button', { name: 'List', exact: true });
+  const cards = page.getByRole('button', { name: 'Cards', exact: true });
+  await expect(list).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('tbody tr')).toHaveCount(9);
+  await page.getByTestId('input-team-search').fill('Person00');
+  await page.getByTestId('select-role-filter').click();
+  await page.getByRole('option', { name: 'Alpha', exact: true }).click();
+  await select(page, 'Sort by', 'Last name');
+  await page.getByRole('button', { name: 'Next page', exact: true }).click();
+  const rows = await page.locator('tbody tr').allTextContents();
+  for (const button of [cards, list]) {
+    await button.click();
+    await expect(button).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByTestId('input-team-search')).toHaveValue('Person00');
+    await expect(page.getByTestId('select-role-filter')).toContainText('Alpha');
+    await expect(page.getByRole('combobox', { name: 'Sort by', exact: true })).toContainText('Last name');
+    await expect(page.getByRole('status')).toHaveText('Showing 10–18 of 31 members');
+  }
+  expect(await page.locator('tbody tr').allTextContents()).toEqual(rows);
+  await cards.click();
+  await page.reload();
+  await expect(list).toHaveAttribute('aria-pressed', 'true');
+  await expect(cards).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('tbody tr')).toHaveCount(9);
 });
 
 test('complete multi-batch team, size transitions, filtering and update clamp', async ({ page }) => {

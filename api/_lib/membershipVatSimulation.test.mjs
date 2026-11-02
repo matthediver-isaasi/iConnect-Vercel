@@ -196,6 +196,7 @@ before(async () => {
   await cp(new URL('../../shared/unverifiedMembershipHistory.js', import.meta.url), path.join(temporaryRoot, 'shared', 'unverifiedMembershipHistory.js'));
   for (const file of [
     'membershipSimulationCore.js',
+    'reviewedHistoricalRenewal.js',
     'expiryOnlyRenewalPolicy.js',
     'formExpiryOnlyRenewal.js',
     'annualRenewalPolicy.js',
