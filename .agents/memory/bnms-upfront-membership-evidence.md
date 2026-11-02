@@ -3,6 +3,18 @@ name: BNMS upfront membership evidence
 description: Operator-attested current membership establishment is distinct from verified invoice settlement and future billing authority.
 ---
 
+An explicit owner confirmation may authorise a paid membership reconstruction
+even when its supporting invoice was fully cleared by credit rather than cash.
+Keep the owner attestation and provider settlement facts distinct.
+
+**Why:** The owner accepted a credited invoice as evidence for an individual
+current membership after the credit and zero provider payment were explained.
+
+**How to apply:** Require equally explicit record-specific approval; preserve
+the original invoice and credit note, record the attestation in the membership
+audit, allocate only the membership line, and leave unknown payment dates unset.
+Do not treat other credited invoices as paid-membership authority automatically.
+
 After a reconstruction, verify the full FormBuilder renewal context with its
 real pricing simulator, not only the annual eligibility calculation.
 
