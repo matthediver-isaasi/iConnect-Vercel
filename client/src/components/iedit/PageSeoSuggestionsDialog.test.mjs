@@ -105,9 +105,18 @@ test("requests live design; five editable fields apply independently without sav
       assert.match(document.querySelector('[role="alert"]').textContent, /https/);
     }
     await edit("og_image_url", "https://example.test/image.png");
+    const preview = document.querySelector('img[alt="Suggested social sharing image"]');
+    assert.equal(preview?.getAttribute("src"), "https://example.test/image.png");
+    await act(async () => preview.dispatchEvent(new Event("error")));
+    assert.match(document.body.textContent, /This image could not be loaded/);
+    await edit("og_image_url", "https://example.test/replacement.png");
+    assert.equal(document.querySelector('img[alt="Suggested social sharing image"]').getAttribute("src"), "https://example.test/replacement.png");
+    assert.doesNotMatch(document.body.textContent, /This image could not be loaded/);
+    await edit("og_image_url", "https://example.test/image.png");
     await click("Apply Social Image URL");
     assert.deepEqual(fixture.patches.at(-1), { og_image_url: "https://example.test/image.png" });
     await edit("og_image_url", "");
+    assert.equal(document.querySelector('img[alt="Suggested social sharing image"]'), null);
     await click("Apply Social Image URL");
     assert.deepEqual(fixture.patches.at(-1), { og_image_url: "" });
     await edit("meta_title", "Discard this draft");

@@ -16,6 +16,30 @@ const FIELDS = [
   { key: "og_image_url", label: "Social Image URL" },
 ];
 
+function SocialImagePreview({ url }) {
+  const [status, setStatus] = useState("loading");
+  try {
+    if (!["http:", "https:"].includes(new URL(url).protocol)) return null;
+  } catch { return null; }
+  return (
+    <div className="rounded-md border bg-slate-50 p-3 space-y-2">
+      <p className="text-xs font-medium text-slate-600">Social image preview</p>
+      {status === "loading" && (
+        <p role="status" className="flex items-center gap-2 text-xs text-slate-500">
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />Loading image…
+        </p>
+      )}
+      {status === "error" ? (
+        <p role="status" className="text-sm text-slate-600">This image could not be loaded. Check the URL or choose another image.</p>
+      ) : (
+        <img src={url} alt="Suggested social sharing image" referrerPolicy="no-referrer"
+          className="w-full max-h-56 object-contain rounded"
+          onLoad={() => setStatus("loaded")} onError={() => setStatus("error")} />
+      )}
+    </div>
+  );
+}
+
 // Mounted only while open: unapplied drafts never escape this dialog.
 export default function PageSeoSuggestionsDialog({ context, values, onApply, onClose }) {
   const [loading, setLoading] = useState(true);
@@ -156,6 +180,7 @@ export default function PageSeoSuggestionsDialog({ context, values, onApply, onC
                           : "Use a full http:// or https:// image URL. You can edit or clear it before applying."}
                       </p>
                       {imageError && <p id={`${id}-error`} role="alert" className="text-xs text-red-700">{imageError}</p>}
+                      <SocialImagePreview key={drafts[key].trim()} url={drafts[key].trim()} />
                     </>
                   )}
                   <div className="flex items-center gap-3">
