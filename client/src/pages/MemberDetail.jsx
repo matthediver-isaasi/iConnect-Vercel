@@ -51,6 +51,7 @@ import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import MemberBounceWarning from "@/components/communications/MemberBounceWarning";
 import MemberGraceWarning from "@/components/MemberGraceWarning";
+import MemberMembershipOverview from "@/components/MemberMembershipOverview";
 import { Badge } from "@/components/ui/badge";
 import RoleBadge from "@/components/RoleBadge";
 import MemberLoginStatusBadge from "@/components/MemberLoginStatusBadge";
@@ -1689,7 +1690,7 @@ export default function MemberDetail() {
       </div>
 
       {/* Tabs */}
-      <MemberGraceWarning memberId={member?.id} enabled={isAccessReady} />
+      {activeTab !== 'overview' && <MemberGraceWarning memberId={member?.id} enabled={isAccessReady} />}
       <Tabs value={activeTab} onValueChange={(tab) => {
         setActiveTab((current) => current === tab ? current : tab);
         const next = searchForMemberTab(searchParams, tab);
@@ -1962,6 +1963,8 @@ export default function MemberDetail() {
                       </p>
                     </div>
                   </div>
+                  <Separator />
+                  <MemberMembershipOverview memberId={member.id} enabled={isAccessReady} />
                   <Separator />
                   <div className="flex items-center gap-3">
                     <Shield className="w-4 h-4 text-slate-400" />

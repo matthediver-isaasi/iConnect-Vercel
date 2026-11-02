@@ -92,6 +92,7 @@ import { useDateFormat } from "@/hooks/useDateFormat";
 import MemberEmails from "@/components/MemberEmails";
 import MemberActivityTimeline from "@/components/MemberActivityTimeline";
 import MemberMembershipTab from "@/components/MemberMembershipTab";
+import MemberMembershipOverview from "@/components/MemberMembershipOverview";
 import CrmTagInput from "@/components/crm/CrmTagInput";
 import { formatTermLength } from "@/lib/memberGroupTermSnapshot";
 import { normalizeMemberCategorySelections } from "@/lib/memberResourceCategories";
@@ -1510,6 +1511,8 @@ export default function MemberDetailView({
                             </p>
                           </div>
                         </div>
+                        <Separator />
+                        <MemberMembershipOverview memberId={member.id} />
                         <Separator />
                         <div className="flex items-center gap-3">
                           <Shield className="w-4 h-4 text-slate-400" />
