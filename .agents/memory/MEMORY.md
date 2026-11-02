@@ -81,6 +81,7 @@
 - [Stripe feature mode for shared payments](stripe-feature-payment-mode.md) — discovery, creation, and confirmation must use one persisted feature when a shared flow serves several products.
 - [Department relationship replacement](department-relationship-replacement.md) — primary-organisation changes must preserve valid secondary affiliations; explicitly reconcile departments, never hard-delete.
 - [Annual membership renewal lifecycle](annual-membership-renewal-lifecycle.md) — annual policy is a dated tier snapshot; next terms always start the day after the prior persisted end, while monthly agreements stay separate.
+- [Post-grace renewal](post-grace-renewal-policy.md) — approved late renewals start on payment; within-grace renewal stays contiguous and prior class must survive Former-role assignment.
 - [Renewal tenant rollout](renewal-tenant-rollout.md) — BNMS-first activation must be tenant-specific; legacy historical authority remains separate from rollout readiness.
 - [Renewal payment-method choice](renewal-payment-method-choice.md) — opening Stripe checkout must not lock members into card payment; switching requires provider reconciliation.
 - [Organisation admin invoicing](organisation-admin-renewal-boundary.md) — organisation administrative invoicing is independent of individual renewal grace; preserve commitments and financial guards.
