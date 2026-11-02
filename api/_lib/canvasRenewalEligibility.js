@@ -1,4 +1,5 @@
 import { addDays, normalizeAnnualRenewalConfig } from './annualRenewalPolicy.js';
+import { reviewedHistoricalRenewalConfig } from './reviewedHistoricalRenewal.js';
 import { shapeLegacyCurrentMembership } from '../membership/member-membership.js';
 import { loadExpiryOnlyRenewalPolicy, expiryOnlyPolicyConfig } from './expiryOnlyRenewalPolicy.js';
 import { resolveMemberAmendmentReadOverlay } from './membershipAmendmentReadOverlay.js';
@@ -23,7 +24,7 @@ export function canvasRenewalEligibility({ record, config, history = [], today, 
   if (!record || isRetiredCanvasCheckout(record) || record.membership_source !== 'personal' || paused || hasRecurring
       || !['active', 'paid', 'expired'].includes(record.status)
       || record.payment_status !== 'paid' || record.billing_agreement_id
-      || !['upfront', 'manual', 'card', 'stripe', 'invoice', 'bank_transfer'].includes(record.payment_method)
+      || (!reviewedHistoricalRenewalConfig(record) && !['upfront', 'manual', 'card', 'stripe', 'invoice', 'bank_transfer'].includes(record.payment_method))
       || !upfrontPeriod(record) || record.commitment_snapshot?.payment_frequency === 'monthly'
       || !day(today) || !config || config.structure_scope_type !== 'member'
       || (config.tenant_id && config.tenant_id !== record.tenant_id)) return hidden();
@@ -42,7 +43,7 @@ export function canvasRenewalEligibility({ record, config, history = [], today, 
       && !['cancelled', 'canceled', 'failed'].includes(other.status)
       && (other.previous_term_id === record.id || !day(other.term_start_date)
         || other.term_start_date >= (start || end)))) return hidden();
-  const savedConfig = record.effective_commitment_snapshot?.config || record.commitment_snapshot?.config || config;
+  const savedConfig = reviewedHistoricalRenewalConfig(record) || record.effective_commitment_snapshot?.config || record.commitment_snapshot?.config || config;
   if (savedConfig.tenant_id && savedConfig.tenant_id !== record.tenant_id) return hidden();
   // Missing settings are not evidence of an assigned renewal window. Explicit
   // zero follows the canonical policy: only the anchor day, not "unlimited".
@@ -70,7 +71,7 @@ export async function loadCanvasRenewalEligibility(db, { selected, owner, histor
   if (!record || record.membership_source !== 'personal' || owner.membership_paused
       || plan || record.billing_agreement_id || record.payment_status !== 'paid'
       || !upfrontPeriod(record)
-      || !['upfront', 'manual', 'card', 'stripe', 'invoice', 'bank_transfer'].includes(record.payment_method)) return hidden();
+      || (!reviewedHistoricalRenewalConfig(record) && !['upfront', 'manual', 'card', 'stripe', 'invoice', 'bank_transfer'].includes(record.payment_method))) return hidden();
   const tenantId = owner.tenant_id;
   const read = async query => {
     const rows = [];
@@ -87,7 +88,7 @@ export async function loadCanvasRenewalEligibility(db, { selected, owner, histor
       .eq('tenant_id', tenantId).eq('member_id', owner.id));
     if (agreements.some(row => row.tenant_id !== tenantId || row.member_id !== owner.id
         || !['cancelled', 'canceled', 'expired', 'completed'].includes(row.status))) return hidden();
-    let config = record.effective_commitment_snapshot?.config || record.commitment_snapshot?.config;
+    let config = reviewedHistoricalRenewalConfig(record) || record.effective_commitment_snapshot?.config || record.commitment_snapshot?.config;
     let policySource = config ? 'saved_snapshot' : 'saved_history_config';
     if (!config && record.config_id) {
       const configs = await read(db.from('membership_tier_config').select('*')

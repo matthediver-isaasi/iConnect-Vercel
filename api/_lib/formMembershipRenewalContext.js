@@ -1,4 +1,5 @@
 import { assessFormMembershipRenewalEvidence } from './formMembershipRenewalEvidence.js';
+import { reviewedHistoricalRenewalConfig } from './reviewedHistoricalRenewal.js';
 import { addDays, toDateString } from './annualRenewalPolicy.js';
 import { createHash } from 'node:crypto';
 import { membershipSuccessorElectionsEnabled } from './membershipSuccessorElection.js';
@@ -66,6 +67,7 @@ export async function loadFormMembershipRenewalContext(db, {
     .sort((a, b) => b.term_start_date.localeCompare(a.term_start_date))[0]
     || retained.find(row => evidence.expiryOnlyPolicies[row.id]);
   const assigned = evidence.expiryOnlyPolicies[previous?.id];
+  const reviewedHistory = reviewedHistoricalRenewalConfig(previous);
   const priorConfig = previous?.effective_commitment_snapshot?.config
     || previous?.renewal_policy_snapshot || previous?.commitment_snapshot?.config || previous?.incentive_snapshot?.config;
   if (renewalSelection && (organizationId || (assigned && !renewalSelection.configId)
@@ -151,7 +153,8 @@ export async function loadFormMembershipRenewalContext(db, {
     source: 'form-renewal', mode: 'manual', configId: successorConfig.id,
     asOfDate: renewal.successorStart, termStartDate: renewal.successorStart,
     ...(renewalSelection?.fieldId ? { fieldOverrides: { [renewalSelection.fieldId]: renewalSelection.value } } : {}),
-    ...(assigned ? { expiryOnlyHistoryId: previous.id, renewalScheduleSelection: renewalSelection }
+    ...(reviewedHistory ? { reviewedHistoricalHistoryId: previous.id }
+      : assigned ? { expiryOnlyHistoryId: previous.id, renewalScheduleSelection: renewalSelection }
       : successorConfig.start_mode === 'immediate' ? { previousTerm: previous } : {}),
   });
   if (!simulation?.success || simulation.existingRecord) {
@@ -166,7 +169,7 @@ export async function loadFormMembershipRenewalContext(db, {
   }
   // Election/formRenewal retain predecessor identity. Rolling builders must not
   // interpret an expiry-only predecessor as a complete historical commitment.
-  simulation.previousTerm = assigned ? null : previous;
+  simulation.previousTerm = assigned || reviewedHistory ? null : previous;
   simulation.paymentSchedule = {
     term_start_date: renewal.successorStart, term_end_date: renewal.successorEnd,
     // Fixed upfront histories are not monthly/rolling commitments. The

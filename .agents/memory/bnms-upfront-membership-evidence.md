@@ -370,3 +370,18 @@ all selected cohorts, including Full Overseas, in a review-only approval form.
 before database writes; keep rollout disabled. Do not extend it to new records,
 change shared overseas settings, infer historical financial evidence or add
 recurring consent.
+
+## Settled historical instalments and renewal readiness
+
+Owner-approved reconstruction of a year settled by cash and credits does not,
+by itself, assign a renewal schedule or prove a continuing Direct Debit.
+Preserve the historical membership class and payment method; explicitly
+establish the next-term schedule and grace policy separately.
+
+**Why:** Correcting the financial history alone can still leave the portal
+unable to establish renewal eligibility. A current class can differ from the
+historical class, and credited invoices are not evidence of cash collection.
+
+**How to apply:** Verify provider status before treating historical recurring
+payments as ended, obtain the schedule decision where classes differ, and test
+portal eligibility, the actual renewal quote and atomic reservation together.

@@ -1,3 +1,4 @@
+import { reviewedHistoricalRenewalConfig } from './reviewedHistoricalRenewal.js';
 import { createDiscountHelper } from './discountHelperCore.js';
 import { createVatOverrideHelper } from './vatOverrideHelperCore.js';
 import { createMembershipConfigResolver } from './membershipConfigResolverCore.js';
@@ -145,6 +146,30 @@ async function resolveRollingSimulationContext(client, {
   // A superseded unknown entry remains in the ledger, never in predecessor
   // selection or calculations based on purchased commitment evidence.
   if (memberId) histories = histories.filter(row => row.payment_status !== 'unverified');
+  if (options.reviewedHistoricalHistoryId) {
+    const history = histories.find(row => row.id === options.reviewedHistoricalHistoryId);
+    const policy = reviewedHistoricalRenewalConfig(history);
+    const start = policy && toDateString(addDays(history.term_end_date, 1));
+    if (!memberId || options.source !== 'form-renewal' || !policy
+        || history.member_id !== memberId || history.tenant_id !== tenantId
+        || config?.id !== policy.id || config.tenant_id !== tenantId
+        || config.is_active === false || config.structure_scope_type !== 'member'
+        || config.billing_period !== 'annual' || config.start_mode !== 'immediate'
+        || options.termStartDate !== start || options.asOfDate !== start
+        || (config.effective_from && config.effective_from > start)
+        || (config.effective_to && config.effective_to < start)
+        || histories.some(row => row.id !== history.id && (!row.term_end_date || row.term_end_date >= history.term_start_date))) {
+      throw new Error('Reviewed historical renewal authority does not match the requested schedule or boundary.');
+    }
+    const { data: obligations, error: obligationsError } = await client.from('membership_billing_agreements')
+      .select('id').eq('tenant_id', tenantId).eq('member_id', memberId)
+      .or('status.is.null,status.not.in.(cancelled,canceled,expired,completed)').limit(1);
+    if (obligationsError || !Array.isArray(obligations) || obligations.length) {
+      throw new Error('Historical renewal has an unresolved billing arrangement.');
+    }
+    return { config, previousTerm: null, expiryOnlyRenewal: true,
+      window: rollingMembershipWindow(config, start, null) };
+  }
   if (options.expiryOnlyHistoryId) {
     const history = histories.find(row => row.id === options.expiryOnlyHistoryId);
     const policy = memberId && options.source === 'form-renewal'

@@ -1,4 +1,5 @@
-import { resolveAnnualRenewal } from './annualRenewalPolicy.js';
+import { addDays, resolveAnnualRenewal } from './annualRenewalPolicy.js';
+import { reviewedHistoricalRenewalConfig } from './reviewedHistoricalRenewal.js';
 import { loadExpiryOnlyRenewalPolicy } from './expiryOnlyRenewalPolicy.js';
 
 export function paymentReportCountdown(row, today, graceEndDate = null) {
@@ -19,11 +20,18 @@ export async function paymentReportGrace(db, { row, history, configs, tenantId, 
   }
   const record = history.find(h => h.id === row.historyId && h.member_id === row.memberId && h.tenant_id === tenantId);
   let graceEndDate = null;
-  if (record && !record.billing_agreement_id && ['upfront', 'manual', 'card', 'stripe', 'invoice', 'bank_transfer'].includes(record.payment_method)) {
+  const reviewed = reviewedHistoricalRenewalConfig(record);
+  if (reviewed) {
+    // This policy was assigned for renewal, not purchased with the old term.
+    // Preserve the dated historical year without inventing a rolling commitment.
+    graceEndDate = addDays(record.term_end_date, reviewed.renewal_grace_days).toISOString().slice(0, 10);
+    return { ...row, graceEndDate, ...paymentReportCountdown(row, today, graceEndDate) };
+  }
+  if (record && !record.billing_agreement_id && (reviewedHistoricalRenewalConfig(record) || ['upfront', 'manual', 'card', 'stripe', 'invoice', 'bank_transfer'].includes(record.payment_method))) {
     const assigned = await loadExpiryOnlyRenewalPolicy(db, { tenantId, history: record });
     if (assigned) graceEndDate = assigned.graceEndDate;
     else {
-      const config = record.commitment_snapshot?.config || configs.find(c => c.id === record.config_id && c.tenant_id === tenantId);
+      const config = reviewedHistoricalRenewalConfig(record) || record.commitment_snapshot?.config || configs.find(c => c.id === record.config_id && c.tenant_id === tenantId);
       // No fallback to today's matching schedule or to a default grace duration.
       const duration = config?.renewal_grace_days;
       if (duration != null && duration !== '' && Number.isInteger(Number(duration))
