@@ -1580,7 +1580,10 @@ export default function PublicHeader() {
 
       {/* Mobile Menu - rendered via portal to escape transformed ancestors */}
       {typeof document !== 'undefined' && createPortal(
-        <div 
+        <nav
+          aria-label="Mobile navigation"
+          aria-hidden={!mobileMenuOpen}
+          inert={mobileMenuOpen ? undefined : ""}
           className={`fixed inset-0 z-50 overflow-hidden lg:hidden ${
             mobileMenuOpen ? 'pointer-events-auto' : 'pointer-events-none'
           }`}
@@ -1665,7 +1668,7 @@ export default function PublicHeader() {
 
         </div>
           </div>
-        </div>,
+        </nav>,
         document.body
       )}
 
