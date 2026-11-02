@@ -1783,3 +1783,17 @@ mtime_ms = 1793525201115
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/5fc8fe71-147a-4857-968a-9f18e2bbbfd2/5f57c62d-3aee-4a11-96c9-634e397b15a5"
 storage_version_token = "1793525201978240"
 content_type = "text/csv"
+
+[[outputs]]
+id = "60EpZcwZ54bFuBw7LVGYf"
+uri = "file://generated-artifacts/buckinghamshire-activity/Buckinghamshire-New-University-Activity-Findings.xlsx"
+type = "table"
+title = "Buckinghamshire New University — Activity Findings"
+description = "Excel workbook containing 9 event booking entries, 8 resource-access examples, resource-view totals and source notes, transcribed from the supplied screenshots."
+logical_id = "ff7e7fa2-004c-4677-8108-0cd05dfae1fc"
+content_hash = "sha256:eb9b97455951bec59513e2dcfe74e272e37fce23800d86631c992259ca06c87a"
+size = 10900
+mtime_ms = 1793634812311
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/ff7e7fa2-004c-4677-8108-0cd05dfae1fc/d897b641-775e-4691-a247-b5d203d9441c"
+storage_version_token = "1793634820016717"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
