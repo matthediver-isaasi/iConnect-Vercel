@@ -68,6 +68,11 @@ import {
   useDepartmentCurrentSet,
 } from "@/lib/departmentCurrentSet";
 import DepartmentCurrentSetNotice from "@/components/forms/DepartmentCurrentSetNotice";
+import {
+  useMemberAffiliations,
+  memberAffiliationSubmissionValues,
+  affiliationCommitConfirmed,
+} from "@/components/forms/useMemberAffiliations";
 import { classifyFormMutationContract } from "../../../shared/formMutationContract.js";
 import { memberOwnerRequired } from "@/lib/publicMemberSignup";
 import { Link, useLocation } from "react-router-dom";
@@ -1083,6 +1088,21 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       { required: bookingPrefillExpected, query: viewerBookingQuery, label: 'your booking' },
     ],
   });
+  const memberAffiliationEnabled = form?.member_affiliation_enabled === true;
+  const [affiliationSubmissionStatus, setAffiliationSubmissionStatus] = useState(null);
+  const memberAffiliations = useMemberAffiliations({
+    formId: form?.id,
+    tenantId: memberInfo?.tenant_id || memberInfo?.organization?.tenant_id,
+    principalId: memberInfo?.id,
+    enabled: memberAffiliationEnabled && authResolved && !formAccess.restricted,
+    requireActive: true,
+    // Fresh affiliations win over initial defaults, draft and entity prefill.
+    // Later reactive/conditional prefill must not write these managed fields.
+    ready: authResolved && defaultsInitialized
+      && String(defaultsInitializedFormId) === String(form?.id)
+      && (!draftToken || draftLoaded) && (!entityPrefillExpected || prefillApplied),
+    setFormValues,
+  });
   
   // Track if boolean defaults have been initialized for this form
   const reactivePrefillState = useFormFieldPrefill({
@@ -1094,6 +1114,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       && String(defaultsInitializedFormId) === String(form?.id)
       && (!draftToken || draftLoaded),
     protectedFieldIds: [
+      ...memberAffiliations.managedFieldIds,
       ...Object.keys(transitionInitialValues || {}),
       ...Object.keys(draftData?.draft?.draft_data || {}),
       ...(transitionRestoreNavigation ? (form?.fields || []).map(field => field.id) : []),
@@ -1112,6 +1133,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     setCurrentPageIndex(transitionRestoreNavigation?.currentPageIndex ?? 0);
     setCurrentStep(transitionRestoreNavigation?.currentStep ?? 0);
     setSubmitted(false);
+    setAffiliationSubmissionStatus(null);
     setPrefillApplied(!!transitionRestoreNavigation);
     invitationInitializedRef.current = null;
     invitationEditedFieldsRef.current = new Set();
@@ -1444,6 +1466,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   const departmentPrefillRequired = departmentCurrentSet.active && !!departmentCurrentSet.departmentId && !!memberInfo?.id;
   const prefillState = combinePrefillStates(
     entityPrefillState, reactivePrefillState, conditionalPrefillState, draftPrefillState,
+    memberAffiliations,
     { pending: departmentPrefillRequired && !departmentCurrentSet.baselineReady,
       error: departmentPrefillRequired && departmentCurrentSet.error ? {
         message: departmentCurrentSet.error.message || "We couldn't load current Department data.",
@@ -1483,6 +1506,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
 
   const submitFormMutation = useMutation({
     mutationFn: async (submissionData) => {
+      if (prefillLockRef.current) throw new Error('Please wait for your form data before submitting.');
       // Use the shared authenticated public client. Besides preserving session
       // cookies for current-set authorization, it resolves custom-domain
       // tenants consistently with EmbedForm and the canvas form surface.
@@ -1499,9 +1523,13 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       if (departmentCurrentSet.active && !currentSetCommitConfirmed(result)) {
         throw new Error('Current Department data has not been confirmed as saved. Retry or reload and review it before continuing.');
       }
+      if (memberAffiliationEnabled && !affiliationCommitConfirmed(result)) {
+        throw new Error('Your affiliation update has not been confirmed. Your answers have been kept. Retry submitting before leaving this page.');
+      }
       return result;
     },
     onSuccess: async (submissionResult) => {
+      setAffiliationSubmissionStatus(submissionResult?.member_affiliations?.status || null);
       const submissionId = submissionResult?.id || null;
 
       // Finalize the UI exactly once per callback: rotate the idempotency
@@ -1561,7 +1589,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
         }
         
         const hasEntityPipelines = (form?.entity_pipelines?.members?.length > 0) || (form?.entity_pipelines?.organisations?.length > 0);
-        if (!hasEntityPipelines) {
+        if (!hasEntityPipelines && !memberAffiliationEnabled) {
           const hasMappings = form?.fields?.some(f => f.custom_field_id);
           if (hasMappings) {
             try {
@@ -2499,6 +2527,9 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     
     // Apply only semantic changes. Structured values may be regenerated with
     // new object/array identities while carrying identical answers.
+    // Affiliation answers belong to the fresh snapshot and subsequent member
+    // edits, not conditional set-value rules. Visibility still evaluates them.
+    for (const fieldId of memberAffiliations.managedFieldIds) delete updates[fieldId];
     const transition = planSemanticFormValueUpdate(setValueConvergenceRef.current, {
       formId: form.id,
       currentValues: formValues,
@@ -2545,7 +2576,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     
     // Update previous state for next render
     previousRoleActionsRef.current = nowActiveRoleActions;
-  }, [form?.visibility_rules, formValues, recordSelectionOptionStates, emptyRelationshipParentValues, prefillMember, prefillOrg, prefillMemberCustomValues, prefillOrgCustomValues, conditionalPrefillValues, form?.prefill_source]);
+  }, [form?.visibility_rules, formValues, recordSelectionOptionStates, emptyRelationshipParentValues, prefillMember, prefillOrg, prefillMemberCustomValues, prefillOrgCustomValues, conditionalPrefillValues, form?.prefill_source, memberAffiliations.managedFieldIds]);
 
   // History-entry context is presentation only, never submission authority.
   // Open-form rules can switch the active form without changing the URL.
@@ -2974,7 +3005,10 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       }
     }
 
-    const filteredFormValues = prepareFormSubmissionValues(form.fields, formValues);
+    const preparedFormValues = prepareFormSubmissionValues(form.fields, formValues);
+    const filteredFormValues = memberAffiliationEnabled
+      ? memberAffiliationSubmissionValues(preparedFormValues, memberAffiliations)
+      : preparedFormValues;
     const currentSetMetadata = currentSetSubmissionMetadata({
       form,
       departmentId: departmentCurrentSet.departmentId,
@@ -3006,6 +3040,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       isValidEmail(submitterCopyEmail);
 
     const submissionData = {
+      idempotency_key: getIdempotencyKey(),
       form_id: form.id,
       form_name: form.name,
       submitted_by_email: memberInfo?.email || null,
@@ -3059,6 +3094,9 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
             </div>
             <h3 className="text-xl font-semibold text-slate-900 mb-2">Success!</h3>
             <p className="text-slate-600">{surveySuccessMessage(form)}</p>
+            {affiliationSubmissionStatus === 'awaiting_review' && <p role="status" className="mt-4 text-sm text-slate-700">
+              Your requested affiliation changes have been saved for review. Your existing affiliations remain unchanged until approval.
+            </p>}
             {resolveRedirectTarget(form, formValues) && (
               <p className="text-sm text-slate-500 mt-4">Redirecting...</p>
             )}
@@ -3137,6 +3175,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                 prefillData={prefillData}
                 currentSetOptionLabels={departmentCurrentSet.currentSet.optionLabels}
                 currentSetExistingBlankFieldsByRow={hiddenField.id === departmentCurrentSet.sectionIds.equipment ? departmentCurrentSet.existingBlankRequiredFieldsByRow : null}
+                preserveValueWhenUnavailable={memberAffiliations.managedFieldIds.includes(hiddenField.id)}
                 allFields={form?.fields || []}
                 hiddenFieldIds={effectiveHiddenFieldIds}
                 membershipFeeQuote={membershipFeeQuote}
@@ -3174,6 +3213,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                 prefillData={prefillData}
                 currentSetOptionLabels={departmentCurrentSet.currentSet.optionLabels}
                 currentSetExistingBlankFieldsByRow={currentField.id === departmentCurrentSet.sectionIds.equipment ? departmentCurrentSet.existingBlankRequiredFieldsByRow : null}
+                preserveValueWhenUnavailable={memberAffiliations.managedFieldIds.includes(currentField.id)}
                 allFields={form?.fields || []}
                 hiddenFieldIds={effectiveHiddenFieldIds}
                 membershipFeeQuote={membershipFeeQuote}
@@ -3501,6 +3541,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                 prefillData={prefillData}
                 currentSetOptionLabels={departmentCurrentSet.currentSet.optionLabels}
                 currentSetExistingBlankFieldsByRow={hiddenField.id === departmentCurrentSet.sectionIds.equipment ? departmentCurrentSet.existingBlankRequiredFieldsByRow : null}
+                preserveValueWhenUnavailable={memberAffiliations.managedFieldIds.includes(hiddenField.id)}
                 allFields={form?.fields || []}
                 hiddenFieldIds={effectiveHiddenFieldIds}
                 membershipFeeQuote={membershipFeeQuote}
@@ -3549,6 +3590,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                   prefillData={prefillData}
                   currentSetOptionLabels={departmentCurrentSet.currentSet.optionLabels}
                   currentSetExistingBlankFieldsByRow={field.id === departmentCurrentSet.sectionIds.equipment ? departmentCurrentSet.existingBlankRequiredFieldsByRow : null}
+                  preserveValueWhenUnavailable={memberAffiliations.managedFieldIds.includes(field.id)}
                   allFields={form?.fields || []}
                   hiddenFieldIds={effectiveHiddenFieldIds}
                   membershipFeeQuote={membershipFeeQuote}

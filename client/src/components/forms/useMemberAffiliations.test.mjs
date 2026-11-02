@@ -29,7 +29,7 @@ const mod = new Module(`${process.cwd()}/member-affiliation-prefill-test.cjs`);
 mod.filename = `${process.cwd()}/member-affiliation-prefill-test.cjs`;
 mod.paths = Module._nodeModulePaths(process.cwd());
 mod._compile(bundle.outputFiles[0].text, mod.filename);
-const { useMemberAffiliations, normalizeMemberAffiliations, memberAffiliationSubmissionValues, MEMBER_AFFILIATION_SNAPSHOT } = mod.exports;
+const { useMemberAffiliations, normalizeMemberAffiliations, memberAffiliationSubmissionValues, MEMBER_AFFILIATION_SNAPSHOT, affiliationCommitConfirmed } = mod.exports;
 const React = await import("react");
 const { act } = React;
 const { createRoot } = await import("react-dom/client");
@@ -164,4 +164,18 @@ test("standalone hook stays dormant when disabled and composes with other prefil
   await harness.render({ enabled: true });
   assert.equal(harness.calls.length, 1);
   assert.equal(harness.latest().values.org, "current-org");
+});
+
+test("submission acknowledgement distinguishes protected completion from ordinary submit success", () => {
+  assert.equal(affiliationCommitConfirmed({ id: "submission" }), false);
+  assert.equal(affiliationCommitConfirmed({ member_affiliations: { status: "pending" } }), false);
+  for (const status of ["applied", "already_applied", "awaiting_review"]) {
+    assert.equal(affiliationCommitConfirmed({ member_affiliations: { status } }), true);
+  }
+});
+
+test("an explicitly opted-in form cannot silently fall back when its configuration disappears", async t => {
+  const harness = await mount(t, async () => response({ active: false }), { requireActive: true });
+  assert.equal(harness.latest().barrier.locked, true);
+  assert.match(harness.latest().state.error.message, /settings changed/);
 });

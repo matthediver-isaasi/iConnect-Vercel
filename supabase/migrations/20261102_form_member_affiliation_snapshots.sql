@@ -138,7 +138,7 @@ BEGIN
  member_def:=NULLIF(cfg->>'secondaryMemberDefinitionId','')::uuid;
  org_def:=NULLIF(cfg->>'secondaryOrganizationDefinitionId','')::uuid;
  assignment_object:=NULLIF(cfg->>'secondaryObjectId','')::uuid;
- label_field:=NULLIF(cfg->>'secondaryLabelFieldId','');
+ label_field:=coalesce(NULLIF(cfg->>'secondaryLabelFieldKey',''),NULLIF(cfg->>'secondaryLabelFieldId',''));
  IF dept_def IS NOT NULL THEN
    sets:=jsonb_build_array(jsonb_build_object('definition_id',dept_def,'related_ids',p_departments));
  ELSIF cardinality(p_departments)>0 THEN RAISE EXCEPTION 'Departments are not configured' USING ERRCODE='22023';

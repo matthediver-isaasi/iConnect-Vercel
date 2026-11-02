@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { adminFetch } from "@/lib/adminFetch";
+import { loadMemberAffiliationSnapshot } from "./memberAffiliationApi";
 
 export const MEMBER_AFFILIATION_SNAPSHOT = "__member_affiliation_snapshot";
 const EMPTY_IDS = Object.freeze([]);
@@ -33,10 +33,14 @@ export function memberAffiliationSubmissionValues(values, state) {
     : answers;
 }
 
+export function affiliationCommitConfirmed(result) {
+  return ["applied", "already_applied", "awaiting_review"].includes(result?.member_affiliations?.status);
+}
+
 // One fresh snapshot per form/viewer session, never a focus refetch. Wait for
 // defaults and draft restoration before applying it, then let edits stand.
 export function useMemberAffiliations({
-  formId, tenantId, principalId, enabled = true, ready = true, setFormValues,
+  formId, tenantId, principalId, enabled = true, ready = true, requireActive = false, setFormValues,
 }) {
   const identity = JSON.stringify([formId, tenantId || null, principalId || null]);
   const [request, setRequest] = useState(null);
@@ -65,16 +69,11 @@ export function useMemberAffiliations({
     setRequest({ identity, data: null, error: null });
     async function load() {
       try {
-        const response = await adminFetch(`/api/forms/member-affiliations?form_id=${encodeURIComponent(formId)}`, {
-          credentials: "include", cache: "no-store", signal: controller.signal,
-        }, tenantId);
-        const body = await response.json();
-        if (!response.ok) {
-          throw new Error(response.status === 401 || response.status === 403
-            ? "Sign in with your member account to load current affiliations, then retry."
-            : "We couldn't load your current affiliations. Please retry before submitting.");
-        }
+        const body = await loadMemberAffiliationSnapshot(formId, { signal: controller.signal, tenantId });
         const normalized = normalizeMemberAffiliations(body);
+        if (requireActive && !normalized.active) {
+          throw new Error("This form’s affiliation settings changed. Reload the form before submitting.");
+        }
         if (!controller.signal.aborted) setRequest({ identity, data: normalized, error: null });
       } catch (error) {
         if (!controller.signal.aborted) setRequest({ identity, data: null, error });
@@ -82,7 +81,7 @@ export function useMemberAffiliations({
     }
     load();
     return () => controller.abort();
-  }, [identity, required, formId, tenantId, attempt]);
+  }, [identity, required, formId, tenantId, attempt, requireActive]);
 
   useEffect(() => {
     if (!required || !ready || !data?.active || applied.current?.identity === identity) return;
@@ -97,11 +96,11 @@ export function useMemberAffiliations({
 
   const retry = () => setAttempt(value => value + 1);
   return {
-    active: data?.active === true,
-    snapshotToken: data?.active && appliedIdentity === identity ? data.snapshotToken : null,
-    managedFieldIds: data?.managedFieldIds || EMPTY_IDS,
+    active: required && data?.active === true,
+    snapshotToken: required && data?.active && appliedIdentity === identity ? data.snapshotToken : null,
+    managedFieldIds: required ? data?.managedFieldIds || EMPTY_IDS : EMPTY_IDS,
     pending: required && (!data || (data.active && appliedIdentity !== identity)),
-    error: current?.error ? {
+    error: required && current?.error ? {
       message: current.error.message || "We couldn't load your current affiliations. Please retry.",
       retry,
     } : null,

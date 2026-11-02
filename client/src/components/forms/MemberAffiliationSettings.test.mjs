@@ -30,7 +30,8 @@ const mod = new Module(`${process.cwd()}/affiliation-settings-test.cjs`);
 mod.filename = `${process.cwd()}/affiliation-settings-test.cjs`;
 mod.paths = Module._nodeModulePaths(process.cwd());
 mod._compile(bundle.outputFiles[0].text, mod.filename);
-const { default: Settings, emptyAffiliationConfig, affiliationRelationshipOptions } = mod.exports;
+const { default: Settings, emptyAffiliationConfig, affiliationRelationshipOptions,
+  departmentOrganizationRelationshipOptions } = mod.exports;
 const React = await import("react");
 const { act } = React;
 const { createRoot } = await import("react-dom/client");
@@ -129,4 +130,110 @@ test("relationship discovery filters endpoints and selected custom object withou
   ];
   assert.deepEqual(affiliationRelationshipOptions(definitions, "member", "site"), [{ value: "member-site", label: "Works at" }]);
   assert.equal(affiliationRelationshipOptions(definitions, "organization", "site")[0].value, "org-site");
+});
+
+test("authenticated discovery and canonical saved config retain the dedicated review form", async t => {
+  const reviewFormId = "22222222-2222-4222-8222-222222222222";
+  const { container, calls } = await mount(t, {
+    metadata: undefined,
+    persistedForm: { require_authentication: true, mutation_access_policy: { mode: "authenticated_owner" }, fields: [] },
+  }, async (url, options) => ({ ok: true, json: async () => {
+    if (url.includes("member-affiliation-discovery")) return { complete: true, objects: [], fields: {}, relationships: [] };
+    if (options.method === "PUT") return {
+      config: { ...JSON.parse(options.body).config, dueDiligenceReviewFormId: reviewFormId },
+      reviewForm: { name: "Renewal affiliation review" },
+    };
+    return { config: null };
+  } }));
+  assert.equal(calls.length, 2);
+  await click(container.querySelector('[role="switch"]'));
+  await click(button(container, "Save affiliation settings"));
+  assert.equal(calls.length, 3);
+  assert.equal(calls[2][0], "/api/forms/member-affiliation-config");
+  assert.match(container.textContent, /Renewal affiliation review/);
+  assert.match(container.textContent, /does not modify this form’s existing Due Diligence/);
+  assert.equal(button(container, "Save affiliation settings").disabled, true);
+});
+
+test("incomplete definition discovery blocks enabling instead of treating missing definitions as removals", async t => {
+  const { container } = await mount(t, {
+    metadata: undefined,
+    persistedForm: { require_authentication: true, mutation_access_policy: { mode: "authenticated_owner" }, fields: [] },
+  }, async url => ({ ok: true, json: async () => url.includes("discovery")
+    ? { objects: [], fields: {}, relationships: [], complete: false } : { config: null } }));
+  await click(container.querySelector('[role="switch"]'));
+  assert.equal(button(container, "Save affiliation settings").disabled, true);
+  assert.match(container.textContent, /discovery failed/);
+  assert.ok(button(container, "Retry discovery"));
+});
+
+const departmentDefinitions = [
+  { id: "member-dept", status: "active", source_kind: "member", target_kind: "custom_object", target_custom_object_id: "department" },
+  { id: "member-other", status: "active", source_kind: "custom_object", source_custom_object_id: "other", target_kind: "member" },
+  { id: "org-dept", name: "Organisation departments", status: "active", source_kind: "organization", target_kind: "custom_object", target_custom_object_id: "department" },
+  { id: "dept-org-reversed", name: "Department organisation", status: "active", source_kind: "custom_object", source_custom_object_id: "department", target_kind: "organisation" },
+  { id: "org-other", status: "active", source_kind: "organization", target_kind: "custom_object", target_custom_object_id: "other" },
+  { id: "inactive-org-dept", status: "archived", source_kind: "organization", target_kind: "custom_object", target_custom_object_id: "department" },
+  { id: "inactive-member-dept", status: "archived", source_kind: "member", target_kind: "custom_object", target_custom_object_id: "department" },
+  { id: "org-member", status: "active", source_kind: "organization", target_kind: "member" },
+  { id: "object-object", status: "active", source_kind: "custom_object", source_custom_object_id: "department", target_kind: "custom_object", target_custom_object_id: "other" },
+];
+
+test("department eligibility discovery follows the member definition's department object in either direction", () => {
+  assert.equal(emptyAffiliationConfig().departmentOrganizationDefinitionId, null);
+  assert.deepEqual(departmentOrganizationRelationshipOptions(departmentDefinitions, "member-dept"), [
+    { value: "org-dept", label: "Organisation departments" },
+    { value: "dept-org-reversed", label: "Department organisation" },
+  ]);
+  assert.deepEqual(departmentOrganizationRelationshipOptions(departmentDefinitions, "member-other")
+    .map(item => item.value), ["org-other"]);
+  for (const id of [null, "missing", "inactive-member-dept", "org-member", "object-object"]) {
+    assert.deepEqual(departmentOrganizationRelationshipOptions(departmentDefinitions, id), []);
+  }
+});
+
+test("missing department organisation mapping prevents saving even disabled configurations", async t => {
+  const initial = { ...emptyAffiliationConfig(), memberDepartmentDefinitionId: "member-dept" };
+  const { container, calls } = await mount(t, {
+    metadata: { objects: [], fields: {}, relationships: departmentDefinitions },
+  }, async () => ({ ok: true, json: async () => ({ config: initial }) }));
+  await click(container.querySelector('[role="checkbox"]'));
+  assert.equal(button(container, "Save affiliation settings").disabled, true);
+  assert.match(container.textContent, /Select an active organisation–department relationship/);
+  const label = [...container.querySelectorAll("label")].find(item => item.textContent === "Organisation–department relationship");
+  assert.equal(document.getElementById(label.htmlFor).getAttribute("role"), "combobox");
+  assert.equal(container.querySelector('input[type="text"]'), null, "no UUID text input");
+  await click(button(container, "Save affiliation settings"));
+  assert.equal(calls.length, 1);
+});
+
+test("valid department organisation mapping survives load, edits and canonical save", async t => {
+  const initial = { ...emptyAffiliationConfig(), memberDepartmentDefinitionId: "member-dept",
+    departmentOrganizationDefinitionId: "org-dept" };
+  const { container, calls } = await mount(t, {
+    metadata: { complete: true, objects: [], fields: {}, relationships: departmentDefinitions },
+  }, async (url, options) => ({ ok: true, json: async () => ({
+    config: options.method === "PUT" ? JSON.parse(options.body).config : initial,
+  }) }));
+  assert.match(container.textContent, /Organisation departments/);
+  await click(container.querySelector('[role="checkbox"]'));
+  assert.equal(button(container, "Save affiliation settings").disabled, false);
+  await click(button(container, "Save affiliation settings"));
+  assert.equal(JSON.parse(calls[1][1].body).config.departmentOrganizationDefinitionId, "org-dept");
+  assert.match(container.textContent, /No member data was changed/);
+  assert.equal(button(container, "Save affiliation settings").disabled, true);
+});
+
+test("incompatible or unavailable department organisation mapping is retained, not silently cleared", async t => {
+  const initial = { ...emptyAffiliationConfig(), memberDepartmentDefinitionId: "member-other",
+    departmentOrganizationDefinitionId: "org-dept" };
+  const { container, calls } = await mount(t, {
+    metadata: { complete: true, objects: [], fields: {}, relationships: departmentDefinitions },
+  }, async () => ({ ok: true, json: async () => ({ config: initial }) }));
+  assert.match(container.textContent, /Unavailable selection — review mapping/);
+  await click(container.querySelector('[role="checkbox"]'));
+  assert.equal(button(container, "Save affiliation settings").disabled, true);
+  await click(button(container, "Discard changes"));
+  assert.match(container.textContent, /Unavailable selection — review mapping/);
+  assert.equal(calls.length, 1);
 });

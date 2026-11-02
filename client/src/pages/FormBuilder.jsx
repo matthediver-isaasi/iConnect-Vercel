@@ -62,6 +62,7 @@ import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
 import SurveyEventAssignmentsPanel from "@/components/surveys/SurveyEventAssignmentsPanel";
 import FormSubmissionAlerts from "@/components/forms/FormSubmissionAlerts";
 import MemberChangeFormSettings from "@/components/MemberChangeFormSettings";
+import MemberAffiliationSettings from "@/components/forms/MemberAffiliationSettings";
 import FormBuilderEmailTemplatePicker from "@/components/forms/FormBuilderEmailTemplatePicker";
 import { useFormAlertTenant } from "@/hooks/useFormAlerts";
 import {
@@ -13795,6 +13796,11 @@ function FormBuilderEditor() {
             formId={formId || null}
             tenantContext={alertTenantId}
             persistedAuthentication={existingForm?.require_authentication}
+          />
+          <MemberAffiliationSettings
+            formId={formId || null}
+            tenantContext={alertTenantId}
+            persistedForm={existingForm}
           />
         </TabsContent>
 

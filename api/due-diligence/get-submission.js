@@ -115,7 +115,18 @@ export default async function handler(req, res) {
       }
     }
 
+    let affiliationReview = null;
+    if (ddConfig?.affiliation_review?.enabled === true) {
+      const { data: linkedReview, error: linkedReviewError } = await supabase
+        .from('form_member_affiliation_review').select('id,review_form_submission_id')
+        .eq('tenant_id', tenantCtx.tenantId).eq('due_diligence_submission_id', ddSubmission.id).maybeSingle();
+      if (linkedReviewError) throw linkedReviewError;
+      if (linkedReview?.review_form_submission_id === ddSubmission.form_submission_id) {
+        affiliationReview = { active: true, review_id: linkedReview.id, due_diligence_submission_id: ddSubmission.id };
+      }
+    }
     return res.status(200).json({
+      affiliation_review: affiliationReview,
       success: true,
       submission: {
         ...ddSubmission,

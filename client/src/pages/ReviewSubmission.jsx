@@ -4,6 +4,7 @@ import { publicClient } from "@/api/publicClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import MemberAffiliationReview, { hasLinkedAffiliationReview } from "@/components/forms/MemberAffiliationReview";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -1240,6 +1241,7 @@ export default function ReviewSubmissionPage() {
   const [staticQuestionNotes, setStaticQuestionNotes] = useState({});
   const [staticQuestionNotApplicable, setStaticQuestionNotApplicable] = useState({});
   const [workflowStatus, setWorkflowStatus] = useState('');
+  const [affiliationApprovalReady, setAffiliationApprovalReady] = useState(false);
   const [stageTransitionNotice, setStageTransitionNotice] = useState(null);
   const [isProcessingStatusChange, setIsProcessingStatusChange] = useState(false);
   const [notes, setNotes] = useState('');
@@ -1288,6 +1290,10 @@ export default function ReviewSubmissionPage() {
 
   const ddSubmission = ddSubmissionData?.submission;
   const ddConfig = ddSubmissionData?.config;
+  const affiliationWorkflowEnabled = ddConfig?.affiliation_review?.enabled === true;
+  const affiliationReviewEnabled = hasLinkedAffiliationReview(ddSubmissionData?.affiliation_review, ddConfig, submissionId);
+  const affiliationApprovalBlocked = affiliationWorkflowEnabled && (!affiliationReviewEnabled || !affiliationApprovalReady);
+  const affiliationApprovalStage = ddConfig?.affiliation_review?.approved_stage_id;
   const form = ddSubmissionData?.form;
   const member = ddSubmissionData?.member;
   const organization = ddSubmissionData?.organization;
@@ -1669,6 +1675,9 @@ export default function ReviewSubmissionPage() {
 
   const updateStatusMutation = useMutation({
     mutationFn: async ({ newStatus, selectedAgentId, customMessage }) => {
+      if (affiliationApprovalBlocked && newStatus === affiliationApprovalStage) {
+        throw new Error("Save and verify the complete affiliation resolution before approving.");
+      }
       return await apiRequest('POST', '/api/due-diligence/update-status', {
         submissionId: submissionId,
         newStatus: newStatus,
@@ -1680,8 +1689,17 @@ export default function ReviewSubmissionPage() {
       setWorkflowStatus(data.new_status);
       setStageTransitionNotice(null);
       queryClient.invalidateQueries({ queryKey: ['dd-submission', submissionId] });
+      const affiliationOutcome = data.stage_actions_results?.find(result => result.action === 'member_affiliation_review');
+      if (affiliationOutcome?.status === 'error') {
+        setStageTransitionNotice(affiliationOutcome.error || 'The stage changed, but affiliation application was not confirmed.');
+        toast.error('Affiliation changes were not confirmed. Review the action error before continuing.');
+      } else if (affiliationOutcome?.status === 'success') {
+        toast.success(affiliationOutcome.outcome === 'rejected' || affiliationOutcome.outcome === 'already_rejected'
+          ? 'Affiliation request rejected. Existing affiliations were kept.'
+          : 'Affiliation changes confirmed as applied.');
+      }
       queryClient.invalidateQueries({ queryKey: ['contracts-by-submission', ddSubmission?.form_submission_id] });
-      toast.success('Status updated successfully');
+      if (!affiliationReviewEnabled || affiliationOutcome?.status !== 'error') toast.success('Status updated successfully');
       if (data.webhooks_triggered?.length > 0) {
         toast.info(`${data.webhooks_triggered.length} webhook(s) triggered`);
       }
@@ -1779,6 +1797,10 @@ export default function ReviewSubmissionPage() {
   };
 
   const handleStatusChange = async (newStatus) => {
+    if (affiliationApprovalBlocked && newStatus === affiliationApprovalStage) {
+      toast.error('Save and verify the affiliation resolution before approving.');
+      return;
+    }
     console.log('[ReviewSubmission] handleStatusChange called');
     console.log('[ReviewSubmission] newStatus:', newStatus);
     console.log('[ReviewSubmission] currentStatus:', workflowStatus);
@@ -2416,7 +2438,8 @@ export default function ReviewSubmissionPage() {
                   const isSequenceLocked = ddConfig?.enforce_stage_sequence && 
                     currentStageIndex >= 0 && stageIndex >= 0 && stageIndex < currentStageIndex;
                   
-                  const isLocked = isConditionLocked || isSequenceLocked;
+                  const isAffiliationLocked = affiliationApprovalBlocked && stage.id === affiliationApprovalStage;
+                  const isLocked = isConditionLocked || isSequenceLocked || isAffiliationLocked;
                   
                   return (
                     <Tooltip key={stage.id}>
@@ -2485,6 +2508,16 @@ export default function ReviewSubmissionPage() {
           </Button>
         </div>
       </div>
+
+      {affiliationReviewEnabled && (
+        <MemberAffiliationReview key={submissionId} submissionId={submissionId}
+          refreshKey={ddSubmission?.workflow_status} onApprovalReadyChange={setAffiliationApprovalReady} />
+      )}
+      {affiliationWorkflowEnabled && !affiliationReviewEnabled && (
+        <p role="alert" className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          The linked affiliation review case has not been verified. Approval is paused. Reload this review or contact an administrator.
+        </p>
+      )}
 
       {showNotesEditor && (
         <Card className="shadow-lg">

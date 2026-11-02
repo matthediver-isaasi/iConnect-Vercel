@@ -263,6 +263,7 @@ export async function submitThroughRealProcessor({
   attempts = 1,
   failProcessorOnce = false,
   sendSubmitterCopyEmail,
+  publicDependencies = {},
 }) {
   const boundary = makeBoundaryDatabase(form, processorOptions.existingOrganization, {
     member: processorOptions.existingMember,
@@ -359,7 +360,7 @@ export async function submitThroughRealProcessor({
   const responses = [];
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const attemptRecorder = attempt === 0 ? recorder : responseRecorder();
-    await publicSubmissionHandler(request, attemptRecorder.res, dependencies);
+    await publicSubmissionHandler(request, attemptRecorder.res, { ...dependencies, ...publicDependencies });
     responses.push(attemptRecorder.response);
   }
 

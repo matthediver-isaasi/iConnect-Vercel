@@ -1,6 +1,6 @@
 import React, { useEffect, useId, useRef, useState } from "react";
 import { Building2 } from "lucide-react";
-import { adminFetch } from "@/lib/adminFetch";
+import { loadAffiliationConfig, saveAffiliationConfig, loadAffiliationDiscovery } from "./memberAffiliationApi";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -16,6 +16,7 @@ export const emptyAffiliationConfig = () => ({
   primaryOrganizationFieldIds: [],
   primaryDepartmentsFieldId: null,
   memberDepartmentDefinitionId: null,
+  departmentOrganizationDefinitionId: null,
   additionalSitesFieldId: null,
   secondaryOrganizationFieldId: null,
   secondaryDepartmentsFieldId: null,
@@ -23,6 +24,7 @@ export const emptyAffiliationConfig = () => ({
   secondaryMemberDefinitionId: null,
   secondaryOrganizationDefinitionId: null,
   secondaryLabelFieldId: null,
+  dueDiligenceReviewFormId: null,
 });
 
 const organizationField = field => ["organisation_dropdown", "organization_dropdown"].includes(field.type);
@@ -39,6 +41,17 @@ export function affiliationRelationshipOptions(definitions, kind, objectId) {
     value: String(definition.id),
     label: definition.name || definition.label || definition.source_label || definition.relationship_key || "Unnamed relationship",
   }));
+}
+
+export function departmentOrganizationRelationshipOptions(definitions, memberDefinitionId) {
+  if (!memberDefinitionId || !affiliationRelationshipOptions(definitions, "member")
+    .some(item => item.value === String(memberDefinitionId))) return [];
+  const definition = definitions.find(item => String(item.id) === String(memberDefinitionId));
+  const department = ["source", "target"]
+    .map(side => relationshipEndpointDescriptor(definition, side))
+    .find(endpoint => endpoint?.kind === "custom_object");
+  return department?.customObjectId
+    ? affiliationRelationshipOptions(definitions, "organization", department.customObjectId) : [];
 }
 
 function MappingSelect({ id, label, value, options, onChange, help }) {
@@ -84,7 +97,7 @@ export default function MemberAffiliationSettings(props) {
 }
 
 function AffiliationSession({
-  formId, tenantContext, persistedForm, metadata = { objects: [], fields: {}, relationships: [] },
+  formId, tenantContext, persistedForm, metadata: providedMetadata,
   metadataLoading, metadataError, onRetryMetadata,
 }) {
   const id = useId();
@@ -95,6 +108,9 @@ function AffiliationSession({
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [reload, setReload] = useState(0);
+  const [discovery, setDiscovery] = useState({ loading: !providedMetadata, data: null, error: null });
+  const [discoveryAttempt, setDiscoveryAttempt] = useState(0);
+  const [reviewFormName, setReviewFormName] = useState("");
   const active = useRef(false);
   const contextRef = useRef(tenantContext);
   contextRef.current = tenantContext;
@@ -112,16 +128,13 @@ function AffiliationSession({
     async function load() {
       try {
         context.assertCurrent();
-        const response = await adminFetch(`/api/forms/member-affiliation-config?form_id=${encodeURIComponent(formId)}`,
-          { signal: controller.signal, cache: "no-store" }, context.tenantId);
-        const data = await response.json();
-        context.assertCurrent();
-        if (!response.ok) throw new Error(data?.error || "Unable to load affiliation settings.");
+        const data = await loadAffiliationConfig(formId, { signal: controller.signal, context });
         if (!Object.prototype.hasOwnProperty.call(data, "config")) throw new Error("Unexpected settings response. Retry loading.");
         if (controller.signal.aborted) return;
         const config = { ...emptyAffiliationConfig(), ...data.config };
         setDraft(config);
         setSaved(config);
+        setReviewFormName(data.reviewForm?.name || "");
       } catch (failure) {
         if (!controller.signal.aborted) setError(failure.message || "Unable to load settings.");
       } finally {
@@ -132,6 +145,25 @@ function AffiliationSession({
     return () => controller.abort();
   }, [formId, reload]);
 
+  useEffect(() => {
+    if (providedMetadata) return undefined;
+    const controller = new AbortController();
+    setDiscovery({ loading: true, data: null, error: null });
+    loadAffiliationDiscovery(formId, { context: contextRef.current, signal: controller.signal })
+      .then(data => {
+        if (!Array.isArray(data.objects) || !Array.isArray(data.relationships)
+          || !data.fields || typeof data.fields !== "object" || data.complete !== true) {
+          throw new Error("Discovery is incomplete. Retry before saving these mappings.");
+        }
+        if (!controller.signal.aborted) setDiscovery({ loading: false, data, error: null });
+      }).catch(error => {
+        if (!controller.signal.aborted) setDiscovery({ loading: false, data: null, error });
+      });
+    return () => controller.abort();
+  }, [formId, providedMetadata, discoveryAttempt]);
+  const metadata = providedMetadata || discovery.data || { objects: [], fields: {}, relationships: [] };
+  const discoveryError = metadataError || discovery.error;
+  const discovering = metadataLoading || (!providedMetadata && discovery.loading);
   const ownerAccess = persistedForm?.require_authentication === true
     && persistedForm?.mutation_access_policy?.mode === "authenticated_owner";
   const fields = persistedForm?.fields || [];
@@ -140,7 +172,11 @@ function AffiliationSession({
   const repeatables = fields.filter(isRepeatableRowField);
   const children = repeatableRowChildren(repeatables.find(field => field.id === draft?.additionalSitesFieldId));
   const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
-  const discoveryUnavailable = metadataLoading || Boolean(metadataError);
+  const discoveryUnavailable = discovering || Boolean(discoveryError);
+  const departmentOrganizationOptions = departmentOrganizationRelationshipOptions(
+    metadata.relationships, draft?.memberDepartmentDefinitionId);
+  const departmentMappingInvalid = Boolean(draft?.memberDepartmentDefinitionId)
+    && !departmentOrganizationOptions.some(item => item.value === draft?.departmentOrganizationDefinitionId);
   const edit = patch => {
     setDraft(current => ({ ...current, ...patch }));
     setMessage("");
@@ -151,7 +187,7 @@ function AffiliationSession({
   );
 
   async function save() {
-    if (busy.current) return;
+    if (busy.current || departmentMappingInvalid) return;
     busy.current = true;
     setSaving(true);
     setError("");
@@ -160,16 +196,12 @@ function AffiliationSession({
     const config = { ...draft, version: 1 };
     try {
       context.assertCurrent();
-      const response = await adminFetch("/api/forms/member-affiliation-config", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ form_id: formId, config }),
-      }, context.tenantId);
-      const data = await response.json();
-      context.assertCurrent();
-      if (!response.ok) throw new Error(data?.error || "Unable to save affiliation settings.");
+      const data = await saveAffiliationConfig(formId, config, { context });
       if (!active.current) return;
-      setSaved(config);
+      if (!data.config || typeof data.config !== "object") throw new Error("Saved settings were not confirmed. Retry loading before continuing.");
+      setSaved(data.config);
+      setDraft(data.config);
+      setReviewFormName(data.reviewForm?.name || "");
       setMessage("Affiliation settings saved. No member data was changed.");
     } catch (failure) {
       if (active.current) setError(failure.message || "Unable to save settings. Your choices have been kept.");
@@ -192,6 +224,16 @@ function AffiliationSession({
         Existing join forms remain add-only unless affiliation renewal is explicitly enabled.
         Renewal can replace the member’s configured affiliations, including removing links no longer selected.
         Saving these settings does not change member data or publish this form.
+      </div>
+      <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+        <p className="font-medium">Review new organisation and department names</p>
+        <p>Not-listed names are saved for Due Diligence review, not automatically created.
+          Existing affiliations stay unchanged while renewal and normal payment checks continue.</p>
+        <p className="text-xs text-slate-500">On first enable, saving creates a dedicated affiliation-only review workflow.
+          It does not modify this form’s existing Due Diligence configuration or run join actions.</p>
+        {draft.dueDiligenceReviewFormId && <p className="text-xs">
+          Dedicated review form: {reviewFormName || "Affiliation review"}
+        </p>}
       </div>
       {!ownerAccess && <p className="text-sm text-amber-800">
         Enabling requires saved authentication and the “Logged-in record owner” access policy in Submission settings.
@@ -235,7 +277,13 @@ function AffiliationSession({
             {select("primaryDepartmentsFieldId", "Primary departments field", relationships.map(option))}
             {select("memberDepartmentDefinitionId", "Member–department relationship",
               affiliationRelationshipOptions(metadata.relationships, "member"))}
+            {select("departmentOrganizationDefinitionId", "Organisation–department relationship",
+              departmentOrganizationOptions,
+              "Required when a member–department relationship is configured. Choose the direct active relationship from an organisation to the same department custom object. Existing mappings are retained when you change the member relationship.")}
           </div>
+          {departmentMappingInvalid && !discoveryUnavailable && <p role="alert" className="text-sm text-amber-800">
+            Select an active organisation–department relationship for the selected member relationship’s department object before saving.
+          </p>}
         </div>
         <div className="space-y-3 border-t border-slate-100 pt-4">
           <h4 className="text-sm font-medium text-slate-800">Additional sites (optional)</h4>
@@ -254,13 +302,15 @@ function AffiliationSession({
         </div>
       </fieldset>
       {discoveryUnavailable && <div role="status" className="space-y-2 text-sm text-amber-800">
-        <p>{metadataLoading ? "Loading custom objects and relationships…" : "Custom object discovery failed. Existing selections are retained; saving is paused."}</p>
-        {metadataError && onRetryMetadata && <Button type="button" variant="outline" onClick={onRetryMetadata}>Retry discovery</Button>}
+        <p>{discovering ? "Loading custom objects and relationships…" : "Custom object discovery failed. Existing selections are retained; saving is paused."}</p>
+        {discoveryError && <Button type="button" variant="outline" onClick={() => providedMetadata
+          ? onRetryMetadata?.() : setDiscoveryAttempt(value => value + 1)}>Retry discovery</Button>}
       </div>}
       {error && <p role="alert" className="text-sm text-red-700">{error} Your choices have been kept.</p>}
       {message && <p role="status" className="text-sm text-slate-700">{message}</p>}
       <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 pt-4">
         <Button type="button" onClick={save} disabled={saving || !dirty || draft.version !== 1
+          || departmentMappingInvalid
           || (draft.enabled && (!ownerAccess || discoveryUnavailable))}>
           {saving ? "Saving settings…" : "Save affiliation settings"}
         </Button>

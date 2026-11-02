@@ -13,6 +13,7 @@ import {
 } from '../../../shared/formMutationContract.js';
 
 const PUBLIC_FORM_FIELDS = [
+  'member_affiliation_enabled',
   'id', 'name', 'slug', 'description', 'fields', 'is_active', 
   'layout_type', 'form_width', 'submit_button_text', 'success_message', 'redirect_url',
   'send_email', 'email_templates', 'prefill_source', 'prefill_source_field_id',

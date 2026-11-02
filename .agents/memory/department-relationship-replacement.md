@@ -19,7 +19,17 @@ Use the existing Due Diligence system for affiliation review, rather than introd
 
 **Why:** The owner explicitly requested Due Diligence reuse with backward compatibility.
 
+When adapting a join form for renewal, do not inherit shared-organisation creation, static communication opt-ins, or join-only role/login resets.
+
+**Why:** A member renewing and updating their affiliations is not authorising new-account defaults or changes to shared organisation records. Preserve the original join form; remove competing actions only from the renewal copy.
+
 **How to apply:** Add an explicit opt-in review purpose and narrowly scoped affiliation approval action. Never infer approval authority from a stage called “approved”, run join/member-creation actions for these cases, or hold renewal payment pending affiliation review.
+
+Use a separate, explicitly dedicated Due Diligence workflow for affiliation cases; do not convert an existing join/review workflow or reuse its side effects.
+
+**Why:** Existing stage processing can send messages and create records, and the owner requires existing tenant configurations to stay unchanged.
+
+**How to apply:** Create the linked review case without running join initialization actions. Keep approval bound to the saved case and current stage occurrence; a failed affiliation action must never fall back to legacy actions.
 
 Do not assume changing a member's primary Organisation automatically removes their Department links. The historical primary-only cleanup was deliberately superseded to preserve valid secondary-organisation affiliations. Renewal flows must explicitly distinguish retained, added and removed memberships, including secondary sites.
 

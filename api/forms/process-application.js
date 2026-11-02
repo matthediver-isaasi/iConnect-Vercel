@@ -3,6 +3,7 @@ import { organizationNameError } from '../../shared/organizationNameValidation.j
 import { loadLegacyApplicationScope } from '../_lib/formLegacyApplication.js';
 import { publishedAnonymousCompletion } from '../_lib/surveyCompletionBoundary.js';
 import { createClient } from '@supabase/supabase-js';
+import { completeMemberAffiliations } from '../_lib/formMemberAffiliations.js';
 import { requiresApplicantContinuation, loadSubmissionApplicantContinuation, loadApplicantMemberScope, FormApplicantContinuationError } from '../_lib/formApplicantContinuation.js';
 import { preflightApplicantTargets, preflightPublicMemberSignup, isPublicMemberSignup, FormMemberOwnerError } from '../_lib/formApplicantPreflight.js';
 import { randomUUID } from 'node:crypto';
@@ -1356,6 +1357,24 @@ export default async function handler(req, res, {
       processingActorMemberId: processingActorMemberId || authenticatedSubmitterMember?.id || null,
     };
     let currentSetResult = null;
+    if (persistedForm.member_affiliation_enabled === true) {
+      const affiliationMemberId = verified_submitter_member_id
+        || (authorizedAdmin ? persistedSubmission.created_member_id : authenticatedSubmitterMember?.id);
+      try {
+        const affiliationResult = await completeMemberAffiliations({
+          db: supabase, form: persistedForm, tenantId: effectiveEntityTenantId,
+          memberId: affiliationMemberId, submission: persistedSubmission,
+        });
+        prefill_organization_id = affiliationResult.organizationId;
+        prefillTargets.organizationId = affiliationResult.organizationId;
+        processingAuthorization.verifiedOrganizationId = affiliationResult.organizationId;
+        if (authenticatedSubmitterMember?.id === affiliationMemberId) {
+          authenticatedSubmitterMember.organization_id = affiliationResult.organizationId;
+        }
+      } catch (error) {
+        return res.status(503).json({ error: error.message, code: 'AFFILIATION_PROCESSING_PENDING', retryable: true });
+      }
+    }
     if (hasCurrentSetProcessing) {
       // The signed public handoff stamps the submitter identity after resolving
       // the browser session. It is not client input, and the reconcile RPC
@@ -1864,7 +1883,8 @@ export default async function handler(req, res, {
       const structuredActionsStillIncomplete = structuredActionResult?.success === false;
       if (
         (
-          (existingSubmission && (existingSubmission.created_member_id || existingSubmission.created_organization_id))
+          (persistedForm.member_affiliation_enabled !== true
+            && existingSubmission && (existingSubmission.created_member_id || existingSubmission.created_organization_id))
           || existingSubmission?.entity_processing_completed_at
         )
         && !structuredActionsStillIncomplete

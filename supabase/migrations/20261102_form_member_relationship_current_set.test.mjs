@@ -191,6 +191,91 @@ test('real PostgreSQL: atomic membership links, rollback, stale fencing, replay 
         END IF;
       END $test$;
     `);
+    sql(`
+      ALTER TABLE form_submission ADD COLUMN submission_data jsonb;
+      ALTER TABLE form ADD COLUMN name text, ADD COLUMN slug text, ADD COLUMN fields jsonb, ADD COLUMN pages jsonb,
+        ADD COLUMN is_active boolean, ADD COLUMN due_diligence_required boolean;
+      CREATE TABLE form_due_diligence_config(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),tenant_id uuid,form_id uuid,
+        workflow_stages jsonb,status_change_webhooks jsonb DEFAULT '[]',on_first_edit_stage text,
+        applicant_name_field text,applicant_email_field text);
+      CREATE TABLE form_submission_due_diligence(id uuid PRIMARY KEY,tenant_id uuid,form_submission_id uuid,
+        application_uid text,original_form_values jsonb,reviewed_form_values jsonb,field_review_status jsonb,
+        workflow_status text,history_log jsonb,stage_action_occurrence_id uuid);
+    `);
+    sql(await readFile(new URL('./20261102_form_member_affiliation_due_diligence.sql', import.meta.url), 'utf8'));
+    sql(`
+      DO $test$
+      DECLARE
+        t uuid:=gen_random_uuid(); m uuid:=gen_random_uuid(); f uuid:=gen_random_uuid(); rf uuid:=gen_random_uuid();
+        sub uuid:=gen_random_uuid(); token uuid; review_id uuid; dd uuid; o1 uuid:=gen_random_uuid(); o2 uuid:=gen_random_uuid();
+        config_id uuid:=gen_random_uuid(); occurrence uuid:=gen_random_uuid(); result jsonb;
+      BEGIN
+        INSERT INTO tenant VALUES(t);
+        INSERT INTO organization(id,tenant_id) VALUES(o1,t),(o2,t);
+        INSERT INTO member VALUES(m,t,o1);
+        INSERT INTO form(id,tenant_id,require_authentication,mutation_access_policy) VALUES(f,t,true,'{"version":1,"mode":"authenticated_owner"}'),
+          (rf,t,true,'{"version":1,"mode":"authenticated_owner"}');
+        INSERT INTO form_due_diligence_config(id,tenant_id,form_id,workflow_stages,affiliation_review)
+          VALUES(config_id,t,rf,'[{"id":"review","is_initial":true},{"id":"yes"},{"id":"no"}]',
+            '{"enabled":true,"version":1,"approved_stage_id":"yes","rejected_stage_id":"no"}');
+        INSERT INTO form_member_affiliation_config(tenant_id,form_id,config)
+          VALUES(t,f,jsonb_build_object('enabled',true,'dueDiligenceReviewFormId',rf));
+        INSERT INTO form_submission(id,tenant_id,form_id,created_member_id) VALUES(sub,t,f,m);
+        token:=(form_member_affiliation_capture(t,f,m)->>'token')::uuid;
+        PERFORM form_member_affiliation_bind(token,sub,m);
+        result:=form_member_affiliation_defer(token,sub,'[{"kind":"organization","fieldId":"org","requestedName":"New name"}]');
+        review_id:=(result->>'review_id')::uuid;
+        SELECT due_diligence_submission_id INTO dd FROM form_member_affiliation_review WHERE id=review_id;
+        IF dd IS NULL THEN RAISE EXCEPTION 'DD case not created atomically'; END IF;
+        PERFORM form_member_affiliation_defer(token,sub,'[{"kind":"organization","fieldId":"org","requestedName":"New name"}]');
+        IF (SELECT count(*) FROM form_submission_due_diligence WHERE tenant_id=t)<>1 THEN
+          RAISE EXCEPTION 'Retry duplicated DD case'; END IF;
+        IF (SELECT organization_id FROM member WHERE id=m)<>o1 THEN RAISE EXCEPTION 'Deferral changed affiliations'; END IF;
+        BEGIN
+          UPDATE form_due_diligence_config SET affiliation_review=NULL WHERE id=config_id;
+          RAISE EXCEPTION 'Removed dedicated workflow guard';
+        EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+        PERFORM save_form_member_affiliation_resolution(t,review_id,'admin',
+          jsonb_build_object('primary',o2,'departments','[]'::jsonb,'secondary','[]'::jsonb),0);
+        BEGIN
+          PERFORM save_form_member_affiliation_resolution(t,review_id,'admin',
+            jsonb_build_object('primary',o1,'departments','[]'::jsonb,'secondary','[]'::jsonb),0);
+          RAISE EXCEPTION 'Stale reviewer overwrote resolution';
+        EXCEPTION WHEN serialization_failure THEN NULL; END;
+        UPDATE form_submission_due_diligence SET workflow_status='yes',stage_action_occurrence_id=occurrence WHERE id=dd;
+        BEGIN
+          PERFORM decide_form_member_affiliation_review(t,review_id,dd,'yes',gen_random_uuid()::text,'admin','approve');
+          RAISE EXCEPTION 'Stale occurrence accepted';
+        EXCEPTION WHEN serialization_failure THEN NULL; END;
+        UPDATE member SET organization_id=o2 WHERE id=m;
+        BEGIN
+          PERFORM decide_form_member_affiliation_review(t,review_id,dd,'yes',occurrence::text,'admin','approve');
+          RAISE EXCEPTION 'Stale graph accepted';
+        EXCEPTION WHEN serialization_failure THEN NULL; END;
+        IF (SELECT snap.result->>'status' FROM form_member_affiliation_snapshot snap WHERE id=token)<>'awaiting_review' THEN
+          RAISE EXCEPTION 'Failed approval lost pending state'; END IF;
+        UPDATE member SET organization_id=o1 WHERE id=m;
+        UPDATE form_member_affiliation_snapshot SET expires_at=now()-interval '3 days' WHERE id=token;
+        result:=decide_form_member_affiliation_review(t,review_id,dd,'yes',occurrence::text,'admin','approve');
+        IF result->>'status'<>'applied' OR (SELECT organization_id FROM member WHERE id=m)<>o2 THEN
+          RAISE EXCEPTION 'Approval did not apply affiliations'; END IF;
+        result:=decide_form_member_affiliation_review(t,review_id,dd,'yes',occurrence::text,'admin','approve');
+        IF result->>'status'<>'already_applied' THEN RAISE EXCEPTION 'Approval not idempotent'; END IF;
+        IF has_function_privilege('authenticated','decide_form_member_affiliation_review(uuid,uuid,uuid,text,text,text,text)','EXECUTE')
+          OR has_function_privilege('service_role','form_member_affiliation_defer_internal(uuid,uuid,jsonb)','EXECUTE') THEN
+          RAISE EXCEPTION 'Review authority exposed'; END IF;
+        f:=gen_random_uuid();
+        INSERT INTO form(id,tenant_id,require_authentication,mutation_access_policy,name)
+          VALUES(f,t,true,'{"version":1,"mode":"authenticated_owner"}','Renewal');
+        result:=configure_form_member_affiliations(t,f,'{"version":1,"enabled":true}');
+        IF result->>'dueDiligenceReviewFormId' IS NULL
+          OR (SELECT count(*) FROM form_due_diligence_config WHERE tenant_id=t)<>2 THEN
+          RAISE EXCEPTION 'Dedicated workflow not provisioned'; END IF;
+        result:=configure_form_member_affiliations(t,f,'{"version":1,"enabled":true}');
+        IF (SELECT count(*) FROM form_due_diligence_config WHERE tenant_id=t)<>2 THEN
+          RAISE EXCEPTION 'Configuration retry created a duplicate workflow'; END IF;
+      END $test$;
+    `);
   } finally {
     if (running) run('pg_ctl', ['-D', data, '-m', 'immediate', '-w', 'stop']);
     await rm(root, { recursive: true, force: true });

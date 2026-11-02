@@ -23,6 +23,7 @@ import { isSurveyInvitationConflict, surveySubmissionDiagnostic } from '../_lib/
 import { resolveSubmitControl } from '../_lib/formSubmitControl.js';
 import { rulesUseLmicOperators } from '../_lib/formLmicConditions.js';
 import { loadTenantLmicCodes } from '../_lib/tenantLmicCodes.js';
+import { prepareMemberAffiliations, completeMemberAffiliations } from '../_lib/formMemberAffiliations.js';
 import {
   computeAuthoritativeHiddenFieldIds,
   findPaymentField,
@@ -336,6 +337,8 @@ export default async function handler(req, res, dependencies = {}) {
       currentSetConfiguration = currentSetConfig?.config || null;
     }
     const hasCurrentSetProcessing = !!currentSetConfiguration;
+    const hasMemberAffiliations = form.member_affiliation_enabled === true;
+    let memberAffiliationResult = null;
 
     // Standard forms and surveys both submit through this public endpoint.
     // A verified same-tenant member session satisfies the login requirement,
@@ -450,6 +453,17 @@ export default async function handler(req, res, dependencies = {}) {
     const idemKey = (typeof idempotency_key === 'string' && idempotency_key.trim().length >= 8 && idempotency_key.trim().length <= 128)
       ? idempotency_key.trim()
       : null;
+    if (hasMemberAffiliations) {
+      if (form.form_type === 'survey' || !sessionMemberId || !idemKey) {
+        return res.status(400).json({ error: 'Sign in and reload this renewal form before submitting.', code: 'AFFILIATION_SUBMISSION_CONTEXT_REQUIRED' });
+      }
+      try {
+        await (dependencies.prepareMemberAffiliations || prepareMemberAffiliations)({ db: supabase, form, tenantId: tenantData.id,
+          memberId: sessionMemberId, answers: submission_data || {} });
+      } catch (error) {
+        return res.status(409).json({ error: error.message, code: 'AFFILIATION_PREFLIGHT_FAILED' });
+      }
+    }
     let existingIdempotentSubmission = null;
     let anonymousSurveyIdempotency = false;
     if (idemKey && !enhancedAnonymousCompletion) {
@@ -1007,6 +1021,7 @@ export default async function handler(req, res, dependencies = {}) {
       created_member_id: row.created_member_id || null,
       created_organization_id: row.organization_id || null,
       duplicate: true,
+      ...(memberAffiliationResult ? { member_affiliations: { status: memberAffiliationResult.status } } : {}),
       ...committedCurrentSetMarker(processingResult),
     });
     const hasIncompleteStructuredActions = (row) => {
@@ -1072,12 +1087,23 @@ export default async function handler(req, res, dependencies = {}) {
     };
 
     const finishDuplicate = async (row) => {
+      if (hasMemberAffiliations) {
+        try {
+          memberAffiliationResult = await (dependencies.completeMemberAffiliations || completeMemberAffiliations)({
+            db: supabase, form, tenantId: tenantData.id, memberId: sessionMemberId, submission: row,
+          });
+          prefill_organization_id = memberAffiliationResult.organizationId;
+        } catch (error) {
+          return res.status(503).json({ error: error.message, code: 'AFFILIATION_PROCESSING_PENDING',
+            submission_id: row.id, retryable: true });
+        }
+      }
       // A lost response may leave a durable current-set submission before its
       // processor reply reached the browser. Retry its idempotent lifecycle
       // operation before reporting success; the database RPC replays a
       // committed outcome instead of applying an older answer set again.
       let currentSetProcessingResult = null;
-      if (hasCurrentSetProcessing || applicantGrant) {
+      if (hasCurrentSetProcessing || hasMemberAffiliations || applicantGrant) {
         const internalApiBaseUrl = dependencies.internalApiBaseUrl || getInternalApiBaseUrl(null);
         if (!internalApiBaseUrl) {
           return res.status(503).json({
@@ -1322,7 +1348,7 @@ export default async function handler(req, res, dependencies = {}) {
     // Run idempotency recovery before enforcing the form's one-per-email
     // policy. A retry of the original request must be allowed to finish its
     // durable email state rather than being rejected as a new duplicate.
-    if (!enhancedAnonymousCompletion && !hasCurrentSetProcessing && form.prevent_duplicate_email_submission && canonicalSubmitterEmail) {
+    if (!enhancedAnonymousCompletion && !hasCurrentSetProcessing && !hasMemberAffiliations && form.prevent_duplicate_email_submission && canonicalSubmitterEmail) {
       const { data: candidates, error: dupErr } = await supabase
         .from('form_submission')
         .select('id')
@@ -1349,7 +1375,7 @@ export default async function handler(req, res, dependencies = {}) {
     //    in production. Legitimate repeat submissions minutes apart are
     //    unaffected. Anonymous submissions with no email AND no organisation
     //    can't be matched and are allowed through unchanged.
-    if (!enhancedAnonymousCompletion && !hasCurrentSetProcessing && !idemKey && (canonicalSubmitterEmail || prefill_organization_id)) {
+    if (!enhancedAnonymousCompletion && !hasCurrentSetProcessing && !hasMemberAffiliations && !idemKey && (canonicalSubmitterEmail || prefill_organization_id)) {
       try {
         const windowStart = new Date(Date.now() - 10 * 1000).toISOString();
         let windowQuery = supabase
@@ -1449,7 +1475,7 @@ export default async function handler(req, res, dependencies = {}) {
       // Current-set reconciliation authorizes against the immutable,
       // server-resolved actor on this durable submission row. Never use a
       // member ID supplied in form values or metadata.
-      ...(hasCurrentSetProcessing && sessionMemberId ? { created_member_id: sessionMemberId } : {}),
+      ...((hasCurrentSetProcessing || hasMemberAffiliations) && sessionMemberId ? { created_member_id: sessionMemberId } : {}),
       // Anonymous surveys: redact identity-bearing answers (email/phone/name/
       // contact/signature fields) from the stored payload as well — the
       // dedupe key above was already derived before redaction.
@@ -1689,6 +1715,17 @@ export default async function handler(req, res, dependencies = {}) {
     if (applicantGrant) await bindApplicantContinuation({
       db: supabase, form, grant: applicantGrant, submissionId: submission.id,
     });
+    if (hasMemberAffiliations) {
+      try {
+        memberAffiliationResult = await (dependencies.completeMemberAffiliations || completeMemberAffiliations)({
+          db: supabase, form, tenantId: tenantData.id, memberId: sessionMemberId, submission,
+        });
+        prefill_organization_id = memberAffiliationResult.organizationId;
+      } catch (error) {
+        return res.status(503).json({ error: error.message, code: 'AFFILIATION_PROCESSING_PENDING',
+          submission_id: submission.id, retryable: true });
+      }
+    }
     console.log('[Public Form Submission] Submission created successfully:', submission.id);
     let emailPostProcessingCheckpointed = false;
     const ensureEmailPostProcessingCheckpoint = async () => {
@@ -1948,7 +1985,7 @@ export default async function handler(req, res, dependencies = {}) {
           // operation, however: retain the row so a retry can safely re-run
           // its submission-id-bound reconciliation rather than losing audit
           // context or accidentally treating a later edit as the same save.
-          if (!hasCurrentSetProcessing && !applicantGrant) {
+          if (!hasCurrentSetProcessing && !hasMemberAffiliations && !applicantGrant) {
             console.log('[Public Form Submission] Rolling back submission due to pipeline failure:', submission.id);
             await supabase.from('form_submission').delete().eq('id', submission.id);
           }
@@ -2094,7 +2131,7 @@ export default async function handler(req, res, dependencies = {}) {
         // Keep its durable idempotency row for an explicit replay rather than
         // deleting the only safe retry handle.
         console.error('[Public Form Submission] Entity pipeline error:', err);
-        if (!hasCurrentSetProcessing && !applicantGrant) {
+        if (!hasCurrentSetProcessing && !hasMemberAffiliations && !applicantGrant) {
           console.log('[Public Form Submission] Rolling back submission due to pipeline error:', submission.id);
           try {
             await supabase.from('form_submission').delete().eq('id', submission.id);
@@ -2429,6 +2466,7 @@ export default async function handler(req, res, dependencies = {}) {
 
     return res.status(201).json({
       success: true,
+      ...(memberAffiliationResult ? { member_affiliations: { status: memberAffiliationResult.status } } : {}),
       id: submission.id,
       message: 'Form submitted successfully',
       created_member_id: pipelineCreatedMemberId || null,
