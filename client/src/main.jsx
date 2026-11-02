@@ -13,11 +13,12 @@ import { installStaleChunkReload } from '@/lib/staleChunkReload'
 // Install global fetch interceptor immediately so every /api/ request with
 // credentials automatically carries X-Tenant-Id and handles 409 TENANT_CONTEXT_CHANGED.
 const memberAiFixture = import.meta.env.DEV && window.location.pathname === '/__fixtures/member-ai'
-if (!memberAiFixture) installFetchInterceptor()
+const cookieFixture = import.meta.env.DEV && window.location.pathname === '/__fixtures/cookie-consent'
+if (!memberAiFixture && !cookieFixture) installFetchInterceptor()
 
 // Install proactive stale-tab detection: checks session tenant on refocus
 // before any API call is made, so the lock overlay appears immediately.
-if (!memberAiFixture) installRefocusCheck()
+if (!memberAiFixture && !cookieFixture) installRefocusCheck()
 
 // Install app-wide stale-chunk recovery: after a deploy, dynamic imports of
 // old content-hashed chunks reject; reload once (loop-guarded) to pick up the
@@ -35,7 +36,9 @@ const queryClient = new QueryClient({
   },
 })
 
-if (memberAiFixture) {
+if (cookieFixture) {
+  import('@/test-fixtures/cookieConsentFixture.jsx')
+} else if (memberAiFixture) {
   import('@/test-fixtures/memberAiFixture.jsx')
 } else createRoot(document.getElementById('root')).render(
   <QueryClientProvider client={queryClient}>

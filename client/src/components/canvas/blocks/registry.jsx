@@ -1,3 +1,4 @@
+import { useCookieConsent } from '../../../hooks/useCookieConsent.js';
 import { Fragment, useMemo, useState, useEffect, useLayoutEffect, useRef, lazy, Suspense, useCallback } from 'react';
 import {
   DndContext,
@@ -3362,10 +3363,11 @@ function useOEmbed(provider, url) {
 }
 
 function VideoRender({ block, asEditor }) {
+  const {categories,resetConsent}=useCookieConsent();
   const c = block.content || {};
   const ratioStr = (c.aspectRatio || '16:9').replace(':', ' / ');
   const ar = aspectFromRatio(c.aspectRatio);
-  const { data: oembed, error: oembedError } = useOEmbed(c.provider, c.url);
+  const { data: oembed, error: oembedError } = useOEmbed(c.provider, categories.functional ? c.url : null);
   const hostRef = useRef(null);
   const [hostSize, setHostSize] = useState(null);
 
@@ -3417,6 +3419,9 @@ function VideoRender({ block, asEditor }) {
           )}
         </video>
       );
+    }
+    if (!categories.functional) {
+      return <button type="button" className="p-4 underline" onClick={resetConsent}>Allow functional cookies to load external video</button>;
     }
     if (oembedError) {
       return (

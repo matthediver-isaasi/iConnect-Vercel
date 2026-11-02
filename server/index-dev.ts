@@ -37,7 +37,7 @@ export async function setupVite(app: Express, server: Server) {
     const url = req.originalUrl;
 
     try {
-      const clientTemplate = path.resolve(
+      const clientTemplate = url.split('?')[0] === '/cookie-consent-preview.html' ? path.resolve(import.meta.dirname,'../generated-artifacts/cookie-consent-preview.html') : path.resolve(
         import.meta.dirname,
         "..",
         "client",
@@ -50,8 +50,8 @@ export async function setupVite(app: Express, server: Server) {
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${nanoid()}"`,
       );
-      template = await renderTenantHtml(req, { template });
-      const page = await vite.transformIndexHtml(url, template);
+      if (url.split('?')[0] !== '/cookie-consent-preview.html') template = await renderTenantHtml(req, { template });
+      const page = url.split('?')[0] === '/cookie-consent-preview.html' ? template : await vite.transformIndexHtml(url, template);
       res.setHeader('Cache-Control', 'private, no-store');
       res.status(200).set({ "Content-Type": "text/html" }).end(page);
     } catch (e) {

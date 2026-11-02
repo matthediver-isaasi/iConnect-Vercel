@@ -5,6 +5,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/components/ui/use-toast';
 import { Loader2, Save, Shield } from 'lucide-react';
+import CookieConsentSettings from '@/components/admin/CookieConsentSettings';
 
 export default function PlatformDefaults() {
   const { toast } = useToast();
@@ -156,6 +157,7 @@ export default function PlatformDefaults() {
           </div>
         </CardContent>
       </Card>
+      <CookieConsentSettings platform />
     </div>
   );
 }

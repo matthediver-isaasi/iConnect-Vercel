@@ -1,3 +1,4 @@
+import ConsentFrame from '../../ConsentFrame';
 import { useState, useMemo, useId } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -193,7 +194,7 @@ export default function IEditVideoElement({ content, variant, settings }) {
           )}
           
           <div className={`relative ${getAspectRatioClass(aspectRatio)} bg-black`}>
-            <iframe
+          <ConsentFrame
               src={(() => {
                 if (!srOptimised || !videoSrc) return videoSrc;
                 try {

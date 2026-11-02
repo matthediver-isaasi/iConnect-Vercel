@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "buildCommand": "npx vite build",
+  "buildCommand": "node scripts/patch-cookieyes.mjs && npx vite build && node scripts/build-cookie-preview.mjs --build",
   "outputDirectory": "dist/public",
   "functions": {
     "api/ai-compositions/seo.js": {
@@ -249,6 +249,8 @@
     }
   ],
   "rewrites": [
+    { "source": "/cookie-consent-preview.html", "destination": "/cookie-consent-preview.html" },
+    { "source": "/cookie-declaration", "destination": "/cookie-declaration.html" },
     { "source": "/api/public/sales-quote/:path+", "destination": "/api/public/sales-quote-entry?path=:path+" },
     { "source": "/favicon.ico", "destination": "/api/public/favicon" },
     { "source": "/favicon.png", "destination": "/api/public/favicon?path=/favicon.png" },

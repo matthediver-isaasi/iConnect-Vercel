@@ -1,3 +1,4 @@
+import ConsentFrame from '../components/ConsentFrame';
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams, useSearchParams } from "react-router-dom";
@@ -274,7 +275,7 @@ export default function EmbedResourcePage() {
           <DialogContent className="max-w-3xl p-0 overflow-hidden" data-testid="dialog-resource-video">
             <DialogTitle className="sr-only">{resource.title}</DialogTitle>
             <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
-              <iframe
+              <ConsentFrame
                 src={videoOpen ? videoEmbedSrc : undefined}
                 title={resource.title}
                 className="absolute inset-0 w-full h-full"

@@ -38,6 +38,7 @@ import { adminFetch } from "@/lib/adminFetch";
 import MemberAiAssistantSettings from "@/components/admin/MemberAiAssistantSettings";
 import JobAlertsSettings from "@/components/admin/JobAlertsSettings";
 import MembershipChangePolicySettings from "@/components/admin/MembershipChangePolicySettings";
+import CookieConsentSettings from "@/components/admin/CookieConsentSettings";
 import { voucherSettingsForm, voucherSettingsPayload } from '@/lib/voucherSettingsForm';
 
 const DATE_FORMAT_OPTIONS = [
@@ -1182,6 +1183,7 @@ export default function AdminSettings() {
         </form>
 
         <div className="mt-8 space-y-6">
+          <CookieConsentSettings key={`cookie-consent-${tenant?.id}`} tenantId={tenant?.id} />
           <MembershipChangePolicySettings key={`membership-change-policy-${tenant?.id}`} tenantId={tenant?.id} />
           <JobAlertsSettings key={`job-alerts-${tenant?.id}`} tenantId={tenant?.id} />
           <MemberAiAssistantSettings key={tenant?.id} tenantId={tenant?.id} />

@@ -1,3 +1,4 @@
+import ConsentFrame from '../ConsentFrame';
 import React, { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -620,7 +621,7 @@ export default function ResourceCard({ resource, isLocked = false, isEventLocked
           <DialogContent className="max-w-3xl p-0 overflow-hidden" data-testid={`dialog-resource-video-${resource.id}`}>
             <DialogTitle className="sr-only">{resource.title}</DialogTitle>
             <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
-              <iframe
+              <ConsentFrame
                 src={videoOpen ? videoEmbedSrc : undefined}
                 title={resource.title}
                 className="absolute inset-0 w-full h-full"

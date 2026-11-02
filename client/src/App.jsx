@@ -7,7 +7,6 @@ import CookieConsent from "@/components/CookieConsent"
 import { TenantBrandingProvider } from "@/contexts/TenantBrandingContext"
 import SubdomainRedirect from "@/components/SubdomainRedirect"
 import StaleTenantOverlay from "@/components/StaleTenantOverlay"
-import { Analytics } from '@vercel/analytics/react'
 
 function App() {
   // Ensure <html lang> is always set for assistive tech. Per-tenant locale
@@ -59,7 +58,6 @@ function App() {
       <Toaster />
       <SonnerToaster position="top-right" richColors />
       <CookieConsent />
-      <Analytics />
       <StaleTenantOverlay />
     </TenantBrandingProvider>
   )
