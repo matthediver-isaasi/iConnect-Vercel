@@ -20,6 +20,15 @@ emails or flows and Zoom reconciliation left to the owner.
 The remainder below is the original pre-import assessment, not current booking
 counts or an outstanding approval request.
 
+### Separately approved reminder scheduling
+
+On 2 November 2026 the owner explicitly approved both configured reminders for
+the 46 imported bookings. Added 92 pending reminder rows, without sending any
+messages immediately or activating other flows. Verification found 124 confirmed
+bookings (one more than at import), all with both reminders: 2 November 18:00 UTC
+and 3 November 17:00 UTC. Private execution evidence is retained alongside the
+import evidence.
+
 ## Scope and evidence
 
 Snapshot: **2026-11-02 08:43:27 UTC**. This is validation only, not import approval.
