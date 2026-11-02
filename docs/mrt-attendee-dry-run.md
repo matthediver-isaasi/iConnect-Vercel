@@ -1,5 +1,25 @@
 # MRT attendee import: read-only production validation
 
+## Subsequent approved import — 2 November 2026
+
+The owner subsequently approved importing the bookings only, with no downstream
+emails or flows and Zoom reconciliation left to the owner.
+
+- Imported all 46 on the free Standard Ticket: 43 linked members and 3 guests.
+- Existing member profiles and organisation associations were left unchanged.
+- Event totals after commit: 123 confirmed and 2 cancelled.
+- No confirmation, reminder or follow-up emails were scheduled by the import.
+- Registration-triggered badge/points outbox entries were explicitly suppressed
+  in the same transaction before workers could see them, with an explanatory
+  reason; no global triggers were disabled and no awards were processed.
+- No Zoom API, invoice, payment or member-creation operations were invoked.
+- A replay after commit skipped all 46 and inserted zero.
+- Execution script and private row-level evidence are retained in the ignored
+  `private/mrt-attendee-validation/` directory.
+
+The remainder below is the original pre-import assessment, not current booking
+counts or an outstanding approval request.
+
 ## Scope and evidence
 
 Snapshot: **2026-11-02 08:43:27 UTC**. This is validation only, not import approval.
