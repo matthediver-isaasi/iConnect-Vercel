@@ -15,6 +15,11 @@ submission behaviour and live member records have not been changed.
 - Real isolated PostgreSQL tests cover atomic rollback (including a failure
   after secondary-record creation), successful application, replay, archival
   history, stale versions and browser-role permission denial.
+- A separate authenticated submission-binding function must be called before
+  apply/defer. Retries cannot use a snapshot bound to another submission;
+  review requests cannot silently become applied changes.
+- Run the prepared-component and real PostgreSQL tests with
+  `node scripts/run-regression-suite.mjs form-member-affiliations`.
 
 ## Not done
 
@@ -32,9 +37,9 @@ Missing application boundaries:
 2. Authoritative mapping of visible answers to proposed primary organisation,
    secondary organisations and department sets. Validate final eligibility
    across retained secondary affiliations and explicit removals.
-3. Bind snapshot/member ownership to a persisted authenticated submission.
-   Never treat a submitted member ID, email match or arbitrary mutable
-   created-member checkpoint as proof of the signed-in actor.
+3. Wire the protected binding function to the submission endpoint using its
+   server-resolved actor. Never treat a submitted member ID, email match or
+   arbitrary mutable created-member checkpoint as proof of the signed-in actor.
 4. Integrate once with submission processing and retries, disabling conflicting
    old organisation pipelines, additional-site creation and add-only relation
    actions for configured affiliation forms. Existing forms must stay unchanged.
@@ -71,5 +76,10 @@ the database supports either member endpoint direction.
 - Retained departments must be valid for the final affiliations. SQL insertion
   triggers alone do not revalidate retained relationships.
 - An absent/hidden answer must never imply deletion.
-- The source form includes Not-listed choices. The intended renewal behaviour
-  for new shared organisations/departments must be established before enabling.
+- The owner confirmed Not-listed organisations/departments go to administrator
+  review. Keep existing affiliations unchanged and let renewal continue under
+  its normal eligibility/payment checks. Do not automatically create shared
+  organisation/department records or partly apply the proposed affiliation set.
+- Review collection and protected storage are prepared and tested, but still
+  require integration with authoritative submission parsing and an admin review
+  surface. A persisted review must not be confused with an approved change.

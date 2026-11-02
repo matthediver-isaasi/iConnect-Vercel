@@ -7,6 +7,7 @@ import path from 'node:path';
 
 const migration = await readFile(new URL('./20261102_form_member_relationship_current_set.sql', import.meta.url), 'utf8');
 const snapshots = await readFile(new URL('./20261102_form_member_affiliation_snapshots.sql', import.meta.url), 'utf8');
+const reviews = await readFile(new URL('./20261102_form_member_affiliation_reviews.sql', import.meta.url), 'utf8');
 test('real PostgreSQL: atomic membership links, rollback, stale fencing, replay and permissions', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'form-affiliation-pg-'));
   const port = String(24000 + process.pid % 12000);
@@ -39,6 +40,7 @@ test('real PostgreSQL: atomic membership links, rollback, stale fencing, replay 
     `);
     sql(migration);
     sql(snapshots);
+    sql(reviews);
     sql(`
       DO $test$
       DECLARE
@@ -124,6 +126,15 @@ test('real PostgreSQL: atomic membership links, rollback, stale fencing, replay 
           'secondaryObjectId',obj,'secondaryMemberDefinitionId',md,'secondaryOrganizationDefinitionId',od);
         INSERT INTO form_member_affiliation_config VALUES(t,f,cfg,now());
         token:=(form_member_affiliation_capture(t,f,m)->>'token')::uuid;
+        BEGIN
+          PERFORM form_member_affiliation_apply(token,s,org1,ARRAY[dept],ARRAY[org2]);
+          RAISE EXCEPTION 'Unbound submission accepted';
+        EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+        BEGIN
+          PERFORM form_member_affiliation_bind(token,s,gen_random_uuid());
+          RAISE EXCEPTION 'Wrong actor accepted';
+        EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+        PERFORM form_member_affiliation_bind(token,s,m);
         -- An error after secondary creation must roll the WHOLE transaction back.
         BEGIN
           PERFORM form_member_affiliation_apply(token,s,org1,ARRAY[gen_random_uuid()],ARRAY[org2]);
@@ -144,6 +155,7 @@ test('real PostgreSQL: atomic membership links, rollback, stale fencing, replay 
         IF r->>'replayed'<>'true' THEN RAISE EXCEPTION 'Not replayed'; END IF;
         token:=(form_member_affiliation_capture(t,f,m)->>'token')::uuid;
         s:=gen_random_uuid(); INSERT INTO form_submission VALUES(s,t,f,m);
+        PERFORM form_member_affiliation_bind(token,s,m);
         r:=form_member_affiliation_apply(token,s,org2,'{}','{}');
         IF EXISTS(SELECT 1 FROM custom_object_record WHERE tenant_id=t AND custom_object_id=obj AND archived_at IS NULL) THEN
           RAISE EXCEPTION 'Secondary record not archived';
@@ -155,6 +167,27 @@ test('real PostgreSQL: atomic membership links, rollback, stale fencing, replay 
           OR has_function_privilege('anon','form_member_affiliation_capture(uuid,uuid,uuid)','EXECUTE')
           OR has_table_privilege('service_role','form_member_affiliation_snapshot','UPDATE') THEN
           RAISE EXCEPTION 'Unsafe snapshot privileges';
+        END IF;
+        token:=(form_member_affiliation_capture(t,f,m)->>'token')::uuid;
+        s:=gen_random_uuid(); INSERT INTO form_submission VALUES(s,t,f,m);
+        PERFORM form_member_affiliation_bind(token,s,m);
+        r:=form_member_affiliation_defer(token,s,'[{"kind":"organization","fieldId":"hospital","requestedName":"New hospital"}]');
+        IF r->>'status'<>'awaiting_review' OR r->>'blocks_renewal'<>'false'
+          OR (SELECT organization_id FROM member WHERE id=m)<>org2 THEN
+          RAISE EXCEPTION 'Review unexpectedly changed affiliations or blocked renewal';
+        END IF;
+        r:=form_member_affiliation_defer(token,s,'[{"kind":"organization","fieldId":"hospital","requestedName":"New hospital"}]');
+        IF r->>'replayed'<>'true' OR (SELECT count(*) FROM form_member_affiliation_review WHERE tenant_id=t)<>1 THEN
+          RAISE EXCEPTION 'Duplicate review';
+        END IF;
+        BEGIN
+          PERFORM form_member_affiliation_apply(token,s,org1,'{}','{}');
+          RAISE EXCEPTION 'Review was silently converted to an affiliation change';
+        EXCEPTION WHEN unique_violation THEN NULL; END;
+        IF has_function_privilege('authenticated','form_member_affiliation_defer(uuid,uuid,jsonb)','EXECUTE')
+          OR has_table_privilege('authenticated','form_member_affiliation_review','SELECT')
+          OR has_table_privilege('service_role','form_member_affiliation_review','UPDATE') THEN
+          RAISE EXCEPTION 'Unsafe review grants';
         END IF;
       END $test$;
     `);

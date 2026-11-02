@@ -12,6 +12,7 @@ const disposablePostgresSuites = new Set([
   'rolling-memberships',
   'department-current-set',
   'form-applicant-continuation-postgres',
+  'form-member-affiliations',
 ]);
 const [suite, ...extra] = process.argv.slice(2);
 if (!Object.hasOwn(suites, suite) || extra.length) {

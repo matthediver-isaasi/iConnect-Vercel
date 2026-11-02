@@ -64,6 +64,32 @@ END $$;
 REVOKE ALL ON FUNCTION public.form_member_affiliation_capture(uuid,uuid,uuid) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.form_member_affiliation_capture(uuid,uuid,uuid) TO service_role;
 
+-- Called only after resolving the authenticated actor on the submission
+-- endpoint. Webhooks/retries subsequently use this immutable binding.
+CREATE FUNCTION public.form_member_affiliation_bind(p_token uuid,p_submission uuid,p_actor uuid)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE s form_member_affiliation_snapshot%ROWTYPE; sub form_submission%ROWTYPE;
+BEGIN
+ SELECT * INTO s FROM form_member_affiliation_snapshot WHERE id=p_token FOR UPDATE;
+ IF NOT FOUND OR s.member_id IS DISTINCT FROM p_actor THEN
+   RAISE EXCEPTION 'Affiliation actor mismatch' USING ERRCODE='42501';
+ END IF;
+ IF s.submission_id IS NOT NULL THEN
+   IF s.submission_id<>p_submission THEN
+     RAISE EXCEPTION 'Snapshot belongs to another submission' USING ERRCODE='23505';
+   END IF;
+   RETURN;
+ END IF;
+ IF s.expires_at<now() THEN RAISE EXCEPTION 'Reload affiliations before submitting' USING ERRCODE='40001'; END IF;
+ SELECT * INTO sub FROM form_submission WHERE id=p_submission AND tenant_id=s.tenant_id FOR UPDATE;
+ IF NOT FOUND OR sub.form_id<>s.form_id OR sub.created_member_id IS DISTINCT FROM p_actor THEN
+   RAISE EXCEPTION 'Submission actor mismatch' USING ERRCODE='42501';
+ END IF;
+ UPDATE form_member_affiliation_snapshot SET submission_id=p_submission WHERE id=p_token;
+END $$;
+REVOKE ALL ON FUNCTION public.form_member_affiliation_bind(uuid,uuid,uuid) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.form_member_affiliation_bind(uuid,uuid,uuid) TO service_role;
+
 CREATE FUNCTION public.form_member_affiliation_apply(
  p_token uuid,p_submission uuid,p_primary uuid,p_departments uuid[],p_secondary uuid[]
 ) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
@@ -86,6 +112,9 @@ BEGIN
  LOCK TABLE custom_object_relationship,custom_object_record IN SHARE ROW EXCLUSIVE MODE;
  SELECT * INTO s FROM form_member_affiliation_snapshot WHERE id=p_token FOR UPDATE;
  IF NOT FOUND THEN RAISE EXCEPTION 'Affiliation snapshot unavailable' USING ERRCODE='42501'; END IF;
+ IF s.submission_id IS DISTINCT FROM p_submission THEN
+   RAISE EXCEPTION 'Authenticated submission binding required' USING ERRCODE='42501';
+ END IF;
  IF s.result IS NOT NULL THEN
    IF s.submission_id IS DISTINCT FROM p_submission OR s.request IS DISTINCT FROM req THEN
      RAISE EXCEPTION 'Affiliation snapshot already submitted' USING ERRCODE='23505';

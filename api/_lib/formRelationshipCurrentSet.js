@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { collectAffiliationReviewRequests } from './formAffiliationReviewPolicy.js';
 
 /**
  * Pure, server-side planning for opt-in current-set form relationships.
@@ -97,7 +98,7 @@ export function relationshipCurrentSetVersion(snapshot) {
  * primary AND retained secondary affiliations (not just the primary org).
  */
 export function planRelationshipCurrentSet({
-  snapshot, expectedVersion, actor, selections = [], eligibility = [],
+  snapshot, expectedVersion, actor, selections = [], eligibility = [], resolvedChoices = [],
 }) {
   validateSnapshot(snapshot);
   if (actor?.authenticated !== true || actor.tenantId !== snapshot.tenantId
@@ -107,6 +108,21 @@ export function planRelationshipCurrentSet({
   const version = relationshipCurrentSetVersion(snapshot);
   if (expectedVersion !== version) {
     fail('stale_snapshot', 'Your affiliations changed since this form was loaded. Reload before saving.');
+  }
+  const reviewRequests = collectAffiliationReviewRequests(resolvedChoices);
+  if (reviewRequests.length) {
+    // Keep the entire affiliation change together. Applying a known hospital
+    // while deferring its unlisted department would silently detach the member
+    // from the old department or leave an invalid mixed affiliation state.
+    return {
+      version, tenantId: snapshot.tenantId, memberId: snapshot.memberId,
+      changed: false, status: 'awaiting_review', reviewRequests,
+      blocksRenewal: false,
+      sets: snapshot.sets.map(set => ({
+        setId: set.id, definitionId: set.definitionId, ownerSide: set.ownerSide,
+        retain: set.edges.map(edge => edge.id).sort(), archive: [], add: [],
+      })),
+    };
   }
   if (!Array.isArray(selections) || !Array.isArray(eligibility)) fail('invalid_input', 'Invalid relationship choices.');
   const bySet = new Map();
