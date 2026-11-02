@@ -1899,6 +1899,7 @@ async function executeCreateMembershipAction(action, workflow, entityType, entit
       organization_id: organizationId,
       membership_year: simResult.membershipYear.label,
       config_id: simResult.config.id,
+      xero_project_code: simResult.xeroProjectCode || null,
       band_id: simResult.matchedBand?.id || null,
       tier_label: simResult.tierLabel,
       field_value: simResult.fieldValue,
@@ -2022,6 +2023,7 @@ async function executeCreateMembershipAction(action, workflow, entityType, entit
         reference: invoiceReference,
         vatRate: simResult.taxType || simResult.matchedBand?.vat_rate || null,
         nominalCode: await resolveMembershipNominalCode(supabase, tenantId, simResult),
+        xeroProjectCode: simResult.xeroProjectCode || null,
         invoiceDescription: simResult.config?.invoice_description || null,
         extraLineItems: buildExtraLineItems(addonLines),
       });
@@ -2310,6 +2312,7 @@ async function executeCreateMemberMembership(action, workflow, memberId) {
         member_id: memberId,
         membership_year: targetYearLabel,
         config_id: simResult.config.id,
+        xero_project_code: simResult.xeroProjectCode || null,
         band_id: simResult.matchedBand?.id || null,
         tier_label: simResult.tierLabel,
         field_value: simResult.fieldValue,
@@ -2408,6 +2411,7 @@ async function executeCreateMemberMembership(action, workflow, memberId) {
         reference: `Membership ${targetYearLabel}`,
         vatRate: simResult.taxType || simResult.matchedBand?.vat_rate || null,
         nominalCode: await resolveMembershipNominalCode(supabase, tenantId, simResult),
+        xeroProjectCode: simResult.xeroProjectCode || null,
         invoiceDescription: simResult.config?.invoice_description || null,
       });
       if (invoice) {
@@ -2439,6 +2443,7 @@ async function executeCreateMemberMembership(action, workflow, memberId) {
         } catch {}
       }
       const costBreakdown = {
+        xeroProjectCode: simResult.xeroProjectCode || null,
         annualCost: simResult.annualCost,
         annualCostBeforeDiscounts: simResult.annualCostBeforeDiscounts,
         customDiscountTotal: simResult.customDiscountTotal || 0,

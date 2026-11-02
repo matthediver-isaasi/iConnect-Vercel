@@ -357,6 +357,7 @@ async function handlePost(req, res, resolvedTenantId) {
       member_id: member.id,
       membership_year: yearLabel,
       config_id: simResult.config?.id || null,
+      xero_project_code: snapshot.xero_project_code || null,
       band_id: simResult.matchedBand?.id || null,
       tier_label: simResult.tierLabel,
       field_value: simResult.fieldValue,

@@ -144,6 +144,7 @@ export function startQuoteSimulation(q, memberStart = { paymentMode: q.paymentMo
   const band = q.targetSnapshot.band;
   return {
     success: true, config, matchedBand: band || null, tierLabel: q.tierLabel, currency: q.currency,
+    xeroProjectCode: config.xero_project_code || null,
     annualCost: q.annualCost, finalCost: q.finalCost, vatAmount: q.vatAmount, totalWithVat: q.totalWithVat,
     vatRatePercent: q.vatRatePercent, billingPeriod: config.billing_period,
     membershipYear: { label: q.membershipYear, start: new Date(`${q.termStart}T00:00:00Z`), end: new Date(`${q.termEnd}T00:00:00Z`) },

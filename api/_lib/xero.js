@@ -1,4 +1,5 @@
 import { supabase } from './database.js';
+import { membershipProjectTracking } from '../../shared/membershipProjectCode.js';
 import { getXeroCredentials } from './xeroCredentials.js';
 import { resolveMembershipInvoiceReference } from './membershipInvoiceReference.js';
 import { accountingOperationIdentity } from './accountingOperationIdentity.js';
@@ -562,7 +563,7 @@ export async function createXeroMembershipInvoice({
   appTenantId, organizationName, invoicingEmail, invoicingAddress, membershipYear,
   tierLabel, finalCost, currency, reference, paymentReference = null, vatRate, markAsPaid,
   deferStripeSettlement = false, authorizeWithoutPayment = false, stripePaymentIntentId, invoiceDescription,
-  extraLineItems, nominalCode, bankAccountSettingKey, strictBankAccount, ddAccountingMigration = null,
+  extraLineItems, nominalCode, xeroProjectCode, bankAccountSettingKey, strictBankAccount, ddAccountingMigration = null,
   idempotencyKey, paymentIdempotencyKey, expectedProviderContext = null,
   transportTimeoutMs, deadlineAt, signal,
 }, dependencies = {}) {
@@ -673,6 +674,7 @@ export async function createXeroMembershipInvoice({
   }`;
 
   const lineItem = {
+    ...membershipProjectTracking(xeroProjectCode),
     Description: description,
     Quantity: 1,
     UnitAmount: parseFloat(finalCost).toFixed(2),

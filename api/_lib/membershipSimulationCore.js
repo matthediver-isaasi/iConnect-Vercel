@@ -267,6 +267,7 @@ function purchasedRollingSimulation(row, entity, steps, invoicingSettings) {
     customDiscountDetails: row.custom_discount_details || [], prorataCost: row.prorata_cost,
     freeDiscount: Number(row.free_period_discount || 0), rolloverDiscount: Number(row.rollover_discount || 0),
     invoicePreview: null, nominalCode: row.commitment_snapshot.config.nominal_code || null,
+    xeroProjectCode: row.commitment_snapshot.config.xero_project_code || null,
   };
 }
 
@@ -469,7 +470,7 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
 
   const { data: existingRecord } = await supabase
     .from('organisation_membership_history')
-    .select('id, membership_year, final_cost, xero_invoice_id, accounting_invoice_id')
+    .select('id, membership_year, final_cost, xero_invoice_id, accounting_invoice_id, xero_project_code')
     .eq('tenant_id', tenantId)
     .eq('organization_id', organizationId)
     .eq('membership_year', membershipYear.label)
@@ -1054,6 +1055,7 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
     goLiveDate,
     isNewOrg,
     nominalCode: String(matchedBand?.nominal_code || (isFlat ? config.nominal_code : '') || '').trim() || null,
+    xeroProjectCode: (existingRecord ? existingRecord.xero_project_code : config.xero_project_code) || null,
     vatRatePercent,
     vatAmount,
     totalWithVat,
@@ -1537,7 +1539,7 @@ async function simulateMembershipForMember(tenantId, memberId, options = {}) {
 
   const { data: existingRecord } = await supabase
     .from('member_membership_history')
-    .select('id, membership_year, final_cost, xero_invoice_id')
+    .select('id, membership_year, final_cost, xero_invoice_id, xero_project_code')
     .eq('tenant_id', tenantId)
     .eq('member_id', memberId)
     .eq('membership_year', membershipYear.label)
@@ -2047,6 +2049,7 @@ async function simulateMembershipForMember(tenantId, memberId, options = {}) {
     goLiveDate,
     isNewMember,
     nominalCode: String(matchedBand?.nominal_code || (isFlat ? config.nominal_code : '') || '').trim() || null,
+    xeroProjectCode: (existingRecord ? existingRecord.xero_project_code : config.xero_project_code) || null,
     vatRatePercent,
     vatAmount,
     totalWithVat,

@@ -273,6 +273,7 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
       member_id: memberId,
       membership_year: membershipYear.label,
       config_id: simResult.config.id,
+      xero_project_code: simResult.xeroProjectCode || null,
       band_id: simResult.matchedBand?.id || null,
       tier_label: tierLabel,
       field_value: simResult.fieldValue,
@@ -359,6 +360,7 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
       reference: xeroReference,
       vatRate: bandVatRate,
       nominalCode: await resolveMembershipNominalCode(supabase, tenantId, simResult),
+      xeroProjectCode: simResult.xeroProjectCode || null,
       invoiceDescription: simResult.config?.invoice_description || null,
     });
 

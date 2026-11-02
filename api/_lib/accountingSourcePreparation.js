@@ -19,7 +19,7 @@ export async function freezeMembershipPreparation({ db, args, totalMinor }) {
   const frozenArgs = {};
   for (const key of ['appTenantId', 'organizationName', 'invoicingEmail', 'invoicingAddress',
     'membershipYear', 'tierLabel', 'finalCost', 'currency', 'reference', 'vatRate',
-    'invoiceDescription', 'nominalCode']) {
+    'invoiceDescription', 'nominalCode', 'xeroProjectCode']) {
     if (args[key] !== undefined) frozenArgs[key] = structuredClone(args[key]);
   }
   return { args: frozenArgs, totalMinor, settings, dueDate, invoiceDate };

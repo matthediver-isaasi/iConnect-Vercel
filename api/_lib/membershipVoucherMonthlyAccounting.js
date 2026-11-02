@@ -123,6 +123,7 @@ export async function postMembershipVoucherMonthlyPayment({
         finalCost: variable ? price.invoice_net_minor / 100 : Math.round(slice.grossMinor * netRatio) / 100,
         vatRate: variable ? price.vat_rate : loaded.history_snapshot?.__accounting?.vatRate || null,
         nominalCode: variable ? price.nominal_code : loaded.history_snapshot?.__accounting?.nominalCode || null,
+        xeroProjectCode: variable ? price.config?.xero_project_code || null : loaded.history_snapshot?.__accounting?.xeroProjectCode || null,
         markAsPaid: false, ...(variable ? { authorizeWithoutPayment: true } : {}),
         reference: `Membership ${token.membership_year} instalment ${receipt.ordinal}/${funding.instalment_count}`,
         invoiceDescription: `Membership instalment ${receipt.ordinal}/${funding.instalment_count}. Funding (not a discount): ${

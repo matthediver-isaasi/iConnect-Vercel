@@ -4,6 +4,8 @@ import { matchBand, isNumericFieldType, isTextFieldType, normalizeMatchValue } f
 import { getRemindersForConfig, saveRemindersForConfig } from '../_lib/membershipRemindersLive.js';
 import { normalizeInvoiceRecipients, validateInvoiceRecipientsShape } from '../_lib/membershipRecipientResolver.js';
 import { parseFlatMembershipCost } from '../../shared/membershipFlatCost.js';
+import { normalizeMembershipProjectCode } from '../../shared/membershipProjectCode.js';
+import { getActiveAccountingProvider } from '../_lib/accountingProvider.js';
 
 function todayStr() {
   return new Date().toISOString().split('T')[0];
@@ -130,6 +132,7 @@ async function handleGet(req, res, tenantId) {
 
   return res.json({
     config: firstConfig,
+    accountingProvider: await getActiveAccountingProvider(tenantId),
     bands,
     discounts,
     vatOverrides,
@@ -896,6 +899,8 @@ async function handlePost(req, res, tenantId) {
         flat_cost: config.pricing_model === 'flat' ? parsedFlatCost.value : null,
         flat_vat_rate: config.pricing_model === 'flat' ? (config.flat_vat_rate || null) : null,
         invoice_description: config.invoice_description || null,
+        ...(Object.hasOwn(config, 'xero_project_code')
+          ? { xero_project_code: normalizeMembershipProjectCode(config.xero_project_code) } : {}),
         auto_approve_fees: config.auto_approve_fees ?? false,
         online_card_payment: config.online_card_payment ?? false,
         invoice_address_field_id: parseInvoiceAddressFieldId(config.invoice_address_field),
@@ -1045,6 +1050,7 @@ async function handlePost(req, res, tenantId) {
       flat_cost: config.pricing_model === 'flat' ? parsedFlatCost.value : null,
       flat_vat_rate: config.pricing_model === 'flat' ? (config.flat_vat_rate || null) : null,
       invoice_description: config.invoice_description || null,
+      xero_project_code: normalizeMembershipProjectCode(config.xero_project_code),
       auto_approve_fees: config.auto_approve_fees ?? false,
       online_card_payment: config.online_card_payment ?? false,
       invoice_address_field_id: parseInvoiceAddressFieldId(config.invoice_address_field),

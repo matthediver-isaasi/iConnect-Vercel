@@ -291,6 +291,7 @@ export async function quoteMembershipForNewApplicant({ tenantId, configId, field
       tax_type: taxType,
       tax_label: taxLabel,
       nominal_code: String(matchedBand?.nominal_code || (isFlat ? config.nominal_code : '') || '').trim() || null,
+      xero_project_code: config.xero_project_code || null,
       invoice_description: config.invoice_description || null,
        direct_debit_allowed: false,
     };
@@ -364,6 +365,7 @@ export function quoteFromSimulationResult(simResult, target) {
     tax_type: simResult.taxType || null,
     tax_label: simResult.taxLabel || null,
     nominal_code: simResult.nominalCode || null,
+    xero_project_code: simResult.xeroProjectCode || null,
     invoice_description: simResult.config?.invoice_description || null,
      direct_debit_allowed: false,
   };

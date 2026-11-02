@@ -116,6 +116,7 @@ export default async function handler(req, res) {
     }
 
     const costBreakdown = {
+      xeroProjectCode: simResult.xeroProjectCode || null,
       annualCost: simResult.annualCost,
       annualCostBeforeDiscounts: simResult.annualCostBeforeDiscounts,
       customDiscountTotal: simResult.customDiscountTotal || 0,

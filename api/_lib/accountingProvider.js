@@ -472,6 +472,8 @@ function makeQuickBooksProvider() {
     },
 
     async createMembershipInvoice(args) {
+      const { xeroProjectCode: ignoredXeroProjectCode, ...providerArgs } = args || {};
+      args = providerArgs;
       if (args?.accountingSource) {
         const queued = await queueMembershipInvoice({ db: supabase, provider: PROVIDER_QUICKBOOKS, args });
         if (queued !== undefined) return queued;

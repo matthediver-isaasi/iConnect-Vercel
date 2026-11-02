@@ -336,6 +336,7 @@ async function invoiceExistingRecord(tenantId, orgId, simResult, results, invoic
       reference: xeroReference,
       vatRate: bandVatRate,
       nominalCode: await resolveMembershipNominalCode(supabase, tenantId, simResult),
+      xeroProjectCode: simResult.xeroProjectCode || null,
       invoiceDescription: simResult.config?.invoice_description || null,
       extraLineItems: buildExtraLineItems(addonLines),
     });
@@ -402,6 +403,7 @@ async function invoiceExistingRecord(tenantId, orgId, simResult, results, invoic
         // regardless of whether the stored record had add-ons baked in).
         const tokenFinalCost = Math.round((membershipFeeCost + addonTotals.subtotal) * 100) / 100;
         const costBreakdown = {
+          xeroProjectCode: simResult.xeroProjectCode || null,
           annualCost: simResult.annualCost,
           annualCostBeforeDiscounts: simResult.annualCostBeforeDiscounts,
           customDiscountTotal: simResult.customDiscountTotal || 0,
@@ -554,6 +556,7 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
       organization_id: orgId,
       membership_year: membershipYear.label,
       config_id: simResult.config.id,
+      xero_project_code: simResult.xeroProjectCode || null,
       band_id: simResult.matchedBand?.id || null,
       tier_label: tierLabel,
       field_value: simResult.fieldValue,
@@ -651,6 +654,7 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
         reference: xeroReference,
         vatRate: bandVatRate,
         nominalCode: await resolveMembershipNominalCode(supabase, tenantId, simResult),
+        xeroProjectCode: simResult.xeroProjectCode || null,
         invoiceDescription: simResult.config?.invoice_description || null,
         extraLineItems: buildExtraLineItems(addonLines),
       });
@@ -710,6 +714,7 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
         // invoice just created (record.final_cost is stored addon-inclusive).
         const tokenFinalCost = Math.round((finalCost + addonTotals.subtotal) * 100) / 100;
         const costBreakdown = {
+          xeroProjectCode: simResult.xeroProjectCode || null,
           annualCost: simResult.annualCost,
           annualCostBeforeDiscounts: simResult.annualCostBeforeDiscounts,
           customDiscountTotal: simResult.customDiscountTotal || 0,
@@ -933,6 +938,7 @@ async function processMemberRenewal(tenantId, memberId, simResult, mode, createI
       member_id: memberId,
       membership_year: membershipYear.label,
       config_id: simResult.config.id,
+      xero_project_code: simResult.xeroProjectCode || null,
       band_id: simResult.matchedBand?.id || null,
       tier_label: tierLabel,
       field_value: simResult.fieldValue,
@@ -1031,6 +1037,7 @@ async function processMemberRenewal(tenantId, memberId, simResult, mode, createI
         reference: xeroReference,
         vatRate: bandVatRate,
         nominalCode: await resolveMembershipNominalCode(supabase, tenantId, simResult),
+        xeroProjectCode: simResult.xeroProjectCode || null,
         invoiceDescription: simResult.config?.invoice_description || null,
       });
 
@@ -1211,6 +1218,7 @@ async function invoiceExistingMemberRecord(tenantId, memberId, simResult, result
       reference: xeroReference,
       vatRate: bandVatRate,
       nominalCode: await resolveMembershipNominalCode(supabase, tenantId, simResult),
+      xeroProjectCode: simResult.xeroProjectCode || null,
       invoiceDescription: simResult.config?.invoice_description || null,
     });
 

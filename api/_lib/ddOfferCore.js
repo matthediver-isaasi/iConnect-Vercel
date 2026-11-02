@@ -66,6 +66,7 @@ export function buildAgreementSnapshot({
   const renewalDate = yearEnd ? new Date(yearEnd.getTime() + 86_400_000) : null;
   const snapshot = {
     kind: 'monthly_direct_debit', start_mode: simResult?.config?.start_mode || 'fixed_date',
+    xero_project_code: simResult?.config?.xero_project_code || null,
     commitment: monthlyCommitmentFields({ offer, simResult, paymentMethod: 'direct_debit' }),
     collection_policy: policy, monthly_amount: offer.monthlyAmount,
     monthly_amount_minor: offer.monthlyAmountMinor, instalment_count: offer.instalmentCount,

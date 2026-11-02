@@ -226,6 +226,10 @@ export async function resolveInstalmentInvoiceContext({ agreement, snapshot, db:
     invoicingAddress,
     vatRate,
     nominalCode,
+    // Never look up this setting from mutable config for an existing agreement.
+    xeroProjectCode: collectionPrice
+      ? collectionPrice.config?.xero_project_code || null
+      : snapshot.xero_project_code || null,
     tierLabel: snapshot.tier_label || null,
     membershipYear: snapshot.membership_year || null,
     currency: snapshot.currency || 'GBP',
@@ -460,6 +464,7 @@ export async function createInstalmentInvoice({ provider, tenantId, context, amo
     reference,
     vatRate: context.vatRate,
     nominalCode: context.nominalCode,
+    xeroProjectCode: context.xeroProjectCode || null,
     markAsPaid: true,
     // `paymentReference` is an accounting-facing provider reference (and may
     // be a Stripe Invoice or GoCardless ID). It is never a PaymentIntent.

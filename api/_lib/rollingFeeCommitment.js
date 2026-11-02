@@ -55,6 +55,7 @@ export function simulationFromFeeCommitment(token) {
   return {
     success: true,
     config: snapshot.config,
+    xeroProjectCode: snapshot.config?.xero_project_code || null,
     membershipYear: {
       label: commitment.term_key,
       start: new Date(`${commitment.term_start_date}T00:00:00Z`),
@@ -162,6 +163,7 @@ export async function reserveRollingFeePayment(client, token) {
     [column]: token.member_id || token.organization_id,
     membership_year: commitment.term_key,
     config_id: commitment.commitment_snapshot.config_id,
+    xero_project_code: commitment.commitment_snapshot.config?.xero_project_code || null,
     ...amounts,
     tier_label: token.tier_label,
     billing_period: commitment.commitment_snapshot.billing_period,
@@ -218,6 +220,7 @@ export async function reserveRollingMonthlyHistory(client, agreement, snapshot, 
     [column]: agreement.member_id || agreement.organization_id,
     membership_year: commitment.term_key,
     config_id: commitment.commitment_snapshot.config_id,
+    xero_project_code: snapshot.xero_project_code || null,
     band_id: pricing.band?.id || pricing.matchedBand?.id || null,
     tier_label: pricing.tier_label || snapshot.tier_label || null,
     field_value: pricing.field_value ?? snapshot.field_value ?? null,

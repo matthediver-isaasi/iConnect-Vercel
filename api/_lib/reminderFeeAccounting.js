@@ -46,6 +46,7 @@ export async function completeReminderFeeAccounting({ client, token, history, pa
         reference: `Membership ${token.membership_year}${token.po_number ? ` - PO: ${token.po_number}` : ''}`,
         vatRate: cb.taxType || cb.matchedBand?.vat_rate || null,
         nominalCode: savedAccounting ? savedAccounting.nominalCode : cb.nominalCode || config?.nominal_code || null,
+        xeroProjectCode: savedAccounting ? savedAccounting.xeroProjectCode || null : cb.xeroProjectCode || null,
         invoiceDescription: config?.invoice_description || null,
         extraLineItems: addons.map(line => ({
           description: line.description, nominalCode: line.nominal_code || null,

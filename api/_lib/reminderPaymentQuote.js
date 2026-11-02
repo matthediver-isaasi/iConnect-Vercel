@@ -10,7 +10,7 @@ export const requestsReminderPaymentLink = template => /\{\{\s*payment_link\s*\}
 const pick = (object, keys) => Object.fromEntries(keys.filter(key => object?.[key] !== undefined).map(key => [key, object[key]]));
 const CONFIG_FIELDS = [
   'id', 'start_mode', 'billing_period', 'currency', 'membership_start_month', 'membership_start_day',
-  'renewal_open_days', 'renewal_grace_days', 'online_card_payment', 'invoice_description', 'nominal_code',
+  'renewal_open_days', 'renewal_grace_days', 'online_card_payment', 'invoice_description', 'nominal_code', 'xero_project_code',
 ];
 export function reminderRenewalSnapshot(quote, history) {
   const previousTerm = pick(history, [
@@ -124,7 +124,7 @@ export async function resolveReminderPaymentQuote({ client, tenantId, history, h
       'annualCostBeforeDiscounts', 'customDiscountTotal', 'customDiscountDetails',
       'prorataCost', 'prorataDays', 'proRataEnabled', 'freeDiscount', 'rolloverDiscount',
       'freePeriodUnit', 'freePeriodAmount', 'freePeriodDaysApplied', 'yearNumber',
-      'matchedBand', 'fieldValue', 'taxType', 'nominalCode', 'overrideApplied', 'overrideType',
+      'matchedBand', 'fieldValue', 'taxType', 'nominalCode', 'xeroProjectCode', 'overrideApplied', 'overrideType',
     ].map(key => [key, quote[key]])),
     annualCost: quote.annualCost, finalCost: quote.finalCost, vatAmount: quote.vatAmount,
     vatRatePercent: quote.vatRatePercent, totalWithVat: quote.totalWithVat,

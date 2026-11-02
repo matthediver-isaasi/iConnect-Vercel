@@ -443,6 +443,7 @@ async function handleStart(req, res, resolvedTenantId) {
       organization_id: org.id,
       membership_year: yearLabel,
       config_id: snapshot.config_id || null,
+      xero_project_code: snapshot.xero_project_code || null,
       band_id: snapshot.band_id || null,
       tier_label: snapshot.tier_label,
       field_value: snapshot.field_value,

@@ -177,6 +177,7 @@ export function buildCardAgreementSnapshot({ offer, simResult, acceptedAt = new 
     membership_year_start: simResult?.membershipYear?.start
       ? toDateOnly(simResult.membershipYear.start).toISOString().slice(0, 10) : null,
     config_id: simResult?.config?.id || null,
+    xero_project_code: simResult?.config?.xero_project_code || null,
     band_id: simResult?.matchedBand?.id || null,
     tier_label: simResult?.tierLabel || null,
     field_value: simResult?.fieldValue ?? null,

@@ -40,6 +40,7 @@ function simulatorFixture(history = [], overrides = [], configOverrides = {}) {
     const query = {
       select() { return query; },
       eq(key, value) { filters.push(row => row[key] === value); return query; },
+      neq(key, value) { filters.push(row => row[key] !== value); return query; },
       or() { return query; },
       order() { return query; },
       limit() { return query; },
@@ -148,7 +149,8 @@ async function isolatedRoute(file, overrides = {}) {
   const body = source.replace(/import\s+\{([\s\S]*?)\}\s+from\s+['"][^'"]+['"];?/g, (_, names) => {
     for (const name of names.split(',').map(n => n.trim()).filter(Boolean)) deps[name] ??= forbidden;
     return '';
-  }).replace('export default async function handler', 'async function handler');
+  }).replace('export default async function handler', 'async function handler')
+    .replace(/^export (?=(?:async )?function|const|let)/gm, '');
   return new Function(...Object.keys(deps), `${body}; return handler;`)(...Object.values(deps));
 }
 

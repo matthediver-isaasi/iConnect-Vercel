@@ -258,6 +258,7 @@ export default async function handler(req, res) {
       // SalesTaxCodeRef on Items / Xero default account code).
       vatRate: null,
       nominalCode: retryNominalCode,
+      xeroProjectCode: row.xero_project_code || null,
       markAsPaid: !!row.stripe_payment_intent_id,
       stripePaymentIntentId: row.stripe_payment_intent_id || null,
       invoiceDescription: null,

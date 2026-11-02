@@ -83,6 +83,7 @@ async function historySnapshot(db, token, deps) {
     return { ...data, __accounting: {
       vatRate: token.cost_breakdown?.taxType || band?.vat_rate || config?.flat_vat_rate || null,
       nominalCode: band?.nominal_code || config?.nominal_code || null,
+      xeroProjectCode: data.xero_project_code || null,
     } };
   }
   const renewal = token.cost_breakdown?.renewalQuote;
@@ -95,7 +96,8 @@ async function historySnapshot(db, token, deps) {
   if (!memberPurchase && !savedRenewal && !simulationFromFeeCommitment(token) && !regenerated) {
     throw new Error('Original organisation membership terms are unavailable; request a new saved fee quote.');
   }
-  const sim = regenerated || simulationFromMemberStart(token) || simulationFromFeeCommitment(token) || savedRenewal
+  const savedSimulation = regenerated || simulationFromMemberStart(token) || simulationFromFeeCommitment(token) || savedRenewal;
+  const sim = savedSimulation
     || (deps.simulate ? await deps.simulate(token) : await (await import('./membershipSimulation.js'))
       .simulateMembershipForMember(token.tenant_id, token.member_id, {
         source: 'voucher-payment', mode: 'manual', targetYear: token.membership_year,
@@ -107,6 +109,7 @@ async function historySnapshot(db, token, deps) {
     ...membershipIncentiveSnapshot(sim), ...(feeTokenCommitment(token) || {}),
     tenant_id: token.tenant_id, [ownerColumn]: ownerId, membership_year: token.membership_year,
     config_id: sim.config?.id || null, band_id: sim.matchedBand?.id || null,
+    xero_project_code: savedSimulation?.xeroProjectCode || cb.xeroProjectCode || null,
     tier_label: token.tier_label, annual_cost: sim.annualCost, prorata_cost: sim.prorataCost,
     free_period_discount: sim.freeDiscount || 0, rollover_discount: sim.rolloverDiscount || 0,
     custom_discount_total: sim.customDiscountTotal || 0, final_cost: Number(token.final_cost),
@@ -119,7 +122,8 @@ async function historySnapshot(db, token, deps) {
       term_end_date: renewal.membershipYear.end.slice(0, 10), annual_renewal_state: 'renewed' } : {}),
     notes: 'Membership funded by voucher credit; cash and voucher funding recorded separately.',
     __accounting: { vatRate: sim.taxType || sim.matchedBand?.vat_rate || sim.config?.flat_vat_rate || null,
-      nominalCode: sim.matchedBand?.nominal_code || sim.config?.nominal_code || null },
+      nominalCode: sim.matchedBand?.nominal_code || sim.config?.nominal_code || null,
+      xeroProjectCode: savedSimulation?.xeroProjectCode || cb.xeroProjectCode || null },
   };
 }
 

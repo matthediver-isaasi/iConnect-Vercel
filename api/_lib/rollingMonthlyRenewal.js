@@ -301,6 +301,7 @@ export async function reserveRollingMonthlyRenewal({
       tenant_id: tenantId, [ownerColumn]: ownerId,
       membership_year: snapshot.membership_year || snapshot.commitment.term_key,
       config_id: snapshot.config_id, band_id: snapshot.band_id,
+      xero_project_code: snapshot.xero_project_code || null,
       tier_label: snapshot.tier_label, annual_cost: snapshot.annual_cost,
       final_cost: snapshot.commitment.commitment_snapshot.amounts.final_cost,
       total_with_vat: snapshot.plan_total,

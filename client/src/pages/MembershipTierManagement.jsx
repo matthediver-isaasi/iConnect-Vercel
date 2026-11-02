@@ -322,6 +322,7 @@ export default function MembershipTierManagement() {
     flat_cost: null,
     flat_vat_rate: null,
     nominal_code: null,
+    xero_project_code: null,
     auto_approve_fees: false,
     online_card_payment: false,
     dd_enabled: false,
@@ -525,6 +526,7 @@ export default function MembershipTierManagement() {
         flat_cost: c.flat_cost ?? null,
         flat_vat_rate: c.flat_vat_rate || null,
         nominal_code: c.nominal_code || null,
+        xero_project_code: c.xero_project_code || null,
         invoice_description: c.invoice_description || null,
         auto_approve_fees: c.auto_approve_fees ?? false,
         online_card_payment: c.online_card_payment ?? false,
@@ -586,6 +588,7 @@ export default function MembershipTierManagement() {
       flat_cost: inferredFlatCost,
       flat_vat_rate: c.flat_vat_rate || null,
       nominal_code: c.nominal_code || null,
+      xero_project_code: c.xero_project_code || null,
       invoice_description: c.invoice_description || null,
       auto_approve_fees: c.auto_approve_fees ?? false,
       online_card_payment: c.online_card_payment ?? false,
@@ -778,6 +781,7 @@ export default function MembershipTierManagement() {
       match_value: '',
       vat_rate: null,
       nominal_code: null,
+      xero_project_code: null,
       label: '',
     }]);
     setHasChanges(true);
@@ -946,6 +950,7 @@ export default function MembershipTierManagement() {
         flat_cost: isFlat ? parsedFlatCost.value : undefined,
         flat_vat_rate: isFlat ? (config.flat_vat_rate || null) : null,
         nominal_code: isFlat ? ((config.nominal_code || '').trim() || null) : null,
+        xero_project_code: (config.xero_project_code || '').trim() || null,
       },
       bands: isFlat ? [] : bands.map(b => {
         const matchValue = b.match_value != null && String(b.match_value).trim() !== '' ? String(b.match_value).trim() : null;
@@ -1183,6 +1188,7 @@ export default function MembershipTierManagement() {
         flat_cost: c.flat_cost ?? null,
         flat_vat_rate: c.flat_vat_rate || null,
         nominal_code: c.nominal_code || null,
+        xero_project_code: c.xero_project_code || null,
         invoice_description: c.invoice_description || null,
         auto_approve_fees: c.auto_approve_fees ?? false,
         online_card_payment: c.online_card_payment ?? false,
@@ -2898,6 +2904,23 @@ export default function MembershipTierManagement() {
           </div>
         </div>
 
+        {tierData?.accountingProvider === 'xero' && (
+          <div className="space-y-2 mt-4">
+            <Label htmlFor="membership-xero-project-code">Xero project code (optional)</Label>
+            <Input
+              id="membership-xero-project-code"
+              value={config.xero_project_code || ''}
+              onChange={(e) => handleConfigChange('xero_project_code', e.target.value)}
+              disabled={!isEditable}
+              className="max-w-xs"
+              data-testid="input-xero-project-code"
+            />
+            <p className="text-sm text-muted-foreground">
+              Use an existing option in Xero’s Projects tracking category, for example MEMBERSHIPS.
+              This applies only to the membership fee line and does not replace the purchase order reference.
+            </p>
+          </div>
+        )}
         {config.pricing_model === 'flat' ? (
           <div className="space-y-2 mt-4">
             <Label>Flat Membership Cost</Label>
