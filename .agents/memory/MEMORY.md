@@ -80,11 +80,7 @@
 - [Mixed-encoding CSV imports](mixed-encoding-csv-imports.md) — preserve valid UTF-8 sequences while decoding isolated Windows-1252 bytes; whole-file fallback can silently create mojibake.
 - [Stripe feature mode for shared payments](stripe-feature-payment-mode.md) — discovery, creation, and confirmation must use one persisted feature when a shared flow serves several products.
 - [Department relationship replacement](department-relationship-replacement.md) — primary-organisation changes must preserve valid secondary affiliations; explicitly reconcile departments, never hard-delete.
-- [Annual membership renewal lifecycle](annual-membership-renewal-lifecycle.md) — annual policy is a dated tier snapshot; next terms always start the day after the prior persisted end, while monthly agreements stay separate.
-- [Post-grace renewal](post-grace-renewal-policy.md) — approved late renewals start on payment; within-grace renewal stays contiguous and prior class must survive Former-role assignment.
-- [Renewal tenant rollout](renewal-tenant-rollout.md) — BNMS-first activation must be tenant-specific; legacy historical authority remains separate from rollout readiness.
-- [Renewal payment-method choice](renewal-payment-method-choice.md) — opening Stripe checkout must not lock members into card payment; switching requires provider reconciliation.
-- [Organisation admin invoicing](organisation-admin-renewal-boundary.md) — organisation administrative invoicing is independent of individual renewal grace; preserve commitments and financial guards.
+- [Membership renewal policies](membership-renewal-index.md) — within-grace vs payment-dated late renewal, tenant rollout, method choice, reminder quotes and admin invoicing.
 - [Editor query lifecycles](editor-query-lifecycle-index.md) — discovery/save-first, pending queries, stable fallbacks, and saved-metadata reconciliation.
 - [Automatic-group source invalidation](automatic-group-source-invalidation.md) — source writes must generation-fence workers; custom values need direct statement triggers to avoid per-row churn.
 - [Gallery visibility and storage](gallery-visibility-storage.md) — gallery public/private transitions must be server-owned and ordered with bucket moves so policy changes cannot leave public objects exposed.
@@ -109,7 +105,6 @@
 - [Provider replay outcomes](provider-replay-outcomes.md) — webhook acknowledgement is not recovery success; conflicts and retryable child outcomes must remain visible.
 - [Payment return navigation](payment-return-navigation.md) — checkout departure/return must share browsing context; relay only to the initiating form instance and preserve ordinary encoded query values.
 - [PostgREST literal-star searches](postgrest-literal-star-search.md) — LIKE/ILIKE rewrites even escaped stars; literal-text search needs a different operator for that case.
-- [Paid member tier display](member-paid-tier-display.md) — a paid snapshot proves the purchased year, not future pricing; missing member selectors must not be silently inferred.
 - [Optional preference metadata](preference-optional-metadata.md) — preserve supplied writability restrictions without assuming optional columns exist.
 - [Repeatable availability domain](repeatable-availability-domain.md) — whole-container emptiness excludes earlier answers but never sibling selections; complete successful results are required.
 - [Member index schema compatibility](member-index-schema-contract.md) — legacy uniqueness breaks generation staging; inspect publication contracts before repairing ON CONFLICT errors.
@@ -118,7 +113,6 @@
 - [Custom-domain recovery](custom-domain-recovery.md) — verify hosting and tenant mapping separately; a generic conflict is not permission to transfer an already-correct domain.
 - [Session role readiness](session-role-readiness.md) — verified role reuse must preserve invalidation; missing roles deny access, and late observers must not start refetch/remount loops.
 - [Vercel runtime log access](vercel-runtime-log-access.md) — live log streams cannot establish earlier failures; historical dashboard logs may need separate access.
-- [Renewal reminder quotes](renewal-reminder-payment-links.md) — browser completion and webhook reconciliation must honor the same successor quote; preparation must not send a second email.
 - [Public Invoice / PO intentions](public-invoice-po-intentions.md) — record-only registrations stay outside financial workflows; later attendee membership cannot redefine the purchaser.
 - [Vite lazy import ordering](vite-lazy-import-order.md) — development transforms can expose a lazy declaration TDZ that production builds miss.
 - [Unknown-page fallback authority](unknown-page-fallback.md) — missing routes require independent evidence; renderer gaps, access states and stale tenant settings must not decide redirects.

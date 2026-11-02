@@ -46,7 +46,7 @@ They need to see and control exactly which schedule each field value selects.
 **How to apply:** Present a source field and one schedule selector per answer.
 Resolve the saved schedule ID, never infer a substitute from matching labels.
 
-Annual renewal settings belong to the dated tier configuration snapshot and must not reuse monthly Direct Debit/card grace or arrears fields. A renewal term starts the day after the prior persisted term ends and runs for a full year whether payment is early or during grace.
+Annual renewal settings belong to the dated tier configuration snapshot and must not reuse monthly Direct Debit/card grace or arrears fields. A renewal term starts the day after the prior persisted term ends and runs for a full year whether payment is early or during grace. For payment after grace, the owner-approved exception is documented in [Post-grace renewal](post-grace-renewal-policy.md): start the new term on payment, not the old boundary.
 
 Committed annual fallback-role workflow events retain their own delivery authority,
 independent of current role equality or later renewal protection. Never synthesize
