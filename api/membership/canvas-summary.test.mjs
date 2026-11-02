@@ -4,6 +4,23 @@ import { readFileSync } from 'node:fs';
 import { buildCanvasSummary, canvasDate, createCanvasSummaryHandler, selectCanvasCommitment } from './canvas-summary.js';
 
 const today = '2026-09-18';
+test('dated paid one-off six-month history is paid without annualizing or inferring renewal', () => {
+  const date='2026-11-02';
+  const row={id:'six-month',member_id:'m',tenant_id:'t',membership_source:'personal',
+    status:'active',payment_status:'paid',payment_method:'upfront',billing_period:'one_off',
+    term_start_date:'2026-10-01',term_end_date:'2027-03-31',currency:'GBP',total_with_vat:30.5};
+  const summaryFor=record=>buildCanvasSummary({selected:selectCanvasCommitment([record],[],date),today:date});
+  const result=summaryFor(row);
+  assert.equal(result.membership.state,'active');
+  assert.equal(result.membership.termStartDate,'2026-10-01');
+  assert.equal(result.membership.expiryDate,'2027-03-31');
+  assert.equal(result.membership.renewalDate,null);
+  assert.equal(result.payment.state,'paid');
+  for(const patch of [{payment_status:'unpaid'},{billing_agreement_id:'agreement'},
+    {payment_method:'direct_debit'},{term_start_date:null}]) {
+    assert.notEqual(summaryFor({...row,...patch}).payment.state,'paid');
+  }
+});
 test('separate renewal quote uses verified simulation, not prior paid cost', async () => {
   const h = harness({ extra: { renewalPriceOnly: true, loadRenewalContext: async (_db, scope) => {
     assert.equal(scope.memberId, 'member-a');

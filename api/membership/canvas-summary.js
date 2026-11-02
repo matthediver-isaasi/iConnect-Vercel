@@ -87,7 +87,7 @@ function paymentMethod(record, commitment, plan) {
   const monthly = commitment?.paymentFrequency === 'monthly'
     || ['monthly', 'monthly_direct_debit'].includes(record.billing_period) || plan?.interval_unit === 'monthly';
   if (['manual', 'upfront'].includes(method) && !monthly
-      && (commitment?.paymentFrequency === 'upfront' || record.billing_period === 'annual')) return 'upfront';
+      && (commitment?.paymentFrequency === 'upfront' || ['annual', 'one_off'].includes(record.billing_period))) return 'upfront';
   if (['monthly_direct_debit', 'gocardless_monthly', 'direct_debit_monthly'].includes(method)) return 'monthly_direct_debit';
   if (['monthly_card', 'card_monthly', 'stripe_monthly_card'].includes(method)) return 'monthly_card';
   if (['direct_debit', 'gocardless'].includes(method)) return monthly ? 'monthly_direct_debit' : 'direct_debit';
@@ -137,7 +137,9 @@ export function buildCanvasSummary({ selected, plan = null, paused = false, toda
     // No current persisted writer records original membership commencement
     // provenance. A retained term start (including a cutover) is insufficient.
     memberSince: null,
-    ...(record.membership_source === 'personal' && selected.commitment && selected.validCommencement ? {
+    ...(record.membership_source === 'personal' && selected.validCommencement
+      && (selected.commitment || (record.billing_period === 'one_off'
+        && selected.start && canvasDate(record.term_end_date))) ? {
       termStartDate: canvasDate(record.term_start_date),
       expiryDate: canvasDate(record.term_end_date),
     } : {}),
@@ -166,7 +168,9 @@ export function buildCanvasSummary({ selected, plan = null, paused = false, toda
     // reference or one paid monthly instalment as evidence of full settlement.
     const frequency = commitment?.paymentFrequency;
     const annual = (record.billing_period || commitment?.billingPeriod) === 'annual';
-    const upfront = frequency === 'upfront' || (!frequency && annual);
+    const datedOneOff = record.billing_period === 'one_off' && selected.validCommencement
+      && !!selected.start && !!canvasDate(record.term_end_date);
+    const upfront = frequency === 'upfront' || (!frequency && (annual || datedOneOff));
     const monthly = record.billing_period === 'monthly' || commitment?.billingPeriod === 'monthly'
       || frequency === 'monthly';
     const paidUpfront = lifecycle === 'current' && record.payment_status === 'paid'

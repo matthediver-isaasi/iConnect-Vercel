@@ -385,3 +385,16 @@ historical class, and credited invoices are not evidence of cash collection.
 **How to apply:** Verify provider status before treating historical recurring
 payments as ended, obtain the schedule decision where classes differ, and test
 portal eligibility, the actual renewal quote and atomic reservation together.
+
+## Short historical terms
+
+Preserve an explicitly evidenced and owner-confirmed shorter membership period
+as a one-off entitlement; do not annualise its price or infer a renewal contract.
+
+**Why:** A six-month eligibility invoice establishes a shorter paid entitlement,
+not a discounted twelve-month purchase. Settled entitlement and future renewal
+authority remain separate.
+
+**How to apply:** Verify invoice settlement, retain exact approved start/end
+dates, preserve the older historical entry, and check payment-card recognition
+as well as the stored record.
