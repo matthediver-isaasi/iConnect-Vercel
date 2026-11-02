@@ -2393,6 +2393,7 @@ export default function CanvasPageEditorPage() {
             )}
             {page?.slug !== 'login' && (
               <PageSeoSocialFields
+                suggestionContext={{ pageId, getDesign: () => canvasRef.current?.getDesign?.() || page.canvas_design }}
                 values={{ ...renameSeo, title: renameTitle, slug: renameSlug }}
                 onChange={(patch) => setRenameSeo((prev) => ({ ...prev, ...patch }))}
                 notify={(kind, { title, description }) => {

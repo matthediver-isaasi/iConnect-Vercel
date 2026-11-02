@@ -3,6 +3,9 @@
   "buildCommand": "npx vite build",
   "outputDirectory": "dist/public",
   "functions": {
+    "api/ai-compositions/seo.js": {
+      "maxDuration": 60
+    },
     "api/admin/stripe-payout-report/index.js": {
       "maxDuration": 30
     },

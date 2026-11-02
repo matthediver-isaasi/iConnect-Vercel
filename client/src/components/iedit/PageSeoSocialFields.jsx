@@ -3,8 +3,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Upload, Trash2, Image as ImageIcon, Loader2 } from "lucide-react";
+import { Upload, Trash2, Image as ImageIcon, Loader2, Wand2 } from "lucide-react";
 import UnfurlPreview from "@/components/UnfurlPreview";
+import PageSeoSuggestionsDialog from "./PageSeoSuggestionsDialog";
 
 // Shared SEO + Social Sharing form sections used by both the iEdit page
 // settings modal (IEditPageSettings) and the Canvas Builder settings dialog
@@ -15,7 +16,8 @@ import UnfurlPreview from "@/components/UnfurlPreview";
 //
 // `notify` reports upload success/failure so each host can surface it with
 // its own toast system: notify(kind, { title, description }).
-export default function PageSeoSocialFields({ values, onChange, notify }) {
+export default function PageSeoSocialFields({ values, onChange, notify, suggestionContext }) {
+  const [showSuggestions, setShowSuggestions] = useState(false);
   const [uploadingOgImage, setUploadingOgImage] = useState(false);
   const [ogImageDimWarning, setOgImageDimWarning] = useState('');
   const ogImageInputRef = useRef(null);
@@ -89,7 +91,21 @@ export default function PageSeoSocialFields({ values, onChange, notify }) {
     <>
       {/* SEO Settings */}
       <div className="space-y-4">
-        <h3 className="font-semibold text-slate-900">SEO (Optional)</h3>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <h3 className="font-semibold text-slate-900">SEO (Optional)</h3>
+          {suggestionContext && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setShowSuggestions(true)}
+              data-testid="button-ai-seo-suggest"
+            >
+              <Wand2 className="w-4 h-4 mr-2" aria-hidden="true" />
+              AI suggest
+            </Button>
+          )}
+        </div>
 
         <div>
           <Label htmlFor="meta_title">Meta Title</Label>
@@ -231,6 +247,14 @@ export default function PageSeoSocialFields({ values, onChange, notify }) {
           previewPath={values.slug ? `/${values.slug}` : null}
         />
       </div>
+      {showSuggestions && suggestionContext && (
+        <PageSeoSuggestionsDialog
+          context={suggestionContext}
+          values={values}
+          onApply={onChange}
+          onClose={() => setShowSuggestions(false)}
+        />
+      )}
     </>
   );
 }
