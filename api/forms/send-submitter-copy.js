@@ -17,6 +17,7 @@ import { createClient } from '@supabase/supabase-js';
 import { prepareSubmitterCopy } from '../_lib/submitterCopyProjection.js';
 import { submissionUsesAnonymousCompletion } from '../_lib/surveyCompletionBoundary.js';
 import { Packer } from 'docx';
+import { renderSubmitterCopyMessage } from '../../shared/submitterCopyEmail.js';
 import {
   buildSubmissionsDocument,
   loadTenantLogo,
@@ -381,12 +382,7 @@ async function generateAndSendSubmitterCopy({ form, submission, recipientEmail, 
   const fileName = `${baseName || 'Submission'}.docx`;
 
   const subject = `Your submission to ${form.name || 'our form'}`;
-  const safeTenantName = tenantName ? ` (${tenantName})` : '';
-  const html = `
-    <p>Hi,</p>
-    <p>Thank you for your submission to <strong>${form.name || 'our form'}</strong>${safeTenantName}. A Word (DOCX) copy of your responses is attached for your records.</p>
-    <p>If you didn't request this email, you can safely ignore it.</p>
-  `;
+  const html = renderSubmitterCopyMessage(form, tenantName);
 
   const inboxDelivery = await (dependencies.buildInboxDelivery || buildInboxDelivery)({
     tenantId,

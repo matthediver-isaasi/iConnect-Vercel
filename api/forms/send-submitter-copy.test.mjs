@@ -119,6 +119,19 @@ test('actual mailed DOCX omits hidden labels, retained values and file relations
   assert.equal((admin.match(/Row detail:/g) || []).length, 2);
 });
 
+test('copy email uses the saved custom message and retains its DOCX attachment', async () => {
+  const { form, submission } = fixture();
+  form.submitter_copy_email_message = 'Your {{form_name}} responses\n\nKeep this copy.';
+  let mail;
+  await sendSubmitterCopyEmail({ form, submission, recipientEmail: 'copy@example.test' }, {
+    supabase: database(form, submission), buildInboxDelivery: async () => ({}),
+    sendEmail: async value => { mail = value; return { success: true }; },
+  });
+  assert.equal(mail.html, '<p>Your Example responses</p>\n<p>Keep this copy.</p>');
+  assert.equal(mail.attachments.length, 1);
+  assert.match(mail.attachments[0].filename, /\.docx$/);
+});
+
 test('internal endpoint loads full configuration and the saved survey version, ignores forged hidden ids', async () => {
   const { form, submission } = fixture();
   const version = { id: 'version', form_id: form.id, tenant_id: form.tenant_id,

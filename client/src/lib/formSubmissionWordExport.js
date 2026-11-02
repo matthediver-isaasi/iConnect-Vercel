@@ -515,6 +515,14 @@ export function buildSubmissionSection({ submission, form, selectedOptions, reso
 }
 
 
+export function fitTenantLogo(width, height) {
+  if (!(Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0)) {
+    throw new Error('Tenant logo dimensions are unavailable');
+  }
+  const scale = Math.min(160 / width, 60 / height);
+  return { width: width * scale, height: height * scale };
+}
+
 export function buildTitleBlock({ tenantName, tenantLogo, documentTitle }) {
   const blocks = [];
   if (tenantLogo) {
@@ -522,7 +530,7 @@ export function buildTitleBlock({ tenantName, tenantLogo, documentTitle }) {
       alignment: AlignmentType.CENTER,
       children: [new ImageRun({
         data: tenantLogo.data,
-        transformation: { width: 160, height: 60 },
+        transformation: fitTenantLogo(tenantLogo.width, tenantLogo.height),
         type: tenantLogo.type,
       })],
     }));
@@ -615,7 +623,15 @@ export async function loadTenantLogo(tenantLogoUrl) {
   if (!tenantLogoUrl) return null;
   const data = await fetchImageBuffer(tenantLogoUrl);
   if (!data) return null;
-  return { data, type: detectImageType(tenantLogoUrl) };
+  try {
+    const { imageSize } = await import('image-size');
+    const { width, height, type } = imageSize(data);
+    fitTenantLogo(width, height);
+    return { data, type: type === 'jpeg' ? 'jpg' : (type || detectImageType(tenantLogoUrl)), width, height };
+  } catch (error) {
+    console.warn('Unable to read tenant logo dimensions; omitting logo from Word export:', error.message);
+    return null;
+  }
 }
 
 export async function renderSubmissionsDocx({

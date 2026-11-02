@@ -132,6 +132,7 @@
     "framer-motion": "^11.13.1",
     "html2canvas": "^1.4.1",
     "icojs": "^0.23.0",
+    "image-size": "^2.0.4",
     "input-otp": "^1.4.2",
     "jsdom": "^26.1.0",
     "jspdf": "^4.2.1",

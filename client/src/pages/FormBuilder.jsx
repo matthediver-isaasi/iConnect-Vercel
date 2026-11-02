@@ -63,6 +63,7 @@ import SurveyEventAssignmentsPanel from "@/components/surveys/SurveyEventAssignm
 import FormSubmissionAlerts from "@/components/forms/FormSubmissionAlerts";
 import MemberChangeFormSettings from "@/components/MemberChangeFormSettings";
 import MemberAffiliationSettings from "@/components/forms/MemberAffiliationSettings";
+import FormBuilderSubmitterCopySettings from "@/components/forms/FormBuilderSubmitterCopySettings";
 import FormBuilderEmailTemplatePicker from "@/components/forms/FormBuilderEmailTemplatePicker";
 import { useFormAlertTenant } from "@/hooks/useFormAlerts";
 import {
@@ -10891,6 +10892,7 @@ function FormBuilderEditor() {
     related_event_id: null,
     due_diligence_required: false,
     allow_submitter_email_copy: false,
+    submitter_copy_email_message: null,
     allow_save_continue_later: true,
     prevent_duplicate_email_submission: false,
     owners: [], // Member IDs who own this form (see Owners card / "My Forms" tab)
@@ -11558,6 +11560,7 @@ function FormBuilderEditor() {
         related_event_id: existingForm.related_event_id || null,
         due_diligence_required: existingForm.due_diligence_required ?? false,
         allow_submitter_email_copy: existingForm.allow_submitter_email_copy ?? false,
+        submitter_copy_email_message: existingForm.submitter_copy_email_message ?? null,
         allow_save_continue_later: existingForm.allow_save_continue_later !== false,
         prevent_duplicate_email_submission: existingForm.prevent_duplicate_email_submission ?? false,
         owners: Array.isArray(existingForm.owners) ? existingForm.owners : [],
@@ -13089,15 +13092,7 @@ function FormBuilderEditor() {
                 <Label htmlFor="blank_layout" className="text-sm">Blank Layout</Label>
               </div>
 
-              <div className="flex items-center gap-3" title="When enabled, the public form shows an email input and a 'Email me a copy' checkbox at the bottom. Submitters who tick it receive a Word (DOCX) copy of their submission by email.">
-                <Switch
-                  id="allow_submitter_email_copy"
-                  checked={formData.allow_submitter_email_copy}
-                  onCheckedChange={(checked) => setFormData({ ...formData, allow_submitter_email_copy: checked })}
-                  data-testid="switch-allow-submitter-email-copy"
-                />
-                <Label htmlFor="allow_submitter_email_copy" className="text-sm">Allow submitter to email themselves a copy</Label>
-              </div>
+              <FormBuilderSubmitterCopySettings formData={formData} setFormData={setFormData} />
 
               <div className="flex items-center gap-3" title="When enabled, the public form shows a 'Save & Continue Later' button so submitters can save their progress and return via a resume link. Turn off to hide that button; normal submission still works.">
                 <Switch
