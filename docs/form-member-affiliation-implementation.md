@@ -24,12 +24,19 @@ submission behaviour and live member records have not been changed.
 ## Not done
 
 Review will use the existing Due Diligence interface, per owner direction,
-rather than a separate review screen. The opt-in stage/ownership contract is
-prepared in shared/affiliationDueDiligenceContract.js, but is not wired into the
-stage runner. Ordinary configurations return unhandled and remain unchanged.
-Dedicated review-case linkage, approval application and existing-screen
-integration still need implementing; do not describe this contract as an
-operational Due Diligence integration.
+rather than a separate review screen. The opt-in stage/ownership contract and
+exclusive dispatcher are wired into the stage runner. Ordinary configurations
+return unhandled without any review queries and retain their existing actions.
+Opted-in cases never fall back to join actions on lookup or execution failure.
+
+This is not yet an operational end-to-end Due Diligence integration. The
+dispatcher expects protected review-case linkage and the
+`decide_form_member_affiliation_review` decision RPC, neither of which is
+implemented yet. No configuration is enabled. The config query uses `select('*')`
+so ordinary deployments do not fail on a missing opt-in column. Before enabling,
+implement the dedicated case creation/linkage, resolved-record approval UI,
+decision transaction and configuration storage. Do not confuse a stage transition
+or RPC acknowledgement with successful affiliation application.
 
 The SQL is prepared, not deployed. The owner approved applying the migrations
 after implementation and testing; that condition is not yet satisfied for the

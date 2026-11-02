@@ -7,6 +7,7 @@ import { getTenantBaseUrl } from '../_lib/campaignService.js';
 import { resolveDdOwnerForSubmission } from '../_lib/ddOwner.js';
 import { buildContractBracketPlaceholders, replaceContractBracketPlaceholders } from '../_lib/contractPlaceholders.js';
 import { prepareMemberCustomPreferenceValue } from './memberCustomMapping.js';
+import { executeAffiliationReviewStage } from './affiliationReviewStage.js';
 import { resolveStaticTodayToken } from '../_lib/staticValueTokens.js';
 import { classifyEmptyMappingSource, isEmptyMappingAnswer, summarizeMappingResults } from './mappingEmptySource.js';
 import {
@@ -4171,7 +4172,7 @@ export async function executeStageActions(stageId, ddSubmission, tenantId, trigg
   
   const { data: ddConfig, error: configError } = await supabase
     .from('form_due_diligence_config')
-    .select('id, workflow_stages')
+    .select('*')
     .eq('form_id', effectiveFormId)
     .eq('tenant_id', tenantId)
     .single();
@@ -4192,6 +4193,12 @@ export async function executeStageActions(stageId, ddSubmission, tenantId, trigg
     console.log('[DD Stage Actions] No DD config found, returning empty results');
     return { stage_actions_results: [] };
   }
+
+  const affiliationResult = await executeAffiliationReviewStage({
+    db: supabase, config: ddConfig, stageId, submission: ddSubmission,
+    tenantId, actor: triggeredBy, occurrenceId: stageActionOccurrenceId,
+  });
+  if (affiliationResult) return affiliationResult;
   
   console.log('[DD Stage Actions] Found DD config with', ddConfig.workflow_stages?.length || 0, 'stages');
 
