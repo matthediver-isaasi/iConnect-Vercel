@@ -23,6 +23,14 @@ submission behaviour and live member records have not been changed.
 
 ## Not done
 
+Review will use the existing Due Diligence interface, per owner direction,
+rather than a separate review screen. The opt-in stage/ownership contract is
+prepared in shared/affiliationDueDiligenceContract.js, but is not wired into the
+stage runner. Ordinary configurations return unhandled and remain unchanged.
+Dedicated review-case linkage, approval application and existing-screen
+integration still need implementing; do not describe this contract as an
+operational Due Diligence integration.
+
 The SQL is prepared, not deployed. The owner approved applying the migrations
 after implementation and testing; that condition is not yet satisfied for the
 end-to-end feature. Do not deploy or enable these procedures based solely on

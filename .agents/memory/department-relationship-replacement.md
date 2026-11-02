@@ -15,6 +15,12 @@ For renewal affiliation edits, Not-listed organisations/departments go to admini
 
 **How to apply:** Treat new-name answers as review evidence, not mutation authority. Keep the affiliation change together rather than applying a new organisation while its department is unresolved. This does not bypass normal payment or renewal eligibility checks.
 
+Use the existing Due Diligence system for affiliation review, rather than introducing a separate administrator review screen. Existing tenant configurations, capabilities and workflows must remain unchanged.
+
+**Why:** The owner explicitly requested Due Diligence reuse with backward compatibility.
+
+**How to apply:** Add an explicit opt-in review purpose and narrowly scoped affiliation approval action. Never infer approval authority from a stage called “approved”, run join/member-creation actions for these cases, or hold renewal payment pending affiliation review.
+
 Do not assume changing a member's primary Organisation automatically removes their Department links. The historical primary-only cleanup was deliberately superseded to preserve valid secondary-organisation affiliations. Renewal flows must explicitly distinguish retained, added and removed memberships, including secondary sites.
 
 **Why:** A department can belong to a valid secondary affiliation even after the primary Organisation changes. The old primary-only assumption caused an incorrect renewal assessment; live verification on 2026-11-02 confirmed the replacement policy.
