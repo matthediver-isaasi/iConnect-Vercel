@@ -55,7 +55,10 @@ export function resolvePortalMenuDestination(item, createInternalUrl = (url) => 
       error: validation.error,
       openInNewTab,
       target: openInNewTab ? '_blank' : undefined,
-      rel: openInNewTab ? 'noopener noreferrer' : undefined,
+      rel: openInNewTab ? 'noopener' : undefined,
+      // Override the private document default only for explicit external menu links.
+      // Never disclose the member path/query, or a referrer on HTTPS downgrades.
+      referrerPolicy: 'strict-origin',
     };
   }
 

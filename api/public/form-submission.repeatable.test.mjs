@@ -778,9 +778,11 @@ test('Department current-set submissions are authenticated, preflighted, and pro
 
 test('current-set retries retain the durable submission and replay processing before success', async () => {
   const source = await readFile(new URL('./form-submission.js', import.meta.url), 'utf8');
-  assert.match(source, /if \(hasCurrentSetProcessing \|\| applicantGrant\) \{[\s\S]*?retry processing failed/);
-  assert.match(source, /if \(!hasCurrentSetProcessing && !applicantGrant\) \{[\s\S]*?delete\(\)\.eq\('id', submission\.id\)/);
-  assert.match(source, /!hasCurrentSetProcessing && form\.prevent_duplicate_email_submission/);
+  // Affiliation submissions share the durable retry lifecycle; their additional
+  // guard must not make this current-set contract expect the older condition.
+  assert.match(source, /if \(hasCurrentSetProcessing \|\| hasMemberAffiliations \|\| applicantGrant\) \{[\s\S]*?retry processing failed/);
+  assert.match(source, /if \(!hasCurrentSetProcessing && !hasMemberAffiliations && !applicantGrant\) \{[\s\S]*?delete\(\)\.eq\('id', submission\.id\)/);
+  assert.match(source, /!hasCurrentSetProcessing && !hasMemberAffiliations && form\.prevent_duplicate_email_submission/);
 });
 
 test('current-set form reports success only after the processor returns a durable commit marker', async () => {

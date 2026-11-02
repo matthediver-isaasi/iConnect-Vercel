@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { MemoryRouter } from 'react-router-dom';
 import PortalNavLink from '../components/navigation/PortalNavLink.jsx';
 import { createPageUrl } from '../utils/index.ts';
 import {
@@ -80,6 +81,14 @@ test('legacy portal menu records remain internal current-tab links', () => {
     resolvePortalMenuDestination(legacy, createInternalUrl),
     '/Events',
   ), true);
+});
+
+test('internal anchors do not override the document referrer policy or tab behavior', () => {
+  const destination = resolvePortalMenuDestination({ url: 'Events', open_in_new_tab: true }, createInternalUrl);
+  const html = renderToStaticMarkup(React.createElement(MemoryRouter, null,
+    React.createElement(PortalNavLink, { destination }, 'Events')));
+  assert.match(html, /href="\/Events"/);
+  assert.doesNotMatch(html, /referrerpolicy=|target=|rel=/i);
 });
 
 test('Custom Object destinations have stable object-aware URLs and access identifiers', () => {
@@ -198,6 +207,7 @@ test('same-tab external links preserve the absolute URL without target attribute
   assert.equal(destination.isExternal, true);
   assert.equal(destination.target, undefined);
   assert.equal(destination.rel, undefined);
+  assert.equal(destination.referrerPolicy, 'strict-origin');
   assert.equal(isPortalMenuDestinationActive(destination, 'https://www.example.com/resources'), false);
 });
 
@@ -209,7 +219,8 @@ test('new-tab external links receive safe browser attributes', () => {
   }, createInternalUrl);
 
   assert.equal(destination.target, '_blank');
-  assert.equal(destination.rel, 'noopener noreferrer');
+  assert.equal(destination.rel, 'noopener');
+  assert.equal(destination.referrerPolicy, 'strict-origin');
 });
 
 test('NMC Journal remains an external new-tab link when assigned canonical access', () => {
@@ -226,7 +237,8 @@ test('NMC Journal remains an external new-tab link when assigned canonical acces
   assert.equal(destination.url, item.url);
   assert.equal(destination.isExternal, true);
   assert.equal(destination.target, '_blank');
-  assert.equal(destination.rel, 'noopener noreferrer');
+  assert.equal(destination.rel, 'noopener');
+  assert.equal(destination.referrerPolicy, 'strict-origin');
   assert.equal(isPortalMenuDestinationActive(destination, item.url), false);
 });
 
@@ -261,7 +273,8 @@ test('external destinations render as native anchors with safe new-tab attribute
   assert.match(html, /^<a /);
   assert.match(html, /href="https:\/\/www\.example\.com\/resources"/);
   assert.match(html, /target="_blank"/);
-  assert.match(html, /rel="noopener noreferrer"/);
+  assert.match(html, /rel="noopener"/);
+  assert.match(html, /referrerPolicy="strict-origin"/i);
 });
 
 test('same-tab external anchors omit target and rel', () => {
@@ -275,6 +288,7 @@ test('same-tab external anchors omit target and rel', () => {
   assert.match(html, /^<a /);
   assert.doesNotMatch(html, /target=/);
   assert.doesNotMatch(html, /rel=/);
+  assert.match(html, /referrerPolicy="strict-origin"/i);
 });
 
 test('top-level and child external menu records use identical link resolution', () => {

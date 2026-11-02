@@ -16,6 +16,7 @@ const PortalNavLink = React.forwardRef(({
         href={url}
         target={destination.target}
         rel={destination.rel}
+        referrerPolicy={destination.referrerPolicy}
         className={className}
         {...props}
       >
