@@ -68,6 +68,9 @@ export default async function handler(req, res) {
   };
 
   try {
+    const { sweepQuoteAccounting } = await import('../_lib/quoteMembershipAccounting.js');
+    results.quote_accounting = await sweepQuoteAccounting(supabase, { deadlineAt: Date.now() + 15000 });
+    results.errors += results.quote_accounting.filter(row => row.error).length;
     // Separate archival observation only. Never feed historical rows to reconcileRow,
     // accounting recovery, or any payment/membership transition.
     try {

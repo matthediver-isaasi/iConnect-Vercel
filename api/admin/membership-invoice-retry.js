@@ -87,6 +87,18 @@ export default async function handler(req, res) {
   // re-simulates current pricing and rebuilds contact/address details, so it
   // must never handle these rows.
   let formSubmission = null;
+  if (table === MEMBER_TABLE && row.membership_payment_quote_id && row.payment_status === 'paid'
+    && !row.accounting_invoice_id && !row.xero_invoice_id) {
+    try {
+      const verified = await retrieveTenantPaymentIntent(appTenantId, 'membership', row.stripe_payment_intent_id);
+      const { enqueueQuoteAccounting } = await import('../_lib/quoteMembershipAccounting.js');
+      const queued = await enqueueQuoteAccounting({ db: supabase, history: row, ...verified });
+      return res.status(202).json({ ok: true, accounting_pending: true, accounting_request_id: queued.id,
+        recovery: 'saved_membership_quote', message: 'Invoice recovery queued. No additional payment will be collected.' });
+    } catch {
+      return res.status(503).json({ error: 'Saved membership accounting evidence could not be queued. No replacement invoice was created.' });
+    }
+  }
   if (row.stripe_payment_intent_id) {
     const { data, error: formLookupError } = await supabase
       .from('form_submission')

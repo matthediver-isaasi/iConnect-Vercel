@@ -617,6 +617,18 @@ export async function recordSucceededMembershipPaymentIntent(
         accounting_sync_error: 'Stripe payment recovered before its accounting invoice was created. Retry invoice creation from the membership record.',
       }).eq('id', row.id);
     } catch {}
+    if (table === MEMBER_TABLE && pi.livemode && md.membership_quote_id) {
+      try {
+        const { enqueueQuoteAccounting } = await import('./quoteMembershipAccounting.js');
+        const stripe = deps.stripe || (await (await import('./stripeCredentials.js'))
+          .retrieveTenantPaymentIntent(tenantId, 'membership', pi.id))?.stripe;
+        const { data: history, error } = await db.from(table).select('*').eq('tenant_id', tenantId).eq('id', row.id).single();
+        if (error) throw error;
+        await enqueueQuoteAccounting({ db, history, paymentIntent: pi, stripe });
+      } catch (error) {
+        console.error('[MEMBERSHIP-RECONCILE] Quote accounting remains discoverable:', error.code || error.message);
+      }
+    }
   }
   if (invoiceId || reminderAccounting) {
     try {

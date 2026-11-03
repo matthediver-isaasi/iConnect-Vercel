@@ -894,10 +894,22 @@ async function handlePost(req, res, resolvedTenantId) {
     const historyTable = isMemberScoped ? 'member_membership_history' : 'organisation_membership_history';
     const historyIdCol = isMemberScoped ? 'member_id' : 'organization_id';
     const historyIdVal = isMemberScoped ? member.id : organizationId;
-    const { data: existingByPI } = await supabase.from(historyTable).select('id,payment_status')
+    const useQuoteAccounting = isMemberScoped && saved && paymentIntent.livemode
+      && (await (await import('../_lib/accountingProvider.js')).getActiveAccountingProvider(tenantId)) === 'xero';
+    const { data: existingByPI } = await supabase.from(historyTable).select('*')
       .eq('tenant_id', tenantId).eq(historyIdCol, historyIdVal)
       .eq('stripe_payment_intent_id', paymentIntentId).maybeSingle();
     if (existingByPI && (!postGraceSettlement || existingByPI.payment_status === 'paid')) {
+      if (useQuoteAccounting && !existingByPI.accounting_invoice_id && !existingByPI.xero_invoice_id) {
+        try {
+          const { enqueueQuoteAccounting } = await import('../_lib/quoteMembershipAccounting.js');
+          await enqueueQuoteAccounting({ db: supabase, history: existingByPI, paymentIntent, stripe });
+        } catch (error) {
+          console.error('[FormPayment] Quote accounting remains pending:', error.code || error.message);
+        }
+        return res.json({ success: true, already_processed: true, recordCreated: true,
+          accounting_pending: true, message: 'Payment confirmed. Invoice processing is pending; do not pay again.' });
+      }
       return res.json({ success: true, already_processed: true, recordCreated: true, message: 'Payment already confirmed' });
     }
     if (!saved) {
@@ -1022,7 +1034,19 @@ async function handlePost(req, res, resolvedTenantId) {
 
     let xeroInvoice = null;
     let accountingSyncError = null;
-    if (newlyCreated) {
+    if (useQuoteAccounting && recordCreated) {
+      try {
+        const { data: history, error } = await supabase.from(historyTable).select('*')
+          .eq('tenant_id', tenantId).eq('stripe_payment_intent_id', paymentIntentId).single();
+        if (error) throw error;
+        const { enqueueQuoteAccounting } = await import('../_lib/quoteMembershipAccounting.js');
+        await enqueueQuoteAccounting({ db: supabase, history, paymentIntent, stripe });
+        accountingSyncError = 'Payment received. Accounting is queued for processing.';
+      } catch (error) {
+        accountingSyncError = 'Payment received. Accounting recovery is pending.';
+        console.error('[FormPayment] Quote accounting capture failed:', error.code || error.message);
+      }
+    } else if (newlyCreated) {
       try {
         const { getAccountingProvider } = await import('../_lib/accountingProvider.js');
         const memberName = [member.first_name, member.last_name].filter(Boolean).join(' ') || 'Member';

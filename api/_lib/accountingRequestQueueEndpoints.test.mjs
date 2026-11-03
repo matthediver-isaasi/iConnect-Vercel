@@ -28,11 +28,27 @@ test('enabled cron processes bounded worker and reports persistence errors', asy
   for (const fail of [false, true]) {
     const res = response();
     await accountingRequestCronHandler({ secret: 'secret', enabled: () => true,
+      discoverQuotes: async () => [],
       reconcile: async () => { calls++; if (fail) throw new Error('private'); return [{ id: 'one' }]; } })(request(), res);
     assert.equal(res.code, fail ? 503 : 200);
     assert.equal(JSON.stringify(res.body).includes('private'), false);
   }
   assert.equal(calls, 2);
+});
+test('enabled accounting sweep discovers quote-backed paid memberships before processing requests', async () => {
+  const calls = [];
+  const res = response();
+  await accountingRequestCronHandler({ secret: 'secret', enabled: () => true,
+    discoverQuotes: async (_db, options) => {
+      assert.ok(options.deadlineAt > Date.now());
+      calls.push('discover');
+      return [{ id: 'history', state: 'retry' }];
+    },
+    reconcile: async () => { calls.push('process'); return []; },
+  })(request(), res);
+  assert.deepEqual(calls, ['discover', 'process']);
+  assert.equal(res.code, 200);
+  assert.equal(res.body.quoteAccounting[0].state, 'retry');
 });
 test('health is authenticated, aggregate-only, read-only and fail closed', async () => {
   let calls = 0;
