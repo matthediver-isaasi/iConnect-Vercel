@@ -644,6 +644,7 @@ test('current organisation wins over past or future personal; billing remains un
   ], [orgTerm(), orgTerm({ id: 'older-org', term_start_date: '2024-01-01', membership_renewal_date: '2025-01-01' })]);
   assert.deepEqual(result, {
     membership: {
+      source: 'organisation',
       state: 'active', memberSince: null, membershipType: 'Organisation',
       renewalDate: '2027-01-01', paymentHistoryFrom: null,
     },
@@ -837,7 +838,7 @@ test('authenticated response is minimal, tenant scoped and private no-store', as
   assert.deepEqual(Object.keys(res.payload), ['membership', 'payment', 'renewal']);
   assert.deepEqual(res.payload.renewal, { eligible: false });
   assert.deepEqual(Object.keys(res.payload.membership), [
-    'state', 'memberSince', 'termStartDate', 'expiryDate', 'membershipType', 'renewalDate', 'paymentHistoryFrom',
+    'source', 'state', 'memberSince', 'termStartDate', 'expiryDate', 'membershipType', 'renewalDate', 'paymentHistoryFrom',
   ]);
   assert.deepEqual(Object.keys(res.payload.payment), [
     'state', 'method', 'nextPayment', 'amount', 'currency', 'collectionStatus',

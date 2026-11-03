@@ -273,6 +273,7 @@ export function normalizeCanvasMembershipSummary(value) {
         } : {}),
     },
     membership: {
+      ...(membership.source === 'personal' || membership.source === 'organisation' ? { source: membership.source } : {}),
       state: MEMBERSHIP_DATA_STATES.includes(membership.state) ? membership.state : 'unavailable',
       memberSince: isoDate(membership.memberSince),
       membershipType: typeof membership.membershipType === 'string' ? membership.membershipType : null,

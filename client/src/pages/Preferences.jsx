@@ -66,6 +66,8 @@ import { sanitizeRichText } from "@/components/canvas/blocks/sanitize";
 import { mergeLibraryBadges } from "@/lib/aboutMeBadges";
 import { confirmedProfilePatch, profileQueryKey, synchronizeProfile } from "@/lib/profileSynchronization";
 import { communicationPreferencesKey, invalidateJobAlertPreferences } from "@/lib/jobAlerts.mjs";
+import { useCanvasMembershipSummary } from "@/hooks/useCanvasMembershipSummary";
+import { currentPersonalMembershipExpiry } from "@/lib/aboutMeMembership";
 
 // --- List Field Editor Component ---
 function ListFieldEditor({ fieldId, values = [], onChange, placeholder, disabled = false }) {
@@ -250,6 +252,8 @@ async function uploadImageToSupabase(file, bucket, folderPrefix = "") {
 export default function PreferencesPage() {
   // Get hasBanner from layout context (since props don't work through React Router)
   const { hasBanner } = useLayoutContext();
+  const membershipSummary = useCanvasMembershipSummary();
+  const membershipValidUntil = currentPersonalMembershipExpiry(membershipSummary);
   
   const {
     pendingWorkflows,
@@ -1855,6 +1859,16 @@ export default function PreferencesPage() {
                 </div>
               </div>
 
+              {membershipValidUntil && (
+                <div className="flex items-center gap-2 p-4 bg-slate-50 rounded-lg border border-slate-200" data-testid="membership-valid-until">
+                  <CalendarDays className="w-5 h-5 text-slate-500" />
+                  <div>
+                    <p className="text-sm text-slate-600">Membership valid until</p>
+                    <p className="text-sm font-semibold text-slate-900">{membershipValidUntil}</p>
+                  </div>
+                </div>
+              )}
+
               {hasUnsavedProfile && (
                 <div className="flex justify-end pt-4">
                   <Button
@@ -3306,7 +3320,10 @@ export default function PreferencesPage() {
           </div>
         )}
 
-        {memberRecord?.id && <MemberAffiliations key={memberRecord.id} onSaved={async () => {
+        {sectionOrder.map((sectionId) => (
+          <React.Fragment key={sectionId}>
+            {renderSection(sectionId)}
+            {sectionId === 'profile_information' && memberRecord?.id && <MemberAffiliations key={memberRecord.id} onSaved={async () => {
           // The field-wise reconciliation above preserves unsaved profile inputs.
           await Promise.all([
             queryClient.invalidateQueries({ queryKey: ["organization"] }),
@@ -3323,8 +3340,9 @@ export default function PreferencesPage() {
               ...(Object.hasOwn(confirmed, "organization") ? { organization: confirmed.organization } : {}) },
             sessionMember, setSessionMember, storage: localStorage,
           });
-        }} />}
-        {sectionOrder.map((sectionId) => renderSection(sectionId))}
+            }} />}
+          </React.Fragment>
+        ))}
       </div>
 
       <WorkflowConfirmationModal

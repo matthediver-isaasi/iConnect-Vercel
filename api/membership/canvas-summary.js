@@ -129,6 +129,7 @@ export function buildCanvasSummary({ selected, plan = null, paused = false, toda
     else if (!['active', 'paid', 'partial', 'partially_paid'].includes(record.status)) membershipState = 'unavailable';
   }
   const membership = {
+    source: record.membership_source === 'personal' ? 'personal' : 'organisation',
     state: membershipState,
     ...(currentMembershipRecognition(record, today) ? {
       recognition: { effectiveFrom: record.membershipRecognition.effective_from,
