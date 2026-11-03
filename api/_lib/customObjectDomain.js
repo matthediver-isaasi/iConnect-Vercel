@@ -1114,6 +1114,20 @@ export function validateCustomObjectRelationshipDefinition(definition) {
     || Array.isArray(definition.configuration)) {
     errors.push('Relationship configuration must be an object');
   }
+  const sorts = definition?.configuration?.default_sort;
+  if (sorts != null) {
+    if (!isPlainObject(sorts)) errors.push('Default sorts must be an object');
+    else for (const [side, sort] of Object.entries(sorts)) {
+      if (!['source', 'target'].includes(side)) errors.push('Default sort side is invalid');
+      if (sort === null) continue;
+      if (!isPlainObject(sort)
+        || typeof sort.sortField !== 'string'
+        || !/^(record|field:[^:]+|relationship_field:[^:]+|relationship:[^:]+:(source|target))$/.test(sort.sortField)
+        || !['asc', 'desc'].includes(sort.sortDir)) {
+        errors.push('Default sort requires a stable column identifier and asc or desc');
+      }
+    }
+  }
   return { ok: errors.length === 0, errors };
 }
 

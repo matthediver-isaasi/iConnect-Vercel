@@ -6957,6 +6957,79 @@ test('core relationship sorting uses the full set and validates scoped column ID
   );
 });
 
+for (const side of ['source', 'target']) {
+  for (const core of [false, true]) {
+    test(`relationship default date sorting, fallback and pagination: ${side}, core=${core}`, async () => {
+      const other = side === 'source' ? 'target' : 'source';
+      const date = field({ id: 'start-field', name: 'start_date', label: 'Start date', field_type: 'date', is_required: false });
+      const values = ['2025-12-01', '2024-01-30', '2026-02-01', '2026-02-01', null, '', '2023-11-30'];
+      const definition = {
+        id: 'date-default', tenant_id: tenantId, status: 'active',
+        [`${side}_kind`]: core ? 'member' : 'custom_object',
+        [`${side}_custom_object_id`]: core ? null : objectId,
+        [`${other}_kind`]: 'custom_object', [`${other}_custom_object_id`]: objectId,
+        show_on_source: true, show_on_target: true,
+        configuration: { default_sort: { [side]: { sortField: 'field:start-field', sortDir: 'desc' } } },
+      };
+      const db = mockDb({
+        custom_object_definition: [object({ configuration: { views: { list: { field_ids: [date.id] } } } })],
+        preference_field: [date],
+        member: [{ id: 'origin', tenant_id: tenantId }],
+        custom_object_record: [
+          { id: 'origin', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {} },
+          ...values.map((value, i) => ({ id: `row-${i}`, tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { start_date: value } })),
+        ],
+        custom_object_relationship_definition: [definition],
+        custom_object_relationship: values.map((_, i) => ({
+          id: `edge-${i}`, tenant_id: tenantId, relationship_definition_id: definition.id,
+          [`${side}_record_id`]: 'origin', [`${other}_record_id`]: `row-${i}`,
+          archived_at: null, created_at: `2026-01-0${i + 1}`,
+        })),
+      });
+      const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+      const load = (extra = {}) => core
+        ? service.listCoreRelationships('member', 'origin', { definitionId: definition.id, side, ...extra })
+        : service.listRelationships(objectId, { definitionId: definition.id, recordId: 'origin', side, ...extra });
+      const ids = result => result.data.map(row => row.relationship_id);
+      const descending = await load();
+      assert.deepEqual(ids(descending), ['edge-2', 'edge-3', 'edge-0', 'edge-1', 'edge-6', 'edge-4', 'edge-5']);
+      assert.deepEqual(descending.effective_sort, { sortField: 'field:start-field', sortDir: 'desc' });
+      assert.deepEqual(ids(await load({ page: 2, pageSize: 2 })), ['edge-0', 'edge-1']);
+      assert.deepEqual(ids(await load({ sortField: 'field:start-field', sortDir: 'asc' })),
+        ['edge-6', 'edge-1', 'edge-0', 'edge-2', 'edge-3', 'edge-4', 'edge-5']);
+      assert.deepEqual(ids(await load({ sortField: 'field:removed', sortDir: 'asc', sortFallback: 'true' })), ids(descending));
+      // Explicit empty personal sorting (legacy/reset) inherits the default.
+      assert.deepEqual(ids(await load({ sortField: '' })), ids(descending));
+      const stored = db.tables.custom_object_relationship_definition[0];
+      stored.configuration.default_sort[side].sortField = 'field:removed';
+      assert.equal((await load()).effective_sort, null);
+      stored.configuration.default_sort[side].sortField = 'field:start-field';
+      db.tables.preference_field[0].is_active = false;
+      assert.equal((await load()).effective_sort, null);
+      db.tables.preference_field[0].is_active = true;
+      db.tables.custom_object_definition[0].configuration.views.list.field_ids = [];
+      assert.equal((await load()).effective_sort, null, 'hidden list column cannot sort');
+      db.tables.custom_object_definition[0].configuration.views.list.field_ids = [date.id];
+      db.tables.custom_object_role_permission = [{
+        tenant_id: tenantId, custom_object_id: objectId, role_id: roleId, can_view_records: true,
+      }];
+      db.tables.custom_object_field_role_permission = [{
+        tenant_id: tenantId, custom_object_id: objectId, role_id: roleId,
+        field_id: date.id, access_level: 'none',
+      }];
+      const restricted = createCustomObjectService({ db, context: context(), isAdmin: false });
+      if (core) {
+        await assert.rejects(() => restricted.listCoreRelationships('member', 'origin', { definitionId: definition.id, side }),
+          error => error.status === 403);
+      } else {
+        const restrictedResult = await restricted.listRelationships(objectId, { definitionId: definition.id, recordId: 'origin', side });
+        assert.equal(restrictedResult.effective_sort, null, 'unreadable field cannot affect ordering');
+        assert.deepEqual(restrictedResult.preview_columns, []);
+      }
+    });
+  }
+}
+
 test('relationship panel preferences are normalized and isolated by server actor', async () => {
   const definitionId = 'personal-panel-definition';
   const db = mockDb({

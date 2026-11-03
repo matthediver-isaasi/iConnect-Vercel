@@ -2491,6 +2491,26 @@ export function createCustomObjectService({
   }
 
   async function relationshipListSort(definition, side, relatedSide, query) {
+    const configured = definition.configuration?.default_sort?.[side];
+    const candidates = [
+      ...(query?.sortField ? [{ ...query, personal: true }] : []),
+      ...(configured?.sortField ? [configured] : []),
+    ];
+    for (const candidate of candidates) {
+      try {
+        const sort = await validateRelationshipListSort(definition, side, relatedSide, candidate);
+        if (sort) return { ...sort, sortField: candidate.sortField };
+      } catch (error) {
+        // Stale references fall back, but database failures remain visible.
+        if (!(error instanceof CustomObjectHttpError)
+          || ![400, 403, 404].includes(error.status)
+          || (candidate.personal && query.sortFallback !== 'true')) throw error;
+      }
+    }
+    return null;
+  }
+
+  async function validateRelationshipListSort(definition, side, relatedSide, query) {
     const sortField = query?.sortField;
     if (query?.sortDir !== undefined && !['asc', 'desc'].includes(query.sortDir)) {
       throw new CustomObjectHttpError(400, 'sortDir must be asc or desc');
@@ -2536,6 +2556,7 @@ export function createCustomObjectService({
       return {
         kind: 'field',
         fieldId: previewFieldMatch[1],
+        fieldType: getCustomObjectFieldMetadata(field).type,
         ascending: direction === 'asc',
       };
     }
@@ -2591,8 +2612,11 @@ export function createCustomObjectService({
           : (sort.field.default_value ?? null);
       }
       if (sort.kind === 'field') {
-        return row.related?.compact_fields?.find((item) =>
+        const value = row.related?.compact_fields?.find((item) =>
           String(item.field_id) === sort.fieldId)?.value;
+        if (sort.fieldType !== 'date' || value == null || value === '') return value;
+        const timestamp = Date.parse(value);
+        return Number.isFinite(timestamp) ? timestamp : null;
       }
       const labels = (row.related?.relationship_columns || [])
         .filter((item) =>
@@ -3511,6 +3535,7 @@ export function createCustomObjectService({
       page: page.page,
       pageSize: page.pageSize,
       preview_columns: previewColumns,
+      effective_sort: sort ? { sortField: sort.sortField, sortDir: sort.ascending ? 'asc' : 'desc' } : null,
     };
   }
 
@@ -3581,6 +3606,7 @@ export function createCustomObjectService({
       page: p.page,
       pageSize: p.pageSize,
       preview_columns: previewColumns,
+      effective_sort: sort ? { sortField: sort.sortField, sortDir: sort.ascending ? 'asc' : 'desc' } : null,
     };
   }
 
@@ -3953,6 +3979,7 @@ export function createCustomObjectService({
       data: projected,
       total: count || 0, page: p.page, pageSize: p.pageSize,
       preview_columns: previewColumns,
+      effective_sort: sort ? { sortField: sort.sortField, sortDir: sort.ascending ? 'asc' : 'desc' } : null,
     };
   }
 

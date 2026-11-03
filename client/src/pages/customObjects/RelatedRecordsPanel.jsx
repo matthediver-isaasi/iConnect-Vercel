@@ -186,25 +186,46 @@ function RelationshipPanel({
   const linkState = relationshipLinkState(location);
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
-  const [sortField, setSortField] = useState("");
-  const [sortDir, setSortDir] = useState("asc");
+  const preferences = useRelationshipTablePreferences({
+    definitionId: definition.id,
+    side: editSide,
+    contextKind: context.kind,
+    objectId: context.objectId,
+    enabled: displayMode !== "cards",
+  });
+  const [localPreference, setLocalPreference] = useState(null);
+  const personalPreference = preferences.canPersist ? preferences.preference : localPreference;
+  const requestedSortField = personalPreference?.sortField || "";
+  const requestedSortDir = personalPreference?.sortDir === "desc" ? "desc" : "asc";
+  const configurationSignature = JSON.stringify(definition.configuration || {});
+  // Reset paging synchronously when sort/configuration changes, before querying.
+  const scope = `${configurationSignature}:${requestedSortField}:${requestedSortDir}`;
+  const [pageScope, setPageScope] = useState(scope);
+  if (pageScope !== scope) {
+    setPageScope(scope);
+    setPage(1);
+  }
   const [draggedColumn, setDraggedColumn] = useState(null);
   const [archiveTarget, setArchiveTarget] = useState(null);
   const [requiredRelationship, setRequiredRelationship] = useState(null);
   const routes = routesFor(context, definition, editSide);
   const queryKey = ["record-relationships", context.kind, context.objectId, context.recordId, definition.id, editSide];
   const query = useQuery({
-    queryKey: [...queryKey, page, sortField, sortDir],
+    queryKey: [...queryKey, pageScope === scope ? page : 1, requestedSortField, requestedSortDir, configurationSignature],
+    enabled: preferences.isReady,
     placeholderData: loadingOverlay
       ? (previous, previousQuery) => queryKey.every((part, index) => part === previousQuery?.queryKey[index]) ? previous : undefined
       : undefined,
     queryFn: () => relationshipRequest(routes.edges({
       page,
       pageSize: 10,
-      ...(sortField ? { sortField, sortDir } : {}),
+      ...(requestedSortField ? { sortField: requestedSortField, sortDir: requestedSortDir, sortFallback: "true" } : {}),
       ...(includeArchived ? { includeArchived: "true" } : {}),
     })),
   });
+  const effectiveSort = query.data?.effective_sort;
+  const sortField = effectiveSort?.sortField || (query.data && !Object.hasOwn(query.data, "effective_sort") ? requestedSortField : "");
+  const sortDir = effectiveSort?.sortDir || requestedSortDir;
   const loading = loadingOverlay && (query.isPending || query.isFetching);
   const edges = query.data?.data || [];
   // The server resolves per-relationship overrides or the linked object's
@@ -230,21 +251,12 @@ function RelationshipPanel({
     relationshipFields: edgeFields,
     previewColumns,
   }), [definition, editSide, edgeFields.map((field) => `${field.id}:${field.label}`).join("|"), JSON.stringify(previewColumns)]);
-  const preferences = useRelationshipTablePreferences({
-    definitionId: definition.id,
-    side: editSide,
-    contextKind: context.kind,
-    objectId: context.objectId,
-    enabled: displayMode !== "cards",
-  });
   const [columnState, setColumnState] = useState(() => defaultRelationshipColumnState(descriptors));
   const descriptorSignature = descriptors.map((descriptor) => descriptor.id).join("|");
   useEffect(() => {
-    const reconciled = reconcileRelationshipColumnState(descriptors, preferences.preference);
+    const reconciled = reconcileRelationshipColumnState(descriptors, personalPreference);
     setColumnState(reconciled);
-    setSortField(reconciled.sortField);
-    setSortDir(reconciled.sortDir);
-  }, [descriptorSignature, preferences.preference]);
+  }, [descriptorSignature, personalPreference]);
   const descriptorById = new Map(descriptors.map((descriptor) => [descriptor.id, descriptor]));
   const orderedDescriptors = columnState.order
     .map((id) => descriptorById.get(id))
@@ -413,8 +425,7 @@ function RelationshipPanel({
   };
   const persistColumnState = (next) => {
     setColumnState(next);
-    setSortField(next.sortField || "");
-    setSortDir(next.sortDir === "desc" ? "desc" : "asc");
+    setLocalPreference(next);
     void preferences.save(next).catch((error) =>
       toast.error(`Column settings could not be saved: ${error.message}`));
   };

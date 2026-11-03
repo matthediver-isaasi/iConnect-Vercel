@@ -198,6 +198,60 @@ function loadingSurface(page) {
   return page.locator('[data-testid="related-records-loading"]:visible');
 }
 
+test("Historical Membership Records uses configured Start date descending and remembers heading overrides", async ({ page }) => {
+  await installFixtures(page);
+  const historical = {
+    ...definition,
+    source_kind: "custom_object", source_custom_object_id: "history-object",
+    target_kind: "member", target_label: "Historical Membership Records",
+    edit_from_target: false,
+    configuration: { default_sort: { target: { sortField: "field:start-date", sortDir: "desc" } } },
+  };
+  let preference = null;
+  const requests = [];
+  const json = (route, body) => route.fulfill({ contentType: "application/json", body: JSON.stringify(body) });
+  await page.route("**/api/custom-objects/**", async route => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (url.pathname.endsWith("relationship-definitions"))
+      return json(route, { data: [{ definition: historical, side: "target", count: 2 }], total: 1 });
+    if (url.pathname.endsWith("relationship-panel-preference")) {
+      if (request.method() === "PATCH") preference = request.postDataJSON().preference;
+      return json(route, { preference });
+    }
+    if (url.pathname.endsWith("/relationships")) {
+      requests.push(url.searchParams);
+      const sort = url.searchParams.get("sortField")
+        ? { sortField: url.searchParams.get("sortField"), sortDir: url.searchParams.get("sortDir") }
+        : historical.configuration.default_sort.target;
+      const data = ["2024-01-01", "2026-01-01"].map((date, i) => ({
+        relationship_id: `history-${i}`,
+        related: { id: `history-${i}`, kind: "custom_object", custom_object_id: "history-object",
+          primary_label: `Membership ${date.slice(0, 4)}`,
+          compact_fields: [{ field_id: "start-date", field_type: "date", value: date }] },
+      }));
+      if (sort.sortDir === "desc") data.reverse();
+      return json(route, { data, total: 2, pageSize: 10, effective_sort: sort,
+        preview_columns: [{ type: "field", field_id: "start-date", label: "Start date" }] });
+    }
+    if (url.pathname.endsWith("/history-object")) return json(route, { id: "history-object", status: "active", capabilities: {} });
+    return route.fallback();
+  });
+  await page.goto("/members/smoke-member");
+  await page.getByTestId("tab-relationship-smoke-relationship-target").click();
+  const heading = page.getByTestId("sort-header-field:start-date");
+  await expect(heading.locator("xpath=ancestor::th")).toHaveAttribute("aria-sort", "descending");
+  await expect(page.locator("tbody tr").first()).toContainText("Membership 2026");
+  expect(requests[0].has("sortField")).toBe(false);
+  await heading.click();
+  await expect(heading.locator("xpath=ancestor::th")).toHaveAttribute("aria-sort", "ascending");
+  expect(preference.sortField).toBe("field:start-date");
+  await page.getByRole("button", { name: "Reset columns" }).click();
+  await expect(heading.locator("xpath=ancestor::th")).toHaveAttribute("aria-sort", "descending");
+  expect(preference.sortField).toBe("");
+  await page.screenshot({ path: "generated-artifacts/relationship-default-sort.jpg" });
+});
+
 async function assertLoadingSemantics(page) {
   await expect(loadingSurface(page)).toBeVisible();
   await expect(loadingSurface(page).getByRole("status")).toHaveText(/Loading records/);

@@ -6,6 +6,7 @@ import {
   reconcileRelationshipColumnState,
   relationshipColumnDescriptors,
   relationshipTablePreferenceKey,
+  relationshipSortPreviewColumns,
 } from "./relationshipColumnHelpers.mjs";
 
 const descriptors = relationshipColumnDescriptors({
@@ -14,6 +15,23 @@ const descriptors = relationshipColumnDescriptors({
     { type: "field", field_id: 9, label: "Code" },
     { type: "relationship", relationship_definition_id: 11, side: "target", label: "Owners" },
   ],
+});
+
+test("sort choices inherit actual list fields and respect per-side explicit and legacy preview choices", () => {
+  const fields = [
+    { id: "start", label: "Start date", field_type: "date" },
+    { id: "end", label: "End date" },
+    { id: "removed", label: "Removed", is_active: false },
+  ];
+  const object = { configuration: { views: { list: { field_ids: ["start", "removed", "missing"] } } } };
+  assert.deepEqual(relationshipSortPreviewColumns({}, "source", object, fields).map(c => c.field_id), ["start"]);
+  assert.deepEqual(relationshipSortPreviewColumns({ compact_preview: { source_field_ids: [] } }, "source", object, fields), []);
+  const configuration = {
+    compact_preview: { source_field_ids: ["end"], target_field_ids: ["start"] },
+    compact_preview_fields: { source_field_ids: ["start"] },
+  };
+  assert.deepEqual(relationshipSortPreviewColumns(configuration, "source", object, fields).map(c => c.field_id), ["end", "start"]);
+  assert.deepEqual(relationshipSortPreviewColumns(configuration, "target", object, fields).map(c => c.field_id), ["start"]);
 });
 
 test("builds stable IDs for every data-column kind", () => {

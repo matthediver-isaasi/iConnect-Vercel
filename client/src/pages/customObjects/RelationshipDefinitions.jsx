@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { RelationshipDefaultSortSettings } from "./RelationshipDefaultSortSettings";
 import {
   loadActiveRelationshipObjects,
   loadCustomObjectFields,
@@ -71,6 +72,8 @@ function DefinitionDialog({ objectId, object, definition, open, onOpenChange }) 
     ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["custom-objects", objectId, "relationships"] });
+      qc.invalidateQueries({ queryKey: ["related-record-definitions"] });
+      qc.invalidateQueries({ queryKey: ["record-relationships"] });
       toast.success(definition ? "Relationship definition saved" : "Relationship definition created");
       onOpenChange(false);
     },
@@ -427,7 +430,7 @@ function DirectionFields({ side, form, update, objects, objectsQuery, currentObj
       <Toggle label={`Show ${side === "source" ? "this" : otherSide} panel`} hint="Visible on this endpoint's record page." checked={side === "source" ? form.show_on_source : form.show_on_target} onChange={(value) => update(side === "source" ? "show_on_source" : "show_on_target", value)} />
       <Toggle label={`Allow editing here`} hint="Administrators may add or remove links from this side." checked={side === "source" ? form.edit_from_source : form.edit_from_target} onChange={(value) => update(side === "source" ? "edit_from_source" : "edit_from_target", value)} />
     </div>
-  </div><CompactPreviewSettings side={side} form={form} update={update} /></>;
+  </div><CompactPreviewSettings side={side} form={form} update={update} /><RelationshipDefaultSortSettings side={side} form={form} update={update} /></>;
 }
 
 // The configured side is the page being viewed; consequently its selected

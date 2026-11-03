@@ -1,6 +1,26 @@
 export const RELATIONSHIP_COLUMN_MIN_WIDTH = 120;
 export const RELATIONSHIP_COLUMN_MAX_WIDTH = 480;
 
+// Viewing-side settings point at columns belonging to the opposite endpoint.
+export function relationshipSortPreviewColumns(configuration = {}, opposite, object, fields = []) {
+  const sources = [configuration?.compact_preview, configuration?.compact_preview_fields];
+  const explicit = sources.some((source) => source && [
+    opposite, `${opposite}_field_ids`, `${opposite}_columns`,
+  ].some((key) => Object.hasOwn(source, key)));
+  const ids = explicit
+    ? sources.flatMap((source) => source?.[`${opposite}_field_ids`] || source?.[opposite] || [])
+    : object?.configuration?.views?.list?.field_ids || [];
+  const columns = [
+    ...ids.map((id) => ({ type: "field", field_id: String(id) })),
+    ...(configuration?.compact_preview?.[`${opposite}_columns`] || []),
+  ];
+  return columns.flatMap((column) => {
+    if (column.type !== "field") return [column];
+    const field = fields.find((field) => String(field.id) === String(column.field_id) && field.is_active !== false);
+    return field ? [{ ...column, field_id: String(field.id), label: column.label || field.label }] : [];
+  });
+}
+
 export const clampRelationshipColumnWidth = (value, fallback = 180) => {
   const parsed = Number(value);
   const safe = Number.isFinite(parsed) ? parsed : fallback;

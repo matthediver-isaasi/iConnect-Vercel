@@ -8,6 +8,10 @@ const dom = new JSDOM("<!doctype html><html><body></body></html>", {
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;
 globalThis.navigator = dom.window.navigator;
+for (const key of ["DocumentFragment", "HTMLElement", "Element", "Node", "CustomEvent", "MutationObserver", "HTMLInputElement"]) {
+  globalThis[key] = dom.window[key];
+}
+globalThis.getComputedStyle = dom.window.getComputedStyle;
 globalThis.localStorage = dom.window.localStorage;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -23,13 +27,59 @@ const {
   RelatedRecordsPanel,
   useRelatedRecordDefinitions,
 } = await import("./RelatedRecordsPanel.jsx");
+const { RelationshipDefaultSortSettings } = await import("./RelationshipDefaultSortSettings.jsx");
 
+test("direction controls offer inherited Start date and save independent stable defaults", async () => {
+  window.HTMLElement.prototype.scrollIntoView = () => {};
+  globalThis.fetch = async url => json(String(url).includes("/fields?")
+    ? { data: [{ id: "stable-start", label: "Start date", field_type: "date" }] }
+    : { id: "history", configuration: { views: { list: { field_ids: ["stable-start"] } } } });
+  let latest;
+  function Settings() {
+    const [form, setForm] = React.useState({
+      source_kind: "custom_object", source_custom_object_id: "history",
+      target_kind: "member", configuration: {},
+    });
+    latest = form;
+    return <>{["source", "target"].map(side => <RelationshipDefaultSortSettings key={side} side={side} form={form}
+      update={(key, value) => setForm(current => ({ ...current, [key]: value }))} />)}</>;
+  }
+  const view = await mount(<Settings />);
+  try {
+    const choose = async (id, label) => {
+      await act(async () => view.container.querySelector(`#${id}`).dispatchEvent(
+        new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      ));
+      await settle();
+      const option = [...document.querySelectorAll('[role="option"]')].find(item => item.textContent === label);
+      assert.ok(option, `${label} is available`);
+      await act(async () => option.dispatchEvent(new window.MouseEvent("click", { bubbles: true })));
+      await settle();
+    };
+    await choose("default-sort-target", "Start date");
+    await choose("default-sort-direction-target", "Descending");
+    assert.deepEqual(latest.configuration.default_sort.target, { sortField: "field:stable-start", sortDir: "desc" });
+    await choose("default-sort-source", "Record");
+    assert.deepEqual(latest.configuration.default_sort.source, { sortField: "record", sortDir: "asc" });
+    assert.equal(latest.configuration.default_sort.target.sortDir, "desc");
+    await choose("default-sort-target", "Unset (existing order)");
+    assert.equal(latest.configuration.default_sort.target, null);
+  } finally {
+    await view.cleanup();
+  }
+});
+
+let administrator = false;
 function Identity({ children }) {
   const layout = useLayoutContext();
   useEffect(() => {
-    layout.setMemberInfo({ id: "viewer-1", tenant_id: "tenant-1" });
+    layout.setMemberInfo({ id: "viewer-1", tenant_id: "tenant-1", ...(administrator ? { role_id: "admin-role" } : {}) });
     layout.setSessionValidated(true);
     layout.setAuthResolved(true);
+    if (administrator) layout.setSessionRoleSnapshot({
+      status: "ready", member_id: "viewer-1", tenant_id: "tenant-1", role_id: "admin-role",
+      session_key: "sorting-test", role: { id: "admin-role", excluded_features: [] },
+    });
   }, []);
   return children;
 }
@@ -100,6 +150,7 @@ async function mount(child, clientOptions = {}) {
   const root = createRoot(container);
   const client = new QueryClient({
     defaultOptions: {
+      mutations: { gcTime: 0 },
       queries: {
         retry: false,
         gcTime: 0,
@@ -134,6 +185,69 @@ async function mount(child, clientOptions = {}) {
 
 const loadingSurface = container =>
   container.querySelector('[data-testid="related-records-loading"]');
+
+for (const initial of [null, { order: ["record"], sortField: "", sortDir: "asc" }, { sortField: "record", sortDir: "asc" }]) {
+  test(`default sort hydration, personal override, reset and config updates: ${JSON.stringify(initial)}`, async () => {
+    administrator = true;
+    let saved = initial;
+    const preferenceGate = deferred();
+    let defaultDir = "desc";
+    const requests = [];
+    const definition = {
+      ...definitionFor(coreContext),
+      configuration: { default_sort: { source: { sortField: "record", sortDir: defaultDir } } },
+    };
+    globalThis.fetch = async (url, options = {}) => {
+      const path = String(url);
+      if (path.includes("relationship-panel-preference")) {
+        if (options.method === "PATCH") saved = JSON.parse(options.body).preference;
+        else await preferenceGate.promise;
+        return json({ preference: saved });
+      }
+      if (path.includes("/relationships?")) {
+        const params = new URL(path, "https://example.test").searchParams;
+        requests.push(params);
+        return json(rows([edge("Historical membership")], {
+          effective_sort: { sortField: "record", sortDir: params.get("sortDir") || defaultDir },
+        }));
+      }
+      throw new Error(`Unexpected request ${path}`);
+    };
+    const panel = () => <RelatedRecordsPanel context={coreContext} definition={definition} side="source" />;
+    const view = await mount(panel());
+    try {
+      assert.equal(requests.length, 0, "first page waits for personal preferences");
+      preferenceGate.resolve();
+      await settle();
+      await settle();
+      const header = () => view.container.querySelector('th[aria-sort]');
+      assert.equal(header().getAttribute("aria-sort"), initial?.sortField ? "ascending" : "descending");
+      const click = async element => {
+        await act(async () => element.dispatchEvent(new window.MouseEvent("click", { bubbles: true })));
+        await settle();
+      };
+      await click(view.container.querySelector('[data-testid="sort-header-record"]'));
+      assert.equal(saved.sortField, "record");
+      const chosenDir = saved.sortDir;
+      // A configuration refresh does not erase a personal heading selection.
+      defaultDir = "asc";
+      definition.configuration = { default_sort: { source: { sortField: "record", sortDir: defaultDir } } };
+      await view.render(panel());
+      assert.equal(requests.at(-1).get("sortDir"), chosenDir);
+      await click([...view.container.querySelectorAll("button")].find(button => button.textContent.includes("Reset columns")));
+      assert.equal(saved.sortField, "");
+      assert.equal(requests.at(-1).has("sortField"), false);
+      assert.equal(header().getAttribute("aria-sort"), "ascending");
+      defaultDir = "desc";
+      definition.configuration = { default_sort: { source: { sortField: "record", sortDir: defaultDir } } };
+      await view.render(panel());
+      assert.equal(header().getAttribute("aria-sort"), "descending");
+    } finally {
+      await view.cleanup();
+      administrator = false;
+    }
+  });
+}
 
 function assertLoadingSemantics(container) {
   const overlay = loadingSurface(container);

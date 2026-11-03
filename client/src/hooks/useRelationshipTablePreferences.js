@@ -52,6 +52,7 @@ export function useRelationshipTablePreferences({
   return {
     preference: query.data?.preference || null,
     isLoading: query.isLoading,
+    isReady: !enabled || (isAccessReady && (!canPersist || !query.isPending)),
     error: query.error,
     isSaving: mutation.isPending,
     canPersist,
