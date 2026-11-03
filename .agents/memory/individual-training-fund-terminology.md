@@ -31,3 +31,9 @@ Form renewals and emailed payment links must share payment ownership, not just v
 **Why:** Separate checkout routes can otherwise create a card/DD purchase and a credit purchase for the same renewal. Voucher discovery is not permission to create a second reservation.
 
 **How to apply:** Bind funding to the existing server-owned renewal reservation and use the common owner/term payment guard. Keep a new route disabled until its submission, provider-return and date-finalization paths are verified together.
+
+Renewal forms should have one payment-method selector: the large payment cards.
+
+**Why:** The owner found a separate voucher payment dropdown confusing and requested selectable voucher cards that can be combined, with live payment-card amounts.
+
+**How to apply:** Keep voucher selection independent of the method cards; reflect combined credit in those cards. Label previews as estimates until server-confirmed, and never allow an undiscounted charge while showing discounted amounts.

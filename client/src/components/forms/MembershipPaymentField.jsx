@@ -9,15 +9,21 @@ import { directDebitFirstCollectionText, directDebitPolicyText, directDebitHasFi
 import MembershipCommitmentNotice, { membershipTermLabel } from "@/components/membership/MembershipCommitmentNotice";
 import RenewalMethodChooser from "./RenewalMethodChooser";
 import FormMembershipCredit from "./FormMembershipCredit";
+import { renewalCreditPreview } from "./renewalCreditPreview";
 
-function renewalOptions(data) {
+export function renewalOptions(data, vouchers = []) {
   if (!data?.membershipYear || data.approvalPending || data.zeroDue) return [];
-  return [
+  const options = [
     data.stripeEnabled && !isBelowStripeMinimum(data.totalWithVat ?? data.finalCost, data.currency)
       && { id: 'upfront', label: 'Pay in full by card', price: formatCurrency(data.totalWithVat ?? data.finalCost, data.currency) },
     data.cardMonthly && { id: 'monthly_card', label: 'Pay monthly by card', price: `${formatCurrency(data.cardMonthly.monthlyAmount, data.cardMonthly.currency || data.currency)}/month` },
     data.directDebit && { id: 'direct_debit', label: 'Pay monthly by Direct Debit', price: `${formatCurrency(data.directDebit.monthlyAmount, data.directDebit.currency || data.currency)}/month` },
   ].filter(Boolean);
+  if (!vouchers.length) return options;
+  const preview = renewalCreditPreview(data, vouchers);
+  return options.map(option => ({ ...option, price: preview[option.id] == null
+    ? 'Credit estimate unavailable'
+    : `${formatCurrency(preview[option.id], data.currency)}${option.id === 'upfront' ? ' after credit (estimate)' : ' first month after credit (estimate)'}` }));
 }
 
 const CURRENCY_SYMBOLS = { GBP: '\u00a3', USD: '$', EUR: '\u20ac', AUD: 'A$', NZD: 'NZ$' };
@@ -69,6 +75,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
   const switchInFlight = useRef(false);
   const actionInFlight = useRef(false);
   const [chosenMethod, setChosenMethod] = useState(null);
+  const [selectedVouchers, setSelectedVouchers] = useState([]);
   const [busyMethod, setBusyMethod] = useState(null);
   const [paymentComplete, setPaymentComplete] = useState(false);
   const [paymentError, setPaymentError] = useState(null);
@@ -719,7 +726,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
   const resuming = renewal?.state === 'renewal_pending' && renewal?.selectedMethod && data.membershipYear;
   const busy = disabled || loading || switchingPayment || processingPayment || creatingPayment || startingDd || startingCard || !!ddDropin;
   const selectedMethod = renewal?.state === 'renewal_pending' ? renewal.selectedMethod : chosenMethod;
-  const canPay = !switchingPayment && renewal?.switchState !== 'reconciling'
+  const canPay = !selectedVouchers.length && !switchingPayment && renewal?.switchState !== 'reconciling'
     && (!isRenewal || renewal.eligible === true || resuming);
   const renewalMessages = {
     post_grace_renewal: renewal?.eligible === true
@@ -775,7 +782,8 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
           </div>
         )}
         {data.memberScoped && !paymentComplete && <FormMembershipCredit
-          memberId={memberId} context={getOverrideBody()} methods={renewalOptions(data)}
+          memberId={memberId} context={getOverrideBody()}
+          selectedVouchers={selectedVouchers} onSelectionChange={setSelectedVouchers}
           disabled={disabled || busy || !!paymentMode} resumeToken={data.voucherCheckoutToken}
           onRefresh={fetchFees} />}
         <div className="space-y-2">
@@ -881,9 +889,16 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
         )}
 
         {isRenewal && (renewal.eligible === true || resuming) && (
-          <RenewalMethodChooser options={renewalOptions(data)} selectedMethod={selectedMethod}
+          <>
+          {selectedVouchers.length > 0 && <p className="text-sm text-muted-foreground" role="status">
+            Selected credit towards this membership: {formatCurrency(renewalCreditPreview(data, selectedVouchers).credit, data.currency)}.
+            {' '}The cards below show estimates, not an applied payment. Monthly credit is spread across the membership period;
+            rounding and variable fees can change later payments. Any credit above the membership cost remains unused.
+          </p>}
+          <RenewalMethodChooser options={renewalOptions(data, selectedVouchers)} selectedMethod={selectedMethod}
             busyMethod={busyMethod} disabled={busy}
-            onSelect={chooseRenewalMethod} />
+            onSelect={method => selectedVouchers.length ? setChosenMethod(method) : chooseRenewalMethod(method)} />
+          </>
         )}
 
         {(() => {

@@ -42,10 +42,40 @@ test('credit discovery shows loading, empty, error and staged availability witho
     }
     if (scenario === 'available') {
       assert.match(host.textContent, /TESTCREDIT.*£10\.00/);
-      assert.equal([...host.querySelectorAll('button')].find(b => b.textContent === 'Use membership credit').disabled, true);
+      assert.equal(host.querySelectorAll('input[type="checkbox"]').length, 1);
+      assert.equal(host.querySelectorAll('select').length, 0);
       assert.match(host.textContent, /not yet enabled/);
     }
     await act(async () => root.unmount());
     host.remove();
   }
+});
+
+test('voucher cards combine selections and support deselection without a payment request', async () => {
+  const requests = [];
+  globalThis.fetch = async (url, options) => {
+    requests.push(options);
+    return new Response(JSON.stringify({ enabled: true, currency: 'GBP',
+      vouchers: [{ id: 'a', code: 'FIRST', value: 10 }, { id: 'b', code: 'SECOND', value: 15 }] }));
+  };
+  let selected;
+  function Harness() {
+    const [vouchers, setVouchers] = React.useState([]);
+    selected = vouchers;
+    return <Credit memberId="member" context={{ formId: 'f' }}
+      selectedVouchers={vouchers} onSelectionChange={setVouchers} />;
+  }
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  await act(async () => { root.render(<Harness />); await new Promise(r => setTimeout(r, 15)); });
+  const boxes = host.querySelectorAll('input[type="checkbox"]');
+  await act(async () => boxes[0].click());
+  await act(async () => boxes[1].click());
+  assert.deepEqual(selected.map(v => v.id), ['a', 'b']);
+  await act(async () => boxes[0].click());
+  assert.deepEqual(selected.map(v => v.id), ['b']);
+  assert.equal(requests.length, 1);
+  await act(async () => root.unmount());
+  host.remove();
 });

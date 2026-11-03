@@ -14,6 +14,20 @@ const { act } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { default: MembershipPaymentField } = await import('./MembershipPaymentField.jsx');
 
+test('the existing payment cards show combined credit estimates and restore gross prices on deselection', async () => {
+  const { renewalOptions } = await import('./MembershipPaymentField.jsx');
+  const data = { membershipYear: {}, stripeEnabled: true, currency: 'GBP', totalWithVat: 47,
+    cardMonthly: { monthlyAmount: 3.92, instalmentCount: 12 },
+    directDebit: { monthlyAmount: 3.92, instalmentCount: 12 } };
+  const discounted = renewalOptions(data, [{ id: 'one', value: 20 }, { id: 'two', value: 12.79 }]);
+  assert.equal(discounted.length, 3);
+  assert.match(discounted[0].price, /£14\.21.*estimate/);
+  assert.match(discounted[1].price, /£1\.18.*first month.*estimate/);
+  assert.match(discounted[2].price, /£1\.18.*first month.*estimate/);
+  assert.equal(renewalOptions(data)[0].price, '£47.00');
+  assert.equal(renewalOptions(data)[1].price, '£3.92/month');
+});
+
 test('membership payment uses delayed canonical prefill identity; explicit URL never falls back', async () => {
   const requests = [];
   globalThis.fetch = async input => {
