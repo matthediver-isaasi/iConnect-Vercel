@@ -8,6 +8,7 @@ import { directDebitHasFixedTermTotal, directDebitCollectionPolicy } from "@/lib
 import { membershipPeriod, membershipHeading, annualMembershipFeeLabel, memberDate, activationText, memberDirectDebitPolicy as directDebitPolicyText, memberFirstCollection as directDebitFirstCollectionText, reusesDirectDebit, creditOwnerLabel } from "@/lib/membershipFeeCopy";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import MembershipPrimaryAction from "@/components/forms/MembershipPrimaryAction";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -767,7 +768,7 @@ export default function MembershipFeePage({ embeddedToken = null, initialVoucher
                   Cancel payment and release credit
                 </Button>
                 {displayMonthlyMode && <p className="text-sm">{creditEstimate.count} monthly payments of {formatCurrency(creditPerMonth, data?.currency)} after credit. Credit applies only to this membership period, not future renewals.</p>}
-                {creditOnly && <Button type="button" onClick={initStripe} disabled={creatingPayment}>Complete with membership credit</Button>}
+                {creditOnly && <MembershipPrimaryAction><Button type="button" onClick={initStripe} disabled={creatingPayment}>Complete with membership credit</Button></MembershipPrimaryAction>}
               </section>
             )}
             {data?.status === 'pending' && (!data?.voucherFunding || (personalCredit?.enabled && personalCredit.vouchers.length > 0)) && (
@@ -836,10 +837,10 @@ export default function MembershipFeePage({ embeddedToken = null, initialVoucher
                       Credit applies only to this membership period. Any unused credit stays available; future renewals are not reduced.</p>}
                     <p className="font-medium">Credit selected, not reserved yet. Credit will be reserved when you continue to payment. This quote expires after 15 minutes.</p>
                     {!data?.voucherFunding && <Button type="button" variant="outline" onClick={clearPersonalCredit} disabled={creatingPayment || processingPayment}>Remove credit selection</Button>}
-                    {creditOnly && !paymentComplete && (
-                      <Button type="button" onClick={initStripe} disabled={creatingPayment || !!data?.approvalPending || !!data?.openPlan}>
+                    {creditOnly && !paymentComplete && !data?.voucherFunding && (
+                      <MembershipPrimaryAction><Button type="button" onClick={initStripe} disabled={creatingPayment || !!data?.approvalPending || !!data?.openPlan}>
                         {creatingPayment ? 'Completing…' : 'Complete with membership credit'}
-                      </Button>
+                      </Button></MembershipPrimaryAction>
                     )}
                   </div>
                 )}
@@ -1163,7 +1164,7 @@ export default function MembershipFeePage({ embeddedToken = null, initialVoucher
                 {' '}Continue to Stripe to enter your card details securely.
                 {isMemberStart && data.cardMonthly.activationRule && <> {activationText(data.cardMonthly.activationRule)}</>}
               </p>
-              <Button
+              <MembershipPrimaryAction><Button
                 onClick={handleStartMonthlyCard}
                 disabled={startingCardMonthly}
                 variant="outline"
@@ -1176,7 +1177,7 @@ export default function MembershipFeePage({ embeddedToken = null, initialVoucher
                   <CreditCard className="w-4 h-4 mr-2" />
                 )}
                 Set Up Monthly Card Payments
-              </Button>
+              </Button></MembershipPrimaryAction>
             </CardContent>
           </Card>
         )}
@@ -1198,7 +1199,7 @@ export default function MembershipFeePage({ embeddedToken = null, initialVoucher
                  {' '}{reusesDirectDebit(data) ? 'Your existing Direct Debit will be reused. Confirm below to continue your payments.' : 'To get started, we’ll securely guide you through setting up your Direct Debit.'}
                 {isMemberStart && data.ddOffer.activationRule && <> {activationText(data.ddOffer.activationRule)}</>}
               </p>
-              <Button
+              <MembershipPrimaryAction><Button
                 onClick={handleStartDirectDebit}
                 disabled={startingDd}
                 variant="outline"
@@ -1211,7 +1212,7 @@ export default function MembershipFeePage({ embeddedToken = null, initialVoucher
                   <Landmark className="w-4 h-4 mr-2" />
                 )}
                 {reusesDirectDebit(data) ? 'Confirm Direct Debit Renewal' : 'Continue to Direct Debit Setup'}
-              </Button>
+              </Button></MembershipPrimaryAction>
             </CardContent>
           </Card>
         )}
@@ -1248,7 +1249,7 @@ export default function MembershipFeePage({ embeddedToken = null, initialVoucher
                       Pay your membership fee immediately by card.{data?.vatRatePercent > 0 ? ` The amount includes VAT at ${data.vatRatePercent}%.` : ''} Your membership will be activated once payment is confirmed.
                     </p>
                   )}
-                  <Button
+                  <MembershipPrimaryAction><Button
                     onClick={initStripe}
                     disabled={creatingPayment || (!creditOnly && isBelowStripeMinimum(payableAmount, data?.currency))}
                     className="w-full"
@@ -1261,7 +1262,7 @@ export default function MembershipFeePage({ embeddedToken = null, initialVoucher
                       <CreditCard className="w-4 h-4 mr-2" />
                     )}
                     {creditOnly ? 'Complete with membership credit' : `Pay ${formatCurrency(displayPayableAmount, data?.currency)}`}
-                  </Button>
+                  </Button></MembershipPrimaryAction>
                 </>
               ) : (
                 <div className="space-y-4">
@@ -1274,7 +1275,7 @@ export default function MembershipFeePage({ embeddedToken = null, initialVoucher
                     </div>
                   )}
 
-                  <Button
+                  <MembershipPrimaryAction><Button
                     onClick={handleStripePayment}
                     disabled={processingPayment}
                     className="w-full"
@@ -1287,7 +1288,7 @@ export default function MembershipFeePage({ embeddedToken = null, initialVoucher
                       <CreditCard className="w-4 h-4 mr-2" />
                     )}
                     {processingPayment ? 'Processing...' : `Confirm Payment - ${formatCurrency(displayPayableAmount, data?.currency)}`}
-                  </Button>
+                  </Button></MembershipPrimaryAction>
                 </div>
               )}
             </CardContent>

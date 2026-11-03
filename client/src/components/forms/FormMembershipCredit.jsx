@@ -4,6 +4,7 @@ import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import MembershipFeePage from '@/pages/MembershipFeePage';
 import { saveFormVoucherReturn } from '@/lib/formVoucherReturn';
+import MembershipPrimaryAction from './MembershipPrimaryAction';
 
 export default function FormMembershipCredit({ memberId, context, disabled, resumeToken, onRefresh, selectedVouchers = [], onSelectionChange, selectedMethod, onCheckoutChange }) {
   const refreshRef = useRef(onRefresh);
@@ -119,10 +120,12 @@ export default function FormMembershipCredit({ memberId, context, disabled, resu
           </label>;
         })}</div>
         {result.checkoutReady ? <>
+          <MembershipPrimaryAction active={selectedVouchers.length > 0}>
           <Button type="button" disabled={disabled || busy || !selectedMethod || !selectedVouchers.length}
             onClick={() => act('start_voucher_checkout')}>
             {busy ? 'Preparing your credit checkout…' : 'Continue with selected credit and payment method'}
           </Button>
+          </MembershipPrimaryAction>
           {!selectedMethod && selectedVouchers.length > 0 && <p className="text-sm">Choose a payment card below to continue.</p>}
         </> : <p role="status" className="text-sm text-muted-foreground">Credit payment on this form is not yet enabled. You can preview the amounts; to pay without credit, deselect the vouchers. No credit has been reserved.</p>}
       </>}

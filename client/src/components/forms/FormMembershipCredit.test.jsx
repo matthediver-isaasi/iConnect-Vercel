@@ -12,6 +12,7 @@ const { act } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { default: Credit } = await import('./FormMembershipCredit.jsx');
 const { MembershipCheckoutDraftContext } = await import('./MembershipCheckoutDraftContext.jsx');
+const { MembershipPrimaryActionContext } = await import('./MembershipPrimaryAction.jsx');
 test('credit discovery shows loading, empty, error and staged availability without creating a checkout', async () => {
   for (const scenario of ['loading', 'empty', 'error', 'available']) {
     const requests = [];
@@ -92,16 +93,21 @@ test('continue sends the selected card and voucher IDs, and retains selection on
       vouchers: [{ id: 'a', code: 'FIRST', value: 10 }, { id: 'b', code: 'SECOND', value: 15 }] }));
   };
   const host = document.createElement('div');
-  document.body.append(host);
+  const footer = document.createElement('div');
+  document.body.append(host, footer);
   const root = createRoot(host);
   await act(async () => {
     root.render(<MembershipCheckoutDraftContext.Provider value={async () => '/FormView?slug=renew&draft=saved'}>
+      <MembershipPrimaryActionContext.Provider value={{ target: footer, register: () => {}, validate: async () => true }}>
       <Credit memberId="member" context={{ formId: 'f', paymentFieldId: 'p' }}
         selectedMethod="monthly_card" selectedVouchers={[{ id: 'a' }, { id: 'b' }]} />
+      </MembershipPrimaryActionContext.Provider>
     </MembershipCheckoutDraftContext.Provider>);
     await new Promise(resolve => setTimeout(resolve, 15));
   });
-  const button = [...host.querySelectorAll('button')].find(b => b.textContent.startsWith('Continue with selected'));
+  assert.equal(host.querySelectorAll('button').length, 0, 'no competing action remains in the credit panel');
+  assert.equal(footer.querySelectorAll('button').length, 1);
+  const button = footer.querySelector('button');
   assert.ok(button);
   await act(async () => { button.click(); await new Promise(resolve => setTimeout(resolve, 10)); });
   assert.deepEqual(requests[0], { formId: 'f', paymentFieldId: 'p', memberId: 'member',
@@ -109,5 +115,5 @@ test('continue sends the selected card and voucher IDs, and retains selection on
   assert.match(host.textContent, /Checkout is temporarily unavailable/);
   assert.equal(host.querySelectorAll('input:checked').length, 2);
   await act(async () => root.unmount());
-  host.remove();
+  host.remove(); footer.remove();
 });

@@ -38,6 +38,16 @@ Renewal forms should have one payment-method selector: the large payment cards.
 
 **How to apply:** Keep voucher selection independent of the method cards; reflect combined credit in those cards. Label previews as estimates until server-confirmed, and never allow an undiscounted charge while showing discounted amounts.
 
+Renewal forms should have one primary action in the form footer, whether
+credit is selected or not.
+
+**Why:** The owner found an inline credit-continue button alongside the form's
+Submit button confusing.
+
+**How to apply:** Keep payment initiation and final submission in the same
+footer position, showing only the applicable action. Preserve validation and
+server-confirmed completion; moving the button must not bypass either.
+
 An embedded credit checkout must return card authentication to its own payment
 confirmer before navigating back to the form.
 

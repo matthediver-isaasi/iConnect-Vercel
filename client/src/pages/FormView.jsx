@@ -45,6 +45,7 @@ import { groupInitialSelectionSurfaceReady, hasGroupInitialSelectionAnswer } fro
 import { useFormOpenTransition } from "@/lib/useFormOpenTransition";
 import FormTransitionOverlay from "@/components/forms/FormTransitionOverlay";
 import { MembershipCheckoutDraftContext } from "@/components/forms/MembershipCheckoutDraftContext";
+import { MembershipPrimaryActionContext, membershipReadyToSubmit } from "@/components/forms/MembershipPrimaryAction";
 import {
   createSetValueConvergenceState,
   formValuesSemanticallyEqual,
@@ -170,6 +171,16 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   const cardSwipeAutoFocusFor = useCardSwipeAutoFocus(currentStep);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [formValues, setFormValues] = useState({});
+  const [membershipActionTarget, setMembershipActionTarget] = useState(null);
+  const [membershipActions, setMembershipActions] = useState(() => new Set());
+  const membershipValidationRef = useRef(null);
+  const registerMembershipAction = useCallback((id, mounted) => {
+    setMembershipActions(previous => {
+      const next = new Set(previous);
+      if (mounted) next.add(id); else next.delete(id);
+      return next;
+    });
+  }, []);
   const [recordSelectionOptionStates, setRecordSelectionOptionStates] = useState({});
   const [emptyRepeatableFieldIds, setEmptyRepeatableFieldIds] = useState(() => new Set());
   const lastChangedFieldRef = useRef({ formId: null, fieldId: null, revision: 0 });
@@ -2621,7 +2632,14 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   ) : screen;
   const withManagementReturn = screen => (
     <MembershipCheckoutDraftContext.Provider value={prepareMembershipCheckout}>
+      <MembershipPrimaryActionContext.Provider value={{
+        target: membershipActionTarget, register: registerMembershipAction,
+        blocked: submitControl.disabled || !!departmentCurrentSetBlocked || !!applicantContinuationError
+          || (applicantVerificationActive && applicantVerification.isPending) || submitFormMutation.isPending,
+        validate: () => membershipValidationRef.current?.(),
+      }}>
       {withManagementReturnContent(screen)}
+      </MembershipPrimaryActionContext.Provider>
     </MembershipCheckoutDraftContext.Provider>
   );
 
@@ -2819,7 +2837,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // Task #3483: all pre-submit validation + payload assembly, shared by the
   // normal submit path and the payment step. Returns the submission payload
   // or null (after toasting) when validation fails.
-  const buildSubmissionPayload = async () => {
+  const buildSubmissionPayload = async ({ beforeMembershipPayment = false } = {}) => {
     if (prefillState.locked || isTransitioning) return null;
     if (applicantVerificationActive && applicantVerification.isPending) {
       setSubmissionError('Verifying your secure applicant link. Please wait a moment and try again.');
@@ -2849,7 +2867,9 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     const hasPages = pages.length > 0 && form.layout_type === 'standard';
     
     // Get visible fields only (skip hidden fields from validation)
-    const visibleFields = filterVisibleFields(form.fields);
+    const visibleFields = filterVisibleFields(form.fields).filter(
+      field => !beforeMembershipPayment || field.type !== 'membership_payment'
+    );
     
     if (hasPages) {
       // Check each page's required fields (only visible ones)
@@ -2932,7 +2952,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     const paymentFields = visibleFields.filter(field => field.type === 'membership_payment');
     const unpaidPayments = paymentFields.filter(field => {
       const val = formValues[field.id];
-      return !val || (typeof val === 'object' && val.status !== 'paid' && val.status !== 'already_paid');
+      return !membershipReadyToSubmit(val);
     });
     if (unpaidPayments.length > 0) {
       toast.error('Please complete the membership payment before submitting');
@@ -3106,6 +3126,15 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     const payload = await buildSubmissionPayload();
     if (payload && !prefillLockRef.current) submitFormMutation.mutate(payload);
   };
+
+  membershipValidationRef.current = async () => Boolean(
+    await buildSubmissionPayload({ beforeMembershipPayment: true })
+  );
+  const hasMembershipPayment = form && filterVisibleFields(form.fields).some(field => field.type === 'membership_payment');
+  const membershipAwaitingPayment = form && filterVisibleFields(form.fields).some(field => {
+    if (field.type !== 'membership_payment') return false;
+    return !membershipReadyToSubmit(formValues[field.id]);
+  });
 
   handleSubmitRef.current = handleSubmit;
 
@@ -3398,12 +3427,13 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                   </Button>
                 )}
                 
-                {isLastStep ? (
+                {isLastStep && <span ref={setMembershipActionTarget} data-testid="membership-primary-action-slot" />}
+                {membershipActions.size > 0 ? null : isLastStep ? (
                   !visiblePaymentField ? (
                   <Button
                     onClick={handleSubmit}
-                    disabled={!canProceed || submitControl.disabled || !!departmentCurrentSetBlocked || !!applicantContinuationError || (applicantVerificationActive && applicantVerification.isPending) || submitFormMutation.isPending}
-                    className="bg-blue-600 hover:bg-blue-700"
+                    disabled={membershipAwaitingPayment || !canProceed || submitControl.disabled || !!departmentCurrentSetBlocked || !!applicantContinuationError || (applicantVerificationActive && applicantVerification.isPending) || submitFormMutation.isPending}
+                    className={hasMembershipPayment ? "bg-black text-white hover:bg-black/90" : "bg-blue-600 hover:bg-blue-700"}
                     data-testid="button-submit-form"
                   >
                     {submitFormMutation.isPending ? (
@@ -3412,7 +3442,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                         Submitting...
                       </>
                     ) : (
-                      form.submit_button_text
+                      membershipAwaitingPayment ? 'Continue to payment' : form.submit_button_text
                     )}
                   </Button>
                   ) : null
@@ -3927,6 +3957,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                 )}
                 
                 {/* Next/Submit button */}
+                {(!hasPages || isLastPage) && <span ref={setMembershipActionTarget} data-testid="membership-primary-action-slot" />}
                 {hasPages && !isLastPage ? (
                   !(displayFields.some(f => f.type === 'image_buttons' && f.auto_advance !== false && f.hide_next_button === true && !disabledFieldIds.has(f.id))) ? (
                     <Button
@@ -3937,11 +3968,11 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                       <ChevronRight className="w-4 h-4 ml-2" />
                     </Button>
                   ) : null
-                ) : !visiblePaymentField ? (
+                ) : !visiblePaymentField && membershipActions.size === 0 ? (
                   <Button
                     onClick={handleSubmit}
-                    disabled={submitControl.disabled || !!departmentCurrentSetBlocked || !!applicantContinuationError || (applicantVerificationActive && applicantVerification.isPending) || submitFormMutation.isPending}
-                    className="bg-blue-600 hover:bg-blue-700"
+                    disabled={membershipAwaitingPayment || submitControl.disabled || !!departmentCurrentSetBlocked || !!applicantContinuationError || (applicantVerificationActive && applicantVerification.isPending) || submitFormMutation.isPending}
+                    className={hasMembershipPayment ? "bg-black text-white hover:bg-black/90" : "bg-blue-600 hover:bg-blue-700"}
                     data-testid="button-submit-form"
                   >
                     {submitFormMutation.isPending ? (
@@ -3950,7 +3981,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                         Submitting...
                       </>
                     ) : (
-                      form.submit_button_text
+                      membershipAwaitingPayment ? 'Continue to payment' : form.submit_button_text
                     )}
                   </Button>
                 ) : null}

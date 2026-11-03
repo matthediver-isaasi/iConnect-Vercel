@@ -9,6 +9,7 @@ import { directDebitFirstCollectionText, directDebitPolicyText, directDebitHasFi
 import MembershipCommitmentNotice, { membershipTermLabel } from "@/components/membership/MembershipCommitmentNotice";
 import RenewalMethodChooser from "./RenewalMethodChooser";
 import FormMembershipCredit from "./FormMembershipCredit";
+import MembershipPrimaryAction from "./MembershipPrimaryAction";
 import { renewalCreditPreview } from "./renewalCreditPreview";
 
 export function renewalOptions(data, vouchers = []) {
@@ -955,7 +956,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
                     <span className="text-sm font-semibold">{formatCurrency(payableAmount, data.currency)}</span>
                   </div>
                   <p className="text-xs text-muted-foreground">One card payment covering the full membership year.</p>
-                  <Button
+                  <MembershipPrimaryAction><Button
                     type="button"
                     onClick={() => runPaymentAction(initStripe)}
                     disabled={busy}
@@ -973,7 +974,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
                         Pay {formatCurrency(payableAmount, data.currency)}
                       </>
                     )}
-                  </Button>
+                  </Button></MembershipPrimaryAction>
                 </div>
               )}
               {showCardMonthlyOption && (
@@ -994,7 +995,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
                   <p className="text-xs text-muted-foreground">
                     You'll be taken to a secure Stripe page to enter your card details. Your card is charged automatically each month — card details never touch our servers.
                   </p>
-                  <Button
+                  <MembershipPrimaryAction><Button
                     variant="outline"
                     type="button"
                     onClick={() => runPaymentAction(startMonthlyCard)}
@@ -1013,7 +1014,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
                         Set up monthly card payments
                       </>
                     )}
-                  </Button>
+                  </Button></MembershipPrimaryAction>
                 </div>
               )}
               {showDdOption && (
@@ -1091,7 +1092,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
                       )}
                     </div>
                   )}
-                  <Button
+                  <MembershipPrimaryAction><Button
                     variant="outline"
                     type="button"
                     onClick={() => runPaymentAction(startDirectDebit)}
@@ -1110,7 +1111,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
                         {dd.scope === 'organization' && ddPayerChoice === 'billing_contact' ? 'Send Direct Debit set-up link' : 'Set up monthly Direct Debit'}
                       </>
                     )}
-                  </Button>
+                  </Button></MembershipPrimaryAction>
                   <p className="text-xs text-muted-foreground" data-testid={`text-dd-total-${field.id}`}>
                     Payments are protected by the{' '}
                     <a
@@ -1191,7 +1192,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
               className="min-h-[100px] border rounded-md p-3"
               data-testid={`stripe-element-${field.id}`}
             />
-            <Button
+            <MembershipPrimaryAction><Button
               type="button"
               onClick={() => runPaymentAction(handleStripePayment)}
               disabled={busy || !canPay}
@@ -1206,7 +1207,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
               ) : (
                 `Confirm payment of ${formatCurrency(paymentTerm?.amount ?? payableAmount, paymentTerm?.currency || data.currency)}`
               )}
-            </Button>
+            </Button></MembershipPrimaryAction>
           </div>
         )}
       </CardContent>
