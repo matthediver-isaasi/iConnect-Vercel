@@ -121,6 +121,23 @@ test('existing over-credit is flagged without creating another credit', async ()
   assert.equal(calls.some(c => c.method !== 'GET'), false);
 });
 
+test('matching existing credit is discovered even when invoice is fully credited',async()=>{
+  const note={CreditNoteID:'existing',CreditNoteNumber:'CN-existing',Status:'AUTHORISED',Total:200,
+    Contact:{ContactID:'contact'},CurrencyCode:'GBP',Type:'ACCRECCREDIT',Reference:'Cancel: fixture',
+    Allocations:[{Invoice:{InvoiceID:'invoice'},Amount:200}]};
+  const {error,calls,result}=await run({original:{...invoice(),AmountCredited:200,AmountDue:0},existing:[note]});
+  assert.equal(calls.some(c=>c.method!=='GET'),false);
+  assert.equal(error,undefined);
+  assert.equal(result.creditNoteId,'existing');
+  assert.equal(result.allocated,true);
+});
+
+test('ambiguous credit matches never create another note',async()=>{
+  const {error,calls}=await run({existing:[{Status:'AUTHORISED',Total:200},{Status:'AUTHORISED',Total:200}]});
+  assert.match(error.message,/Ambiguous/);
+  assert.equal(calls.some(c=>c.method!=='GET'),false);
+});
+
 test('remaining gross credit cap is retained', async () => {
   const { result, calls, error } = await run({ original: { ...invoice(), AmountCredited: 100, AmountDue: 100 }, responseTotal: 100 });
   assert.equal(error, undefined);

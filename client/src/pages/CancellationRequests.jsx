@@ -28,6 +28,76 @@ import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { toast } from "sonner";
 
+const creditNoteStates = {
+  pending: { label: 'Pending', className: 'bg-amber-50 text-amber-900 border-amber-200' },
+  retry: { label: 'Retry scheduled', className: 'bg-amber-50 text-amber-900 border-amber-200' },
+  processing: { label: 'Processing', className: 'bg-blue-50 text-blue-800 border-blue-200' },
+  review: { label: 'Needs review', className: 'bg-amber-50 text-amber-900 border-amber-200' },
+  complete: { label: 'Complete', className: 'bg-green-50 text-green-800 border-green-200' },
+  failed: { label: 'Failed', className: 'bg-red-50 text-red-800 border-red-200' },
+  unavailable: { label: 'Status unavailable', className: 'bg-slate-50 text-slate-700 border-slate-200' },
+};
+
+function creditNoteDate(value) {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : format(date, "MMM d, yyyy 'at' h:mm a xxx");
+}
+
+// Kept per request so grouped and partially approved bookings retain every outcome.
+export function CreditNoteRecoveryStatus({ request }) {
+  if (request.status !== 'approved') return null;
+  const recovery = request.credit_note_recovery;
+  if (Array.isArray(recovery) && recovery.length === 0) return null;
+  const entries = Array.isArray(recovery) ? recovery : [null];
+  const complete = entries.length > 0 && entries.every(entry => entry?.state === 'complete');
+
+  return (
+    <section
+      aria-label="Accounting credit-note status"
+      className="rounded-md border border-slate-200 bg-slate-50 p-3 space-y-2"
+      data-testid={`credit-note-recovery-${request.id}`}
+    >
+      <h4 className="text-sm font-medium text-slate-900">Accounting credit note</h4>
+      <p className="text-xs text-slate-600">
+        {complete
+          ? 'Cancellation approved. Credit-note accounting complete.'
+          : 'Cancellation approved. Credit-note accounting is not confirmed complete.'}
+      </p>
+      <ul className="space-y-3">
+        {entries.map((entry, index) => {
+          const state = typeof entry?.state === 'string' && Object.hasOwn(creditNoteStates, entry.state)
+            ? entry.state : 'unavailable';
+          const presentation = creditNoteStates[state];
+          const nextAttempt = creditNoteDate(entry?.next_attempt_at);
+          const updated = creditNoteDate(entry?.updated_at);
+          return (
+            <li key={index} className="space-y-1 text-sm break-words">
+              <Badge variant="outline" className={presentation.className}>{presentation.label}</Badge>
+              <p className="text-slate-700 whitespace-pre-wrap">
+                {typeof entry?.message === 'string' && entry.message.trim()
+                  ? entry.message : state === 'unavailable' ? 'Credit-note status is currently unavailable.' : 'No additional accounting details available.'}
+              </p>
+              {typeof entry?.credit_note_number === 'string' && entry.credit_note_number.trim() && (
+                <p className="font-medium text-slate-800">Credit note: {entry.credit_note_number}</p>
+              )}
+              {nextAttempt && (
+                <p className="text-xs text-slate-600">Next scheduled attempt: <time dateTime={entry.next_attempt_at}>{nextAttempt}</time></p>
+              )}
+              {updated && (
+                <p className="text-xs text-slate-500">Updated: <time dateTime={entry.updated_at}>{updated}</time></p>
+              )}
+              {(state === 'pending' || state === 'retry' || state === 'processing') && (
+                <p className="text-xs text-slate-600">Recovery is handled automatically by the scheduled accounting service.</p>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
 export default function CancellationRequests() {
   const { memberInfo, isFeatureExcluded, isAccessReady } = useMemberAccess();
   const queryClient = useQueryClient();
@@ -623,6 +693,9 @@ export default function CancellationRequests() {
                         {group.items.map((item) => (
                           <div
                             key={item.id}
+                            className="space-y-2"
+                          >
+                          <div
                             className="flex items-center justify-between gap-2 p-2 bg-slate-50 rounded-md border border-slate-200"
                             data-testid={`row-request-item-${item.id}`}
                           >
@@ -647,6 +720,8 @@ export default function CancellationRequests() {
                               )}
                             </div>
                             {!allSameStatus && getStatusBadge(item.status)}
+                          </div>
+                          {!isTransfer && <CreditNoteRecoveryStatus request={item} />}
                           </div>
                         ))}
                       </div>

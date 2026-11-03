@@ -37,7 +37,7 @@
       "maxDuration": 300
     },
     "api/cron/reconcile-booking-credits.js": {
-      "maxDuration": 60
+      "maxDuration": 120
     },
     "api/cron/reconcile-gocardless.js": {
       "maxDuration": 300

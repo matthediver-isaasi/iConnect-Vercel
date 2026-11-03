@@ -1843,7 +1843,10 @@ export async function emailXeroCreditNote({ appTenantId, creditNoteId, creditNot
   return { success: true, email: toEmail };
 }
 
-export async function createXeroCreditNote({ appTenantId, invoiceId, creditAmount, description, reference }) {
+export async function createXeroCreditNote({ appTenantId, invoiceId, creditAmount, description, reference, recoveryKey }, {
+  fetcher = globalThis.fetch, loadToken = getValidXeroAccessToken,
+} = {}) {
+  const fetch = fetcher;
   if (!appTenantId) throw new Error('appTenantId is required');
   if (!invoiceId) throw new Error('invoiceId is required');
 
@@ -1852,7 +1855,7 @@ export async function createXeroCreditNote({ appTenantId, invoiceId, creditAmoun
     throw new Error(`creditAmount must be a positive number, got: ${creditAmount}`);
   }
 
-  const { accessToken, tenantId: xeroTenantId } = await getValidXeroAccessToken(appTenantId);
+  const { accessToken, tenantId: xeroTenantId } = await loadToken(appTenantId);
 
   console.log(`[Xero] Retrieving invoice ${invoiceId} for credit note creation`);
   const invoiceResponse = await fetch(`https://api.xero.com/api.xro/2.0/Invoices/${invoiceId}`, {
@@ -1884,14 +1887,10 @@ export async function createXeroCreditNote({ appTenantId, invoiceId, creditAmoun
   const invoiceTotal = Number(invoice.Total) || 0;
   const remainingCreditable = Math.max(0, invoiceTotal - amountCredited);
 
-  if (remainingCreditable <= 0) {
-    return { skipped: true, reason: 'Invoice already fully credited', invoiceId, invoiceNumber: invoice.InvoiceNumber };
-  }
-
   const effectiveAmount = Math.min(numericAmount, remainingCreditable);
 
   if (reference) {
-    const existingResponse = await fetch(`https://api.xero.com/api.xro/2.0/CreditNotes?where=Reference=="${encodeURIComponent(reference)}"`, {
+    const existingResponse = await fetch(`https://api.xero.com/api.xro/2.0/CreditNotes?where=${encodeURIComponent(`Reference==${JSON.stringify(reference)}`)}`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${accessToken}`,
@@ -1900,9 +1899,23 @@ export async function createXeroCreditNote({ appTenantId, invoiceId, creditAmoun
       }
     });
     const existingData = await safeXeroJson(existingResponse, 'creditnote-dedup-check');
-    const existingCreditNotes = existingData?.CreditNotes || [];
+    if (!Array.isArray(existingData?.CreditNotes)) throw new Error('Credit-note discovery incomplete');
+    const existingCreditNotes = existingData.CreditNotes;
+    if (existingCreditNotes.length >= 100 || existingCreditNotes.filter(cn => !['DELETED','VOIDED'].includes(cn.Status)).length > 1) {
+      throw new Error('Ambiguous credit-note matches require accounting review');
+    }
     const matchingCN = existingCreditNotes.find(cn => cn.Status !== 'DELETED' && cn.Status !== 'VOIDED');
     if (matchingCN) {
+      if (!Number.isFinite(Number(matchingCN.Total)) || Number(matchingCN.Total) > Math.min(numericAmount, invoiceTotal) + 0.001) {
+        throw new Error('Existing credit note exceeds the intended gross credit; administrator review required');
+      }
+      if (matchingCN.Contact?.ContactID !== invoice.Contact?.ContactID
+        || matchingCN.CurrencyCode !== invoice.CurrencyCode || matchingCN.Type !== 'ACCRECCREDIT'
+        || matchingCN.Reference !== reference || !['AUTHORISED','PAID'].includes(matchingCN.Status)
+        || (recoveryKey && Math.abs(Number(matchingCN.Total)-numericAmount)>0.001)
+        || matchingCN.Allocations?.some(a=>a.Invoice?.InvoiceID !== invoiceId)) {
+        throw new Error('Existing credit note does not match the approved cancellation');
+      }
       if (!Number.isFinite(Number(matchingCN.Total)) || Number(matchingCN.Total) > Math.min(numericAmount, invoiceTotal) + 0.001) {
         throw new Error('Existing credit note exceeds the intended gross credit; administrator review required');
       }
@@ -1913,7 +1926,7 @@ export async function createXeroCreditNote({ appTenantId, invoiceId, creditAmoun
         amount: matchingCN.Total == null ? null : Number(matchingCN.Total),
         currency: matchingCN.CurrencyCode,
         status: matchingCN.Status,
-        allocated: (Number(matchingCN.Total) - Number(matchingCN.RemainingCredit || 0)) > 0,
+        allocated: matchingCN.Allocations?.some(a => a.Invoice?.InvoiceID === invoiceId && Number(a.Amount)>0) === true,
         invoiceId,
         invoiceNumber: invoice.InvoiceNumber,
         alreadyExisted: true,
@@ -1921,6 +1934,12 @@ export async function createXeroCreditNote({ appTenantId, invoiceId, creditAmoun
     }
   }
 
+  if (remainingCreditable <= 0) {
+    return { skipped: true, reason: 'Invoice already fully credited', invoiceId, invoiceNumber: invoice.InvoiceNumber };
+  }
+  if (recoveryKey && Math.abs(effectiveAmount-numericAmount)>0.001) {
+    throw new Error('Invoice creditable balance changed; accounting review required');
+  }
   const contactId = invoice.Contact?.ContactID;
   if (!contactId) {
     throw new Error(`Invoice ${invoiceId} has no associated contact in Xero`);
@@ -1946,7 +1965,8 @@ export async function createXeroCreditNote({ appTenantId, invoiceId, creditAmoun
       'Authorization': `Bearer ${accessToken}`,
       'xero-tenant-id': xeroTenantId,
       'Content-Type': 'application/json',
-      'Accept': 'application/json'
+      'Accept': 'application/json',
+      ...(recoveryKey ? { 'Idempotency-Key': recoveryKey } : {}),
     },
     body: JSON.stringify(creditNotePayload)
   });

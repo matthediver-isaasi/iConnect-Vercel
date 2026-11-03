@@ -12,6 +12,7 @@ import {
 import { cancelZoomRegistrant, resolveEventZoomWebinar } from '../_lib/zoomClient.js';
 import Stripe from 'stripe';
 import { captureCancellationCredits, prepareCancellationCredits } from '../_lib/bookingCreditEvidence.js';
+import { createRecoverableCancellationCredit } from '../_lib/cancellationCreditRecovery.js';
 import {
   isComplexSource,
   normalizeComplexBooking,
@@ -614,7 +615,10 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
             : uniqueNames.join(', ');
 
           const provider = await getAccountingProvider(tenantId);
-          const result = await provider.createCreditNote({
+          const result = await createRecoverableCancellationCredit({
+            db:supabase,tenantId,source:bookingTable,bookings:bookingsForThisInvoice,
+            operationKey:`cancel-group:${groupRequestIds}`,email:credit_note_email,
+          },provider,{
             appTenantId: tenantId,
             invoiceId: xeroBooking.accounting_invoice_id || xeroBooking.xero_invoice_id,
             creditAmount: totalCreditAmount,
@@ -650,7 +654,7 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
             console.log(`[GroupApproval] Consolidated Xero credit note ${result.creditNoteNumber}: £${result.amount} for ${bookings.length} bookings`);
 
             if (result.creditNoteId) {
-              for (const booking of bookings) {
+              for (const booking of bookingsForThisInvoice) {
                 const { error: cnUpdateError } = await supabase
                   .from(bookingTable)
                   .update(buildCreditNoteColumnUpdate(result))

@@ -1,4 +1,6 @@
 import Stripe from 'stripe';
+import { recoverCancellationCredits } from '../_lib/cancellationCreditRecovery.js';
+import { executeCancellationCredit } from '../_lib/xeroCancellationRecovery.js';
 import { supabase } from '../_lib/database.js';
 import { getStripeCredentials } from '../_lib/stripeCredentials.js';
 import { readXeroCreditNoteEvidence } from '../_lib/xero.js';
@@ -56,6 +58,7 @@ export default async function handler(req, res) {
   if (!process.env.CRON_SECRET || req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) return res.status(401).json({ error: 'Unauthorized' });
   if (!supabase) return res.status(503).json({ error: 'Database not configured' });
   try {
+    const recovery = await recoverCancellationCredits(supabase,row=>executeCancellationCredit(supabase,row));
     const results = await refreshPendingCredits({
       db: supabase,
       readEvidence: async row => {
@@ -71,7 +74,7 @@ export default async function handler(req, res) {
         throw new Error('Unsupported provider');
       },
     });
-    return res.json({ results });
+    return res.json({ results, recovery });
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }

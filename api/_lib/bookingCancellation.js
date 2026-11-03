@@ -20,6 +20,7 @@
 // opt out of that step per-booking.
 
 import { supabase } from './database.js';
+import { createRecoverableCancellationCredit } from './cancellationCreditRecovery.js';
 import { getStripeCredentials } from './stripeCredentials.js';
 import { getAccountingProvider, buildCreditNoteColumnUpdate } from './accountingProvider.js';
 import { sendEmail } from './emailService.js';
@@ -531,7 +532,10 @@ export async function cancelBooking({
             : `Cancel: ${booking.booking_reference || booking.id}`);
 
         const provider = await getAccountingProvider(tenantId);
-        const result = await provider.createCreditNote({
+        const result = await createRecoverableCancellationCredit({
+          db:supabase,tenantId,source,bookings:[booking],
+          operationKey:`cancel:${cancellationRequestId || reason}:${booking.id}`,email:creditNoteEmail,
+        }, provider, {
           appTenantId: tenantId,
           invoiceId: booking.accounting_invoice_id || booking.xero_invoice_id,
           creditAmount,

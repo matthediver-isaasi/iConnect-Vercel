@@ -29,4 +29,10 @@ Identity and accounting-context failures before a provider-operation claim need 
 
 **Why:** A membership history and its result agreed on a member, but the submission lacked the authoritative member link. Settlement correctly rejected it before incrementing its attempt counter, leaving the same error eligible forever.
 
+Cancellation approval and credit-note completion are separate outcomes. Recovery must retain the approved financial intent; reporting evidence alone must never authorize a new financial write.
+
+**Why:** Approved cancellations can have failed accounting steps, and historical error evidence may not contain the approved credit amount. Re-running cancellation can repeat unrelated refunds and notifications.
+
+**How to apply:** Retry only a protected credit-note operation. Pre-write transient errors may retry; ambiguous writes and interrupted processing require provider verification. Never infer a historical approved credit amount from the ticket price.
+
 **How to apply:** Reload and tenant-validate persisted submission links before creating or resuming memberships. Do not repair missing links from caller IDs. Save integrity failures once, exclude blocked rows before sweep limits, and keep the paid receipt distinct from membership or settlement completion.

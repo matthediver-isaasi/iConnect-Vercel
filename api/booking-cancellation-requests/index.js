@@ -1,4 +1,5 @@
 import { supabase } from '../_lib/database.js';
+import { cancellationCreditStatus } from '../_lib/cancellationCreditRecovery.js';
 import { getSessionMember } from '../_lib/session.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { BOOKING_SOURCE_REGULAR, BOOKING_SOURCE_COMPLEX, isComplexSource, normalizeComplexBooking } from '../_lib/bookingLookup.js';
@@ -559,7 +560,9 @@ async function handleGet(req, res) {
       }
     }
 
-    return res.json({ requests: enrichedRequests });
+    return res.json({ requests: isAdmin
+      ? await cancellationCreditStatus(supabase,tenantId,enrichedRequests)
+      : enrichedRequests });
   } catch (err) {
     console.error('[CancellationRequest] Error:', err);
     return res.status(500).json({ error: 'Internal server error' });
