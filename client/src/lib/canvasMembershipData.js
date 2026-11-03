@@ -264,6 +264,7 @@ export function normalizeCanvasMembershipSummary(value) {
     // Only the authenticated server response can establish renewal eligibility.
     // A retained payment, signup quote or current collection is not a renewal quote.
     renewal: { eligible: renewal.eligible === true,
+      ...(renewal.state === 'post_grace_renewal' ? { state: renewal.state } : {}),
       ...(['loading', 'ready', 'unavailable'].includes(renewal.priceState) ? { priceState: renewal.priceState } : {}),
       ...(renewal.eligible === true && price.verified === true
         && Number.isFinite(price.amount) && price.amount >= 0

@@ -164,6 +164,32 @@ function render(overrides = {}) {
   />);
 }
 
+test('post-grace Canvas restart CTA uses server state, strict eligibility and existing renewal destination', () => {
+  const block = { id: 'restart', content: { renewalLink: '/forms/renew?source=portal' } };
+  for (const eligible of [true, false, undefined, 'true']) {
+    const html = render({ type: 'payment-details', block, result: { status: 'ready', data: {
+      membership: { state: 'expired', termEndDate: '2026-09-25' },
+      payment: { state: 'unavailable' },
+      renewal: { state: 'post_grace_renewal', eligible, commencementBasis: 'confirmed_payment', provisional: true },
+    } } });
+    const doc = new JSDOM(html).window.document;
+    const cta = doc.querySelector('[data-testid="membership-renewal-cta"]');
+    assert.equal(!!cta, eligible === true);
+    if (cta) {
+      assert.equal(cta.textContent, 'Restart your membership');
+      assert.equal(cta.getAttribute('href'), '/forms/renew?source=portal');
+      assert.match(html, /Membership starts on successful payment/);
+      assert.match(html, /dates shown before payment are estimates/);
+    } else assert.match(html, /restart is not currently available/);
+    assert.doesNotMatch(html, /Renew your subscription/);
+  }
+  const ordinary = render({ type: 'payment-details', block, result: { status: 'ready', data: {
+    ...live, renewal: { state: 'eligible_renewal', eligible: true },
+  } } });
+  assert.match(ordinary, /Renew your subscription/);
+  assert.doesNotMatch(ordinary, /Restart your membership|membership-restart-notice/);
+});
+
 test('date facts share intrinsic label/value tracks across wrapped labels and responsive columns', () => {
   for (const type of ['membership-summary', 'payment-details']) {
     for (const breakpoint of [undefined, 'desktop', 'mobile']) {

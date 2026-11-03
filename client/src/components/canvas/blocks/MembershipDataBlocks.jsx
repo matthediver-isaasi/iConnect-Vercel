@@ -47,7 +47,7 @@ const stateColors = {
 // Use the same Primary slot, size/background/border and label composition as
 // Canvas Button, rather than the membership link typography or a local colour.
 export function MembershipRenewalButton({
-  href, newTab, asEditor, tenantStyles, stylesResolved, breakpoint,
+  href, newTab, asEditor, tenantStyles, stylesResolved, breakpoint, restart = false,
 }) {
   const branding = useTenantBranding()?.branding || null;
   const buttonStyle = resolveTenantButtonStyle('tenant-primary', branding);
@@ -76,7 +76,7 @@ export function MembershipRenewalButton({
       lineHeight: undefined, maxWidth: '100%', textDecoration: 'none',
     }}>
     {iconElement && icon.position !== 'after' && <span aria-hidden="true" style={{ display: 'inline-flex', flexShrink: 0 }}>{iconElement}</span>}
-    <span style={{ ...labelCss, visibility: awaitingLabel ? 'hidden' : undefined }}>Renew your subscription</span>
+    <span style={{ ...labelCss, visibility: awaitingLabel ? 'hidden' : undefined }}>{restart ? 'Restart your membership' : 'Renew your subscription'}</span>
     {iconElement && icon.position === 'after' && <span aria-hidden="true" style={{ display: 'inline-flex', flexShrink: 0 }}>{iconElement}</span>}
   </a>;
 }
@@ -94,6 +94,7 @@ export function MembershipDataView({
   const ready = result?.status === 'ready';
   const state = ready ? (paymentCard ? summary.payment.state : summary.membership.state) : 'unavailable';
   const renewalHref = safeMembershipLink(content.renewalLink);
+  const restart = summary.renewal.state === 'post_grace_renewal';
    const bankSetupPending = summary.payment.state === 'bank_setup_pending';
    const showRenewal = paymentCard && ready && !bankSetupPending && summary.renewal.eligible && !!renewalHref;
   // A confirmed absence of payment data has no useful published presentation.
@@ -109,7 +110,7 @@ export function MembershipDataView({
     && (summary.payment.state === 'paid' || summary.payment.method === 'upfront')
     && content.eyebrow === 'PAYMENT DETAILS' && copy.heading === 'Your subscription';
   const termEndDate = summary.membership.termEndDate || summary.membership.expiryDate;
-  const termEndLabel = summary.membership.grace ? content.fields.previousMembershipEnded : content.fields.expiryDate;
+   const termEndLabel = summary.membership.grace || restart ? content.fields.previousMembershipEnded : content.fields.expiryDate;
   const renewalPrice = paymentCard && !bankSetupPending && summary.renewal.price
     ? formatMembershipAmount(summary.renewal.price.amount, summary.renewal.price.currency) : null;
   const showSupporting = copy.supporting.trim() && (!summary.membership.grace
@@ -241,6 +242,11 @@ export function MembershipDataView({
           {' '}{content.messages.graceRenewalAction}
         </p>
       </div>}
+      {ready && restart && <p {...role('supporting', { marginTop: 16 })} data-testid="membership-restart-notice">
+        {summary.renewal.eligible
+          ? 'Your grace period has ended. Restart your membership using the renewal form. Membership starts on successful payment, not from your previous expiry date. Any dates shown before payment are estimates; setting up a payment method alone does not restart membership.'
+          : 'Membership restart is not currently available. Please contact the membership team before paying.'}
+      </p>}
       {!ready ? (
         <p {...role('supporting', { marginTop: 16 })} role={result?.status === 'error' || result?.status === 'denied' ? 'alert' : 'status'}>
           {content.messages[result?.status] || content.messages.error}
@@ -345,6 +351,7 @@ export function MembershipDataView({
       </a>}
       {showRenewal && <div style={{ marginTop: 24 }}>
         <MembershipRenewalButton href={renewalHref} newTab={content.renewalLinkNewTab}
+          restart={restart}
           asEditor={asEditor} tenantStyles={tenantStyles} stylesResolved={stylesResolved}
           breakpoint={breakpoint || viewportBreakpoint} />
       </div>}

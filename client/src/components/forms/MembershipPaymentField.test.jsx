@@ -365,3 +365,109 @@ test('joining behaviour keeps original continuation buttons without renewal choo
   }
   await mounted.close();
 });
+
+const restartQuote = eligible => ({
+  ...renewalQuote(),
+  membershipYear: 'rolling:2027-02-04', scheduleName: 'Associate restart',
+  renewal: {
+    state: 'post_grace_renewal', eligible, commencementBasis: 'confirmed_payment', provisional: true,
+    currentEnd: '2026-09-25', successorStart: '2027-02-04', successorEnd: '2028-02-03',
+  },
+});
+
+test('post-grace restart uses provisional payment-based dates and retains all quoted methods and schedule', async () => {
+  for (const method of ['upfront', 'monthly_card', 'direct_debit']) {
+    const quote = restartQuote(true);
+    quote.cardMonthly.firstChargeDate = '2027-02-04';
+    const mounted = await mountRenewal(quote, { error: 'Fixture stops before payment provider' }, undefined, {
+      formId: 'renew-form', field: { id: 'payment', membership_schedule_mapping: { source_field_id: 'schedule' } },
+      allFormValues: { schedule: 'Associate' },
+    });
+    assert.match(mounted.host.textContent, /Restart your membership/);
+    assert.match(mounted.host.textContent, /Previous membership ended: 25\/09\/2026/);
+    assert.match(mounted.host.textContent, /Estimated membership dates: 04\/02\/2027 to 03\/02\/2028/);
+    assert.match(mounted.host.textContent, /restarts on successful payment/);
+    assert.match(mounted.host.textContent, /Associate restart/);
+    assert.equal(mounted.host.querySelectorAll('button[aria-pressed]').length, 3);
+    assert.doesNotMatch(mounted.host.textContent, /Your renewal covers|From 4 February|dates.*remain fixed/);
+    await click(mounted.card(method));
+    assert.doesNotMatch(mounted.host.textContent, /Nothing due now|current membership stays unchanged/);
+    if (method === 'direct_debit') {
+      assert.match(mounted.host.querySelector('[data-testid="text-dd-first-collection-payment"]').textContent, /only after successful payment/);
+    }
+    await click(mounted.host.querySelector(`[data-testid="${{
+      upfront: 'button-pay-membership', monthly_card: 'button-monthly-card', direct_debit: 'button-direct-debit',
+    }[method]}-payment"]`));
+    assert.equal(mounted.posts.length, 1);
+    assert.equal(mounted.posts[0].renewalScheduleAnswer, 'Associate');
+    assert.equal(mounted.posts[0].credentials, 'include');
+    await mounted.close();
+  }
+});
+
+test('post-grace restart never offers payment without explicit server true eligibility', async () => {
+  for (const eligible of [false, undefined, 'true']) {
+    for (const withQuote of [true, false]) {
+      const quote = restartQuote(eligible);
+      if (!withQuote) delete quote.membershipYear;
+      const mounted = await mountRenewal(quote);
+      assert.match(mounted.host.textContent, /restart is not currently available/);
+      assert.equal(mounted.host.querySelectorAll('button[aria-pressed]').length, 0);
+      assert.equal(mounted.host.querySelector('[data-testid="button-pay-membership-payment"]'), null);
+      assert.equal(mounted.host.querySelector('[data-testid="button-monthly-card-payment"]'), null);
+      assert.equal(mounted.host.querySelector('[data-testid="button-direct-debit-payment"]'), null);
+      await click([...mounted.host.querySelectorAll('button')].find(button => button.textContent === 'Check renewal status'));
+      assert.equal(mounted.posts.length, 0);
+      await mounted.close();
+    }
+  }
+});
+
+test('post-grace Stripe checkout and completion never present provisional dates as fixed entitlement', async () => {
+  window.Stripe = () => ({
+    elements: () => ({ create: () => ({ mount() {} }), submit: async () => ({}) }),
+    confirmPayment: async () => ({ paymentIntent: { id: 'pi_restart_fixture', status: 'succeeded' } }),
+  });
+  const mounted = await mountRenewal(restartQuote(true), request => request.action === 'create_payment'
+    ? { clientSecret: 'fixture', membershipYear: 'rolling:2027-02-04', renewalElectionId: 'election',
+        membershipStartDate: '2027-02-04', membershipRenewalDate: '2028-02-04' }
+    : { success: true });
+  try {
+    await click(mounted.card('upfront'));
+    await click(mounted.host.querySelector('[data-testid="button-pay-membership-payment"]'));
+    assert.equal(mounted.host.querySelector('[data-testid="membership-agreed-term"]'), null);
+    assert.match(mounted.host.textContent, /Estimated membership dates/);
+    await click(mounted.host.querySelector('[data-testid="button-confirm-payment-payment"]'));
+    assert.ok(mounted.host.querySelector('[data-testid="text-payment-success"]'));
+    assert.equal(mounted.host.querySelector('[data-testid="text-membership-scheduled"]'), null);
+    assert.doesNotMatch(mounted.host.textContent, /From 4 February|Membership starts on/);
+  } finally {
+    await mounted.close();
+    delete window.Stripe;
+  }
+});
+
+test('post-grace Direct Debit set-up does not claim activation before successful payment', async () => {
+  const mounted = await mountRenewal(restartQuote(true), { agreementId: 'fixture-only' });
+  await click(mounted.card('direct_debit'));
+  await click(mounted.host.querySelector('[data-testid="button-direct-debit-payment"]'));
+  const notice = mounted.host.querySelector('[data-testid="dd-started-payment"]');
+  assert.match(notice.textContent, /pending payment confirmation/);
+  assert.match(notice.textContent, /does not restart your membership/);
+  assert.doesNotMatch(notice.textContent, /activated automatically|membership will be confirmed once they complete the set-up/);
+  await mounted.close();
+});
+
+test('ordinary within-grace renewal retains fixed successor dates and existing renewal copy', async () => {
+  const mounted = await mountRenewal({
+    ...renewalQuote(),
+    renewal: { state: 'eligible_renewal', eligible: true, currentEnd: '2026-09-25',
+      successorStart: '2026-09-26', successorEnd: '2027-09-25' },
+  });
+  assert.match(mounted.host.textContent, /Renew your membership for the next term/);
+  assert.match(mounted.host.textContent, /Your renewal covers: 26\/09\/2026 to 25\/09\/2027/);
+  assert.match(mounted.host.textContent, /Current membership ends: 25\/09\/2026/);
+  assert.doesNotMatch(mounted.host.textContent, /Restart your membership|provisional|Estimated membership/);
+  assert.equal(mounted.host.querySelectorAll('button[aria-pressed]').length, 3);
+  await mounted.close();
+});

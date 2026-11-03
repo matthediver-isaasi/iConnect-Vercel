@@ -46,6 +46,21 @@ test('renewal configuration survives normalization but never stores server eligi
   }
 });
 
+test('post-grace renewal state is retained only as server presentation data with strict eligibility', () => {
+  for (const eligible of [true, false, undefined, 'true']) {
+    const summary = normalizeCanvasMembershipSummary({
+      renewal: { state: 'post_grace_renewal', eligible, privateRecord: 'not public' },
+    });
+    assert.equal(summary.renewal.state, 'post_grace_renewal');
+    assert.equal(summary.renewal.eligible, eligible === true);
+    assert.equal(summary.renewal.privateRecord, undefined);
+  }
+  const content = normalizeCanvasMembershipContent({
+    renewal: { state: 'post_grace_renewal', eligible: true },
+  }, 'payment-details');
+  assert.equal(content.renewal, undefined, 'authored content must never grant restart eligibility');
+});
+
 test('saved term dates remain separate from original join and renewal dates', () => {
   const input = { membership: { state: 'active', termStartDate: '2026-09-24', termEndDate: '2027-09-23',
     renewalDate: '2027-09-24', memberSince: null } };

@@ -38,6 +38,24 @@ function isBelowStripeMinimum(amount, currency) {
   return parseFloat(amount || 0) < min;
 }
 
+// Keep payment-based wording during checkout too: the existing pending-election
+// transition retains these server-provided commencement fields.
+function isRestartRenewal(renewal) {
+  return renewal?.state === 'post_grace_renewal'
+    || (renewal?.commencementBasis === 'confirmed_payment' && renewal?.provisional === true);
+}
+
+function RenewalTermSummary({ renewal }) {
+  const restart = isRestartRenewal(renewal);
+  return <>
+    {renewal.currentEnd && <p className="text-sm">{restart ? 'Previous membership ended' : 'Current membership ends'}: {formatMembershipDate(renewal.currentEnd)}.</p>}
+    {restart ? <>
+      <p className="text-sm" data-testid="membership-restart-basis">Your membership restarts on successful payment, not from your previous expiry date. Setting up a payment method alone does not restart membership.</p>
+      {renewal.successorStart && <p className="text-sm" data-testid="membership-restart-estimate">Estimated membership dates: {formatMembershipDate(renewal.successorStart)}{renewal.successorEnd ? ` to ${formatMembershipDate(renewal.successorEnd)}` : ''}. These dates are provisional and will be confirmed after successful payment.</p>}
+    </> : renewal.successorStart && <p className="text-sm">Your renewal covers: {formatMembershipDate(renewal.successorStart)}{renewal.successorEnd ? ` to ${formatMembershipDate(renewal.successorEnd)}` : ''}.</p>}
+  </>;
+}
+
 export default function MembershipPaymentField({ value, onChange, disabled, field, allFormValues = {}, resolvedMemberId = null, formId = null }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -513,12 +531,14 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
   // Ref guards also cover multiple clicks before React has rendered busy state.
   const runPaymentAction = async (action) => {
     if (actionInFlight.current || switchInFlight.current || loading || disabled) return;
+    if (data?.renewal?.state === 'post_grace_renewal' && data.renewal.eligible !== true) return;
     actionInFlight.current = true;
     try { await action(); } finally { actionInFlight.current = false; }
   };
 
   const chooseRenewalMethod = async (method) => {
     if (actionInFlight.current || switchInFlight.current || loading || disabled || ddDropin) return;
+    if (data?.renewal?.state === 'post_grace_renewal' && data.renewal.eligible !== true) return;
     if (!renewalOptions(data).some(option => option.id === method)) return;
     if (data.renewal?.state === 'renewal_pending' && data.renewal.selectedMethod !== method) {
       await releaseUnusedRenewal(method);
@@ -671,13 +691,13 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
             <CheckCircle2 className="h-10 w-10 text-green-500" />
             <div className="text-center">
               <p className="font-medium" data-testid="text-payment-success">Membership fee paid</p>
-              {(data?.existingRecord?.status === 'scheduled' || data?.renewal?.successorStart) && (
+              {!isRestartRenewal(data?.renewal) && (data?.existingRecord?.status === 'scheduled' || data?.renewal?.successorStart) && (
                 <p className="text-sm text-muted-foreground" data-testid="text-membership-scheduled">
                   Membership starts on {formatMembershipDate(data?.renewal?.successorStart || data?.existingRecord?.termStart)}.
                 </p>
               )}
               <p className="text-sm text-muted-foreground">
-                {membershipTermLabel(paymentYear || data?.membershipYear)} - {formatCurrency(paymentTerm?.amount ?? data?.totalWithVat ?? data?.finalCost, paymentTerm?.currency || data?.currency)}
+                {isRestartRenewal(data?.renewal) ? 'Membership restart payment' : membershipTermLabel(paymentYear || data?.membershipYear)} - {formatCurrency(paymentTerm?.amount ?? data?.totalWithVat ?? data?.finalCost, paymentTerm?.currency || data?.currency)}
               </p>
             </div>
           </div>
@@ -694,12 +714,16 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
 
   const renewal = data.renewal;
   const isRenewal = renewal && renewal.state !== 'joining';
+  const restart = isRestartRenewal(renewal);
   const resuming = renewal?.state === 'renewal_pending' && renewal?.selectedMethod && data.membershipYear;
   const busy = disabled || loading || switchingPayment || processingPayment || creatingPayment || startingDd || startingCard || !!ddDropin;
   const selectedMethod = renewal?.state === 'renewal_pending' ? renewal.selectedMethod : chosenMethod;
   const canPay = !switchingPayment && renewal?.switchState !== 'reconciling'
-    && (!isRenewal || renewal.eligible || resuming);
+    && (!isRenewal || renewal.eligible === true || resuming);
   const renewalMessages = {
+    post_grace_renewal: renewal?.eligible === true
+      ? 'Restart your membership. Your grace period has ended.'
+      : 'Membership restart is not currently available. Please contact the membership team or check renewal status before paying.',
     renewal_not_open: `Renewal opens on ${formatMembershipDate(renewal?.opensOn)}.`,
     renewal_closed: `Online renewal closed on ${formatMembershipDate(renewal?.closesOn)}. Please contact the membership team for help renewing.`,
     renewal_pending: data.membershipYear
@@ -717,13 +741,12 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
       <Card>
         <CardContent className="pt-6 space-y-3" data-testid="membership-renewal-summary">
           <p className="font-medium">{renewalMessages[renewal.state] || 'Membership renewal is not currently available.'}</p>
-          {renewal.currentEnd && <p className="text-sm">Current membership ends: {formatMembershipDate(renewal.currentEnd)}.</p>}
-          {renewal.successorStart && <p className="text-sm">Your renewal covers: {formatMembershipDate(renewal.successorStart)}{renewal.successorEnd ? ` to ${formatMembershipDate(renewal.successorEnd)}` : ''}.</p>}
+          <RenewalTermSummary renewal={renewal} />
           {renewal.currentAgreementId && <>
             <p className="text-sm">Any remaining payments for your current membership are still due.</p>
             <DirectDebitPlanCard memberId={memberId} />
           </>}
-          {renewal.state === 'renewal_pending' && <Button type="button" variant="outline" disabled={busy} onClick={fetchFees}>{loading ? 'Checking renewal status…' : 'Check renewal status'}</Button>}
+          {(restart || renewal.state === 'renewal_pending') && <Button type="button" variant="outline" disabled={busy} onClick={fetchFees}>{loading ? 'Checking renewal status…' : 'Check renewal status'}</Button>}
           {renewal.state === 'renewal_pending' && <Button type="button" variant="outline" disabled={busy} onClick={() => releaseUnusedRenewal()}>{switchingPayment ? 'Confirming cancellation…' : 'Change payment method'}</Button>}
           {switchingPayment && <p role="status">Checking your payment so you can safely choose another method. Please keep this page open.</p>}
           {paymentError && <p role="alert" className="text-sm text-destructive">{paymentError}</p>}
@@ -742,11 +765,10 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
             <p className="font-medium">{renewalMessages[renewal.state] || 'Renew your membership for the next term.'}</p>
             {switchingPayment && <p role="status">Checking your payment so you can safely choose another method. Please keep this page open.</p>}
             {!switchingPayment && renewal.switchState === 'reconciling' && <p role="status">Your previous checkout still needs to be checked. Choose another payment card to retry the safe cancellation, or check renewal status. Do not make another payment until this check finishes.</p>}
-            {renewal.currentEnd && <p>Current membership ends: {formatMembershipDate(renewal.currentEnd)}.</p>}
-            {renewal.successorStart && <p>Your renewal covers: {formatMembershipDate(renewal.successorStart)}{renewal.successorEnd ? ` to ${formatMembershipDate(renewal.successorEnd)}` : ''}.</p>}
+            <RenewalTermSummary renewal={renewal} />
             {renewal.currentAgreementId && <p>Any remaining payments for your current membership are still due.</p>}
-            {renewal.eligible && <p>Pay in full to pay for your renewal now. If you choose Direct Debit, you’ll set it up now and receive confirmation of your collection dates. No payment will be collected before your new membership period starts.</p>}
-            {renewal.state === 'renewal_pending' && (
+            {renewal.eligible && !restart && <p>Pay in full to pay for your renewal now. If you choose Direct Debit, you’ll set it up now and receive confirmation of your collection dates. No payment will be collected before your new membership period starts.</p>}
+            {(restart || renewal.state === 'renewal_pending') && (
               <Button type="button" variant="outline" onClick={fetchFees} disabled={busy}>{loading ? 'Checking renewal status…' : 'Check renewal status'}</Button>
             )}
           </div>
@@ -754,7 +776,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
         <div className="space-y-2">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div>
-              <p className="text-sm font-medium" data-testid="text-membership-year">{membershipTermLabel(data.membershipYear)}</p>
+              <p className="text-sm font-medium" data-testid="text-membership-year">{restart ? 'Membership restart — dates confirmed after payment' : membershipTermLabel(data.membershipYear)}</p>
               {(data.scheduleName || data.tierLabel) && (
                 <p className="text-xs text-muted-foreground" data-testid="text-tier-label">{data.scheduleName || data.tierLabel}</p>
               )}
@@ -853,7 +875,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
           </div>
         )}
 
-        {isRenewal && (renewal.eligible || resuming) && (
+        {isRenewal && (renewal.eligible === true || resuming) && (
           <RenewalMethodChooser options={renewalOptions(data)} selectedMethod={selectedMethod}
             busyMethod={busyMethod} disabled={busy}
             onSelect={chooseRenewalMethod} />
@@ -878,7 +900,9 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
               : `monthly Direct Debit collections at the active structure price (currently ${amount})`;
             const setup = `This page confirms ${schedule}. If a new bank setup is needed, GoCardless will securely set up the Direct Debit mandate before any collection is requested`;
             const reusable = `If an existing Direct Debit can be reused, the same schedule will be applied without asking you to set up your bank details again`;
-            const firstCollection = directDebitFirstCollectionText(dd);
+            const firstCollection = restart
+              ? 'collection dates will be confirmed separately; membership restarts only after successful payment'
+              : directDebitFirstCollectionText(dd);
             return `${setup}. First collection: ${firstCollection.toLowerCase()}. ${reusable}. ${directDebitPolicyText(dd)}`;
           })();
           return (
@@ -923,7 +947,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
                   <p className="text-xs text-muted-foreground">
                     Your annual membership paid in {cardMonthly.instalmentCount} monthly card instalments of {formatCurrency(cardMonthly.monthlyAmount, cardCurrency)} — {formatCurrency(cardMonthly.planTotal, cardCurrency)} in total over {cardMonthly.instalmentCount} months.
                   </p>
-                  {cardMonthly.firstChargeDate && (
+                  {cardMonthly.firstChargeDate && !restart && (
                     <p className="text-xs font-medium">
                       Nothing due now. First charge scheduled for {cardMonthly.firstChargeDate.split('-').reverse().join('/')}.
                       {' '}Your current membership stays unchanged.
@@ -1094,7 +1118,9 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
           <div className="flex items-start gap-2 p-3 bg-muted rounded-md" data-testid={`dd-started-${field.id}`}>
             <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0 mt-0.5" />
             <p className="text-sm text-muted-foreground">
-              {ddInviteSent
+              {restart
+                ? 'Direct Debit set-up is pending payment confirmation. Setting up a mandate or sending a set-up link does not restart your membership. Your membership dates will be confirmed after successful payment.'
+                : ddInviteSent
                 ? `A secure Direct Debit set-up link has been emailed to ${billingContactEmail.trim() || 'your billing contact'}. Your membership will be confirmed once they complete the set-up.`
                 : ddModalDone
                 ? 'Thank you — your bank details have been submitted. Your mandate is being confirmed with your bank, and your membership will be activated automatically. You will receive an email confirmation shortly.'
@@ -1116,7 +1142,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
 
         {paymentMode === 'stripe' && (
           <div className="space-y-3">
-            <MembershipCommitmentNotice startDate={paymentTerm?.membershipStartDate} renewalDate={paymentTerm?.membershipRenewalDate} />
+            {!restart && <MembershipCommitmentNotice startDate={paymentTerm?.membershipStartDate} renewalDate={paymentTerm?.membershipRenewalDate} />}
             <div
               id={`form-stripe-address-element-${field.id}`}
               className="min-h-[100px] rounded-md border p-3"
