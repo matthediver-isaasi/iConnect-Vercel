@@ -188,6 +188,45 @@ function dbFixture({ rows = {}, errors = {}, unfiltered = false } = {}) {
   };
 }
 
+test('portal loads reviewed historical instalment policy and offers within-grace renewal', async () => {
+  const history = {
+    id: 'reviewed-history', member_id: 'member-a', tenant_id: 'tenant-a',
+    status: 'expired', payment_status: 'paid', payment_method: 'direct_debit',
+    billing_period: 'annual', term_start_date: '2025-10-01', term_end_date: '2026-09-30',
+    total_with_vat: 156.48, currency: 'GBP',
+    renewal_policy_snapshot: {
+      id: 'retired-schedule', tenant_id: 'tenant-a', structure_scope_type: 'member',
+      billing_period: 'annual', start_mode: 'immediate', renewal_open_days: 90, renewal_grace_days: 90,
+      historical_settlement_renewal: {
+        version: 1, history_id: 'reviewed-history', member_id: 'member-a', tenant_id: 'tenant-a',
+        approved_at: '2026-11-02', provider_verified_at: '2026-11-02',
+        mandate_id: 'cancelled-historical-mandate', mandate_status: 'cancelled',
+        start: '2025-10-01', end: '2026-09-30', cash_minor: 9128, credit_minor: 6520, currency: 'GBP',
+      },
+    },
+  };
+  const before = structuredClone(history);
+  for (const verified of [true, false]) {
+    const row = structuredClone(history);
+    if (!verified) delete row.renewal_policy_snapshot;
+    const h = harness({ currentDay: '2026-11-03', rows: { member_membership_history: [row] } });
+    const response = await h.request();
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.payload.renewal.eligible, verified);
+    if (verified) {
+      assert.equal(response.payload.membership.grace.graceEndDate, '2026-12-29');
+      assert.equal(response.payload.payment.state, 'paid');
+      assert.equal(response.payload.membership.expiryDate, '2026-09-30');
+      assert.ok(h.db.calls.find(call => call.table === 'member_membership_history')
+        .columns.split(',').map(value => value.trim()).includes('renewal_policy_snapshot'));
+      assert.equal(JSON.stringify(response.payload).includes('cancelled-historical-mandate'), false);
+    } else {
+      assert.equal(response.payload.payment.state, 'unavailable');
+    }
+  }
+  assert.deepEqual(history, before);
+});
+
 function harness({ session = member, context = { tenantId: 'tenant-a' }, admin = false,
   permission = true, rows = {}, errors, unfiltered, currentDay = today, extra = {} } = {}) {
   const db = dbFixture({ rows: { member: [member], ...rows }, errors, unfiltered });
@@ -842,7 +881,7 @@ test('history query projections respect each owner schema and avoid unsupported 
   // Server-only attestation fields are intentionally absent from the public
   // history projection. The API regression above exercises their selection.
   for (const column of personal.filter(column => !['billing_agreement_id', 'payment_status',
-    'notes', 'currency', 'config_id', 'term_duration_months', 'final_cost', 'total_with_vat', 'cancelled_for_switch_at'].includes(column))) {
+    'notes', 'currency', 'config_id', 'term_duration_months', 'final_cost', 'total_with_vat', 'cancelled_for_switch_at', 'renewal_policy_snapshot'].includes(column))) {
     assert.ok(personalSelect.includes(`'${column}'`), `personal ${column} must match the existing history schema`);
   }
   for (const column of org) assert.ok(orgSelect.includes(`'${column}'`), `organisation ${column} must match the existing history schema`);
