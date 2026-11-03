@@ -149,6 +149,13 @@ rolls back primary, bridge, department and audit writes together.
 
 ## Frontend UI
 
+The affiliation card displays only the saved snapshot, with organisation context
+for departments and explicit empty states. “Update my affiliations” opens a
+viewport-bounded dialog; choice searches mount only while editing. Editing,
+review and discard confirmation share one dialog and a scrollable body, avoiding
+stacked focus traps. Close, Escape and outside clicks require confirmation for
+dirty drafts; saving blocks dismissal. Closing returns focus to the update button.
+
 The affiliation card is separate from the existing profile save. Organisation
 changes never clear departments automatically. Protected links have no removal
 button. Explicit removal confirmation is required in the review dialog.
@@ -165,6 +172,9 @@ After confirmation the component reloads its snapshot, invalidates organisation,
 member-department and exact profile queries, then merges only confirmed
 organisation identity into the cached session. Existing field-wise reconciliation
 preserves unrelated unsaved profile inputs.
+The editor closes only after a fresh snapshot is available. A confirmed write
+followed by a failed snapshot refresh is identified as saved, blocks resubmission,
+and offers snapshot reload. An unconfirmed save retains the draft for retry.
 
 ## Database tables
 

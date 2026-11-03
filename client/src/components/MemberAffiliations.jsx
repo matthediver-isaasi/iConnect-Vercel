@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Building2, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -78,6 +78,9 @@ const payload = draft => ({
 });
 
 export default function MemberAffiliations({ onSaved }) {
+  const [editorOpen, setEditorOpen] = useState(false);
+  const triggerRef = useRef(null);
+  const stageRef = useRef(null);
   const [snapshot, setSnapshot] = useState(null);
   const [draft, setDraft] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -100,8 +103,10 @@ export default function MemberAffiliations({ onSaved }) {
       setDraft(data.active ? fromSnapshot(data) : null);
       setCommitted(false);
       setSnapshotError(false);
+      return true;
     } catch (err) {
       if (!signal?.aborted) { setError(err.message); setSnapshotError(true); }
+      return false;
     } finally { if (!signal?.aborted) setLoading(false); }
   }
   useEffect(() => {
@@ -109,6 +114,9 @@ export default function MemberAffiliations({ onSaved }) {
     load(controller.signal);
     return () => controller.abort();
   }, []);
+  useEffect(() => {
+    if (editorOpen) stageRef.current?.focus();
+  }, [editorOpen, review, discard]);
   const dirty = !!draft && JSON.stringify(payload(draft)) !== JSON.stringify(payload(fromSnapshot(snapshot)));
   const removals = draft ? [
     ...(snapshot.primary && snapshot.primary.id !== draft.primary?.id ? [`Primary organisation: ${snapshot.primary.label}`] : []),
@@ -116,6 +124,17 @@ export default function MemberAffiliations({ onSaved }) {
     ...snapshot.departments.filter(item => !draft.departments.some(value => value.id === item.id)).map(item => `Department: ${item.label}`),
   ] : [];
   function update(next) { setDraft(next); setReview(false); setConfirmed(false); setMessage(""); }
+  function dismiss() {
+    if (saving || loading) return;
+    if (discard) return;
+    if (dirty && !committed) setDiscard("close");
+    else setEditorOpen(false);
+  }
+  async function reload() {
+    const wasCommitted = committed;
+    const fresh = await load();
+    if (fresh && wasCommitted) setEditorOpen(false);
+  }
   async function save() {
     if (!review || !dirty || saving || committed || (removals.length && !confirmed)) return;
     setSaving(true);
@@ -126,8 +145,9 @@ export default function MemberAffiliations({ onSaved }) {
       setCommitted(true);
       setReview(false);
       setMessage("Affiliations saved.");
-      await load();
+      const fresh = await load();
       try { await onSaved?.(); } catch { setError("Affiliations were saved, but profile information could not be refreshed. Please refresh the page after saving any other edits."); }
+      if (fresh) setEditorOpen(false);
     } catch (err) { setError(err.message); }
     finally { setSaving(false); }
   }
@@ -140,9 +160,29 @@ export default function MemberAffiliations({ onSaved }) {
         <CardDescription>Manage your organisations and departments. These changes are saved separately from your profile.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
-        {error && !review && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-        {message && <p role="status" className="text-sm text-green-700">{message}</p>}
-        {loading ? <div className="space-y-3" aria-label="Loading affiliations"><Skeleton className="h-10 w-full" /><Skeleton className="h-24 w-full" /></div> : draft && (
+        {!editorOpen && error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+        {!editorOpen && message && <p role="status" className="text-sm text-green-700">{message}</p>}
+        {loading && !snapshot && <Skeleton aria-label="Loading affiliations" className="h-24 w-full" />}
+        {snapshot?.active && <dl data-testid="saved-affiliations" className="grid gap-3 text-sm sm:grid-cols-3 [overflow-wrap:anywhere]">
+          <div><dt className="font-medium">Primary organisation</dt><dd>{snapshot.primary?.label || "No primary organisation"}</dd></div>
+          {(snapshot.secondaryEnabled || snapshot.secondary.length > 0) && <div><dt className="font-medium">Secondary organisations</dt><dd>{snapshot.secondary.map(item => item.label).join(", ") || "No secondary organisations"}</dd></div>}
+          <div><dt className="font-medium">Departments</dt><dd>{snapshot.departments.length ? <ul>{snapshot.departments.map(item => <li key={item.id}>{item.label}{item.organizationLabel && <span className="text-slate-500"> — {item.organizationLabel}</span>}{item.protected && <span className="text-xs text-slate-500"> (Protected link)</span>}</li>)}</ul> : "No departments linked."}</dd></div>
+        </dl>}
+        <div className="flex flex-wrap gap-2">
+          {snapshot?.active && <Button ref={triggerRef} type="button" disabled={loading || saving || snapshotError || committed} onClick={() => { setDraft(fromSnapshot(snapshot)); setReview(false); setDiscard(null); setConfirmed(false); setError(""); setMessage(""); setEditorOpen(true); }}>Update my affiliations</Button>}
+          {snapshotError && <Button type="button" variant="outline" disabled={loading || saving} onClick={reload}>Reload affiliation snapshot</Button>}
+        </div>
+        <Dialog open={editorOpen} onOpenChange={open => { if (!open) dismiss(); }}>
+          <DialogContent hideCloseButton className="flex max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-2xl flex-col overflow-hidden p-4 sm:p-6 [overflow-wrap:anywhere]" onCloseAutoFocus={event => { event.preventDefault(); triggerRef.current?.focus(); }}>
+            <DialogHeader className="shrink-0">
+              <DialogTitle ref={stageRef} tabIndex={-1}>{discard ? (discard === "reload" ? "Reload affiliation snapshot?" : "Discard affiliation edits?") : review ? "Review affiliation changes" : "Update my affiliations"}</DialogTitle>
+              <DialogDescription>Your other profile edits are not included in this save and will be left untouched.</DialogDescription>
+            </DialogHeader>
+            <div className="min-h-0 overflow-y-auto overscroll-contain space-y-4 pr-1" data-testid="affiliation-dialog-body">
+            {discard ? <p className="text-sm">{discard === "reload" ? "Reloading discards your affiliation draft and reads the latest saved links. It makes no changes on the server." : "Your affiliation draft will be discarded without saving."}</p> : <>
+            {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+            {committed && <p role="status" className="text-sm">Your affiliations were saved. Reload the snapshot to see the latest saved links; do not submit again.</p>}
+            {loading ? <Skeleton aria-label="Loading affiliations" className="h-24 w-full" /> : draft && !review && !committed && !snapshotError && (
           <fieldset disabled={blocked || review} className="min-w-0 space-y-5">
             <div className="space-y-2">
               <h3 className="font-medium text-sm">Primary organisation</h3>
@@ -163,27 +203,28 @@ export default function MemberAffiliations({ onSaved }) {
               <ChoicePicker key={`department-${draft.primary?.id}-${draft.secondary.map(item => item.id).join(",")}`} label="Add department" kind="department" snapshot={snapshot} draft={draft} disabled={blocked || review} onSelect={item => update({ ...draft, departments: [...draft.departments, item] })} />
             </div>
           </fieldset>
-        )}
-        <div className="flex flex-wrap gap-2">
-          {draft && <><Button type="button" disabled={!dirty || blocked} onClick={() => { setConfirmed(false); setReview(true); }}>Review affiliation changes</Button><Button type="button" variant="outline" disabled={!dirty || blocked} onClick={() => setDiscard("cancel")}>Cancel affiliation edits</Button></>}
-          <Button type="button" variant="outline" disabled={loading || saving} onClick={() => setDiscard("reload")}>Reload affiliation snapshot</Button>
-        </div>
-        <Dialog open={review} onOpenChange={open => { if (!saving) setReview(open); }}>
-          <DialogContent>
-            <DialogHeader><DialogTitle>Review affiliation changes</DialogTitle><DialogDescription>Your profile edits are not included in this save.</DialogDescription></DialogHeader>
-            {draft && <div className="space-y-3 text-sm">
+            )}
+            {review && draft && <div className="space-y-3 text-sm">
               <p><strong>Primary:</strong> {draft.primary?.label || "None (cleared)"}</p>
               <p><strong>Secondary:</strong> {draft.secondary.map(item => item.label).join(", ") || "None"}</p>
               <p><strong>Departments:</strong> {draft.departments.map(item => item.label).join(", ") || "None"}</p>
               {removals.length > 0 && <div className="rounded border border-amber-200 bg-amber-50 p-3"><p className="font-medium">Links to remove</p><ul className="list-disc pl-5">{removals.map(item => <li key={item}>{item}</li>)}</ul><label className="mt-3 flex items-start gap-2"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} disabled={saving} /><span>I explicitly confirm these removals, including any cleared selections.</span></label></div>}
-              {error && <p role="alert" className="text-red-700">{error}</p>}
             </div>}
-            <DialogFooter><Button type="button" variant="outline" disabled={saving} onClick={() => setReview(false)}>Back to editing</Button><Button type="button" disabled={saving || (removals.length > 0 && !confirmed)} onClick={save}>{saving ? "Saving affiliations…" : "Confirm and save affiliations"}</Button></DialogFooter>
-          </DialogContent>
-        </Dialog>
-        <Dialog open={!!discard} onOpenChange={open => { if (!open) setDiscard(null); }}>
-          <DialogContent><DialogHeader><DialogTitle>{discard === "reload" ? "Reload affiliation snapshot?" : "Discard affiliation edits?"}</DialogTitle><DialogDescription>{discard === "reload" ? "Reloading discards your affiliation draft and reads the latest saved links. It makes no changes on the server." : "Your affiliation draft will be discarded without saving."} Your other profile edits will be left untouched.</DialogDescription></DialogHeader>
-            <DialogFooter><Button type="button" variant="outline" onClick={() => setDiscard(null)}>Keep editing</Button><Button type="button" onClick={() => { const action = discard; setDiscard(null); setReview(false); setConfirmed(false); if (action === "reload") load(); else { setDraft(fromSnapshot(snapshot)); setError(""); setMessage(""); } }}>Discard{discard === "reload" ? " and reload" : " affiliation draft"}</Button></DialogFooter>
+            </>}
+            </div>
+            <DialogFooter className="shrink-0 gap-2 sm:space-x-0 sm:flex-wrap">
+            {discard ? <>
+              <Button type="button" variant="outline" onClick={() => setDiscard(null)}>Keep editing</Button>
+              <Button type="button" onClick={() => { const action = discard; setDiscard(null); setReview(false); setConfirmed(false); if (action === "reload") reload(); else { setDraft(fromSnapshot(snapshot)); setError(""); setMessage(""); if (action === "close") setEditorOpen(false); } }}>Discard{discard === "reload" ? " and reload" : " affiliation draft"}</Button>
+            </> : review ? <>
+              <Button type="button" variant="outline" disabled={saving} onClick={() => setReview(false)}>Back to editing</Button>
+              <Button type="button" disabled={blocked || (removals.length > 0 && !confirmed)} onClick={save}>{saving ? "Saving affiliations…" : "Confirm and save affiliations"}</Button>
+            </> : <>
+          {draft && <><Button type="button" disabled={!dirty || blocked} onClick={() => { setConfirmed(false); setReview(true); }}>Review affiliation changes</Button><Button type="button" variant="outline" disabled={!dirty || blocked} onClick={() => setDiscard("cancel")}>Cancel affiliation edits</Button></>}
+          <Button type="button" variant="outline" disabled={loading || saving} onClick={() => committed ? reload() : setDiscard("reload")}>Reload affiliation snapshot</Button>
+            </>}
+            {!discard && <Button type="button" variant="outline" disabled={loading || saving} onClick={dismiss}>Close</Button>}
+            </DialogFooter>
           </DialogContent>
         </Dialog>
       </CardContent>

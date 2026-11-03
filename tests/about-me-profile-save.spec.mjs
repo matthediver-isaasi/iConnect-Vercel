@@ -318,7 +318,9 @@ test("affiliations cancel without writes, review clears, retain failures and pre
     ],
   });
   await expect(page.getByText("My affiliations", { exact: true })).toBeVisible();
+  await expect(page.getByPlaceholder("Search organisations")).toHaveCount(0);
   await profile(page).title.fill("Unsaved ordinary title");
+  await page.getByRole("button", { name: "Update my affiliations", exact: true }).click();
   await page.getByRole("button", { name: "Clear primary", exact: true }).click();
   await page.getByRole("button", { name: "Cancel affiliation edits", exact: true }).click();
   await page.getByRole("button", { name: "Discard affiliation draft", exact: true }).click();
@@ -346,3 +348,50 @@ test("affiliations cancel without writes, review clears, retain failures and pre
   await expect(page.getByText(/^Ordinary department/)).toHaveCount(0);
   await expect(page.getByText(/^Protected department/)).toBeVisible();
 });
+
+for (const width of [1280, 375]) {
+  test(`affiliation dialog scroll, focus and dismissal at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 720 });
+    await fixture(page, {
+      active: true, token: "layout-token", secondaryEnabled: true,
+      primary: { id: "org-a", label: "Primary hospital" }, secondary: [],
+      departments: Array.from({ length: 35 }, (_, i) => ({
+        id: `dept-${i}`, label: `Department ${i} ${"longname".repeat(8)}`,
+        organizationLabel: "Primary hospital", protected: false,
+      })),
+    });
+    const trigger = page.getByRole("button", { name: "Update my affiliations", exact: true });
+    await trigger.click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await page.waitForTimeout(250);
+    const geometry = await dialog.evaluate(el => ({
+      top: el.getBoundingClientRect().top, bottom: el.getBoundingClientRect().bottom,
+      fits: el.scrollWidth <= el.clientWidth,
+      locked: document.body.hasAttribute("data-scroll-locked"),
+    }));
+    expect(geometry.top).toBeGreaterThanOrEqual(0);
+    expect(geometry.bottom).toBeLessThanOrEqual(720);
+    expect(geometry.fits).toBe(true);
+    expect(geometry.locked).toBe(true);
+    const body = page.getByTestId("affiliation-dialog-body");
+    expect(await body.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true);
+    await dialog.getByRole("button", { name: "Clear primary", exact: true }).click();
+    await page.keyboard.press("Escape");
+    await expect(dialog.getByRole("heading", { name: "Discard affiliation edits?" })).toBeVisible();
+    await dialog.getByRole("button", { name: "Keep editing" }).click();
+    await expect(dialog.getByText("No primary organisation", { exact: true })).toBeVisible();
+    await page.mouse.click(2, 2);
+    await expect(dialog.getByRole("heading", { name: "Discard affiliation edits?" })).toBeVisible();
+    await dialog.getByRole("button", { name: "Keep editing" }).click();
+    await body.evaluate(el => { el.scrollTop = el.scrollHeight; });
+    await expect(dialog.getByLabel("Add department")).toBeVisible();
+    await page.keyboard.press("Tab");
+    expect(await dialog.evaluate(el => el.contains(document.activeElement))).toBe(true);
+    await page.screenshot({ path: `/tmp/affiliations-${width}.png` });
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
+    await dialog.getByRole("button", { name: "Discard affiliation draft" }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+  });
+}

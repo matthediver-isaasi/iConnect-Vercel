@@ -73,6 +73,7 @@ test("retains unavailable/protected links and cancel performs zero affiliation w
     assert.match(document.body.textContent, /Archived Service/);
     assert.match(document.body.textContent, /Protected link/);
     assert.equal(button("Remove Advisory Team"), undefined);
+    await click("Update my affiliations");
     await click("Clear primary");
     assert.match(document.body.textContent, /Archived Service/);
     await click("Cancel affiliation edits");
@@ -101,6 +102,7 @@ test("removal requires review and explicit confirmation; errors retain draft for
   };
   const cleanup = await mount(MemberAffiliations, { onSaved: () => { refreshed++; } });
   try {
+    await click("Update my affiliations");
     await click("Clear primary");
     await click("Review affiliation changes");
     assert.ok(button("Confirm and save affiliations").disabled);
@@ -129,6 +131,7 @@ test("failed snapshot loads fail closed, reload requires explicit discard", asyn
   };
   const cleanup = await mount(MemberAffiliations);
   try {
+    await click("Update my affiliations");
     await click("Clear primary");
     await click("Reload affiliation snapshot");
     assert.equal(gets, 1);
@@ -152,6 +155,102 @@ test("inactive and failed member snapshots never expose editing", async () => {
   try {
     assert.match(document.querySelector('[role="alert"]').textContent, /Unavailable/);
     assert.equal(button("Review affiliation changes"), undefined);
+  } finally { await cleanup(); }
+});
+
+test("summary is saved-only, searches are lazy, dirty close retains or discards with focus restoration", async () => {
+  let searches = 0;
+  globalThis.fetch = async (_url, options) => {
+    if (options.method === "POST") searches++;
+    return reply(options.method === "GET" ? snapshot : { items: [], hasMore: false });
+  };
+  const cleanup = await mount(MemberAffiliations);
+  try {
+    assert.equal(searches, 0);
+    assert.equal(document.querySelector("input"), null);
+    await click("Update my affiliations");
+    assert.ok(searches > 0);
+    await click("Clear primary");
+    assert.match(document.querySelector('[data-testid="saved-affiliations"]').textContent, /North Institute/);
+    await click("Close");
+    await click("Keep editing");
+    assert.match(document.querySelector('[role="dialog"]').textContent, /No primary organisation/);
+    await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    await settle();
+    await click("Discard affiliation draft");
+    assert.equal(document.querySelector('[role="dialog"]'), null);
+    assert.equal(document.activeElement, button("Update my affiliations"));
+  } finally { await cleanup(); }
+});
+
+test("committed save with failed refresh cannot be resubmitted and reload recovers", async () => {
+  let writes = 0, reads = 0, refreshed = 0;
+  globalThis.fetch = async (_url, options) => {
+    if (options.method === "GET") {
+      reads++;
+      if (reads === 2) return reply({ message: "Refresh unavailable" }, 503);
+      return reply(reads > 2 ? { ...snapshot, primary: null } : snapshot);
+    }
+    if (options.method === "PATCH") { writes++; return reply({ committed: true }); }
+    return reply({ items: [], hasMore: false });
+  };
+  const cleanup = await mount(MemberAffiliations, { onSaved: () => refreshed++ });
+  try {
+    await click("Update my affiliations");
+    await click("Clear primary");
+    await click("Review affiliation changes");
+    await click(document.querySelector('input[type="checkbox"]'));
+    await click("Confirm and save affiliations");
+    assert.match(document.querySelector('[role="dialog"]').textContent, /were saved/);
+    assert.match(document.querySelector('[data-testid="saved-affiliations"]').textContent, /North Institute/);
+    assert.ok(button("Review affiliation changes").disabled);
+    await click([...document.querySelector('[role="dialog"]').querySelectorAll("button")].find(item => item.textContent === "Reload affiliation snapshot"));
+    assert.equal(document.querySelector('[role="dialog"]'), null);
+    assert.match(document.querySelector('[data-testid="saved-affiliations"]').textContent, /No primary organisation/);
+    assert.equal(writes, 1);
+    assert.equal(refreshed, 1);
+  } finally { await cleanup(); }
+});
+
+test("saving blocks dismissal until the authoritative refresh finishes", async () => {
+  let releaseSave, releaseRead, reads = 0;
+  globalThis.fetch = async (_url, options) => {
+    if (options.method === "PATCH") return new Promise(resolve => { releaseSave = () => resolve(reply({ committed: true })); });
+    if (options.method === "GET") {
+      if (++reads > 1) return new Promise(resolve => { releaseRead = () => resolve(reply({ ...snapshot, primary: null })); });
+      return reply(snapshot);
+    }
+    return reply({ items: [], hasMore: false });
+  };
+  const cleanup = await mount(MemberAffiliations);
+  try {
+    await click("Update my affiliations");
+    await click("Clear primary");
+    await click("Review affiliation changes");
+    await click(document.querySelector('input[type="checkbox"]'));
+    await click("Confirm and save affiliations");
+    assert.ok(button("Close").disabled);
+    await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    assert.ok(document.querySelector('[role="dialog"]'));
+    await act(async () => releaseSave());
+    await settle();
+    assert.ok(button("Close").disabled);
+    assert.match(document.querySelector('[data-testid="saved-affiliations"]').textContent, /North Institute/);
+    await act(async () => releaseRead());
+    await settle();
+    assert.equal(document.querySelector('[role="dialog"]'), null);
+    assert.match(document.querySelector('[data-testid="saved-affiliations"]').textContent, /No primary organisation/);
+  } finally { await cleanup(); }
+});
+
+test("disabled secondary editing retains saved links without a picker or removal", async () => {
+  globalThis.fetch = async (_url, options) => reply(options.method === "GET" ? { ...snapshot, secondaryEnabled: false } : { items: [], hasMore: false });
+  const cleanup = await mount(MemberAffiliations);
+  try {
+    await click("Update my affiliations");
+    assert.match(document.querySelector('[role="dialog"]').textContent, /Secondary editing is disabled/);
+    assert.equal(button("Remove West College"), undefined);
+    assert.equal(document.querySelectorAll('input[placeholder="Search organisations"]').length, 1);
   } finally { await cleanup(); }
 });
 
