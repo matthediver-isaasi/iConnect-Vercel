@@ -9,6 +9,7 @@ description: Index of event timing, booking lifecycle, attendance rewards and re
 - [Deleted event bookings](event-delete-booking-detach.md) — preserve detached bookings and event-name snapshots.
 - [Simple timing invariants](simple-event-timing-invariants.md) — shared timing guards and stale schedule suppression.
 - [Attendee counts](event-card-attendee-count-states.md) — secured counts and explicit unresolved/error states.
+- [Import batches vs purchases](import-batch-vs-purchase-group.md) — batch provenance must not group unrelated attendees under an inferred booker.
 - [Speaker awards](speaker-award-timing-lifecycle.md) — assignment badges versus event-start vouchers.
 - [CPD badges](event-cpd-badge-awards.md) — attendee identity, whole-config overrides and transactional outbox.
 - [CPD points](event-cpd-points-ledger.md) — append-only signed evidence ledger.

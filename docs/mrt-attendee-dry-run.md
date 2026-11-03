@@ -1,5 +1,27 @@
 # MRT attendee import: read-only production validation
 
+## Approved grouping repair — 3 November 2026
+
+The shared import-batch reference was incorrectly stored as a purchase-group
+reference. The report grouped the 46 independent registrations and inferred a
+booker; it did not transfer the other attendees to that member's account.
+
+The approved repair cleared the purchase-group reference on exactly the retained
+46 booking IDs. The import's existing ticket-price check established a free
+Standard Ticket; these rows now use the existing `free` payment classification,
+not `admin_import` (whose zero defaults deliberately display as unavailable).
+Their original individual booking references retain the import provenance.
+This does not establish financial evidence for any other import.
+
+The repair dry-run, committed execution and zero-change replay validated all
+booking fields and linked booking records. Only the approved group/method fields
+and the normal survey revision increment changed. There were no certificate
+survey entitlements to invalidate. No provider calls, new bookings, emails,
+rewards or attendance changes were made. Private pre-repair evidence is retained
+alongside the original import receipts. The retained import writer now creates
+independent free registrations, and its existing email/member replay checks
+remain in place.
+
 ## Subsequent approved import — 2 November 2026
 
 The owner subsequently approved importing the bookings only, with no downstream
