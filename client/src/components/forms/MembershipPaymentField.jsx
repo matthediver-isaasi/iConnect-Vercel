@@ -215,7 +215,10 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
     pendingRefetchRef.current = false;
     const overrideStr = buildOverrideParams();
     prevOverridesRef.current = JSON.stringify([buildFieldOverrides(), allFormValues[field.membership_schedule_mapping?.source_field_id]]);
-    return fetch(`/api/forms/membership-payment?memberId=${encodeURIComponent(memberId)}${overrideStr}`, { credentials: 'include' })
+    const receiptQuery = value?.voucherCheckoutId ? `&${new URLSearchParams({
+      voucherCheckoutId: value.voucherCheckoutId, formId, paymentFieldId: field.id,
+    })}` : '';
+    return fetch(`/api/forms/membership-payment?memberId=${encodeURIComponent(memberId)}${overrideStr}${receiptQuery}`, { credentials: 'include' })
       .then(async (res) => {
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
@@ -236,13 +239,15 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
         }
         quoteKeyRef.current = quoteKey;
         setData(result);
-        if (result.voucherSetup?.agreementId
+        if (result.existingRecord?.paymentStatus !== 'paid' && result.voucherSetup?.agreementId
             && ['direct_debit_started', 'monthly_card_started'].includes(result.voucherSetup.status)) {
           if (result.voucherSetup.status === 'monthly_card_started') setHasCardPlan(true);
           else setDdStarted(true);
           if (onChange && (value?.agreementId !== result.voucherSetup.agreementId
               || value?.status !== result.voucherSetup.status)) {
-            onChange({ ...result.voucherSetup, membershipYear: result.membershipYear });
+            onChange({ ...result.voucherSetup, membershipYear: result.membershipYear,
+              ...(result.voucherCheckoutId ? { voucherCheckoutId: result.voucherCheckoutId } : {}),
+            });
           }
         }
         // Access/activation and settlement are independent: an active DD
@@ -250,9 +255,10 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
         if (result.existingRecord?.paymentStatus === 'paid'
             && ['active', 'scheduled', 'paid'].includes(result.existingRecord.status)) {
           setPaymentComplete(true);
-          if (onChange && !value) {
+          if (onChange && (!value || (result.voucherCheckoutId && value.status !== 'already_paid'))) {
             onChange({
               status: 'already_paid',
+              ...(result.voucherCheckoutId ? { voucherCheckoutId: result.voucherCheckoutId } : {}),
               membershipYear: result.membershipYear,
               existingRecordId: result.existingRecord.id,
             });
@@ -275,6 +281,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
   };
 
   latestFetchFeesRef.current = fetchFees;
+  useEffect(() => { if (memberId) latestFetchFeesRef.current(); }, [value?.voucherCheckoutId]);
 
   useEffect(() => {
     if (redirectHandled.current || !memberId) return;

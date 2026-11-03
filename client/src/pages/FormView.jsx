@@ -44,6 +44,7 @@ import FormPrefillBoundary from "@/components/forms/FormPrefillBoundary";
 import { groupInitialSelectionSurfaceReady, hasGroupInitialSelectionAnswer } from "@/lib/formGroupInitialSelection";
 import { useFormOpenTransition } from "@/lib/useFormOpenTransition";
 import FormTransitionOverlay from "@/components/forms/FormTransitionOverlay";
+import { MembershipCheckoutDraftContext } from "@/components/forms/MembershipCheckoutDraftContext";
 import {
   createSetValueConvergenceState,
   formValuesSemanticallyEqual,
@@ -562,8 +563,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     }
   }, [applicantCredentialIdentity, draftData?.applicant_continuation, legacyPublicApplication]);
   // Save draft mutation
-  const saveDraftMutation = useMutation({
-    mutationFn: async () => {
+  const persistFormDraft = async (values = formValues) => {
       if (prefillState.locked) throw new Error('Please wait while we load some data');
       if (isEnhancedAnonymousSurvey(form)) throw new Error('Drafts are not available for anonymous completion surveys.');
       if (departmentCurrentSet?.active
@@ -579,7 +579,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       const payload = {
         form_slug: form?.slug || formSlug,
         form_id: form?.id,
-        draft_data: formValues,
+        draft_data: values,
         current_page_index: currentPageIndex,
         contact_email: contactEmail,
         resume_token: resumeToken, // If we have one, update existing draft
@@ -591,7 +591,9 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       
       // Note: tenant param not needed - backend resolves from Host header
       return publicClient.saveFormDraft(payload);
-    },
+  };
+  const saveDraftMutation = useMutation({
+    mutationFn: () => persistFormDraft(),
     onSuccess: (result) => {
       setResumeToken(result.resume_token);
       setShowResumeLink(true);
@@ -2586,7 +2588,25 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     && !!formSlug
     && previewOrigin.slug === formSlug
     && (!form?.id || previewOrigin.formId === form.id);
-  const withManagementReturn = (screen) => showManagementReturn ? (
+  const prepareMembershipCheckout = async ({ formId, paymentFieldId, checkoutId, clearCheckout }) => {
+    if (formId !== form?.id || !form.fields?.some(f => f.id === paymentFieldId && f.type === 'membership_payment')) {
+      throw new Error('The membership payment field could not be verified.');
+    }
+    const values = clearCheckout ? { ...formValues, [paymentFieldId]: null } : checkoutId ? { ...formValues, [paymentFieldId]: {
+      status: 'voucher_checkout_pending', voucherCheckoutId: checkoutId,
+    } } : formValues;
+    const saved = await persistFormDraft(values);
+    if (!saved?.resume_token) throw new Error('Your answers could not be saved. Checkout has not opened.');
+    setResumeToken(saved.resume_token);
+    if (checkoutId || clearCheckout) setFormValues(values);
+    const destination = new URL(window.location.href);
+    destination.searchParams.set('draft', saved.resume_token);
+    for (const name of ['payment_intent', 'payment_intent_client_secret', 'redirect_status']) destination.searchParams.delete(name);
+    const path = destination.pathname + destination.search + destination.hash;
+    window.history.replaceState(window.history.state, '', path);
+    return path;
+  };
+  const withManagementReturnContent = (screen) => showManagementReturn ? (
     <>
       <nav aria-label="Form management return" className="bg-slate-50 px-4 py-3 md:px-8 print:hidden">
         <Button asChild variant="outline" size="sm">
@@ -2599,6 +2619,11 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       {screen}
     </>
   ) : screen;
+  const withManagementReturn = screen => (
+    <MembershipCheckoutDraftContext.Provider value={prepareMembershipCheckout}>
+      {withManagementReturnContent(screen)}
+    </MembershipCheckoutDraftContext.Provider>
+  );
 
   // Payment return status always wins over current form availability/access.
   // Confirmation is tied to the server-created submission and prior access

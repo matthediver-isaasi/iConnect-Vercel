@@ -248,9 +248,38 @@ export async function completeMembershipVoucherSettlement(db, token, settlement,
   }
   if (settlement.funding.remainingMinor > 0) assertMembershipVoucherPayment(token, settlement, pi);
   else if (pi) throw new Error('Fully funded membership must not have a provider payment');
-  const { data, error } = await db.rpc('membership_voucher_complete', {
+  const postGrace = token.cost_breakdown?.formVoucher?.simulation?.formRenewal?.state === 'post_grace_renewal';
+  let paidAt = null;
+  if (postGrace && pi) {
+    const prior = await db.from('membership_post_grace_funding_evidence').select('provider,payment_id,paid_at,cash_minor,currency')
+      .eq('tenant_id', token.tenant_id).eq('member_id', token.member_id).eq('settlement_id', settlement.id).maybeSingle();
+    if (prior.error) throw new Error('Restart funding evidence could not be checked');
+    if (prior.data) {
+      if (prior.data.provider !== 'stripe' || prior.data.payment_id !== pi.id
+          || Number(prior.data.cash_minor) !== pi.amount_received || prior.data.currency !== pi.currency.toUpperCase()) {
+        throw new Error('Restart funding evidence belongs to a different payment');
+      }
+      paidAt = prior.data.paid_at;
+    } else {
+      let stripe = deps.stripe;
+      if (!stripe && deps.getStripe) {
+        const loaded = await deps.getStripe();
+        stripe = loaded.stripe || loaded;
+      }
+      if (!stripe) {
+        const { getStripeCredentials } = await import('./stripeCredentials.js');
+        const credentials = await getStripeCredentials(token.tenant_id, 'membership');
+        if (!credentials?.secret_key) throw new Error('Membership payment evidence is unavailable');
+        const Stripe = (await import('stripe')).default;
+        stripe = new Stripe(credentials.secret_key);
+      }
+      paidAt = await (await import('./postGraceStripeFinalization.js')).stripeSuccessfulPaymentTime(stripe, pi);
+    }
+  }
+  const { data, error } = await db.rpc(postGrace ? 'complete_post_grace_membership_voucher' : 'membership_voucher_complete', {
     p_tenant_id: token.tenant_id, p_token_id: token.id, p_payment_id: pi?.id || null,
     p_cash_minor: settlement.funding.remainingMinor, p_currency: settlement.funding.currency,
+    ...(postGrace ? { p_paid_at: paidAt } : {}),
   });
   if (error) throw new Error(error.message);
   let accountingError = null;

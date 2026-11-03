@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import pg from 'pg';
 import { createLocalPostgresHarness } from './test-support/local-postgres-harness.mjs';
+import { exerciseFundedDateContract } from './test-support/post-grace-funding-fixture.mjs';
 
 test('post-grace date transaction: ownership, financial preservation, rollback and replay', { timeout: 120000 }, async () => {
   const harness = await createLocalPostgresHarness('post-grace-atomic-');
@@ -112,6 +113,7 @@ test('post-grace date transaction: ownership, financial preservation, rollback a
       CREATE TRIGGER rolling_commitment_guard BEFORE UPDATE ON membership_billing_agreements
       FOR EACH ROW EXECUTE FUNCTION enforce_rolling_membership_commitment()`);
     const paid = (await db.query("SELECT now()-interval '1 day' AS paid")).rows[0].paid;
+    await exerciseFundedDateContract(db, { tenant, member, election, reservation, history, agreement, expected, paid });
     const call = (before = expected, payment = 'PM-test') => db.query(`SELECT apply_post_grace_record_dates(
       $1,$2,$3,'gocardless',$4,'confirmed',$5,1300,'GBP',$6) AS receipt`,
     [tenant, member, reservation, payment, paid, before]);

@@ -5,6 +5,8 @@ import {
   formVoucherHistoryFields, discoverFormMembershipVouchers,
   validateFormVoucherSelection,
   formVoucherSetupStatus,
+  formVoucherMonthlySnapshot,
+  readFormVoucherCheckout,
 } from './formMembershipVouchers.js';
 
 function setupDb({ provider = 'stripe', status = 'active', fundingState = 'plan_committed',
@@ -75,11 +77,18 @@ test('discovery cannot guess a personal owner or spend personal credit on an org
   }), { enabled: false, vouchers: [] });
 });
 
-test('post-grace bridge stays closed until cash-plus-credit finalization is supported', () => {
-  assert.throws(() => formVoucherBreakdown({
-    payment_method: 'upfront',
-    quote: { simulation: { success: true, formRenewal: { state: 'post_grace_renewal' } } },
-  }), /payment-date-aware/);
+test('saved late-renewal terms retain their payment-date marker and monthly ownership', () => {
+  const e = { id: 'late-election', payment_method: 'upfront', quote: { simulation: {
+    success: true, formRenewal: { state: 'post_grace_renewal' },
+    config: { start_mode: 'fixed' }, membershipYear: { label: '2026', start: '2026-11-01', end: '2027-10-31' },
+    annualCost: 100, finalCost: 100, totalWithVat: 100, currency: 'GBP',
+  } } };
+  assert.equal(formVoucherBreakdown(e).formVoucher.simulation.formRenewal.state, 'post_grace_renewal');
+  const snapshot = { voucher_funding: { settlement_id: 'funding' }, plan_total: 100 };
+  assert.equal(formVoucherMonthlySnapshot(snapshot, e).post_grace_election_id, e.id);
+  assert.equal(snapshot.post_grace_election_id, undefined);
+  assert.throws(() => formVoucherMonthlySnapshot({}, e), /reserved funding/);
+  assert.throws(() => formVoucherMonthlySnapshot({ ...snapshot, post_grace_election_id: 'other' }, e), /another renewal/);
 });
 
 const election = { id: 'e', tenant_id: 't', member_id: 'm', origin: 'form', status: 'reserved',
@@ -103,4 +112,32 @@ test('bound checkout verifies payer, method, term, origin and reservation before
     { quote: { ...election.quote, simulation: { membershipYear: { label: 'other' } } } },
   ]) await assert.rejects(loadFormVoucherAuthority(dbFor({ ...election, ...patch }), token), /no longer matches/);
   await assert.rejects(loadFormVoucherAuthority(dbFor(election, null), token), /could not be verified/);
+});
+
+test('saved form receipts are owner-scoped and retain paid history after the current term advances', async () => {
+  const savedToken = { ...token, token: 'secret-link', history_record_id: 'history',
+    cost_breakdown: { formVoucher: { ...token.cost_breakdown.formVoucher, formId: 'form', paymentFieldId: 'field' } } };
+  const filters = [];
+  const rows = {
+    membership_fee_token: savedToken,
+    form_membership_voucher_checkout: { election_id: 'e' },
+    membership_successor_election: election,
+    member_membership_history: { id: 'history', status: 'active', payment_status: 'paid' },
+    membership_voucher_settlement: null,
+  };
+  const db = { from(table) {
+    const q = { select() { return q; }, eq(k, v) { filters.push([table, k, v]); return q; },
+      is() { return q; }, neq() { return q; }, async maybeSingle() { return { data: rows[table] }; } };
+    return q;
+  } };
+  const input = { tenantId: 't', memberId: 'm', checkoutId: 'token', formId: 'form', paymentFieldId: 'field' };
+  assert.equal((await readFormVoucherCheckout(db, input)).history.payment_status, 'paid');
+  for (const table of ['membership_fee_token', 'member_membership_history']) {
+    assert.ok(filters.some(([t, k, v]) => t === table && k === 'tenant_id' && v === 't'));
+    assert.ok(filters.some(([t, k, v]) => t === table && k === 'member_id' && v === 'm'));
+  }
+  await assert.rejects(readFormVoucherCheckout(db, { ...input, formId: 'another-form' }), /does not belong/);
+  await assert.rejects(readFormVoucherCheckout(db, { ...input, paymentFieldId: 'another-field' }), /does not belong/);
+  rows.member_membership_history = null;
+  await assert.rejects(readFormVoucherCheckout(db, input), /payment could not be verified/);
 });

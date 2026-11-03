@@ -11,6 +11,7 @@ globalThis.React = React;
 const { act } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { default: Credit } = await import('./FormMembershipCredit.jsx');
+const { MembershipCheckoutDraftContext } = await import('./MembershipCheckoutDraftContext.jsx');
 test('credit discovery shows loading, empty, error and staged availability without creating a checkout', async () => {
   for (const scenario of ['loading', 'empty', 'error', 'available']) {
     const requests = [];
@@ -94,8 +95,10 @@ test('continue sends the selected card and voucher IDs, and retains selection on
   document.body.append(host);
   const root = createRoot(host);
   await act(async () => {
-    root.render(<Credit memberId="member" context={{ formId: 'f', paymentFieldId: 'p' }}
-      selectedMethod="monthly_card" selectedVouchers={[{ id: 'a' }, { id: 'b' }]} />);
+    root.render(<MembershipCheckoutDraftContext.Provider value={async () => '/FormView?slug=renew&draft=saved'}>
+      <Credit memberId="member" context={{ formId: 'f', paymentFieldId: 'p' }}
+        selectedMethod="monthly_card" selectedVouchers={[{ id: 'a' }, { id: 'b' }]} />
+    </MembershipCheckoutDraftContext.Provider>);
     await new Promise(resolve => setTimeout(resolve, 15));
   });
   const button = [...host.querySelectorAll('button')].find(b => b.textContent.startsWith('Continue with selected'));

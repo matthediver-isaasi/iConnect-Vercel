@@ -53,7 +53,8 @@ export async function finalizePostGraceRecordDates(db, {
         .eq('billing_agreement_id', agreement.id).eq('tenant_id', tenantId).eq('member_id', memberId),
       'Pending payment plan', !!agreement.payment_plan_id);
     }
-    const transition = buildPostGraceDateTransition({
+    const funded = agreement?.metadata?.card?.voucher_funding || agreement?.metadata?.dd?.voucher_funding;
+    const transition = funded ? { before: { history, agreement, plan } } : buildPostGraceDateTransition({
       reservation: {
         id: saved.id, tenantId, memberId, electionId, historyId: history.id,
         previousTermId: saved.previous_term_id, paymentMethod: saved.payment_method,
@@ -65,10 +66,16 @@ export async function finalizePostGraceRecordDates(db, {
     });
     expected = transition.before;
   }
-  const { data, error } = await db.rpc('apply_post_grace_record_dates', {
+  const funded = expected.agreement?.metadata?.card?.voucher_funding || expected.agreement?.metadata?.dd?.voucher_funding;
+  // The protected funded RPC verifies the actual cash and reserved credit
+  // separately before it calls the common atomic date writer. Never disguise
+  // the provider's net cash amount as a gross payment in JavaScript.
+  const { data, error } = await db.rpc(funded ? 'apply_post_grace_funded_dates' : 'apply_post_grace_record_dates', {
     p_tenant_id: tenantId, p_member_id: memberId, p_reservation_id: saved.id,
     p_provider: evidence.provider, p_payment_id: evidence.id, p_status: evidence.status,
-    p_paid_at: evidence.paidAt, p_amount_minor: evidence.amountMinor,
+    p_paid_at: evidence.paidAt,
+    ...(funded ? { p_cash_minor: evidence.amountMinor, p_settlement_id: funded.settlement_id }
+      : { p_amount_minor: evidence.amountMinor }),
     p_currency: evidence.currency, p_expected: expected,
   });
   if (error) throw new Error(`Post-grace dates were not finalized: ${error.message}`);

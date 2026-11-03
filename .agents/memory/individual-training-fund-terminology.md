@@ -48,3 +48,25 @@ PaymentIntent. Returning directly to the form can run both handlers.
 **How to apply:** Complete provider confirmation on the bound fee-token route,
 then refresh authenticated form status. Return URLs are navigation, never proof
 of payment or completed monthly setup.
+
+A returning renewal form must retain its original purchase identity even when
+payment has already advanced the member's current term.
+
+**Why:** Recalculating from the newest membership can hide the completed
+checkout or offer a different term. Unsaved answers can also disappear during
+provider authentication.
+
+**How to apply:** Save the form before leaving, retain a non-secret checkout
+reference scoped to the member/form/field, and recheck financial evidence at
+submission. Never infer completion from the restored draft's status.
+
+Composite financial tests need complete purchased snapshots and real
+immutability/activation guards, not just ledger arithmetic.
+
+**Why:** A date-only fixture can pass while completion fails on configuration,
+payment-frequency or settlement protections that are reached only when the
+history becomes paid.
+
+**How to apply:** Exercise paid completion and replay under the actual guards;
+keep fixture setup separate from the guarded transaction. State explicitly
+when an external ledger boundary or provider is substituted.

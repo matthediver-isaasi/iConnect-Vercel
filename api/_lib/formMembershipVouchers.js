@@ -6,6 +6,17 @@ export const FORM_VOUCHER_MODES = {
   upfront: 'stripe_upfront', monthly_card: 'stripe_monthly', direct_debit: 'direct_debit',
 };
 
+export function formVoucherMonthlySnapshot(snapshot, election) {
+  if (election?.quote?.simulation?.formRenewal?.state !== 'post_grace_renewal') return snapshot;
+  if (!election.id || !snapshot?.voucher_funding?.settlement_id) {
+    throw new Error('Post-grace monthly credit requires its reserved funding');
+  }
+  if (snapshot.post_grace_election_id && snapshot.post_grace_election_id !== election.id) {
+    throw new Error('Monthly credit belongs to another renewal');
+  }
+  return { ...snapshot, post_grace_election_id: election.id };
+}
+
 export function validateFormVoucherSelection(discovery, ids) {
   if (!discovery?.enabled || !Array.isArray(ids) || ids.length < 1 || ids.length > 100
       || ids.some(id => typeof id !== 'string' || !id)
@@ -20,7 +31,7 @@ export function validateFormVoucherSelection(discovery, ids) {
 }
 
 export async function formVoucherCheckoutReady(db) {
-  const result = await db.rpc('form_membership_voucher_checkout_ready');
+  const result = await db.rpc('form_membership_voucher_checkout_ready_v2');
   if (result.error && ['42883', 'PGRST202'].includes(result.error.code)) return false;
   if (result.error) throw new Error('Could not verify credit checkout availability');
   return result.data === true;
@@ -28,9 +39,8 @@ export async function formVoucherCheckoutReady(db) {
 
 export function formVoucherBreakdown(election) {
   const simulation = election.quote?.simulation;
-  if (!simulation?.success || !FORM_VOUCHER_MODES[election.payment_method]
-      || simulation.formRenewal?.state === 'post_grace_renewal') {
-    throw new Error('This renewal requires a payment-date-aware credit checkout before vouchers can be used.');
+  if (!simulation?.success || !FORM_VOUCHER_MODES[election.payment_method]) {
+    throw new Error('A saved renewal and payment method are required before vouchers can be used.');
   }
   const snapshot = snapshotFormMembershipPayment(simulation);
   const commitment = snapshot.simResult.commitment;
@@ -44,12 +54,18 @@ export function formVoucherBreakdown(election) {
   };
 }
 
-export async function bindFormMembershipVoucherCheckout(db, { tenantId, memberId, election }) {
+export async function bindFormMembershipVoucherCheckout(db, { tenantId, memberId, election, formId, paymentFieldId }) {
+  const breakdown = formVoucherBreakdown(election);
+  if (formId && paymentFieldId) Object.assign(breakdown.formVoucher, { formId, paymentFieldId });
   const { data, error } = await db.rpc('bind_form_membership_voucher_checkout', {
     p_tenant_id: tenantId, p_member_id: memberId, p_election_id: election.id,
-    p_breakdown: formVoucherBreakdown(election), p_token: randomBytes(32).toString('hex'),
+    p_breakdown: breakdown, p_token: randomBytes(32).toString('hex'),
   });
   if (error || !data?.id) throw new Error(error?.message || 'Could not save the credit checkout');
+  if (formId && (data.cost_breakdown?.formVoucher?.formId !== formId
+      || data.cost_breakdown?.formVoucher?.paymentFieldId !== paymentFieldId)) {
+    throw new Error('Continue the credit checkout in the original renewal form.');
+  }
   return data;
 }
 
@@ -69,10 +85,33 @@ export async function loadFormVoucherAuthority(db, token) {
       || e.quote?.payerMemberId !== token.member_id
       || FORM_VOUCHER_MODES[e.payment_method] !== marker.paymentMode
       || e.quote?.simulation?.membershipYear?.label !== token.membership_year
-      || e.quote?.simulation?.formRenewal?.state === 'post_grace_renewal') {
+      ) {
     throw new Error('The reserved renewal no longer matches this credit checkout');
   }
   return e;
+}
+
+export async function readFormVoucherCheckout(db, { tenantId, memberId, checkoutId, formId, paymentFieldId }) {
+  if (!checkoutId || !formId || !paymentFieldId) throw new Error('The saved form checkout is required');
+  const fee = await db.from('membership_fee_token').select('*').eq('id', checkoutId)
+    .eq('tenant_id', tenantId).eq('member_id', memberId).is('organization_id', null).maybeSingle();
+  const token = fee.data;
+  if (fee.error || !token || token.cost_breakdown?.formVoucher?.formId !== formId
+      || token.cost_breakdown?.formVoucher?.paymentFieldId !== paymentFieldId) {
+    throw new Error('The saved checkout does not belong to this member and form');
+  }
+  const election = await loadFormVoucherAuthority(db, token);
+  if (!election) throw new Error('The saved renewal could not be verified');
+  let history = null;
+  if (token.history_record_id) {
+    const saved = await db.from('member_membership_history').select('*').eq('id', token.history_record_id)
+      .eq('tenant_id', tenantId).eq('member_id', memberId)
+      .eq('membership_successor_election_id', election.id).maybeSingle();
+    if (saved.error || !saved.data) throw new Error('The saved membership payment could not be verified');
+    history = saved.data;
+  }
+  const setup = await formVoucherSetupStatus(db, { tenantId, memberId, electionId: election.id, token: token.token });
+  return { token, election, history, setup };
 }
 
 export async function findFormVoucherCheckout(db, { tenantId, memberId, electionId }) {

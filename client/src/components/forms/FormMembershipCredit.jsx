@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
+import { MembershipCheckoutDraftContext } from './MembershipCheckoutDraftContext';
 import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import MembershipFeePage from '@/pages/MembershipFeePage';
@@ -6,6 +7,7 @@ import { saveFormVoucherReturn } from '@/lib/formVoucherReturn';
 
 export default function FormMembershipCredit({ memberId, context, disabled, resumeToken, onRefresh, selectedVouchers = [], onSelectionChange, selectedMethod, onCheckoutChange }) {
   const refreshRef = useRef(onRefresh);
+  const prepareCheckout = useContext(MembershipCheckoutDraftContext);
   refreshRef.current = onRefresh;
   const key = JSON.stringify(context);
   const [result, setResult] = useState(null);
@@ -36,6 +38,10 @@ export default function FormMembershipCredit({ memberId, context, disabled, resu
   async function act(action) {
     setBusy(true); setError(null);
     try {
+      if (action === 'start_voucher_checkout') {
+        if (!prepareCheckout) throw new Error('Open the published renewal form to save your answers before checkout.');
+        await prepareCheckout(JSON.parse(key));
+      }
       const response = await fetch('/api/forms/membership-payment', {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...JSON.parse(key), memberId, action, paymentMethod: selectedMethod,
@@ -43,9 +49,12 @@ export default function FormMembershipCredit({ memberId, context, disabled, resu
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Could not update credit checkout');
+      const returnPath = data.token && data.checkoutId
+        ? await prepareCheckout({ ...JSON.parse(key), checkoutId: data.checkoutId }) : null;
+      if (data.released && prepareCheckout) await prepareCheckout({ ...JSON.parse(key), clearCheckout: true });
       // A bare embedded-form URL must not become a top-level return destination.
       if (data.token && window.top === window) saveFormVoucherReturn(window.sessionStorage, data.token,
-        window.location.pathname + window.location.search + window.location.hash);
+        returnPath || window.location.pathname + window.location.search + window.location.hash);
       setToken(data.token || null);
       setCheckoutVoucherIds(data.voucherIds || []);
       if (data.released) onRefresh();
@@ -82,7 +91,11 @@ export default function FormMembershipCredit({ memberId, context, disabled, resu
       {!result && <Button type="button" variant="outline" onClick={() => setRetry(n => n + 1)}>Retry</Button>}
     </div>}
     {token ? <>
-      <MembershipFeePage key={token} embeddedToken={token} initialVoucherIds={checkoutVoucherIds} onPaymentComplete={onRefresh} />
+      {window.top === window
+        ? <MembershipFeePage key={token} embeddedToken={token} initialVoucherIds={checkoutVoucherIds} onPaymentComplete={onRefresh} />
+        : <p><a className="underline" href={`/membership-fees/${token}`} target="_blank" rel="noopener noreferrer">
+          Open secure credit checkout in a new tab
+        </a>. Return here afterwards to finish your form. Your answers have been saved.</p>}
       <p className="text-sm">After paying or setting up monthly payments, check your renewal status to continue the form.</p>
       <Button type="button" variant="outline" onClick={onRefresh}>Check renewal status</Button>
       <Button type="button" variant="outline" disabled={busy || disabled} onClick={() => act('close_voucher_checkout')}>

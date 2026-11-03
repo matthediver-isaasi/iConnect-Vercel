@@ -6,7 +6,7 @@ import { feeTokenCommitment, simulationFromFeeCommitment, reserveRollingFeePayme
 import { simulationFromMemberStart, assertMemberStartAction, assertMemberStartHistory, SELF_SERVICE_START_MODES } from '../../_lib/memberStartPayment.js';
 import { discoverMembershipVouchers, persistMembershipVoucherQuote, resolveMembershipVoucherAuthority } from '../../_lib/membershipVoucherQuote.js';
 import { loadMembershipVoucherSettlement, reserveMembershipVoucherSettlement, startMembershipVoucherPayment, completeMembershipVoucherSettlement, releaseMembershipVoucherSettlement, claimMembershipFeePayment, createGuardedPortalMembershipIntent } from '../../_lib/membershipVoucherSettlement.js';
-import { loadFormVoucherAuthority } from '../../_lib/formMembershipVouchers.js';
+import { loadFormVoucherAuthority, formVoucherMonthlySnapshot } from '../../_lib/formMembershipVouchers.js';
 
 // Reminder quotes are consent-time snapshots, not a request to reprice at
 // checkout. Rolling tokens already carry the richer commitment snapshot.
@@ -1894,6 +1894,7 @@ return async function handler(req, res) {
             billingRequestMode: reusable ? 'reused_mandate' : 'mandate_only',
           });
 
+        snapshot = formVoucherMonthlySnapshot(snapshot, formVoucherElection);
         const scheduleError = newDdConsentScheduleError(snapshot);
         if (scheduleError) return res.status(400).json(scheduleError);
         if (!fundedMonthlySetup) await claimMembershipFeePayment(supabase, feeToken, 'start_direct_debit');
@@ -2145,7 +2146,7 @@ return async function handler(req, res) {
           return res.json({ agreementId: existingAgreement.id, status: existingAgreement.status, resumed: true });
         }
 
-        const snapshot = existingAgreement?.metadata?.card || fundedMonthlySetup?.snapshot || feeToken.cost_breakdown?.membershipVoucherRequote?.monthlySnapshot || buildCardAgreementSnapshot({ offer, simResult });
+        const snapshot = formVoucherMonthlySnapshot(existingAgreement?.metadata?.card || fundedMonthlySetup?.snapshot || feeToken.cost_breakdown?.membershipVoucherRequote?.monthlySnapshot || buildCardAgreementSnapshot({ offer, simResult }), formVoucherElection);
         if (fundedMonthlySetup) {
           if (!existingAgreement?.stripe_checkout_session_id && fundedMonthlySetup.settlement.provider_attempted_at
               && Date.now() - Date.parse(fundedMonthlySetup.settlement.provider_attempted_at) > 23 * 60 * 60 * 1000) {
@@ -2277,6 +2278,7 @@ return async function handler(req, res) {
           : await supabase
           .from('membership_billing_agreements')
           .insert({
+            ...(formVoucherElection ? { membership_successor_election_id: formVoucherElection.id } : {}),
             tenant_id: feeToken.tenant_id,
             member_id: feeToken.member_id,
             agreement_type: 'member',

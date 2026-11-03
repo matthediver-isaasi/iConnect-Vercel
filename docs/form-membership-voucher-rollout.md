@@ -1,83 +1,83 @@
-# Form membership vouchers: staged, not enabled
+# Form membership voucher checkout
 
-The FormBuilder Membership Payment field now discovers personal membership
-vouchers using the authenticated payer and the selected schedule's currency.
-It shows loading, no-credit and failure states separately.
+## Release state
 
-The credit-checkout bridge is **not enabled**. Do not describe the full form
-voucher feature as complete or ready for member payment testing.
+The connected form checkout is implemented. The three connected-checkout
+migrations were applied atomically to pinned DEST on 2026-11-03:
 
-## Applied storage
+- `202611090001_form_voucher_payment_evidence.sql`
+- `202611090002_form_voucher_renewal_routing.sql`
+- `202611090003_form_voucher_connected_readiness.sql`
 
-`202611080001_form_membership_voucher_checkout.sql` was applied to the pinned
-DEST Supabase project on 2026-11-03 after isolated database tests.
+The new `form_membership_voucher_checkout_ready_v2()` capability is enabled.
+The original readiness function deliberately remains **false**, so an older
+deployment cannot expose its incomplete checkout. Deploy the matching code
+before member testing.
 
-Verification confirmed RLS enabled, no anonymous/authenticated table reads or
-binding RPC execution, service-role binding execution, zero bridge rows, and
-`form_membership_voucher_checkout_ready()` returning **false**.
+No live payment, voucher redemption, membership change or email was initiated
+to verify this release.
 
-No member, membership, voucher balance or provider payment was changed.
+## Connected journey
 
-## What the draft connects
+- Members select one payment card and any combination of eligible vouchers.
+  Selection updates the displayed estimates; the server revalidates the final
+  credit and payment arrangement.
+- Before checkout opens, the owning form saves a draft. It then saves the
+  checkout's non-secret record ID in the payment answer.
+- Stripe authentication returns to the fee-token confirmer, not the ordinary
+  form payment handler. The return-to-form link includes the saved draft.
+- Embedded forms open checkout in a separate tab and retain the original form.
+  The member returns to that form to finish submitting.
+- The saved checkout is checked against the authenticated member, tenant,
+  original form and payment field. The form can recognise its completed
+  purchase even after that purchase has become the member's current term.
+- Submission checks the saved financial records again. Browser flags and
+  URL parameters cannot establish paid or monthly-setup status.
+- Monthly setup is distinguished from an actual paid instalment.
+- Cancellation remains blocked for committed or uncertain payments. A bound
+  checkout prevents another route from changing or releasing its election.
 
-- A form successor election binds to one shared fee-token credit checkout.
-- Binding claims the existing owner/year payment guard before exposing checkout.
-- Repeated binding returns the same token.
-- Credit history and monthly agreements carry the election provenance.
-- The shared fee page can render within the form and restrict the payment mode.
-- Cancellation refuses committed, pending or uncertain provider outcomes.
-- A released checkout retains its bridge audit row.
-- The selected payment card and voucher IDs are sent to the authenticated form
-  endpoint; selection is rechecked against current server-owned discovery before
-  a checkout is bound.
-- A bound checkout carries the selected voucher IDs into the shared fee UI.
-  Confirmed upfront/credit-only completion asks the parent form to refresh its
-  authoritative membership record. Payment-method switching is disabled while
-  this checkout is open.
+## Post-grace renewals
 
-These UI connections do not enable the gate and are not proof of completed
-hosted-return or monthly FormBuilder submission integration.
+The payment-dated finalizer now supports cash plus voucher credit and
+credit-only completion. Separate protected evidence preserves actual cash,
+credit and gross entitlement rather than representing gross value as cash.
 
-The direct FormView journey now remembers a token-scoped, same-browser return
-destination. Stripe authentication returns to the shared fee confirmer first,
-avoiding the form's unrelated full-price confirmation handler. The fee page
-provides a return link, including after payment or monthly setup. The form reads
-funded agreement/provider state and briefly polls for delayed webhooks. Monthly
-setup is not recorded as paid. Return query parameters never establish either
-payment or setup success.
+Upfront completion applies confirmed service dates and the existing voucher
+completion writer in one transaction. Replays do not consume credit twice.
+Funded monthly callbacks use the protected date writer for the linked
+membership, agreement and plan. A zero-cash first variable collection uses
+the ledger's settlement event, not a fabricated provider payment.
 
-This is not yet an end-to-end verified saved-submission handshake. Embedded
-form instances require their existing parent/instance return contract rather
-than navigating the containing page to the bare iframe URL.
+Variable monthly credit remains spread across the membership period. The
+original purchased period remains identifiable after payment-date changes;
+only the exact before/after term-key pair in the protected date receipt is
+accepted.
 
-## Required before enabling
+## Verification boundaries
 
-1. Complete and test the provider-return and FormBuilder submission handshake:
-   the saved form must recognise both credit-only completion and funded monthly
-   setup from authoritative records, not URL flags or client assertions.
-2. Finish and test payment-dated post-grace credit finalization. The draft
-   intentionally rejects this path: cash plus credit must reconcile against the
-   reserved gross entitlement, with atomic membership/agreement/plan service dates.
-3. Exercise the actual elected-history and monthly voucher SQL together. The
-   isolated bridge test checks its locks/grants/claims, not all purchased-term
-   triggers or provider callbacks.
-4. Test switching modes and returning to the original form after hosted Stripe
-   or Direct Debit, including voucher release, stale quotes, browser refresh,
-   provider timeout and delayed webhook recovery.
-5. Only then add an explicit rollout migration changing readiness to true.
+Automated checks cover authenticated discovery, ownership and form scope,
+selected payment/voucher payloads, return-path safety, provider timestamp
+handling, settlement recovery, real PostgreSQL date/immutability guards,
+cash-plus-credit and credit-only completion/replay, and access permissions.
 
-Existing payment routes remain available; the new credit checkout cannot start
-while readiness is false. Deployment alone does not enable it.
+The composite date/completion test runs the real completion writer and
+immutable guards. It substitutes only the credit-ledger boundary; the
+separate voucher settlement suite tests the real ledger.
 
-## Checks run
+Live verification confirmed RLS and service-only financial RPCs, with no
+anonymous/authenticated execution or evidence writes. No synthetic evidence
+was inserted into DEST.
 
-- `formMembershipVouchers.test.mjs`
-- `formMembershipVouchers.postgres.test.mjs` with isolated local PostgreSQL
-- `FormMembershipCredit.test.jsx`
-- `MembershipPaymentField.test.jsx`
-- `membership-payment-auth.test.mjs`
-- `formVoucherReturn.test.mjs`
-- Existing membership voucher quote, settlement, monthly, variable and recovery
-  unit suites
+These checks are **not** a live Stripe/GoCardless payment or a signed-in
+production browser test. Controlled checks after deployment should include:
+upfront partial/full credit; monthly card and Direct Debit; post-grace dates;
+provider authentication/return; reopening a saved draft; cancellation before
+payment; and delayed webhook/repeated confirmation.
 
-These checks are not live-provider or signed-in production browser verification.
+## Emergency pause
+
+Disable new connected checkout through the v2 readiness function if necessary.
+Keep the settlement handlers and evidence tables in place for in-flight
+payments. Do not delete financial evidence or revert database protections to
+roll back the UI.

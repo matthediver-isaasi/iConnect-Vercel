@@ -313,6 +313,27 @@ export default async function handler(req, res, dependencies = {}) {
       verifiedMember: verifiedSessionMember, verifiedAdminAccess: sessionHasAdminAccess,
     });
     const applicantGrant = admission.applicantGrant;
+    // A draft or a browser's payment status is not financial authority.
+    // Verify saved voucher receipts before any form-driven profile/role effects.
+    for (const field of form.fields || []) {
+      const answer = submission_data?.[field.id];
+      if (field.type !== 'membership_payment' || !answer?.voucherCheckoutId) continue;
+      if (!verifiedSessionMember?.id) return res.status(403).json({ error: 'Sign in to verify this membership payment.' });
+      try {
+        const { readFormVoucherCheckout } = await import('../_lib/formMembershipVouchers.js');
+        const receipt = await readFormVoucherCheckout(supabase, {
+          tenantId: form.tenant_id, memberId: verifiedSessionMember.id,
+          formId: form.id, paymentFieldId: field.id, checkoutId: answer.voucherCheckoutId,
+        });
+        const paid = receipt.history?.payment_status === 'paid'
+          && ['active', 'scheduled', 'paid'].includes(receipt.history.status);
+        if (!paid && !receipt.setup) throw new Error('Finish your membership payment or monthly set-up before submitting.');
+        submission_data[field.id] = paid ? {
+          status: 'already_paid', voucherCheckoutId: receipt.token.id,
+          existingRecordId: receipt.history.id, membershipYear: receipt.token.membership_year,
+        } : { ...receipt.setup, voucherCheckoutId: receipt.token.id, membershipYear: receipt.token.membership_year };
+      } catch (error) { return res.status(409).json({ error: error.message }); }
+    }
     prefill_organization_id = admission.organizationId;
     const legacyApplicationScope = await createLegacyApplicationScope({
       db: supabase, form, organizationId: prefill_organization_id,
