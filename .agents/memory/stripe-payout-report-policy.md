@@ -14,3 +14,14 @@ actions and stated that BNMS live historical linkage completeness was unverified
 **How to apply:** Preserve unmatched and ambiguous evidence. Keep any proposed
 live coverage sampling read-only, with private exports out of source control.
 Ask separately before any financial correction or metadata backfill.
+
+Modern Stripe charge responses may omit the invoice reference even for paid
+subscription invoices. Resolve the exact paid InvoicePayment relationship by
+PaymentIntent, not by customer, subscription, date or amount.
+
+**Why:** Live monthly collections had valid local accounting evidence but
+appeared unmatched because payout charges did not carry the invoice reference.
+
+**How to apply:** Preserve tenant/account and live/test boundaries; incomplete
+provider lookups are retrieval failures, not proof of no invoice. Never choose
+one invoice arbitrarily when a payment has multiple invoice relationships.

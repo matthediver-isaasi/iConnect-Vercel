@@ -20,6 +20,35 @@ export async function readPayoutPage(stripe, payoutId, cursor, mode) {
   });
   if (!Array.isArray(page.data) || (page.has_more && !page.data.length)) throw new Error('Incomplete Stripe page.');
   const rows = [];
+  const invoiceLookups = new Map();
+  const resolveInvoice = charge => {
+    const existing = id(charge?.invoice);
+    const paymentIntent = id(charge?.payment_intent);
+    if (existing || !paymentIntent) return Promise.resolve(existing);
+    if (!invoiceLookups.has(paymentIntent)) {
+      invoiceLookups.set(paymentIntent, (async () => {
+        // Newer Stripe API versions omit charge.invoice. Use the exact payment
+        // relationship, never customer/subscription/date/amount inference.
+        const payments = await stripe.invoicePayments.list({
+          payment: { type: 'payment_intent', payment_intent: paymentIntent },
+          status: 'paid', limit: 100,
+        });
+        if (!Array.isArray(payments.data) || payments.has_more
+          || payments.data.some(p => p.status !== 'paid'
+            || p.livemode !== (mode === 'live')
+            || p.payment?.type !== 'payment_intent'
+            || id(p.payment.payment_intent) !== paymentIntent || !id(p.invoice))) {
+          throw new Error('Incomplete or inconsistent Stripe invoice payment evidence.');
+        }
+        const invoices = [...new Set(payments.data.map(p => id(p.invoice)))];
+        // The report's singular invoice reference cannot represent allocations.
+        // Do not silently pick one invoice or declare an incomplete match.
+        if (invoices.length > 1) throw new Error('Multiple Stripe invoices linked to one payment; review required.');
+        return invoices[0] || null;
+      })());
+    }
+    return invoiceLookups.get(paymentIntent);
+  };
   // At most ten sources; groups of two bound remote concurrency and transport time.
   for (let i = 0; i < page.data.length; i += 2) {
     rows.push(...await Promise.all(page.data.slice(i, i + 2).map(async t => {
@@ -32,7 +61,7 @@ export async function readPayoutPage(stripe, payoutId, cursor, mode) {
       return { id: t.id, type: t.type, currency: t.currency, gross: t.amount, fee: t.fee, net: t.net,
         balanceDate: date(t.created), paymentDate: date(charge?.created),
         sourceId, chargeId: id(charge), refundId: id(refund), paymentIntentId: id(charge?.payment_intent),
-        stripeInvoiceId: id(charge?.invoice) };
+        stripeInvoiceId: await resolveInvoice(charge) };
     })));
   }
   return { payout, rows, next: page.has_more ? page.data.at(-1).id : null };
