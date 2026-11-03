@@ -8,3 +8,10 @@ api/public/formSubmissionCompatibility.helpers.mjs
 attached_assets/BNMS_NMC_UUID_Customer_Number_Import_1792392028632.xlsx
 attached_assets/BNMS_NMC_UUID_Customer_Number_Import_2_1792475399471.xlsx
 private/bnms-nmc-customer-import/
+
+# Root-only offline evidence and agent working material.
+# Keep api/reports/, client/src/components/reports/ and all runtime assets.
+# Originals stay in Git/workspace; these are deployment exclusions only.
+/reports/
+/screenshots/
+/.agents/
