@@ -22,3 +22,13 @@ The actual secondary ownership path was identified from the picker graph.
 
 **How to apply:** Use live endpoint metadata and graph path IDs when configuring
 bindings; fail closed when configuration and current schema disagree.
+
+Administrator setup should suggest compatible choices for explicit confirmation,
+never silently select, enable, or save them.
+
+**Why:** The owner requested a non-technical setup after raw relationship IDs
+and unrelated options made the affiliation configuration difficult to use.
+
+**How to apply:** Present human-readable choices and dependent guidance while
+retaining unavailable saved selections for review. Keep identifiers in optional
+technical details and require an explicit save.

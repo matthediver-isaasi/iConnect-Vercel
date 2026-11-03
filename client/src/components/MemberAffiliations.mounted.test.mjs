@@ -155,17 +155,18 @@ test("inactive and failed member snapshots never expose editing", async () => {
   } finally { await cleanup(); }
 });
 
-test("settings show definition direction, save separately with version and retain draft on errors", async () => {
+test("settings use plain labels, save separately with version and retain draft on errors", async () => {
   const data = {
     version: 7,
     config: { enabled: false, memberDepartmentDefinitionId: "md", departmentOrganizationDefinitionId: "do", secondaryMemberDefinitionId: null, secondaryOrganizationDefinitionId: null, secondaryLabelFieldId: null },
     metadata: {
-      objects: [{ id: "dept", plural_label: "Departments" }],
+      complete: true,
+      objects: [{ id: "dept", plural_label: "Departments", status: "active", primary_display_field_id: "dept-name" }],
       relationships: [
-        { id: "md", name: "Member departments", source_kind: "member", target_kind: "custom_object", target_custom_object_id: "dept" },
-        { id: "do", name: "Department organisations", source_kind: "custom_object", source_custom_object_id: "dept", target_kind: "organization" },
+        { id: "md", name: "Member departments", status: "active", cardinality: "many_to_many", source_kind: "member", target_kind: "custom_object", target_custom_object_id: "dept" },
+        { id: "do", name: "Department organisations", status: "active", cardinality: "many_to_one", source_kind: "custom_object", source_custom_object_id: "dept", target_kind: "organization" },
       ],
-      fields: {},
+      fields: { dept: [{ id: "dept-name", name: "name", field_type: "text", is_active: true }] },
     },
   };
   const writes = [];
@@ -175,7 +176,8 @@ test("settings show definition direction, save separately with version and retai
   };
   const cleanup = await mount(MemberAffiliationSettings);
   try {
-    assert.match(document.body.textContent, /Source: member → Target: Departments/);
+    assert.match(document.body.textContent, /Let members update their organisation and departments/);
+    assert.match(document.querySelector('#affiliation-memberDepartmentDefinitionId').textContent, /Departments — Member departments/);
     await click(document.querySelector('[role="switch"]'));
     await click("Save affiliation settings");
     assert.equal(writes[0].version, 7);
