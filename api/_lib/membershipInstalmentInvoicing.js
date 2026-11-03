@@ -712,15 +712,24 @@ export async function postStripeInstalmentInvoice({
     }
     // Row already existed — atomically claim it. Only one concurrent caller
     // wins this CAS; losers (and already-posted rows) bail out here.
-    const { data: claimed, error: claimErr } = await db
+    const stalePosting = existing?.accounting_sync_status === 'posting';
+    if (stalePosting && (!reclaimStale || !existing.updated_at
+      || !Number.isFinite(Date.parse(existing.updated_at))
+      || Date.parse(existing.updated_at) >= Date.now() - 15 * 60_000)) {
+      return { status: 'skipped', reason: 'another worker is posting' };
+    }
+    let claim = db
       .from('membership_instalment_invoices')
       .update({ accounting_sync_status: 'posting', updated_at: new Date().toISOString() })
       .eq('provider', 'stripe')
       .eq('external_payment_id', stripeInvoiceId)
       .eq('tenant_id', agreement.tenant_id)
       .eq('billing_agreement_id', agreement.id)
-      .in('accounting_sync_status', claimableStatuses({ reclaimStale }))
-      .select('*');
+      .in('accounting_sync_status', stalePosting ? ['posting'] : claimableStatuses());
+    // Selection is not a lock. Fence the exact stale claim we observed so a
+    // concurrent worker's renewed claim cannot be stolen by this retry.
+    if (stalePosting) claim = claim.eq('updated_at', existing.updated_at);
+    const { data: claimed, error: claimErr } = await claim.select('*');
     if (claimErr) return { status: 'failed', reason: `claim failed: ${claimErr.message}` };
     row = claimed?.[0] || null;
     if (!row) return { status: 'skipped', reason: 'already posted or another worker is posting' };

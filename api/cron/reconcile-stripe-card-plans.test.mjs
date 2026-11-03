@@ -43,7 +43,7 @@ test('cron rejects an invalid authorization header before processing', async () 
   }
 });
 
-function instalmentRetryDb({ agreement = null } = {}) {
+function instalmentRetryDb({ agreement = null, plan = null } = {}) {
   const writes = [];
   const row = {
     id: 'retry-row', tenant_id: 'tenant-1', billing_agreement_id: 'agreement-missing',
@@ -57,7 +57,7 @@ function instalmentRetryDb({ agreement = null } = {}) {
         update(patch) { writes.push({ table, patch }); return q; },
         select() { return q; }, eq() { return q; }, in() { return q; }, or() { return q; },
         order() { return q; }, limit() { return q; }, lt() { return q; },
-        maybeSingle: async () => ({ data: table === 'membership_billing_agreements' ? agreement : null, error: null }),
+        maybeSingle: async () => ({ data: table === 'membership_billing_agreements' ? agreement : plan, error: null }),
         then(resolve) {
           return Promise.resolve({
             data: table === 'membership_instalment_invoices' && !writes.length ? [row] : null,
@@ -81,6 +81,23 @@ test('failed instalment retry preflight rotates an unresolvable oldest row inste
   assert.match(db.writes[0].patch.accounting_sync_error, /agreement no longer exists/);
   assert.ok(db.writes[0].patch.updated_at, 'failed preflight moves the row behind later ordered retries');
 });
+
+for (const status of ['failed', 'invoice_unpaid', 'pending', 'posted']) {
+  test(`accounting retry ${status} is reported truthfully without collection or lifecycle writes`, async () => {
+    const db = instalmentRetryDb({ agreement: { id: 'agreement-missing' }, plan: { id: 'plan-missing' } });
+    const results = reconciliationResults();
+    await retryFailedInstalmentInvoices(results, {
+      db, getCreds: async () => ({}), makeClients: () => [{}],
+      modeTolerant: async () => ({ client: {}, result: { paid: true } }),
+      postInstalmentInvoice: async () => ({ status, reason: 'fixture outcome' }),
+    });
+    assert.equal(results.errors, ['failed', 'invoice_unpaid'].includes(status) ? 1 : 0);
+    assert.equal(results.repaired, status === 'posted' ? 1 : 0);
+    assert.equal(results.skipped, status === 'pending' ? 1 : 0);
+    if (status === 'pending') assert.equal(results.details[0].deferred, true);
+    assert.deepEqual(db.writes, []);
+  });
+}
 
 function queryDb(plans) {
   const calls = [];

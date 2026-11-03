@@ -3,6 +3,16 @@ name: Provider replay outcome semantics
 description: Webhook acknowledgement is not a successful administrative recovery outcome.
 ---
 
+Identify the payment rail from persisted agreement and ledger evidence before
+diagnosing an accounting sweep. A visible last accounting error does not date
+the original collection failure.
+
+**Why:** A reported Direct Debit recovery problem was actually a Stripe
+instalment; repeated identity-conflict attempts preceded the latest throttle.
+
+**How to apply:** Correlate the collection, source ledger and individual
+scheduled-run details; preserve older blockers when explaining the latest error.
+
 A provider event marked `handled` is acknowledged, not necessarily recovered. Administrative replay must separately reject conflict, blocked, and retryable outcomes, including failures from subsequent payment-processing steps.
 
 **Why:** webhook processors legitimately acknowledge terminal conflicts or compensated checkouts to stop provider retries. Treating that acknowledgement as recovery success gives administrators a false success message even though membership activation did not complete.

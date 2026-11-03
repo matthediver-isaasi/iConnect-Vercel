@@ -2,6 +2,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { findOrCreateXeroContact } from './xero.js';
 
+test('non-JSON contact throttle retains Retry-After without attempting contact mutation', async () => {
+  let calls = 0;
+  await assert.rejects(findOrCreateXeroContact('fixture', 'isolated-company',
+    { name: 'Example Member', email: 'member@example.com' }, {
+      fetch: async () => {
+        calls++;
+        return new Response('', { status: 429, headers: { 'Retry-After': '900' } });
+      },
+    }), error => error.status === 429 && error.statusCode === 429
+      && error.retryAfter === '900' && /contact-search.*non-JSON/.test(error.message));
+  assert.equal(calls, 1);
+});
+
 function transport(contacts) {
   const calls = [];
   return {

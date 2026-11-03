@@ -432,6 +432,9 @@ function instalmentStore() {
       return { data: null, error: null };
     }
     if (state.op === 'update') {
+      if (state.filters.updated_at && state.filters.updated_at !== store.row?.updated_at) {
+        return { data: state.selectAfterWrite ? [] : null, error: null };
+      }
       const cas = state.ins.find((i) => i.col === 'accounting_sync_status');
       if (cas && !cas.vals.includes(store.row?.accounting_sync_status)) {
         return { data: state.selectAfterWrite ? [] : null, error: null }; // CAS lost
@@ -1017,7 +1020,7 @@ test('postStripeInstalmentInvoice: unpaid invoice → invoice_unpaid; retry appl
 
 test('postStripeInstalmentInvoice: stale posting row reclaimable only with reclaimStale', async () => {
   const store = instalmentStore();
-  store.row = { id: 'row1', accounting_sync_status: 'posting', external_payment_id: 'in_s1' };
+  store.row = { id: 'row1', accounting_sync_status: 'posting', external_payment_id: 'in_s1', updated_at: '2020-01-01T00:00:00Z' };
   const db = fakeDb({ ...contextHandlers, membership_instalment_invoices: store.handler });
   const calls = [];
   const held = await postStripeInstalmentInvoice({
@@ -1032,6 +1035,27 @@ test('postStripeInstalmentInvoice: stale posting row reclaimable only with recla
   assert.equal(calls.length, 1);
   assert.equal(calls[0].idempotencyKey, 'mii-stripe-in_s1');
 });
+
+for (const race of ['fresh', 'renewed-after-read']) {
+  test(`Stripe accounting sweep cannot steal a ${race} posting claim`, async () => {
+    const store = instalmentStore();
+    store.row = { id: 'row1', accounting_sync_status: 'posting', external_payment_id: 'in_s1',
+      updated_at: race === 'fresh' ? new Date().toISOString() : '2020-01-01T00:00:00Z' };
+    const db = fakeDb({ ...contextHandlers, membership_instalment_invoices: state => {
+      if (race === 'renewed-after-read' && state.op === 'update') store.row.updated_at = new Date().toISOString();
+      return store.handler(state);
+    } });
+    const calls = [];
+    const result = await postStripeInstalmentInvoice({
+      agreement: perInstalmentAgreement(), stripeInvoiceId: 'in_s1',
+      stripeInvoice: stripeEvidence('in_s1'), amountMinor: 1000,
+    }, { db, reclaimStale: true, stripe: stripeEvidenceClient(stripeEvidence('in_s1')),
+      getProvider: async () => fakeProvider(calls) });
+    assert.equal(result.status, 'skipped');
+    assert.equal(calls.length, 0);
+    assert.equal(store.row.accounting_sync_status, 'posting');
+  });
+}
 
 test('postStripeInstalmentInvoice: annual-mode agreement is skipped untouched', async () => {
   const outcome = await postStripeInstalmentInvoice({

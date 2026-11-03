@@ -12,6 +12,32 @@ const post = source.slice(postStart,source.indexOf('\nasync function ',postStart
 const response = () => ({ statusCode:200,status(code) {this.statusCode=code;return this;},
   json(value) {this.body=value;return this;} });
 
+function creditCheckoutDb(rows = []) {
+  return {
+    rpc: () => { throw new Error('unexpected database mutation'); },
+    from(table) {
+      assert.equal(table, 'form_membership_voucher_checkout');
+      const query = {
+        select: () => query, eq: () => query, is: () => query, in: () => query,
+        limit: async () => ({ data: rows, error: null }),
+      };
+      return query;
+    },
+  };
+}
+
+test('active credit checkout blocks switching before provider or election changes', async () => {
+  const sandbox = vm.createContext({ console, supabase: creditCheckoutDb([{ fee_token_id: 'held' }]),
+    RenewalSwitchError,
+    getMemberById: async () => ({ id: 'member', tenant_id: 'tenant' }),
+    changeRenewalPaymentMethod: () => assert.fail('active checkout must block switching'),
+  });
+  vm.runInContext(post, sandbox);
+  await assert.rejects(sandbox.handlePost({ body: { memberId: 'member',
+    action: 'change_renewal_payment_method', electionId: 'election' } }, response(), 'tenant'),
+  /cancel it before changing payment method/);
+});
+
 for (const [name,tenant,access] of [
   ['unsigned user','tenant',{ok:false}],
   ['cross-tenant session','tenant',{ok:true,tenantId:'other'}],
@@ -30,7 +56,7 @@ for (const [name,tenant,access] of [
   assert.equal(calls,0);
 });
 test('actual switch action rejects wrong tenant and missing election identity without provider calls',async()=>{
-  const sandbox=vm.createContext({console,supabase:{rpc:()=>{throw new Error('unexpected database call');}},
+  const sandbox=vm.createContext({console,supabase:creditCheckoutDb(),
     getMemberById:async()=>({id:'member',tenant_id:'tenant'}),
     changeRenewalPaymentMethod,RenewalSwitchError,
   });
@@ -43,7 +69,7 @@ test('actual switch action rejects wrong tenant and missing election identity wi
 });
 test('authorized switch binds current owner, payer and the explicit stale-tab election ID',async()=>{
   let received;
-  const sandbox=vm.createContext({console,supabase:{},RenewalSwitchError,
+  const sandbox=vm.createContext({console,supabase:creditCheckoutDb(),RenewalSwitchError,
     getMemberById:async()=>({id:'member',tenant_id:'tenant',organization_id:'organization'}),
     changeRenewalPaymentMethod:async args=>{received=args;return {released:true};},
   });

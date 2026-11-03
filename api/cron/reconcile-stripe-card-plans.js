@@ -360,11 +360,13 @@ export async function retryFailedInstalmentInvoices(results, {
       if (outcome.status === 'posted') {
         results.repaired++;
         results.details.push({ instalmentInvoice: row.id, repaired: 'per-instalment invoice posted on retry' });
+      } else if (['failed', 'invoice_unpaid'].includes(outcome.status)) {
+        results.errors++;
+        results.details.push({ instalmentInvoice: row.id, error: `retry ${outcome.status}: ${outcome.reason}` });
       } else {
         results.skipped++;
-        if (outcome.status === 'failed') {
-          results.details.push({ instalmentInvoice: row.id, error: `retry failed: ${outcome.reason}` });
-        }
+        results.details.push({ instalmentInvoice: row.id, deferred: true,
+          accountingStatus: outcome.status, reason: outcome.reason });
       }
     } catch (err) {
       results.errors++;
