@@ -1,4 +1,5 @@
 import { supabase } from './database.js';
+import { sendAutomaticAttendanceCertificate } from './automaticAttendanceCertificate.js';
 import {
   decideAttendanceEvidence,
   loadCurrentOnlineEvidence,
@@ -132,9 +133,16 @@ export async function processCpdPointsAward(input, { db = supabase } = {}) {
 }
 
 export async function processCpdPointsOutbox(db = supabase, { limit = 25, maxAttempts = 8 } = {}) {
-  const rows = await rpc(db, 'claim_event_cpd_points_outbox', { p_limit: limit });
-  const result = { claimed: rows?.length || 0, completed: 0, failed: 0 };
-  for (const row of rows || []) {
+  const result = { claimed: 0, completed: 0, failed: 0 };
+  const started = Date.now();
+  const maximum = Math.min(25, Math.max(1, Number.parseInt(limit, 10) || 25));
+  // Certificate rendering/network work is slower than awarding points. Claim
+  // only the next item, leaving unstarted work available to the next cron run.
+  while (result.claimed < maximum && Date.now() - started < 15000) {
+    const rows = await rpc(db, 'claim_event_cpd_points_outbox', { p_limit: 1 });
+    const row = rows?.[0];
+    if (!row) break;
+    result.claimed++;
     try {
       await processCpdPointsAward({
         tenantId: row.tenant_id,
@@ -147,6 +155,7 @@ export async function processCpdPointsOutbox(db = supabase, { limit = 25, maxAtt
           ? { type: 'qr_checkin', ...(row.evidence_snapshot || {}) }
           : { type: row.evidence_type, ...(row.evidence_snapshot || {}) },
       }, { db });
+      await sendAutomaticAttendanceCertificate(db, row);
       await rpc(db, 'complete_event_cpd_points_outbox', {
         p_id: row.id, p_lock_token: row.lock_token,
       });
@@ -159,6 +168,7 @@ export async function processCpdPointsOutbox(db = supabase, { limit = 25, maxAtt
         p_error: error?.message || String(error),
         p_max_attempts: maxAttempts,
       });
+      break;
     }
   }
   return result;

@@ -141,6 +141,25 @@ test('outbox retries failed points independently and uses lock token', async () 
   assert.equal(failure[1].p_max_attempts, 4);
 });
 
+test('points worker claims one item at a time and leaves later work unclaimed', async () => {
+  let claims=0,completed=0;
+  const db={
+    async rpc(name,args){
+      if(name==='claim_event_cpd_points_outbox'){
+        assert.equal(args.p_limit,1);claims++;
+        return {data:[{id:`o${claims}`,tenant_id:'t',booking_type:'booking',booking_id:'missing',
+          trigger_type:'registration',idempotency_key:`k${claims}`,lock_token:`l${claims}`}],error:null};
+      }
+      if(name==='complete_event_cpd_points_outbox')completed++;
+      return {data:{status:'skipped_cancelled'},error:null};
+    },
+    from(){return {select(){return this;},eq(){return this;},
+      async maybeSingle(){return {data:null,error:null};}};},
+  };
+  assert.deepEqual(await processCpdPointsOutbox(db,{limit:2}),{claimed:2,completed:2,failed:0});
+  assert.equal(claims,2);assert.equal(completed,2);
+});
+
 test('pending and error attempt outcomes remain retryable', async () => {
   for (const status of ['pending_evidence', 'error']) {
     const mock = awardDb();

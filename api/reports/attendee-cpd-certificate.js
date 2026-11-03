@@ -128,7 +128,7 @@ export async function handleAttendeeCertificate(req, res, deps = {}) {
     const { data: claim, error: claimError } = await db.rpc('claim_attendee_cpd_certificate_delivery', {
       p_tenant_id: context.tenantId, p_booking_source: bookingSource, p_booking_id: bookingId,
       p_request_id: input.request_id, p_fingerprint: resolved.fingerprint,
-      p_actor: context.memberId ? `member:${context.memberId}` : `tenant_user:${context.tenantUserId}`,
+      p_actor: deps.actor || (context.memberId ? `member:${context.memberId}` : `tenant_user:${context.tenantUserId}`),
       p_recipient: recipient, p_provenance: resolved.provenance,
       p_purpose: isTest ? 'test' : badgeOnly ? 'badge' : 'attendee',
       p_deliberate_resend: input.deliberate_resend === true,
