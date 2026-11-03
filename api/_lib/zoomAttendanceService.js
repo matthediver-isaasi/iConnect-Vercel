@@ -9,6 +9,7 @@ import {
 import { eventAttendancePolicy, resolveInheritedPolicy } from './attendancePolicy.js';
 import { agendaScheduledEndAt } from './attendanceSchedule.js';
 import { legacyBookingMatch } from './attendanceMatching.js';
+import { fetchZoomAttendanceRegistrants, createZoomAttendanceMatcher } from './zoomAttendanceIdentity.js';
 
 async function fetchZoomParticipants(token, zoomId, zoomType) {
   const isWebinar = zoomType === 'webinar';
@@ -96,7 +97,7 @@ async function matchParticipantsToBookings(tenantId, eventId, isComplexEvent, pa
   } else {
     const { data: bookings, error } = await supabase
       .from('booking')
-      .select('id, member_id, attendee_email, ticket_class_id')
+      .select('id, member_id, attendee_email, ticket_class_id, zoom_registrant_id')
       .eq('event_id', eventId)
       .eq('tenant_id', tenantId)
       .eq('status', 'confirmed');
@@ -115,6 +116,7 @@ async function matchParticipantsToBookings(tenantId, eventId, isComplexEvent, pa
 
   return {
     bookingsByEmail,
+    identityBookings: confirmedBookings,
     bookings: confirmedBookings.map((booking) => ({
       id: booking.id,
       bookingType: isComplexEvent ? 'complex_event_booking' : 'booking',
@@ -204,9 +206,11 @@ export async function syncAttendanceForMeeting({
   }
   let participants;
   let fetchError;
+  let registrants = [];
   try {
     const token = await getZoomAccessTokenForTenant(tenantId);
     ({ participants, error: fetchError } = await fetchZoomParticipants(token, zoomMeetingId, zoomType));
+    if (!fetchError) registrants = await fetchZoomAttendanceRegistrants(token, zoomMeetingId, zoomType);
   } catch (providerError) {
     const errorMessage = providerError?.message || 'Zoom attendance provider request failed';
     await persistAttendanceSyncState(supabase, {
@@ -264,10 +268,11 @@ export async function syncAttendanceForMeeting({
     return { success: false, pending, error, participantCount: 0, matchedCount: 0, unmatchedCount: 0 };
   }
 
-  const { bookingsByEmail, bookings } = await matchParticipantsToBookings(
+  const { identityBookings, bookings } = await matchParticipantsToBookings(
     tenantId, eventId, isComplexEvent, participants,
   );
   const thresholdMinutes = policy.thresholdMinutes;
+  const matchIdentity = createZoomAttendanceMatcher(identityBookings, registrants);
 
   const now = new Date().toISOString();
   let matchedCount = 0;
@@ -275,10 +280,11 @@ export async function syncAttendanceForMeeting({
 
   const allRecords = participants.map(p => {
     const email = (p.user_email || p.email || '').toLowerCase().trim();
-    const candidates = email ? bookingsByEmail[email] : null;
+    const identity = matchIdentity(p);
+    const candidates = identity.candidates;
     // Keep the legacy ledger's one-to-one booking fields truthful. Ambiguous
     // email matches are represented in provider-neutral match rows instead.
-    const match = legacyBookingMatch(candidates);
+    const match = identity.ambiguous ? null : legacyBookingMatch(candidates);
 
     if (match) {
       matchedCount++;
@@ -298,6 +304,7 @@ export async function syncAttendanceForMeeting({
       leave_time: p.leave_time || null,
       duration_minutes: Math.round(zoomDurationSeconds(p) / 60),
       duration_seconds: zoomDurationSeconds(p),
+      _identity: identity,
       matched_booking_id: match?.booking_id || null,
       matched_member_id: match?.member_id || null,
       synced_at: now,
@@ -311,7 +318,7 @@ export async function syncAttendanceForMeeting({
       nullKeyRecords.push(rec);
       continue;
     }
-    const key = `${rec.zoom_meeting_id}|${rec.participant_email}|${rec.join_time}`;
+    const key = `${rec.zoom_meeting_id}|${rec._identity.registrantId || rec.participant_email}|${rec.join_time}`;
     const existing = deduped.get(key);
     if (!existing || rec.duration_seconds > existing.duration_seconds) {
       deduped.set(key, rec);
@@ -320,9 +327,16 @@ export async function syncAttendanceForMeeting({
   const records = [...deduped.values(), ...nullKeyRecords];
 
   const intervals = records.map((record, index) => {
-    const providerParticipantId = null;
+    const providerParticipantId = record._identity.registrantId
+      ? `registrant:${record._identity.registrantId}` : null;
     const intervalKey = `${record.participant_email || 'anonymous'}:${record.join_time || index}`;
-    const participantKey = normalizeParticipantKey({
+    // Rejoins can report different account emails or omit a registrant ID.
+    // After an unambiguous resolution, aggregate all sessions for that booking.
+    const resolved = record._identity.candidates.length === 1 && !record._identity.ambiguous
+      ? record._identity.candidates[0] : null;
+    const participantKey = resolved
+      ? `booking:${isComplexEvent ? 'complex_event_booking' : 'booking'}:${resolved.booking_id}`
+      : providerParticipantId ? `provider:${providerParticipantId}` : normalizeParticipantKey({
       email: record.participant_email, providerParticipantId, intervalKey,
     });
     return {
@@ -334,7 +348,8 @@ export async function syncAttendanceForMeeting({
       leftAt: record.leave_time,
       durationSeconds: record.duration_seconds,
       providerParticipantId,
-      metadata: { zoomType: zoomType || 'meeting' },
+      _identity: record._identity,
+      metadata: { zoomType: zoomType || 'meeting', identitySource: record._identity.matchedBy },
     };
   });
   const participantFacts = new Map();
@@ -342,22 +357,22 @@ export async function syncAttendanceForMeeting({
     if (!participantFacts.has(interval.participantKey)) participantFacts.set(interval.participantKey, interval);
   }
   const matches = [...participantFacts.values()].flatMap((participant) => {
-    const candidates = participant.email ? bookingsByEmail[participant.email] : null;
+    const candidates = participant._identity.candidates;
     if (!candidates?.length) return [{
       participantKey: participant.participantKey, matchStatus: 'unmatched', matchedBy: null,
     }];
-    if (candidates.length > 1) return candidates.map((booking) => ({
+    if (candidates.length > 1 || participant._identity.ambiguous) return candidates.map((booking) => ({
       participantKey: participant.participantKey,
       bookingType: isComplexEvent ? 'complex_event_booking' : 'booking',
       bookingId: booking.booking_id, memberId: booking.member_id,
-      matchStatus: 'ambiguous', matchedBy: 'email_duplicate',
+      matchStatus: 'ambiguous', matchedBy: participant._identity.matchedBy,
     }));
     const booking = candidates[0];
     return [{
       participantKey: participant.participantKey,
       bookingType: isComplexEvent ? 'complex_event_booking' : 'booking',
       bookingId: booking.booking_id, memberId: booking.member_id,
-      matchStatus: 'matched', matchedBy: 'email',
+      matchStatus: 'matched', matchedBy: participant._identity.matchedBy,
     }];
   });
   matchedCount = matches.filter((match) => match.matchStatus === 'matched').length;
@@ -376,7 +391,7 @@ export async function syncAttendanceForMeeting({
       scheduledEndAt,
       policy: policy.policy,
     },
-    intervals,
+    intervals: intervals.map(({ _identity, ...interval }) => interval),
     matches,
     bookings,
     idempotencyKey: buildAttendanceSnapshotIdempotencyKey({
@@ -389,7 +404,7 @@ export async function syncAttendanceForMeeting({
         thresholdMinutes,
         policy: policy.policy,
       },
-      intervals,
+      intervals: intervals.map(({ _identity, ...interval }) => interval),
       matches,
       bookings,
     }),
@@ -409,7 +424,7 @@ export async function syncAttendanceForMeeting({
 
   const batchSize = 100;
   for (let i = 0; i < records.length; i += batchSize) {
-    const batch = records.slice(i, i + batchSize).map(({ duration_seconds, ...record }) => record);
+    const batch = records.slice(i, i + batchSize).map(({ duration_seconds, _identity, ...record }) => record);
     const { error: insertError } = await supabase
       .from('zoom_attendance')
       .insert(batch);

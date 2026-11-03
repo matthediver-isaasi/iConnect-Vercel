@@ -4,17 +4,25 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import { evaluateAttendance, normalizeParticipantKey, buildAttendanceSnapshotIdempotencyKey } from './attendanceEngine.js';
 import { eventAttendancePolicy } from './attendancePolicy.js';
+import { createZoomAttendanceMatcher } from './zoomAttendanceIdentity.js';
 
 const source = fs.readFileSync(new URL('./zoomAttendanceService.js', import.meta.url), 'utf8')
   .replace(/^import[\s\S]*?from\s+['"][^'"]+['"];\n/gm, '')
   .replace(/export /g, '');
 
-async function run(durations, { nextPage = false, enabled = true } = {}) {
+async function run(durations, { nextPage = false, enabled = true, registrants = [],
+  fixtureBookings = [{ id: 'booking', attendee_email: 'fixture@example.test' }],
+  participantIdentity = {}, registrationError = null } = {}) {
   const snapshots = [], ledger = [];
   let requests = 0;
   const context = vm.createContext({
     console: { log() {}, error() {} }, URL, Date,
     normalizeParticipantKey, buildAttendanceSnapshotIdempotencyKey, eventAttendancePolicy,
+    createZoomAttendanceMatcher,
+    fetchZoomAttendanceRegistrants: async () => {
+      if (registrationError) throw new Error(registrationError);
+      return registrants;
+    },
     legacyBookingMatch: candidates => candidates?.length === 1 ? candidates[0] : null,
     getZoomAccessTokenForTenant: async () => 'fixture',
     persistAttendanceSyncState: async () => {},
@@ -22,7 +30,7 @@ async function run(durations, { nextPage = false, enabled = true } = {}) {
     supabase: { from(table) {
       const result = { data: table === 'event'
         ? { attendance_tracking_enabled: enabled, attendance_provider: 'zoom', attendance_threshold_minutes: 20 }
-        : table === 'booking' ? [{ id: 'booking', attendee_email: 'fixture@example.test' }] : [], error: null };
+        : table === 'booking' ? fixtureBookings : [], error: null };
       const builder = {
         select() { return this; }, eq() { return this; }, delete() { return this; },
         single: async () => result,
@@ -37,6 +45,7 @@ async function run(durations, { nextPage = false, enabled = true } = {}) {
         participants: durations.map((duration, i) => ({
           user_email: 'fixture@example.test', duration,
           join_time: `2026-01-01T12:${String(i).padStart(2, '0')}:00Z`,
+          ...(Array.isArray(participantIdentity) ? participantIdentity[i] : participantIdentity),
         })),
         next_page_token: nextPage ? 'more' : '',
       }) };
@@ -48,6 +57,50 @@ async function run(durations, { nextPage = false, enabled = true } = {}) {
   });
   return { result, snapshots, ledger, requests };
 }
+
+test('actual adapter joins repeat sessions by explicit registrant ID without leaking internal identity fields', async () => {
+  const result = await run([600,600], {
+    fixtureBookings:[{id:'booking',attendee_email:'old@example.test',zoom_registrant_id:'r'}],
+    registrants:[{id:'r',email:'registered@example.test'}],
+    participantIdentity:{registrant_id:'r',user_email:'personal@example.test'},
+  });
+  const snapshot=result.snapshots[0];
+  assert.equal(snapshot.matches[0].bookingId,'booking');
+  assert.equal(snapshot.matches[0].matchedBy,'registrant_id');
+  assert.equal(evaluateAttendance({...snapshot,thresholdMinutes:snapshot.target.thresholdMinutes,syncStatus:'succeeded'})[0].status,'attended');
+  assert.ok(result.ledger.every(row=>!('_identity' in row)));
+  assert.ok(snapshot.intervals.every(row=>!('_identity' in row)));
+});
+
+test('registration-email reconciliation supports changed booking email in the actual adapter',async()=>{
+  const result=await run([1200],{
+    fixtureBookings:[{id:'booking',attendee_email:'old@example.test',zoom_registrant_id:'r'}],
+    registrants:[{id:'r',email:'fixture@example.test'}],
+  });
+  assert.equal(result.snapshots[0].matches[0].matchedBy,'registration_email');
+  assert.equal(result.snapshots[0].matches[0].bookingId,'booking');
+});
+
+test('mixed registrant-ID and email-only rejoins aggregate for the same resolved booking',async()=>{
+  const result=await run([600,600],{
+    fixtureBookings:[{id:'booking',attendee_email:'old@example.test',zoom_registrant_id:'r'}],
+    registrants:[{id:'r',email:'registered@example.test'}],
+    participantIdentity:[
+      {registrant_id:'r',user_email:'personal@example.test'},
+      {user_email:'old@example.test'},
+    ],
+  });
+  const snapshot=result.snapshots[0];
+  assert.equal(new Set(snapshot.intervals.map(i=>i.participantKey)).size,1);
+  assert.equal(snapshot.matches.length,1);
+  assert.equal(evaluateAttendance({...snapshot,thresholdMinutes:20,syncStatus:'succeeded'})[0].status,'attended');
+});
+
+test('registration evidence failure does not publish a partial attendance snapshot or legacy ledger',async()=>{
+  const result=await run([1200],{registrationError:'registration evidence unavailable'});
+  assert.equal(result.snapshots.length,0);assert.equal(result.ledger.length,0);
+  assert.equal(result.result.success,false);
+});
 
 for (const [durations, expected, seconds] of [
   [[20], 'below_threshold', 20],

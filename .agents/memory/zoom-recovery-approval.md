@@ -5,6 +5,12 @@ description: Registration diagnosis does not authorize live recovery or message 
 
 Diagnose linked event Zoom registration read-only. Present provider evidence and obtain explicit confirmation before changing live registration settings, registering attendees or sending messages.
 
+Personalised registration links do not guarantee that Zoom's post-meeting report exposes a registrant ID. Distinguish report connection records from unique identities.
+
+**Why:** A live report contained repeat joins and account emails but no explicit registrant IDs; treating row counts as people or account IDs as registrant IDs would fabricate matches.
+
+**How to apply:** Reconcile complete registration evidence; prefer explicit registrant IDs, retain exact-email fallback, and leave duplicate/conflicting identities for review. Never match by display name or claim unmatched evidence proves non-attendance. Unchanged recovered outcomes must not replay awards or workflows.
+
 **Why:** The user explicitly separated diagnosis from recovery, including the implications for previously shared links and emails.
 
 **How to apply:** Keep cached settings and historical success counts distinct from live provider evidence; an unavailable registrant list is not zero registrations. Provisioning creation controls and tenant-wide backfills are separately scoped work.
