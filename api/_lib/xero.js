@@ -132,10 +132,12 @@ export async function getValidXeroAccessToken(appTenantId, transportOptions = nu
     throw new Error('appTenantId is required for Xero token lookup');
   }
   
-  const { data: tokens, error } = await supabase
+  let tokenQuery = supabase
     .from('xero_token')
     .select('*')
     .eq('app_tenant_id', appTenantId);
+  if (transportOptions?.signal) tokenQuery = tokenQuery.abortSignal(transportOptions.signal);
+  const { data: tokens, error } = await tokenQuery;
 
   if (error) {
     console.error('[Xero] Token lookup error:', error);
@@ -147,6 +149,14 @@ export async function getValidXeroAccessToken(appTenantId, transportOptions = nu
   }
 
   const token = tokens[0];
+  if (transportOptions?.requireEnabled && tokens.length !== 1) {
+    throw new Error('Xero connection is ambiguous');
+  }
+  const reportCredentials = transportOptions?.requireEnabled
+    ? await getXeroCredentials(appTenantId, { signal: transportOptions.signal }) : null;
+  if (transportOptions?.requireEnabled && !reportCredentials?.is_enabled) {
+    throw new Error('Xero connection is disabled');
+  }
   
   if (token.tenant_id === 'PENDING_SELECTION') {
     throw new Error('Xero authentication incomplete. Please select a Xero organization.');
@@ -160,7 +170,7 @@ export async function getValidXeroAccessToken(appTenantId, transportOptions = nu
     return { accessToken: token.access_token, tenantId: token.tenant_id };
   }
 
-  const xeroCredentials = await getXeroCredentials(appTenantId);
+  const xeroCredentials = reportCredentials || await getXeroCredentials(appTenantId);
   
   if (!xeroCredentials || !xeroCredentials.client_id || !xeroCredentials.client_secret) {
     throw new Error('Xero credentials not configured for this tenant');
@@ -197,7 +207,7 @@ export async function getValidXeroAccessToken(appTenantId, transportOptions = nu
 
   const newExpiresAt = new Date(Date.now() + (tokenData.expires_in * 1000)).toISOString();
 
-  const { error: updateError } = await supabase
+  let updateQuery = supabase
     .from('xero_token')
     .update({
       access_token: tokenData.access_token,
@@ -205,6 +215,8 @@ export async function getValidXeroAccessToken(appTenantId, transportOptions = nu
       expires_at: newExpiresAt,
     })
     .eq('id', token.id);
+  if (transportOptions?.signal) updateQuery = updateQuery.abortSignal(transportOptions.signal);
+  const { error: updateError } = await updateQuery;
   if (updateError) {
     throw new Error(`Xero token refreshed but rotated credentials could not be saved: ${updateError.message}`);
   }

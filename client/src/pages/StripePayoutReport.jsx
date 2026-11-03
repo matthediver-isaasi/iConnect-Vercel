@@ -10,7 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import { loadCompletePayout } from "@/lib/stripePayoutLoader.mjs";
-import { payoutMoney, payoutCsv } from "../../../shared/stripePayoutReport.mjs";
+import { payoutMoney, payoutCsv, payoutContactLabel } from "../../../shared/stripePayoutReport.mjs";
 import "./StripePayoutReport.css";
 
 const FEATURE_ID = "commerce.stripe-payout-report";
@@ -56,6 +56,7 @@ function InvoiceEvidence({ invoices = [] }) {
       <div className="text-xs text-muted-foreground">Provider: {text(invoice.provider)}</div>
       <div className="payout-id">ID: {text(invoice.id)}</div>
       {invoice.number && <div className="text-xs">Number: {invoice.number}</div>}
+      <div className="payout-contact text-xs">Xero customer/contact: {payoutContactLabel(invoice)}</div>
       {invoice.conflict && <div className="text-xs text-amber-800">Conflicting evidence · link withheld</div>}
     </div>;
   });

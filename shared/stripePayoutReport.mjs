@@ -8,7 +8,9 @@ export function invoiceEvidence(record, source) {
   const id = r.accounting_invoice_id || r.xero_invoice_id || null;
   const number = r.accounting_invoice_number || r.xero_invoice_number || null;
   const conflict = !!(r.accounting_invoice_id && r.xero_invoice_id
-    && (provider !== 'xero' || r.accounting_invoice_id !== r.xero_invoice_id));
+    && (provider !== 'xero' || r.accounting_invoice_id !== r.xero_invoice_id))
+    || !!(provider === 'xero' && r.accounting_invoice_number && r.xero_invoice_number
+      && r.accounting_invoice_number !== r.xero_invoice_number);
   return { source, sourceId: record.id, reference: record.booking_group_reference || record.booking_reference || record.id,
     historyId: source === 'form_submission' ? r.history_id : null,
     historyTable: source === 'form_submission' ? r.table : null,
@@ -40,7 +42,12 @@ export function reconcilePayout(payout, transactions, evidence, complete) {
       return history ? { ...history, source: e.source, sourceId: e.sourceId, reference: e.reference } : e;
     });
     const invoices = [...new Map(links.filter(e => e.id || e.number)
-      .map(e => [`${e.provider}:${e.id || e.number}`, e])).values()];
+      .map(e => [`${e.provider}:${e.id || e.number}`, e])).values()].map(invoice => {
+        const copies = links.filter(e => e.provider === invoice.provider && e.id === invoice.id);
+        const names = [...new Set(copies.filter(e => e.contactStatus === 'available' && e.contactName).map(e => e.contactName))];
+        return names.length === 1 ? { ...invoice, contactName: names[0], contactStatus: 'available' }
+          : names.length > 1 ? { ...invoice, contactName: null, contactStatus: 'conflicting_contacts' } : invoice;
+      });
     const ambiguous = links.some(e => e.conflict) || links.some(a => links.some(b =>
       a !== b && a.id && a.id === b.id && a.provider === b.provider && a.number && b.number && a.number !== b.number))
       || invoices.some(a =>
@@ -55,7 +62,8 @@ export function reconcilePayout(payout, transactions, evidence, complete) {
             : status === 'Other accounting provider' ? 'Stored invoice belongs to another accounting provider, not Xero.'
               : 'Exact stored payment link; multiple invoices are listed without allocating the payment.';
     return { ...t, sources: [...new Set(links.map(e => `${e.source}: ${e.reference}`))],
-      invoices: ambiguous ? invoices.map(i => ({ ...i, url: null, conflict: true })) : invoices, status,
+      invoices: ambiguous ? invoices.map(i => ({ ...i, url: null, conflict: true,
+        contactName: null, contactStatus: 'conflicting_evidence' })) : invoices, status,
       reason: reason + (t.refundId ? ' Refund links refer to original invoices, not evidence of a credit note.' : '') };
   });
   const variance = complete && Number.isSafeInteger(payout.amount)
@@ -67,6 +75,17 @@ export function reconcilePayout(payout, transactions, evidence, complete) {
 // Stripe retains two-decimal API representation for ISK and UGX.
 const ZERO = new Set('bif clp djf gnf jpy kmf krw mga pyg rwf vnd vuv xaf xof xpf'.split(' '));
 const THREE = new Set(['bhd', 'jod', 'kwd', 'omr', 'tnd']);
+export function payoutContactLabel(invoice) {
+  if (invoice.conflict) return 'Unavailable — conflicting evidence';
+  if (invoice.provider !== 'xero') return 'Not applicable — non-Xero invoice';
+  if (invoice.contactStatus === 'available' && invoice.contactName) return invoice.contactName;
+  return {
+    connection_unavailable: 'Unavailable — Xero connection',
+    invalid_evidence: 'Unavailable — invalid or conflicting invoice evidence',
+    lookup_unavailable: 'Unavailable — Xero lookup',
+    conflicting_contacts: 'Unavailable — conflicting contact responses',
+  }[invoice.contactStatus] || 'Unavailable — no verified contact name';
+}
 export function payoutMoney(minor, currency) {
   const digits = ZERO.has(currency) ? 0 : THREE.has(currency) ? 3 : 2;
   return `${currency.toUpperCase()} ${(minor / 10 ** digits).toFixed(digits)}`;
@@ -90,11 +109,12 @@ export function payoutCsv(report) {
     [p.id, p.status, p.arrivalDate, p.currency, p.amount, true, report.balanced, report.variance, p.mode],
     ['Balance transaction', 'Type', 'Payment date UTC', 'Balance date UTC', 'Currency', 'Gross minor', 'Fee minor', 'Net minor',
       'Source ID', 'Charge ID', 'Refund ID', 'Payment intent ID', 'Stripe invoice ID', 'Source references',
-      'Accounting invoices', 'Invoice links', 'Match status', 'Reason'],
+      'Accounting invoices', 'Invoice links', 'Match status', 'Reason', 'Xero customer/contact names by invoice'],
     ...report.rows.map(r => [r.id, r.type, r.paymentDate, r.balanceDate, r.currency, r.gross, r.fee, r.net,
       r.sourceId, r.chargeId, r.refundId, r.paymentIntentId, r.stripeInvoiceId, r.sources.join('; '),
       r.invoices.map(i => `${i.provider || 'unknown'}: ${i.number || i.id}`).join('; '),
-      r.invoices.map(i => i.url).filter(Boolean).join('; '), r.status, r.reason]),
+      r.invoices.map(i => i.url).filter(Boolean).join('; '), r.status, r.reason,
+      r.invoices.map(i => `${i.provider || 'unknown'}: ${i.number || i.id} [${i.id || 'no ID'}]: ${payoutContactLabel(i)}`).join('; ')]),
     ['Currency totals', 'Gross minor', 'Fee minor', 'Net minor'],
     ...Object.entries(report.totals).map(([currency, t]) => [currency, t.gross, t.fee, t.net]),
   ];

@@ -13,7 +13,7 @@ const row = { id: 'txn_example', type: 'charge', currency: 'gbp', gross: 15000, 
   paymentDate: '2026-10-28T10:00:00Z', balanceDate: '2026-10-28T10:00:00Z',
   sourceId: 'ch_example', chargeId: 'ch_example', paymentIntentId: 'pi_example', refundId: null, stripeInvoiceId: null };
 
-async function fixture(page, { fail = false } = {}) {
+async function fixture(page, { fail = false, contactStatus = 'available', extraInvoices = [] } = {}) {
   const writes = [], modes = [];
   await page.addInitScript(() => {
     localStorage.clear(); sessionStorage.clear();
@@ -35,8 +35,9 @@ async function fixture(page, { fail = false } = {}) {
         return json({ rows: url.searchParams.get('source') === 'booking' ? [{
           source: 'booking', sourceId: 'booking-example', reference: 'DEMO-001', paymentId: 'pi_example',
           provider: 'xero', id: 'example-invoice', number: 'DEMO-INV-001',
+          contactStatus, contactName: contactStatus === 'available' ? 'Example Customer, Ltd' : null,
           url: 'https://go.xero.com/AccountsReceivable/View.aspx?InvoiceID=example-invoice',
-        }] : [], next: null });
+        }, ...extraInvoices] : [], next: null });
       }
       if (url.searchParams.has('payout')) {
         return fail ? json({ error: 'Example provider failure. Nothing was changed.' }, 502)
@@ -69,6 +70,7 @@ test('select payout, verify exact invoice, export complete CSV, switch mode and 
   await expect(page.getByText('DEMO-INV-001', { exact: true })).toBeVisible();
   const invoice = page.getByRole('link', { name: 'DEMO-INV-001' });
   await expect(invoice).toHaveAttribute('href', /InvoiceID=example-invoice/);
+  await expect(page.getByText('Xero customer/contact: Example Customer, Ltd', { exact: true })).toBeVisible();
   const downloadPromise = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download CSV' }).click();
   const download = await downloadPromise;
@@ -76,6 +78,7 @@ test('select payout, verify exact invoice, export complete CSV, switch mode and 
   expect(csv).toContain('txn_example');
   expect(csv).toContain('14700');
   expect(csv).toContain('DEMO-INV-001');
+  expect(csv).toContain('DEMO-INV-001 [example-invoice]: Example Customer, Ltd');
   await mkdir('generated-artifacts/stripe-payout', { recursive: true });
   await page.screenshot({ path: 'generated-artifacts/stripe-payout/report-example.png', fullPage: true });
   await page.getByRole('button', { name: 'View payout po_manual', exact: true }).click();
@@ -94,4 +97,49 @@ test('provider failure is visible and cannot export', async ({ page }) => {
   await expect(page.getByText('Example provider failure. Nothing was changed.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Download CSV' })).toBeDisabled();
   expect(state.writes).toEqual([]);
+});
+
+test('missing Xero name leaves complete totals and CSV available on narrow screens', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await fixture(page, { contactStatus: 'connection_unavailable' });
+  await page.goto('/StripePayoutReport');
+  await page.getByRole('button', { name: 'View payout po_example', exact: true }).click();
+  await expect(page.getByText('Xero customer/contact: Unavailable — Xero connection', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Download CSV' })).toBeEnabled();
+  const promise = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download CSV' }).click();
+  const csv = await readFile(await (await promise).path(), 'utf8');
+  expect(csv).toContain('Unavailable — Xero connection');
+  expect(csv).toContain('14700');
+});
+
+test('multiple invoices retain names without duplicating transactions; conflicts withhold names', async ({ page }) => {
+  await fixture(page, { extraInvoices: [
+    { source: 'booking', reference: 'B2', paymentId: 'pi_example', provider: 'xero',
+      id: 'second-invoice', number: 'DEMO-INV-002', contactName: 'Second Customer', contactStatus: 'available' },
+    { source: 'booking', reference: 'B3', paymentId: 'pi_example', provider: 'quickbooks',
+      id: 'third-invoice', number: 'QB-003', contactName: 'Must not show', contactStatus: 'available' },
+  ] });
+  await page.goto('/StripePayoutReport');
+  await page.getByRole('button', { name: 'View payout po_example', exact: true }).click();
+  await expect(page.getByText('Xero customer/contact: Second Customer', { exact: true })).toBeVisible();
+  await expect(page.getByText('Xero customer/contact: Not applicable — non-Xero invoice', { exact: true })).toBeVisible();
+  await expect(page.getByText('txn_example', { exact: true })).toHaveCount(1);
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download CSV' }).click();
+  const csv = await readFile(await (await download).path(), 'utf8');
+  expect(csv).toContain('DEMO-INV-002 [second-invoice]: Second Customer');
+  expect(csv).not.toContain('Must not show');
+});
+
+test('conflicting evidence hides names and links but still exports financial totals', async ({ page }) => {
+  await fixture(page, { extraInvoices: [{
+    source: 'booking', reference: 'B2', paymentId: 'pi_example', provider: 'xero',
+    id: 'example-invoice', number: 'CONFLICT', contactName: 'Must not show', contactStatus: 'available',
+  }] });
+  await page.goto('/StripePayoutReport');
+  await page.getByRole('button', { name: 'View payout po_example', exact: true }).click();
+  await expect(page.getByText('Xero customer/contact: Unavailable — conflicting evidence', { exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'CONFLICT' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Download CSV' })).toBeEnabled();
 });

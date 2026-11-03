@@ -37,7 +37,7 @@ function decryptCredentials(credentials) {
   return decrypted;
 }
 
-export async function getXeroCredentials(tenantId) {
+export async function getXeroCredentials(tenantId, options = {}) {
   if (!supabase) {
     throw new Error('Database not configured');
   }
@@ -46,12 +46,14 @@ export async function getXeroCredentials(tenantId) {
     throw new Error('tenantId is required to get Xero credentials');
   }
 
-  const { data: integration, error } = await supabase
+  let query = supabase
     .from('tenant_integrations')
     .select('credentials, is_enabled')
     .eq('tenant_id', tenantId)
     .eq('integration_type', 'xero')
     .single();
+  if (options.signal) query = query.abortSignal(options.signal);
+  const { data: integration, error } = await query;
 
   if (error && error.code !== 'PGRST116') {
     console.error('[Xero] Error fetching credentials:', error);

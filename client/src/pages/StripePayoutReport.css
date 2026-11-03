@@ -18,6 +18,7 @@
 .stripe-payout-report .payout-evidence dt { color: #617882; font-size: 11px; }
 .stripe-payout-report .payout-evidence dd { margin: 0; }
 .stripe-payout-report .payout-invoice { margin-bottom: 10px; overflow-wrap: anywhere; }
+.stripe-payout-report .payout-contact { max-width: 320px; margin-top: 4px; white-space: normal; overflow-wrap: anywhere; }
 .stripe-payout-report .payout-invoice a { color: #246574; text-decoration: underline; text-underline-offset: 3px; }
 @media print {
   .stripe-payout-report button, .stripe-payout-report .payout-filters { display: none; }

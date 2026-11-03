@@ -5,6 +5,7 @@ import { getStripeIntegrationCredentials } from '../../_lib/stripeCredentials.js
 import { payoutSummary, readPayoutPage, readEvidencePage } from '../../_lib/stripePayoutReads.js';
 import { PAYOUT_SOURCES } from '../../../shared/stripePayoutReport.mjs';
 import { signPayoutScope, verifyPayoutScope } from '../../_lib/stripePayoutScope.js';
+import { enrichPayoutContacts } from '../../_lib/stripePayoutContacts.js';
 
 export function createStripePayoutReportHandler(deps = {}) {
   return async (req, res) => {
@@ -31,7 +32,8 @@ export function createStripePayoutReportHandler(deps = {}) {
         if (!PAYOUT_SOURCES.includes(q.source) || !ids.length || ids.length > 20
           || ids.some(v => !/^(pi|in)_[A-Za-z0-9]{1,200}$/.test(v))
           || !Number.isSafeInteger(offset) || offset < 0) return res.status(400).json({ error: 'Invalid evidence request.' });
-        return res.json(await readEvidencePage(deps.db || supabase, ctx.tenantId, q.source, ids, offset, q.mode));
+        const page = await readEvidencePage(deps.db || supabase, ctx.tenantId, q.source, ids, offset, q.mode);
+        return res.json({ ...page, rows: await enrichPayoutContacts(page.rows, ctx.tenantId, deps.xero) });
       }
       const stripe = deps.stripe || new Stripe(key, { timeout: 2500, maxNetworkRetries: 0 });
       if (q.payout) {

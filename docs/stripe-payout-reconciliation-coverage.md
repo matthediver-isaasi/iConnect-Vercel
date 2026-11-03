@@ -26,7 +26,16 @@ are not inferred from names, amounts, emails, metadata or descriptions.
 Provider-aware fields take precedence. Conflicting legacy/generic identities or
 invoice numbers are flagged and links withheld. Other providers are identified
 as such, never labelled Xero. Xero URLs are staff invoice links requiring the
-staff member's own Xero access. The report does not call Xero.
+staff member's own Xero access. The report reads exact Xero sales invoices to
+display their `Contact.Name`, never a member/organisation name or ledger account.
+Each signed, tenant-scoped evidence page deduplicates valid invoice UUIDs and
+reads at most 20 invoices, two at a time, with two-second HTTP timeouts and a
+seven-second enrichment budget. Normal credential refresh is permitted; no
+accounting records are written. Names are ephemeral and kept beside their own
+invoice in the screen and CSV, including original invoices for refunds.
+Missing connections, invalid/conflicting evidence and failed lookups display
+unavailable names without changing matching, financial totals or completeness.
+Conflicts discovered across later evidence pages suppress names at reconciliation.
 
 ## Retrieval and financial boundaries
 
@@ -63,13 +72,14 @@ and quotes/escapes all cells with formula protection.
 
 ## Verification
 
-- `node scripts/run-isolated-tests.mjs node --test api/_lib/stripePayoutReport.test.mjs`
+- `node scripts/run-isolated-tests.mjs node --test api/_lib/stripePayoutReport.test.mjs api/_lib/stripePayoutInvoiceLookup.test.mjs api/_lib/stripePayoutContacts.test.mjs`
 - `npx playwright test --config tests/stripe-payout-report.config.mjs`
 - `npx vite build`
 
 Browser tests intercept all API and external traffic using synthetic examples.
 They exercise the actual page, invoice links, CSV download, unsupported payout,
-mode switching and failed retrieval. Their screenshot is not a live BNMS
+mode switching, contact-name CSV parity, multiple invoices, unavailable names,
+non-Xero invoices, conflicts, narrow screens and failed retrieval. Their screenshot is not a live BNMS
 account screenshot. No customer financial exports are committed.
 
 BNMS production matching completeness has **not** been sampled or guaranteed.
