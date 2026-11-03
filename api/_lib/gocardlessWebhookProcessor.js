@@ -1173,6 +1173,11 @@ async function processPaymentEvent({ event, action, links, db, gc, deps = {} }) 
 
   if (!plan) {
     if (initialPaymentAgreement && (action === 'confirmed' || action === 'paid_out')) {
+      if (initialPaymentAgreement.metadata?.dd?.post_grace_election_id) {
+        await (await import('./postGraceMonthlyFinalization.js')).finalizePostGraceDirectDebit(db, {
+          gc, agreement: initialPaymentAgreement, plan: null, paymentId,
+        });
+      }
       const agreementResult = await applyStatusTransition({
         entityType: 'billing_agreement',
         entityId: initialPaymentAgreement.id,
@@ -1210,6 +1215,11 @@ async function processPaymentEvent({ event, action, links, db, gc, deps = {} }) 
     const paymentAgreement = plan.billing_agreement_id
       ? await findAgreementById(db, plan.billing_agreement_id)
       : null;
+    if (paymentAgreement?.metadata?.dd?.post_grace_election_id) {
+      await (await import('./postGraceMonthlyFinalization.js')).finalizePostGraceDirectDebit(db, {
+        gc, agreement: paymentAgreement, plan, paymentId,
+      });
+    }
     const isInitialPayment = paymentAgreement?.metadata?.gocardless_initial_payment?.id === paymentId;
     const hasLaterPlanActivity = isInitialPayment
       && !!plan.last_payment_id

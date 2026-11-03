@@ -158,6 +158,26 @@ test('confirmation loads tenant/member scoped quote and rejects entity substitut
   await assert.rejects(loadFormMembershipPaymentQuote(db, { metadata: { ...pi.metadata, organization_id: 'foreign' } }), /identity/);
 });
 
+test('post-grace quote reads final service dates without changing the purchased provider identity or prices', async () => {
+  const quote = snapshotFormMembershipPayment(simulation());
+  quote.simResult.formRenewal = { state: 'post_grace_renewal' };
+  const original = structuredClone(quote);
+  const recovered = { ...quote.simResult.commitment,
+    term_start_date: '2026-09-18', term_end_date: '2027-09-17',
+    membership_renewal_date: '2027-09-18', term_anchor_date: '2026-09-18', term_key: 'rolling:2026-09-18' };
+  const pi = { metadata: { membership_quote_id: 'quote', tenant_id: 'tenant',
+    member_id: 'member', membership_year: quote.simResult.membershipYear.label } };
+  const result = await loadFormMembershipPaymentQuote(database({ data: {
+    id: 'quote', member_id: 'member', organization_id: null, quote, recovered_commitment: recovered,
+  } }), pi);
+  assert.equal(result.simResult.membershipYear.start, recovered.term_start_date);
+  assert.equal(result.simResult.membershipYear.end, recovered.term_end_date);
+  assert.equal(result.simResult.membershipYear.label, original.simResult.membershipYear.label);
+  assert.equal(result.simResult.totalWithVat, original.simResult.totalWithVat);
+  assert.deepEqual(result.simResult.commitment.commitment_snapshot, original.simResult.commitment.commitment_snapshot);
+  assert.deepEqual(quote, original);
+});
+
 test('concurrent charge preparation adopts one reserved quote and one provider idempotency key', async () => {
   let reservation;
   const db = {

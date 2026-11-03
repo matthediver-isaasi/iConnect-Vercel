@@ -46,12 +46,13 @@ function fixture({ paused = false, election = null, now = '2026-11-01T00:00:00Z'
   const db = {
     rpc: async () => ({ data: true }),
     from(table) {
-      let rows = tables[table];
+      let rows = tables[table] || [];
       return {
         select() { return this; }, order() { return this; },
         eq(k, v) { rows = rows.filter(row => row[k] === v); return this; },
         async limit(count) { return { data: structuredClone(rows.slice(0, count)) }; },
         async range(first, last) { return { data: structuredClone(rows.slice(first, last + 1)) }; },
+        async maybeSingle() { return { data: structuredClone(rows[0] || null) }; },
       };
     },
   };
@@ -64,6 +65,28 @@ function fixture({ paused = false, election = null, now = '2026-11-01T00:00:00Z'
   };
   return { db, config, predecessor, calls, tables, options: { tenantId: 'tenant', memberId: 'member', simulate, now: new Date(now) } };
 }
+
+test('Former member receives a full-year restart quote after grace without changing historical evidence', async () => {
+  const f = fixture({ now: '2027-01-20T12:00:00Z' });
+  Object.assign(f.config, { start_mode: 'immediate', structure_field_id: 'class', structure_match_value: 'Full' });
+  Object.assign(f.predecessor, { term_key: 'rolling:2026-01-01', membership_renewal_date: '2027-01-01',
+    commitment_snapshot: { config: f.config, payment_frequency: 'upfront' } });
+  f.tables.member[0].role_id = 'Former';
+  f.tables.membership_post_grace_policy = [{ tenant_id: 'tenant', enabled: true }];
+  const before = structuredClone(f.predecessor);
+  f.options.simulate = async (tenant, member, options) => {
+    assert.equal(options.source, 'post-grace-renewal');
+    assert.equal(options.postGracePredecessorId, 'prior');
+    assert.equal(options.termStartDate, '2027-01-20');
+    return { success: true, config: f.config, finalCost: 120, totalWithVat: 120,
+      membershipYear: { label: 'rolling:2027-01-20', start: '2027-01-20', end: '2028-01-19' } };
+  };
+  const result = await loadFormMembershipRenewalContext(f.db, f.options);
+  assert.equal(result.renewal.state, 'post_grace_renewal');
+  assert.equal(result.renewal.eligible, true);
+  assert.equal(result.simulation.paymentSchedule.status, 'pending_payment_setup');
+  assert.deepEqual(f.predecessor, before);
+});
 
 test('form class choice selects the next-term schedule without changing the predecessor', async () => {
   for (const [from, to] of [['Associate', 'Overseas associate'], ['Overseas associate', 'Associate']]) {

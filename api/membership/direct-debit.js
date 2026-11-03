@@ -273,6 +273,11 @@ async function handlePost(req, res, resolvedTenantId) {
       billingRequestMode: reusable ? 'reused_mandate' : 'mandate_only',
     });
 
+  if (simResult.formRenewal?.state === 'post_grace_renewal') {
+    snapshot = { ...snapshot, activation_rule: 'first_payment',
+      post_grace_election_id: req.membershipPaymentContext?.electionId };
+    if (!snapshot.post_grace_election_id) throw new Error('Restart election is missing');
+  }
   const scheduleError = newDdConsentScheduleError(snapshot);
   if (scheduleError) return res.status(400).json(scheduleError);
   let agreementInsert = {

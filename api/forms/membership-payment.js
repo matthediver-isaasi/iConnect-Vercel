@@ -90,7 +90,7 @@ async function renewalContext(tenantId, member, organizationId, req = null, fiel
   return { ...context, organizationId };
 }
 
-async function reserveFormSuccessor(context, tenantId, member, method, addonLines = []) {
+async function reserveFormSuccessor(context, tenantId, member, method, addonLines = [], monthlyOffer = null) {
   if (context.renewal.state === 'joining') return null;
   if (context.election) {
     if (context.election.switch_state && context.election.switch_state !== 'idle') {
@@ -99,10 +99,34 @@ async function reserveFormSuccessor(context, tenantId, member, method, addonLine
     if (context.election.origin !== 'form' || context.election.payment_method !== method) {
       throw new Error('The next term is already reserved by another payment arrangement. Do not pay again.');
     }
+    if (context.election.quote?.simulation?.formRenewal?.state === 'post_grace_renewal') {
+      const { error } = await supabase.rpc('sync_post_grace_renewal_method', {
+        p_tenant_id: tenantId, p_member_id: member.id, p_election_id: context.election.id,
+      });
+      if (error) throw new Error(error.message || 'Restart payment method could not be verified');
+    }
     return context.election;
   }
   if (!context.renewal.eligible || !context.simulation) {
     throw new Error(context.renewal.message || 'Renewal is not currently available.');
+  }
+  if (context.renewal.state === 'post_grace_renewal') {
+    if (context.organizationId) throw new Error('Post-grace restart must belong to the member');
+    const amount = method === 'upfront'
+      ? Math.round(Number(context.simulation.totalWithVat ?? context.simulation.finalCost) * 100)
+      : monthlyOffer?.monthlyAmountMinor;
+    if (!Number.isSafeInteger(amount) || amount <= 0) {
+      throw new Error('The first restart payment amount must be confirmed before checkout');
+    }
+    const { data, error } = await supabase.rpc('reserve_post_grace_renewal', {
+      p_tenant_id: tenantId, p_member_id: member.id,
+      p_previous_term_id: context.renewal.predecessorId, p_config_id: context.renewal.configId,
+      p_method: method, p_first_payment_minor: amount,
+      p_currency: context.simulation.currency || 'GBP',
+      p_quote: { simulation: context.simulation, payerMemberId: member.id, addonLines },
+    });
+    if (error || !data?.id) throw new Error(error?.message || 'Restart could not be reserved');
+    return data;
   }
   return reserveMembershipSuccessor(supabase, {
     tenantId, memberId: context.organizationId ? null : member.id,
@@ -480,7 +504,7 @@ async function handlePost(req, res, resolvedTenantId) {
       const approval = await checkApproval(tenantId, member.id, organizationId, simulation.membershipYear?.label);
       if (approval.blocked) return res.status(409).json({ error: approval.message });
       let election;
-      try { election = await reserveFormSuccessor(context, tenantId, member, method); }
+      try { election = await reserveFormSuccessor(context, tenantId, member, method, [], offer); }
       catch (error) { return res.status(409).json({ error: error.message }); }
       if (election.quote?.payerMemberId !== member.id) return res.status(409).json({ error: 'Another payer owns this renewal checkout.' });
       req.membershipPaymentContext = { source: 'form-renewal', electionId: election.id,
@@ -650,6 +674,8 @@ async function handlePost(req, res, resolvedTenantId) {
         tenant_id: tenantId,
         source: 'form-membership-payment',
         membership_quote_version: '1',
+        ...(simResult.formRenewal?.state === 'post_grace_renewal'
+          ? { post_grace_election_id: simResult.formRenewalElectionId } : {}),
       },
       description,
     };
@@ -675,6 +701,10 @@ async function handlePost(req, res, resolvedTenantId) {
     }
     incentiveFieldsFromSavedQuote(simResult); // Fail closed before payment side effects.
     const paymentIntent = await createReservedFormMembershipIntent(supabase, stripe, reservation);
+    if (simResult.formRenewal?.state === 'post_grace_renewal') {
+      const { ensurePostGraceUpfrontHistory } = await import('../_lib/postGraceStripeFinalization.js');
+      await ensurePostGraceUpfrontHistory(supabase, { reservation, paymentIntent, tenantId, memberId: member.id });
+    }
     const reservedAddonTotals = computeAddonTotals(reservation.quote.addonLines);
 
     return res.json({
@@ -755,8 +785,17 @@ async function handlePost(req, res, resolvedTenantId) {
     // browser config/year/answers or today's pricing replace the accepted terms.
     const targetYear = paymentIntent.metadata?.membership_year;
     let saved;
+    let postGraceSettlement = null;
     try {
       saved = await loadFormMembershipPaymentQuote(supabase, paymentIntent);
+      if (paymentIntent.metadata?.post_grace_election_id) {
+        if (!saved || saved.simResult?.formRenewalElectionId !== paymentIntent.metadata.post_grace_election_id) {
+          return confirmFailure('Restart payment does not match its saved purchase');
+        }
+        const { finalizePostGraceStripePayment } = await import('../_lib/postGraceStripeFinalization.js');
+        postGraceSettlement = await finalizePostGraceStripePayment(supabase, { tenantId, paymentIntent, stripe });
+        saved = await loadFormMembershipPaymentQuote(supabase, paymentIntent);
+      }
     } catch (error) {
       return confirmFailure(error.message);
     }
@@ -767,10 +806,10 @@ async function handlePost(req, res, resolvedTenantId) {
     const historyTable = isMemberScoped ? 'member_membership_history' : 'organisation_membership_history';
     const historyIdCol = isMemberScoped ? 'member_id' : 'organization_id';
     const historyIdVal = isMemberScoped ? member.id : organizationId;
-    const { data: existingByPI } = await supabase.from(historyTable).select('id')
+    const { data: existingByPI } = await supabase.from(historyTable).select('id,payment_status')
       .eq('tenant_id', tenantId).eq(historyIdCol, historyIdVal)
       .eq('stripe_payment_intent_id', paymentIntentId).maybeSingle();
-    if (existingByPI) {
+    if (existingByPI && (!postGraceSettlement || existingByPI.payment_status === 'paid')) {
       return res.json({ success: true, already_processed: true, recordCreated: true, message: 'Payment already confirmed' });
     }
     if (!saved) {
@@ -803,7 +842,7 @@ async function handlePost(req, res, resolvedTenantId) {
     // membership-paid workflow so a retried/concurrent confirm (idempotent
     // return above, or 23505 duplicate below) never fires it twice.
     let newlyCreated = false;
-    const paidAtIso = new Date().toISOString();
+    const paidAtIso = postGraceSettlement?.paidAt || new Date().toISOString();
     if (simResult.success && !simResult.existingRecord) {
       const invoiceTable = isMemberScoped ? 'member_membership_invoicing' : 'organisation_membership_invoicing';
 
@@ -860,9 +899,19 @@ async function handlePost(req, res, resolvedTenantId) {
         notes: `Payment received via Stripe (form). PI: ${paymentIntentId}. Member: ${member.id}`,
       };
 
-      const { error: insertError } = await supabase
-        .from(historyTable)
-        .insert(insertData);
+      const writeResult = postGraceSettlement && existingByPI
+        ? await supabase.from(historyTable).update({
+          payment_status: 'paid', paid_at: paidAtIso,
+          ...formPaymentActivationFields(simResult.commitment, paidAtIso),
+        }).eq('tenant_id', tenantId).eq(historyIdCol, historyIdVal).eq('id', existingByPI.id)
+          .eq('stripe_payment_intent_id', paymentIntentId).in('payment_status', ['unpaid', 'pending'])
+          .select('id')
+        : await supabase.from(historyTable).insert(insertData);
+      const insertError = writeResult.error;
+      if (postGraceSettlement && existingByPI && !insertError && !writeResult.data?.length) {
+        return res.json({ success: true, already_processed: true, recordCreated: true,
+          message: 'Payment already confirmed' });
+      }
 
       if (!insertError) {
         recordCreated = true;

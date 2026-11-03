@@ -741,6 +741,10 @@ export async function activateMembershipForAgreement(agreement, { trigger, db: d
   const snapshot = agreement?.metadata?.dd;
   const table = membershipHistoryTableForAgreement(agreement);
   if (!snapshot || !table) return { updated: false, detail: 'no DD snapshot or member/organisation' };
+  if (snapshot.post_grace_election_id
+      && !await (await import('./postGraceMonthlyFinalization.js')).postGraceActivationReady(db, agreement)) {
+    return { updated: false, detail: 'Restart access awaits confirmed payment and finalized dates' };
+  }
 
   const { data: row, error } = await db
     .from(table)
@@ -782,6 +786,10 @@ export async function activateMembershipForAgreement(agreement, { trigger, db: d
  */
 export async function recordDdPaymentProgress(agreement, { db: dbArg } = {}) {
   const db = dbArg || supabase;
+  if (agreement.metadata?.dd?.post_grace_election_id
+      && !await (await import('./postGraceMonthlyFinalization.js')).postGraceActivationReady(db, agreement)) {
+    throw new Error('Restart payment progress awaits finalized service dates');
+  }
   const table = membershipHistoryTableForAgreement(agreement);
   const snapshot = agreement?.metadata?.dd;
   if (!table) return { updated: false };

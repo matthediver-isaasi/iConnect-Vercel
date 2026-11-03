@@ -44,8 +44,8 @@ for (const [name, change] of [
   ['already paid', x => { x.history.payment_status = 'paid'; }],
   ['wrong agreement', x => { x.plan.billing_agreement_id = 'other'; }],
   ['wrong provider', x => { x.agreement.provider = 'stripe'; }],
-  ['missing plan', x => { x.plan = null; }],
-  ['active agreement', x => { x.agreement.status = 'active'; }],
+  ['missing linked plan', x => { x.agreement.payment_plan_id = x.plan.id; x.plan = null; }],
+  ['cancelled agreement', x => { x.agreement.status = 'cancelled'; }],
 ]) test(`rejects ${name} before any date update`, () => {
   const input = fixture('direct_debit'); change(input);
   assert.throws(() => planPostGraceRecordDates(input));

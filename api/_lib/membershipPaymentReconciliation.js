@@ -224,6 +224,16 @@ export async function recordSucceededMembershipPaymentIntent(
   if (!md.membership_year || (!md.member_id && !md.organization_id)) {
     return { status: 'invalid', detail: 'PaymentIntent metadata is not a membership payment (needs membership_year + member_id|organization_id)' };
   }
+  let postGracePaidAt = null;
+  if (md.post_grace_election_id) {
+    const { finalizePostGraceStripePayment } = await import('./postGraceStripeFinalization.js');
+    const stripe = deps.stripe || (await (await import('./stripeCredentials.js'))
+      .retrieveTenantPaymentIntent(tenantId, 'membership', pi.id))?.stripe;
+    if (!stripe) throw new Error('Post-grace payment evidence is temporarily unavailable; do not pay again');
+    const finalized = await finalizePostGraceStripePayment(db, { tenantId, paymentIntent: pi, stripe });
+    if (!finalized.applicable) throw new Error('Restart payment could not be finalized');
+    postGracePaidAt = finalized.paidAt;
+  }
 
   // Fee-token payments carry token_id; the token decides member vs org
   // scope. Form-flow payments are member-scoped unless organization_id set.
@@ -551,7 +561,7 @@ export async function recordSucceededMembershipPaymentIntent(
     console.error(`[MEMBERSHIP-RECONCILE] Amount mismatch while reconciling PI ${pi.id}: row ${row.id} expects ${Math.round(Number(row.total_with_vat) * 100)}, PI charged ${pi.amount}. Recording anyway (money already captured) — flagged in note.`);
   }
 
-  const paidAtIso = new Date().toISOString();
+  const paidAtIso = postGracePaidAt || new Date().toISOString();
   // A reconstructed row was inserted paid by US — treat it as a fresh
   // transition (workflow must fire) and skip the update guard.
   const wasPaid = !reconstructed && row.payment_status === 'paid';

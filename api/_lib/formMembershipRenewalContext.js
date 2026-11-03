@@ -141,6 +141,22 @@ export async function loadFormMembershipRenewalContext(db, {
     simulation: election.quote?.simulation || null,
   };
   if (renewal.state === 'next_term_purchased') return { renewal, simulation: null };
+  if (!organizationId && previous?.term_end_date < today && !renewal.eligible) {
+    // Capability is separate from tenant policy. Installing preparatory storage
+    // must never expose a checkout whose finalizer is still inaccessible.
+    const readiness = await db.rpc('post_grace_checkout_ready');
+    if (!readiness.error && readiness.data === true) {
+      const { quotePostGraceRenewal } = await import('./postGraceCheckout.js');
+      const configs = await allRows(db.from('membership_tier_config').select('*').eq('tenant_id', tenantId));
+      const restart = await quotePostGraceRenewal(db, {
+        tenantId, member: owners[0], histories, agreements, elections, configs,
+        selectedConfigId: renewalSelection?.configId || null, simulate, now,
+      });
+      if (restart.renewal.eligible) return restart;
+    } else if (readiness.error && !['42883', 'PGRST202'].includes(readiness.error.code)) {
+      throw new Error('Post-grace checkout readiness could not be verified');
+    }
+  }
   if (!renewal.eligible) return { renewal, simulation: null };
   if (assigned) {
     const { data, error } = await db.rpc(renewalSelection?.configId

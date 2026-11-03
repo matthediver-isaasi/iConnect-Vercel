@@ -112,7 +112,19 @@ export async function loadFormMembershipPaymentQuote(db, pi) {
   // Provider confirmation may beat the response-side bind after PI creation.
   // The signed PI's opaque quote metadata safely repairs that crash window.
   if (!data.stripe_payment_intent_id && pi.id) await bindFormMembershipPaymentQuote(db, data, pi);
-  return { ...data.quote, quoteId: data.id, memberId: data.member_id, organizationId: data.organization_id || null };
+  let quote = data.quote;
+  if (quote.simResult?.formRenewal?.state === 'post_grace_renewal' && data.recovered_commitment) {
+    quote = structuredClone(quote);
+    // Preserve the purchased quote and provider identity; only service dates
+    // come from the database finalizer's protected effective commitment.
+    quote.simResult.commitment = data.recovered_commitment;
+    quote.simResult.membershipYear = { ...quote.simResult.membershipYear,
+      start: data.recovered_commitment.term_start_date, end: data.recovered_commitment.term_end_date };
+    quote.simResult.paymentSchedule = { ...quote.simResult.paymentSchedule,
+      term_start_date: data.recovered_commitment.term_start_date,
+      term_end_date: data.recovered_commitment.term_end_date };
+  }
+  return { ...quote, quoteId: data.id, memberId: data.member_id, organizationId: data.organization_id || null };
 }
 
 /** Reconciliation must reconstruct the same breakdown, not infer net from gross. */

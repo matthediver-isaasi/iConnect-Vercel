@@ -123,6 +123,21 @@ export async function loadCanvasRenewalEligibility(db, { selected, owner, histor
       config = configs.find(row => row.id === projection.nextStructureId);
     }
     const result = canvasRenewalEligibility({ record, config, history, today });
+    if (!result.eligible && record.term_end_date && record.term_end_date < today) {
+      const ready = await db.rpc('post_grace_checkout_ready');
+      if (!ready.error && ready.data === true) {
+        const { loadFormMembershipRenewalContext } = await import('./formMembershipRenewalContext.js');
+        const { simulateMembershipForMember } = await import('./membershipSimulation.js');
+        const restart = await loadFormMembershipRenewalContext(db, {
+          tenantId, memberId: owner.id, simulate: simulateMembershipForMember,
+          now: new Date(`${today}T12:00:00Z`),
+        });
+        if (restart.renewal.state === 'post_grace_renewal' && restart.renewal.eligible) {
+          return { eligible: true, state: 'post_grace_renewal', priceState: 'unavailable',
+            commencementBasis: 'confirmed_payment', provisional: true };
+        }
+      }
+    }
     return result.graceEndDate ? { ...result, policySource } : result;
   } catch {
     // Eligibility is optional display evidence. Read failure never enables a

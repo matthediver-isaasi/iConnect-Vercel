@@ -145,28 +145,30 @@ export function planPostGraceRecordDates({
   if (!reservation.electionId || !reservation.previousTermId || !reservation.historyId
       || !scoped(history) || history.id !== reservation.historyId
       || history.id === reservation.previousTermId
-      || history.previous_term_id !== reservation.previousTermId) {
+      || (history.previous_term_id != null && history.previous_term_id !== reservation.previousTermId)) {
     throw new Error('Post-grace successor history identity mismatch');
   }
   if (!['pending', 'pending_payment_setup', 'scheduled'].includes(history.status)
-      || history.payment_status === 'paid') {
+      || !['unpaid', 'pending'].includes(history.payment_status)) {
     throw new Error('Successor must be pending; settled replays require stored evidence');
   }
   const monthly = reservation.paymentMethod !== 'upfront';
   if (monthly) {
-    if (!scoped(agreement) || !plan
+    if (!scoped(agreement)
         || history.billing_agreement_id !== agreement.id
-        || plan.tenant_id !== reservation.tenantId
-        || plan.billing_agreement_id !== agreement.id
+        || (plan && (plan.tenant_id !== reservation.tenantId || plan.billing_agreement_id !== agreement.id))
+        || (!plan && agreement.payment_plan_id)
         || agreement.provider !== evidence.provider
-        || !['payment_setup_required', 'mandate_pending', 'first_payment_pending'].includes(agreement.status)) {
+        || !['payment_setup_required', 'mandate_pending', 'first_payment_pending', 'active'].includes(agreement.status)) {
       throw new Error('Post-grace monthly arrangement identity mismatch');
     }
   } else if (agreement || plan || history.billing_agreement_id) {
     throw new Error('Upfront renewal cannot redate a monthly arrangement');
   }
   const { paymentEvidence, ...dates } = term;
-  dates.previous_term_id = reservation.previousTermId;
+  // A restarted year is not an adjacent rolling renewal. Its historical
+  // predecessor is retained by the election/journal, not invented adjacency.
+  dates.previous_term_id = history.previous_term_id ?? null;
   return {
     historyId: history.id,
     agreementId: agreement?.id || null,

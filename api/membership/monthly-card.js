@@ -255,6 +255,11 @@ async function handlePost(req, res, resolvedTenantId) {
   }
 
   let snapshot = existingAgreement?.metadata?.card || buildCardAgreementSnapshot({ offer, simResult });
+  if (simResult.formRenewal?.state === 'post_grace_renewal') {
+    snapshot = { ...snapshot, activation_rule: 'first_payment',
+      post_grace_election_id: req.membershipPaymentContext?.electionId };
+    if (!snapshot.post_grace_election_id) throw new Error('Restart election is missing');
+  }
   const Stripe = (await import('stripe')).default;
   const stripe = new Stripe(stripeCredentials.secret_key);
   const environment = stripeCredentials.secret_key.startsWith('sk_test_') ? 'test' : 'live';

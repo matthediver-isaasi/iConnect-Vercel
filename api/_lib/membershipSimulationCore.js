@@ -146,6 +146,21 @@ async function resolveRollingSimulationContext(client, {
   // A superseded unknown entry remains in the ledger, never in predecessor
   // selection or calculations based on purchased commitment evidence.
   if (memberId) histories = histories.filter(row => row.payment_status !== 'unverified');
+  if (options.postGracePredecessorId) {
+    if (organizationId || options.source !== 'post-grace-renewal'
+        || options.asOfDate !== options.termStartDate) {
+      throw new Error('Invalid post-grace simulation context');
+    }
+    const { loadPostGraceSimulationAuthority } = await import('./postGraceCheckout.js');
+    await loadPostGraceSimulationAuthority(client, {
+      tenantId, memberId, config, predecessorId: options.postGracePredecessorId,
+      start: options.termStartDate, now,
+    });
+    // This is a full-year restart, not an adjacent renewal and not a new
+    // joiner. Reuse the no-joining-incentive calculation mode.
+    return { config, previousTerm: null, expiryOnlyRenewal: true, postGraceRenewal: true,
+      window: rollingMembershipWindow(config, options.termStartDate, null) };
+  }
   if (options.reviewedHistoricalHistoryId) {
     const history = histories.find(row => row.id === options.reviewedHistoricalHistoryId);
     const policy = reviewedHistoricalRenewalConfig(history);
@@ -1525,7 +1540,9 @@ async function simulateMembershipForMember(tenantId, memberId, options = {}) {
     : rollingContext ? (rollingContext.previousTerm ? (Number(rollingContext.previousTerm.year_number) || 1) + 1 : 1) : determineMembershipYearNumber(assumedGoLiveDate, membershipYear, config);
   const currentYearNumber = determineMembershipYearNumber(assumedGoLiveDate, currentYearObj, config);
 
-  if (rollingContext?.expiryOnlyRenewal) {
+  if (rollingContext?.postGraceRenewal) {
+    log('Membership restart', 'Quote a full annual term after grace without new-joiner incentives. Final dates follow confirmed payment.');
+  } else if (rollingContext?.expiryOnlyRenewal) {
     log('Go-Live Date', 'Legacy commencement and tenure are unknown; quote the full successor fee without joining incentives or historical rollover.');
   } else if (goLiveDate) {
     let yearDesc;

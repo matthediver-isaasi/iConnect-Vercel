@@ -712,6 +712,10 @@ export async function activateMembershipForCardAgreement(agreement, { trigger, d
   const snapshot = agreement?.metadata?.card;
   const table = membershipHistoryTableForAgreement(agreement);
   if (!snapshot || !table) return { updated: false, detail: 'no card snapshot or member' };
+  if (snapshot.post_grace_election_id
+      && !await (await import('./postGraceMonthlyFinalization.js')).postGraceActivationReady(db, agreement)) {
+    return { updated: false, detail: 'Restart access awaits confirmed payment and finalized dates' };
+  }
 
   const { data: row, error } = await db
     .from(table)
@@ -1644,6 +1648,11 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
     // Zero-amount invoices (proration artefacts) don't advance instalments.
     if (Number(object.amount_paid) === 0 && Number(object.amount_due) === 0) {
       return { handled: true, detail: 'zero-amount invoice ignored' };
+    }
+    if (agreement.metadata?.card?.post_grace_election_id) {
+      await (await import('./postGraceMonthlyFinalization.js')).finalizePostGraceCardInvoice(db, {
+        stripe: await getStripe(), agreement, plan,
+      });
     }
 
     // Task #3633: per-instalment invoicing mode — mint one small paid

@@ -140,7 +140,7 @@ const boundaryConfig = {
 };
 const fixtureOwner = { id: 'fixture-member', tenant_id: tenant, member_class: 'Full' };
 function fixtureDb(tables) {
-  return { from(table) {
+  return { rpc: async () => ({ data: false, error: null }), from(table) {
     let filters = [];
     const query = {
       select() { return query; },
