@@ -215,6 +215,11 @@ function makeBoundaryDatabase(form, organization = null, {
       from(table) { return new Query(table); },
       async rpc(name, args) {
         writes.push({ operation: 'rpc', name, args });
+        if (name === 'create_survey_submission') {
+          insertedSubmissions.push(structuredClone(args.p_submission));
+          submission = { id: SUBMISSION_ID, ...structuredClone(args.p_submission) };
+          return { data: structuredClone(submission), error: null };
+        }
         if (name === 'bind_form_applicant_continuation') {
           if (!continuationGrant || continuationGrant.id !== args.p_grant_id
             || (continuationGrant.submission_id

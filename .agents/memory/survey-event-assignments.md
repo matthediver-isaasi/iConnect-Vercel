@@ -5,6 +5,13 @@ description: Durable decisions for event-assigned surveys — exclusive assignme
 
 # Survey event assignments — durable decisions
 
+## Dormant ordinary-form controls
+Preserve saved ordinary-form options when switching modes, but survey response limits and event attribution must use published survey settings and the resolved assignment, not the ordinary global email limit or single-event link.
+
+**Why:** A global email limit can incorrectly prevent the same respondent answering a reusable survey for different events; silently clearing settings makes switching back destructive.
+
+**How to apply:** Hide the conflicting ordinary controls in survey mode and enforce the separation server-side. Version notices must distinguish the assignment's recorded reference from the version actually served; do not introduce version pinning or republish assignments as a UI fix.
+
 ## Survey identity is independent of delivery domain
 Match a validated campaign survey to generated invitations by assignment ID, not full URL.
 

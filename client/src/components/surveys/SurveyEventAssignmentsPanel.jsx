@@ -43,6 +43,7 @@ import {
 } from "lucide-react";
 import { createPageUrl } from "@/utils";
 import { Link } from "react-router-dom";
+import AssignmentVersionNotice from "./AssignmentVersionNotice";
 
 const ENDPOINT = "/api/surveys/event-assignments";
 
@@ -272,6 +273,7 @@ export default function SurveyEventAssignmentsPanel({ formId }) {
               <TableHeader>
                 <TableRow>
                   <TableHead>Event</TableHead>
+                  <TableHead>Survey version</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Opens / Closes</TableHead>
                   <TableHead>Access</TableHead>
@@ -305,6 +307,9 @@ export default function SurveyEventAssignmentsPanel({ formId }) {
                             View event
                           </Link>
                         )}
+                      </TableCell>
+                      <TableCell className="min-w-[240px]">
+                        <AssignmentVersionNotice assignment={row} />
                       </TableCell>
                       <TableCell>
                         <Badge variant={status.variant}>{status.label}</Badge>

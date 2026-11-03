@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
+import AssignmentVersionNotice from "./AssignmentVersionNotice";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -292,6 +293,8 @@ export default function EventSurveysSection({ eventId, eventType = "event" }) {
                     </div>
                   </div>
                 </div>
+
+                <AssignmentVersionNotice assignment={row} />
 
                 <div className="flex items-center gap-2 flex-wrap">
                   <Button

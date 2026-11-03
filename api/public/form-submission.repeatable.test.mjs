@@ -782,7 +782,7 @@ test('current-set retries retain the durable submission and replay processing be
   // guard must not make this current-set contract expect the older condition.
   assert.match(source, /if \(hasCurrentSetProcessing \|\| hasMemberAffiliations \|\| applicantGrant\) \{[\s\S]*?retry processing failed/);
   assert.match(source, /if \(!hasCurrentSetProcessing && !hasMemberAffiliations && !applicantGrant\) \{[\s\S]*?delete\(\)\.eq\('id', submission\.id\)/);
-  assert.match(source, /!hasCurrentSetProcessing && !hasMemberAffiliations && form\.prevent_duplicate_email_submission/);
+  assert.match(source, /!hasCurrentSetProcessing && !hasMemberAffiliations && usesStandardEmailLimit\(form\)/);
 });
 
 test('current-set form reports success only after the processor returns a durable commit marker', async () => {

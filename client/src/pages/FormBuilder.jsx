@@ -13114,6 +13114,7 @@ function FormBuilderEditor() {
                 <Label htmlFor="is_job_posting" className="text-sm">Job posting application form</Label>
               </div>
 
+              {!isSurveyForm && (
               <div className="flex items-center gap-3" title="When enabled, pick a single upcoming event. Every submission to this form will be linked to that event so you can review submissions per event.">
                 <Switch
                   id="is_event_related"
@@ -13127,6 +13128,14 @@ function FormBuilderEditor() {
                 />
                 <Label htmlFor="is_event_related" className="text-sm">This form is related to an event</Label>
               </div>
+              )}
+              {isSurveyForm && (
+                <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600" data-testid="survey-event-authority">
+                  Use the Events tab to assign this survey to events and manage each link’s access and opening dates.
+                  Responses get their event from the assignment link, not the standard form’s linked-event setting.
+                  Existing standard-form settings are kept if you switch back.
+                </div>
+              )}
 
               <div className="flex flex-col gap-2 min-w-[260px] pt-2 border-t border-slate-100" title="Optionally schedule the form to stop accepting submissions at a specific date and time. Leave empty to keep the form active until you turn off the Active toggle.">
                 <Label htmlFor="deactivate_at" className="text-sm">Deactivate at (optional)</Label>
@@ -13174,7 +13183,7 @@ function FormBuilderEditor() {
             />
 
             {/* Event link selector - shown only when the form is related to an event */}
-            {formData.is_event_related && (
+            {!isSurveyForm && formData.is_event_related && (
               <div className="mt-4 pt-4 border-t border-slate-100">
                 <div className="space-y-2 max-w-md">
                   <Label htmlFor="related_event_id" className="text-sm">Linked Event *</Label>
@@ -13807,6 +13816,12 @@ function FormBuilderEditor() {
                 <CardTitle className="text-lg">Submission Rules</CardTitle>
               </CardHeader>
               <CardContent>
+                {isSurveyForm ? (
+                  <p className="text-sm text-slate-600" data-testid="survey-submission-authority">
+                    Use “One submission per respondent” in Survey Settings to manage repeat responses.
+                    Event links keep responses scoped to their assignment. The standard email limit is kept for standard forms and is not configured here.
+                  </p>
+                ) : (
                 <div className="flex items-start gap-3">
                   <Switch
                     id="prevent_duplicate_email_submission"
@@ -13823,6 +13838,7 @@ function FormBuilderEditor() {
                     </p>
                   </div>
                 </div>
+                )}
               </CardContent>
             </Card>
 

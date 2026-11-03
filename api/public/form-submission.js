@@ -1,4 +1,5 @@
 import { createLegacyApplicationScope } from '../_lib/formLegacyApplication.js';
+import { usesStandardEmailLimit, submissionEventContext } from '../_lib/formModeControls.js';
 import { createClient } from '@supabase/supabase-js';
 import { requiresApplicantContinuation, authorizeApplicantAdmission, bindApplicantContinuation, FormApplicantContinuationError } from '../_lib/formApplicantContinuation.js';
 import { isPublicMemberSignup, preflightPublicMemberSignup, preflightApplicantTargets, FormMemberOwnerError } from '../_lib/formApplicantPreflight.js';
@@ -1371,7 +1372,7 @@ export default async function handler(req, res, dependencies = {}) {
     // Run idempotency recovery before enforcing the form's one-per-email
     // policy. A retry of the original request must be allowed to finish its
     // durable email state rather than being rejected as a new duplicate.
-    if (!enhancedAnonymousCompletion && !hasCurrentSetProcessing && !hasMemberAffiliations && form.prevent_duplicate_email_submission && canonicalSubmitterEmail) {
+    if (!enhancedAnonymousCompletion && !hasCurrentSetProcessing && !hasMemberAffiliations && usesStandardEmailLimit(form) && canonicalSubmitterEmail) {
       const { data: candidates, error: dupErr } = await supabase
         .from('form_submission')
         .select('id')
@@ -1521,17 +1522,7 @@ export default async function handler(req, res, dependencies = {}) {
       // Survey assignments (Task #3331) take precedence: the event comes
       // from the SERVER-resolved assignment, never a client-supplied id or
       // the form's single related_event_id link.
-      ...(surveyAssignment
-        ? {
-            survey_assignment_id: surveyAssignment.id,
-            ...(surveyAssignment.event_type === 'event' && surveyAssignment.event_id
-              ? { event_id: surveyAssignment.event_id }
-              : {}),
-            ...(surveyAssignment.event_type === 'complex_event' && surveyAssignment.complex_event_id
-              ? { complex_event_id: surveyAssignment.complex_event_id }
-              : {})
-          }
-        : (form.is_event_related && form.related_event_id ? { event_id: form.related_event_id } : {})),
+      ...submissionEventContext(form, surveyAssignment),
       // Task #1539: when the form was opened from a member-group vacancy
       // ("Express interest"), carry the vacancy association onto the row so the
       // group admin's submissions review modal can find it.
