@@ -11,14 +11,27 @@ test('all discovery, confirmation and resume actions require tenant admin and fi
     { ctx: null, code: 401 }, { ctx: { ...context, tenantMismatch: true }, code: 409 },
     { ctx: context, admin: false, code: 403 }, { ctx: context, finance: false, code: 403 },
   ]) {
+    for (const action of [null, 'preview', 'create', 'resume']) {
     const res = response();
     const handler = createMemberStartHandler({ db: {}, getContext: async () => scenario.ctx,
       isAdmin: async () => scenario.admin !== false, hasFinance: async () => scenario.finance !== false,
       service: { list() { assert.fail('unauthorized service invocation'); } } });
-    await handler({ method: 'GET', query: { memberId: id(4) } }, res);
+    await handler({ method: action ? 'POST' : 'GET', query: { memberId: id(4) }, body: { action, paymentMode: 'free' } }, res);
     assert.equal(res.code, scenario.code);
     assert.equal(res.headers['Cache-Control'], 'no-store');
+    }
   }
+});
+test('linked unpaid or settled invoice is reused without any queue/provider call', async () => {
+  const { db, record } = fixture();
+  record.accounting_invoice_id = 'same-purchase-invoice';
+  const service = createMemberStartService({ db, invoice: () => assert.fail('must reuse linked invoice') });
+  const unpaid = await service.resume(id(1), { memberId: id(4), requestId: id(5) });
+  assert.equal(unpaid.request.status, 'pending_payment');
+  assert.equal(unpaid.record.payment_status, 'unpaid');
+  record.payment_status = 'paid';
+  const paid = await service.resume(id(1), { memberId: id(4), requestId: id(5) });
+  assert.equal(paid.request.status, 'completed');
 });
 test('resume accepts only a member/request identity and returns pending without claiming payment', async () => {
   const res = response();
@@ -120,10 +133,12 @@ test('list/preview require versioned database payment authority and show explici
     currency: 'GBP', flat_cost: 100, online_card_payment: true, card_monthly_enabled: true,
     dd_enabled: true, dd_monthly_amount: 10, dd_instalment_count: 10, dd_auto_renew: false };
   let ready = false;
+  let noCharge = false;
+  let bindingReady = true;
   const db = {
     async rpc(name) {
       if (name === 'member_start_payment_capabilities') return ready
-        ? { data: { version: ready === 2 ? 2 : 1, memberChoice: ready === 2 }, error: null } : { error: { code: 'PGRST202' } };
+        ? { data: { version: ready === 2 ? 2 : 1, memberChoice: ready === 2, noCharge }, error: null } : { error: { code: 'PGRST202' } };
       assert.equal(name, 'member_start_state');
       return { data: { member: { id: id(4), email: 'member@example.test' }, blockers: [], fingerprint: 'unchanged' }, error: null };
     },
@@ -135,7 +150,7 @@ test('list/preview require versioned database payment authority and show explici
       return chain;
     },
   };
-  const service = createMemberStartService({ db, queueEnabled: () => true, getProvider: async () => ({ name: 'xero' }),
+  const service = createMemberStartService({ db, queueEnabled: () => true, getProvider: async () => ({ name: 'xero' }), accountingBinding: async () => { if (!bindingReady) throw new Error('Missing company'); return {}; },
     stripeCredentials: async () => ({ is_enabled: true, secret_key: 'isolated', publishable_key: 'isolated' }),
     ddCredentials: async () => ({ accessToken: 'isolated' }), address: async () => null, nominal: async () => null });
   const unavailable = await service.list(id(1), id(4));
@@ -166,4 +181,15 @@ test('list/preview require versioned database payment authority and show explici
   assert.deepEqual(ddOnly.quote.paymentChoices.map(p => p.mode), ['direct_debit']);
   config.dd_enabled = false;
   assert.equal((await service.preview(id(1), input)).canCreate, false);
+  assert.equal((await service.preview(id(1), { ...input, paymentMode: 'free' })).canCreate, false);
+  noCharge = true;
+  const waived = await service.preview(id(1), { ...input, paymentMode: 'free' });
+  assert.equal(waived.canCreate, true);
+  assert.equal(waived.quote.totalWithVat, 0);
+  assert.equal(waived.quote.adminWaiver.originalAmounts.totalWithVat, 100);
+  bindingReady = false;
+  const unbound = await service.list(id(1), id(4));
+  assert.equal(unbound.capabilities.invoiceAvailable, false);
+  assert.match(unbound.capabilities.invoiceUnavailableReason, /company selection/);
+  assert.equal((await service.preview(id(1), { ...input, paymentMode: 'invoice' })).canCreate, false);
 });

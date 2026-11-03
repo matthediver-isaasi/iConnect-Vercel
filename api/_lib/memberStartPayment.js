@@ -24,8 +24,8 @@ export function startPaymentOptions(config, band, availability = {}) {
     stripe_upfront: !config.online_card_payment ? 'Upfront card payment is not enabled on this structure.' : !availability.stripe ? 'Stripe membership payments are not configured.' : null,
     stripe_monthly: !config.card_monthly_enabled ? 'Monthly card is not enabled on this structure.' : !cardOffer ? cardReason || 'A positive monthly amount is required for the selected price band.' : !availability.stripe ? 'Stripe membership payments are not configured.' : null,
     direct_debit: !config.dd_enabled ? 'Direct Debit is not enabled on this structure.' : ddReason || (!offer ? 'A positive monthly amount is required for the selected price band.' : !availability.directDebit ? 'GoCardless is not configured.' : null),
-    invoice: !availability.invoice ? 'The durable accounting queue and a connected accounting provider are required.' : null,
-    free: price !== 0 ? 'Free is available only when nothing is due.' : null,
+    invoice: !availability.invoice ? availability.invoiceUnavailableReason || 'The durable accounting queue and a connected accounting provider are required.' : null,
+    free: availability.noCharge !== true ? 'The reviewed No charge database migration is required.' : null,
   };
   const options = START_PAYMENT_MODES.filter(mode => mode !== 'member_choice').map(mode => {
     const reason = scopeReason || (['stripe_upfront', 'invoice'].includes(mode) && price === 0 ? 'Nothing is due: choose free.'

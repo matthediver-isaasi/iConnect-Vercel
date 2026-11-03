@@ -21,7 +21,7 @@ const money = (value, currency) => {
   try { return new Intl.NumberFormat("en-GB", { style: "currency", currency }).format(Number(value)); }
   catch { return `${Number(value).toFixed(2)} ${currency || "(currency not supplied)"}`; }
 };
-const modeLabel = mode => ({ member_choice: "Allow member to choose", stripe_upfront: "Card — one-off payment", stripe_monthly: "Card — monthly payments", direct_debit: "Direct Debit — monthly payments", invoice: "Invoice — payment remains outstanding", free: "Free — zero-value membership" })[mode] || mode;
+const modeLabel = mode => ({ member_choice: "Allow member to choose", stripe_upfront: "Card — one-off payment", stripe_monthly: "Card — monthly payments", direct_debit: "Direct Debit — monthly payments", invoice: "Invoice — payment remains outstanding", free: "No charge — this membership period only" })[mode] || mode;
 const supportedModes = ["member_choice", "stripe_upfront", "stripe_monthly", "direct_debit", "invoice", "free"];
 const monthlyMode = mode => ["stripe_monthly", "direct_debit"].includes(mode);
 const dynamicOffer = (offer, mode) => mode === "direct_debit" && directDebitCollectionPolicy(offer)?.pricing_policy === "dynamic";
@@ -78,6 +78,7 @@ function QuoteDetails({ quote }) {
       {[["annualCost", "Base fee"], ["finalCost", dynamic ? "Initial quoted net fee (not a fixed term total)" : "Net fee for this term"], ["vatAmount", "VAT"], ["totalWithVat", dynamic ? "Initial quote including VAT (not a guaranteed total)" : "Total including VAT"]].map(([key, label]) => <div key={key}><dt className="text-muted-foreground">{label}</dt><dd className="font-medium">{money(quote[key], quote.currency)}</dd></div>)}
     </dl>
     <p>Payment: {modeLabel(quote.paymentMode)}</p>
+    {quote.adminWaiver && <p>Original calculated total: {money(quote.adminWaiver.originalAmounts?.totalWithVat, quote.currency)}. Waived for this period only. Amount due: {money(0, quote.currency)}. Structure prices and later renewal pricing are unchanged.</p>}
     {monthlyMode(quote.paymentMode) && <div className="space-y-1">
       {completeOffer(quote.paymentOffer, quote.paymentMode) ? <>
         {dynamic ? <>
@@ -92,7 +93,7 @@ function QuoteDetails({ quote }) {
         </>}
       </> : <p role="alert">The server has not supplied complete monthly payment terms. Request a fresh preview before continuing.</p>}
     </div>}
-    <p className="text-muted-foreground">{quote.paymentMode === "invoice" ? "Invoice does not mean paid. Accounting processing and verified settlement are separate; no card or Direct Debit payment is collected here." : quote.paymentMode === "free" ? "A free membership can be created only when the server confirms a zero total." : "The member must authorize payment using their saved link. No card or Direct Debit consent is recorded here, and authorization alone does not mean paid."}</p>
+    <p className="text-muted-foreground">{quote.paymentMode === "invoice" ? "Invoice does not mean paid. Accounting processing and verified settlement are separate; no card or Direct Debit payment is collected here." : quote.paymentMode === "free" ? "No charge records a free membership period with an audited reason. No invoice, payment request, subscription or collection is created." : "The member must authorize payment using their saved link. No card or Direct Debit consent is recorded here, and authorization alone does not mean paid."}</p>
   </div>;
 }
 function Blockers({ items = [] }) {
@@ -293,7 +294,7 @@ function StartPanel({ memberId, tenantId }) {
         {!structures.length && <p className="text-sm text-muted-foreground">No eligible individual membership structures are available.</p>}
         {!canPreview && <p className="text-sm text-muted-foreground">Start / Renew preview is unavailable for this member or your current permissions.</p>}
         {selected && !modes.length && <p className="text-sm text-muted-foreground">The server has not enabled any available payment options for this structure / tier.</p>}
-        {data?.capabilities?.invoiceAvailable === false && <p role="alert" className="text-sm">Invoice creation is unavailable because the durable membership accounting queue is not enabled. A finance administrator must configure the supported accounting workflow before invoice memberships can be created.</p>}
+        {data?.capabilities?.invoiceAvailable === false && <p role="alert" className="text-sm">Invoice creation is unavailable: {data.capabilities.invoiceUnavailableReason || "The durable accounting queue and a connected accounting provider are required."}</p>}
         {canPreview && <form className="space-y-4" onSubmit={event => { event.preventDefault(); void submit("preview"); }}>
           <fieldset disabled={locked} className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1.5">
@@ -321,7 +322,7 @@ function StartPanel({ memberId, tenantId }) {
                 <option value="">Choose a supported payment option</option>
                 {options.map(item => <option key={item.mode} value={item.mode} disabled={!modes.includes(item.mode)}>{modeLabel(item.mode)}{!modes.includes(item.mode) ? ` — unavailable${item.reason ? `: ${item.reason}` : ""}` : ""}</option>)}
               </select>
-              <p className="text-xs text-muted-foreground">Only server-enabled methods can be selected. Free is eligible only for a zero total.</p>
+              <p className="text-xs text-muted-foreground">Invoice and No charge are admin-only. No charge waives only this purchased period, not future renewal fees.</p>
               {options.filter(item => !item.available && item.reason).map(item => <p className="text-xs text-muted-foreground" key={item.mode}>{modeLabel(item.mode)}: {item.reason}</p>)}
             </div>
             <div className="space-y-1.5 md:col-span-2">

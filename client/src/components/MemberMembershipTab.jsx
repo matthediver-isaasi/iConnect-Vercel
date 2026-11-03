@@ -129,6 +129,7 @@ function formatPaymentMethod(value) {
     gocardless: 'GoCardless',
     direct_debit: 'GoCardless',
     invoice: 'Invoice',
+    free: 'No charge',
   };
   return labels[value] || (value ? String(value).replaceAll('_', ' ') : 'Unknown');
 }
@@ -397,7 +398,7 @@ function MemberYearCostSection({
             <div className="flex items-start gap-3 p-3 rounded-md bg-muted/50 border" data-testid={`card-member-payment-info-${testIdPrefix}`}>
               <FileText className="w-5 h-5 text-muted-foreground mt-0.5 shrink-0" />
               <div className="flex-1 min-w-0 space-y-1">
-                <p className="text-sm font-medium">Invoiced</p>
+                <p className="text-sm font-medium">{currentYearRecorded.admin_no_charge ? 'Free membership period / No charge' : (currentYearRecorded.accounting_invoice_id || currentYearRecorded.xero_invoice_id) ? 'Invoiced' : 'Invoice not linked'}</p>
                 <p className="text-sm text-muted-foreground">
                   {formatCost(currentYearRecorded.final_cost, currency)} excl. VAT
                 </p>
@@ -1843,7 +1844,7 @@ export default function MemberMembershipTab({ memberId, memberEmail, memberTenan
                           ) : '-'}
                         </td>
                         <td className="p-3 text-center" data-testid={`cell-member-history-method-${record.id}`}>
-                          <div>{formatPaymentMethod(record.payment_method)}</div>
+                          <div>{record.admin_no_charge ? 'Free membership period / No charge' : formatPaymentMethod(record.payment_method)}</div>
                           <div className="text-xs text-muted-foreground mt-1">
                             {record.payment_frequency
                               || record.commitment_snapshot?.payment_frequency
@@ -1889,6 +1890,11 @@ export default function MemberMembershipTab({ memberId, memberEmail, memberTenan
                           )}
                           {record.payment_status === 'unverified' ? (
                             <span className="text-xs text-muted-foreground">Payment evidence unavailable</span>
+                          ) : !invoiceId && record.start_invoice_state ? (
+                            <div className="text-xs" role="status">
+                              {({ pending: 'Invoice creation queued — not yet linked.', retry: 'Invoice creation failed temporarily — retry queued.', unknown: 'Invoice provider outcome uncertain — recovery pending.', review: 'Invoice creation needs reconciliation.', not_queued: 'Invoice not yet queued — recover the saved Start request.', unavailable: 'Invoice processing status unavailable.' })[record.start_invoice_state]}
+                              <p>Review the saved Start / Renew request above. Do not create another period.</p>
+                            </div>
                           ) : !invoiceId && record.accounting_progress ? (
                             <MembershipAccountingStatus progress={record.accounting_progress} recordId={record.id} />
                           ) : !invoiceId && record.accounting_sync_status === 'failed' ? (

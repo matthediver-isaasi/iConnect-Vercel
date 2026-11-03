@@ -103,10 +103,15 @@ export function buildStartQuote({ request, config, band, discounts = [], vatOver
   const dynamic = paymentMode === 'direct_debit' && paymentOffer?.collectionPolicy?.pricing_policy === 'dynamic';
   const validationPlanMinor = paymentOffer ? dynamic ? paymentOffer.monthlyAmountMinor * paymentOffer.instalmentCount : Math.round(paymentOffer.planTotal * 100) : null;
   if (paymentOffer) finalMinor = Math.round(validationPlanMinor / (1 + vatRatePercent / 100));
-  const vatMinor = paymentOffer ? validationPlanMinor - finalMinor : Math.round(finalMinor * vatRatePercent / 100);
-  const totalMinor = finalMinor + vatMinor;
+  let vatMinor = paymentOffer ? validationPlanMinor - finalMinor : Math.round(finalMinor * vatRatePercent / 100);
+  let totalMinor = finalMinor + vatMinor;
   if (!Number.isSafeInteger(totalMinor)) throw startError('Quoted total exceeds supported monetary bounds.');
-  if ((paymentMode === 'free') !== (totalMinor === 0)) throw startError(totalMinor === 0 ? 'Nothing is due: choose free payment mode.' : 'Payment is due: choose invoice payment mode.');
+  const adminWaiver = paymentMode === 'free' ? {
+    version: 1, scope: 'purchased_period_only', reason: request.reason,
+    originalAmounts: { finalCost: finalMinor / 100, vatAmount: vatMinor / 100, totalWithVat: totalMinor / 100 },
+  } : null;
+  if (adminWaiver) finalMinor = vatMinor = totalMinor = 0;
+  else if (totalMinor === 0) throw startError('Nothing is due: choose free payment mode.');
   const amounts = { annual_cost: annualMinor / 100, final_cost: finalMinor / 100, vat_amount: vatMinor / 100, total_with_vat: totalMinor / 100, currency };
   const tierLabel = flat ? 'Flat Rate' : band.label;
   const pricingSnapshot = { band: band || null, tier_label: tierLabel, vat_rate_percent: vatRatePercent, taxType };
@@ -125,7 +130,7 @@ export function buildStartQuote({ request, config, band, discounts = [], vatOver
       commitment.commitment_snapshot.amounts[key] = null;
     }
   }
-  return { version: 2, paymentOffer, initialQuotedAmounts, configId: config.id, bandId: band?.id || null, paymentMode, termStart: startDate,
+  return { version: 2, ...(adminWaiver ? { adminWaiver } : {}), paymentOffer, initialQuotedAmounts, configId: config.id, bandId: band?.id || null, paymentMode, termStart: startDate,
     termEnd: commitment.term_end_date, membershipYear: membershipYear || commitment.term_key,
     annualCost: amounts.annual_cost, finalCost: amounts.final_cost, vatAmount: amounts.vat_amount,
     totalWithVat: amounts.total_with_vat, currency, tierLabel, vatRatePercent, taxType, prorataDays,

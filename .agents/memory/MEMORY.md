@@ -47,6 +47,7 @@
 - [Anonymous form alerts](anonymous-form-alert-policy.md) — owner-approved redacted alerts do not authorize identity-dependent emails or named completion-to-answer joins.
 - [Country name resolution & LMIC surfaces](country-name-resolution.md) — stored countries include WB-style names; always resolve via resolveCountryToIso2 (+aliases); LMIC needs element-level pruning on measure AND group-by paths.
 - [Membership payment topics](membership-payment-topics.md) — payment reconciliation, settlement, card plans, direct debit, arrears, and activation.
+- [Admin membership waivers](admin-membership-waiver-policy.md) — No charge applies only to the purchased period; preserve normal future pricing and explicit historical evidence.
 - [RBAC map-driven parent resolution](rbac-parent-resolution.md) — parent lookups via map nesting, never dot-prefix; enforcement is a UNION of hardcoded map + role_access_item DB overlay; legacy mapping is generated, never hand-copied.
 - [Widget click-through drilldown](widget-drilldown-clickthrough.md) — big id lists POST in a body (never URL); toggle enforced server-side; Recharts click key via entry.key ?? payload.key ?? name.
 - [Member-driven membership fee tokens](member-fee-tokens.md) — fee tokens carry org_id OR member_id; every consumer must branch (history/invoicing/notes/sim); token DD adopts unpaid workflow rows.

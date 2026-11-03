@@ -88,6 +88,7 @@ for (const hasDdApproval of [false, true]) test(`isolated PostgreSQL start (DD a
     'Missing-DD prerequisite must be the unchanged reviewed canonical definition');
     await db.query(paymentAuthoritySql);
     await db.query(readFileSync(new URL('../../supabase/migrations/202612310024_member_start_member_choice.sql', import.meta.url), 'utf8'));
+    await db.query(readFileSync(new URL('../../supabase/migrations/202612310025_member_start_admin_waiver.sql', import.meta.url), 'utf8'));
     assert.equal((await db.query(`SELECT to_regprocedure('public.approve_manual_dd_membership_activation(uuid,uuid,text)')::text signature`)).rows[0].signature,
       'approve_manual_dd_membership_activation(uuid,uuid,text)');
     assert.equal((await db.query(`SELECT has_function_privilege('service_role','public.approve_manual_dd_membership_activation(uuid,uuid,text)','EXECUTE') allowed`)).rows[0].allowed, true);
@@ -166,6 +167,23 @@ for (const hasDdApproval of [false, true]) test(`isolated PostgreSQL start (DD a
     await assert.rejects(invoke(a, 13, 'stale-price', q13), /Structure changed/);
     await db.query('UPDATE membership_tier_config SET flat_cost=100 WHERE id=$1', [id(3)]);
     // Free fixed-date starts work under the untouched legacy constraint.
+    // Positive-price waiver uses the same atomic creator and is audited, but
+    // neither allocates payment authority nor rewrites configuration pricing.
+    const waiverRequest = { ...request(18), paymentMode: 'free' };
+    const waiverConfig = (await db.query('SELECT to_jsonb(t) v FROM membership_tier_config t')).rows[0].v;
+    const waiverQuote = { ...buildStartQuote({ request: waiverRequest, config: waiverConfig, today }), ownerState: (await state(18)).fingerprint };
+    const invalidWaiver = structuredClone(waiverQuote);
+    delete invalidWaiver.adminWaiver;
+    await assert.rejects(invoke(a, 18, 'invalid-waiver', invalidWaiver, waiverRequest), /administrative waiver/);
+    const waived = await Promise.all([
+      invoke(a, 18, 'waiver-same-key', waiverQuote, waiverRequest),
+      invoke(b, 18, 'waiver-same-key', waiverQuote, waiverRequest),
+    ]);
+    assert.equal(waived[0].request.record_id, waived[1].request.record_id);
+    assert.equal(waived.filter(item => item.replayed).length, 1);
+    assert.equal(waived[0].request.quote.adminWaiver.originalAmounts.totalWithVat, waiverConfig.flat_cost);
+    assert.equal((await db.query('SELECT count(*) n FROM membership_fee_token WHERE history_record_id=$1', [waived[0].request.record_id])).rows[0].n, '0');
+    assert.equal((await db.query('SELECT flat_cost FROM membership_tier_config WHERE id=$1', [id(3)])).rows[0].flat_cost, String(waiverConfig.flat_cost));
     await db.query("UPDATE membership_tier_config SET flat_cost=0,start_mode='fixed_date' WHERE id=$1", [id(3)]);
     const freeConfig = (await db.query('SELECT to_jsonb(t) v FROM membership_tier_config t')).rows[0].v;
     const freeRequest = { ...request(14), paymentMode: 'free' };
@@ -329,6 +347,7 @@ for (const hasDdApproval of [false, true]) test(`isolated PostgreSQL start (DD a
         [id(1), id(member)]), /Select one/);
       const choose = (client, mode) => client.query('SELECT select_member_start_payment_method($1,$2) v', [token.id, mode]).then(r => r.rows[0].v);
       await assert.rejects(choose(a, 'invoice'), /self-service/);
+      await assert.rejects(choose(a, 'free'), /self-service/);
       const parallel = await Promise.allSettled([choose(a, chosen), choose(b, chosen === 'stripe_upfront' ? 'stripe_monthly' : 'stripe_upfront')]);
       assert.equal(parallel.filter(p => p.status === 'fulfilled').length, 1);
       const winner = parallel.find(p => p.status === 'fulfilled').value.paymentMode;

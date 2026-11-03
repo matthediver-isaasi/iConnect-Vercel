@@ -108,9 +108,9 @@ test('unselected member choice validates every complete frozen quote and blocks 
   assert.throws(() => assertMemberStartAction(selected, 'create_payment'), { code: 'member_start_payment_mode_locked' });
 });
 test('structure and selected-band options explain disabled modes and never borrow a flat monthly price', () => {
-  const available = { stripe: true, directDebit: true, invoice: true };
+  const available = { stripe: true, directDebit: true, invoice: true, noCharge: true };
   const flat = startPaymentOptions(config, null, available);
-  assert.equal(flat.filter(p => p.available).length, 4);
+  assert.equal(flat.filter(p => p.available).length, 5);
   const tiered = { ...config, pricing_model: 'tiered' };
   const band = { annual_cost: 100, dd_monthly_amount: null };
   for (const mode of ['stripe_monthly', 'direct_debit']) {

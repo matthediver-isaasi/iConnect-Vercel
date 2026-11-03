@@ -1,6 +1,6 @@
 import { START_CAPABILITIES, normalizeStart, buildStartQuote, startFingerprint, startError } from './memberStartQuote.js';
 import { getAccountingProvider } from './accountingProvider.js';
-import { accountingMembershipQueueEnabled, queueMembershipInvoice } from './accountingQueueIntegration.js';
+import { accountingMembershipQueueEnabled, queueMembershipInvoice, resolveAccountingQueueBinding } from './accountingQueueIntegration.js';
 import { resolveInvoiceAddress } from './invoiceAddressResolver.js';
 import { resolveMembershipNominalCode } from './membershipNominalCode.js';
 import { fireNewZeroDueMembershipPaidWorkflow } from './zeroDueMembership.js';
@@ -23,6 +23,7 @@ export function createMemberStartService({
   invoice = queueMembershipInvoice, fireFree = fireNewZeroDueMembershipPaidWorkflow,
   address = resolveInvoiceAddress, nominal = resolveMembershipNominalCode,
   stripeCredentials = getStripeCredentials, ddCredentials = getGocardlessCredentials,
+  accountingBinding = resolveAccountingQueueBinding,
 } = {}) {
   const today = () => now().toISOString().slice(0, 10);
   const one = async (table, tenantId, id) => checked(await db.from(table).select('*').eq('tenant_id', tenantId).eq('id', id).maybeSingle());
@@ -42,7 +43,14 @@ export function createMemberStartService({
     const [stripe, dd, provider, authority] = await Promise.all([
       read(() => stripeCredentials(tenantId, 'membership'), 'Stripe membership availability could not be verified; retry or review the integration.'),
       read(() => ddCredentials(tenantId), 'Direct Debit availability could not be verified; retry or review the integration.'),
-      read(() => queueEnabled() ? getProvider(tenantId) : null, 'Accounting availability could not be verified.'),
+      read(async () => {
+        if (!queueEnabled()) return null;
+        const provider = await getProvider(tenantId);
+        if (['xero', 'quickbooks'].includes(provider?.name)) {
+          await accountingBinding({ db, tenantId, provider: provider.name });
+        }
+        return provider;
+      }, 'Accounting connection and company selection could not be verified. Review the accounting integration.'),
       read(async () => {
         const result = await db.rpc('member_start_payment_capabilities');
         if (result.error) throw result.error;
@@ -54,6 +62,9 @@ export function createMemberStartService({
     return { stripe: ready && !!(stripe.value?.is_enabled && stripe.value?.secret_key && stripe.value?.publishable_key),
       directDebit: ready && !!dd.value?.accessToken, invoice: queueEnabled() && ['xero', 'quickbooks'].includes(provider.value?.name),
       stripeUnavailableReason: migrationReason || stripe.reason, directDebitUnavailableReason: migrationReason || dd.reason,
+      invoiceUnavailableReason: !queueEnabled() ? 'The durable membership accounting queue is not enabled.'
+        : provider.reason || (!['xero', 'quickbooks'].includes(provider.value?.name) ? 'A connected Xero or QuickBooks accounting provider is required.' : null),
+      noCharge: authority.value?.noCharge === true,
       memberChoice: authority.value?.memberChoice === true,
       paymentAuthorityVersion: ready ? authority.value.version : null };
   }
@@ -77,7 +88,7 @@ export function createMemberStartService({
       accounting = checked(await db.from('accounting_request_queue').select('id,state,last_error')
         .eq('tenant_id', saved.tenant_id).eq('source_type', 'member_membership_history')
         .eq('source_id', saved.record_id).eq('operation', 'invoice').maybeSingle());
-      if (record?.payment_status !== 'paid') status = accounting?.state === 'complete' ? 'pending_payment'
+      if (record?.payment_status !== 'paid') status = (record?.accounting_invoice_id || record?.xero_invoice_id) ? 'pending_payment'
         : accounting?.state === 'review' ? 'reconciliation_required' : accounting ? 'accounting_pending' : 'pending_invoice';
     }
     if (payment && record?.payment_status !== 'paid' && record?.payment_status !== 'partial'
@@ -115,7 +126,7 @@ export function createMemberStartService({
         return { ...c, ...structureOptions, bands: selectedBands };
       }),
       blockers: s.blockers, requests: await Promise.all(requests.map(describe)),
-      capabilities: { ...START_CAPABILITIES, invoiceAvailable: available.invoice, paymentAuthorityVersion: available.paymentAuthorityVersion } };
+      capabilities: { ...START_CAPABILITIES, invoiceAvailable: available.invoice, invoiceUnavailableReason: available.invoiceUnavailableReason, paymentAuthorityVersion: available.paymentAuthorityVersion } };
   }
   async function preview(tenantId, input) {
     const request = normalizeStart(input);
@@ -218,6 +229,18 @@ export function createMemberStartService({
           message: 'The zero-due purchase is saved. Retry this same confirmation to resume workflow delivery.' };
       }
     }
+    // A linked invoice is already the financial document for this purchase.
+    // Never reissue it, including after settlement or queue retention cleanup.
+    if (record.accounting_invoice_id || record.xero_invoice_id) {
+      const work = checked(await db.from('accounting_request_queue').select('id,state')
+        .eq('tenant_id', saved.tenant_id).eq('source_type', 'member_membership_history')
+        .eq('source_id', record.id).eq('operation', 'invoice').maybeSingle());
+      if (!work || work.state === 'complete') {
+        return { request: { ...saved, status: record.payment_status === 'paid' ? 'completed' : 'pending_payment' },
+          paymentUrl: null, record, replayed };
+      }
+      // Incomplete queue work still owns notification/link finalization.
+    }
     try {
       // Never fall through to legacy non-durable invoicing. The queue resumes its
       // persisted source/provider identity before preparing any new external effect.
@@ -234,7 +257,7 @@ export function createMemberStartService({
       if (!result?.accounting_request_id) throw startError('Accounting queue is unavailable.');
       record = await one('member_membership_history', saved.tenant_id, saved.record_id);
       const review = result.accounting_state === 'review';
-      return { request: { ...saved, status: review ? 'reconciliation_required' : result.accounting_pending ? 'accounting_pending' : 'pending_payment' },
+      return { request: { ...saved, status: review ? 'reconciliation_required' : result.accounting_pending ? 'accounting_pending' : record.payment_status === 'paid' ? 'completed' : 'pending_payment' },
         paymentUrl: null, record, replayed, accounting_pending: !!result.accounting_pending, reconciliation_required: review,
         accounting_request_id: result.accounting_request_id };
     } catch {

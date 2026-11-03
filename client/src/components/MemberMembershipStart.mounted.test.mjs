@@ -157,6 +157,28 @@ test("load errors offer retry without showing a usable form", async () => {
   } finally { await view.cleanup(); }
 });
 
+test("positive-price No charge shows the period-only waiver and confirms zero due without a payment link", async () => {
+  const previewResult = quote("free");
+  previewResult.quote.adminWaiver = { version: 1, scope: "purchased_period_only",
+    originalAmounts: { finalCost: 182.41, vatAmount: 36.48, totalWithVat: 218.89 } };
+  const view = await mount({ post: payload => json(payload.action === "preview" ? previewResult : {
+    request: { id: "waived-request", status: "completed", paymentMode: "free" },
+    record: { id: "waived-period", payment_status: "paid", total_with_vat: 0 },
+  }) });
+  try {
+    await preview("free");
+    assert.match(view.container.textContent, /Original calculated total: £218.89/);
+    assert.match(view.container.textContent, /Amount due: £0.00/);
+    assert.match(view.container.textContent, /later renewal pricing are unchanged/);
+    await confirm();
+    await waitFor(() => view.container.textContent.includes("waived-period"));
+    assert.equal(view.calls.filter(call => call.payload?.action === "create").length, 1);
+    assert.equal(view.calls.find(call => call.payload?.action === "create").payload.paymentMode, "free");
+    assert.equal(view.container.querySelector('a[href*="membership-fees"]'), null);
+    assert.ok(view.invalidated.some(key => key[0] === "member-membership"));
+  } finally { await view.cleanup(); }
+});
+
 test("discovery blockers and absent supported payment modes fail closed", async () => {
   for (const data of [
     { ...fixture(), blockers: ["Existing recurring agreement must be resolved."] },
@@ -410,7 +432,7 @@ test("HTTP 202 saved recovery keeps reconciliation explicit without claiming cre
 });
 
 test("invoice queue availability gates creation even if a preview grants canCreate", async () => {
-  const view = await mount({ data: { ...fixture(), capabilities: { ...fixture().capabilities, invoiceAvailable: false } } });
+  const view = await mount({ data: { ...fixture(), capabilities: { ...fixture().capabilities, invoiceAvailable: false, invoiceUnavailableReason: 'The durable membership accounting queue is not enabled.' } } });
   try {
     await waitFor(() => button("Preview membership"));
     await fill();

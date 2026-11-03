@@ -25,6 +25,7 @@ import { attachExpiryRenewalPolicyDisplay, legacyRenewalPolicyDisplay } from '..
 import { resolveMemberAmendmentReadOverlays, effectiveMemberEntitlement } from '../_lib/membershipAmendmentReadOverlay.js';
 import { findUnresolvedUnverifiedHistory } from '../../shared/unverifiedMembershipHistory.js';
 import { attachMembershipAccountingProgress } from '../_lib/membershipAccountingProgress.js';
+import { attachMemberStartHistory } from '../_lib/memberStartHistory.js';
 
 const INSTALMENT_PAGE_SIZE = 25;
 const INSTALMENT_MAX_PAGE = 1000;
@@ -1230,6 +1231,7 @@ async function handleGet(req, res, tenantId, db = supabase, {
     if (!HISTORY_TABLE_MISSING_CODES.has(err?.code)) throw err;
     console.log('[Member Membership] Personal history table may not exist yet:', err.message);
   }
+  await attachMemberStartHistory(db, { tenantId, memberId, history: personalHistory, isAdmin });
   personalHistory = await resolveMemberAmendmentReadOverlays({
     db, tenantId, history: personalHistory, asOf: new Date(now).toISOString().slice(0, 10),
   });

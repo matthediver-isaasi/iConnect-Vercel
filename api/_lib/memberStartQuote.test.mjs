@@ -36,7 +36,14 @@ test('legitimate free purchase only; complex pricing, backdating and unsupported
   const free = quote({ request: { ...request, paymentMode: 'free' }, config: { ...config, flat_cost: 0 } });
   assert.equal(free.totalWithVat, 0);
   assert.equal(free.commitment.commitment_snapshot.payment_method, 'free');
-  assert.throws(() => quote({ request: { ...request, paymentMode: 'free' } }), /choose invoice/);
+  const waived = quote({ request: { ...request, paymentMode: 'free' } });
+  assert.equal(waived.totalWithVat, 0);
+  assert.equal(waived.annualCost, 120);
+  assert.equal(waived.adminWaiver.originalAmounts.totalWithVat, 120);
+  assert.equal(waived.adminWaiver.reason, request.reason);
+  assert.equal(waived.adminWaiver.scope, 'purchased_period_only');
+  assert.equal(waived.targetSnapshot.config.flat_cost, 120);
+  assert.equal(quote().totalWithVat, 120, 'later ordinary purchase is not waived');
   assert.throws(() => quote({ config: { ...config, flat_cost: 0 } }), /choose free/);
   for (const change of [{ discounts: [{}] }, { overrides: [{}] }, { vatOverrides: [{}] }, { config: { ...config, rollover_enabled: true } }]) {
     assert.throws(() => quote(change), /does not approximate/);
@@ -50,4 +57,16 @@ test('confirmation fingerprint includes structure snapshots, reason, dates and p
   assert.equal(a, startFingerprint({ quote: quote(), request }));
   assert.notEqual(a, startFingerprint({ request: { ...request, reason: 'Different' }, quote: quote() }));
   assert.throws(() => normalizeStart(request, true), /stable idempotencyKey/);
+});
+test('fixed-date VAT waiver retains the full calculated price without changing the future pricing snapshot', () => {
+  const cfg = { ...config, start_mode: 'fixed_date', prorata_enabled: true, flat_vat_rate: 'OUTPUT2' };
+  const vatSetting = { setting_value: '{"rates":[{"taxType":"OUTPUT2","effectiveRate":20}]}' };
+  const charged = quote({ config: cfg, vatSetting });
+  const waived = quote({ request: { ...request, paymentMode: 'free' }, config: cfg, vatSetting });
+  assert.deepEqual(waived.adminWaiver.originalAmounts, {
+    finalCost: charged.finalCost, vatAmount: charged.vatAmount, totalWithVat: charged.totalWithVat,
+  });
+  assert.deepEqual([waived.finalCost, waived.vatAmount, waived.totalWithVat], [0, 0, 0]);
+  assert.deepEqual(waived.targetSnapshot, charged.targetSnapshot);
+  assert.equal(waived.termEnd, charged.termEnd);
 });

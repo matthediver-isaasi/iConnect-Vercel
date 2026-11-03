@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import pg from 'pg';
@@ -50,12 +50,24 @@ test('post-grace date transaction: ownership, financial preservation, rollback a
       rollingSql.indexOf("DO $$\nDECLARE t TEXT;\nBEGIN\n  FOREACH t", rollingSql.indexOf('CREATE OR REPLACE FUNCTION enforce_rolling')));
     assert.ok(functions.includes('A purchased membership commitment is immutable'));
     await db.query(functions);
-    for (const file of ['20261103_post_grace_renewal_storage.sql', '20261103_post_grace_atomic_dates.sql',
-      '20261104_post_grace_reservation.sql','20261105_post_grace_method_switch.sql',
-      '20261107_post_grace_metadata_service_dates.sql']) {
+    // Discover the complete post-grace chain in deployment filename order,
+    // rather than masking a dependency mistake with a hand-ordered list.
+    const migrationFiles = readdirSync(new URL('../supabase/migrations/', import.meta.url))
+      .filter(file => /^\d+_post_grace_.*\.sql$/.test(file)).sort();
+    assert.ok(migrationFiles.indexOf('20261103_post_grace_renewal_storage.sql')
+      < migrationFiles.indexOf('20261104_post_grace_atomic_dates.sql'));
+    for (const file of migrationFiles) {
       const sql = readFileSync(new URL(`../supabase/migrations/${file}`, import.meta.url), 'utf8');
       await db.query(sql);
       await db.query(sql);
+      if (file === '20261104_post_grace_atomic_dates.sql') {
+        // Check the staged gate before the later runtime-access migration,
+        // while still executing the complete chain in deployment order.
+        await db.query('SET ROLE service_role');
+        await assert.rejects(db.query(`SELECT apply_post_grace_record_dates(
+          NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL)`), /permission denied/);
+        await db.query('RESET ROLE');
+      }
     }
     const id = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
     const [tenant, member, prior, config, election, reservation, history, agreement, plan] =
@@ -103,10 +115,8 @@ test('post-grace date transaction: ownership, financial preservation, rollback a
     const call = (before = expected, payment = 'PM-test') => db.query(`SELECT apply_post_grace_record_dates(
       $1,$2,$3,'gocardless',$4,'confirmed',$5,1300,'GBP',$6) AS receipt`,
     [tenant, member, reservation, payment, paid, before]);
-    // This is intentionally not executable by runtime until all consumers are wired.
-    await db.query('SET ROLE service_role');
-    await assert.rejects(call(), /permission denied/);
-    await db.query('RESET ROLE');
+    // The pre-runtime denial was checked during ordered migration above;
+    // the full chain now grants the service role access, asserted below.
     await assert.rejects(call({ ...expected, history: { ...expected.history, total_with_vat: 999 } }), /changed/);
     assert.equal((await db.query('SELECT status FROM membership_post_grace_renewal')).rows[0].status, 'reserved');
     // A last-row failure must roll back earlier agreement/history changes and

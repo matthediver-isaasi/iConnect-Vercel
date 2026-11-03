@@ -21,6 +21,23 @@ const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query
 const { default: MemberMembershipTab } = await import("./MemberMembershipTab.jsx");
 const { setActiveTenantId } = await import("../api/base44Client.js");
 
+test('No charge history requires explicit evidence and unpaid invoices retain their processing state', async () => {
+  await mounted({ dataOverrides: { history: [
+    { id: 'waived', member_id: 'member', payment_status: 'paid', payment_method: null, total_with_vat: 0, admin_no_charge: true },
+    { id: 'legacy', member_id: 'member', payment_status: 'paid', payment_method: null, total_with_vat: 0 },
+    { id: 'queued', member_id: 'member', payment_status: 'unpaid', payment_method: 'invoice', start_invoice_state: 'pending' },
+    { id: 'uncertain', member_id: 'member', payment_status: 'unpaid', payment_method: 'invoice', start_invoice_state: 'unknown' },
+    { id: 'linked', member_id: 'member', payment_status: 'unpaid', payment_method: 'invoice', accounting_invoice_id: 'invoice-1', accounting_invoice_number: 'INV-1' },
+  ] } }, async container => {
+    assert.match(container.querySelector('[data-testid="cell-member-history-method-waived"]').textContent, /Free membership period \/ No charge/);
+    assert.match(container.querySelector('[data-testid="cell-member-history-method-legacy"]').textContent, /Unknown/);
+    assert.match(container.querySelector('[data-testid="row-member-history-queued"]').textContent, /Invoice creation queued/);
+    assert.match(container.querySelector('[data-testid="row-member-history-uncertain"]').textContent, /outcome uncertain/);
+    assert.equal(container.querySelector('[data-testid="button-view-invoice-linked"]').title, 'View invoice INV-1');
+    assert.match(container.querySelector('[data-testid="row-member-history-linked"]').textContent, /Unpaid/);
+  });
+});
+
 test('accounting recovery progress preserves paid status and never retries on render', async () => {
   for (const [state, label] of [
     ['waiting', 'Accounting waiting to retry'],
@@ -91,7 +108,7 @@ async function mounted({ projection = {}, grace = true, paidAmount = null, dataO
   client.setQueryData(["member-amendments", tenantId, "member"], { history: [], structures: [], capabilities: {} });
   client.setQueryData(["historical-dd-payments", tenantId, "member"], []);
   client.setQueryData(["member-start", tenantId, "member"], {
-    structures: [{ id: "personal-structure", name: `Structure for ${tenantId}`, pricing_model: "flat", bands: [] }],
+    structures: [{ id: "personal-structure", name: `Structure for ${tenantId}`, pricing_model: "flat", bands: [], paymentModes: ["free"] }],
     blockers: [], requests: [], capabilities: { paymentModes: ["free"] },
   });
   const container = document.createElement("div");
@@ -100,6 +117,9 @@ async function mounted({ projection = {}, grace = true, paidAmount = null, dataO
   const originalFetch = globalThis.fetch;
   const calls = [];
   globalThis.fetch = async (url, options) => {
+    if (String(url).includes("action=cancellation_finances")) {
+      return new Response(JSON.stringify({ records: [], nextCursor: null }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
     calls.push({ url, options });
     throw new Error(`Unexpected network request: ${url}`);
   };
