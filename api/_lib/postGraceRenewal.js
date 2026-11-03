@@ -128,3 +128,54 @@ export function planPostGraceSettlement({ reservation, evidence, now = new Date(
     paymentEvidence: { provider: evidence.provider, id: evidence.id, paidAt: paidAt.toISOString() },
   };
 }
+
+/**
+ * Produce a single consistent, scoped write set for the transaction finalizer.
+ * This is not a writer and must never be applied as independent REST updates.
+ * In particular it does not change a provider collection date: that requires
+ * its own confirmed provider reconciliation before collection holds release.
+ */
+export function planPostGraceRecordDates({
+  reservation, evidence, history, agreement = null, plan = null, now = new Date(),
+}) {
+  const term = planPostGraceSettlement({ reservation, evidence, now });
+  const scoped = row => row && row.tenant_id === reservation.tenantId
+    && row.member_id === reservation.memberId && !row.organization_id
+    && row.membership_successor_election_id === reservation.electionId;
+  if (!reservation.electionId || !reservation.previousTermId || !reservation.historyId
+      || !scoped(history) || history.id !== reservation.historyId
+      || history.id === reservation.previousTermId
+      || history.previous_term_id !== reservation.previousTermId) {
+    throw new Error('Post-grace successor history identity mismatch');
+  }
+  if (!['pending', 'pending_payment_setup', 'scheduled'].includes(history.status)
+      || history.payment_status === 'paid') {
+    throw new Error('Successor must be pending; settled replays require stored evidence');
+  }
+  const monthly = reservation.paymentMethod !== 'upfront';
+  if (monthly) {
+    if (!scoped(agreement) || !plan
+        || history.billing_agreement_id !== agreement.id
+        || plan.tenant_id !== reservation.tenantId
+        || plan.billing_agreement_id !== agreement.id
+        || agreement.provider !== evidence.provider
+        || !['payment_setup_required', 'mandate_pending', 'first_payment_pending'].includes(agreement.status)) {
+      throw new Error('Post-grace monthly arrangement identity mismatch');
+    }
+  } else if (agreement || plan || history.billing_agreement_id) {
+    throw new Error('Upfront renewal cannot redate a monthly arrangement');
+  }
+  const { paymentEvidence, ...dates } = term;
+  dates.previous_term_id = reservation.previousTermId;
+  return {
+    historyId: history.id,
+    agreementId: agreement?.id || null,
+    planId: plan?.id || null,
+    dates,
+    paymentEvidence,
+    // Keep financial snapshots and provider scheduling out of this date plan.
+    // A caller must use one database transaction for all applicable records.
+    requiresAtomicWrite: true,
+    requiresProviderScheduleReconciliation: monthly,
+  };
+}
