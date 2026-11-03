@@ -73,6 +73,7 @@ function makeBoundaryDatabase(form, organization = null, {
   member = null,
   continuationGrant = null,
   draft = null,
+  receiptRows = {},
 } = {}) {
   const insertedSubmissions = [];
   const deletedSubmissionIds = [];
@@ -128,6 +129,13 @@ function makeBoundaryDatabase(form, organization = null, {
       return { data: null, error: null };
     }
     async maybeSingle() {
+      if (Object.hasOwn(receiptRows, this.table)) {
+        const fixture = receiptRows[this.table];
+        if (fixture?.error) return fixture;
+        const row = fixture && this.filters.every(([op,key,value]) =>
+          op === 'eq' ? fixture[key] === value : op === 'is' ? (fixture[key] ?? null) === value : true);
+        return {data:row ? structuredClone(fixture) : null,error:null};
+      }
       if (this.table === 'member') {
         return { data: member && this.filters.every(([op, key, value]) =>
           op !== 'eq' || member[key] === value) ? structuredClone(member) : null, error: null };
@@ -264,11 +272,13 @@ export async function submitThroughRealProcessor({
   failProcessorOnce = false,
   sendSubmitterCopyEmail,
   publicDependencies = {},
+  receiptRows = {},
 }) {
   const boundary = makeBoundaryDatabase(form, processorOptions.existingOrganization, {
     member: processorOptions.existingMember,
     continuationGrant,
     draft,
+    receiptRows,
   });
   const recorder = responseRecorder();
   const handoffs = [];

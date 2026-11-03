@@ -15,6 +15,7 @@ import { resolveFormRenewalSelection, FormRenewalSelectionError } from '../_lib/
 import { resolveFormMembershipOrganizationId } from '../_lib/formMembershipOwner.js';
 import { discoverFormMembershipVouchers, bindFormMembershipVoucherCheckout, findFormVoucherCheckout, formVoucherSetupStatus, formVoucherCheckoutReady, validateFormVoucherSelection, FORM_VOUCHER_MODES } from '../_lib/formMembershipVouchers.js';
 import { reserveMembershipSuccessor } from '../_lib/membershipSuccessorElection.js';
+import { requireFormScope, FormVoucherVerificationError } from '../_lib/formMembershipVouchers.js';
 import { changeRenewalPaymentMethod, RenewalSwitchError, beginRenewalProviderWork, finishRenewalProviderWork } from '../_lib/renewalPaymentSwitch.js';
 import { buildExtraLineItems, computeAddonTotals, loadAddonLines } from '../_lib/membershipAddons.js';
 import {
@@ -62,6 +63,9 @@ export default async function handler(req, res) {
     }
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (error) {
+    if (error instanceof FormVoucherVerificationError) return res.status(error.status).json({
+      error: error.message, code: error.code, retryable: error.retryable,
+    });
     if (error instanceof FormRenewalSelectionError) return res.status(400).json({ error: error.message });
     console.error('[FormMembershipPayment] Error:', error);
     return res.status(500).json({ error: 'Internal server error' });
@@ -69,11 +73,14 @@ export default async function handler(req, res) {
 }
 
 async function getMemberById(memberId) {
-  const { data: member } = await supabase
+  const { data: member, error } = await supabase
     .from('member')
     .select('id, organization_id, tenant_id, email, first_name, last_name')
     .eq('id', memberId)
     .single();
+  if (error && error.code !== 'PGRST116') throw new FormVoucherVerificationError(
+    'FORM_VOUCHER_VERIFICATION_UNAVAILABLE',
+    'Membership details could not be verified right now. Retry checking status; do not start another payment.', 503);
   return member;
 }
 
@@ -294,7 +301,9 @@ async function handleGet(req, res, resolvedTenantId) {
           successorStart: history?.term_start_date || election.term_start_date,
           successorEnd: history?.term_end_date || election.term_end_date },
       });
-    } catch (error) { return res.status(409).json({ error: error.message }); }
+    } catch (error) { return res.status(error.status || 409).json({
+      error: error.message, code: error.code, retryable: error.retryable === true,
+    }); }
   }
   const organizationId = await resolveFormMembershipOrganizationId(supabase, tenantId, member);
   const isMemberScoped = !organizationId;
@@ -373,6 +382,7 @@ async function handleGet(req, res, resolvedTenantId) {
 
   const voucherCheckoutToken = await findFormVoucherCheckout(supabase, {
     tenantId, memberId: member.id, electionId: context.election?.id,
+    formId: req.query.formId, paymentFieldId: req.query.paymentFieldId,
   });
   const voucherSetup = await formVoucherSetupStatus(supabase, {
     tenantId, memberId: member.id, electionId: context.election?.id, token: voucherCheckoutToken,
@@ -541,6 +551,7 @@ async function handlePost(req, res, resolvedTenantId) {
 
   if (action === 'start_voucher_checkout') {
     try {
+      requireFormScope(req.body.formId, req.body.paymentFieldId);
       if (!await formVoucherCheckoutReady(supabase)) throw new Error('Credit checkout on this form is not yet enabled. No credit has been reserved.');
       if (!isMemberScoped) throw new Error('Personal credit requires a member-owned membership');
       const method = req.body.paymentMethod;

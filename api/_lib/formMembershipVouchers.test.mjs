@@ -7,6 +7,8 @@ import {
   formVoucherSetupStatus,
   formVoucherMonthlySnapshot,
   readFormVoucherCheckout,
+  bindFormMembershipVoucherCheckout,
+  findFormVoucherCheckout,
 } from './formMembershipVouchers.js';
 
 function setupDb({ provider = 'stripe', status = 'active', fundingState = 'plan_committed',
@@ -120,7 +122,7 @@ test('saved form receipts are owner-scoped and retain paid history after the cur
   const filters = [];
   const rows = {
     membership_fee_token: savedToken,
-    form_membership_voucher_checkout: { election_id: 'e' },
+    form_membership_voucher_checkout: { election_id: 'e', fee_token_id: 'token' },
     membership_successor_election: election,
     member_membership_history: { id: 'history', status: 'active', payment_status: 'paid' },
     membership_voucher_settlement: null,
@@ -132,12 +134,35 @@ test('saved form receipts are owner-scoped and retain paid history after the cur
   } };
   const input = { tenantId: 't', memberId: 'm', checkoutId: 'token', formId: 'form', paymentFieldId: 'field' };
   assert.equal((await readFormVoucherCheckout(db, input)).history.payment_status, 'paid');
+  assert.equal(await findFormVoucherCheckout(db, {...input,electionId:'e'}),'secret-link');
+  await assert.rejects(findFormVoucherCheckout(db, {...input,electionId:'e',formId:'other'}),/does not belong/);
   for (const table of ['membership_fee_token', 'member_membership_history']) {
     assert.ok(filters.some(([t, k, v]) => t === table && k === 'tenant_id' && v === 't'));
     assert.ok(filters.some(([t, k, v]) => t === table && k === 'member_id' && v === 'm'));
   }
   await assert.rejects(readFormVoucherCheckout(db, { ...input, formId: 'another-form' }), /does not belong/);
   await assert.rejects(readFormVoucherCheckout(db, { ...input, paymentFieldId: 'another-field' }), /does not belong/);
+  await assert.rejects(readFormVoucherCheckout(db, { ...input, formId: ['form','form'] }),
+    error => error.status === 400 && error.code === 'FORM_VOUCHER_SCOPE_REQUIRED');
   rows.member_membership_history = null;
   await assert.rejects(readFormVoucherCheckout(db, input), /payment could not be verified/);
+});
+
+test('missing scope is escalation, not permission to retarget or recreate a checkout', async () => {
+  const input = {tenantId:'t',memberId:'m',checkoutId:'token',formId:'form',paymentFieldId:'field'};
+  for (const scope of [{}, {formId:'form'}, {paymentFieldId:'field'}]) {
+    const db = {from() {return {select(){return this;},eq(){return this;},is(){return this;},
+      async maybeSingle(){return {data:{...token,cost_breakdown:{formVoucher:scope}}};}};}};
+    await assert.rejects(readFormVoucherCheckout(db,input), e=>e.code==='FORM_VOUCHER_SCOPE_UNVERIFIED');
+    await assert.rejects(bindFormMembershipVoucherCheckout({}, {...input,election,...scope,
+      formId:scope.formId,paymentFieldId:scope.paymentFieldId}), e=>e.code==='FORM_VOUCHER_SCOPE_REQUIRED');
+  }
+});
+
+test('database failure is retryable and never a false ownership accusation', async () => {
+  const db = {from() {return {select(){return this;},eq(){return this;},is(){return this;},
+    async maybeSingle(){return {error:{code:'08006',message:'private database detail'}};}};}};
+  await assert.rejects(readFormVoucherCheckout(db, {
+    tenantId:'t',memberId:'m',checkoutId:'token',formId:'form',paymentFieldId:'field',
+  }), e=>e.status===503 && e.retryable && !/private|belong/.test(e.message));
 });

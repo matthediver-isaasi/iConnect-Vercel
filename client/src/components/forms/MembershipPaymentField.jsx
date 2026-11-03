@@ -11,6 +11,7 @@ import RenewalMethodChooser from "./RenewalMethodChooser";
 import FormMembershipCredit from "./FormMembershipCredit";
 import MembershipPrimaryAction from "./MembershipPrimaryAction";
 import { renewalCreditPreview } from "./renewalCreditPreview";
+import { formMembershipFeeQuery } from "@/lib/formMembershipFeeQuery";
 
 export function renewalOptions(data, vouchers = []) {
   if (!data?.membershipYear || data.approvalPending || data.zeroDue) return [];
@@ -216,10 +217,9 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
     pendingRefetchRef.current = false;
     const overrideStr = buildOverrideParams();
     prevOverridesRef.current = JSON.stringify([buildFieldOverrides(), allFormValues[field.membership_schedule_mapping?.source_field_id]]);
-    const receiptQuery = value?.voucherCheckoutId ? `&${new URLSearchParams({
-      voucherCheckoutId: value.voucherCheckoutId, formId, paymentFieldId: field.id,
-    })}` : '';
-    return fetch(`/api/forms/membership-payment?memberId=${encodeURIComponent(memberId)}${overrideStr}${receiptQuery}`, { credentials: 'include' })
+    const query = formMembershipFeeQuery({ memberId, overrideParams: overrideStr,
+      checkoutId: value?.voucherCheckoutId });
+    return fetch(`/api/forms/membership-payment?${query}`, { credentials: 'include' })
       .then(async (res) => {
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));

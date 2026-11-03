@@ -2,6 +2,8 @@
 - [Survey nested RPC contracts](survey-nested-rpc-contracts.md) — invitation tests must use the real nested allowlist; generic P0001 is not proof of completion.
 # Form and submission topics
 
+- [Form checkout query scope](form-checkout-query-scope.md) — duplicate query keys can falsely reject a correctly scoped saved purchase.
+
 - [Form archive history](form-archive-history.md) — archive rather than delete; restore does not republish.
 - [Due diligence occurrence identity](due-diligence-occurrence-identity.md) — preserve stage-entry identity through retries.
 - [Due Diligence applicant identity](due-diligence-applicant-identity.md) — application type selects the displayed applicant.

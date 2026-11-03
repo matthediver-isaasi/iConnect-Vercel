@@ -6,6 +6,27 @@ export const FORM_VOUCHER_MODES = {
   upfront: 'stripe_upfront', monthly_card: 'stripe_monthly', direct_debit: 'direct_debit',
 };
 
+export class FormVoucherVerificationError extends Error {
+  constructor(code, message, status = 409) {
+    super(message);
+    this.code = code;
+    this.status = status;
+    this.retryable = status === 503;
+  }
+}
+
+function verificationUnavailable() {
+  throw new FormVoucherVerificationError('FORM_VOUCHER_VERIFICATION_UNAVAILABLE',
+    'Your saved checkout could not be verified right now. Retry checking its status; do not start another payment.', 503);
+}
+
+export function requireFormScope(formId, paymentFieldId) {
+  if (![formId, paymentFieldId].every(v => typeof v === 'string' && v.trim().length > 0)) {
+    throw new FormVoucherVerificationError('FORM_VOUCHER_SCOPE_REQUIRED',
+      'The renewal form and payment field must each be supplied once. Reload the saved form.', 400);
+  }
+}
+
 export function formVoucherMonthlySnapshot(snapshot, election) {
   if (election?.quote?.simulation?.formRenewal?.state !== 'post_grace_renewal') return snapshot;
   if (!election.id || !snapshot?.voucher_funding?.settlement_id) {
@@ -55,8 +76,9 @@ export function formVoucherBreakdown(election) {
 }
 
 export async function bindFormMembershipVoucherCheckout(db, { tenantId, memberId, election, formId, paymentFieldId }) {
+  requireFormScope(formId, paymentFieldId);
   const breakdown = formVoucherBreakdown(election);
-  if (formId && paymentFieldId) Object.assign(breakdown.formVoucher, { formId, paymentFieldId });
+  Object.assign(breakdown.formVoucher, { formId, paymentFieldId });
   const { data, error } = await db.rpc('bind_form_membership_voucher_checkout', {
     p_tenant_id: tenantId, p_member_id: memberId, p_election_id: election.id,
     p_breakdown: breakdown, p_token: randomBytes(32).toString('hex'),
@@ -74,13 +96,15 @@ export async function loadFormVoucherAuthority(db, token) {
   if (!marker) return null;
   const result = await db.from('form_membership_voucher_checkout').select('*')
     .eq('fee_token_id', token.id).eq('tenant_id', token.tenant_id).eq('member_id', token.member_id).is('released_at', null).maybeSingle();
-  if (result.error || !result.data || result.data.election_id !== marker.electionId) {
+  if (result.error) verificationUnavailable();
+  if (!result.data || result.data.election_id !== marker.electionId) {
     throw new Error('The form credit checkout could not be verified');
   }
   const saved = await db.from('membership_successor_election').select('*')
     .eq('id', marker.electionId).eq('tenant_id', token.tenant_id).eq('member_id', token.member_id).maybeSingle();
   const e = saved.data;
-  if (saved.error || !e || e.organization_id || e.status !== 'reserved' || e.origin !== 'form'
+  if (saved.error) verificationUnavailable();
+  if (!e || e.organization_id || e.status !== 'reserved' || e.origin !== 'form'
       || (e.switch_state && e.switch_state !== 'idle')
       || e.quote?.payerMemberId !== token.member_id
       || FORM_VOUCHER_MODES[e.payment_method] !== marker.paymentMode
@@ -92,13 +116,21 @@ export async function loadFormVoucherAuthority(db, token) {
 }
 
 export async function readFormVoucherCheckout(db, { tenantId, memberId, checkoutId, formId, paymentFieldId }) {
-  if (!checkoutId || !formId || !paymentFieldId) throw new Error('The saved form checkout is required');
+  requireFormScope(formId, paymentFieldId);
+  if (typeof checkoutId !== 'string' || !checkoutId) throw new FormVoucherVerificationError(
+    'FORM_VOUCHER_CHECKOUT_REQUIRED', 'The saved form checkout is required', 400);
   const fee = await db.from('membership_fee_token').select('*').eq('id', checkoutId)
     .eq('tenant_id', tenantId).eq('member_id', memberId).is('organization_id', null).maybeSingle();
   const token = fee.data;
-  if (fee.error || !token || token.cost_breakdown?.formVoucher?.formId !== formId
+  if (fee.error) verificationUnavailable();
+  if (token && (!token.cost_breakdown?.formVoucher?.formId || !token.cost_breakdown?.formVoucher?.paymentFieldId)) {
+    throw new FormVoucherVerificationError('FORM_VOUCHER_SCOPE_UNVERIFIED',
+      'This saved checkout needs support to verify its original renewal form. Do not start another payment.');
+  }
+  if (!token || token.cost_breakdown?.formVoucher?.formId !== formId
       || token.cost_breakdown?.formVoucher?.paymentFieldId !== paymentFieldId) {
-    throw new Error('The saved checkout does not belong to this member and form');
+    throw new FormVoucherVerificationError('FORM_VOUCHER_CHECKOUT_MISMATCH',
+      'The saved checkout does not belong to this member and form. Contact support to verify the original checkout; do not start another payment.');
   }
   const election = await loadFormVoucherAuthority(db, token);
   if (!election) throw new Error('The saved renewal could not be verified');
@@ -107,41 +139,45 @@ export async function readFormVoucherCheckout(db, { tenantId, memberId, checkout
     const saved = await db.from('member_membership_history').select('*').eq('id', token.history_record_id)
       .eq('tenant_id', tenantId).eq('member_id', memberId)
       .eq('membership_successor_election_id', election.id).maybeSingle();
-    if (saved.error || !saved.data) throw new Error('The saved membership payment could not be verified');
+    if (saved.error) verificationUnavailable();
+    if (!saved.data) throw new Error('The saved membership payment could not be verified');
     history = saved.data;
   }
   const setup = await formVoucherSetupStatus(db, { tenantId, memberId, electionId: election.id, token: token.token });
   return { token, election, history, setup };
 }
 
-export async function findFormVoucherCheckout(db, { tenantId, memberId, electionId }) {
+export async function findFormVoucherCheckout(db, { tenantId, memberId, electionId, formId, paymentFieldId }) {
   if (!electionId) return null;
   const found = await db.from('form_membership_voucher_checkout').select('fee_token_id')
     .eq('tenant_id', tenantId).eq('member_id', memberId).eq('election_id', electionId)
     .is('released_at', null).maybeSingle();
   if (found.error && ['42P01', 'PGRST205'].includes(found.error.code)) return null;
-  if (found.error) throw new Error('Could not check the existing credit checkout');
+  if (found.error) verificationUnavailable();
   if (!found.data) return null;
-  const token = await db.from('membership_fee_token').select('token')
-    .eq('id', found.data.fee_token_id).eq('tenant_id', tenantId).eq('member_id', memberId).single();
-  if (token.error || !token.data) throw new Error('Could not resume the saved credit checkout');
-  return token.data.token;
+  // Discovery of an existing election must not bypass the form-scope checks
+  // used by a saved answer. Never offer its payment capability in another form.
+  const receipt = await readFormVoucherCheckout(db, {
+    tenantId, memberId, checkoutId: found.data.fee_token_id, formId, paymentFieldId,
+  });
+  return receipt.token.token;
 }
 
 export async function formVoucherSetupStatus(db, { tenantId, memberId, electionId, token }) {
   if (!token || !electionId) return null;
   const fee = await db.from('membership_fee_token').select('id')
     .eq('token', token).eq('tenant_id', tenantId).eq('member_id', memberId).maybeSingle();
-  if (fee.error || !fee.data) throw new Error('Credit checkout status could not be verified');
+  if (fee.error) verificationUnavailable();
+  if (!fee.data) throw new Error('Credit checkout status could not be verified');
   const funding = await db.from('membership_voucher_settlement').select('billing_agreement_id,state')
     .eq('fee_token_id', fee.data.id).eq('tenant_id', tenantId).neq('state', 'released').maybeSingle();
-  if (funding.error) throw new Error('Credit commitment status could not be verified');
+  if (funding.error) verificationUnavailable();
   if (!funding.data?.billing_agreement_id || !['plan_committed', 'committed'].includes(funding.data.state)) return null;
   const agreement = await db.from('membership_billing_agreements')
     .select('id,provider,status,gocardless_mandate_id')
     .eq('id', funding.data.billing_agreement_id).eq('tenant_id', tenantId).eq('member_id', memberId)
     .eq('membership_successor_election_id', electionId).is('organization_id', null).maybeSingle();
-  if (agreement.error) throw new Error('Credit payment arrangement could not be verified');
+  if (agreement.error) verificationUnavailable();
   const a = agreement.data;
   if (!a || !['active', 'first_payment_pending'].includes(a.status)) return null;
   if (a.provider === 'gocardless' && a.gocardless_mandate_id) {
@@ -151,7 +187,7 @@ export async function formVoucherSetupStatus(db, { tenantId, memberId, electionI
   const plan = await db.from('membership_payment_plans').select('id,stripe_subscription_id,status')
     .eq('billing_agreement_id', a.id).eq('tenant_id', tenantId).eq('member_id', memberId)
     .is('organization_id', null).maybeSingle();
-  if (plan.error) throw new Error('Monthly credit plan could not be verified');
+  if (plan.error) verificationUnavailable();
   return plan.data?.stripe_subscription_id && ['active', 'first_payment_pending'].includes(plan.data.status)
     ? { status: 'monthly_card_started', agreementId: a.id } : null;
 }

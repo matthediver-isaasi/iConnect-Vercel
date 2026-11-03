@@ -332,7 +332,9 @@ export default async function handler(req, res, dependencies = {}) {
           status: 'already_paid', voucherCheckoutId: receipt.token.id,
           existingRecordId: receipt.history.id, membershipYear: receipt.token.membership_year,
         } : { ...receipt.setup, voucherCheckoutId: receipt.token.id, membershipYear: receipt.token.membership_year };
-      } catch (error) { return res.status(409).json({ error: error.message }); }
+      } catch (error) { return res.status(error.status || 409).json({
+        error: error.message, code: error.code, retryable: error.retryable === true,
+      }); }
     }
     prefill_organization_id = admission.organizationId;
     const legacyApplicationScope = await createLegacyApplicationScope({
