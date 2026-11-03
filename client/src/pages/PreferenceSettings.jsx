@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import BadgeInstructionsSettings from "@/components/BadgeInstructionsSettings";
+import MemberAffiliationSettings from "@/components/MemberAffiliationSettings";
 import { base44 } from "@/api/base44Client";
 import { supabase } from "@/api/supabaseClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -564,6 +565,7 @@ export default function PreferenceSettingsPage() {
         </div>
 
         <BadgeInstructionsSettings />
+        <MemberAffiliationSettings />
 
         <Card className="mb-6">
           <CardHeader>

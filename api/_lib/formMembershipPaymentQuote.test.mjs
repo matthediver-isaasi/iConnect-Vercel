@@ -153,7 +153,9 @@ test('confirmation loads tenant/member scoped quote and rejects entity substitut
   const quote = snapshotFormMembershipPayment(simulation());
   const pi = { metadata: { membership_quote_id: 'quote', tenant_id: 'tenant', member_id: 'member', membership_year: quote.simResult.membershipYear.label } };
   const db = database({ data: { id: 'quote', member_id: 'member', organization_id: null, quote } });
-  assert.equal((await loadFormMembershipPaymentQuote(db, pi)).simResult, quote.simResult);
+  // The loader clones stored evidence before applying recovered term dates.
+  // Confirm unchanged values, not the identity of an in-memory fixture object.
+  assert.deepEqual((await loadFormMembershipPaymentQuote(db, pi)).simResult, quote.simResult);
   assert.deepEqual(db.filters, [['id', 'quote'], ['tenant_id', 'tenant'], ['member_id', 'member']]);
   await assert.rejects(loadFormMembershipPaymentQuote(db, { metadata: { ...pi.metadata, organization_id: 'foreign' } }), /identity/);
 });

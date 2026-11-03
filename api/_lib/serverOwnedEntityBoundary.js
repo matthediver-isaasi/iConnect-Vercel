@@ -1,4 +1,6 @@
 const SERVER_OWNED_ENTITY_NAMES = new Set([
+  'profileaffiliationpolicy',
+  'profileaffiliationoperation',
   'formalertsettings',
   'formalertdelivery',
   'formalertreadlimit',

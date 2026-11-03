@@ -43,8 +43,10 @@ function deferred() {
   return { promise, release };
 }
 
-async function fixture(page) {
+async function fixture(page, affiliations = null) {
   const state = { updates: [], uploads: [], blocked: [], gate: null, failNext: false, saved: { ...member } };
+  state.affiliations = affiliations;
+  state.affiliationWrites = [];
   await page.addInitScript((cached) => {
     localStorage.clear();
     sessionStorage.clear();
@@ -89,7 +91,7 @@ async function fixture(page) {
         && Object.keys(request.postDataJSON() || {}).join() === "last_activity") {
         return json(route, member);
       }
-      if (method !== "GET") {
+      if (method !== "GET" && !(path === "/api/member-affiliations" && state.affiliations)) {
         state.blocked.push(key);
         return json(route, { error: `Unexpected fixture mutation ${key}` }, 599);
       }
@@ -107,6 +109,27 @@ async function fixture(page) {
       if (path === "/api/communication/inbox/unread-count") return json(route, { unreadCount: 0 });
       if (path === "/api/custom-objects") return json(route, { objects: [], total: 0 });
       if (path === "/api/my-badges") return json(route, { badges: [] });
+      if (path === "/api/member-affiliations") {
+        if (!state.affiliations) return json(route, { active: false });
+        if (method === "GET") return json(route, state.affiliations);
+        if (method === "POST") return json(route, { items: [], hasMore: false });
+        if (method === "PATCH") {
+          const body = request.postDataJSON();
+          state.affiliationWrites.push(body);
+          if (state.affiliationFail) {
+            state.affiliationFail = false;
+            return json(route, { error: "Affiliation fixture conflict; draft retained" }, 409);
+          }
+          state.affiliations = {
+            ...state.affiliations, token: "next-fixture-token",
+            primary: body.primary ? state.affiliations.primary : null,
+            secondary: state.affiliations.secondary.filter(item => body.secondary.includes(item.id)),
+            departments: state.affiliations.departments.filter(item => body.departments.includes(item.id)),
+          };
+          state.saved.organization_id = body.primary;
+          return json(route, { committed: true, replayed: false });
+        }
+      }
       return json(route, []);
     }
     // Block every external host (including scripts, fonts, storage and unknown
@@ -282,4 +305,44 @@ test("photo upload confirms the member patch before updating the cached profile"
     .toBe(state.updates[0].payload.profile_photo_url);
   expect((await cached(page)).fixtureMetadata).toEqual({ preserved: true, nested: ["a", "b"] });
   expect(state.blocked.filter((key) => /(?:PATCH|POST|PUT|DELETE) /.test(key))).toEqual([]);
+});
+
+test("affiliations cancel without writes, review clears, retain failures and preserve other profile drafts", async ({ page }) => {
+  const state = await fixture(page, {
+    active: true, token: "affiliation-fixture-token", secondaryEnabled: true,
+    primary: { id: "org-a", label: "Primary hospital" },
+    secondary: [{ id: "org-b", label: "Secondary hospital" }],
+    departments: [
+      { id: "dept-a", label: "Ordinary department", organizationLabel: "Primary hospital", protected: false },
+      { id: "dept-b", label: "Protected department", organizationLabel: "Secondary hospital", protected: true },
+    ],
+  });
+  await expect(page.getByText("My affiliations", { exact: true })).toBeVisible();
+  await profile(page).title.fill("Unsaved ordinary title");
+  await page.getByRole("button", { name: "Clear primary", exact: true }).click();
+  await page.getByRole("button", { name: "Cancel affiliation edits", exact: true }).click();
+  await page.getByRole("button", { name: "Discard affiliation draft", exact: true }).click();
+  expect(state.affiliationWrites).toHaveLength(0);
+  await expect(page.getByRole("button", { name: "Clear primary", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Clear primary", exact: true }).click();
+  await page.getByRole("button", { name: "Remove Ordinary department", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Remove Protected department", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Review affiliation changes", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  const save = dialog.getByRole("button", { name: "Confirm and save affiliations", exact: true });
+  await expect(save).toBeDisabled();
+  await dialog.getByRole("checkbox").check();
+  state.affiliationFail = true;
+  await save.click();
+  await expect(page.getByText("Affiliation fixture conflict; draft retained")).toBeVisible();
+  await save.click();
+  await expect.poll(() => state.affiliationWrites.length).toBe(2);
+  expect(state.affiliationWrites[1]).toEqual(state.affiliationWrites[0]);
+  expect(state.affiliationWrites[1].departments).toEqual(["dept-b"]);
+  await expect(profile(page).title).toHaveValue("Unsaved ordinary title");
+  expect(state.updates).toHaveLength(0);
+  await page.reload();
+  await expect(page.getByText("No primary organisation", { exact: true })).toBeVisible();
+  await expect(page.getByText(/^Ordinary department/)).toHaveCount(0);
+  await expect(page.getByText(/^Protected department/)).toBeVisible();
 });

@@ -6,6 +6,7 @@ const suites = JSON.parse(readFileSync(new URL('./regression-suites.json', impor
 // These suites include disposable PostgreSQL harnesses. This permission only
 // enables temporary UNIX-socket clusters, never network database connections.
 const disposablePostgresSuites = new Set([
+  'member-profile-affiliations',
   'cookie-consent',
   'ai-assistant-tests',
   'stripe-address-mappings',

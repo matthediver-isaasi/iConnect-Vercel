@@ -1,4 +1,5 @@
 import { isOwnBookingHistoryRead, scopeOwnBookingHistory } from '../../_lib/ownBookingHistory.js';
+import { rejectGenericAffiliationWrite } from '../../_lib/profileAffiliationEntityBoundary.js';
 import { validateDirectoryConfiguration, canManageDirectoryConfiguration } from '../../_lib/directoryExpression.js';
 import { handleVoucherEntity, authorizeVoucherSettingWrite } from '../../_lib/voucherEntityBoundary.js';
 import { handleProgramEntitlementEntity } from '../../_lib/programEntitlementBoundary.js';
@@ -473,6 +474,7 @@ export default async function handler(req, res) {
     // Only protected consumers interpret this header; public responses do not.
     res.setHeader('X-Session-Status', 'invalid');
   }
+  if (await rejectGenericAffiliationWrite({ entity, req, res, context: tenantCtx, hasAdminAccess })) return;
   if (await handleProgramEntitlementEntity({ entity: entityNorm, req, res, context: tenantCtx, db: supabase, hasAdminAccess })) return;
   if (await handleVoucherEntity({ entity: entityNorm, req, res, context: tenantCtx, db: supabase, hasAdminAccess })) return;
   if (await authorizeVoucherSettingWrite({ entity: entityNorm, req, res, context: tenantCtx, db: supabase, hasAdminAccess })) return;

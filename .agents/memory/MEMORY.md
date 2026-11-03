@@ -80,6 +80,7 @@
 - [Mixed-encoding CSV imports](mixed-encoding-csv-imports.md) — preserve valid UTF-8 sequences while decoding isolated Windows-1252 bytes; whole-file fallback can silently create mojibake.
 - [Stripe feature mode for shared payments](stripe-feature-payment-mode.md) — discovery, creation, and confirmation must use one persisted feature when a shared flow serves several products.
 - [Department relationship replacement](department-relationship-replacement.md) — primary-organisation changes must preserve valid secondary affiliations; explicitly reconcile departments, never hard-delete.
+- [Profile affiliation boundaries](profile-affiliation-boundaries.md) — existing-record self-service is separate from renewal review; relationship names are not endpoint authority.
 - [Membership renewal policies](membership-renewal-index.md) — within-grace vs payment-dated late renewal, tenant rollout, method choice, reminder quotes and admin invoicing.
 - [Editor query lifecycles](editor-query-lifecycle-index.md) — discovery/save-first, pending queries, stable fallbacks, and saved-metadata reconciliation.
 - [Automatic-group source invalidation](automatic-group-source-invalidation.md) — source writes must generation-fence workers; custom values need direct statement triggers to avoid per-row churn.
@@ -102,6 +103,7 @@
 - [Relationship report compatibility](relationship-report-compatibility.md) — saved semantics stay versioned; row-relative counts and native indexed cursors prevent sibling mixing and full-graph sorts.
 - [Tenant-setting first-save races](tenant-setting-first-save-races.md) — update CAS does not serialize first inserts; new singleton settings need database-enforced identity.
 - [Verification boundaries](browser-verification-index.md) — isolated tests vs production checks, browser route contracts, parallel output, and animation-safe assertions.
+- [Validation registration](validation-registration-startup.md) — named checks may be added to default startup automatically; retain application-only Run behavior.
 - [Provider replay outcomes](provider-replay-outcomes.md) — webhook acknowledgement is not recovery success; conflicts and retryable child outcomes must remain visible.
 - [Payment return navigation](payment-return-navigation.md) — checkout departure/return must share browsing context; relay only to the initiating form instance and preserve ordinary encoded query values.
 - [PostgREST literal-star searches](postgrest-literal-star-search.md) — LIKE/ILIKE rewrites even escaped stars; literal-text search needs a different operator for that case.

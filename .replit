@@ -172,6 +172,17 @@ args = "node scripts/run-regression-suite.mjs form-applicant-continuation-postgr
 [workflows.workflow.metadata]
 isValidation = true
 
+[[workflows.workflow]]
+name = "member-profile-affiliations"
+author = "agent"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/run-regression-suite.mjs member-profile-affiliations"
+
 [userenv]
 
 [userenv.shared]

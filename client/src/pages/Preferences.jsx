@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import BadgeInstructionsHelpLink from "@/components/BadgeInstructionsHelpLink";
+import MemberAffiliations from "@/components/MemberAffiliations";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/api/supabaseClient"; // or your actual client path
 import { base44 } from "@/api/base44Client";
@@ -3305,6 +3306,24 @@ export default function PreferencesPage() {
           </div>
         )}
 
+        {memberRecord?.id && <MemberAffiliations key={memberRecord.id} onSaved={async () => {
+          // The field-wise reconciliation above preserves unsaved profile inputs.
+          await Promise.all([
+            queryClient.invalidateQueries({ queryKey: ["organization"] }),
+            queryClient.invalidateQueries({ queryKey: ["member-departments"] }),
+            queryClient.invalidateQueries({ queryKey: profileQueryKey(memberRecord.id), exact: true }),
+          ]);
+          const confirmed = queryClient.getQueryData(profileQueryKey(memberRecord.id));
+          if (confirmed?.id !== memberRecord.id || !Object.hasOwn(confirmed, "organization_id")) {
+            throw new Error("Updated member identity could not be confirmed.");
+          }
+          await synchronizeProfile({
+            queryClient, memberId: memberRecord.id,
+            patch: { organization_id: confirmed.organization_id,
+              ...(Object.hasOwn(confirmed, "organization") ? { organization: confirmed.organization } : {}) },
+            sessionMember, setSessionMember, storage: localStorage,
+          });
+        }} />}
         {sectionOrder.map((sectionId) => renderSection(sectionId))}
       </div>
 
