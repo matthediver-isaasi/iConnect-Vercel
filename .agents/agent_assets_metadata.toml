@@ -1797,3 +1797,31 @@ mtime_ms = 1793634812311
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/ff7e7fa2-004c-4677-8108-0cd05dfae1fc/d897b641-775e-4691-a247-b5d203d9441c"
 storage_version_token = "1793634820016717"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "4dr_BltCrVNQPHPwvlc08"
+uri = "file://generated-artifacts/bnms-cpd-guest-grace/report.html"
+type = "html"
+title = "BNMS CPD Guest grace audit"
+description = "Complete searchable read-only report: 0 supported changes, 2,388 evidence exceptions and 1 excluded recurring term."
+logical_id = "01bcd02e-c64c-42d6-b53d-bc88fba61b87"
+content_hash = "sha256:285dfc7243cc98ee8070407c1633434f16dcdafbb54c3977ff9af1b8823e3db2"
+size = 723271
+mtime_ms = 1793729246468
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/01bcd02e-c64c-42d6-b53d-bc88fba61b87/941369b7-79be-41cc-8ea5-6793acf0884e"
+storage_version_token = "1793729289822739"
+content_type = "text/html"
+
+[[outputs]]
+id = "9DOLyr6-RrUDKc8f8j1Nl"
+uri = "file://generated-artifacts/bnms-cpd-guest-grace/member-review.csv"
+type = "table"
+title = "BNMS member-level review list"
+description = "All 2,389 members, with IDs, names, expiry evidence, policy findings and no-change recommendations."
+logical_id = "f6e5c43f-6604-4c11-a2a2-461501c737ad"
+content_hash = "sha256:0b1dc357790ef93a3d3d0b3e468c35d6f7baa256def00dbbb983ed41efcaa77f"
+size = 934048
+mtime_ms = 1793729246460
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/f6e5c43f-6604-4c11-a2a2-461501c737ad/beb07d03-b3d1-4158-87e0-7ef3715fd652"
+storage_version_token = "1793729290958285"
+content_type = "text/csv"
