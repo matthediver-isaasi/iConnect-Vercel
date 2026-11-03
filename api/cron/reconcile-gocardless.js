@@ -149,6 +149,15 @@ async function executeReconciliation(_req, res) {
   clientCache.clear();
   const startTime = Date.now();
   const results = { repaired: 0, flagged: 0, skipped: 0, errors: 0, details: [] };
+  try {
+    const { reconcileMandateReplacements } = await import('../_lib/gocardlessMandateReplacement.js');
+    const replacement = await reconcileMandateReplacements({ db: supabase, clientForTenant: gcFor, limit: 1 });
+    results.errors += replacement.errors;
+    if (replacement.processed || replacement.errors) results.details.push({ stage: 'mandate-replacement', ...replacement });
+  } catch {
+    results.errors++;
+    results.details.push({ stage: 'mandate-replacement', error: 'Handover requires reconciliation' });
+  }
   await runReconciliationPhases(results, { deadline: startTime + RECONCILIATION_WORK_BUDGET_MS });
   const duration = Date.now() - startTime;
   try {

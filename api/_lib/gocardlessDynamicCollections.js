@@ -191,12 +191,17 @@ export async function resolveDynamicPayment(paymentId, { db = supabase, gc } = {
     if (!reservation) throw new Error('Provider dynamic collection has no matching reservation');
   }
   if (!reservation) return null;
-  const plan = checked(await db.from('membership_payment_plans').select('*')
+  let plan = checked(await db.from('membership_payment_plans').select('*')
     .eq('id', reservation.plan_id).eq('tenant_id', reservation.tenant_id).single(), 'Resolve dynamic payment plan');
   const client = typeof gc?.gocardlessForTenant === 'function'
     ? await gc.gocardlessForTenant(reservation.tenant_id, { db })
     : gc || await gocardlessForTenant(reservation.tenant_id, { db });
   payment ||= await client.getPayment(paymentId);
+  if (payment.links?.mandate && payment.links.mandate !== plan.gocardless_mandate_id) {
+    const { replacementPaymentPlan } = await import('./gocardlessReplacementHistory.js');
+    const historical = await replacementPaymentPlan(db, { plan, paymentId, mandateId: payment.links.mandate });
+    if (historical) plan = historical;
+  }
   assertDynamicPayment(reservation, payment, plan.gocardless_mandate_id);
   await attachDynamicPayment(reservation, payment, { db });
   return { plan, reservation, payment };

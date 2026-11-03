@@ -508,7 +508,7 @@ async function handlePost(req, res, resolvedTenantId) {
             throw new Error('The original Direct Debit environment is unavailable');
           }
           const { createGocardlessClient } = await import('../_lib/gocardless.js');
-          return createGocardlessClient(credentials);
+          return createGocardlessClient(credentials, { guardMutations: true });
         },
       }));
     } catch (error) {

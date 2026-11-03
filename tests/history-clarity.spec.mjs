@@ -256,6 +256,7 @@ async function installHistoryFixtures(page, {
   failingEntities = [],
   delayedEntities = [],
   instalments = {},
+  replacement = { eligible: false, canStart: false, canResume: false },
 } = {}) {
   const fixtureMember = withOrganization ? member : { ...member, organization_id: null };
   const state = {
@@ -274,6 +275,13 @@ async function installHistoryFixtures(page, {
     const method = request.method();
 
     if (!path.startsWith("/api/")) return route.continue();
+    if (path === "/api/membership/mandate-replacement") {
+      if (method === "GET" || request.postDataJSON()?.action === "refresh") return json(route, replacement);
+      return json(route, { ...replacement, canStart: false, canResume: true,
+        operation: { id: "test-replacement", status: "authorizing" },
+        authorisationUrl: "https://pay-sandbox.gocardless.com/billing/static/flow?id=test-flow",
+        environment: "sandbox" });
+    }
     if (method === "PATCH" && path === `/api/entities/Member/${fixtureMember.id}`) {
       const body = request.postDataJSON();
       const isLayoutActivity = body
@@ -351,6 +359,55 @@ async function installHistoryFixtures(page, {
 
   return state;
 }
+
+for (const width of [390, 1440]) {
+  test(`mandate replacement header visible at ${width}px and server controls eligibility`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const replacement = { eligible: true, canStart: false, canResume: false,
+      reason: "Please contact your membership team: this mandate is shared." };
+    await installHistoryFixtures(page, { replacement });
+    await page.goto("/History");
+    const header = page.getByTestId("history-header-actions");
+    await expect(header.getByRole("button", { name: "Change Direct Debit" })).toBeVisible();
+    await header.getByRole("button", { name: "Change Direct Debit" }).click();
+    await expect(page.getByText(replacement.reason, { exact: true })).toBeVisible();
+  });
+}
+test("mandate replacement is absent for non-DD members", async ({ page }) => {
+  await installHistoryFixtures(page);
+  await page.goto("/History");
+  await expect(page.getByRole("heading", { name: /History/i }).first()).toBeVisible();
+  await expect(page.getByTestId("history-header-actions").getByRole("button")).toHaveCount(0);
+});
+test("mandate replacement return shows persistent switching status", async ({ page }) => {
+  await installHistoryFixtures(page, { replacement: {
+    eligible: true, canStart: false, canResume: false,
+    operation: { id: "test-replacement", status: "switching",
+      message: "Your collection arrangements are being transferred." },
+  } });
+  await page.goto("/History?mandate_replacement=test-replacement");
+  await expect(page.getByText("Direct Debit change in progress", { exact: true })).toBeVisible();
+});
+test("mandate replacement stays visible under a custom History banner", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  await installHistoryFixtures(page, { replacement: { eligible: true, canStart: true, canResume: false },
+    data: { ...defaultData, PageBanner: [{ id: "history-banner", is_active: true,
+      associated_pages: ["portal_history"], banner_type: "text", title: "Your account",
+      name: "Custom History", page_position: "top" }] } });
+  await page.goto("/History");
+  await expect(page.getByTestId("history-header-actions").getByRole("button", { name: "Change Direct Debit" })).toBeVisible();
+  await expect(page.locator("#history-page-title")).toHaveCount(0);
+});
+test("mandate replacement uses same-tab hosted fallback when Drop-in is unavailable", async ({ page }) => {
+  await installHistoryFixtures(page, { replacement: { eligible: true, canStart: true, canResume: false } });
+  await page.route("https://pay-sandbox.gocardless.com/**", route => route.fulfill({
+    status: 200, contentType: "text/html", body: "<h1>Sandbox hosted authorization fixture</h1>",
+  }));
+  await page.goto("/History");
+  await page.getByTestId("history-header-actions").getByRole("button", { name: "Change Direct Debit" }).click();
+  await page.getByRole("button", { name: /Continue.*GoCardless|Authorize|Authorise/i }).click();
+  await expect(page).toHaveURL(/pay-sandbox\.gocardless\.com/);
+});
 
 for (const source of ["personal", "organisation"]) {
   test(`monthly ${source} history shows scoped pending bank payment without another membership or invoice`, async ({ page }) => {

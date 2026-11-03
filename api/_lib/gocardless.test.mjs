@@ -7,6 +7,20 @@ import crypto from 'node:crypto';
 
 import { verifyWebhookSignature, buildIdempotencyKey, getGocardlessEnvironment, createGocardlessClient } from './gocardless.js';
 
+test('replacement subscription inventory requires explicit complete cursor metadata', async (t) => {
+  const client = createGocardlessClient({ accessToken: 'sandbox_test', environment: 'sandbox' });
+  let payload = { subscriptions: [] };
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    assert.equal(new URL(url).searchParams.get('mandate'), 'MD_test');
+    return new Response(JSON.stringify(payload), { status: 200 });
+  });
+  await assert.rejects(client.listSubscriptionsPage({ mandateId: 'MD_test' }), /Incomplete/);
+  payload = { subscriptions: [], meta: { cursors: { after: null } } };
+  assert.deepEqual(await client.listSubscriptionsPage({ mandateId: 'MD_test' }), { subscriptions: [], after: null });
+  payload.meta.cursors.after = 12;
+  await assert.rejects(client.listSubscriptionsPage({ mandateId: 'MD_test' }), /Incomplete/);
+});
+
 const SECRET = 'test_webhook_secret_123';
 function sign(body, secret = SECRET) {
   return crypto.createHmac('sha256', secret).update(body).digest('hex');

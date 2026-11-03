@@ -9,6 +9,12 @@ This is deliberately separate from `dd_arrears_policy`, which controls access
 and escalation only; it does not change GoCardless's in-grace retry timing.
 # GoCardless Membership Lifecycle
 
+> **Mandate replacement:** History provides a server-authorized Change Direct
+> Debit action. Authorization is separate from purchase consent; collection
+> handover is durable and release-gated, and retires the old mandate only after
+> verified transfer. See [the handover contract, supported schedules and evidence](../docs/gocardless-mandate-handover-contract.md).
+> Existing live mandates must remain unchanged during development.
+
 **Author:** isaasi  
 **Last Updated:** September 2026  
 **Module:** Membership Payments / GoCardless Direct Debit

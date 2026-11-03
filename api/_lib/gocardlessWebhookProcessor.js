@@ -299,7 +299,9 @@ async function findPlanBySubscription(db, subscriptionId) {
     .eq('gocardless_subscription_id', subscriptionId)
     .maybeSingle();
   if (error) throw new Error(`load plan by subscription failed: ${error.message}`);
-  return data || null;
+  if (data) return data;
+  const { replacementPaymentPlan } = await import('./gocardlessReplacementHistory.js');
+  return replacementPaymentPlan(db, { subscriptionId });
 }
 
 async function findPlanByAgreement(db, agreementId) {
@@ -328,6 +330,9 @@ async function findPlansByMandate(db, mandateId) {
  */
 export async function processGocardlessEvent(event, deps = {}) {
   const { db, gc } = defaultDeps(deps);
+  const { routeReplacementEvent } = await import('./gocardlessReplacementEvents.js');
+  const replacement = await routeReplacementEvent(event, { db, gc });
+  if (replacement) return replacement;
   const resourceType = event.resource_type;
   const action = event.action;
   const links = event.links || {};

@@ -192,7 +192,7 @@ async function defaultGcConnection(db, tenantId, environment) {
   if (credentials.environment !== environment) {
     fail(`GoCardless connection is ${credentials.environment}, but agreement is ${environment}`, 409, 'PROVIDER_ENVIRONMENT_MISMATCH');
   }
-  return { client: createGocardlessClient(credentials) };
+  return { client: createGocardlessClient(credentials, { guardMutations: true }) };
 }
 
 function verifyFormOwnership(agreement, metadata, { requireTenant = true } = {}) {

@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { useLayoutContext } from "@/contexts/LayoutContext";
 import { base44 } from "@/api/base44Client";
 import { voucherDisplayName, voucherOwnerType } from '../../../shared/voucherPolicy.js';
 import { useTicketViewerKey } from '@/hooks/useTicketViewerKey';
@@ -20,6 +21,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { getMembershipHistorySchedule } from "@/components/membership/historySchedule";
 import HistoricalDdPayments from "@/components/membership/HistoricalDdPayments";
 import HistoricalInvoices from "@/components/membership/HistoricalInvoices";
+import HistoryMandateReplacement from "@/components/membership/HistoryMandateReplacement";
 import { useHistoricalInvoices } from "@/hooks/useHistoricalInvoices";
 import MemberMembershipInstalments, { isMonthlyMembershipRecord } from "@/components/membership/MemberMembershipInstalments";
 import MembershipPricingDisplay from "@/components/membership/MembershipPricingDisplay";
@@ -95,7 +97,9 @@ function membershipSourceLabel(source) {
   return source === 'organisation' ? 'Organisation membership' : 'Personal membership';
 }
 
-export default function HistoryPage({ hasBanner }) {
+export default function HistoryPage({ hasBanner: bannerProp }) {
+  const { hasBanner: layoutHasBanner } = useLayoutContext();
+  const hasBanner = bannerProp ?? layoutHasBanner;
   const { memberInfo, organizationInfo, memberRole, isFeatureExcluded, reloadMemberInfo, refreshOrganizationInfo } = useMemberAccess();
   const viewerKey = useTicketViewerKey(memberInfo);
   const { data: voucherSettings = [] } = useQuery({ queryKey: ['voucher-settings', ...viewerKey], queryFn: () => base44.entities.SystemSettings.list() });
@@ -1765,6 +1769,9 @@ export default function HistoryPage({ hasBanner }) {
       }
 
       <div className="max-w-7xl mx-auto">
+        <div className="mb-4 flex justify-end" data-testid="history-header-actions">
+          <HistoryMandateReplacement memberInfo={memberInfo} />
+        </div>
         {/* Header - hidden when custom banner is present */}
         {!hasBanner && (
           <div className="mb-8">

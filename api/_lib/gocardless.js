@@ -163,8 +163,16 @@ async function gcRequest(creds, method, path, { body, idempotencyKey, timeoutMs 
 // Client factory — every API method bound to one set of credentials
 // ---------------------------------------------------------------------------
 
-export function createGocardlessClient(creds) {
-  const request = (method, path, opts) => gcRequest(creds, method, path, opts);
+export function createGocardlessClient(creds, { guardMutations = false, db = null, replacementId = null } = {}) {
+  const rawRequest = (method, path, opts) => gcRequest(creds, method, path, opts);
+  const request = async (method, path, opts) => {
+    if (!guardMutations || method === 'GET') return rawRequest(method, path, opts);
+    const { fencedGocardlessRequest } = await import('./gocardlessMutationFence.js');
+    const database = db || (await import('./database.js')).supabase;
+    if (!database) throw new Error('Collection authority database is unavailable');
+    return fencedGocardlessRequest({ db: database, environment: creds.environment,
+      operationId: replacementId, method, path, opts, request: rawRequest });
+  };
 
   return {
     credentials: { source: creds.source, tenantId: creds.tenantId || null, environment: creds.environment },
@@ -261,6 +269,21 @@ export function createGocardlessClient(creds) {
     async getSubscription(subscriptionId) {
       const json = await request('GET', `/subscriptions/${subscriptionId}`);
       return json.subscriptions;
+    },
+
+    // Strict pages for replacement inventory: missing pagination evidence must
+    // never be interpreted as "this mandate has no other subscriptions".
+    async listSubscriptionsPage({ mandateId, after = null, limit = 100 } = {}) {
+      if (!mandateId) throw new Error('mandateId is required for subscription inventory');
+      const json = await request('GET', '/subscriptions', {
+        query: { mandate: mandateId, after, limit },
+      });
+      if (!Array.isArray(json.subscriptions)
+          || !Object.hasOwn(json.meta?.cursors || {}, 'after')
+          || (json.meta.cursors.after !== null && typeof json.meta.cursors.after !== 'string')) {
+        throw new Error('Incomplete GoCardless subscription inventory');
+      }
+      return { subscriptions: json.subscriptions, after: json.meta.cursors.after };
     },
 
     // Amount-only amendment: never changes dates/count or existing payments.
@@ -363,6 +386,16 @@ export function createGocardlessClient(creds) {
     },
 
     // Unlike listPayments, preserves the provider cursor for exhaustive reads.
+    async listReplacementPaymentsPage({ mandateId, after = null, limit = 100 } = {}) {
+      if (!mandateId) throw new Error('mandateId is required for replacement payment inventory');
+      const json = await request('GET', '/payments', { query: { mandate: mandateId, after, limit } });
+      if (!Array.isArray(json.payments) || !Object.hasOwn(json.meta?.cursors || {}, 'after')
+          || (json.meta.cursors.after !== null && (typeof json.meta.cursors.after !== 'string' || !json.meta.cursors.after))) {
+        throw new Error('Incomplete GoCardless payment inventory');
+      }
+      return { payments: json.payments, after: json.meta.cursors.after };
+    },
+
     async listPaymentsPage({ subscriptionId, mandateId, after, limit = 100 } = {}) {
       const json = await request('GET', '/payments', {
         query: { subscription: subscriptionId, mandate: mandateId, after, limit },
@@ -433,7 +466,7 @@ export function createGocardlessClient(creds) {
  */
 export async function gocardlessForTenant(tenantId, deps = {}) {
   const creds = await getGocardlessCredentials(tenantId, deps);
-  return createGocardlessClient(creds);
+  return createGocardlessClient(creds, { guardMutations: true, db: deps.db || null, replacementId: deps.replacementId || null });
 }
 
 // ---------------------------------------------------------------------------
@@ -443,7 +476,7 @@ export async function gocardlessForTenant(tenantId, deps = {}) {
 // ---------------------------------------------------------------------------
 
 function envClient() {
-  return createGocardlessClient(envGocardlessCredentials());
+  return createGocardlessClient(envGocardlessCredentials(), { guardMutations: true });
 }
 
 export const createBillingRequest = (args) => envClient().createBillingRequest(args);

@@ -15,6 +15,30 @@ Do not equate recurring GoCardless payments with provider subscriptions. Xero-dr
 
 **How to apply:** Establish the scheduler and verify its handover before future collection setup. Match historical Xero payments to actual GoCardless payment IDs; an invoice marked PAID but cleared by credit notes is not cash-payment evidence. A repeating invoice's end date and next scheduled date alone do not prove its collection integration is disabled.
 
+Healthy-mandate replacement must not assume provider subscriptions follow a new
+mandate. The documented subscription update API does not accept a mandate
+change; cancelling a mandate cancels its subscriptions. Pausing subscriptions
+does not cancel already-created payments.
+
+The owner explicitly wants cancel-and-replace when editing a mandate is not
+possible. This must retain the requirement that abandoned authorization leaves
+the working mandate intact: authorize the replacement before retiring the old
+mandate, without cancelling membership.
+
+Using a live connection for development is not permission to perform real
+cancellations or collections as tests; financial test operations need separate
+explicit authority and should use disposable sandbox fixtures.
+
+**Why:** GoCardless's subscription API and bank-details support documentation
+distinguish new mandate authorization from collection-schedule migration. Its
+account-gated dashboard bank-update feature is not evidence of a general
+Drop-in handover API.
+
+**How to apply:** Prove the cutover with disposable sandbox obligations before
+enabling retirement. Independently identify external schedulers, reconcile
+created payments, and preserve dates/counts; do not overwrite healthy agreement
+identities through arrears recovery.
+
 Xero list and single-invoice responses can differ in whether zero-credit fields are present.
 
 **Why:** Contact invoice lists supplied `AmountCredited: 0` and an empty credit-note list, while fetching the same fully paid invoice individually omitted both. Treating omission as proof of credit or an unconditional zero is unsafe.

@@ -105,7 +105,7 @@ export default async function handler(req, res) {
     const rowId = inserted[0].id;
 
     try {
-      const outcome = await processGocardlessEvent(event, { gc: createGocardlessClient(creds) });
+      const outcome = await processGocardlessEvent(event, { gc: createGocardlessClient(creds, { guardMutations: true }) });
       const { error: updErr } = await supabase
         .from('payment_webhook_events')
         .update({
