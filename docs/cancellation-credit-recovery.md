@@ -2,6 +2,14 @@
 
 ## Rollout
 
+Applied to verified DEST on 3 November 2026 with reviewed SHA-256
+`c34a7aa3ebe82ca5e6d112bd43c1b523d1d66d72a7234bab0209a9829dd6ddc3`.
+Post-commit verification confirmed RLS, no SELECT/INSERT/UPDATE/DELETE for
+`anon` or `authenticated`, service-role access, and both uniqueness constraints.
+The new queue was empty after application: this migration did not enqueue or
+execute any historical cancellation, credit note, refund or email.
+Matching application deployment remains a separate rollout step.
+
 Apply `supabase/migrations/202612060001_cancellation_credit_recovery.sql`
 to approved DEST before deploying the code. The pinned runner is:
 
