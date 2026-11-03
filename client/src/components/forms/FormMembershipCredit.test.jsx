@@ -79,3 +79,32 @@ test('voucher cards combine selections and support deselection without a payment
   await act(async () => root.unmount());
   host.remove();
 });
+
+test('continue sends the selected card and voucher IDs, and retains selection on rejection', async () => {
+  const requests = [];
+  globalThis.fetch = async (url, options) => {
+    if (options.method === 'POST') {
+      requests.push(JSON.parse(options.body));
+      return new Response(JSON.stringify({ error: 'Checkout is temporarily unavailable' }), { status: 409 });
+    }
+    return new Response(JSON.stringify({ enabled: true, checkoutReady: true, currency: 'GBP',
+      vouchers: [{ id: 'a', code: 'FIRST', value: 10 }, { id: 'b', code: 'SECOND', value: 15 }] }));
+  };
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(<Credit memberId="member" context={{ formId: 'f', paymentFieldId: 'p' }}
+      selectedMethod="monthly_card" selectedVouchers={[{ id: 'a' }, { id: 'b' }]} />);
+    await new Promise(resolve => setTimeout(resolve, 15));
+  });
+  const button = [...host.querySelectorAll('button')].find(b => b.textContent.startsWith('Continue with selected'));
+  assert.ok(button);
+  await act(async () => { button.click(); await new Promise(resolve => setTimeout(resolve, 10)); });
+  assert.deepEqual(requests[0], { formId: 'f', paymentFieldId: 'p', memberId: 'member',
+    action: 'start_voucher_checkout', paymentMethod: 'monthly_card', voucherIds: ['a', 'b'] });
+  assert.match(host.textContent, /Checkout is temporarily unavailable/);
+  assert.equal(host.querySelectorAll('input:checked').length, 2);
+  await act(async () => root.unmount());
+  host.remove();
+});

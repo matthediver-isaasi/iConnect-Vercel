@@ -3,7 +3,17 @@ import assert from 'node:assert/strict';
 import {
   formVoucherCheckoutReady, loadFormVoucherAuthority, formVoucherBreakdown,
   formVoucherHistoryFields, discoverFormMembershipVouchers,
+  validateFormVoucherSelection,
 } from './formMembershipVouchers.js';
+
+test('selected vouchers must be a unique nonempty subset of current server-owned discovery', () => {
+  const discovery = { enabled: true, vouchers: [{ id: 'a', value: 10 }, { id: 'b', value: 20 }] };
+  assert.deepEqual(validateFormVoucherSelection(discovery, ['b', 'a']).map(v => v.value), [20, 10]);
+  for (const ids of [null, [], ['a', 'a'], ['other'], [1], ['']]) {
+    assert.throws(() => validateFormVoucherSelection(discovery, ids));
+  }
+  assert.throws(() => validateFormVoucherSelection({ ...discovery, enabled: false }, ['a']));
+});
 
 test('missing rollout fails closed, and database errors are not absence of credit', async () => {
   assert.equal(await formVoucherCheckoutReady({ rpc: async () => ({ error: { code: 'PGRST202' } }) }), false);
@@ -48,7 +58,7 @@ function dbFor(row, bridge = { election_id: 'e' }) {
 test('bound checkout verifies payer, method, term, origin and reservation before reuse', async () => {
   assert.equal((await loadFormVoucherAuthority(dbFor(election), token)).id, 'e');
   for (const patch of [
-    { status: 'released' }, { origin: 'worker' }, { organization_id: 'o' },
+    { status: 'released' }, { origin: 'worker' }, { organization_id: 'o' }, { switch_state: 'reconciling' },
     { payment_method: 'monthly_card' }, { quote: { ...election.quote, payerMemberId: 'another' } },
     { quote: { ...election.quote, simulation: { membershipYear: { label: 'other' } } } },
   ]) await assert.rejects(loadFormVoucherAuthority(dbFor({ ...election, ...patch }), token), /no longer matches/);

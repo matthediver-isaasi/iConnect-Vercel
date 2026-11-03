@@ -64,7 +64,7 @@ function VariableCreditSummary({ credit, instalmentCount, offer, currency, estim
   </div>;
 }
 
-export default function MembershipFeePage({ embeddedToken = null } = {}) {
+export default function MembershipFeePage({ embeddedToken = null, initialVoucherIds = [], onPaymentComplete = null } = {}) {
   const { token: routeToken } = useParams();
   const token = embeddedToken || routeToken;
   const [data, setData] = useState(null);
@@ -130,6 +130,9 @@ export default function MembershipFeePage({ embeddedToken = null } = {}) {
         if (current) {
           setPersonalCredit(result);
           setCreditDiscovery('success');
+          if (embeddedToken && initialVoucherIds.length) {
+            setCreditSelection(initialVoucherIds.filter(id => result.vouchers?.some(v => v.id === id)));
+          }
         }
       })
       .catch(err => {
@@ -228,6 +231,13 @@ export default function MembershipFeePage({ embeddedToken = null } = {}) {
   const [creatingPayment, setCreatingPayment] = useState(false);
   const [processingPayment, setProcessingPayment] = useState(false);
   const [paymentComplete, setPaymentComplete] = useState(false);
+  const completionNotified = useRef(null);
+  useEffect(() => {
+    if ((paymentComplete || data?.status === 'paid') && completionNotified.current !== token) {
+      completionNotified.current = token;
+      onPaymentComplete?.();
+    }
+  }, [paymentComplete, data?.status, token, onPaymentComplete]);
   const [paymentError, setPaymentError] = useState(null);
   const [accountingWarning, setAccountingWarning] = useState(null);
   const [completingRedirectPayment, setCompletingRedirectPayment] = useState(false);

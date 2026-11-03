@@ -13,7 +13,7 @@ import { getGocardlessCredentials } from '../_lib/gocardlessCredentials.js';
 import { loadFormMembershipRenewalContext } from '../_lib/formMembershipRenewalContext.js';
 import { resolveFormRenewalSelection, FormRenewalSelectionError } from '../_lib/formRenewalSelection.js';
 import { resolveFormMembershipOrganizationId } from '../_lib/formMembershipOwner.js';
-import { discoverFormMembershipVouchers, bindFormMembershipVoucherCheckout, findFormVoucherCheckout, formVoucherCheckoutReady, FORM_VOUCHER_MODES } from '../_lib/formMembershipVouchers.js';
+import { discoverFormMembershipVouchers, bindFormMembershipVoucherCheckout, findFormVoucherCheckout, formVoucherCheckoutReady, validateFormVoucherSelection, FORM_VOUCHER_MODES } from '../_lib/formMembershipVouchers.js';
 import { reserveMembershipSuccessor } from '../_lib/membershipSuccessorElection.js';
 import { changeRenewalPaymentMethod, RenewalSwitchError, beginRenewalProviderWork, finishRenewalProviderWork } from '../_lib/renewalPaymentSwitch.js';
 import { buildExtraLineItems, computeAddonTotals, loadAddonLines } from '../_lib/membershipAddons.js';
@@ -535,9 +535,10 @@ async function handlePost(req, res, resolvedTenantId) {
         tenantId, memberId: member.id, currency: sim.currency,
       });
       if (!discovery.vouchers.length) throw new Error('No eligible membership credit is currently available');
+      const selected = validateFormVoucherSelection(discovery, req.body.voucherIds);
       const election = await reserveFormSuccessor(context, tenantId, member, method, [], offer);
       const token = await bindFormMembershipVoucherCheckout(supabase, { tenantId, memberId: member.id, election });
-      return res.json({ token: token.token });
+      return res.json({ token: token.token, voucherIds: selected.map(v => v.id) });
     } catch (error) {
       return res.status(409).json({ error: error.message });
     }

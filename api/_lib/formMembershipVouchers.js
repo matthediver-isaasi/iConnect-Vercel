@@ -6,6 +6,19 @@ export const FORM_VOUCHER_MODES = {
   upfront: 'stripe_upfront', monthly_card: 'stripe_monthly', direct_debit: 'direct_debit',
 };
 
+export function validateFormVoucherSelection(discovery, ids) {
+  if (!discovery?.enabled || !Array.isArray(ids) || ids.length < 1 || ids.length > 100
+      || ids.some(id => typeof id !== 'string' || !id)
+      || new Set(ids).size !== ids.length) {
+    throw new Error('Select one or more available membership vouchers.');
+  }
+  const available = new Map(discovery.vouchers.map(v => [v.id, v]));
+  if (ids.some(id => !available.has(id))) {
+    throw new Error('A selected voucher is no longer available. Refresh your available credit.');
+  }
+  return ids.map(id => available.get(id));
+}
+
 export async function formVoucherCheckoutReady(db) {
   const result = await db.rpc('form_membership_voucher_checkout_ready');
   if (result.error && ['42883', 'PGRST202'].includes(result.error.code)) return false;
@@ -52,6 +65,7 @@ export async function loadFormVoucherAuthority(db, token) {
     .eq('id', marker.electionId).eq('tenant_id', token.tenant_id).eq('member_id', token.member_id).maybeSingle();
   const e = saved.data;
   if (saved.error || !e || e.organization_id || e.status !== 'reserved' || e.origin !== 'form'
+      || (e.switch_state && e.switch_state !== 'idle')
       || e.quote?.payerMemberId !== token.member_id
       || FORM_VOUCHER_MODES[e.payment_method] !== marker.paymentMode
       || e.quote?.simulation?.membershipYear?.label !== token.membership_year

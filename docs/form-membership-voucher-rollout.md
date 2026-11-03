@@ -27,6 +27,16 @@ No member, membership, voucher balance or provider payment was changed.
 - The shared fee page can render within the form and restrict the payment mode.
 - Cancellation refuses committed, pending or uncertain provider outcomes.
 - A released checkout retains its bridge audit row.
+- The selected payment card and voucher IDs are sent to the authenticated form
+  endpoint; selection is rechecked against current server-owned discovery before
+  a checkout is bound.
+- A bound checkout carries the selected voucher IDs into the shared fee UI.
+  Confirmed upfront/credit-only completion asks the parent form to refresh its
+  authoritative membership record. Payment-method switching is disabled while
+  this checkout is open.
+
+These UI connections do not enable the gate and are not proof of completed
+hosted-return or monthly FormBuilder submission integration.
 
 ## Required before enabling
 

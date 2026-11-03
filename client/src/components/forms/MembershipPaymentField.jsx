@@ -76,6 +76,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
   const actionInFlight = useRef(false);
   const [chosenMethod, setChosenMethod] = useState(null);
   const [selectedVouchers, setSelectedVouchers] = useState([]);
+  const [creditCheckoutActive, setCreditCheckoutActive] = useState(false);
   const [busyMethod, setBusyMethod] = useState(null);
   const [paymentComplete, setPaymentComplete] = useState(false);
   const [paymentError, setPaymentError] = useState(null);
@@ -726,7 +727,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
   const resuming = renewal?.state === 'renewal_pending' && renewal?.selectedMethod && data.membershipYear;
   const busy = disabled || loading || switchingPayment || processingPayment || creatingPayment || startingDd || startingCard || !!ddDropin;
   const selectedMethod = renewal?.state === 'renewal_pending' ? renewal.selectedMethod : chosenMethod;
-  const canPay = !selectedVouchers.length && !switchingPayment && renewal?.switchState !== 'reconciling'
+  const canPay = !creditCheckoutActive && !selectedVouchers.length && !switchingPayment && renewal?.switchState !== 'reconciling'
     && (!isRenewal || renewal.eligible === true || resuming);
   const renewalMessages = {
     post_grace_renewal: renewal?.eligible === true
@@ -784,6 +785,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
         {data.memberScoped && !paymentComplete && <FormMembershipCredit
           memberId={memberId} context={getOverrideBody()}
           selectedVouchers={selectedVouchers} onSelectionChange={setSelectedVouchers}
+          selectedMethod={selectedMethod} onCheckoutChange={setCreditCheckoutActive}
           disabled={disabled || busy || !!paymentMode} resumeToken={data.voucherCheckoutToken}
           onRefresh={fetchFees} />}
         <div className="space-y-2">
@@ -896,7 +898,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
             rounding and variable fees can change later payments. Any credit above the membership cost remains unused.
           </p>}
           <RenewalMethodChooser options={renewalOptions(data, selectedVouchers)} selectedMethod={selectedMethod}
-            busyMethod={busyMethod} disabled={busy}
+            busyMethod={busyMethod} disabled={busy || creditCheckoutActive}
             onSelect={method => selectedVouchers.length ? setChosenMethod(method) : chooseRenewalMethod(method)} />
           </>
         )}

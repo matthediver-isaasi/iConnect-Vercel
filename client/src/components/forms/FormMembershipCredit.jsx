@@ -3,13 +3,15 @@ import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import MembershipFeePage from '@/pages/MembershipFeePage';
 
-export default function FormMembershipCredit({ memberId, context, disabled, resumeToken, onRefresh, selectedVouchers = [], onSelectionChange }) {
+export default function FormMembershipCredit({ memberId, context, disabled, resumeToken, onRefresh, selectedVouchers = [], onSelectionChange, selectedMethod, onCheckoutChange }) {
   const key = JSON.stringify(context);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [token, setToken] = useState(resumeToken || null);
   const [retry, setRetry] = useState(0);
+  const [checkoutVoucherIds, setCheckoutVoucherIds] = useState([]);
+  useEffect(() => { onCheckoutChange?.(Boolean(token)); }, [token, onCheckoutChange]);
   useEffect(() => { setToken(resumeToken || null); }, [resumeToken]);
   useEffect(() => {
     const controller = new AbortController();
@@ -33,11 +35,13 @@ export default function FormMembershipCredit({ memberId, context, disabled, resu
     try {
       const response = await fetch('/api/forms/membership-payment', {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...JSON.parse(key), memberId, action }),
+        body: JSON.stringify({ ...JSON.parse(key), memberId, action, paymentMethod: selectedMethod,
+          voucherIds: selectedVouchers.map(v => v.id) }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Could not update credit checkout');
       setToken(data.token || null);
+      setCheckoutVoucherIds(data.voucherIds || []);
       if (data.released) onRefresh();
     } catch (err) { setError(err.message); }
     finally { setBusy(false); }
@@ -52,7 +56,7 @@ export default function FormMembershipCredit({ memberId, context, disabled, resu
       {!result && <Button type="button" variant="outline" onClick={() => setRetry(n => n + 1)}>Retry</Button>}
     </div>}
     {token ? <>
-      <MembershipFeePage embeddedToken={token} />
+      <MembershipFeePage key={token} embeddedToken={token} initialVoucherIds={checkoutVoucherIds} onPaymentComplete={onRefresh} />
       <p className="text-sm">After paying or setting up monthly payments, check your renewal status to continue the form.</p>
       <Button type="button" variant="outline" onClick={onRefresh}>Check renewal status</Button>
       <Button type="button" variant="outline" disabled={busy || disabled} onClick={() => act('close_voucher_checkout')}>
@@ -75,7 +79,13 @@ export default function FormMembershipCredit({ memberId, context, disabled, resu
             </span>
           </label>;
         })}</div>
-        <p role="status" className="text-sm text-muted-foreground">Credit payment on this form is not yet enabled. You can preview the amounts; to pay without credit, deselect the vouchers. No credit has been reserved.</p>
+        {result.checkoutReady ? <>
+          <Button type="button" disabled={disabled || busy || !selectedMethod || !selectedVouchers.length}
+            onClick={() => act('start_voucher_checkout')}>
+            {busy ? 'Preparing your credit checkout…' : 'Continue with selected credit and payment method'}
+          </Button>
+          {!selectedMethod && selectedVouchers.length > 0 && <p className="text-sm">Choose a payment card below to continue.</p>}
+        </> : <p role="status" className="text-sm text-muted-foreground">Credit payment on this form is not yet enabled. You can preview the amounts; to pay without credit, deselect the vouchers. No credit has been reserved.</p>}
       </>}
     </>}
   </section>;
