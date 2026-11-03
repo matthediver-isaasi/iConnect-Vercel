@@ -4,7 +4,47 @@ import {
   formVoucherCheckoutReady, loadFormVoucherAuthority, formVoucherBreakdown,
   formVoucherHistoryFields, discoverFormMembershipVouchers,
   validateFormVoucherSelection,
+  formVoucherSetupStatus,
 } from './formMembershipVouchers.js';
+
+function setupDb({ provider = 'stripe', status = 'active', fundingState = 'plan_committed',
+  subscription = 'sub_verified', mandate = 'MD_verified', error = null } = {}) {
+  const queries = [];
+  const rows = {
+    membership_fee_token: { id: 'fee' },
+    membership_voucher_settlement: { state: fundingState, billing_agreement_id: 'agreement' },
+    membership_billing_agreements: { id: 'agreement', provider, status, gocardless_mandate_id: mandate },
+    membership_payment_plans: { id: 'plan', status, stripe_subscription_id: subscription },
+  };
+  return { queries, from(table) {
+    const filters = [];
+    queries.push({ table, filters });
+    return { select() { return this; }, eq(k, v) { filters.push([k, v]); return this; },
+      neq() { return this; }, is(k, v) { filters.push([k, v]); return this; },
+      async maybeSingle() { return { data: rows[table], error }; } };
+  } };
+}
+const setupScope = { tenantId: 'tenant', memberId: 'member', electionId: 'election', token: 'token' };
+test('only a scoped, funded, provider-backed arrangement resumes a monthly form', async () => {
+  const db = setupDb();
+  assert.deepEqual(await formVoucherSetupStatus(db, setupScope),
+    { status: 'monthly_card_started', agreementId: 'agreement' });
+  const filters = db.queries.find(q => q.table === 'membership_billing_agreements').filters;
+  for (const pair of [['tenant_id', 'tenant'], ['member_id', 'member'],
+    ['membership_successor_election_id', 'election'], ['organization_id', null]]) {
+    assert.ok(filters.some(f => JSON.stringify(f) === JSON.stringify(pair)));
+  }
+  assert.deepEqual(await formVoucherSetupStatus(setupDb({ provider: 'gocardless' }), setupScope),
+    { status: 'direct_debit_started', agreementId: 'agreement' });
+  for (const fixture of [{ fundingState: 'reserved' }, { status: 'mandate_pending' },
+    { status: 'cancelled' }, { subscription: null }, { provider: 'gocardless', mandate: null }]) {
+    assert.equal(await formVoucherSetupStatus(setupDb(fixture), setupScope), null);
+  }
+  await assert.rejects(formVoucherSetupStatus(setupDb({ error: { message: 'Unavailable' } }), setupScope));
+  const untouched = setupDb();
+  assert.equal(await formVoucherSetupStatus(untouched, { ...setupScope, token: null }), null);
+  assert.equal(untouched.queries.length, 0);
+});
 
 test('selected vouchers must be a unique nonempty subset of current server-owned discovery', () => {
   const discovery = { enabled: true, vouchers: [{ id: 'a', value: 10 }, { id: 'b', value: 20 }] };

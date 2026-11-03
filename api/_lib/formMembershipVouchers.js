@@ -89,6 +89,34 @@ export async function findFormVoucherCheckout(db, { tenantId, memberId, election
   return token.data.token;
 }
 
+export async function formVoucherSetupStatus(db, { tenantId, memberId, electionId, token }) {
+  if (!token || !electionId) return null;
+  const fee = await db.from('membership_fee_token').select('id')
+    .eq('token', token).eq('tenant_id', tenantId).eq('member_id', memberId).maybeSingle();
+  if (fee.error || !fee.data) throw new Error('Credit checkout status could not be verified');
+  const funding = await db.from('membership_voucher_settlement').select('billing_agreement_id,state')
+    .eq('fee_token_id', fee.data.id).eq('tenant_id', tenantId).neq('state', 'released').maybeSingle();
+  if (funding.error) throw new Error('Credit commitment status could not be verified');
+  if (!funding.data?.billing_agreement_id || !['plan_committed', 'committed'].includes(funding.data.state)) return null;
+  const agreement = await db.from('membership_billing_agreements')
+    .select('id,provider,status,gocardless_mandate_id')
+    .eq('id', funding.data.billing_agreement_id).eq('tenant_id', tenantId).eq('member_id', memberId)
+    .eq('membership_successor_election_id', electionId).is('organization_id', null).maybeSingle();
+  if (agreement.error) throw new Error('Credit payment arrangement could not be verified');
+  const a = agreement.data;
+  if (!a || !['active', 'first_payment_pending'].includes(a.status)) return null;
+  if (a.provider === 'gocardless' && a.gocardless_mandate_id) {
+    return { status: 'direct_debit_started', agreementId: a.id };
+  }
+  if (a.provider !== 'stripe') return null;
+  const plan = await db.from('membership_payment_plans').select('id,stripe_subscription_id,status')
+    .eq('billing_agreement_id', a.id).eq('tenant_id', tenantId).eq('member_id', memberId)
+    .is('organization_id', null).maybeSingle();
+  if (plan.error) throw new Error('Monthly credit plan could not be verified');
+  return plan.data?.stripe_subscription_id && ['active', 'first_payment_pending'].includes(plan.data.status)
+    ? { status: 'monthly_card_started', agreementId: a.id } : null;
+}
+
 export function formVoucherHistoryFields(token) {
   const marker = token.cost_breakdown?.formVoucher;
   if (!marker) return {};

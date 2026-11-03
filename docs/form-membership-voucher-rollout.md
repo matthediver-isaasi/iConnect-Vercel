@@ -38,6 +38,18 @@ No member, membership, voucher balance or provider payment was changed.
 These UI connections do not enable the gate and are not proof of completed
 hosted-return or monthly FormBuilder submission integration.
 
+The direct FormView journey now remembers a token-scoped, same-browser return
+destination. Stripe authentication returns to the shared fee confirmer first,
+avoiding the form's unrelated full-price confirmation handler. The fee page
+provides a return link, including after payment or monthly setup. The form reads
+funded agreement/provider state and briefly polls for delayed webhooks. Monthly
+setup is not recorded as paid. Return query parameters never establish either
+payment or setup success.
+
+This is not yet an end-to-end verified saved-submission handshake. Embedded
+form instances require their existing parent/instance return contract rather
+than navigating the containing page to the bare iframe URL.
+
 ## Required before enabling
 
 1. Complete and test the provider-return and FormBuilder submission handshake:
@@ -64,6 +76,7 @@ while readiness is false. Deployment alone does not enable it.
 - `FormMembershipCredit.test.jsx`
 - `MembershipPaymentField.test.jsx`
 - `membership-payment-auth.test.mjs`
+- `formVoucherReturn.test.mjs`
 - Existing membership voucher quote, settlement, monthly, variable and recovery
   unit suites
 

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { membershipCreditEstimate } from "../lib/membershipCreditEstimate";
+import { readFormVoucherReturn, formVoucherConfirmationPath } from "../lib/formVoucherReturn";
 import { VoucherExpiry } from "@/components/vouchers/VoucherPresentation";
 import GoCardlessDropinFlow from "@/components/gocardless/GoCardlessDropinFlow";
 import { directDebitHasFixedTermTotal, directDebitCollectionPolicy } from "@/lib/directDebitConsentSummary";
@@ -67,6 +68,7 @@ function VariableCreditSummary({ credit, instalmentCount, offer, currency, estim
 export default function MembershipFeePage({ embeddedToken = null, initialVoucherIds = [], onPaymentComplete = null } = {}) {
   const { token: routeToken } = useParams();
   const token = embeddedToken || routeToken;
+  const formReturnPath = !embeddedToken ? readFormVoucherReturn(window.sessionStorage, token) : null;
   const [data, setData] = useState(null);
   const [dataToken, setDataToken] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -570,7 +572,11 @@ export default function MembershipFeePage({ embeddedToken = null, initialVoucher
       const { error: confirmError, paymentIntent } = await stripeRef.current.confirmPayment({
         elements: elementsRef.current,
         confirmParams: {
-          return_url: window.location.href,
+          // Voucher PaymentIntents belong to the shared fee confirmer, not the
+          // form's ordinary full-price PaymentIntent confirmation handler.
+          return_url: embeddedToken
+            ? new URL(formVoucherConfirmationPath(token), window.location.origin).href
+            : window.location.href,
         },
         redirect: 'if_required',
       });
@@ -652,6 +658,7 @@ export default function MembershipFeePage({ embeddedToken = null, initialVoucher
             )}
             <CheckCircle2 className="w-16 h-16 mx-auto mb-4" style={{ color: primaryColor }} />
             <h2 className="text-xl font-semibold mb-2">Payment Complete</h2>
+            {formReturnPath && <a href={formReturnPath} className="block my-4 underline font-medium">Return to your renewal form</a>}
             <p className="text-gray-500 mb-4">
               Your membership fee has been received.
             </p>
@@ -692,6 +699,9 @@ export default function MembershipFeePage({ embeddedToken = null, initialVoucher
 
   return (
     <div className={embeddedToken ? "space-y-4" : "min-h-screen bg-gray-50 p-4"}>
+      {formReturnPath && <a href={formReturnPath} className="block mb-4 text-center underline font-medium">
+        Return to your renewal form to check your membership
+      </a>}
       <div className="max-w-lg mx-auto space-y-4">
         {!embeddedToken && data?.tenant && (
           <div className="text-center py-4">

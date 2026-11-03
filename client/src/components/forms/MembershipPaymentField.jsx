@@ -236,6 +236,15 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
         }
         quoteKeyRef.current = quoteKey;
         setData(result);
+        if (result.voucherSetup?.agreementId
+            && ['direct_debit_started', 'monthly_card_started'].includes(result.voucherSetup.status)) {
+          if (result.voucherSetup.status === 'monthly_card_started') setHasCardPlan(true);
+          else setDdStarted(true);
+          if (onChange && (value?.agreementId !== result.voucherSetup.agreementId
+              || value?.status !== result.voucherSetup.status)) {
+            onChange({ ...result.voucherSetup, membershipYear: result.membershipYear });
+          }
+        }
         // Access/activation and settlement are independent: an active DD
         // membership can still have outstanding instalments or arrears.
         if (result.existingRecord?.paymentStatus === 'paid'

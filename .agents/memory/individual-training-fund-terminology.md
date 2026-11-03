@@ -37,3 +37,14 @@ Renewal forms should have one payment-method selector: the large payment cards.
 **Why:** The owner found a separate voucher payment dropdown confusing and requested selectable voucher cards that can be combined, with live payment-card amounts.
 
 **How to apply:** Keep voucher selection independent of the method cards; reflect combined credit in those cards. Label previews as estimates until server-confirmed, and never allow an undiscounted charge while showing discounted amounts.
+
+An embedded credit checkout must return card authentication to its own payment
+confirmer before navigating back to the form.
+
+**Why:** The surrounding renewal form also consumes Stripe return parameters,
+but its ordinary full-price confirmation handler does not own a voucher
+PaymentIntent. Returning directly to the form can run both handlers.
+
+**How to apply:** Complete provider confirmation on the bound fee-token route,
+then refresh authenticated form status. Return URLs are navigation, never proof
+of payment or completed monthly setup.

@@ -13,7 +13,7 @@ import { getGocardlessCredentials } from '../_lib/gocardlessCredentials.js';
 import { loadFormMembershipRenewalContext } from '../_lib/formMembershipRenewalContext.js';
 import { resolveFormRenewalSelection, FormRenewalSelectionError } from '../_lib/formRenewalSelection.js';
 import { resolveFormMembershipOrganizationId } from '../_lib/formMembershipOwner.js';
-import { discoverFormMembershipVouchers, bindFormMembershipVoucherCheckout, findFormVoucherCheckout, formVoucherCheckoutReady, validateFormVoucherSelection, FORM_VOUCHER_MODES } from '../_lib/formMembershipVouchers.js';
+import { discoverFormMembershipVouchers, bindFormMembershipVoucherCheckout, findFormVoucherCheckout, formVoucherSetupStatus, formVoucherCheckoutReady, validateFormVoucherSelection, FORM_VOUCHER_MODES } from '../_lib/formMembershipVouchers.js';
 import { reserveMembershipSuccessor } from '../_lib/membershipSuccessorElection.js';
 import { changeRenewalPaymentMethod, RenewalSwitchError, beginRenewalProviderWork, finishRenewalProviderWork } from '../_lib/renewalPaymentSwitch.js';
 import { buildExtraLineItems, computeAddonTotals, loadAddonLines } from '../_lib/membershipAddons.js';
@@ -349,11 +349,15 @@ async function handleGet(req, res, resolvedTenantId) {
     entityName = org?.name || 'Organisation';
   }
 
+  const voucherCheckoutToken = await findFormVoucherCheckout(supabase, {
+    tenantId, memberId: member.id, electionId: context.election?.id,
+  });
+  const voucherSetup = await formVoucherSetupStatus(supabase, {
+    tenantId, memberId: member.id, electionId: context.election?.id, token: voucherCheckoutToken,
+  });
   return res.json({
     renewal: context.renewal,
-    voucherCheckoutToken: await findFormVoucherCheckout(supabase, {
-      tenantId, memberId: member.id, electionId: context.election?.id,
-    }),
+    voucherCheckoutToken, voucherSetup,
     zeroDue,
     entityName,
     memberScoped: isMemberScoped,

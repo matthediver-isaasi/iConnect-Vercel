@@ -1,9 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import MembershipFeePage from '@/pages/MembershipFeePage';
+import { saveFormVoucherReturn } from '@/lib/formVoucherReturn';
 
 export default function FormMembershipCredit({ memberId, context, disabled, resumeToken, onRefresh, selectedVouchers = [], onSelectionChange, selectedMethod, onCheckoutChange }) {
+  const refreshRef = useRef(onRefresh);
+  refreshRef.current = onRefresh;
   const key = JSON.stringify(context);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
@@ -40,12 +43,35 @@ export default function FormMembershipCredit({ memberId, context, disabled, resu
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Could not update credit checkout');
+      // A bare embedded-form URL must not become a top-level return destination.
+      if (data.token && window.top === window) saveFormVoucherReturn(window.sessionStorage, data.token,
+        window.location.pathname + window.location.search + window.location.hash);
       setToken(data.token || null);
       setCheckoutVoucherIds(data.voucherIds || []);
       if (data.released) onRefresh();
     } catch (err) { setError(err.message); }
     finally { setBusy(false); }
   }
+  useEffect(() => {
+    if (!token) return;
+    // Returning to the tab triggers an authenticated status read, never an
+    // inference from the provider's success query parameter.
+    const refresh = () => { if (document.visibilityState !== 'hidden') refreshRef.current?.(); };
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    // Provider webhooks can arrive after the browser returns. Poll briefly,
+    // without letting rerenders restart the clock or infer successful setup.
+    let attempts = 0;
+    const timer = window.setInterval(() => {
+      refresh();
+      if (++attempts >= 12) window.clearInterval(timer);
+    }, 5000);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, [token]);
   return <section className="rounded border bg-white p-4 space-y-3" aria-label="Available membership credit" aria-busy={!result && !error}>
     <h3 className="font-medium">Your available credit</h3>
     {!result && !error && <div role="status">
