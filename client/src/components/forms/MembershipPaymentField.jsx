@@ -8,6 +8,7 @@ import GoCardlessDropinFlow from "@/components/gocardless/GoCardlessDropinFlow";
 import { directDebitFirstCollectionText, directDebitPolicyText, directDebitHasFixedTermTotal } from "@/lib/directDebitConsentSummary";
 import MembershipCommitmentNotice, { membershipTermLabel } from "@/components/membership/MembershipCommitmentNotice";
 import RenewalMethodChooser from "./RenewalMethodChooser";
+import FormMembershipCredit from "./FormMembershipCredit";
 
 function renewalOptions(data) {
   if (!data?.membershipYear || data.approvalPending || data.zeroDue) return [];
@@ -773,6 +774,10 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
             )}
           </div>
         )}
+        {data.memberScoped && !paymentComplete && <FormMembershipCredit
+          memberId={memberId} context={getOverrideBody()} methods={renewalOptions(data)}
+          disabled={disabled || busy || !!paymentMode} resumeToken={data.voucherCheckoutToken}
+          onRefresh={fetchFees} />}
         <div className="space-y-2">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div>

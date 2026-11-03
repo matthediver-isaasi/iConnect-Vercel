@@ -25,3 +25,9 @@ Unused reserved credit is not a refund of consumed credit and must not acquire a
 **Why:** Variable prices can fall below an instalment's reserved share. Restoring that unused portion must not make it refundable a second time or extend the owner's original entitlement.
 
 **How to apply:** Keep the original reservation evidence, distinguish consumption from unused release, and include prior reservation releases when calculating remaining refundable credit.
+
+Form renewals and emailed payment links must share payment ownership, not just voucher balances.
+
+**Why:** Separate checkout routes can otherwise create a card/DD purchase and a credit purchase for the same renewal. Voucher discovery is not permission to create a second reservation.
+
+**How to apply:** Bind funding to the existing server-owned renewal reservation and use the common owner/term payment guard. Keep a new route disabled until its submission, provider-return and date-finalization paths are verified together.

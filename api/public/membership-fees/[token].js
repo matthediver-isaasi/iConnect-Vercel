@@ -6,6 +6,7 @@ import { feeTokenCommitment, simulationFromFeeCommitment, reserveRollingFeePayme
 import { simulationFromMemberStart, assertMemberStartAction, assertMemberStartHistory, SELF_SERVICE_START_MODES } from '../../_lib/memberStartPayment.js';
 import { discoverMembershipVouchers, persistMembershipVoucherQuote, resolveMembershipVoucherAuthority } from '../../_lib/membershipVoucherQuote.js';
 import { loadMembershipVoucherSettlement, reserveMembershipVoucherSettlement, startMembershipVoucherPayment, completeMembershipVoucherSettlement, releaseMembershipVoucherSettlement, claimMembershipFeePayment, createGuardedPortalMembershipIntent } from '../../_lib/membershipVoucherSettlement.js';
+import { loadFormVoucherAuthority } from '../../_lib/formMembershipVouchers.js';
 
 // Reminder quotes are consent-time snapshots, not a request to reprice at
 // checkout. Rolling tokens already carry the richer commitment snapshot.
@@ -31,7 +32,7 @@ export function simulationFromRenewalQuote(token) {
 }
 
 function savedFeeSimulation(token) {
-  return token.cost_breakdown?.membershipVoucherRequote?.simulation || simulationFromFeeCommitment(token) || simulationFromRenewalQuote(token);
+  return token.cost_breakdown?.formVoucher?.simulation || token.cost_breakdown?.membershipVoucherRequote?.simulation || simulationFromFeeCommitment(token) || simulationFromRenewalQuote(token);
 }
 
 export function publicFeeBreakdown(breakdown = {}) {
@@ -138,6 +139,7 @@ return async function handler(req, res) {
     // on member-scoped tier structures) carry member_id instead of
     // organization_id. Their approval checks, history table, notes and
     // Direct Debit option all branch on this flag.
+    const formVoucherElection = await loadFormVoucherAuthority(supabase, feeToken);
     const isMemberToken = !!feeToken.member_id;
     const { resolveFeeTokenInvoiceReference } = await import('../../_lib/feeTokenInvoiceReference.js');
     if (isMemberToken && feeToken.history_record_id) {
@@ -234,6 +236,7 @@ return async function handler(req, res) {
       }
     };
     const annualRenewalGate = async () => {
+      if (formVoucherElection) return { eligible: true, lifecycle: 'reserved_form_renewal' };
       if (memberStart) {
         const { data: purchase, error } = await supabase.from('member_membership_history').select('*')
           .eq('tenant_id', feeToken.tenant_id).eq('member_id', feeToken.member_id).eq('id', memberStart.recordId).maybeSingle();
@@ -532,6 +535,7 @@ return async function handler(req, res) {
       }
 
       return res.json({
+        formVoucher: formVoucherElection ? { paymentMode: feeToken.cost_breakdown.formVoucher.paymentMode } : null,
         voucherFunding: voucherSettlement?.funding || null,
         voucherSettlementState: voucherSettlement?.state || null,
         voucherRequote: feeToken.cost_breakdown?.membershipVoucherRequote ? {
@@ -637,6 +641,9 @@ return async function handler(req, res) {
         try {
           const authority = await resolveMembershipVoucherAuthority(supabase, feeToken, req, deps.voucherAuthority);
           const paymentMode = req.body.paymentMode || replacementMode || memberStart?.paymentMode || 'stripe_upfront';
+          if (formVoucherElection && paymentMode !== feeToken.cost_breakdown.formVoucher.paymentMode) {
+            throw new Error('Use the payment method selected on your renewal form.');
+          }
           let monthlySnapshot = null;
           if (paymentMode !== 'stripe_upfront') {
             if (!isMemberToken || isReminderToken || !['stripe_monthly', 'direct_debit'].includes(paymentMode)
@@ -674,6 +681,14 @@ return async function handler(req, res) {
         } catch (error) {
           return res.status(409).json({ error: error.message, canRegenerate: !memberStart && !voucherSettlement });
         }
+      }
+      if (formVoucherElection && !['quote_vouchers', 'release_vouchers', 'confirm_payment', 'retry_voucher_accounting',
+        'create_payment', 'complete_with_vouchers', 'start_monthly_card', 'start_direct_debit'].includes(action)) {
+        return res.status(409).json({ error: 'This checkout is reserved for membership credit.' });
+      }
+      if (formVoucherElection && ['create_payment', 'complete_with_vouchers', 'start_monthly_card', 'start_direct_debit'].includes(action)
+          && !voucherSettlement && !req.body.voucherQuoteId) {
+        return res.status(409).json({ error: 'Select your credit and apply it before continuing to payment.' });
       }
       if (voucherSettlement || req.body.voucherQuoteId || action === 'complete_with_vouchers') {
         const creditDeps = {
@@ -1890,6 +1905,7 @@ return async function handler(req, res) {
         }
         const agreementInsert = {
           ...(snapshot.commitment || {}),
+          ...(formVoucherElection ? { membership_successor_election_id: formVoucherElection.id } : {}),
           tenant_id: feeToken.tenant_id,
           member_id: feeToken.member_id,
           agreement_type: 'member',
@@ -1921,7 +1937,7 @@ return async function handler(req, res) {
         }
         snapshot = agreement.metadata?.dd;
         idempotencyKey = agreement.idempotency_key;
-        if (snapshot.commitment?.term_key) {
+        if (snapshot.commitment?.term_key && !(formVoucherElection && fundedMonthlySetup)) {
           try {
             existingHistory = await reserveRollingMonthlyHistory(supabase, agreement, snapshot, simResult);
           } catch (error) {
@@ -2167,6 +2183,7 @@ return async function handler(req, res) {
           if (!rollingAgreement) {
             const { data, error } = await supabase.from('membership_billing_agreements').insert({
               ...snapshot.commitment,
+              ...(formVoucherElection ? { membership_successor_election_id: formVoucherElection.id } : {}),
               tenant_id: feeToken.tenant_id,
               member_id: feeToken.member_id,
               agreement_type: 'member',
@@ -2180,7 +2197,7 @@ return async function handler(req, res) {
             rollingAgreement = data;
           }
           try {
-            existingHistory = await reserveRollingMonthlyHistory(supabase, rollingAgreement, snapshot, simResult);
+            if (!(formVoucherElection && fundedMonthlySetup)) existingHistory = await reserveRollingMonthlyHistory(supabase, rollingAgreement, snapshot, simResult);
           } catch (error) {
             return res.status(409).json({ error: error.message });
           }

@@ -64,8 +64,9 @@ function VariableCreditSummary({ credit, instalmentCount, offer, currency, estim
   </div>;
 }
 
-export default function MembershipFeePage() {
-  const { token } = useParams();
+export default function MembershipFeePage({ embeddedToken = null } = {}) {
+  const { token: routeToken } = useParams();
+  const token = embeddedToken || routeToken;
   const [data, setData] = useState(null);
   const [dataToken, setDataToken] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -107,7 +108,7 @@ export default function MembershipFeePage() {
   const creditMonthly = creditQuote?.monthlySnapshot ? {
     paymentMode: creditQuote.paymentMode, instalmentCount: creditQuote.monthlySnapshot.instalment_count,
   } : data?.voucherMonthly;
-  const selectedCreditMode = data?.memberStart?.paymentMode || data?.voucherRequote?.paymentMode || creditPaymentMode;
+  const selectedCreditMode = data?.formVoucher?.paymentMode || data?.memberStart?.paymentMode || data?.voucherRequote?.paymentMode || creditPaymentMode;
   const creditPerMonth = creditEstimate && !creditEstimate.variable ? creditEstimate.monthlyMinor / 100 : null;
   useEffect(() => {
     let current = true;
@@ -211,7 +212,8 @@ export default function MembershipFeePage() {
   const memberChosenMethodRef = useRef(null);
   const isMemberStart = data?.memberStart != null;
   const awaitingMethod = data?.memberStart?.paymentMode === 'member_choice';
-  const allowsMode = mode => data?.voucherRequote?.paymentMode
+  const allowsMode = mode => data?.formVoucher?.paymentMode ? data.formVoucher.paymentMode === mode
+    : data?.voucherRequote?.paymentMode
     ? data.voucherRequote.paymentMode === mode : !isMemberStart || data.memberStart.paymentMode === mode;
   const monthlyOfferReady = offer => !isMemberStart || completeMonthlyOffer(offer, data.memberStart.paymentMode);
    const dynamicMemberStart = variableCredit || (isMemberStart && data.memberStart.paymentMode === 'direct_debit' && directDebitCollectionPolicy(data.ddOffer)?.pricing_policy === 'dynamic');
@@ -679,9 +681,9 @@ export default function MembershipFeePage() {
   const renewalBlocked = data?.renewalAvailable === false;
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4">
+    <div className={embeddedToken ? "space-y-4" : "min-h-screen bg-gray-50 p-4"}>
       <div className="max-w-lg mx-auto space-y-4">
-        {data?.tenant && (
+        {!embeddedToken && data?.tenant && (
           <div className="text-center py-4">
             {data.tenant.logoUrl && (
               <img src={data.tenant.logoUrl} alt={data.tenant.name} className="h-10 mx-auto mb-2" />
@@ -773,7 +775,7 @@ export default function MembershipFeePage() {
                 )}
                 {personalCredit?.enabled && personalCredit.vouchers.length > 0 && <>
                 <p className="text-sm text-amber-800">You have credit available towards your membership. Select the credit you would like to use and apply it to your payment.</p>
-                {!data.memberStart && data.isMember && <label className="block text-sm">
+                {!data.formVoucher && !data.memberStart && data.isMember && <label className="block text-sm">
                   How would you like to pay the remaining amount?
                   <select className="block mt-1 rounded border p-2" value={selectedCreditMode}
                     disabled={!!data.voucherFunding || creatingPayment || !!data.voucherRequote}

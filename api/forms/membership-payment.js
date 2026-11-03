@@ -13,6 +13,7 @@ import { getGocardlessCredentials } from '../_lib/gocardlessCredentials.js';
 import { loadFormMembershipRenewalContext } from '../_lib/formMembershipRenewalContext.js';
 import { resolveFormRenewalSelection, FormRenewalSelectionError } from '../_lib/formRenewalSelection.js';
 import { resolveFormMembershipOrganizationId } from '../_lib/formMembershipOwner.js';
+import { discoverFormMembershipVouchers, bindFormMembershipVoucherCheckout, findFormVoucherCheckout, formVoucherCheckoutReady, FORM_VOUCHER_MODES } from '../_lib/formMembershipVouchers.js';
 import { reserveMembershipSuccessor } from '../_lib/membershipSuccessorElection.js';
 import { changeRenewalPaymentMethod, RenewalSwitchError, beginRenewalProviderWork, finishRenewalProviderWork } from '../_lib/renewalPaymentSwitch.js';
 import { buildExtraLineItems, computeAddonTotals, loadAddonLines } from '../_lib/membershipAddons.js';
@@ -287,6 +288,9 @@ async function handleGet(req, res, resolvedTenantId) {
 
   const context = await renewalContext(tenantId, member, organizationId, req, fieldOverrides);
   if (context.renewal.state !== 'joining' && !context.simulation) {
+    if (req.query.action === 'vouchers') return res.status(409).json({
+      error: 'Membership details must be confirmed before available renewal credit can be checked.',
+    });
     return res.json({ renewal: context.renewal, memberScoped: isMemberScoped,
       stripeEnabled: false, directDebit: null, cardMonthly: null });
   }
@@ -297,6 +301,15 @@ async function handleGet(req, res, resolvedTenantId) {
 
   if (!simResult.success) {
     return res.status(400).json({ error: simResult.error || 'Could not calculate membership fees' });
+  }
+  if (req.query.action === 'vouchers') {
+    try {
+      return res.json(await discoverFormMembershipVouchers(supabase, {
+        tenantId, memberId: member.id, organizationId, currency: simResult.currency,
+      }));
+    } catch (error) {
+      return res.status(503).json({ error: error.message || 'Could not check available membership credit' });
+    }
   }
   const addonLines = isMemberScoped ? [] : await loadAddonLines(tenantId, organizationId, simResult.membershipYear?.label);
   const addonTotals = computeAddonTotals(addonLines);
@@ -338,6 +351,9 @@ async function handleGet(req, res, resolvedTenantId) {
 
   return res.json({
     renewal: context.renewal,
+    voucherCheckoutToken: await findFormVoucherCheckout(supabase, {
+      tenantId, memberId: member.id, electionId: context.election?.id,
+    }),
     zeroDue,
     entityName,
     memberScoped: isMemberScoped,
@@ -432,6 +448,11 @@ async function handlePost(req, res, resolvedTenantId) {
 
   if (action === 'change_renewal_payment_method') {
     try {
+      const activeCredit = await supabase.from('form_membership_voucher_checkout').select('fee_token_id,membership_fee_token!inner(status)')
+        .eq('tenant_id', tenantId).eq('member_id', member.id).is('released_at', null)
+        .in('membership_fee_token.status', ['pending', 'expired']).limit(1);
+      if (activeCredit.error && !['42P01', 'PGRST205'].includes(activeCredit.error.code)) throw new Error('Could not verify existing credit checkout');
+      if (activeCredit.data?.length) throw new Error('Return to the credit checkout and cancel it before changing payment method.');
       const stripeForEnvironment = async environment => {
         const { getStripeIntegrationCredentials } = await import('../_lib/stripeCredentials.js');
         const credentials = await getStripeIntegrationCredentials(tenantId);
@@ -482,6 +503,45 @@ async function handlePost(req, res, resolvedTenantId) {
     return res.status(400).json({ error: 'Invalid fieldOverrides parameter' });
   }
   if (req.body.configId) explicitConfigId = req.body.configId;
+
+  if (action === 'close_voucher_checkout') {
+    const context = await renewalContext(tenantId, member, organizationId, req, fieldOverrides);
+    if (!context.election?.id) return res.status(409).json({ error: 'No reserved renewal was found' });
+    const { error } = await supabase.rpc('release_form_membership_voucher_checkout', {
+      p_tenant_id: tenantId, p_member_id: member.id, p_election_id: context.election.id,
+    });
+    return error ? res.status(409).json({ error: error.message }) : res.json({ released: true });
+  }
+
+  if (action === 'start_voucher_checkout') {
+    try {
+      if (!await formVoucherCheckoutReady(supabase)) throw new Error('Credit checkout on this form is not yet enabled. No credit has been reserved.');
+      if (!isMemberScoped) throw new Error('Personal credit requires a member-owned membership');
+      const method = req.body.paymentMethod;
+      if (!FORM_VOUCHER_MODES[method]) throw new Error('Choose a payment method for the remaining balance');
+      const context = await renewalContext(tenantId, member, organizationId, req, fieldOverrides);
+      if (!context.simulation || context.renewal.state === 'joining'
+          || context.renewal.state === 'post_grace_renewal') {
+        throw new Error('This renewal does not yet support the form credit checkout. No credit has been reserved.');
+      }
+      const sim = context.simulation;
+      const offer = method === 'direct_debit' ? await resolveDirectDebitOption(true, tenantId, sim)
+        : method === 'monthly_card' ? await resolveCardMonthlyOption(true, tenantId, sim)
+          : sim.config?.online_card_payment && await getStripePublishableKey(tenantId);
+      if (!offer) throw new Error('This payment method is not offered for this renewal');
+      const approval = await checkApproval(tenantId, member.id, null, sim.membershipYear?.label);
+      if (approval.blocked) throw new Error(approval.message);
+      const discovery = await discoverFormMembershipVouchers(supabase, {
+        tenantId, memberId: member.id, currency: sim.currency,
+      });
+      if (!discovery.vouchers.length) throw new Error('No eligible membership credit is currently available');
+      const election = await reserveFormSuccessor(context, tenantId, member, method, [], offer);
+      const token = await bindFormMembershipVoucherCheckout(supabase, { tenantId, memberId: member.id, election });
+      return res.json({ token: token.token });
+    } catch (error) {
+      return res.status(409).json({ error: error.message });
+    }
+  }
 
   if (['start_direct_debit', 'start_monthly_card'].includes(action)) {
     // Literal paths let the serverless bundler trace all three handlers.

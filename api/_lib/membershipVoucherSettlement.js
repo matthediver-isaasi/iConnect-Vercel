@@ -2,6 +2,7 @@ import { membershipVoucherBasis } from './membershipVoucherQuote.js';
 import { simulationFromMemberStart } from './memberStartPayment.js';
 import { simulationFromFeeCommitment, feeTokenCommitment } from './rollingFeeCommitment.js';
 import { createHash } from 'node:crypto';
+import { formVoucherHistoryFields } from './formMembershipVouchers.js';
 
 export async function createGuardedPortalMembershipIntent(db, stripe, owner, payload) {
   const sourceKey = owner.sourceKey || `portal:${owner.memberId ? 'member' : 'organization'}:${owner.memberId || owner.organizationId}:${owner.membershipYear}`;
@@ -96,7 +97,7 @@ async function historySnapshot(db, token, deps) {
   if (!memberPurchase && !savedRenewal && !simulationFromFeeCommitment(token) && !regenerated) {
     throw new Error('Original organisation membership terms are unavailable; request a new saved fee quote.');
   }
-  const savedSimulation = regenerated || simulationFromMemberStart(token) || simulationFromFeeCommitment(token) || savedRenewal;
+  const savedSimulation = token.cost_breakdown?.formVoucher?.simulation || regenerated || simulationFromMemberStart(token) || simulationFromFeeCommitment(token) || savedRenewal;
   const sim = savedSimulation
     || (deps.simulate ? await deps.simulate(token) : await (await import('./membershipSimulation.js'))
       .simulateMembershipForMember(token.tenant_id, token.member_id, {
@@ -121,6 +122,7 @@ async function historySnapshot(db, token, deps) {
     ...(renewal ? { term_start_date: renewal.membershipYear.start.slice(0, 10),
       term_end_date: renewal.membershipYear.end.slice(0, 10), annual_renewal_state: 'renewed' } : {}),
     notes: 'Membership funded by voucher credit; cash and voucher funding recorded separately.',
+    ...formVoucherHistoryFields(token),
     __accounting: { vatRate: sim.taxType || sim.matchedBand?.vat_rate || sim.config?.flat_vat_rate || null,
       nominalCode: sim.matchedBand?.nominal_code || sim.config?.nominal_code || null,
       xeroProjectCode: savedSimulation?.xeroProjectCode || cb.xeroProjectCode || null },
