@@ -1,5 +1,21 @@
 # Survey lifecycle rollout
 
+## DEST application — 4 November 2026
+
+Applied with explicit owner approval to verified DEST project
+`lvmzliemqnieeoruhkik`. Migration SHA-256:
+`2cbbdb2f7173022e9a1ecc27c56055217245cd8d23d51a28b6dd14d12c2a07cd`.
+All 76 documented regression tests passed before application.
+PostgREST schema reload was requested after commit.
+
+Verified service-role-only lifecycle RPC execution, RLS on both private
+tables, no browser read grants and no direct service-role insert grants.
+The affected webinar survey and assignment row fingerprints were unchanged.
+Its remove-assignment impact preview succeeded under `service_role`; that
+verification transaction was rolled back, including its confirmation token.
+No survey removal, response change, publication or email was performed.
+Signed-in browser flow and production application revision were not verified.
+
 ## Release boundary
 
 The application changes require `supabase/migrations/202612310040_survey_lifecycle.sql`.
