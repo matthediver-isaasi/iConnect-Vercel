@@ -21,14 +21,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { toast } from "sonner";
 import {
   Loader2,
@@ -145,9 +137,9 @@ export default function SurveyEventAssignmentsPanel({ formId }) {
   const [assignOpen, setAssignOpen] = useState(false);
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
+    <div className="min-w-0 space-y-4">
+      <div className="flex min-w-0 flex-col items-start justify-between gap-4 md:flex-row">
+        <div className="min-w-0">
           <h3 className="text-lg font-semibold text-slate-900">Event Assignments</h3>
           <p className="text-sm text-slate-500">
             Event relationships and responses are retained when removed. Availability also depends on the survey lifecycle and the original response window.
@@ -155,7 +147,7 @@ export default function SurveyEventAssignmentsPanel({ formId }) {
         </div>
         <Button
           onClick={() => setAssignOpen(true)}
-          className="bg-blue-600 hover:bg-blue-700"
+          className="w-full shrink-0 bg-blue-600 hover:bg-blue-700 md:w-auto"
           data-testid="button-assign-event"
         >
           <Plus className="w-4 h-4 mr-2" />
@@ -163,8 +155,7 @@ export default function SurveyEventAssignmentsPanel({ formId }) {
         </Button>
       </div>
 
-      <Card className="border-slate-200">
-        <CardContent className="p-0">
+      <div className="min-w-0 space-y-4">
           {isLoading ? (
             <div className="flex items-center justify-center py-12 text-slate-500">
               <Loader2 className="w-5 h-5 mr-2 animate-spin" />
@@ -177,62 +168,57 @@ export default function SurveyEventAssignmentsPanel({ formId }) {
               No events assigned yet. Click “Assign to event” to get started.
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Event</TableHead>
-                  <TableHead>Survey version</TableHead>
-                  <TableHead>Relationship / availability</TableHead>
-                  <TableHead>Opens / Closes</TableHead>
-                  <TableHead>Access</TableHead>
-                  <TableHead>Responses</TableHead>
-                  <TableHead>Link</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+            <div className="min-w-0 space-y-4">
                 {assignments.map((row) => {
                   const deleted = isEventDeleted(row);
                   const eventUrl = row.event_type === "complex_event"
                     ? `${createPageUrl("CreateComplexEvent")}?id=${row.complex_event_id}`
                     : `${createPageUrl("EditEvent")}?id=${row.event_id}`;
                   return (
-                    <TableRow key={row.id} data-testid={`assignment-row-${row.id}`}>
-                      <TableCell>
-                        <div className="font-medium text-slate-900">
+                    <Card key={row.id} className="min-w-0 border-slate-200" data-testid={`assignment-row-${row.id}`}>
+                      <CardContent className="min-w-0 space-y-5 p-4 [overflow-wrap:anywhere] sm:p-5">
+                      <div className="min-w-0 space-y-2">
+                        <h4 className="text-base font-semibold leading-snug text-slate-900">
                           {row.event_title || "(untitled event)"}
                           {deleted && (
                             <span className="ml-1 text-xs text-red-500">(event deleted)</span>
                           )}
-                        </div>
-                        <div className="text-xs text-slate-500">{formatDate(row.event_start_date)}</div>
+                        </h4>
+                        <div className="text-sm text-slate-500">Event date: {formatDate(row.event_start_date)}</div>
                         {!deleted && (
-                          <Link
-                            to={eventUrl}
-                            className="text-xs text-blue-600 hover:underline"
-                          >
-                            View event
-                          </Link>
+                          <Button asChild variant="link" size="sm" className="h-auto p-0 text-blue-600">
+                            <Link to={eventUrl}>View event</Link>
+                          </Button>
                         )}
-                      </TableCell>
-                      <TableCell className="min-w-[240px]">
-                        <AssignmentVersionNotice assignment={row} />
-                      </TableCell>
-                      <TableCell>
-                        <SurveyAvailabilityBadge assignment={row} />
-                      </TableCell>
-                      <TableCell className="text-xs text-slate-600">
-                        <div>Opens: {formatDate(row.opens_at, true)}</div>
-                        <div>Closes: {formatDate(row.closes_at, true)}</div>
-                      </TableCell>
-                      <TableCell className="text-xs text-slate-600">
-                        {row.access_mode === "authenticated" ? "Members only" : "Public link"}
-                      </TableCell>
-                      <TableCell className="text-xs text-slate-600">
+                      </div>
+
+                      <dl className="grid min-w-0 grid-cols-1 gap-x-6 gap-y-5 border-t border-slate-100 pt-4 md:grid-cols-2">
+                        <div className="min-w-0">
+                          <dt className="mb-2 text-xs font-semibold text-slate-500">Relationship / availability</dt>
+                          <dd className="min-w-0 [&_span]:whitespace-normal">
+                            <SurveyAvailabilityBadge assignment={row} />
+                          </dd>
+                        </div>
+                        <div className="min-w-0">
+                          <dt className="mb-2 text-xs font-semibold text-slate-500">Response window</dt>
+                          <dd className="space-y-1 text-sm text-slate-600">
+                            <div>Opens: {formatDate(row.opens_at, true)}</div>
+                            <div>Closes: {formatDate(row.closes_at, true)}</div>
+                          </dd>
+                        </div>
+                        <div className="min-w-0">
+                          <dt className="mb-2 text-xs font-semibold text-slate-500">Access</dt>
+                          <dd className="text-sm text-slate-600">
+                            {row.access_mode === "authenticated" ? "Members only" : "Public link"}
+                          </dd>
+                        </div>
+                        <div className="min-w-0">
+                          <dt className="mb-2 text-xs font-semibold text-slate-500">Responses</dt>
+                          <dd className="space-y-1 text-sm text-slate-600">
                         {row.response_count > 0 ? (
                           <Link
                             to={`${createPageUrl("FormSubmissions")}?form=${row.form_id}&assignment=${row.id}`}
-                            className="font-medium text-blue-600 hover:underline"
+                            className="inline-block font-medium text-blue-600 hover:underline"
                             data-testid={`link-responses-${row.id}`}
                           >
                             {row.response_count}
@@ -246,65 +232,74 @@ export default function SurveyEventAssignmentsPanel({ formId }) {
                             <div>Last: {formatDate(row.last_response_at, true)}</div>
                           </>
                         )}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1">
+                          </dd>
+                        </div>
+                      </dl>
+
+                      <section className="min-w-0 space-y-2 [&_span]:whitespace-normal" aria-label="Survey version">
+                        <h5 className="text-xs font-semibold text-slate-500">Survey version</h5>
+                        <AssignmentVersionNotice assignment={row} />
+                      </section>
+
+                      <div className="min-w-0 space-y-3 border-t border-slate-200 pt-4">
+                        <div className="flex min-w-0 flex-wrap items-center gap-2" aria-label="Assignment actions">
                           <Button
-                            variant="ghost"
+                            variant="outline"
                             size="sm"
                             onClick={() => handleCopy(row.token)}
                             title="Copy assignment link"
                             data-testid={`button-copy-${row.id}`}
                           >
-                            <Copy className="w-4 h-4" />
+                            <Copy className="mr-2 h-4 w-4 shrink-0" />
+                            Copy link
                           </Button>
-                          <a
-                            href={`${window.location.origin}/survey/${row.token}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            title="Open assignment link"
-                          >
-                            <Button variant="ghost" size="sm">
-                              <ExternalLink className="w-4 h-4" />
-                            </Button>
-                          </a>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-1">
+                          <Button asChild variant="outline" size="sm">
+                            <a
+                              href={`${window.location.origin}/survey/${row.token}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title="Open assignment link"
+                            >
+                              <ExternalLink className="mr-2 h-4 w-4 shrink-0" />
+                              Open survey
+                            </a>
+                          </Button>
                           <Button
-                            variant="ghost"
+                            variant="outline"
                             size="sm"
                             onClick={() => openEdit(row)}
                             title="Edit"
                             data-testid={`button-edit-${row.id}`}
                           >
-                            <Edit2 className="w-4 h-4" />
+                            <Edit2 className="mr-2 h-4 w-4 shrink-0" />
+                            Edit
                           </Button>
+                        </div>
+                        <div className="border-t border-slate-100 pt-3" aria-label="Event relationship actions">
                           <Button
                             variant="ghost"
                             size="sm"
+                            className={`h-auto max-w-full whitespace-normal text-left ${assignmentIsRemoved(row) ? "text-slate-700" : "text-red-600 hover:text-red-700"}`}
                             onClick={() => setLifecycleRequest({ form_id: formId, assignment_id: row.id, action: assignmentIsRemoved(row) ? "reattach_assignment" : "remove_assignment" })}
                             title={assignmentIsRemoved(row) ? "Reattach to Event" : "Remove from Event"}
                             data-testid={`button-${assignmentIsRemoved(row) ? "reattach" : "remove"}-${row.id}`}
                           >
                             {assignmentIsRemoved(row) ? (
-                              <ArchiveRestore className="w-4 h-4" />
+                              <ArchiveRestore className="w-4 h-4 shrink-0" />
                             ) : (
-                              <Trash2 className="w-4 h-4" />
+                              <Trash2 className="w-4 h-4 shrink-0" />
                             )}
                             <span className="ml-1.5">{assignmentIsRemoved(row) ? "Reattach to Event" : "Remove from Event"}</span>
                           </Button>
                         </div>
-                      </TableCell>
-                    </TableRow>
+                      </div>
+                      </CardContent>
+                    </Card>
                   );
                 })}
-              </TableBody>
-            </Table>
+            </div>
           )}
-        </CardContent>
-      </Card>
+      </div>
 
       <SurveyLifecycleDialog request={lifecycleRequest} onClose={() => setLifecycleRequest(null)} onComplete={invalidateList} />
       {/* Edit dialog */}
