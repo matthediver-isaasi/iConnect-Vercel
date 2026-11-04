@@ -41,6 +41,7 @@ import PublicInvoicePoRegistrations from "@/components/events/PublicInvoicePoReg
 import { PUBLIC_INVOICE_PO_BILLING_KEY } from "@/hooks/usePublicInvoicePoBilling";
 import PublicInvoicePoFormAnswers from "@/components/events/PublicInvoicePoFormAnswers";
 import EventInvoiceStatus from "@/components/booking/EventInvoiceStatus";
+import ActivityInvoiceActions from "@/components/ActivityInvoiceActions";
 import { eventInvoiceAwaited, eventInvoiceId, eventInvoiceNeedsAttention, eventInvoiceNumber, eventInvoiceRefetchInterval, eventInvoiceRetryAt } from "../../../shared/eventInvoiceRecoveryPresentation.mjs";
 import AttendeeCpdCertificateDialog from "@/components/events/AttendeeCpdCertificateDialog";
 import CpdPointsReplayDialog from "@/components/events/CpdPointsReplayDialog";
@@ -67,9 +68,12 @@ function formatDietarySelections(value) {
   return value.filter(Boolean).join(', ');
 }
 
-function ReportInvoice({ payment, testId }) {
+function ReportInvoice({ payment, groupRef, testId }) {
   if (eventInvoiceId(payment) || eventInvoiceNumber(payment) || eventInvoiceAwaited(payment) || eventInvoiceNeedsAttention(payment)) {
-    return <EventInvoiceStatus record={payment} admin showInvoice testId={testId} />;
+    return <span className="inline-flex items-center gap-1">
+      <EventInvoiceStatus record={payment} admin showInvoice testId={testId} />
+      <ActivityInvoiceActions compact booking={{ ...payment, booking_group_reference: groupRef }} />
+    </span>;
   }
   return payment.xeroInvoiceError
     ? <span className="text-xs italic text-warning" title="Invoice creation needs an administrator's attention." data-testid={testId}>Needs attention</span>
@@ -2324,7 +2328,7 @@ export default function EventRegistrationReport() {
                                   ) : '-'}
                                 </td>
                                 <td className="py-3 pr-3 whitespace-nowrap">
-                                  <ReportInvoice payment={gp} testId={`text-invoice-status-${attendee.id}`} />
+                                  <ReportInvoice payment={gp} groupRef={group.groupRef} testId={`text-invoice-status-${attendee.id}`} />
                                 </td>
                                 <td className="py-3 pr-3 whitespace-nowrap">
                                   <Badge variant={attendee.status === 'confirmed' ? 'default' : attendee.status === 'cancelled' ? 'destructive' : 'secondary'}>
@@ -2422,7 +2426,7 @@ export default function EventRegistrationReport() {
                                 ) : '-'}
                               </td>
                               <td className="py-2 pr-3 whitespace-nowrap" rowSpan={groupRowCount}>
-                                <ReportInvoice payment={gp} testId={`text-invoice-status-group-${group.groupRef || keyAttendeeId}`} />
+                                <ReportInvoice payment={gp} groupRef={group.groupRef} testId={`text-invoice-status-group-${group.groupRef || keyAttendeeId}`} />
                               </td>
                             </>
                           );

@@ -1,10 +1,10 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Eye, Download, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { eventInvoiceId } from "../../../shared/eventInvoiceRecoveryPresentation.mjs";
 
-export default function ActivityInvoiceActions({ booking }) {
+export default function ActivityInvoiceActions({ booking, compact = false }) {
   const [busy, setBusy] = useState(false);
   if (!eventInvoiceId(booking) || !booking.booking_group_reference) return null;
   const url = `/api/booking-invoice/${encodeURIComponent(booking.booking_group_reference)}`;
@@ -28,15 +28,15 @@ export default function ActivityInvoiceActions({ booking }) {
     }
   };
   return (
-    <div className="flex flex-wrap gap-2 pt-2">
-      <Button variant="outline" size="sm" asChild>
-        <a href={`${url}?inline=true`} target="_blank" rel="noopener noreferrer">
-          <Eye className="w-4 h-4 mr-2" />View invoice
+    <div className={compact ? "inline-flex items-center gap-1" : "flex flex-wrap gap-2 pt-2"}>
+      <Button variant={compact ? "ghost" : "outline"} size={compact ? "icon" : "sm"} className={compact ? "h-7 w-7" : undefined} asChild>
+        <a href={`${url}?inline=true`} target="_blank" rel="noopener noreferrer" aria-label="View invoice" title="View invoice">
+          <Eye className={compact ? "w-4 h-4" : "w-4 h-4 mr-2"} />{!compact && "View invoice"}
         </a>
       </Button>
-      <Button variant="outline" size="sm" disabled={busy} onClick={download}>
-        {busy ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
-        Download invoice
+      <Button type="button" variant={compact ? "ghost" : "outline"} size={compact ? "icon" : "sm"} className={compact ? "h-7 w-7" : undefined} disabled={busy} onClick={download} aria-label="Download invoice" title="Download invoice">
+        {busy ? <Loader2 className={`${compact ? "w-4 h-4" : "w-4 h-4 mr-2"} animate-spin`} /> : <Download className={compact ? "w-4 h-4" : "w-4 h-4 mr-2"} />}
+        {!compact && "Download invoice"}
       </Button>
     </div>
   );
