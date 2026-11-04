@@ -9,6 +9,7 @@ import { format } from "date-fns";
 import { useDateFormat } from "@/hooks/useDateFormat";
 import RelatedOpportunityActivity from "@/components/opportunities/RelatedOpportunityActivity";
 import ActivityInvoiceActions from "@/components/ActivityInvoiceActions";
+import ActivityCreditNoteActions from "@/components/ActivityCreditNoteActions";
 import { HistoricalInvoicesTable } from "@/components/membership/HistoricalInvoices";
 import { useHistoricalInvoiceTenant } from "@/hooks/useHistoricalInvoices";
 import { useAllHistoricalInvoices, mergeHistoricalInvoiceActivity } from "@/components/membership/activityInvoices";
@@ -468,6 +469,7 @@ function MemberActivityTimelineContent({
                         </span>
                       </div>
                       <ActivityInvoiceActions booking={item.booking} />
+                      <ActivityCreditNoteActions booking={item.booking} source={item.source} tenantId={tenantId} request={request} />
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
