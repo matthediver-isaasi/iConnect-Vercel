@@ -2,7 +2,13 @@
 export class AccountingRequestQueueError extends Error {
   constructor(code) {
     super(code); this.code = code;
-    if (code.endsWith('BUDGET_EXHAUSTED')) this.retry = true;
+    if (code.endsWith('BUDGET_EXHAUSTED')) {
+      this.retry = true;
+      // This guard refuses the request before transport starts. Provider
+      // adapters explicitly clear this flag if a POST already happened and its
+      // readback subsequently fails.
+      this.definitelyNotWritten = true;
+    }
   }
 }
 
@@ -121,8 +127,11 @@ async function advance({ db, row, adapters, deadlineAt }) {
     } catch (error) {
       const cooldown = Number(error?.status ?? error?.statusCode) === 429
         ? accountingRetryAfterSeconds(error.retryAfter) : 0;
+      const code = error?.code || error?.message;
+      const reason = /^[A-Z][A-Z0-9_]{2,100}$/.test(code || '')
+        ? `ACCOUNTING_PREPARATION_NOT_COMPLETED:${code}` : 'ACCOUNTING_PREPARATION_NOT_COMPLETED';
       return finish(error?.permanent || (!cooldown && error?.retry !== true) ? 'review' : 'retry',
-        'ACCOUNTING_PREPARATION_NOT_COMPLETED', Math.max(60, cooldown), cooldown);
+        reason, Math.max(60, cooldown), cooldown);
     }
     // Fenced, atomic handoff; failure leaves the original evidence intact.
     row = await rpc(db, 'prepare', {
@@ -136,7 +145,11 @@ async function advance({ db, row, adapters, deadlineAt }) {
   ]) {
     const status = row[`${stage}_status`];
     if (status === 'done' || status === 'skipped') continue;
-    if (Date.now() >= deadlineAt) {
+    // Leave a separate invocation for collection allocation when invoice
+    // preparation/creation consumed the budget. Do not journal a payment write
+    // with too little time left for its preflight, POST and readback.
+    if (Date.now() >= deadlineAt || (stage === 'payment' && row.source_type === 'gocardless_payment'
+      && deadlineAt - Date.now() < 15000)) {
       const unknown = row.invoice_status === 'unknown' || row.payment_status === 'unknown';
       return finish(unknown ? 'unknown' : 'retry', 'ACCOUNTING_QUEUE_BATCH_BUDGET_EXHAUSTED');
     }
@@ -173,7 +186,8 @@ async function advance({ db, row, adapters, deadlineAt }) {
       const delay = Math.max(cooldown, Math.min(3600, 30 * 2 ** Math.min(row.attempts, 7)));
       return finish(error.permanent ? 'review' : safe ? 'retry' : 'unknown',
         stage === 'link' && /^ACCOUNTING_NOTIFICATION_[A-Z_]+$/.test(error.code || '')
-          ? error.code : safe ? 'ACCOUNTING_STAGE_NOT_COMPLETED' : 'ACCOUNTING_WRITE_OUTCOME_UNKNOWN', delay, cooldown);
+          ? error.code : safe ? 'ACCOUNTING_STAGE_NOT_COMPLETED' : /^ACCOUNTING_QUEUE_[A-Z_]+$/.test(error.code || '')
+            ? `ACCOUNTING_WRITE_OUTCOME_UNKNOWN:${error.code}` : 'ACCOUNTING_WRITE_OUTCOME_UNKNOWN', delay, cooldown);
     }
     // Persistence failure after provider success deliberately leaves "writing";
     // an expired worker must discover, never repeat that financial write.

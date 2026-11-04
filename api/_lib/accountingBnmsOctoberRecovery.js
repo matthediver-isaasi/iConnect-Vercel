@@ -8,7 +8,8 @@ const prefixes = {
 };
 
 // Import provenance describes the agreement, not the age of the collection.
-// This bridge is deliberately limited to the authorised October transactions.
+// Canonical collection/ownership checks in the ledger RPCs authorize subsequent
+// settled collections too. Import provenance must not expire after October.
 export function bnmsOctoberRecovery(row) {
   const evidence = row.snapshot?.evidence;
   const context = evidence?.ddAccountingMigration;
@@ -19,7 +20,11 @@ export function bnmsOctoberRecovery(row) {
     || row.provider !== 'xero' || row.source_type !== 'gocardless_payment'
     || row.operation !== 'invoice' || !prefix || payment?.environment !== 'live'
     || !['confirmed', 'paid_out'].includes(payment.status)
-    || !/^2026-10-\d{2}$/.test(payment.charge_date || '')
+    || !/^\d{4}-\d{2}-\d{2}$/.test(payment.charge_date || '')
+    || !Number.isFinite(Date.parse(payment.charge_date))
+    || new Date(payment.charge_date).toISOString().slice(0,10) !== payment.charge_date
+    || payment.charge_date < '2026-10-01'
+    || payment.charge_date > new Date().toISOString().slice(0,10)
     || !payment.gocardless_payment_id || context.planId !== payment.plan_id
     || row.snapshot.existingInvoice) fail('GC_IMPORTED_RECOVERY_OUT_OF_SCOPE');
   if (evidence.legacyWriteUncertain

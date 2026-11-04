@@ -4,7 +4,21 @@ import {
   assertGoCardlessAccountingSource, findGoCardlessAccountingRequest,
   linkGoCardlessAccountingSource, prepareGoCardlessSourceRequest,
   queueGoCardlessAccountingPayment, resumeGoCardlessAccountingRequest,
+  isExistingInvoicePaymentRecovery,
 } from './accountingQueueGoCardless.js';
+
+test('payment-only recovery requires exact persisted invoice and prior failure evidence', () => {
+  const row={source_type:'gocardless_payment',operation:'payment',invoice_status:'done',invoice_result:{id:'invoice'},
+    snapshot:{existingInvoice:{id:'invoice'},evidence:{payment:{accounting_sync_error:
+      'invoice created but payment not recorded (check the bank account setting for this payment rail)'}}}};
+  assert.equal(isExistingInvoicePaymentRecovery(row),true);
+  for(const changes of [{operation:'invoice'},{invoice_status:'unknown'},{invoice_result:{id:'different'}}]){
+    assert.equal(isExistingInvoicePaymentRecovery({...row,...changes}),false);
+  }
+  const uncertain=structuredClone(row);
+  uncertain.snapshot.evidence.payment.accounting_sync_error='Unknown transport outcome';
+  assert.equal(isExistingInvoicePaymentRecovery(uncertain),false);
+});
 import { getAccountingQueueAdapter } from './accountingQueueIntegration.js';
 import { postDdInstalmentToAccounting } from './gocardlessAccounting.js';
 import { processAccountingRequest } from './accountingRequestQueue.js';

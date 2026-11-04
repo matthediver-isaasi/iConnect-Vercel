@@ -169,13 +169,23 @@ export async function linkGoCardlessAccountingSource({ db, row }) {
   return { linked: true, paymentId: row.source_id, invoiceId: row.invoice_result.id, providerPaymentId: row.payment_result.id };
 }
 
+export function isExistingInvoicePaymentRecovery(row) {
+  return row.source_type === 'gocardless_payment' && row.operation === 'payment'
+    && !!row.snapshot?.existingInvoice?.id
+    && row.invoice_status === 'done'
+    && row.invoice_result?.id === row.snapshot.existingInvoice.id
+    && row.snapshot.evidence?.payment?.accounting_sync_error
+      === 'invoice created but payment not recorded (check the bank account setting for this payment rail)';
+}
+
 export async function prepareGoCardlessSourceRequest({ row, db, providers, transport }, dependencies = {}) {
   const { approvedMigration } = await assertGoCardlessAccountingSource({ db, row });
   const evidence = row.snapshot.evidence;
   if (evidence.preparationError) fail(evidence.preparationError);
-  const importedRecovery = evidence.ddAccountingMigration
+  const existingPaymentRecovery = isExistingInvoicePaymentRecovery(row);
+  const importedRecovery = evidence.ddAccountingMigration && !existingPaymentRecovery
     ? await assertBnmsOctoberPreparation({ db, row }) : null;
-  if (evidence.legacyWriteUncertain && !importedRecovery) fail('GC_QUEUE_LEGACY_WRITE_REQUIRES_REVIEW');
+  if (evidence.legacyWriteUncertain && !importedRecovery && !existingPaymentRecovery) fail('GC_QUEUE_LEGACY_WRITE_REQUIRES_REVIEW');
   // The October bridge retains the imported ledger and pinned accounting
   // authority. Unsupported imports and existing legacy claims remain held.
   let args = row.snapshot.invoice.args;

@@ -2,6 +2,20 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createAccountingRequestProviders, prepareAccountingRequestEnvelope, validateAccountingRequestResult } from './accountingRequestProviders.js';
 
+test('preparation requests explicitly negotiate JSON from Xero', async () => {
+  let accept;
+  const adapter=createAccountingRequestProviders({
+    resolveConnection:async()=>({tenantId:'tenant',provider:'xero',connectionId:'connection',companyId:'company',accessToken:'fixture'}),
+    beforeRequest:async()=>({timeoutMs:1000}),
+    fetchImpl:async(url,init)=>{accept=new Headers(init.headers).get('Accept');
+      return new Response(JSON.stringify({TaxRates:[]}),{status:200});},
+  });
+  const response=await adapter.preparationTransport({provider:'xero',tenant_id:'tenant',connection_id:'connection',company_id:'company'})
+    .fetch('https://api.xero.com/api.xro/2.0/TaxRates');
+  assert.equal(accept,'application/json');
+  assert.deepEqual(await response.json(),{TaxRates:[]});
+});
+
 function fixture(provider = 'quickbooks', overrides = {}) {
   const xero = provider === 'xero';
   const payload = xero

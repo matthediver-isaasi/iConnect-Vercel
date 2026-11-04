@@ -383,6 +383,9 @@ export function createAccountingRequestProviders({
           || (method !== 'GET' && !(xero ? /\/Contacts\/?$/.test(parsed.pathname)
             : /\/customer\/?$/.test(parsed.pathname)))) permanent('PREPARATION_ENDPOINT_FORBIDDEN');
         const headers = new Headers(init.headers);
+        // Xero otherwise returns XML for bare GETs. Preparation consumers parse
+        // JSON, just like the financial request transport.
+        headers.set('Accept', 'application/json');
         headers.set('Authorization', `Bearer ${c.accessToken}`);
         if (xero) headers.set('Xero-tenant-id', c.companyId);
         const budget = await beforeRequest(row, { kind: 'preparation', method });

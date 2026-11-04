@@ -65,7 +65,7 @@ for (const source of ['bnms_alpha_approved_existing_bank', 'bnms_manual_95_exist
 test('historical, future, failed, sandbox, wrong tenant and payment-only requests stay held', () => {
   for (const mutate of [
     r => r.snapshot.evidence.payment.charge_date = '2026-09-06',
-    r => r.snapshot.evidence.payment.charge_date = '2026-11-06',
+    r => r.snapshot.evidence.payment.charge_date = '2099-11-06',
     r => r.snapshot.evidence.payment.status = 'failed',
     r => r.snapshot.evidence.payment.environment = 'sandbox',
     r => r.tenant_id = 'other',
@@ -75,6 +75,11 @@ test('historical, future, failed, sandbox, wrong tenant and payment-only request
     const { row } = fixture(); mutate(row);
     assert.throws(() => bnmsOctoberRecovery(row), /OUT_OF_SCOPE/);
   }
+});
+test('subsequent settled collections retain canonical imported-ledger ownership', () => {
+  const {row}=fixture();
+  row.snapshot.evidence.payment.charge_date='2026-11-02';
+  assert.ok(bnmsOctoberRecovery(row));
 });
 test('only the exact pre-invoice validation throttle can resolve legacy uncertainty', async () => {
   const f = fixture(), e = f.row.snapshot.evidence;

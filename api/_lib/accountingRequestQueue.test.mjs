@@ -1,7 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { enqueueAccountingRequest, processAccountingRequest, reconcileAccountingRequests, validAccountingRequestSnapshot,
-  accountingRetryAfterSeconds } from './accountingRequestQueue.js';
+  accountingRetryAfterSeconds, AccountingRequestQueueError } from './accountingRequestQueue.js';
+
+test('a refused request budget is safe to retry before provider transport starts', () => {
+  const error=new AccountingRequestQueueError('ACCOUNTING_QUEUE_REQUEST_BUDGET_EXHAUSTED');
+  assert.equal(error.retry,true);
+  assert.equal(error.definitelyNotWritten,true);
+  assert.notEqual(new AccountingRequestQueueError('UNEXPECTED_FAILURE').definitelyNotWritten,true);
+});
 
 const snapshot = { version: 1, invoice: { amount: 100 }, payment: { amount: 100 }, linkage: { sourceId: 's1' } };
 function fixture(overrides = {}) {

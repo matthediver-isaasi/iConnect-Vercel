@@ -27,3 +27,4 @@
 - [Structured invoice addresses](structured-invoice-address-compatibility.md) — independent entity addresses, legacy fallback and pre-Stripe invoice selection policy.
 - [Stripe membership invoice addresses](stripe-membership-invoice-addresses.md) — immutable payment-time evidence; missing snapshots fail closed.
 - [Event invoice recovery](event-invoice-recovery-authority.md) — purchaser authority, immutable checkout evidence and repair boundaries.
+- [Accounting recovery boundaries](accounting-recovery-boundaries.md) — recurring import authority, JSON negotiation, and pre-request budgets versus uncertain writes.
