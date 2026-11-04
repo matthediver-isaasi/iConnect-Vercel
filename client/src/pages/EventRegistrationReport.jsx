@@ -3,6 +3,7 @@ import "./EventRegistrationReport.css";
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
 import GuestRegistrationMemberDialog from "@/components/events/GuestRegistrationMemberDialog";
+import RegistrantSurveyEmailAction from "@/components/events/RegistrantSurveyEmailAction";
 import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
 import { ContactRound, UserCheck, TriangleAlert } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -1660,6 +1661,7 @@ export default function EventRegistrationReport() {
     const cpdIdentity = cpdRegistrationIdentity(attendee, group);
     return (
       <div className="flex items-center gap-0.5 mr-1">
+        <RegistrantSurveyEmailAction identity={cpdIdentity} attendee={attendee} />
         {(attendee.member_id || attendee.linked_member_id) ? (
           <Tooltip>
             <TooltipTrigger asChild>

@@ -26,6 +26,7 @@ description: Index of event timing, booking lifecycle, attendance rewards and re
 - [Training reminder delivery](training-reminder-delivery-policy.md) — per-entry scope, elapsed offsets, explicit existing-booking scheduling and unknown delivery outcomes.
 - [Event display timezones](event-display-timezone-policy.md) — audience timezones are display-only; scheduling and date-only agendas stay unchanged.
 - [Zoom recovery approval](zoom-recovery-approval.md) — read-only diagnosis is not permission for live registration changes or message sends.
+- [Survey invitations](event-survey-invitation-policy.md) — attendance gates individual invitations; untracked events require warning and acknowledgement.
 
 **Why:** Specialized event constraints remain discoverable without crowding the always-loaded memory index.
 

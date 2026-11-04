@@ -3,6 +3,9 @@
   "buildCommand": "node scripts/patch-cookieyes.mjs && npx vite build && node scripts/build-cookie-preview.mjs --build",
   "outputDirectory": "dist/public",
   "functions": {
+    "api/reports/registrant-survey-email.js": {
+      "maxDuration": 60
+    },
     "api/ai-compositions/seo.js": {
       "maxDuration": 60
     },
