@@ -5,6 +5,19 @@ description: Durable decisions for event-assigned surveys — exclusive assignme
 
 # Survey event assignments — durable decisions
 
+## Lifecycle review scope and link protection
+The owner requires a cross-platform lifecycle audit and validation of the proposed approach before replacing the existing implementation. Survey lifecycle and event attachment must remain separate; routine administrative actions must not silently prevent invited recipients from responding.
+
+**Why:** Event assignment badges can imply availability even when the underlying survey is unavailable, and overlapping controls confuse administrators.
+
+**How to apply:** Preserve historical responses and event associations, assess known invitation/link dependencies, and require consistent two-stage impact acknowledgement for disruptive changes across all entry points. Do not treat absent delivery evidence as proof that no link was shared. This is a generic platform requirement, not BNMS-specific.
+
+The approved lifecycle separates working-copy edits from live availability: routine editing must not withdraw a published survey, and publishing changes must not silently reopen a paused or closed survey.
+
+**Why:** Administrators may edit a survey after invitation links have been distributed; earlier edit-to-draft behaviour interrupted invited respondents.
+
+**How to apply:** Keep explicit lifecycle actions separate from snapshot publication. Restoring access must still respect the original assignment windows, invitation expiry and completion/eligibility rules.
+
 ## Dormant ordinary-form controls
 Preserve saved ordinary-form options when switching modes, but survey response limits and event attribution must use published survey settings and the resolved assignment, not the ordinary global email limit or single-event link.
 

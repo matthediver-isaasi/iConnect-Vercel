@@ -42,6 +42,8 @@ import {
 } from '@shared/protectedDepartmentForm.js';
 import { protectedFormUpdateHeaders } from '@/lib/protectedFormActions';
 import { formRoleValidationError } from '@/lib/formRoleValidationError';
+import SurveyLifecycleDialog from "@/components/surveys/SurveyLifecycleDialog";
+import { surveyLifecycleState } from "@/lib/surveyLifecycle";
 
 const PAGE_SIZE_OPTIONS = [12, 24, 48];
 const DEFAULT_PAGE_SIZE = 12;
@@ -254,6 +256,16 @@ export default function FormManagementPage() {
   const [accessChecked, setAccessChecked] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deletingForm, setDeletingForm] = useState(null);
+  const [lifecycleRequest, setLifecycleRequest] = useState(null);
+
+  const openArchiveWorkflow = form => {
+    if (form.form_type === "survey") {
+      setLifecycleRequest({ form_id: form.id, action: surveyLifecycleState(form) === "archived" ? "restore" : "archive" });
+    } else {
+      setDeletingForm(form);
+      setDeleteDialogOpen(true);
+    }
+  };
   const [deactivatingProtectedForm, setDeactivatingProtectedForm] = useState(null);
   const [manualSubmissionOpen, setManualSubmissionOpen] = useState(false);
   const [manualSubmissionForm, setManualSubmissionForm] = useState(null);
@@ -378,6 +390,7 @@ export default function FormManagementPage() {
 
   const deleteFormMutation = useMutation({
     mutationFn: async (form) => {
+      if (form.form_type === "survey") throw new Error("Use the central survey lifecycle workflow.");
       return await base44.entities.Form.update(form.id, { archived_at: form.archived_at ? null : new Date().toISOString() });
     },
     onSuccess: () => {
@@ -454,11 +467,12 @@ export default function FormManagementPage() {
   };
 
   const applyCommonFilters = (form, filters) => {
-    if (Boolean(form.archived_at) !== (filters.status === 'archived')) return false;
+    const surveyState = form.form_type === "survey" ? surveyLifecycleState(form) : null;
+    if ((surveyState ? surveyState === "archived" : Boolean(form.archived_at)) !== (filters.status === 'archived')) return false;
     if (!matchesSearch(form, filters.search)) return false;
     if (filters.status !== 'all' && filters.status !== 'archived') {
       const wantActive = filters.status === 'active';
-      if (Boolean(form.is_active) !== wantActive) return false;
+      if ((surveyState ? surveyState === "active" : Boolean(form.is_active)) !== wantActive) return false;
     }
     if (filters.auth !== 'all') {
       const wantAuth = filters.auth === 'yes';
@@ -595,8 +609,8 @@ export default function FormManagementPage() {
                   )}
                 </>
               )}
-              <Badge variant={form.is_active ? "default" : "secondary"}>
-                {form.is_active ? (
+              <Badge variant={(form.form_type === "survey" ? surveyLifecycleState(form) === "active" : form.is_active) ? "default" : "secondary"}>
+                {form.form_type === "survey" ? <span className="capitalize">{surveyLifecycleState(form)}</span> : form.is_active ? (
                   <>
                     <Eye className="w-3 h-3 mr-1" />
                     Active
@@ -608,6 +622,7 @@ export default function FormManagementPage() {
                   </>
                 )}
               </Badge>
+              {form.form_type === "survey" && <Badge variant="outline">{Number(form.survey_settings?.current_version) > 0 ? `Published v${form.survey_settings.current_version}${form.survey_settings.has_unpublished_changes ? " · Draft edits" : ""}` : "Draft · Never published"}</Badge>}
               {form.require_authentication && (
                 <Badge variant="secondary">Auth Required</Badge>
               )}
@@ -679,7 +694,7 @@ export default function FormManagementPage() {
               setManualSubmissionOpen(true);
             }}
             title="Add manual submission"
-            disabled={!!form.archived_at}
+            disabled={form.form_type === "survey" ? surveyLifecycleState(form) !== "active" : !!form.archived_at}
             data-testid={`button-manual-submission-${form.id}`}
           >
             <FilePlus className="w-3 h-3" />
@@ -702,14 +717,11 @@ export default function FormManagementPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => {
-              setDeletingForm(form);
-              setDeleteDialogOpen(true);
-            }}
-            title={form.archived_at ? 'Restore form (keeps it inactive)' : 'Archive form'}
-            data-testid={`button-${form.archived_at ? 'restore' : 'archive'}-${form.id}`}
+            onClick={() => openArchiveWorkflow(form)}
+            title={form.form_type === "survey" ? (surveyLifecycleState(form) === "archived" ? "Restore Survey" : "Archive Survey") : form.archived_at ? 'Restore form (keeps it inactive)' : 'Archive form'}
+            data-testid={`button-${(form.form_type === "survey" ? surveyLifecycleState(form) === "archived" : !!form.archived_at) ? 'restore' : 'archive'}-${form.id}`}
           >
-            {form.archived_at ? <ArchiveRestore className="w-3 h-3" /> : <Archive className="w-3 h-3" />}
+            {(form.form_type === "survey" ? surveyLifecycleState(form) === "archived" : !!form.archived_at) ? <ArchiveRestore className="w-3 h-3" /> : <Archive className="w-3 h-3" />}
           </Button>
         </div>
       </CardContent>
@@ -732,7 +744,7 @@ export default function FormManagementPage() {
           setManualSubmissionOpen(true);
         }}
         title="Add manual submission"
-        disabled={!!form.archived_at}
+        disabled={form.form_type === "survey" ? surveyLifecycleState(form) !== "active" : !!form.archived_at}
         data-testid={`button-manual-submission-${form.id}`}
       >
         <FilePlus className="w-3 h-3" />
@@ -755,14 +767,11 @@ export default function FormManagementPage() {
       <Button
         variant="outline"
         size="sm"
-        onClick={() => {
-          setDeletingForm(form);
-          setDeleteDialogOpen(true);
-        }}
-        title={form.archived_at ? 'Restore form (keeps it inactive)' : 'Archive form'}
-        data-testid={`button-${form.archived_at ? 'restore' : 'archive'}-${form.id}`}
+        onClick={() => openArchiveWorkflow(form)}
+        title={form.form_type === "survey" ? (surveyLifecycleState(form) === "archived" ? "Restore Survey" : "Archive Survey") : form.archived_at ? 'Restore form (keeps it inactive)' : 'Archive form'}
+        data-testid={`button-${(form.form_type === "survey" ? surveyLifecycleState(form) === "archived" : !!form.archived_at) ? 'restore' : 'archive'}-${form.id}`}
       >
-        {form.archived_at ? <ArchiveRestore className="w-3 h-3" /> : <Archive className="w-3 h-3" />}
+        {(form.form_type === "survey" ? surveyLifecycleState(form) === "archived" : !!form.archived_at) ? <ArchiveRestore className="w-3 h-3" /> : <Archive className="w-3 h-3" />}
       </Button>
     </>
   );
@@ -802,8 +811,8 @@ export default function FormManagementPage() {
                 )}
               </>
             )}
-            <Badge variant={form.is_active ? "default" : "secondary"}>
-              {form.is_active ? (
+            <Badge variant={(form.form_type === "survey" ? surveyLifecycleState(form) === "active" : form.is_active) ? "default" : "secondary"}>
+              {form.form_type === "survey" ? <span className="capitalize">{surveyLifecycleState(form)}</span> : form.is_active ? (
                 <>
                   <Eye className="w-3 h-3 mr-1" />
                   Active
@@ -815,6 +824,7 @@ export default function FormManagementPage() {
                 </>
               )}
             </Badge>
+            {form.form_type === "survey" && <Badge variant="outline">{Number(form.survey_settings?.current_version) > 0 ? `Published v${form.survey_settings.current_version}${form.survey_settings.has_unpublished_changes ? " · Draft edits" : ""}` : "Draft · Never published"}</Badge>}
             {form.require_authentication && (
               <Badge variant="secondary">Auth Required</Badge>
             )}
@@ -1000,6 +1010,7 @@ export default function FormManagementPage() {
         </Tabs>
       </div>
 
+      <SurveyLifecycleDialog request={lifecycleRequest} onClose={() => setLifecycleRequest(null)} />
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>

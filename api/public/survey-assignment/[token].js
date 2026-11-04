@@ -1,3 +1,4 @@
+import { surveyLifecycleState, surveyUnavailable } from '../../_lib/surveyLifecycleState.js';
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../../_lib/tenantResolver.js';
 import { getSession, getSessionMember } from '../../_lib/session.js';
@@ -98,12 +99,8 @@ export default async function handler(req, res, dependencies = {}) {
       .select('*')
       .eq('id', assignment.form_id)
       .eq('tenant_id', tenant.id)
-      .eq('is_active', true)
       .maybeSingle();
     if (formErr || !form || form.form_type !== 'survey') {
-      return res.status(404).json({ error: 'Survey not found' });
-    }
-    if (!isFormScheduleAvailable(form)) {
       return res.status(404).json({ error: 'Survey not found' });
     }
     const invited = invitationState?.status === 'active' ? invitationState : null;
@@ -179,10 +176,10 @@ export default async function handler(req, res, dependencies = {}) {
 
     // The survey form was loaded and access-checked before any assignment or
     // event context was released; it must also remain published.
-    if (form.survey_settings?.status !== 'published') {
+    if (surveyLifecycleState(form) !== 'active' || !isFormScheduleAvailable(form)) {
       return res.status(200).json({
-        ...baseResponse,
-        closed_message: 'This survey is not accepting responses.',
+        ...surveyUnavailable(surveyLifecycleState(form) !== 'active' ? surveyLifecycleState(form) : 'closed'),
+        closed_message: surveyUnavailable(surveyLifecycleState(form)).error,
       });
     }
     const currentVersion = Number(form.survey_settings?.current_version);

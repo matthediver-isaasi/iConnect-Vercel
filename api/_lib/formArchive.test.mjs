@@ -23,7 +23,7 @@ test('archive preserves the form and never accesses submissions; tenant scoped a
   const { db, calls } = fixture();
   const result = await updateFormArchive({ db, context, id: 'form', body: { archived_at: '2026-09-29T00:00:00Z' }, hasAdminAccess: admin });
   assert.equal(result.status, 200);
-  assert.deepEqual(calls.filter(c => c[0] === 'from'), [['from', 'form']]);
+  assert.deepEqual(calls.filter(c => c[0] === 'from'), [['from', 'form'], ['from', 'form']]);
   assert.ok(calls.some(c => c[0] === 'eq' && c[1] === 'tenant_id' && c[2] === 'tenant'));
   assert.equal(calls.find(c => c[0] === 'update')[1].is_active, false);
   assert.ok(calls.find(c => c[0] === 'update')[1].archived_at);
@@ -47,7 +47,7 @@ test('invalid payload, missing tenant record and storage failure are explicit', 
   assert.equal((await updateFormArchive({ ...base, ...fixture(), body: { archived_at: 'bad' } })).status, 400);
   assert.equal((await updateFormArchive({ ...base, ...fixture(), body: { archived_at: null, is_active: true } })).status, 400);
   assert.equal((await updateFormArchive({ ...base, ...fixture({ data: null }), body: { archived_at: null } })).status, 404);
-  assert.equal((await updateFormArchive({ ...base, ...fixture({ error: { message: 'write failed' } }), body: { archived_at: null } })).status, 500);
+  assert.equal((await updateFormArchive({ ...base, ...fixture({ error: { message: 'read failed' } }), body: { archived_at: null } })).status, 503);
 });
 test('archive overrides scheduled availability', () => {
   assert.equal(isFormScheduleAvailable({ archived_at: '2026-09-29', deactivate_at: '2099-01-01' }), false);

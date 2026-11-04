@@ -15,7 +15,8 @@ try{
     WHERE tenant_id=$1 AND state='review' AND preparation_status='pending'
       AND invoice_status='pending' AND payment_status='pending' AND link_status='pending'
       AND invoice_result IS NULL AND payment_result IS NULL AND resolved_snapshot IS NULL
-      AND last_error='ACCOUNTING_PREPARATION_NOT_COMPLETED'
+      AND last_error IN ('ACCOUNTING_PREPARATION_NOT_COMPLETED','ACCOUNTING_BINDING_OR_ADAPTER_UNAVAILABLE',
+        'ACCOUNTING_PREPARATION_NOT_COMPLETED:TIMEOUT')
     ORDER BY CASE WHEN id='657b8d61-2566-44c3-8305-201acdd1425f' THEN 0
       WHEN source_type='stripe_member_quote' THEN 1 ELSE 2 END,created_at,id`,[tenant])).rows.map(x=>x.data);
   const eligible=[],held={};
@@ -52,12 +53,32 @@ try{
       return supabase.rpc(name,args);
     }};
     let result=await processAccountingRequest({db,requestId:row.id});
-    for(let attempt=0;result?.state==='retry'&&attempt<3;attempt++){
+    // Unknown outcomes may only take the queue's discovery path, never repeat
+    // their POST. Give a short, due discovery attempt before stopping the batch.
+    for(let attempt=0;['retry','unknown'].includes(result?.state)&&attempt<3;attempt++){
+      // A local invocation-budget pause is not a provider throttle. Claim the
+      // continuation atomically, so an older deployed worker cannot take it
+      // between these stages. The claim RPC still enforces shared cooldowns.
+      if(result.last_error==='ACCOUNTING_QUEUE_BATCH_BUDGET_EXHAUSTED'){
+        await sql.query('BEGIN');
+        try{
+          const changed=await sql.query(`UPDATE accounting_request_queue SET next_attempt_at=now()
+            WHERE id=$1 AND state='retry' AND last_error='ACCOUNTING_QUEUE_BATCH_BUDGET_EXHAUSTED'
+            AND (lease_until IS NULL OR lease_until<=now()) RETURNING id`,[row.id]);
+          if(changed.rowCount!==1){await sql.query('ROLLBACK');break;}
+          const next=(await sql.query('SELECT to_jsonb(public.accounting_request_claim($1::uuid)) data',[row.id])).rows[0].data;
+          if(!next?.id){await sql.query('ROLLBACK');break;}
+          await sql.query('COMMIT');
+          claimed=next;consumed=false;
+        }catch(e){await sql.query('ROLLBACK');throw e;}
+        result=await processAccountingRequest({db,requestId:row.id});
+        continue;
+      }
       const binding=(await sql.query('SELECT cooldown_until FROM accounting_request_binding WHERE provider=$1 AND company_id=$2',
         [row.provider,row.company_id])).rows[0];
       const until=Math.max(Date.parse(result.next_attempt_at)||0,Date.parse(binding?.cooldown_until)||0);
       const wait=Math.max(1000,until-Date.now()+500);
-      if(wait>120000)break;
+      if(wait>180000)break;
       await new Promise(resolve=>setTimeout(resolve,wait));
       result=await processAccountingRequest({db:supabase,requestId:row.id});
     }

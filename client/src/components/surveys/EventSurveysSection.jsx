@@ -2,8 +2,10 @@ import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import AssignmentVersionNotice from "./AssignmentVersionNotice";
+import SurveyLifecycleDialog from "./SurveyLifecycleDialog";
+import SurveyAvailabilityBadge from "./SurveyAvailabilityBadge";
+import { assignmentIsRemoved } from "@/lib/surveyLifecycle";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -29,22 +31,20 @@ import {
   BarChart3,
   Copy,
   ExternalLink,
-  Archive,
   RotateCcw,
   Trash2,
 } from "lucide-react";
 
 // Reusable section that lists survey assignments for an event (simple or complex)
-// and lets admins assign, archive/reactivate and remove them.
-// Writes go through /api/surveys/event-assignments (the generic entity API
-// rejects writes for EventSurveyAssignment).
+// Event relationships are retained; lifecycle changes use the shared impact workflow.
 export default function EventSurveysSection({ eventId, eventType = "event" }) {
+  const [lifecycleRequest, setLifecycleRequest] = useState(null);
   const queryClient = useQueryClient();
   const isComplex = eventType === "complex_event";
 
   const assignmentsKey = ["event-survey-assignments", eventType, eventId];
 
-  const { data: assignments = [], isLoading } = useQuery({
+  const { data: assignments = [], isLoading, isError, refetch } = useQuery({
     queryKey: assignmentsKey,
     queryFn: () =>
       base44.entities.EventSurveyAssignment.filter(
@@ -130,64 +130,6 @@ export default function EventSurveysSection({ eventId, eventType = "event" }) {
     },
   });
 
-  const patchMutation = useMutation({
-    mutationFn: async ({ id, ...changes }) => {
-      const response = await fetch("/api/surveys/event-assignments", {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, ...changes }),
-      });
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        const e = new Error(err.message || err.error || "Failed to update survey");
-        e.status = response.status;
-        e.code = err.code;
-        throw e;
-      }
-      return response.json();
-    },
-    onSuccess: (_data, variables) => {
-      toast.success(variables.status === "archived" ? "Survey archived" : "Survey updated");
-      invalidate();
-    },
-    onError: (error) => {
-      toast.error(error.message || "Failed to update survey");
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: async ({ id }) => {
-      const response = await fetch("/api/surveys/event-assignments", {
-        method: "DELETE",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id }),
-      });
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        const e = new Error(err.message || err.error || "Failed to remove survey");
-        e.status = response.status;
-        e.code = err.code;
-        throw e;
-      }
-      return response.json();
-    },
-    onSuccess: () => {
-      toast.success("Survey removed");
-      invalidate();
-    },
-    onError: (error) => {
-      if (error.status === 409 || error.code === "HAS_RESPONSES") {
-        toast.error(
-          "This survey already has responses and can't be removed. Archive it instead to stop new responses."
-        );
-      } else {
-        toast.error(error.message || "Failed to remove survey");
-      }
-    },
-  });
-
   const formatDate = (value) => {
     if (!value) return null;
     try {
@@ -195,37 +137,6 @@ export default function EventSurveysSection({ eventId, eventType = "event" }) {
     } catch {
       return value;
     }
-  };
-
-  // Status badge + derived "not open yet" / "closed" states for active rows.
-  const renderStatusBadge = (row) => {
-    if (row.status === "archived") {
-      return (
-        <Badge variant="secondary" data-testid={`badge-status-${row.id}`}>
-          Archived
-        </Badge>
-      );
-    }
-    const now = Date.now();
-    if (row.opens_at && new Date(row.opens_at).getTime() > now) {
-      return (
-        <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100" data-testid={`badge-status-${row.id}`}>
-          Not open yet
-        </Badge>
-      );
-    }
-    if (row.closes_at && new Date(row.closes_at).getTime() < now) {
-      return (
-        <Badge className="bg-slate-200 text-slate-700 hover:bg-slate-200" data-testid={`badge-status-${row.id}`}>
-          Closed
-        </Badge>
-      );
-    }
-    return (
-      <Badge className="bg-green-100 text-green-800 hover:bg-green-100" data-testid={`badge-status-${row.id}`}>
-        Active
-      </Badge>
-    );
   };
 
   const copyLink = async (row) => {
@@ -253,12 +164,12 @@ export default function EventSurveysSection({ eventId, eventType = "event" }) {
           Assign a survey
         </Button>
       </div>
+      <p className="text-sm text-slate-500">Attached does not mean available. Survey lifecycle, published version, access rules and response dates determine whether a link accepts responses. Removed relationships remain here for history.</p>
 
       {isLoading ? (
-        <div className="flex items-center justify-center py-8 text-slate-500">
-          <Loader2 className="w-5 h-5 animate-spin mr-2" />
-          Loading surveys...
-        </div>
+        <div className="space-y-3 py-4 animate-pulse" role="status" aria-label="Loading surveys"><div className="h-24 rounded-lg bg-slate-100" /><div className="h-24 rounded-lg bg-slate-100" /></div>
+      ) : isError ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800" role="alert">Survey assignments could not be loaded. <button type="button" className="underline" onClick={() => refetch()}>Retry</button></div>
       ) : assignments.length === 0 ? (
         <p className="text-sm text-slate-500 py-4" data-testid="text-no-surveys">
           No surveys assigned to this event yet.
@@ -283,7 +194,7 @@ export default function EventSurveysSection({ eventId, eventType = "event" }) {
                       <span className="font-medium text-slate-900" data-testid={`text-survey-name-${row.id}`}>
                         {surveyName}
                       </span>
-                      {renderStatusBadge(row)}
+                      <SurveyAvailabilityBadge assignment={row} form={forms.find(form => form.id === row.form_id)} />
                     </div>
                     <div className="text-sm text-slate-500">{openWindow}</div>
                     <div className="text-sm text-slate-500">
@@ -361,43 +272,29 @@ export default function EventSurveysSection({ eventId, eventType = "event" }) {
                   </Button>
 
                   <div className="ml-auto flex items-center gap-2">
-                    {row.status === "archived" ? (
+                    {assignmentIsRemoved(row) ? (
                       <Button
                         type="button"
                         variant="outline"
                         size="sm"
-                        disabled={patchMutation.isPending}
-                        onClick={() => patchMutation.mutate({ id: row.id, status: "active" })}
+                        onClick={() => setLifecycleRequest({ form_id: row.form_id, assignment_id: row.id, action: "reattach_assignment" })}
                         data-testid={`button-reactivate-${row.id}`}
                       >
                         <RotateCcw className="w-3.5 h-3.5 mr-1.5" />
-                        Reactivate
+                        Reattach to Event
                       </Button>
                     ) : (
                       <Button
                         type="button"
                         variant="outline"
                         size="sm"
-                        disabled={patchMutation.isPending}
-                        onClick={() => patchMutation.mutate({ id: row.id, status: "archived" })}
-                        data-testid={`button-archive-${row.id}`}
+                        onClick={() => setLifecycleRequest({ form_id: row.form_id, assignment_id: row.id, action: "remove_assignment" })}
+                        data-testid={`button-remove-${row.id}`}
                       >
-                        <Archive className="w-3.5 h-3.5 mr-1.5" />
-                        Archive
+                        <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+                        Remove from Event
                       </Button>
                     )}
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                      disabled={deleteMutation.isPending}
-                      onClick={() => deleteMutation.mutate({ id: row.id })}
-                      data-testid={`button-remove-${row.id}`}
-                    >
-                      <Trash2 className="w-3.5 h-3.5 mr-1.5" />
-                      Remove
-                    </Button>
                   </div>
                 </div>
               </div>
@@ -406,6 +303,7 @@ export default function EventSurveysSection({ eventId, eventType = "event" }) {
         </div>
       )}
 
+      <SurveyLifecycleDialog request={lifecycleRequest} onClose={() => setLifecycleRequest(null)} onComplete={invalidate} />
       <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
         <DialogContent data-testid="dialog-assign-survey">
           <DialogHeader>

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -36,7 +36,6 @@ import {
   Copy,
   ExternalLink,
   Edit2,
-  Archive,
   ArchiveRestore,
   Trash2,
   Search,
@@ -44,6 +43,9 @@ import {
 import { createPageUrl } from "@/utils";
 import { Link } from "react-router-dom";
 import AssignmentVersionNotice from "./AssignmentVersionNotice";
+import SurveyLifecycleDialog from "./SurveyLifecycleDialog";
+import SurveyAvailabilityBadge from "./SurveyAvailabilityBadge";
+import { assignmentIsRemoved } from "@/lib/surveyLifecycle";
 
 const ENDPOINT = "/api/surveys/event-assignments";
 
@@ -83,19 +85,8 @@ function isEventDeleted(row) {
   return row.event_id == null && row.complex_event_id == null;
 }
 
-function getDerivedStatus(row) {
-  if (row.status === "archived") return { label: "Archived", variant: "secondary" };
-  const now = Date.now();
-  if (row.opens_at && new Date(row.opens_at).getTime() > now) {
-    return { label: "Not open yet", variant: "outline" };
-  }
-  if (row.closes_at && new Date(row.closes_at).getTime() < now) {
-    return { label: "Closed", variant: "outline" };
-  }
-  return { label: "Active", variant: "default" };
-}
-
 export default function SurveyEventAssignmentsPanel({ formId }) {
+  const [lifecycleRequest, setLifecycleRequest] = useState(null);
   const queryClient = useQueryClient();
   const listQueryKey = ["event-survey-assignments", formId];
 
@@ -125,103 +116,20 @@ export default function SurveyEventAssignmentsPanel({ formId }) {
     setEditAccessMode(row.access_mode || "public");
   };
 
-  const patchMutation = useMutation({
-    mutationFn: async (body) => {
-      const res = await fetch(ENDPOINT, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        let msg = "Failed to update assignment";
-        try {
-          const err = await res.json();
-          msg = err.error || err.message || msg;
-        } catch {}
-        throw new Error(msg);
-      }
-      return res.json();
-    },
-    onSuccess: () => {
-      invalidateList();
-    },
-    onError: (err) => {
-      toast.error(err.message || "Failed to update assignment");
-    },
-  });
-
   const handleSaveEdit = () => {
-    patchMutation.mutate(
-      {
-        id: editRow.id,
-        opens_at: fromDateTimeLocal(editOpensAt),
-        closes_at: fromDateTimeLocal(editClosesAt),
-        access_mode: editAccessMode,
-      },
-      {
-        onSuccess: () => {
-          toast.success("Assignment updated");
-          setEditRow(null);
-        },
-      }
-    );
-  };
-
-  const handleToggleStatus = (row) => {
-    const nextStatus = row.status === "archived" ? "active" : "archived";
-    patchMutation.mutate(
-      { id: row.id, status: nextStatus },
-      {
-        onSuccess: () => {
-          toast.success(nextStatus === "archived" ? "Assignment archived" : "Assignment reactivated");
-        },
-      }
-    );
-  };
-
-  // ---- Delete ----
-  const deleteMutation = useMutation({
-    mutationFn: async (row) => {
-      const res = await fetch(ENDPOINT, {
-        method: "DELETE",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: row.id }),
-      });
-      if (!res.ok) {
-        let payload = {};
-        try {
-          payload = await res.json();
-        } catch {}
-        const error = new Error(payload.error || payload.message || "Failed to remove assignment");
-        error.status = res.status;
-        error.code = payload.code;
-        error.row = row;
-        throw error;
-      }
-      return res.json();
-    },
-    onSuccess: () => {
-      toast.success("Assignment removed");
-      invalidateList();
-    },
-    onError: (err) => {
-      if (err.status === 409 && err.code === "HAS_RESPONSES") {
-        toast.error("This assignment has responses and cannot be removed. Archive it instead.", {
-          action: {
-            label: "Archive",
-            onClick: () => handleToggleStatus(err.row),
-          },
-        });
-      } else {
-        toast.error(err.message || "Failed to remove assignment");
-      }
-    },
-  });
-
-  const handleRemove = (row) => {
-    deleteMutation.mutate(row);
+    if (!editRow) return;
+    const changes = {
+      opens_at: fromDateTimeLocal(editOpensAt),
+      closes_at: fromDateTimeLocal(editClosesAt),
+      access_mode: editAccessMode,
+    };
+    if (changes.opens_at && changes.closes_at && Date.parse(changes.closes_at) <= Date.parse(changes.opens_at)) {
+      toast.error("The closing date must be after the opening date.");
+      return;
+    }
+    // Identical proposed settings are bound to preview and execution.
+    setLifecycleRequest({ form_id: formId, assignment_id: editRow.id, action: "update_assignment", changes });
+    setEditRow(null);
   };
 
   // ---- Copy link ----
@@ -242,7 +150,7 @@ export default function SurveyEventAssignmentsPanel({ formId }) {
         <div>
           <h3 className="text-lg font-semibold text-slate-900">Event Assignments</h3>
           <p className="text-sm text-slate-500">
-            Assign this survey to events so attendees can respond via a dedicated link.
+            Event relationships and responses are retained when removed. Availability also depends on the survey lifecycle and the original response window.
           </p>
         </div>
         <Button
@@ -274,7 +182,7 @@ export default function SurveyEventAssignmentsPanel({ formId }) {
                 <TableRow>
                   <TableHead>Event</TableHead>
                   <TableHead>Survey version</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead>Relationship / availability</TableHead>
                   <TableHead>Opens / Closes</TableHead>
                   <TableHead>Access</TableHead>
                   <TableHead>Responses</TableHead>
@@ -285,7 +193,6 @@ export default function SurveyEventAssignmentsPanel({ formId }) {
               <TableBody>
                 {assignments.map((row) => {
                   const deleted = isEventDeleted(row);
-                  const status = getDerivedStatus(row);
                   const eventUrl = row.event_type === "complex_event"
                     ? `${createPageUrl("CreateComplexEvent")}?id=${row.complex_event_id}`
                     : `${createPageUrl("EditEvent")}?id=${row.event_id}`;
@@ -312,7 +219,7 @@ export default function SurveyEventAssignmentsPanel({ formId }) {
                         <AssignmentVersionNotice assignment={row} />
                       </TableCell>
                       <TableCell>
-                        <Badge variant={status.variant}>{status.label}</Badge>
+                        <SurveyAvailabilityBadge assignment={row} />
                       </TableCell>
                       <TableCell className="text-xs text-slate-600">
                         <div>Opens: {formatDate(row.opens_at, true)}</div>
@@ -377,26 +284,16 @@ export default function SurveyEventAssignmentsPanel({ formId }) {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => handleToggleStatus(row)}
-                            title={row.status === "archived" ? "Reactivate" : "Archive"}
-                            disabled={patchMutation.isPending}
-                            data-testid={`button-archive-${row.id}`}
+                            onClick={() => setLifecycleRequest({ form_id: formId, assignment_id: row.id, action: assignmentIsRemoved(row) ? "reattach_assignment" : "remove_assignment" })}
+                            title={assignmentIsRemoved(row) ? "Reattach to Event" : "Remove from Event"}
+                            data-testid={`button-${assignmentIsRemoved(row) ? "reattach" : "remove"}-${row.id}`}
                           >
-                            {row.status === "archived" ? (
+                            {assignmentIsRemoved(row) ? (
                               <ArchiveRestore className="w-4 h-4" />
                             ) : (
-                              <Archive className="w-4 h-4" />
+                              <Trash2 className="w-4 h-4" />
                             )}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleRemove(row)}
-                            title="Remove"
-                            disabled={deleteMutation.isPending}
-                            data-testid={`button-remove-${row.id}`}
-                          >
-                            <Trash2 className="w-4 h-4 text-red-500" />
+                            <span className="ml-1.5">{assignmentIsRemoved(row) ? "Reattach to Event" : "Remove from Event"}</span>
                           </Button>
                         </div>
                       </TableCell>
@@ -409,12 +306,13 @@ export default function SurveyEventAssignmentsPanel({ formId }) {
         </CardContent>
       </Card>
 
+      <SurveyLifecycleDialog request={lifecycleRequest} onClose={() => setLifecycleRequest(null)} onComplete={invalidateList} />
       {/* Edit dialog */}
       <Dialog open={!!editRow} onOpenChange={(open) => !open && setEditRow(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit assignment</DialogTitle>
-            <DialogDescription>{editRow?.event_title}</DialogDescription>
+            <DialogDescription>{editRow?.event_title} · Date and access changes require an impact review before they are applied.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
@@ -454,12 +352,10 @@ export default function SurveyEventAssignmentsPanel({ formId }) {
             </Button>
             <Button
               onClick={handleSaveEdit}
-              disabled={patchMutation.isPending}
               className="bg-blue-600 hover:bg-blue-700"
               data-testid="button-save-edit"
             >
-              {patchMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              Save
+              Review impact
             </Button>
           </DialogFooter>
         </DialogContent>

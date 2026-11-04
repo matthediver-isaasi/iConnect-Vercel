@@ -37,16 +37,19 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: 'Admin access required' });
     }
     const tenantId = tenantCtx.tenantId;
+    if (req.method !== 'POST') {
+      return res.status(409).json({ error: 'Use survey lifecycle management to review the impact before changing or removing an assignment.' });
+    }
 
     // Resolve the acting admin's email for the audit trail.
-    let actor = null;
+    let actor = tenantCtx.memberId || tenantCtx.tenantUserId || null;
     try {
       if (tenantCtx.memberId) {
         const { data: m } = await supabase.from('member').select('email').eq('id', tenantCtx.memberId).maybeSingle();
-        actor = m?.email || null;
+        actor = m?.email || actor;
       } else if (tenantCtx.tenantUserId) {
         const { data: tu } = await supabase.from('tenant_user').select('email').eq('id', tenantCtx.tenantUserId).maybeSingle();
-        actor = tu?.email || null;
+        actor = tu?.email || actor;
       }
     } catch {
       // Audit attribution is best-effort; never blocks the operation.

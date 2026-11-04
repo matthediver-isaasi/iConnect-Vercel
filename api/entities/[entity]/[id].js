@@ -1688,13 +1688,21 @@ export default async function handler(req, res, dependencies = {}) {
             || Object.prototype.hasOwnProperty.call(sanitizedBody, 'form_type'))) {
         const { data: existingForm } = await supabase
           .from('form')
-          .select('form_type, survey_settings, survey_audit_log')
+          .select('form_type, survey_settings, survey_audit_log, is_active, archived_at, deactivate_at')
           .eq('id', id)
           .maybeSingle();
         const isSurveyTarget = existingForm?.form_type === 'survey' || sanitizedBody.form_type === 'survey';
         if (isSurveyTarget) {
+          if (['is_active', 'archived_at', 'deactivate_at'].some(key =>
+            Object.prototype.hasOwnProperty.call(sanitizedBody, key)
+            && (sanitizedBody[key] ?? null) !== (existingForm?.[key] ?? null))) {
+            return res.status(409).json({ error: 'Use survey lifecycle management to review changes to availability.' });
+          }
           const currentStatus = existingForm?.survey_settings?.status || 'draft';
           const requestedStatus = sanitizedBody.survey_settings?.status;
+          if (requestedStatus === 'archived' && currentStatus !== 'archived') {
+            return res.status(409).json({ error: 'Use survey lifecycle management to review archiving.' });
+          }
           if (requestedStatus === 'published' && currentStatus !== 'published') {
             return res.status(400).json({ error: 'Surveys are published via the publish endpoint, not a direct status update' });
           }
@@ -1705,11 +1713,14 @@ export default async function handler(req, res, dependencies = {}) {
           const touchesConfig = ['fields', 'visibility_rules', 'pages', 'survey_settings', 'form_type'].some(
             (k) => Object.prototype.hasOwnProperty.call(sanitizedBody, k)
           );
-          if (currentStatus === 'published' && touchesConfig && requestedStatus !== 'archived') {
+          if (touchesConfig) {
             sanitizedBody.survey_settings = {
               ...(existingForm?.survey_settings || {}),
               ...(sanitizedBody.survey_settings && typeof sanitizedBody.survey_settings === 'object' ? sanitizedBody.survey_settings : {}),
-              status: 'draft'
+              status: currentStatus,
+              lifecycle_state: existingForm?.survey_settings?.lifecycle_state,
+              current_version: existingForm?.survey_settings?.current_version,
+              has_unpublished_changes: true,
             };
           }
           // Server-authored audit entries for lifecycle transitions.

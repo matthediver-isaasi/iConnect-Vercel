@@ -39,8 +39,8 @@ export default function AssignmentVersionNotice({ assignment }) {
                 : "Assigned snapshot: Unavailable"}
           </Badge>
           <p className="text-xs text-slate-600">
-            {validNumber(current) && form?.survey_settings?.status === "published"
-              ? `Link serves current published Version ${current.version_number}.`
+            {validNumber(current)
+              ? `Link serves current published Version ${current.version_number} when available.`
               : "Current published version unavailable."}
           </p>
           {older && (
@@ -51,6 +51,7 @@ export default function AssignmentVersionNotice({ assignment }) {
           <p className="text-xs text-slate-500">
             The assigned snapshot is a reference, not a version pin. This link uses the current published survey.
           </p>
+          {form?.survey_settings?.has_unpublished_changes && <p className="text-xs font-medium text-warning">Unpublished draft edits are not live. The published snapshot is unchanged until explicitly published.</p>}
           {failed && (
             <button type="button" className="text-xs font-medium text-blue-600 hover:underline" onClick={() => {
               formQuery.refetch();

@@ -1,3 +1,5 @@
+import { surveyLifecycleState, surveyUnavailable } from '../../_lib/surveyLifecycleState.js';
+import { getTenantContext, hasAdminAccess } from '../../_lib/tenantContext.js';
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../../_lib/tenantResolver.js';
 import { getSession } from '../../_lib/session.js';
@@ -95,7 +97,6 @@ export default async function handler(req, res) {
       .select('*')
       .eq('slug', slug)
       .eq('tenant_id', tenant.id)
-      .eq('is_active', true)
       .single();
 
     if (error) {
@@ -112,7 +113,7 @@ export default async function handler(req, res) {
 
     // Scheduled deactivation: once the configured time has passed, treat the
     // form as inactive even though is_active is still true.
-    if (!isFormScheduleAvailable(form)) {
+    if (form.form_type !== 'survey' && (form.is_active !== true || !isFormScheduleAvailable(form))) {
       return res.status(404).json({ error: 'Form not found or inactive' });
     }
 
@@ -120,6 +121,15 @@ export default async function handler(req, res) {
       supabase, req, tenantId: tenant.id, policy: form.access_policy,
     });
     if (!access.allowed) return sendFormAccessDenied(res, access);
+    let surveyAdminPreview = false;
+    if (form.form_type === 'survey' && req.query.authenticated === '1') {
+      const previewContext = await getTenantContext(req);
+      surveyAdminPreview = previewContext.isAuthenticated && previewContext.tenantId === tenant.id
+        && await hasAdminAccess(previewContext);
+    }
+    if (form.form_type === 'survey' && !surveyAdminPreview && (surveyLifecycleState(form) !== 'active' || !isFormScheduleAvailable(form))) {
+      return res.status(409).json(surveyUnavailable(surveyLifecycleState(form) !== 'active' ? surveyLifecycleState(form) : 'closed'));
+    }
 
     const isAuthenticatedRequest = req.query.authenticated === '1';
     let hasValidSession = false;

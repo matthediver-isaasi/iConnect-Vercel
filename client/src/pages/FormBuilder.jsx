@@ -60,6 +60,7 @@ import ScoreField from "@/components/forms/ScoreField";
 import { validateScoreFieldConfig, validateSurveyForPublish, getScoreRange, getScoreWeight } from "../../../api/_lib/surveyScoring.js";
 import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
 import SurveyEventAssignmentsPanel from "@/components/surveys/SurveyEventAssignmentsPanel";
+import SurveyLifecycleControls from "@/components/surveys/SurveyLifecycleControls";
 import FormSubmissionAlerts from "@/components/forms/FormSubmissionAlerts";
 import MemberChangeFormSettings from "@/components/MemberChangeFormSettings";
 import MemberAffiliationSettings from "@/components/forms/MemberAffiliationSettings";
@@ -13053,14 +13054,14 @@ function FormBuilderEditor() {
                 <Label htmlFor="require_authentication" className="text-sm">Require Login</Label>
               </div>
 
-              <div className="flex items-center gap-3">
+              {formData.form_type !== 'survey' && <div className="flex items-center gap-3">
                 <Switch
                   id="is_active"
                   checked={formData.is_active}
                   onCheckedChange={(checked) => setFormData({ ...formData, is_active: checked })}
                 />
                 <Label htmlFor="is_active" className="text-sm">Active</Label>
-              </div>
+              </div>}
 
               <div className="flex items-center gap-3">
                 <Switch
@@ -15095,22 +15096,8 @@ function FormBuilderEditor() {
                         data-testid="input-survey-thankyou"
                       />
                     </div>
-                    <div className="space-y-2">
-                      <Label>Survey Status</Label>
-                      <Select
-                        value={formData.survey_settings?.status || 'draft'}
-                        onValueChange={(value) => updateSurveySetting('status', value)}
-                      >
-                        <SelectTrigger data-testid="select-survey-status"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="draft">Draft</SelectItem>
-                          {(formData.survey_settings?.status === 'published') && (
-                            <SelectItem value="published">Published</SelectItem>
-                          )}
-                          <SelectItem value="archived">Archived</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <p className="text-xs text-slate-500">Separate from the form's Active flag. Publishing happens only via the Publish button (creates a version snapshot); editing a published survey reverts it to draft until re-published.</p>
+                    <div className="space-y-2 md:col-span-2">
+                      <SurveyLifecycleControls form={{ ...formData, id: formId }} />
                     </div>
                     <div className="space-y-2">
                       <Label>Response Identity</Label>

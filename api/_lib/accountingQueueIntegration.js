@@ -1,3 +1,4 @@
+import { authorizeAccountingReconnect } from './accountingReconnectApproval.js';
 import { enqueueAccountingRequest, processAccountingRequest } from './accountingRequestQueue.js';
 import { runBnmsOctoberInvoice } from './accountingBnmsOctoberRecovery.js';
 import { createAccountingRequestProviders, prepareAccountingRequestEnvelope } from './accountingRequestProviders.js';
@@ -152,15 +153,14 @@ export async function getAccountingQueueAdapter(row, controls = {}, dependencies
   };
   const resolveConnection = dependencies.resolveConnection || (async (candidate, transport) => {
     let binding = await resolveAccountingQueueBinding({ db, tenantId: candidate.tenant_id, provider: candidate.provider });
-    if (binding.connectionId !== candidate.connection_id || binding.companyId !== candidate.company_id) {
-      fail('ACCOUNTING_QUEUE_BINDING_CHANGED');
-    }
+    binding = await authorizeAccountingReconnect({db,row:candidate,binding});
     if (!binding.accessToken || !(Date.parse(binding.expiresAt) > Date.now() + 30000)) {
       const refresh = candidate.provider === 'xero'
         ? (await import('./xero.js')).getValidXeroAccessToken
         : (await import('./quickbooks.js')).getValidQuickBooksAccessToken;
       await refresh(candidate.tenant_id, { fetch: transport.fetch, timeoutMs: 10000, deadlineAt: controls.deadlineAt });
       binding = await resolveAccountingQueueBinding({ db, tenantId: candidate.tenant_id, provider: candidate.provider });
+      binding = await authorizeAccountingReconnect({db,row:candidate,binding});
     }
     return binding;
   });
@@ -192,7 +192,8 @@ export async function getAccountingQueueAdapter(row, controls = {}, dependencies
         };
         transport.resolveConnection = async () => {
           await adapter.assertBinding(candidate);
-          return resolveAccountingQueueBinding({ db, tenantId: candidate.tenant_id, provider: candidate.provider });
+          const binding=await resolveAccountingQueueBinding({ db, tenantId: candidate.tenant_id, provider: candidate.provider });
+          return authorizeAccountingReconnect({db,row:candidate,binding});
         };
         let prepared;
         try {

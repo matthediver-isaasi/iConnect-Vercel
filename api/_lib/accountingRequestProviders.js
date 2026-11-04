@@ -341,7 +341,12 @@ export function createAccountingRequestProviders({
     for (let page = 1; page <= maxPages; page++) {
       let path;
       if (xero) {
-        const where = `Reference==${JSON.stringify(e.payload.Reference)}`;
+        // Xero's Reference equality filter silently misses multiline values.
+        // Bound the scan by immutable ownership, then compare the complete
+        // reference locally. Never relax uniqueness or exact-ID readback.
+        const where = kind === 'invoice'
+          ? `Contact.ContactID==Guid(${JSON.stringify(e.expected.contactId)})`
+          : `Invoice.InvoiceID==Guid(${JSON.stringify(e.expected.invoiceId)})`;
         path = `/${entity}s?where=${encodeURIComponent(where)}&page=${page}&pageSize=100`;
       } else {
         const contact = e.expected.contactId.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
@@ -352,7 +357,8 @@ export function createAccountingRequestProviders({
       const records = xero ? data?.[`${entity}s`] : data?.QueryResponse?.[entity] || [];
       if (!Array.isArray(records)) fail('INVALID_DISCOVERY_RESPONSE');
       for (const record of records) {
-        if (String(record?.[xero ? 'Reference' : 'PrivateNote'] || '').split('\n').includes(e.marker)) {
+        if ((!xero || record.Reference === e.payload.Reference)
+          && String(record?.[xero ? 'Reference' : 'PrivateNote'] || '').split('\n').includes(e.marker)) {
           const id = record[xero ? `${entity}ID` : 'Id'];
           if (!nonempty(id)) fail('INVALID_DISCOVERY_ID');
           candidates.add(id);

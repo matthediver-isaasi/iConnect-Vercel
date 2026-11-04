@@ -1,4 +1,5 @@
 import { applySurveyPresentation, surveySuccessMessage, surveyIntroText, showSurveyProgress, surveyProgress } from '@/lib/surveyPresentation';
+import { publicSurveyUnavailableMessage } from '@/lib/surveyLifecycle';
 import { evaluateScoreCondition } from '@/lib/surveyConditions';
 import FormConsentNotice from '@/components/forms/FormConsentNotice';
 import { useFormConsentSettings } from '@/lib/useFormConsentSettings';
@@ -2704,15 +2705,33 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     );
   }
 
+  const unavailableState = assignmentMeta?.unavailable_state || assignmentMeta?.lifecycle_state
+    || assignmentMeta?.state || assignmentMeta?.errorstate || rawForm?.unavailable_state || rawForm?.errorstate
+    || formError?.errorData?.unavailable_state || formError?.errorData?.lifecycle_state
+    || formError?.errorData?.state || formError?.errorData?.errorstate;
+  if (unavailableState && (["draft", "paused", "closed", "archived", "removed", "removed_assignment"].includes(unavailableState)
+    || !form || rawForm?.__assignmentBlocked || formError)) {
+    return withManagementReturn(
+      <div className="min-h-[100dvh] bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+        <Card className="w-full max-w-md border-slate-200">
+          <CardContent className="p-8 text-center space-y-3" data-testid="survey-unavailable">
+            <AlertTriangle className="mx-auto h-8 w-8 text-slate-400" />
+            <h1 className="text-xl font-semibold text-slate-900">Survey unavailable</h1>
+            <p className="text-sm text-slate-600">{publicSurveyUnavailableMessage(unavailableState)}</p>
+            <p className="text-xs text-slate-500">Previously submitted responses are retained. If you need help, contact the organiser who shared your link.</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   // Task #3331: assignment link opened outside its window, or requiring
   // authentication — the server returned event context but no form config.
   if (assignmentMeta && (rawForm?.__assignmentBlocked || assignmentMeta.closed_message || assignmentMeta.require_authentication)) {
-    const eventTitle = assignmentMeta.event?.title;
     return withManagementReturn(
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
         <Card className="max-w-md">
           <CardContent className="p-6 text-center space-y-2">
-            {eventTitle && <p className="font-medium text-slate-800">{eventTitle}</p>}
             {assignmentMeta.require_authentication && !memberInfo ? (
               <>
                 <Loader2 className="w-6 h-6 animate-spin text-blue-600 mx-auto" />

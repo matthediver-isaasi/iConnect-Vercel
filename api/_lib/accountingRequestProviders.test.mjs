@@ -139,6 +139,42 @@ test('discovery never adopts ambiguous or incomplete scans', async () => {
   }
 });
 
+test('Xero discovery uses ownership filters instead of multiline reference queries', async () => {
+  const f=fixture('xero');
+  const urls=[];
+  const a=createAccountingRequestProviders({
+    resolveConnection:async()=>({tenantId:'tenant',provider:'xero',connectionId:'connection',companyId:'company',accessToken:'fixture'}),
+    beforeRequest:async()=>{},
+    fetchImpl:async(url)=>{
+      urls.push(decodeURIComponent(url));
+      return Response.json({Invoices:url.includes('/Invoices/invoice')?[f.record]:
+        [{...f.record,InvoiceID:'other',Reference:'different\n'+f.env.marker},f.record]});
+    },
+  });
+  assert.equal((await a.discoverInvoice(f.row)).result.id,'invoice');
+  assert.match(urls[0],/Contact.ContactID==Guid\("customer"\)/);
+  assert.ok(!urls[0].includes('Reference=='));
+  assert.match(urls[1],/Invoices\/invoice/);
+});
+
+test('Xero payment discovery is bounded to the durable invoice', async () => {
+  const f=fixture('xero');
+  f.row.invoice_result={id:'invoice'};
+  f.row.snapshot.payment={envelope:prepareAccountingRequestEnvelope({
+    provider:'xero',kind:'payment',operationKey:'payment-source',
+    payload:{Invoice:{InvoiceID:'$invoice'},Account:{AccountID:'bank'},Amount:12.34,Reference:'collection'},
+    expected:{contactId:'customer',currency:'GBP',totalMinor:1234,invoiceId:'$invoice',accountId:'bank',fields:{Amount:12.34}},
+  })};
+  let url;
+  const a=createAccountingRequestProviders({
+    resolveConnection:async()=>({tenantId:'tenant',provider:'xero',connectionId:'connection',companyId:'company',accessToken:'fixture'}),
+    beforeRequest:async()=>{},
+    fetchImpl:async(u)=>{url=decodeURIComponent(u);return Response.json({Payments:[]});},
+  });
+  assert.equal((await a.discoverPayment(f.row)).outcome,'missing');
+  assert.match(url,/Invoice.InvoiceID==Guid\("invoice"\)/);
+});
+
 test('payment validates exact allocation, bank and durable invoice result independently', () => {
   const f = fixture();
   const payload = { CustomerRef: { value: 'customer' }, CurrencyRef: { value: 'GBP' },

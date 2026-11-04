@@ -11,7 +11,7 @@ import {
 
 test('save and pre-publish settings never request direct publication or mutate builder state', () => {
   const settings = { status: 'published', current_version: 2, response_identity: 'anonymous_dedupe', anonymous_completion_version: 1 };
-  assert.deepEqual(surveySettingsForSave(settings), { ...settings, status: 'draft' });
+  assert.deepEqual(surveySettingsForSave(settings), settings);
   assert.equal(settings.status, 'published');
   for (const status of ['draft', 'closed']) {
     assert.deepEqual(surveySettingsForSave({ ...settings, status }), { ...settings, status });
