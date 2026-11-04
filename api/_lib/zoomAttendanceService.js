@@ -25,6 +25,7 @@ async function fetchZoomParticipants(token, zoomId, zoomType) {
   do {
     const url = new URL(baseUrl);
     url.searchParams.set('page_size', '300');
+    url.searchParams.set('include_fields', 'registrant_id');
     if (nextPageToken) {
       url.searchParams.set('next_page_token', nextPageToken);
     }
@@ -48,7 +49,12 @@ async function fetchZoomParticipants(token, zoomId, zoomType) {
 
     const data = await response.json();
     const participants = data.participants || [];
-    allParticipants.push(...participants);
+    if (participants.some(p => p.status && !['in_meeting', 'in_waiting_room'].includes(p.status))) {
+      throw new Error('Zoom report contains an unrecognised participant status; attendance was not applied');
+    }
+    // The meeting report includes waiting-room connections in addition to time
+    // actually in the meeting. Legacy/webinar rows may omit status.
+    allParticipants.push(...participants.filter(p => p.status !== 'in_waiting_room'));
 
     nextPageToken = data.next_page_token || '';
     page++;

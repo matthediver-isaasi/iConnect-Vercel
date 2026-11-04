@@ -4,6 +4,9 @@ The attendance adapter now reads the complete approved registration list before
 publishing a successful report. Registration lookup errors or pagination
 truncation fail closed rather than publishing partial attendance or false absences.
 Meetings explicitly reporting registration disabled retain ordinary email matching.
+The report request explicitly asks for `include_fields=registrant_id`; Zoom's
+default report response omits this field. Waiting-room rows are excluded from
+attendance duration; unknown explicit participant states fail closed.
 
 Matching order:
 
@@ -29,7 +32,9 @@ prevent unchanged attendance from awarding again.
 
 The approved BNMS event reconciliation on 3 November 2026 found 132 approved
 Zoom registrations and 132 confirmed bookings. The Zoom report supplied 43
-distinct email identities and no explicit registrant IDs. The improved matcher
+distinct email identities and initially omitted registrant IDs. A subsequent
+read-only check with the optional field enabled returned 94 rows with registrant
+IDs (42 unique IDs), agreeing with the registration emails. The improved matcher
 did not establish any additional attendee matches: 39 qualifying, 1 below threshold,
 90 with no matched report identity and 2 ambiguous booking rows remain.
 The two ambiguous bookings share the same attendee email; two other Zoom
@@ -38,7 +43,11 @@ identities based on names without separate approval.
 
 The live reprocessing changed no outcome fingerprints or revisions. This does
 not prove that all 90 unlinked bookings represent non-attendance; Zoom's report
-does not expose personalised-link identity in every case.
+may omit identity for some participants. The Zoom headline count of 49 corresponds
+to 49 in-meeting rows across 43 email identities; 47 additional rows represent
+waiting-room time. Read-only recalculation excluding waiting-room time still
+qualifies the same 39 bookings, with one below threshold. This diagnostic did
+not rewrite stored durations or send further certificates.
 
 Tests:
 

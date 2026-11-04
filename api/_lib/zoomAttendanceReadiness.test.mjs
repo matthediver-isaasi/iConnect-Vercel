@@ -39,7 +39,8 @@ async function run(durations, { nextPage = false, enabled = true, registrants = 
       };
       return builder;
     } },
-    fetch: async () => {
+    fetch: async (url) => {
+      assert.equal(new URL(url).searchParams.get('include_fields'), 'registrant_id');
       requests++;
       return { ok: true, json: async () => ({
         participants: durations.map((duration, i) => ({
@@ -79,6 +80,28 @@ test('registration-email reconciliation supports changed booking email in the ac
   });
   assert.equal(result.snapshots[0].matches[0].matchedBy,'registration_email');
   assert.equal(result.snapshots[0].matches[0].bookingId,'booking');
+});
+
+test('waiting-room time cannot satisfy the attendance threshold',async()=>{
+  const result=await run([1199,600],{participantIdentity:[{status:'in_meeting'},{status:'in_waiting_room'}]});
+  const snapshot=result.snapshots[0];
+  assert.equal(snapshot.intervals.length,1);
+  assert.equal(snapshot.intervals[0].durationSeconds,1199);
+  assert.equal(evaluateAttendance({...snapshot,thresholdMinutes:20,syncStatus:'succeeded'})[0].status,'below_threshold');
+  assert.equal(result.ledger.length,1);
+});
+
+test('waiting-room-only report remains a complete report but provides no attendance',async()=>{
+  const result=await run([3600],{participantIdentity:{status:'in_waiting_room'}});
+  const snapshot=result.snapshots[0];
+  assert.equal(snapshot.intervals.length,0);
+  assert.equal(evaluateAttendance({...snapshot,thresholdMinutes:20,syncStatus:'succeeded'})[0].status,'absent');
+});
+
+test('unrecognised participant status fails closed without publishing outcomes',async()=>{
+  const result=await run([3600],{participantIdentity:{status:'unexpected'}});
+  assert.equal(result.result.success,false);
+  assert.equal(result.snapshots.length,0);
 });
 
 test('mixed registrant-ID and email-only rejoins aggregate for the same resolved booking',async()=>{
