@@ -2195,10 +2195,12 @@ export default function EditEvent() {
 
     return (
       <div className="max-w-6xl mx-auto">
-        <div className="flex items-center gap-4 mb-6">
+        <div className="flex flex-wrap sm:flex-nowrap items-start gap-4 mb-6">
           <Button 
             variant="ghost" 
             size="icon"
+            className="shrink-0"
+            aria-label="Back to events"
             onClick={() => {
               // Group events return to where they came from: the group events
               // list (when opened from there) or the member group detail page.
@@ -2216,9 +2218,12 @@ export default function EditEvent() {
           >
             <ArrowLeft className="h-5 w-5" />
           </Button>
-          <div className="flex-1">
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-slate-900">Edit Event</h1>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-slate-600 mb-1">Edit Event</p>
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="min-w-0 text-2xl font-bold text-slate-900 [overflow-wrap:anywhere]" data-testid="event-editor-title">
+                {event.title?.trim() || "Untitled event"}
+              </h1>
               {isOnlineEvent && (
                 <Badge variant="secondary" className="bg-green-100 text-green-700 border-green-200">
                   <Video className="w-3 h-3 mr-1" />
@@ -2226,7 +2231,6 @@ export default function EditEvent() {
                 </Badge>
               )}
             </div>
-            <p className="text-slate-600">Update event details</p>
           </div>
           {eventId && (
             <Button
