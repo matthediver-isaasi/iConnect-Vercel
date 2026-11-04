@@ -15,6 +15,15 @@ export function assignmentIsRemoved(assignment) {
   return ["removed", "archived"].includes(assignment?.status);
 }
 
+export function surveyAssignmentCardClass(form, assignment) {
+  if (assignmentIsRemoved(assignment)) return "border-red-200 bg-red-50";
+  if (!form) return "border-slate-200 bg-white";
+  const state = surveyLifecycleState(form);
+  if (state === "active") return "border-green-200 bg-green-50";
+  if (state === "draft") return "border-yellow-200 bg-yellow-50";
+  return "border-slate-200 bg-slate-50";
+}
+
 export function surveyAvailability(form, assignment, now = Date.now()) {
   if (!form) return { available: false, label: "Availability unknown", reason: "Survey details could not be verified." };
   if (assignment && assignmentIsRemoved(assignment)) {

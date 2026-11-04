@@ -4,7 +4,7 @@ import { base44 } from "@/api/base44Client";
 import AssignmentVersionNotice from "./AssignmentVersionNotice";
 import SurveyLifecycleDialog from "./SurveyLifecycleDialog";
 import SurveyAvailabilityBadge from "./SurveyAvailabilityBadge";
-import { assignmentIsRemoved } from "@/lib/surveyLifecycle";
+import { assignmentIsRemoved, surveyAssignmentCardClass } from "@/lib/surveyLifecycle";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -39,6 +39,7 @@ import {
 // Event relationships are retained; lifecycle changes use the shared impact workflow.
 export default function EventSurveysSection({ eventId, eventType = "event" }) {
   const [lifecycleRequest, setLifecycleRequest] = useState(null);
+  const [showRemoved, setShowRemoved] = useState(false);
   const queryClient = useQueryClient();
   const isComplex = eventType === "complex_event";
 
@@ -72,6 +73,8 @@ export default function EventSurveysSection({ eventId, eventType = "event" }) {
     () => (forms || []).filter((f) => f && f.form_type === "survey"),
     [forms]
   );
+  const removedCount = assignments.filter(assignmentIsRemoved).length;
+  const visibleAssignments = assignments.filter(row => showRemoved || !assignmentIsRemoved(row));
 
   // ---- Assign dialog state ----
   const [assignOpen, setAssignOpen] = useState(false);
@@ -151,7 +154,17 @@ export default function EventSurveysSection({ eventId, eventType = "event" }) {
 
   return (
     <div className="space-y-4" data-testid="event-surveys-section">
-      <div className="flex justify-end">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={showRemoved}
+            onChange={event => setShowRemoved(event.target.checked)}
+            className="h-4 w-4 accent-slate-900"
+            data-testid="toggle-removed-surveys"
+          />
+          Show removed surveys{removedCount > 0 ? ` (${removedCount})` : ""}
+        </label>
         <Button
           type="button"
           onClick={() => {
@@ -164,20 +177,23 @@ export default function EventSurveysSection({ eventId, eventType = "event" }) {
           Assign a survey
         </Button>
       </div>
-      <p className="text-sm text-slate-500">Attached does not mean available. Survey lifecycle, published version, access rules and response dates determine whether a link accepts responses. Removed relationships remain here for history.</p>
+      <p className="text-sm text-slate-500">Attached does not mean available. Survey lifecycle, published version, access rules and response dates determine whether a link accepts responses. Select “Show removed surveys” to view retained history or reattach a survey.</p>
 
       {isLoading ? (
         <div className="space-y-3 py-4 animate-pulse" role="status" aria-label="Loading surveys"><div className="h-24 rounded-lg bg-slate-100" /><div className="h-24 rounded-lg bg-slate-100" /></div>
       ) : isError ? (
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800" role="alert">Survey assignments could not be loaded. <button type="button" className="underline" onClick={() => refetch()}>Retry</button></div>
-      ) : assignments.length === 0 ? (
+      ) : visibleAssignments.length === 0 ? (
         <p className="text-sm text-slate-500 py-4" data-testid="text-no-surveys">
-          No surveys assigned to this event yet.
+          {removedCount > 0
+            ? "No surveys currently attached. Select “Show removed surveys” to view or reattach previous surveys."
+            : "No surveys assigned to this event yet."}
         </p>
       ) : (
         <div className="space-y-3">
-          {assignments.map((row) => {
+          {visibleAssignments.map((row) => {
             const surveyName = formNameById[row.form_id] || "Survey";
+            const form = forms.find(form => form.id === row.form_id);
             const openWindow =
               !row.opens_at && !row.closes_at
                 ? "Open immediately, no close date"
@@ -185,7 +201,7 @@ export default function EventSurveysSection({ eventId, eventType = "event" }) {
             return (
               <div
                 key={row.id}
-                className="border border-slate-200 rounded-lg p-4 space-y-3"
+                className={`border rounded-lg p-4 space-y-3 ${surveyAssignmentCardClass(form, row)}`}
                 data-testid={`survey-assignment-${row.id}`}
               >
                 <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -194,7 +210,7 @@ export default function EventSurveysSection({ eventId, eventType = "event" }) {
                       <span className="font-medium text-slate-900" data-testid={`text-survey-name-${row.id}`}>
                         {surveyName}
                       </span>
-                      <SurveyAvailabilityBadge assignment={row} form={forms.find(form => form.id === row.form_id)} />
+                      <SurveyAvailabilityBadge assignment={row} form={form} />
                     </div>
                     <div className="text-sm text-slate-500">{openWindow}</div>
                     <div className="text-sm text-slate-500">
