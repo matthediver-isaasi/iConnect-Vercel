@@ -7,6 +7,7 @@ import { attachSalesTicketValues } from '../_lib/salesTicketValue.js';
 import { attachReportCredits } from './_credits.js';
 import { summarizeRegistrationRevenue } from '../../shared/eventRegistrationRevenue.mjs';
 import { registrationMemberLinks } from '../_lib/eventRegistrationMemberLinks.js';
+import { registrationGroupMatches } from '../../shared/eventRegistrationSearch.mjs';
 
 // Continue until an empty page, not a short page: a deployment's PostgREST
 // maximum may be smaller than our requested range. A unique tie-breaker keeps
@@ -20,6 +21,17 @@ export async function readAllReportRows(query) {
     rows.push(...data);
     offset += data.length;
   }
+}
+
+// Bound URL size as well as page size. Factories return builders synchronously.
+export async function readReportIds(ids, makeQuery) {
+  const rows = [];
+  for (let i = 0; i < ids.length; i += 100) {
+    const result = await readAllReportRows(makeQuery(ids.slice(i, i + 100)));
+    if (result.error) return result;
+    rows.push(...result.data);
+  }
+  return { data: rows, error: null };
 }
 
 export function reportInvoiceRecord(bookings) {
@@ -55,8 +67,11 @@ export default async function handler(req, res, publicPoOnly = false) {
     }
 
     const { tenantId } = tenantContext;
-    const { eventId, eventName, internalReference, dateFrom, dateTo, eventDateFrom, eventDateTo, generate } =
+    const { eventId, eventName, internalReference, dateFrom, dateTo, eventDateFrom, eventDateTo, generate, name, email } =
       publicPoOnly ? { eventId: req.query?.eventId, generate: 'true' } : req.query;
+    if ([name, email].some(value => value != null && typeof value !== 'string')) {
+      return res.status(400).json({ error: 'Name and Email must be text' });
+    }
     if (publicPoOnly && eventId != null && (typeof eventId !== 'string' || !/^[0-9a-f-]{36}$/i.test(eventId))) {
       return res.status(400).json({ error: 'Invalid event selection' });
     }
@@ -227,14 +242,14 @@ export default async function handler(req, res, publicPoOnly = false) {
 
         if (targetComplexEventIds.length > 0) {
           const earliestSessionByEvent = new Map();
-          const { data: sessionRows, error: sessionsError } = await supabase
+          const { data: sessionRows, error: sessionsError } = await readReportIds(targetComplexEventIds, ids => supabase
             .from('complex_event_session')
             .select('complex_event_id, start_time')
-            .in('complex_event_id', targetComplexEventIds)
-            .eq('tenant_id', tenantId);
+            .in('complex_event_id', ids)
+            .eq('tenant_id', tenantId).order('id'));
 
           if (sessionsError) {
-            console.error('[Event Registration Report] Error fetching complex event sessions for date filter:', sessionsError);
+            throw new Error('Failed to fetch complex event sessions for date filter');
           } else {
             for (const s of sessionRows || []) {
               if (!s.start_time) continue;
@@ -306,11 +321,11 @@ export default async function handler(req, res, publicPoOnly = false) {
 
       let allBookings = [];
 
-      if (targetEventIds.length > 0) {
+      for (let offset = 0; offset < targetEventIds.length; offset += 100) {
         let bookingQuery = supabase
           .from('booking')
           .select('id, event_id, member_id, attendee_email, attendee_first_name, attendee_last_name, ticket_price, total_cost, payment_method, purchaser_context, voucher_amount, training_fund_amount, account_amount, purchase_order_number, po_to_follow, stripe_payment_intent_id, ticket_class_name, ticket_class_id, organization_id, booking_reference, booking_group_reference, xero_invoice_id, xero_invoice_number, xero_invoice_error, accounting_provider, accounting_invoice_id, accounting_invoice_number, invoice_recovery_status, invoice_recovery_next_attempt_at, is_guest_booking, status, created_at, third_party_consent, designation, buddy, badge, dietary_selections, allergy_selections, accessibility_selections, discount_code_id, discount_code_amount, attendee_job_title, attendee_phone, guest_organisation_name')
-          .in('event_id', targetEventIds)
+          .in('event_id', targetEventIds.slice(offset, offset + 100))
           .eq('tenant_id', tenantId)
           .order('booking_group_reference', { ascending: true, nullsFirst: false })
           .order('created_at', { ascending: false }).order('id');
@@ -338,11 +353,11 @@ export default async function handler(req, res, publicPoOnly = false) {
         })));
       }
 
-      if (targetComplexEventIds.length > 0) {
+      for (let offset = 0; offset < targetComplexEventIds.length; offset += 100) {
         let complexBookingQuery = supabase
           .from('complex_event_booking')
           .select('id, event_id, member_id, attendee_email, attendee_first_name, attendee_last_name, ticket_price, total_paid, payment_method, payment_status, purchaser_context, purchase_order_number, voucher_amount, training_fund_amount, account_balance_amount, stripe_payment_intent_id, ticket_class_name, ticket_class_id, organization_id, booking_reference, booking_group_reference, xero_invoice_id, xero_invoice_number, accounting_provider, accounting_invoice_id, accounting_invoice_number, invoice_recovery_status, invoice_recovery_next_attempt_at, discount_code, discount_amount, status, created_at, third_party_consent, designation, buddy, badge, dietary_selections, allergy_selections, accessibility_selections, attendee_job_title, attendee_phone, attendee_organization')
-          .in('event_id', targetComplexEventIds)
+          .in('event_id', targetComplexEventIds.slice(offset, offset + 100))
           .eq('tenant_id', tenantId)
           .order('booking_group_reference', { ascending: true, nullsFirst: false })
           .order('created_at', { ascending: false }).order('id');
@@ -391,11 +406,12 @@ export default async function handler(req, res, publicPoOnly = false) {
 
       let ticketClassMap = {};
       if (complexEventIds.length > 0) {
-        const { data: ticketClasses } = await supabase
+        const { data: ticketClasses, error } = await readReportIds(complexEventIds, ids => supabase
           .from('complex_event_ticket_class')
           .select('id, name, linked_track_ids, all_tracks, complex_event_id')
-          .in('complex_event_id', complexEventIds)
-          .eq('tenant_id', tenantId);
+          .in('complex_event_id', ids)
+          .eq('tenant_id', tenantId).order('id'));
+        if (error) throw new Error('Failed to fetch ticket classes');
 
         if (ticketClasses) {
           for (const tc of ticketClasses) {
@@ -406,11 +422,12 @@ export default async function handler(req, res, publicPoOnly = false) {
 
       const orgIds = [...new Set(allBookings.map(b => b.organization_id).filter(Boolean))];
       if (orgIds.length > 0) {
-        const { data: orgs, error: orgsError } = await supabase
+        const { data: orgs, error: orgsError } = await readReportIds(orgIds, ids => supabase
           .from('organization')
           .select('id, name')
           .eq('tenant_id', tenantId)
-          .in('id', orgIds);
+          .in('id', ids).order('id'));
+        if (orgsError) throw new Error('Failed to fetch registration organizations');
 
         if (!orgsError && orgs) {
           for (const org of orgs) {
@@ -423,11 +440,12 @@ export default async function handler(req, res, publicPoOnly = false) {
       // Complex bookings already carry `discount_code_label` from normalization above.
       const discountCodeIds = [...new Set(allBookings.map(b => b.discount_code_id).filter(Boolean))];
       if (discountCodeIds.length > 0) {
-        const { data: discountCodes } = await supabase
+        const { data: discountCodes, error } = await readReportIds(discountCodeIds, ids => supabase
           .from('discount_code')
           .select('id, code')
-          .in('id', discountCodeIds)
-          .eq('tenant_id', tenantId);
+          .in('id', ids)
+          .eq('tenant_id', tenantId).order('id'));
+        if (error) throw new Error('Failed to fetch registration discounts');
         const codeById = new Map((discountCodes || []).map(c => [c.id, c.code]));
         for (const b of allBookings) {
           if (b.discount_code_id && !b.discount_code_label) {
@@ -691,15 +709,16 @@ export default async function handler(req, res, publicPoOnly = false) {
       const realGroupRefs = [...new Set(allBookings.filter(b => b._report_booking_source === 'standard').map(b => b.booking_group_reference).filter(Boolean))];
 
       if (realGroupRefs.length > 0) {
-        const { data: egbRows } = await supabase
+        const { data: egbRows, error } = await readReportIds(realGroupRefs, ids => supabase
           .from('event_group_booking')
           .select('booking_reference, booker_email, booker_first_name, booker_last_name')
           .eq('tenant_id', tenantId)
-          .in('booking_reference', realGroupRefs);
+          .in('booking_reference', ids).order('id'));
+        if (error) throw new Error('Failed to fetch registration bookers');
 
         if (egbRows) {
           for (const row of egbRows) {
-            if (row.booking_reference && row.booker_email) {
+            if (row.booking_reference) {
               for (const [key, members] of groupMap) {
                 if (members[0]._report_booking_source === 'standard' && members[0].booking_group_reference === row.booking_reference) {
                   groupBookerInfo.set(key, {
@@ -724,11 +743,12 @@ export default async function handler(req, res, publicPoOnly = false) {
 
       const memberInfoById = new Map();
       if (memberIdsToLookup.size > 0) {
-        const { data: memberRows } = await supabase
+        const { data: memberRows, error } = await readReportIds([...memberIdsToLookup], ids => supabase
           .from('member')
           .select('id, email, first_name, last_name, job_title')
           .eq('tenant_id', tenantId)
-          .in('id', [...memberIdsToLookup]);
+          .in('id', ids).order('id'));
+        if (error) throw new Error('Failed to fetch registration member identities');
         if (memberRows) {
           for (const m of memberRows) {
             memberInfoById.set(m.id, m);
@@ -767,6 +787,17 @@ export default async function handler(req, res, publicPoOnly = false) {
           });
         }
       }
+
+      // Resolve identities against complete groups before any financial aggregation.
+      // Literal in-memory matching never interpolates user text into PostgREST syntax.
+      for (const [key, members] of groupMap) {
+        if (!registrationGroupMatches({
+          attendees: members,
+          booker: groupBookerInfo.get(key),
+          purchasers: members.map(b => publicInvoicePurchaser(b.purchaser_context)).filter(Boolean),
+        }, name, email)) groupMap.delete(key);
+      }
+      allBookings = [...groupMap.values()].flat();
 
       let totalVoucher = 0;
       let totalTrainingFund = 0;

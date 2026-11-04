@@ -12,12 +12,13 @@ const handlerSource = source.slice(
 );
 const emptyFilters = {
   eventId: null, eventKind: 'simple', eventName: '', internalReference: '', dateFrom: '',
-  dateTo: '', eventDateFrom: '', eventDateTo: '',
+  dateTo: '', eventDateFrom: '', eventDateTo: '', name: '', email: '',
 };
 
 function generate(state, overrides = {}) {
   const values = {
     selectedEvent: null, filterEventName: '', filterInternalRef: '',
+    filterName: '', filterEmail: '',
     filterDateFrom: '', filterDateTo: '', filterEventDateFrom: '', filterEventDateTo: '',
     appliedFilters: state.appliedFilters,
     setAppliedFilters: value => { state.appliedFilters = value; },
@@ -76,4 +77,16 @@ test('first generation and changed filters select the new query without refetchi
 
 test('page wires refetchReport to the report query, not the event options query', () => {
   assert.match(source, /data: reportData[^;\n]*refetch: refetchReport/);
+});
+
+test('person filters apply without event selection and repeat generation explicitly refreshes', () => {
+  const state = { appliedFilters: null, refetch() { state.refreshed = true; } };
+  const filters = { filterName: ' Jane Guest ', filterEmail: ' jane+%_* ' };
+  generate(state, filters);
+  assert.equal(state.appliedFilters.eventId, null);
+  assert.equal(state.appliedFilters.name, 'Jane Guest');
+  assert.equal(state.appliedFilters.email, 'jane+%_*');
+  generate(state, filters);
+  assert.equal(state.refreshed, true);
+  assert.equal(state.page, 1);
 });

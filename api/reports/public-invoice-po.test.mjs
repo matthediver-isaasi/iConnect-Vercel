@@ -31,6 +31,7 @@ async function runRoute(context, admin, feature, { fixtures = {}, query = {}, fa
   let source = await readFile(new URL('./event-registration-report.js', import.meta.url), 'utf8');
   source = source.replace(/^import .*;\r?$/gm, '');
   const prelude = `
+    import { registrationGroupMatches } from ${JSON.stringify(new URL('../../shared/eventRegistrationSearch.mjs', import.meta.url).href)};
     import { attachSalesTicketValues } from ${JSON.stringify(new URL('../_lib/salesTicketValue.js', import.meta.url).href)};
     import { registrationMemberLinks } from ${JSON.stringify(new URL('../_lib/eventRegistrationMemberLinks.js', import.meta.url).href)};
     import { summarizeRegistrationRevenue } from ${JSON.stringify(new URL('../../shared/eventRegistrationRevenue.mjs', import.meta.url).href)};
@@ -188,6 +189,89 @@ test('checkout-created attendee contact is shown as linked without changing publ
 
 const adminContext = { tenantId: 'tenant', isAuthenticated: true, tenantUserId: 'admin' };
 const contextSnapshot = { classification: 'public_non_member', details: { first_name: 'Public', last_name: 'Purchaser', email: 'public@example.invalid' } };
+
+test('person search spans events, guests, separate bookers and purchasers without splitting groups', async () => {
+  const row = (id, event_id, extra = {}) => ({
+    id, event_id, tenant_id: 'tenant', status: 'confirmed', payment_method: 'free',
+    ticket_price: 10, total_cost: 10, total_paid: 10, ...extra,
+  });
+  const fixtures = {
+    event: [{ id: 'simple', tenant_id: 'tenant', status: 'published', start_date: '2020-01-01' }],
+    complex_event: [{ id: 'complex', tenant_id: 'tenant', status: 'published' }],
+    booking: [
+      row('a', 'simple', { booking_group_reference: 'G', attendee_first_name: 'Ann', attendee_last_name: 'Guest', attendee_email: 'ann+%_*@example.invalid' }),
+      row('sibling', 'simple', { booking_group_reference: 'G', attendee_first_name: 'Other', attendee_email: 'other@example.invalid' }),
+      row('cancelled', 'simple', { status: 'cancelled', attendee_first_name: 'Cancelled', attendee_last_name: 'Guest' }),
+      row('foreign', 'simple', { tenant_id: 'other', attendee_first_name: 'Foreign' }),
+    ],
+    complex_event_booking: [
+      row('c', 'complex', { attendee_first_name: 'Complex', attendee_last_name: 'Guest', attendee_email: 'complex@example.invalid', purchaser_context: contextSnapshot }),
+    ],
+    event_group_booking: [
+      { id: 'g', tenant_id: 'tenant', booking_reference: 'G', booker_first_name: 'External', booker_last_name: 'Booker', booker_email: 'external@example.invalid' },
+    ],
+  };
+  const search = query => runRoute(adminContext, true, true, { fixtures, query: { generate: 'true', ...query } });
+  for (const query of [
+    { name: ' ANN GUEST ' }, { email: '+%_*' }, { name: 'ann guest', email: '+%_*' },
+    { name: 'external booker', email: 'EXTERNAL@' }, { eventId: 'simple', name: 'guest', email: 'ann+' },
+  ]) {
+    const result = await search(query);
+    assert.equal(result.code, 200);
+    assert.equal(result.body.bookingGroups.length, 1);
+    assert.equal(result.body.summary.totalBookings, 2);
+    assert.equal(result.body.bookingGroups[0].attendees.length, 2);
+  }
+  for (const query of [{ name: 'complex guest' }, { name: 'public purchaser', email: 'public@' }]) {
+    const result = await search(query);
+    assert.equal(result.body.bookingGroups[0].attendees[0].id, 'c');
+    assert.equal(result.body.summary.totalBookings, 1);
+  }
+  for (const query of [{ name: 'Ann', email: 'other@' }, { name: 'External', email: 'ann+' }, { name: 'Foreign' }, { name: '.*' }, { eventId: 'simple', name: 'complex' }]) {
+    assert.equal((await search(query)).body.bookingGroups.length, 0);
+  }
+  assert.equal((await search({})).body.summary.totalBookings, 4);
+  assert.equal((await search({ name: 'cancelled guest' })).body.bookingGroups[0].attendees[0].status, 'cancelled');
+  assert.equal((await search({ name: ['invalid'] })).code, 400);
+  for (const failTable of ['event_group_booking', 'member']) {
+    const failed = await runRoute(adminContext, true, true, {
+      fixtures: { ...fixtures, booking: [...fixtures.booking, row('m', 'simple', { member_id: 'm' })] },
+      failTable, query: { generate: 'true', name: 'Ann' },
+    });
+    assert.equal(failed.code, 500);
+  }
+});
+
+test('late booker and member identities survive capped responses and bounded ID batches', async () => {
+  const fixtures = {
+    event: [{ id: 'e', tenant_id: 'tenant', status: 'published' }],
+    booking: Array.from({ length: 105 }, (_, i) => ({
+      id: `b${i}`, event_id: 'e', tenant_id: 'tenant', member_id: `m${i}`,
+      booking_group_reference: `g${i}`, status: 'confirmed', payment_method: 'free', ticket_price: 0, total_cost: 0,
+    })),
+    member: Array.from({ length: 105 }, (_, i) => ({ id: `m${i}`, tenant_id: 'tenant', first_name: 'Member', last_name: `${i}`, email: `m${i}@example.invalid` })),
+    event_group_booking: Array.from({ length: 104 }, (_, i) => ({
+      id: `g${i}`, tenant_id: 'tenant', booking_reference: `g${i}`, booker_first_name: 'Booker', booker_last_name: `${i}`, booker_email: `b${i}@example.invalid`,
+    })),
+  };
+  for (const name of ['Booker 103', 'Member 104']) {
+    const result = await runRoute(adminContext, true, true, { fixtures, query: { generate: 'true', name } });
+    assert.equal(result.code, 200);
+    assert.equal(result.body.bookingGroups.length, 1);
+  }
+});
+
+test('dedicated public PO report ignores person search parameters', async () => {
+  const result = await runRoute({ ...adminContext, roleId: 'role' }, true, true, {
+    publicPoOnly: true, query: { name: ['invalid'], email: 'no-match' },
+    fixtures: {
+      event: [{ id: 'e', tenant_id: 'tenant' }],
+      booking: [{ id: 'b', event_id: 'e', tenant_id: 'tenant', payment_method: 'public_invoice_po', purchaser_context: contextSnapshot }],
+    },
+  });
+  assert.equal(result.code, 200);
+  assert.equal(result.body.bookingGroups.length, 1);
+});
 
 test('complex report preserves provider-neutral and legacy linkage and safe recovery projection', async () => {
   const result = await runRoute(adminContext, true, true, {

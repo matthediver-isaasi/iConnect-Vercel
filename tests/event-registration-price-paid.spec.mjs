@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { mkdirSync } from "node:fs";
+import { registrationGroupMatches } from "../shared/eventRegistrationSearch.mjs";
 import {
   normalizeGroupPayment,
   normalizeGroupPricePaid,
@@ -545,7 +546,7 @@ function json(route, body, status = 200) {
 }
 
 async function installFixture(page, { bookingGroups, paymentSettings = [], paymentSettingsStatus = 200, attendance = false, cpdReplay = false } = {}) {
-  const state = { writes: [], unexpectedExternal: [] };
+  const state = { writes: [], unexpectedExternal: [], reportRequests: [], failReport: false };
   const reportGroups = bookingGroups
     || [bookingGroup(NET_ATTENDEE), bookingGroup(PENDING_ATTENDEE)];
 
@@ -598,9 +599,11 @@ async function installFixture(page, { bookingGroups, paymentSettings = [], payme
     if (url.pathname === "/api/auth/tenant-user-me") return json(route, { authenticated: false }, 401);
     if (url.pathname === "/api/reports/event-registration-report") {
       if (url.searchParams.get("generate") === "true") {
+        state.reportRequests.push(Object.fromEntries(url.searchParams));
+        if (state.failReport) return json(route, { error: 'Search temporarily unavailable' }, 500);
         return json(route, {
           events: [EVENT],
-          bookingGroups: reportGroups,
+          bookingGroups: reportGroups.filter(group => registrationGroupMatches(group, url.searchParams.get('name'), url.searchParams.get('email'))),
           organizations: {},
           summary: {},
           hasZoomForSelectedEvents: false,
@@ -1233,7 +1236,7 @@ test("filtered totals and CSV cover every booking beyond the 25-group page", asy
   const footerCells = page.locator("table tfoot td");
   await expect(footerCells.nth(0)).toHaveText("Totals (27 attendees, 27 bookings)");
   await expect(footerCells.nth(1)).toHaveText("£270.00");
-  await expect(footerCells.nth(2)).toHaveText("-");
+  await expect(footerCells.nth(2)).toHaveText("£0.00");
   await expect(footerCells.nth(3)).toHaveText("£270.00");
   await expect(footerCells.nth(4)).toHaveText("£0.00");
   await expect(footerCells.nth(5)).toHaveText("£0.00");
@@ -1259,6 +1262,44 @@ test("filtered totals and CSV cover every booking beyond the 25-group page", asy
 
   expect(state.writes).toEqual([]);
   expect(state.unexpectedExternal).toEqual([]);
+});
+
+test("person filters generate across events, refresh, export all pages and distinguish errors", async ({ page }) => {
+  const state = await installFixture(page, { bookingGroups: paginationFixtureGroups() });
+  await page.goto(`${APP_ORIGIN}/EventRegistrationReport`);
+  await page.getByTestId('input-filter-name').fill(' Pagination Person ');
+  await page.getByTestId('input-filter-email').fill(' @example.invalid ');
+  await page.getByTestId('button-generate-report').click();
+  await expect(page.getByText('Page 1 of 2', { exact: true })).toBeVisible();
+  expect(state.reportRequests.at(-1)).toEqual({ generate: 'true', name: 'Pagination Person', email: '@example.invalid' });
+  await page.getByTestId('button-next-page').click();
+  await expect(page.getByTestId('row-booking-page-27')).toBeVisible();
+  await selectOnlyColumns(page, ['std:name', 'std:pricePaid']);
+  expect((await exportSelectedColumns(page)).split('\n')).toHaveLength(28);
+  const before = state.reportRequests.length;
+  await page.getByTestId('button-generate-report').click();
+  await expect(page.getByText('Page 1 of 2', { exact: true })).toBeVisible();
+  expect(state.reportRequests.length).toBeGreaterThan(before);
+  await page.getByTestId('input-search').fill('Pagination Person 27');
+  await expect(page.getByTestId('row-booking-page-27')).toBeVisible();
+  await expect(page.locator('tbody [data-testid^="row-booking-page-"]')).toHaveCount(1);
+  await page.getByTestId('input-filter-name').fill('Nobody');
+  await page.getByTestId('button-generate-report').click();
+  await expect(page.getByText('No registrations found for the selected filters', { exact: true })).toBeVisible();
+  state.failReport = true;
+  await page.getByTestId('button-generate-report').click();
+  await expect(page.getByRole('alert').filter({ hasText: 'Search temporarily unavailable' })).toBeVisible({ timeout: 20000 });
+  await expect(page.getByText('No registrations found for the selected filters', { exact: true })).toHaveCount(0);
+  expect(state.writes).toEqual([]);
+});
+
+test('quick search recognizes separate booker full names and email', async ({ page }) => {
+  await openGeneratedReport(page, { bookingGroups: creditFixtureGroups(), readyId: 'credit-single' });
+  for (const value of [' External Booker ', 'external-booker@example.invalid']) {
+    await page.getByTestId('input-search').fill(value);
+    await expect(page.getByTestId('row-booking-credit-complex-a')).toBeVisible();
+    await expect(page.getByTestId('row-booking-credit-single')).toHaveCount(0);
+  }
 });
 
 test("Credits align once across singleton, grouped and external-booker layouts", async ({ page }) => {

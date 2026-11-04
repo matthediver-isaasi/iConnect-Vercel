@@ -55,6 +55,7 @@ import {
   RECORDED_TICKET_EXPLANATION, RECORDED_DISCOUNT_EXPLANATION, PARTIAL_DISCOUNTS_EXPLANATION, UNPAID_EXPLANATION,
 } from "@/lib/eventRegistrationRecordedFinancial";
 import { summarizeRegistrationRevenue, registrationRevenueExplanation } from "../../../shared/eventRegistrationRevenue.mjs";
+import { registrationGroupMatches } from "../../../shared/eventRegistrationSearch.mjs";
 import {
   formatRegistrationCreditBreakdown,
   formatRegistrationCreditExplanation,
@@ -398,6 +399,8 @@ export default function EventRegistrationReport() {
     : null;
 
   const [filterEventName, setFilterEventName] = useState("");
+  const [filterName, setFilterName] = useState("");
+  const [filterEmail, setFilterEmail] = useState("");
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [filterInternalRef, setFilterInternalRef] = useState("");
   const [filterDateFrom, setFilterDateFrom] = useState("");
@@ -528,6 +531,8 @@ export default function EventRegistrationReport() {
     if (!appliedFilters) return null;
     const params = new URLSearchParams();
     params.set('generate', 'true');
+    if (appliedFilters.name) params.set('name', appliedFilters.name);
+    if (appliedFilters.email) params.set('email', appliedFilters.email);
     if (appliedFilters.eventId) {
       params.set('eventId', appliedFilters.eventId);
     } else if (appliedFilters.eventName) {
@@ -560,7 +565,7 @@ export default function EventRegistrationReport() {
     refetchInterval: query => eventInvoiceRefetchInterval(query, (query.state.data?.bookingGroups || []).map(group => group.groupPayment)),
   });
 
-  const bookingGroups = reportData?.bookingGroups || [];
+  const bookingGroups = !reportError && !isFetching ? reportData?.bookingGroups || [] : [];
   const organizations = reportData?.organizations || {};
 
   const handleGuestMemberSuccess = async (data) => {
@@ -934,6 +939,8 @@ export default function EventRegistrationReport() {
       dateTo: filterDateTo,
       eventDateFrom: filterEventDateFrom,
       eventDateTo: filterEventDateTo,
+      name: filterName.trim(),
+      email: filterEmail.trim(),
     };
     // React Query hashes filters by value, not object identity. Re-generating
     // the same report must explicitly fetch newly created registrations.
@@ -947,6 +954,8 @@ export default function EventRegistrationReport() {
   };
 
   const handleClearFilters = () => {
+    setFilterName("");
+    setFilterEmail("");
     setAttendanceFilter("all");
     setFilterEventName("");
     setSelectedEvent(null);
@@ -960,7 +969,7 @@ export default function EventRegistrationReport() {
     setCurrentPage(1);
   };
 
-  const hasActiveFilters = filterEventName || filterInternalRef || filterDateFrom || filterDateTo || filterEventDateFrom || filterEventDateTo;
+  const hasActiveFilters = filterName || filterEmail || filterEventName || filterInternalRef || filterDateFrom || filterDateTo || filterEventDateFrom || filterEventDateTo;
   const reportGenerated = !!appliedFilters;
 
   const filteredGroups = useMemo(() => {
@@ -987,8 +996,9 @@ export default function EventRegistrationReport() {
     }
 
     if (searchQuery) {
-      const q = searchQuery.toLowerCase();
+      const q = searchQuery.trim().toLowerCase();
       result = result.filter(group =>
+        registrationGroupMatches(group, q) || registrationGroupMatches(group, '', q) ||
         group.attendees.some(a =>
           (a.attendee_first_name || '').toLowerCase().includes(q) ||
           (a.attendee_last_name || '').toLowerCase().includes(q) ||
@@ -1868,6 +1878,21 @@ export default function EventRegistrationReport() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Leave event filters blank to search all events, including past events unless date filters narrow the scope.
+            Name and Email are optional and search attendees, bookers and recorded purchasers. When both are entered, both must match the same person.
+            Matching bookings retain their group. Results default to active registrations; choose All statuses to include cancelled registrations.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="registration-name" className="text-sm font-medium mb-1.5 block">Name</label>
+              <Input id="registration-name" data-testid="input-filter-name" value={filterName} onChange={e => setFilterName(e.target.value)} placeholder="Full or partial name" />
+            </div>
+            <div>
+              <label htmlFor="registration-email" className="text-sm font-medium mb-1.5 block">Email</label>
+              <Input id="registration-email" data-testid="input-filter-email" value={filterEmail} onChange={e => setFilterEmail(e.target.value)} placeholder="Full or partial email" />
+            </div>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <div>
               <label className="text-sm font-medium mb-1.5 block">Event Name</label>
@@ -1982,7 +2007,7 @@ export default function EventRegistrationReport() {
         </div>
       )}
 
-      {reportGenerated && !isLoading && distinctEvents.length > 0 && (
+      {reportGenerated && !isFetching && !reportError && distinctEvents.length > 0 && (
         <Card data-testid="card-event-details">
           <CardContent className="pt-4 pb-4">
             {distinctEvents.length === 1 ? (
@@ -2047,7 +2072,7 @@ export default function EventRegistrationReport() {
         </Card>
       )}
 
-      {reportGenerated && !isLoading && (
+      {reportGenerated && !isFetching && !reportError && (
         <>
           <div className="grid grid-cols-2 md:grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-3">
             <Card>
@@ -2666,7 +2691,7 @@ export default function EventRegistrationReport() {
         </CardContent></Card>
       )}
 
-      {reportGenerated && reportData && (
+      {reportGenerated && reportData && !isFetching && !reportError && (
         <PublicInvoicePoRegistrations groups={filteredGroups} allGroups={bookingGroups} organizations={organizations} renderFormAnswers={renderPublicInvoiceFormAnswers}
           tenantId={memberInfo?.tenant_id} viewerId={memberInfo?.id} canCreateGuestMember={canCreateGuestMember}
           onCreateMember={target => { if (canCreateGuestMember && !guestMemberTarget) setGuestMemberTarget(target); }} />
