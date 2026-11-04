@@ -1839,3 +1839,45 @@ mtime_ms = 1793776199389
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/78586a04-156a-49d7-be09-81f88011d9d1/d6b6a454-9db8-4afc-90ad-2d67d028356c"
 storage_version_token = "1793776220518264"
 content_type = "text/markdown"
+
+[[outputs]]
+id = "FfV6AbPLgy83NO1HIFNGl"
+uri = "file://generated-artifacts/bnms-completion/2026-11-03T07-04-08.075Z/completion-review.xlsx"
+type = "table"
+title = "BNMS completion dry-run review"
+description = "Detailed evidence workbook retained alongside the simplified tenant correction sheet."
+logical_id = "85ac946b-7ba3-466a-8801-7b2f2dfdd249"
+content_hash = "sha256:c558535d187b1988370079d3044ea5e92d6552a4a927d6599531fad071a3ec23"
+size = 801519
+mtime_ms = 1793689448405
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/85ac946b-7ba3-466a-8801-7b2f2dfdd249/02b844f9-ac15-4d7e-ae39-467e57134e81"
+storage_version_token = "1793788858977827"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "k8ZU2JUhIPxArUPZVoOAe"
+uri = "file://generated-artifacts/bnms-completion/2026-11-03T07-04-08.075Z/evidence.zip"
+type = "unspecified"
+title = "BNMS dry-run evidence"
+description = "Read-only comparison and approval evidence; no production changes."
+logical_id = "d1aff6e4-b5af-4aa1-b98f-70fb09b8ab31"
+content_hash = "sha256:ddfaeef930ba7aaa010cbff37b190f6ce6dc17fb4521a2f07453af56b51a41bd"
+size = 1241191
+mtime_ms = 1793689460961
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/d1aff6e4-b5af-4aa1-b98f-70fb09b8ab31/f35cf060-974e-4014-b7b9-166191bbafd9"
+storage_version_token = "1793788860250829"
+content_type = "application/octet-stream"
+
+[[outputs]]
+id = "zb3-tZkxg76cseQ85Ihou"
+uri = "file://generated-artifacts/bnms-completion/2026-11-03T07-04-08.075Z/BNMS-simple-corrections.xlsx"
+type = "table"
+title = "Simple BNMS correction sheet"
+description = "One worksheet, highlighted cells and plain-English row instructions. Both proposed changes remain on hold."
+logical_id = "2d854510-1d7f-4515-8fde-9a4b8e1bb97c"
+content_hash = "sha256:b82f84a6ad9a9d77f8c3a98c9bd24fbe69f125354da226510a37d5ca584e4fe7"
+size = 100342
+mtime_ms = 1793689840305
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/2d854510-1d7f-4515-8fde-9a4b8e1bb97c/95cc9e03-68f6-4381-862d-d7c55b6776ca"
+storage_version_token = "1793788860902665"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

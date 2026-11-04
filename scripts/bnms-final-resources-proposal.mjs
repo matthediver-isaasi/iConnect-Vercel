@@ -197,10 +197,10 @@ function taxonomyDefinitions(categories) {
   return taxonomy;
 }
 
-function destinationCandidates(resources, sourceUrl, resourceLink) {
+function destinationCandidates(resources, sourceUrl, resourceLink, parseLink = link) {
   const exact = resources.filter((resource) => trim(resource.target_url) === sourceUrl);
   const identity = resourceLink.identity && resourceLink.kind !== 'shared_folder'
-    ? resources.filter((resource) => link(resource.target_url).identity === resourceLink.identity)
+    ? resources.filter((resource) => parseLink(resource.target_url).identity === resourceLink.identity)
     : [];
   const candidates = [...new Map([...exact, ...identity].map((resource) => [
     resource.id,
@@ -223,7 +223,10 @@ function dateEquivalent(oldValue, newValue) {
     && Date.parse(oldValue) === Date.parse(newValue);
 }
 
-export function buildReport(workbook, resources, categories) {
+export function buildReport(workbook, resources, categories, options = {}) {
+  const topics = options.topicMapping ?? topicMapping;
+  const parseSourceDate = options.dateValue ?? dateValue;
+  const parseLink = options.link ?? link;
   if ([...resources, ...categories].some((row) => row.tenant_id !== TENANT_ID)) {
     throw new Error('Tenant isolation violation');
   }
@@ -233,8 +236,8 @@ export function buildReport(workbook, resources, categories) {
     const issues = [];
     const notes = [];
     const sourceUrl = trim(source['Resource URL']);
-    const resourceLink = link(sourceUrl);
-    const date = dateValue(source.Date);
+    const resourceLink = parseLink(sourceUrl);
+    const date = parseSourceDate(source.Date);
     const memberOnly = trim(source['Member Only']).toLowerCase();
 
     if (!trim(source.Title)) issues.push('missing_title');
@@ -280,10 +283,10 @@ export function buildReport(workbook, resources, categories) {
       'Resource Type': [trim(source['Resource Type'])].filter(Boolean),
       'Focus Area': [],
     };
-    for (const header of TOPIC_HEADERS) {
+    for (const header of Object.keys(topics)) {
       const value = marker(source[header]);
       if (value === null) issues.push(`invalid_marker:${header}`);
-      if (value) selected['Focus Area'].push(topicMapping[header]);
+      if (value) selected['Focus Area'].push(topics[header]);
     }
     for (const [categoryName, values] of Object.entries(selected)) {
       if (!values.length && ['Collection', 'Resource Type'].includes(categoryName)) {
@@ -301,6 +304,7 @@ export function buildReport(workbook, resources, categories) {
       resources,
       sourceUrl,
       resourceLink,
+      parseLink,
     );
     const candidateIds = candidates.map((resource) => resource.id);
     if (candidates.length > 1) issues.push('multiple_destination_matches');

@@ -157,3 +157,4 @@
 - [Stripe payout reporting policy](stripe-payout-report-policy.md) — BNMS reconciliation is read-only; historical matching claims require evidence, and multiple invoice links never imply allocations.
 - [CookieYes isolation limitations](cookieyes-sdk-isolation.md) — fixed SDK storage names and undisposed retries need an approved isolation extension for shared-origin tenants.
 - [Quote-backed membership accounting](quote-backed-membership-accounting.md) — paid quotes need independent invoice recovery; submission sweeps and paid-history existence are insufficient.
+- [BNMS completion approval](bnms-completion-approval.md) — returned workbook scope does not inherit historical write/date approvals; blank readiness never authorizes imports.
