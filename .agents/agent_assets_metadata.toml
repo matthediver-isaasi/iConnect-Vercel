@@ -1825,3 +1825,17 @@ mtime_ms = 1793729246460
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/f6e5c43f-6604-4c11-a2a2-461501c737ad/beb07d03-b3d1-4158-87e0-7ef3715fd652"
 storage_version_token = "1793729290958285"
 content_type = "text/csv"
+
+[[outputs]]
+id = "_dYFv5i6_YRhaJXeGFAco"
+uri = "file://reports/bnms-xero-investigation-2026-11-04.md"
+type = "text"
+title = "BNMS Xero connection investigation"
+description = "Read-only production inventory, Client ID comparison, Core allowance assessment, and prioritised findings."
+logical_id = "78586a04-156a-49d7-be09-81f88011d9d1"
+content_hash = "sha256:223ca92c70b0a313d995abbd14fbd66d0f4045d1d12a8b128f7c07728c42c18d"
+size = 14964
+mtime_ms = 1793776199389
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/78586a04-156a-49d7-be09-81f88011d9d1/d6b6a454-9db8-4afc-90ad-2d67d028356c"
+storage_version_token = "1793776220518264"
+content_type = "text/markdown"
