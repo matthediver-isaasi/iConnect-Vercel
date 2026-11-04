@@ -139,10 +139,6 @@
 - [Homepage canonical authority](homepage-canonical-authority.md) — explicit clearing beats legacy fallback; mutable selections cannot create cached permanent aliases.
 - [Crawler semantic content](crawler-semantic-content.md) — unstyled crawler responses must retain complete public content and semantic headings, not flattened excerpts.
 - [Git authentication authority](git-authentication-authority.md) — connection health and public reads do not prove push authentication; a successful bypass is not a permanent repair.
-- [Event speaker audiences](event-speaker-audience-policy.md) — linked member email is authoritative; ad-hoc speakers stay external and normal consent applies.
-- [Training agenda timezone policy](training-agenda-timezone-policy.md) — event-zone wall clocks; reject DST gaps/overlaps until occurrence choices can be persisted.
-- [Training reminder delivery policy](training-reminder-delivery-policy.md) — per-entry scope, elapsed offsets, explicit existing-booking scheduling and non-retryable unknown delivery outcomes.
-- [Event display timezone policy](event-display-timezone-policy.md) — audience timezones are display-only; scheduling and date-only agendas stay unchanged.
 - [Public bookmark query loops](public-bookmark-query-loop.md) — guest-only 401 loops can clear shared queries and blank unrelated public carousels.
 - [Public branding boundaries](public-branding-freshness.md) — fresh authority across serverless readers; linked favicon normalization and rollout constraints.
 - [Portable npm downloads](portable-npm-downloads.md) — dependency updates can record workspace-only registry URLs that break Vercel installs.
@@ -151,7 +147,6 @@
 - [Individual training funds](individual-training-fund-terminology.md) — member-owned vouchers, not legacy organisation funds; valid for all membership renewal types.
 - [Member payment wording](member-payment-wording.md) — simplify copy without inventing dates, membership types, mandate reuse or renewal promises.
 - [Member activity chronology](member-activity-chronology.md) — historical renewal invoices belong alongside other activity, ordered by occurrence rather than import date.
-- [Zoom recovery approval](zoom-recovery-approval.md) — read-only diagnosis is not permission for live registration changes or message sends.
 - [Team directory dates](team-directory-date-policy.md) — original record creation is the join date; recorded activity and login permission are independent.
 - [Guest registration associations](guest-registration-association-policy.md) — explicit direct group selection never implies an organisation or changes historical registration details.
 - [Stripe payout reporting policy](stripe-payout-report-policy.md) — BNMS reconciliation is read-only; historical matching claims require evidence, and multiple invoice links never imply allocations.

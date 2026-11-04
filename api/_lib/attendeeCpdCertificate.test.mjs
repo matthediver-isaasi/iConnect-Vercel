@@ -160,6 +160,72 @@ test('preview and test email do not issue; real send and resend use a retained P
   assert.equal((await resolveAttendeeCertificate(f.db, f.identity)).available, false);
 });
 
+test('issued guest certificate survives verified member conversion and an equal initial award, never changed points', async () => {
+  for (const source of ['standard', 'complex']) {
+    const f = await fixture(source);
+    claims(f);
+    f.db.rows.event_cpd_points_rule = [{ id: 'rule', tenant_id: tenantId,
+      event_type: source === 'standard' ? 'event' : 'complex_event', event_id: eventId,
+      ticket_id: null, active: true, trigger_type: 'registration', points_value: '1' }];
+    const input = { booking_id: bookingId, booking_source: source };
+    let r = await resolveAttendeeCertificate(f.db, f.identity);
+    let original;
+    const first = await invoke(f, { ...input, action: 'send', confirmed: true,
+      request_id: randomUUID(), expected_fingerprint: r.fingerprint }, {
+      send: async opts => { original = opts.attachments[0].data; return { success: true }; },
+    });
+    assert.equal(first.statusCode, 200, JSON.stringify(first.body));
+    const archiveBefore = JSON.stringify(f.db.rows.issued_cpd_certificate);
+    f.booking.member_id = 'converted';
+    f.db.rows.member = [{ id: 'converted', tenant_id: tenantId, email: f.booking.attendee_email }];
+    r = await resolveAttendeeCertificate(f.db, f.identity);
+    assert.equal(r.available, true, r.reason);
+    assert.equal(r.award_required, false, 'resending an archive must not award points');
+    assert.equal(r.provenance.verified_guest_conversion, true);
+    assert.deepEqual(await renderAttendeeCertificate(f.db, r), original);
+    const download = await resolveAttendeeCertificate(f.db, { ...f.identity, memberCertificateId: 'converted' });
+    assert.equal(download.available, true, download.reason);
+    assert.equal((await resolveAttendeeCertificate(f.db, { ...f.identity, memberCertificateId: 'someone-else' })).available, false);
+    const resend = await invoke(f, { ...input, action: 'send', confirmed: true, deliberate_resend: true,
+      request_id: randomUUID(), expected_fingerprint: r.fingerprint }, {
+      send: async opts => { assert.deepEqual(opts.attachments[0].data, original); return { success: true }; },
+    });
+    assert.equal(resend.statusCode, 200, JSON.stringify(resend.body));
+    assert.equal(f.db.rows.member_cpd_points_ledger?.length || 0, 0);
+    const award = { id: 'new-award', tenant_id: tenantId, member_id: 'converted',
+      booking_type: source === 'standard' ? 'booking' : 'complex_event_booking',
+      event_type: source === 'standard' ? 'event' : 'complex_event',
+      booking_id: bookingId, event_id: eventId, entry_kind: 'event_award', points_value: '1.0000' };
+    f.db.rows.member_cpd_points_ledger = [award];
+    const beforeAwardFingerprint = r.fingerprint;
+    r = await resolveAttendeeCertificate(f.db, f.identity);
+    assert.equal(r.available, true, r.reason);
+    assert.notEqual(r.fingerprint, beforeAwardFingerprint);
+    assert.equal(r.award_status, 'awarded');
+    assert.deepEqual(await renderAttendeeCertificate(f.db, r), original);
+    award.points_value = '2';
+    assert.equal((await resolveAttendeeCertificate(f.db, f.identity)).available, false);
+    award.points_value = '1';
+    award.entry_kind = 'manual_adjustment';
+    assert.equal((await resolveAttendeeCertificate(f.db, f.identity)).available, false);
+    award.entry_kind = 'event_award';
+    f.db.rows.member_cpd_points_ledger.push({ ...award, id: 'reversal', entry_kind: 'reversal', points_value: '-1' });
+    assert.equal((await resolveAttendeeCertificate(f.db, f.identity)).available, false);
+    f.db.rows.member_cpd_points_ledger = [];
+    const oldName = f.booking.attendee_first_name;
+    f.booking.attendee_first_name = 'Another person';
+    assert.equal((await resolveAttendeeCertificate(f.db, f.identity)).available, false);
+    f.booking.attendee_first_name = oldName;
+    f.booking.member_id = 'purchaser';
+    assert.equal((await resolveAttendeeCertificate(f.db, f.identity)).available, false);
+    f.booking.member_id = 'converted';
+    f.db.rows.member.push({ id: 'duplicate', tenant_id: tenantId, email: f.booking.attendee_email });
+    // An ambiguous member match must not be accepted as a conversion.
+    assert.equal((await resolveAttendeeCertificate(f.db, { ...f.identity, memberCertificateId: 'converted' })).available, false);
+    assert.equal(JSON.stringify(f.db.rows.issued_cpd_certificate), archiveBefore);
+  }
+});
+
 test('regular and complex guests resolve real data without attendance or points awards, and render actual PDFs', async () => {
   for (const source of ['standard', 'complex']) {
     const f = await fixture(source);

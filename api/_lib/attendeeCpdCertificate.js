@@ -13,6 +13,26 @@ export const certificateFingerprint = value => createHash('sha256').update(JSON.
 export const validCertificateRecipient = value => typeof value === 'string'
   && /^[^\s<>@,;]+@[^\s<>@,;]+\.[^\s<>@,;]+$/.test(value) && value.length <= 254;
 
+// Legacy guest archives have no explicit member identity. Prove their original
+// guest signature, then require the same booking, event, email and attendee name.
+// A new member award may match the certificate; adjustments/reversals may not.
+function convertedGuestCertificate(saved, { booking, member, attendeeMemberId, recipient, attendeeName, pointsRows }) {
+  const normal = value => String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  if (!attendeeMemberId || !member || booking.member_id !== attendeeMemberId
+    || normal(member.email) !== normal(recipient) || !validCertificateRecipient(recipient)
+    || normal(saved.values?.['attendee.email']) !== normal(recipient)
+    || !normal(attendeeName) || normal(saved.values?.['attendee.full_name']) !== normal(attendeeName)
+    || saved.policy?.provenance?.event_id !== booking.event_id) return false;
+  const guestSignature = certificateFingerprint({
+    ledger: awardSignature([]), memberId: null, recipient: recipient.toLowerCase(),
+  });
+  if (saved.award_signature !== guestSignature) return false;
+  const points = saved.values?.['cpd.cpd_points'];
+  if (points == null || String(points).trim() === '' || !Number.isFinite(Number(points)) || Number(points) <= 0) return false;
+  return pointsRows.length === 0 || (pointsRows.length === 1
+    && pointsRows[0].entry_kind === 'event_award' && Number(pointsRows[0].points_value) === Number(points));
+}
+
 async function one(db, table, tenantId, id) {
   const { data, error } = await db.from(table).select('*').eq('tenant_id', tenantId).eq('id', id).maybeSingle();
   if (error) throw error;
@@ -233,7 +253,7 @@ export async function resolveAttendeeCertificate(db, { tenantId, bookingId, book
       values['cpd.cpd_points'] = points;
     }
   }
-  if (attendeeMemberId && !memberCertificateId && !emailOnly && !pointsRows.length) {
+  if (attendeeMemberId && !memberCertificateId && !emailOnly && !saved && !pointsRows.length) {
     const { data: rules, error } = await db.from('event_cpd_points_rule').select('*')
       .eq('tenant_id', tenantId).eq('event_type', eventType === 'simple' ? 'event' : 'complex_event')
       .eq('event_id', booking.event_id).eq('active', true);
@@ -249,9 +269,14 @@ export async function resolveAttendeeCertificate(db, { tenantId, bookingId, book
     ledger: awardSignature(pointsRows), memberId: attendeeMemberId || null,
     recipient: recipient.toLowerCase(),
   });
-  if (saved && saved.award_signature !== currentAwardSignature) {
-    return { ...base, reason: 'The points award has changed since this certificate was issued. Please ask an administrator to review it.' };
+  const verifiedGuestConversion = saved && saved.award_signature !== currentAwardSignature
+    && convertedGuestCertificate(saved, { booking, member, attendeeMemberId, recipient, attendeeName, pointsRows });
+  if (saved && saved.award_signature !== currentAwardSignature && !verifiedGuestConversion) {
+    return { ...base, reason: 'The attendee identity or CPD points no longer match this issued certificate. Please ask an administrator to review it.' };
   }
+  // Keep the original archive signature for retention/concurrent-winner checks.
+  // The live ledger remains in the confirmation fingerprint below.
+  const retainedAwardSignature = saved?.award_signature || currentAwardSignature;
   if (saved) Object.assign(values, saved.values);
   const real = realCertificatePlaceholders(fields, values);
   if (!attendeeName || real.missing.length) return { ...base, reason: !attendeeName
@@ -265,7 +290,7 @@ export async function resolveAttendeeCertificate(db, { tenantId, bookingId, book
     });
     return { ...base, available: true, fingerprint, template_name: template.name,
       template, placeholders: real.placeholders, values, certificateIdentity, issuedCertificate,
-      certificatePolicy: policy, awardSignature: currentAwardSignature };
+      certificatePolicy: policy, awardSignature: retainedAwardSignature };
   }
   const emailValues = {
     attendee_name: attendeeName, attendee_first_name: firstName, attendee_last_name: lastName,
@@ -291,6 +316,7 @@ export async function resolveAttendeeCertificate(db, { tenantId, bookingId, book
     booking_status: booking.status, attendee_member_id: attendeeMemberId || null,
     template_version: template.version, template_source_sha256: template.source_sha256,
     points_ledger: pointsRows, guest_certificate_points_evidence: guestPointsEvidence,
+    verified_guest_conversion: !!verifiedGuestConversion,
     prospective_points_rule: prospectiveRule,
     values, placeholders: real.placeholders,
     email: { selection_id: policy.email_template_id || null, ...email.provenance,
@@ -309,7 +335,7 @@ export async function resolveAttendeeCertificate(db, { tenantId, bookingId, book
     survey_list_enabled: usesSurveyList, event_id: booking.event_id,
     send_reason: email.reason || (validCertificateRecipient(recipient) ? null : 'The attendee booking has no valid email address.'),
     template_name: template.name, template, placeholders: real.placeholders, values, provenance,
-    certificateIdentity, issuedCertificate, certificatePolicy: policy, awardSignature: currentAwardSignature };
+    certificateIdentity, issuedCertificate, certificatePolicy: policy, awardSignature: retainedAwardSignature };
 }
 
 export async function renderAttendeeCertificate(db, resolved) {

@@ -21,6 +21,11 @@ description: Index of event timing, booking lifecycle, attendance rewards and re
 - [Email editing boundary](event-email-edit-policy.md) — saving confirmation or reminder messages must never trigger a send or resend.
 - [Attendee title policy](attendee-title-policy.md) — booking requirements must not become profile requirements or historical backfills.
 - [Waiting-list policy](event-waiting-list-policy.md) — interest only, shared My Tickets access, no financial or confirmed-booking side effects.
+- [Speaker audiences](event-speaker-audience-policy.md) — linked member email is authoritative; ad-hoc speakers stay external and normal consent applies.
+- [Training agenda timezones](training-agenda-timezone-policy.md) — event-zone wall clocks; reject DST gaps/overlaps until occurrence choices can be persisted.
+- [Training reminder delivery](training-reminder-delivery-policy.md) — per-entry scope, elapsed offsets, explicit existing-booking scheduling and unknown delivery outcomes.
+- [Event display timezones](event-display-timezone-policy.md) — audience timezones are display-only; scheduling and date-only agendas stay unchanged.
+- [Zoom recovery approval](zoom-recovery-approval.md) — read-only diagnosis is not permission for live registration changes or message sends.
 
 **Why:** Specialized event constraints remain discoverable without crowding the always-loaded memory index.
 
