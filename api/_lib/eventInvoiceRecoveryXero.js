@@ -1,4 +1,5 @@
 import { EventInvoiceRecoveryError, recoveryLineAmount } from './eventInvoiceRecovery.js';
+import { xeroRateLimitedFetch as fetch } from './xeroRateLimit.js';
 import { createDecipheriv, scryptSync } from 'node:crypto';
 import { lookupEventXeroContact, policyInvoiceContact } from './eventInvoiceAddressPolicy.js';
 

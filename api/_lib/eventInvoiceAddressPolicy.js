@@ -1,4 +1,5 @@
 import { INVOICING_ADDRESS_KEYS, invoicingAddressError, resolveStoredInvoicingAddress, invoicingAddressToXero } from '../../shared/invoicingAddress.js';
+import { xeroRateLimitedFetch as fetch } from './xeroRateLimit.js';
 
 const fail = (message, statusCode = 503) => { throw Object.assign(new Error(message), { statusCode }); };
 const normalized = value => String(value || '').trim().toLowerCase();

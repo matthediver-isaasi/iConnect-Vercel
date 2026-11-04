@@ -285,7 +285,7 @@ for (const provider of ['xero', 'quickbooks']) {
       adapters: async () => ({ ...f.adapter, linkSource: async () => ({ linked: true }) }) });
     assert.equal((await run()).state, 'retry');
     assert.equal(posts.length, 1); // No in-process retry.
-    assert.equal(finishes[0].p_cooldown_seconds, 120);
+    assert.equal(finishes[0].p_cooldown_seconds, provider === 'xero' ? 0 : 120);
     assert.ok(finishes[0].p_retry_seconds >= 120);
     // The real SQL claim enforces next_attempt_at; this mocked second claim
     // represents the next worker invocation after that cooldown.

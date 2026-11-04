@@ -1,6 +1,7 @@
 import { AmendmentError } from './memberAmendmentQuote.js';
 import { getAccountingProvider } from './accountingProvider.js';
 import { buildXeroSalesInvoicePayload } from './xero.js';
+import { xeroRateLimitedFetch as fetch } from './xeroRateLimit.js';
 import { discoverInvoiceCredits } from './invoiceCreditDiscovery.js';
 import { retrieveTenantPaymentIntent } from './stripeCredentials.js';
 import { verifyMemberCreditLiability } from './memberCreditLiability.js';

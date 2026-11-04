@@ -1,4 +1,5 @@
 import { getValidXeroAccessToken } from './xero.js';
+import { xeroRateLimitedFetch as fetch } from './xeroRateLimit.js';
 import { accessError } from './historicalInvoiceAccess.js';
 
 // Called only by the explicit, authenticated PDF endpoint. Never by a list or import.

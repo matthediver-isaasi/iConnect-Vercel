@@ -1,4 +1,5 @@
 import { supabase } from '../_lib/database.js';
+import { xeroRateLimitedFetch as fetch } from '../_lib/xeroRateLimit.js';
 import { getTenantContext, checkCrossOrgPermissions } from '../_lib/tenantContext.js';
 import { getAccountingProvider } from '../_lib/accountingProvider.js';
 import { sendTenantEmail } from '../_lib/tenantEmailService.js';

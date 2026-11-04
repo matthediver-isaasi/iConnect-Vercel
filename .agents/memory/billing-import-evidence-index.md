@@ -1,5 +1,7 @@
 # Billing, import, and evidence topics
 
+- [Xero shared quotas](xero-shared-quota-boundary.md) — app-plus-organisation pauses, rollout approval and no automatic financial replay.
+
 - [Accounting temporary failures](accounting-transient-retry-policy.md) — rate limits and transient failures do not consume genuine retry allowances.
 - [Accounting diagnostic finalization](accounting-diagnostic-finalization.md) — note cleanup can fail after successful settlement; verify provider evidence before replaying finance.
 - [Payment quote cache authority](payment-quote-cache-authority.md) — validation-changing answers belong in quote keys.

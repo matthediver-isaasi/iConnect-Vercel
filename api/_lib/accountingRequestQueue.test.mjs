@@ -53,7 +53,7 @@ test('unknown POST including 429 is never blindly repeated; cooldown forwarded',
   f.adapter.createInvoice = async () => { throw Object.assign(new Error('private provider response'), { status: 429, retryAfter: '120' }); };
   assert.equal((await f.run()).state, 'unknown');
   const finish = f.calls.at(-1)[1];
-  assert.equal(finish.p_cooldown_seconds, 120);
+  assert.equal(finish.p_cooldown_seconds, 0); // Xero embargo belongs to shared transport.
   assert.equal(finish.p_error.includes('private'), false);
   await f.run();
   assert.deepEqual(f.writes, []);
@@ -126,7 +126,7 @@ test('long provider embargo is preserved independently from bounded retry schedu
     f.adapter.createInvoice = async () => { throw Object.assign(new Error(), { status: 429, retryAfter: header }); };
     await f.run();
     const finish = f.calls.at(-1)[1];
-    assert.equal(finish.p_cooldown_seconds, cooldown);
+    assert.equal(finish.p_cooldown_seconds, 0); // Never broaden to unrelated apps.
     assert.ok(finish.p_retry_seconds <= 604800);
   }
 });
@@ -159,7 +159,7 @@ test('rate limits during binding/auth preserve company cooldown and existing unk
   const f = fixture({ invoice_status: 'unknown' });
   f.adapter.assertBinding = async () => { throw Object.assign(new Error(), { status: 429, retryAfter: '90' }); };
   assert.equal((await f.run()).state, 'unknown');
-  assert.equal(f.calls.at(-1)[1].p_cooldown_seconds, 90);
+  assert.equal(f.calls.at(-1)[1].p_cooldown_seconds, 0);
   assert.deepEqual(f.writes, []);
 });
 
@@ -178,7 +178,7 @@ test('both providers preserve original preparation evidence and skip prelinked i
       return resolved;
     };
     assert.equal((await f.run()).state, 'retry');
-    assert.equal(f.calls.at(-1)[1].p_cooldown_seconds, 95);
+    assert.equal(f.calls.at(-1)[1].p_cooldown_seconds, provider === 'xero' ? 0 : 95);
     assert.deepEqual(f.writes, []);
     const payment = f.adapter.createPayment;
     let payments = 0;

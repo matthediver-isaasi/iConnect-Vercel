@@ -1,4 +1,5 @@
 import Stripe from 'stripe';
+import { xeroRateLimitedFetch as fetch } from '../_lib/xeroRateLimit.js';
 import { optionalEventRegistrationConsent, recoverEventRegistrationConsent } from '../_lib/eventRegistrationConsent.js';
 import { redactInvoicingAddress } from '../../shared/invoicingAddress.js';
 import { replayPublicTicketBooking, compensatePublicTicketCapacity } from '../_lib/publicTicketMemberRecovery.js';

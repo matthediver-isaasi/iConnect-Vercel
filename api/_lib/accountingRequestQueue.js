@@ -96,7 +96,10 @@ async function advance({ db, row, adapters, deadlineAt }) {
     p_id: row.id, p_lease_token: row.lease_token, p_state: state, p_error: error,
     // Retry scheduling may be earlier than the embargo, but claim always also
     // checks shared cooldown. The embargo itself is NEVER capped.
-    p_retry_seconds: Math.max(1, Math.min(604800, retry)), p_cooldown_seconds: cooldown,
+    p_retry_seconds: Math.max(1, Math.min(604800, retry)),
+    // Xero's transport publishes app+organisation/app-wide pauses atomically.
+    // Do not embargo independent OAuth applications sharing an organisation.
+    p_cooldown_seconds: row.provider === 'xero' ? 0 : cooldown,
   });
   const bindingFailure = error => {
     const cooldown = Number(error?.status ?? error?.statusCode) === 429

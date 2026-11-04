@@ -1,4 +1,5 @@
 import { supabase } from "../_lib/database.js";
+import { xeroRateLimitedFetch as fetch } from '../_lib/xeroRateLimit.js';
 import { getAccountingProvider } from "../_lib/accountingProvider.js";
 import { getSessionTenantUser, getSessionMember } from "../_lib/session.js";
 

@@ -1,4 +1,5 @@
 import { supabase } from '../../_lib/database.js';
+import { xeroRateLimitedFetch as fetch } from '../../_lib/xeroRateLimit.js';
 import { applyInvoicePoUpdate, summariseInvoice, ensurePendingPoTokenTable } from '../../_lib/pendingPoInvoice.js';
 import { getAccountingProvider } from '../../_lib/accountingProvider.js';
 import { sendPoSubmissionNotification } from '../../_lib/poNotificationEmail.js';

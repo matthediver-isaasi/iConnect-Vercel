@@ -1,4 +1,5 @@
 import {AmendmentCalculationError,amendmentDay,amendmentMoneyParts} from './memberAmendmentMoney.js';
+import { xeroRateLimitedFetch as fetch } from './xeroRateLimit.js';
 import {membershipServiceAnniversary,reconcileVariableMonthlyService} from './memberVariableMonthlyService.js';
 
 const fail=message=>{throw new AmendmentCalculationError(message);};

@@ -1,4 +1,5 @@
 import { supabase } from './database.js';
+import { xeroRateLimitedFetch, xeroRateLimitedFetch as fetch } from './xeroRateLimit.js';
 import { membershipProjectTracking } from '../../shared/membershipProjectCode.js';
 import { getXeroCredentials } from './xeroCredentials.js';
 import { resolveMembershipInvoiceReference } from './membershipInvoiceReference.js';
@@ -1209,7 +1210,7 @@ export async function applyStripePaymentToXeroInvoice({
   }
 
   const { accessToken, tenantId: xeroTenantId } = await (dependencies.getValidXeroAccessToken || getValidXeroAccessToken)(appTenantId);
-  const fetch = dependencies.fetch || globalThis.fetch;
+  const fetch = dependencies.fetch || xeroRateLimitedFetch;
   const pilotBankAccount = ddAccountingMigration ? await validateBnmsXeroAccount({
     appTenantId, context: ddAccountingMigration, xeroTenantId, accessToken, fetch,
   }) : null;
@@ -1856,7 +1857,7 @@ export async function emailXeroCreditNote({ appTenantId, creditNoteId, creditNot
 }
 
 export async function createXeroCreditNote({ appTenantId, invoiceId, creditAmount, description, reference, recoveryKey }, {
-  fetcher = globalThis.fetch, loadToken = getValidXeroAccessToken,
+  fetcher = xeroRateLimitedFetch, loadToken = getValidXeroAccessToken,
 } = {}) {
   const fetch = fetcher;
   if (!appTenantId) throw new Error('appTenantId is required');

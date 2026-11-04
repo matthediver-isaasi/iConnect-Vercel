@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { xeroRateLimitedFetch as fetch } from './xeroRateLimit.js';
 import { supabase as defaultSupabase } from './database.js';
 import { getAccountingProvider } from './accountingProvider.js';
 

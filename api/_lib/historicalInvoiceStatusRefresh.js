@@ -1,4 +1,5 @@
 import { getValidXeroAccessToken } from './xero.js';
+import { xeroRateLimitedFetch as fetch } from './xeroRateLimit.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const error = (message, rateLimited = false) => Object.assign(new Error(message), { rateLimited });

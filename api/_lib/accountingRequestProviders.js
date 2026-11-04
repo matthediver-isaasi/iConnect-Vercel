@@ -1,4 +1,5 @@
 import { accountingOperationIdentity } from './accountingOperationIdentity.js';
+import { xeroRateLimitedFetch } from './xeroRateLimit.js';
 
 // This boundary deliberately does not import the legacy invoice helpers: those
 // combine preparation, invoice creation, payment and best-effort linkage. Queue
@@ -179,7 +180,7 @@ export function validateAccountingRequestResult(row, kind, record) {
  * queue to retry the identical frozen operation/key after the shared cooldown.
  */
 export function createAccountingRequestProviders({
-  resolveConnection, beforeRequest, fetchImpl = globalThis.fetch,
+  resolveConnection, beforeRequest, fetchImpl = xeroRateLimitedFetch,
   timeoutMs = 15000, maxPages = 10, maxResponseBytes = 2 * 1024 * 1024, deadlineAt = Infinity,
 } = {}) {
   if (typeof resolveConnection !== 'function' || typeof beforeRequest !== 'function'
@@ -225,6 +226,7 @@ export function createAccountingRequestProviders({
       ]);
     } catch (error) {
       if (error instanceof AccountingRequestProviderError) throw error;
+      if (error?.code === 'XERO_RATE_COORDINATION_UNAVAILABLE' || error?.code === 'XERO_RATE_RESULT_PERSISTENCE_FAILED') throw error;
       fail('TRANSPORT_FAILURE'); // Never leak request URLs, tokens or raw provider text.
     } finally { clearTimeout(timer); }
   }
