@@ -25,6 +25,7 @@ function database(tables, rpc = async () => ({ data: null, error: null })) {
       then(resolve, reject) { return Promise.resolve(execute(false)).then(resolve, reject); },
     };
     function execute(single) {
+      if (table === 'tenant') return { data: { slug: 'fixture' }, error: null };
       const matches = (tables[table] || []).filter(row => filters.every(fn => fn(row)));
       if (update) {
         writes.push({ table, update });

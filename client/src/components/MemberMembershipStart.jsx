@@ -78,6 +78,15 @@ function QuoteDetails({ quote }) {
       {[["annualCost", "Base fee"], ["finalCost", dynamic ? "Initial quoted net fee (not a fixed term total)" : "Net fee for this term"], ["vatAmount", "VAT"], ["totalWithVat", dynamic ? "Initial quote including VAT (not a guaranteed total)" : "Total including VAT"]].map(([key, label]) => <div key={key}><dt className="text-muted-foreground">{label}</dt><dd className="font-medium">{money(quote[key], quote.currency)}</dd></div>)}
     </dl>
     <p>Payment: {modeLabel(quote.paymentMode)}</p>
+    {quote.paymentMode === "invoice" && quote.invoice && <section aria-label="Invoice billing snapshot" className="rounded-md border bg-muted/30 p-3 space-y-2">
+      <p className="font-medium">Invoice billing details</p>
+      <dl className="space-y-2">
+        <div><dt className="text-muted-foreground">Billing name</dt><dd className="break-words">{quote.invoice.organizationName || "Not supplied"}</dd></div>
+        <div><dt className="text-muted-foreground">Invoice email</dt><dd className="break-words">{quote.invoice.invoicingEmail || "Not supplied"}</dd></div>
+        <div><dt className="text-muted-foreground">Invoice address</dt><dd className="whitespace-pre-line break-words">{quote.invoice.invoicingAddress || "Not supplied"}</dd></div>
+      </dl>
+      <p>The selected address updates the accounting contact address and may affect its other invoices.</p>
+    </section>}
     {quote.adminWaiver && <p>Original calculated total: {money(quote.adminWaiver.originalAmounts?.totalWithVat, quote.currency)}. Waived for this period only. Amount due: {money(0, quote.currency)}. Structure prices and later renewal pricing are unchanged.</p>}
     {monthlyMode(quote.paymentMode) && <div className="space-y-1">
       {completeOffer(quote.paymentOffer, quote.paymentMode) ? <>
@@ -143,6 +152,7 @@ function StartPanel({ memberId, tenantId }) {
   const [form, setForm] = useState({ configId: "", bandId: "", startDate: "", reason: "" });
   const [preview, setPreview] = useState(null);
   const [paymentMode, setPaymentMode] = useState("");
+  const [billingChoice, setBillingChoice] = useState({ recipientKey: "", addressSourceKey: "", addressFields: [], emailField: null });
   const [pending, setPending] = useState(null);
   const [requestError, setRequestError] = useState("");
   const [saved, setSaved] = useState(null);
@@ -157,6 +167,18 @@ function StartPanel({ memberId, tenantId }) {
     retry: false,
   });
   const structures = Array.isArray(data?.structures) ? data.structures : [];
+  const invoiceParties = Array.isArray(data?.invoiceParties) ? data.invoiceParties : [];
+  const memberParty = invoiceParties.find(party => party.type === "member");
+  const billing = { ...billingChoice, recipientKey: billingChoice.recipientKey || memberParty?.key || "", addressSourceKey: billingChoice.addressSourceKey || memberParty?.key || "" };
+  const recipient = invoiceParties.find(party => party.key === billing.recipientKey);
+  const addressSource = invoiceParties.find(party => party.key === billing.addressSourceKey);
+  const sourceFields = Array.isArray(addressSource?.fields) ? addressSource.fields : [];
+  const recipientFields = Array.isArray(recipient?.fields) ? recipient.fields : [];
+  const addressValue = billing.addressFields.map(key => sourceFields.find(field => field.key === key)?.value).filter(value => value != null && String(value).trim()).join("\n");
+  const emailValue = billing.emailField ? recipientFields.find(field => field.key === billing.emailField)?.value : recipient?.email;
+  const billingValid = !!recipient && !!addressSource && billing.addressFields.length > 0 && billing.addressFields.length <= 7 &&
+    billing.addressFields.every(key => sourceFields.some(field => field.key === key)) &&
+    (billing.emailField === null || recipientFields.some(field => field.key === billing.emailField));
   const selected = structures.find(item => String(item.id) === form.configId);
   const bands = Array.isArray(selected?.bands) ? selected.bands : [];
   const isFlat = selected?.pricing_model === "flat";
@@ -168,7 +190,8 @@ function StartPanel({ memberId, tenantId }) {
   const modes = options.filter(item => item.available && !(item.mode === "invoice" && data?.capabilities?.invoiceAvailable === false)).map(item => item.mode);
   const hasOptions = structures.some(item => paymentOptions(item).length || item.bands?.some(band => paymentOptions(band).length));
   const canPreview = !isError && !!data && !blockers.length && !!hasOptions;
-  const valid = !!(form.configId && (isFlat || form.bandId) && form.startDate && form.reason.trim() && modes.includes(paymentMode));
+  const valid = !!(form.configId && (isFlat || form.bandId) && form.startDate && form.reason.trim() && modes.includes(paymentMode)) &&
+    (paymentMode !== "invoice" || billingValid);
   const locked = !!pending || !!attempt || !!saved;
   const quote = preview?.quote;
   const completeSingleQuote = (item, mode) => !!item && ["annualCost", "finalCost", "vatAmount", "totalWithVat"].every(key =>
@@ -182,7 +205,12 @@ function StartPanel({ memberId, tenantId }) {
     ? quote?.paymentMode === paymentMode && Array.isArray(quote.paymentChoices) && quote.paymentChoices.length > 0 &&
       new Set(quote.paymentChoices.map(item => item.mode)).size === quote.paymentChoices.length &&
       quote.paymentChoices.every(item => ["stripe_upfront", "stripe_monthly", "direct_debit"].includes(item.mode) && completeSingleQuote(item.quote, item.mode))
-    : completeSingleQuote(quote, paymentMode);
+    : completeSingleQuote(quote, paymentMode) && (paymentMode !== "invoice" || (
+      quote?.invoice?.billing?.recipientKey === billing.recipientKey &&
+      quote.invoice.billing.addressSourceKey === billing.addressSourceKey &&
+      quote.invoice.billing.emailField === billing.emailField &&
+      JSON.stringify(quote.invoice.billing.addressFields) === JSON.stringify(billing.addressFields)
+    ));
   const canCreate = canPreview && valid && preview?.canCreate === true && !!preview?.expectedQuote && completeQuote &&
     (paymentMode !== "invoice" || data?.capabilities?.invoiceAvailable !== false);
 
@@ -191,6 +219,19 @@ function StartPanel({ memberId, tenantId }) {
     setForm(previous => ({ ...previous, [field]: value, ...(field === "configId" ? { bandId: "" } : {}) }));
     setPreview(null);
     setRequestError("");
+  }
+  function editBilling(changes) {
+    generation.current += 1;
+    setBillingChoice({ ...billing, ...changes });
+    setPreview(null);
+    setConfirmOpen(false);
+    setAcknowledged(false);
+    setRequestError("");
+  }
+  function moveAddressField(index, direction) {
+    const fields = [...billing.addressFields];
+    [fields[index], fields[index + direction]] = [fields[index + direction], fields[index]];
+    editBilling({ addressFields: fields });
   }
   useEffect(() => {
     if (paymentMode && !modes.includes(paymentMode)) {
@@ -218,6 +259,7 @@ function StartPanel({ memberId, tenantId }) {
     if (action === "preview") setPreview(null);
     try {
       let payload = { ...form, bandId: isFlat ? null : form.bandId, memberId, action, paymentMode, reason: form.reason.trim() };
+      if (paymentMode === "invoice") payload.billing = billing;
       if (recovering) payload = { action: "resume", memberId, requestId: recoveryTarget.id };
       if (action === "create") {
         payload = attempt || { ...payload, expectedQuote: preview.expectedQuote, idempotencyKey: crypto.randomUUID() };
@@ -326,6 +368,56 @@ function StartPanel({ memberId, tenantId }) {
               {options.filter(item => !item.available && item.reason).map(item => <p className="text-xs text-muted-foreground" key={item.mode}>{modeLabel(item.mode)}: {item.reason}</p>)}
             </div>
             <div className="space-y-1.5 md:col-span-2">
+              {paymentMode === "invoice" && <section aria-label="Invoice billing choices" className="rounded-md border p-4 space-y-4 mb-4">
+                <div className="space-y-1"><h3 className="text-sm font-medium">Who receives this invoice?</h3><p className="text-xs text-muted-foreground">Choose the recipient, then build their invoice address from any available record.</p></div>
+                {!invoiceParties.length && <p role="alert" className="text-sm">Invoice recipients are unavailable. Reload the member page before preparing an invoice.</p>}
+                <div className="space-y-1.5">
+                  <Label htmlFor={`invoice-recipient-${memberId}`}>Invoice recipient</Label>
+                  <select id={`invoice-recipient-${memberId}`} className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={billing.recipientKey} onChange={event => editBilling({ recipientKey: event.target.value, emailField: null })}>
+                    {!recipient && <option value="">Choose an invoice recipient</option>}
+                    {invoiceParties.map(party => <option key={party.key} value={party.key}>{party.label} — {party.type.replaceAll("_", " ")}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor={`invoice-email-${memberId}`}>Invoice email field (optional)</Label>
+                  <select id={`invoice-email-${memberId}`} className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={billing.emailField || ""} onChange={event => editBilling({ emailField: event.target.value || null })}>
+                    <option value="">Default email{recipient?.email ? ` — ${recipient.email}` : " — not supplied"}</option>
+                    {recipientFields.map(field => <option key={field.key} value={field.key}>{field.label} — {field.value || "Empty"}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor={`invoice-source-${memberId}`}>Address source</Label>
+                  <select id={`invoice-source-${memberId}`} className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={billing.addressSourceKey} onChange={event => editBilling({ addressSourceKey: event.target.value, addressFields: [] })}>
+                    {!addressSource && <option value="">Choose an address source</option>}
+                    {invoiceParties.map(party => <option key={party.key} value={party.key}>{party.label} — {party.type.replaceAll("_", " ")}</option>)}
+                  </select>
+                </div>
+                <fieldset className="space-y-2">
+                  <legend className="text-sm font-medium">Address fields ({billing.addressFields.length}/7)</legend>
+                  <p className="text-xs text-muted-foreground">Select at least one field, up to seven. Fields appear in selection order; use Move up or Move down to reorder.</p>
+                  {!sourceFields.length && <p className="text-sm text-muted-foreground">This record has no available address fields. Choose another address source.</p>}
+                  {sourceFields.map(field => <label key={field.key} className="flex items-start gap-2 text-sm break-words">
+                    <input type="checkbox" className="mt-1" checked={billing.addressFields.includes(field.key)} disabled={locked || (!billing.addressFields.includes(field.key) && billing.addressFields.length >= 7)} onChange={event => editBilling({ addressFields: event.target.checked ? [...billing.addressFields, field.key] : billing.addressFields.filter(key => key !== field.key) })} />
+                    <span>{field.label} — {field.value || "Empty"}</span>
+                  </label>)}
+                </fieldset>
+                {!!billing.addressFields.length && <ol aria-label="Selected address fields in invoice order" className="space-y-2">
+                  {billing.addressFields.map((key, index) => <li key={key} className="flex flex-wrap items-center gap-2 text-sm">
+                    <span className="flex-1">{index + 1}. {sourceFields.find(field => field.key === key)?.label || "Unavailable field"}</span>
+                    <Button type="button" size="sm" variant="outline" aria-label={`Move ${sourceFields.find(field => field.key === key)?.label} up`} disabled={locked || index === 0} onClick={() => moveAddressField(index, -1)}>Move up</Button>
+                    <Button type="button" size="sm" variant="outline" aria-label={`Move ${sourceFields.find(field => field.key === key)?.label} down`} disabled={locked || index === billing.addressFields.length - 1} onClick={() => moveAddressField(index, 1)}>Move down</Button>
+                  </li>)}
+                </ol>}
+                <div aria-label="Assembled invoice billing" aria-live="polite" className="rounded-md bg-muted/50 p-3 text-sm space-y-2">
+                  <p className="font-medium">Selected billing details — request a preview to verify</p>
+                  <dl className="space-y-2">
+                    <div><dt className="text-muted-foreground">Billing name</dt><dd className="break-words">{recipient?.label || "Not supplied"}</dd></div>
+                    <div><dt className="text-muted-foreground">Invoice email</dt><dd className="break-words">{emailValue || "Not supplied"}</dd></div>
+                    <div><dt className="text-muted-foreground">Invoice address</dt><dd className="whitespace-pre-line break-words">{addressValue || "Select address fields to assemble the address."}</dd></div>
+                  </dl>
+                </div>
+                <p role="note" className="text-sm">The selected address updates the accounting contact address and may affect its other invoices.</p>
+              </section>}
               <Label htmlFor={`start-reason-${memberId}`}>Reason for start / renewal</Label>
               <Textarea id={`start-reason-${memberId}`} required maxLength={2000} value={form.reason} onChange={event => edit("reason", event.target.value)} placeholder="Record why this membership is being started or renewed" />
             </div>

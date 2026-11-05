@@ -188,7 +188,8 @@ test('list/preview require versioned database payment authority and show explici
   };
   const service = createMemberStartService({ db, queueEnabled: () => true, getProvider: async () => ({ name: 'xero' }), accountingBinding: async () => { if (!bindingReady) throw new Error('Missing company'); return {}; },
     stripeCredentials: async () => ({ is_enabled: true, secret_key: 'isolated', publishable_key: 'isolated' }),
-    ddCredentials: async () => ({ accessToken: 'isolated' }), address: async () => null, nominal: async () => null });
+    ddCredentials: async () => ({ accessToken: 'isolated' }), address: async () => null, nominal: async () => null,
+    invoiceParties: async () => [] });
   const unavailable = await service.list(id(1), id(4));
   assert.deepEqual(unavailable.structures[0].paymentModes, ['invoice']);
   assert.match(unavailable.structures[0].paymentOptions.find(p => p.mode === 'stripe_upfront').reason, /migration is required/);

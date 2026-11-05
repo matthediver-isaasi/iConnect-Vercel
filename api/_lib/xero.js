@@ -257,7 +257,11 @@ export async function findOrCreateXeroContact(accessToken, xeroTenantId, contact
 
   console.log(`[Xero] Finding/creating contact: ${info.name}`);
 
-  const parsedAddress = parseAddressLines(info.address);
+  const lines = typeof info.address === 'string' ? info.address.split('\n').map(line => line.trim()).filter(Boolean) : [];
+  const parsedAddress = info.requireInvoiceAddress && lines.length
+    ? { AddressType: 'POBOX', AddressLine1: lines[0], AddressLine2: lines[1] || '',
+      AddressLine3: lines[2] || '', AddressLine4: lines.slice(3).join(', ') }
+    : parseAddressLines(info.address);
 
   const escapedName = info.name.replace(/"/g, '\\"');
   const transportFetch = (url, init = {}) => transportOptions
@@ -303,9 +307,19 @@ export async function findOrCreateXeroContact(accessToken, xeroTenantId, contact
           },
           body: JSON.stringify(updatePayload)
         });
-        await safeXeroJson(updateResponse, 'contact-update');
+        const updated = await safeXeroJson(updateResponse, 'contact-update');
+        if (info.requireInvoiceAddress) {
+          const saved = updated.Contacts?.find(contact => contact.ContactID === existingContact.ContactID);
+          const savedAddress = saved?.Addresses?.find(address => address.AddressType === 'POBOX');
+          if (saved?.HasValidationErrors || !savedAddress || Object.entries(parsedAddress).some(([key, value]) =>
+            String(savedAddress[key] || '') !== String(value || ''))) throw new Error('Invoice address readback did not match the selected address.');
+        }
         console.log(`[Xero] Updated contact details for: ${info.name}`);
       } catch (addrErr) {
+        if (info.requireInvoiceAddress) {
+          addrErr.message = 'The selected invoice address could not be saved in Xero. Retry before issuing the invoice.';
+          throw addrErr;
+        }
         console.warn(`[Xero] Failed to update contact details (non-fatal): ${addrErr.message}`);
       }
     }
@@ -578,7 +592,7 @@ export async function createXeroMembershipInvoice({
   deferStripeSettlement = false, authorizeWithoutPayment = false, stripePaymentIntentId, invoiceDescription,
   extraLineItems, nominalCode, xeroProjectCode, bankAccountSettingKey, strictBankAccount, ddAccountingMigration = null,
   idempotencyKey, paymentIdempotencyKey, expectedProviderContext = null,
-  transportTimeoutMs, deadlineAt, signal,
+  transportTimeoutMs, deadlineAt, signal, requireInvoiceAddress = false,
 }, dependencies = {}) {
   const database = dependencies.supabase || supabase;
   if (!database) throw new Error('Supabase not configured');
@@ -630,6 +644,7 @@ export async function createXeroMembershipInvoice({
     name: organizationName,
     email: invoicingEmail || null,
     address: invoicingAddress || null,
+    requireInvoiceAddress,
   }, transport);
 
   const { data: membershipLedgerSetting } = await database

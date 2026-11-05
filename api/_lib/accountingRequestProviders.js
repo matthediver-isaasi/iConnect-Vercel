@@ -46,7 +46,7 @@ function appendMarker(original, marker, limit) {
  * fields is a provider-shaped subset covering source-specific line, tax,
  * reference, status and account invariants, checked again on provider readback.
  */
-export function prepareAccountingRequestEnvelope({ provider, operationKey, kind = 'invoice', payload, expected, environment }) {
+export function prepareAccountingRequestEnvelope({ provider, operationKey, kind = 'invoice', payload, expected, environment, recoveryUrl }) {
   if (!['xero', 'quickbooks'].includes(provider) || !['invoice', 'payment'].includes(kind)
       || !nonempty(operationKey) || !payload || !expected
       || !nonempty(expected.contactId) || !/^[A-Z]{3}$/.test(expected.currency || '')
@@ -59,9 +59,25 @@ export function prepareAccountingRequestEnvelope({ provider, operationKey, kind 
   if (body.Id || body.InvoiceID || body.PaymentID || body.SyncToken || body.sparse) permanent('CREATE_PAYLOAD_HAS_ID');
   const marker = markerFor(operationKey, kind);
   const field = provider === 'quickbooks' ? 'PrivateNote' : 'Reference';
-  body[field] = appendMarker(body[field], marker, provider === 'quickbooks' ? 4000 : 255);
+  let markerField;
+  if (provider === 'xero' && kind === 'invoice' && recoveryUrl) {
+    const url = new URL(recoveryUrl);
+    if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || body.Url) permanent('INVALID_RECOVERY_URL');
+    url.searchParams.set('accountingRequest', marker);
+    body.Url = url.href;
+    markerField = 'Url';
+    expected = { ...expected, fields: { ...expected.fields, Reference: body.Reference || '', Url: body.Url } };
+  } else body[field] = appendMarker(body[field], marker, provider === 'quickbooks' ? 4000 : 255);
   return freeze({ version: 1, provider, operationKey, kind, environment: environment || null,
-    payload: body, expected: clone(expected), marker });
+    payload: body, expected: clone(expected), marker, ...(markerField ? { markerField } : {}) });
+}
+
+function hasMarker(record, e) {
+  if (e.markerField === 'Url') {
+    if (e.provider !== 'xero' || e.kind !== 'invoice' || record?.Url !== e.payload.Url) return false;
+    try { return new URL(record.Url).searchParams.get('accountingRequest') === e.marker; } catch { return false; }
+  }
+  return String(record?.[e.provider === 'xero' ? 'Reference' : 'PrivateNote'] || '').split('\n').includes(e.marker);
 }
 
 function subset(actual, expected) {
@@ -78,7 +94,7 @@ function envelope(row, kind) {
       || value.marker !== markerFor(value.operationKey, kind)) permanent('MISSING_OR_INVALID_FROZEN_ENVELOPE');
   // Revalidate without re-appending the marker. Never mutate the stored JSON.
   const field = row.provider === 'quickbooks' ? 'PrivateNote' : 'Reference';
-  if (!String(value.payload?.[field] || '').split('\n').includes(value.marker)
+  if ((value.markerField && value.markerField !== 'Url') || !hasMarker(value.payload, value)
       || !value.expected?.fields || !nonempty(value.expected.contactId)
       || !/^[A-Z]{3}$/.test(value.expected.currency || '')
       || !Number.isSafeInteger(value.expected.totalMinor)) permanent('INVALID_FROZEN_ENVELOPE');
@@ -104,7 +120,6 @@ function envelope(row, kind) {
 export function validateAccountingRequestResult(row, kind, record) {
   const e = envelope(row, kind), xero = row.provider === 'xero', payment = kind === 'payment';
   const id = record?.[xero ? (payment ? 'PaymentID' : 'InvoiceID') : 'Id'];
-  const markerField = xero ? 'Reference' : 'PrivateNote';
   const contact = xero
     ? (payment ? record?.Invoice?.Contact?.ContactID : record?.Contact?.ContactID)
     : record?.CustomerRef?.value;
@@ -128,7 +143,11 @@ export function validateAccountingRequestResult(row, kind, record) {
     };
     actualFields = { ...actualFields, Date: calendarDate(record.Date), DueDate: calendarDate(record.DueDate) };
   }
-  if (!nonempty(id) || !String(record?.[markerField] || '').split('\n').includes(e.marker)
+  // An explicitly cleaned legacy invoice is still authoritative only by its
+  // already persisted successful ID. Never use a plain PO to discover/adopt it.
+  const cleanedLegacy = xero && !payment && !e.markerField && row.invoice_status === 'done'
+    && row.invoice_result?.id === id && record.Reference === String(e.payload.Reference || '').split('\n').filter(line => line !== e.marker).join('\n');
+  if (!nonempty(id) || (!hasMarker(record, e) && !cleanedLegacy)
       || contact !== e.expected.contactId || currency !== e.expected.currency
       || minor(amount) !== e.expected.totalMinor || !subset(actualFields, e.expected.fields)
       || record?.HasErrors || record?.ValidationErrors?.length
@@ -360,7 +379,7 @@ export function createAccountingRequestProviders({
       if (!Array.isArray(records)) fail('INVALID_DISCOVERY_RESPONSE');
       for (const record of records) {
         if ((!xero || record.Reference === e.payload.Reference)
-          && String(record?.[xero ? 'Reference' : 'PrivateNote'] || '').split('\n').includes(e.marker)) {
+          && hasMarker(record, e)) {
           const id = record[xero ? `${entity}ID` : 'Id'];
           if (!nonempty(id)) fail('INVALID_DISCOVERY_ID');
           candidates.add(id);

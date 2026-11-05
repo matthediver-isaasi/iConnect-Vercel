@@ -23,7 +23,11 @@ export function normalizeStart(input, create = false) {
   if (create && (!/^[a-f0-9]{64}$/.test(input.expectedQuote || '')
       || !/^[A-Za-z0-9_.:-]{8,128}$/.test(input.idempotencyKey || ''))) throw startError('A preview expectedQuote and stable idempotencyKey are required.', 400, 'invalid_confirmation');
   return { memberId: input.memberId.toLowerCase(), configId: input.configId.toLowerCase(),
-    bandId: input.bandId?.toLowerCase() || null, startDate: input.startDate, reason: input.reason.trim(), paymentMode: input.paymentMode };
+    bandId: input.bandId?.toLowerCase() || null, startDate: input.startDate, reason: input.reason.trim(), paymentMode: input.paymentMode,
+    ...(input.paymentMode === 'invoice' && input.billing ? { billing: {
+      recipientKey: input.billing.recipientKey, addressSourceKey: input.billing.addressSourceKey,
+      addressFields: input.billing.addressFields, emailField: input.billing.emailField || null,
+    } } : {}) };
 }
 function money(value) {
   if (value == null || value === '' || !Number.isFinite(Number(value)) || Number(value) < 0

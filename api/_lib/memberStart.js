@@ -7,6 +7,7 @@ import { fireNewZeroDueMembershipPaidWorkflow } from './zeroDueMembership.js';
 import { startPaymentOptions, startQuoteSimulation, SELF_SERVICE_START_MODES } from './memberStartPayment.js';
 import { getStripeCredentials } from './stripeCredentials.js';
 import { getGocardlessCredentials } from './gocardlessCredentials.js';
+import { memberStartInvoiceParties, resolveMemberStartBilling } from './memberStartBilling.js';
 
 function checked(result) {
   if (result.error) {
@@ -31,7 +32,7 @@ export function createMemberStartService({
   db, now = () => new Date(), getProvider = getAccountingProvider,
   queueEnabled = () => accountingMembershipQueueEnabled('member_membership_history'),
   invoice = queueMembershipInvoice, fireFree = fireNewZeroDueMembershipPaidWorkflow,
-  address = resolveInvoiceAddress, nominal = resolveMembershipNominalCode,
+  address = resolveInvoiceAddress, nominal = resolveMembershipNominalCode, invoiceParties = memberStartInvoiceParties,
   stripeCredentials = getStripeCredentials, ddCredentials = getGocardlessCredentials,
   accountingBinding = resolveAccountingQueueBinding,
 } = {}) {
@@ -122,7 +123,8 @@ export function createMemberStartService({
       const paymentOptions = startPaymentOptions(config, band, available);
       return { paymentOptions, paymentModes: paymentOptions.filter(p => p.available).map(p => p.mode) };
     };
-    return { member: { id: s.member.id, first_name: s.member.first_name, last_name: s.member.last_name, email: s.member.email },
+    return { invoiceParties: await invoiceParties(db, tenantId, memberId),
+      member: { id: s.member.id, first_name: s.member.first_name, last_name: s.member.last_name, email: s.member.email },
       structures: configs.filter(c => c.is_active).map(c => {
         const selectedBands = bands.filter(b => b.config_id === c.id).map(b => ({ ...b, ...options(c, b) }));
         const structureOptions = options(c);
@@ -215,6 +217,8 @@ export function createMemberStartService({
           membershipYear: quote.membershipYear, tierLabel: quote.tierLabel, finalCost: quote.finalCost, currency: quote.currency,
           reference: 'TBC', vatRate: quote.taxType, nominalCode: await nominal(db, tenantId, { config, matchedBand: band }),
           invoiceDescription: config.invoice_description || null };
+        if (request.billing) Object.assign(quote.invoice, resolveMemberStartBilling(
+          await invoiceParties(db, tenantId, request.memberId), request.billing));
       }
       // Membership state as well as prices is part of the confirmation authority.
       quote.ownerState = s.fingerprint;

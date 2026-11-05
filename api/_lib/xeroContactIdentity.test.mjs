@@ -28,6 +28,25 @@ function transport(contacts) {
   };
 }
 
+test('explicit admin address retains every selected line and verifies provider readback', async () => {
+  const request = transport([{ ContactID: 'right-person', EmailAddress: 'ada@example.com' }]);
+  const address = ['Line 1', 'Line 2', 'Town', 'County', 'Postcode', 'Country', 'Extra'].join('\n');
+  await findOrCreateXeroContact('test-only', 'isolated-company',
+    { name: 'Ada', email: 'ada@example.com', address, requireInvoiceAddress: true }, request);
+  const saved = JSON.parse(request.calls[1].body).Contacts[0].Addresses[0];
+  assert.equal(saved.AddressLine4, 'County, Postcode, Country, Extra');
+  assert.equal(saved.AddressLine3, 'Town');
+});
+
+test('explicit admin address failures retain rate-limit metadata and block invoice preparation', async () => {
+  await assert.rejects(findOrCreateXeroContact('test-only', 'isolated-company',
+    { name: 'Ada', email: 'ada@example.com', address: 'Address', requireInvoiceAddress: true }, {
+      fetch: async (_url, init) => init.method === 'POST'
+        ? new Response('', { status: 429, headers: { 'Retry-After': '900' } })
+        : Response.json({ Contacts: [{ ContactID: 'right-person', EmailAddress: 'ada@example.com' }] }),
+    }), error => error.status === 429 && error.retryAfter === '900' && /address could not be saved/.test(error.message));
+});
+
 for (const contacts of [
   [{ ContactID: 'other-person', EmailAddress: 'someone-else@example.com' }],
   [{ ContactID: 'unknown-person' }],

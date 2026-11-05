@@ -2,6 +2,7 @@ import { authorizeAccountingReconnect } from './accountingReconnectApproval.js';
 import { enqueueAccountingRequest, processAccountingRequest } from './accountingRequestQueue.js';
 import { runBnmsOctoberInvoice } from './accountingBnmsOctoberRecovery.js';
 import { createAccountingRequestProviders, prepareAccountingRequestEnvelope } from './accountingRequestProviders.js';
+import { membershipInvoiceRecoveryUrl } from './membershipInvoiceRecoveryUrl.js';
 import { linkAccountingProductSource } from './accountingQueueProductLinks.js';
 import { freezeMembershipPreparation, prepareMembershipSourceRequest } from './accountingSourcePreparation.js';
 import { freezeMembershipNotification, continueMembershipNotification } from './accountingMembershipContinuation.js';
@@ -326,6 +327,7 @@ export async function prepareMembershipAccountingRequest({ db, provider, args, s
       Line: payload.Line };
   const operationKey = `${args.appTenantId}:${sourceType}:${sourceId}:invoice`;
   const invoiceEnvelope = prepareAccountingRequestEnvelope({ provider, operationKey,
+    recoveryUrl: provider === 'xero' ? await membershipInvoiceRecoveryUrl(db, args.appTenantId) : undefined,
     payload, expected: { contactId: prepared.contactId, currency: args.currency, totalMinor, fields },
     environment: prepared.environment });
   return { db, tenantId: args.appTenantId, provider, connectionId: binding.connectionId,

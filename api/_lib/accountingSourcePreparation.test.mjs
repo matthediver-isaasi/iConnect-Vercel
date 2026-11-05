@@ -9,6 +9,7 @@ for (const provider of ['xero', 'quickbooks']) {
       finalCost: 10, membershipYear: '2026', privateToken: 'must-not-persist' };
     const db = { from: () => ({
       select() { return this; }, eq() { return this; },
+      async maybeSingle() { return { data: { slug: 'fixture' } }; },
       async in() { return { data: [{ setting_key: 'xero_invoice_status', setting_value: 'AUTHORISED' }], error: null }; },
     }) };
     const invoice = await freezeMembershipPreparation({ db, args, totalMinor: 1000 });

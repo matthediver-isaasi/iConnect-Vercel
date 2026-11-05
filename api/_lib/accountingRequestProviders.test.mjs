@@ -2,6 +2,27 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createAccountingRequestProviders, prepareAccountingRequestEnvelope, validateAccountingRequestResult } from './accountingRequestProviders.js';
 
+test('Xero source URL preserves exact PO reference and remains mandatory recovery identity', () => {
+  const f = fixture('xero');
+  const env = prepareAccountingRequestEnvelope({ provider: 'xero', operationKey: 'key', recoveryUrl: 'https://fixture.invalid/portal',
+    payload: { ...f.env.payload, Reference: 'TBC' }, expected: f.env.expected });
+  assert.equal(env.payload.Reference, 'TBC');
+  assert.equal(new URL(env.payload.Url).searchParams.get('accountingRequest'), env.marker);
+  const row = { ...f.row, snapshot: { invoice: { envelope: env } } };
+  const record = { ...f.record, ...env.payload };
+  assert.equal(validateAccountingRequestResult(row, 'invoice', record).id, 'invoice');
+  assert.throws(() => validateAccountingRequestResult(row, 'invoice', { ...record, Url: '' }));
+  assert.throws(() => validateAccountingRequestResult(row, 'invoice', { ...record, Reference: 'OTHER' }));
+});
+
+test('cleaned legacy reference only accepted for its persisted successful invoice ID', () => {
+  const f = fixture('xero'), record = { ...f.record, Reference: 'PO 42' };
+  assert.throws(() => validateAccountingRequestResult(f.row, 'invoice', record));
+  f.row.invoice_status = 'done'; f.row.invoice_result = { id: record.InvoiceID };
+  assert.equal(validateAccountingRequestResult(f.row, 'invoice', record).id, record.InvoiceID);
+  assert.throws(() => validateAccountingRequestResult(f.row, 'invoice', { ...record, InvoiceID: 'different' }));
+});
+
 test('preparation requests explicitly negotiate JSON from Xero', async () => {
   let accept;
   const adapter=createAccountingRequestProviders({

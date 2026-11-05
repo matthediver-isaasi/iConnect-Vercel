@@ -51,6 +51,22 @@ after(() => { globalThis.fetch = originalFetch; dom.window.close(); });
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 const fixture = () => ({
   member: { id: "member-personal" },
+  invoiceParties: [
+    { key: "member:member-personal", type: "member", id: "member-personal", label: "Maya Patel", email: "maya@example.test", fields: [
+      { key: "core:address", label: "Street address", value: "18 Willow Lane" },
+      { key: "core:postcode", label: "Postcode", value: "BS1 4QA" },
+      { key: "custom:billing-email", label: "Accounts email", value: "maya.accounts@example.test" },
+    ] },
+    { key: "organization:org-studio", type: "organization", id: "org-studio", label: "Willow Studio", email: "accounts@willow.example.test", fields: [
+      { key: "core:address", label: "Office address", value: "24 Harbour Road" },
+      { key: "custom:finance-email", label: "Finance email", value: "finance@willow.example.test" },
+    ] },
+    { key: "organization_group:group-west", type: "organization_group", id: "group-west", label: "West Association", email: "office@west.example.test", fields: [
+      { key: "core:address", label: "Group address", value: "6 Quay Street" },
+      { key: "core:city", label: "Town", value: "Bristol" },
+      ...Array.from({ length: 6 }, (_, index) => ({ key: `custom:line-${index}`, label: `Additional line ${index + 1}`, value: `Address detail ${index + 1}` })),
+    ] },
+  ],
   structures: [
     { id: "config-professional", name: "Professional", pricing_model: "tiered", paymentModes: ["invoice", "free"], bands: [{ id: "band-standard", label: "Standard" }, { id: "band-reduced", label: "Reduced" }] },
     { id: "config-flat", name: "Affiliate", pricing_model: "flat", paymentModes: ["invoice", "free"], bands: [] },
@@ -59,7 +75,12 @@ const fixture = () => ({
 });
 const quote = (paymentMode = "invoice") => ({
   canCreate: true, blockers: [], expectedQuote: "fingerprint-server",
-  quote: { configId: "config-professional", bandId: "band-standard", termStart: "2027-01-24", termEnd: "2028-01-23", membershipYear: "2027", annualCost: 182.41, finalCost: paymentMode === "free" ? 0 : 182.41, vatAmount: paymentMode === "free" ? 0 : 36.48, totalWithVat: paymentMode === "free" ? 0 : 218.89, currency: "GBP", tierLabel: "Standard", paymentMode },
+  quote: { configId: "config-professional", bandId: "band-standard", termStart: "2027-01-24", termEnd: "2028-01-23", membershipYear: "2027", annualCost: 182.41, finalCost: paymentMode === "free" ? 0 : 182.41, vatAmount: paymentMode === "free" ? 0 : 36.48, totalWithVat: paymentMode === "free" ? 0 : 218.89, currency: "GBP", tierLabel: "Standard", paymentMode,
+    ...(paymentMode === "invoice" ? { invoice: {
+      billing: { recipientKey: "member:member-personal", addressSourceKey: "member:member-personal", addressFields: ["core:address"], emailField: null },
+      organizationName: "Maya Patel", invoicingEmail: "maya@example.test", invoicingAddress: "18 Willow Lane",
+    } } : {}),
+  },
 });
 const created = () => ({
   request: { id: "request-confirmed", status: "completed" },
@@ -88,6 +109,10 @@ async function fill(mode = "invoice", flat = false) {
   await change('input[type="date"]', "2027-01-24");
   await change('select[id^="start-payment-"]', mode);
   await change("textarea", "Membership approved following qualification review");
+  if (mode === "invoice") {
+    const address = document.querySelector('[aria-label="Invoice billing choices"] input[type="checkbox"]');
+    if (address && !address.checked) await click(address);
+  }
 }
 async function preview(mode = "invoice", flat = false) {
   await waitFor(() => button("Preview membership"));
@@ -99,7 +124,7 @@ async function confirm(retry = false) {
   await click(button(retry ? "Review retry" : "Review and confirm membership"));
   assert.ok(document.querySelector('[role="dialog"]'));
   assert.equal(button(retry ? "Confirm retry" : "Confirm and create membership").disabled, true);
-  await click(document.querySelector('input[type="checkbox"]'));
+  await click(document.querySelector('[role="dialog"] input[type="checkbox"]'));
   await click(button(retry ? "Confirm retry" : "Confirm and create membership"));
 }
 async function mount({ data = fixture(), get, post, preserveStorage = false } = {}) {
@@ -200,6 +225,7 @@ test("preview sends contract fields, displays authoritative decimal totals and i
     await preview();
     assert.deepEqual(view.calls.find(call => call.payload).payload, {
       action: "preview", memberId: "member-personal", configId: "config-professional", bandId: "band-standard", startDate: "2027-01-24", reason: "Membership approved following qualification review", paymentMode: "invoice",
+      billing: { recipientKey: "member:member-personal", addressSourceKey: "member:member-personal", addressFields: ["core:address"], emailField: null },
     });
     const text = document.querySelector('[data-testid="member-start-preview"]').textContent;
     assert.match(text, /£218.89/);
@@ -212,6 +238,168 @@ test("preview sends contract fields, displays authoritative decimal totals and i
     await change('select[id^="start-config-"]', "config-flat");
     assert.equal(document.querySelector('select[id^="start-band-"]').value, "");
     assert.equal(document.querySelector('select[id^="start-band-"]').disabled, true);
+  } finally { await view.cleanup(); }
+});
+
+test("invoice billing starts with the member and requires a selected address; non-invoice modes have no billing controls or payload", async () => {
+  const data = fixture();
+  data.structures[0].paymentModes = ["invoice", "free", "member_choice", "stripe_upfront", "stripe_monthly", "direct_debit"];
+  const view = await mount({ data });
+  try {
+    await waitFor(() => button("Preview membership"));
+    await fill("free");
+    assert.equal(document.querySelector('[aria-label="Invoice billing choices"]'), null);
+    await change('select[id^="start-payment-"]', "invoice");
+    assert.equal(document.querySelector('select[id^="invoice-recipient-"]').value, "member:member-personal");
+    assert.equal(document.querySelector('select[id^="invoice-source-"]').value, "member:member-personal");
+    assert.equal(button("Preview membership").disabled, true);
+    const address = document.querySelector('[aria-label="Invoice billing choices"] input[type="checkbox"]');
+    await click(address);
+    assert.equal(button("Preview membership").disabled, false);
+    await click(address);
+    assert.equal(button("Preview membership").disabled, true);
+    for (const mode of ["free", "member_choice", "stripe_upfront", "stripe_monthly", "direct_debit"]) {
+      await change('select[id^="start-payment-"]', mode);
+      assert.equal(document.querySelector('[aria-label="Invoice billing choices"]'), null);
+      await click(button("Preview membership"));
+      await waitFor(() => button("Review and confirm membership"));
+      assert.equal(Object.hasOwn(view.calls.at(-1).payload, "billing"), false);
+    }
+  } finally { await view.cleanup(); }
+  const unavailable = await mount({ data: { ...fixture(), invoiceParties: [] } });
+  try {
+    await waitFor(() => button("Preview membership"));
+    await fill();
+    assert.match(unavailable.container.textContent, /Invoice recipients are unavailable/);
+    assert.equal(button("Preview membership").disabled, true);
+  } finally { await unavailable.cleanup(); }
+});
+
+test("independent recipient and address source, ordered fields and custom email reach preview and creation with server snapshot shown", async () => {
+  const view = await mount({ post: payload => {
+    if (payload.action !== "preview") return json(created());
+    return json({ ...quote(), quote: { ...quote().quote, invoice: {
+      billing: payload.billing, organizationName: "Willow Studio — verified",
+      invoicingEmail: "finance@willow.example.test", invoicingAddress: "Bristol\n6 Quay Street",
+    } } });
+  } });
+  try {
+    await waitFor(() => button("Preview membership"));
+    await fill();
+    await change('select[id^="invoice-recipient-"]', "organization:org-studio");
+    assert.equal(document.querySelector('select[id^="invoice-source-"]').value, "member:member-personal");
+    await change('select[id^="invoice-email-"]', "custom:finance-email");
+    await change('select[id^="invoice-source-"]', "organization_group:group-west");
+    assert.equal(button("Preview membership").disabled, true);
+    const fields = [...document.querySelectorAll('[aria-label="Invoice billing choices"] input[type="checkbox"]')];
+    await click(fields[0]);
+    await click(fields[1]);
+    await click(document.querySelector('[aria-label="Move Town up"]'));
+    const assembled = document.querySelector('[aria-label="Assembled invoice billing"]');
+    assert.match(assembled.textContent, /Willow Studio/);
+    assert.match(assembled.textContent, /finance@willow.example.test/);
+    assert.match(assembled.textContent, /Bristol\n6 Quay Street/);
+    assert.match(view.container.textContent, /updates the accounting contact address and may affect its other invoices/);
+    await click(button("Preview membership"));
+    await waitFor(() => button("Review and confirm membership"));
+    const expectedBilling = { recipientKey: "organization:org-studio", addressSourceKey: "organization_group:group-west", addressFields: ["core:city", "core:address"], emailField: "custom:finance-email" };
+    assert.deepEqual(view.calls.find(call => call.payload?.action === "preview").payload.billing, expectedBilling);
+    assert.match(document.querySelector('[data-testid="member-start-preview"]').textContent, /Willow Studio — verified/);
+    await click(button("Review and confirm membership"));
+    const dialog = document.querySelector('[role="dialog"]');
+    assert.match(dialog.textContent, /Willow Studio — verified/);
+    assert.match(dialog.textContent, /finance@willow.example.test/);
+    assert.match(dialog.textContent, /Bristol\n6 Quay Street/);
+    await click(dialog.querySelector('input[type="checkbox"]'));
+    await click(button("Confirm and create membership"));
+    await waitFor(() => view.container.textContent.includes("Membership record created"));
+    assert.deepEqual(view.calls.find(call => call.payload?.action === "create").payload.billing, expectedBilling);
+  } finally { await view.cleanup(); }
+});
+
+test("address selection is capped at seven and source or recipient changes reset only their dependent choices", async () => {
+  const view = await mount();
+  try {
+    await waitFor(() => button("Preview membership"));
+    await fill();
+    await change('select[id^="invoice-email-"]', "custom:billing-email");
+    await change('select[id^="invoice-source-"]', "organization_group:group-west");
+    const fields = [...document.querySelectorAll('[aria-label="Invoice billing choices"] input[type="checkbox"]')];
+    for (const field of fields.slice(0, 7)) await click(field);
+    assert.equal(fields[7].disabled, true);
+    assert.equal(document.querySelectorAll('[aria-label="Selected address fields in invoice order"] li').length, 7);
+    await click(fields[0]);
+    assert.equal(fields[7].disabled, false);
+    await change('select[id^="invoice-recipient-"]', "organization:org-studio");
+    assert.equal(document.querySelector('select[id^="invoice-email-"]').value, "");
+    assert.equal(document.querySelector('select[id^="invoice-source-"]').value, "organization_group:group-west");
+    assert.equal(document.querySelectorAll('[aria-label="Selected address fields in invoice order"] li').length, 6);
+    await change('select[id^="invoice-source-"]', "member:member-personal");
+    assert.equal(document.querySelector('[aria-label="Selected address fields in invoice order"]'), null);
+    assert.equal(button("Preview membership").disabled, true);
+  } finally { await view.cleanup(); }
+});
+
+test("every billing change clears the quote, closes confirmation and discards acknowledgement", async () => {
+  for (const update of [
+    () => change('select[id^="invoice-recipient-"]', "organization:org-studio"),
+    () => change('select[id^="invoice-source-"]', "organization_group:group-west"),
+    () => change('select[id^="invoice-email-"]', "custom:billing-email"),
+    () => click(document.querySelectorAll('[aria-label="Invoice billing choices"] input[type="checkbox"]')[2]),
+    () => click(document.querySelector('[aria-label="Invoice billing choices"] input[type="checkbox"]')),
+    () => click(document.querySelector('[aria-label="Move Postcode up"]')),
+  ]) {
+    const view = await mount({ post: payload => json({ ...quote(), quote: { ...quote().quote, invoice: { ...quote().quote.invoice, billing: payload.billing } } }) });
+    try {
+      await waitFor(() => button("Preview membership"));
+      await fill();
+      await click(document.querySelectorAll('[aria-label="Invoice billing choices"] input[type="checkbox"]')[1]);
+      await click(button("Preview membership"));
+      await waitFor(() => button("Review and confirm membership"));
+      await click(button("Review and confirm membership"));
+      await click(document.querySelector('[role="dialog"] input[type="checkbox"]'));
+      // Dispatch directly to the underlying control to exercise the invalidation
+      // guard even when a confirmation is already open.
+      await update();
+      assert.equal(document.querySelector('[data-testid="member-start-preview"]'), null);
+      assert.equal(document.querySelector('[role="dialog"]'), null);
+      assert.equal(view.calls.some(call => call.payload?.action === "create"), false);
+      if (!button("Preview membership").disabled) {
+        await click(button("Preview membership"));
+        await waitFor(() => button("Review and confirm membership"));
+        await click(button("Review and confirm membership"));
+        assert.equal(button("Confirm and create membership").disabled, true);
+      }
+    } finally { await view.cleanup(); }
+  }
+});
+
+test("invoice quote missing or mismatching the billing snapshot cannot be confirmed", async () => {
+  for (const invoice of [undefined, { ...quote().quote.invoice, billing: { ...quote().quote.invoice.billing, recipientKey: "organization:org-studio" } }]) {
+    const view = await mount({ post: () => json({ ...quote(), quote: { ...quote().quote, invoice } }) });
+    try {
+      await preview();
+      assert.equal(button("Review and confirm membership").disabled, true);
+      assert.match(view.container.textContent, /incomplete or does not match/);
+    } finally { await view.cleanup(); }
+  }
+});
+
+test("a late invoice preview cannot restore a quote after billing selection changes", async () => {
+  let release;
+  const gate = new Promise(done => { release = done; });
+  const view = await mount({ post: () => gate });
+  try {
+    await waitFor(() => button("Preview membership"));
+    await fill();
+    await click(button("Preview membership"));
+    await waitFor(() => view.calls.some(call => call.payload?.action === "preview"));
+    await change('select[id^="invoice-recipient-"]', "organization:org-studio");
+    await act(async () => release(json(quote())));
+    await waitFor(() => button("Preview membership") && !button("Preview membership").disabled);
+    assert.equal(document.querySelector('[data-testid="member-start-preview"]'), null);
+    assert.equal(document.querySelector('[role="dialog"]'), null);
+    assert.equal(view.calls.some(call => call.payload?.action === "create"), false);
   } finally { await view.cleanup(); }
 });
 
@@ -324,7 +512,7 @@ test("uncertain response persists exact retry payload through unmount, remount a
     assert.equal(retry.calls.filter(call => call.payload).length, 0);
     await click(button("Review retry"));
     assert.match(document.querySelector('[role="dialog"]').textContent, /£218.89/);
-    await click(document.querySelector('input[type="checkbox"]'));
+    await click(document.querySelector('[role="dialog"] input[type="checkbox"]'));
     await click(button("Confirm retry"));
     await waitFor(() => retry.container.textContent.includes("Membership record created"));
     assert.deepEqual(retry.calls.find(call => call.payload?.action === "create").payload, original);
@@ -375,7 +563,7 @@ test("rapid repeated confirmation cannot send duplicate POSTs", async () => {
   try {
     await preview();
     await click(button("Review and confirm membership"));
-    await click(document.querySelector('input[type="checkbox"]'));
+    await click(document.querySelector('[role="dialog"] input[type="checkbox"]'));
     const confirmButton = button("Confirm and create membership");
     await act(async () => { confirmButton.click(); confirmButton.click(); });
     assert.equal(view.calls.filter(call => call.payload?.action === "create").length, 1);
@@ -432,7 +620,7 @@ test("saved request recovery remains available despite new-purchase blockers and
     await click(button("Review recovery"));
     assert.match(document.querySelector('[role="dialog"]').textContent, /£218.89/);
     assert.equal(button("Confirm recovery").disabled, true);
-    await click(document.querySelector('input[type="checkbox"]'));
+    await click(document.querySelector('[role="dialog"] input[type="checkbox"]'));
     await click(button("Confirm recovery"));
     await waitFor(() => view.container.textContent.includes("Membership record created"));
     assert.equal(view.calls.filter(call => call.payload).length, 1);
@@ -447,7 +635,7 @@ test("HTTP 202 saved recovery keeps reconciliation explicit without claiming cre
   try {
     await waitFor(() => button("Review recovery"));
     await click(button("Review recovery"));
-    await click(document.querySelector('input[type="checkbox"]'));
+    await click(document.querySelector('[role="dialog"] input[type="checkbox"]'));
     await click(button("Confirm recovery"));
     await waitFor(() => view.container.textContent.includes("Saved request · reconciliation_required"));
     assert.doesNotMatch(view.container.textContent, /Membership record created|Payment successful/);

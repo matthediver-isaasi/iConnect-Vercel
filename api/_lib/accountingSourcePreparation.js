@@ -1,4 +1,5 @@
 import { prepareAccountingRequestEnvelope } from './accountingRequestProviders.js';
+import { membershipInvoiceRecoveryUrl } from './membershipInvoiceRecoveryUrl.js';
 
 const fail = code => { throw Object.assign(new Error(code), { permanent: true, code }); };
 const settingsKeys = [
@@ -19,10 +20,11 @@ export async function freezeMembershipPreparation({ db, args, totalMinor }) {
   const frozenArgs = {};
   for (const key of ['appTenantId', 'organizationName', 'invoicingEmail', 'invoicingAddress',
     'membershipYear', 'tierLabel', 'finalCost', 'currency', 'reference', 'vatRate',
-    'invoiceDescription', 'nominalCode', 'xeroProjectCode']) {
+    'invoiceDescription', 'nominalCode', 'xeroProjectCode', 'requireInvoiceAddress']) {
     if (args[key] !== undefined) frozenArgs[key] = structuredClone(args[key]);
   }
-  return { args: frozenArgs, totalMinor, settings, dueDate, invoiceDate };
+  return { args: frozenArgs, totalMinor, settings, dueDate, invoiceDate,
+    recoveryUrl: await membershipInvoiceRecoveryUrl(db, args.appTenantId) };
 }
 
 function frozenSettingsDb(settings, tenantId) {
@@ -89,6 +91,7 @@ export async function prepareMembershipSourceRequest({ row, transport }, depende
     ? { Type: payload.Type, Status: payload.Status, LineItems: payload.LineItems }
     : { CustomerRef: payload.CustomerRef, GlobalTaxCalculation: payload.GlobalTaxCalculation, Line: payload.Line, DueDate: dueDate };
   snapshot.invoice = { envelope: prepareAccountingRequestEnvelope({
+    recoveryUrl: snapshot.invoice.recoveryUrl,
     provider: row.provider, environment: snapshot.environment,
     operationKey: `${row.tenant_id}:${row.source_type}:${row.source_id}:invoice`,
     payload, expected: { contactId: prepared.contactId, currency: args.currency, totalMinor, fields },

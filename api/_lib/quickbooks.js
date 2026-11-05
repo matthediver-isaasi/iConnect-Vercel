@@ -389,6 +389,11 @@ export async function findOrCreateQuickBooksCustomer(appTenantId, contactInfo, c
   );
 
   const existing = queryResp?.QueryResponse?.Customer?.[0];
+  if (existing && info.requireInvoiceAddress) {
+    const matches = (queryResp.QueryResponse.Customer || []).filter(customer =>
+      customer.Active !== false && String(customer.PrimaryEmailAddr?.Address || '').trim().toLowerCase() === String(info.email || '').trim().toLowerCase());
+    if (matches.length !== 1 || matches[0].Id !== existing.Id) throw new Error('QuickBooks billing contact identity requires review before issuing this invoice.');
+  }
   const parsedAddress = parseAddressLinesQbo(info.address);
 
   if (existing) {
@@ -409,10 +414,18 @@ export async function findOrCreateQuickBooksCustomer(appTenantId, contactInfo, c
         }
         const url = `${base}/customer?minorversion=${MINOR_VERSION}`;
         const updated = await qboFetch('customer-update', accessToken, 'POST', url, updatePayload, transport);
+        if (info.requireInvoiceAddress && (!updated?.Customer?.Id ||
+          Object.entries(parsedAddress || {}).some(([key, value]) => updated.Customer.BillAddr?.[key] !== value))) {
+          throw new Error('Invoice address readback did not match the selected address.');
+        }
         if (updated?.Customer?.Id) {
           console.log(`[QBO] Updated customer details for: ${info.name}`);
         }
       } catch (err) {
+        if (info.requireInvoiceAddress) {
+          err.message = 'The selected invoice address could not be saved in QuickBooks. Retry before issuing the invoice.';
+          throw err;
+        }
         console.warn(`[QBO] Failed to update customer details (non-fatal): ${err.message}`);
       }
     }
@@ -599,6 +612,7 @@ export async function createQuickBooksMembershipInvoice({
   organizationName,
   invoicingEmail,
   invoicingAddress,
+  requireInvoiceAddress = false,
   membershipYear,
   tierLabel,
   finalCost,
@@ -660,6 +674,7 @@ export async function createQuickBooksMembershipInvoice({
     name: organizationName,
     email: invoicingEmail || null,
     address: invoicingAddress || null,
+    requireInvoiceAddress,
   }, {
     accessToken,
     realmId,
