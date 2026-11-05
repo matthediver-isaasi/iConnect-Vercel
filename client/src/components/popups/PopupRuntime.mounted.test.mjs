@@ -109,7 +109,7 @@ async function mount({ member = false, pendingConsent = false, selectedError = f
   if (home) {
     const exports = { exports: {} };
     vm.runInNewContext(homeCode, {
-      module: exports, React, useRef: React.useRef, window, URLSearchParams, PopupRuntime,
+      module: exports, React, useRef: React.useRef, useEffect: React.useEffect, popupDiagnostic: () => {}, window, URLSearchParams, PopupRuntime,
       useLocation: () => ({ ...fixture.location, search: home.preview ? "?_canvasPreview=1" : "" }),
       useMemberAccess: () => ({ authResolved: home.authResolved !== false, sessionValidated: member,
         isAccessReady: home.accessReady !== false, memberInfo: member ? { id: context.viewer_key.slice(7) } : null }),
@@ -206,12 +206,15 @@ test("competing dialog defers without consuming; closing never opens another can
   const app = await mount({ otherDialog: true });
   assert.equal(document.querySelector("[data-cms-popup-modal]"), null);
   assert.equal(app.calls.length, 1);
+  assert.ok(JSON.parse(window.iconnectPopupDiagnostics()).some(e => e.event === "waiting" && e.reason === "other_dialog"));
   document.getElementById("competing").remove();
   await app.tick();
   assert.ok(document.querySelector("[data-cms-popup-modal]"));
+  assert.ok(JSON.parse(window.iconnectPopupDiagnostics()).some(e => e.event === "popup_opened"));
   await act(async () => document.getElementById("close").click());
   await app.tick();
   assert.equal(document.querySelector("[data-cms-popup-modal]"), null);
+  assert.ok(JSON.parse(window.iconnectPopupDiagnostics()).some(e => e.event === "waiting" && e.reason === "visit_already_used"));
   assert.equal(app.calls.filter((call) => new URLSearchParams(call.query).has("id")).length, 1);
   await app.unmount();
 });

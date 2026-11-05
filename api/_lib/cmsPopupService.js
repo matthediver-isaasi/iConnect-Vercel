@@ -61,16 +61,16 @@ export async function resolvePopupDesign(db, tenantId, popup, memberContent) {
   }
   return { design, symbols: projected };
 }
-export async function eligiblePopups(db, tenant, page, viewer, { id = null, now = Date.now(), ignoreFrequency = false, allowPermanentReplay = false } = {}) {
+export async function eligiblePopups(db, tenant, page, viewer, { id = null, now = Date.now(), ignoreFrequency = false, allowPermanentReplay = false, measure = async (_name, work) => work() } = {}) {
   let query = db.from('cms_popup').select('*', { count: 'exact' }).eq('tenant_id', tenant.id).eq('status', 'active');
   if (id) query = query.eq('id', id);
   query = page.microsite_id ? query.eq('microsite_id', page.microsite_id) : query.is('microsite_id', null);
   // Overflow is a hard failure, not a silently truncated candidate set.
-  const { data, error, count } = await query.order('id').range(0, 100);
+  const { data, error, count } = await measure('candidates', () => query.order('id').range(0, 100));
   if (error || !Array.isArray(data) || count !== data.length || count > 100) throw new Error('Complete popup candidates unavailable.');
   const rows = data.filter(p => popupScheduleAvailable(p, now) && (p.config.all_pages || p.config.page_ids?.includes(page.id)));
   if (!rows.length) return [];
-  const fields = await discoverPopupFields(db, tenant.id);
+  const fields = await measure('fields', () => discoverPopupFields(db, tenant.id));
   rows.forEach(p => { validatePopupConfig(p.config); validatePopupGroups(p.config.groups, fields); });
   const timezone = popupTimezone(tenant);
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' })
@@ -89,9 +89,9 @@ export async function eligiblePopups(db, tenant, page, viewer, { id = null, now 
   // Both reads are independently tenant/member scoped. Do not serialize the
   // preference read behind potentially expensive membership/affiliation reads.
   const [{ member, organizations }, states] = await Promise.all([
-    loadPopupAudience(db, tenant.id, viewer.memberId, rows.map(p => p.config), fields,
-      { today: `${parts.year}-${parts.month}-${parts.day}` }),
-    loadStates(),
+    measure('audience', () => loadPopupAudience(db, tenant.id, viewer.memberId, rows.map(p => p.config), fields,
+      { today: `${parts.year}-${parts.month}-${parts.day}` })),
+    measure('preferences', loadStates),
   ]);
   return rows.flatMap(p => {
     const state = states.find(s => s.popup_id === p.id && s.generation === p.dismissal_generation);

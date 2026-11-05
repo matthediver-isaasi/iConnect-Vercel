@@ -5,7 +5,8 @@ import { getTenantSlugFromLocation } from "@/api/publicClient";
 import { popupRequest } from "@/lib/cmsPopups";
 import { consumePopupView, frequencyAllows, mergePopupPreferenceState, popupDurableStorageAllowed, popupHistoryView, popupStorageKey, rankPopupCandidates, releasePopupHistoryView, triggerReady } from "@/lib/popupRuntimeState";
 import { boundedPopupRequest } from "@/lib/popupRuntimeRequests";
-import { popupExternalInterferenceActive } from "@/lib/popupInterference";
+import { popupExternalInterferenceActive, popupExternalInterferenceReason } from "@/lib/popupInterference";
+import { popupDiagnostic, nextPopupDiagnosticId, popupFailureReason } from "@/lib/popupDiagnostics";
 import { readPopupDiscovery } from "@/lib/popupDiscovery";
 import PopupModal from "./PopupModal";
 import { Button } from "@/components/ui/button";
@@ -15,11 +16,12 @@ const requestPopup = (query, options) => boundedPopupRequest(popupRequest, query
 const read = (storage, key) => {
   try { return JSON.parse(window[storage].getItem(key) || "null"); } catch { return null; }
 };
-function criticalFlowActive() {
-  if (document.visibilityState !== "visible") return true;
-  if (popupExternalInterferenceActive()) return true;
+function criticalFlowReason() {
+  if (document.visibilityState !== "visible") return "tab_hidden";
+  const external = popupExternalInterferenceReason();
+  if (external) return external;
   const element = document.activeElement;
-  return !!(element?.matches('input,textarea,select,[contenteditable="true"]') && !element.closest("[data-cms-popup-modal]"));
+  return element?.matches('input,textarea,select,[contenteditable="true"]') && !element.closest("[data-cms-popup-modal]") ? "editing_field" : null;
 }
 
 // Mounted by CMS and homepage renderers after page, session and access gates.
@@ -43,8 +45,19 @@ export default function PopupRuntime({ page, viewerIdentity, initialDiscovery = 
   const openedRef = useRef(null);
   const tokenRef = useRef(0);
   const restoreFocusOnClose = useRef(true);
-  const dismiss = () => { openedRef.current = null; setOpened(null); setPreferenceError(""); pendingWrite.current = null; };
+  const dismiss = () => {
+    if (openedRef.current) popupDiagnostic("popup_dismissed");
+    openedRef.current = null; setOpened(null); setPreferenceError(""); pendingWrite.current = null;
+  };
   useEffect(() => {
+    const instance = nextPopupDiagnosticId();
+    const trace = (event, details = {}) => popupDiagnostic(event, { instance, ...details });
+    let previousWait = null;
+    const wait = reason => {
+      if (reason !== previousWait) trace("waiting", { reason });
+      previousWait = reason;
+    };
+    trace("runtime_mounted");
     const token = ++tokenRef.current;
     const controller = new AbortController();
     let candidates = [];
@@ -90,45 +103,63 @@ export default function PopupRuntime({ page, viewerIdentity, initialDiscovery = 
       }
       if (viewerIdentity.startsWith("member:")) void writePreference(popup, "shown");
     };
-    const eligibleLocally = (candidate) => {
-      if (candidate.ends_at && Date.parse(candidate.ends_at) <= Date.now()) return false;
+    const localReason = (candidate) => {
+      if (candidate.ends_at && Date.parse(candidate.ends_at) <= Date.now()) return "popup_expired";
       const state = stateFor(candidate);
-      if (state.permanent || state.session) return false;
+      if (state.permanent) return "permanently_dismissed";
+      if (state.session) return "session_dismissed";
       // Browser-session means this tab's browser-session storage, not all prior
       // member impressions. Other frequencies also use server last-shown state.
       const last = candidate.config?.frequency?.type === "session" ? state.sessionLast : state.last || candidate.last_shown_at;
-      return frequencyAllows(candidate.config?.frequency, last, Date.now(), context.timezone);
+      return frequencyAllows(candidate.config?.frequency, last, Date.now(), context.timezone) ? null : "frequency_limit";
     };
+    const eligibleLocally = candidate => !localReason(candidate);
     const select = async () => {
-      if (!alive() || !context || !viewerMatches(context) || selecting || requesting || view.consumed.has(viewScope)
-        || openedRef.current || !consentRef.current.isLoaded || consentRef.current.isPending || criticalFlowActive()) return;
-      const ready = rankPopupCandidates(candidates.filter((candidate) => eligibleLocally(candidate)
-        && triggerReady(candidate.config?.trigger, Date.now() - view.enteredAt, window.scrollY, document.documentElement.scrollHeight, window.innerHeight)));
+      if (!alive()) return;
+      const blocked = !context ? "awaiting_eligibility" : !viewerMatches(context) ? "viewer_changed"
+        : selecting ? "content_loading" : requesting ? "eligibility_loading"
+          : openedRef.current ? "popup_open" : view.consumed.has(viewScope) ? "visit_already_used"
+            : !consentRef.current.isLoaded ? "consent_loading" : consentRef.current.isPending ? "consent_pending" : criticalFlowReason();
+      if (blocked) { wait(blocked); return; }
+      const evaluated = candidates.map(candidate => ({ candidate, reason: localReason(candidate) }));
+      const eligible = evaluated.filter(item => !item.reason).map(item => item.candidate);
+      const ready = rankPopupCandidates(eligible.filter(candidate =>
+        triggerReady(candidate.config?.trigger, Date.now() - view.enteredAt, window.scrollY, document.documentElement.scrollHeight, window.innerHeight)));
       const candidate = ready[0];
-      if (!candidate) return;
+      if (!candidate) {
+        wait(!candidates.length ? "no_candidates" : !eligible.length ? evaluated[0].reason : "trigger_not_ready");
+        return;
+      }
+      previousWait = null;
+      trace("selection_started", { candidateCount: candidates.length, eligibleCount: eligible.length });
       selecting = true;
       try {
         const result = await requestPopup(`${query}&id=${encodeURIComponent(candidate.id)}&revision=${candidate.revision}`, { publicRequest: true, signal: controller.signal });
-        if (!alive()) return;
+        if (!alive()) { trace("content_discarded", { reason: "runtime_changed" }); return; }
         if (!result.popup || !viewerMatches(result) || result.viewer_key !== context.viewer_key || result.tenant_id !== context.tenant_id) {
+          trace("content_discarded", { reason: "authorization_changed" });
           candidates = []; context = null; return;
         }
-        if (criticalFlowActive() || consentRef.current.isPending || view.consumed.has(viewScope)) return;
-        if (!eligibleLocally(result.popup)) { candidates = candidates.filter((item) => item.id !== candidate.id); return; }
+        const deferred = criticalFlowReason() || (consentRef.current.isPending ? "consent_pending" : view.consumed.has(viewScope) ? "visit_already_used" : null);
+        if (deferred) { trace("content_discarded", { reason: deferred }); return; }
+        if (!eligibleLocally(result.popup)) { trace("content_discarded", { reason: localReason(result.popup) }); candidates = candidates.filter((item) => item.id !== candidate.id); return; }
         const popup = { ...candidate, ...result.popup, microsite_id: page.microsite_id || null };
         restoreFocusOnClose.current = true;
         consumePopupView(view, viewScope);
         openedRef.current = { popup, context, runtimeScope };
         setOpened(openedRef.current);
+        trace("popup_opened");
         markShown(popup);
-      } catch {
+      } catch (error) {
+        trace("selection_failed", { reason: popupFailureReason(error), status: error?.status });
         // One failed authorization per candidate per batch, not a 500ms retry loop.
         candidates = candidates.filter((item) => item.id !== candidate.id);
       }
       finally { selecting = false; }
     };
-    const refresh = async () => {
+    const refresh = async (cause = "initial") => {
       if (requesting) return;
+      trace("eligibility_refresh", { cause });
       requesting = true;
       try {
         const revalidating = !!openedRef.current;
@@ -139,17 +170,19 @@ export default function PopupRuntime({ page, viewerIdentity, initialDiscovery = 
         const data = prefetched || await requestPopup(`${query}${revalidating ? "&revalidate=1" : ""}`, { publicRequest: true, signal: controller.signal });
         if (!alive()) return;
         if (!viewerMatches(data) || !data.tenant_id || (context && (context.viewer_key !== data.viewer_key || context.tenant_id !== data.tenant_id))) {
+          trace("eligibility_rejected", { reason: "authorization_changed" });
           dismiss(); candidates = []; context = null; return;
         }
         context = data;
         candidates = data.candidates || [];
+        trace("eligibility_received", { candidateCount: candidates.length });
         const active = openedRef.current?.popup;
         if (active) {
           const current = candidates.find((candidate) => candidate.id === active.id && candidate.dismissal_generation === active.dismissal_generation);
-          if (!current) dismiss();
+          if (!current) { trace("popup_closed", { reason: "no_longer_eligible" }); dismiss(); }
           else {
             const authorized = await requestPopup(`${query}&revalidate=1&id=${encodeURIComponent(current.id)}&revision=${current.revision}`, { publicRequest: true, signal: controller.signal });
-            if (alive() && (!authorized.popup || !viewerMatches(authorized) || authorized.viewer_key !== context.viewer_key || authorized.tenant_id !== context.tenant_id)) dismiss();
+            if (alive() && (!authorized.popup || !viewerMatches(authorized) || authorized.viewer_key !== context.viewer_key || authorized.tenant_id !== context.tenant_id)) { trace("popup_closed", { reason: "authorization_changed" }); dismiss(); }
             else if (alive() && openedRef.current?.popup.id === active.id) {
               const next = { ...openedRef.current, popup: { ...active, ends_at: current.ends_at, revision: current.revision } };
               openedRef.current = next;
@@ -158,17 +191,18 @@ export default function PopupRuntime({ page, viewerIdentity, initialDiscovery = 
             // Keep the mounted Canvas snapshot, focus and interactive state.
           }
         }
-      } catch { if (alive()) { candidates = []; dismiss(); } }
+      } catch (error) { trace("eligibility_failed", { reason: popupFailureReason(error), status: error?.status }); if (alive()) { candidates = []; dismiss(); } }
       finally { requesting = false; if (alive()) void select(); }
     };
     const tick = () => {
       const active = openedRef.current?.popup;
-      if (active && consentRef.current.isPending) dismiss();
-      if (active?.ends_at && Date.parse(active.ends_at) <= Date.now()) dismiss();
+      if (active && consentRef.current.isPending) { trace("popup_closed", { reason: "consent_pending" }); dismiss(); }
+      if (active?.ends_at && Date.parse(active.ends_at) <= Date.now()) { trace("popup_closed", { reason: "popup_expired" }); dismiss(); }
       void select();
     };
     const yieldToExternalFlow = () => {
       if (!alive() || !openedRef.current || !popupExternalInterferenceActive()) return;
+      trace("popup_closed", { reason: popupExternalInterferenceReason() });
       restoreFocusOnClose.current = false;
       dismiss();
     };
@@ -185,16 +219,20 @@ export default function PopupRuntime({ page, viewerIdentity, initialDiscovery = 
         "data-testid", "src", "data-submitting", "disabled", "hidden", "open", "class", "style"],
     });
     void refresh();
-    const freshness = setInterval(refresh, 30000);
+    const periodicRefresh = () => refresh("interval");
+    const focusRefresh = () => refresh("focus");
+    const visibilityRefresh = () => refresh("visibility");
+    const freshness = setInterval(periodicRefresh, 30000);
     const triggerTimer = setInterval(tick, 500);
-    window.addEventListener("focus", refresh);
-    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("focus", focusRefresh);
+    document.addEventListener("visibilitychange", visibilityRefresh);
     return () => {
       controller.abort(); ++tokenRef.current;
+      trace("runtime_unmounted");
       interference.disconnect();
       clearInterval(freshness); clearInterval(triggerTimer);
-      window.removeEventListener("focus", refresh);
-      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("focus", focusRefresh);
+      document.removeEventListener("visibilitychange", visibilityRefresh);
       openedRef.current = null;
       releasePopupHistoryView(view);
     };

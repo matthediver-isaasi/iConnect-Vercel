@@ -6,9 +6,9 @@ const externalFlowSelector = [
   'form[data-submitting="true"]', 'form button[type="submit"]:disabled',
 ].join(",");
 
-export function popupExternalInterferenceActive() {
-  return [...document.querySelectorAll(externalFlowSelector)]
-    .some((element) => {
+export function popupExternalInterferenceReason() {
+  const blocking = [...document.querySelectorAll(externalFlowSelector)]
+    .find((element) => {
       if (element.closest("[data-cms-popup-modal]")) return false;
       if (element.matches('iframe[src*="stripe"]')
         && !element.matches('[data-popup-critical-flow], [data-payment-active], [data-booking-active], [aria-busy="true"]')) {
@@ -24,4 +24,14 @@ export function popupExternalInterferenceActive() {
       }
       return true;
     });
+  if (!blocking) return null;
+  if (blocking.matches('[role="dialog"],[role="alertdialog"]')) return "other_dialog";
+  if (blocking.matches('[aria-busy="true"]')) return "page_busy";
+  if (blocking.matches('iframe[src*="stripe"]')) return "payment_frame";
+  if (blocking.matches('[data-payment-active],[data-testid*="payment"],[data-testid*="checkout"]')) return "payment_flow";
+  if (blocking.matches('[data-booking-active],[data-testid*="event-registration"]')) return "booking_flow";
+  if (blocking.matches('form[data-submitting="true"],form button[type="submit"]:disabled')) return "form_submitting";
+  return "critical_flow";
 }
+
+export const popupExternalInterferenceActive = () => !!popupExternalInterferenceReason();

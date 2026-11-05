@@ -5,6 +5,7 @@ import CanvasPageRenderer from "@/components/canvas/CanvasPageRenderer";
 import { Button } from "@/components/ui/button";
 import { popupConfig } from "@/lib/cmsPopups";
 import { popupExternalInterferenceActive } from "@/lib/popupInterference";
+import { popupDiagnostic } from "@/lib/popupDiagnostics";
 
 export default function PopupModal({ popup, open, onClose, preview = false, previewWidth, restoreFocusOnCloseRef, children }) {
   const observer = useRef(null);
@@ -16,6 +17,7 @@ export default function PopupModal({ popup, open, onClose, preview = false, prev
   const measure = useCallback((node) => {
     observer.current?.disconnect();
     if (!node) return;
+    popupDiagnostic("modal_content_mounted");
     observer.current = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width));
     observer.current.observe(node);
   }, []);

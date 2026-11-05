@@ -4,8 +4,9 @@ import IEditElementRenderer from "../components/iedit/IEditElementRenderer";
 import CanvasPageRenderer from "../components/canvas/LazyCanvasPageRenderer";
 import StaticHtmlPageRenderer from "../components/staticpage/StaticHtmlPageRenderer";
 import PopupRuntime from "../components/popups/PopupRuntime";
-import { useRef } from "react";
+import { useRef, useEffect } from "react";
 import { startPopupDiscovery } from "../lib/popupDiscovery";
+import { popupDiagnostic } from "../lib/popupDiagnostics";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { usePageLayoutDecision } from "@/contexts/LayoutContext";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
@@ -120,6 +121,13 @@ export default function HomePageRedirect() {
     pageQueryEnabled && (pageQuery.isPending || pageQuery.isFetching);
   const prerequisiteFailure =
     brandingError || (!brandingLoading && !tenantId) || settingsQuery.error;
+  const diagnosticPhase = isCanvasPreview ? "editor_preview" : !authResolved ? "sign_in_loading"
+    : brandingLoading ? "branding_loading" : prerequisiteFailure ? "prerequisite_failed"
+      : settingsPending ? "homepage_settings_loading" : pagePending ? "page_content_loading"
+        : pageQuery.error ? "page_failed" : !homePageSlug ? "no_homepage_selected"
+          : memberInfo && (!sessionValidated || !isAccessReady) ? "member_access_loading"
+            : pageQuery.data?.page?.status !== "published" ? "page_not_published" : "page_ready";
+  useEffect(() => { popupDiagnostic("homepage_stage", { reason: diagnosticPhase }); }, [diagnosticPhase]);
 
   let layoutDecision = null;
   if (!settingsPending && !pagePending) {

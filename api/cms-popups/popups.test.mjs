@@ -40,6 +40,10 @@ test('batch payload never releases design, targeting rules or member fields', as
   assert.equal(res.body.candidates[0].design, undefined);
   assert.equal(res.body.candidates[0].config.groups, undefined);
   assert.match(res.headers['Cache-Control'], /no-store/);
+  for (const stage of ['resolve_tenant', 'resolve_viewer', 'page', 'candidates', 'fields', 'audience', 'preferences', 'total']) {
+    assert.match(res.headers['Server-Timing'], new RegExp(`${stage};dur=\\d`));
+  }
+  assert.equal(res.headers['Server-Timing'].includes(tid), false);
   assert.equal(db.reads.some(r => r.table === 'member'), false);
   for (const read of db.reads) assert.ok(read.filters.some(f => f[0] === 'eq' && f[1] === 'tenant_id' && f[2] === tid));
 });
@@ -90,6 +94,8 @@ test('selected popup read requires fresh revision and independently authorizes p
   assert.deepEqual(res.body.popup.design, POPUP_EMPTY_DESIGN);
   const stale = await deliver({ input: { page_id: pid, id: popupId, revision: 0 } });
   assert.equal(stale.res.statusCode, 409);
+  assert.match(stale.res.headers['Server-Timing'], /total;dur=\d/);
+  assert.match(res.headers['Server-Timing'], /design;dur=\d/);
   const removed = await deliver({ db: database({ i_edit_page: null }), input: { page_id: pid, id: popupId, revision: 1 } });
   assert.equal(removed.res.statusCode, 404);
 });

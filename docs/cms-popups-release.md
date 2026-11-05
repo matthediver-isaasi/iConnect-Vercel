@@ -1,5 +1,51 @@
 # CMS Canvas Popups — Phase 1 release boundaries
 
+## Delay diagnostics
+
+After deploying the matching client and API, reproduce the delay on a fresh page
+visit (navigate away and follow a link back, rather than refreshing a consumed
+history entry). In the browser Console run:
+
+```js
+window.iconnectPopupDiagnostics()
+```
+
+This returns JSON text directly, not `console.table()`'s `undefined` return.
+It holds the latest 250 events in memory for the current document. A hard reload
+clears the trace. Optionally add `?popupDebug=1` (or `&popupDebug=1` when a query
+already exists) to stream the same events under `[CMS popup]` in Console.
+Diagnostics do not clear dismissals or change any delivery safeguards.
+
+The trace records:
+
+- Homepage prerequisite/loading stages and popup runtime mount/unmount.
+- Early discovery reuse or rejection, including its age and expiry reason.
+- Eligibility, selected content, periodic content rechecks and preference writes
+  as distinct request kinds, with HTTP status and request duration.
+- Refresh causes: initial load, interval, browser focus and visibility changes.
+- Waiting reasons such as consent, another dialog, page busy, payment/booking
+  flow, an active editable field, trigger timing, frequency/dismissal restrictions
+  and an already-consumed page visit. Repeated identical waits are deduplicated.
+- Discarded content responses and why they could not be displayed.
+- Opening requested (`popup_opened`), actual modal container attachment
+  (`modal_content_mounted`), and subsequent closure. Container attachment is not
+  proof that all images inside the Canvas content have finished loading.
+
+`atMs` is milliseconds since document navigation. `durationMs` is the request
+duration. `serverMs` comes from the API's `Server-Timing` response header and
+separates tenant/session resolution, page lookup, candidate scan, field discovery,
+audience loading, preferences, design resolution and preference writes. Parallel
+stage durations overlap; do not add them to estimate the total.
+The server `total` starts when the popup handler is entered. It excludes network,
+platform cold-start, module-loading and middleware work before that point; a large
+gap between request duration and server total is not automatically database time.
+
+Only controlled reason codes, counts, local diagnostic sequence numbers, statuses
+and durations are recorded. No member names/IDs, tenant IDs, URLs, tokens, popup
+content, audience answers or raw error/response bodies are retained. The trace is
+not stored in browser storage, sent to analytics or uploaded automatically.
+Existing no-store response headers and authorisation rules remain in force.
+
 ## Storage and deployment
 
 `supabase/migrations/202611050001_cms_popups.sql` was applied to verified live

@@ -30,7 +30,7 @@ test('successful early home discovery cannot mask a later branding failure', asy
   const exports = { exports: {} };
   const unexpectedRenderer = () => { throw new Error('No destination content may render'); };
   vm.runInNewContext(code, {
-    module: exports, React, useRef: React.useRef, useQuery, window: dom.window,
+    module: exports, React, useRef: React.useRef, useEffect: React.useEffect, popupDiagnostic: () => {}, useQuery, window: dom.window,
     URLSearchParams,
     useLocation: () => ({ search: '' }),
     useMemberAccess: () => ({ authResolved: true, sessionValidated: false, memberInfo: null }),
@@ -85,7 +85,7 @@ test('homepage starts popup discovery alongside the page request but cannot rend
   const pageResponse = new Promise(resolve => { releasePage = resolve; });
   const exports = { exports: {} };
   vm.runInNewContext(code, {
-    module: exports, React, useRef: React.useRef, useQuery, window: dom.window, URLSearchParams,
+    module: exports, React, useRef: React.useRef, useEffect: React.useEffect, popupDiagnostic: () => {}, useQuery, window: dom.window, URLSearchParams,
     useLocation: () => ({ search: '' }),
     useMemberAccess: () => ({ authResolved: true, sessionValidated: true, isAccessReady: true, memberInfo: { id: 'member-fixture' } }),
     useTenantBranding: () => ({ branding: { id: 'tenant-fixture' }, loading: false, error: null, tenantSlug: 'tenant' }),
