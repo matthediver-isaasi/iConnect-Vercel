@@ -1,6 +1,7 @@
 .registration-report-scroll {
-  /* Six 28px icons, a 16px checkbox, gaps, and cell/control spacing. */
-  --report-actions-width: 210px;
+  /* Six single-line actions, with selection in a separate narrow column. */
+  --report-actions-width: 190px;
+  --report-selection-width: 40px;
   --report-name-width: clamp(120px, 18vw, 240px);
   overflow: auto;
   max-height: 65vh;
@@ -44,8 +45,16 @@
   box-sizing: border-box;
 }
 
-.registration-report-scroll [data-pinned="actions"] {
+.registration-report-scroll [data-pinned="selection"] {
   left: 0;
+  width: var(--report-selection-width);
+  min-width: var(--report-selection-width);
+  max-width: var(--report-selection-width);
+  border-right: 1px solid hsl(var(--border));
+}
+
+.registration-report-scroll [data-pinned="actions"] {
+  left: var(--report-selection-width);
   width: var(--report-actions-width);
   min-width: var(--report-actions-width);
   max-width: var(--report-actions-width);
@@ -62,7 +71,7 @@
 }
 
 .registration-report-scroll [data-pinned="name"] {
-  left: var(--report-actions-width);
+  left: calc(var(--report-selection-width) + var(--report-actions-width));
   width: var(--report-name-width);
   min-width: var(--report-name-width);
   max-width: var(--report-name-width);

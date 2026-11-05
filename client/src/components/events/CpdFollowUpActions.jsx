@@ -66,8 +66,8 @@ function CertificatePdfPreview({registration,disabled}){
 // Explicit second confirmation: points are committed by the worker before
 // current certificate/recipient fingerprints are reviewed. Never auto-send on
 // preview, checkbox changes, or points-job completion.
-export default function CpdFollowUpActions({registrations,ready,onBusyChange}){
-  const [options,setOptions]=useState({badges:false,badgeEmail:false,certificate:false});
+export default function CpdFollowUpActions({registrations,ready,onBusyChange,certificateOnly=false}){
+  const [options,setOptions]=useState({badges:false,badgeEmail:false,certificate:certificateOnly});
   const [busy,setBusy]=useState(false);
   const [deliveries,setDeliveries]=useState(null);
   const [outcomes,setOutcomes]=useState([]);
@@ -152,17 +152,17 @@ export default function CpdFollowUpActions({registrations,ready,onBusyChange}){
   const change=(key,value)=>{setOptions(o=>({...o,[key]:value}));setDeliveries(null);};
   const pdfRegistration=registrations.find(row=>cpdRegistrationKey(row)===selectedRegistration)||registrations[0];
   return <section className="space-y-3 border-t pt-4" aria-label="Optional CPD follow-up actions">
-    <h3 className="font-semibold">Optional badge and certificate actions</h3>
+    <h3 className="font-semibold">{certificateOnly ? "Preview or email CPD certificates" : "Optional badge and certificate actions"}</h3>
     <p className="text-sm text-muted-foreground">Applies to these {registrations.length} reviewed registrations only. Points and attendance are not changed by these controls. Complete any points reprocessing first, then review the emails before sending. Keep this window open until each requested batch finishes.</p>
     {!ready&&<p className="text-sm">Waiting for points processing to finish. Resolve any failed points jobs before sending certificates.</p>}
-    <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={options.badges} disabled={busy||!ready} onChange={e=>change("badges",e.target.checked)}/>Recheck missing badge awards</label>
+    {!certificateOnly && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={options.badges} disabled={busy||!ready} onChange={e=>change("badges",e.target.checked)}/>Recheck missing badge awards</label>}
     {options.badges&&<div className="space-y-2">
       <p className="text-xs text-muted-foreground">Uses the saved badge rules and verified attendance. Existing badges are not duplicated. This queues checks, not emails; allow the background worker to finish before reviewing badge notifications.</p>
       <Button type="button" variant="outline" disabled={busy||!ready} onClick={recheck}>Confirm badge recheck</Button>
       {badgeRuns.length>0&&<Button type="button" variant="outline" disabled={busy||!ready} onClick={checkBadges}>Check badge progress</Button>}
       {outcomes.length>0&&<div role="status" className="max-h-36 overflow-auto text-sm">{outcomes.map((text,i)=><p key={i}>{text}</p>)}</div>}
     </div>}
-    <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={options.badgeEmail} disabled={busy||!ready} onChange={e=>change("badgeEmail",e.target.checked)}/>Send/resend badge notification emails</label>
+    {!certificateOnly && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={options.badgeEmail} disabled={busy||!ready} onChange={e=>change("badgeEmail",e.target.checked)}/>Send/resend badge notification emails</label>}
     <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={options.certificate} disabled={busy||!ready} onChange={e=>change("certificate",e.target.checked)}/>Send/resend CPD certificate emails</label>
     {options.certificate&&<div className="space-y-3 rounded border bg-muted/20 p-3" aria-label="Certificate PDF preview">
       <h4 className="text-sm font-medium">Inspect an attendee&apos;s certificate</h4>

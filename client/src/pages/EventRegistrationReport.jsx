@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
 import GuestRegistrationMemberDialog from "@/components/events/GuestRegistrationMemberDialog";
 import RegistrantSurveyEmailAction from "@/components/events/RegistrantSurveyEmailAction";
+import RegistrationBulkActionDialog from "@/components/events/RegistrationBulkActionDialog";
 import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
 import { ContactRound, UserCheck, TriangleAlert } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -471,6 +472,7 @@ export default function EventRegistrationReport() {
   const [transferIsPublic, setTransferIsPublic] = useState(false);
   const [certificateTarget, setCertificateTarget] = useState(null);
   const [cpdSelection, setCpdSelection] = useState({});
+  const [bulkAction, setBulkAction] = useState(null);
   const [cpdEventChoice, setCpdEventChoice] = useState("");
   const [cpdEventSearch, setCpdEventSearch] = useState("");
   const cpdEventSuggestions = useMemo(() => cpdEventChoices(eventsForTypeAhead), [eventsForTypeAhead]);
@@ -486,6 +488,7 @@ export default function EventRegistrationReport() {
   useEffect(() => {
     setGuestMemberTarget(null);
     setCpdSelection({});
+    setBulkAction(null);
     setCpdEventChoice("");
     setCpdEventSearch("");
     setCpdReplayChoice("");
@@ -516,7 +519,7 @@ export default function EventRegistrationReport() {
     && !isFeatureExcluded("events.event-report");
   const selectedCpdRegistrations = Object.values(cpdSelection);
   const openSelectedCpd = (registrations) => setCpdDialog({
-    scope: { mode: "selected", registrations: registrations.map(row => ({ ...row })) },
+    scope: { mode: "selected", registrations: registrations.map(({ booking_id, booking_source, event_id }) => ({ booking_id, booking_source, event_id })) },
     scopeLabel: `${registrations.length} explicitly selected registration${registrations.length === 1 ? "" : "s"}`,
   });
   const toggleCpdRegistration = (identity, checked) => setCpdSelection(previous => {
@@ -1671,7 +1674,6 @@ export default function EventRegistrationReport() {
     const cpdIdentity = cpdRegistrationIdentity(attendee, group);
     return (
       <div className="flex items-center gap-0.5 mr-1">
-        <RegistrantSurveyEmailAction identity={cpdIdentity} attendee={attendee} />
         {(attendee.member_id || attendee.linked_member_id) ? (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -1702,27 +1704,6 @@ export default function EventRegistrationReport() {
             <TooltipContent>Review guest and create member</TooltipContent>
           </Tooltip>
         )}
-        {canReprocessCpd && <>
-          <Checkbox
-            checked={!!cpdSelection[cpdRegistrationKey(cpdIdentity)]}
-            onCheckedChange={checked => toggleCpdRegistration(cpdIdentity, checked === true)}
-            onClick={event => event.stopPropagation()}
-            aria-label={`Select ${attendee.attendee_first_name || "attendee"} for CPD points reprocessing`}
-            data-testid={`select-cpd-${cpdIdentity.booking_source}-${attendee.id}`}
-            className="mr-1"
-          />
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button type="button" size="icon" variant="ghost" className="h-7 w-7"
-                onClick={event => { event.stopPropagation(); openSelectedCpd([cpdIdentity]); }}
-                aria-label="Reprocess CPD points…"
-                data-testid={`reprocess-cpd-${cpdIdentity.booking_source}-${attendee.id}`}>
-                <RefreshCw className="h-3.5 w-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Reprocess CPD points…</TooltipContent>
-          </Tooltip>
-        </>}
         <div className="flex items-center gap-0.5" style={{ visibility: isCancelled ? 'hidden' : 'visible' }}>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -1730,6 +1711,7 @@ export default function EventRegistrationReport() {
                 size="icon"
                 variant="ghost"
                 className="h-7 w-7"
+                aria-label="Request cancellation"
                 onClick={(e) => { e.stopPropagation(); handleCancelClick(attendee); }}
                 data-testid={`button-cancel-${attendee.id}`}
               >
@@ -1746,6 +1728,7 @@ export default function EventRegistrationReport() {
                 className="h-7 w-7"
                 onClick={(e) => { e.stopPropagation(); handleTransferClick(attendee); }}
                 data-testid={`button-transfer-${attendee.id}`}
+                aria-label="Request transfer"
               >
                 <ArrowLeftRight className="w-3.5 h-3.5 text-muted-foreground" />
               </Button>
@@ -1753,6 +1736,15 @@ export default function EventRegistrationReport() {
             <TooltipContent>Request transfer</TooltipContent>
           </Tooltip>
         </div>
+        {canReprocessCpd && <Tooltip>
+          <TooltipTrigger asChild>
+            <Button type="button" size="icon" variant="ghost" className="h-7 w-7"
+              onClick={event => { event.stopPropagation(); openSelectedCpd([cpdIdentity]); }}
+              aria-label="Reprocess CPD points…" data-testid={`reprocess-cpd-${cpdIdentity.booking_source}-${attendee.id}`}>
+              <RefreshCw className="h-3.5 w-3.5" />
+            </Button>
+          </TooltipTrigger><TooltipContent>Reprocess CPD points…</TooltipContent>
+        </Tooltip>}
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
@@ -1774,9 +1766,35 @@ export default function EventRegistrationReport() {
           </TooltipTrigger>
           <TooltipContent>Preview or email CPD certificate</TooltipContent>
         </Tooltip>
+        <RegistrantSurveyEmailAction identity={cpdIdentity} attendee={attendee} />
       </div>
     );
   };
+
+  const renderSelection = (attendee, group) => {
+    const identity = cpdRegistrationIdentity(attendee, group);
+    return <Checkbox checked={!!cpdSelection[cpdRegistrationKey(identity)]}
+      onCheckedChange={checked => toggleCpdRegistration({
+        ...identity, attendee_name: `${attendee.attendee_first_name || ""} ${attendee.attendee_last_name || ""}`.trim(),
+        attendee_email: attendee.attendee_email, event_title: group.eventTitle || attendee.event_title || "Event",
+        status: attendee.status,
+      }, checked === true)}
+      onClick={event => event.stopPropagation()}
+      aria-label={`Select ${attendee.attendee_first_name || "attendee"} for bulk actions`}
+      data-testid={`select-cpd-${identity.booking_source}-${attendee.id}`} />;
+  };
+
+  const bulkToolbar = canReprocessCpd && <div className="mb-3 rounded-md border bg-background p-3 space-y-2" aria-label="Bulk registration actions">
+    <p className="text-sm font-medium">{selectedCpdRegistrations.length} selected registrations</p>
+    <p className="text-xs text-muted-foreground">Selection includes other pages and rows hidden by filters. Actions apply only to your selected registrations.</p>
+    <div className="flex flex-wrap gap-2">
+      <Button variant="outline" disabled={!selectedCpdRegistrations.length} onClick={() => openSelectedCpd(selectedCpdRegistrations)} data-testid="reprocess-cpd-selected">Reprocess CPD points</Button>
+      <Button variant="outline" disabled={!selectedCpdRegistrations.length} onClick={() => setBulkAction({ action: "cancel", registrations: selectedCpdRegistrations })}>Request cancellation</Button>
+      <Button variant="outline" disabled={!selectedCpdRegistrations.length} onClick={() => setBulkAction({ action: "certificate", registrations: selectedCpdRegistrations })}>Preview or email CPD certificate</Button>
+      <Button variant="outline" disabled={!selectedCpdRegistrations.length} onClick={() => setBulkAction({ action: "survey", registrations: selectedCpdRegistrations })}>Send survey invitation</Button>
+      {selectedCpdRegistrations.length > 0 && <Button variant="ghost" onClick={() => setCpdSelection({})}>Clear selection</Button>}
+    </div>
+  </div>;
 
   if (!accessChecked) {
     return (
@@ -1791,13 +1809,7 @@ export default function EventRegistrationReport() {
       {canReprocessCpd && <Card data-testid="cpd-replay-toolbar">
         <CardHeader className="pb-3"><CardTitle className="text-base">Reprocess CPD points</CardTitle></CardHeader>
         <CardContent className="space-y-3">
-          <p className="text-sm text-muted-foreground">Recover missing awards with a read-only preview before confirmation. Selection is retained across report pages and filters.</p>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" variant="outline" disabled={!selectedCpdRegistrations.length} onClick={() => openSelectedCpd(selectedCpdRegistrations)} data-testid="reprocess-cpd-selected">
-              Preview selected ({selectedCpdRegistrations.length})
-            </Button>
-            {selectedCpdRegistrations.length > 0 && <Button type="button" variant="ghost" onClick={() => setCpdSelection({})}>Clear selection</Button>}
-          </div>
+          <p className="text-sm text-muted-foreground">Recover missing awards for a whole event below, or use the bulk actions above the registrations table for selected attendees.</p>
           <div className="flex flex-wrap items-end gap-2">
             <label className="min-w-0 flex-1 space-y-1 text-sm">
               <span>All registrations for one explicit event</span>
@@ -2216,6 +2228,7 @@ export default function EventRegistrationReport() {
               </div>
             </CardHeader>
             <CardContent>
+              {bulkToolbar}
               {filteredGroups.length === 0 ? (
                 <div className="text-center py-12 text-muted-foreground" data-testid="text-no-registrations">
                   {searchQuery ? 'No registrations match your search' : 'No registrations found for the selected filters'}
@@ -2226,6 +2239,7 @@ export default function EventRegistrationReport() {
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b text-left">
+                          <th scope="col" data-pinned="selection" className="text-center"><span className="sr-only">Select registrations</span></th>
                           <th scope="col" data-pinned="actions" className="pb-3 pr-1 font-medium text-muted-foreground whitespace-nowrap">Actions</th>
                           <th scope="col" data-pinned="name" className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Name</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Event</th>
@@ -2284,6 +2298,7 @@ export default function EventRegistrationReport() {
 
                             return (
                               <tr key={attendee.id} className={`border-b last:border-0 ${registrationMemberHighlight(attendee)}`} data-testid={`row-booking-${attendee.id}`}>
+                                <td data-pinned="selection" className="text-center">{canReprocessCpd && renderSelection(attendee, group)}</td>
                                 <td data-pinned="actions" className="py-3 pr-1">
                                   {renderActionIcons(attendee, group)}
                                 </td>
@@ -2479,6 +2494,7 @@ export default function EventRegistrationReport() {
                                 style={{ borderTopWidth: '2px' }}
                                 data-testid={`row-booker-header-${headerKey}`}
                               >
+                                <td data-pinned="selection"></td>
                                 <td data-pinned="actions" className="py-2 pr-1"></td>
                                 <td data-pinned="name" className="py-2 pr-3">
                                   <div className="flex items-center gap-2 flex-wrap">
@@ -2533,6 +2549,7 @@ export default function EventRegistrationReport() {
                                 style={isFirstRowInGroup ? { borderTopWidth: '2px' } : undefined}
                                 data-testid={`row-booking-${attendee.id}`}
                               >
+                                <td data-pinned="selection" className="text-center">{canReprocessCpd && renderSelection(attendee, group)}</td>
                                 <td data-pinned="actions" className="py-2 pr-1">
                                   {renderActionIcons(attendee, group)}
                                 </td>
@@ -2615,7 +2632,7 @@ export default function EventRegistrationReport() {
                       {filteredGroups.length > 0 && (
                         <tfoot>
                           <tr className="border-t-2 font-medium">
-                            <td className="pt-3 pr-3" colSpan={7}>
+                            <td className="pt-3 pr-3" colSpan={8}>
                               Totals ({totalAttendees} attendees, {filteredGroups.length} bookings)
                             </td>
                             <td className="pt-3 pr-3 text-right whitespace-nowrap">
@@ -2639,7 +2656,7 @@ export default function EventRegistrationReport() {
                             <td className="pt-3 pr-3 text-right whitespace-nowrap" data-testid="text-total-credits">
                               {formatRegistrationCreditSummary(filteredSummary.creditsSummary)}
                             </td>
-                            <td className="pt-3 pr-3" colSpan={showAttendanceColumn ? 10 : 9}>
+                            <td className="pt-3 pr-3" colSpan={showAttendanceColumn ? 11 : 10}>
                               <div className="flex gap-3 text-xs text-muted-foreground">
                                 <span>Account: {filteredSummary.countByMethod?.account || 0}</span>
                                 <span>Card: {filteredSummary.countByMethod?.card || 0}</span>
@@ -2860,6 +2877,9 @@ export default function EventRegistrationReport() {
         {...cpdDialog}
         onClose={() => { setCpdDialog(null); queryClient.invalidateQueries({ queryKey: ["cpd-points-replays"] }); }}
       />}
+      {bulkAction && <RegistrationBulkActionDialog {...bulkAction}
+        onClose={() => setBulkAction(null)}
+        onChanged={() => queryClient.invalidateQueries({ queryKey: ['event-registration-report'] })} />}
       {certificateTarget && <AttendeeCpdCertificateDialog
         attendee={certificateTarget.attendee}
         bookingSource={certificateTarget.bookingSource}
