@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildStartQuote } from './memberStartQuote.js';
-import { simulationFromMemberStart, startPaymentOptions, assertMemberStartAction } from './memberStartPayment.js';
+import { simulationFromMemberStart, startPaymentOptions, assertMemberStartAction, SELF_SERVICE_START_MODES } from './memberStartPayment.js';
 import { simulationFromFeeCommitment, reserveRollingFeePayment, reserveRollingMonthlyHistory } from './rollingFeeCommitment.js';
 import { buildCardAgreementSnapshot, resolveCardMonthlyOffer } from './stripeMonthlyCard.js';
 import { buildAgreementSnapshot, resolveDdOffer } from './gocardlessDirectDebit.js';
@@ -106,6 +106,19 @@ test('unselected member choice validates every complete frozen quote and blocks 
   assert.doesNotThrow(() => assertMemberStartAction(selected, 'select_payment_method'));
   assert.doesNotThrow(() => assertMemberStartAction(selected, 'start_monthly_card'));
   assert.throws(() => assertMemberStartAction(selected, 'create_payment'), { code: 'member_start_payment_mode_locked' });
+});
+test('admin invoice and period-only waiver do not depend on schedule self-service payment choices', () => {
+  const adminOnly = { ...config, online_card_payment: false, card_monthly_enabled: false, dd_enabled: false };
+  for (const [structure, band] of [[adminOnly, null], [{ ...adminOnly, pricing_model: 'tiered' }, { annual_cost: 100 }]]) {
+    const options = startPaymentOptions(structure, band, { invoice: true, noCharge: true, memberChoice: true, stripe: true, directDebit: true });
+    assert.deepEqual(options.filter(p => p.available).map(p => p.mode), ['invoice', 'free']);
+    assert.equal(options.find(p => p.mode === 'member_choice').available, false);
+  }
+  assert.equal(SELF_SERVICE_START_MODES.includes('invoice'), false);
+  assert.equal(SELF_SERVICE_START_MODES.includes('free'), false);
+  const blocked = startPaymentOptions(adminOnly, null, { invoice: false, noCharge: false });
+  assert.match(blocked.find(p => p.mode === 'invoice').reason, /accounting/);
+  assert.match(blocked.find(p => p.mode === 'free').reason, /migration/);
 });
 test('structure and selected-band options explain disabled modes and never borrow a flat monthly price', () => {
   const available = { stripe: true, directDebit: true, invoice: true, noCharge: true };
