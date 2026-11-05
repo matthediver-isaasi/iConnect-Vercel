@@ -2,10 +2,13 @@
 
 ## Storage and deployment
 
-`supabase/migrations/202611050001_cms_popups.sql` is **not applied to a live
-database**. It adds service-only definitions, page links, preferences and two
-transactional RPCs. Deploy it to verified DEST only after schema approval, before
-releasing the matching application. Never apply it to workspace SOURCE.
+`supabase/migrations/202611050001_cms_popups.sql` was applied to verified live
+DEST on 5 November 2026 with owner approval. It adds service-only definitions,
+page links, preferences and two transactional RPCs. Disposable PostgreSQL tests
+passed before application; live RLS and browser/server grants were verified
+afterwards. The list and discovery handlers returned HTTP 200 against DEST.
+For any other environment, obtain schema approval before applying it and release
+it before the matching application. Never apply it to workspace SOURCE.
 Source merge is not evidence of public rollout. No popup content is published
 automatically by this change.
 
