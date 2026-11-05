@@ -103,6 +103,7 @@ export default function MemberGroupCardsBlockView({
           {...gridProps}
           aria-busy="true"
           data-testid="member-group-cards-loading"
+          data-popup-background-loading="group_list"
         >
           {Array.from({ length: 3 }).map((_, index) => (
             <div key={index} className="rounded-md border border-slate-200 bg-white overflow-hidden">

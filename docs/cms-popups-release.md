@@ -2,6 +2,18 @@
 
 ## Delay diagnostics
 
+Reviewed read-only Canvas list/group skeletons and gallery refreshes no longer
+block a page-ready popup. Their `aria-busy` accessibility indicators remain.
+Homepage, embedded-form and unknown busy elements still block; payment, booking,
+consent and competing-dialog protections take precedence over background labels.
+`interference_changed` reports a controlled blocker category
+(`homepage_loading`, `membership_loading`, `embedded_form_loading`,
+`unclassified_busy`, `dialog`, `critical_flow`, or `clear`) without DOM text or IDs.
+Delivery requests use the existing within-request session reuse option; each
+subsequent content, eligibility or preference request authenticates afresh.
+Live latency improvement must be measured after deployment, not inferred from
+isolated tests.
+
 After deploying the matching client and API, reproduce the delay on a fresh page
 visit (navigate away and follow a link back, rather than refreshing a consumed
 history entry). In the browser Console run:

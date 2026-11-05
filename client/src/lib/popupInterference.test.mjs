@@ -30,3 +30,24 @@ test('payment flow markers and competing dialogs remain protected', () => {
 test('the popup’s own content never blocks itself', () => {
   assert.equal(check('<section data-cms-popup-modal><section role="dialog"></section></section>'), false);
 });
+
+test('reviewed read-only loaders do not defer a ready page popup', () => {
+  for (const kind of ['content_list', 'group_list', 'photo_grid']) {
+    assert.equal(check(`<section aria-busy="true" data-popup-background-loading="${kind}"></section>`), false);
+  }
+});
+test('unclassified, homepage, form and membership loading remains protected', () => {
+  for (const attributes of ['', 'data-testid="loading-home-page"', 'data-popup-loading="embedded_form"',
+    'data-membership-card="example"', 'data-popup-background-loading="unreviewed"']) {
+    assert.equal(check(`<section aria-busy="true" ${attributes}></section>`), true);
+  }
+});
+test('background exemption cannot bypass critical ancestors, descendants or competing blockers', () => {
+  const background = '<section aria-busy="true" data-popup-background-loading="content_list"></section>';
+  for (const attribute of ['role="dialog"', 'role="alertdialog"', 'data-payment-active', 'data-booking-active', 'data-popup-critical-flow']) {
+    assert.equal(check(`<section ${attribute}>${background}</section>`), true);
+    assert.equal(check(`<section aria-busy="true" data-popup-background-loading="content_list" ${attribute}></section>`), true);
+    assert.equal(check(`${background}<section ${attribute}></section>`), true);
+    assert.equal(check(`<section aria-busy="true" data-popup-background-loading="content_list"><section ${attribute}></section></section>`), true);
+  }
+});

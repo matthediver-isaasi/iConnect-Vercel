@@ -55,7 +55,7 @@ const originalClearTimeout = globalThis.clearTimeout;
 after(() => { globalThis.setInterval = originalInterval; globalThis.clearInterval = originalClear; globalThis.setTimeout = originalTimeout; globalThis.clearTimeout = originalClearTimeout; dom.window.close(); delete globalThis.__popupTest; });
 const settle = () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)); });
 let sequence = 0;
-async function mount({ member = false, pendingConsent = false, selectedError = false, otherDialog = false, slowRead = false,
+async function mount({ member = false, pendingConsent = false, selectedError = false, otherDialog = false, slowRead = false, backgroundHtml = "",
   home = null, trigger = { type: "immediate", value: 0 }, prefetch = null,
   frequency = "day", durableState, sessionState, actualViewer, expectedViewer,
   categories = { analytics: true, functional: true }, hasConsented = true } = {}) {
@@ -97,7 +97,7 @@ async function mount({ member = false, pendingConsent = false, selectedError = f
   const storageKey = `cms-popup:${context.tenant_id}:${context.viewer_key}:${popup.id}:${popup.dismissal_generation}`;
   if (durableState) window.localStorage.setItem(storageKey, JSON.stringify(durableState));
   if (sessionState) window.sessionStorage.setItem(storageKey, JSON.stringify(sessionState));
-  document.body.innerHTML = `<div id="root"></div>${otherDialog ? '<div id="competing" role="dialog"></div>' : ""}${home?.stripeTelemetry ? '<iframe src="https://js.stripe.com/v3/m-outer.html" style="visibility:hidden;height:1px"></iframe>' : ""}`;
+  document.body.innerHTML = `<div id="root"></div>${backgroundHtml}${otherDialog ? '<div id="competing" role="dialog"></div>' : ""}${home?.stripeTelemetry ? '<iframe src="https://js.stripe.com/v3/m-outer.html" style="visibility:hidden;height:1px"></iframe>' : ""}`;
   const root = createRoot(document.getElementById("root"));
   const props = { page: { id: `page-${sequence}`, slug: `page-${sequence}`, microsite_id: "microsite-fixture" }, viewerIdentity: expectedViewer || (member ? context.viewer_key : "guest") };
   if (prefetch) props.initialDiscovery = {
@@ -217,6 +217,23 @@ test("competing dialog defers without consuming; closing never opens another can
   assert.ok(JSON.parse(window.iconnectPopupDiagnostics()).some(e => e.event === "waiting" && e.reason === "visit_already_used"));
   assert.equal(app.calls.filter((call) => new URLSearchParams(call.query).has("id")).length, 1);
   await app.unmount();
+});
+test("read-only background loading allows fresh content selection without waiting for its data", async () => {
+  const app = await mount({ backgroundHtml: '<div aria-busy="true" data-popup-background-loading="content_list"></div>' });
+  try {
+    assert.ok(document.querySelector('[aria-busy="true"]'));
+    assert.ok(document.querySelector("[data-cms-popup-modal]"));
+    assert.equal(app.calls.filter(call => new URLSearchParams(call.query).has("id")).length, 1);
+  } finally { await app.unmount(); }
+});
+test("unclassified busy content still defers without consuming the visit", async () => {
+  const app = await mount({ backgroundHtml: '<div id="busy-loader" aria-busy="true"></div>' });
+  try {
+    assert.equal(document.querySelector("[data-cms-popup-modal]"), null);
+    document.getElementById("busy-loader").remove();
+    await app.tick();
+    assert.ok(document.querySelector("[data-cms-popup-modal]"));
+  } finally { await app.unmount(); }
 });
 test("MutationObserver immediately yields to a later external dialog, excluding own descendants", async () => {
   const app = await mount();

@@ -415,6 +415,7 @@ function ListSkeleton({ count = 3, columns = 3, gap = 16, responsive = false }) 
       style={responsive ? undefined : gridStyle(columns, gap)}
       aria-busy="true"
       data-testid="skeleton-list"
+      data-popup-background-loading="content_list"
     >
       {items.map((_, i) => (
         <div key={i} className="rounded-md border border-slate-200 bg-white overflow-hidden">
@@ -6192,14 +6193,14 @@ function FormEmbedRender({ block, asEditor, priority, breakpoint, viewportBreakp
   // immediately.
   if (!asEditor && !micrositesLoaded) {
     return (
-      <div className="w-full h-full flex items-center justify-center" aria-busy="true">
+      <div className="w-full h-full flex items-center justify-center" aria-busy="true" data-popup-loading="embedded_form">
         <Loader2 className="w-5 h-5 animate-spin text-slate-400" aria-hidden="true" />
       </div>
     );
   }
   if (isLoading) {
     return (
-      <div className="w-full h-full flex items-center justify-center" aria-busy="true">
+      <div className="w-full h-full flex items-center justify-center" aria-busy="true" data-popup-loading="embedded_form">
         <Loader2 className="w-5 h-5 animate-spin text-slate-400" aria-hidden="true" />
       </div>
     );
@@ -8446,7 +8447,7 @@ function GalleryRender({ block, breakpoint, asEditor }) {
   // mode (rendered inside the popup dialog). Photo clicks open the Lightbox.
   const photoGrid = (
     <>
-      <div style={gridStyle(cols, c.gap ?? 16)} aria-busy={isFetching ? 'true' : undefined}>
+      <div style={gridStyle(cols, c.gap ?? 16)} aria-busy={isFetching ? 'true' : undefined} data-popup-background-loading="photo_grid">
         {photos.map((photo, i) => {
           const { alt, role } = resolveAlt(photo, data.title, false);
           return (

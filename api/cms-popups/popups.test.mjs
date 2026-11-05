@@ -27,6 +27,24 @@ function response() {
 }
 const tenant = { id: tid, status: 'active', settings: { timezone: 'UTC' } };
 const guest = { isAuthenticated: false };
+test('popup requests reuse session only within each fresh authorization pass', async () => {
+  let calls = 0;
+  const handler = createPopupDeliveryHandler({ db: database(), resolveTenant: async () => tenant,
+    contextFor: async (_req, options) => {
+      assert.deepEqual(options, { reuseSessionWithinPass: true });
+      calls++;
+      return calls <= 2 ? guest : { isAuthenticated: true, tenantMismatch: true };
+    } });
+  for (const input of [{ page_id: pid }, { page_id: pid, id: popupId, revision: 1 }]) {
+    const res = response();
+    await handler({ method: 'GET', query: input }, res);
+    assert.equal(res.statusCode, 200);
+  }
+  const res = response();
+  await handler({ method: 'POST', body: { page_id: pid, id: popupId, revision: 1, generation: 1, action: 'shown' } }, res);
+  assert.equal(calls, 3);
+  assert.equal(res.statusCode, 403, 'later authorization change must not reuse earlier identity');
+});
 async function deliver({ db = database(), context = guest, input = { page_id: pid }, method = 'GET' } = {}) {
   const res = response();
   await createPopupDeliveryHandler({ db, resolveTenant: async () => tenant, contextFor: async () => context })

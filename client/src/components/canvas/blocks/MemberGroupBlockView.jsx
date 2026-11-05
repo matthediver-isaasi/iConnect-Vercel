@@ -36,6 +36,7 @@ function LoadingGrid({ count, columns, gap }) {
       }}
       aria-busy="true"
       data-testid="member-group-loading"
+      data-popup-background-loading="group_list"
     >
       {Array.from({ length: count }).map((_, index) => (
         <div key={index} className="rounded-md border border-slate-200 bg-white overflow-hidden">

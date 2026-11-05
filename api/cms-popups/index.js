@@ -21,7 +21,9 @@ export function createPopupDeliveryHandler({ db = supabase, resolveTenant = reso
         && input.page_slug.length <= 200 && !/[/?#\s]/.test(input.page_slug);
       if ((!isPopupId(input.page_id) && !slugDiscovery) || (input.id && !isPopupId(input.id))) return res.status(400).json({ error: 'Invalid page or popup identifier' });
       const [tenant, context] = await Promise.all([
-        measure('resolve_tenant', () => resolveTenant(req)), measure('resolve_viewer', () => contextFor(req)),
+        // Reuse only the session validated in this invocation. Every eligibility,
+        // selected-content and preference request still revalidates independently.
+        measure('resolve_tenant', () => resolveTenant(req)), measure('resolve_viewer', () => contextFor(req, { reuseSessionWithinPass: true })),
       ]);
       if (!tenant || tenant.status !== 'active') return res.status(404).json({ error: 'Page unavailable' });
       // Never downgrade an authenticated non-member or mismatched identity to guest.

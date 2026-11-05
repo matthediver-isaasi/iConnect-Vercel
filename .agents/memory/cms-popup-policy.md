@@ -26,3 +26,9 @@ Early popup discovery may overlap page-content loading, but must never substitut
 **Why:** Sequential page loading and eligibility requests caused a substantial delay. Caching permission or selected designs to hide that delay would weaken revocation and member-isolation protections.
 
 **How to apply:** Keep early discovery component-owned, short-lived and bound to the resolved page and viewer. Require successful page loading and all display gates, and always authorize the selected popup afresh.
+
+Only explicitly reviewed read-only background loaders may be exempted from popup busy checks; unknown busy elements remain blocking.
+
+**Why:** Diagnostic traces showed several seconds waiting after page eligibility was ready, but did not identify the specific busy element. Removing every busy check would also bypass embedded forms and transactional flows.
+
+**How to apply:** Keep accessibility busy indicators intact, label reviewed content loaders explicitly, preserve critical-flow precedence, and reuse session validation only within one request—not between eligibility and selected-content authorization.
