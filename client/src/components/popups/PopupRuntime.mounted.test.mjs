@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { after, test } from "node:test";
 import Module from "node:module";
-import { build } from "esbuild";
+import { build, transformSync } from "esbuild";
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
 import { JSDOM } from "jsdom";
 
 // Isolated transport and modal seam: no DB, tenant, provider or live API calls.
@@ -42,6 +44,10 @@ module.filename = `${process.cwd()}/popup-runtime-isolated.cjs`;
 module.paths = Module._nodeModulePaths(process.cwd());
 module._compile(bundle.outputFiles[0].text, module.filename);
 const PopupRuntime = module.exports.default;
+const homeSource = readFileSync(new URL("../../pages/HomePageRedirect.jsx", import.meta.url), "utf8")
+  .replace(/^import .*;\r?$/gm, "")
+  .replace("export default function HomePageRedirect", "function HomePageRedirect");
+const homeCode = transformSync(`${homeSource}\nmodule.exports = HomePageRedirect;`, { loader: "jsx", jsx: "transform", format: "cjs" }).code;
 const originalInterval = globalThis.setInterval;
 const originalClear = globalThis.clearInterval;
 const originalTimeout = globalThis.setTimeout;
@@ -50,6 +56,7 @@ after(() => { globalThis.setInterval = originalInterval; globalThis.clearInterva
 const settle = () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)); });
 let sequence = 0;
 async function mount({ member = false, pendingConsent = false, selectedError = false, otherDialog = false, slowRead = false,
+  home = null, trigger = { type: "immediate", value: 0 },
   frequency = "day", durableState, sessionState, actualViewer, expectedViewer,
   categories = { analytics: true, functional: true }, hasConsented = true } = {}) {
   sequence += 1;
@@ -67,7 +74,7 @@ async function mount({ member = false, pendingConsent = false, selectedError = f
   let release;
   const readGate = new Promise((resolve) => { release = resolve; });
   const popup = { id: `popup-${sequence}`, revision: 3, dismissal_generation: 2,
-    config: { priority: 8, trigger: { type: "immediate", value: 0 }, frequency: { type: frequency, days: 1 }, allow_session: true, allow_permanent: true }, design: { version: 1, root: { sections: [] } } };
+    config: { priority: 8, trigger, frequency: { type: frequency, days: 1 }, allow_session: true, allow_permanent: true }, design: { version: 1, root: { sections: [] } } };
   const context = { tenant_id: "tenant-fixture", viewer_key: actualViewer || (member ? `member:person-${sequence}` : "guest"), timezone: "UTC" };
   const fixture = {
     location: { key: `entry-${sequence}`, pathname: `/notice-${sequence}` },
@@ -90,11 +97,29 @@ async function mount({ member = false, pendingConsent = false, selectedError = f
   const storageKey = `cms-popup:${context.tenant_id}:${context.viewer_key}:${popup.id}:${popup.dismissal_generation}`;
   if (durableState) window.localStorage.setItem(storageKey, JSON.stringify(durableState));
   if (sessionState) window.sessionStorage.setItem(storageKey, JSON.stringify(sessionState));
-  document.body.innerHTML = `<div id="root"></div>${otherDialog ? '<div id="competing" role="dialog"></div>' : ""}`;
+  document.body.innerHTML = `<div id="root"></div>${otherDialog ? '<div id="competing" role="dialog"></div>' : ""}${home?.stripeTelemetry ? '<iframe src="https://js.stripe.com/v3/m-outer.html" style="visibility:hidden;height:1px"></iframe>' : ""}`;
   const root = createRoot(document.getElementById("root"));
   const props = { page: { id: `page-${sequence}`, microsite_id: "microsite-fixture" }, viewerIdentity: expectedViewer || (member ? context.viewer_key : "guest") };
+  let MountedRuntime = PopupRuntime;
+  if (home) {
+    const exports = { exports: {} };
+    vm.runInNewContext(homeCode, {
+      module: exports, React, window, URLSearchParams, PopupRuntime,
+      useLocation: () => ({ ...fixture.location, search: home.preview ? "?_canvasPreview=1" : "" }),
+      useMemberAccess: () => ({ authResolved: home.authResolved !== false, sessionValidated: member,
+        isAccessReady: home.accessReady !== false, memberInfo: member ? { id: context.viewer_key.slice(7) } : null }),
+      useTenantBranding: () => ({ branding: { id: context.tenant_id }, loading: false, error: null, tenantSlug: "tenant-fixture" }),
+      usePageLayoutDecision: () => {},
+      useQuery: ({ queryKey }) => queryKey[0] === "home-page-setting"
+        ? { data: "homely", isSuccess: true, isFetching: false }
+        : { data: { page: { ...props.page, status: home.status || "published", builder_type: home.type }, elements: [] }, isSuccess: true, isFetching: false },
+      IEditElementRenderer: () => null, CanvasPageRenderer: () => null,
+      StaticHtmlPageRenderer: () => null, Events: () => null,
+    });
+    MountedRuntime = exports.exports;
+  }
   let currentProps = props;
-  await act(async () => root.render(React.createElement(PopupRuntime, props)));
+  await act(async () => root.render(React.createElement(MountedRuntime, props)));
   await settle();
   return { root, fixture, calls, popup, release, props, storageKey, deadlines,
     tick: async (ms = 500) => { await act(async () => { await timers.get(ms)?.(); }); await settle(); },
@@ -120,6 +145,35 @@ test("member impression includes microsite and daily revalidation preserves inte
   const refresh = app.calls.filter((call) => new URLSearchParams(call.query).get("revalidate") === "1");
   assert.equal(refresh.length, 2, "batched eligibility and selected authorization both bypass shown frequency");
   await app.unmount();
+});
+test("canonical Canvas homepage requests and opens a member popup after two seconds despite hidden Stripe telemetry", async () => {
+  const app = await mount({ member: true, home: { type: "canvas", stripeTelemetry: true }, trigger: { type: "delay", value: 2 } });
+  const realNow = Date.now;
+  try {
+    assert.ok(app.calls.some(c => !new URLSearchParams(c.query).has("id")), "homepage starts candidate discovery");
+    assert.equal(document.querySelector("[data-cms-popup-modal]"), null, "delay is honoured");
+    assert.equal(app.calls.some(c => new URLSearchParams(c.query).has("id")), false);
+    Date.now = () => realNow() + 2100;
+    await app.tick();
+    assert.ok(app.calls.some(c => new URLSearchParams(c.query).has("id")), "selected popup is freshly authorized");
+    assert.ok(document.querySelector("[data-cms-popup-modal]"), "homepage displays the popup");
+  } finally { Date.now = realNow; await app.unmount(); }
+});
+test("static and legacy homepages also mount popup delivery for resolved guests", async () => {
+  for (const type of ["ai_static", "legacy"]) {
+    const app = await mount({ home: { type } });
+    try { assert.ok(document.querySelector("[data-cms-popup-modal]")); }
+    finally { await app.unmount(); }
+  }
+});
+test("homepage previews, drafts, unresolved auth and unready member roles never start popup requests", async () => {
+  for (const gate of [{ preview: true }, { status: "draft" }, { authResolved: false }, { accessReady: false }]) {
+    const app = await mount({ member: true, home: { type: "canvas", ...gate } });
+    try {
+      assert.equal(app.calls.length, 0);
+      assert.equal(document.querySelector("[data-cms-popup-modal]"), null);
+    } finally { await app.unmount(); }
+  }
 });
 test("competing dialog defers without consuming; closing never opens another candidate", async () => {
   const app = await mount({ otherDialog: true });

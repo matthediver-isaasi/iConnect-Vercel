@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import IEditElementRenderer from "../components/iedit/IEditElementRenderer";
 import CanvasPageRenderer from "../components/canvas/LazyCanvasPageRenderer";
 import StaticHtmlPageRenderer from "../components/staticpage/StaticHtmlPageRenderer";
+import PopupRuntime from "../components/popups/PopupRuntime";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { usePageLayoutDecision } from "@/contexts/LayoutContext";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
@@ -35,7 +36,7 @@ function pageLayoutDecision(page, isLoggedIn) {
 
 export default function HomePageRedirect() {
   const location = useLocation();
-  const { memberInfo, authResolved, sessionValidated } = useMemberAccess();
+  const { memberInfo, authResolved, sessionValidated, isAccessReady } = useMemberAccess();
   const {
     branding,
     loading: brandingLoading,
@@ -168,10 +169,19 @@ export default function HomePageRedirect() {
   }
 
   const { page, symbols } = pageQuery.data;
+  // The canonical homepage renders here, not through DynamicPage. Keep popup
+  // delivery behind the same published-page and resolved-member boundaries.
+  const viewerIdentity = isLoggedIn ? `member:${memberInfo.id}` : "guest";
+  const popupRuntime = page.status === "published" && !isCanvasPreview && authResolved
+    && (!memberInfo || (sessionValidated && isAccessReady))
+    ? <PopupRuntime key={`${tenantId}|${page.id}|${viewerIdentity}`}
+        page={page} viewerIdentity={viewerIdentity} />
+    : null;
   if (page.builder_type === "ai_static") {
     return (
       <div className="w-full" data-testid="home-page-static">
         <StaticHtmlPageRenderer page={page} />
+        {popupRuntime}
       </div>
     );
   }
@@ -180,6 +190,7 @@ export default function HomePageRedirect() {
     return (
       <div className="w-full" data-testid="home-page-canvas">
         <CanvasPageRenderer page={page} symbols={symbols} />
+        {popupRuntime}
       </div>
     );
   }
@@ -189,6 +200,7 @@ export default function HomePageRedirect() {
   );
   return (
     <div className="iedit-page-container">
+      {popupRuntime}
       {sortedElements.map((element) => (
         <IEditElementRenderer
           key={element.id}
