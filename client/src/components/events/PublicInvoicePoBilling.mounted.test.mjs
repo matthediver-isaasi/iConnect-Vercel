@@ -216,3 +216,20 @@ test("VAT labels use the configured rate, not an inferred provider code", async 
     assert.equal(view.calls.filter(call => call.options.method === "POST").length, 0);
   } finally { await view.close(); }
 });
+
+test("approved correction shows effective billing email and preserves original history", async () => {
+  const view = await mount({ payload: {
+    ...initial, booker: { ...initial.booker, email: "corrected@example.test" },
+    originalBooker: initial.booker, bookerCorrection: { id: "correction-a" },
+  } });
+  try {
+    await view.open();
+    await until(() => document.body.textContent.includes("Corrected booker · billed to"));
+    assert.ok(document.body.textContent.includes("booker@example.test, is retained as history"));
+    assert.ok(document.body.textContent.includes("Invoice delivery uses corrected@example.test"));
+    assert.ok(document.body.textContent.includes("Member account linked"));
+    assert.ok(!button("Create booker account"));
+    assert.ok(button("Generate invoice"));
+    assert.equal(view.calls.filter(call => call.options.method === "POST").length, 0);
+  } finally { await view.close(); }
+});

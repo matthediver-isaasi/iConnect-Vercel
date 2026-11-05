@@ -33,6 +33,21 @@ invoice email is not evidence that the invoice has been paid.
 Invoice approval must not rewrite the immutable purchaser context, even to add
 an approval identifier. Keep approval authority separate from historical identity.
 
+An owner-approved booker correction may link an existing member and redirect
+future invoice billing/delivery without rewriting the original purchaser history.
+Creating a provider contact alone never authorizes that correction.
+
+**Why:** The purchaser and attendee can be the same person using different
+email addresses; creating a second member to satisfy email matching duplicates
+the identity instead of correcting billing responsibility.
+
+**How to apply:** Require explicit scoped approval, serialize correction with
+invoice approval, retain the original evidence, and freeze the effective billing
+contact for retries/delivery. During mixed-version rollouts, older mail workers
+must be prevented from claiming corrected invoices and using the old recipient.
+Legacy purchaser-account creation must also check the correction under the same
+group lock, so a stale screen cannot create a duplicate at the original email.
+
 **Why:** The live purchaser-context trigger rejects metadata additions too; an
 isolated billing fixture without that trigger can pass while production fails.
 

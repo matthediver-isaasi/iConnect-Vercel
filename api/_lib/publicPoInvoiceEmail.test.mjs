@@ -36,6 +36,25 @@ test('safe rejection retries later, provider-already-sent does not resend',async
 test('never substitute attendee or current member email for missing purchaser',()=>{
  assert.throws(()=>publicPoEmailRecipient({original_records:[{attendee_email:'attendee@example.invalid'}]}),/booker email/);
 });
+test('approved billing contact is frozen for delivery, with fail-closed corrected history',()=>{
+ const original_records=[{purchaser_context:{details:{email:'old@example.invalid'}}}];
+ assert.equal(publicPoEmailRecipient({original_records,billing_contact:{email:'corrected@example.invalid'},
+  booker_correction_id:'c'}).email,'corrected@example.invalid');
+ assert.throws(()=>publicPoEmailRecipient({original_records,booker_correction_id:'c'}),/review/);
+ assert.throws(()=>publicPoEmailRecipient({original_records,billing_contact:{email:''},booker_correction_id:'c'}),/review/);
+ assert.equal(publicPoEmailRecipient({original_records}).email,'old@example.invalid');
+});
+test('corrected invoice delivery acknowledges and sends only the approved email',async()=>{
+ const {db,row}=fixture();
+ row.booker_correction_id='c';
+ row.billing_contact={first_name:'Corrected',email:'corrected@example.invalid'};
+ await deliverPublicPoInvoice({db,row,document,send:async payload=>{
+  assert.equal(payload.to,'corrected@example.invalid');
+  assert.equal(row.email_delivery_recipient,'corrected@example.invalid');
+  return {success:true,messageId:'corrected-delivery'};
+ }});
+ assert.equal(row.email_status,'sent');
+});
 
 test('standard mail transport safely falls back after explicit domain rejection',async()=>{
  const {db,row}=fixture();const calls=[];

@@ -1,5 +1,6 @@
 import { isStrictIsoDate } from './teamRoleAssignment.js';
 import { registrationMemberLinks } from './eventRegistrationMemberLinks.js';
+import { loadPublicPoBooker } from './publicPoBooker.js';
 
 const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 function reject(message, status = 400) { throw Object.assign(new Error(message), { status }); }
@@ -62,7 +63,8 @@ export function makeEventRegistrationMemberHandler({ db, getContext, adminAccess
         .eq('id', input.bookingId).eq('tenant_id', ctx.tenantId).maybeSingle();
       if (error) reject('Unable to load the registration.', 503);
       if (!booking) reject('Registration not found.', 404);
-      const purchaser = identity === 'purchaser' ? booking.purchaser_context?.details : null;
+      const purchaser = identity === 'purchaser'
+        ? (await loadPublicPoBooker(db, ctx.tenantId, table, booking)).booker : null;
       if (identity === 'purchaser' && (booking.purchaser_context?.classification !== 'public_non_member'
         || !purchaser?.email || !['public_invoice_po','invoice'].includes(booking.payment_method))) reject('Original Invoice / PO booker details are unavailable.', 409);
       if (!booking.member_id && !input.isComplex && booking.is_guest_booking !== true && booking.organization_id) reject('This is not a guest registration.', 409);

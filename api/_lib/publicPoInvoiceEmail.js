@@ -2,7 +2,8 @@ import {randomUUID} from 'node:crypto';
 import {publicPoInvoiceState} from './publicInvoicePoReconciliation.js';
 const escape=s=>String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export function publicPoEmailRecipient(row){
- const details=row.original_records?.[0]?.purchaser_context?.details;
+ if(row.booker_correction_id&&!row.billing_contact)throw Error('Corrected booker email requires review');
+ const details=row.billing_contact??row.original_records?.[0]?.purchaser_context?.details;
  const email=String(details?.email||'').trim();
  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw Error('Original booker email requires review');
  return {email,name:[details.first_name,details.last_name].filter(Boolean).join(' ')};
@@ -39,6 +40,7 @@ export async function deliverPublicPoInvoice({db,row,deadlineAt=Date.now()+25000
  const {data:claimed,error}=await db.from('public_invoice_po_billing').update({
   email_status:'preparing',email_lease:token,email_lease_until:new Date(Date.now()+600000).toISOString(),
   email_next_at:new Date(Date.now()+600000).toISOString(),email_error:null,
+  ...(row.booker_correction_id?{email_delivery_recipient:row.billing_contact?.email||null}:{}),
  }).eq('id',row.id).eq('tenant_id',row.tenant_id).eq('email_status','pending')
  .lte('email_next_at',new Date().toISOString()).select('id');
  if(error)throw error;

@@ -2,6 +2,7 @@ import {createHash} from 'node:crypto';
 import {enqueueCheckoutEventInvoice} from './eventInvoiceProducer.js';
 import {validRecoverySnapshot,validRecoveryTaxIntent} from './eventInvoiceRecovery.js';
 import {loadComplexReleaseTickets} from './ticketReleaseAccess.js';
+import {loadPublicPoBooker} from './publicPoBooker.js';
 const fail=(message,status=409)=>{throw Object.assign(new Error(message),{status});};
 const hash=x=>createHash('sha256').update(JSON.stringify(x)).digest('hex');
 export async function loadPublicPoBilling(db,tenantId,bookingId,isComplex){
@@ -13,7 +14,8 @@ export async function loadPublicPoBilling(db,tenantId,bookingId,isComplex){
  if(!group||b.purchaser_context?.classification!=='public_non_member'||(!b.public_invoice_po_billing_id&&b.payment_method!=='public_invoice_po'))fail('This is not a public Invoice / PO booking.');
  const result=await db.from(source).select('*').eq('tenant_id',tenantId).eq('booking_group_reference',group).order('id').limit(1001);
  if(result.error||!result.data?.length||result.data.length>1000)fail('Unable to load the complete booking.',503);
- const rows=result.data,booker=b.purchaser_context.details;
+ const rows=result.data;
+ const {booker,originalBooker,correction}=await loadPublicPoBooker(db,tenantId,source,b);
  const eventResult=await db.from(isComplex?'complex_event':'event').select('*').eq('tenant_id',tenantId).eq('id',b.event_id).maybeSingle();
  if(eventResult.error||!eventResult.data)fail('Event unavailable.',503);
  const event=eventResult.data;
@@ -22,6 +24,7 @@ export async function loadPublicPoBilling(db,tenantId,bookingId,isComplex){
  .ilike('email',String(booker?.email||'').trim().replace(/[%_\\]/g,'\\$&')).limit(2);
  if(members.error||members.data?.length>1)fail('The original booker account needs review.');
  const member=members.data?.[0]||null;
+ if(correction&&member?.id!==correction.member_id)fail('The corrected booker account needs review.');
  const operation=await db.from('public_invoice_po_billing').select('*').eq('tenant_id',tenantId).eq('source',source).eq('booking_group_reference',group).maybeSingle();
  if(operation.error)fail('Invoice generation is not yet available. The database update must be applied.',503);
  const o=operation.data;
@@ -40,9 +43,9 @@ export async function loadPublicPoBilling(db,tenantId,bookingId,isComplex){
  });
  const amount=Math.round(lines.reduce((s,l)=>s+l.amount,0)*100)/100;
  if(!member)reason='Create the original booker’s member account first.';
- const fingerprint=hash({rows,member,event:lines,currency});
+ const fingerprint=hash({rows,member,event:lines,currency,correction});
  const invoice=o?{id:o.invoice_id||null,number:o.invoice_number,provider:o.provider,status:o.invoice_status,paymentStatus:o.payment_status,emailStatus:o.email_status||'legacy_review',emailSentAt:o.email_sent_at||null}:null;
- return {public:{booker,member,amount,currency,lines,fingerprint,canGenerate:!reason&&!o,reason,invoice},
+ return {public:{booker,originalBooker,bookerCorrection:correction?{id:correction.id,createdAt:correction.created_at}:null,member,amount,currency,lines,fingerprint,canGenerate:!reason&&!o,reason,invoice},
    source,group,rows,event,operation:o};
 }
 
@@ -55,7 +58,8 @@ export async function generatePublicPoInvoice(db,tenantId,actorId,input){
  const commit=async(provider,snapshot)=>{
    const {data,error}=await db.rpc('public_invoice_po_bill',{
      p_tenant:tenantId,p_source:p.source,p_group:p.group,p_member:p.public.member.id,p_actor:String(actorId),
-     p_original:p.rows,p_amount:p.public.amount,p_currency:p.public.currency,p_provider:provider,p_snapshot:snapshot});
+     p_original:p.rows,p_amount:p.public.amount,p_currency:p.public.currency,p_provider:provider,
+     p_snapshot:{...snapshot,publicPoBookerCorrectionId:p.public.bookerCorrection?.id||null}});
    if(error)fail(error.code==='P0001'?error.message:'Invoice approval could not be saved. No new approval was committed.',503);
    return data;
  };

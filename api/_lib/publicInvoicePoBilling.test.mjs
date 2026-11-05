@@ -3,22 +3,49 @@ import assert from 'node:assert/strict';
 import {publicPoInvoiceState} from './publicInvoicePoReconciliation.js';
 import {readFileSync} from 'node:fs';
 import {loadPublicPoBilling,generatePublicPoInvoice} from './publicInvoicePoBilling.js';
-function fixture({discount=0,roleMember=true,operation=null}={}){
+function fixture({discount=0,roleMember=true,operation=null,correction=null,memberEmail='booker@example.invalid',correctionError=false}={}){
  const booking={id:'b1',tenant_id:'t',event_id:'e',booking_group_reference:'group',payment_method:'public_invoice_po',status:'confirmed',
    ticket_class_id:'ticket',total_cost:120,discount_code_amount:discount,attendee_email:'attendee@example.invalid',
    purchaser_context:{classification:'public_non_member',details:{first_name:'Original',last_name:'Booker',email:'booker@example.invalid'}}};
  const tables={booking:[booking],event:[{id:'e',tenant_id:'t',title:'Meeting',pricing_config:{ticket_classes:[{id:'ticket',vat_rate_key:'OUTPUT2',vat_rate_percentage:20}]}}],
-   member:roleMember?[{id:'m',tenant_id:'t',first_name:'Original',last_name:'Booker',email:'booker@example.invalid'}]:[],
+   member:roleMember?[{id:'m',tenant_id:'t',first_name:'Original',last_name:'Booker',email:memberEmail}]:[],
+   public_po_booker_correction:correction?[correction]:[],
    public_invoice_po_billing:operation?[operation]:[]};
  return {from(table){
    const filters=[];const query={select(){return this;},eq(k,v){filters.push(r=>r[k]===v);return this;},
      ilike(k,v){filters.push(r=>r[k].toLowerCase()===v.replace(/\\(.)/g,'$1').toLowerCase());return this;},
      order(){return this;},limit(){return this;},
-     async maybeSingle(){return {data:tables[table].filter(r=>filters.every(f=>f(r)))[0]||null,error:null};},
+     async maybeSingle(){return {data:tables[table].filter(r=>filters.every(f=>f(r)))[0]||null,error:table==='public_po_booker_correction'&&correctionError?{message:'unavailable'}:null};},
      then(resolve,reject){return Promise.resolve({data:tables[table].filter(r=>filters.every(f=>f(r))),error:null}).then(resolve,reject);}};
    return query;
  },rpc(){throw new Error('Unexpected financial write');}};
 }
+const correction={
+ id:'c',tenant_id:'t',source:'booking',booking_group_reference:'group',event_id:'e',member_id:'m',
+ original_context:{details:{email:'booker@example.invalid',last_name:'Booker',first_name:'Original'},classification:'public_non_member'},
+ corrected_details:{first_name:'Original',last_name:'Booker',email:'corrected@example.invalid'},
+ created_at:'2026-11-05T00:00:00Z',
+};
+test('explicit correction links the existing member without replacing historical identity',async()=>{
+ const result=await loadPublicPoBilling(fixture({correction,memberEmail:'corrected@example.invalid'}),'t','b1',false);
+ assert.equal(result.public.booker.email,'corrected@example.invalid');
+ assert.equal(result.public.originalBooker.email,'booker@example.invalid');
+ assert.equal(result.rows[0].purchaser_context.details.email,'booker@example.invalid');
+ assert.equal(result.public.member.id,'m');
+ assert.equal(result.public.canGenerate,true);
+ assert.equal(result.public.bookerCorrection.id,'c');
+ const old=await loadPublicPoBilling(fixture(),'t','b1',false);
+ assert.notEqual(result.public.fingerprint,old.public.fingerprint);
+});
+test('correction fails closed on changed identity, history, event or unavailable authority',async()=>{
+ for(const options of [
+  {correctionError:true},
+  {correction,memberEmail:'changed@example.invalid'},
+  {correction:{...correction,member_id:'other'},memberEmail:'corrected@example.invalid'},
+  {correction:{...correction,event_id:'other'}},
+  {correction:{...correction,original_context:{}}},
+ ])await assert.rejects(loadPublicPoBilling(fixture(options),'t','b1',false));
+});
 test('preview invoices original booker and deducts recorded simple-event discounts',async()=>{
  const preview=await loadPublicPoBilling(fixture({discount:20}),'t','b1',false);
  assert.equal(preview.public.amount,100);
