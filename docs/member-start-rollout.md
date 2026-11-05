@@ -1,5 +1,37 @@
 # Individual membership Start / Renew
 
+## Admin Invoice / No charge readiness — 2026-11-05
+
+With owner approval, `202612310025_member_start_admin_waiver.sql` was applied
+to verified live DEST (`lvmzliemqnieeoruhkik`).
+SHA256: `ccafef045717761f34ccd7a6f43362ec2aee892d5344f001bbec6542d8044459`.
+The capability RPC now returns `noCharge: true` alongside version 2 and
+`memberChoice: true`. Verified the enabled waiver trigger, unchanged existing
+immutability trigger and table grants, retained RLS, and service-only capability
+RPC access. The self-service `paymentModes` list is unchanged.
+
+Vercel project `prj_iPFlb9rOOVNVtbobMRR1vyV934lf` now has these **preview-only,
+branch-specific (`trim2`)** settings:
+
+- `ACCOUNTING_REQUEST_QUEUE_ENABLED=true`
+- `ACCOUNTING_REQUEST_QUEUE_SOURCES=member_membership_history`
+
+Readback confirmed both values and unchanged existing production settings.
+No deployment was triggered; a new `trim2` preview deployment must adopt these
+settings before its Invoice option becomes available. These settings are not a
+blanket enablement for other preview branches or accounting source types.
+
+The migration/setup created no memberships, invoices, payments or emails and
+did not run recovery workers. Invoice creation still leaves the purchase unpaid
+until accounting settlement is verified; an existing BACS receipt must be matched
+in accounting. No charge is a reason-audited waiver for the purchased period only,
+not free future renewals. Operational readiness and valid-purchase safeguards
+still apply even though neither admin option depends on member-facing schedule
+payment choices.
+
+Verification: 13 payment-option/authority tests and two disposable PostgreSQL
+integration variants passed. Signed-in deployed UI was not exercised.
+
 ## Member-selected payment method
 
 The admin payment dropdown now also supports **Allow member to choose**.
@@ -195,7 +227,9 @@ The preview freezes the selected term, price and tax evidence.
 
 - Invoice: saves an unpaid purchase and submits the existing durable accounting
   queue. Payment reconciliation activates/schedules the purchased term.
-- Free: permitted only for an authoritative zero total.
+- No charge: an audited, period-only administrative waiver, including positive-price
+  structures; it retains the original calculated amounts and creates a zero-due
+  purchase without changing future renewal prices.
 - Recovery: saved requests remain discoverable after reload; resume uses the
   saved authority, not a newly calculated quote.
 
