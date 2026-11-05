@@ -5,7 +5,7 @@ import { resolveTenantFromRequest } from '../../_lib/tenantResolver.js';
 import { getSession } from '../../_lib/session.js';
 import { rulesUseLmicOperators } from '../../_lib/formLmicConditions.js';
 import { loadTenantLmicCodes } from '../../_lib/tenantLmicCodes.js';
-import { resolveFormAccess, sendFormAccessDenied } from '../../_lib/formAccessPolicy.js';
+import { resolveFormAccess as defaultResolveFormAccess, sendFormAccessDenied } from '../../_lib/formAccessPolicy.js';
 import { isFormScheduleAvailable } from '../../_lib/formAvailability.js';
 import { getPublicFormWidth } from '../../../shared/formWidth.js';
 import { DEPARTMENT_CURRENT_SET_FORM_ID } from '../../_lib/departmentCurrentSet.js';
@@ -64,7 +64,7 @@ function publicCurrentSetConfiguration(config) {
   };
 }
 
-export default async function handler(req, res) {
+export async function handlePublicForm(req, res, dependencies = {}) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -78,14 +78,15 @@ export default async function handler(req, res) {
   const supabaseUrl = process.env.SUPABASE_URL;
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
 
-  if (!supabaseUrl || !supabaseServiceKey) {
+  if (!dependencies.db && (!supabaseUrl || !supabaseServiceKey)) {
     return res.status(503).json({ error: 'Database not configured' });
   }
 
-  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+  const supabase = dependencies.db || createClient(supabaseUrl, supabaseServiceKey);
+  const resolveFormAccess = dependencies.resolveAccess || defaultResolveFormAccess;
 
   try {
-    const tenant = await resolveTenantFromRequest(req);
+    const tenant = await (dependencies.resolveTenant || resolveTenantFromRequest)(req);
 
     if (!tenant) {
       console.error('[Public Form API] Tenant not found');
@@ -122,20 +123,23 @@ export default async function handler(req, res) {
     });
     if (!access.allowed) return sendFormAccessDenied(res, access);
     let surveyAdminPreview = false;
-    if (form.form_type === 'survey' && req.query.authenticated === '1') {
-      const previewContext = await getTenantContext(req);
+    if (form.form_type === 'survey') {
+      // Preview authority comes from the tenant's authenticated administrator,
+      // not the presence of a linked member or a client-supplied query flag.
+      res.setHeader('Cache-Control', 'private, no-store');
+      const previewContext = await (dependencies.getTenantContext || getTenantContext)(req);
       surveyAdminPreview = previewContext.isAuthenticated && previewContext.tenantId === tenant.id
-        && await hasAdminAccess(previewContext);
+        && await (dependencies.hasAdminAccess || hasAdminAccess)(previewContext);
     }
     if (form.form_type === 'survey' && !surveyAdminPreview && (surveyLifecycleState(form) !== 'active' || !isFormScheduleAvailable(form))) {
       return res.status(409).json(surveyUnavailable(surveyLifecycleState(form) !== 'active' ? surveyLifecycleState(form) : 'closed'));
     }
 
     const isAuthenticatedRequest = req.query.authenticated === '1';
-    let hasValidSession = false;
-    if (isAuthenticatedRequest) {
+    let hasValidSession = surveyAdminPreview;
+    if (isAuthenticatedRequest && !surveyAdminPreview) {
       try {
-        const session = await getSession(req);
+        const session = await (dependencies.getSession || getSession)(req);
         hasValidSession = !!session;
       } catch (e) {
         console.error('[Public Form API] Session check error:', e);
@@ -147,23 +151,27 @@ export default async function handler(req, res) {
     // drafts; archived surveys are gone for everyone.
     if (form.form_type === 'survey') {
       const surveyStatus = form.survey_settings?.status || 'draft';
-      if (surveyStatus === 'archived' || (surveyStatus !== 'published' && !hasValidSession)) {
+      if (surveyStatus === 'archived' || (surveyStatus !== 'published' && !surveyAdminPreview)) {
         return res.status(404).json({ error: 'Form not found or inactive' });
       }
       // Direct-access policy (Task #3331): once a survey has ACTIVE event
       // assignments, respondents must use an assignment link (/survey/:token)
       // so the event is server-resolved and dedupe scopes can't be mixed.
-      // Authenticated viewers (builder preview) still see the form.
-      if (surveyStatus === 'published' && !hasValidSession) {
-        const { data: activeAssignments } = await supabase
+      // Only tenant administrators may preview without an event assignment.
+      if (surveyStatus === 'published' && !surveyAdminPreview) {
+        const { data: activeAssignments, error: assignmentError } = await supabase
           .from('event_survey_assignment')
           .select('id')
           .eq('form_id', form.id)
           .eq('tenant_id', form.tenant_id)
           .eq('status', 'active')
           .limit(1);
+        if (assignmentError) throw new Error('Survey assignment access could not be verified');
         if (activeAssignments && activeAssignments.length > 0) {
-          return res.status(404).json({ error: 'Form not found or inactive' });
+          return res.status(409).json({
+            code: 'SURVEY_EVENT_LINK_REQUIRED',
+            error: 'This survey is linked to an event. Please open the survey link supplied by the event organiser. Administrators can preview it when signed in with access to this organisation.',
+          });
         }
       }
       // Published surveys serve the IMMUTABLE active snapshot, never the
@@ -237,6 +245,7 @@ export default async function handler(req, res) {
     }
 
     const publicForm = {};
+    if (surveyAdminPreview) publicForm.survey_admin_preview = true;
     for (const field of PUBLIC_FORM_FIELDS) {
       if (form[field] !== undefined) {
         publicForm[field] = form[field];
@@ -302,4 +311,8 @@ export default async function handler(req, res) {
     console.error('Form fetch error:', error);
     return res.status(500).json({ error: 'Failed to fetch form' });
   }
+}
+
+export default function handler(req, res) {
+  return handlePublicForm(req, res);
 }

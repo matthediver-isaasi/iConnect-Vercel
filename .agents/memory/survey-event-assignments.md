@@ -5,6 +5,18 @@ description: Durable decisions for event-assigned surveys — exclusive assignme
 
 # Survey event assignments — durable decisions
 
+## Administrator preview identity
+Survey preview authority must come from the verified administrator context for
+the survey's tenant, independently of whether that administrator has a member record.
+An ordinary signed-in member or an authentication query flag is not preview authority.
+
+**Why:** Team administrators without a resolved member were treated as public
+respondents on event-linked survey previews and saw a misleading inactive-form message.
+
+**How to apply:** Preserve event-assignment links for respondents, tenant and
+role checks for preview, and published-snapshot validation. Do not change
+survey lifecycle settings merely to make an administrator preview load.
+
 ## Lifecycle review scope and link protection
 The owner requires a cross-platform lifecycle audit and validation of the proposed approach before replacing the existing implementation. Survey lifecycle and event attachment must remain separate; routine administrative actions must not silently prevent invited recipients from responding.
 

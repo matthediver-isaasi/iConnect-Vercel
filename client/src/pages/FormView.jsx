@@ -303,7 +303,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   const { data: loadedForm, isLoading, error: formError } = useQuery({
     queryKey: assignmentToken
       ? ['public-survey-assignment', assignmentToken, memberInfo?.id || null, certificateGrant ? 'invitation' : 'ordinary']
-      : ['public-form-by-slug', formSlug, !!memberInfo],
+      : ['public-form-by-slug', formSlug, !!memberInfo || sessionValidated],
     queryFn: async () => {
       // Task #3331: assignment links resolve everything server-side from the
       // token. When the window is closed / auth is required the payload has
@@ -352,7 +352,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       // Pass the authenticated flag (matching the embedded Canvas form block) so
       // auth-gated forms return their full shape — including pages / per-field
       // page_id — when the viewer has a valid session.
-      return publicClient.getForm(formSlug, { authenticated: !!memberInfo });
+      return publicClient.getForm(formSlug, { authenticated: !!memberInfo || sessionValidated });
     },
     // Wait for the route's auth probe before loading the public form. This
     // avoids racing an unauthenticated schema against the member-aware
@@ -419,7 +419,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // static "please log in" dead end. Wait for auth resolution so a valid
   // session is never bounced to /login while the authenticated refetch is
   // still in flight.
-  const needsLoginRedirect = !memberInfo && !!(
+  const needsLoginRedirect = !memberInfo && !rawForm?.survey_admin_preview && !!(
     assignmentMeta?.require_authentication ||
     (!assignmentMeta && rawForm?.require_authentication) ||
     formAccess.anonymous
@@ -2757,6 +2757,19 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     );
   }
 
+  if (formError?.errorData?.code === 'SURVEY_EVENT_LINK_REQUIRED') {
+    return withManagementReturn(
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+        <Card className="max-w-md">
+          <CardContent className="p-6 text-center space-y-2" data-testid="survey-event-link-required">
+            <h1 className="text-lg font-semibold">Open this survey from its event link</h1>
+            <p className="text-slate-600">This survey is linked to an event. Please use the link supplied by the event organiser. To preview it as an administrator, sign in with access to this organisation.</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   if (!form) {
     return withManagementReturn(
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
@@ -2769,7 +2782,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     );
   }
 
-  if (form.require_authentication && !memberInfo) {
+  if (form.require_authentication && !memberInfo && !rawForm?.survey_admin_preview) {
     // Task #3364: the redirect effect above sends the visitor to
     // /login?returnTo=<this form URL>. Render a transient redirect state
     // (never the old static dead end) while auth resolves / navigation runs.
