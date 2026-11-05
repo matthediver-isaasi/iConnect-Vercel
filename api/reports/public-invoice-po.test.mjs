@@ -27,7 +27,7 @@ test('purchaser contact is allowlisted, never raw snapshot metadata', () => {
 
 // Execute the actual route with deterministic auth/DB seams. No live credentials,
 // network access or database writes are involved.
-async function runRoute(context, admin, feature, { fixtures = {}, query = {}, failTable = null, publicPoOnly = false } = {}) {
+async function runRoute(context, admin, feature, { fixtures = {}, query = {}, failTable = null, publicPoOnly = false, maxIds = Infinity } = {}) {
   let source = await readFile(new URL('./event-registration-report.js', import.meta.url), 'utf8');
   source = source.replace(/^import .*;\r?$/gm, '');
   const prelude = `
@@ -74,24 +74,29 @@ async function runRoute(context, admin, feature, { fixtures = {}, query = {}, fa
     const normalizeGroupTicketPrices = ${normalizeGroupTicketPrices.toString()};
     const fixtures = ${JSON.stringify(fixtures)};
     const failTable = ${JSON.stringify(failTable)};
+    const maxIds = ${maxIds};
     const queries = [];
     const ranges = [];
+    const logs = [];
+    const console = { error: (...args) => logs.push(args), warn: (...args) => logs.push(args) };
     const supabase = { from(table) {
       queries.push(table);
-      let filters = [], start = 0, end = 1;
+      let filters = [], start = 0, end = 1, oversized = false;
       const q = {
         select() { return q; },
         eq(key, value) { filters.push(row => key.includes('->>')
           ? row[key.split('->>')[0]]?.[key.split('->>')[1]] === value : row[key] === value); return q; },
-        in(key, values) { filters.push(row => values.includes(row[key])); return q; },
+        in(key, values) { oversized ||= table.startsWith('attendance_') && values.length > maxIds; filters.push(row => values.includes(row[key])); return q; },
         overlaps(key, values) { filters.push(row => values.some(value => row[key]?.includes(value))); return q; },
         gte(key, value) { filters.push(row => row[key] >= value); return q; },
         lt(key, value) { filters.push(row => row[key] < value); return q; },
         order() { return q; },
         range(from, to) { start = from; end = Math.min(to, from + 1); ranges.push({table, from, to}); return q; },
         then(resolve) {
-          return Promise.resolve(table === failTable
-            ? {data: null, error: {message: 'Test query failure'}}
+          return Promise.resolve(oversized
+            ? {data: null, error: {code: '', message: '<html>URI too long with private values</html>'}}
+            : table === failTable
+            ? {data: null, status: 400, error: {code: '42703', message: 'Private identity and query must not leak'}}
             : { data: (fixtures[table] || []).filter(row => filters.every(f => f(row))).slice(start, end + 1), error: null }).then(resolve);
         }
       };
@@ -103,15 +108,16 @@ async function runRoute(context, admin, feature, { fixtures = {}, query = {}, fa
       if (resource !== ${JSON.stringify(publicPoOnly ? 'events.public-invoice-po-report' : 'events.event-report')}) throw new Error('Incorrect report permission');
       return ${JSON.stringify(feature)} && !(exclusions || []).includes(resource);
     };
-    export { queries, ranges };
+    export { queries, ranges, logs };
   `;
   const module = await import(`data:text/javascript;base64,${Buffer.from(prelude + source).toString('base64')}`);
   // Identical fixture inputs reuse the same ESM data URL module.
   module.queries.length = 0;
   module.ranges.length = 0;
+  module.logs.length = 0;
   const res = { status(code) { this.code = code; return this; }, json(body) { this.body = body; return this; } };
   await module.default({ method: 'GET', query }, res, publicPoOnly);
-  return { ...res, queries: module.queries, ranges: module.ranges };
+  return { ...res, queries: module.queries, ranges: module.ranges, logs: module.logs };
 }
 
 test('dedicated PO report requires its own permission; ordinary tenant administrators cannot bypass it', async () => {
@@ -189,6 +195,44 @@ test('checkout-created attendee contact is shown as linked without changing publ
 
 const adminContext = { tenantId: 'tenant', isAuthenticated: true, tenantUserId: 'admin' };
 const contextSnapshot = { classification: 'public_non_member', details: { first_name: 'Public', last_name: 'Purchaser', email: 'public@example.invalid' } };
+
+test('Sarah across all events survives oversized attendance filters and capped pages', async () => {
+  const fixtures = {
+    event: [{ id: 'e', tenant_id: 'tenant', status: 'published' }],
+    booking: Array.from({ length: 105 }, (_, i) => ({
+      id: `b${i}`, event_id: 'e', tenant_id: 'tenant',
+      attendee_first_name: i === 104 ? 'Sarah' : 'Unrelated',
+      status: 'confirmed', payment_method: 'free', ticket_price: 0, total_cost: 0,
+    })),
+    attendance_target: [{ id: 't', tenant_id: 'tenant', event_id: 'e', provider: 'zoom', target_type: 'event' }],
+    attendance_current_outcome: Array.from({ length: 105 }, (_, i) => ({
+      tenant_id: 'tenant', attendance_target_id: 't', booking_id: `b${i}`,
+      booking_type: 'booking', status: 'attended', duration_seconds: 3600,
+    })),
+  };
+  const result = await runRoute(adminContext, true, true, {
+    fixtures, maxIds: 100, query: { generate: 'true', name: 'Sarah' },
+  });
+  assert.equal(result.code, 200);
+  assert.equal(result.body.summary.totalBookings, 1);
+  assert.equal(result.body.bookingGroups[0].attendees[0].id, 'b104');
+  assert.equal(result.body.bookingGroups[0].attendees[0].attendance_details[0].status, 'attended');
+  assert.ok(result.ranges.some(r => r.table === 'attendance_current_outcome' && r.from === 98));
+  const none = await runRoute(adminContext, true, true, {
+    fixtures, maxIds: 100, query: { generate: 'true', name: 'No matching person' },
+  });
+  assert.equal(none.code, 200);
+  assert.equal(none.body.bookingGroups.length, 0);
+  const failed = await runRoute(adminContext, true, true, {
+    fixtures, failTable: 'attendance_current_outcome', query: { generate: 'true', name: 'Sarah' },
+  });
+  assert.equal(failed.code, 500);
+  assert.deepEqual(failed.body, { error: 'Failed to fetch report data' });
+  assert.deepEqual(failed.logs.at(-1)[1], {
+    stage: 'attendance_current_outcome', providerCode: '42703', httpStatus: 400,
+  });
+  assert.doesNotMatch(JSON.stringify(failed.logs), /Private identity|Sarah|b104/);
+});
 
 test('person search spans events, guests, separate bookers and purchasers without splitting groups', async () => {
   const row = (id, event_id, extra = {}) => ({

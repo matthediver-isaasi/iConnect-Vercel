@@ -9,14 +9,24 @@ import { summarizeRegistrationRevenue } from '../../shared/eventRegistrationReve
 import { registrationMemberLinks } from '../_lib/eventRegistrationMemberLinks.js';
 import { registrationGroupMatches } from '../../shared/eventRegistrationSearch.mjs';
 
+// Never log provider messages/details: they can contain query values or HTML.
+export function reportQueryFailure(stage, error) {
+  const failure = new Error('Report query failed');
+  failure.stage = stage;
+  failure.providerCode = /^(?:[0-9A-Z]{5}|PGRST[0-9]{3})$/.test(error?.code || '')
+    ? error.code : 'UNKNOWN';
+  failure.httpStatus = Number.isInteger(error?.reportHttpStatus) ? error.reportHttpStatus : null;
+  return failure;
+}
+
 // Continue until an empty page, not a short page: a deployment's PostgREST
 // maximum may be smaller than our requested range. A unique tie-breaker keeps
 // same-date/group records from moving between pages.
 export async function readAllReportRows(query) {
   const rows = [];
   for (let offset = 0; ; ) {
-    const { data, error } = await query.range(offset, offset + 499);
-    if (error) return { data: null, error };
+    const { data, error, status } = await query.range(offset, offset + 499);
+    if (error) return { data: null, error: { ...error, reportHttpStatus: status } };
     if (!data?.length) return { data: rows, error: null };
     rows.push(...data);
     offset += data.length;
@@ -94,7 +104,7 @@ export default async function handler(req, res, publicPoOnly = false) {
     }
 
     if (eventsError) {
-      console.error('[Event Registration Report] Error fetching events:', eventsError);
+      console.error('[Event Registration Report] events', { providerCode: reportQueryFailure('events', eventsError).providerCode });
       return res.status(500).json({ error: 'Failed to fetch events' });
     }
 
@@ -116,7 +126,7 @@ export default async function handler(req, res, publicPoOnly = false) {
     }
 
     if (complexEventsError) {
-      console.error('[Event Registration Report] Error fetching complex events:', complexEventsError);
+      console.error('[Event Registration Report] complex_events', { providerCode: reportQueryFailure('complex_events', complexEventsError).providerCode });
       return res.status(500).json({ error: 'Failed to fetch complex events' });
     }
 
@@ -249,7 +259,7 @@ export default async function handler(req, res, publicPoOnly = false) {
             .eq('tenant_id', tenantId).order('id'));
 
           if (sessionsError) {
-            throw new Error('Failed to fetch complex event sessions for date filter');
+            throw reportQueryFailure('event_date_sessions', sessionsError);
           } else {
             for (const s of sessionRows || []) {
               if (!s.start_time) continue;
@@ -296,7 +306,7 @@ export default async function handler(req, res, publicPoOnly = false) {
           if (result.error) {
             // The report remains usable while the allocation migration rolls out.
             if (result.error.code !== '42P01' && result.error.code !== 'PGRST205') {
-              console.error('[Event Registration Report] Error fetching commercial allocations:', result.error);
+              console.error('[Event Registration Report] commercial_allocations', { providerCode: reportQueryFailure('commercial_allocations', result.error).providerCode });
             }
           } else {
             commercialAllocations.push(...(result.data || []));
@@ -343,7 +353,7 @@ export default async function handler(req, res, publicPoOnly = false) {
         const { data: bookingData, error: bookingsError } = await readAllReportRows(bookingQuery);
 
         if (bookingsError) {
-          console.error('[Event Registration Report] Error fetching bookings:', bookingsError);
+          console.error('[Event Registration Report] bookings', { providerCode: reportQueryFailure('bookings', bookingsError).providerCode });
           return res.status(500).json({ error: 'Failed to fetch bookings' });
         }
 
@@ -375,7 +385,7 @@ export default async function handler(req, res, publicPoOnly = false) {
         const { data: complexBookingData, error: complexBookingsError } = await readAllReportRows(complexBookingQuery);
 
         if (complexBookingsError) {
-          console.error('[Event Registration Report] Error fetching complex event bookings:', complexBookingsError);
+          console.error('[Event Registration Report] complex_bookings', { providerCode: reportQueryFailure('complex_bookings', complexBookingsError).providerCode });
           return res.status(500).json({ error: 'Failed to fetch complex event bookings' });
         } else {
           const normalizedComplexBookings = (complexBookingData || []).map(b => ({
@@ -411,7 +421,7 @@ export default async function handler(req, res, publicPoOnly = false) {
           .select('id, name, linked_track_ids, all_tracks, complex_event_id')
           .in('complex_event_id', ids)
           .eq('tenant_id', tenantId).order('id'));
-        if (error) throw new Error('Failed to fetch ticket classes');
+        if (error) throw reportQueryFailure('ticket_classes', error);
 
         if (ticketClasses) {
           for (const tc of ticketClasses) {
@@ -427,7 +437,7 @@ export default async function handler(req, res, publicPoOnly = false) {
           .select('id, name')
           .eq('tenant_id', tenantId)
           .in('id', ids).order('id'));
-        if (orgsError) throw new Error('Failed to fetch registration organizations');
+        if (orgsError) throw reportQueryFailure('registration_organizations', orgsError);
 
         if (!orgsError && orgs) {
           for (const org of orgs) {
@@ -445,7 +455,7 @@ export default async function handler(req, res, publicPoOnly = false) {
           .select('id, code')
           .in('id', ids)
           .eq('tenant_id', tenantId).order('id'));
-        if (error) throw new Error('Failed to fetch registration discounts');
+        if (error) throw reportQueryFailure('registration_discounts', error);
         const codeById = new Map((discountCodes || []).map(c => [c.id, c.code]));
         for (const b of allBookings) {
           if (b.discount_code_id && !b.discount_code_label) {
@@ -467,11 +477,13 @@ export default async function handler(req, res, publicPoOnly = false) {
         // A Teams identity is useful before its first Graph report creates an
         // attendance_target. Surface it rather than making first-sync meetings
         // look like they have no Teams attendance configured.
-        const { data: teamBindings, error: teamBindingsError } = await supabase
+        const { data: teamBindings, error: teamBindingsError } = await readReportIds(allTargetIds, ids => supabase
           .from('teams_attendance_binding').select('event_id')
-          .in('event_id', allTargetIds).eq('tenant_id', tenantId).eq('enabled', true);
+          .in('event_id', ids).eq('tenant_id', tenantId).eq('enabled', true).order('id'));
         if (teamBindingsError) {
-          console.error('[Event Registration Report] Error fetching Teams attendance bindings:', teamBindingsError);
+          console.error('[Event Registration Report] Teams binding unavailable', {
+            providerCode: reportQueryFailure('teams_attendance_binding', teamBindingsError).providerCode,
+          });
         } else {
           for (const binding of teamBindings || []) {
             if (eventMap[binding.event_id]) eventMap[binding.event_id].has_teams = true;
@@ -479,14 +491,14 @@ export default async function handler(req, res, publicPoOnly = false) {
             if (eventSummary) eventSummary.has_teams = true;
           }
         }
-        const { data: targets, error: targetsError } = await supabase
+        const { data: targets, error: targetsError } = await readReportIds(allTargetIds, ids => supabase
           .from('attendance_target')
           .select('id, provider, target_type, target_id, event_id, provider_target_type, effective_threshold_minutes, tracking_enabled, scheduled_end_at')
-          .in('event_id', allTargetIds)
-          .eq('tenant_id', tenantId);
+          .in('event_id', ids)
+          .eq('tenant_id', tenantId).order('id'));
 
         if (targetsError) {
-          throw new Error(`Failed to fetch attendance targets: ${targetsError.message}`);
+          throw reportQueryFailure('attendance_target', targetsError);
         } else if (targets?.length) {
           const activeTargets = targets.filter(target => target.tracking_enabled !== false);
           const attendanceTargetIds = activeTargets.map(target => target.id);
@@ -513,13 +525,13 @@ export default async function handler(req, res, publicPoOnly = false) {
           const targetLabels = new Map();
 
           if (sessionTargetIds.length > 0) {
-            const { data: sessions, error } = await supabase
+            const { data: sessions, error } = await readReportIds(sessionTargetIds, ids => supabase
               .from('complex_event_session')
               .select('id, title, start_time, end_time')
-              .in('id', sessionTargetIds)
-              .eq('tenant_id', tenantId);
+              .in('id', ids)
+              .eq('tenant_id', tenantId).order('id'));
             if (error) {
-              console.error('[Event Registration Report] Error fetching attendance session labels:', error);
+              throw reportQueryFailure('attendance_session_labels', error);
             } else {
               for (const session of sessions || []) {
                 targetLabels.set(session.id, {
@@ -532,13 +544,13 @@ export default async function handler(req, res, publicPoOnly = false) {
           }
 
           if (agendaTargetIds.length > 0) {
-            const { data: agendaItems, error } = await supabase
+            const { data: agendaItems, error } = await readReportIds(agendaTargetIds, ids => supabase
               .from('event_agenda_item')
               .select('id, description, item_type, start_date, end_date')
-              .in('id', agendaTargetIds)
-              .eq('tenant_id', tenantId);
+              .in('id', ids)
+              .eq('tenant_id', tenantId).order('id'));
             if (error) {
-              console.error('[Event Registration Report] Error fetching attendance agenda labels:', error);
+              throw reportQueryFailure('attendance_agenda_labels', error);
             } else {
               for (const item of agendaItems || []) {
                 targetLabels.set(item.id, {
@@ -551,14 +563,14 @@ export default async function handler(req, res, publicPoOnly = false) {
           }
 
           const latestRunByTarget = new Map();
-          const { data: syncRuns, error: syncRunsError } = await supabase
+          const { data: syncRuns, error: syncRunsError } = await readReportIds(attendanceTargetIds, ids => supabase
             .from('attendance_sync_run')
             .select('id, attendance_target_id, status, attempted_at, completed_at, error_code, error_message')
-            .in('attendance_target_id', attendanceTargetIds)
+            .in('attendance_target_id', ids)
             .eq('tenant_id', tenantId)
-            .order('attempted_at', { ascending: false });
+            .order('attempted_at', { ascending: false }).order('id'));
           if (syncRunsError) {
-            throw new Error(`Failed to fetch attendance sync state: ${syncRunsError.message}`);
+            throw reportQueryFailure('attendance_sync_run', syncRunsError);
           } else {
             for (const run of syncRuns || []) {
               if (!latestRunByTarget.has(run.attendance_target_id)) {
@@ -571,40 +583,42 @@ export default async function handler(req, res, publicPoOnly = false) {
           let currentOutcomes = [];
           let participantMatches = [];
           if (bookingIds.length > 0) {
-            const outcomesResult = await supabase
+            // Batch booking IDs, then intersect targets locally. Sending both
+            // all-event ID lists produced a >32KB URL rejected by the gateway.
+            const selectedTargets = new Set(attendanceTargetIds);
+            const outcomesResult = await readReportIds(bookingIds, ids => supabase
               .from('attendance_current_outcome')
               .select('provider, attendance_target_id, booking_type, booking_id, status, duration_seconds, threshold_minutes, updated_at')
-              .in('attendance_target_id', attendanceTargetIds)
-              .in('booking_id', bookingIds)
-              .eq('tenant_id', tenantId);
+              .in('booking_id', ids)
+              .eq('tenant_id', tenantId)
+              .order('provider').order('attendance_target_id').order('booking_type').order('booking_id'));
             if (outcomesResult.error) {
-              throw new Error(`Failed to fetch current attendance outcomes: ${outcomesResult.error.message}`);
+              throw reportQueryFailure('attendance_current_outcome', outcomesResult.error);
             } else {
-              currentOutcomes = outcomesResult.data || [];
+              currentOutcomes = (outcomesResult.data || []).filter(row => selectedTargets.has(row.attendance_target_id));
             }
 
-            const matchesResult = await supabase
+            const matchesResult = await readReportIds(bookingIds, ids => supabase
               .from('attendance_participant_match')
               .select('attendance_target_id, participant_key, booking_id, booking_type, match_status, matched_by')
-              .in('attendance_target_id', attendanceTargetIds)
-              .in('booking_id', bookingIds)
-              .eq('tenant_id', tenantId);
+              .in('booking_id', ids)
+              .eq('tenant_id', tenantId).order('id'));
             if (matchesResult.error) {
-              console.error('[Event Registration Report] Error fetching attendance matches:', matchesResult.error);
+              throw reportQueryFailure('attendance_participant_match', matchesResult.error);
             } else {
-              participantMatches = matchesResult.data || [];
+              participantMatches = (matchesResult.data || []).filter(row => selectedTargets.has(row.attendance_target_id));
             }
           }
 
           const intervalsByTargetAndParticipant = new Map();
           if (participantMatches.length > 0) {
-            const { data: intervals, error } = await supabase
+            const { data: intervals, error } = await readReportIds(attendanceTargetIds, ids => supabase
               .from('attendance_participant_interval')
               .select('attendance_target_id, participant_key, joined_at, left_at, duration_seconds')
-              .in('attendance_target_id', attendanceTargetIds)
-              .eq('tenant_id', tenantId);
+              .in('attendance_target_id', ids)
+              .eq('tenant_id', tenantId).order('id'));
             if (error) {
-              console.error('[Event Registration Report] Error fetching attendance intervals:', error);
+              throw reportQueryFailure('attendance_participant_interval', error);
             } else {
               for (const interval of intervals || []) {
                 const key = `${interval.attendance_target_id}::${interval.participant_key}`;
@@ -714,7 +728,7 @@ export default async function handler(req, res, publicPoOnly = false) {
           .select('booking_reference, booker_email, booker_first_name, booker_last_name')
           .eq('tenant_id', tenantId)
           .in('booking_reference', ids).order('id'));
-        if (error) throw new Error('Failed to fetch registration bookers');
+        if (error) throw reportQueryFailure('registration_bookers', error);
 
         if (egbRows) {
           for (const row of egbRows) {
@@ -748,7 +762,7 @@ export default async function handler(req, res, publicPoOnly = false) {
           .select('id, email, first_name, last_name, job_title')
           .eq('tenant_id', tenantId)
           .in('id', ids).order('id'));
-        if (error) throw new Error('Failed to fetch registration member identities');
+        if (error) throw reportQueryFailure('registration_member_identities', error);
         if (memberRows) {
           for (const m of memberRows) {
             memberInfoById.set(m.id, m);
@@ -1140,7 +1154,11 @@ export default async function handler(req, res, publicPoOnly = false) {
       lastUpdated: new Date().toISOString(),
     });
   } catch (error) {
-    console.error('[Event Registration Report] Error:', error);
+    console.error('[Event Registration Report] Query failed', {
+      stage: error?.stage || 'report',
+      providerCode: error?.providerCode || 'UNKNOWN',
+      httpStatus: error?.httpStatus || null,
+    });
     return res.status(500).json({ error: 'Failed to fetch report data' });
   }
 }

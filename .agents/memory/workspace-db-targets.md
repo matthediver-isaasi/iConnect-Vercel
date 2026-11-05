@@ -79,6 +79,15 @@ Even JSONB timestamp text needs normalization against JavaScript-generated times
 
 **How to apply:** Normalize only schema-declared timestamp-with-time-zone columns on both expected and returned rows before comparison; preserve exact comparison for all other fields and reject genuinely changed instants.
 
+The Vercel preview database URL may use the custom hostname `vault.iconn.app`
+for DEST rather than its `supabase.co` hostname. Compare the configured target
+and verify read-only access rather than assuming unequal URL strings mean
+different databases.
+
+**Why:** Preview report diagnosis confirmed the custom database hostname while
+workspace runtime still targeted SOURCE; confusing these would invalidate a
+reproduction.
+
 **Member-auth E2E is impossible in this workspace:** `getSessionMember`
 selects `member` with an embedded `organization:organization_id(tenant_id)`
 join, and the SOURCE DB's `organization` table has no `tenant_id` column —
