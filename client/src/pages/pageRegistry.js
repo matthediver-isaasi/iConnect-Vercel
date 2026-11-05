@@ -44,6 +44,8 @@ export const PAGE_NAMES = [
   "IEditPageManagement",
   "CanvasFooterManagement",
   "CanvasFooterEditor",
+  "PopupManagement",
+  "CanvasPopupEditor",
   "IEditTemplateManagement",
   "IEditPageEditor",
   "Inbox",

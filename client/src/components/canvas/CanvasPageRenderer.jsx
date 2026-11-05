@@ -165,7 +165,7 @@ function tagForBlock(block, embedded = false) {
   return 'div';
 }
 
-function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint, windowBp, pinStageWidth, embedded = false }) {
+function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint, windowBp, pinStageWidth, embedded = false, contentWidth }) {
   const def = getBlockDefinition(block.type);
   const Renderer = def?.Renderer;
   const { style, a11y } = block;
@@ -247,8 +247,9 @@ function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint, windowBp, pinS
       // Task #2460: clamp the rendered frame to the forced breakpoint's
       // stage width so the `?_bp=` preview matches the published CSS
       // (which emits clamped overrides) and the editor stage. Display
-      // only — stored geometry is never rewritten.
-      const cg = clampGeomToStage(g, forcedBreakpoint, BREAKPOINT_WIDTHS[forcedBreakpoint]);
+      // only — stored geometry is never rewritten. Explicit popup content
+      // widths also constrain desktop; regular desktop pages retain overflow.
+      const cg = clampGeomToStage(g, contentWidth ? 'tablet' : forcedBreakpoint, contentWidth || BREAKPOINT_WIDTHS[forcedBreakpoint]);
       forcedStyle = { position: 'absolute', left: cg.x, top, width: cg.w, height };
     }
     if (aspectStyle) {
@@ -291,6 +292,10 @@ function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint, windowBp, pinS
       data-bleed={(() => { const d = getBlockBleed(block); return d === 'left' || d === 'right' ? d : undefined; })()}
       style={{
         ...(forcedStyle || null),
+        // A narrow embedded modal can select mobile geometry inside a desktop
+        // viewport. Its inline visibility must beat the host-window stylesheet's
+        // desktop display:none rule; hidden nodes already returned null above.
+        ...(contentWidth && forcedBreakpoint ? { display: 'block' } : {}),
         ...cssReflowOverride,
         // Task #3181: gradient/image sections must not paint the wrapper fill
         // (shared resolver — keeps editor, public and symbol preview in sync).
@@ -509,7 +514,7 @@ function useAnchorSmoothScroll(containerRef, enabled) {
  * The CSS stylesheet sets an explicit `height:` on .canvas-stage; we override
  * it via `minHeight` so blocks that are pushed down are never clipped.
  */
-function CanvasPageStage({ children, lcpBlockId, forcedBreakpoint, windowBp, activeBp, pinStageWidth, embedded = false }) {
+function CanvasPageStage({ children, lcpBlockId, forcedBreakpoint, windowBp, activeBp, pinStageWidth, embedded = false, contentWidth }) {
   const StageTag = useCanvasStageTag(embedded);
   const reflow = useAccordionReflow();
   // Baseline stage height at the active breakpoint from stored geometry.
@@ -532,7 +537,7 @@ function CanvasPageStage({ children, lcpBlockId, forcedBreakpoint, windowBp, act
   // breakpoint. Pin the stage width to the forced breakpoint so its layout
   // width is deterministic and auto-height text wraps exactly as the server
   // assumed — matching the built page and preventing title/divider overlap.
-  const forcedWidthStyle = pinStageWidth && forcedBreakpoint
+  const forcedWidthStyle = contentWidth ? { width: "100%", maxWidth: "100%" } : pinStageWidth && forcedBreakpoint
     ? { width: BREAKPOINT_WIDTHS[forcedBreakpoint], maxWidth: BREAKPOINT_WIDTHS[forcedBreakpoint] }
     : null;
 
@@ -553,6 +558,7 @@ function CanvasPageStage({ children, lcpBlockId, forcedBreakpoint, windowBp, act
           windowBp={windowBp}
           pinStageWidth={pinStageWidth}
           embedded={embedded}
+          contentWidth={contentWidth}
         />
       ))}
     </StageTag>
@@ -564,6 +570,7 @@ function CanvasPageRendererContent({
   symbols,
   forceBreakpoint,
   embedded = false,
+  contentWidth,
   editorPreview = false,
   auditPreviewView = null,
 }) {
@@ -764,7 +771,7 @@ function CanvasPageRendererContent({
           {flowCss && <style dangerouslySetInnerHTML={{ __html: flowCss }} />}
           <CanvasFlowStage
             design={design}
-            forceBreakpoint={forcedBreakpoint}
+            forceBreakpoint={contentWidth ? undefined : forcedBreakpoint}
             lcpBlockId={null}
             embedded={embedded}
           />
@@ -841,6 +848,7 @@ function CanvasPageRendererContent({
           activeBp={forcedBreakpoint || windowBp || 'desktop'}
           pinStageWidth={!!forceBreakpoint}
           embedded={embedded}
+          contentWidth={contentWidth}
         />
       </AccordionReflowProvider>
     </div>

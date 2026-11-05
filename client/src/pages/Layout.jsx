@@ -603,6 +603,11 @@ const adminNavigationItems = [
         featureId: "page_IEditPageManagement"
       },
       {
+        title: "Popups",
+        url: createPageUrl("PopupManagement"),
+        featureId: "page_PopupManagement"
+      },
+      {
         title: "Canvas Links Manager",
         url: createPageUrl("CanvasLinksManager"),
         featureId: "page_admin_CanvasLinksManager"
@@ -1051,7 +1056,7 @@ function clearInboxPopupSessionFlags() {
 }
 
 export default function Layout({ children, currentPageName, authenticationOnly = false }) {
-  const isCanvasEditor = currentPageName === 'CanvasPageEditor';
+  const isCanvasEditor = currentPageName === 'CanvasPageEditor' || currentPageName === 'CanvasPopupEditor';
   const location = useLocation();
   const navigate = useNavigate();
   const { getArticleListUrl, getMyArticlesUrl, articleDisplayName, isCustomSlug, urlSlug, publicSlug, viewSlug, editorSlug, mySlug } = useArticleUrl();
@@ -1693,6 +1698,8 @@ useEffect(() => {
 
   // Pages that should use the bare layout (no new header/footer)
   adminPages.push("NMCMembershipReport");
+  adminPages.push("PopupManagement");
+  adminPages.push("CanvasPopupEditor");
   adminPages.push("StripePayoutReport");
   adminPages.push("PublicInvoicePoReport");
   const bareLayoutPages = [];
@@ -1839,6 +1846,8 @@ useEffect(() => {
     'JobPostingManagement': 'page_admin_JobPostingManagement',
     'JobBoardSettings': 'page_admin_JobBoardSettings',
     'IEditPageManagement': 'page_admin_IEditPageManagement',
+    'PopupManagement': 'page_admin_PopupManagement',
+    'CanvasPopupEditor': 'page_admin_CanvasPopupEditor',
     'IEditTemplateManagement': 'page_admin_IEditTemplateManagement',
     'PageBannerManagement': 'page_admin_PageBannerManagement',
     'NavigationManagement': 'page_admin_NavigationManagement',

@@ -141,6 +141,8 @@ const IEditPageEditor = lazy(() => import("./IEditPageEditor"));
 const CanvasPageEditor = lazy(() => import("./CanvasPageEditor"));
 const CanvasFooterManagement = lazy(() => import("./CanvasFooterManagement"));
 const CanvasFooterEditor = lazy(() => import("./CanvasFooterEditor"));
+const PopupManagement = lazy(() => import("./PopupManagement"));
+const CanvasPopupEditor = lazy(() => import("./CanvasPopupEditor"));
 
 import testpage from "./testpage";
 
@@ -653,6 +655,8 @@ const PAGES = {
     CanvasPageEditor: CanvasPageEditor,
     CanvasFooterManagement: CanvasFooterManagement,
     CanvasFooterEditor: CanvasFooterEditor,
+    PopupManagement: PopupManagement,
+    CanvasPopupEditor: CanvasPopupEditor,
     
     testpage: testpage,
     
@@ -1166,6 +1170,8 @@ function PagesContent() {
                 <Route path="/CanvasPageEditor" element={<CanvasPageEditor />} />
                 <Route path="/CanvasFooterManagement" element={<CanvasFooterManagement />} />
                 <Route path="/CanvasFooterEditor" element={<CanvasFooterEditor />} />
+                <Route path="/PopupManagement" element={<PopupManagement />} />
+                <Route path="/CanvasPopupEditor" element={<CanvasPopupEditor />} />
                 
                 <Route path="/testpage" element={<testpage />} />
                 

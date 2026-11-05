@@ -80,6 +80,7 @@ import {
   bakeAspectCarouselGeometry,
 } from '@/lib/canvasDesign';
 import CanvasPalette from './CanvasPalette';
+import { popupDesignError } from '@/lib/cmsPopups';
 import CanvasStage from './CanvasStage';
 import CanvasFlowEditorStage from './CanvasFlowEditorStage';
 import { getBlockDefinition } from './blocks/registry';
@@ -311,18 +312,28 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   micrositeId = null,
   interactionEnabled = true,
   symbolEditing = false,
+  popupEditing = false,
+  contentWidth = null,
 }, ref) {
+  const canvasWidth = Number.isFinite(contentWidth) && contentWidth > 0 ? contentWidth : BREAKPOINT_WIDTHS[breakpoint] || BREAKPOINT_WIDTHS.desktop;
   const builderRootRef = useRef(null);
   // Read at invocation time as well as render time: delayed measurements and
   // imperative callbacks from the host must not edit a suspended builder.
   const interactionEnabledRef = useRef(interactionEnabled);
   const symbolEditingRef = useRef(symbolEditing);
+  const popupEditingRef = useRef(popupEditing);
+  popupEditingRef.current = popupEditing;
   const interactionEpochRef = useRef(0);
   if (interactionEnabledRef.current !== interactionEnabled) interactionEpochRef.current += 1;
   interactionEnabledRef.current = interactionEnabled;
   symbolEditingRef.current = symbolEditing;
   const [symbolEditError, setSymbolEditError] = useState(null);
   const acceptSymbolDesign = useCallback((next) => {
+    if (popupEditingRef.current) {
+      const reason = popupDesignError(next);
+      setSymbolEditError(reason || null);
+      if (reason) return false;
+    }
     if (!symbolEditingRef.current) return true;
     const reason = isFlowDesign(next)
       ? 'Flow layouts cannot be used while editing shared symbol content.'
@@ -471,6 +482,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   // failure the document stays dirty so the user can retry.
   const performSave = useCallback(async () => {
     if (!interactionEnabledRef.current || !onSave) return false;
+    if (!acceptSymbolDesign(design)) return false;
     const snapshot = JSON.stringify(design);
     try {
       const result = onSave(design);
@@ -485,7 +497,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     } catch (e) {
       return false;
     }
-  }, [design, onSave]);
+  }, [design, onSave, acceptSymbolDesign]);
 
   // Editing is manual-save only: edits stay in local `design` state and are
   // never persisted automatically. The debounced autosave that used to commit
@@ -1555,7 +1567,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     let minX, maxRight, minY, maxBottom;
     let activeAnchorKey = null;
     if (effectiveAlignRef === 'canvas') {
-      const cW = BREAKPOINT_WIDTHS[breakpoint] || BREAKPOINT_WIDTHS.desktop;
+      const cW = canvasWidth;
       const cH = STAGE_MIN_HEIGHT;
       minX = 0;
       maxRight = cW;
@@ -1602,7 +1614,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
       }
     }
     if (Object.keys(updates).length > 0) applyGeometry(updates);
-  }, [selectedIds, anchorId, children, breakpoint, applyGeometry, effectiveAlignRef]);
+  }, [selectedIds, anchorId, children, breakpoint, applyGeometry, effectiveAlignRef, canvasWidth]);
 
   const distributeSelected = useCallback((axis) => {
     if (selectedIds.length < 3) return;
@@ -1756,8 +1768,6 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     }
     if (Object.keys(updates).length > 0) applyGeometry(updates);
   }, [isFlow, selectedIds, children, breakpoint, activeGroupId, applyGeometry]);
-
-  const canvasWidth = BREAKPOINT_WIDTHS[breakpoint] || BREAKPOINT_WIDTHS.desktop;
 
   // ---- Ruler guides (Task #1665) ----
   const guides = useMemo(() => getCanvasGuides(design), [design]);
@@ -2241,7 +2251,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
             data-testid="panel-palette"
           >
             <h2 className="text-sm font-semibold text-slate-900 mb-2">Blocks</h2>
-            <CanvasPalette interactionEnabled={interactionEnabled} symbolEditing={symbolEditing} />
+            <CanvasPalette interactionEnabled={interactionEnabled} symbolEditing={symbolEditing} popupEditing={popupEditing} />
           </aside>
 
           {/* Stage */}
@@ -2309,6 +2319,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
                       canGroup={canGroupSelection}
                       canUngroup={canUngroupSelection}
                       breakpoint={breakpoint}
+                      constrainToWidth={popupEditing}
                       canvasWidth={canvasWidth}
                       canvasHeight={stageHeight}
                       gridSize={gridSize}

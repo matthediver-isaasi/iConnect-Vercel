@@ -29,6 +29,7 @@ import { canvasNeedsSymbols } from "@/lib/canvasNeedsSymbols.mjs";
 import { getUnknownPageRedirectTarget, resolveUnknownPage } from "./unknownPageRedirect";
 import { readPublicPage, DYNAMIC_PAGE_PENDING_TIMEOUT_MS } from "./dynamicPageRequest";
 import { usePublicPageNavigation } from "@/components/navigation/PublicPageNavigation";
+import PopupRuntime from "@/components/popups/PopupRuntime";
 import {
   createDynamicPageRequestScope,
   getEarlyPublicPageRequest,
@@ -881,10 +882,19 @@ export default function DynamicPage() {
 
   // Static AI-generated pages (Task #3371): pre-sanitized HTML + page-scoped
   // CSS stored on the row itself; rendered read-only inside normal chrome.
+  // This is intentionally below every DynamicPage authorization/redirect gate.
+  // Never present on editor previews, unresolved identity or retained guest flow.
+  const popupRuntime = isPublished && !isCanvasPreview && authResolved
+    && !audienceTransitionPending && !storageInvalidationPending
+    && (!memberInfo || (sessionValidated && isAccessReady))
+    ? <PopupRuntime key={`${publicTenantRequestIdentity}|${page.id}|${resolvedAudienceIdentity}|${audienceGeneration}`}
+        page={page} viewerIdentity={resolvedAudienceIdentity} />
+    : null;
   if (page.builder_type === 'ai_static') {
     return (
       <div className="w-full" data-testid={`dynamic-page-${slug}`}>
         <StaticHtmlPageRenderer page={page} />
+        {popupRuntime}
       </div>
     );
   }
@@ -902,6 +912,7 @@ export default function DynamicPage() {
           auditPreviewView={canPreviewDrafts ? (forcePublicPreview || isPublicPage ? 'public' : 'member') : null}
         />
         </DirectoryCarouselBootstrapContext.Provider>
+        {popupRuntime}
       </div>
     );
   }
@@ -909,6 +920,7 @@ export default function DynamicPage() {
   // Render the page content - Layout handles the appropriate wrapper (PublicLayout or sidebar)
   return (
     <div className="w-full" data-testid={`dynamic-page-${slug}`}>
+      {popupRuntime}
       {elements.map((element, index) => (
         <React.Fragment key={element.id}>
           <IEditElementRenderer element={element} memberInfo={memberInfo} />

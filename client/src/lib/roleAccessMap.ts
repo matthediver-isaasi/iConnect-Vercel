@@ -525,6 +525,14 @@ export const ROLE_ACCESS_MAP: Module[] = [
         label: "Page Editor"
       },
       {
+        id: "site-builder.popups",
+        label: "Popup Management"
+      },
+      {
+        id: "site-builder.popup-editor",
+        label: "Popup Editor"
+      },
+      {
         id: "site-builder.ai-generate",
         label: "AI Design Studio — Generate"
       },
@@ -1377,6 +1385,10 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_IEditPageManagement": "site-builder.pages",
   "page_CanvasFooterManagement": "site-builder.pages",
   "page_CanvasFooterEditor": "site-builder.page-editor",
+  "page_PopupManagement": "site-builder.popups",
+  "page_admin_PopupManagement": "site-builder.popups",
+  "page_CanvasPopupEditor": "site-builder.popup-editor",
+  "page_admin_CanvasPopupEditor": "site-builder.popup-editor",
   "page_IEditTemplateManagement": "site-builder.templates",
   "page_NavigationManagement": "site-builder.navigation",
   "page_MicrositeManagement": "site-builder.micro-sites",

@@ -1231,6 +1231,9 @@ export default function IEditPageManagementPage() {
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            {!isFeatureExcluded('site-builder.popups') && <Button variant="outline"
+              onClick={() => navigate(createPageUrl("PopupManagement"))}
+              data-testid="button-manage-popups">Popups</Button>}
             <Button
               variant="outline"
               onClick={() => navigate(createPageUrl("CanvasFooterManagement"))}

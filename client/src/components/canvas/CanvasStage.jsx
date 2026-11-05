@@ -351,7 +351,7 @@ function handleCursor(h) {
 // (CanvasPageRenderer) all share the exact same rule and can't drift.
 // It never touches stored geometry — drag/resize handlers and the Position
 // inspector keep reading/writing the raw per-breakpoint frames, and desktop
-// rendering is untouched.
+// rendering is untouched unless an embedded popup explicitly constrains width.
 
 function CanvasStageInner({
   blocks,
@@ -359,6 +359,7 @@ function CanvasStageInner({
   anchorId,
   breakpoint,
   canvasWidth,
+  constrainToWidth = false, // popup-only: apply the display clamp on desktop too
   canvasHeight,
   gridSize = 8,
   showGrid = true,
@@ -422,15 +423,15 @@ function CanvasStageInner({
   const resolvedBlocks = useMemo(
     () => blocks.map((b) => ({
       block: b,
-      // Render-path clamp only (no-op on desktop): snapping siblings and
+      // Render-path clamp only (no-op on ordinary desktop pages): snapping siblings and
       // marquee hit-testing also read these geoms so they match the visuals.
       geom: clampGeomToStage(
         resolveBlockAtBreakpoint(b, breakpoint, { canvasWidth }),
-        breakpoint,
+        constrainToWidth ? 'tablet' : breakpoint,
         canvasWidth,
       ),
     })),
-    [blocks, breakpoint, canvasWidth],
+    [blocks, breakpoint, canvasWidth, constrainToWidth],
   );
 
   const getStageCoords = useCallback((clientX, clientY) => {
@@ -847,7 +848,7 @@ function CanvasStageInner({
         // Preview geoms are derived from the raw stored frames, so re-clamp
         // the merged result to keep the wrapper inside the stage mid-drag too.
         const effective = preview
-          ? clampGeomToStage({ ...geom, ...preview }, breakpoint, canvasWidth)
+          ? clampGeomToStage({ ...geom, ...preview }, constrainToWidth ? 'tablet' : breakpoint, canvasWidth)
           : geom;
         // Live wrapper growth only while dragging THIS card's n/s handle.
         const liveHeight = (

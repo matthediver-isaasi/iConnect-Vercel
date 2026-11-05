@@ -23,6 +23,7 @@ import MemberCommunicationStatusReport from "@/components/communications/MemberC
 import HardBouncedAddressesReport from "@/components/communications/HardBouncedAddressesReport";
 import CustomObjectAudienceCondition, { customObjectConditionError, customObjectSummary } from "@/components/communications/CustomObjectAudienceCondition";
 import EventSurveyAudiencePicker from "@/components/communications/EventSurveyAudiencePicker";
+import { FieldConditionRow } from "@/components/audience/FieldConditionEditor";
 import { listAllOrganizationsForAdmin } from '@/lib/adminOrgList';
 import { parseExternalContacts } from "@/lib/externalContactsCsv";
 import { downloadCsv, slugifyFilename } from "@/lib/csvExport";
@@ -3647,6 +3648,20 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                 const selectedEventValueIds = Array.isArray(cond.value) ? cond.value : (cond.value ? [cond.value] : []);
                                 const selectedEventValueObjects = selectedEventValueIds
                                   .map(id => audienceListEvents.find(ev => ev.id === id) || (cond.value_names && cond.value_names[id] ? { id, title: cond.value_names[id] } : { id, title: id }));
+
+                                // Event/custom-object authoring retains its specialized pickers.
+                                // Core/custom member and organisation rows share popup authoring.
+                                if ((cond.entity_scope === 'member' || cond.entity_scope === 'organization') && !isEventField) {
+                                  const replaceCondition = next => setFieldFilterGroups(prev => prev.map((g, gi) => gi === gIdx ? { ...g, conditions: g.conditions.map((c, ci) => ci === cIdx ? next : c) } : g));
+                                  return <div key={cIdx} className="space-y-1.5">
+                                    {cIdx > 0 && <div className="text-xs text-muted-foreground font-medium px-1">AND</div>}
+                                    <FieldConditionRow condition={cond} metadata={filterableFields} disabled={fieldsLoading || fieldsError}
+                                      testPrefix={`${gIdx}-${cIdx}`} scopes={["member", "organization", "event", "custom_object"]}
+                                      onChange={replaceCondition}
+                                      onScopeChange={scope => replaceCondition({ entity_scope: scope, field_key: '', field_type: '', data_type: '', operator: '', value: '', field_label: '' })}
+                                      onRemove={group.conditions.length > 1 ? () => setFieldFilterGroups(prev => prev.map((g, gi) => gi === gIdx ? { ...g, conditions: g.conditions.filter((_, ci) => ci !== cIdx) } : g)) : undefined} />
+                                  </div>;
+                                }
 
                                 return (
                                   <div key={cIdx} className="space-y-1.5">

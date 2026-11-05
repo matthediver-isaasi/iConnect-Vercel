@@ -9,7 +9,7 @@ const extra = `
 /MemberDemo /BnmsMemberDemo /galleries /GalleryDirectory /RoleAccessConfigManagement
 /VoucherManagement /MonthlyFinanceReport /MembershipPaymentReport /StripePayoutReport /MembershipChange /DirectDebitAdmin
 /TrainingFundManagement /MyBookings /CancellationRequests /booking-agents /SurveyReports
-/CanvasPageEditor /MicrositeManagement /about-me /Preferences /BadgeManagement
+/CanvasPageEditor /PopupManagement /CanvasPopupEditor /MicrositeManagement /about-me /Preferences /BadgeManagement
 /organisations /OrganisationGroups /DueDiligenceDashboard /DueDiligenceConfig
 /ReviewSubmission /BriefManagement /BriefDetail /BriefSettings /ExternalWriters
 /external-writers /PhotoGalleries /MemberGroupSettings /VolunteerBoard /GroupEmail
