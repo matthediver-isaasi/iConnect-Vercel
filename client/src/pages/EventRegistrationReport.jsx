@@ -931,7 +931,29 @@ export default function EventRegistrationReport() {
     setSelectedEvent({ id: item.key, title: item.value, isComplex: !!item.isComplex });
   };
 
+  // A deliberate generation starts a new report, unlike pagination, table
+  // filtering or background query refreshes, which retain cross-page selection.
+  const resetReportResults = () => {
+    setCpdSelection({});
+    setBulkAction(null);
+    setCpdDialog(null);
+    setCertificateTarget(null);
+    setGuestMemberTarget(null);
+    setCancelTarget(null);
+    setShowCancelDialog(false);
+    setCancelReason("");
+    setTransferTarget(null);
+    setShowTransferDialog(false);
+    setTransferIsPublic(false);
+    setStatusFilter("all");
+    setConsentFilter("all");
+    setAttendanceFilter("all");
+    setCurrentPage(1);
+    setSearchQuery("");
+  };
+
   const handleGenerateReport = () => {
+    resetReportResults();
     const exactEvent = selectedEvent && selectedEvent.title === filterEventName.trim() ? selectedEvent : null;
     const nextFilters = {
       eventId: exactEvent ? exactEvent.id : null,
@@ -952,14 +974,12 @@ export default function EventRegistrationReport() {
     } else {
       setAppliedFilters(nextFilters);
     }
-    setCurrentPage(1);
-    setSearchQuery("");
   };
 
   const handleClearFilters = () => {
+    resetReportResults();
     setFilterName("");
     setFilterEmail("");
-    setAttendanceFilter("all");
     setFilterEventName("");
     setSelectedEvent(null);
     setFilterInternalRef("");
@@ -968,8 +988,6 @@ export default function EventRegistrationReport() {
     setFilterEventDateFrom("");
     setFilterEventDateTo("");
     setAppliedFilters(null);
-    setSearchQuery("");
-    setCurrentPage(1);
   };
 
   const hasActiveFilters = filterName || filterEmail || filterEventName || filterInternalRef || filterDateFrom || filterDateTo || filterEventDateFrom || filterEventDateTo;

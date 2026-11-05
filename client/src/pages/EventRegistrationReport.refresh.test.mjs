@@ -7,7 +7,7 @@ import { QueryClient, QueryObserver } from '@tanstack/react-query';
 // an object reference alone does not cause an unchanged query key to refetch.
 const source = readFileSync(new URL('./EventRegistrationReport.jsx', import.meta.url), 'utf8');
 const handlerSource = source.slice(
-  source.indexOf('  const handleGenerateReport = () => {'),
+  source.indexOf('  const resetReportResults = () => {'),
   source.indexOf('  const handleClearFilters = () => {'),
 );
 const emptyFilters = {
@@ -25,6 +25,11 @@ function generate(state, overrides = {}) {
     refetchReport: () => { state.refetchPromise = state.refetch(); },
     setCurrentPage: value => { state.page = value; },
     setSearchQuery: value => { state.search = value; },
+    ...Object.fromEntries([
+      'CpdSelection', 'BulkAction', 'CpdDialog', 'CertificateTarget', 'GuestMemberTarget',
+      'CancelTarget', 'ShowCancelDialog', 'CancelReason', 'TransferTarget',
+      'ShowTransferDialog', 'TransferIsPublic', 'StatusFilter', 'ConsentFilter', 'AttendanceFilter',
+    ].map(key => [`set${key}`, value => { state[key] = value; }])),
     ...overrides,
   };
   new Function(...Object.keys(values), `${handlerSource}; handleGenerateReport();`)(...Object.values(values));
@@ -58,6 +63,53 @@ test('Generate Report fetches a newly confirmed public invoice booking with unch
     unsubscribe();
     client.clear();
   }
+});
+
+test('every explicit generation discards prior selections, targets and restrictive table filters', () => {
+  for (const overrides of [
+    {},
+    { selectedEvent: { id: 'new-event', title: 'Meeting' }, filterEventName: 'Meeting' },
+    { filterName: ' Jane ', filterEmail: ' jane@example.test ', filterInternalRef: ' REF ',
+      filterDateFrom: '2026-01-01', filterDateTo: '2026-12-31',
+      filterEventDateFrom: '2026-02-01', filterEventDateTo: '2026-11-30' },
+  ]) {
+    const state = {
+      appliedFilters: { ...emptyFilters }, refetch() {},
+      CpdSelection: { old: { booking_id: 'old' } }, BulkAction: { registrations: ['old'] },
+      CpdDialog: { scope: ['old'] }, StatusFilter: 'cancelled', ConsentFilter: 'consented',
+      AttendanceFilter: 'attended', search: 'old', page: 9,
+    };
+    generate(state, overrides);
+    assert.deepEqual(state.CpdSelection, {});
+    for (const key of ['BulkAction', 'CpdDialog', 'CertificateTarget', 'GuestMemberTarget', 'CancelTarget', 'TransferTarget']) {
+      assert.equal(state[key], null);
+    }
+    for (const key of ['StatusFilter', 'ConsentFilter', 'AttendanceFilter']) assert.equal(state[key], 'all');
+    assert.equal(state.page, 1);
+    assert.equal(state.search, '');
+    for (const [input, output] of [
+      ['filterName', 'name'], ['filterEmail', 'email'], ['filterInternalRef', 'internalReference'],
+      ['filterDateFrom', 'dateFrom'], ['filterDateTo', 'dateTo'],
+      ['filterEventDateFrom', 'eventDateFrom'], ['filterEventDateTo', 'eventDateTo'],
+    ]) assert.equal(state.appliedFilters[output], (overrides[input] || '').trim());
+  }
+});
+
+test('Clear Filters discards the report and its selections and dialog targets', () => {
+  const clearSource = source.slice(source.indexOf('  const handleClearFilters = () => {'), source.indexOf('  const hasActiveFilters ='));
+  const resetSource = handlerSource.slice(0, handlerSource.indexOf('  const handleGenerateReport'));
+  const state = {};
+  const setters = [...new Set(`${resetSource}${clearSource}`.match(/\bset[A-Z]\w+/g))];
+  new Function(...setters, `${resetSource}${clearSource}; handleClearFilters();`)(
+    ...setters.map(key => value => { state[key] = value; }),
+  );
+  assert.deepEqual(state.setCpdSelection, {});
+  assert.equal(state.setAppliedFilters, null);
+  assert.equal(state.setBulkAction, null);
+  assert.equal(state.setCpdDialog, null);
+  assert.equal(state.setSelectedEvent, null);
+  assert.equal(state.setFilterName, '');
+  assert.equal(state.setFilterEmail, '');
 });
 
 test('first generation and changed filters select the new query without refetching old filters', () => {
