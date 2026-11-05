@@ -17,6 +17,16 @@ function checked(result) {
   }
   return result.data;
 }
+export async function loadStartVatSetting(db, tenantId) {
+  // The sync writer scopes this legacy key by its tenant UUID suffix, not
+  // tenant_id. Keep exact-key uniqueness and reject contradictory ownership.
+  const setting = checked(await db.from('system_settings').select('*')
+    .eq('setting_key', `xero_vat_rates_${tenantId}`).maybeSingle());
+  if (setting?.tenant_id != null && setting.tenant_id !== tenantId) {
+    throw startError('The saved tax rates do not belong to this organisation. Please ask an administrator to review the accounting settings.');
+  }
+  return setting;
+}
 export function createMemberStartService({
   db, now = () => new Date(), getProvider = getAccountingProvider,
   queueEnabled = () => accountingMembershipQueueEnabled('member_membership_history'),
@@ -162,8 +172,7 @@ export function createMemberStartService({
       const discounts = await rows('membership_tier_discount', tenantId, 'config_id', request.configId);
       const vatOverrides = await rows('membership_tier_vat_override', tenantId, 'config_id', request.configId);
       const overrides = await rows('member_membership_override', tenantId, 'member_id', request.memberId);
-      const vatSetting = checked(await db.from('system_settings').select('*').eq('tenant_id', tenantId)
-        .eq('setting_key', `xero_vat_rates_${tenantId}`).maybeSingle());
+      const vatSetting = await loadStartVatSetting(db, tenantId);
       const quote = buildStartQuote({ request, config, band, discounts, vatOverrides, overrides, vatSetting, today: today() });
       const option = startPaymentOptions(config, band, await availability(tenantId)).find(p => p.mode === request.paymentMode);
       if (!option?.available) throw startError(option?.reason || 'This payment mode is unavailable.');

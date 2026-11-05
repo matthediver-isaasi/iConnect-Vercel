@@ -340,7 +340,7 @@ function StartPanel({ memberId, tenantId }) {
           </>}
           <Blockers items={preview.blockers} />
           {quote && !completeQuote && <p role="alert" className="text-sm">The server quote is incomplete or does not match the selected request. Request a fresh preview before confirming.</p>}
-          {!preview.expectedQuote && <p className="text-sm text-muted-foreground">A quote fingerprint is required. Request a fresh preview before confirming.</p>}
+          {!preview.expectedQuote && !preview.blockers?.length && <p className="text-sm text-muted-foreground">This preview is incomplete. Please preview the membership again before confirming.</p>}
           <Button type="button" disabled={!canCreate || locked} onClick={() => openConfirmation()}>Review and confirm membership</Button>
         </div>}
       </>}

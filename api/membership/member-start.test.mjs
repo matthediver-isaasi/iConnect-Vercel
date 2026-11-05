@@ -1,10 +1,46 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemberStartHandler } from './member-start.js';
-import { createMemberStartService } from '../_lib/memberStart.js';
+import { createMemberStartService, loadStartVatSetting } from '../_lib/memberStart.js';
+import { buildStartQuote } from '../_lib/memberStartQuote.js';
 const id = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const context = { isAuthenticated: true, tenantId: id(1), tenantUserId: id(2), roleId: id(3) };
 const response = () => ({ code: 200, headers: {}, setHeader(k, v) { this.headers[k] = v; }, status(code) { this.code = code; return this; }, json(body) { this.body = body; return this; } });
+
+test('admin preview reads the sync writer’s exact tenant-suffixed VAT cache and preserves ownership and uniqueness', async () => {
+  const key = `xero_vat_rates_${id(1)}`;
+  const rate = { taxType: 'ZERORATEDOUTPUT', effectiveRate: 0 };
+  const row = { setting_key: key, tenant_id: null, setting_value: JSON.stringify({ rates: [rate] }) };
+  let rows = [row, { ...row, setting_key: `xero_vat_rates_${id(9)}` }];
+  const db = { from(table) {
+    assert.equal(table, 'system_settings');
+    const filters = [];
+    return { select() { return this; }, eq(k, v) { filters.push([k, v]); return this; },
+      async maybeSingle() {
+        const found = rows.filter(r => filters.every(([k, v]) => r[k] === v));
+        return found.length > 1 ? { error: { code: 'PGRST116' } } : { data: found[0] || null };
+      } };
+  } };
+  for (const owner of [null, id(1)]) {
+    row.tenant_id = owner;
+    const vatSetting = await loadStartVatSetting(db, id(1));
+    const quote = buildStartQuote({
+      request: { configId: id(2), startDate: '2026-11-05', paymentMode: 'invoice' }, today: '2026-11-05',
+      config: { id: id(2), tenant_id: id(1), structure_scope_type: 'member', is_active: true, billing_period: 'annual',
+        start_mode: 'immediate', effective_from: '2026-01-01', currency: 'GBP', pricing_model: 'flat',
+        flat_cost: 71, flat_vat_rate: JSON.stringify({ taxType: 'ZERORATEDOUTPUT' }) }, vatSetting,
+    });
+    assert.equal(quote.vatAmount, 0);
+    assert.equal(quote.totalWithVat, 71);
+  }
+  row.tenant_id = id(9);
+  await assert.rejects(loadStartVatSetting(db, id(1)), /do not belong/);
+  row.tenant_id = null;
+  rows.push({ ...row });
+  await assert.rejects(loadStartVatSetting(db, id(1)), /could not be read/);
+  rows = [{ ...row, setting_key: 'xero_vat_rates' }];
+  assert.equal(await loadStartVatSetting(db, id(1)), null, 'never fall back to an unscoped cache');
+});
 
 test('all discovery, confirmation and resume actions require tenant admin and finance authorization', async () => {
   for (const scenario of [

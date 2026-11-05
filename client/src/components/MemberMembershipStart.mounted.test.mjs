@@ -281,6 +281,18 @@ test("flat zero-value membership sends null band and uses only free mode", async
   } finally { await view.cleanup(); }
 });
 
+test("blocked previews show the actual problem without a misleading fingerprint warning", async () => {
+  const message = "VAT requires a unique authoritative saved tenant tax rate.";
+  const view = await mount({ post: () => json({ canCreate: false, quote: null, expectedQuote: null, blockers: [message] }) });
+  try {
+    await preview();
+    await waitFor(() => view.container.textContent.includes(message));
+    assert.doesNotMatch(view.container.textContent, /fingerprint|This preview is incomplete/);
+    assert.equal(button("Review and confirm membership").disabled, true);
+    assert.equal(view.calls.some(call => call.payload?.action === "create"), false);
+  } finally { await view.cleanup(); }
+});
+
 test("uncertain response persists exact retry payload through unmount, remount and explicit confirmation", async () => {
   const view = await mount({ post: payload => payload.action === "preview" ? json(quote()) : Promise.reject(new Error("Connection lost")) });
   let original;
