@@ -208,7 +208,7 @@ export default function MemberMergeDialog({ open, onOpenChange, currentMember, c
             <GitMerge className="w-5 h-5" /> Merge member records
           </DialogTitle>
           <DialogDescription>
-            {step === 1 && "Select the other member record involved and which record to keep."}
+            {step === 1 && "Find and select the other member record to merge."}
             {step === 2 && "Choose the record to keep, then select one value for each field. Yellow marks the kept record; green marks selected values."}
             {step === 3 && "Engagement statistics and what happens to the old record."}
             {step === 4 && "Review and confirm the merge."}
@@ -245,25 +245,6 @@ export default function MemberMergeDialog({ open, onOpenChange, currentMember, c
                 <div className="text-sm text-slate-500 px-1">No matching members found.</div>
               )}
             </div>
-            {otherMember && (
-              <div className="space-y-2">
-                <Label>Which record should be kept?</Label>
-                <RadioGroup value={direction} onValueChange={setDirection}>
-                  <div className="flex items-start gap-2">
-                    <RadioGroupItem value="into-current" id="merge-dir-current" data-testid="radio-keep-current" />
-                    <Label htmlFor="merge-dir-current" className="font-normal cursor-pointer">
-                      Keep <strong>{`${currentMember?.first_name || ""} ${currentMember?.last_name || ""}`.trim() || currentMember?.email}</strong> (this record) — merge the other record into it
-                    </Label>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <RadioGroupItem value="into-other" id="merge-dir-other" data-testid="radio-keep-other" />
-                    <Label htmlFor="merge-dir-other" className="font-normal cursor-pointer">
-                      Keep <strong>{`${otherMember.first_name || ""} ${otherMember.last_name || ""}`.trim() || otherMember.email}</strong> — merge this record into it
-                    </Label>
-                  </div>
-                </RadioGroup>
-              </div>
-            )}
           </div>
         )}
 

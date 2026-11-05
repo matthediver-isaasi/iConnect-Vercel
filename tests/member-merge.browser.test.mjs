@@ -70,13 +70,31 @@ async function setup(options = {}) {
     return route.continue();
   });
   await page.goto(origin);
+  await expect(page.getByTestId('button-merge-next-1')).toBeDisabled();
+  await assertSelectionOnly(page);
   await page.getByTestId('input-merge-search').fill('record');
   await page.getByTestId('merge-candidate-b').click();
+  await assertSelectionOnly(page);
+  await expect(page.getByTestId('button-merge-next-1')).toBeEnabled();
   await page.getByTestId('button-merge-next-1').click();
   await expect(page.getByTestId('button-merge-next-2')).toBeEnabled();
+  await assertInitialChoices(page);
+  assert.deepEqual(calls[0], { action: 'preview', sourceId: 'b', targetId: 'a' });
   return { page, calls };
 }
 const value = (page, field, id) => page.getByTestId(`value-${field}-${id}`);
+async function assertSelectionOnly(page) {
+  await expect(page.getByRole('dialog')).toContainText('Find and select the other member record to merge.');
+  await expect(page.getByText('Which record should be kept?')).toHaveCount(0);
+  await expect(page.getByRole('radio')).toHaveCount(0);
+}
+async function assertInitialChoices(page) {
+  await expect(page.getByTestId('survivor-a')).toBeChecked();
+  await expect(page.getByTestId('column-a')).toHaveCSS('background-color', 'rgb(254, 252, 232)');
+  for (const field of [...fields.map(key => `core:${key}`), 'custom:multi', 'custom:empty']) {
+    await expect(value(page, field, 'a')).toBeChecked();
+  }
+}
 async function review(page) {
   await page.getByTestId('button-merge-next-2').click();
   await page.getByTestId('radio-disposal-keep').click();
@@ -104,8 +122,20 @@ for (const survivor of ['a', 'b']) test(`independent choices, back navigation an
       await expect(page.getByTestId('button-merge-next-2')).toBeEnabled();
     }
     await expect(value(page, 'core:first_name', 'b')).toBeChecked();
+    await page.getByTestId('button-merge-back').click();
+    await assertSelectionOnly(page);
+    // Reselecting the same candidate must not reset explicit comparison choices.
+    await page.getByTestId('merge-candidate-b').click();
+    await page.getByTestId('button-merge-next-1').click();
+    await expect(page.getByTestId(`survivor-${survivor}`)).toBeChecked();
+    await expect(value(page, 'core:first_name', 'b')).toBeChecked();
+    await expect(value(page, 'core:mobile', 'a')).toBeChecked();
+    await expect(value(page, 'custom:multi', 'b')).toBeChecked();
+    await expect(page.getByTestId(`column-${survivor}`)).toHaveCSS('background-color', 'rgb(254, 252, 232)');
     await review(page);
     await expect(page.getByRole('dialog')).toContainText('Merging source into kept record');
+    assert.deepEqual(await page.getByRole('dialog').locator('strong').allTextContents(),
+      survivor === 'a' ? ['Beth Other', 'Alice Original'] : ['Alice Original', 'Beth Other']);
     await page.getByTestId('button-merge-back').click();
     await expect(page.getByRole('dialog')).toContainText(`Source totals: ${survivor === 'a' ? 2 : 9} events`);
     await expect(page.getByTestId('radio-disposal-keep')).toBeChecked();
@@ -124,6 +154,11 @@ for (const survivor of ['a', 'b']) test(`independent choices, back navigation an
     await page.getByRole('button', { name: 'Reopen' }).click();
     await expect(page.getByTestId('input-merge-search')).toHaveValue('');
     await expect(page.getByTestId('button-merge-next-1')).toBeDisabled();
+    await assertSelectionOnly(page);
+    await page.getByTestId('input-merge-search').fill('record');
+    await page.getByTestId('merge-candidate-b').click();
+    await page.getByTestId('button-merge-next-1').click();
+    await assertInitialChoices(page);
   } finally { await page.close(); }
 });
 
@@ -131,10 +166,13 @@ test('pair replacement resets fields and disposal; failed execution remains reco
   const { page, calls } = await setup({ failExecute: true });
   try {
     await value(page, 'custom:multi', 'b').click();
+    await value(page, 'core:first_name', 'b').click();
+    await page.getByTestId('survivor-b').click();
+    await expect(page.getByTestId('button-merge-next-2')).toBeEnabled();
     await page.getByTestId('button-merge-back').click();
     await page.getByTestId('merge-candidate-c').click();
     await page.getByTestId('button-merge-next-1').click();
-    await expect(value(page, 'custom:multi', 'a')).toBeChecked();
+    await assertInitialChoices(page);
     await page.getByTestId('button-merge-next-2').click();
     await expect(page.getByTestId('radio-disposal-reassign')).toBeChecked();
     await expect(page.getByRole('dialog')).toContainText('does not cancel Stripe or GoCardless payments');
