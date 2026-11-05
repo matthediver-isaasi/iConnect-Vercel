@@ -10,6 +10,7 @@ export default function MemberMergeComparison({
   onTargetChange,
   rows,
   choices,
+  memberClasses = null,
   onChoose,
   disabled = false,
 }) {
@@ -80,6 +81,11 @@ export default function MemberMergeComparison({
                   <p className="mt-1 whitespace-pre-wrap text-sm text-slate-600 [overflow-wrap:anywhere]">
                     {member.email || "No email address"}
                   </p>
+                  {memberClasses && (
+                    <p data-testid={`member-class-${member.id}`} className="mt-1 whitespace-pre-wrap text-sm text-slate-600 [overflow-wrap:anywhere]">
+                      <span className="font-medium">Member class:</span> {memberClasses[member.id] || "Not set"}
+                    </p>
+                  )}
                   <p className="mt-2 text-xs font-medium text-slate-600">
                     {isSurvivor ? "Surviving record" : "Other record"}
                   </p>

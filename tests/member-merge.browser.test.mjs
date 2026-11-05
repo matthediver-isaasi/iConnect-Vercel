@@ -16,8 +16,8 @@ const members = {
 const fields = ['first_name', 'last_name', 'email', 'mobile', 'landline', 'job_title', 'biography', 'profile_photo_url', 'linkedin_url', 'twitter_url', 'show_in_directory', 'organization_id'];
 function preview(body) {
   return { source: members[body.sourceId], target: members[body.targetId], copyableCoreFields: fields,
-    sourcePreferenceValues: [{ field_id: 'multi', value: body.sourceId === 'a' ? '["A","B"]' : '["C"]' }, { field_id: 'empty', value: '' }],
-    targetPreferenceValues: [{ field_id: 'multi', value: body.targetId === 'a' ? '["A","B"]' : '["C"]' }, { field_id: 'empty', value: '' }],
+    sourcePreferenceValues: [{ field_id: 'class', value: body.sourceId === 'a' ? 'Full member' : '' }, { field_id: 'multi', value: body.sourceId === 'a' ? '["A","B"]' : '["C"]' }, { field_id: 'empty', value: '' }],
+    targetPreferenceValues: [{ field_id: 'class', value: body.targetId === 'a' ? 'Full member' : '' }, { field_id: 'multi', value: body.targetId === 'a' ? '["A","B"]' : '["C"]' }, { field_id: 'empty', value: '' }],
     sourceEngagement: { eventsAttended: body.sourceId === 'a' ? 9 : 2, articlesPublished: 0, jobsPosted: 0, awards: 0, engagementAwards: 0 },
     sameOrganisation: members[body.sourceId].organization_id === members[body.targetId].organization_id };
 }
@@ -30,7 +30,7 @@ before(async () => {
       import {Toaster} from 'sonner';
       function App() { const [open,setOpen]=useState(true); return <><button onClick={()=>setOpen(true)}>Reopen</button>
         <MemberMergeDialog open={open} onOpenChange={setOpen} currentMember={${JSON.stringify(members.a)}}
-          customFields={[{id:'multi',label:'Interests'},{id:'empty',label:'Empty custom'}]}
+          customFields={[{id:'class',name:'member_class',label:'Member class'},{id:'multi',label:'Interests'},{id:'empty',label:'Empty custom'}]}
           organizations={[{id:'one',name:'First org'},{id:'two',name:'Second org'}]}
           onMerged={(result,ids)=>{window.merged=ids}}/><Toaster/></>; }
       const queryClient=new QueryClient({defaultOptions:{queries:{retry:false}}});
@@ -83,6 +83,49 @@ async function setup(options = {}) {
   return { page, calls };
 }
 const value = (page, field, id) => page.getByTestId(`value-${field}-${id}`);
+test('record headers show original member class below email without changing merge choices', async () => {
+  const { page } = await setup();
+  try {
+    await expect(page.getByTestId('member-class-a')).toHaveText('Member class: Full member');
+    await expect(page.getByTestId('member-class-b')).toHaveText('Member class: Not set');
+    await expect(page.getByTestId('member-class-a').locator('input')).toHaveCount(0);
+    await value(page, 'custom:class', 'b').click();
+    await expect(page.getByTestId('member-class-a')).toHaveText('Member class: Full member');
+    await page.getByTestId('survivor-b').click();
+    await expect(page.getByTestId('button-merge-next-2')).toBeEnabled();
+    await expect(page.getByTestId('member-class-a')).toHaveText('Member class: Full member');
+    await expect(page.getByTestId('member-class-b')).toHaveText('Member class: Not set');
+    const belowEmail = await page.getByTestId('member-class-a').evaluate(el =>
+      el.previousElementSibling.textContent.includes('alice@example.invalid'));
+    assert.equal(belowEmail, true);
+  } finally { await page.close(); }
+});
+for (const viewport of [{ width: 1100, height: 720 }, { width: 390, height: 640 }]) {
+  test(`long field comparison scrolls inside modal with fixed actions at ${viewport.width}px`, async () => {
+    const { page } = await setup({ viewport });
+    try {
+      const body = page.getByTestId('merge-scroll-body');
+      const next = page.getByTestId('button-merge-next-2');
+      await expect(next).toBeVisible();
+      const before = await next.boundingBox();
+      const metrics = await body.evaluate(el => ({
+        height: el.clientHeight, content: el.scrollHeight, overflow: getComputedStyle(el).overflowY,
+      }));
+      assert.ok(metrics.content > metrics.height, 'long comparison must overflow the bounded body');
+      assert.equal(metrics.overflow, 'auto');
+      assert.ok(before.y + before.height <= viewport.height, 'actions stay within the viewport');
+      await body.evaluate(el => { el.scrollTop = el.scrollHeight; });
+      assert.ok(await body.evaluate(el => el.scrollTop > 0), 'body actually scrolls');
+      await expect(value(page, 'custom:empty', 'a')).toBeInViewport();
+      const after = await next.boundingBox();
+      assert.ok(Math.abs(before.y - after.y) < 1, 'footer must not move with the fields');
+      const dialog = await page.getByRole('dialog').boundingBox();
+      assert.ok(dialog.y >= 0 && dialog.y + dialog.height <= viewport.height);
+      await next.click();
+      await expect(page.getByTestId('button-merge-next-3')).toBeVisible();
+    } finally { await page.close(); }
+  });
+}
 async function assertSelectionOnly(page) {
   await expect(page.getByRole('dialog')).toContainText('Find and select the other member record to merge.');
   await expect(page.getByText('Which record should be kept?')).toHaveCount(0);

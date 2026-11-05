@@ -199,11 +199,22 @@ export default function MemberMergeDialog({ open, onOpenChange, currentMember, c
 
   const sameOrg = preview?.sameOrganisation;
   const eng = preview?.sourceEngagement;
+  const memberClassField = customFields.find(f => f.name === "member_class")
+    || customFields.find(f => String(f.label || "").trim().toLowerCase() === "member class");
+  // Header context always describes the original records, not the selected
+  // merge values or whichever record is currently marked as the survivor.
+  const memberClasses = preview && memberClassField ? Object.fromEntries([
+    [source.id, preview.sourcePreferenceValues],
+    [target.id, preview.targetPreferenceValues],
+  ].map(([id, values]) => {
+    const value = values?.find(v => v.field_id === memberClassField.id)?.value;
+    return [id, value == null || value === "" ? "Not set" : formatValue(value)];
+  })) : null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
+      <DialogContent className="flex max-w-2xl max-h-[85dvh] flex-col overflow-hidden">
+        <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <GitMerge className="w-5 h-5" /> Merge member records
           </DialogTitle>
@@ -215,6 +226,7 @@ export default function MemberMergeDialog({ open, onOpenChange, currentMember, c
           </DialogDescription>
         </DialogHeader>
 
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain" data-testid="merge-scroll-body">
         {step === 1 && (
           <div className="space-y-4">
             <div className="relative">
@@ -260,6 +272,7 @@ export default function MemberMergeDialog({ open, onOpenChange, currentMember, c
             onTargetChange={id => setDirection(id === currentMember.id ? "into-current" : "into-other")}
             rows={previewReady ? [...coreRows, ...customRows] : []}
             choices={choices}
+            memberClasses={memberClasses}
             onChoose={(key, id) => setChoices(previous => ({ ...previous, [key]: id }))}
             disabled={!previewReady}
           />
@@ -368,7 +381,8 @@ export default function MemberMergeDialog({ open, onOpenChange, currentMember, c
           </div>
         )}
 
-        <DialogFooter className="gap-2">
+        </div>
+        <DialogFooter className="shrink-0 gap-2">
           {step > 1 && (
             <Button variant="ghost" onClick={() => setStep(step - 1)} disabled={mergeMutation.isPending} data-testid="button-merge-back">
               Back
