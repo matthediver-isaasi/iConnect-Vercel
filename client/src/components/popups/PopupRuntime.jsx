@@ -6,6 +6,7 @@ import { popupRequest } from "@/lib/cmsPopups";
 import { consumePopupView, frequencyAllows, mergePopupPreferenceState, popupDurableStorageAllowed, popupHistoryView, popupStorageKey, rankPopupCandidates, releasePopupHistoryView, triggerReady } from "@/lib/popupRuntimeState";
 import { boundedPopupRequest } from "@/lib/popupRuntimeRequests";
 import { popupExternalInterferenceActive } from "@/lib/popupInterference";
+import { readPopupDiscovery } from "@/lib/popupDiscovery";
 import PopupModal from "./PopupModal";
 import { Button } from "@/components/ui/button";
 
@@ -21,10 +22,10 @@ function criticalFlowActive() {
   return !!(element?.matches('input,textarea,select,[contenteditable="true"]') && !element.closest("[data-cms-popup-modal]"));
 }
 
-// Mounted by DynamicPage only, after its page, session and access gates.
+// Mounted by CMS and homepage renderers after page, session and access gates.
 // 30s refresh plus two sequential 10s request deadlines bounds open revocation
 // checks to 50s in an active tab. Suspended background timers remain a browser limit.
-export default function PopupRuntime({ page, viewerIdentity }) {
+export default function PopupRuntime({ page, viewerIdentity, initialDiscovery = null }) {
   const location = useLocation();
   const consent = useCookieConsent();
   const consentRef = useRef(consent);
@@ -50,6 +51,7 @@ export default function PopupRuntime({ page, viewerIdentity }) {
     let context = null;
     let requesting = false;
     let selecting = false;
+    let discovery = initialDiscovery;
     const alive = () => !controller.signal.aborted && token === tokenRef.current && scopeRef.current === runtimeScope;
     const viewerMatches = (data) => data?.viewer_key === viewerIdentity
       && (viewerIdentity === "guest" || /^(member|account):.+/.test(viewerIdentity));
@@ -130,7 +132,11 @@ export default function PopupRuntime({ page, viewerIdentity }) {
       requesting = true;
       try {
         const revalidating = !!openedRef.current;
-        const data = await requestPopup(`${query}${revalidating ? "&revalidate=1" : ""}`, { publicRequest: true, signal: controller.signal });
+        const firstDiscovery = discovery;
+        discovery = null;
+        const prefetched = !revalidating ? await readPopupDiscovery(firstDiscovery, page, viewerIdentity) : null;
+        if (!alive()) return;
+        const data = prefetched || await requestPopup(`${query}${revalidating ? "&revalidate=1" : ""}`, { publicRequest: true, signal: controller.signal });
         if (!alive()) return;
         if (!viewerMatches(data) || !data.tenant_id || (context && (context.viewer_key !== data.viewer_key || context.tenant_id !== data.tenant_id))) {
           dismiss(); candidates = []; context = null; return;

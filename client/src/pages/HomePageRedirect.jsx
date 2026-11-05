@@ -4,6 +4,8 @@ import IEditElementRenderer from "../components/iedit/IEditElementRenderer";
 import CanvasPageRenderer from "../components/canvas/LazyCanvasPageRenderer";
 import StaticHtmlPageRenderer from "../components/staticpage/StaticHtmlPageRenderer";
 import PopupRuntime from "../components/popups/PopupRuntime";
+import { useRef } from "react";
+import { startPopupDiscovery } from "../lib/popupDiscovery";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { usePageLayoutDecision } from "@/contexts/LayoutContext";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
@@ -45,6 +47,8 @@ export default function HomePageRedirect() {
   } = useTenantBranding();
   const isCanvasPreview = new URLSearchParams(location.search).has("_canvasPreview");
   const isLoggedIn = authResolved && sessionValidated && !!memberInfo;
+  const viewerIdentity = isLoggedIn ? `member:${memberInfo.id}` : "guest";
+  const popupDiscovery = useRef(null);
   const pageAudience = isCanvasPreview
     ? "editor"
     : (isLoggedIn ? "member" : "guest");
@@ -79,10 +83,15 @@ export default function HomePageRedirect() {
 
   const pageQuery = useQuery({
     queryKey: ["public-home-page", tenantId, homePageSlug, pageAudience],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
+      // Start eligibility alongside the page payload, not after Canvas content
+      // and symbols finish loading. Rendering and selected-content authorization
+      // remain behind the ordinary published-page/session/consent gates.
+      popupDiscovery.current = !isCanvasPreview && (!memberInfo || (sessionValidated && isAccessReady))
+        ? startPopupDiscovery(homePageSlug, viewerIdentity, signal) : null;
       const response = await fetch(
         `/api/public/page/${encodeURIComponent(homePageSlug)}`,
-        { credentials: "include" }
+        { credentials: "include", signal }
       );
       if (!response.ok) {
         throw new Error(`Homepage request failed (${response.status})`);
@@ -171,11 +180,10 @@ export default function HomePageRedirect() {
   const { page, symbols } = pageQuery.data;
   // The canonical homepage renders here, not through DynamicPage. Keep popup
   // delivery behind the same published-page and resolved-member boundaries.
-  const viewerIdentity = isLoggedIn ? `member:${memberInfo.id}` : "guest";
   const popupRuntime = page.status === "published" && !isCanvasPreview && authResolved
     && (!memberInfo || (sessionValidated && isAccessReady))
     ? <PopupRuntime key={`${tenantId}|${page.id}|${viewerIdentity}`}
-        page={page} viewerIdentity={viewerIdentity} />
+        page={page} viewerIdentity={viewerIdentity} initialDiscovery={popupDiscovery.current} />
     : null;
   if (page.builder_type === "ai_static") {
     return (

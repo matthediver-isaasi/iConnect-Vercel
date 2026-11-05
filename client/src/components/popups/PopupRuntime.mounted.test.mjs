@@ -56,7 +56,7 @@ after(() => { globalThis.setInterval = originalInterval; globalThis.clearInterva
 const settle = () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)); });
 let sequence = 0;
 async function mount({ member = false, pendingConsent = false, selectedError = false, otherDialog = false, slowRead = false,
-  home = null, trigger = { type: "immediate", value: 0 },
+  home = null, trigger = { type: "immediate", value: 0 }, prefetch = null,
   frequency = "day", durableState, sessionState, actualViewer, expectedViewer,
   categories = { analytics: true, functional: true }, hasConsented = true } = {}) {
   sequence += 1;
@@ -99,12 +99,17 @@ async function mount({ member = false, pendingConsent = false, selectedError = f
   if (sessionState) window.sessionStorage.setItem(storageKey, JSON.stringify(sessionState));
   document.body.innerHTML = `<div id="root"></div>${otherDialog ? '<div id="competing" role="dialog"></div>' : ""}${home?.stripeTelemetry ? '<iframe src="https://js.stripe.com/v3/m-outer.html" style="visibility:hidden;height:1px"></iframe>' : ""}`;
   const root = createRoot(document.getElementById("root"));
-  const props = { page: { id: `page-${sequence}`, microsite_id: "microsite-fixture" }, viewerIdentity: expectedViewer || (member ? context.viewer_key : "guest") };
+  const props = { page: { id: `page-${sequence}`, slug: `page-${sequence}`, microsite_id: "microsite-fixture" }, viewerIdentity: expectedViewer || (member ? context.viewer_key : "guest") };
+  if (prefetch) props.initialDiscovery = {
+    pageSlug: props.page.slug, viewerIdentity: props.viewerIdentity,
+    promise: Promise.resolve({ receivedAt: Date.now() - (prefetch.age || 0),
+      data: { ...context, page_id: prefetch.pageId || props.page.id, viewer_key: prefetch.viewer || context.viewer_key, candidates: [popup] } }),
+  };
   let MountedRuntime = PopupRuntime;
   if (home) {
     const exports = { exports: {} };
     vm.runInNewContext(homeCode, {
-      module: exports, React, window, URLSearchParams, PopupRuntime,
+      module: exports, React, useRef: React.useRef, window, URLSearchParams, PopupRuntime,
       useLocation: () => ({ ...fixture.location, search: home.preview ? "?_canvasPreview=1" : "" }),
       useMemberAccess: () => ({ authResolved: home.authResolved !== false, sessionValidated: member,
         isAccessReady: home.accessReady !== false, memberInfo: member ? { id: context.viewer_key.slice(7) } : null }),
@@ -145,6 +150,28 @@ test("member impression includes microsite and daily revalidation preserves inte
   const refresh = app.calls.filter((call) => new URLSearchParams(call.query).get("revalidate") === "1");
   assert.equal(refresh.length, 2, "batched eligibility and selected authorization both bypass shown frequency");
   await app.unmount();
+});
+test("prefetched discovery skips a duplicate batch but still freshly authorizes selected content", async () => {
+  const app = await mount({ member: true, prefetch: {} });
+  try {
+    assert.ok(document.querySelector("[data-cms-popup-modal]"));
+    const gets = app.calls.filter(c => c.options.method !== "POST");
+    assert.equal(gets.length, 1);
+    assert.ok(new URLSearchParams(gets[0].query).has("id"));
+    await app.tick(30000);
+    assert.ok(app.calls.some(c => new URLSearchParams(c.query).get("revalidate") === "1"));
+  } finally { await app.unmount(); }
+});
+test("old, wrong-page and wrong-member discoveries fall back to current eligibility", async () => {
+  for (const prefetch of [{ age: 20000 }, { pageId: "different-page" }, { viewer: "guest" }]) {
+    const app = await mount({ member: true, prefetch });
+    try {
+      const gets = app.calls.filter(c => c.options.method !== "POST");
+      assert.equal(gets.length, 2);
+      assert.equal(new URLSearchParams(gets[0].query).has("id"), false);
+      assert.ok(document.querySelector("[data-cms-popup-modal]"));
+    } finally { await app.unmount(); }
+  }
 });
 test("canonical Canvas homepage requests and opens a member popup after two seconds despite hidden Stripe telemetry", async () => {
   const app = await mount({ member: true, home: { type: "canvas", stripeTelemetry: true }, trigger: { type: "delay", value: 2 } });

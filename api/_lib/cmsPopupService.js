@@ -75,10 +75,8 @@ export async function eligiblePopups(db, tenant, page, viewer, { id = null, now 
   const timezone = popupTimezone(tenant);
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' })
     .formatToParts(new Date(now)).map(p => [p.type, p.value]));
-  const { member, organizations } = await loadPopupAudience(db, tenant.id, viewer.memberId, rows.map(p => p.config), fields,
-    { today: `${parts.year}-${parts.month}-${parts.day}` });
-  let states = [];
-  if (viewer.memberId) {
+  const loadStates = async () => {
+    if (!viewer.memberId) return [];
     // Compound-key table deliberately has no synthetic id. Filter each current
     // generation in one OR rather than loading unbounded historical resets.
     const { data: saved, error: stateError, count: stateCount } = await db.from('cms_popup_member_state')
@@ -86,8 +84,15 @@ export async function eligiblePopups(db, tenant, page, viewer, { id = null, now 
       .or(rows.map(p => `and(popup_id.eq.${p.id},generation.eq.${p.dismissal_generation})`).join(','))
       .order('popup_id').range(0, 100);
     if (stateError || !Array.isArray(saved) || stateCount !== saved.length || stateCount > 100) throw new Error('Popup preferences unavailable.');
-    states = saved;
-  }
+    return saved;
+  };
+  // Both reads are independently tenant/member scoped. Do not serialize the
+  // preference read behind potentially expensive membership/affiliation reads.
+  const [{ member, organizations }, states] = await Promise.all([
+    loadPopupAudience(db, tenant.id, viewer.memberId, rows.map(p => p.config), fields,
+      { today: `${parts.year}-${parts.month}-${parts.day}` }),
+    loadStates(),
+  ]);
   return rows.flatMap(p => {
     const state = states.find(s => s.popup_id === p.id && s.generation === p.dismissal_generation);
     if ((!allowPermanentReplay && state?.permanently_dismissed) || (!ignoreFrequency && !popupFrequencyAllows(p.config.frequency, state, timezone, now))

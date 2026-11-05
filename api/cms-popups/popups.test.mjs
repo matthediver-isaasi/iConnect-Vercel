@@ -43,6 +43,47 @@ test('batch payload never releases design, targeting rules or member fields', as
   assert.equal(db.reads.some(r => r.table === 'member'), false);
   for (const read of db.reads) assert.ok(read.filters.some(f => f[0] === 'eq' && f[1] === 'tenant_id' && f[2] === tid));
 });
+test('slug discovery is scoped, metadata-only, and returns the resolved page ID', async () => {
+  const { res, db } = await deliver({ input: { page_slug: 'homely' } });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.page_id, pid);
+  assert.equal(res.body.candidates[0].design, undefined);
+  const read = db.reads.find(r => r.table === 'i_edit_page');
+  for (const filter of [['eq', 'slug', 'homely'], ['eq', 'tenant_id', tid], ['eq', 'status', 'published'], ['is', 'microsite_id', null]]) {
+    assert.ok(read.filters.some(f => JSON.stringify(f) === JSON.stringify(filter)));
+  }
+  const unavailable = await deliver({ db: database({ i_edit_page: null }), input: { page_slug: 'missing' } });
+  assert.equal(unavailable.res.statusCode, 404);
+});
+test('slugs cannot replace page IDs for content or writes or bypass identity/page gates', async () => {
+  for (const input of [{ page_slug: 'homely', id: popupId, revision: 1 }, { page_slug: '../homely' }, { page_slug: 'homely', page_id: 'invalid' }]) {
+    assert.equal((await deliver({ input })).res.statusCode, 400);
+  }
+  assert.equal((await deliver({ input: { page_slug: 'homely' }, method: 'POST' })).res.statusCode, 400);
+  assert.equal((await deliver({ input: { page_slug: 'homely' }, context: { isAuthenticated: true, tenantId: popupId } })).res.statusCode, 403);
+  assert.equal((await deliver({ input: { page_slug: 'homely' }, db: database({ i_edit_page: { id: pid, layout_type: 'member' } }) })).res.statusCode, 404);
+});
+test('member preference and audience reads run concurrently without broadening eligibility', { timeout: 2000 }, async () => {
+  const targeted = popup();
+  targeted.config.groups = [{ conditions: [{ field_key: 'role_id', field_type: 'core', entity_scope: 'member', data_type: 'text', operator: 'equals', value: popupId }] }];
+  const db = database({ cms_popup: [targeted], member: { id: pid, role_id: popupId }, cms_popup_member_state: [] });
+  const original = db.from;
+  let releaseMember;
+  const gate = new Promise(resolve => { releaseMember = resolve; });
+  db.from = table => {
+    const q = original(table);
+    const then = q.then;
+    q.then = (yes, no) => {
+      if (table === 'member') return gate.then(() => then(yes, no));
+      if (table === 'cms_popup_member_state') releaseMember();
+      return then(yes, no);
+    };
+    return q;
+  };
+  const { res } = await deliver({ db, context: { isAuthenticated: true, tenantId: tid, memberId: pid } });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.candidates.length, 1);
+});
 test('selected popup read requires fresh revision and independently authorizes page', async () => {
   const { res } = await deliver({ input: { page_id: pid, id: popupId, revision: 1 } });
   assert.equal(res.statusCode, 200);

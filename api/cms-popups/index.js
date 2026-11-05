@@ -12,15 +12,22 @@ export function createPopupDeliveryHandler({ db = supabase, resolveTenant = reso
     try {
       if (!db) return res.status(503).json({ error: 'Database unavailable' });
       const input = req.method === 'POST' ? req.body || {} : req.query || {};
-      if (!isPopupId(input.page_id) || (input.id && !isPopupId(input.id))) return res.status(400).json({ error: 'Invalid page or popup identifier' });
+      // Slug discovery may overlap page-content loading. Content and preference
+      // requests still require the resolved page ID and fresh authorization.
+      const slugDiscovery = req.method === 'GET' && !input.id && input.page_id === undefined
+        && typeof input.page_slug === 'string' && input.page_slug.length > 0
+        && input.page_slug.length <= 200 && !/[/?#\s]/.test(input.page_slug);
+      if ((!isPopupId(input.page_id) && !slugDiscovery) || (input.id && !isPopupId(input.id))) return res.status(400).json({ error: 'Invalid page or popup identifier' });
       const [tenant, context] = await Promise.all([resolveTenant(req), contextFor(req)]);
       if (!tenant || tenant.status !== 'active') return res.status(404).json({ error: 'Page unavailable' });
       // Never downgrade an authenticated non-member or mismatched identity to guest.
       if (context.tenantMismatch || (context.isAuthenticated && context.tenantId !== tenant.id)) return res.status(403).json({ error: 'Viewer context changed' });
       const viewer = { isAuthenticated: context.isAuthenticated === true,
         memberId: context.isAuthenticated ? context.memberId || null : null };
-      const page = await popupQuery(db.from('i_edit_page').select('id,tenant_id,status,layout_type,microsite_id')
-        .eq('tenant_id', tenant.id).eq('id', input.page_id).eq('status', 'published').maybeSingle());
+      let pageQuery = db.from('i_edit_page').select('id,tenant_id,status,layout_type,microsite_id')
+        .eq('tenant_id', tenant.id).eq(slugDiscovery ? 'slug' : 'id', slugDiscovery ? input.page_slug : input.page_id).eq('status', 'published');
+      pageQuery = input.microsite_id ? pageQuery.eq('microsite_id', input.microsite_id) : pageQuery.is('microsite_id', null);
+      const page = await popupQuery(pageQuery.maybeSingle());
       if (!page || (page.microsite_id || null) !== (input.microsite_id || null)
         || !['public', 'hybrid', 'member', 'public_no_chrome', 'public_header_only', 'public_footer_only'].includes(page.layout_type)
         || (page.layout_type === 'member' && !viewer.memberId)) return res.status(404).json({ error: 'Page unavailable' });
@@ -28,7 +35,7 @@ export function createPopupDeliveryHandler({ db = supabase, resolveTenant = reso
         const site = await popupQuery(db.from('microsite').select('id').eq('tenant_id', tenant.id).eq('id', page.microsite_id).eq('is_active', true).maybeSingle());
         if (!site) return res.status(404).json({ error: 'Page unavailable' });
       }
-      const base = { tenant_id: tenant.id, viewer_key: viewer.memberId ? `member:${viewer.memberId}` : viewer.isAuthenticated ? `account:${context.tenantUserId}` : 'guest',
+      const base = { tenant_id: tenant.id, page_id: page.id, viewer_key: viewer.memberId ? `member:${viewer.memberId}` : viewer.isAuthenticated ? `account:${context.tenantUserId}` : 'guest',
         timezone: popupTimezone(tenant) };
       // Revalidation and preference writes must still work after the shown
       // event has advanced daily frequency state.
