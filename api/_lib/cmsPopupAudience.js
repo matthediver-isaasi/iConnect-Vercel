@@ -4,7 +4,7 @@ import { allAffiliationRows } from './formAffiliationReview.js';
 const core = (key, label, data_type = 'text') => ({ key, label, data_type, field_type: 'core' });
 export const POPUP_CORE_FIELDS = {
   member: [core('first_name', 'First name'), core('last_name', 'Last name'), core('email', 'Email'),
-    core('job_title', 'Job title'), core('role_id', 'Role'), core('login_enabled', 'Login enabled', 'boolean'),
+    core('job_title', 'Job title'), { ...core('role_id', 'Role'), choice_only: true }, core('login_enabled', 'Login enabled', 'boolean'),
     { ...core('membership_status', 'Membership status', 'dropdown'), options: ['active', 'pending', 'expired', 'paused', 'failed', 'none'] },
     core('membership_type', 'Membership type / tier', 'text')],
   organization: [core('id', 'Selected organisations', 'picklist'), core('name', 'Name'), core('status', 'Status')],
@@ -22,8 +22,13 @@ export async function discoverPopupFields(db, tenantId, { choices = false } = {}
         .map(f => ({ key: f.id, label: f.label || f.name, data_type: f.field_type, field_type: 'custom', options: f.options })) };
   }
   if (choices) {
-    const organizations = await allAffiliationRows(() => db.from('organization').select('id,name', { count: 'exact' }).eq('tenant_id', tenantId));
+    const [organizations, roles] = await Promise.all([
+      allAffiliationRows(() => db.from('organization').select('id,name', { count: 'exact' }).eq('tenant_id', tenantId)),
+      allAffiliationRows(() => db.from('role').select('id,name', { count: 'exact' }).eq('tenant_id', tenantId)),
+    ]);
     fields.organization.core[0].options = organizations.map(o => ({ value: o.id, label: o.name }));
+    fields.member.core.find(f => f.key === 'role_id').options = roles
+      .sort((a, b) => a.name.localeCompare(b.name)).map(r => ({ value: r.id, label: r.name }));
   }
   return fields;
 }

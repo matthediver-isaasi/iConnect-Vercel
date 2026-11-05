@@ -20,11 +20,14 @@ export function FieldConditionRow({ condition: cond, metadata, onChange, onRemov
   const fields = [...(metadata?.[cond.entity_scope]?.core || []), ...(metadata?.[cond.entity_scope]?.custom || [])];
   const field = fields.find((f) => f.key === cond.field_key);
   const type = field?.data_type || cond.data_type;
-  const options = field?.options || [];
+  const options = Array.isArray(field?.options) ? field.options : [];
+  const hasChoices = field?.choice_only || options.length > 0
+    || ["picklist", "dropdown", "multiselect", "multi_select"].includes(type);
   const multi = ["list", "multiselect", "multi_select", "country", "countries"].includes(type) || cond.operator === "is_one_of";
   const needsValue = !["is_empty", "is_not_empty", "is_true", "is_false"].includes(cond.operator);
   const operatorLabels = Object.fromEntries([...getFieldOperators(type), ["is_true", "Is true"], ["is_false", "Is false"]]);
-  const operators = scopes.length === 2 ? popupOperators(type).map((value) => [value, operatorLabels[value] || value.replaceAll("_", " ")]) : getFieldOperators(type);
+  const allOperators = scopes.length === 2 ? popupOperators(type).map((value) => [value, operatorLabels[value] || value.replaceAll("_", " ")]) : getFieldOperators(type);
+  const operators = field?.choice_only ? allOperators.filter(([op]) => ["equals", "not_equals", "is_empty", "is_not_empty"].includes(op)) : allOperators;
   const change = (patch) => onChange({ ...cond, ...patch });
   return <div className="flex flex-wrap items-center gap-2 rounded-md border bg-background p-2">
     <Select value={cond.entity_scope} disabled={disabled} onValueChange={(scope) => onScopeChange ? onScopeChange(scope) : onChange({ ...blankFieldCondition(), entity_scope: scope })}>
@@ -42,7 +45,22 @@ export function FieldConditionRow({ condition: cond, metadata, onChange, onRemov
       <SelectTrigger className="w-40" aria-label="Condition operator" data-testid={`select-filter-operator-${testPrefix}`}><SelectValue placeholder="Operator" /></SelectTrigger>
       <SelectContent>{operators.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent>
     </Select>}
-    {cond.operator && needsValue && (options.length ? <div className="max-h-28 min-w-40 overflow-auto border rounded p-2 text-sm">
+    {cond.operator && needsValue && (hasChoices && !multi ? <div className="min-w-40 flex-1">
+      <select aria-label="Condition value" disabled={disabled || !options.length}
+        className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+        value={cond.value || ""} onChange={(e) => change({ value: e.target.value })}>
+        <option value="" disabled>{options.length ? "Select a value" : "No choices available"}</option>
+        {cond.value && !options.some(o => String(typeof o === "object" ? o.value ?? o.label : o) === String(cond.value))
+          && <option value={cond.value} disabled>Unavailable selection — choose again</option>}
+        {options.map(o => {
+          const value = String(typeof o === "object" ? o.value ?? o.label : o);
+          return <option key={value} value={value}>{typeof o === "object" ? o.label ?? o.value : o}</option>;
+        })}
+      </select>
+      {cond.value && !options.some(o => String(typeof o === "object" ? o.value ?? o.label : o) === String(cond.value))
+        && <p role="alert" className="text-xs text-destructive">The saved value is not an available choice. Select the correct value and save.</p>}
+    </div> : hasChoices ? <div className="max-h-28 min-w-40 overflow-auto border rounded p-2 text-sm">
+      {!options.length && <p>No choices available.</p>}
       {options.map((option) => {
         const value = String(typeof option === "object" ? option.value ?? option.label : option);
         const label = typeof option === "object" ? option.label ?? option.value : option;

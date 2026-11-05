@@ -65,6 +65,11 @@ export function validatePopupGroups(groups, fields) {
       if (!['member', 'organization'].includes(condition?.entity_scope)) fail('Unsupported audience scope.');
       const field = fields[condition.entity_scope]?.[condition.field_type]?.find(f => f.key === condition.field_key);
       if (!field || field.data_type !== condition.data_type || !popupOperators(field.data_type).includes(condition.operator)) fail('An audience field or operator is unavailable.');
+      if (condition.entity_scope === 'member' && condition.field_type === 'core' && condition.field_key === 'role_id'
+        && !['is_empty', 'is_not_empty'].includes(condition.operator)
+        && (!['equals', 'not_equals'].includes(condition.operator) || !isPopupId(condition.value))) {
+        fail('Choose a member role from the available roles instead of typing its name.');
+      }
       if (condition.entity_scope === 'organization' && condition.field_type === 'core' && condition.field_key === 'id'
         && (!['equals', 'is_one_of'].includes(condition.operator)
           || (Array.isArray(condition.value) ? condition.value : [condition.value]).some(id => !isPopupId(id)))) {
