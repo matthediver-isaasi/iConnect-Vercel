@@ -131,9 +131,8 @@ export default function CookieConsent() {
   },[branding?.tenantSlug]);
   if (!ready) return null;
   return <><CookieBanner /><CookiePreferences /><RecallButton />
-    <nav aria-label="Privacy policies" className="fixed bottom-2 right-2 z-[9999] rounded bg-white p-2 text-sm text-slate-900 shadow">
-      {links.privacy && <a className="underline mr-3" href={links.privacy}>Privacy policy</a>}
-      {links.cookies && <a className="underline" href={links.cookies}>Cookie declaration</a>}
-    </nav>
+    {links.privacy && <nav aria-label="Privacy policies" className="fixed bottom-2 right-2 z-[9999] rounded bg-white p-2 text-sm text-slate-900 shadow">
+      <a className="underline" href={links.privacy}>Privacy policy</a>
+    </nav>}
   </>;
 }

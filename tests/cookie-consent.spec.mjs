@@ -1,6 +1,6 @@
 import {test,expect} from '@playwright/test';
 import {CONSENT_DEFAULTS} from '../shared/cookieConsent.js';
-async function fixture(page,{active=true,revision='r1'}={}){
+async function fixture(page,{active=true,revision='r1',privacyUrl='/privacy'}={}){
   const records=[],tracking=[];
   await page.route('**/api/**',async route=>{
     const request=route.request(),url=new URL(request.url());
@@ -8,7 +8,7 @@ async function fixture(page,{active=true,revision='r1'}={}){
     if(url.pathname!=='/api/public/cookie-consent') return route.fulfill({status:503,json:{error:'Fixture blocks unrelated API'}});
     if(request.method()==='POST'){records.push(request.postDataJSON());return route.fulfill({status:204});}
     return route.fulfill({json:{host:url.hostname,tenantId:'00000000-0000-4000-8000-000000000001',revision,active,
-      config:{...CONSENT_DEFAULTS,analyticsEnabled:true,privacyUrl:'/privacy'},ga4MeasurementId:'G-TEST12345'}});
+      config:{...CONSENT_DEFAULTS,analyticsEnabled:true,privacyUrl,cookieUrl:'/cookie-declaration'},ga4MeasurementId:'G-TEST12345'}});
   });
   await page.route(/https:\/\/(?:www\.googletagmanager\.com|.*google-analytics\.com|www\.youtube\.com)\/.*/,route=>{
     tracking.push(route.request().url());
@@ -17,6 +17,19 @@ async function fixture(page,{active=true,revision='r1'}={}){
   await page.goto('/__fixtures/cookie-consent');
   await expect(page.getByRole('button',{name:'Reject All',exact:true})).toBeVisible();
   return {records,tracking};
+}
+for (const privacyUrl of ['/privacy','']) {
+  test(`floating policies retain only configured privacy link (${privacyUrl || 'none'})`,async({page})=>{
+    await fixture(page,{privacyUrl});
+    const policies=page.getByRole('navigation',{name:'Privacy policies'});
+    await expect(policies).toHaveCount(privacyUrl ? 1 : 0);
+    if (privacyUrl) await expect(policies.getByRole('link',{name:'Privacy policy',exact:true})).toHaveAttribute('href',privacyUrl);
+    await expect(page.getByRole('link',{name:'Cookie declaration',exact:true})).toHaveCount(0);
+    await page.getByRole('button',{name:'Reject All',exact:true}).click();
+    await page.getByRole('button',{name:'Consent Preferences'}).click();
+    await expect(page.getByRole('button',{name:'Save My Preferences',exact:true})).toBeVisible();
+    await expect(policies).toHaveCount(privacyUrl ? 1 : 0);
+  });
 }
 test('functional and marketing permissions do not grant analytics',async({page})=>{
   const {records,tracking}=await fixture(page);
