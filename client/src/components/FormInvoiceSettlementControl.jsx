@@ -28,11 +28,10 @@ function SettlementResult({ result }) {
     ["Invoice ID", result?.invoice_id],
     ["Invoice number", result?.invoice_number],
     ["Stripe PaymentIntent", result?.stripe_payment_intent_id || result?.payment?.stripe_payment_intent_id],
-    ["Settlement state", result?.settlement_state],
+    ["Accounting status", ({ done: "Complete", review_required: "Needs review", blocked: "Needs review", retry: "Payment recording needs attention", pending: "Awaiting processing" })[result?.settlement_state] || result?.settlement_state],
     ["Payment recorded", result?.payment_recorded],
-    ["Annotation recorded", result?.annotation_recorded],
-    ["Clearing account", result?.account],
-    ["Balance", result?.balance],
+    ...(!result?.read_only ? [["Stripe reference added", result?.annotation_recorded], ["Stripe receipts account", result?.account]] : []),
+    ["Invoice amount outstanding", result?.balance],
   ];
 
   return (
@@ -169,13 +168,13 @@ export default function FormInvoiceSettlementControl({ recordId, table, onSettle
 
   const result = response?.result;
   const isDryRun = response?.dryRun === true;
-  const settlementBlocked = isDryRun
-    && (!result?.account || result?.settlement_state === "blocked");
+  const settlementBlocked = result?.read_only || (isDryRun
+    && (!result?.account || result?.settlement_state === "blocked"));
   const accountMatches = !!result?.account && typedAccount === String(result.account);
   const hasProviderContext = !!result?.provider_context
     && typeof result.provider_context === "object"
     && Object.keys(result.provider_context).length > 0;
-  const canAnnotate = isDryRun && result?.annotation_recorded !== true;
+  const canAnnotate = isDryRun && !result?.read_only && result?.annotation_recorded !== true;
   const actionSucceeded = lastAction === "annotation"
     ? result?.annotation_recorded === true
     : result?.payment_recorded === true;
@@ -189,28 +188,29 @@ export default function FormInvoiceSettlementControl({ recordId, table, onSettle
         data-testid={`button-inspect-stripe-settlement-${recordId}`}
       >
         <Search className="mr-1 h-3.5 w-3.5" />
-        Inspect Stripe settlement
+        Check invoice payment
       </Button>
 
       <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Inspect Stripe settlement</DialogTitle>
+            <DialogTitle>Check invoice payment</DialogTitle>
             <DialogDescription>
-              This checks how to record the customer&apos;s existing Stripe payment against the linked invoice.
-              It does not create a new invoice or charge the customer again.
+              The member has already paid through Stripe. This check looks at whether that payment
+              has also been recorded against their accounting invoice. Opening this window makes no
+              changes, creates no invoice and never charges the member again.
             </DialogDescription>
           </DialogHeader>
 
           {loading ? (
             <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Inspecting settlement…
+              Checking the payment and invoice…
             </div>
           ) : requestError ? (
             <Alert variant="destructive">
               <AlertTriangle className="h-4 w-4" />
-              <AlertTitle>Settlement request failed</AlertTitle>
+              <AlertTitle>We couldn’t complete the check</AlertTitle>
               <AlertDescription>{requestError}</AlertDescription>
             </Alert>
           ) : result ? (
@@ -218,13 +218,20 @@ export default function FormInvoiceSettlementControl({ recordId, table, onSettle
               <div className="flex items-center gap-2">
                 <Badge variant={isDryRun ? "outline" : "secondary"}>
                   {isDryRun
-                    ? "Dry run — no changes made"
+                    ? "Check only — no changes made"
                     : (lastAction === "annotation" ? "Stripe reference result" : "Settlement result")}
                 </Badge>
               </div>
 
+              <div className="rounded-md border bg-muted/30 p-3 text-sm space-y-2">
+                <p className="font-medium">{result.summary || (result.payment_recorded
+                  ? "The payment is already recorded. Do not add another payment."
+                  : "The payment may still need to be recorded against the invoice. Review the details below before making any changes.")}</p>
+                <p>{result.guidance || "“Record payment on invoice” updates the accounting invoice using money already received. “Add Stripe reference only” adds a traceable payment reference; it does not mark the invoice as paid. If you are unsure, close this window and ask your finance administrator."}</p>
+                {!result.read_only && <p>The clearing account is the account your finance team uses to record Stripe receipts. Only confirm it if you recognise the account and accounting company shown below.</p>}
+              </div>
               <SettlementResult result={result} />
-              <ProviderContext context={result.provider_context} />
+              {!result.read_only && <ProviderContext context={result.provider_context} />}
 
               {result.error && (
                 <Alert variant={result.settlement_state === "blocked" ? "destructive" : "warning"}>
@@ -248,7 +255,7 @@ export default function FormInvoiceSettlementControl({ recordId, table, onSettle
                 </Alert>
               )}
 
-              {isDryRun && (
+              {isDryRun && !result.read_only && (
                 <div className="flex items-start gap-2 rounded-md border p-3">
                   <Checkbox
                     id={`provider-context-${recordId}`}
@@ -258,8 +265,7 @@ export default function FormInvoiceSettlementControl({ recordId, table, onSettle
                     data-testid={`checkbox-provider-context-${recordId}`}
                   />
                   <Label htmlFor={`provider-context-${recordId}`} className="font-normal leading-snug">
-                    I confirm the accounting company, realm, and provider context shown above are the intended
-                    destination for this invoice.
+                    I recognise the accounting company shown above and confirm this invoice belongs there.
                   </Label>
                 </div>
               )}
@@ -282,7 +288,7 @@ export default function FormInvoiceSettlementControl({ recordId, table, onSettle
                 </div>
               )}
 
-              {isDryRun && !result.account && (
+              {isDryRun && !result.read_only && !result.account && (
                 <Alert variant="destructive">
                   <AlertTriangle className="h-4 w-4" />
                   <AlertTitle>Clearing account unavailable</AlertTitle>
@@ -315,7 +321,7 @@ export default function FormInvoiceSettlementControl({ recordId, table, onSettle
                 data-testid={`button-execute-stripe-settlement-${recordId}`}
               >
                 {executing === "settlement" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Record settlement
+                Record payment on invoice
               </Button>
             )}
           </DialogFooter>

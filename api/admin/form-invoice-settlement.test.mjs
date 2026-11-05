@@ -4,7 +4,7 @@ import {
   createFormInvoiceSettlementHandler, signSettlementPlan, verifySettlementPlan,
 } from './form-invoice-settlement.js';
 
-function fixture({ context, finance = true, submission, result } = {}) {
+function fixture({ context, finance = true, submission, result, inspectQuote = async () => null } = {}) {
   const filters = [];
   const calls = [];
   const row = submission === null ? null : submission || {
@@ -37,6 +37,7 @@ function fixture({ context, finance = true, submission, result } = {}) {
     db, getContext: async () => context || { isAuthenticated: true, tenantId: 'tenant-1', roleId: 'role-1' },
     isAdmin: async (ctx) => ctx.admin !== false,
     hasFinance: async () => finance,
+    inspectQuote,
     signingSecret: () => 'test-signing-key',
     settle: async (args) => {
       calls.push(args);
@@ -61,6 +62,22 @@ function fixture({ context, finance = true, submission, result } = {}) {
   }
   return { request, calls, filters, preview };
 }
+
+test('quote inspections work without a form and never expose a second settlement writer', async () => {
+  const inspected = [];
+  const f = fixture({ submission: null, inspectQuote: async args => {
+    inspected.push(args);
+    return { read_only: true, settlement_state: 'done', payment_recorded: true, balance: 0 };
+  } });
+  const preview = await f.request();
+  assert.equal(preview.statusCode, 200);
+  assert.equal(preview.body.result.read_only, true);
+  assert.equal(preview.body.planToken, undefined);
+  assert.equal(inspected[0].tenantId, 'tenant-1');
+  const execute = await f.request({ execute: true });
+  assert.equal(execute.statusCode, 409);
+  assert.equal(f.calls.length, 0);
+});
 
 test('recovery defaults to read-only and scopes the lookup to the session tenant', async () => {
   const f = fixture();

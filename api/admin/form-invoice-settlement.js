@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tenantContext.js';
 import { settleFormStripeInvoice } from '../_lib/formStripeInvoiceSettlement.js';
+import { inspectQuoteMembershipSettlement } from '../_lib/quoteMembershipSettlementInspection.js';
 
 const TABLES = new Set(['member_membership_history', 'organisation_membership_history']);
 const PLAN_TTL_MS = 15 * 60 * 1000;
@@ -37,6 +38,7 @@ export function createFormInvoiceSettlementHandler({
   isAdmin = hasAdminAccess,
   hasFinance = hasFeatureAccess,
   settle = settleFormStripeInvoice,
+  inspectQuote = inspectQuoteMembershipSettlement,
   signingSecret = () => process.env.SESSION_SECRET,
 } = {}) {
   return async function handler(req, res) {
@@ -70,7 +72,12 @@ export function createFormInvoiceSettlementHandler({
         : query.filter('payment_meta->membership_result->>history_id', 'eq', recordId);
       const { data: submission, error } = await query.maybeSingle();
       if (error) throw new Error('Could not uniquely resolve the originating form submission');
-      if (!submission) return res.status(404).json({ error: 'Paid Stripe form membership submission not found' });
+      if (!submission) {
+        const result = !requestedSubmissionId && await inspectQuote({ db, tenantId, recordId, table });
+        if (!result) return res.status(404).json({ error: 'This payment is not supported by this check. Ask your finance administrator to review the linked invoice and Stripe payment. This does not mean the member needs to pay again.' });
+        if (execute === true) return res.status(409).json({ error: 'This payment is managed by automatic accounting recovery. No manual payment has been recorded.' });
+        return res.status(200).json({ ok: true, dryRun: true, result });
+      }
       const progress = submission.payment_meta?.membership_result;
       const resolvedTable = submission.payment_meta?.membership?.quote?.target === 'member'
         ? 'member_membership_history' : 'organisation_membership_history';

@@ -3,6 +3,12 @@ name: Quote-backed membership accounting
 description: Paid membership quote recovery is separate from form-submission accounting and unpaid invoice creation.
 ---
 
+Quote-backed payment inspection must not introduce a second settlement writer alongside its durable accounting queue.
+
+**Why:** The generic form recovery control can otherwise offer manual payment recording for a quote whose worker already owns settlement.
+
+**How to apply:** Inspect live payment and invoice evidence through the original quote linkage; keep quote inspection read-only and direct unresolved cases to the existing accounting recovery process.
+
 Saved membership payment quotes do not imply that a form-submission record
 exists. Paid membership recovery must retain independent accounting authority;
 an existing paid history row is not evidence that its invoice was completed.
