@@ -31,3 +31,9 @@ Same-organisation reconnection needs explicit, request-scoped approval.
 **Why:** Reconnecting Xero can replace its local connection record while retaining the same Xero organisation. Existing accounting requests deliberately pin the previous connection. Silently accepting any replacement would defeat that protection.
 
 **How to apply:** Keep original queue authority and financial evidence immutable. Use operator-approved, revocable mappings for exact request/tenant/provider/company/old/new connection tuples, checked again after credential refresh. Application roles may read approvals but must not create them. Reconnection approval is not permission to repeat an uncertain financial write.
+
+Missing recovery manifests may be reconstructed read-only, but the reconstructed candidate IDs require explicit owner approval before release.
+
+**Why:** A paused run's progress log records completed attempts, not every originally eligible request. Matching totals and exclusions support reconstruction but do not independently establish historical authorization. The owner approved a reconstructed cohort on 2026-11-05 after checking unchanged timestamps and runner ordering.
+
+**How to apply:** Keep the original progress evidence and a separate private, hash-pinned candidate manifest. Validate each candidate's immutable snapshot and current state before releasing it; never widen a recovery run by rerunning an unbounded eligibility query.
