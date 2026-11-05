@@ -165,6 +165,44 @@ const renewalQuote = (method = 'upfront') => ({
   renewal: { state: 'renewal_pending', eligible: false, selectedMethod: method, electionId: 'election', switchState: 'idle' },
 });
 
+test('voucher background refresh is single-flight and does not disable return to choices', async () => {
+  window.history.replaceState({}, '', '/forms/renew');
+  dom.reconfigure({ windowTop: {} });
+  const quote = { ...renewalQuote(), memberScoped: true, voucherCheckoutToken: 'saved-checkout' };
+  let quoteRequests = 0, resolvePoll;
+  globalThis.fetch = async input => {
+    const url = String(input);
+    if (url.includes('payment-plan')) return new Response(JSON.stringify({ currentPlan: null }));
+    if (url.includes('action=vouchers')) return new Response(JSON.stringify({ vouchers: [] }));
+    quoteRequests++;
+    if (quoteRequests === 1) return new Response(JSON.stringify(quote));
+    return new Promise(resolve => { resolvePoll = resolve; });
+  };
+  const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+  try {
+    await act(async () => {
+      root.render(<MembershipPaymentField field={{ id: 'payment' }} formId="form" resolvedMemberId="member" />);
+      await new Promise(r => setTimeout(r, 15));
+    });
+    assert.equal(quoteRequests, 1, 'mount effects share the initial request');
+    const button = [...host.querySelectorAll('button')].find(b => b.textContent === 'Return to payment choices');
+    assert.ok(button);
+    assert.equal(button.disabled, false);
+    await act(async () => {
+      window.dispatchEvent(new window.Event('focus'));
+      window.dispatchEvent(new window.Event('focus'));
+      document.dispatchEvent(new window.Event('visibilitychange'));
+    });
+    assert.equal(quoteRequests, 2, 'focus and visibility share one pending request');
+    assert.equal(button.disabled, false, 'background checking must not consume the click');
+    await act(async () => {
+      resolvePoll(new Response(JSON.stringify(quote)));
+      await new Promise(r => setTimeout(r, 10));
+    });
+    assert.equal(button.disabled, false);
+  } finally { await act(async () => root.unmount()); host.remove(); dom.reconfigure({ windowTop: dom.window }); }
+});
+
 async function mountRenewal(quote, postResponse = { released: true }, afterRelease, props = {}) {
   window.history.replaceState({}, '', '/forms/renew');
   const posts = [];

@@ -153,6 +153,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
 
   const pendingRefetchRef = useRef(false);
   const fetchInProgressRef = useRef(false);
+  const feePromiseRef = useRef(null);
   const feeRequestRef = useRef(0);
   const latestFetchFeesRef = useRef(null);
 
@@ -171,7 +172,11 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
       return;
     }
     fetchFees();
-    return () => { feeRequestRef.current += 1; };
+    return () => {
+      feeRequestRef.current += 1;
+      fetchInProgressRef.current = false;
+      feePromiseRef.current = null;
+    };
   }, [memberId, field.membership_config_id]);
 
   useEffect(() => {
@@ -209,17 +214,24 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
     return () => clearTimeout(timer);
   }, [allFormValues, field.field_mappings, field.membership_schedule_mapping, memberId, paymentComplete, paymentMode]);
 
-  const fetchFees = () => {
+  const fetchFees = ({ background = false, fresh = false, clearCheckout = false } = {}) => {
+    // Polls/focus events share the active read. A release needs a new read after
+    // any older request, not the old checkout's result.
+    if (fetchInProgressRef.current && feePromiseRef.current) {
+      if (fresh) return feePromiseRef.current.then(() =>
+        latestFetchFeesRef.current({ background, fresh, clearCheckout }));
+      return feePromiseRef.current;
+    }
     const requestId = ++feeRequestRef.current;
-    setLoading(true);
+    if (!background) setLoading(true);
     setError(null);
     fetchInProgressRef.current = true;
     pendingRefetchRef.current = false;
     const overrideStr = buildOverrideParams();
     prevOverridesRef.current = JSON.stringify([buildFieldOverrides(), allFormValues[field.membership_schedule_mapping?.source_field_id]]);
     const query = formMembershipFeeQuery({ memberId, overrideParams: overrideStr,
-      checkoutId: value?.voucherCheckoutId });
-    return fetch(`/api/forms/membership-payment?${query}`, { credentials: 'include' })
+      checkoutId: clearCheckout ? null : value?.voucherCheckoutId });
+    const request = fetch(`/api/forms/membership-payment?${query}`, { credentials: 'include', signal: AbortSignal.timeout(30000) })
       .then(async (res) => {
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
@@ -279,6 +291,8 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
           latestFetchFeesRef.current();
         }
       });
+    feePromiseRef.current = request;
+    return request;
   };
 
   latestFetchFeesRef.current = fetchFees;
@@ -804,6 +818,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
           selectedVouchers={selectedVouchers} onSelectionChange={setSelectedVouchers}
           selectedMethod={selectedMethod} onCheckoutChange={setCreditCheckoutActive}
           disabled={disabled || busy || !!paymentMode} resumeToken={data.voucherCheckoutToken}
+          onBackgroundRefresh={() => fetchFees({ background: true })}
           onRefresh={fetchFees} />}
         <div className="space-y-2">
           <div className="flex items-center justify-between flex-wrap gap-2">

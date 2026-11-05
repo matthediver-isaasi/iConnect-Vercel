@@ -8,3 +8,9 @@ Do not include an effect's own loading indicator in the dependency list when its
 **Why:** Setting loading immediately retriggers cleanup, so a successful HTTP response can be ignored forever while the UI stays loading. Pure formatting and static render tests do not catch this.
 
 **How to apply:** Depend on request identity and navigation state, not self-written loading state. Verify an actual expand → request → response → rendered details interaction.
+
+Background payment-status checks must not take over the foreground action's disabled state.
+
+**Why:** A window-focus refresh can disable a return/cancel button before the user's click reaches it, making an apparently enabled button do nothing. Periodic refreshes then repeatedly reproduce the problem.
+
+**How to apply:** Keep background reads single-flight, distinguish them from mutations, and retain server-side release/payment safety checks. Test focus immediately before clicking, slow responses, and a confirmed release followed by a failed draft save.

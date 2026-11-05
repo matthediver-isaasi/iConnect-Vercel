@@ -117,3 +117,102 @@ test('continue sends the selected card and voucher IDs, and retains selection on
   await act(async () => root.unmount());
   host.remove(); footer.remove();
 });
+
+test('return shows immediate progress, closes checkout, clears the draft and reloads choices', async () => {
+  dom.reconfigure({ windowTop: {} }); // Exercise the wrapper without the provider payment UI.
+  let resolveRelease;
+  const posts = [];
+  const saved = [];
+  const refreshes = [];
+  let polls = 0;
+  globalThis.fetch = async (url, options = {}) => {
+    if (options.method === 'POST') {
+      posts.push(JSON.parse(options.body));
+      return new Promise(resolve => { resolveRelease = resolve; });
+    }
+    return new Response(JSON.stringify({ enabled: true, checkoutReady: true, vouchers: [] }));
+  };
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const render = () => root.render(<MembershipCheckoutDraftContext.Provider value={async input => { saved.push(input); }}>
+    <Credit memberId="member" context={{ formId: 'f', paymentFieldId: 'p' }} resumeToken="old-checkout"
+      onBackgroundRefresh={() => { polls++; }} onRefresh={async options => { refreshes.push(options); return {}; }} />
+  </MembershipCheckoutDraftContext.Provider>);
+  try {
+    await act(async () => { render(); await new Promise(r => setTimeout(r, 10)); });
+    const button = [...host.querySelectorAll('button')].find(b => b.textContent === 'Return to payment choices');
+    await act(async () => window.dispatchEvent(new window.Event('focus')));
+    assert.equal(polls, 1);
+    assert.equal(button.disabled, false);
+    await act(async () => { button.click(); button.click(); });
+    assert.equal(posts.length, 1);
+    assert.equal(posts[0].action, 'close_voucher_checkout');
+    assert.match(button.textContent, /Returning to payment choices/);
+    assert.ok(button.querySelector('svg'));
+    assert.equal(button.disabled, true);
+    assert.match(host.querySelector('[role="status"]').textContent, /closed safely/);
+    await act(async () => window.dispatchEvent(new window.Event('focus')));
+    assert.equal(polls, 1, 'no polling during a release');
+    await act(async () => {
+      resolveRelease(new Response(JSON.stringify({ released: true })));
+      await new Promise(r => setTimeout(r, 10));
+    });
+    assert.equal(saved[0].clearCheckout, true);
+    assert.deepEqual(refreshes, [{ fresh: true, clearCheckout: true }]);
+    assert.doesNotMatch(host.textContent, /Return to payment choices|Open secure credit checkout/);
+    assert.match(host.textContent, /no eligible credit/);
+    await act(async () => render());
+    assert.doesNotMatch(host.textContent, /Open secure credit checkout/, 'stale resume token cannot reopen it');
+  } finally {
+    await act(async () => root.unmount()); host.remove(); dom.reconfigure({ windowTop: dom.window });
+  }
+});
+
+test('return keeps checkout open and displays a persistent server refusal beside the button', async () => {
+  dom.reconfigure({ windowTop: {} });
+  globalThis.fetch = async (_url, options = {}) => new Response(JSON.stringify(
+    options.method === 'POST' ? { error: 'Cancel the existing payment and release its credit before changing method' }
+      : { vouchers: [] }), { status: options.method === 'POST' ? 409 : 200 });
+  const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+  let refreshed = false;
+  try {
+    await act(async () => {
+      root.render(<Credit memberId="member" context={{}} resumeToken="existing"
+        onRefresh={() => { refreshed = true; }} />);
+      await new Promise(r => setTimeout(r, 10));
+    });
+    const button = [...host.querySelectorAll('button')].find(b => b.textContent === 'Return to payment choices');
+    await act(async () => { button.click(); await new Promise(r => setTimeout(r, 10)); });
+    assert.match(host.querySelector('[role="alert"]').textContent, /Cancel the existing payment/);
+    assert.match(host.textContent, /Open secure credit checkout/);
+    assert.equal(button.disabled, false);
+    assert.equal(refreshed, false);
+  } finally { await act(async () => root.unmount()); host.remove(); dom.reconfigure({ windowTop: dom.window }); }
+});
+
+test('a draft-save failure after release can retry without issuing another release', async () => {
+  dom.reconfigure({ windowTop: {} });
+  let posts = 0, saves = 0;
+  globalThis.fetch = async (_url, options = {}) => {
+    if (options.method === 'POST') posts++;
+    return new Response(JSON.stringify(options.method === 'POST' ? { released: true } : { vouchers: [] }));
+  };
+  const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+  try {
+    await act(async () => {
+      root.render(<MembershipCheckoutDraftContext.Provider value={async () => {
+        if (++saves === 1) throw new Error('Your answers could not be saved. Please retry.');
+      }}>
+        <Credit memberId="member" context={{}} resumeToken="existing" onRefresh={async () => ({})} />
+      </MembershipCheckoutDraftContext.Provider>);
+      await new Promise(r => setTimeout(r, 10));
+    });
+    const button = [...host.querySelectorAll('button')].find(b => b.textContent === 'Return to payment choices');
+    await act(async () => { button.click(); await new Promise(r => setTimeout(r, 10)); });
+    assert.match(host.querySelector('[role="alert"]').textContent, /could not be saved/);
+    await act(async () => { button.click(); await new Promise(r => setTimeout(r, 10)); });
+    assert.equal(posts, 1); assert.equal(saves, 2);
+    assert.doesNotMatch(host.textContent, /Open secure credit checkout/);
+  } finally { await act(async () => root.unmount()); host.remove(); dom.reconfigure({ windowTop: dom.window }); }
+});
