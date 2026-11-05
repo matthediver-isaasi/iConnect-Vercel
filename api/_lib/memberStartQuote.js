@@ -40,7 +40,6 @@ const date = ms => new Date(ms).toISOString().slice(0, 10);
 export function buildStartQuote({ request, config, band, discounts = [], vatOverrides = [], overrides = [], vatSetting, today }) {
   const { startDate, paymentMode } = request;
   if (paymentMode === 'member_choice') throw startError('Member choice requires complete per-method quotes from the Start preview service.');
-  if (startDate < today) throw startError('Backdating is not supported. Choose today or a future start date.');
   if (!config || config.id !== request.configId || config.structure_scope_type !== 'member' || config.is_active !== true
       || config.billing_period !== 'annual' || !['immediate', 'fixed_date'].includes(config.start_mode)
       || !config.effective_from || config.effective_from > startDate || (config.effective_to && config.effective_to < startDate)) {
@@ -130,6 +129,7 @@ export function buildStartQuote({ request, config, band, discounts = [], vatOver
       commitment.commitment_snapshot.amounts[key] = null;
     }
   }
+  if ((termEnd || commitment.term_end_date) < today) throw startError('This membership term has already ended. Use a reviewed historical membership correction rather than starting an expired membership.');
   return { version: 2, ...(adminWaiver ? { adminWaiver } : {}), paymentOffer, initialQuotedAmounts, configId: config.id, bandId: band?.id || null, paymentMode, termStart: startDate,
     termEnd: commitment.term_end_date, membershipYear: membershipYear || commitment.term_key,
     annualCost: amounts.annual_cost, finalCost: amounts.final_cost, vatAmount: amounts.vat_amount,

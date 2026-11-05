@@ -32,7 +32,7 @@ test('selected band and saved VAT are authoritative; invalid selection/tax never
   assert.throws(() => quote({ config: { ...config, flat_vat_rate: 'UNKNOWN' } }), /authoritative/);
   assert.throws(() => quote({ request: { ...request, bandId: id(4) } }), /Select one band/);
 });
-test('legitimate free purchase only; complex pricing, backdating and unsupported modes fail closed', () => {
+test('legitimate free purchase only; complex pricing and unsupported modes fail closed', () => {
   const free = quote({ request: { ...request, paymentMode: 'free' }, config: { ...config, flat_cost: 0 } });
   assert.equal(free.totalWithVat, 0);
   assert.equal(free.commitment.commitment_snapshot.payment_method, 'free');
@@ -48,9 +48,19 @@ test('legitimate free purchase only; complex pricing, backdating and unsupported
   for (const change of [{ discounts: [{}] }, { overrides: [{}] }, { vatOverrides: [{}] }, { config: { ...config, rollover_enabled: true } }]) {
     assert.throws(() => quote(change), /does not approximate/);
   }
-  assert.throws(() => quote({ today: '2026-03-02' }), /Backdating/);
+  assert.equal(quote({ today: '2026-03-02' }).termStart, '2026-03-01');
   assert.throws(() => normalizeStart({ ...request, paymentMode: 'cash' }), /supported membership payment mode/);
   assert.throws(() => normalizeStart({ ...request, startDate: '2026-02-30' }), /valid effectiveDate/);
+});
+test('past starts retain full rolling terms and fixed-date proration without activating ended terms', () => {
+  const q = quote({ today: '2026-11-05' });
+  assert.equal(q.termEnd, '2027-02-28');
+  assert.equal(q.totalWithVat, 120);
+  const fixed = quote({ today: '2026-11-05', config: { ...config, start_mode: 'fixed_date', prorata_enabled: true, membership_start_month: 1, membership_start_day: 1 } });
+  assert.equal(fixed.termEnd, '2026-12-31');
+  assert.equal(fixed.finalCost, 100.61);
+  assert.throws(() => quote({ today: '2027-03-01' }), /term has already ended/);
+  assert.throws(() => quote({ config: { ...config, effective_from: '2026-04-01' } }), /effective on the chosen start date/);
 });
 test('confirmation fingerprint includes structure snapshots, reason, dates and payment mode', () => {
   const a = startFingerprint({ request, quote: quote() });

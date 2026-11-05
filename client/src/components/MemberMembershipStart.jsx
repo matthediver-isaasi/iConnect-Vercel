@@ -313,8 +313,8 @@ function StartPanel({ memberId, tenantId }) {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor={`start-date-${memberId}`}>Membership start date</Label>
-              <Input id={`start-date-${memberId}`} required type="date" min={new Date().toISOString().slice(0, 10)} value={form.startDate} onChange={event => edit("startDate", event.target.value)} />
-              <p className="text-xs text-muted-foreground">Choose today (UTC) or later. The preview confirms the term and whether this date is eligible.</p>
+              <Input id={`start-date-${memberId}`} required type="date" value={form.startDate} onChange={event => edit("startDate", event.target.value)} />
+              <p className="text-xs text-muted-foreground">You can choose a past start date for a membership whose term has not ended. The preview checks the schedule, existing memberships and payment dates. This does not record an earlier payment.</p>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor={`start-payment-${memberId}`}>Payment option</Label>

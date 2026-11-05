@@ -174,6 +174,11 @@ export function createMemberStartService({
       const overrides = await rows('member_membership_override', tenantId, 'member_id', request.memberId);
       const vatSetting = await loadStartVatSetting(db, tenantId);
       const quote = buildStartQuote({ request, config, band, discounts, vatOverrides, overrides, vatSetting, today: today() });
+      const history = await rows('member_membership_history', tenantId, 'member_id', request.memberId);
+      if (history.some(row => row.payment_status !== 'voided' && row.term_start_date && row.term_end_date
+        && row.term_start_date <= quote.termEnd && row.term_end_date >= quote.termStart)) {
+        throw startError('These dates overlap an existing membership. Choose a start date after that membership ends.');
+      }
       const option = startPaymentOptions(config, band, await availability(tenantId)).find(p => p.mode === request.paymentMode);
       if (!option?.available) throw startError(option?.reason || 'This payment mode is unavailable.');
       if (request.paymentMode === 'stripe_upfront') {

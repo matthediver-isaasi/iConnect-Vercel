@@ -89,6 +89,9 @@ for (const hasDdApproval of [false, true]) test(`isolated PostgreSQL start (DD a
     await db.query(paymentAuthoritySql);
     await db.query(readFileSync(new URL('../../supabase/migrations/202612310024_member_start_member_choice.sql', import.meta.url), 'utf8'));
     await db.query(readFileSync(new URL('../../supabase/migrations/202612310025_member_start_admin_waiver.sql', import.meta.url), 'utf8'));
+    const pastDatesSql = readFileSync(new URL('../../supabase/migrations/202612310030_member_start_past_dates.sql', import.meta.url), 'utf8');
+    await db.query(pastDatesSql);
+    await db.query(pastDatesSql); // replay must preserve the same authority and grants
     assert.equal((await db.query(`SELECT to_regprocedure('public.approve_manual_dd_membership_activation(uuid,uuid,text)')::text signature`)).rows[0].signature,
       'approve_manual_dd_membership_activation(uuid,uuid,text)');
     assert.equal((await db.query(`SELECT has_function_privilege('service_role','public.approve_manual_dd_membership_activation(uuid,uuid,text)','EXECUTE') allowed`)).rows[0].allowed, true);
@@ -121,6 +124,35 @@ for (const hasDdApproval of [false, true]) test(`isolated PostgreSQL start (DD a
     const invoke = (client, member, key, q, r = request(member)) => client.query('SELECT create_member_start($1,$2,$3,$4,$5,$6) result',
       [id(1), id(member), id(4), key, r, q]).then(result => result.rows[0].result);
     await a.query('SET ROLE service_role'); await b.query('SET ROLE service_role');
+    for (const member of [90, 91, 92, 93]) await db.query('INSERT INTO member(id,tenant_id) VALUES($1,$2)', [id(member), id(1)]);
+    const past = new Date(Date.parse(`${today}T00:00:00Z`) - 30 * 86400000).toISOString().slice(0, 10);
+    for (const [member, mode] of [[90, 'invoice'], [91, 'free']]) {
+      const r = { ...request(member), startDate: past, paymentMode: mode };
+      const q = { ...buildStartQuote({ request: r, config: cfg, today }), ownerState: (await state(member)).fingerprint };
+      const made = await invoke(a, member, `past-start-${member}`, q, r);
+      const h = (await db.query('SELECT term_start_date::text,status,payment_status FROM member_membership_history WHERE id=$1', [made.request.record_id])).rows[0];
+      assert.equal(h.term_start_date, past);
+      assert.equal(h.status, mode === 'free' ? 'active' : 'pending_payment_setup');
+      assert.equal(h.payment_status, mode === 'free' ? 'paid' : 'unpaid');
+      assert.equal((await invoke(a, member, `past-start-${member}`, q, r)).replayed, true);
+    }
+    const yesterday = new Date(Date.parse(`${today}T00:00:00Z`) - 86400000).toISOString().slice(0, 10);
+    await db.query(`INSERT INTO member_membership_history(tenant_id,member_id,term_start_date,term_end_date,payment_status,status)
+      VALUES($1,$2,$3,$4,'paid','expired')`, [id(1), id(92), past, yesterday]);
+    const overlapping = { ...request(92), startDate: past };
+    const overlapQuote = { ...buildStartQuote({ request: overlapping, config: cfg, today }), ownerState: (await state(92)).fingerprint };
+    await assert.rejects(invoke(a, 92, 'past-overlap', overlapQuote, overlapping), /overlap/);
+    const expired = { ...request(93), startDate: '2021-01-01' };
+    const expiredQuote = { ...buildStartQuote({ request: expired, config: cfg, today: '2021-01-01' }), ownerState: (await state(93)).fingerprint };
+    await assert.rejects(invoke(a, 93, 'expired-term', expiredQuote, expired), /Invalid term/);
+    // The confirmation must use the same legacy cache ownership as preview.
+    await db.query('INSERT INTO system_settings(id,tenant_id,setting_key,setting_value) VALUES($1,NULL,$2,$3)',
+      [id(94), `xero_vat_rates_${id(1)}`, '{"rates":[]}']);
+    const vatSetting = (await db.query('SELECT to_jsonb(t) v FROM system_settings t WHERE id=$1', [id(94)])).rows[0].v;
+    const taxRequest = request(93);
+    const taxQuote = { ...buildStartQuote({ request: taxRequest, config: cfg, vatSetting, today }), ownerState: (await state(93)).fingerprint };
+    await invoke(a, 93, 'legacy-tax-cache', taxQuote, taxRequest);
+    await db.query('DELETE FROM system_settings WHERE id=$1', [id(94)]);
     assert.equal((await a.query('SELECT member_start_payment_capabilities() c')).rows[0].c.version, 2);
     const q = await quote(10);
     const concurrent = await Promise.all([invoke(a, 10, 'same-key-0001', q), invoke(b, 10, 'same-key-0001', q)]);

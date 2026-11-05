@@ -281,6 +281,19 @@ test("flat zero-value membership sends null band and uses only free mode", async
   } finally { await view.cleanup(); }
 });
 
+test("admin start accepts a past date and sends that exact date to preview", async () => {
+  const view = await mount({ post: () => json({ canCreate: false, blockers: ["Fixture preview"], expectedQuote: null }) });
+  try {
+    await waitFor(() => button("Preview membership"));
+    await fill();
+    const date = document.querySelector('input[type="date"]');
+    assert.equal(date.hasAttribute("min"), false);
+    await change('input[type="date"]', "2026-10-01");
+    await click(button("Preview membership"));
+    assert.equal(view.calls.find(call => call.payload?.action === "preview").payload.startDate, "2026-10-01");
+  } finally { await view.cleanup(); }
+});
+
 test("blocked previews show the actual problem without a misleading fingerprint warning", async () => {
   const message = "VAT requires a unique authoritative saved tenant tax rate.";
   const view = await mount({ post: () => json({ canCreate: false, quote: null, expectedQuote: null, blockers: [message] }) });
