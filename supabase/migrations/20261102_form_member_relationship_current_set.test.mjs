@@ -276,6 +276,69 @@ test('real PostgreSQL: atomic membership links, rollback, stale fencing, replay 
           RAISE EXCEPTION 'Configuration retry created a duplicate workflow'; END IF;
       END $test$;
     `);
+    sql(`
+      ALTER TABLE member ADD COLUMN organization_group_id uuid, ADD COLUMN job_title text, ADD COLUMN status text, ADD COLUMN role_id uuid;
+      ALTER TABLE organization ADD COLUMN organization_group_id uuid;
+      ALTER TABLE form ADD COLUMN archived_at timestamptz, ADD COLUMN deactivate_at timestamptz;
+      ALTER TABLE custom_object_relationship ADD COLUMN field_values jsonb DEFAULT '{}';
+      CREATE TABLE preference_field(id uuid PRIMARY KEY,tenant_id uuid,custom_object_id uuid,entity_scope text,is_active boolean);
+      CREATE TABLE member_preference_value(member_id uuid,field_id uuid,value jsonb);
+    `);
+    sql(await readFile(new URL('./20261105_profile_affiliation_forms.sql', import.meta.url), 'utf8'));
+    sql(`
+      DO $test$
+      DECLARE t uuid:=gen_random_uuid(); m uuid:=gen_random_uuid(); f uuid:=gen_random_uuid();
+        o1 uuid:=gen_random_uuid(); zombie uuid:=gen_random_uuid(); g uuid:=gen_random_uuid();
+        sub uuid:=gen_random_uuid(); token uuid; capture jsonb; result jsonb; cfg jsonb; policy jsonb;
+      BEGIN
+        INSERT INTO tenant VALUES(t);
+        INSERT INTO organization(id,tenant_id,name) VALUES(o1,t,'Current'),(zombie,t,'Zombie Organisation');
+        INSERT INTO organization_group VALUES(g,t);
+        INSERT INTO member(id,tenant_id,organization_id,organization_group_id) VALUES(m,t,o1,g);
+        INSERT INTO form(id,tenant_id,require_authentication,mutation_access_policy,is_active)
+          VALUES(f,t,true,'{"version":1,"mode":"authenticated_owner"}',true);
+        cfg:=jsonb_build_object('version',1,'enabled',true,'purpose','profile','unknownOrganizationId',zombie);
+        INSERT INTO form_member_affiliation_config(tenant_id,form_id,config) VALUES(t,f,cfg);
+        UPDATE form SET member_affiliation_enabled=true WHERE id=f;
+        policy:=jsonb_build_object('version',1,'enabled',true,'mappings','[]'::jsonb,'fallbackFormId',f);
+        PERFORM profile_affiliation_form_policy_save(t,0,policy);
+        BEGIN
+          PERFORM profile_affiliation_form_policy_save(t,0,policy);
+          RAISE EXCEPTION 'Stale policy version accepted';
+        EXCEPTION WHEN serialization_failure THEN NULL; END;
+        BEGIN
+          UPDATE form SET is_active=false WHERE id=f;
+          RAISE EXCEPTION 'Mapped form disabled';
+        EXCEPTION WHEN check_violation THEN NULL; END;
+        capture:=profile_form_affiliation_capture(t,f,m,1);
+        token:=(capture->>'token')::uuid;
+        INSERT INTO form_submission(id,tenant_id,form_id,created_member_id) VALUES(sub,t,f,m);
+        PERFORM form_member_affiliation_bind(token,sub,m);
+        result:=profile_form_affiliation_apply(token,sub,zombie,'{}','{}',NULL,'[]');
+        IF result->>'committed' IS DISTINCT FROM 'true'
+          OR (SELECT organization_id FROM member WHERE id=m)<>zombie
+          OR (SELECT organization_group_id FROM member WHERE id=m) IS NOT NULL THEN
+          RAISE EXCEPTION 'Automatic fallback/group reconciliation failed';
+        END IF;
+        result:=profile_form_affiliation_apply(token,sub,zombie,'{}','{}',NULL,'[]');
+        IF result->>'replayed' IS DISTINCT FROM 'true' THEN RAISE EXCEPTION 'Replay failed'; END IF;
+        capture:=profile_form_affiliation_capture(t,f,m,1);
+        token:=(capture->>'token')::uuid;
+        sub:=gen_random_uuid();
+        INSERT INTO form_submission(id,tenant_id,form_id,created_member_id) VALUES(sub,t,f,m);
+        PERFORM form_member_affiliation_bind(token,sub,m);
+        UPDATE member SET organization_group_id=g WHERE id=m;
+        BEGIN
+          PERFORM profile_form_affiliation_apply(token,sub,o1,'{}','{}',NULL,'[]');
+          RAISE EXCEPTION 'Stale group accepted';
+        EXCEPTION WHEN serialization_failure THEN NULL; END;
+        IF (SELECT organization_id FROM member WHERE id=m)<>zombie THEN RAISE EXCEPTION 'Partial mutation'; END IF;
+        IF has_function_privilege('authenticated','profile_form_affiliation_apply(uuid,uuid,uuid,uuid[],uuid[],uuid,jsonb)','EXECUTE')
+          OR has_table_privilege('authenticated','profile_affiliation_form_policy','UPDATE') THEN
+          RAISE EXCEPTION 'Profile authority exposed';
+        END IF;
+      END $test$;
+    `);
   } finally {
     if (running) run('pg_ctl', ['-D', data, '-m', 'immediate', '-w', 'stop']);
     await rm(root, { recursive: true, force: true });

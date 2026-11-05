@@ -34,6 +34,6 @@ Same-organisation reconnection needs explicit, request-scoped approval.
 
 Missing recovery manifests may be reconstructed read-only, but the reconstructed candidate IDs require explicit owner approval before release.
 
-**Why:** A paused run's progress log records completed attempts, not every originally eligible request. Matching totals and exclusions support reconstruction but do not independently establish historical authorization. The owner approved a reconstructed cohort on 2026-11-05 after checking unchanged timestamps and runner ordering.
+**Why:** A paused run's progress log records completed attempts, not every originally eligible request. Matching totals and exclusions support reconstruction but do not independently establish historical authorization.
 
 **How to apply:** Keep the original progress evidence and a separate private, hash-pinned candidate manifest. Validate each candidate's immutable snapshot and current state before releasing it; never widen a recovery run by rerunning an unbounded eligibility query.

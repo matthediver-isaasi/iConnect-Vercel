@@ -3,6 +3,8 @@ import { assertAffiliationFormCompatibility } from './formMemberAffiliationConfi
 import { resolveMemberAffiliationAnswers } from './formMemberAffiliationAnswers.js';
 import { rulesUseLmicOperators } from './formLmicConditions.js';
 import { loadTenantLmicCodes } from './tenantLmicCodes.js';
+import { assertProfileFormRoute } from './profileAffiliationForms.js';
+import { resolveProfileFormAffiliationAnswers } from './profileFormAffiliationAnswers.js';
 
 export const MEMBER_AFFILIATION_TOKEN = '__member_affiliation_snapshot';
 const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
@@ -24,6 +26,9 @@ export async function prepareMemberAffiliations({ db, form, tenantId, memberId, 
   if (settingError || snapshotError || !setting?.config?.enabled || !snapshot
     || stable(snapshot.config) !== stable(setting.config)) throw new Error('Affiliation configuration changed or is unavailable. Reload before submitting.');
   if (!snapshot.result && Date.parse(snapshot.expires_at) <= Date.now()) throw new Error('Your affiliation details have expired. Reload before submitting.');
+  if (snapshot.config.purpose === 'profile') {
+    await assertProfileFormRoute(db, tenantId, memberId, form.id, snapshot.profile_policy_version);
+  }
   return snapshot;
 }
 
@@ -46,14 +51,16 @@ export async function completeMemberAffiliations({ db, form, tenantId, memberId,
     const hiddenFieldIds = await computeAuthoritativeHiddenFieldIds({
       db, tenantId, form, formValues: answers, visibilityOptions,
     });
-    const plan = resolveMemberAffiliationAnswers({ form, snapshot, answers, hiddenFieldIds });
+    const profile = snapshot.config.purpose === 'profile';
+    const plan = (profile ? resolveProfileFormAffiliationAnswers : resolveMemberAffiliationAnswers)({ form, snapshot, answers, hiddenFieldIds });
     const awaitingReview = plan.status === 'awaiting_review';
-    const { data: result, error } = await db.rpc(awaitingReview
+    const { data: result, error } = await db.rpc(profile ? 'profile_form_affiliation_apply' : awaitingReview
       ? 'defer_form_member_affiliation_change' : 'form_member_affiliation_apply', awaitingReview ? {
       p_token: snapshot.id, p_submission: submission.id, p_details: plan.details, p_proposal: plan.proposal,
     } : {
       p_token: snapshot.id, p_submission: submission.id, p_primary: plan.proposal.primary,
       p_departments: plan.proposal.departments, p_secondary: plan.proposal.secondary,
+      ...(profile ? { p_group: plan.proposal.group, p_details: plan.details } : {}),
     });
     if (error || (awaitingReview ? result?.status !== 'awaiting_review' : result?.committed !== true)) {
       throw new Error('Affiliation changes could not be confirmed. Your submission is saved; retry or ask an administrator to review it.');
@@ -76,6 +83,13 @@ export function memberAffiliationPrefill(snapshot) {
     e.relationship_definition_id === cfg.departmentOrganizationDefinitionId
       && ((e.source_record_id === id && e.target_record_id === org) || (e.target_record_id === id && e.source_record_id === org))));
   const values = {};
+  if (cfg.purpose === 'profile') {
+    if (cfg.organizationGroupFieldId) values[cfg.organizationGroupFieldId] = snapshot.profile_group_id || '';
+    if (cfg.countryFieldId) values[cfg.countryFieldId] = snapshot.profile_country || '';
+    if (cfg.siteQuestionFieldId) values[cfg.siteQuestionFieldId] = graph.organization_id ? 'Yes' : 'No, I have a trust-wide or organisation-wide role';
+    if (cfg.additionalQuestionFieldId) values[cfg.additionalQuestionFieldId] =
+      graph.links.some(e => e.relationship_definition_id === cfg.secondaryMemberDefinitionId) ? 'Yes' : 'No';
+  }
   for (const id of cfg.primaryOrganizationFieldIds || []) values[id] = graph.organization_id || '';
   if (cfg.primaryDepartmentsFieldId) values[cfg.primaryDepartmentsFieldId] = forOrg(graph.organization_id);
   if (cfg.additionalSitesFieldId) {

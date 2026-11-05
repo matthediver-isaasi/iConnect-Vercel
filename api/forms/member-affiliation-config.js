@@ -21,6 +21,12 @@ export default async function handler(req, res, deps = {}) {
       if (configError) throw configError;
       return res.status(200).json({ config: data?.config || null });
     }
+    const { data: existing, error: existingError } = await db.from('form_member_affiliation_config').select('config')
+      .eq('tenant_id', tenantId).eq('form_id', formId).maybeSingle();
+    if (existingError) throw existingError;
+    if (existing?.config?.purpose === 'profile') {
+      return res.status(409).json({ error: 'This standalone profile form uses verified affiliation bindings. Edit its fields normally; changing its bindings requires a new verified adaptation.' });
+    }
     const metadata = await discoverMemberAffiliations(db, tenantId);
     let config;
     try { config = validateMemberAffiliationConfig(form, req.body?.config, metadata); }

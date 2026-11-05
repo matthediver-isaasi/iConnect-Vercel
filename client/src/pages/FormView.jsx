@@ -2639,6 +2639,13 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
           || (applicantVerificationActive && applicantVerification.isPending) || submitFormMutation.isPending,
         validate: () => membershipValidationRef.current?.(),
       }}>
+      {!assignmentToken && urlParams.get("affiliation_profile") === "1" && (
+        <nav aria-label="Profile return" className="bg-slate-50 px-4 py-3 md:px-8 print:hidden">
+          <Button asChild variant="outline" size="sm">
+            <Link to="/about-me"><ChevronLeft className="mr-2 h-4 w-4" aria-hidden="true" />Back to my profile</Link>
+          </Button>
+        </nav>
+      )}
       {withManagementReturnContent(screen)}
       </MembershipPrimaryActionContext.Provider>
     </MembershipCheckoutDraftContext.Provider>

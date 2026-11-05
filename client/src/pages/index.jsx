@@ -921,9 +921,9 @@ function _getCurrentPage(url, quoteNaming) {
         return 'ComplexEventDetail';
     }
     
-    // Task #3331: survey opened via an event-assignment link. Rendered by
-    // FormView (already a hybrid page), so classify it as such.
-    if (urlParts.length >= 2 && urlParts[0].toLowerCase() === 'survey') {
+    // Survey assignment and explicit form-slug routes use FormView's hybrid
+    // access policy, including its normal authenticated-member handling.
+    if (urlParts.length >= 2 && ['survey', 'forms'].includes(urlParts[0].toLowerCase())) {
         return 'FormView';
     }
 
@@ -962,6 +962,11 @@ function _getCurrentPage(url, quoteNaming) {
 function SurveyAssignmentRoute() {
     const { token } = useParams();
     return <FormView assignmentToken={token} />;
+}
+
+function ProfileAffiliationFormRoute() {
+    const { slug } = useParams();
+    return <FormView slug={slug} />;
 }
 
 // Create a wrapper component that uses useLocation inside the Router context
@@ -1241,6 +1246,7 @@ function PagesContent() {
                 <Route path="/FormBuilder" element={<FormBuilder />} />
                 
                 <Route path="/FormView" element={<FormView />} />
+                <Route path="/forms/:slug" element={<ProfileAffiliationFormRoute />} />
                 <Route path="/MembershipChange" element={<MembershipChange />} />
                 <Route path="/survey/:token" element={<SurveyAssignmentRoute />} />
                 

@@ -5,10 +5,11 @@ import settings from './member-affiliation-settings.js';
 const id = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 function fixture(enabled = true) {
   const calls = [];
-  const state = { enabled, fail: false };
-  const db = { from() {
+  const state = { enabled, fail: false, formMode: false };
+  const db = { from(table) {
     const q = { select() { return q; }, eq() { return q; },
-      maybeSingle: async () => state.fail ? { error: new Error('Unavailable') } : { data: { version: 1, config: { enabled: state.enabled } } } };
+      maybeSingle: async () => state.fail ? { error: new Error('Unavailable') } : { data: { version: 1,
+        config: { enabled: table === 'profile_affiliation_form_policy' ? state.formMode : state.enabled } } } };
     return q;
   }, async rpc(name, args) { calls.push({ name, args }); return { data: { committed: true, replayed: false } }; } };
   const deps = { db, getTenantContext: async () => ({ isAuthenticated: true, tenantId: id(1) }),
@@ -46,6 +47,13 @@ test('revoking the setting between load and save is denied', async () => {
   f.state.enabled = false;
   await handler({ method: 'PATCH', body: { token: id(3), primary: null } }, f.res, f.deps);
   assert.equal(f.res.code, 403); assert.equal(f.calls.length, 0);
+});
+test('form mode blocks direct legacy saves without calling the mutation RPC', async () => {
+  const f = fixture();
+  f.state.formMode = true;
+  await handler({ method: 'PATCH', body: { token: id(3), primary: null } }, f.res, f.deps);
+  assert.equal(f.res.code, 403);
+  assert.equal(f.calls.length, 0);
 });
 test('members cannot read or configure their permissions', async () => {
   for (const method of ['GET', 'PUT']) {

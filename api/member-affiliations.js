@@ -3,6 +3,8 @@ import { getSession, getSessionMember } from './_lib/session.js';
 import { getTenantContext } from './_lib/tenantContext.js';
 import { loadProfilePolicy, validateLiveProfilePolicy, projectProfileAffiliations } from './_lib/profileAffiliations.js';
 import { normalizeProfileAffiliationRequest } from './_lib/profileAffiliationPolicy.js';
+import { loadProfileFormPolicy, resolveProfileForm, profileFormSummary } from './_lib/profileAffiliationForms.js';
+import { resolveFormAccess } from './_lib/formAccessPolicy.js';
 
 export default async function handler(req, res, deps = {}) {
   res.setHeader('Cache-Control', 'no-store');
@@ -16,6 +18,36 @@ export default async function handler(req, res, deps = {}) {
     if (context?.tenantMismatch || !tenantId || !session || !member?.id
       || session.data?.memberId !== member.id || (member.tenant_id || member.organization?.tenant_id) !== tenantId) {
       return res.status(403).json({ error: 'Sign in with your member account to edit affiliations.' });
+    }
+    const formPolicy = await loadProfileFormPolicy(db, tenantId);
+    if (formPolicy.config.enabled) {
+      if (req.method !== 'GET') return res.status(403).json({ error: 'Use your configured affiliation form. Direct affiliation saves are disabled.' });
+      const resolved = await resolveProfileForm(db, tenantId, member, formPolicy);
+      let summary = { primary: null, group: null, secondary: [], departments: [] };
+      let available = !!resolved.form;
+      if (available) {
+        const access = await (deps.resolveFormAccess || resolveFormAccess)({
+          supabase: db, req, tenantId, policy: resolved.form.access_policy, member, session,
+        });
+        available = access.allowed;
+      }
+      if (available) {
+        const { data, error } = await db.rpc('profile_form_affiliation_capture', {
+          p_tenant: tenantId, p_form: resolved.form.id, p_member: member.id, p_version: formPolicy.version,
+        });
+        if (error) throw error;
+        summary = await profileFormSummary(db, tenantId, { ...data, member_id: member.id });
+      }
+      const { data: latestRows, error: latestError } = await db.from('form_member_affiliation_snapshot')
+        .select('result,submission_id').eq('tenant_id', tenantId).eq('member_id', member.id)
+        .not('submission_id', 'is', null).order('created_at', { ascending: false }).limit(1);
+      if (latestError) throw latestError;
+      const latest = latestRows?.[0];
+      return res.json({ mode: 'forms', active: true, title: formPolicy.config.linkText,
+        helpText: formPolicy.config.helpText, summary,
+        form: available ? { id: resolved.form.id, slug: resolved.form.slug } : null,
+        unavailableMessage: available ? null : resolved.unavailableMessage || 'This affiliation form is not available to your account. Contact your administrator.',
+        latest: latest ? { status: latest.result?.committed ? 'saved' : latest.result?.status || 'saved_but_not_applied' } : null });
     }
     const policy = await loadProfilePolicy(db, tenantId);
     if (policy.config.enabled !== true) return req.method === 'GET'

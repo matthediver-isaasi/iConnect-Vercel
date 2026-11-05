@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import FormMemberAffiliations from "./FormMemberAffiliations";
 
 async function request(method, body, signal) {
   const response = await fetch("/api/member-affiliations", {
@@ -98,9 +99,9 @@ export default function MemberAffiliations({ onSaved }) {
     try {
       const data = await request("GET", null, signal);
       if (signal?.aborted) return;
-      if (data.active !== false && (data.active !== true || !data.token || !Object.prototype.hasOwnProperty.call(data, "primary") || !Array.isArray(data.secondary) || !Array.isArray(data.departments) || typeof data.secondaryEnabled !== "boolean")) throw new Error("The affiliation snapshot is incomplete. Editing is unavailable.");
+      if (data.mode !== "forms" && data.active !== false && (data.active !== true || !data.token || !Object.prototype.hasOwnProperty.call(data, "primary") || !Array.isArray(data.secondary) || !Array.isArray(data.departments) || typeof data.secondaryEnabled !== "boolean")) throw new Error("The affiliation snapshot is incomplete. Editing is unavailable.");
       setSnapshot(data);
-      setDraft(data.active ? fromSnapshot(data) : null);
+      setDraft(data.active && data.mode !== "forms" ? fromSnapshot(data) : null);
       setCommitted(false);
       setSnapshotError(false);
       return true;
@@ -152,6 +153,7 @@ export default function MemberAffiliations({ onSaved }) {
     finally { setSaving(false); }
   }
   if (snapshot?.active === false && !error) return null;
+  if (snapshot?.mode === "forms") return <FormMemberAffiliations affiliation={snapshot} />;
   const blocked = saving || loading || committed || snapshotError;
   return (
     <Card className="border-slate-200 shadow-sm">
@@ -162,7 +164,7 @@ export default function MemberAffiliations({ onSaved }) {
       <CardContent className="space-y-5">
         {!editorOpen && error && <p role="alert" className="text-sm text-red-700">{error}</p>}
         {!editorOpen && message && <p role="status" className="text-sm text-green-700">{message}</p>}
-        {loading && !snapshot && <Skeleton aria-label="Loading affiliations" className="h-24 w-full" />}
+        {loading && !snapshot && <div role="status"><span className="sr-only">Loading affiliations</span><Skeleton className="h-24 w-full" /></div>}
         {snapshot?.active && <dl data-testid="saved-affiliations" className="grid gap-3 text-sm sm:grid-cols-3 [overflow-wrap:anywhere]">
           <div><dt className="font-medium">Primary organisation</dt><dd>{snapshot.primary?.label || "No primary organisation"}</dd></div>
           {(snapshot.secondaryEnabled || snapshot.secondary.length > 0) && <div><dt className="font-medium">Secondary organisations</dt><dd>{snapshot.secondary.map(item => item.label).join(", ") || "No secondary organisations"}</dd></div>}

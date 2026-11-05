@@ -1,0 +1,972 @@
+{
+  "version": 1,
+  "tenantId": "ff2df806-b321-4254-b651-3af11fccf1db",
+  "sourceFormId": "6880a70a-8643-4fcc-a5b9-0af603f00b40",
+  "sourceSha256": "6b093aa86b59ad4b2a92309a7e8e83bf99cb0db7886be5bca21ad18c14835f51",
+  "verifiedAt": "2026-11-05T17:12:31.699Z",
+  "definitions": [
+    {
+      "id": "30ad9dde-4b4e-4991-a7a4-8ef2b6b5138e",
+      "source_kind": "custom_object",
+      "target_kind": "organization",
+      "source_custom_object_id": "cd1ebfd3-3e16-4091-be5a-99992d926f2f",
+      "target_custom_object_id": null,
+      "status": "active"
+    },
+    {
+      "id": "601544ca-9db9-498e-bd03-0af5e2c2e8a0",
+      "source_kind": "custom_object",
+      "target_kind": "member",
+      "source_custom_object_id": "1c1cdab9-5128-4e3d-b09e-b97088ae69ba",
+      "target_custom_object_id": null,
+      "status": "active"
+    },
+    {
+      "id": "184b26ff-c918-4162-98c4-1e16fde737ad",
+      "source_kind": "custom_object",
+      "target_kind": "organization",
+      "source_custom_object_id": "1c1cdab9-5128-4e3d-b09e-b97088ae69ba",
+      "target_custom_object_id": null,
+      "status": "active"
+    },
+    {
+      "id": "0fdede92-efa2-4d84-9b16-df1a88069486",
+      "source_kind": "custom_object",
+      "target_kind": "member",
+      "source_custom_object_id": "cd1ebfd3-3e16-4091-be5a-99992d926f2f",
+      "target_custom_object_id": null,
+      "status": "active"
+    }
+  ],
+  "fallback": {
+    "id": "7f16328d-e692-4671-873a-453464071eef",
+    "name": "Zombie Organisation"
+  },
+  "form": {
+    "name": "Update my affiliations",
+    "slug": "update-my-affiliations",
+    "form_type": "standard",
+    "fields": [
+      {
+        "id": "952b5513-15a5-52b7-84ad-e9c5e307fa54",
+        "type": "country",
+        "label": "What country are you based in?",
+        "options": [],
+        "page_id": "338b465c-48dd-5a1b-8c16-26a2ef0fa6a9",
+        "required": true,
+        "allow_other": false,
+        "placeholder": "",
+        "column_index": 0,
+        "default_country": "GB"
+      },
+      {
+        "id": "c8b4c1c0-18e2-5215-8dee-f9b98fe88346",
+        "type": "organisation_dropdown",
+        "label": "Please select your overseas organisation",
+        "options": [],
+        "page_id": "338b465c-48dd-5a1b-8c16-26a2ef0fa6a9",
+        "required": true,
+        "allow_other": false,
+        "placeholder": "",
+        "column_index": 0,
+        "starts_hidden": true,
+        "custom_field_id": null,
+        "not_listed_choice": {
+          "label": "Not listed",
+          "enabled": true
+        },
+        "conditional_filters": {
+          "rules": [
+            {
+              "id": "conditional_filter_1788678574351_9yy0tx",
+              "value": "",
+              "operator": "is_not_empty",
+              "org_filter": {
+                "mode": "include",
+                "type": "custom",
+                "field": "org_country",
+                "values": [],
+                "value_source": "source"
+              },
+              "is_fallback": false,
+              "allowed_values": [],
+              "source_field_id": "952b5513-15a5-52b7-84ad-e9c5e307fa54",
+              "source_field_type": "country",
+              "allowed_values_mode": "include"
+            }
+          ],
+          "version": 1
+        }
+      },
+      {
+        "id": "3606d76d-a25d-5ef4-8ced-4944556fbf37",
+        "type": "organisation_group_dropdown",
+        "label": "Select the trust, health board or group you operate within",
+        "options": [],
+        "page_id": "338b465c-48dd-5a1b-8c16-26a2ef0fa6a9",
+        "required": true,
+        "allow_other": false,
+        "placeholder": "",
+        "column_index": 0,
+        "starts_hidden": false,
+        "custom_field_id": null,
+        "not_listed_choice": {
+          "label": "Not listed",
+          "enabled": true
+        },
+        "conditional_filters": {
+          "rules": [
+            {
+              "id": "conditional_filter_1789845775378_o5dvkf",
+              "value": "",
+              "operator": "equals",
+              "org_filter": null,
+              "is_fallback": true,
+              "allowed_values": [
+                "ab07662d-19d2-41c3-97de-402909a2d0f1"
+              ],
+              "source_field_id": "",
+              "source_field_type": null,
+              "allowed_values_mode": "exclude"
+            }
+          ],
+          "version": 1
+        }
+      },
+      {
+        "id": "d4990736-7d4e-538f-82d9-7efa174d66a0",
+        "type": "radio",
+        "label": "Do you work within one or more hospitals, clinical sites or organisations within the trust or group?",
+        "options": [
+          "Yes",
+          "No, I have a trust-wide or organisation-wide role"
+        ],
+        "page_id": "338b465c-48dd-5a1b-8c16-26a2ef0fa6a9",
+        "required": true,
+        "allow_other": false,
+        "placeholder": "",
+        "column_index": 0,
+        "starts_hidden": true
+      },
+      {
+        "id": "283c3e29-f866-5d08-836b-ccbce3b9f791",
+        "type": "organisation_dropdown",
+        "label": "Select the primary hospital, clinical site or organisation you are based at",
+        "options": [],
+        "page_id": "338b465c-48dd-5a1b-8c16-26a2ef0fa6a9",
+        "required": true,
+        "org_filter": {
+          "mode": "include",
+          "type": "custom",
+          "field": "organisation_type",
+          "values": [
+            "Hospital",
+            "NHS/HSC hospital or clinical site",
+            "Private hospital or imaging centre",
+            "Public hospital or clinical site",
+            "Commercial or industry organisation",
+            "Research or charitable organisation"
+          ]
+        },
+        "allow_other": false,
+        "placeholder": "",
+        "column_index": 0,
+        "starts_hidden": true,
+        "custom_field_id": null,
+        "parent_field_id": "3606d76d-a25d-5ef4-8ced-4944556fbf37",
+        "not_listed_choice": {
+          "label": "My hospital or clinical site is not listed",
+          "enabled": true
+        },
+        "parent_field_scope": "form",
+        "conditional_filters": {
+          "rules": [],
+          "version": 1
+        },
+        "allowed_org_statuses": [],
+        "organisation_group_parent_field_id": "3606d76d-a25d-5ef4-8ced-4944556fbf37"
+      },
+      {
+        "id": "58c000ad-d1a2-5e70-8540-9b8414ad093f",
+        "type": "relationship_dropdown",
+        "label": "Which department are you primarily associated with?",
+        "options": [],
+        "page_id": "338b465c-48dd-5a1b-8c16-26a2ef0fa6a9",
+        "required": false,
+        "allow_other": false,
+        "placeholder": "Select your department(s) if listed",
+        "column_index": 0,
+        "related_kind": "custom_object",
+        "custom_object": {
+          "id": "cd1ebfd3-3e16-4091-be5a-99992d926f2f",
+          "object_key": "org_department",
+          "plural_label": "Organisation departments",
+          "singular_label": "Organisation department",
+          "primary_display_field_id": "35e4f2dd-6f22-4875-8d2f-4ffb05b1980f"
+        },
+        "starts_hidden": true,
+        "selection_mode": "multiple",
+        "custom_field_id": null,
+        "parent_field_id": "283c3e29-f866-5d08-836b-ccbce3b9f791",
+        "custom_object_id": "cd1ebfd3-3e16-4091-be5a-99992d926f2f",
+        "relationship_key": "organisation",
+        "not_listed_choice": {
+          "label": "My department is not listed",
+          "enabled": true
+        },
+        "organization_side": "target",
+        "custom_object_name": "Organisation department",
+        "parent_field_scope": "form",
+        "relationship_definition": {
+          "id": "30ad9dde-4b4e-4991-a7a4-8ef2b6b5138e",
+          "label": "Organisations",
+          "parent": {
+            "kind": "organization",
+            "side": "target",
+            "label": "Departments",
+            "custom_object_id": null
+          },
+          "related": {
+            "kind": "custom_object",
+            "side": "source",
+            "label": "Organisations",
+            "custom_object": {
+              "id": "cd1ebfd3-3e16-4091-be5a-99992d926f2f",
+              "object_key": "org_department",
+              "plural_label": "Organisation departments",
+              "singular_label": "Organisation department",
+              "primary_display_field_id": "35e4f2dd-6f22-4875-8d2f-4ffb05b1980f"
+            },
+            "custom_object_id": "cd1ebfd3-3e16-4091-be5a-99992d926f2f"
+          },
+          "related_kind": "custom_object",
+          "custom_object": {
+            "id": "cd1ebfd3-3e16-4091-be5a-99992d926f2f",
+            "object_key": "org_department",
+            "plural_label": "Organisation departments",
+            "singular_label": "Organisation department",
+            "primary_display_field_id": "35e4f2dd-6f22-4875-8d2f-4ffb05b1980f"
+          },
+          "discovery_key": "30ad9dde-4b4e-4991-a7a4-8ef2b6b5138e:target",
+          "selection_key": "30ad9dde-4b4e-4991-a7a4-8ef2b6b5138e:target",
+          "relationship_key": "organisation",
+          "organization_side": "target",
+          "related_custom_object_id": "cd1ebfd3-3e16-4091-be5a-99992d926f2f",
+          "relationship_parent_kind": "organization",
+          "relationship_parent_side": "target",
+          "relationship_definition_id": "30ad9dde-4b4e-4991-a7a4-8ef2b6b5138e",
+          "related_primary_display_field_id": "35e4f2dd-6f22-4875-8d2f-4ffb05b1980f",
+          "relationship_parent_custom_object_id": null
+        },
+        "related_custom_object_id": "cd1ebfd3-3e16-4091-be5a-99992d926f2f",
+        "relationship_parent_kind": "organization",
+        "relationship_parent_side": "target",
+        "relationship_definition_id": "30ad9dde-4b4e-4991-a7a4-8ef2b6b5138e",
+        "no_relationship_found_label": "No departments are available for this organisation",
+        "related_primary_display_field_id": "35e4f2dd-6f22-4875-8d2f-4ffb05b1980f",
+        "relationship_parent_custom_object_id": null,
+        "custom_object_primary_display_field_id": "35e4f2dd-6f22-4875-8d2f-4ffb05b1980f"
+      },
+      {
+        "id": "bead1f83-92e5-5f0e-8133-25186dee89b4",
+        "type": "address_lookup",
+        "label": "Address",
+        "options": [],
+        "page_id": "338b465c-48dd-5a1b-8c16-26a2ef0fa6a9",
+        "required": false,
+        "allow_other": false,
+        "placeholder": "Enter a UK postcode",
+        "column_index": 0,
+        "manual_entry": true,
+        "starts_hidden": true,
+        "visible_components": [
+          "postcode",
+          "line_1",
+          "line_2",
+          "line_3",
+          "post_town",
+          "county"
+        ],
+        "required_components": [
+          "line_1",
+          "post_town",
+          "postcode"
+        ],
+        "address_entry_mode_rule": {
+          "value": "United Kingdom",
+          "operator": "not_equals",
+          "source_field_id": "952b5513-15a5-52b7-84ad-e9c5e307fa54"
+        }
+      },
+      {
+        "id": "eabe54a5-3f33-577e-8736-0f63e969d60d",
+        "type": "radio",
+        "label": "Do you operate at any other site and/or department?",
+        "options": [
+          "Yes",
+          "No"
+        ],
+        "page_id": "338b465c-48dd-5a1b-8c16-26a2ef0fa6a9",
+        "required": true,
+        "allow_other": false,
+        "placeholder": "",
+        "column_index": 0,
+        "starts_hidden": true,
+        "conditional_filters": {
+          "rules": [],
+          "version": 1
+        }
+      },
+      {
+        "id": "bbd780d1-19ad-5c45-8d76-5e305987ee1a",
+        "type": "repeatable_rows",
+        "label": "Additional sites or departments",
+        "layout": "spreadsheet",
+        "options": [],
+        "page_id": "338b465c-48dd-5a1b-8c16-26a2ef0fa6a9",
+        "version": 1,
+        "max_rows": 10,
+        "min_rows": 0,
+        "required": false,
+        "allow_other": false,
+        "placeholder": "",
+        "child_fields": [
+          {
+            "id": "6653b03f-5099-5baf-8e97-c56ade36c7ea",
+            "type": "organisation_dropdown",
+            "label": "Organisation",
+            "options": [],
+            "required": true,
+            "not_listed_choice": {
+              "label": "Not listed",
+              "enabled": false
+            },
+            "unique_across_rows": false,
+            "exclude_values_from": {
+              "scope": "form",
+              "source_field_id": "283c3e29-f866-5d08-836b-ccbce3b9f791"
+            },
+            "organisation_group_parent_scope": "form",
+            "organisation_group_parent_field_id": "3606d76d-a25d-5ef4-8ced-4944556fbf37"
+          },
+          {
+            "id": "c00d8b46-b7bd-53d4-87d6-f1408b09ada3",
+            "type": "relationship_dropdown",
+            "label": "Department",
+            "options": [],
+            "required": true,
+            "related_kind": "custom_object",
+            "custom_object": {
+              "id": "cd1ebfd3-3e16-4091-be5a-99992d926f2f",
+              "object_key": "org_department",
+              "plural_label": "Organisation departments",
+              "singular_label": "Organisation department",
+              "primary_display_field_id": "35e4f2dd-6f22-4875-8d2f-4ffb05b1980f"
+            },
+            "selection_mode": "multiple",
+            "parent_field_id": "6653b03f-5099-5baf-8e97-c56ade36c7ea",
+            "custom_object_id": "cd1ebfd3-3e16-4091-be5a-99992d926f2f",
+            "relationship_key": "organisation",
+            "not_listed_choice": {
+              "label": "Not listed",
+              "enabled": false
+            },
+            "organization_side": "target",
+            "custom_object_name": "Organisation department",
+            "unique_across_rows": true,
+            "relationship_definition": {
+              "id": "30ad9dde-4b4e-4991-a7a4-8ef2b6b5138e",
+              "label": "Organisations",
+              "parent": {
+                "kind": "organization",
+                "side": "target",
+                "label": "Departments",
+                "custom_object_id": null
+              },
+              "related": {
+                "kind": "custom_object",
+                "side": "source",
+                "label": "Organisations",
+                "custom_object": {
+                  "id": "cd1ebfd3-3e16-4091-be5a-99992d926f2f",
+                  "object_key": "org_department",
+                  "plural_label": "Organisation departments",
+                  "singular_label": "Organisation department",
+                  "primary_display_field_id": "35e4f2dd-6f22-4875-8d2f-4ffb05b1980f"
+                },
+                "custom_object_id": "cd1ebfd3-3e16-4091-be5a-99992d926f2f"
+              },
+              "related_kind": "custom_object",
+              "custom_object": {
+                "id": "cd1ebfd3-3e16-4091-be5a-99992d926f2f",
+                "object_key": "org_department",
+                "plural_label": "Organisation departments",
+                "singular_label": "Organisation department",
+                "primary_display_field_id": "35e4f2dd-6f22-4875-8d2f-4ffb05b1980f"
+              },
+              "discovery_key": "30ad9dde-4b4e-4991-a7a4-8ef2b6b5138e:target",
+              "selection_key": "30ad9dde-4b4e-4991-a7a4-8ef2b6b5138e:target",
+              "relationship_key": "organisation",
+              "organization_side": "target",
+              "related_custom_object_id": "cd1ebfd3-3e16-4091-be5a-99992d926f2f",
+              "relationship_parent_kind": "organization",
+              "relationship_parent_side": "target",
+              "relationship_definition_id": "30ad9dde-4b4e-4991-a7a4-8ef2b6b5138e",
+              "related_primary_display_field_id": "35e4f2dd-6f22-4875-8d2f-4ffb05b1980f",
+              "relationship_parent_custom_object_id": null
+            },
+            "related_custom_object_id": "cd1ebfd3-3e16-4091-be5a-99992d926f2f",
+            "relationship_parent_kind": "organization",
+            "relationship_parent_side": "target",
+            "relationship_definition_id": "30ad9dde-4b4e-4991-a7a4-8ef2b6b5138e",
+            "related_primary_display_field_id": "35e4f2dd-6f22-4875-8d2f-4ffb05b1980f",
+            "relationship_parent_custom_object_id": null,
+            "custom_object_primary_display_field_id": "35e4f2dd-6f22-4875-8d2f-4ffb05b1980f"
+          }
+        ],
+        "column_index": 0,
+        "add_row_label": "Add site or department",
+        "starts_hidden": true,
+        "initial_row_required": false,
+        "repeatable_rows_version": 1,
+        "hide_when_first_column_empty": true
+      },
+      {
+        "id": "1db0a424-0d3e-59c4-8094-aa42a927b22c",
+        "type": "textarea",
+        "label": "Please tell us any sites and/or departments we are missing that you work within",
+        "options": [],
+        "page_id": "338b465c-48dd-5a1b-8c16-26a2ef0fa6a9",
+        "required": false,
+        "allow_other": false,
+        "description": "Please only supply the sites and/or departments you work in as when processing your application we will associate them with your record.",
+        "placeholder": "",
+        "column_index": 0,
+        "starts_hidden": true
+      }
+    ],
+    "pages": [
+      {
+        "id": "338b465c-48dd-5a1b-8c16-26a2ef0fa6a9",
+        "title": "Your affiliations",
+        "page_style": "standard",
+        "column_count": 1
+      }
+    ],
+    "visibility_rules": [
+      {
+        "id": "1576c6a8-d74a-58e4-8cd2-53728cd1c3a3",
+        "logic": "and",
+        "actions": [
+          {
+            "id": "980e2d09-bc5c-55b6-8595-9b66e37c680a",
+            "action_type": "visibility",
+            "field_states": {
+              "d4990736-7d4e-538f-82d9-7efa174d66a0": {
+                "enabled": null,
+                "visible": true
+              }
+            }
+          }
+        ],
+        "rule_type": "visibility",
+        "set_value": "",
+        "conditions": [
+          {
+            "id": "cond_1789108038782",
+            "value": "__form_not_listed__",
+            "field_id": "3606d76d-a25d-5ef4-8ced-4944556fbf37",
+            "operator": "not_equals"
+          },
+          {
+            "id": "cond_1789108064922",
+            "value": "",
+            "field_id": "3606d76d-a25d-5ef4-8ced-4944556fbf37",
+            "operator": "not_empty"
+          }
+        ],
+        "target_field_id": "",
+        "set_value_source": "static",
+        "target_field_ids": [],
+        "set_value_field_id": "",
+        "set_value_prefill_field": ""
+      },
+      {
+        "id": "9dbc949d-70f2-5d50-882f-12165a418194",
+        "logic": "and",
+        "actions": [
+          {
+            "id": "ab49dc32-c3ed-504f-8ff0-e68b49b3e8cd",
+            "action_type": "visibility",
+            "field_states": {
+              "283c3e29-f866-5d08-836b-ccbce3b9f791": {
+                "enabled": null,
+                "visible": true
+              }
+            }
+          }
+        ],
+        "rule_type": "visibility",
+        "set_value": "",
+        "conditions": [
+          {
+            "id": "cond_1788778489704",
+            "value": "Yes",
+            "field_id": "d4990736-7d4e-538f-82d9-7efa174d66a0",
+            "operator": "equals"
+          }
+        ],
+        "target_field_id": "",
+        "set_value_source": "static",
+        "target_field_ids": [],
+        "set_value_field_id": "",
+        "set_value_prefill_field": ""
+      },
+      {
+        "id": "3bd3d660-af55-5980-8808-f5eb41ca79c6",
+        "logic": "and",
+        "actions": [
+          {
+            "id": "d989f35e-00f7-569d-82b1-ed8a1b621524",
+            "action_type": "visibility",
+            "field_states": {
+              "bbd780d1-19ad-5c45-8d76-5e305987ee1a": {
+                "enabled": null,
+                "visible": false
+              },
+              "eabe54a5-3f33-577e-8736-0f63e969d60d": {
+                "enabled": null,
+                "visible": false
+              },
+              "1db0a424-0d3e-59c4-8094-aa42a927b22c": {
+                "enabled": null,
+                "visible": false
+              }
+            }
+          }
+        ],
+        "rule_type": "visibility",
+        "set_value": "",
+        "conditions": [
+          {
+            "id": "cond_1788782611926",
+            "value": "No, I have a trust-wide or organisation-wide role",
+            "field_id": "d4990736-7d4e-538f-82d9-7efa174d66a0",
+            "operator": "equals"
+          }
+        ],
+        "target_field_id": "",
+        "set_value_source": "static",
+        "target_field_ids": [],
+        "set_value_field_id": "",
+        "set_value_prefill_field": ""
+      },
+      {
+        "id": "02fae50e-3633-5b24-83df-e8e672cc79fc",
+        "logic": "and",
+        "actions": [
+          {
+            "id": "524f7835-071e-5ee2-8705-f2b3da5dc034",
+            "action_type": "visibility",
+            "field_states": {
+              "58c000ad-d1a2-5e70-8540-9b8414ad093f": {
+                "enabled": null,
+                "visible": true
+              },
+              "eabe54a5-3f33-577e-8736-0f63e969d60d": {
+                "enabled": null,
+                "visible": true
+              }
+            }
+          }
+        ],
+        "rule_type": "visibility",
+        "set_value": "",
+        "conditions": [
+          {
+            "id": "cond_1788778512260",
+            "value": "",
+            "field_id": "283c3e29-f866-5d08-836b-ccbce3b9f791",
+            "operator": "not_empty"
+          },
+          {
+            "id": "cond_1789541820900",
+            "value": "United Kingdom",
+            "field_id": "952b5513-15a5-52b7-84ad-e9c5e307fa54",
+            "operator": "equals"
+          }
+        ],
+        "target_field_id": "",
+        "set_value_source": "static",
+        "target_field_ids": [],
+        "set_value_field_id": "",
+        "set_value_prefill_field": ""
+      },
+      {
+        "id": "e4252b8e-0a90-556d-8309-4f875e04071b",
+        "logic": "and",
+        "actions": [
+          {
+            "id": "fd0d5a6d-2471-5b99-82e6-aaecec1056c8",
+            "action_type": "visibility",
+            "field_states": {
+              "bbd780d1-19ad-5c45-8d76-5e305987ee1a": {
+                "enabled": null,
+                "visible": true
+              },
+              "1db0a424-0d3e-59c4-8094-aa42a927b22c": {
+                "enabled": null,
+                "visible": true
+              }
+            }
+          }
+        ],
+        "rule_type": "visibility",
+        "set_value": "",
+        "conditions": [
+          {
+            "id": "cond_1788778575775",
+            "value": "Yes",
+            "field_id": "eabe54a5-3f33-577e-8736-0f63e969d60d",
+            "operator": "equals"
+          }
+        ],
+        "target_field_id": "",
+        "set_value_source": "static",
+        "target_field_ids": [],
+        "set_value_field_id": "",
+        "set_value_prefill_field": ""
+      },
+      {
+        "id": "3abc6404-c05f-50df-89bc-055d18875deb",
+        "logic": "and",
+        "actions": [
+          {
+            "id": "3e4e4f3c-108b-5462-820d-e60e59608ec2",
+            "action_type": "visibility",
+            "field_states": {
+              "d4990736-7d4e-538f-82d9-7efa174d66a0": {
+                "enabled": null,
+                "visible": false
+              },
+              "283c3e29-f866-5d08-836b-ccbce3b9f791": {
+                "enabled": null,
+                "visible": false
+              },
+              "58c000ad-d1a2-5e70-8540-9b8414ad093f": {
+                "enabled": null,
+                "visible": false
+              },
+              "bead1f83-92e5-5f0e-8133-25186dee89b4": {
+                "enabled": null,
+                "visible": true
+              },
+              "bbd780d1-19ad-5c45-8d76-5e305987ee1a": {
+                "enabled": null,
+                "visible": false
+              },
+              "eabe54a5-3f33-577e-8736-0f63e969d60d": {
+                "enabled": null,
+                "visible": false
+              }
+            }
+          }
+        ],
+        "rule_type": "visibility",
+        "set_value": "",
+        "conditions": [
+          {
+            "id": "cond_1788942864431",
+            "value": "__form_not_listed__",
+            "field_id": "3606d76d-a25d-5ef4-8ced-4944556fbf37",
+            "operator": "equals"
+          }
+        ],
+        "target_field_id": "",
+        "set_value_source": "static",
+        "target_field_ids": [],
+        "set_value_field_id": "",
+        "set_value_prefill_field": ""
+      },
+      {
+        "id": "18ea11e0-ccc1-515d-8c87-6590fa0bc826",
+        "logic": "and",
+        "actions": [
+          {
+            "id": "fbd21d84-11b3-5b02-8e4b-b1dba0d545a2",
+            "action_type": "visibility",
+            "field_states": {
+              "58c000ad-d1a2-5e70-8540-9b8414ad093f": {
+                "enabled": null,
+                "visible": false
+              },
+              "bead1f83-92e5-5f0e-8133-25186dee89b4": {
+                "enabled": null,
+                "visible": true
+              },
+              "bbd780d1-19ad-5c45-8d76-5e305987ee1a": {
+                "enabled": null,
+                "visible": false
+              },
+              "eabe54a5-3f33-577e-8736-0f63e969d60d": {
+                "enabled": null,
+                "visible": false
+              }
+            }
+          }
+        ],
+        "rule_type": "visibility",
+        "set_value": "",
+        "conditions": [
+          {
+            "id": "cond_1788943315847",
+            "value": "__form_not_listed__",
+            "field_id": "283c3e29-f866-5d08-836b-ccbce3b9f791",
+            "operator": "equals"
+          }
+        ],
+        "target_field_id": "",
+        "set_value_source": "static",
+        "target_field_ids": [],
+        "set_value_field_id": "",
+        "set_value_prefill_field": ""
+      },
+      {
+        "id": "1040cbb6-c9df-5bae-8225-dae8b4444586",
+        "logic": "and",
+        "actions": [
+          {
+            "id": "bb194d8f-2c4e-588e-8ce8-cd51a626000d",
+            "action_type": "visibility",
+            "field_states": {
+              "bead1f83-92e5-5f0e-8133-25186dee89b4": {
+                "enabled": null,
+                "visible": true
+              }
+            }
+          }
+        ],
+        "rule_type": "visibility",
+        "set_value": "",
+        "conditions": [
+          {
+            "id": "cond_1788778832386",
+            "value": "__form_not_listed__",
+            "field_id": "283c3e29-f866-5d08-836b-ccbce3b9f791",
+            "operator": "equals"
+          },
+          {
+            "id": "cond_1788778885440",
+            "value": "United Kingdom",
+            "field_id": "952b5513-15a5-52b7-84ad-e9c5e307fa54",
+            "operator": "equals"
+          }
+        ],
+        "target_field_id": "",
+        "set_value_source": "static",
+        "target_field_ids": [],
+        "set_value_field_id": "",
+        "set_value_prefill_field": ""
+      },
+      {
+        "id": "6df82d0a-34e9-58ac-8da9-9866d214d8e0",
+        "logic": "and",
+        "actions": [
+          {
+            "id": "e6963e1b-09f9-56c6-8fbd-e065166067c1",
+            "action_type": "visibility",
+            "field_states": {
+              "bead1f83-92e5-5f0e-8133-25186dee89b4": {
+                "enabled": null,
+                "visible": true
+              }
+            }
+          }
+        ],
+        "rule_type": "visibility",
+        "set_value": "",
+        "conditions": [
+          {
+            "id": "cond_1788778898602",
+            "value": "__form_not_listed__",
+            "field_id": "c8b4c1c0-18e2-5215-8dee-f9b98fe88346",
+            "operator": "equals"
+          },
+          {
+            "id": "cond_1788778912284",
+            "value": "United Kingdom",
+            "field_id": "952b5513-15a5-52b7-84ad-e9c5e307fa54",
+            "operator": "not_equals"
+          }
+        ],
+        "target_field_id": "",
+        "set_value_source": "static",
+        "target_field_ids": [],
+        "set_value_field_id": "",
+        "set_value_prefill_field": ""
+      },
+      {
+        "id": "6be83293-5347-54c1-84c1-0b0161555bd9",
+        "logic": "and",
+        "actions": [
+          {
+            "id": "90204213-b261-5054-8459-2ff7a6854a15",
+            "action_type": "visibility",
+            "field_states": {
+              "3606d76d-a25d-5ef4-8ced-4944556fbf37": {
+                "enabled": null,
+                "visible": false
+              },
+              "d4990736-7d4e-538f-82d9-7efa174d66a0": {
+                "enabled": null,
+                "visible": false
+              },
+              "283c3e29-f866-5d08-836b-ccbce3b9f791": {
+                "enabled": null,
+                "visible": false
+              },
+              "bbd780d1-19ad-5c45-8d76-5e305987ee1a": {
+                "enabled": null,
+                "visible": false
+              },
+              "eabe54a5-3f33-577e-8736-0f63e969d60d": {
+                "enabled": null,
+                "visible": false
+              },
+              "c8b4c1c0-18e2-5215-8dee-f9b98fe88346": {
+                "enabled": null,
+                "visible": true
+              }
+            }
+          }
+        ],
+        "rule_type": "visibility",
+        "set_value": "",
+        "conditions": [
+          {
+            "id": "cond_1789540659727",
+            "value": "United Kingdom",
+            "field_id": "952b5513-15a5-52b7-84ad-e9c5e307fa54",
+            "operator": "not_equals"
+          },
+          {
+            "id": "cond_1789540670583",
+            "value": "",
+            "field_id": "952b5513-15a5-52b7-84ad-e9c5e307fa54",
+            "operator": "not_empty"
+          }
+        ],
+        "target_field_id": "",
+        "set_value_source": "static",
+        "target_field_ids": [],
+        "set_value_field_id": "",
+        "set_value_prefill_field": ""
+      },
+      {
+        "id": "e694c2d7-ec5d-52fc-842b-dcb6a8ed86ea",
+        "logic": "and",
+        "actions": [
+          {
+            "id": "2baeff85-2431-5e8e-8ff7-b9ee365a2c57",
+            "action_type": "visibility",
+            "field_states": {
+              "58c000ad-d1a2-5e70-8540-9b8414ad093f": {
+                "enabled": null,
+                "visible": false
+              }
+            }
+          }
+        ],
+        "rule_type": "visibility",
+        "set_value": "",
+        "conditions": [
+          {
+            "id": "cond_1789541268785",
+            "value": "United Kingdom",
+            "field_id": "952b5513-15a5-52b7-84ad-e9c5e307fa54",
+            "operator": "not_equals"
+          },
+          {
+            "id": "cond_1789541281092",
+            "value": "",
+            "field_id": "952b5513-15a5-52b7-84ad-e9c5e307fa54",
+            "operator": "not_empty"
+          },
+          {
+            "id": "cond_1789541290362",
+            "value": "",
+            "field_id": "c8b4c1c0-18e2-5215-8dee-f9b98fe88346",
+            "operator": "is_empty"
+          }
+        ],
+        "target_field_id": "",
+        "set_value_source": "static",
+        "target_field_ids": [],
+        "set_value_field_id": "",
+        "set_value_prefill_field": ""
+      }
+    ],
+    "is_active": false,
+    "require_authentication": true,
+    "mutation_access_policy": {
+      "version": 1,
+      "mode": "authenticated_owner"
+    },
+    "entity_pipelines": {},
+    "field_mappings": [],
+    "structured_actions": {
+      "version": 1,
+      "actions": []
+    },
+    "auto_create_entity": false,
+    "is_application_form": false,
+    "is_due_diligence_enabled": false,
+    "due_diligence_required": false,
+    "allow_save_continue_later": false,
+    "success_message": "Your affiliation changes have been saved.",
+    "submit_button_text": "Save affiliations",
+    "form_width": "narrow",
+    "id": "0df340f5-d3bc-5d43-8cb2-c7b6d1f21315"
+  },
+  "config": {
+    "version": 1,
+    "purpose": "profile",
+    "enabled": true,
+    "primaryOrganizationFieldIds": [
+      "283c3e29-f866-5d08-836b-ccbce3b9f791",
+      "c8b4c1c0-18e2-5215-8dee-f9b98fe88346"
+    ],
+    "primaryDepartmentsFieldId": "58c000ad-d1a2-5e70-8540-9b8414ad093f",
+    "organizationGroupFieldId": "3606d76d-a25d-5ef4-8ced-4944556fbf37",
+    "countryFieldId": "952b5513-15a5-52b7-84ad-e9c5e307fa54",
+    "siteQuestionFieldId": "d4990736-7d4e-538f-82d9-7efa174d66a0",
+    "organizationCountryFieldId": "4f8b5c47-f074-4d15-96fd-0a44f81725eb",
+    "additionalQuestionFieldId": "eabe54a5-3f33-577e-8736-0f63e969d60d",
+    "memberDepartmentDefinitionId": "0fdede92-efa2-4d84-9b16-df1a88069486",
+    "departmentOrganizationDefinitionId": "30ad9dde-4b4e-4991-a7a4-8ef2b6b5138e",
+    "additionalSitesFieldId": "bbd780d1-19ad-5c45-8d76-5e305987ee1a",
+    "secondaryOrganizationFieldId": "6653b03f-5099-5baf-8e97-c56ade36c7ea",
+    "secondaryDepartmentsFieldId": "c00d8b46-b7bd-53d4-87d6-f1408b09ada3",
+    "secondaryObjectId": "1c1cdab9-5128-4e3d-b09e-b97088ae69ba",
+    "secondaryMemberDefinitionId": "601544ca-9db9-498e-bd03-0af5e2c2e8a0",
+    "secondaryOrganizationDefinitionId": "184b26ff-c918-4162-98c4-1e16fde737ad",
+    "secondaryLabelFieldId": "26466f9a-57d3-467f-a3c9-f5adadc29fa2",
+    "unknownOrganizationId": "7f16328d-e692-4671-873a-453464071eef",
+    "secondaryLabelFieldKey": "assignment_name"
+  },
+  "references": {
+    "field_1786371332409": "952b5513-15a5-52b7-84ad-e9c5e307fa54",
+    "field_1788678540231": "c8b4c1c0-18e2-5215-8dee-f9b98fe88346",
+    "field_1787932022165": "3606d76d-a25d-5ef4-8ced-4944556fbf37",
+    "field_1788073468956": "d4990736-7d4e-538f-82d9-7efa174d66a0",
+    "field_1788075690796": "283c3e29-f866-5d08-836b-ccbce3b9f791",
+    "field_1788075892819": "58c000ad-d1a2-5e70-8540-9b8414ad093f",
+    "field_1788468466745": "bead1f83-92e5-5f0e-8133-25186dee89b4",
+    "field_1788675459698": "eabe54a5-3f33-577e-8736-0f63e969d60d",
+    "field_1788674418554": "bbd780d1-19ad-5c45-8d76-5e305987ee1a",
+    "row_field_1788674468526_amaga": "6653b03f-5099-5baf-8e97-c56ade36c7ea",
+    "row_field_1788674529062_so7ep": "c00d8b46-b7bd-53d4-87d6-f1408b09ada3",
+    "field_1788944275823": "1db0a424-0d3e-59c4-8094-aa42a927b22c"
+  },
+  "installationStatus": "prepared-only; unpublished; routing disabled; no live writes"
+}

@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import AffiliationChoice from "./AffiliationChoice";
+import FormAffiliationSettings from "./FormAffiliationSettings";
 import { EMPTY_CONFIG, affiliationChoices, affiliationValidation } from "./memberAffiliationSettingsModel.js";
 
 async function request(method, body, signal) {
@@ -21,6 +22,15 @@ async function request(method, body, signal) {
 }
 
 export default function MemberAffiliationSettings() {
+  const [formsEnabled, setFormsEnabled] = useState(null);
+  return <>
+    <FormAffiliationSettings onModeChange={setFormsEnabled} />
+    {formsEnabled === false && <LegacyMemberAffiliationSettings />}
+    {formsEnabled === true && <p className="mb-6 text-sm text-muted-foreground">Legacy relationship settings are retained. Turn off form-based updates to review or edit them.</p>}
+  </>;
+}
+
+function LegacyMemberAffiliationSettings() {
   const queryClient = useQueryClient();
   const [snapshot, setSnapshot] = useState(null);
   const [config, setConfig] = useState(EMPTY_CONFIG);

@@ -3,6 +3,7 @@ import { getTenantContext, hasAdminAccess } from './_lib/tenantContext.js';
 import { discoverMemberAffiliations } from './_lib/formMemberAffiliationConfig.js';
 import { loadProfilePolicy } from './_lib/profileAffiliations.js';
 import { validateProfileAffiliationConfig } from './_lib/profileAffiliationPolicy.js';
+import { loadProfileFormPolicy, profileFormMetadata, validateProfileFormPolicy } from './_lib/profileAffiliationForms.js';
 
 export default async function handler(req, res, deps = {}) {
   res.setHeader('Cache-Control', 'no-store');
@@ -14,6 +15,22 @@ export default async function handler(req, res, deps = {}) {
     if (!context?.isAuthenticated || context.tenantMismatch || !tenantId
       || !await (deps.hasAdminAccess || hasAdminAccess)(context)) {
       return res.status(403).json({ error: 'Administrator access required.' });
+    }
+    if (req.query?.mode === 'forms') {
+      const metadata = await profileFormMetadata(db, tenantId);
+      let policy = await loadProfileFormPolicy(db, tenantId);
+      if (req.method === 'PUT') {
+        if (!Number.isSafeInteger(req.body?.version) || req.body.version < 0) return res.status(400).json({ error: 'Reload settings before saving.' });
+        let config;
+        try { config = validateProfileFormPolicy(req.body.config, metadata); }
+        catch (error) { return res.status(400).json({ error: error.message }); }
+        const { data, error } = await db.rpc('profile_affiliation_form_policy_save', {
+          p_tenant: tenantId, p_version: req.body.version, p_config: config,
+        });
+        if (error) throw error;
+        policy = data;
+      }
+      return res.json({ ...policy, metadata });
     }
     const metadata = await (deps.discover || discoverMemberAffiliations)(db, tenantId);
     let policy = await loadProfilePolicy(db, tenantId);

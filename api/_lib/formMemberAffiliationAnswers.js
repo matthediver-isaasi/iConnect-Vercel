@@ -87,8 +87,13 @@ export function resolveMemberAffiliationAnswers({ form, snapshot, answers, hidde
       const unlistedOrganization = evidence(row, orgField, 'organization', row._row_id);
       const org = unlistedOrganization ? null : single(row[orgField]);
       if (org) {
-        if (org === primary || secondary.includes(org)) throw new Error('Each additional organisation must be distinct.');
-        secondary.push(org);
+        const duplicate = org === primary || secondary.includes(org);
+        // Profile unknown answers share a canonical fallback. Keep every row's
+        // department evidence, but persist the fallback affiliation only once.
+        if (duplicate && !(cfg.purpose === 'profile' && org === cfg.unknownOrganizationId)) {
+          throw new Error('Each additional organisation must be distinct.');
+        }
+        if (!duplicate) secondary.push(org);
       }
       const deptField = cfg.secondaryDepartmentsFieldId;
       if (supplied(row, deptField, hidden)) {
@@ -106,11 +111,11 @@ export function resolveMemberAffiliationAnswers({ form, snapshot, answers, hidde
   // them. Final validation will require an explicit administrator resolution.
   const accounted = new Set([original.primary, ...original.secondary].flatMap(currentDepartmentsFor));
   const unclassified = original.departments.filter(id => !accounted.has(id));
-  if (unclassified.length) throw new Error('Existing department affiliations need administrator review before replacement.');
+  if (unclassified.length && cfg.purpose !== 'profile') throw new Error('Existing department affiliations need administrator review before replacement.');
   const details = collectAffiliationReviewRequests(choices);
   return {
     status: details.length ? 'awaiting_review' : 'ready',
     details,
-    proposal: { primary, departments: [...new Set([...primaryDepartments, ...secondaryDepartments])], secondary },
+    proposal: { primary, departments: [...new Set([...primaryDepartments, ...secondaryDepartments, ...(cfg.purpose === 'profile' ? unclassified : [])])], secondary },
   };
 }

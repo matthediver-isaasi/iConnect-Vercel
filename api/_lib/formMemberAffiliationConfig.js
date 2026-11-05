@@ -50,6 +50,13 @@ export function assertAffiliationFormCompatibility(form) {
 export function validateMemberAffiliationConfig(form, input, metadata) {
   if (!input || input.version !== 1 || typeof input.enabled !== 'boolean') throw new Error('Invalid affiliation configuration.');
   const cfg = { version: 1, enabled: input.enabled };
+  if (input.purpose === 'profile') {
+    cfg.purpose = 'profile';
+    for (const key of ['organizationGroupFieldId', 'unknownOrganizationId', 'countryFieldId', 'siteQuestionFieldId', 'additionalQuestionFieldId']) {
+      cfg[key] = typeof input[key] === 'string' && input[key] ? input[key] : null;
+    }
+    if (!cfg.unknownOrganizationId) throw new Error('A tenant-owned unknown-organisation fallback is required.');
+  }
   const keys = ['primaryDepartmentsFieldId', 'memberDepartmentDefinitionId', 'departmentOrganizationDefinitionId',
     'additionalSitesFieldId', 'secondaryOrganizationFieldId', 'secondaryDepartmentsFieldId', 'secondaryObjectId',
     'secondaryMemberDefinitionId', 'secondaryOrganizationDefinitionId', 'secondaryLabelFieldId'];

@@ -5,6 +5,9 @@ import { resolveFormAccess } from '../_lib/formAccessPolicy.js';
 import { isFormScheduleAvailable } from '../_lib/formAvailability.js';
 import { assertAffiliationFormCompatibility } from '../_lib/formMemberAffiliationConfig.js';
 import { memberAffiliationPrefill } from '../_lib/formMemberAffiliations.js';
+import { assertProfileFormRoute } from '../_lib/profileAffiliationForms.js';
+import { normalizeOrganizationPreferenceValue } from '../_lib/organizationEligibility.js';
+import { getCountryByCode, resolveCountryToIso2 } from '../../shared/countries.js';
 
 export default async function handler(req, res, deps = {}) {
   res.setHeader('Cache-Control', 'no-store');
@@ -27,10 +30,23 @@ export default async function handler(req, res, deps = {}) {
     if (!access.allowed) return res.status(403).json({ error: 'This form is not available to your account.' });
     if (form.member_affiliation_enabled !== true) return res.status(200).json({ active: false });
     assertAffiliationFormCompatibility(form);
-    const { data: captured, error: captureError } = await db.rpc('form_member_affiliation_capture', {
+    const { data: configRow, error: configError } = await db.from('form_member_affiliation_config').select('config')
+      .eq('tenant_id', tenantId).eq('form_id', form.id).maybeSingle();
+    if (configError) throw configError;
+    const profile = configRow?.config?.purpose === 'profile';
+    const route = profile ? await assertProfileFormRoute(db, tenantId, member.id, form.id) : null;
+    const { data: captured, error: captureError } = await db.rpc(profile ? 'profile_form_affiliation_capture' : 'form_member_affiliation_capture', {
       p_tenant: tenantId, p_form: form.id, p_member: member.id,
+      ...(profile ? { p_version: route.policy.version } : {}),
     });
     if (captureError || !captured?.token || !captured?.graph || !captured?.config) throw new Error('Snapshot unavailable');
+    if (profile && captured.graph.organization_id && captured.config.organizationCountryFieldId) {
+      const { data: country, error } = await db.from('organization_preference_value').select('value')
+        .eq('organization_id', captured.graph.organization_id).eq('field_id', captured.config.organizationCountryFieldId).maybeSingle();
+      if (error) throw error;
+      const value = normalizeOrganizationPreferenceValue(country?.value);
+      captured.profile_country = getCountryByCode(resolveCountryToIso2(value))?.name || value || '';
+    }
     const prefill = memberAffiliationPrefill({ ...captured, member_id: member.id });
     return res.status(200).json({ active: true, snapshotToken: captured.token, ...prefill });
   } catch {
