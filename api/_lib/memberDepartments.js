@@ -62,9 +62,11 @@ export async function validateDepartmentIds(db, tenantId, ids) {
   return unique;
 }
 
-export async function resolveDepartmentMemberIds(db, tenantId, departmentIds) {
+// Bounded schema/selection validation shared by paginated reads and alphabet
+// aggregation. It deliberately does not enumerate department members.
+export async function resolveDepartmentFilterScope(db, tenantId, departmentIds) {
   const ids = await validateDepartmentIds(db, tenantId, departmentIds);
-  if (!ids.length) return [];
+  if (!ids.length) return null;
   const { definitionId, departmentObjectId } = await resolveMemberDepartmentDefinition(db, tenantId, { required: true });
   const { data: parentDefinitions, error: parentError } = await db.from('custom_object_relationship_definition')
     .select('id, cardinality, target_custom_object_id')
@@ -76,6 +78,13 @@ export async function resolveDepartmentMemberIds(db, tenantId, departmentIds) {
     || parentDefinitions[0].target_custom_object_id !== null) {
     throw new MemberDepartmentError('Department organisation schema is unavailable', 409);
   }
+  return { ids, definitionId, parentDefinitionId: parentDefinitions[0].id };
+}
+
+export async function resolveDepartmentMemberIds(db, tenantId, departmentIds) {
+  const scope = await resolveDepartmentFilterScope(db, tenantId, departmentIds);
+  if (!scope) return [];
+  const { ids, definitionId, parentDefinitionId } = scope;
   const [edges, parentEdges] = await Promise.all([
     pageRowsByIds(ids, (batch, from, to) => db.from('custom_object_relationship')
       .select('source_record_id, target_record_id').eq('tenant_id', tenantId)
@@ -83,7 +92,7 @@ export async function resolveDepartmentMemberIds(db, tenantId, departmentIds) {
       .in('source_record_id', batch).range(from, to)),
     pageRowsByIds(ids, (batch, from, to) => db.from('custom_object_relationship')
       .select('source_record_id, target_record_id').eq('tenant_id', tenantId)
-      .eq('relationship_definition_id', parentDefinitions[0].id).is('archived_at', null)
+      .eq('relationship_definition_id', parentDefinitionId).is('archived_at', null)
       .in('source_record_id', batch).range(from, to)),
   ]);
   const parentsByDepartment = new Map();

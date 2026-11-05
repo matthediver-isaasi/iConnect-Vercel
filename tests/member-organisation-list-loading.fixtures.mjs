@@ -308,6 +308,9 @@ export async function installListFixture(page, state) {
     }
 
     if (path === "/api/admin/members/paginated" || path === "/api/admin/organizations/paginated") {
+      if (url.searchParams.get("alphabet") === "1") {
+        return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ buckets: [], total: 0 }) });
+      }
       await waitGate("list");
       if (state.failures.list-- > 0) return json(route, { error: "Synthetic list failure" }, 503);
       const delay = Number(state.responseDelays.shift() || 0);

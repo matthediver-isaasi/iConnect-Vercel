@@ -1,5 +1,7 @@
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext } from '../../_lib/tenantContext.js';
+import { requireCrmListAccess } from '../../_lib/crmListAccess.js';
+import { memberAlphabetRecorder, sendAlphabet } from '../../_lib/crmAlphabet.js';
 import {
   parseMemberListFilters,
   validateOrganizationFilterEntries,
@@ -8,7 +10,7 @@ import {
   applyMemberListFilters,
   stripFilterJoinAliases,
 } from '../../_lib/memberListFilters.js';
-import { resolveDepartmentMemberIds, enrichMembersWithDepartments, MemberDepartmentError } from '../../_lib/memberDepartments.js';
+import { resolveDepartmentMemberIds, resolveDepartmentFilterScope, enrichMembersWithDepartments, MemberDepartmentError } from '../../_lib/memberDepartments.js';
 
 function parseRequestedFields(rawFields) {
   const value = Array.isArray(rawFields) ? rawFields.join(',') : String(rawFields || '');
@@ -48,6 +50,7 @@ export async function handlePaginatedMembers(req, res, {
   }
 
   try {
+    await requireCrmListAccess(db, tenantCtx, 'crm.members');
     const {
       page = '1',
       limit = '50',
@@ -89,6 +92,16 @@ export async function handlePaginatedMembers(req, res, {
     const filterCtx = parseMemberListFilters({ search, organizationId, departmentId, roleId, status, customFilters, organizationFilters, coreFilters });
     await resolveMemberBooleanFilterDefaults(db, tenantId, filterCtx);
     await validateOrganizationFilterEntries(db, tenantId, filterCtx);
+    if (req.query.alphabet === '1') {
+      if (!['first_name', 'last_name'].includes(sortField) || sortDir !== 'asc') return res.status(400).json({ error: 'Alphabet navigation requires name ascending' });
+      const recorder = memberAlphabetRecorder(filterCtx);
+      recorder.eq('tenant_id', tenantId).not('email', 'like', 'deleted_%@deleted.local');
+      if (drillIds.length) recorder.in('id', drillIds);
+      applyMemberListFilters(recorder, filterCtx, { tenantId });
+      const departments = filterCtx.departmentIds.length
+        ? await resolveDepartmentFilterScope(db, tenantId, filterCtx.departmentIds) : null;
+      return await sendAlphabet(res, db, { tenantId, entity: 'member', sortField, recorder, departments });
+    }
     const departmentMemberIds = filterCtx.departmentIds.length
       ? await resolveDepartments(db, tenantId, filterCtx.departmentIds) : null;
     if (departmentMemberIds && departmentMemberIds.length === 0) {

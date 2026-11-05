@@ -71,6 +71,9 @@ import {
 import FilterOperatorMenu from "@/components/FilterOperatorMenu";
 import { useSavedListViews } from "@/hooks/useSavedListViews";
 import SavedViewSwitcher from "@/components/SavedViewSwitcher";
+import CrmAlphabetBar from "@/components/CrmAlphabetBar";
+import useCrmAlphabet from "@/hooks/useCrmAlphabet";
+import { crmListParams } from "@/lib/crmAlphabet.mjs";
 
 const MEMBER_SORT_KEYS = {
   name: 'first_name',
@@ -470,6 +473,21 @@ function MembersListPageInner({ access }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const { drill: widgetDrill, drillIdsParam, clearDrill } = useWidgetDrill(searchParams, setSearchParams);
 
+  const alphabetParams = useMemo(() => crmListParams({
+    search: debouncedSearch,
+    organizationId: effectiveOrgParam,
+    departmentId: effectiveDepartmentParam,
+    roleId: effectiveRoleParam,
+    status: statusFilter,
+    sortField,
+    sortDir,
+    customFilters: customFiltersParam,
+    organizationFilters: organizationFiltersParam,
+    coreFilters: coreFiltersParam,
+  }), [debouncedSearch, effectiveOrgParam, effectiveDepartmentParam, effectiveRoleParam,
+    statusFilter, sortField, sortDir, customFiltersParam, organizationFiltersParam, coreFiltersParam]);
+
+  const memberPageQueryKey = ['members-paginated', memberInfo?.tenant_id, memberInfo?.id, currentPage, itemsPerPage, debouncedSearch, effectiveOrgParam, effectiveRoleParam, effectiveDepartmentParam, statusFilter, sortField, sortDir, customFiltersParam, organizationFiltersParam, coreFiltersParam, customFieldIdsParam, drillIdsParam];
   const {
     data: membersData,
     isLoading: membersLoading,
@@ -477,31 +495,17 @@ function MembersListPageInner({ access }) {
     isError: membersFailed,
     error: membersError,
     refetch: retryMembers,
+    isPlaceholderData: membersPlaceholder,
   } = useQuery({
-    queryKey: ['members-paginated', memberInfo?.tenant_id, memberInfo?.id, currentPage, itemsPerPage, debouncedSearch, effectiveOrgParam, effectiveRoleParam, effectiveDepartmentParam, statusFilter, sortField, sortDir, customFiltersParam, organizationFiltersParam, coreFiltersParam, customFieldIdsParam, drillIdsParam],
+    queryKey: memberPageQueryKey,
     enabled: accessChecked && filtersReady,
     keepPreviousData: true,
     queryFn: async ({ signal }) => {
       const params = new URLSearchParams({
+        ...alphabetParams,
         page: currentPage.toString(),
         limit: itemsPerPage.toString(),
-        search: debouncedSearch,
-        organizationId: effectiveOrgParam,
-        departmentId: effectiveDepartmentParam,
-        roleId: effectiveRoleParam,
-        status: statusFilter,
-        sortField,
-        sortDir
       });
-      if (customFiltersParam && customFiltersParam !== '{}') {
-        params.set('customFilters', customFiltersParam);
-      }
-      if (organizationFiltersParam && organizationFiltersParam !== '{}') {
-        params.set('organizationFilters', organizationFiltersParam);
-      }
-      if (coreFiltersParam) {
-        params.set('coreFilters', coreFiltersParam);
-      }
       params.set('fields', customFieldIdsParam);
       // A drill id list can be thousands of UUIDs — too long for a URL, so
       // it travels in a POST body while the other params stay in the query.
@@ -742,6 +746,19 @@ function MembersListPageInner({ access }) {
   const metadataError = memberCustomFieldsError || organizationCustomFieldsError;
   const resultsTransitioning =
     !filtersReady || membersFetching || membersFailed || !membersData || searchQuery !== debouncedSearch;
+
+  const alphabet = useCrmAlphabet({
+    endpoint: '/api/admin/members/paginated',
+    listKey: 'members-paginated',
+    tenantId: memberInfo?.tenant_id, userId: memberInfo?.id,
+    params: alphabetParams, drillIds: drillIdsParam,
+    enabled: accessChecked && filtersReady && ['first_name', 'last_name'].includes(sortField) && sortDir === 'asc',
+    pageSize: itemsPerPage, currentPage, setCurrentPage,
+    rawSearch: searchQuery, viewId: activeViewId,
+    pageData: membersData, pageFetching: membersFetching,
+    pageFailed: membersFailed, placeholder: membersPlaceholder,
+    pageQueryKey: memberPageQueryKey,
+  });
 
   useEffect(() => {
     setSelectedMembers([]);
@@ -1812,7 +1829,7 @@ function MembersListPageInner({ access }) {
         </aside>
 
         <main className="flex-1 flex flex-col overflow-hidden">
-          <header className="bg-white border-b border-slate-200 px-6 py-4">
+          <header className="bg-white border-b border-slate-200 px-6 py-4 overflow-x-auto shrink-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
                 {sidebarCollapsed && (
@@ -1949,6 +1966,25 @@ function MembersListPageInner({ access }) {
                   <Users className="w-4 h-4" />
                   Add {memberLabel}
                 </Button>
+                <label className="flex items-center gap-2 text-sm text-slate-600">
+                  <span>Sort</span>
+                  <select
+                    aria-label="Member name sort"
+                    data-testid="select-member-name-sort"
+                    className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm"
+                    disabled={!filtersReady}
+                    value={sortDir === 'asc' && ['first_name', 'last_name'].includes(sortField) ? sortField : 'current'}
+                    onChange={(event) => {
+                      setSortField(event.target.value);
+                      setSortDir('asc');
+                      setCurrentPage(1);
+                    }}
+                  >
+                    <option value="current" disabled>Current sort</option>
+                    <option value="first_name">First name A–Z</option>
+                    <option value="last_name">Last name A–Z</option>
+                  </select>
+                </label>
                 <div className="bg-slate-100 rounded-lg p-1 flex">
                   <Button
                     variant={viewMode === 'list' ? 'default' : 'ghost'}
@@ -2004,7 +2040,8 @@ function MembersListPageInner({ access }) {
             </div>
           )}
 
-          <div className="flex-1 overflow-auto p-6">
+          <div className="flex-1 overflow-auto p-6" ref={alphabet.containerRef}>
+            <CrmAlphabetBar navigation={alphabet} />
             {widgetDrill && (
               <div className="mb-4">
                 <WidgetDrillChip drill={widgetDrill} onClear={clearDrill} />
@@ -2101,7 +2138,8 @@ function MembersListPageInner({ access }) {
                     {paginatedMembers.map(member => (
                       <TableRow 
                         key={member.id} 
-                        className={`cursor-pointer hover:bg-slate-50 ${selectedMembers.includes(member.id) ? 'bg-blue-50' : ''}`}
+                        {...alphabet.targetProps(member.id)}
+                        className={`cursor-pointer hover:bg-slate-50 data-[alphabet-highlighted=true]:bg-blue-50 data-[alphabet-highlighted=true]:ring-2 data-[alphabet-highlighted=true]:ring-inset data-[alphabet-highlighted=true]:ring-blue-400 ${selectedMembers.includes(member.id) ? 'bg-blue-50' : ''}`}
                         onClick={() => navigate(getMemberDetailUrl(member.id))}
                         data-testid={`member-row-${member.id}`}
                       >
@@ -2138,7 +2176,8 @@ function MembersListPageInner({ access }) {
                   return (
                     <Card 
                       key={member.id} 
-                      className="cursor-pointer hover:shadow-md transition-shadow"
+                      {...alphabet.targetProps(member.id)}
+                      className="cursor-pointer hover:shadow-md transition-shadow data-[alphabet-highlighted=true]:ring-2 data-[alphabet-highlighted=true]:ring-blue-400"
                       onClick={() => navigate(getMemberDetailUrl(member.id))}
                       data-testid={`member-card-${member.id}`}
                     >
@@ -2234,7 +2273,7 @@ function MembersListPageInner({ access }) {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                      onClick={() => alphabet.manualPage(p => Math.max(1, p - 1))}
                       disabled={currentPage === 1 || membersFetching}
                       data-testid="button-member-prev-page"
                     >
@@ -2244,7 +2283,7 @@ function MembersListPageInner({ access }) {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                      onClick={() => alphabet.manualPage(p => Math.min(totalPages, p + 1))}
                       disabled={currentPage === totalPages || membersFetching}
                       data-testid="button-member-next-page"
                     >

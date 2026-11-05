@@ -41,6 +41,7 @@ export function makeResponse() {
 export const authenticatedTenant = async () => ({
   isAuthenticated: true,
   tenantId: 'tenant-1',
+  tenantUserId: 'tenant-admin-1',
 });
 
 export function selectedWith(call, optionName, expected) {

@@ -81,6 +81,9 @@ import {
 import FilterOperatorMenu from "@/components/FilterOperatorMenu";
 import { useSavedListViews } from "@/hooks/useSavedListViews";
 import SavedViewSwitcher from "@/components/SavedViewSwitcher";
+import CrmAlphabetBar from "@/components/CrmAlphabetBar";
+import useCrmAlphabet from "@/hooks/useCrmAlphabet";
+import { crmListParams } from "@/lib/crmAlphabet.mjs";
 import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
 import { useWidgetDrill, WidgetDrillChip } from "@/components/dashboard/widgetDrill";
 import {
@@ -443,6 +446,16 @@ function OrganisationsListPageInner({ access }) {
     }
   });
 
+  const alphabetParams = useMemo(() => crmListParams({
+    search: debouncedSearch,
+    sortField,
+    sortDir,
+    group: groupFilter !== 'all' ? groupFilter : undefined,
+    coreFilters: coreFiltersParam,
+    customFilters: customFiltersParam,
+  }), [debouncedSearch, sortField, sortDir, groupFilter, coreFiltersParam, customFiltersParam]);
+
+  const organizationPageQueryKey = ['organizations-crm-paginated', memberInfo?.tenant_id, memberInfo?.id, currentPage, itemsPerPage, debouncedSearch, coreFiltersParam, customFiltersParam, customFieldIdsParam, sortField, sortDir, drillIdsParam, groupFilter];
   const {
     data: orgsData,
     isLoading: orgsLoading,
@@ -450,27 +463,17 @@ function OrganisationsListPageInner({ access }) {
     isError: orgsFailed,
     error: orgsError,
     refetch: retryOrganizations,
+    isPlaceholderData: orgsPlaceholder,
   } = useQuery({
-    queryKey: ['organizations-crm-paginated', memberInfo?.tenant_id, memberInfo?.id, currentPage, itemsPerPage, debouncedSearch, coreFiltersParam, customFiltersParam, customFieldIdsParam, sortField, sortDir, drillIdsParam, groupFilter],
+    queryKey: organizationPageQueryKey,
     enabled: accessChecked && filtersReady,
     keepPreviousData: true,
     queryFn: async ({ signal }) => {
       const params = new URLSearchParams({
+        ...alphabetParams,
         page: currentPage.toString(),
         limit: itemsPerPage.toString(),
-        search: debouncedSearch,
-        sortField,
-        sortDir
       });
-      if (groupFilter && groupFilter !== 'all') {
-        params.set('group', groupFilter);
-      }
-      if (coreFiltersParam) {
-        params.set('coreFilters', coreFiltersParam);
-      }
-      if (customFiltersParam && customFiltersParam !== '{}') {
-        params.set('customFilters', customFiltersParam);
-      }
       params.set('fields', customFieldIdsParam);
       // A drill id list can be thousands of UUIDs — too long for a URL, so
       // it travels in a POST body while the other params stay in the query.
@@ -705,6 +708,19 @@ function OrganisationsListPageInner({ access }) {
   const initializationFailed = !!viewsError || (defaultNeedsMetadata && orgCustomFieldsFailed);
   const resultsTransitioning =
     !filtersReady || orgsFetching || orgsFailed || !orgsData || searchQuery !== debouncedSearch;
+
+  const alphabet = useCrmAlphabet({
+    endpoint: '/api/admin/organizations/paginated',
+    listKey: 'organizations-crm-paginated',
+    tenantId: memberInfo?.tenant_id, userId: memberInfo?.id,
+    params: alphabetParams, drillIds: drillIdsParam,
+    enabled: accessChecked && filtersReady && sortField === 'name' && sortDir === 'asc',
+    pageSize: itemsPerPage, currentPage, setCurrentPage,
+    rawSearch: searchQuery, viewId: activeViewId,
+    pageData: orgsData, pageFetching: orgsFetching,
+    pageFailed: orgsFailed, placeholder: orgsPlaceholder,
+    pageQueryKey: organizationPageQueryKey,
+  });
 
   useEffect(() => {
     setSelectedOrgs([]);
@@ -1626,7 +1642,7 @@ function OrganisationsListPageInner({ access }) {
         </aside>
 
         <main className="flex-1 flex flex-col overflow-hidden">
-          <header className="bg-white border-b border-slate-200 px-6 py-4">
+          <header className="bg-white border-b border-slate-200 px-6 py-4 overflow-x-auto shrink-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
                 {sidebarCollapsed && (
@@ -1827,7 +1843,8 @@ function OrganisationsListPageInner({ access }) {
             </div>
           )}
 
-          <div className="flex-1 overflow-auto p-6">
+          <div className="flex-1 overflow-auto p-6" ref={alphabet.containerRef}>
+            <CrmAlphabetBar navigation={alphabet} />
             {widgetDrill && (
               <div className="mb-4">
                 <WidgetDrillChip drill={widgetDrill} onClear={clearDrill} />
@@ -1916,7 +1933,8 @@ function OrganisationsListPageInner({ access }) {
                     {paginatedOrganizations.map(org => (
                       <tr 
                         key={org.id} 
-                        className={`hover:bg-slate-50 cursor-pointer transition-colors ${selectedOrgs.includes(org.id) ? 'bg-blue-50' : ''}`}
+                        {...alphabet.targetProps(org.id)}
+                        className={`hover:bg-slate-50 cursor-pointer transition-colors data-[alphabet-highlighted=true]:bg-blue-50 data-[alphabet-highlighted=true]:ring-2 data-[alphabet-highlighted=true]:ring-inset data-[alphabet-highlighted=true]:ring-blue-400 ${selectedOrgs.includes(org.id) ? 'bg-blue-50' : ''}`}
                         onClick={() => navigate(`/organisations/${org.id}`)}
                         data-testid={`row-org-${org.id}`}
                       >
@@ -2123,7 +2141,8 @@ function OrganisationsListPageInner({ access }) {
                 {paginatedOrganizations.map(org => (
                   <Card 
                     key={org.id} 
-                    className="cursor-pointer hover:shadow-md transition-shadow hover-elevate"
+                    {...alphabet.targetProps(org.id)}
+                    className="cursor-pointer hover:shadow-md transition-shadow hover-elevate data-[alphabet-highlighted=true]:ring-2 data-[alphabet-highlighted=true]:ring-blue-400"
                     onClick={() => navigate(`/organisations/${org.id}`)}
                     data-testid={`card-org-${org.id}`}
                   >
@@ -2220,7 +2239,7 @@ function OrganisationsListPageInner({ access }) {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    onClick={() => alphabet.manualPage(p => Math.max(1, p - 1))}
                     disabled={currentPage === 1}
                     data-testid="button-prev-page"
                   >
@@ -2230,7 +2249,7 @@ function OrganisationsListPageInner({ access }) {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    onClick={() => alphabet.manualPage(p => Math.min(totalPages, p + 1))}
                     disabled={currentPage === totalPages}
                     data-testid="button-next-page"
                   >

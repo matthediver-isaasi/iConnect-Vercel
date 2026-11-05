@@ -154,3 +154,4 @@
 - [Quote-backed membership accounting](quote-backed-membership-accounting.md) — paid quotes need independent invoice recovery; submission sweeps and paid-history existence are insufficient.
 - [BNMS completion approval](bnms-completion-approval.md) — returned workbook scope does not inherit historical write/date approvals; blank readiness never authorizes imports.
 - [CMS popup policy](cms-popup-policy.md) — opt-outs survive ordinary edits; one popup per history entry and same-organisation conjunctions are independent delivery rules.
+- [CRM jump cache authority](crm-jump-cache-authority.md) — exact-ID jumps must revalidate cached target pages; cache freshness is not evidence after concurrent changes.

@@ -1,40 +1,9 @@
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext } from '../../_lib/tenantContext.js';
-import { getCountryByName } from '../../../shared/countries.js';
-import {
-  normalizeCustomFilterEntry,
-  applyPrefFilterEntry,
-  prefEntryNeedsAntiJoin,
-  parseCoreFilters,
-  applyDirectColumnFilter,
-} from '../../_lib/prefValueOptionFilter.js';
-
-// Direct organization columns filterable through the coreFilters param.
-const CORE_FILTER_COLUMNS = {
-  phone: {},
-  website_url: {},
-  invoicing_email: {},
-  invoicing_address: {},
-};
-
-// Build the OR conditions matching a set of country names against
-// single-select storage (name or legacy ISO-2 code) and multi-select storage
-// (JSON array containing the name or code). Quoting the name in the ilike
-// pattern prevents substring false-positives (e.g. "Niger" vs "Nigeria").
-export function buildCountryOrConditions(names) {
-  const conditions = [];
-  for (const countryName of names) {
-    const countryRecord = getCountryByName(countryName);
-    const isoCode = countryRecord?.code;
-    conditions.push(`value.eq.${countryName}`);
-    conditions.push(`value.ilike.*"${countryName}"*`);
-    if (isoCode) {
-      conditions.push(`value.eq.${isoCode}`);
-      conditions.push(`value.ilike.*"${isoCode}"*`);
-    }
-  }
-  return conditions.join(',');
-}
+import { requireCrmListAccess } from '../../_lib/crmListAccess.js';
+import { organizationAlphabetRecorder, sendAlphabet } from '../../_lib/crmAlphabet.js';
+import { organizationListContract } from '../../_lib/organizationListFilters.js';
+export { buildCountryOrConditions } from '../../_lib/organizationListFilters.js';
 
 const DELETED_EMAIL_PATTERN = 'deleted_%@deleted.local';
 
@@ -84,6 +53,7 @@ export async function handlePaginatedOrganizations(req, res, {
   }
 
   try {
+    await requireCrmListAccess(db, tenantCtx, 'crm.organisations');
     const {
       page = '1',
       limit = '20',
@@ -120,82 +90,16 @@ export async function handlePaginatedOrganizations(req, res, {
     const offset = (pageNum - 1) * limitNum;
     const requestedFields = parseRequestedFields(fields);
 
-    // Parse custom field filters (applied at DB level so paging + totals span the
-    // whole tenant). Shape: { "<fieldId>": ["A","B"] } for option filters (OR
-    // within the field), "__text__:<substring>" / "__bool__:Yes|No" /
-    // "__country__:<name>" for the prefixed encodings, a legacy plain string
-    // from an old saved view, or an operator object like
-    // { "op": "none_of", "value": [...] } / { "op": "empty" }.
-    let parsedCustomFilters = {};
-    if (customFilters && customFilters.trim()) {
-      try {
-        const obj = JSON.parse(customFilters);
-        if (obj && typeof obj === 'object') {
-          for (const [fieldId, raw] of Object.entries(obj)) {
-            const entry = normalizeCustomFilterEntry(raw);
-            if (entry !== null) parsedCustomFilters[fieldId] = entry;
-          }
-        }
-      } catch {
-        // Ignore malformed filter param and fall back to no custom filtering
-      }
+    const { customFilterEntries, buildSelect, applyFilters } = organizationListContract({
+      search, phone, website_url, invoicing_email, invoicing_address, group, customFilters, coreFilters,
+    }, tenantId, drillIds);
+
+    if (req.query.alphabet === '1') {
+      if (sortField !== 'name' || sortDir !== 'asc') return res.status(400).json({ error: 'Alphabet navigation requires name ascending' });
+      const recorder = organizationAlphabetRecorder(customFilterEntries);
+      applyFilters(recorder);
+      return await sendAlphabet(res, db, { tenantId, entity: 'organization', sortField, recorder });
     }
-    // Cap the number of custom filters to avoid pathological query expansion.
-    const MAX_CUSTOM_FILTERS = 20;
-    const customFilterEntries = Object.entries(parsedCustomFilters).slice(0, MAX_CUSTOM_FILTERS);
-
-    // Direct-column filters with operators ({ "phone": { op, value }, ... }).
-    const coreFilterEntries = parseCoreFilters(coreFilters, CORE_FILTER_COLUMNS);
-
-    // For each active custom filter add an aliased join on
-    // organization_preference_value. Positive operators use an inner join so
-    // the join restricts (and counts) orgs across the entire tenant; negative
-    // operators use a left join whose matches are then excluded
-    // (`.is(alias, null)`), so orgs without any row also qualify.
-    const buildSelect = (base) => {
-      let sel = base;
-      customFilterEntries.forEach(([, entry], idx) => {
-        const joinType = prefEntryNeedsAntiJoin(entry) ? '!left' : '!inner';
-        sel += `, cf${idx}:organization_preference_value${joinType}(field_id, value)`;
-      });
-      return sel;
-    };
-
-    const applyFilters = (query) => {
-      query = query.eq('tenant_id', tenantId);
-      if (drillIds.length > 0) {
-        query = query.in('id', drillIds);
-      }
-      if (group === 'none') {
-        query = query.is('organization_group_id', null);
-      } else if (group && UUID_RE.test(group)) {
-        query = query.eq('organization_group_id', group);
-      }
-      customFilterEntries.forEach(([fieldId, entry], idx) => {
-        const alias = `cf${idx}`;
-        query = applyPrefFilterEntry(query, alias, fieldId, entry, {
-          buildCountryConditions: buildCountryOrConditions,
-        });
-        if (prefEntryNeedsAntiJoin(entry)) {
-          // Anti-join: keep only orgs with NO matching preference-value row.
-          query = query.is(alias, null);
-        }
-      });
-      for (const coreEntry of coreFilterEntries) {
-        query = applyDirectColumnFilter(query, coreEntry);
-      }
-      if (search && search.trim()) {
-        const term = `%${search.trim().toLowerCase()}%`;
-        query = query.or(
-          `name.ilike.${term},invoicing_email.ilike.${term},phone.ilike.${term},website_url.ilike.${term}`
-        );
-      }
-      if (phone && phone.trim()) query = query.ilike('phone', `%${phone.trim()}%`);
-      if (website_url && website_url.trim()) query = query.ilike('website_url', `%${website_url.trim()}%`);
-      if (invoicing_email && invoicing_email.trim()) query = query.ilike('invoicing_email', `%${invoicing_email.trim()}%`);
-      if (invoicing_address && invoicing_address.trim()) query = query.ilike('invoicing_address', `%${invoicing_address.trim()}%`);
-      return query;
-    };
 
     // Count non-deleted members per organisation for an arbitrary id list.
     const countMembersForOrgIds = async (orgIds) => {
