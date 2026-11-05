@@ -1,5 +1,22 @@
 # Individual membership Start / Renew
 
+## Past commencement dates and VAT confirmation — 2026-11-05
+
+With owner approval, `202612310030_member_start_past_dates.sql` was applied to
+verified live DEST (`lvmzliemqnieeoruhkik`).
+SHA256: `2b7e889275f10848a50d71161d6e44dc916823d3b1cfdd667a49d6420b6daec6`.
+The atomic creator now permits past commencement for a term that has not ended,
+rejects overlap with non-voided purchases, and reads the same exact tenant-suffixed
+tax cache as preview (including legacy null row ownership).
+Duplicate cache rows and contradictory tenant ownership fail closed.
+
+Post-application checks verified service-only execution, unchanged function
+security/search path, unchanged table grants/RLS/triggers, member locking,
+idempotency and pricing snapshot checks, expired-term rejection and idempotent
+migration replay. No business records were created or changed, and no provider
+requests or emails were made. Matching application code must still be deployed;
+database application alone does not remove the old frontend date restriction.
+
 ## Admin Invoice / No charge readiness — 2026-11-05
 
 With owner approval, `202612310025_member_start_admin_waiver.sql` was applied
