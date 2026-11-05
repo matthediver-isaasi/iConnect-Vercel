@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, Search, ArrowRight, AlertTriangle, GitMerge } from "lucide-react";
 import { toast } from "sonner";
 import { isDeletedMember } from "@/utils";
+import MemberMergeComparison from "./MemberMergeComparison";
 
 const CORE_FIELD_LABELS = {
   first_name: "First name",
@@ -38,11 +39,7 @@ function formatValue(value) {
       if (Array.isArray(arr)) return arr.join(", ");
     } catch { /* fall through */ }
   }
-  return str.length > 80 ? `${str.slice(0, 80)}…` : str;
-}
-
-function isEmptyValue(value) {
-  return value === null || value === undefined || value === "" || value === "[]";
+  return str;
 }
 
 async function apiPost(body) {
@@ -73,12 +70,12 @@ export default function MemberMergeDialog({ open, onOpenChange, currentMember, c
   const [otherMember, setOtherMember] = useState(null);
   // direction: 'into-current' => current member is the TARGET (kept), other is source
   const [direction, setDirection] = useState("into-current");
-  const [selectedCore, setSelectedCore] = useState([]);
-  const [selectedCustom, setSelectedCustom] = useState([]);
+  // Explicit choices belong to member identities, not source/target roles.
+  const [choices, setChoices] = useState({});
   const [includeEngagement, setIncludeEngagement] = useState(false);
   const [sourceDisposal, setSourceDisposal] = useState("reassign");
-  const [preview, setPreview] = useState(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewRequested, setPreviewRequested] = useState(false);
+  const disposalDefaultDirection = useRef(null);
 
   const sourceId = direction === "into-current" ? otherMember?.id : currentMember?.id;
   const targetId = direction === "into-current" ? currentMember?.id : otherMember?.id;
@@ -86,12 +83,11 @@ export default function MemberMergeDialog({ open, onOpenChange, currentMember, c
   const orgName = (orgId) => organizations.find((o) => o.id === orgId)?.name || (orgId ? "Unknown organisation" : "—");
 
   useEffect(() => {
-    if (!open) {
+      disposalDefaultDirection.current = null;
       setStep(1); setSearch(""); setOtherMember(null); setDirection("into-current");
-      setSelectedCore([]); setSelectedCustom([]); setIncludeEngagement(false);
-      setSourceDisposal("reassign"); setPreview(null);
-    }
-  }, [open]);
+      setChoices({}); setIncludeEngagement(false);
+      setSourceDisposal("reassign"); setPreviewRequested(false);
+  }, [open, currentMember?.id]);
 
   const { data: searchResults = [], isFetching: searching } = useQuery({
     queryKey: ["member-merge-search", search],
@@ -105,23 +101,45 @@ export default function MemberMergeDialog({ open, onOpenChange, currentMember, c
     },
   });
 
-  const loadPreview = async () => {
-    setPreviewLoading(true);
-    try {
-      const data = await apiPost({ action: "preview", sourceId, targetId });
-      setPreview(data);
-      // Default disposal: full merge when same org, keep-as-deleted question when different.
-      setSourceDisposal(data.sameOrganisation ? "reassign" : "anonymise");
-      setStep(2);
-    } catch (err) {
-      toast.error(err.message);
-    } finally {
-      setPreviewLoading(false);
+  const { data: preview, isFetching: previewLoading, error: previewError, refetch: retryPreview } = useQuery({
+    queryKey: ["member-merge-preview", sourceId, targetId],
+    enabled: open && previewRequested && !!sourceId && !!targetId,
+    queryFn: () => apiPost({ action: "preview", sourceId, targetId }),
+    retry: false,
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: false,
+  });
+  const previewReady = previewRequested && !previewLoading && !previewError
+    && preview?.source?.id === sourceId && preview?.target?.id === targetId;
+
+  useEffect(() => {
+    const directionKey = JSON.stringify([sourceId, targetId]);
+    // A refresh may suspend readiness, but must never replace the admin's
+    // disposal decision. Defaults belong only to a new pair/direction.
+    if (previewReady && disposalDefaultDirection.current !== directionKey) {
+      disposalDefaultDirection.current = directionKey;
+      setSourceDisposal(preview.sameOrganisation ? "reassign" : "anonymise");
     }
+  }, [sourceId, targetId, previewReady, preview?.sameOrganisation]);
+
+  const chooseOther = (member) => {
+    if (member.id !== otherMember?.id) {
+      disposalDefaultDirection.current = null;
+      setChoices({});
+      setPreviewRequested(false);
+      setIncludeEngagement(false);
+      setDirection("into-current");
+    }
+    setOtherMember(member);
   };
+  const selectedCore = (preview?.copyableCoreFields || []).filter(key => choices[`core:${key}`] === sourceId);
+  const selectedCustom = customFields.filter(field => choices[`custom:${field.id}`] === sourceId).map(field => field.id);
 
   const mergeMutation = useMutation({
-    mutationFn: () => apiPost({
+    mutationFn: () => {
+      if (!previewReady) throw new Error("Refresh the merge preview before continuing.");
+      return apiPost({
       action: "execute",
       sourceId,
       targetId,
@@ -129,7 +147,8 @@ export default function MemberMergeDialog({ open, onOpenChange, currentMember, c
       customFieldIds: selectedCustom,
       includeEngagement,
       sourceDisposal,
-    }),
+      });
+    },
     onSuccess: (result) => {
       toast.success("Members merged successfully");
       (result.warnings || []).forEach((w) => toast.warning(w));
@@ -154,11 +173,10 @@ export default function MemberMergeDialog({ open, onOpenChange, currentMember, c
       const displaySv = field === "organization_id" ? orgName(sv) : formatValue(sv);
       const displayTv = field === "organization_id" ? orgName(tv) : formatValue(tv);
       return {
-        key: field,
+        key: `core:${field}`,
+        section: "Profile fields",
         label: CORE_FIELD_LABELS[field] || field,
-        sourceValue: displaySv,
-        targetValue: displayTv,
-        deEmphasised: isEmptyValue(sv) || sv === tv,
+        values: { [source.id]: displaySv, [target.id]: displayTv },
       };
     });
   }, [preview, organizations]);
@@ -171,33 +189,16 @@ export default function MemberMergeDialog({ open, onOpenChange, currentMember, c
       const sv = srcMap[f.id];
       const tv = tgtMap[f.id];
       return {
-        key: f.id,
+        key: `custom:${f.id}`,
+        section: "Custom fields",
         label: f.label || f.name || "Custom field",
-        sourceValue: formatValue(sv),
-        targetValue: formatValue(tv),
-        deEmphasised: isEmptyValue(sv) || sv === tv,
+        values: { [source.id]: formatValue(sv), [target.id]: formatValue(tv) },
       };
     });
   }, [preview, customFields]);
 
-  const toggle = (list, setList, key) =>
-    setList(list.includes(key) ? list.filter((k) => k !== key) : [...list, key]);
-
   const sameOrg = preview?.sameOrganisation;
   const eng = preview?.sourceEngagement;
-
-  const renderComparisonRow = (row, checked, onToggle, testPrefix) => (
-    <div
-      key={row.key}
-      className={`grid grid-cols-[24px_1fr_1fr_1fr] items-center gap-2 px-2 py-1.5 rounded text-sm ${row.deEmphasised ? "opacity-50" : ""} ${checked ? "bg-blue-50" : ""}`}
-      data-testid={`${testPrefix}-${row.key}`}
-    >
-      <Checkbox checked={checked} onCheckedChange={onToggle} data-testid={`checkbox-${testPrefix}-${row.key}`} />
-      <span className="font-medium text-slate-700 truncate">{row.label}</span>
-      <span className="truncate" title={row.sourceValue}>{row.sourceValue}</span>
-      <span className="truncate text-slate-600" title={row.targetValue}>{row.targetValue}</span>
-    </div>
-  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -208,7 +209,7 @@ export default function MemberMergeDialog({ open, onOpenChange, currentMember, c
           </DialogTitle>
           <DialogDescription>
             {step === 1 && "Select the other member record involved and which record to keep."}
-            {step === 2 && "Choose which values to copy from the old (source) record onto the record you're keeping."}
+            {step === 2 && "Choose the record to keep, then select one value for each field. Yellow marks the kept record; green marks selected values."}
             {step === 3 && "Engagement statistics and what happens to the old record."}
             {step === 4 && "Review and confirm the merge."}
           </DialogDescription>
@@ -232,7 +233,7 @@ export default function MemberMergeDialog({ open, onOpenChange, currentMember, c
                 <button
                   key={m.id}
                   type="button"
-                  onClick={() => setOtherMember(m)}
+                   onClick={() => chooseOther(m)}
                   className={`w-full text-left px-3 py-2 rounded border text-sm ${otherMember?.id === m.id ? "border-blue-500 bg-blue-50" : "border-slate-200 hover:bg-slate-50"}`}
                   data-testid={`merge-candidate-${m.id}`}
                 >
@@ -266,29 +267,24 @@ export default function MemberMergeDialog({ open, onOpenChange, currentMember, c
           </div>
         )}
 
-        {step === 2 && preview && (
-          <div className="space-y-4">
-            <div className="grid grid-cols-[24px_1fr_1fr_1fr] gap-2 px-2 text-xs font-semibold text-slate-500 uppercase">
-              <span />
-              <span>Field</span>
-              <span className="flex items-center gap-1">Source (old) <ArrowRight className="w-3 h-3" /></span>
-              <span>Target (kept)</span>
-            </div>
-            <div>
-              <div className="text-sm font-semibold text-slate-800 mb-1 px-2">Profile fields</div>
-              {coreRows.map((row) => renderComparisonRow(row, selectedCore.includes(row.key), () => toggle(selectedCore, setSelectedCore, row.key), "merge-core"))}
-            </div>
-            {customRows.length > 0 && (
-              <div>
-                <div className="text-sm font-semibold text-slate-800 mb-1 px-2">Custom fields</div>
-                {customRows.map((row) => renderComparisonRow(row, selectedCustom.includes(row.key), () => toggle(selectedCustom, setSelectedCustom, row.key), "merge-custom"))}
-              </div>
-            )}
-            <p className="text-xs text-slate-500">Tick a field to copy the source value onto the kept record. Faded rows are identical or empty on the source.</p>
+        {step > 1 && !previewReady && (
+          <div role={previewError ? "alert" : "status"} className="p-3 text-sm">
+            {previewError ? <>{previewError.message} <Button variant="outline" onClick={() => retryPreview()}>Retry preview</Button></> : "Loading record comparison…"}
           </div>
         )}
+        {step === 2 && (
+          <MemberMergeComparison
+            members={[currentMember, otherMember].filter(Boolean).map(m => [source, target].find(record => record?.id === m.id) || m)}
+            targetId={targetId}
+            onTargetChange={id => setDirection(id === currentMember.id ? "into-current" : "into-other")}
+            rows={previewReady ? [...coreRows, ...customRows] : []}
+            choices={choices}
+            onChoose={(key, id) => setChoices(previous => ({ ...previous, [key]: id }))}
+            disabled={!previewReady}
+          />
+        )}
 
-        {step === 3 && preview && (
+        {step === 3 && previewReady && (
           <div className="space-y-5">
             <div className="flex items-start gap-2">
               <Checkbox
@@ -355,11 +351,11 @@ export default function MemberMergeDialog({ open, onOpenChange, currentMember, c
           </div>
         )}
 
-        {step === 4 && preview && (
+        {step === 4 && previewReady && (
           <div className="space-y-3 text-sm">
             <div className="rounded border border-slate-200 p-3 space-y-2">
               <div>
-                <span className="text-slate-500">Merging:</span>{" "}
+                <span className="text-slate-500">Merging source into kept record:</span>{" "}
                 <strong>{`${source?.first_name || ""} ${source?.last_name || ""}`.trim() || source?.email}</strong> ({source?.email})
                 {" "}<ArrowRight className="w-3 h-3 inline" />{" "}
                 <strong>{`${target?.first_name || ""} ${target?.last_name || ""}`.trim() || target?.email}</strong> ({target?.email})
@@ -398,19 +394,19 @@ export default function MemberMergeDialog({ open, onOpenChange, currentMember, c
             </Button>
           )}
           {step === 1 && (
-            <Button onClick={loadPreview} disabled={!otherMember || previewLoading} data-testid="button-merge-next-1">
+            <Button onClick={() => { setPreviewRequested(true); setStep(2); }} disabled={!otherMember} data-testid="button-merge-next-1">
               {previewLoading ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : null}
               Next
             </Button>
           )}
           {(step === 2 || step === 3) && (
-            <Button onClick={() => setStep(step + 1)} data-testid={`button-merge-next-${step}`}>Next</Button>
+            <Button onClick={() => setStep(step + 1)} disabled={!previewReady} data-testid={`button-merge-next-${step}`}>Next</Button>
           )}
           {step === 4 && (
             <Button
               variant="destructive"
               onClick={() => mergeMutation.mutate()}
-              disabled={mergeMutation.isPending}
+              disabled={mergeMutation.isPending || !previewReady}
               data-testid="button-merge-confirm"
             >
               {mergeMutation.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <GitMerge className="w-4 h-4 mr-1" />}
