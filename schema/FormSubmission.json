@@ -27,6 +27,10 @@
       "format": "email",
       "description": "Email of the submitter (if authenticated)"
     },
+    "created_member_id": {
+      "type": "string",
+      "description": "Reference to the member linked by application processing; independent of historical submitter email and answers."
+    },
     "submitted_by_name": {
       "type": "string",
       "description": "Name of the submitter (if authenticated)"

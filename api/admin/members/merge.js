@@ -24,14 +24,15 @@ const COPYABLE_CORE_FIELDS = [
 ];
 
 // member_id-style references re-pointed from source to target on a full
-// merge. Tables/columns that no longer exist are skipped (42P01 / 42703).
+// merge. Failure to move a supported reference (including schema drift) blocks
+// source disposal; missing history is not a successful reassignment.
 // Unique-constraint collisions keep the TARGET row and drop the source row.
 const REASSIGN_REFS = [
   { table: 'booking', column: 'member_id' },
   { table: 'complex_event_booking', column: 'member_id' },
   // (complex_event_session_checkin keys by booking_id — it moves with its booking)
   // (program_ticket_transaction keys by member_email — historical snapshot, out of scope)
-  { table: 'form_submission', column: 'member_id' },
+  // Only the created-member link moves; submitted email and answers are history.
   { table: 'form_submission', column: 'created_member_id' },
   { table: 'member_group_assignment', column: 'member_id', uniqueCollisions: true },
   { table: 'member_group_guest', column: 'member_id', uniqueCollisions: true },
@@ -57,8 +58,7 @@ const REASSIGN_REFS = [
   { table: 'email_campaign_recipient', column: 'member_id' },
   { table: 'member_inbox_message_state', column: 'member_id', uniqueCollisions: true },
   { table: 'member_inbox_folder', column: 'member_id', uniqueCollisions: true },
-  { table: 'support_ticket', column: 'member_id' },
-  { table: 'support_ticket_response', column: 'member_id' },
+  // Support tickets/replies use submitter_email/responder_email, not member_id.
   { table: 'workflow_log', column: 'member_id' },
   { table: 'discount_code_usage', column: 'member_id' },
   // (training_fund_transaction is organization-keyed — no member_id column)
@@ -76,15 +76,17 @@ const REASSIGN_REFS = [
   { table: 'form_submission_saved_view', column: 'member_id' },
   { table: 'discount_code', column: 'member_id' },
   { table: 'article_comment', column: 'author_member_id' },
-  { table: 'comment_reaction', column: 'member_id', uniqueCollisions: true },
+  // comment_reaction uses user_identifier + is_member, not member_id.
   { table: 'article_follow', column: 'follower_member_id', uniqueCollisions: true },
   { table: 'article_follow', column: 'followed_member_id', uniqueCollisions: true },
   // organization_note's author column is member_id (organization_id is the subject)
   { table: 'organization_note', column: 'member_id' },
   { table: 'wall_of_fame_person', column: 'member_id' },
-  { table: 'forum_thread', column: 'member_id' },
-  { table: 'forum_post', column: 'member_id' },
-  { table: 'forum_reaction', column: 'member_id', uniqueCollisions: true },
+  // Forum tables are installed separately by init-forum-tables.js. Authorship
+  // is polymorphic: never reassign tenant_user authors with a matching UUID.
+  { table: 'forum_thread', column: 'created_by', memberAuthorsOnly: true, optionalTable: true },
+  { table: 'forum_post', column: 'created_by', memberAuthorsOnly: true, optionalTable: true },
+  { table: 'forum_reaction', column: 'member_id', uniqueCollisions: true, optionalTable: true },
 ];
 
 const MISSING_CODES = new Set(['42P01', '42703']);
@@ -218,36 +220,42 @@ async function computeEngagementTotals(member, db = supabase) {
  * unique-violation fall back to per-row updates, deleting the source row
  * (keeping the target's) when an individual row collides.
  */
-async function reassignRef({ table, column }, sourceId, targetId, db = supabase) {
-  const { error } = await db
+async function reassignRef({ table, column, memberAuthorsOnly, optionalTable }, sourceId, targetId, db = supabase) {
+  const scope = query => memberAuthorsOnly ? query.eq('created_by_type', 'member') : query;
+  const { error } = await scope(db
     .from(table)
     .update({ [column]: targetId })
-    .eq(column, sourceId);
+    .eq(column, sourceId));
 
   if (!error) return { table, column, ok: true };
-  if (MISSING_CODES.has(error.code)) return { table, column, ok: true, skipped: 'missing' };
+  // Only explicitly optional relations may be absent. A missing column
+  // (42703/PGRST204), permission failure or other schema-cache error still stops
+  // disposal. PGRST205 is PostgREST's missing-table response, not missing-column.
+  if (optionalTable && ['42P01', 'PGRST205'].includes(error.code)) {
+    return { table, column, ok: true, skipped: 'optional table missing' };
+  }
 
   if (error.code !== '23505') {
     return { table, column, ok: false, error: error.message };
   }
 
   // Unique collision: per-row, keep target's row on conflict.
-  const { data: rows, error: fetchError } = await db
+  const { data: rows, error: fetchError } = await scope(db
     .from(table)
     .select('id')
-    .eq(column, sourceId);
+    .eq(column, sourceId));
   if (fetchError) return { table, column, ok: false, error: fetchError.message };
 
   let moved = 0;
   let dropped = 0;
   for (const row of rows || []) {
-    const { error: rowError } = await db
+    const { error: rowError } = await scope(db
       .from(table)
       .update({ [column]: targetId })
-      .eq('id', row.id);
+      .eq('id', row.id));
     if (!rowError) { moved += 1; continue; }
     if (rowError.code === '23505') {
-      const { error: delError } = await db.from(table).delete().eq('id', row.id);
+      const { error: delError } = await scope(db.from(table).delete().eq('id', row.id));
       if (delError) return { table, column, ok: false, error: delError.message };
       dropped += 1;
       continue;
@@ -563,7 +571,7 @@ export async function performMerge({
           },
         };
       }
-      if (!result.skipped) summary.reassigned.push(result);
+      summary.reassigned.push(result);
     }
   }
 
