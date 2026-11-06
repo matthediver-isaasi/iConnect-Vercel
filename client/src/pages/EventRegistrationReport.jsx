@@ -1789,28 +1789,61 @@ export default function EventRegistrationReport() {
     );
   };
 
-  const renderSelection = (attendee, group) => {
-    const identity = cpdRegistrationIdentity(attendee, group);
-    return <Checkbox checked={!!cpdSelection[cpdRegistrationKey(identity)]}
-      onCheckedChange={checked => toggleCpdRegistration({
-        ...identity, attendee_name: `${attendee.attendee_first_name || ""} ${attendee.attendee_last_name || ""}`.trim(),
+  const selectionRegistration = (attendee, group) => ({
+        ...cpdRegistrationIdentity(attendee, group), attendee_name: `${attendee.attendee_first_name || ""} ${attendee.attendee_last_name || ""}`.trim(),
         attendee_email: attendee.attendee_email, event_title: group.eventTitle || attendee.event_title || "Event",
         status: attendee.status,
-      }, checked === true)}
+  });
+  const selectionAvailable = canReprocessCpd && !!appliedFilters && !!reportData
+    && !isLoading && !isFetching && !reportError;
+  // Use the complete filtered groups, never the paginated slice or event list.
+  const matchingRegistrations = new Map();
+  if (selectionAvailable) {
+    for (const group of filteredGroups) {
+      for (const attendee of group.attendees) {
+        const registration = selectionRegistration(attendee, group);
+        matchingRegistrations.set(cpdRegistrationKey(registration), registration);
+      }
+    }
+  }
+  const matchingSelectedCount = [...matchingRegistrations.keys()].filter(key => !!cpdSelection[key]).length;
+  const hiddenSelectedCount = selectedCpdRegistrations.length - matchingSelectedCount;
+  const selectFilteredRegistrations = (checked) => {
+    if (!selectionAvailable) return;
+    setCpdSelection(previous => {
+      const next = { ...previous };
+      for (const [key, registration] of matchingRegistrations) {
+        if (checked) next[key] = registration;
+        else delete next[key];
+      }
+      return next;
+    });
+  };
+
+  const renderSelection = (attendee, group) => {
+    const identity = selectionRegistration(attendee, group);
+    return <Checkbox checked={!!cpdSelection[cpdRegistrationKey(identity)]}
+      disabled={!selectionAvailable}
+      onCheckedChange={checked => { if (selectionAvailable) toggleCpdRegistration(identity, checked === true); }}
       onClick={event => event.stopPropagation()}
       aria-label={`Select ${attendee.attendee_first_name || "attendee"} for bulk actions`}
       data-testid={`select-cpd-${identity.booking_source}-${attendee.id}`} />;
   };
 
   const bulkToolbar = canReprocessCpd && <div className="mb-3 rounded-md border bg-background p-3 space-y-2" aria-label="Bulk registration actions">
-    <p className="text-sm font-medium">{selectedCpdRegistrations.length} selected registrations</p>
+    <p className="text-sm font-medium">{selectedCpdRegistrations.length} selected registrations in total{hiddenSelectedCount > 0 && ` (${hiddenSelectedCount} outside current filters)`}</p>
+    <p className="text-sm">{matchingRegistrations.size} matching registrations · {matchingSelectedCount} selected in filtered results</p>
+    <p className="text-xs text-muted-foreground">Select all and Clear all apply to all filtered results across pages. Selections outside the current filters are unchanged.</p>
+    <div className="flex flex-wrap gap-2">
+      <Button variant="outline" disabled={!selectionAvailable || matchingRegistrations.size === matchingSelectedCount} onClick={() => selectFilteredRegistrations(true)}>Select all</Button>
+      <Button variant="outline" disabled={!selectionAvailable || !matchingSelectedCount} onClick={() => selectFilteredRegistrations(false)}>Clear all</Button>
+    </div>
     <p className="text-xs text-muted-foreground">Selection includes other pages and rows hidden by filters. Actions apply only to your selected registrations.</p>
     <div className="flex flex-wrap gap-2">
       <Button variant="outline" disabled={!selectedCpdRegistrations.length} onClick={() => openSelectedCpd(selectedCpdRegistrations)} data-testid="reprocess-cpd-selected">Reprocess CPD points</Button>
       <Button variant="outline" disabled={!selectedCpdRegistrations.length} onClick={() => setBulkAction({ action: "cancel", registrations: selectedCpdRegistrations })}>Request cancellation</Button>
       <Button variant="outline" disabled={!selectedCpdRegistrations.length} onClick={() => setBulkAction({ action: "certificate", registrations: selectedCpdRegistrations })}>Preview or email CPD certificate</Button>
       <Button variant="outline" disabled={!selectedCpdRegistrations.length} onClick={() => setBulkAction({ action: "survey", registrations: selectedCpdRegistrations })}>Send survey invitation</Button>
-      {selectedCpdRegistrations.length > 0 && <Button variant="ghost" onClick={() => setCpdSelection({})}>Clear selection</Button>}
     </div>
   </div>;
 
