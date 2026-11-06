@@ -179,6 +179,10 @@ async function installFixture(page, {
   roleFailure = false,
   hangRole = false,
   memberLookup = true,
+  holdMenu = false,
+  holdHierarchy = false,
+  menu = PORTAL_MENU,
+  hierarchy = [],
 } = {}) {
   const initialGate = deferred(!holdAuth);
   const state = {
@@ -194,6 +198,12 @@ async function installFixture(page, {
     writes: [],
     unexpected: [],
     external: [],
+    menuGate: deferred(!holdMenu),
+    hierarchyGate: deferred(!holdHierarchy),
+    menu,
+    hierarchy,
+    menuFailure: false,
+    hierarchyFailure: false,
     setAuth(nextBody, { hold = false } = {}) {
       state.authBody = nextBody;
       state.authGate = deferred(!hold);
@@ -236,6 +246,10 @@ async function installFixture(page, {
         login_key: 'fixture-login', always_hide: false, hide_until_login: false, shown: false });
     }
     state.requests.push(key);
+    if (url.pathname === "/api/public/homepage-route") return json(route, { target: null });
+    if (url.pathname === "/api/public/cookie-consent") return json(route, { enabled: false });
+    if (url.pathname === "/api/sales/settings") return json(route, {});
+    if (url.pathname === "/api/cms-popups") return json(route, { popups: [] });
     // Synthetic navigation activity only; never forward fixture writes.
     if (method === "PATCH" && url.pathname === `/api/entities/Member/${state.authBody?.id}`
       && Object.keys(request.postDataJSON() || {}).join() === "last_activity") {
@@ -270,8 +284,16 @@ async function installFixture(page, {
       if (state.roleFailure) return json(route, { error: "Synthetic legacy role failure" }, 503);
       return json(route, [roleFor(MEMBER_A), roleFor(MEMBER_B)]);
     }
-    if (url.pathname === "/api/entities/PortalMenu") return json(route, PORTAL_MENU);
+    if (url.pathname === "/api/entities/PortalMenu") {
+      await state.menuGate.promise;
+      return json(route, state.menuFailure ? { error: "Menu unavailable" } : state.menu, state.menuFailure ? 503 : 200);
+    }
+    if (url.pathname === "/api/entities/RoleAccessItem") {
+      await state.hierarchyGate.promise;
+      return json(route, state.hierarchyFailure ? { error: "Hierarchy unavailable" } : state.hierarchy, state.hierarchyFailure ? 503 : 200);
+    }
     if (url.pathname === "/api/reports/engagement-report") {
+      if (url.searchParams.has("settings")) return json(route, { configured: false, options: [], values: [] });
       return json(route, {
         organizations: [],
         summary: {},
@@ -371,6 +393,109 @@ function expectReadOnlyClean(state) {
   expect(state.unexpected).toEqual([]);
   expect(state.external).toEqual([]);
 }
+
+for (const mobile of [false, true]) {
+  for (const dependency of ["menu", "hierarchy"]) {
+    test(`${mobile ? "mobile" : "desktop"} recovers failed ${dependency} without fallback links`, async ({ page }) => {
+      if (mobile) await page.setViewportSize({ width: 390, height: 844 });
+      const state = await installFixture(page);
+      state[`${dependency}Failure`] = true;
+      await page.goto("/sidebar-session-role");
+      await expect(page.getByText("Verified sidebar fixture content", { exact: true })).toBeVisible();
+      if (mobile) await page.getByTestId("button-mobile-menu").click();
+      await expect(page.getByText("Navigation unavailable", { exact: true })).toBeVisible();
+      await expectNoPrivilegedNavigation(page);
+      await expect(page.getByRole("link", { name: "Buy Tickets", exact: true })).toHaveCount(0);
+      state[`${dependency}Failure`] = false;
+      await page.getByRole("button", { name: "Retry", exact: true }).click();
+      await expectReadyNavigation(page);
+      expectReadOnlyClean(state);
+    });
+  }
+  for (const dependency of ["menu", "hierarchy"]) {
+    test(`${mobile ? "mobile" : "desktop"} waits for ${dependency} before mounting any menu links`, async ({ page }) => {
+      if (mobile) await page.setViewportSize({ width: 390, height: 844 });
+      const state = await installFixture(page, {
+        holdMenu: dependency === "menu",
+        holdHierarchy: dependency === "hierarchy",
+        hierarchy: [
+          { id: "parent", item_type: "module", item_key: "fixture.user.hidden", is_active: true },
+          { id: "child", item_type: "page", item_key: "fixture.admin.ready", parent_id: "parent", is_active: true },
+        ],
+      });
+      await page.goto("/sidebar-session-role");
+      await page.evaluate(() => {
+        window.menuLeaks = [];
+        const observe = () => {
+          for (const link of document.querySelectorAll('a')) {
+            if (["Buy Tickets", "Permitted administration", "Hidden user reports"].includes(link.textContent.trim())) {
+              window.menuLeaks.push(link.textContent.trim());
+            }
+          }
+        };
+        new MutationObserver(observe).observe(document.body, { childList: true, subtree: true });
+        observe();
+      });
+      await expect(page.getByText("Verified sidebar fixture content", { exact: true })).toBeVisible();
+      if (mobile) await page.getByTestId("button-mobile-menu").click();
+      await expectNoPrivilegedNavigation(page);
+      await expect(page.getByRole("link", { name: "Buy Tickets", exact: true })).toHaveCount(0);
+      state.menuGate.release();
+      state.hierarchyGate.release();
+      await expect(permittedUser(page)).toBeVisible();
+      await expect(permittedAdmin(page)).toHaveCount(0);
+      expect(await page.evaluate(() => window.menuLeaks)).toEqual([]);
+      expectReadOnlyClean(state);
+    });
+  }
+}
+
+test("successful empty menu uses permission-filtered legacy links", async ({ page }) => {
+  const state = await installFixture(page, { menu: [], authBody: sessionBody("ready", MEMBER_A, ["commerce.buy-tickets"]) });
+  await page.goto("/sidebar-session-role");
+  await expect(page.getByRole("link", { name: "Browse Events", exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Buy Tickets", exact: true })).toHaveCount(0);
+  expectReadOnlyClean(state);
+});
+
+for (const mobile of [false, true]) {
+  test(`${mobile ? "mobile" : "desktop"} publishes saved grouping and order and retains it during navigation`, async ({ page }) => {
+    if (mobile) await page.setViewportSize({ width: 390, height: 844 });
+    const state = await installFixture(page, { menu: [
+      { id: "group", title: "My workspace group", section: "user", is_active: true, display_order: 1, icon: "Folder" },
+      { ...PORTAL_MENU[0], parent_id: "group", display_order: 2 },
+      { ...PORTAL_MENU[1], parent_id: "group", display_order: 1 },
+      PORTAL_MENU[2],
+    ] });
+    await page.goto("/sidebar-session-role");
+    if (mobile) await page.getByTestId("button-mobile-menu").click();
+    await expect(page.getByText("My workspace group", { exact: true })).toBeVisible();
+    await page.getByText("My workspace group", { exact: true }).click();
+    await expect(permittedUser(page)).toBeVisible();
+    await expect(hiddenUser(page)).toHaveCount(0);
+    const reads = state.requests.filter(r => /entities\/(PortalMenu|RoleAccessItem)/.test(r)).length;
+    await page.evaluate(() => {
+      window.navLoading = false;
+      new MutationObserver(() => {
+        if (document.querySelector('[aria-label="Loading navigation"]')) window.navLoading = true;
+      }).observe(document.body, { subtree: true, childList: true });
+      history.pushState({}, "", "/sidebar-session-role-next");
+      dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await expect(page.getByText("Verified sidebar fixture next content", { exact: true })).toBeVisible();
+    expect(await page.evaluate(() => window.navLoading)).toBe(false);
+    expect(state.requests.filter(r => /entities\/(PortalMenu|RoleAccessItem)/.test(r)).length).toBe(reads);
+    expectReadOnlyClean(state);
+  });
+}
+
+test("excluded report direct route does not mount or request report data", async ({ page }) => {
+  const state = await installFixture(page);
+  await page.goto("/OrganisationEngagementReport");
+  await expect(page).toHaveURL(/\/Preferences/);
+  await expect(page.getByRole("heading", { name: "Organisation Engagement Report", exact: true })).toHaveCount(0);
+  expect(state.requests.some(r => r.includes("/api/reports/engagement-report"))).toBe(false);
+});
 
 test("trusted ready session snapshot renders permitted desktop and mobile navigation without any Role GET", async ({ page }, testInfo) => {
   const state = await installFixture(page, { hangRole: true });

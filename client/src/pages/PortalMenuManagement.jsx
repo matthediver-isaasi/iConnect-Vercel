@@ -16,6 +16,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { usePortalNavigationScope, readNavigationRows } from "@/hooks/usePortalNavigation";
 import { createPageUrl } from "@/utils";
 import { ROLE_ACCESS_MAP } from "@/lib/roleAccessMap";
 import { getSalesPortalPages } from "@/lib/salesNavigation";
@@ -238,6 +239,7 @@ const builtInPages = [
 ];
 
 export default function PortalMenuManagementPage() {
+  const navigationScope = usePortalNavigationScope();
   const quoteNaming = useQuoteNaming();
   const viewerKey = useTicketViewerKey(null);
   const { data: voucherSettingsRows = [] } = useQuery({ queryKey: ['voucher-settings', ...viewerKey], queryFn: () => base44.entities.SystemSettings.list() });
@@ -266,8 +268,11 @@ export default function PortalMenuManagementPage() {
   }, [isFeatureExcluded, isAccessReady]);
 
   const { data: allMenuItems = [], isLoading } = useQuery({
-    queryKey: ['portal-menu'],
-    queryFn: () => base44.entities.PortalMenu.list('display_order'),
+    queryKey: ['portal-menu', ...(navigationScope || ['unverified'])],
+    enabled: !!navigationScope,
+    queryFn: () => readNavigationRows(() => base44.entities.PortalMenu.list('display_order')),
+    staleTime: Infinity,
+    retry: false,
     refetchOnMount: false
   });
   const menuItems = useMemo(() => allMenuItems.filter(item => isBnmsTenant || !isNmcReportDestination(item)), [allMenuItems, isBnmsTenant]);
@@ -327,15 +332,11 @@ export default function PortalMenuManagementPage() {
   });
 
   const { data: roleAccessItems = [] } = useQuery({
-    queryKey: ['role-access-items-for-menu'],
-    queryFn: async () => {
-      try {
-        return await base44.entities.RoleAccessItem.list();
-      } catch {
-        return [];
-      }
-    },
-    staleTime: 60 * 1000,
+    queryKey: ['role-access-items', ...(navigationScope || ['unverified'])],
+    enabled: !!navigationScope,
+    queryFn: () => readNavigationRows(() => base44.entities.RoleAccessItem.list()),
+    retry: false,
+    staleTime: Infinity,
   });
 
   const groupedRoleAccessOptions = useMemo(() => {

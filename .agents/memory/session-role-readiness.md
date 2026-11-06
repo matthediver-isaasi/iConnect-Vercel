@@ -44,6 +44,12 @@ after dismissal. Do not substitute the access hook's member-entity refresh.
 
 A session-supplied role can eliminate a second permissions request, but must remain tied to the verified member, tenant, role and session. It must still participate in explicit role-query invalidation.
 
+Portal navigation configuration and hierarchy are authority inputs, not optional decoration.
+
+**Why:** Controlled desktop/mobile response delays reproduced both legacy fallback links before saved menus arrived and links later excluded by DB parent placement. A union overlay only adds exclusions once loaded; its absence is not a safe permission result.
+
+**How to apply:** Distinguish successful empty configuration from failed or pending reads, scope navigation authority to the verified context, and keep navigation readiness separate from established page content. Preserve management invalidation prefixes when scoping query keys.
+
 **Why:** Permanently preferring an authentication snapshot would leave navigation using old permissions after role changes. Missing role data is especially dangerous in an exclusion-based policy: an empty exclusion list means unrestricted access, not a failed lookup.
 
 **How to apply:** Keep trusted snapshots out of persisted member data, clear them on identity/auth changes, distinguish unavailable roles from valid unrestricted roles, and make failures terminal with a retry action. Preserve role invalidation when optimizing the first read.

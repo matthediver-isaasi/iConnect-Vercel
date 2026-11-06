@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { usePortalNavigationScope, readNavigationRows } from "@/hooks/usePortalNavigation";
 import { base44 } from "@/api/base44Client";
 import { supabase } from "@/api/supabaseClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -71,6 +72,7 @@ const MODULE_ICONS = {
 };
 
 export default function RoleManagementPage() {
+  const navigationScope = usePortalNavigationScope();
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const { branding } = useTenantBranding();
   const [editingRole, setEditingRole] = useState(null);
@@ -150,9 +152,11 @@ export default function RoleManagementPage() {
 
   // Fetch dynamic role access configuration from database
   const { data: roleAccessItems = [] } = useQuery({
-    queryKey: ['role-access-items'],
-    queryFn: () => base44.entities.RoleAccessItem.list(),
-    staleTime: 60000
+    queryKey: ['role-access-items', ...(navigationScope || ['unverified'])],
+    enabled: !!navigationScope,
+    queryFn: () => readNavigationRows(() => base44.entities.RoleAccessItem.list()),
+    retry: false,
+    staleTime: Infinity
   });
 
   // Build access map from database items or fall back to hardcoded ROLE_ACCESS_MAP

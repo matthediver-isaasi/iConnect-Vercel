@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useCallback, useMemo, useRef } fro
 import { RouteLayoutContext } from './RouteLayoutContext';
 import { canvasSnapshotMatchesMember, EMPTY_CANVAS_MEMBER_VALUES, getCanvasMemberValues } from '../lib/canvasViewerValues';
 import { memberRoleIdentityKey } from '../lib/memberSessionRole';
+import { setDbRoleAccessOverlay } from '../lib/roleVisibility';
 export { usePageLayoutDecision } from './RouteLayoutContext';
 
 const LayoutContext = createContext({
@@ -108,7 +109,10 @@ export function LayoutProvider({ children }) {
     // Clear synchronously on an identity/role boundary, but do not erase a
     // freshly published role when Layout commits the same validated member a
     // second time after a delayed auth response.
-    if (identityChanged) setMemberRoleState(null);
+    if (identityChanged) {
+      setMemberRoleState(null);
+      setDbRoleAccessOverlay(null);
+    }
     setMemberInfoState(value);
   }, []);
 
@@ -136,6 +140,7 @@ export function LayoutProvider({ children }) {
 
   const setSessionValidated = useCallback((value) => {
     if (!value) {
+      setDbRoleAccessOverlay(null);
       setCanvasMemberSnapshot(null);
       setSessionRoleSnapshotState(null);
       setMemberRoleState(null);
@@ -145,6 +150,7 @@ export function LayoutProvider({ children }) {
 
   const setAuthResolved = useCallback((value) => {
     if (!value) {
+      setDbRoleAccessOverlay(null);
       setCanvasMemberSnapshot(null);
       setSessionRoleSnapshotState(null);
       setMemberRoleState(null);

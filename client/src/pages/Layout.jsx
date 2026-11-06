@@ -37,7 +37,7 @@ import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
 import { BUILTIN_MEMBER_ALIASES } from "@shared/memberAliases.js";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
-import { isResourceExcluded, setDbRoleAccessOverlay } from "@/lib/roleVisibility";
+import { isResourceExcluded as isResourceExcludedWithOverlay, buildOverlayHierarchy, setDbRoleAccessOverlay } from "@/lib/roleVisibility";
 import { migrateLegacyFeatureId } from "@/lib/roleAccessMap";
 import { buildPortalNavBackgroundStyle } from "@/lib/canvasBackground";
 import { SALES_DESTINATIONS } from "@/lib/salesNavigation";
@@ -105,6 +105,7 @@ import dougalAvatar from "/dougal-avatar.webp";
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from "@/api/base44Client";
 import { useSessionMemberRole } from "@/hooks/useSessionMemberRole";
+import { usePortalNavigation } from "@/hooks/usePortalNavigation";
 import {
   createSessionRoleKey,
   normalizeSessionRoleSnapshot,
@@ -1419,48 +1420,24 @@ function renderAiLauncher(mobile = false) {
   );
 }
 
-// Task #3349: fetch the role_access_item DB tree so exclusion matching can
-// resolve an item's parent page/module as the Role Management UI displays it
-// (union with the hardcoded map — see roleVisibility.setDbRoleAccessOverlay).
-// Same query key as RoleManagement so react-query dedupes the fetch.
-const { data: roleAccessItemsForOverlay } = useQuery({
-  queryKey: ['role-access-items'],
-  enabled: !!memberInfo,
-  staleTime: 60000,
-  queryFn: async () => {
-    try {
-      return await base44.entities.RoleAccessItem.list();
-    } catch (error) {
-      console.error('Error loading role access items for nav overlay:', error);
-      return [];
-    }
-  },
-});
-
-// Install the overlay synchronously during render so nav filtering below in
-// this same render pass already sees the DB placement (no post-effect flash).
-useMemo(() => {
-  if (roleAccessItemsForOverlay !== undefined) {
-    setDbRoleAccessOverlay(roleAccessItemsForOverlay);
-  }
-}, [roleAccessItemsForOverlay]);
-
-// Fetch the current member's group assignments to determine whether they are a
-// group admin of at least one (non-expired) group. Group admins get an
-// additional grant path to the Support page even when their role excludes it.
-const { data: myGroupAssignments = [], isFetched: groupAssignmentsFetched } = useQuery({
-  queryKey: ['member-group-assignments-self', memberInfo && memberInfo.id],
-  enabled: !!(memberInfo && memberInfo.id),
-  queryFn: async () => {
-    if (!memberInfo || !memberInfo.id) return [];
-    try {
-      return await base44.entities.MemberGroupAssignment.filter({ member_id: memberInfo.id });
-    } catch (error) {
-      console.error('Error loading member group assignments:', error);
-      return [];
-    }
-  },
-});
+const navigation = usePortalNavigation(roleStatus);
+const navigationStatus = navigation.status;
+const navigationError = roleStatus === 'ready' ? navigation.error : roleError;
+const retryNavigation = roleStatus === 'ready' ? navigation.retry : retryRole;
+const dynamicNavItems = navigation.menu;
+const myGroupAssignments = navigation.groups;
+const groupAssignmentsFetched = navigation.groupsFetched;
+const viewableCustomObjects = navigation.objects;
+const viewableCustomObjectsFetched = navigation.objectsFetched;
+// Replace, including with an empty overlay, on every authority transition.
+// No asynchronous completion callback may mutate this singleton.
+setDbRoleAccessOverlay(navigation.hierarchy);
+const navigationOverlay = useMemo(() => buildOverlayHierarchy(navigation.hierarchy), [navigation.hierarchy]);
+// Filtering uses this render's hierarchy, not mutable global ownership.
+const isResourceExcluded = React.useCallback(
+  (excluded, resourceId) => isResourceExcludedWithOverlay(excluded, resourceId, undefined, navigationOverlay),
+  [navigationOverlay],
+);
 
 // True when the current member has at least one MemberGroupAssignment with
 // is_group_admin === true and no expiry (or an expiry in the future). Expiry is
@@ -1474,36 +1451,6 @@ const isCurrentMemberGroupAdmin = useMemo(() => {
   });
 }, [myGroupAssignments]);
 
-// Fetch dynamic navigation items from database - only for authenticated users
-// Unauthenticated users use public navigation items instead
-const { data: dynamicNavItems = [] } = useQuery({
-  queryKey: ['portal-menu', !!memberInfo],
-  refetchOnMount: false,
-  enabled: !!memberInfo,
-  queryFn: async () => {
-    try {
-      const data = await base44.entities.PortalMenu.list({ 
-        sort: { display_order: 'asc' } 
-      });
-      return data || [];
-    } catch (error) {
-      console.error('Error loading PortalMenu:', error);
-      return [];
-    }
-  },
-});
-
-// Resolve object-scoped menu visibility through the same catalogue grant used
-// by direct Custom Object routes. Fail closed while loading or on an error.
-const {
-  data: viewableCustomObjects = [],
-  isFetched: viewableCustomObjectsFetched,
-} = useQuery({
-  queryKey: ['custom-objects-for-portal-navigation', memberInfo?.id],
-  enabled: !!memberInfo,
-  retry: false,
-  queryFn: () => loadViewableCustomObjectPortalDestinations(),
-});
 const viewableCustomObjectIds = useMemo(
   () => new Set(viewableCustomObjects.map(object => object.objectId)),
   [viewableCustomObjects],
@@ -1737,7 +1684,7 @@ useEffect(() => {
     
     // Use the new hierarchical checking that handles legacy IDs and module/page/feature hierarchy
     return isResourceExcluded(allExclusions, featureId);
-  }, [memberInfo, roleStatus, viewableCustomObjectIds, isCurrentMemberGroupAdmin, memberRole, isBnmsTenant, sessionValidated]);
+  }, [memberInfo, roleStatus, viewableCustomObjectIds, isCurrentMemberGroupAdmin, memberRole, isBnmsTenant, sessionValidated, isResourceExcluded]);
 
   // Unread inbox summary for the nav bell badge AND the login popup. Only
   // fetched for members who can reach the inbox, so excluded members never hit a
@@ -1986,7 +1933,7 @@ useEffect(() => {
       return isResourceExcluded(allExclusions, featureId);
     };
     setContextIsFeatureExcluded(isFeatureExcludedFn);
-  }, [memberInfo, memberRole, roleStatus, isCurrentMemberGroupAdmin, setContextIsFeatureExcluded]);
+  }, [memberInfo, memberRole, roleStatus, isCurrentMemberGroupAdmin, setContextIsFeatureExcluded, isResourceExcluded]);
 
   // Update context with reloadMemberInfo function
   const latestReloadMemberInfo = useRef(reloadMemberInfo);
@@ -3077,14 +3024,14 @@ useEffect(() => {
             
             <SidebarContent ref={sidebarContentRef} className="p-3 group-data-[collapsible=icon]:px-1">
               {/* Form Submission Stats Bar - shows for users with FormSubmissions access */}
-              <SubmissionStatsBar />
+              {navigationStatus === 'ready' && <SubmissionStatsBar />}
 
               {/* Task #2363: Member AI Knowledge Assistant launcher, pinned at top of nav */}
-              {renderAiLauncher()}
+              {navigationStatus === 'ready' && renderAiLauncher()}
               
               {/* Only render navigation once role data is loaded */}
-              {roleStatus !== 'ready' ? (
-                <NavigationRoleState status={roleStatus} error={roleError} onRetry={retryRole} />
+              {navigationStatus !== 'ready' ? (
+                <NavigationRoleState status={navigationStatus} error={navigationError} onRetry={retryNavigation} />
               ) : (
                 <>
               {/* Only show organization info for regular members - hidden when sidebar is collapsed */}
@@ -3343,7 +3290,7 @@ useEffect(() => {
                 </SheetHeader>
                 
                 <ScrollArea className="flex-1 p-3">
-                  {renderAiLauncher(true)}
+                  {navigationStatus === 'ready' && renderAiLauncher(true)}
                   {/* Member Info Section */}
                   {memberInfo && !memberInfo.is_team_member && organizationInfo && (
                     <div className="mb-4">
@@ -3367,8 +3314,8 @@ useEffect(() => {
                     </div>
                   )}
 
-                  {roleStatus !== 'ready' ? (
-                    <NavigationRoleState status={roleStatus} error={roleError} onRetry={retryRole} />
+                  {navigationStatus !== 'ready' ? (
+                    <NavigationRoleState status={navigationStatus} error={navigationError} onRetry={retryNavigation} />
                   ) : (
                     <>
                   {/* Navigation Section */}

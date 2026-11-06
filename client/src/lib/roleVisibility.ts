@@ -30,7 +30,7 @@ export interface RoleAccessItemRow {
   is_active?: boolean | null;
 }
 
-interface OverlayHierarchy {
+export interface OverlayHierarchy {
   moduleIds: Set<string>;
   pageIds: Set<string>;
   featureToPage: Map<string, string>;
@@ -86,13 +86,13 @@ export function getDbRoleAccessOverlay(): OverlayHierarchy | null {
   return dbOverlay;
 }
 
-function overlayParentMatch(normalizedId: string, normalizedExcluded: string[]): boolean {
-  if (!dbOverlay) return false;
+function overlayParentMatch(normalizedId: string, normalizedExcluded: string[], overlay = dbOverlay): boolean {
+  if (!overlay) return false;
   // Parent page (for features) as placed in the DB tree
-  const pageId = dbOverlay.featureToPage.get(normalizedId);
+  const pageId = overlay.featureToPage.get(normalizedId);
   if (pageId && normalizedExcluded.includes(pageId)) return true;
   // Parent module (for pages and features) as placed in the DB tree
-  const moduleId = dbOverlay.resourceToModule.get(normalizedId);
+  const moduleId = overlay.resourceToModule.get(normalizedId);
   if (moduleId && normalizedExcluded.includes(moduleId)) return true;
   return false;
 }
@@ -100,7 +100,8 @@ function overlayParentMatch(normalizedId: string, normalizedExcluded: string[]):
 export function isResourceExcluded(
   excludedResources: string[] | null | undefined,
   resourceId: string,
-  accessMap?: Module[]
+  accessMap?: Module[],
+  overlay: OverlayHierarchy | null = dbOverlay,
 ): boolean {
   if (!excludedResources || !Array.isArray(excludedResources) || excludedResources.length === 0) {
     return false;
@@ -144,7 +145,7 @@ export function isResourceExcluded(
   }
 
   // DB-tree overlay match (Task #3349): parents as placed in role_access_item.
-  if (overlayParentMatch(normalizedId, normalizedExcluded)) {
+  if (overlayParentMatch(normalizedId, normalizedExcluded, overlay)) {
     return true;
   }
 

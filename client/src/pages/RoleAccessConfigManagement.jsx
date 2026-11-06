@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef } from 'react';
+import { usePortalNavigationScope, readNavigationRows } from "@/hooks/usePortalNavigation";
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
@@ -197,6 +198,7 @@ function ItemKeyCombobox({ type, value, onChange, existingKeys = [], dynamicPage
 }
 
 export default function RoleAccessConfigManagement() {
+  const navigationScope = usePortalNavigationScope();
   const { branding } = useTenantBranding();
   const tenantDefaults = useMemo(
     () => filterNmcRoleAccessMap(ROLE_ACCESS_MAP, branding?.id),
@@ -210,8 +212,11 @@ export default function RoleAccessConfigManagement() {
   const queryClient = useQueryClient();
 
   const { data: accessItems = [], isLoading, error } = useQuery({
-    queryKey: ['role-access-items'],
-    queryFn: () => base44.entities.RoleAccessItem.list(),
+    queryKey: ['role-access-items', ...(navigationScope || ['unverified'])],
+    enabled: !!navigationScope,
+    staleTime: Infinity,
+    queryFn: () => readNavigationRows(() => base44.entities.RoleAccessItem.list()),
+    retry: false,
   });
   const visibleAccessItems = useMemo(
     () => filterNmcRoleAccessItems(accessItems, branding?.id),
