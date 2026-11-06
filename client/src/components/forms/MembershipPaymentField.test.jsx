@@ -236,6 +236,61 @@ async function mountRenewal(quote, postResponse = { released: true }, afterRelea
 const click = async button => act(async () => { assert.ok(button); button.click(); });
 const continueToPayment = async host => click([...host.querySelectorAll('button')].find(button => button.textContent === 'Continue to payment'));
 
+test('rendered renewal Direct Debit choices stay concise before and after selection; consent stays separate', async () => {
+  for (const pricing_policy of ['fixed', 'dynamic']) {
+    const mounted = await mountRenewal({
+      ...renewalQuote(),
+      directDebit: { monthlyAmount: 3.92, currency: 'GBP', instalmentCount: 12, planTotal: 47,
+        firstCollectionRule: 'nominated_day', collectionDay: 21, scope: 'member',
+        collectionPolicy: { end_policy: 'continue', pricing_policy } },
+      renewal: { state: 'eligible_renewal', eligible: true },
+    });
+    try {
+      const card = () => mounted.card('direct_debit');
+      assert.equal(card().getAttribute('aria-pressed'), 'false');
+      assert.equal(card().textContent, 'Pay monthly by Direct Debit£3.92/month');
+      await click(card());
+      assert.equal(card().getAttribute('aria-pressed'), 'true');
+      assert.equal(card().textContent, 'Pay monthly by Direct Debit£3.92/month');
+      assert.equal(mounted.posts.length, 0);
+      await continueToPayment(mounted.host);
+      assert.ok(mounted.host.querySelector('[data-testid="button-direct-debit-payment"]'));
+      const consent = mounted.host.querySelector('[data-testid="text-dd-first-collection-payment"]');
+      assert.match(consent.textContent, /21st/);
+      assert.match(consent.textContent, /Collections continue/);
+      assert.match(consent.textContent, pricing_policy === 'dynamic' ? /amount can change.*provider processing/ : /fixed for this membership term/);
+      assert.equal(mounted.posts.length, 0);
+    } finally { await mounted.close(); }
+  }
+});
+
+test('rendered credit choices retain first-month estimates and unavailable estimates, then restore the monthly rate', async () => {
+  const { renewalOptions } = await import('./MembershipPaymentField.jsx');
+  const { default: Chooser } = await import('./RenewalMethodChooser.jsx');
+  for (const count of [12, null]) {
+    const host = document.createElement('div'); document.body.append(host);
+    const root = createRoot(host);
+    const quote = { ...renewalQuote(), totalWithVat: 47,
+      directDebit: { monthlyAmount: 3.92, instalmentCount: count, currency: 'GBP' } };
+    const render = async (vouchers, selectedMethod) => act(async () => {
+      root.render(<Chooser options={renewalOptions(quote, vouchers)} selectedMethod={selectedMethod}
+        onSelect={id => { assert.equal(id, 'direct_debit'); }} />);
+    });
+    try {
+      for (const selected of [null, 'direct_debit']) {
+        await render([{ id: 'credit', value: 32.79 }], selected);
+        const card = [...host.querySelectorAll('button')].find(b => b.textContent.startsWith('Pay monthly by Direct Debit'));
+        assert.equal(card.textContent, 'Pay monthly by Direct Debit' + (count
+          ? '£1.18 first month after credit (estimate)' : 'Credit estimate unavailable'));
+        assert.equal(card.getAttribute('aria-pressed'), String(selected === 'direct_debit'));
+        await click(card);
+      }
+      await render([], 'direct_debit');
+      assert.ok([...host.querySelectorAll('button')].some(b => b.textContent === 'Pay monthly by Direct Debit£3.92/month'));
+    } finally { await act(async () => root.unmount()); host.remove(); }
+  }
+});
+
 test('class mapping and saved form identity accompany quotes and every payment method', async () => {
   for (const method of ['upfront', 'monthly_card', 'direct_debit']) {
     const mounted = await mountRenewal({
@@ -571,7 +626,7 @@ test('Continue refreshes amount, terms and method availability on the choices st
       assert.equal(mounted.posts.length, 0, 'review cannot create or charge a payment');
       if (change === 'amount') assert.match(mounted.host.textContent, /137\.42/);
       if (change === 'dates') assert.match(mounted.host.textContent, /14\/01\/2028/);
-      if (change === 'monthly terms') assert.match(mounted.card('direct_debit').textContent, /11 monthly payments/);
+      if (change === 'monthly terms') assert.equal(mounted.card('direct_debit').textContent, 'Pay monthly by Direct Debit£10.00/month');
       if (change === 'method') assert.equal(mounted.card('upfront'), undefined);
     } finally { await mounted.close(); }
   }

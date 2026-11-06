@@ -1,14 +1,16 @@
 import { test, expect } from '@playwright/test';
 
-test('renewal choices stack on mobile and support keyboard selection and safe continuation', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
+for (const width of [390, 1280]) {
+for (const pricing_policy of ['fixed', 'dynamic']) {
+test(`concise ${pricing_policy} renewal choices at ${width}px support safe continuation`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 844 });
   const source = await (await page.request.get('/src/components/forms/MembershipPaymentField.jsx')).text();
   const reactPath = source.match(/from "([^"]+\/react\.js[^"]*)"/)?.[1];
   expect(reactPath).toBeTruthy();
   const clientPath = reactPath.replace(/react\.js/, 'react-dom_client.js');
   const posts = [];
   let selected = true;
-  await page.route('**/api/**', async route => {
+  await page.route(url => url.pathname.startsWith('/api/'), async route => {
     const request = route.request();
     if (request.method() === 'POST') {
       posts.push(request.postDataJSON());
@@ -19,7 +21,9 @@ test('renewal choices stack on mobile and support keyboard selection and safe co
       membershipYear: '2027', finalCost: 120, totalWithVat: 120, currency: 'GBP',
       stripeEnabled: true, stripePublishableKey: 'fixture',
       cardMonthly: { monthlyAmount: 10, instalmentCount: 12, planTotal: 120 },
-      directDebit: { monthlyAmount: 10, instalmentCount: 12, planTotal: 120, scope: 'member' },
+      directDebit: { monthlyAmount: 3.92, instalmentCount: 12, planTotal: 47, scope: 'member',
+        firstCollectionRule: 'nominated_day', collectionDay: 21,
+        collectionPolicy: { end_policy: 'continue', pricing_policy } },
       renewal: selected
         ? { state: 'renewal_pending', selectedMethod: 'monthly_card', electionId: 'fixture', switchState: 'idle' }
         : { state: 'eligible_renewal', eligible: true, quoteKey: 'fresh' },
@@ -47,22 +51,37 @@ test('renewal choices stack on mobile and support keyboard selection and safe co
   const monthly = page.getByRole('button', { name: /Pay monthly by card/ });
   const dd = page.getByRole('button', { name: /Pay monthly by Direct Debit/ });
   await expect(monthly).toHaveAttribute('aria-pressed', 'true');
+  await expect(dd).toHaveText('Pay monthly by Direct Debit£3.92/month');
+  await expect(dd).toHaveAttribute('aria-pressed', 'false');
   await expect(page.getByText(/in progress/i)).toHaveCount(0);
   const boxes = await Promise.all([upfront, monthly, dd].map(locator => locator.boundingBox()));
-  expect(boxes[1].y).toBeGreaterThanOrEqual(boxes[0].y + boxes[0].height);
-  expect(boxes[2].y).toBeGreaterThanOrEqual(boxes[1].y + boxes[1].height);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  if (width < 768) {
+    expect(boxes[1].y).toBeGreaterThanOrEqual(boxes[0].y + boxes[0].height);
+    expect(boxes[2].y).toBeGreaterThanOrEqual(boxes[1].y + boxes[1].height);
+  } else {
+    expect(boxes[1].y).toBe(boxes[0].y);
+    expect(boxes[1].x).toBeGreaterThan(boxes[0].x);
+  }
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
   await upfront.focus();
   await page.keyboard.press('Tab');
   await expect(monthly).toBeFocused();
   expect(await monthly.evaluate(el => getComputedStyle(el).boxShadow)).not.toBe('none');
   await page.keyboard.press('Enter');
-  await expect(page.getByTestId('button-monthly-card-payment')).toBeVisible();
+  await expect(page.getByTestId('button-monthly-card-payment')).toHaveCount(0);
   expect(posts).toHaveLength(0);
   await dd.focus();
   await page.keyboard.press('Space');
   await expect(dd).toHaveAttribute('aria-pressed', 'true');
+  await expect(dd).toHaveText('Pay monthly by Direct Debit£3.92/month');
+  expect(posts).toHaveLength(0);
+  await page.screenshot({ path: `generated-artifacts/renewal-choices-${pricing_policy}-${width}.png`, fullPage: true });
+  await page.getByRole('button', { name: 'Continue to payment', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('Review the updated amount');
+  await page.getByRole('button', { name: 'Continue to payment', exact: true }).click();
   await expect(page.getByTestId('text-dd-first-collection-payment')).toBeVisible();
+  await expect(page.getByTestId('text-dd-first-collection-payment')).toContainText('Collections continue');
   expect(posts.map(post => post.action)).toEqual(['change_renewal_payment_method']);
-  await page.screenshot({ path: 'generated-artifacts/renewal-choices-mobile.png', fullPage: true });
 });
+}
+}

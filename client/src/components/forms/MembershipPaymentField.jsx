@@ -26,8 +26,7 @@ export function renewalOptions(data, vouchers = []) {
         details: 'One card payment for this membership term.' },
     data.cardMonthly && { id: 'monthly_card', label: 'Pay monthly by card', price: `${formatCurrency(data.cardMonthly.monthlyAmount, data.cardMonthly.currency || data.currency)}/month`,
       details: `${monthlyTerms(data.cardMonthly)}${!isRestartRenewal(data.renewal) && data.cardMonthly.firstChargeDate ? ` First charge: ${formatMembershipDate(data.cardMonthly.firstChargeDate)}.` : ''}` },
-    data.directDebit && { id: 'direct_debit', label: 'Pay monthly by Direct Debit', price: `${formatCurrency(data.directDebit.monthlyAmount, data.directDebit.currency || data.currency)}/month`,
-      details: `${directDebitHasFixedTermTotal(data.directDebit) ? monthlyTerms(data.directDebit) : 'The current monthly rate can change; no fixed total applies.'} ${!isRestartRenewal(data.renewal) ? directDebitFirstCollectionText(data.directDebit) : 'Collection dates will be confirmed after payment.'} ${directDebitPolicyText(data.directDebit)}` },
+    data.directDebit && { id: 'direct_debit', label: 'Pay monthly by Direct Debit', price: `${formatCurrency(data.directDebit.monthlyAmount, data.directDebit.currency || data.currency)}/month` },
   ].filter(Boolean);
   if (!vouchers.length) return options;
   const preview = renewalCreditPreview(data, vouchers);

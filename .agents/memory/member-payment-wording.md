@@ -17,3 +17,9 @@ Renewal should have one choices stage and one payment stage. Check renewal statu
 **Why:** The owner found repeated status checks, duplicated payment selectors and voucher editing during payment confusing. Any changed terms must be clearly reviewed before continuing.
 
 **How to apply:** Preserve provider verification and duplicate-payment guards underneath the simplified journey; never treat Back or a locally selected payment method as proof that an earlier payment was cancelled.
+
+Keep the renewal Direct Debit choice to its heading and quoted monthly amount (or the existing credit-estimate message), for both fixed and variable pricing.
+
+**Why:** The owner explicitly requested concise choice copy, not a billing change or removal of payment consent disclosures.
+
+**How to apply:** Keep collection timing, continuation and variable-price explanations on the separate checkout/consent surface, not the renewal choice card. Do not infer a fixed total or future-price guarantee.
