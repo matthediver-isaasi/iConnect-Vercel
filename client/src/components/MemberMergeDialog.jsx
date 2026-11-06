@@ -112,6 +112,7 @@ export default function MemberMergeDialog({ open, onOpenChange, currentMember, c
   });
   const previewReady = previewRequested && !previewLoading && !previewError
     && preview?.source?.id === sourceId && preview?.target?.id === targetId;
+  const disposalBlocked = sourceDisposal !== "keep" && preview?.disposalSafety?.success !== true;
 
   useEffect(() => {
     const directionKey = JSON.stringify([sourceId, targetId]);
@@ -139,6 +140,7 @@ export default function MemberMergeDialog({ open, onOpenChange, currentMember, c
   const mergeMutation = useMutation({
     mutationFn: () => {
       if (!previewReady) throw new Error("Refresh the merge preview before continuing.");
+      if (disposalBlocked) throw new Error(preview?.disposalSafety?.error || "Financial safety verification is incomplete.");
       return apiPost({
       action: "execute",
       sourceId,
@@ -273,6 +275,7 @@ export default function MemberMergeDialog({ open, onOpenChange, currentMember, c
             rows={previewReady ? [...coreRows, ...customRows] : []}
             choices={choices}
             memberClasses={memberClasses}
+            financialSummaries={previewReady ? preview.financialSummaries : null}
             onChoose={(key, id) => setChoices(previous => ({ ...previous, [key]: id }))}
             disabled={!previewReady}
           />
@@ -381,6 +384,15 @@ export default function MemberMergeDialog({ open, onOpenChange, currentMember, c
           </div>
         )}
 
+        {step > 1 && previewReady && disposalBlocked && (
+          <Alert variant="destructive" role="alert" className="mt-3">
+            <AlertTriangle className="w-4 h-4" />
+            <AlertDescription>
+              {preview?.disposalSafety?.error || "Financial safety verification is incomplete. Refresh the preview before removing either record."}
+              <Button variant="outline" onClick={() => retryPreview()}>Refresh verification</Button>
+            </AlertDescription>
+          </Alert>
+        )}
         </div>
         <DialogFooter className="shrink-0 gap-2">
           {step > 1 && (
@@ -401,7 +413,7 @@ export default function MemberMergeDialog({ open, onOpenChange, currentMember, c
             <Button
               variant="destructive"
               onClick={() => mergeMutation.mutate()}
-              disabled={mergeMutation.isPending || !previewReady}
+              disabled={mergeMutation.isPending || !previewReady || disposalBlocked}
               data-testid="button-merge-confirm"
             >
               {mergeMutation.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <GitMerge className="w-4 h-4 mr-1" />}

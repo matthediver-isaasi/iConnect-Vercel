@@ -2,7 +2,7 @@ import { getSessionMember } from '../../_lib/session.js';
 import { createClient } from '@supabase/supabase-js';
 import { isResourceExcluded } from '../../_lib/roleVisibility.js';
 import { anonymizeMember } from '../../_lib/memberAnonymize.js';
-import { checkMemberDeletionBilling } from '../../_lib/memberDeletionBillingSafety.js';
+import { checkMergeSourceDisposal, readMergeFinancialSummary } from '../../_lib/memberMergeFinancialSafety.js';
 import { isMemberSoftDeleted } from '../../_lib/memberLoginResolver.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -336,6 +336,13 @@ export default async function handler(req, res) {
       && source.organization_id === target.organization_id;
 
     if (action === 'preview') {
+      const [sourceFinancial, targetFinancial] = await Promise.all([
+        readMergeFinancialSummary(supabase, { tenantId: callerTenantId, memberId: sourceId }),
+        readMergeFinancialSummary(supabase, { tenantId: callerTenantId, memberId: targetId }),
+      ]);
+      const disposalSafety = await checkMergeSourceDisposal(supabase, {
+        source, target, tenantId: callerTenantId, directDebit: sourceFinancial.directDebit,
+      });
       const [sourcePrefs, targetPrefs, sourceEngagement] = await Promise.all([
         supabase.from('member_preference_value').select('field_id, value').eq('member_id', sourceId),
         supabase.from('member_preference_value').select('field_id, value').eq('member_id', targetId),
@@ -344,6 +351,8 @@ export default async function handler(req, res) {
       return res.json({
         source,
         target,
+        financialSummaries: { [sourceId]: sourceFinancial, [targetId]: targetFinancial },
+        disposalSafety,
         sourcePreferenceValues: sourcePrefs.data || [],
         targetPreferenceValues: targetPrefs.data || [],
         sourceEngagement,
@@ -395,7 +404,9 @@ export async function performMerge({
   const targetId = target.id;
   // Check before copying or moving anything: a refusal must not leave a half merge.
   if (sourceDisposal === 'anonymise' || sourceDisposal === 'reassign') {
-    const safety = await checkMemberDeletionBilling(db, { memberId: sourceId, tenantId: callerTenantId });
+    // source/target were freshly loaded by the endpoint, never accepted from
+    // the preview or request payload. Check their original emails before copies.
+    const safety = await checkMergeSourceDisposal(db, { source, target, tenantId: callerTenantId });
     if (!safety.success) return { status: safety.status, body: safety };
   }
   const warnings = [];

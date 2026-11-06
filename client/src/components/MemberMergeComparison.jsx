@@ -11,6 +11,7 @@ export default function MemberMergeComparison({
   rows,
   choices,
   memberClasses = null,
+  financialSummaries = null,
   onChoose,
   disabled = false,
 }) {
@@ -86,6 +87,22 @@ export default function MemberMergeComparison({
                       <span className="font-medium">Member class:</span> {memberClasses[member.id] || "Not set"}
                     </p>
                   )}
+                  <div className="mt-2 space-y-2 text-xs [overflow-wrap:anywhere]" data-testid={`financial-${member.id}`}>
+                    <p className="font-medium text-slate-800">
+                      {financialSummaries?.[member.id]?.membership?.state === 'active_paid'
+                        ? 'Active paid membership'
+                        : financialSummaries?.[member.id]?.membership?.state === 'none'
+                          ? 'No active paid membership' : 'Membership verification unavailable'}
+                    </p>
+                    <p className="rounded border border-blue-300 bg-blue-50 p-2 font-medium text-blue-900">
+                      Direct Debit: {financialSummaries?.[member.id]?.directDebit?.active ? 'Active mandate. ' : ''}
+                      {!financialSummaries?.[member.id]?.directDebit?.verified
+                        ? 'Verification incomplete'
+                        : financialSummaries[member.id].directDebit.statuses.length
+                          ? financialSummaries[member.id].directDebit.statuses.map(status => status.replaceAll('_', ' ')).join(', ')
+                          : 'No member-owned mandate'}
+                    </p>
+                  </div>
                   <p className="mt-2 text-xs font-medium text-slate-600">
                     {isSurvivor ? "Surviving record" : "Other record"}
                   </p>

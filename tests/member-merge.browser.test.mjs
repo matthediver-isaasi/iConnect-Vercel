@@ -16,6 +16,11 @@ const members = {
 const fields = ['first_name', 'last_name', 'email', 'mobile', 'landline', 'job_title', 'biography', 'profile_photo_url', 'linkedin_url', 'twitter_url', 'show_in_directory', 'organization_id'];
 function preview(body) {
   return { source: members[body.sourceId], target: members[body.targetId], copyableCoreFields: fields,
+    disposalSafety: { success: true },
+    financialSummaries: Object.fromEntries([body.sourceId, body.targetId].map(id => [id, {
+      membership: { state: id === 'a' ? 'active_paid' : 'none' },
+      directDebit: { active: id === 'a', verified: true, statuses: id === 'a' ? ['active'] : [] },
+    }])),
     sourcePreferenceValues: [{ field_id: 'class', value: body.sourceId === 'a' ? 'Full member' : '' }, { field_id: 'multi', value: body.sourceId === 'a' ? '["A","B"]' : '["C"]' }, { field_id: 'empty', value: '' }],
     targetPreferenceValues: [{ field_id: 'class', value: body.targetId === 'a' ? 'Full member' : '' }, { field_id: 'multi', value: body.targetId === 'a' ? '["A","B"]' : '["C"]' }, { field_id: 'empty', value: '' }],
     sourceEngagement: { eventsAttended: body.sourceId === 'a' ? 9 : 2, articlesPublished: 0, jobsPosted: 0, awards: 0, engagementAwards: 0 },
@@ -83,6 +88,33 @@ async function setup(options = {}) {
   return { page, calls };
 }
 const value = (page, field, id) => page.getByTestId(`value-${field}-${id}`);
+test('financial headers and refusal follow original records, not copied email or survivor', async () => {
+  const { page, calls } = await setup({ viewport: { width: 390, height: 640 },
+    previewHandler: async (route, body) => {
+      const data = preview(body);
+      data.disposalSafety = { success: body.sourceId !== 'a', error: 'Alice Original cannot be removed: active GoCardless mandate and different saved email.' };
+      await route.fulfill({ json: data });
+      return true;
+    },
+  });
+  try {
+    await expect(page.getByTestId('financial-a')).toContainText('Active paid membership');
+    await expect(page.getByTestId('financial-a')).toContainText('Direct Debit: Active mandate');
+    await expect(page.getByTestId('financial-b')).toContainText('No active paid membership');
+    await page.getByTestId('survivor-b').click();
+    await expect(page.getByTestId('button-merge-next-2')).toBeEnabled();
+    await value(page, 'core:email', 'a').click();
+    await page.getByTestId('button-merge-next-2').click();
+    await page.getByTestId('button-merge-next-3').click();
+    await expect(page.getByTestId('button-merge-confirm')).toBeDisabled();
+    await expect(page.getByRole('alert').filter({ hasText: 'Alice Original cannot be removed' })).toBeVisible();
+    assert.equal(calls.some(call => call.action === 'execute'), false);
+    await page.getByTestId('button-merge-back').click();
+    await page.getByTestId('radio-disposal-keep').click();
+    await page.getByTestId('button-merge-next-3').click();
+    await expect(page.getByTestId('button-merge-confirm')).toBeEnabled();
+  } finally { await page.close(); }
+});
 test('record headers show original member class below email without changing merge choices', async () => {
   const { page } = await setup();
   try {
