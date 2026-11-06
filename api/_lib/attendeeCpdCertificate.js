@@ -7,6 +7,7 @@ import { prepareCertificateSurveyLinks } from './certificateSurveyGrants.js';
 import { resolveMember, decideAttendanceEvidence } from './eventCpdBadgeService.js';
 import { resolveEffectiveCpdPointsRule } from './eventCpdPointsService.js';
 import { loadIssuedCertificate, readIssuedCertificate, awardSignature } from './issuedCpdCertificates.js';
+import { dailyCpdCertificate } from './dailyCpdCertificate.js';
 
 export const CERTIFICATE_BOOKINGS = { standard: 'booking', complex: 'complex_event_booking' };
 export const certificateFingerprint = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -156,6 +157,23 @@ export async function resolveAttendeeCertificate(db, { tenantId, bookingId, book
   const certificateIdentity = { tenantId, key: `${bookingSource}:${bookingId}` };
   const issuedCertificate = emailOnly ? null : await loadIssuedCertificate(db, tenantId, certificateIdentity.key);
   const saved = issuedCertificate?.snapshot;
+  let itemCpd = null;
+  if (!saved && !emailOnly && (event.is_training || eventType === 'complex')) {
+    const children = await db.from(eventType === 'complex' ? 'complex_event_session' : 'event_agenda_item')
+      .select('id,cpd_points').eq('tenant_id', tenantId)
+      .eq(eventType === 'complex' ? 'complex_event_id' : 'event_id', booking.event_id);
+    if (children.error) throw new Error('Daily CPD configuration could not be verified.');
+    if ((children.data || []).some(item => item.cpd_points != null)) {
+    const state = await db.rpc('item_cpd_certificate_state', {
+      p_tenant: tenantId, p_booking_type: CERTIFICATE_BOOKINGS[bookingSource],
+      p_booking: bookingId, p_event: booking.event_id,
+    });
+    if (state.error) throw new Error('Daily CPD certificate eligibility could not be verified.');
+    itemCpd = state.data;
+    if (itemCpd?.enabled && !itemCpd.ready) return { ...base,
+      reason: 'This certificate will be available after the programme ends and attendance processing is complete.' };
+    }
+  }
   let ticketId = booking.ticket_class_id;
   if (!saved && (ticketId == null || ticketId === '')) {
     let tickets = event.pricing_config?.ticket_classes || [];
@@ -232,7 +250,7 @@ export async function resolveAttendeeCertificate(db, { tenantId, bookingId, book
       // Always resolve the ledger, independently of template placeholder choices.
       // Paginate even when a deployment's REST row cap is below 500.
       for (let offset = 0; ; ) {
-        const result = await db.from('member_cpd_points_ledger').select('id,member_id,points_value,entry_kind')
+        const result = await db.from('member_cpd_points_ledger').select('id,member_id,points_value,entry_kind,rule_snapshot,reversal_of')
           .eq('tenant_id', tenantId).eq('booking_type', CERTIFICATE_BOOKINGS[bookingSource])
           .eq('booking_id', bookingId).eq('event_id', booking.event_id).eq('member_id', attendeeMemberId)
           .eq('event_type', eventType === 'simple' ? 'event' : 'complex_event')
@@ -242,7 +260,7 @@ export async function resolveAttendeeCertificate(db, { tenantId, bookingId, book
         pointsRows.push(...result.data);
         offset += result.data.length;
       }
-    } else {
+    } else if (!itemCpd?.enabled) {
       const result = await guestCertificatePoints(db, { tenantId, booking, bookingSource, eventType, ticketId });
       guestPointsEvidence = result.evidence;
       if (result.points != null) values['cpd.cpd_points'] = result.points;
@@ -251,9 +269,16 @@ export async function resolveAttendeeCertificate(db, { tenantId, bookingId, book
       const points = pointsRows.reduce((sum, row) => sum + Number(row.points_value), 0);
       if (!Number.isFinite(points)) throw new Error('The authoritative CPD points ledger contains invalid values');
       values['cpd.cpd_points'] = points;
+      const daily = dailyCpdCertificate(pointsRows);
+      if (daily) {
+        values['cpd.daily_points'] = daily.text;
+        values['cpd.cpd_points'] = daily.total;
+      }
     }
   }
-  if (attendeeMemberId && !memberCertificateId && !emailOnly && !saved && !pointsRows.length) {
+  if (itemCpd?.enabled && !pointsRows.length) return { ...base,
+    reason: 'No attended agenda item or session CPD awards have been recorded for this member.' };
+  if (!itemCpd?.enabled && attendeeMemberId && !memberCertificateId && !emailOnly && !saved && !pointsRows.length) {
     const { data: rules, error } = await db.from('event_cpd_points_rule').select('*')
       .eq('tenant_id', tenantId).eq('event_type', eventType === 'simple' ? 'event' : 'complex_event')
       .eq('event_id', booking.event_id).eq('active', true);

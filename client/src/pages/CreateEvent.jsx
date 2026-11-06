@@ -1,4 +1,5 @@
 import RegistrationAssociationConfig from "@/components/events/RegistrationAssociationConfig";
+import { serializeItemCpdPoints } from "@/lib/itemCpdPoints";
 import { normalizeRegistrationAssociationConfig, validateRegistrationAssociationConfig } from "@/lib/registrationAssociations";
 import WaitingListTimingField from "@/components/events/WaitingListTimingField";
 import EventRegistrationCommunication, { saveEventRegistrationCommunication } from "@/components/events/EventRegistrationCommunication";
@@ -785,6 +786,7 @@ export default function CreateEvent() {
             const line = orderedLines[i];
             await base44.entities.EventAgendaItem.create({
               event_id: createdEvent.id,
+              ...(isTraining ? { cpd_points: serializeItemCpdPoints(line.cpd_points) } : {}),
               start_date: line.start_date,
               start_time: normalizeAgendaTime(line.start_time) || null,
               end_date: line.end_date || line.start_date,
@@ -988,7 +990,7 @@ export default function CreateEvent() {
     // Non-training events may have an optional agenda (Task #3512) — validate
     // only when lines were added.
     if (isTraining || agendaLines.length > 0) {
-      errors.push(...validateAgendaLines(agendaLines, agendaItemTypes, attendancePolicy));
+      errors.push(...validateAgendaLines(agendaLines, agendaItemTypes, attendancePolicy, isTraining));
     }
     if (isTraining && eventTiming !== 'tbc') errors.push(...(trainingDerivedDates?.errors || []));
 
@@ -1901,6 +1903,7 @@ export default function CreateEvent() {
                   </p>
                 )}
                 <TrainingAgendaEditor
+                  isTraining={isTraining}
                   lines={agendaLines}
                   onChange={setAgendaLines}
                   agendaItemTypes={agendaItemTypes}

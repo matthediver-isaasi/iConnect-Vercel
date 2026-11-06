@@ -7,6 +7,12 @@ CPD points use a signed, append-only ledger. Never make a mutable total authorit
 
 The owner approved releasing the 64 registration-only imports for BNMS Autumn Meeting 2026 for CPD points and attendee certificate eligibility, not badge awards or automatic email sends.
 
+Simple events retain event-wide CPD. Training events configure points on agenda line items; complex events configure points per session. Daily certificate content groups actual attended-item awards and the certificate total sums those awards.
+
+**Why:** The owner explicitly distinguished these event types when requesting per-day certificate breakdowns. A configured allowance is not evidence of attendance or an earned award.
+
+**How to apply:** Preserve historical event-wide awards rather than inventing a daily split. For a positive training line allowance, require one calendar date per line; overnight complex sessions belong to their start date in the event timezone.
+
 **Why:** The original import deliberately prohibited awards; the later owner instruction explicitly changed the CPD requirement. Deleting that original hold would lose its provenance and unintentionally permit badge processing.
 
 **How to apply:** Preserve the original import evidence and separate release authority. Subsequent reprocessing must preserve existing positive awards; certificate previews are read-only and sends still require explicit confirmation and valid sender configuration.

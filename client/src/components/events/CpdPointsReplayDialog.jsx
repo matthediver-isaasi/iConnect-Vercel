@@ -266,7 +266,7 @@ export default function CpdPointsReplayDialog({ scope, scopeLabel, replayId: ini
               </tr></thead>
               <tbody>{visibleRows.map(row => <tr key={cpdRegistrationKey(row)} className="border-b last:border-0">
                 <td className="p-2"><span>{row.attendee_name || "Unnamed attendee"}</span></td>
-                {!replayId && <><td className="p-2">{row.rule ? `${row.rule.ticket_id ? "Ticket override" : "Event-wide"}: ${row.rule.no_award ? "No award" : `${formatCpdPoints(row.rule.points)} points`}` : "No rule"}</td><td className="p-2">{row.trigger === "registration" ? "Registration" : row.trigger === "attendance" ? "Verified attendance" : "—"}</td></>}
+                {!replayId && <><td className="p-2">{row.rule ? `${row.rule.scope === "attended_items" ? "Attended agenda items / sessions" : row.rule.ticket_id ? "Ticket override" : "Event-wide"}: ${row.rule.no_award ? "No award" : `${formatCpdPoints(row.rule.points)} points`}` : "No rule"}</td><td className="p-2">{row.trigger === "registration" ? "Registration" : row.trigger === "attendance" ? "Verified attendance" : "—"}</td></>}
                 <td className="p-2">{formatCpdPoints(replayId ? row.points : row.proposed_points)}</td>
                 <td className="p-2">{LABELS[row.detail === "registration_only_hold" ? row.detail : row.status || row.outcome] || row.status || row.outcome}{outcomeReason(row) && <span className="block text-xs text-muted-foreground">{outcomeReason(row)}</span>}{row.detail && row.detail !== "registration_only_hold" && <span className="block text-xs text-muted-foreground">{row.detail}</span>}</td>
               </tr>)}</tbody>

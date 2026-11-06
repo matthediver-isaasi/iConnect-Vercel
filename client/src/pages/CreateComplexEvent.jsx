@@ -1,4 +1,6 @@
 import RegistrationAssociationConfig from "@/components/events/RegistrationAssociationConfig";
+import ItemCpdPointsField from "@/components/events/ItemCpdPointsField";
+import { serializeItemCpdPoints, validateItemCpdPoints } from "@/lib/itemCpdPoints";
 import { normalizeRegistrationAssociationConfig, validateRegistrationAssociationConfig } from "@/lib/registrationAssociations";
 import WaitingListTimingField from "@/components/events/WaitingListTimingField";
 import EventRegistrationCommunication, { saveEventRegistrationCommunication } from "@/components/events/EventRegistrationCommunication";
@@ -716,6 +718,7 @@ export default function CreateComplexEvent() {
   const [editingSession, setEditingSession] = useState(null);
   const [sessionForm, setSessionForm] = useState({
     title: "",
+    cpd_points: null,
     description: "",
     image_url: "",
     image_focal_point: null,
@@ -1543,6 +1546,7 @@ export default function CreateComplexEvent() {
       setEditingSession(session._localId);
       setSessionForm({
         title: session.title || "",
+        cpd_points: session.cpd_points ?? null,
         description: session.description || "",
         image_url: session.image_url || "",
         image_focal_point: session.image_focal_point || null,
@@ -1582,6 +1586,7 @@ export default function CreateComplexEvent() {
       const prefillTrackIds = prefill?.track_ids || [];
       setSessionForm({
         title: "",
+        cpd_points: null,
         description: "",
         image_url: "",
         image_focal_point: null,
@@ -1657,6 +1662,11 @@ export default function CreateComplexEvent() {
   const saveSession = () => {
     if (!sessionForm.title.trim()) {
       toast.error("Session title is required");
+      return;
+    }
+    const cpdError = validateItemCpdPoints(sessionForm.cpd_points);
+    if (cpdError) {
+      toast.error(cpdError);
       return;
     }
     const attendanceErrors = validateAttendancePolicy(
@@ -1905,6 +1915,11 @@ export default function CreateComplexEvent() {
     }
     for (let index = 0; index < sessions.length; index++) {
       const session = sessions[index];
+      const cpdError = validateItemCpdPoints(session.cpd_points);
+      if (cpdError) {
+        toast.error(`Session ${index + 1}: ${cpdError}`);
+        return;
+      }
       const errors = validateAttendancePolicy(resolveAttendancePolicy(formData, session), {
         isOnline: session.is_online,
         zoomMeetingId: session.zoom_meeting_id
@@ -2104,6 +2119,7 @@ export default function CreateComplexEvent() {
         const sessionImageUrl = session.use_event_image ? null : (session.image_url || null);
         const sessionPayload = {
           complex_event_id: eventId,
+          cpd_points: serializeItemCpdPoints(session.cpd_points),
           title: session.title || "Untitled Session",
           description: session.description || null,
           image_url: sessionImageUrl,
@@ -4866,6 +4882,10 @@ export default function CreateComplexEvent() {
                 data-testid="input-session-title"
               />
             </div>
+            <ItemCpdPointsField id="input-session-cpd-points"
+              value={sessionForm.cpd_points}
+              helperText="For overnight sessions, CPD is credited to the session start date in the event timezone."
+              onChange={(value) => setSessionForm((prev) => ({ ...prev, cpd_points: value }))} />
 
             <div className="space-y-2">
               <Label>Tracks</Label>

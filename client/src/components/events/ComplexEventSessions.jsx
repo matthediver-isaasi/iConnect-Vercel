@@ -1,4 +1,5 @@
 import { useState } from "react";
+import ItemCpdPointsField from "@/components/events/ItemCpdPointsField";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -57,6 +58,7 @@ const DELIVERY_MODES = [
 const createEmptySession = (sortOrder = 0) => ({
   _tempId: `session-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
   title: '',
+  cpd_points: null,
   description: '',
   start_time: '',
   end_time: '',
@@ -212,6 +214,10 @@ export default function ComplexEventSessions({
                     </div>
                   </div>
 
+                  <ItemCpdPointsField id={`input-session-cpd-points-${index}`}
+                    value={session.cpd_points}
+                    helperText="For overnight sessions, CPD is credited to the session start date in the event timezone."
+                    onChange={(value) => updateSession(session._tempId, 'cpd_points', value)} />
                   <div className="space-y-2">
                     <Label>Description</Label>
                     <Textarea

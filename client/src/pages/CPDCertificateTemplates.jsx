@@ -39,6 +39,7 @@ const BUILTIN_FIELDS = [
   ['cpd.activity_date_range', 'Activity date range (one or two days)', '28 February 2026 – 1 March 2026'],
   ['cpd.cpd_hours', 'CPD hours', '7.5'],
   ['cpd.cpd_points', 'CPD points', '8'],
+  ['cpd.daily_points', 'CPD points by attended day', 'Monday 5th January 2026 – 2 points\nTuesday 6th January 2026 – 1 point'],
   ['cpd.certificate_number', 'Certificate number', 'CPD-000123'],
   ['organisation.name', 'Organisation name', 'Example Institute'],
   ['event.name', 'Event name', 'Annual Conference 2026'],
@@ -360,7 +361,8 @@ export function TemplateDesigner({ id }) {
   };
   const addField = field => {
     const isDate = ['event.start_date', 'event.end_date', 'cpd.activity_start_date', 'cpd.activity_end_date'].includes(field.key);
-    const next = normalizeBox({ ...DEFAULT_FIELD, id: crypto.randomUUID(), key: field.key, label: field.label, sample: field.sample || field.label, page: currentPage, ...(isDate ? { field_type: 'date' } : {}) }, page);
+    const next = normalizeBox({ ...DEFAULT_FIELD, id: crypto.randomUUID(), key: field.key, label: field.label, sample: field.sample || field.label, page: currentPage, ...(isDate ? { field_type: 'date' } : {}),
+      ...(field.key === 'cpd.daily_points' ? { multiline: true, width: 500, height: 64 } : {}) }, page);
     setDraft(old => ({ ...old, fields: [...old.fields, next] }));
     setSelectedId(next.id);
   };

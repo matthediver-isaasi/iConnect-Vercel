@@ -130,6 +130,35 @@ async function fixture(source = 'standard') {
   return { db, booking, event, template, config, bytes, identity: { ...identity, bookingSource: source } };
 }
 
+test('daily certificate requires finalized programme and uses awarded snapshots rather than edited allowances', async () => {
+  for (const source of ['standard','complex']) {
+    const f=await fixture(source);
+    if(source==='standard') f.event.is_training=true;
+    f.db.rows[source==='standard'?'event_agenda_item':'complex_event_session']=[{
+      id:'item',tenant_id:tenantId,event_id:eventId,complex_event_id:eventId,cpd_points:999,
+    }];
+    f.db.rows.member=[{id:'member',tenant_id:tenantId,email:f.booking.attendee_email}];
+    let ready=false;
+    f.db.rpc=async name=>{assert.equal(name,'item_cpd_certificate_state');return {data:{enabled:true,ready}};};
+    f.db.rows.cpd_certificate_placeholder=[field('cpd.daily_points',{multiline:true,height:90,width:460,missing_policy:'error'}),field('cpd.cpd_points')];
+    f.db.rows.member_cpd_points_ledger=[['a','2026-01-05',2],['b','2026-01-06',1]].map(([id,day,points_value])=>({
+      id,tenant_id:tenantId,member_id:'member',booking_type:source==='standard'?'booking':'complex_event_booking',
+      booking_id:bookingId,event_id:eventId,event_type:source==='standard'?'event':'complex_event',
+      entry_kind:'event_award',points_value,rule_snapshot:{itemCpd:{day}},
+    }));
+    const request={...f.identity,memberCertificateId:'member'};
+    assert.match((await resolveAttendeeCertificate(f.db,request)).reason,/programme ends/);
+    ready=true;
+    const resolved=await resolveAttendeeCertificate(f.db,request);
+    assert.equal(resolved.available,true,resolved.reason);
+    assert.equal(resolved.values['cpd.cpd_points'],3);
+    assert.equal(resolved.values['cpd.daily_points'],'Monday 5th January 2026 – 2 points\nTuesday 6th January 2026 – 1 point');
+    assert.equal((await renderAttendeeCertificate(f.db,resolved)).subarray(0,5).toString(),'%PDF-');
+    f.db.rows.member_cpd_points_ledger=[];
+    assert.match((await resolveAttendeeCertificate(f.db,request)).reason,/No attended/);
+  }
+});
+
 test('preview and test email do not issue; real send and resend use a retained PDF after template removal', async () => {
   const f = await fixture(); claims(f);
   let resolved = await resolveAttendeeCertificate(f.db, f.identity);

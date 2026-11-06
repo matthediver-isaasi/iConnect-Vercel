@@ -5,6 +5,8 @@
 //   Online     -> existing Zoom/Teams webinar/meeting picker (future items only)
 //   Self study -> external LMS URL
 import { useState, useMemo } from "react";
+import ItemCpdPointsField from "@/components/events/ItemCpdPointsField";
+import { validateTrainingAgendaCpdPoints } from "@/lib/itemCpdPoints";
 import { useQuery } from "@tanstack/react-query";
 import { DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, sortableKeyboardCoordinates, arrayMove, useSortable } from "@dnd-kit/sortable";
@@ -125,7 +127,7 @@ export function emptyAgendaLine(defaultType = 'In person') {
   };
 }
 
-export function validateAgendaLines(lines, agendaItemTypes, eventAttendancePolicy = {}) {
+export function validateAgendaLines(lines, agendaItemTypes, eventAttendancePolicy = {}, isTraining = false) {
   const errors = [];
   if (!lines || lines.length === 0) {
     errors.push('Please add at least one agenda line for this training event');
@@ -133,6 +135,10 @@ export function validateAgendaLines(lines, agendaItemTypes, eventAttendancePolic
   }
   lines.forEach((line, i) => {
     const label = `Agenda line ${i + 1}`;
+    if (isTraining) {
+      const cpdError = validateTrainingAgendaCpdPoints(line);
+      if (cpdError) errors.push(`${label}: ${cpdError}`);
+    }
     if (!line.start_date) errors.push(`${label}: please set a start date`);
     if (!normalizeAgendaTime(line.start_time)) errors.push(`${label}: please set a start time`);
     if (!normalizeAgendaTime(line.end_time)) errors.push(`${label}: please set an end time`);
@@ -199,6 +205,7 @@ export default function TrainingAgendaEditor({
   eventAttendancePolicy = {},
   onEventAttendancePolicyChange,
   timezone = 'UTC',
+  isTraining = false,
 }) {
   const anyOnline = (lines || []).some((l) => agendaTypeBehaviour(l.item_type, agendaItemTypes) === 'zoom');
   // Which line's speaker-selection modal is open (null = none).
@@ -395,6 +402,13 @@ export default function TrainingAgendaEditor({
               </div>
             </div>
 
+            {isTraining && (
+              <ItemCpdPointsField id={`input-agenda-cpd-points-${index}`}
+                value={line.cpd_points}
+                validationError={validateTrainingAgendaCpdPoints(line)}
+                helperText="For daily CPD, use separate agenda lines per day. Positive points require the end date to be blank or the same as the start date. Blank or zero points still allow date ranges."
+                onChange={(value) => updateLine(index, { cpd_points: value })} />
+            )}
             <div className="space-y-1">
               <Label className="text-xs">Description</Label>
               <Textarea rows={2} value={line.description || ''} placeholder="What happens on this day?"

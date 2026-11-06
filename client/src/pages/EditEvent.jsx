@@ -1,4 +1,5 @@
 import RegistrationAssociationConfig from "@/components/events/RegistrationAssociationConfig";
+import { serializeItemCpdPoints } from "@/lib/itemCpdPoints";
 import { normalizeRegistrationAssociationConfig, validateRegistrationAssociationConfig } from "@/lib/registrationAssociations";
 import WaitingListTimingField from "@/components/events/WaitingListTimingField";
 import EventRegistrationCommunication, { saveEventRegistrationCommunication } from "@/components/events/EventRegistrationCommunication";
@@ -1000,6 +1001,7 @@ export default function EditEvent() {
         const behaviour = agendaTypeBehaviour(line.item_type, agendaItemTypes);
         return {
           event_id: eventId,
+          ...(isTraining ? { cpd_points: serializeItemCpdPoints(line.cpd_points) } : {}),
           start_date: line.start_date,
           start_time: normalizeAgendaTime(line.start_time) || null,
           end_date: line.end_date || line.start_date,
@@ -1198,6 +1200,7 @@ export default function EditEvent() {
             );
             setAgendaLines(sorted.map((r) => ({
               id: r.id,
+              cpd_points: r.cpd_points ?? null,
               start_date: r.start_date || '',
               end_date: r.end_date && r.end_date !== r.start_date ? r.end_date : '',
               start_time: normalizeAgendaTime(r.start_time),
@@ -1215,6 +1218,7 @@ export default function EditEvent() {
             setInitialAgendaIds(sorted.map((r) => r.id));
             initialAgendaRowsRef.current = sorted.map((r) => ({
               id: r.id,
+              cpd_points: r.cpd_points ?? null,
               start_date: r.start_date || '',
               end_date: r.end_date && r.end_date !== r.start_date ? r.end_date : '',
               start_time: normalizeAgendaTime(r.start_time),
@@ -1628,7 +1632,7 @@ export default function EditEvent() {
     // Non-training events may carry an optional agenda (Task #3512) —
     // validate only when lines exist.
     if (isTraining || agendaLines.length > 0) {
-      const agendaErrors = validateAgendaLines(agendaLines, agendaItemTypes, attendancePolicy);
+      const agendaErrors = validateAgendaLines(agendaLines, agendaItemTypes, attendancePolicy, isTraining);
       if (isTraining && eventTiming !== 'tbc') agendaErrors.push(...(trainingDerivedDates?.errors || []));
       if (agendaErrors.length > 0) {
         toast.error(agendaErrors[0]);
@@ -2581,6 +2585,7 @@ export default function EditEvent() {
                   </p>
                 )}
                 <TrainingAgendaEditor
+                  isTraining={isTraining}
                   lines={agendaLines}
                   onChange={setAgendaLines}
                   agendaItemTypes={agendaItemTypes}
