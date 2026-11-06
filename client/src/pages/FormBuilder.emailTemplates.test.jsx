@@ -4,6 +4,7 @@ import Module from 'node:module';
 import { readFile } from 'node:fs/promises';
 import { build } from 'esbuild';
 import { JSDOM } from 'jsdom';
+import { prepareFormEditorUpdate, formEditorPatch } from '../lib/formEditorSave.js';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost', pretendToBeVisual: true });
 const { window } = dom;
@@ -197,8 +198,7 @@ test('actual contract callbacks preserve IDs and nulls through builder save/load
   assert.equal(state.contract_settings.reminders[0].email_template_id, 'a2');
   assert.equal(state.contract_settings.reminders[0].days_before_timeout, 3);
   assert.equal(state.contract_settings.timeout_days, 30);
-  const saveDeclaration = source.match(/const \{ _ccCustomMode, _bccCustomMode, \.\.\.dataToSave \} = formData;/)[0];
-  const save = new Function('formData', `${saveDeclaration} return dataToSave;`);
+  const save = formData => formEditorPatch(prepareFormEditorUpdate(formData, null), null);
   const submissionLoad = source.slice(source.indexOf('submission_emails: existingForm.submission_emails'),
     source.indexOf('prefill_source: existingForm.prefill_source'));
   const contractLoad = source.slice(source.indexOf('contract_settings: existingForm.contract_settings'),
@@ -206,7 +206,8 @@ test('actual contract callbacks preserve IDs and nulls through builder save/load
   const load = new Function('existingForm', `return {${submissionLoad}${contractLoad}};`);
   const saved = JSON.parse(JSON.stringify(save(state)));
   state = load(saved);
-  assert.deepEqual(state, saved);
+  assert.deepEqual(state.submission_emails, saved.submission_emails);
+  assert.deepEqual(state.contract_settings, saved.contract_settings);
   // Remount instead of merely rerendering to discard all transient picker state.
   await act(async () => root.render(null));
   await render();

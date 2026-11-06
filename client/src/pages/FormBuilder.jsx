@@ -264,8 +264,9 @@ function LinkedEventCombobox({ eventOptions, value, onChange, includesPastEvents
           type="button"
           variant="outline"
           role="combobox"
+          id="related_event_id"
           aria-expanded={open}
-          className="w-full justify-between font-normal"
+          className="w-full min-w-0 max-w-full justify-between font-normal"
           data-testid="select-related-event"
         >
           <span className={cn("truncate", !selected && "text-muted-foreground")}>
@@ -276,7 +277,7 @@ function LinkedEventCombobox({ eventOptions, value, onChange, includesPastEvents
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+      <PopoverContent className="w-[--radix-popover-trigger-width] max-w-[calc(100vw-2rem)] p-0" align="start">
         <Command>
           <CommandInput placeholder="Search events..." data-testid="input-related-event-search" />
           <CommandList>
@@ -291,7 +292,7 @@ function LinkedEventCombobox({ eventOptions, value, onChange, includesPastEvents
                 }}
                 data-testid={`option-event-${event.id}`}
               >
-                <Check className={cn("h-4 w-4", event.id === value ? "opacity-100" : "opacity-0")} />
+                <Check className={cn("h-4 w-4 shrink-0", event.id === value ? "opacity-100" : "opacity-0")} />
                 <span className="truncate">
                   {event.title}
                   {event.start_date ? ` — ${new Date(event.start_date).toLocaleDateString()}` : ''}
@@ -13116,6 +13117,7 @@ function FormBuilderEditor() {
               </div>
 
               {!isSurveyForm && (
+              <div className="w-full min-w-0 space-y-3" data-testid="form-event-settings">
               <div className="flex items-center gap-3" title="When enabled, pick a single upcoming event. Every submission to this form will be linked to that event so you can review submissions per event.">
                 <Switch
                   id="is_event_related"
@@ -13128,6 +13130,21 @@ function FormBuilderEditor() {
                   data-testid="switch-is-event-related"
                 />
                 <Label htmlFor="is_event_related" className="text-sm">This form is related to an event</Label>
+              </div>
+              {formData.is_event_related && (
+                <div className="w-full min-w-0 space-y-2">
+                  <Label htmlFor="related_event_id" className="text-sm">Linked Event *</Label>
+                  <LinkedEventCombobox
+                    eventOptions={eventOptions}
+                    value={formData.related_event_id || null}
+                    onChange={(value) => setFormData({ ...formData, related_event_id: value || null })}
+                    includesPastEvents={isSurveyForm}
+                  />
+                  <p className="text-xs text-slate-500">
+                    Submissions to this form will be associated with the selected event.
+                  </p>
+                </div>
+              )}
               </div>
               )}
               {isSurveyForm && (
@@ -13182,24 +13199,6 @@ function FormBuilderEditor() {
               groups={activeMemberGroups}
               roles={roles}
             />
-
-            {/* Event link selector - shown only when the form is related to an event */}
-            {!isSurveyForm && formData.is_event_related && (
-              <div className="mt-4 pt-4 border-t border-slate-100">
-                <div className="space-y-2 max-w-md">
-                  <Label htmlFor="related_event_id" className="text-sm">Linked Event *</Label>
-                  <LinkedEventCombobox
-                    eventOptions={eventOptions}
-                    value={formData.related_event_id || null}
-                    onChange={(value) => setFormData({ ...formData, related_event_id: value || null })}
-                    includesPastEvents={isSurveyForm}
-                  />
-                  <p className="text-xs text-slate-500">
-                    Submissions to this form will be associated with the selected event.
-                  </p>
-                </div>
-              </div>
-            )}
 
             {/* Contract Settings Section - Only shown when Contract Mode is enabled */}
             {formData.is_contract && (
