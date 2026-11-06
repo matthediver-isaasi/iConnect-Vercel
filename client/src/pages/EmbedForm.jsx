@@ -18,6 +18,7 @@ import { buildPrefillValues, resolveEffectivePrefillIds, resolveMemberSourceOrgI
 import { useSubmissionIdempotencyKey } from "@/lib/useSubmissionIdempotencyKey";
 import { useCardSwipeAutoFocus } from "@/lib/cardSwipeAutoFocus";
 import { useMembershipFeeQuote } from "@/lib/useMembershipFeeQuote";
+import { useFormBundleUnavailable } from "@/lib/useFormBundleUnavailable";
 import { COUNTRIES } from "@/data/countries";
 import { evaluateLmicCondition } from "../../../api/_lib/formLmicConditions.js";
 import { resolveSubmitControl } from "../../../api/_lib/formSubmitControl.js";
@@ -1066,6 +1067,10 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
       }
     },
     onError: (error) => {
+      if (error.status === 409 && error.errorData?.code === 'BUNDLE_UNAVAILABLE') {
+        setSubmissionError('That bundle is no longer available. Your other answers have been kept. Please choose again.');
+        return;
+      }
       let message = error?.message || 'Failed to submit form';
       const apiPrefix = message.match(/^Public API Error \(\d+\):\s*/);
       if (apiPrefix) {
@@ -1098,6 +1103,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
   // Task #3498: server-derived membership fee when a conditional membership
   // rule matches — the payment card/button must show and charge THAT amount,
   // not the (usually absent) price-source answer.
+  useFormBundleUnavailable(form, setFormValues, setSubmissionError);
   const membershipFeeQuote = useMembershipFeeQuote({
     form,
     formValues,
@@ -1703,6 +1709,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
                     formValues={formValues}
                     buildPayload={buildSubmissionPayload}
                     idempotencyKey={getIdempotencyKey()}
+                    onNewAttempt={rotateIdempotencyKey}
                     disabled={!canProceed || submitControl.disabled || !!departmentCurrentSetBlocked}
                     disabledMessage={departmentCurrentSetBlocked || submitControl.message}
                     busy={submitFormMutation.isPending}
@@ -1959,6 +1966,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
                 formValues={formValues}
                 buildPayload={buildSubmissionPayload}
                 idempotencyKey={getIdempotencyKey()}
+                onNewAttempt={rotateIdempotencyKey}
                 disabled={submitControl.disabled || !!departmentCurrentSetBlocked}
                 disabledMessage={departmentCurrentSetBlocked || submitControl.message}
                 busy={submitFormMutation.isPending}

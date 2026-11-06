@@ -34,6 +34,8 @@ import { loadTenantLmicCodes } from '../_lib/tenantLmicCodes.js';
 import { getStripeCredentials, getStripeIntegrationCredentials, retrieveTenantPaymentIntent } from '../_lib/stripeCredentials.js';
 import { gocardlessForTenant, buildIdempotencyKey } from '../_lib/gocardless.js';
 import { validateGocardlessProviderContext, retrieveFormGocardlessBillingRequest } from '../_lib/gocardlessFormProviderContext.js';
+import { resolveFormBundle, recoverBundlePaymentAttempt, FormBundleError } from '../_lib/formBundles.js';
+import { bundlePriceField } from '../../shared/formBundles.js';
 import { resolveFormPaymentOrganization } from '../_lib/formPaymentOrganization.js';
 import {
   computeAuthoritativeHiddenFieldIds,
@@ -123,6 +125,8 @@ function normalizePaymentIdempotencyAnswers(values) {
   if (!values || typeof values !== 'object' || Array.isArray(values)) return values || {};
   const normalized = { ...values };
   delete normalized[FORM_NOT_LISTED_LABELS_KEY];
+  delete normalized.__bundle_labels;
+  delete normalized.__bundle_hidden;
   return normalized;
 }
 
@@ -283,6 +287,7 @@ export default async function handler(req, res, dependencies = {}) {
     if (action === 'quote') return await handleQuote(req, res, supabase, tenantData, dependencies);
     return res.status(400).json({ error: 'Unknown action' });
   } catch (err) {
+    if (err instanceof FormBundleError) return res.status(err.status).json({ error: err.message, code: err.code });
     if (err instanceof FormApplicantContinuationError) {
       return res.status(err.status).json({ error: err.message, code: err.code });
     }
@@ -386,6 +391,7 @@ export async function validatePaymentRelationships(
       values,
       hiddenFieldIds,
     );
+    await resolveFormBundle(supabase, form, values, { hiddenFieldIds, checkStock: false });
     if (invalidAddressFields.length) {
       res.status(400).json({
         error: 'Required address information is missing',
@@ -462,6 +468,10 @@ export async function validatePaymentRelationships(
     }
     if (error?.code === 'INVALID_ORGANISATION_GROUP_ORGANISATION') {
       res.status(400).json({ error: 'Invalid organisation selection for the selected group' });
+      return false;
+    }
+    if (error instanceof FormBundleError) {
+      res.status(error.status).json({ error: error.message, code: error.code });
       return false;
     }
     console.error('[form-payment] Relationship validation failed:', error);
@@ -597,10 +607,13 @@ async function resolvePayableCharge({ supabase, tenantData, form, paymentField, 
     membershipMeta = { rule_id: membershipAction.ruleId, action_id: membershipAction.actionId, quote };
   }
 
-  const amount = membershipMeta
+  const bundle = await resolveFormBundle(supabase, form, values, { checkStock: false });
+  if (bundle && membershipMeta) return { error: { status: 400, body: { error: 'Bundles cannot use membership pricing' } } };
+  const bundleSource = bundlePriceField(form, paymentField);
+  const amount = bundleSource ? (bundle?.amountMinor || 0) / 100 : membershipMeta
     ? (membershipMeta.quote.total_with_vat || membershipMeta.quote.final_cost)
     : derivePaymentAmount(paymentField, values);
-  const currency = membershipMeta
+  const currency = bundleSource ? (bundle?.currency || paymentField.payment_currency || 'GBP') : membershipMeta
     ? (membershipMeta.quote.currency || 'GBP').toUpperCase()
     : (paymentField.payment_currency || 'GBP').toUpperCase();
 
@@ -1167,6 +1180,12 @@ async function handleCreate(req, res, supabase, tenantData, dependencies = {}) {
     existingIdempotentPayment = existing || null;
   }
 
+  const existingBundleAttempt = existingIdempotentPayment
+    && (form.fields?.some(f => f.type === 'sales_bundle')
+      || existingIdempotentPayment.submission_data?.__bundle_labels)
+    ? await recoverBundlePaymentAttempt(supabase, existingIdempotentPayment, values, provider)
+    : null;
+
   // Conditional-logic submit control FIRST (pre-existing ordering): a
   // matched disable rule blocks STARTING a payment exactly as it blocks a
   // normal submit — before any membership resolution runs.
@@ -1175,13 +1194,13 @@ async function handleCreate(req, res, supabase, tenantData, dependencies = {}) {
     evalOptions.lmicCodes = await loadTenantLmicCodes(supabase, tenantData.id);
   }
   const submitControl = resolveSubmitControl(form.visibility_rules, values, evalOptions);
-  if (submitControl.disabled) {
+  if (!existingBundleAttempt && submitControl.disabled) {
     return res.status(400).json({
       error: submitControl.message || 'This form cannot be submitted with the current answers.',
       code: 'SUBMIT_DISABLED_BY_RULE',
     });
   }
-  if (!await validatePaymentRelationships(
+  if (!existingBundleAttempt && !await validatePaymentRelationships(
     res,
     supabase,
     tenantData,
@@ -1191,7 +1210,7 @@ async function handleCreate(req, res, supabase, tenantData, dependencies = {}) {
     { skipFutureDateValidation: !!existingIdempotentPayment },
   )) return;
 
-  const resolved = await resolvePayableCharge({
+  const resolved = existingBundleAttempt || await resolvePayableCharge({
     supabase, tenantData, form, paymentField, values,
     prefill_organization_id, evalOptions,
   });
@@ -1279,7 +1298,7 @@ async function handleCreate(req, res, supabase, tenantData, dependencies = {}) {
       // retry must match the stored charge exactly; anything that changes
       // the charge or the membership target requires a new payment attempt
       // (fresh idempotency key).
-      if (existing.payment_reference) {
+      if (existing.payment_reference || existingBundleAttempt) {
         const storedMembership = existing.payment_meta?.membership || null;
         const storedDirectDebit = existing.payment_meta?.monthly_direct_debit || null;
         const sameDirectDebitTerms = !monthlyDirectDebitOffer || (
@@ -1411,6 +1430,9 @@ async function handleCreate(req, res, supabase, tenantData, dependencies = {}) {
       .select()
       .single();
     if (insertError) {
+      if (insertError.code === 'P0001' && /Bundle is sold out/.test(insertError.message || '')) {
+        return res.status(409).json({ error: insertError.message, code: 'BUNDLE_UNAVAILABLE' });
+      }
       // Concurrent duplicate on the idempotency unique index: fetch winner.
       if (insertError.code === '23505' && idemKey) {
         const { data: winner } = await supabase
@@ -1445,7 +1467,7 @@ async function handleCreate(req, res, supabase, tenantData, dependencies = {}) {
   const description = (paymentField.payment_label || paymentField.label || form.name || 'Form payment').slice(0, 100);
 
   if (provider === 'stripe') {
-    const creds = await getStripeCredentials(tenantData.id, stripeFeature);
+    const creds = await (dependencies.getStripeCredentials || getStripeCredentials)(tenantData.id, stripeFeature);
     if (!creds || creds.is_enabled === false || !creds.secret_key || !creds.publishable_key) {
       return res.status(400).json({
         error: creds?.configuration_error || 'Card payment is not configured for this organisation',
@@ -1484,7 +1506,7 @@ async function handleCreate(req, res, supabase, tenantData, dependencies = {}) {
       ? submissionRow.payment_reference : null;
     if (priorStripeReference) {
       try {
-        const prior = await inspectPriorFormStripeIntent({
+        const prior = await (dependencies.inspectPriorFormStripeIntent || inspectPriorFormStripeIntent)({
           tenantId: tenantData.id,
           stripeFeature,
           paymentIntentId: priorStripeReference,
@@ -1571,12 +1593,19 @@ async function handleCreate(req, res, supabase, tenantData, dependencies = {}) {
           console.error('[form-payment] Could not cancel superseded intent', prior.intent.id, prior.error?.message);
           return res.status(409).json({ error: 'An earlier payment attempt is still open. Please try again shortly.', code: 'PAYMENT_ALREADY_INITIATED' });
         }
+        if (form.fields?.some(f => f.type === 'sales_bundle')) {
+          return res.status(409).json({ error: 'This bundle payment attempt has ended. Start a new payment attempt.', code: 'BUNDLE_ATTEMPT_ENDED' });
+        }
       } catch (err) {
         console.error('[form-payment] Failed to retrieve existing intent:', err?.message);
         return res.status(500).json({ error: 'Failed to prepare payment' });
       }
     }
 
+    if (form.fields?.some(f => f.type === 'sales_bundle') && !priorStripeReference
+      && Date.now() - Date.parse(submissionRow.created_date) > 23 * 60 * 60 * 1000) {
+      return res.status(409).json({ error: 'This bundle payment needs administrator review before retrying.', code: 'BUNDLE_ATTEMPT_UNRESOLVED' });
+    }
     const paymentIntent = await stripe.paymentIntents.create({
       amount: amountMinor,
       currency: currency.toLowerCase(),
@@ -1589,7 +1618,8 @@ async function handleCreate(req, res, supabase, tenantData, dependencies = {}) {
         form_id: String(form.id),
         tenant_id: String(tenantData.id),
       },
-    });
+    }, form.fields?.some(f => f.type === 'sales_bundle')
+      ? { idempotencyKey: `form-bundle:${submissionRow.id}` } : undefined);
     // Atomic publication: the reference update is conditional on the row
     // still carrying the reference we started from (null for a fresh row,
     // the superseded id after a cancel). Under a concurrent same-key race
@@ -1607,8 +1637,12 @@ async function handleCreate(req, res, supabase, tenantData, dependencies = {}) {
     const { data: claimedRow, error: claimError } = await claimQuery.select('id').maybeSingle();
     if (claimError || !claimedRow) {
       // Lost the race (or row left pending): our intent must never be paid.
-      try { await stripe.paymentIntents.cancel(paymentIntent.id); }
-      catch (cancelErr) { console.error('[form-payment] Failed to cancel losing intent', paymentIntent.id, cancelErr?.message); }
+      // Bundle creates use one provider idempotency key. A concurrent loser
+      // has the SAME intent as the winner, so cancelling it cancels checkout.
+      if (!form.fields?.some(f => f.type === 'sales_bundle')) {
+        try { await stripe.paymentIntents.cancel(paymentIntent.id); }
+        catch (cancelErr) { console.error('[form-payment] Failed to cancel losing intent', paymentIntent.id, cancelErr?.message); }
+      }
       if (claimError) {
         console.error('[form-payment] Intent claim failed:', claimError);
         return res.status(500).json({ error: 'Failed to prepare payment' });

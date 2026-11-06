@@ -10,6 +10,7 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { resolveMembershipMatch, membershipQuoteKey } from './formPaymentQuote';
+import { bundlePriceSource, notifyBundleUnavailable } from './formBundles.js';
 
 export function useMembershipFeeQuote({
   form,
@@ -21,7 +22,13 @@ export function useMembershipFeeQuote({
   enabled = true,
 }) {
   const match = useMemo(() => resolveMembershipMatch(form, formValues), [form, formValues]);
-  const key = useMemo(() => membershipQuoteKey(match, formValues, form), [match, formValues, form]);
+  const bundle = bundlePriceSource(form);
+  const requiresQuote = !!match || !!bundle;
+  const key = useMemo(() => JSON.stringify({
+    membership: membershipQuoteKey(match, formValues, form),
+    bundleFieldId: bundle?.id || null,
+    bundleId: bundle ? formValues?.[bundle.id] ?? null : null,
+  }), [match, formValues, form, bundle]);
 
   const query = useQuery({
     // credentialDiscriminator is an opaque caller-generated scope. Raw bearer
@@ -47,12 +54,15 @@ export function useMembershipFeeQuote({
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
+        notifyBundleUnavailable(form.id, json, res.status);
         throw new Error(json.error || 'The fee could not be calculated');
       }
       return json;
     },
-    enabled: !!enabled && !!form?.id && !!match,
-    staleTime: 60 * 1000,
+    enabled: !!enabled && !!form?.id && requiresQuote,
+    // Bundle selection changes must re-quote, including A → B → A. A cached
+    // price is never a fallback while the new authoritative request runs.
+    staleTime: bundle ? 0 : 60 * 1000,
     gcTime: 5 * 60 * 1000,
     refetchOnMount: false,
     refetchOnWindowFocus: false,
@@ -61,9 +71,10 @@ export function useMembershipFeeQuote({
   });
 
   return {
-    matched: !!match,
-    quote: query.data || null,
-    loading: !!match && (query.isLoading || query.isFetching),
+    matched: requiresQuote,
+    source: match ? 'membership' : bundle ? 'bundle' : null,
+    quote: requiresQuote && !query.isError && !(bundle && query.isFetching) ? query.data || null : null,
+    loading: requiresQuote && (query.isLoading || query.isFetching),
     error: query.error ? (query.error.message || 'The fee could not be calculated') : null,
     refetch: query.refetch,
   };

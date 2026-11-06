@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { validateBundleStockEdit } from '../../shared/salesContracts.js';
 import { resolveSalesTaxCode } from './salesCatalogueTaxOptions.js';
 import { SalesHttpError } from './salesAccess.js';
 import { getSalesSettings } from './salesFoundation.js';
@@ -123,17 +124,40 @@ async function hydrateProduct(db, tenantId, row) {
 
 async function hydrateBundles(db, tenantId, rows) {
   if (!rows.length) return [];
+  const stockResult = await db.from('form_bundle_stock').select('bundle_id,remaining,reserved,version')
+    .eq('tenant_id', tenantId).in('bundle_id', rows.map(row => row.id));
+  throwDb(stockResult.error);
+  const holdResult = await db.from('form_bundle_allocation').select('bundle_id,last_error')
+    .eq('tenant_id', tenantId).eq('state', 'held').in('bundle_id', rows.map(row => row.id));
+  throwDb(holdResult.error);
   const itemResult = await db.from('sales_catalogue_bundle_item')
     .select('id,bundle_id,product_id,quantity,display_order')
     .eq('tenant_id', tenantId).in('bundle_id', rows.map((row) => row.id))
     .order('display_order', { ascending: true });
   throwDb(itemResult.error);
-  return rows.map((row) => mapBundle({
+  return rows.map((row) => ({ ...mapBundle({
     ...row,
     items: (itemResult.data || []).filter((item) => item.bundle_id === row.id).map((item) => ({
       id: item.id, productId: item.product_id, quantity: item.quantity, displayOrder: item.display_order,
     })),
-  }));
+  }), bundleStock: (() => {
+    const stock = stockResult.data?.find(s => s.bundle_id === row.id);
+    return stock ? { remaining: stock.remaining, reserved: stock.reserved, version: Number(stock.version),
+      requiresAttention: (holdResult.data || []).some(h => h.bundle_id === row.id && h.last_error) }
+      : { remaining: null, reserved: 0, version: 0 };
+  })() }));
+}
+
+export async function updateBundleStock(db, tenantId, actor, id, body) {
+  if (!validateBundleStockEdit(body)) {
+    throw new SalesHttpError(400, 'Stock must be Unlimited or a nonnegative whole number; reload before editing.');
+  }
+  const { data, error } = await db.rpc('set_form_bundle_stock', { p_tenant_id: tenantId,
+    p_bundle_id: id, p_expected_version: body.expectedVersion, p_remaining: body.remaining,
+    p_actor_id: actor.actorId });
+  if (error?.code === 'P0002') throw new SalesHttpError(404, 'Bundle not found');
+  throwDb(error);
+  return { remaining: data.remaining, reserved: data.reserved, version: Number(data.version) };
 }
 
 export async function listCatalogue(db, tenantId, type, options = {}) {

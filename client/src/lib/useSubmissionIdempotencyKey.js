@@ -1,4 +1,4 @@
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, useReducer } from 'react';
 
 // Duplicate-submission guard shared by every public-form surface that POSTs
 // to /api/public/form-submission (FormView, EmbedForm, canvas/iEdit form
@@ -9,6 +9,7 @@ import { useRef, useCallback } from 'react';
 // load gets a fresh key.
 export function useSubmissionIdempotencyKey() {
   const keyRef = useRef(null);
+  const [, rerender] = useReducer(value => value + 1, 0);
 
   const getIdempotencyKey = useCallback(() => {
     if (!keyRef.current) {
@@ -22,6 +23,7 @@ export function useSubmissionIdempotencyKey() {
 
   const rotateIdempotencyKey = useCallback(() => {
     keyRef.current = null;
+    rerender();
   }, []);
 
   return { getIdempotencyKey, rotateIdempotencyKey };

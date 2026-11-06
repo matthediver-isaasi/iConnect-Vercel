@@ -162,6 +162,37 @@ export type SalesCatalogueProduct = typeof salesCatalogueProduct.$inferSelect;
 export type SalesCatalogueBundle = typeof salesCatalogueBundle.$inferSelect;
 export type SalesCatalogueBundleItem = typeof salesCatalogueBundleItem.$inferSelect;
 
+export const formBundleStock = pgTable("form_bundle_stock", {
+  tenant_id: uuid("tenant_id").notNull(),
+  bundle_id: uuid("bundle_id").notNull(),
+  remaining: integer("remaining"),
+  reserved: integer("reserved").notNull().default(0),
+  version: bigint("version", { mode: "number" }).notNull().default(1),
+  updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => ({ identity: primaryKey({ columns: [table.tenant_id, table.bundle_id] }) }));
+
+export const formBundleAllocation = pgTable("form_bundle_allocation", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenant_id: uuid("tenant_id").notNull(),
+  bundle_id: uuid("bundle_id").notNull(),
+  submission_id: uuid("submission_id").notNull(),
+  field_id: text("field_id").notNull(),
+  attempt_key: text("attempt_key").notNull(),
+  state: text("state").notNull(),
+  bundle_name: text("bundle_name").notNull(),
+  amount_minor: bigint("amount_minor", { mode: "number" }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull(),
+  finite: boolean("finite").notNull(),
+  release_evidence: jsonb("release_evidence"),
+  next_check_at: timestamp("next_check_at", { withTimezone: true }).notNull().default(sql`now() + interval '24 hours'`),
+  last_error: text("last_error"),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  finalized_at: timestamp("finalized_at", { withTimezone: true }),
+}, table => ({
+  submissionUnique: uniqueIndex("form_bundle_allocation_tenant_id_submission_id_key").on(table.tenant_id, table.submission_id),
+  attemptUnique: uniqueIndex("form_bundle_allocation_tenant_id_attempt_key_key").on(table.tenant_id, table.attempt_key),
+}));
+
 export const salesQuote = pgTable("sales_quote", {
   id: uuid("id").primaryKey().defaultRandom(), tenant_id: uuid("tenant_id").notNull(),
   quote_number: varchar("quote_number", { length: 64 }), opportunity_id: uuid("opportunity_id"),

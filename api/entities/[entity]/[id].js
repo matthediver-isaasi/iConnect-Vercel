@@ -1,4 +1,5 @@
 import { validateSurveyCompletionUpdate } from '../../_lib/surveyCompletionConfiguration.js';
+import { validateBundleConfiguration, FormBundleError } from '../../_lib/formBundles.js';
 import { rejectGenericAffiliationWrite } from '../../_lib/profileAffiliationEntityBoundary.js';
 import { handleVoucherEntity, authorizeVoucherSettingWrite } from '../../_lib/voucherEntityBoundary.js';
 import { handleProgramEntitlementEntity } from '../../_lib/programEntitlementBoundary.js';
@@ -1467,6 +1468,16 @@ export default async function handler(req, res, dependencies = {}) {
       }
 
       if (entityNormalized === 'form') {
+        const { data: bundleForm, error: bundleFormError } = await supabase.from('form').select('*')
+          .eq('id', id).eq('tenant_id', tenantCtx.effectiveTenantId || tenantCtx.tenantId).maybeSingle();
+        if (bundleFormError) throw bundleFormError;
+        try {
+          await validateBundleConfiguration(supabase, { ...bundleForm, ...sanitizedBody,
+            tenant_id: tenantCtx.effectiveTenantId || tenantCtx.tenantId });
+        } catch (error) {
+          if (error instanceof FormBundleError) return res.status(error.status).json({ error: error.message, code: error.code });
+          throw error;
+        }
         const formWidthError = validateFormWidthPayload(sanitizedBody);
         if (formWidthError) return res.status(422).json(formWidthError);
         const { data: persistedMutationForm, error: persistedMutationFormError } = await supabase

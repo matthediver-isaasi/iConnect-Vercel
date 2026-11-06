@@ -15,6 +15,7 @@ import {
 } from "@/lib/formPaymentReturn";
 import { directDebitFirstCollectionText, directDebitPolicyText, directDebitHasFixedTermTotal } from "@/lib/directDebitConsentSummary";
 import MembershipCommitmentNotice from "@/components/membership/MembershipCommitmentNotice";
+import { notifyBundleUnavailable } from "@/lib/formBundles";
 
 const CURRENCY_SYMBOLS = { GBP: '\u00a3', USD: '$', EUR: '\u20ac', AUD: 'A$', NZD: 'NZ$' };
 const PAYMENT_METHOD_CARD_CLASS = "flex min-h-[9.35rem] w-full gap-3 rounded-[0.55rem] border border-border bg-background p-4 text-left text-foreground transition-[border-color,background-color] duration-150 hover:border-foreground/50 hover:bg-muted/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring/50 disabled:cursor-not-allowed disabled:opacity-50";
@@ -30,6 +31,8 @@ export function derivePaymentAmountClient(paymentField, formValues) {
   const sourceId = paymentField?.price_field_id;
   if (!sourceId) return 0;
   let raw = (formValues || {})[sourceId];
+  // A catalogue identity is never a numeric price (including digit-leading UUIDs).
+  if (typeof raw === 'string' && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(raw)) return 0;
   if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
     raw = raw.amount ?? raw.value ?? null;
   }
@@ -79,6 +82,7 @@ export default function FormPaymentSubmit({
   onPaymentAccepted,
   onSetupComplete,
   onNormalSubmit,
+  onNewAttempt,
   submitLabel = 'Submit',
   membershipQuote = null,
   continueHref = '/',
@@ -99,6 +103,7 @@ export default function FormPaymentSubmit({
   const [processing, setProcessing] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [paymentError, setPaymentError] = useState(null);
+  const [bundleAttemptStatus, setBundleAttemptStatus] = useState(null);
   const [stripeMounted, setStripeMounted] = useState(false);
   const [stripeAddressRequired, setStripeAddressRequired] = useState(false);
   const [preparedMembershipTerm, setPreparedMembershipTerm] = useState(null);
@@ -124,7 +129,7 @@ export default function FormPaymentSubmit({
   }, []);
 
   const fieldCurrency = (field?.payment_currency || 'GBP').toUpperCase();
-  const derivedAmount = useMemo(() => derivePaymentAmountClient(field, formValues), [field, formValues]);
+  const derivedAmount = useMemo(() => membershipQuote?.source === 'bundle' ? 0 : derivePaymentAmountClient(field, formValues), [field, formValues, membershipQuote?.source]);
   const effective = useMemo(() => resolveEffectivePayment({
     membershipMatched: !!membershipQuote?.matched,
     quote: membershipQuote?.quote,
@@ -138,7 +143,7 @@ export default function FormPaymentSubmit({
   const directDebitOffer = effective.membership?.direct_debit
     || effective.membership?.direct_debit_offer
     || null;
-  const paymentPurpose = membershipQuote?.matched ? 'membership' : 'forms';
+  const paymentPurpose = membershipQuote?.matched && membershipQuote?.source !== 'bundle' ? 'membership' : 'forms';
 
   // Provider detection (public, secrets-free). Keep this query keyed only by
   // purpose: payment fields and membership quotes are recreated frequently as
@@ -290,7 +295,7 @@ export default function FormPaymentSubmit({
   };
 
   const startPayment = async (providerId) => {
-    if (startupInFlightRef.current || disabled || busy || processing || confirming) return;
+    if (startupInFlightRef.current || disabled || busy || processing || confirming || bundleAttemptStatus) return;
     startupInFlightRef.current = true;
     setPendingMethod(providerId);
     setPaymentError(null);
@@ -325,6 +330,16 @@ export default function FormPaymentSubmit({
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
+        if (json.code === 'BUNDLE_ATTEMPT_ENDED' || json.code === 'BUNDLE_ATTEMPT_UNRESOLVED') {
+          setBundleAttemptStatus(json.code);
+          setPaymentError(json.code === 'BUNDLE_ATTEMPT_ENDED'
+            ? 'This bundle payment attempt has ended. Start a new attempt before choosing a payment method.'
+            : 'This bundle payment needs administrator review. Do not retry or make another payment.');
+          return;
+        }
+        if (notifyBundleUnavailable(payload.form_id, json, res.status)) {
+          throw new Error('That bundle is no longer available. Your other answers have been kept. Please choose again.');
+        }
         if (json.code === 'NO_PAYMENT_REQUIRED' || json.code === 'PAYMENT_NOT_REQUIRED') {
           onNormalSubmit?.();
           return;
@@ -549,7 +564,21 @@ export default function FormPaymentSubmit({
         </div>
       )}
 
-      {externalCheckoutUrl ? (
+      {bundleAttemptStatus ? (
+        <div className="space-y-3 rounded-md border bg-muted/40 p-4" data-testid="bundle-payment-attempt-status">
+          <p className="text-sm font-medium">{bundleAttemptStatus === 'BUNDLE_ATTEMPT_ENDED' ? 'Payment attempt ended' : 'Administrator review required'}</p>
+          {bundleAttemptStatus === 'BUNDLE_ATTEMPT_ENDED' && onNewAttempt ? (
+            <Button type="button" disabled={disabled || anyBusy} onClick={() => {
+              onNewAttempt();
+              setBundleAttemptStatus(null);
+              setPaymentError(null);
+              setSelectedProvider(null);
+              setStripeMounted(false);
+              setExternalCheckoutUrl(null);
+            }}>Start a new payment attempt</Button>
+          ) : <p className="text-sm text-muted-foreground">Contact the association administrator before continuing. Your answers have been kept. Do not pay again.</p>}
+        </div>
+      ) : externalCheckoutUrl ? (
         <div className="space-y-3 rounded-md border bg-muted/40 p-4" data-testid={`form-payment-external-checkout-${field?.id}`}>
           <p className="text-sm font-medium">Continue to secure payment</p>
           <p className="text-sm text-muted-foreground">

@@ -9,6 +9,7 @@ import { initializeFormDueDiligence } from '../_lib/formDueDiligence.js';
 import { sendSubmitterCopyEmail } from '../forms/send-submitter-copy.js';
 import { getSession, getSessionMember } from '../_lib/session.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
+import { bundlePayableAmount, resolveFormBundle, FormBundleError } from '../_lib/formBundles.js';
 import {
   markSubmissionEmailPostProcessingComplete,
   markSubmissionEmailReady,
@@ -75,6 +76,8 @@ function idempotencyAnswerValues(values) {
   if (!values || typeof values !== 'object' || Array.isArray(values)) return values || {};
   const normalized = { ...values };
   delete normalized[FORM_NOT_LISTED_LABELS_KEY];
+  delete normalized.__bundle_labels;
+  delete normalized.__bundle_hidden;
   return normalized;
 }
 
@@ -678,7 +681,8 @@ export default async function handler(req, res, dependencies = {}) {
         const enabledProviders = Array.isArray(paymentField?.payment_providers)
           ? paymentField.payment_providers : [];
         if (paymentField && enabledProviders.length > 0) {
-          const amountDue = derivePaymentAmount(paymentField, submission_data || {});
+          const amountDue = await bundlePayableAmount(supabase, form, submission_data || {}, paymentField)
+            ?? derivePaymentAmount(paymentField, submission_data || {});
           if (amountDue > 0) {
             const hiddenIds = await computeAuthoritativeHiddenFieldIds({
               db: supabase,
@@ -1480,6 +1484,12 @@ export default async function handler(req, res, dependencies = {}) {
     // Persist the resolved submitter email (lowercased) on the row so
     // future duplicate-email checks (and the per-row admin views) have a
     // canonical column to read instead of re-deriving from submission_data.
+    try {
+      await resolveFormBundle(supabase, form, submission_data || {}, { checkStock: false });
+    } catch (error) {
+      if (error instanceof FormBundleError) return res.status(error.status).json({ error: error.message, code: error.code });
+      throw error;
+    }
     const submissionRecord = {
       form_id,
       form_name,
@@ -1723,6 +1733,9 @@ export default async function handler(req, res, dependencies = {}) {
 
     if (insertError) {
       if (!isSurvey) console.error('[Public Form Submission] Insert error:', insertError);
+      if (insertError.code === 'P0001' && /Bundle is sold out/.test(insertError.message || '')) {
+        return res.status(409).json({ error: insertError.message, code: 'BUNDLE_UNAVAILABLE' });
+      }
       return res.status(500).json({ error: 'Failed to save submission' });
     }
 
@@ -1999,7 +2012,7 @@ export default async function handler(req, res, dependencies = {}) {
           // operation, however: retain the row so a retry can safely re-run
           // its submission-id-bound reconciliation rather than losing audit
           // context or accidentally treating a later edit as the same save.
-          if (!hasCurrentSetProcessing && !hasMemberAffiliations && !applicantGrant) {
+          if (!hasCurrentSetProcessing && !hasMemberAffiliations && !applicantGrant && !form.fields?.some(f => f.type === 'sales_bundle')) {
             console.log('[Public Form Submission] Rolling back submission due to pipeline failure:', submission.id);
             await supabase.from('form_submission').delete().eq('id', submission.id);
           }
@@ -2145,7 +2158,7 @@ export default async function handler(req, res, dependencies = {}) {
         // Keep its durable idempotency row for an explicit replay rather than
         // deleting the only safe retry handle.
         console.error('[Public Form Submission] Entity pipeline error:', err);
-        if (!hasCurrentSetProcessing && !hasMemberAffiliations && !applicantGrant) {
+        if (!hasCurrentSetProcessing && !hasMemberAffiliations && !applicantGrant && !form.fields?.some(f => f.type === 'sales_bundle')) {
           console.log('[Public Form Submission] Rolling back submission due to pipeline error:', submission.id);
           try {
             await supabase.from('form_submission').delete().eq('id', submission.id);
@@ -2495,6 +2508,7 @@ export default async function handler(req, res, dependencies = {}) {
     if (error instanceof FormMemberOwnerError) {
       return res.status(error.status).json({ error: error.message, code: error.code });
     }
+    if (error instanceof FormBundleError) return res.status(error.status).json({ error: error.message, code: error.code });
     if (error instanceof FormApplicantContinuationError) {
       return res.status(error.status).json({ error: error.message, code: error.code });
     }

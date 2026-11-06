@@ -156,3 +156,4 @@
 - [CMS popup policy](cms-popup-policy.md) — opt-outs survive ordinary edits; one popup per history entry and same-organisation conjunctions are independent delivery rules.
 - [CRM jump cache authority](crm-jump-cache-authority.md) — exact-ID jumps must revalidate cached target pages; cache freshness is not evidence after concurrent changes.
 - [CPD signature retention](cpd-signature-retention.md) — transactional private blobs preserve snapshot identity; pdf-lib JPEG embedding needs zero-offset bytes.
+- [Provider idempotent publication](provider-idempotent-publication.md) — shared provider intent IDs change whether a losing publication request may safely cancel.

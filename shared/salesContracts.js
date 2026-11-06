@@ -38,6 +38,13 @@ export const SALES_ACTOR_TYPES = Object.freeze(['tenant_user', 'member', 'system
 export const SALES_CATALOGUE_ENTITY_TYPES = Object.freeze(['category', 'product', 'bundle']);
 export const SALES_TAX_TREATMENTS = Object.freeze(['standard', 'zero_rated', 'exempt', 'outside_scope']);
 export const SALES_BUNDLE_PRESENTATION_MODES = Object.freeze(['bundle', 'itemised']);
+export function validateBundleStockEdit(body) {
+  return !!body && typeof body === 'object' && !Array.isArray(body)
+    && Object.keys(body).every(key => ['remaining','expectedVersion'].includes(key))
+    && Object.hasOwn(body, 'remaining')
+    && (body.remaining === null || Number.isInteger(body.remaining) && body.remaining >= 0 && body.remaining <= 2147483647)
+    && Number.isSafeInteger(body.expectedVersion) && body.expectedVersion >= 0;
+}
 export const SALES_EVENT_REFERENCE_KINDS = Object.freeze(['simple', 'complex']);
 export const SALES_ACCOUNTING_PROVIDERS = Object.freeze(['xero', 'quickbooks']);
 export const SALES_INVOICE_STATUSES = Object.freeze([

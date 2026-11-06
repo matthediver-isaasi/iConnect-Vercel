@@ -1,5 +1,6 @@
 import { withEventConsentNonce } from '@/lib/eventConsentRequest.mjs';
 import { adminFetch } from '@/lib/adminFetch';
+import { notifyBundleUnavailable } from '@/lib/formBundles';
 /**
  * Public Client for Multi-Tenant SaaS
  * 
@@ -217,6 +218,11 @@ async function publicFetch(url, options = {}, tenantSlug = null) {
       const err = new Error(`Public API Error (${response.status}): ${errorMessage}`);
       err.status = response.status;
       err.errorData = errorData;
+      if (errorData?.code === 'BUNDLE_UNAVAILABLE') {
+        let body = {};
+        try { body = JSON.parse(options.body || '{}'); } catch { /* GET */ }
+        notifyBundleUnavailable(body.form_id, err);
+      }
       throw err;
     }
     
@@ -235,6 +241,13 @@ async function publicFetch(url, options = {}, tenantSlug = null) {
  * Automatically injects tenant parameter for proper multi-tenant isolation
  */
 class PublicClient {
+  async listFormBundles(formId, fieldId) {
+    const params = new URLSearchParams({ form_id: formId, field_id: fieldId });
+    const result = await this._fetch(`/api/public/form-bundles?${params}`, { credentials: 'include' });
+    if (!Array.isArray(result?.items)) throw new Error('Bundle options could not be loaded.');
+    return result;
+  }
+
   constructor() {
     this.tenantSlug = getTenantSlugFromLocation();
   }

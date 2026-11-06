@@ -8,6 +8,8 @@
 
 # Membership Management Platform
 
+- **Form bundle stock:** `202701200001_form_bundle_stock.sql` applied to verified DEST on 2026-11-06, SHA256 `62a10142ef34e6401925746e319bf7199c9b11b7a2e8cb1bbecdd7425d9ddfc7`; SOURCE untouched. Matching code awaits merge. See `docs/form-bundle-stock-implementation-status.md` for semantics, verification and provider-test limitations.
+
 - **CPD signature images:** Image and draft-cleanup migrations `202701190002` / `202701190003` applied to verified DEST on 2026-11-06; SOURCE and existing template content unchanged. Matching code awaits merge/release. See `docs/cpd-certificate-signature-images.md` for exact hashes, retention policy and isolated/deployed verification boundaries.
 
 - **Per-ticket guest accounts:** `202612090013_ticket_guest_accounts.sql` was approved and applied to pinned DEST (`lvmzliemqnieeoruhkik`) on 2026-10-30 using `scripts/apply-ticket-guest-accounts.mjs`, SHA256 `8e927a6ffadc3180a01ef71c6ddc8a18336c1f15d5a4f3f5df155fcd30b85332`. Default-off column, exact provisioning-function changes, retained service-only grants, purchase RLS, unchanged existing ticket/purchase records, and API schema readiness were verified. SOURCE was untouched. No accounts/bookings were created and no emails were sent. No migration remains pending for this feature; matching application deployment and live signed-in UI verification remain separate.

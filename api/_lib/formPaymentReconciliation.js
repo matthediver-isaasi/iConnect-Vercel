@@ -52,6 +52,7 @@ import {
   mergeFormMembershipProgress,
 } from './formStripeInvoiceSettlement.js';
 import { reconcilePaidFormDueDiligence } from './formDueDiligence.js';
+import { cleanupFormBundleHolds } from './formBundleCleanup.js';
 import { verifiedStripeMonthlySetup } from './formMonthlyConfirmLifecycle.js';
 
 const FORM_COLUMNS = 'id, name, tenant_id, access_policy, fields, pages, visibility_rules, entity_pipelines, structured_actions, field_mappings, application_level, auto_create_entity, create_entity_type, entity_action, member_entity_action, organization_entity_action, additional_member_creations, default_member_role_id, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type, due_diligence_required, survey_settings';
@@ -334,6 +335,13 @@ export async function reconcileFormPayments(supabase, {
     },
   };
   const now = Date.now();
+  try {
+    results.bundleHolds = await cleanupFormBundleHolds(supabase, {
+      deadlineAt: now + Math.min(8000, timeBudgetMs / 4), retrieveStripe: retrievePaymentIntent,
+    });
+  } catch (error) {
+    results.errors.push({ stage: 'bundle-hold-cleanup', error: error.message });
+  }
   // This is deliberately a wall-clock budget, not a Promise.race around
   // side-effects. Racing a provider call would leave it running after the
   // lease was released and could cause another worker to repeat an ambiguous

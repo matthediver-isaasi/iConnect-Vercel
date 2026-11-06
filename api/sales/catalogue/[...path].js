@@ -9,7 +9,7 @@ import { requireSalesContext, SalesHttpError } from '../../_lib/salesAccess.js';
 import { getSalesSettings } from '../../_lib/salesFoundation.js';
 import {
   createCatalogueRecord, generateCatalogueCode, listCatalogue, listCatalogueEventOptions, reorderCatalogue, setCatalogueActive,
-  updateCatalogueRecord,
+  updateCatalogueRecord, updateBundleStock,
 } from '../../_lib/salesCatalogue.js';
 
 const validators = {
@@ -54,6 +54,9 @@ export function createSalesCatalogueHandler(dependencies = {}) {
               : typeof req.query?.search === 'string' ? req.query.search.trim() : '',
           }),
         });
+      }
+      if (req.method === 'PATCH' && type === 'bundles' && id && action === 'stock') {
+        return res.status(200).json(await updateBundleStock(db, actor.tenantId, actor, id, req.body));
       }
       if (req.method === 'POST' && id === 'reorder' && !action) {
         const validation = validateCatalogueReorder(req.body);

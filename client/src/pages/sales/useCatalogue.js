@@ -24,7 +24,23 @@ export function useCatalogue(resource, search = "") {
   const archive = useMutation({ mutationFn: (id) => request(`/${resource}/${id}/archive`, { method: "POST" }), onSuccess: refresh });
   const restore = useMutation({ mutationFn: (id) => request(`/${resource}/${id}/restore`, { method: "POST" }), onSuccess: refresh });
   const reorder = useMutation({ mutationFn: (ids) => request(`/${resource}/reorder`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids }) }), onSuccess: refresh });
-  return { ...query, create, update, archive, restore, reorder };
+  const updateStock = useMutation({
+    mutationFn: ({ id, remaining, expectedVersion }) => request(`/bundles/${id}/stock`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ remaining, expectedVersion }),
+    }),
+    onSuccess: (response, { id }) => {
+      const stock = unwrap(response);
+      const patchRows = rows => rows.map(row => row.id === id ? { ...row, bundleStock: stock } : row);
+      queryClient.setQueriesData({ queryKey: ["sales-catalogue", "bundles", scopeKey] }, old => {
+        if (Array.isArray(old)) return patchRows(old);
+        if (Array.isArray(old?.items)) return { ...old, items: patchRows(old.items) };
+        if (Array.isArray(old?.results)) return { ...old, results: patchRows(old.results) };
+        return old;
+      });
+    },
+  });
+  return { ...query, create, update, archive, restore, reorder, updateStock };
 }
 
 export function useEventOptions() {

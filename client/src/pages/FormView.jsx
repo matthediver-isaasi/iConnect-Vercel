@@ -28,6 +28,7 @@ import { evaluateLmicCondition } from "../../../api/_lib/formLmicConditions.js";
 import { useSubmissionIdempotencyKey } from "@/lib/useSubmissionIdempotencyKey";
 import { useCardSwipeAutoFocus } from "@/lib/cardSwipeAutoFocus";
 import { useMembershipFeeQuote } from "@/lib/useMembershipFeeQuote";
+import { useFormBundleUnavailable } from "@/lib/useFormBundleUnavailable";
 import { COUNTRIES } from "@/data/countries";
 import FormAccessRestriction, { resolveFormAccess } from "@/components/forms/FormAccessRestriction";
 import { evaluateFormLogicCondition } from "@/lib/formLogicConditions";
@@ -1669,6 +1670,10 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     },
     onError: (error) => {
       reportFormViewError('Submission failed', error);
+      if (error.status === 409 && error.errorData?.code === 'BUNDLE_UNAVAILABLE') {
+        setSubmissionError('That bundle is no longer available. Your other answers have been kept. Please choose again.');
+        return;
+      }
       setSubmissionError(memberOwnerRequired(error)
         ? `This member record already exists. Sign in as its owner and submit again.${form?.allow_save_continue_later !== false ? ' If you have unsaved answers, save a draft before leaving this page.' : ' Unsaved answers may be lost when leaving this page.'}`
         : error.message || 'Failed to submit form');
@@ -2094,6 +2099,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // Task #3498: server-derived membership fee when a conditional membership
   // rule matches — the payment card/button must show and charge THAT amount,
   // not the (usually absent) price-source answer.
+  useFormBundleUnavailable(form, setFormValues, setSubmissionError);
   const membershipFeeQuote = useMembershipFeeQuote({
     form,
     formValues,
@@ -3413,6 +3419,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                   formValues={formValues}
                   buildPayload={buildSubmissionPayload}
                   idempotencyKey={getIdempotencyKey()}
+                  onNewAttempt={rotateIdempotencyKey}
                   disabled={!canProceed || submitControl.disabled || !!departmentCurrentSetBlocked || !!applicantContinuationError || (applicantVerificationActive && applicantVerification.isPending)}
                   disabledMessage={departmentCurrentSetBlocked || submitControl.message}
                   busy={submitFormMutation.isPending}
@@ -3922,6 +3929,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                     formValues={formValues}
                     buildPayload={buildSubmissionPayload}
                     idempotencyKey={getIdempotencyKey()}
+                    onNewAttempt={rotateIdempotencyKey}
                   disabled={submitControl.disabled || !!departmentCurrentSetBlocked || !!applicantContinuationError || (applicantVerificationActive && applicantVerification.isPending)}
                     disabledMessage={departmentCurrentSetBlocked || submitControl.message}
                     busy={submitFormMutation.isPending}

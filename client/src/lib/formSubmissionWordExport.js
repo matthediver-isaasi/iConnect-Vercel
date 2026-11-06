@@ -1,3 +1,4 @@
+import { bundleSubmissionLabel } from './formBundles.js';
 import {
   Document,
   Packer,
@@ -203,6 +204,9 @@ function getAwardCategory(submission, form) {
 function formatResponseValueToJson(value, fieldDef, resolvers, submissionData = {}) {
   if (value == null || value === '') return { lines: [{ kind: 'text', text: '' }], files: [] };
   const fieldType = fieldDef?.type;
+  if (fieldType === 'sales_bundle') {
+    return { lines: makeLinesFromText(String(bundleSubmissionLabel(submissionData, fieldDef, value))), files: [] };
+  }
   const r = resolvers || {};
   // Month/year repeatable date answers are deliberately partial values. Keep
   // date strings as submitted; a Word export must not invent a day or parse
@@ -372,7 +376,7 @@ export function resolveSubmissionToPrepared({ submission, form, selectedOptions,
   const supportingDocs = [];
 
   for (const opt of selectedOptions) {
-    if (opt.key === FORM_NOT_LISTED_LABELS_KEY || opt.key === FORM_NOT_LISTED_TEXT_KEY) continue;
+    if (opt.key === '__bundle_labels' || opt.key === FORM_NOT_LISTED_LABELS_KEY || opt.key === FORM_NOT_LISTED_TEXT_KEY) continue;
     const label = cleanMojibake(opt.label || '');
     let lines = null;
     let files = [];

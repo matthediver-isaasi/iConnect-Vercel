@@ -673,7 +673,7 @@ test('form payment UI requests provider availability for the resolved payment pu
     new URL('../../client/src/components/forms/FormPaymentSubmit.jsx', import.meta.url),
     'utf8',
   );
-  assert.match(source, /membershipQuote\?\.matched \? 'membership' : 'forms'/);
+  assert.match(source, /membershipQuote\?\.matched && membershipQuote\?\.source !== 'bundle' \? 'membership' : 'forms'/);
   assert.match(source, /form-payment-providers\?purpose=\$\{encodeURIComponent\(paymentPurpose\)\}/);
   assert.match(source, /queryKey: \['form-payment-providers', paymentPurpose\]/);
   assert.match(source, /json\.publishableKey/);

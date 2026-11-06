@@ -1,4 +1,6 @@
 import { isOwnBookingHistoryRead, scopeOwnBookingHistory } from '../../_lib/ownBookingHistory.js';
+import { validateBundleConfiguration, resolveFormBundle, bundlePayableAmount, FormBundleError } from '../../_lib/formBundles.js';
+import { findPaymentField as findBundlePaymentField, computeAuthoritativeHiddenFieldIds as bundleHiddenFields } from '../../_lib/formFieldVisibility.js';
 import { rejectGenericAffiliationWrite } from '../../_lib/profileAffiliationEntityBoundary.js';
 import { validateDirectoryConfiguration, canManageDirectoryConfiguration } from '../../_lib/directoryExpression.js';
 import { handleVoucherEntity, authorizeVoucherSettingWrite } from '../../_lib/voucherEntityBoundary.js';
@@ -144,6 +146,8 @@ function normalizeIdempotencyAnswers(values) {
   if (!values || typeof values !== 'object' || Array.isArray(values)) return values || {};
   const normalized = { ...values };
   delete normalized[FORM_NOT_LISTED_LABELS_KEY];
+  delete normalized.__bundle_labels;
+  delete normalized.__bundle_hidden;
   return normalized;
 }
 
@@ -1728,6 +1732,12 @@ export default async function handler(req, res) {
       }
 
       if (entityNorm === 'form') {
+        try {
+          await validateBundleConfiguration(supabase, { ...sanitizedBody, tenant_id: tenantCtx.tenantId });
+        } catch (error) {
+          if (error instanceof FormBundleError) return res.status(error.status).json({ error: error.message, code: error.code });
+          throw error;
+        }
         const formWidthError = validateFormWidthPayload(sanitizedBody);
         if (formWidthError) return res.status(422).json(formWidthError);
         const mutationAccessValidation = validateFormMutationAccessSave({
@@ -2363,6 +2373,11 @@ export default async function handler(req, res) {
           effectiveAccessForm = { ...accessForm, ...surveySnapshot };
         }
         formSubmissionForm = effectiveAccessForm;
+        if (effectiveAccessForm.fields?.some(f => f.type === 'sales_bundle')) {
+          if (Object.keys(sanitizedBody).some(k => k.startsWith('payment_'))) {
+            return res.status(400).json({ error: 'Bundle payments must use the payment endpoint.' });
+          }
+        }
 
         // Recover an existing same-key submission before answer validation so
         // accepted historical dates remain retryable after midnight. A key
@@ -2411,6 +2426,20 @@ export default async function handler(req, res) {
           );
         }
         if (!existingIdempotentSubmission) {
+          try {
+            const values = sanitizedBody.submission_data || {};
+            const hidden = await bundleHiddenFields({ db: supabase, tenantId: effectiveAccessForm.tenant_id,
+              form: effectiveAccessForm, formValues: values, visibilityOptions });
+            const payment = findBundlePaymentField(effectiveAccessForm);
+            const amount = await bundlePayableAmount(supabase, effectiveAccessForm, values, payment);
+            if (amount > 0 && !hidden.has(payment.id) && payment.payment_providers?.length) {
+              return res.status(400).json({ error: 'Payment is required for this bundle.', code: 'PAYMENT_REQUIRED' });
+            }
+            await resolveFormBundle(supabase, effectiveAccessForm, values, { hiddenFieldIds: hidden, checkStock: false });
+          } catch (error) {
+            if (error instanceof FormBundleError) return res.status(error.status).json({ error: error.message, code: error.code });
+            throw error;
+          }
           const { hiddenFieldIds, errors: futureDateErrors } =
             await validateGenericFormSubmissionFutureDatesAuthoritatively({
               db: supabase,
@@ -2830,6 +2859,9 @@ export default async function handler(req, res) {
 
       if (error) {
         console.error(`Error inserting into ${tableName}:`, error);
+        if (error.code === 'P0001' && /Bundle is sold out/.test(error.message || '')) {
+          return res.status(409).json({ error: error.message, code: 'BUNDLE_UNAVAILABLE' });
+        }
 
         if (error.details === 'MEMBER_GROUP_LIMIT_REACHED') {
           return res.status(409).json({ error: error.message, code: 'MEMBER_GROUP_LIMIT_REACHED' });

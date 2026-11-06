@@ -22,6 +22,7 @@ import BundleBillingGroups from "@/components/sales/BundleBillingGroups";
 import { groupsForEditing, groupsForSaving } from "@/components/sales/billingGroups";
 import ExhibitionInventory from "./ExhibitionInventory";
 import ProductSpaceRequirement from "@/components/sales/ProductSpaceRequirement";
+import BundleStockDialog from "./BundleStockDialog";
 
 const icon = { categories: FolderTree, products: Package, bundles: Boxes };
 const title = { categories: "Categories", products: "Products", bundles: "Bundles" };
@@ -38,6 +39,7 @@ export default function Catalogue({ section = "categories" }) {
   const tab = section;
   const [search, setSearch] = useState("");
   const [dialog, setDialog] = useState(null);
+  const [stockRow, setStockRow] = useState(null);
   const catalogue = useCatalogue(tab, search);
   const categories = useCatalogue("categories");
   const products = useCatalogue("products");
@@ -46,6 +48,7 @@ export default function Catalogue({ section = "categories" }) {
   useEffect(() => {
     setSearch("");
     setDialog(null);
+    setStockRow(null);
     setSpacesOpen(false);
   }, [section, settings.scopeKey]);
   const { isAccessReady, isFeatureExcluded } = useMemberAccess();
@@ -68,6 +71,17 @@ export default function Catalogue({ section = "categories" }) {
   const showInternalCode = settings.data?.showInternalCode === true;
   const showSku = settings.data?.showSku === true;
   return <div className="min-w-0">
+    {canManage && stockRow && stockRow.scopeKey === settings.scopeKey && <BundleStockDialog key={`${stockRow.id}:${stockRow.bundleStock?.version}`} row={stockRow} saving={catalogue.updateStock.isPending} onClose={() => setStockRow(null)} onRefresh={async () => {
+      const result = await catalogue.refetch();
+      if (!result.isError) {
+        const row = asList(result.data).find(row => row.id === stockRow.id);
+        setStockRow(row ? { ...row, scopeKey: settings.scopeKey } : null);
+      }
+    }} onSave={async data => {
+      await catalogue.updateStock.mutateAsync(data);
+      setStockRow(null);
+      toast({ title: "Bundle stock saved" });
+    }} />}
     <div className="mb-5 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
       <p className="max-w-xl text-sm text-slate-600">Manage the categories, products, pricing and packaged offers available to your sales team.</p>
       {canManage && !spacesOpen && <Button onClick={() => setDialog({ type: tab, scopeKey: settings.scopeKey })} className="shrink-0 bg-blue-600 text-white hover:bg-blue-700"><Plus className="mr-2 h-4 w-4" />New {singular[tab]}</Button>}
@@ -83,13 +97,13 @@ export default function Catalogue({ section = "categories" }) {
         <div className="text-sm font-medium text-slate-800">{rows.length} {rows.length === 1 ? singular[tab] : title[tab].toLowerCase()} <span className="ml-2 text-xs font-normal text-slate-500">including archived records</span></div>
         {tab !== "categories" && <div className="relative w-full sm:w-72"><Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" /><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={`Search ${title[tab].toLowerCase()}`} className="h-9 border-slate-200 bg-white pl-9 text-sm" /></div>}
       </div>
-      {catalogue.isLoading ? <Skeleton /> : catalogue.isError ? <Failure onRetry={() => catalogue.refetch()} /> : rows.length === 0 ? <Empty type={tab} onCreate={canManage ? () => setDialog({ type: tab, scopeKey: settings.scopeKey }) : null} /> : <div className="overflow-x-auto"><CatalogueTable rows={rows} type={tab} showInternalCode={showInternalCode} showSku={showSku} canManage={canManage} categories={asList(categories.data)} products={asList(products.data)} onEdit={(row) => setDialog({ type: tab, row, scopeKey: settings.scopeKey })} onDuplicate={(copySource) => setDialog({ type: tab, copySource, scopeKey: settings.scopeKey })} onArchive={(row) => { const action = row.isActive === false || row.archivedAt ? catalogue.restore : catalogue.archive; action.mutate(row.id, { onError: onMutationError }); }} onMove={move} /></div>}
+      {catalogue.isLoading ? <Skeleton /> : catalogue.isError ? <Failure onRetry={() => catalogue.refetch()} /> : rows.length === 0 ? <Empty type={tab} onCreate={canManage ? () => setDialog({ type: tab, scopeKey: settings.scopeKey }) : null} /> : <div className="overflow-x-auto"><CatalogueTable rows={rows} type={tab} showInternalCode={showInternalCode} showSku={showSku} canManage={canManage} categories={asList(categories.data)} products={asList(products.data)} onStock={row => setStockRow({ ...row, scopeKey: settings.scopeKey })} onEdit={(row) => setDialog({ type: tab, row, scopeKey: settings.scopeKey })} onDuplicate={(copySource) => setDialog({ type: tab, copySource, scopeKey: settings.scopeKey })} onArchive={(row) => { const action = row.isActive === false || row.archivedAt ? catalogue.restore : catalogue.archive; action.mutate(row.id, { onError: onMutationError }); }} onMove={move} /></div>}
     </section>}
     <EditDialog config={canManage && dialog?.scopeKey === settings.scopeKey ? dialog : null} showInternalCode={showInternalCode} showSku={showSku} categories={asList(categories.data)} categoriesLoading={categories.isLoading} productsLoading={products.isLoading} catalogueError={categories.isError || products.isError} products={asList(products.data)} events={events.data || {}} onClose={() => setDialog(null)} onSave={(data) => dialog?.row ? catalogue.update.mutateAsync({ id: dialog.row.id, data }, { onSuccess: onSaved, onError: onMutationError }) : catalogue.create.mutateAsync(data, { onSuccess: onSaved, onError: onMutationError })} saving={catalogue.create.isPending || catalogue.update.isPending} />
   </div>;
 }
 
-export function CatalogueTable({ rows, type, categories, products, onEdit, onDuplicate, onArchive, onMove, showInternalCode = false, showSku = false, canManage = false }) {
+export function CatalogueTable({ rows, type, categories, products, onEdit, onDuplicate, onArchive, onMove, onStock, showInternalCode = false, showSku = false, canManage = false }) {
   const categoryName = (id) => categories.find((item) => String(item.id) === String(id))?.name || "Uncategorised";
   const productName = (id) => {
     const product = products.find((item) => String(item.id) === String(id));
@@ -100,6 +114,7 @@ export function CatalogueTable({ rows, type, categories, products, onEdit, onDup
       <TableHead>{type === "categories" ? "Category" : type === "products" ? "Product" : "Bundle"}</TableHead>
       <TableHead>{type === "categories" ? "Description" : type === "products" ? showSku ? "Category / SKU" : "Category" : "Included items"}</TableHead>
       <TableHead>{type === "categories" ? "Status" : "Price / capacity"}</TableHead>
+      {type === "bundles" && <TableHead>Available / reserved</TableHead>}
       {canManage && <TableHead className="w-28 text-right">Actions</TableHead>}
     </TableRow></TableHeader>
     <TableBody>{rows.map((row, index) => {
@@ -109,6 +124,7 @@ export function CatalogueTable({ rows, type, categories, products, onEdit, onDup
         <TableCell><div className="font-semibold text-slate-900">{row.name}</div>{(type === "categories" || showInternalCode) && row.code && <div className="mt-0.5 font-mono text-[11px] text-slate-500">{row.code}</div>}</TableCell>
         <TableCell className="max-w-[280px] text-xs text-slate-600">{type === "products" ? <><span className="font-medium text-blue-700">{categoryName(row.categoryId)}</span>{showSku && row.sku && <span className="ml-2 font-mono text-slate-500">SKU {row.sku}</span>}</> : type === "bundles" ? <span>{(row.items || []).map((item) => `${item.quantity} × ${productName(item.productId)}`).join(" · ") || "No products selected"}</span> : row.description || "—"}</TableCell>
         <TableCell>{type === "products" ? <><div className="font-medium text-slate-800">{money(row.standardPriceMinor, row.currency)}</div><div className="text-[11px] text-slate-500">minimum {money(row.minimumPriceMinor, row.currency)}{reference.eventId ? ` · ${row.delegateCapacity ?? "Unavailable"} delegate${row.delegateCapacity === 1 ? "" : "s"}` : " · general"}</div></> : type === "bundles" ? <><div className="font-medium text-slate-800">{money(row.sellingPriceMinor, row.currency)}</div><div className="text-[11px] text-slate-500">{(row.items || []).length} products</div></> : <Badge variant="outline">{archived ? "Archived" : "Active"}</Badge>}</TableCell>
+        {type === "bundles" && <TableCell><div className="text-sm">{row.bundleStock ? row.bundleStock.remaining === null ? "Unlimited" : `${row.bundleStock.remaining} available` : "Stock unavailable"}</div><div className="text-xs text-slate-500">{row.bundleStock ? `${row.bundleStock.reserved} reserved` : "Reload to check stock"}</div>{row.bundleStock?.requiresAttention && <Badge variant="outline" className="mt-1 border-amber-300 bg-amber-50 text-amber-800">Holds need administrator review</Badge>}{canManage && onStock && <Button type="button" variant="link" size="sm" className="h-auto px-0 text-xs" disabled={!row.bundleStock} onClick={() => onStock(row)} aria-label={`Edit stock for ${row.name}`}>Edit stock</Button>}</TableCell>}
         {canManage && <TableCell><div className="flex justify-end gap-1">
           <Button variant="ghost" size="icon" aria-label={`Edit ${row.name}`} onClick={() => onEdit(row)} className="h-8 w-8"><Pencil className="h-3.5 w-3.5" /></Button>
           {type !== "categories" && <Button variant="ghost" size="icon" aria-label={`Duplicate ${row.name}`} onClick={() => onDuplicate(row)} className="h-8 w-8"><Copy className="h-3.5 w-3.5" /></Button>}

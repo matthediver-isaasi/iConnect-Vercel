@@ -14,6 +14,7 @@ import SignatureField from "@/components/forms/SignatureField";
 import ScoreField from "@/components/forms/ScoreField";
 import MembershipPaymentField from "@/components/forms/MembershipPaymentField";
 import AddressLookupField from "@/components/forms/AddressLookupField";
+import BundleSelectionField from "@/components/forms/BundleSelectionField";
 import { resolveAddressManualOnly } from "../../../../shared/formAddressLookup.js";
 import {
   Select,
@@ -4168,6 +4169,8 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
           />
         );
 
+      case 'sales_bundle':
+        return <BundleSelectionField field={field} formId={formId} value={value} onChange={onChange} disabled={disabled} onValidityChange={onValidityChange} />;
       case 'membership_payment':
         return (
           <MembershipPaymentField
@@ -4188,7 +4191,9 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
       case 'payment': {
         const symbols = { GBP: '\u00a3', USD: '$', EUR: '\u20ac', AUD: 'A$', NZD: 'NZ$' };
         const cur = (field.payment_currency || 'GBP').toUpperCase();
-        let raw = field.price_field_id ? allFormValues?.[field.price_field_id] : null;
+        const bundleSource = (allFields || []).some(source => source.id === field.price_field_id && source.type === 'sales_bundle');
+        let raw = !bundleSource && field.price_field_id ? allFormValues?.[field.price_field_id] : null;
+        if (typeof raw === 'string' && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(raw)) raw = null;
         if (raw && typeof raw === 'object' && !Array.isArray(raw)) raw = raw.amount ?? raw.value ?? null;
         if (typeof raw === 'string') raw = raw.replace(/[^0-9.\-]/g, '');
         const amt = Number(raw);
@@ -4197,22 +4202,22 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
         // amount is the server-derived membership fee — never the (usually
         // absent) price-source answer.
         const mq = membershipFeeQuote;
-        const useQuote = !!mq?.matched;
-        const quoteAmount = useQuote && mq.quote?.required !== false ? Number(mq.quote?.amount) : null;
-        const displayCur = (useQuote && mq.quote?.currency) ? mq.quote.currency.toUpperCase() : cur;
+        const useQuote = !!mq?.matched || bundleSource;
+        const quoteAmount = useQuote && mq?.quote?.required !== false ? Number(mq?.quote?.amount) : null;
+        const displayCur = (useQuote && mq?.quote?.currency) ? mq.quote.currency.toUpperCase() : cur;
         const amount = useQuote ? (Number.isFinite(quoteAmount) ? quoteAmount : null) : derived;
-        const membership = useQuote ? (mq.quote?.membership || null) : null;
+        const membership = useQuote ? (mq?.quote?.membership || null) : null;
         return (
           <div className="border rounded-md p-4 bg-slate-50 space-y-1" data-testid={`payment-summary-${field.id}`}>
             <p className="text-sm font-medium">{field.payment_label || 'Payment'}</p>
             {field.payment_description && (
               <p className="text-xs text-slate-500">{field.payment_description}</p>
             )}
-            {useQuote && mq.loading ? (
+            {useQuote && (!mq || mq.loading || (!mq.quote && !mq.error)) ? (
               <p className="text-sm text-slate-500" data-testid={`payment-summary-amount-${field.id}`}>
                 Calculating the amount due…
               </p>
-            ) : useQuote && mq.error ? (
+            ) : useQuote && mq?.error ? (
               <p className="text-sm text-red-600" data-testid={`payment-summary-amount-${field.id}`}>
                 {mq.error}
               </p>
