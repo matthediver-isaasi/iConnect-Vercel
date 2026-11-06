@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { signatureResolver } from './cpdCertificateImages.js';
 import { certificateDependencies, resolveCertificateText } from '../../shared/cpdCertificateDisplay.js';
 import { resolveEventCpdCertificate, loadCertificateConfig } from './eventCpdCertificateRules.js';
 import { renderCpdCertificatePdf } from './cpdCertificatePdf.js';
@@ -371,5 +372,6 @@ export async function renderAttendeeCertificate(db, resolved) {
   if (!resolved.template.source_sha256 || createHash('sha256').update(bytes).digest('hex') !== resolved.template.source_sha256) {
     throw new Error('Certificate source changed. Reload the certificate details.');
   }
-  return renderCpdCertificatePdf(bytes, resolved.placeholders, resolved.values);
+  return renderCpdCertificatePdf(bytes, resolved.placeholders, resolved.values,
+    { resolveImage: signatureResolver(db, resolved.template) });
 }

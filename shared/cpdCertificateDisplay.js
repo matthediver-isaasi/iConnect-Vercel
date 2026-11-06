@@ -10,6 +10,7 @@ export function validateCertificateText(text) {
   if (/[{}]/.test(rest)) throw new Error('Unsupported certificate token. Only {{number_of_cpd_points}} is supported.');
 }
 export function certificateDependencies(field) {
+  if (field.field_type === 'image') return [];
   if (field.text_template == null) return [field.placeholder_key || field.key];
   validateCertificateText(field.text_template);
   return /\{\{\s*number_of_cpd_points\s*\}\}/.test(field.text_template) ? ['cpd.cpd_points'] : [];

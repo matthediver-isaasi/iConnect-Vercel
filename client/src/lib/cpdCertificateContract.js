@@ -6,21 +6,38 @@ import { certificateDisplayValue, resolveCertificateText, validateCertificateTex
 
 export function assertCertificateTextSaved(expected, actual) {
   const signature = fields => (fields || []).map(f =>
-    JSON.stringify([f.placeholder_key || f.key, f.text_template ?? null])).sort();
+    JSON.stringify([f.placeholder_key || f.key, f.text_template ?? null,
+      f.field_type === 'image' ? ['image', f.image_asset_id, f.image_sha256,
+        Number(f.page_number ?? f.page), Number(f.x), Number(f.y), Number(f.width), Number(f.height)] : null])).sort();
   if (!Array.isArray(actual) || JSON.stringify(signature(expected)) !== JSON.stringify(signature(actual))) {
-    throw new Error('The server did not confirm the certificate text. Your draft has been kept. Keep this editor open and contact an administrator before retrying.');
+    throw new Error('The server did not confirm the certificate text or signature identity and geometry. Your draft has been kept. Keep this editor open and contact an administrator before retrying.');
+  }
+}
+
+export function validateCertificateSignatureFile(file) {
+  if (!file || !['image/jpeg', 'image/png'].includes(file.type) || !/\.(jpe?g|png)$/i.test(file.name)) {
+    throw new Error('Choose a JPG, JPEG or PNG signature image.');
+  }
+  if (!file.size || file.size > 2 * 1024 * 1024) {
+    throw new Error('Signature images must be non-empty and no larger than 2 MiB.');
   }
 }
 
 export function serializeCertificatePlaceholder(field) {
-  validateCertificateText(field.text_template);
+  const image = field.field_type === 'image';
+  if (!image) validateCertificateText(field.text_template);
+  if (image && (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(field.image_asset_id || '') ||
+      !/^[0-9a-f]{64}$/i.test(field.image_sha256 || ''))) {
+    throw new Error('Upload a valid signature image before saving.');
+  }
   return {
-    ...(field.text_template != null ? { text_template: field.text_template } : {}),
+    ...(image ? { image_asset_id: field.image_asset_id, image_sha256: field.image_sha256 } :
+      field.text_template != null ? { text_template: field.text_template } : {}),
     placeholder_key: field.key,
     label: field.label || field.key,
     field_type: field.field_type || 'text',
-    sample_value: field.sample ?? '',
-    default_value: field.default_value === '' ? null : field.default_value ?? null,
+    sample_value: image ? '' : field.sample ?? '',
+    default_value: image ? null : field.default_value === '' ? null : field.default_value ?? null,
     display_order: Number(field.display_order || 0),
     multiline: !!field.multiline,
     shrink_to_fit: field.shrink_to_fit !== false,
@@ -44,7 +61,7 @@ export function serializeCertificatePlaceholder(field) {
 }
 
 export function certificateSampleValues(fields, points) {
-  return { ...Object.fromEntries((fields || []).filter(f => f.text_template == null).map((field) => [field.key, field.sample ?? ''])),
+  return { ...Object.fromEntries((fields || []).filter(f => f.field_type !== 'image' && f.text_template == null).map((field) => [field.key, field.sample ?? ''])),
     ...(points !== undefined ? { 'cpd.cpd_points': points } : {}) };
 }
 
@@ -61,6 +78,7 @@ export function formatCertificateValue(value, field = {}) {
 }
 
 export function certificatePreviewValue(field, values = {}) {
+  if (field.field_type === 'image') return null;
   if (field.text_template != null) {
     try { return resolveCertificateText(field, values); } catch { return ''; }
   }
@@ -126,5 +144,10 @@ export function certificateTemplateEndpoints(id) {
     lifecycle: `${base}/lifecycle`,
     preview: `${base}/preview`,
     render: `${base}/render`,
+    signatures: `${base}/signatures`,
   };
+}
+
+export function certificateSignaturePreviewUrl(templateId, assetId) {
+  return `${certificateTemplateEndpoints(templateId).signatures}?assetId=${encodeURIComponent(assetId)}`;
 }

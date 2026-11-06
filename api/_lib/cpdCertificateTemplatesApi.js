@@ -6,12 +6,14 @@ import { isResourceExcluded } from './roleVisibility.js';
 import { inspectPdf, renderCpdCertificatePdf, MAX_CPD_TEMPLATE_BYTES } from './cpdCertificatePdf.js';
 import { createHash } from 'node:crypto';
 import { hasHistoricCertificateFields } from '../../shared/historicCpdCertificateContract.js';
+import { inspectSignature, MAX_SIGNATURE_BYTES, readSignature, signatureResolver } from './cpdCertificateImages.js';
 
 export const CPD_TEMPLATE_CAPABILITY = 'cpd.certificate-templates';
 const supabase = defaultSupabase;
 const PRIVATE_BUCKET = 'private-uploads';
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_CPD_TEMPLATE_BYTES } }).single('file');
 const runUpload = (req, res) => new Promise((resolve, reject) => upload(req, res, (error) => error ? reject(error) : resolve()));
+const imageUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_SIGNATURE_BYTES, files: 1, fields: 1 } }).single('file');
 async function ensureJsonBody(req) {
   if (req.body !== undefined || !(req.headers?.['content-type'] || '').includes('application/json')) return;
   const chunks = [];
@@ -47,6 +49,8 @@ export async function authorizeCpdTemplates(req, dependencies = {}) {
 export function validPlaceholders(input) {
   if (!Array.isArray(input)) throw new Error('placeholders must be an array');
   return input.map((p, index) => {
+    if (p.field_type === 'image' && (!/^[a-f0-9-]{36}$/i.test(p.image_asset_id || '')
+      || !/^[a-f0-9]{64}$/.test(p.image_sha256 || '') || p.text_template != null)) throw new Error('Invalid signature image reference');
     validateCertificateText(p.text_template);
     const key = String(p.placeholder_key || '').trim();
     if (!/^[A-Za-z][A-Za-z0-9_.-]{0,99}$/.test(key)) throw new Error('Placeholder keys must be valid');
@@ -68,10 +72,12 @@ export function validPlaceholders(input) {
       throw new Error('Invalid placeholder typography');
     }
     return {
+      image_asset_id: p.field_type === 'image' ? p.image_asset_id : null,
+      image_sha256: p.field_type === 'image' ? p.image_sha256 : null,
       text_template: p.text_template ?? null,
       placeholder_key: key, page_number: Number(p.page_number), x: Number(p.x), y: Number(p.y),
       label: p.label == null ? null : String(p.label).slice(0, 200),
-      field_type: ['text', 'date', 'number'].includes(p.field_type) ? p.field_type : 'text',
+      field_type: ['text', 'date', 'number', 'image'].includes(p.field_type) ? p.field_type : 'text',
       sample_value: p.sample_value == null ? null : String(p.sample_value),
       default_value: p.default_value == null ? null : String(p.default_value),
       display_order: Number.isInteger(Number(p.display_order)) && Number(p.display_order) >= 0
@@ -240,6 +246,31 @@ export async function handleCpdTemplates(req, res, operation = 'collection', dep
     const template = await getTemplate(id, tenantId, supabase);
     if (!template) return res.status(404).json({ error: 'Template not found' });
 
+    if (operation === 'signatures') {
+      if (req.method === 'GET') {
+        const asset = await readSignature(supabase, { tenantId, templateId: id, assetId: req.query.assetId });
+        res.setHeader('Content-Type', asset.mime_type);
+        res.setHeader('Cache-Control', 'private, no-store');
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        return res.status(200).send(asset.bytes);
+      }
+      if (req.method === 'POST') {
+        if (template.status === 'active') return res.status(409).json({ error: 'Archive the active template before editing it' });
+        await new Promise((resolve, reject) => imageUpload(req, res, error => error ? reject(error) : resolve()));
+        if (!req.file?.buffer) throw new Error('Choose a JPG or PNG signature image.');
+        const asset = await inspectSignature(req.file.buffer);
+        if (!Number.isInteger(Number(req.body?.expectedVersion))) throw new Error('expectedVersion is required');
+        const { data: assetId, error } = await supabase.rpc('upload_cpd_certificate_image', {
+          p_tenant_id: tenantId, p_template_id: id, p_expected_version: Number(req.body.expectedVersion),
+          p_sha256: asset.sha256, p_mime_type: asset.mime_type, p_width: asset.width, p_height: asset.height,
+          p_content_base64: asset.bytes.toString('base64'),
+        });
+        if (error) throw error;
+        return res.status(201).json({ asset: { id: assetId, sha256: asset.sha256, mime_type: asset.mime_type,
+          width: asset.width, height: asset.height },
+          previewUrl: `/api/cpd-certificate-templates/${encodeURIComponent(id)}/signatures?assetId=${encodeURIComponent(assetId)}` });
+      }
+    }
     if (operation === 'item') {
       if (req.method === 'GET') return res.json({ template });
       if (req.method === 'DELETE') {
@@ -262,7 +293,12 @@ export async function handleCpdTemplates(req, res, operation = 'collection', dep
         }
         const placeholders = validPlaceholders(req.body.placeholders ?? template.placeholders);
         validateGeometryAgainstSource(placeholders, template.source_geometry || []);
-        const { error } = await supabase.rpc('save_cpd_certificate_template_checked', {
+        const hasImages = placeholders.some(p => p.field_type === 'image') || template.placeholders.some(p => p.field_type === 'image');
+        if (hasImages) {
+          const resolve = signatureResolver(supabase, template);
+          for (const field of placeholders.filter(p => p.field_type === 'image')) await resolve(field);
+        }
+        const { error } = await supabase.rpc(hasImages ? 'save_cpd_certificate_template_images_checked' : 'save_cpd_certificate_template_checked', {
           p_template_id: id,
           p_tenant_id: tenantId,
           p_expected_version: Number(req.body.expectedVersion),
@@ -273,8 +309,8 @@ export async function handleCpdTemplates(req, res, operation = 'collection', dep
         });
         if (error) {
           if (['PGRST202', '42883', '42703'].includes(error.code)
-            || String(error.message || '').includes('cpd_text_schema_incompatible')) {
-            return res.status(503).json({ error: 'Certificate text storage needs a database update. Your changes have not been saved. Keep this editor open and ask an administrator to apply the certificate authored-text and checked-save migrations, then retry.' });
+            || /cpd_(text|image)_schema_incompatible/.test(String(error.message || ''))) {
+            return res.status(503).json({ error: `Certificate ${hasImages ? 'image' : 'text'} storage needs a database update. Your changes have not been saved. Keep this editor open and ask an administrator to apply the certificate ${hasImages ? 'image' : 'authored-text and checked-save'} migrations, then retry.` });
           }
           if (error.code === '40001' || String(error.message || '').includes('cpd_template_conflict')) {
             return res.status(409).json({ error: 'Template was modified by another user; refresh and retry' });
@@ -314,6 +350,10 @@ export async function handleCpdTemplates(req, res, operation = 'collection', dep
         }
       }
       try {
+        if (template.placeholders.some(p => p.field_type === 'image')) {
+          const linked = await supabase.rpc('copy_cpd_certificate_images', { p_tenant_id: tenantId, p_source: id, p_target: copy.id });
+          if (linked.error) throw linked.error;
+        }
         await replacePlaceholders(copy, tenantId, template.placeholders, supabase);
       } catch (placeholderError) {
         if (template.source_path) {
@@ -339,6 +379,10 @@ export async function handleCpdTemplates(req, res, operation = 'collection', dep
       if (!rule || !rule[0].split(',').includes(template.status)) return res.status(409).json({ error: 'Invalid lifecycle transition' });
       if (action === 'activate' && !template.source_path) return res.status(409).json({ error: 'A source PDF is required before activation' });
       if (action === 'activate') validateGeometryAgainstSource(template.placeholders, template.source_geometry || []);
+      if (action === 'activate') {
+        const resolve = signatureResolver(supabase, template);
+        for (const field of template.placeholders.filter(p => p.field_type === 'image')) await resolve(field);
+      }
       const now = new Date().toISOString();
       const updates = { status: rule[1], version: template.version + 1, updated_at: now, updated_by: actor(context) };
       if (action === 'submit_review') updates.review_requested_at = now;
@@ -389,8 +433,9 @@ export async function handleCpdTemplates(req, res, operation = 'collection', dep
     }
 
     if ((operation === 'preview' || operation === 'render') && req.method === 'POST') {
-      const source = await downloadSource(template);
-      const output = await renderCpdCertificatePdf(source, template.placeholders, req.body?.values || req.body?.data || {});
+      const source = await downloadSource(template, supabase);
+      const output = await renderCpdCertificatePdf(source, template.placeholders, req.body?.values || req.body?.data || {},
+        { resolveImage: signatureResolver(supabase, template) });
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `${operation === 'render' ? 'attachment' : 'inline'}; filename="${template.name.replace(/["\r\n]/g, '_')}.pdf"`);
       res.setHeader('Cache-Control', 'private, no-store');
@@ -398,6 +443,9 @@ export async function handleCpdTemplates(req, res, operation = 'collection', dep
     }
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (error) {
+    if (error.code === '40001') return res.status(409).json({ error: 'Template was modified by another user; refresh and retry' });
+    if (['PGRST202', '42P01', '42703'].includes(error.code)) return res.status(503).json({ error: 'Signature storage needs a database update. Keep your draft open and ask an administrator to apply the certificate image migration.' });
+    if (error.code === 'LIMIT_FILE_SIZE' && operation === 'signatures') return res.status(413).json({ error: 'Choose a signature image no larger than 2 MB.' });
     const status = error.status || (error.code === 'LIMIT_FILE_SIZE' ? 413 : 400);
     console.error('[cpd-certificate-templates]', error);
     return res.status(status).json({ error: error.message || 'Request failed' });

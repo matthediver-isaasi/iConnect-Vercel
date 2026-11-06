@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { PDFDocument } from 'pdf-lib';
+import sharp from 'sharp';
+import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 
 process.env.ROLE_ACCESS_OVERLAY_SKIP_PRIME = '1';
 const { __setRoleAccessOverlayForTests } = await import('../../_lib/roleVisibility.js');
@@ -223,6 +225,35 @@ test('a missing saved PDF fails closed rather than generating a replacement', as
   assert.equal((await request(f)).statusCode, 200);
   f.db.rows.issued_cpd_certificate[0].source_path = `${tenant}/issued-cpd/missing.pdf`;
   assert.equal((await request(f)).statusCode, 503);
+});
+
+test('member downloads embed signatures for both event types and historic awards; retained bytes never change', async () => {
+  for (const make of [() => fixture('booking'), () => fixture('complex_event_booking'), historicFixture]) {
+    const f=await make();
+    const image=await sharp({create:{width:80,height:40,channels:4,background:{r:0,g:0,b:0,alpha:0.5}}}).png().toBuffer();
+    const assetId='77777777-7777-4777-8777-777777777777';
+    const hash=createHash('sha256').update(image).digest('hex');
+    f.db.rows.cpd_certificate_image=[{id:assetId,tenant_id:tenant,mime_type:'image/png',sha256:hash,content_base64:image.toString('base64')}];
+    f.db.rows.cpd_certificate_image_binding=[{tenant_id:tenant,template_id:templateId,asset_id:assetId}];
+    f.db.rows.cpd_certificate_placeholder.push({id:'signature',tenant_id:tenant,template_id:templateId,
+      placeholder_key:'signature.signer',field_type:'image',image_asset_id:assetId,image_sha256:hash,
+      page_number:1,x:20,y:150,width:80,height:40,missing_policy:'error'});
+    // Missing image refuses initial generation without creating an archive.
+    f.db.rows.cpd_certificate_image_binding=[];
+    assert.notEqual((await request(f)).statusCode,200);
+    assert.equal(f.db.rows.issued_cpd_certificate?.length||0,0);
+    f.db.rows.cpd_certificate_image_binding=[{tenant_id:tenant,template_id:templateId,asset_id:assetId}];
+    const first=await request(f);
+    assert.equal(first.statusCode,200,JSON.stringify(first.body));
+    const pdf=await pdfjs.getDocument({data:new Uint8Array(first.body),disableWorker:true}).promise;
+    const ops=await (await pdf.getPage(1)).getOperatorList();
+    assert.ok(ops.fnArray.includes(pdfjs.OPS.paintImageXObject),'downloaded PDF contains the image, not just an editor overlay');
+    await pdf.destroy();
+    f.db.rows.cpd_certificate_image=[];
+    f.db.rows.cpd_certificate_image_binding=[];
+    f.db.rows.cpd_certificate_placeholder=[];
+    assert.deepEqual((await request(f)).body,first.body,'retained signature PDF remains byte-identical after template edits');
+  }
 });
 
 test('both event types render actual ledger-backed PDFs, without email or survey access', async () => {

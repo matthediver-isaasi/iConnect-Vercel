@@ -1,5 +1,6 @@
 import { certificateFingerprint, realCertificatePlaceholders } from './attendeeCpdCertificate.js';
 import { createHash } from 'node:crypto';
+import { signatureResolver } from './cpdCertificateImages.js';
 import { inspectPdf, renderCpdCertificatePdf } from './cpdCertificatePdf.js';
 import { hasHistoricCertificateFields } from '../../shared/historicCpdCertificateContract.js';
 import { loadIssuedCertificate, awardSignature } from './issuedCpdCertificates.js';
@@ -49,7 +50,7 @@ export async function resolveHistoricCertificate(db, { tenantId, memberCertifica
   try {
     await inspectPdf(bytes);
     // Validate real typography and source geometry, not illustrative samples.
-    await renderCpdCertificatePdf(bytes, real.placeholders, values);
+    await renderCpdCertificatePdf(bytes, real.placeholders, values, { resolveImage: signatureResolver(db, template) });
   } catch { return unavailable(); }
   return { available: true, template, placeholders: real.placeholders, values,
     certificateIdentity, awardSignature: signature,

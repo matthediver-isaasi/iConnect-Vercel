@@ -17,11 +17,12 @@ import { useMemberAccess } from '@/hooks/useMemberAccess';
 import { useCertificateViewport } from '@/hooks/useCertificateViewport';
 import * as pdfjs from 'pdfjs-dist';
 import {
-  moveBox, normalizeBox, pointsToPixels, resizeBox,
+  moveBox, normalizeBox, pointsToPixels, resizeBox, resizeImageBox,
 } from '@/lib/cpdCertificateGeometry';
 import {
   certificateSampleValues, certificateTemplateEndpoints, formatCertificateValue, certificatePreviewValue,
-  serializeCertificatePlaceholder, assertCertificateTextSaved,
+  serializeCertificatePlaceholder, assertCertificateTextSaved, validateCertificateSignatureFile,
+  certificateSignaturePreviewUrl,
 } from '@/lib/cpdCertificateContract';
 
 const CAPABILITY = 'cpd.certificate-templates';
@@ -285,8 +286,13 @@ export function TemplateDesigner({ id }) {
   });
   const containerRef = useRef(null);
   const uploadRef = useRef(null);
+  const signatureRef = useRef(null);
+  const signatureUpload = useRef(false);
+  const signatureAssets = useRef(new Map());
+  const currentDraft = useRef(null);
   const interaction = useRef(null);
   const [draft, setDraft] = useState(null);
+  currentDraft.current = draft;
   const [savedSnapshot, setSavedSnapshot] = useState('');
   const [selectedId, setSelectedId] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
@@ -294,6 +300,8 @@ export function TemplateDesigner({ id }) {
   const [preview, setPreview] = useState(() => new URLSearchParams(window.location.search).get('preview') === '1');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
+  const [signatureBusy, setSignatureBusy] = useState(false);
+  const [signatureError, setSignatureError] = useState('');
   const [samplePoints, setSamplePoints] = useState('8');
   const [sourceUrl, setSourceUrl] = useState('');
   const { data, isLoading, error } = useQuery({
@@ -338,7 +346,7 @@ export function TemplateDesigner({ id }) {
   }, [dirty]);
   useEffect(() => {
     const move = e => {
-      if (!interaction.current) return;
+      if (!interaction.current || viewing) return;
       const { startX, startY, original, type } = interaction.current;
       const next = type === 'resize'
         ? resizeBox(original, e.clientX - startX, e.clientY - startY, scale, page)
@@ -348,10 +356,65 @@ export function TemplateDesigner({ id }) {
     const up = () => { interaction.current = null; };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
-    return () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
-  }, [scale, page]);
+    window.addEventListener('pointercancel', up);
+    return () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+    };
+  }, [scale, page, viewing]);
 
-  const update = patch => setDraft(old => ({ ...old, fields: old.fields.map(f => f.id === selectedId ? { ...f, ...patch } : f) }));
+  const update = patch => {
+    if (viewing) return;
+    if (selected?.field_type === 'image' && patch.page != null) setCurrentPage(Number(patch.page));
+    setDraft(old => ({ ...old, fields: old.fields.map(f => {
+      if (f.id !== selectedId) return f;
+      const next = { ...f, ...patch };
+      return f.field_type === 'image' ? normalizeBox(next, pages[next.page - 1] || page) : next;
+    }) }));
+  };
+  const uploadSignature = async (file, replaceId = null) => {
+    if (!file || viewing || saving || signatureUpload.current) return;
+    setSignatureError('');
+    try { validateCertificateSignatureFile(file); }
+    catch (error) { setSignatureError(error.message); return; }
+    signatureUpload.current = true;
+    setSignatureBusy(true);
+    const targetPage = currentPage;
+    const version = draft.version;
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('expectedVersion', String(version));
+      const { asset, previewUrl } = await api(`/${id}/signatures`, { method: 'POST', body: form });
+      if (!asset || !Number.isFinite(Number(asset.width)) || !Number.isFinite(Number(asset.height)) ||
+          !(Number(asset.width) > 0) || !(Number(asset.height) > 0) ||
+          !['image/jpeg', 'image/png'].includes(asset.mime_type) ||
+          typeof previewUrl !== 'string' || !previewUrl.startsWith('/') || previewUrl.startsWith('//')) {
+        throw new Error('The server did not return a valid signature image. Please try again.');
+      }
+      const image = { image_asset_id: asset.id, image_sha256: asset.sha256,
+        image_width: Number(asset.width), image_height: Number(asset.height), image_preview_url: previewUrl };
+      // Validate identity before changing the draft. Upload itself does not change version.
+      serializeCertificatePlaceholder({ ...DEFAULT_FIELD, ...image, field_type: 'image' });
+      if (currentDraft.current?.id !== id || currentDraft.current?.status === 'active' || currentDraft.current?.version !== version) {
+        throw new Error('The template changed during upload. Upload the signature again.');
+      }
+      signatureAssets.current.set(asset.id, image);
+      const fieldId = replaceId || crypto.randomUUID();
+      setDraft(old => {
+        if (old.status === 'active' || old.version !== version) return old;
+        if (replaceId) return { ...old, fields: old.fields.map(field => field.id === replaceId
+          ? normalizeBox({ ...field, ...image }, pages[field.page - 1] || page) : field) };
+        const next = normalizeBox({ ...DEFAULT_FIELD, ...image, id: fieldId,
+          key: `signature.${fieldId}`, label: 'Signature', field_type: 'image',
+          width: 180, height: 180 * image.image_height / image.image_width, page: targetPage }, pages[targetPage - 1] || page);
+        return { ...old, fields: [...old.fields, next] };
+      });
+      setSelectedId(fieldId);
+    } catch (error) { setSignatureError(error.message); }
+    finally { signatureUpload.current = false; setSignatureBusy(false); }
+  };
   const addText = () => {
     const next = normalizeBox({ ...DEFAULT_FIELD, id: crypto.randomUUID(), key: `text.${crypto.randomUUID()}`,
       label: 'Text block', text_template: CPD_TEXT_EXAMPLE, multiline: true, required: true,
@@ -372,7 +435,8 @@ export function TemplateDesigner({ id }) {
   };
   const duplicateField = () => {
     if (!selected) return;
-    const copy = normalizeBox({ ...selected, id: crypto.randomUUID(), x: selected.x + 10, y: selected.y + 10 }, page);
+    const copy = normalizeBox({ ...selected, id: crypto.randomUUID(), x: Number(selected.x) + 10, y: Number(selected.y) + 10 },
+      pages[selected.page - 1] || page);
     setDraft(old => ({ ...old, fields: [...old.fields, copy] }));
     setSelectedId(copy.id);
   };
@@ -389,10 +453,11 @@ export function TemplateDesigner({ id }) {
   });
 
   const save = async () => {
+    if (draft?.status === 'active' || signatureUpload.current) return;
     setSaving(true);
     setSaveError('');
     try {
-      if (draft.fields.some(isMissingAuthoredCertificateText)) {
+      if (draft.fields.some(field => field.field_type !== 'image' && isMissingAuthoredCertificateText(field))) {
         throw new Error('A text block has no retained wording. Select it and enter the verified original text, or remove it, before saving. No wording has been guessed.');
       }
       const placeholders = draft.fields.map((field, displayOrder) =>
@@ -406,6 +471,8 @@ export function TemplateDesigner({ id }) {
       const result = unwrapTemplate(await api(`/${id}`, { method: 'PUT', body: JSON.stringify(payload) }));
       assertCertificateTextSaved(placeholders, result?.placeholders);
       const next = draftFromResponse({ ...payload, ...result, placeholders: result.placeholders || payload.placeholders });
+      next.fields = next.fields.map(field => field.field_type === 'image'
+        ? { ...field, ...signatureAssets.current.get(field.image_asset_id) } : field);
       setDraft(next); setSavedSnapshot(JSON.stringify(next)); toast.success('Template saved');
     } catch (e) { setSaveError(e.message); toast.error(e.message); } finally { setSaving(false); }
   };
@@ -434,7 +501,7 @@ export function TemplateDesigner({ id }) {
   };
   const leave = () => { if (!dirty || window.confirm('Discard unsaved certificate changes?')) navigate('/CPDCertificateTemplates'); };
   const previewValues = { 'cpd.cpd_points': samplePoints };
-  const missing = draft?.fields?.filter(f => !String(certificatePreviewValue(f, previewValues) ?? '').trim()) || [];
+   const missing = draft?.fields?.filter(f => f.field_type !== 'image' && !String(certificatePreviewValue(f, previewValues) ?? '').trim()) || [];
 
   if (isLoading || !draft) return <div className="p-12 text-center">{error ? error.message : 'Loading designer…'}</div>;
   const isActive = draft.status === 'active';
@@ -442,20 +509,21 @@ export function TemplateDesigner({ id }) {
     <div className="min-h-screen bg-slate-100" onKeyDown={nudge}>
       <header className="sticky top-0 z-30 bg-white border-b px-4 py-3 flex flex-wrap items-center gap-2">
         <Button variant="outline" onClick={leave}>Templates</Button>
-        <Input className="w-60" value={draft.name || draft.title || ''} onChange={e => setDraft(old => ({ ...old, name: e.target.value }))} />
+        <Input className="w-60" disabled={isActive} value={draft.name || draft.title || ''} onChange={e => setDraft(old => ({ ...old, name: e.target.value }))} />
         {dirty && <Badge variant="outline" className="text-amber-700">Unsaved</Badge>}
         {library?.historic_template_id === id && <Badge>Historic certificate template</Badge>}
         <div className="flex-1" />
-        {!isActive && <><Button variant="outline" onClick={() => uploadRef.current?.click()}><Upload className="w-4 h-4 mr-2" />Replace PDF</Button>
+        {!isActive && <><Button variant="outline" disabled={signatureBusy} onClick={() => uploadRef.current?.click()}><Upload className="w-4 h-4 mr-2" />Replace PDF</Button>
         <input hidden ref={uploadRef} type="file" accept="application/pdf" onChange={e => replacePdf(e.target.files?.[0])} /></>}
         <Button variant="outline" onClick={testPdf} disabled={dirty}
           title={dirty ? 'Save the template before generating a test PDF' : undefined}>
           <Download className="w-4 h-4 mr-2" />Test PDF
         </Button>
         {!isActive && <Button variant="outline" onClick={() => setPreview(v => !v)}>{preview ? 'Edit' : 'Preview'}</Button>}
-        {!isActive && <Button onClick={save} disabled={!dirty || saving}><Save className="w-4 h-4 mr-2" />{saving ? 'Saving…' : 'Save'}</Button>}
+        {!isActive && <Button onClick={save} disabled={!dirty || saving || signatureBusy}><Save className="w-4 h-4 mr-2" />{saving ? 'Saving…' : 'Save'}</Button>}
       </header>
       {saveError && <div role="alert" className="bg-red-50 border-b border-red-200 px-5 py-3 text-sm text-red-900">{saveError}</div>}
+      {signatureError && <div role="alert" className="bg-red-50 border-b border-red-200 px-5 py-3 text-sm text-red-900">{signatureError}</div>}
       {missing.length > 0 && <div className="bg-amber-50 border-b border-amber-200 px-5 py-2 text-sm text-amber-900">
         Preview warning: {missing.length} field(s) have no sample value.
       </div>}
@@ -465,6 +533,16 @@ export function TemplateDesigner({ id }) {
       <div className={`grid grid-cols-1 ${viewing ? '' : 'xl:grid-cols-[260px_minmax(0,1fr)_300px]'}`}>
         {!preview && !isActive && <aside className="bg-white border-r p-4 space-y-5">
           <Button variant="outline" onClick={addText}><Plus className="w-3 h-3 mr-2" />Add text block</Button>
+          <section className="space-y-2">
+            <h2 className="font-semibold">Signature</h2>
+            <p className="text-xs text-slate-500">JPG, JPEG or PNG · max 2 MiB. Upload, then position on the selected page. Save to retain changes.</p>
+            <Button variant="outline" disabled={signatureBusy || saving} onClick={() => signatureRef.current?.click()}>
+              <Upload className="w-4 h-4 mr-2" />{signatureBusy ? 'Uploading signature…' : 'Upload signature'}
+            </Button>
+            <input hidden ref={signatureRef} aria-label="Upload signature image" type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png"
+              disabled={signatureBusy || saving} onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; uploadSignature(file); }} />
+            {signatureBusy && <p role="status" className="text-xs text-slate-500">Uploading signature image…</p>}
+          </section>
           <section><h2 className="font-semibold mb-2">Built-in fields</h2>
             <div className="space-y-1">{BUILTIN_FIELDS.map(([key, label, sample]) =>
               <Button key={key} variant="ghost" size="sm" className="w-full justify-start" onClick={() => addField({ key, label, sample })}><Plus className="w-3 h-3 mr-2" />{label}</Button>)}</div></section>
@@ -496,20 +574,23 @@ export function TemplateDesigner({ id }) {
                 const value = viewing
                   ? (rawValue !== null && rawValue !== undefined && rawValue !== '' ? formatCertificateValue(rawValue, field) : `Missing: ${field.label || field.key}`)
                   : field.text_template ?? (isMissingAuthoredCertificateText(field) ? 'Saved text unavailable — enter original wording' : `{{${field.key}}}`);
-                return <div key={field.id} onPointerDown={e => {
+                return <div key={field.id} data-testid={field.field_type === 'image' ? 'certificate-signature' : undefined} onPointerDown={e => {
                   if (viewing) return; e.preventDefault(); setSelectedId(field.id);
                   interaction.current = { startX: e.clientX, startY: e.clientY, original: field, type: 'move' };
                 }} className={`absolute overflow-hidden ${viewing ? '' : `cursor-move border ${active ? 'border-blue-600 bg-blue-50/30' : 'border-dashed border-blue-400'}`}`}
                   style={{ left: pointsToPixels(field.x, scale), top: pointsToPixels(field.y, scale), width: pointsToPixels(field.width, scale), height: pointsToPixels(field.height, scale),
+                    touchAction: viewing ? 'auto' : 'none',
                     color: field.color, fontFamily: field.font_family, fontSize: pointsToPixels(field.font_size, scale), fontWeight: field.font_weight, fontStyle: field.font_style,
                     textAlign: field.align, whiteSpace: field.multiline ? 'pre-wrap' : 'nowrap', display: 'flex', alignItems: field.vertical_align === 'top' ? 'flex-start' : field.vertical_align === 'bottom' ? 'flex-end' : 'center',
                     justifyContent: field.align === 'center' ? 'center' : field.align === 'right' ? 'flex-end' : 'flex-start',
                   }} title={`${field.x.toFixed?.(1) ?? field.x}, ${field.y.toFixed?.(1) ?? field.y} pt`}>
-                  {viewing
+                  {field.field_type === 'image'
+                    ? <SignatureImage key={field.image_asset_id} field={field} templateId={id} />
+                    : viewing
                     ? <PreviewText field={field} value={value} scale={scale} />
                     : <span className="overflow-hidden text-ellipsis" style={{ maxWidth: '100%' }}>{value}</span>}
                   {!viewing && active && <button aria-label="Resize field" className="absolute right-0 bottom-0 w-3 h-3 bg-blue-600 cursor-se-resize"
-                    onPointerDown={e => { e.stopPropagation(); interaction.current = { startX: e.clientX, startY: e.clientY, original: field, type: 'resize' }; }} />}
+                    onPointerDown={e => { e.preventDefault(); e.stopPropagation(); interaction.current = { startX: e.clientX, startY: e.clientY, original: field, type: 'resize' }; }} />}
                 </div>;
               })}
             </div>
@@ -517,11 +598,22 @@ export function TemplateDesigner({ id }) {
         </main>
         {!preview && !isActive && <aside className="bg-white border-l p-4 overflow-y-auto max-h-[calc(100vh-65px)]">
           {!selected ? <p className="text-sm text-slate-500">Select a field to edit it. Drag to move; use arrow keys for 1 pt nudges and Shift + arrow for 10 pt.</p> :
-            <FieldInspector field={selected} update={update} duplicate={duplicateField} remove={deleteField} pages={pages} />}
+            <FieldInspector field={selected} update={update} duplicate={duplicateField} remove={deleteField} pages={pages}
+              templateId={id} signatureBusy={signatureBusy || saving} replaceSignature={file => uploadSignature(file, selected.id)} />}
         </aside>}
       </div>
     </div>
   );
+}
+
+function SignatureImage({ field, templateId }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return <span role="alert" className="text-xs text-red-700 p-1">Signature preview unavailable.
+    <button type="button" className="underline ml-1" onPointerDown={e => e.stopPropagation()} onClick={() => setFailed(false)}>Retry</button>
+  </span>;
+  return <img alt={field.label || 'Signature'} draggable={false}
+    src={field.image_preview_url || certificateSignaturePreviewUrl(templateId, field.image_asset_id)}
+    onError={() => setFailed(true)} className="block w-full h-full object-contain pointer-events-none" />;
 }
 
 function PdfPage({ sourceUrl, pageNumber, scale }) {
@@ -605,7 +697,40 @@ function CustomFieldForm({ onAdd }) {
   </div>;
 }
 
-function FieldInspector({ field, update, duplicate, remove, pages }) {
+function FieldInspector({ field, update, duplicate, remove, pages, templateId, signatureBusy, replaceSignature }) {
+  const replaceRef = useRef(null);
+  if (field.field_type === 'image') {
+    const imagePage = pages[field.page - 1] || pages[0];
+    const changeGeometry = key => e => {
+      const value = Number(e.target.value);
+      if (!Number.isFinite(value)) return;
+      if (key === 'width' || key === 'height') update(resizeImageBox(field, value, key, imagePage));
+      else update({ [key]: value });
+    };
+    return <div className="space-y-4">
+      <h2 className="font-semibold">Signature</h2>
+      <div className="border rounded h-24 p-2">
+        <SignatureImage key={field.image_asset_id} field={field} templateId={templateId} />
+      </div>
+      <div><Label htmlFor="signature-label">Field label</Label><Input id="signature-label" value={field.label || ''} onChange={e => update({ label: e.target.value })} /></div>
+      <Button variant="outline" disabled={signatureBusy} onClick={() => replaceRef.current?.click()}><Upload className="w-4 h-4 mr-2" />Replace signature</Button>
+      <input ref={replaceRef} hidden aria-label="Replace signature image" type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png" disabled={signatureBusy}
+        onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; replaceSignature(file); }} />
+      <p className="text-xs text-slate-500">JPG, JPEG or PNG · max 2 MiB. Resizing preserves the image aspect ratio.</p>
+      <div className="grid grid-cols-2 gap-2">
+        <div><Label htmlFor="signature-page">Page</Label><select id="signature-page" className="border rounded h-9 w-full" value={field.page} onChange={e => update({ page: Number(e.target.value) })}>
+          {pages.map((_, i) => <option key={i} value={i + 1}>{i + 1}</option>)}
+        </select></div>
+        {['x', 'y', 'width', 'height'].map(key => <div key={key}><Label htmlFor={`signature-${key}`}>{key[0].toUpperCase() + key.slice(1)} (pt)</Label>
+          <Input id={`signature-${key}`} type="number" step="0.5" value={Number(field[key].toFixed?.(3) ?? field[key])} onChange={changeGeometry(key)} /></div>)}
+      </div>
+      <div className="flex gap-2">
+        <Button variant="outline" disabled={signatureBusy} onClick={duplicate}><Copy className="w-4 h-4 mr-1" />Duplicate</Button>
+        <Button variant="outline" disabled={signatureBusy} className="text-red-600" onClick={remove}><Trash2 className="w-4 h-4 mr-1" />Remove signature</Button>
+      </div>
+      <p className="text-xs text-slate-500 flex gap-1"><Move className="w-3 h-3" />Drag to move or resize. Geometry is saved in PDF points, independent of zoom.</p>
+    </div>;
+  }
   let textError = '';
   try { validateCertificateText(field.text_template); } catch (error) { textError = error.message; }
   const setNumber = key => e => update({ [key]: Number(e.target.value) });

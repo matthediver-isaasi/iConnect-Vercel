@@ -178,10 +178,11 @@ function parseColor(hex) {
 }
 
 /** Load/overlay/save: pdf-lib retains existing page streams/vectors and writes text as page content. */
-export async function renderCpdCertificatePdf(source, placeholders, values = {}) {
+export async function renderCpdCertificatePdf(source, placeholders, values = {}, { resolveImage } = {}) {
   const parsed = await inspectPdf(source);
   const fonts = new Map();
   for (const placeholder of placeholders || []) {
+    if (placeholder.field_type === 'image') continue;
     const family = placeholder.font_family || 'Helvetica';
     const style = placeholder.font_style || 'normal';
     if (!FONT[family]?.[style]) throw new Error(`Unsupported font/style: ${family}/${style}`);
@@ -194,7 +195,6 @@ export async function renderCpdCertificatePdf(source, placeholders, values = {})
     const page = pages[pageIndex];
     if (!page) throw new Error(`Placeholder ${placeholder.placeholder_key} refers to a missing page`);
     const font = fonts.get(`${placeholder.font_family || 'Helvetica'}/${placeholder.font_style || 'normal'}`);
-    const layout = layoutPlaceholder(placeholder, values, font);
     const {
       x: rawX, y: rawY, width: rawWidth, height: rawHeight,
     } = page.getCropBox();
@@ -203,7 +203,29 @@ export async function renderCpdCertificatePdf(source, placeholders, values = {})
     const pageWidth = swap ? rawHeight : rawWidth;
     const pageHeight = swap ? rawWidth : rawHeight;
     const x = Number(placeholder.x), y = Number(placeholder.y), boxWidth = Number(placeholder.width), boxHeight = Number(placeholder.height);
+    if (![x, y, boxWidth, boxHeight].every(Number.isFinite) || boxWidth <= 0 || boxHeight <= 0) throw new Error('Invalid certificate element geometry');
     if (x < 0 || y < 0 || x + boxWidth > pageWidth || y + boxHeight > pageHeight) throw new Error(`Placeholder ${placeholder.placeholder_key} exceeds page bounds`);
+    if (placeholder.field_type === 'image') {
+      if (!resolveImage || !placeholder.image_asset_id || !placeholder.image_sha256) throw new Error('Required signature image is unavailable');
+      const asset = await resolveImage(placeholder);
+      if (!asset?.bytes || createHash('sha256').update(asset.bytes).digest('hex') !== placeholder.image_sha256) {
+        throw new Error('Signature image integrity check failed');
+      }
+      // pdf-lib's JPEG parser creates a DataView over .buffer without honoring
+      // a pooled Node Buffer's byteOffset. An owned Uint8Array starts at zero.
+      const imageBytes = new Uint8Array(asset.bytes);
+      const image = asset.mime_type === 'image/png' ? await parsed.document.embedPng(imageBytes)
+        : asset.mime_type === 'image/jpeg' ? await parsed.document.embedJpg(imageBytes) : null;
+      if (!image) throw new Error('Unsupported signature image format');
+      // Contain matches the browser preview even for legacy rounded dimensions.
+      const fit = Math.min(boxWidth / image.width, boxHeight / image.height);
+      const width = image.width * fit, height = image.height * fit;
+      const point = visualToPdfPoint(x + (boxWidth - width) / 2, y + (boxHeight + height) / 2,
+        rawWidth, rawHeight, rotation, rawX, rawY);
+      page.drawImage(image, { x: point.x, y: point.y, width, height, rotate: degrees(rotation) });
+      continue;
+    }
+    const layout = layoutPlaceholder(placeholder, values, font);
     const textHeight = layout.lines.length * layout.size * layout.lineHeight;
     const vertical = placeholder.vertical_align || placeholder.vertical_alignment || 'middle';
     const topOffset = vertical === 'middle' ? (boxHeight - textHeight) / 2 : vertical === 'bottom' ? boxHeight - textHeight : 0;

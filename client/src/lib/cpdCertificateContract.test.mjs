@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   certificateDateRangeValues, certificateSampleValues, certificateTemplateEndpoints, formatCertificateValue,
   serializeCertificatePlaceholder, certificatePreviewValue,
+  assertCertificateTextSaved, certificateSignaturePreviewUrl, validateCertificateSignatureFile,
 } from './cpdCertificateContract.js';
 import { readFileSync } from 'node:fs';
 import { layoutPlaceholder } from '../../../api/_lib/cpdCertificatePdf.js';
@@ -122,6 +123,7 @@ test('request endpoints use source, lifecycle, and render API routes', () => {
     lifecycle: '/api/cpd-certificate-templates/a%2Fb/lifecycle',
     preview: '/api/cpd-certificate-templates/a%2Fb/preview',
     render: '/api/cpd-certificate-templates/a%2Fb/render',
+    signatures: '/api/cpd-certificate-templates/a%2Fb/signatures',
   });
 });
 
@@ -143,4 +145,66 @@ test('designer keeps editing controls hidden for active templates', () => {
   assert.match(designer, /\{!isActive && <Button variant="outline" onClick=\{\(\) => setPreview\(v => !v\)\}>\{preview \? 'Edit' : 'Preview'\}<\/Button>\}/);
   assert.match(designer, /\{!isActive && <Button onClick=\{save\}/);
   assert.match(designer, /\{!preview && !isActive && <aside/);
+});
+
+const signatureField = {
+  key: 'signature.chair', field_type: 'image',
+  image_asset_id: '12345678-1234-4234-8234-123456789abc', image_sha256: 'a'.repeat(64),
+  page: 2, x: 31, y: 42, width: 180, height: 60,
+  image_width: 900, image_height: 300, image_preview_url: '/private-preview',
+  font_family: 'Helvetica', font_size: 18, font_style: 'normal', align: 'left', color: '#111827',
+};
+
+test('signatures persist identity and geometry with legacy RPC attributes but no browser metadata or sample dependency', () => {
+  const saved = serializeCertificatePlaceholder({
+    ...signatureField, sample: 'not certificate data', default_value: 'not a fallback',
+    text_template: '{{unsupported_image_token}}',
+  });
+  assert.equal(saved.field_type, 'image');
+  assert.equal(saved.image_asset_id, signatureField.image_asset_id);
+  assert.equal(saved.image_sha256, signatureField.image_sha256);
+  assert.equal(saved.page_number, 2);
+  for (const key of ['x', 'y', 'width', 'height', 'font_family', 'font_size', 'font_style', 'color']) {
+    assert.equal(saved[key], signatureField[key]);
+  }
+  assert.equal(saved.sample_value, '');
+  assert.equal(saved.default_value, null);
+  for (const key of ['text_template', 'image_width', 'image_height', 'image_preview_url']) assert.equal(key in saved, false);
+  assert.deepEqual(certificateSampleValues([signatureField]), {});
+  assert.equal(certificatePreviewValue(signatureField, { 'signature.chair': 'ignored' }), null);
+  assert.equal(certificateSignaturePreviewUrl('a/b', signatureField.image_asset_id),
+    `/api/cpd-certificate-templates/a%2Fb/signatures?assetId=${signatureField.image_asset_id}`);
+});
+
+test('checked save rejects dropped/changed image identity, page and every geometry coordinate, including duplicate fields', () => {
+  const expected = serializeCertificatePlaceholder(signatureField);
+  assert.doesNotThrow(() => assertCertificateTextSaved([expected], [{ ...expected, width: '180' }]));
+  assert.throws(() => assertCertificateTextSaved([expected], []), /draft has been kept/);
+  for (const [key, value] of Object.entries({
+    field_type: 'text', image_asset_id: '87654321-1234-4234-8234-123456789abc',
+    image_sha256: 'b'.repeat(64), page_number: 1, x: 32, y: 43, width: 181, height: 61,
+  })) {
+    assert.throws(() => assertCertificateTextSaved([expected], [{ ...expected, [key]: value }]), /draft has been kept/, key);
+  }
+  const duplicate = { ...expected, x: 41 };
+  assert.doesNotThrow(() => assertCertificateTextSaved([expected, duplicate], [duplicate, expected]));
+  assert.throws(() => assertCertificateTextSaved([expected, duplicate], [expected, expected]), /draft has been kept/);
+  const text = { placeholder_key: 'text.body', text_template: 'Verified text' };
+  assert.throws(() => assertCertificateTextSaved([expected, text], [expected, { ...text, text_template: null }]), /draft has been kept/);
+});
+
+test('signature upload accepts JPG/JPEG/PNG up to exactly 2 MiB and rejects empty, oversized or unsupported files', () => {
+  for (const name of ['signature.jpg', 'signature.JPEG', 'signature.png']) {
+    assert.doesNotThrow(() => validateCertificateSignatureFile({
+      name, type: name.endsWith('png') ? 'image/png' : 'image/jpeg', size: 2 * 1024 * 1024,
+    }));
+  }
+  for (const file of [null, { name: 'x.svg', type: 'image/svg+xml', size: 50 },
+    { name: 'x.gif', type: 'image/png', size: 50 }, { name: 'x.jpg', type: 'application/pdf', size: 50 },
+    { name: 'x.png', type: 'image/png', size: 0 }, { name: 'x.png', type: 'image/png', size: 2 * 1024 * 1024 + 1 }]) {
+    assert.throws(() => validateCertificateSignatureFile(file));
+  }
+  for (const patch of [{ image_asset_id: null }, { image_sha256: 'invalid' }]) {
+    assert.throws(() => serializeCertificatePlaceholder({ ...signatureField, ...patch }), /valid signature/);
+  }
 });

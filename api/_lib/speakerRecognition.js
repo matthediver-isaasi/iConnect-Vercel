@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { signatureResolver } from './cpdCertificateImages.js';
 import { renderCpdCertificatePdf } from './cpdCertificatePdf.js';
 import { certificateDatePlaceholderValues, eventDateOnly } from '../../shared/eventCpdCertificatePolicy.js';
 
@@ -27,7 +28,7 @@ export function speakerCertificateValues(snapshot) {
 
 export function speakerCertificateFields(fields, values) {
   return (fields || []).map(({ sample_value, default_value, ...field }) => {
-    if (field.missing_policy === 'error'
+    if (field.field_type !== 'image' && field.missing_policy === 'error'
       && (values[field.placeholder_key] == null || String(values[field.placeholder_key]).trim() === '')) {
       throw new Error(`Required speaker certificate value unavailable: ${field.placeholder_key}`);
     }
@@ -74,7 +75,7 @@ export async function issueSpeakerCertificate(db, row, { render = renderCpdCerti
       if (digest(sourceBytes) !== template.source_sha256) throw new Error('The snapshotted speaker certificate template source has changed');
       const values = speakerCertificateValues(row.snapshot);
       const fields = speakerCertificateFields(row.snapshot.placeholders, values);
-      bytes = Buffer.from(await render(sourceBytes, fields, values));
+      bytes = Buffer.from(await render(sourceBytes, fields, values, { resolveImage: signatureResolver(db, template) }));
       const uploaded = await bucket.upload(path, bytes, { contentType: 'application/pdf', upsert: false, cacheControl: '0' });
       if (uploaded.error) {
         // Another worker can win this key. Use its immutable bytes only on an
