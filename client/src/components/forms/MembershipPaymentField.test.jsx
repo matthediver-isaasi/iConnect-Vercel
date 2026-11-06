@@ -185,7 +185,7 @@ test('voucher background refresh is single-flight and does not disable return to
       await new Promise(r => setTimeout(r, 15));
     });
     assert.equal(quoteRequests, 1, 'mount effects share the initial request');
-    const button = [...host.querySelectorAll('button')].find(b => b.textContent === 'Return to payment choices');
+    const button = [...host.querySelectorAll('button')].find(b => b.textContent === 'Back');
     assert.ok(button);
     assert.equal(button.disabled, false);
     await act(async () => {
@@ -234,6 +234,7 @@ async function mountRenewal(quote, postResponse = { released: true }, afterRelea
   };
 }
 const click = async button => act(async () => { assert.ok(button); button.click(); });
+const continueToPayment = async host => click([...host.querySelectorAll('button')].find(button => button.textContent === 'Continue to payment'));
 
 test('class mapping and saved form identity accompany quotes and every payment method', async () => {
   for (const method of ['upfront', 'monthly_card', 'direct_debit']) {
@@ -250,6 +251,7 @@ test('class mapping and saved form identity accompany quotes and every payment m
     assert.deepEqual(JSON.parse(quote.searchParams.get('fieldOverrides')), { class: 'Overseas associate' });
     await click(mounted.card(method));
     const testId = { upfront: 'button-pay-membership', monthly_card: 'button-monthly-card', direct_debit: 'button-direct-debit' }[method];
+    await continueToPayment(mounted.host);
     await click(mounted.host.querySelector(`[data-testid="${testId}-payment"]`));
     assert.equal(mounted.posts.length, 1);
     assert.equal(mounted.posts[0].formId, 'renew-form');
@@ -274,6 +276,7 @@ test('explicit schedule answer is sent for all payment methods without a base sc
     assert.equal(quote.searchParams.has('configId'), false);
     await click(mounted.card(method));
     const testId = { upfront: 'button-pay-membership', monthly_card: 'button-monthly-card', direct_debit: 'button-direct-debit' }[method];
+    await continueToPayment(mounted.host);
     await click(mounted.host.querySelector(`[data-testid="${testId}-payment"]`));
     assert.equal(mounted.posts.length, 1);
     assert.equal(mounted.posts[0].renewalScheduleAnswer, 'Overseas associate');
@@ -293,6 +296,7 @@ test('abandoned card renewals retain all eligible cards and allow same-method co
     assert.equal(host.querySelector('[data-testid="button-monthly-card-payment"]'), null);
     await click(card(method));
     assert.equal(posts.length, 0, 'selecting a card is not consent or a charge');
+    await continueToPayment(host);
     assert.ok(host.querySelector(`[data-testid="${method === 'upfront' ? 'button-pay-membership' : 'button-monthly-card'}-payment"]`));
     await mounted.close();
   }
@@ -306,27 +310,40 @@ test('switching waits for release, rejects repeated clicks and uses refreshed pr
   fresh.directDebit.monthlyAmount = 15;
   const mounted = await mountRenewal(renewalQuote(), () => gate, fresh);
   const { host, posts, card } = mounted;
-  await act(async () => { card('direct_debit').click(); card('monthly_card').click(); });
+  const reads = mounted.gets.length;
+  await click(card('direct_debit'));
+  assert.equal(posts.length, 0, 'choosing a different card is local only');
+  assert.equal(mounted.gets.length, reads, 'choosing a card does not check checkout status');
+  assert.equal(card('direct_debit').getAttribute('aria-pressed'), 'true');
+  await act(async () => {
+    const button = [...host.querySelectorAll('button')].find(button => button.textContent === 'Continue to payment');
+    button.click(); button.click();
+  });
   assert.equal(posts.length, 1);
   assert.equal(posts[0].credentials, 'include');
   assert.equal(posts[0].action, 'change_renewal_payment_method');
   assert.ok([...host.querySelectorAll('button')].every(button => button.disabled));
   assert.match(card('direct_debit').textContent, /Checking Pay monthly by Direct Debit/);
-  assert.equal(card('upfront').getAttribute('aria-pressed'), 'true');
+  assert.equal(card('direct_debit').getAttribute('aria-pressed'), 'true');
   await act(async () => { release({ released: true }); });
   assert.equal(card('direct_debit').getAttribute('aria-pressed'), 'true');
   assert.match(card('direct_debit').textContent, /15.00/);
+  assert.match(host.querySelector('[role="alert"]').textContent, /safely cancelled.*Review the updated amount/);
+  assert.equal(host.querySelector('[data-testid="button-direct-debit-payment"]'), null, 'release stays on choices for confirmation');
+  await continueToPayment(host);
   assert.ok(host.querySelector('[data-testid="text-dd-first-collection-payment"]'));
   assert.ok(host.querySelector('[data-testid="button-direct-debit-payment"]'));
   assert.equal(posts.length, 1, 'replacement does not start until explicit continuation');
   await mounted.close();
 });
 
-test('refused or uncertain switching retains original method and explains recovery', async () => {
+test('refused or uncertain switching retains the local choice without starting payment and explains recovery', async () => {
   for (const response of [{ error: 'Payment must be reconciled. Check renewal status.' }, { released: false }]) {
     const mounted = await mountRenewal(renewalQuote('monthly_card'), response);
     await click(mounted.card('upfront'));
-    assert.equal(mounted.card('monthly_card').getAttribute('aria-pressed'), 'true');
+    assert.equal(mounted.posts.length, 0);
+    await continueToPayment(mounted.host);
+    assert.equal(mounted.card('upfront').getAttribute('aria-pressed'), 'true');
     assert.equal(mounted.posts.length, 1);
     assert.ok(mounted.host.querySelector('[role="alert"]'));
     await mounted.close();
@@ -337,6 +354,8 @@ test('fresh eligibility removes unavailable method and never starts stale replac
   const fresh = { ...renewalQuote(), directDebit: null, renewal: { state: 'eligible_renewal', eligible: true } };
   const mounted = await mountRenewal(renewalQuote(), { released: true }, fresh);
   await click(mounted.card('direct_debit'));
+  assert.equal(mounted.posts.length, 0);
+  await continueToPayment(mounted.host);
   assert.equal(mounted.card('direct_debit'), undefined);
   assert.match(mounted.host.querySelector('[role="alert"]').textContent, /could not be confirmed/);
   assert.equal(mounted.posts.length, 1);
@@ -346,7 +365,7 @@ test('fresh eligibility removes unavailable method and never starts stale replac
 test('missing quote invents no choices and reconciliation blocks payment while retaining alternatives', async () => {
   const missing = await mountRenewal({ renewal: renewalQuote().renewal });
   assert.equal(missing.host.querySelectorAll('button[aria-pressed]').length, 0);
-  assert.match(missing.host.textContent, /Check renewal status/);
+  assert.match(missing.host.textContent, /previous checkout needs to be checked/);
   await missing.close();
   const quote = renewalQuote();
   quote.renewal.switchState = 'reconciling';
@@ -358,7 +377,7 @@ test('missing quote invents no choices and reconciliation blocks payment while r
   await mounted.close();
 });
 
-test('upfront continuation keeps alternatives visible and confirms using existing payment controls', async () => {
+test('upfront continuation hides choices and confirms using existing payment controls', async () => {
   const calls = [];
   window.Stripe = () => ({
     elements: () => ({ create: () => ({ mount() {} }), submit: async () => ({}) }),
@@ -370,8 +389,9 @@ test('upfront continuation keeps alternatives visible and confirms using existin
     throw new Error('Unexpected cancellation');
   });
   await click(mounted.card('upfront'));
+  await continueToPayment(mounted.host);
   await click(mounted.host.querySelector('[data-testid="button-pay-membership-payment"]'));
-  assert.equal(mounted.host.querySelectorAll('button[aria-pressed]').length, 3);
+  assert.equal(mounted.host.querySelectorAll('button[aria-pressed]').length, 0);
   await click(mounted.host.querySelector('[data-testid="button-confirm-payment-payment"]'));
   assert.deepEqual(calls, ['confirm']);
   assert.ok(mounted.host.querySelector('[data-testid="text-payment-success"]'));
@@ -388,6 +408,7 @@ test('monthly card and Direct Debit require explicit continuation after selectio
     });
     await click(mounted.card(method));
     assert.equal(mounted.posts.length, 0);
+    await continueToPayment(mounted.host);
     if (method === 'direct_debit') {
       assert.ok(mounted.host.querySelector('[data-testid="text-dd-first-collection-payment"]'));
       assert.match(mounted.host.textContent, /Direct Debit Guarantee/);
@@ -403,6 +424,8 @@ test('switch refresh finding completed renewal cannot start the replacement', as
     renewal: { state: 'next_term_purchased', eligible: false },
   });
   await click(mounted.card('monthly_card'));
+  assert.equal(mounted.posts.length, 0);
+  await continueToPayment(mounted.host);
   assert.equal(mounted.host.querySelectorAll('button[aria-pressed]').length, 0);
   assert.match(mounted.host.textContent, /already been paid/);
   assert.equal(mounted.posts.length, 1);
@@ -443,6 +466,7 @@ test('post-grace restart uses provisional payment-based dates and retains all qu
     assert.equal(mounted.host.querySelectorAll('button[aria-pressed]').length, 3);
     assert.doesNotMatch(mounted.host.textContent, /Your renewal covers|From 4 February|dates.*remain fixed/);
     await click(mounted.card(method));
+    await continueToPayment(mounted.host);
     assert.doesNotMatch(mounted.host.textContent, /Nothing due now|current membership stays unchanged/);
     if (method === 'direct_debit') {
       assert.match(mounted.host.querySelector('[data-testid="text-dd-first-collection-payment"]').textContent, /only after successful payment/);
@@ -468,7 +492,7 @@ test('post-grace restart never offers payment without explicit server true eligi
       assert.equal(mounted.host.querySelector('[data-testid="button-pay-membership-payment"]'), null);
       assert.equal(mounted.host.querySelector('[data-testid="button-monthly-card-payment"]'), null);
       assert.equal(mounted.host.querySelector('[data-testid="button-direct-debit-payment"]'), null);
-      await click([...mounted.host.querySelectorAll('button')].find(button => button.textContent === 'Check renewal status'));
+      assert.doesNotMatch(mounted.host.textContent, /Check renewal status/);
       assert.equal(mounted.posts.length, 0);
       await mounted.close();
     }
@@ -486,6 +510,7 @@ test('post-grace Stripe checkout and completion never present provisional dates 
     : { success: true });
   try {
     await click(mounted.card('upfront'));
+    await continueToPayment(mounted.host);
     await click(mounted.host.querySelector('[data-testid="button-pay-membership-payment"]'));
     assert.equal(mounted.host.querySelector('[data-testid="membership-agreed-term"]'), null);
     assert.match(mounted.host.textContent, /Estimated membership dates/);
@@ -502,6 +527,7 @@ test('post-grace Stripe checkout and completion never present provisional dates 
 test('post-grace Direct Debit set-up does not claim activation before successful payment', async () => {
   const mounted = await mountRenewal(restartQuote(true), { agreementId: 'fixture-only' });
   await click(mounted.card('direct_debit'));
+  await continueToPayment(mounted.host);
   await click(mounted.host.querySelector('[data-testid="button-direct-debit-payment"]'));
   const notice = mounted.host.querySelector('[data-testid="dd-started-payment"]');
   assert.match(notice.textContent, /pending payment confirmation/);
@@ -522,4 +548,195 @@ test('ordinary within-grace renewal retains fixed successor dates and existing r
   assert.doesNotMatch(mounted.host.textContent, /Restart your membership|provisional|Estimated membership/);
   assert.equal(mounted.host.querySelectorAll('button[aria-pressed]').length, 3);
   await mounted.close();
+});
+
+test('Continue refreshes amount, terms and method availability on the choices stage before payment', async () => {
+  for (const change of ['amount', 'dates', 'monthly terms', 'method']) {
+    const quote = { ...renewalQuote(), renewal: { state: 'eligible_renewal', eligible: true,
+      successorStart: '2027-01-01', successorEnd: '2027-12-31' } };
+    const mounted = await mountRenewal(quote);
+    try {
+      await click(mounted.card('upfront'));
+      assert.equal(mounted.host.querySelector('[data-testid="button-pay-membership-payment"]'), null);
+      const reads = mounted.gets.length;
+      if (change === 'amount') quote.totalWithVat = 137.42;
+      if (change === 'dates') quote.renewal.successorEnd = '2028-01-14';
+      if (change === 'monthly terms') quote.directDebit = { ...quote.directDebit, instalmentCount: 11 };
+      if (change === 'method') quote.stripeEnabled = false;
+      await continueToPayment(mounted.host);
+      assert.ok(mounted.gets.length > reads, 'Continue makes an authenticated fresh read');
+      assert.match(mounted.host.querySelector('[role="alert"]').textContent, /details have changed/);
+      assert.ok(mounted.host.querySelector('button[aria-pressed]'), 'choices stay visible for review');
+      assert.equal(mounted.host.querySelector('[data-testid="button-pay-membership-payment"]'), null);
+      assert.equal(mounted.posts.length, 0, 'review cannot create or charge a payment');
+      if (change === 'amount') assert.match(mounted.host.textContent, /137\.42/);
+      if (change === 'dates') assert.match(mounted.host.textContent, /14\/01\/2028/);
+      if (change === 'monthly terms') assert.match(mounted.card('direct_debit').textContent, /11 monthly payments/);
+      if (change === 'method') assert.equal(mounted.card('upfront'), undefined);
+    } finally { await mounted.close(); }
+  }
+});
+
+test('Continue finding an already paid renewal shows completion without creating another checkout', async () => {
+  const quote = renewalQuote();
+  const mounted = await mountRenewal(quote);
+  try {
+    quote.existingRecord = { id: 'settled', paymentStatus: 'paid', status: 'scheduled' };
+    await continueToPayment(mounted.host);
+    assert.ok(mounted.host.querySelector('[data-testid="text-payment-success"]'));
+    assert.equal(mounted.posts.length, 0);
+    assert.equal(mounted.host.querySelector('[data-testid="button-pay-membership-payment"]'), null);
+  } finally { await mounted.close(); }
+});
+
+test('Continue failure stays on choices and retry never starts payment automatically', async () => {
+  const mounted = await mountRenewal(renewalQuote());
+  const previousFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => { throw new Error('Fixture offline'); };
+    await continueToPayment(mounted.host);
+    assert.match(mounted.host.querySelector('[role="alert"]').textContent, /No new payment has been started/);
+    assert.equal(mounted.host.querySelectorAll('button[aria-pressed]').length, 3);
+    globalThis.fetch = previousFetch;
+    await continueToPayment(mounted.host);
+    assert.equal(mounted.host.querySelectorAll('button[aria-pressed]').length, 0);
+    assert.equal(mounted.posts.length, 0);
+  } finally { globalThis.fetch = previousFetch; await mounted.close(); }
+});
+
+test('Back safely releases a reserved checkout, rejects double clicks, and returns to choices', async () => {
+  let resolveRelease;
+  const mounted = await mountRenewal(renewalQuote(), () => new Promise(resolve => { resolveRelease = resolve; }));
+  try {
+    await continueToPayment(mounted.host);
+    const back = [...mounted.host.querySelectorAll('button')].find(button => button.textContent === 'Back');
+    await act(async () => { back.click(); back.click(); });
+    assert.equal(mounted.posts.length, 1);
+    assert.equal(mounted.posts[0].action, 'change_renewal_payment_method');
+    assert.equal(back.disabled, true);
+    assert.ok(back.querySelector('svg'));
+    await act(async () => resolveRelease({ released: true }));
+    assert.equal(mounted.host.querySelectorAll('button[aria-pressed]').length, 3);
+    assert.equal(mounted.host.querySelector('[data-testid="button-pay-membership-payment"]'), null);
+  } finally { await mounted.close(); }
+});
+
+test('Back refusal retains payment stage and shows the provider safety error', async () => {
+  const mounted = await mountRenewal(renewalQuote(), { error: 'Your payment is being confirmed. Do not pay again.' });
+  try {
+    await continueToPayment(mounted.host);
+    await click([...mounted.host.querySelectorAll('button')].find(button => button.textContent === 'Back'));
+    assert.match(mounted.host.querySelector('[role="alert"]').textContent, /Do not pay again/);
+    assert.equal(mounted.host.querySelectorAll('button[aria-pressed]').length, 0);
+    assert.equal(mounted.posts.length, 1);
+  } finally { await mounted.close(); }
+});
+
+test('bound voucher checkout suppresses outer unavailable warning and all outer payment actions', async () => {
+  dom.reconfigure({ windowTop: {} });
+  const quote = { ...renewalQuote(), memberScoped: true, voucherCheckoutToken: 'saved-checkout',
+    stripeEnabled: false, cardMonthly: null, directDebit: null };
+  const mounted = await mountRenewal(quote);
+  try {
+    assert.doesNotMatch(mounted.host.textContent, /Online payment is not currently available|Check renewal status/);
+    assert.equal(mounted.host.querySelectorAll('button[aria-pressed]').length, 0);
+    assert.equal(mounted.host.querySelector('[data-testid="button-pay-membership-payment"]'), null);
+    assert.ok([...mounted.host.querySelectorAll('button')].find(button => button.textContent === 'Back'));
+  } finally { await mounted.close(); dom.reconfigure({ windowTop: dom.window }); }
+});
+
+test('nested saved voucher checkout registers the real enabled Pay footer action despite disabled outer providers', async () => {
+  const { MemoryRouter } = await import('react-router-dom');
+  const { MembershipPrimaryActionContext } = await import('./MembershipPrimaryAction.jsx');
+  const host = document.createElement('div');
+  const back = document.createElement('span');
+  const pay = document.createElement('span');
+  document.body.append(host, back, pay);
+  const root = createRoot(host);
+  const registrations = new Set();
+  globalThis.fetch = async (input, options = {}) => {
+    assert.notEqual(options.method, 'POST', 'rendering controls must not start payment');
+    const url = String(input);
+    if (url.includes('payment-plan')) return new Response(JSON.stringify({ currentPlan: null }));
+    if (url.includes('action=vouchers')) return new Response(JSON.stringify({ vouchers: [] }));
+    if (url.startsWith('/api/public/membership-fees/')) return new Response(JSON.stringify({
+      isMember: true, memberName: 'Renewal fixture', membershipYear: '2027', status: 'pending',
+      finalCost: 137.42, totalWithVat: 137.42, currency: 'GBP', stripeEnabled: true,
+      stripePublishableKey: 'pk_test_fixture', formVoucher: { paymentMode: 'stripe_upfront' },
+    }));
+    return new Response(JSON.stringify({ ...renewalQuote(), memberScoped: true,
+      voucherCheckoutToken: 'saved-checkout', stripeEnabled: false, cardMonthly: null, directDebit: null }));
+  };
+  try {
+    await act(async () => {
+      root.render(<MemoryRouter><MembershipPrimaryActionContext.Provider value={{
+        target: pay, backTarget: back, validate: async () => true,
+        register: (id, active) => active ? registrations.add(id) : registrations.delete(id),
+      }}>
+        <MembershipPaymentField field={{ id: 'payment' }} resolvedMemberId="member" formId="renew" />
+      </MembershipPrimaryActionContext.Provider></MemoryRouter>);
+      await new Promise(resolve => setTimeout(resolve, 15));
+    });
+    assert.equal(registrations.size, 1);
+    assert.equal(pay.querySelectorAll('button').length, 1);
+    assert.match(pay.textContent, /Pay £137\.42/);
+    assert.equal(pay.querySelector('button').disabled, false);
+    assert.equal(back.textContent, 'Back');
+    assert.doesNotMatch(host.textContent, /Online payment is not currently available|Check renewal status/);
+  } finally { await act(async () => root.unmount()); host.remove(); back.remove(); pay.remove(); }
+});
+
+test('pending checkout with vouchers honors the locally selected method and releases only at Continue', async () => {
+  const { MembershipCheckoutDraftContext } = await import('./MembershipCheckoutDraftContext.jsx');
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const posts = [];
+  let reads = 0, released = false, saves = 0;
+  globalThis.fetch = async (input, options = {}) => {
+    const url = String(input);
+    if (options.method === 'POST') {
+      const body = JSON.parse(options.body);
+      posts.push(body);
+      if (body.action === 'change_renewal_payment_method') {
+        released = true;
+        return new Response(JSON.stringify({ released: true }));
+      }
+      return new Response(JSON.stringify({ error: 'Fixture stops before starting payment' }), { status: 409 });
+    }
+    reads++;
+    if (url.includes('payment-plan')) return new Response(JSON.stringify({ currentPlan: null }));
+    if (url.includes('action=vouchers')) return new Response(JSON.stringify({
+      enabled: true, checkoutReady: true, currency: 'GBP', vouchers: [{ id: 'credit', value: 17.31, code: 'CREDIT-17' }],
+    }));
+    return new Response(JSON.stringify({ ...renewalQuote(), memberScoped: true,
+      ...(released ? { renewal: { state: 'eligible_renewal', eligible: true, quoteKey: 'released-quote' } } : {}),
+    }));
+  };
+  try {
+    await act(async () => {
+      root.render(<MembershipCheckoutDraftContext.Provider value={async () => { saves++; }}>
+        <MembershipPaymentField field={{ id: 'payment' }} resolvedMemberId="member" formId="renew" />
+      </MembershipCheckoutDraftContext.Provider>);
+      await new Promise(resolve => setTimeout(resolve, 15));
+    });
+    await click(host.querySelector('input[type="checkbox"]'));
+    const beforeSelection = reads;
+    const monthly = [...host.querySelectorAll('button[aria-pressed]')].find(button => button.textContent.includes('Pay monthly by card'));
+    await click(monthly);
+    assert.equal(monthly.getAttribute('aria-pressed'), 'true', 'local choice overrides the saved pending method');
+    assert.equal(posts.length, 0);
+    assert.equal(reads, beforeSelection, 'voucher method cards do not check status');
+    await continueToPayment(host);
+    assert.deepEqual(posts.map(body => body.action), ['change_renewal_payment_method']);
+    assert.equal(saves, 0, 'no new voucher checkout or draft preparation before renewed consent');
+    assert.equal(host.querySelector('input[type="checkbox"]').checked, true);
+    assert.match(host.querySelector('[role="alert"]').textContent, /safely cancelled.*Review the updated amount/);
+    assert.equal(host.querySelectorAll('button[aria-pressed]').length, 3);
+    await continueToPayment(host);
+    assert.equal(posts[1].action, 'start_voucher_checkout');
+    assert.equal(posts[1].paymentMethod, 'monthly_card');
+    assert.deepEqual(posts[1].voucherIds, ['credit']);
+    assert.equal(saves, 1);
+  } finally { await act(async () => root.unmount()); host.remove(); }
 });

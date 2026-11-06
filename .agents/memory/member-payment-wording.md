@@ -11,3 +11,9 @@ Show the selected membership schedule name rather than the pricing-model label â
 **Why:** The owner requested a content-only simplification across tenants, preserving payment, credit, renewal and activation rules.
 
 **How to apply:** Use authoritative paired dates, preserve VAT distinctions, and never invent a membership type. A saved payment method or historical mandate does not establish a reusable active arrangement. Only describe renewal continuation and variable fees when the recorded policy supports them. Keep administrative policy helpers separate from member-facing copy.
+
+Renewal should have one choices stage and one payment stage. Check renewal status when the member continues, not through separate status buttons. Keep voucher changes on the choices stage and Back beside the final payment action.
+
+**Why:** The owner found repeated status checks, duplicated payment selectors and voucher editing during payment confusing. Any changed terms must be clearly reviewed before continuing.
+
+**How to apply:** Preserve provider verification and duplicate-payment guards underneath the simplified journey; never treat Back or a locally selected payment method as proof that an earlier payment was cancelled.

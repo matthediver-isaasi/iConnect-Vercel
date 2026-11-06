@@ -141,7 +141,7 @@ test('return shows immediate progress, closes checkout, clears the draft and rel
   </MembershipCheckoutDraftContext.Provider>);
   try {
     await act(async () => { render(); await new Promise(r => setTimeout(r, 10)); });
-    const button = [...host.querySelectorAll('button')].find(b => b.textContent === 'Return to payment choices');
+    const button = [...host.querySelectorAll('button')].find(b => b.textContent === 'Back');
     await act(async () => window.dispatchEvent(new window.Event('focus')));
     assert.equal(polls, 1);
     assert.equal(button.disabled, false);
@@ -182,7 +182,7 @@ test('return keeps checkout open and displays a persistent server refusal beside
         onRefresh={() => { refreshed = true; }} />);
       await new Promise(r => setTimeout(r, 10));
     });
-    const button = [...host.querySelectorAll('button')].find(b => b.textContent === 'Return to payment choices');
+    const button = [...host.querySelectorAll('button')].find(b => b.textContent === 'Back');
     await act(async () => { button.click(); await new Promise(r => setTimeout(r, 10)); });
     assert.match(host.querySelector('[role="alert"]').textContent, /Cancel the existing payment/);
     assert.match(host.textContent, /Open secure credit checkout/);
@@ -208,11 +208,39 @@ test('a draft-save failure after release can retry without issuing another relea
       </MembershipCheckoutDraftContext.Provider>);
       await new Promise(r => setTimeout(r, 10));
     });
-    const button = [...host.querySelectorAll('button')].find(b => b.textContent === 'Return to payment choices');
+    const button = [...host.querySelectorAll('button')].find(b => b.textContent === 'Back');
     await act(async () => { button.click(); await new Promise(r => setTimeout(r, 10)); });
     assert.match(host.querySelector('[role="alert"]').textContent, /could not be saved/);
     await act(async () => { button.click(); await new Promise(r => setTimeout(r, 10)); });
     assert.equal(posts, 1); assert.equal(saves, 2);
     assert.doesNotMatch(host.textContent, /Open secure credit checkout/);
   } finally { await act(async () => root.unmount()); host.remove(); dom.reconfigure({ windowTop: dom.window }); }
+});
+
+test('a changed renewal checkpoint stops credit checkout before saving or making a payment request', async () => {
+  let saved = 0, checked = 0;
+  const posts = [];
+  globalThis.fetch = async (url, options = {}) => {
+    if (options.method === 'POST') posts.push(JSON.parse(options.body));
+    return new Response(JSON.stringify({ enabled: true, checkoutReady: true, currency: 'GBP',
+      vouchers: [{ id: 'selected', value: 17.31, code: 'CREDIT-17' }] }));
+  };
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => {
+      root.render(<MembershipCheckoutDraftContext.Provider value={async () => { saved++; }}>
+        <Credit memberId="member" context={{ formId: 'renew' }} selectedMethod="upfront"
+          selectedVouchers={[{ id: 'selected', value: 17.31 }]}
+          onBeforeContinue={async () => { checked++; return false; }} />
+      </MembershipCheckoutDraftContext.Provider>);
+      await new Promise(resolve => setTimeout(resolve, 10));
+    });
+    await act(async () => [...host.querySelectorAll('button')].find(button => button.textContent === 'Continue to payment').click());
+    assert.equal(checked, 1);
+    assert.equal(saved, 0);
+    assert.equal(posts.length, 0);
+    assert.equal(host.querySelector('input').checked, true, 'keep vouchers available for review');
+  } finally { await act(async () => root.unmount()); host.remove(); }
 });

@@ -173,6 +173,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [formValues, setFormValues] = useState({});
   const [membershipActionTarget, setMembershipActionTarget] = useState(null);
+  const [membershipBackTarget, setMembershipBackTarget] = useState(null);
   const [membershipActions, setMembershipActions] = useState(() => new Set());
   const membershipValidationRef = useRef(null);
   const registerMembershipAction = useCallback((id, mounted) => {
@@ -2634,7 +2635,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   const withManagementReturn = screen => (
     <MembershipCheckoutDraftContext.Provider value={prepareMembershipCheckout}>
       <MembershipPrimaryActionContext.Provider value={{
-        target: membershipActionTarget, register: registerMembershipAction,
+        target: membershipActionTarget, backTarget: membershipBackTarget, register: registerMembershipAction,
         blocked: submitControl.disabled || !!departmentCurrentSetBlocked || !!applicantContinuationError
           || (applicantVerificationActive && applicantVerification.isPending) || submitFormMutation.isPending,
         validate: () => membershipValidationRef.current?.(),
@@ -3174,6 +3175,8 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     if (field.type !== 'membership_payment') return false;
     return !membershipReadyToSubmit(formValues[field.id]);
   });
+  const membershipCheckoutLoading = membershipAwaitingPayment && form && filterVisibleFields(form.fields).some(field =>
+    field.type === 'membership_payment' && Boolean(formValues[field.id]?.voucherCheckoutId));
 
   handleSubmitRef.current = handleSubmit;
 
@@ -3466,6 +3469,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                   </Button>
                 )}
                 
+                {isLastStep && <span ref={setMembershipBackTarget} data-testid="membership-back-action-slot" />}
                 {isLastStep && <span ref={setMembershipActionTarget} data-testid="membership-primary-action-slot" />}
                 {membershipActions.size > 0 ? null : isLastStep ? (
                   !visiblePaymentField ? (
@@ -3481,7 +3485,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                         Submitting...
                       </>
                     ) : (
-                      membershipAwaitingPayment ? 'Continue to payment' : form.submit_button_text
+                      membershipCheckoutLoading ? 'Loading payment controls…' : membershipAwaitingPayment ? 'Continue to payment' : form.submit_button_text
                     )}
                   </Button>
                   ) : null
@@ -3996,6 +4000,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                 )}
                 
                 {/* Next/Submit button */}
+                {(!hasPages || isLastPage) && <span ref={setMembershipBackTarget} data-testid="membership-back-action-slot" />}
                 {(!hasPages || isLastPage) && <span ref={setMembershipActionTarget} data-testid="membership-primary-action-slot" />}
                 {hasPages && !isLastPage ? (
                   !(displayFields.some(f => f.type === 'image_buttons' && f.auto_advance !== false && f.hide_next_button === true && !disabledFieldIds.has(f.id))) ? (
@@ -4020,7 +4025,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                         Submitting...
                       </>
                     ) : (
-                      membershipAwaitingPayment ? 'Continue to payment' : form.submit_button_text
+                      membershipCheckoutLoading ? 'Loading payment controls…' : membershipAwaitingPayment ? 'Continue to payment' : form.submit_button_text
                     )}
                   </Button>
                 ) : null}

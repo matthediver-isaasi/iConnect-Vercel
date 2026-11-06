@@ -6,13 +6,14 @@ import MembershipFeePage from '@/pages/MembershipFeePage';
 import { saveFormVoucherReturn } from '@/lib/formVoucherReturn';
 import MembershipPrimaryAction from './MembershipPrimaryAction';
 
-export default function FormMembershipCredit({ memberId, context, disabled, resumeToken, onRefresh, onBackgroundRefresh, selectedVouchers = [], onSelectionChange, selectedMethod, onCheckoutChange }) {
+export default function FormMembershipCredit({ memberId, context, disabled, resumeToken, onRefresh, onBackgroundRefresh, selectedVouchers = [], onSelectionChange, selectedMethod, onCheckoutChange, onBeforeContinue, hideChoices = false }) {
   const refreshRef = useRef(onRefresh);
   const backgroundRefreshRef = useRef(onBackgroundRefresh || onRefresh);
   backgroundRefreshRef.current = onBackgroundRefresh || onRefresh;
   const actionInFlight = useRef(false);
   const releasedToken = useRef(null);
   const releaseConfirmed = useRef(false);
+  const checkoutBackRef = useRef(null);
   const prepareCheckout = useContext(MembershipCheckoutDraftContext);
   refreshRef.current = onRefresh;
   const key = JSON.stringify(context);
@@ -22,6 +23,7 @@ export default function FormMembershipCredit({ memberId, context, disabled, resu
   const [token, setToken] = useState(resumeToken || null);
   const [retry, setRetry] = useState(0);
   const [checkoutVoucherIds, setCheckoutVoucherIds] = useState([]);
+  const [returningToChoices, setReturningToChoices] = useState(false);
   useEffect(() => { onCheckoutChange?.(Boolean(token)); }, [token, onCheckoutChange]);
   useEffect(() => {
     if (resumeToken && resumeToken === releasedToken.current) return;
@@ -50,10 +52,17 @@ export default function FormMembershipCredit({ memberId, context, disabled, resu
     setBusy(true); setError(null);
     try {
       if (action === 'start_voucher_checkout') {
+        if (onBeforeContinue && !await onBeforeContinue()) return;
         if (!prepareCheckout) throw new Error('Open the published renewal form to save your answers before checkout.');
         await prepareCheckout(JSON.parse(key));
       }
       const closing = action === 'close_voucher_checkout';
+      if (closing && !releaseConfirmed.current && checkoutBackRef.current) {
+        if (!await checkoutBackRef.current()) {
+          throw new Error('Your payment could not yet be safely closed. Do not start another payment. Please try Back again.');
+        }
+        setReturningToChoices(true);
+      }
       let data;
       if (closing && releaseConfirmed.current) {
         data = { released: true };
@@ -69,6 +78,7 @@ export default function FormMembershipCredit({ memberId, context, disabled, resu
       }
       if (closing && !data.released) throw new Error('The checkout could not be closed. Please try again.');
       if (closing) {
+        setReturningToChoices(true);
         // Keep the confirmed release if saving the draft or refreshing fails:
         // retry those steps, rather than trying to release the payment twice.
         releaseConfirmed.current = true;
@@ -78,6 +88,7 @@ export default function FormMembershipCredit({ memberId, context, disabled, resu
         if (!refreshed) throw new Error('Your checkout was closed, but payment choices could not be refreshed. Please try again.');
         releasedToken.current = token;
         setToken(null);
+        setReturningToChoices(false);
         setCheckoutVoucherIds([]);
         onSelectionChange?.([]);
         setRetry(n => n + 1);
@@ -89,11 +100,14 @@ export default function FormMembershipCredit({ memberId, context, disabled, resu
       if (data.token && window.top === window) saveFormVoucherReturn(window.sessionStorage, data.token,
         returnPath || window.location.pathname + window.location.search + window.location.hash);
       setToken(data.token || null);
+      setReturningToChoices(false);
       releaseConfirmed.current = false;
-      setCheckoutVoucherIds(data.voucherIds || []);
+      // Retain the member's intent even if a legacy response omits voucherIds.
+      // The embedded quote must confirm these vouchers, never fall back to gross.
+      setCheckoutVoucherIds(selectedVouchers.length ? selectedVouchers.map(voucher => voucher.id) : (data.voucherIds || []));
     } catch (err) {
       setError(err.name === 'TimeoutError'
-        ? 'This is taking longer than expected. Please check your renewal status before trying again.'
+        ? 'This is taking longer than expected. Your payment has not been confirmed. Please try again; do not start another payment.'
         : err.message);
     }
     finally { actionInFlight.current = false; setBusy(false); }
@@ -120,9 +134,10 @@ export default function FormMembershipCredit({ memberId, context, disabled, resu
       document.removeEventListener('visibilitychange', refresh);
     };
   }, [token]);
-  return <section className="rounded border bg-white p-4 space-y-3" aria-label="Available membership credit" aria-busy={!result && !error}>
-    <h3 className="font-medium">Your available credit</h3>
-    {!result && !error && <div role="status">
+  if (hideChoices && !token) return null;
+  return <section className="rounded border bg-white p-4 space-y-3" aria-label={token ? 'Membership payment' : 'Available membership credit'} aria-busy={!result && !error}>
+    {!token && <h3 className="font-medium">Your available credit</h3>}
+    {!token && !result && !error && <div role="status">
       <div className="h-4 w-3/4 rounded bg-slate-100 motion-safe:animate-pulse mb-2" />
       <p className="flex items-center gap-2 text-sm"><Loader2 aria-hidden="true" className="h-4 w-4 motion-safe:animate-spin" />Checking for available membership credit…</p>
     </div>}
@@ -130,20 +145,20 @@ export default function FormMembershipCredit({ memberId, context, disabled, resu
       {!result && <Button type="button" variant="outline" onClick={() => setRetry(n => n + 1)}>Retry</Button>}
     </div>}
     {token ? <>
-      {window.top === window
-        ? <MembershipFeePage key={token} embeddedToken={token} initialVoucherIds={checkoutVoucherIds} onPaymentComplete={onRefresh} />
+      {!returningToChoices && (window.top === window
+        ? <MembershipFeePage key={token} embeddedToken={token} initialVoucherIds={checkoutVoucherIds} onPaymentComplete={onRefresh}
+          onCheckoutBackReady={handler => { checkoutBackRef.current = handler; }} />
         : <p><a className="underline" href={`/membership-fees/${token}`} target="_blank" rel="noopener noreferrer">
           Open secure credit checkout in a new tab
-        </a>. Return here afterwards to finish your form. Your answers have been saved.</p>}
-      <p className="text-sm">After paying or setting up monthly payments, check your renewal status to continue the form.</p>
-      <Button type="button" variant="outline" disabled={busy || disabled} onClick={onRefresh}>Check renewal status</Button>
-      <Button type="button" variant="outline" aria-busy={busy} disabled={busy || disabled} onClick={() => act('close_voucher_checkout')}>
+        </a>. Return here afterwards to finish your form. Your answers have been saved.</p>)}
+      <MembershipPrimaryAction secondary><Button type="button" variant="outline" aria-busy={busy} disabled={busy || disabled} onClick={() => act('close_voucher_checkout')}>
         {busy && <Loader2 aria-hidden="true" className="mr-2 h-4 w-4 animate-spin" />}
-        {busy ? 'Returning to payment choices…' : 'Return to payment choices'}
-      </Button>
+        {busy ? 'Returning to payment choices…' : 'Back'}
+      </Button></MembershipPrimaryAction>
       {busy && <p role="status" className="text-sm">Checking that your checkout can be closed safely and loading your payment choices…</p>}
       {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
-      <p className="text-xs text-muted-foreground">If payment has started, use “Cancel payment and release credit” above first. A completed or uncertain payment cannot be cancelled here.</p>
+      <p className="text-xs text-muted-foreground">Back checks your checkout before returning to your choices. A completed or uncertain payment cannot be cancelled here.</p>
+      <p className="text-sm">To change your credit or payment method, choose Back. Your credit selection is reviewed before you continue again.</p>
     </> : result && <>
       {!result.vouchers?.length ? <p className="text-sm text-muted-foreground">You have no eligible credit available for this membership.</p> : <>
         <p className="text-sm">Select one or more vouchers, then choose how to pay below. The payment cards update with an estimate after credit. No credit is reserved by selecting a voucher.</p>
@@ -164,7 +179,7 @@ export default function FormMembershipCredit({ memberId, context, disabled, resu
           <MembershipPrimaryAction active={selectedVouchers.length > 0}>
           <Button type="button" disabled={disabled || busy || !selectedMethod || !selectedVouchers.length}
             onClick={() => act('start_voucher_checkout')}>
-            {busy ? 'Preparing your credit checkout…' : 'Continue with selected credit and payment method'}
+            {busy ? 'Checking your renewal…' : 'Continue to payment'}
           </Button>
           </MembershipPrimaryAction>
           {!selectedMethod && selectedVouchers.length > 0 && <p className="text-sm">Choose a payment card below to continue.</p>}

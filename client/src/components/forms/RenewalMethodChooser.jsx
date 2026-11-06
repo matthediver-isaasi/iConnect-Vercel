@@ -13,7 +13,7 @@ export default function RenewalMethodChooser({
         Choose how to pay
       </legend>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        {options.map(({ id, label, price }) => {
+        {options.map(({ id, label, price, details }) => {
           const selected = selectedMethod === id;
           const busy = busyMethod === id;
 
@@ -40,6 +40,7 @@ export default function RenewalMethodChooser({
                     {price}
                   </span>
                 )}
+                {details && <span className="block text-xs leading-relaxed text-muted-foreground">{details}</span>}
                 <span role="status" className="block text-sm text-muted-foreground">
                   {busy ? `Checking ${label}…` : ""}
                 </span>

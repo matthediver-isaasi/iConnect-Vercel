@@ -24,6 +24,8 @@ const bundle = await build({
       builder.onResolve({ filter: /^react-router-dom$/ }, () => ({ path: "router", namespace: "fixture" }));
       builder.onResolve({ filter: /^@\// }, args => args.path.endsWith("/vouchers/VoucherPresentation")
         ? { path: resolve("client/src/components/vouchers/VoucherPresentation.jsx") }
+        : args.path.endsWith("/forms/MembershipPrimaryAction")
+        ? { path: resolve("client/src/components/forms/MembershipPrimaryAction.jsx") }
         : /(?:directDebitConsentSummary|membershipFeeCopy)$/.test(args.path)
         ? { path: resolve(`client/src/lib/${args.path.split('/').at(-1)}.js`) }
         : { path: args.path, namespace: "fixture" });
@@ -64,7 +66,7 @@ async function waitFor(predicate) {
   assert.fail("Timed out waiting for fee page");
 }
 const byId = id => document.querySelector(`[data-testid="${id}"]`);
-async function mount(data, search = "", transport, vouchers = { enabled: false, vouchers: [] }) {
+async function mount(data, search = "", transport, vouchers = { enabled: false, vouchers: [] }, props = {}) {
   globalThis.feeTestToken = "saved-token";
   dom.window.history.replaceState({}, "", `/membership-fees/saved-token${search}`);
   const calls = [];
@@ -84,7 +86,7 @@ async function mount(data, search = "", transport, vouchers = { enabled: false, 
   const container = document.createElement("div");
   document.body.append(container);
   const root = createRoot(container);
-  await act(async () => root.render(React.createElement(Component)));
+  await act(async () => root.render(React.createElement(Component, props)));
   await waitFor(() => container.textContent.includes("Your Membership") || container.textContent.includes("Payment Complete"));
   return {
     calls, voucherCalls, container,
@@ -890,5 +892,87 @@ test("legacy DD in-progress response does not establish reuse by itself", async 
     assert.match(view.container.textContent, /Direct Debit is being processed/);
     assert.doesNotMatch(view.container.textContent, /existing Direct Debit has been reused|payments have been scheduled/);
     assert.deepEqual(view.calls.filter(Boolean), [{ action: "start_direct_debit" }]);
+  } finally { await view.cleanup(); }
+});
+
+test("embedded saved checkout without funding has payment controls, no credit editing, and a safe Back handoff", async () => {
+  let goBack;
+  const data = fixture(null);
+  data.formVoucher = { paymentMode: "stripe_upfront" };
+  const view = await mount(data, "", undefined, { enabled: true, vouchers: [
+    { id: "credit", value: 17.31, code: "CREDIT-17" },
+  ] }, { embeddedToken: "saved-token", onCheckoutBackReady: action => { goBack = action; } });
+  try {
+    assert.ok(byId("button-pay-now"));
+    assert.equal(byId("button-pay-now").disabled, false);
+    assert.equal(view.container.querySelectorAll('input[type="checkbox"]').length, 0);
+    assert.match(view.container.textContent, /No credit has been applied\. Choose Back to select vouchers\./);
+    assert.doesNotMatch(view.container.textContent, /Update payment summary|Apply credit|Check renewal status/);
+    let closed;
+    await act(async () => { closed = await goBack(); });
+    assert.equal(closed, true, "an unstarted, unfunded checkout can return to the outer close guard");
+    assert.equal(view.calls.filter(Boolean).length, 0);
+  } finally { await view.cleanup(); }
+});
+
+test("embedded selected vouchers are quoted automatically and cannot be silently omitted", async () => {
+  const data = fixture(null);
+  data.formVoucher = { paymentMode: "stripe_upfront" };
+  let resolveQuote;
+  const gate = new Promise(resolve => { resolveQuote = resolve; });
+  const view = await mount(data, "", payload => payload?.action === "quote_vouchers"
+    ? gate : voucherResponse(data), { enabled: true, vouchers: [
+      { id: "credit", value: 17.31, code: "CREDIT-17" },
+    ] }, { embeddedToken: "saved-token", initialVoucherIds: ["credit"] });
+  try {
+    await waitFor(() => view.calls.some(call => call?.action === "quote_vouchers"));
+    assert.deepEqual(view.calls.filter(Boolean), [{
+      action: "quote_vouchers", voucherIds: ["credit"], paymentMode: "stripe_upfront",
+    }]);
+    assert.equal(byId("button-pay-now").disabled, true);
+    assert.equal(view.container.querySelectorAll('input[type="checkbox"]').length, 0);
+    await act(async () => resolveQuote(voucherResponse({ quote: {
+      id: "selected-quote", currency: "GBP", grossMinor: 13811, creditMinor: 1731, cashMinor: 12080,
+      expiresAt: new Date(Date.now() + 600000).toISOString(),
+      allocations: [{ voucherId: "credit", amountMinor: 1731 }],
+    } })));
+    await waitFor(() => byId("button-pay-now").disabled === false);
+    assert.match(byId("button-pay-now").textContent, /120\.80/);
+    assert.equal(view.calls.filter(Boolean).length, 1, "a quote is not a payment");
+  } finally { await view.cleanup(); }
+});
+
+test("embedded Back retains an uncertain funded payment and uses the existing release guard", async () => {
+  let goBack;
+  const data = fixture(null);
+  data.formVoucher = { paymentMode: "stripe_upfront" };
+  data.voucherFunding = { payableMinor: 13811, remainingMinor: 12080,
+    allocations: [{ voucherId: "credit", amountMinor: 1731 }] };
+  const view = await mount(data, "", payload => payload
+    ? new Response(JSON.stringify({ error: "Payment is being confirmed. Do not pay again." }), { status: 409 })
+    : voucherResponse(data), undefined, {
+      embeddedToken: "saved-token", onCheckoutBackReady: action => { goBack = action; },
+    });
+  try {
+    assert.doesNotMatch(view.container.textContent, /Cancel payment and release credit|Update payment summary/);
+    let closed;
+    await act(async () => { closed = await goBack(); });
+    assert.equal(closed, false);
+    assert.deepEqual(view.calls.filter(Boolean), [{ action: "release_vouchers" }]);
+    assert.match(view.container.textContent, /Do not pay again/);
+  } finally { await view.cleanup(); }
+});
+
+test("embedded unavailable intended vouchers block payment and explain how to return to choices", async () => {
+  const data = fixture(null);
+  data.formVoucher = { paymentMode: "stripe_upfront" };
+  const view = await mount(data, "", undefined, { enabled: true, vouchers: [] }, {
+    embeddedToken: "saved-token", initialVoucherIds: ["missing-credit"],
+  });
+  try {
+    await waitFor(() => view.container.textContent.includes("selected credit is no longer available"));
+    assert.equal(byId("button-pay-now").disabled, true);
+    assert.match(view.container.textContent, /Choose Back to review your vouchers before paying/);
+    assert.equal(view.calls.filter(Boolean).length, 0);
   } finally { await view.cleanup(); }
 });

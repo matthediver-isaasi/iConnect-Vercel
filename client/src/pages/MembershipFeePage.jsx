@@ -66,7 +66,7 @@ function VariableCreditSummary({ credit, instalmentCount, offer, currency, estim
   </div>;
 }
 
-export default function MembershipFeePage({ embeddedToken = null, initialVoucherIds = [], onPaymentComplete = null } = {}) {
+export default function MembershipFeePage({ embeddedToken = null, initialVoucherIds = [], onPaymentComplete = null, onCheckoutBackReady = null } = {}) {
   const { token: routeToken } = useParams();
   const token = embeddedToken || routeToken;
   const formReturnPath = !embeddedToken ? readFormVoucherReturn(window.sessionStorage, token) : null;
@@ -112,6 +112,9 @@ export default function MembershipFeePage({ embeddedToken = null, initialVoucher
     paymentMode: creditQuote.paymentMode, instalmentCount: creditQuote.monthlySnapshot.instalment_count,
   } : data?.voucherMonthly;
   const selectedCreditMode = data?.formVoucher?.paymentMode || data?.memberStart?.paymentMode || data?.voucherRequote?.paymentMode || creditPaymentMode;
+  const embeddedCreditReady = !embeddedToken || !initialVoucherIds.length || Boolean(data?.voucherFunding)
+    || Boolean(quoteCurrent && creditEstimate);
+  const embeddedCreditQuoteFor = useRef(null);
   const creditPerMonth = creditEstimate && !creditEstimate.variable ? creditEstimate.monthlyMinor / 100 : null;
   useEffect(() => {
     let current = true;
@@ -167,6 +170,22 @@ export default function MembershipFeePage({ embeddedToken = null, initialVoucher
     }
   }
 
+  // The form already collected the voucher choice. Confirm its server quote
+  // here without asking the member to select or apply the same credit again.
+  const embeddedSelectionKey = JSON.stringify(creditSelection);
+  useEffect(() => {
+    if (!embeddedToken || !initialVoucherIds.length || data?.voucherFunding
+        || creditDiscovery !== 'success' || data?.status !== 'pending') return;
+    const key = `${token}:${JSON.stringify(initialVoucherIds)}`;
+    if (embeddedCreditQuoteFor.current === key) return;
+    if (initialVoucherIds.some(id => !creditSelection.includes(id))) {
+      setCreditError('Your selected credit is no longer available. Choose Back to review your vouchers before paying.');
+      return;
+    }
+    embeddedCreditQuoteFor.current = key;
+    previewPersonalCredit();
+  }, [embeddedToken, token, creditDiscovery, embeddedSelectionKey, data?.voucherFunding, data?.status]);
+
   async function clearPersonalCredit() {
     quoteRevision.current += 1;
     setQuotingCredit(true);
@@ -187,8 +206,10 @@ export default function MembershipFeePage({ embeddedToken = null, initialVoucher
       }
       setCreditQuote(null);
       setCreditSelection([]);
+      return true;
     } catch (err) {
       setCreditError(err.message);
+      return false;
     } finally {
       setQuotingCredit(false);
     }
@@ -257,6 +278,21 @@ export default function MembershipFeePage({ embeddedToken = null, initialVoucher
   const elementsRef = useRef(null);
   const cardRef = useRef(null);
   const redirectHandled = useRef(false);
+  const checkoutBackReadyRef = useRef(onCheckoutBackReady);
+  checkoutBackReadyRef.current = onCheckoutBackReady;
+  const checkoutBackActionRef = useRef(null);
+  checkoutBackActionRef.current = async () => {
+    if (creatingPayment || processingPayment || startingDd || startingCardMonthly || ddDropin || quotingCredit
+        || paymentComplete || data?.status === 'paid') return false;
+    // The existing release endpoint checks provider state before releasing credit.
+    // Never infer cancellation from navigating away or a provider return flag.
+    return clearPersonalCredit();
+  };
+  useEffect(() => {
+    if (!embeddedToken) return;
+    checkoutBackReadyRef.current?.(() => checkoutBackActionRef.current());
+    return () => checkoutBackReadyRef.current?.(null);
+  }, [embeddedToken]);
 
   async function selectMemberMethod(mode) {
     if (!awaitingMethod || selectingMethodRef.current ||
@@ -427,6 +463,7 @@ export default function MembershipFeePage({ embeddedToken = null, initialVoucher
   };
 
   const handleStartDirectDebit = async () => {
+    if (!embeddedCreditReady) return;
     if (!allowsMode('direct_debit') || !monthlyOfferReady(data?.ddOffer)) return;
     setStartingDd(true);
     setPaymentError(null);
@@ -465,6 +502,7 @@ export default function MembershipFeePage({ embeddedToken = null, initialVoucher
   };
 
   const handleStartMonthlyCard = async () => {
+    if (!embeddedCreditReady) return;
     if (!allowsMode('stripe_monthly') || !monthlyOfferReady(data?.cardMonthly)) return;
     setStartingCardMonthly(true);
     setPaymentError(null);
@@ -492,6 +530,7 @@ export default function MembershipFeePage({ embeddedToken = null, initialVoucher
   };
 
   const initStripe = async () => {
+    if (!embeddedCreditReady) return;
     if (!creditOnly && !allowsMode('stripe_upfront')) return;
     if (!creditOnly && !data?.stripePublishableKey) return;
     if (!creditOnly && isBelowStripeMinimum(payableAmount, data?.currency)) return;
@@ -743,7 +782,20 @@ export default function MembershipFeePage({ embeddedToken = null, initialVoucher
             <Separator className="my-3" />
 
             {creditError && <p role="alert" className="mb-3 text-sm text-red-700">{creditError}</p>}
-            {!data.memberStart && data.status === 'pending' && !data.voucherFunding && !paymentComplete && (
+            {embeddedToken && !data?.voucherFunding && !initialVoucherIds.length && <p role="status" className="mb-4 rounded border p-3 text-sm">
+              No credit has been applied. Choose Back to select vouchers.
+            </p>}
+            {embeddedToken && initialVoucherIds.length > 0 && !data?.voucherFunding && <section className="mb-4 rounded border p-3 space-y-2" aria-label="Selected membership credit">
+              {!embeddedCreditReady ? <p role="status" className="text-sm">
+                {creditError ? 'Payment is paused. Choose Back to review your credit.' : 'Confirming your selected credit before payment…'}
+              </p> : <>
+                {variableCredit
+                  ? <VariableCreditSummary credit={creditQuote} instalmentCount={creditMonthly?.instalmentCount} offer={data.ddOffer} currency={data.currency} estimate={creditEstimate} />
+                  : <p className="text-sm">Remaining to pay after your selected credit: {formatCurrency(displayPayableAmount, data.currency)}.</p>}
+                <p className="text-xs text-muted-foreground">To change your credit, choose Back.</p>
+              </>}
+            </section>}
+            {!embeddedToken && !data.memberStart && data.status === 'pending' && !data.voucherFunding && !paymentComplete && (
               <section className="mb-4 rounded border p-3 text-sm space-y-2">
                 <p>To use credit with this link, you may need an updated payment summary. No payment is taken when you update it. Review the amount before continuing.</p>
                 <Button variant="outline" onClick={() => regenerateCreditQuote()} disabled={quotingCredit || creatingPayment}>
@@ -764,14 +816,14 @@ export default function MembershipFeePage({ embeddedToken = null, initialVoucher
                 {variableCredit
                   ? <VariableCreditSummary credit={data.voucherFunding} instalmentCount={creditMonthly?.instalmentCount} offer={data.ddOffer} currency={data.currency} estimate={creditEstimate} />
                   : creditEstimate ? <p>Remaining to pay: {formatCurrency(displayPayableAmount, data?.currency)}</p> : <p>We can’t confirm the after-credit amount yet. Please contact the membership team.</p>}
-                <Button type="button" variant="outline" onClick={clearPersonalCredit} disabled={quotingCredit || creatingPayment || processingPayment}>
+                {!embeddedToken && <Button type="button" variant="outline" onClick={clearPersonalCredit} disabled={quotingCredit || creatingPayment || processingPayment}>
                   Cancel payment and release credit
-                </Button>
+                </Button>}
                 {displayMonthlyMode && <p className="text-sm">{creditEstimate.count} monthly payments of {formatCurrency(creditPerMonth, data?.currency)} after credit. Credit applies only to this membership period, not future renewals.</p>}
                 {creditOnly && <MembershipPrimaryAction><Button type="button" onClick={initStripe} disabled={creatingPayment}>Complete with membership credit</Button></MembershipPrimaryAction>}
               </section>
             )}
-            {data?.status === 'pending' && (!data?.voucherFunding || (personalCredit?.enabled && personalCredit.vouchers.length > 0)) && (
+            {!embeddedToken && data?.status === 'pending' && (!data?.voucherFunding || (personalCredit?.enabled && personalCredit.vouchers.length > 0)) && (
               <section className="mb-4 rounded border p-3 space-y-2" aria-label="Available membership credit"
                 aria-busy={creditDiscovery === 'idle' || creditDiscovery === 'loading'}>
                 <h2 className="font-medium">Your available credit</h2>
@@ -1166,7 +1218,7 @@ export default function MembershipFeePage({ embeddedToken = null, initialVoucher
               </p>
               <MembershipPrimaryAction><Button
                 onClick={handleStartMonthlyCard}
-                disabled={startingCardMonthly}
+                disabled={startingCardMonthly || !embeddedCreditReady}
                 variant="outline"
                 className="w-full"
                 data-testid="button-setup-monthly-card"
@@ -1201,7 +1253,7 @@ export default function MembershipFeePage({ embeddedToken = null, initialVoucher
               </p>
               <MembershipPrimaryAction><Button
                 onClick={handleStartDirectDebit}
-                disabled={startingDd}
+                disabled={startingDd || !embeddedCreditReady}
                 variant="outline"
                 className="w-full"
                 data-testid="button-setup-direct-debit"
@@ -1251,7 +1303,7 @@ export default function MembershipFeePage({ embeddedToken = null, initialVoucher
                   )}
                   <MembershipPrimaryAction><Button
                     onClick={initStripe}
-                    disabled={creatingPayment || (!creditOnly && isBelowStripeMinimum(payableAmount, data?.currency))}
+                    disabled={creatingPayment || !embeddedCreditReady || (!creditOnly && isBelowStripeMinimum(payableAmount, data?.currency))}
                     className="w-full"
                     style={{ background: !creditOnly && isBelowStripeMinimum(payableAmount, data?.currency) ? '#9ca3af' : primaryColor }}
                     data-testid="button-pay-now"

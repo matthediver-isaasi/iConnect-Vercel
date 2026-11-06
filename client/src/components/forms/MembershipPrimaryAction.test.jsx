@@ -69,3 +69,25 @@ test('only paid or scoped verified voucher setup statuses can finish the form', 
     assert.equal(membershipReadyToSubmit({ status, voucherCheckoutId: 'checkout', agreementId: 'agreement' }), true);
   }
 });
+
+test('Back uses a separate footer slot before Pay and does not validate form answers', async () => {
+  const host = document.createElement('div');
+  const back = document.createElement('span');
+  const pay = document.createElement('span');
+  document.body.append(host, back, pay);
+  const root = createRoot(host);
+  let calls = 0;
+  try {
+    await act(async () => root.render(<Context.Provider value={{
+      target: pay, backTarget: back, blocked: true, validate: async () => { throw new Error('Back must not validate'); },
+    }}>
+      <PrimaryAction secondary><button onClick={() => { calls++; }}>Back</button></PrimaryAction>
+      <PrimaryAction><button>Pay</button></PrimaryAction>
+    </Context.Provider>));
+    assert.equal(host.querySelectorAll('button').length, 0);
+    assert.equal(back.textContent, 'Back');
+    assert.equal(pay.textContent, 'Pay');
+    await act(async () => back.querySelector('button').click());
+    assert.equal(calls, 1);
+  } finally { await act(async () => root.unmount()); host.remove(); back.remove(); pay.remove(); }
+});
