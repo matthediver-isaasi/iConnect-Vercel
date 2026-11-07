@@ -1,3 +1,4 @@
+import { attachRetainedRenewalAffiliations } from '../_lib/retainedRenewalAffiliations.js';
 import { createLegacyApplicationScope } from '../_lib/formLegacyApplication.js';
 import { usesStandardEmailLimit, submissionEventContext } from '../_lib/formModeControls.js';
 import { createClient } from '@supabase/supabase-js';
@@ -481,6 +482,7 @@ export default async function handler(req, res, dependencies = {}) {
       ? idempotency_key.trim()
       : null;
     if (hasMemberAffiliations) {
+      await attachRetainedRenewalAffiliations({ db: supabase, form, tenantId: tenantData.id, memberId: sessionMemberId });
       if (form.form_type === 'survey' || !sessionMemberId || !idemKey) {
         return res.status(400).json({ error: 'Sign in and reload this renewal form before submitting.', code: 'AFFILIATION_SUBMISSION_CONTEXT_REQUIRED' });
       }

@@ -14,6 +14,19 @@ fix display would incorrectly bypass renewal's existing review rules.
 **How to apply:** Configure controlling answers explicitly; retain renewal
 review behaviour and preserve drafts and respondent edits.
 
+Renewal must retain the member's verified existing primary and secondary
+organisations when organisation-type or primary-trust filters exclude them.
+New selections remain subject to the configured filters.
+
+**Why:** The owner explicitly chose retention rather than removing the form's
+restrictions. Missing organisation classification and a secondary site in a
+different trust must not make an existing affiliation impossible to renew.
+
+**How to apply:** Derive exceptions from current tenant-scoped member links,
+not submitted IDs. Apply them consistently to option lists, department lookup,
+section availability and submission/payment validation. Keep department-edge
+checks and renewal snapshot concurrency protections intact.
+
 Lock forms during prefill and show a spinner with “Please wait while we load some data” over the form.
 
 **Why:** The user reported blank fields remaining editable for several seconds while prefill ran and explicitly requested this form-level loading treatment. This is distinct from the rejected public-page loading bars and skeletons.

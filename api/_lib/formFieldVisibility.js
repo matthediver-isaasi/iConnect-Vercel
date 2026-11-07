@@ -1,3 +1,4 @@
+import { retainsOrganization } from './retainedRenewalAffiliations.js';
 /**
  * Server-side form field visibility evaluation (Task #3483).
  *
@@ -319,6 +320,7 @@ export async function resolveRepeatableFirstColumnAvailability({
   const excludedIds = new Set((resolution.excludedValues || []).map(value => String(value)));
   let candidates = (organizations || []).filter(organization => {
     const id = String(organization?.id ?? '');
+    if (retainsOrganization(first, id)) return true;
     if (!id || excludedIds.has(id)) return false;
     if (selectedGroupId && String(organization?.organization_group_id || '') !== selectedGroupId) {
       return false;

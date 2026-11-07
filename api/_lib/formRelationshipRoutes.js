@@ -1,3 +1,4 @@
+import { attachRetainedRenewalAffiliations } from './retainedRenewalAffiliations.js';
 import { supabase } from './database.js';
 import { getTenantContext, hasAdminAccess, hasFeatureAccess } from './tenantContext.js';
 import { resolveTenantFromRequest } from './tenantResolver.js';
@@ -79,6 +80,13 @@ export function createPublicFormRelationshipOptionsHandler(dependencies = {}) {
         policy: form.access_policy,
       });
       if (!access.allowed) return sendFormAccessDenied(res, access);
+      if (form.member_affiliation_enabled) {
+        const member = await sessionMemberResolver(req);
+        const session = await sessionResolver(req);
+        if (session?.data?.memberId === member?.id) {
+          await attachRetainedRenewalAffiliations({ db, form, tenantId: tenant.id, memberId: member.id });
+        }
+      }
       const requestInput = req.method === 'POST' ? (req.body || {}) : req.query;
       let authoritativeForm = form;
       if (form.form_type === 'survey') {

@@ -1,3 +1,4 @@
+import { attachRetainedRenewalAffiliations } from '../_lib/retainedRenewalAffiliations.js';
 import { createLegacyApplicationScope } from '../_lib/formLegacyApplication.js';
 /**
  * POST /api/public/form-payment (Task #3483)
@@ -362,6 +363,7 @@ async function authorizePaymentStart(req, res, supabase, tenantData, form, depen
       values: effectiveRepeatableRowSubmissionData(form, answers, { hiddenFieldIds }),
     });
   }
+  await attachRetainedRenewalAffiliations({ db: supabase, form, tenantId: tenantData.id, memberId: verifiedSubmitterMemberId });
   return { ...access, verifiedSubmitterMemberId, verifiedAdminAccess, applicantGrant, organizationId, legacyApplicationScope };
 }
 

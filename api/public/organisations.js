@@ -1,4 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
+import { getSession, getSessionMember } from '../_lib/session.js';
+import { attachRetainedRenewalAffiliations, RETAINED_ORGANIZATIONS } from '../_lib/retainedRenewalAffiliations.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import {
   filterOrganizationsEligibleForFields,
@@ -141,6 +143,7 @@ export async function loadConditionalOrganizationOptions({
   containerFieldId,
   sourceAnswers,
   availabilityProbe = false,
+  memberId = null,
 }) {
   if (!db || !tenantId || !fieldId || !sourceAnswers
       || typeof sourceAnswers !== 'object' || Array.isArray(sourceAnswers)
@@ -153,7 +156,7 @@ export async function loadConditionalOrganizationOptions({
   let isAvailabilityProbe = availabilityProbe === true;
   try {
     let formQuery = db.from('form')
-      .select('id, fields')
+      .select('*')
       .eq('tenant_id', tenantId)
       .eq('is_active', true);
     formQuery = formId ? formQuery.eq('id', formId) : formQuery.eq('slug', formSlug);
@@ -163,6 +166,7 @@ export async function loadConditionalOrganizationOptions({
       return [];
     }
     let fields = form.fields;
+    await attachRetainedRenewalAffiliations({ db, form, tenantId, memberId });
     let container = null;
     let containerIndex = -1;
     let field = fields.find((candidate) => String(candidate?.id) === String(fieldId));
@@ -262,6 +266,14 @@ export async function loadConditionalOrganizationOptions({
       organizations: idEligible,
       fields: resolution.orgFilter ? [field, { org_filter: resolution.orgFilter }] : [field],
     });
+    const retainedIds = [...(field[RETAINED_ORGANIZATIONS] || [])];
+    if (retainedIds.length) {
+      const retained = await db.from('organization').select('*').eq('tenant_id', tenantId).in('id', retainedIds);
+      if (retained.error) throw retained.error;
+      for (const organization of retained.data || []) {
+        if (!eligible.some(row => row.id === organization.id)) eligible.push(organization);
+      }
+    }
     return eligible.map((organization) => ({
       id: organization.id,
       name: organization.name,
@@ -369,6 +381,8 @@ export async function organizationsHandler(req, res, dependencies = {}) {
         sourceAnswers,
       } = req.body || {};
       const dynamicFieldId = fieldId || targetFieldId;
+      const session = await getSession({ ...req, headers: req.headers || {} });
+      const member = session ? await getSessionMember(req) : null;
       const data = await loadConditionalOrganizationOptions({
         db: supabase,
         tenantId,
@@ -378,6 +392,7 @@ export async function organizationsHandler(req, res, dependencies = {}) {
         containerFieldId,
         sourceAnswers,
         availabilityProbe: req.body?.availabilityProbe === true,
+        memberId: session?.data?.memberId === member?.id ? member?.id : null,
       });
       return res.json(data);
     }

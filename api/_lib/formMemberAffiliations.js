@@ -5,6 +5,7 @@ import { rulesUseLmicOperators } from './formLmicConditions.js';
 import { loadTenantLmicCodes } from './tenantLmicCodes.js';
 import { assertProfileFormRoute } from './profileAffiliationForms.js';
 import { resolveProfileFormAffiliationAnswers } from './profileFormAffiliationAnswers.js';
+import { attachRetainedRenewalAffiliations } from './retainedRenewalAffiliations.js';
 
 export const MEMBER_AFFILIATION_TOKEN = '__member_affiliation_snapshot';
 const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
@@ -46,6 +47,7 @@ export async function completeMemberAffiliations({ db, form, tenantId, memberId,
   if (snapshot.result?.committed === true) status = 'already_applied';
   else if (snapshot.result?.status === 'awaiting_review') status = 'awaiting_review';
   else {
+    await attachRetainedRenewalAffiliations({ db, form, tenantId, memberId });
     const visibilityOptions = rulesUseLmicOperators(form.visibility_rules)
       ? { lmicCodes: await loadTenantLmicCodes(db, tenantId) } : {};
     const hiddenFieldIds = await computeAuthoritativeHiddenFieldIds({

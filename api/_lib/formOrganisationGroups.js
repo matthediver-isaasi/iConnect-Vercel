@@ -1,3 +1,4 @@
+import { retainsOrganization } from './retainedRenewalAffiliations.js';
 import {
   conditionalSelectionAllowed,
   resolveConditionalFilter,
@@ -180,6 +181,7 @@ async function validateDependentSet({
     );
     const parent = parentFields[parentIndex];
     const organizationId = submittedValue(submissionData, field);
+    if (retainsOrganization(field, organizationId)) continue;
     const groupId = submittedValue(parentData, parent);
     const validScope = scope === 'row' || scope === 'form';
     const precedesParent = scope === 'form'

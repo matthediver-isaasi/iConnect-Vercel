@@ -1,3 +1,4 @@
+import { retainsOrganization } from './retainedRenewalAffiliations.js';
 import { getCustomObjectFieldMetadata, resolveCustomObjectDisplayValue } from './customObjectDomain.js';
 import { isOrganizationEligibleForField } from './organizationEligibility.js';
 import { conditionalSelectionAllowed, resolveConditionalFilter } from './formConditionalFilters.js';
@@ -603,6 +604,7 @@ export function createFormRelationshipService({ db, tenantId }) {
       let organization = cache.get(key);
       if (organization === undefined) { const result = await db.from('organization').select('*').eq('tenant_id', tenantId).eq('id', id).maybeSingle(); throwDb(result.error); organization = result.data || null; cache.set(key, organization); }
       if (!organization) throw new FormRelationshipError(400, 'Invalid organization selection');
+      if (retainsOrganization(field, id)) continue;
       if (!containerFieldId && isServerCreatedOrganization(serverCreatedOrganizations, field, id)) continue;
       const resolution = resolveConditionalFilter(field, submissionData, fields);
       try {

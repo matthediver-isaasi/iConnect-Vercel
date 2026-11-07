@@ -1,4 +1,5 @@
 import { resolveCountryToIso2 } from '../../shared/countries.js';
+import { retainsOrganization } from './retainedRenewalAffiliations.js';
 
 export const VALID_ORGANIZATION_CORE_FIELDS = [
   'name', 'slug', 'description', 'website_url', 'email', 'invoicing_email', 'phone',
@@ -152,12 +153,14 @@ export async function filterOrganizationsEligibleForFields({
     });
   }
 
-  return eligible;
+  const retained = (organizations || []).filter(org => fields.some(field => retainsOrganization(field, org.id)));
+  return [...new Map([...eligible, ...retained].map(org => [String(org.id), org])).values()];
 }
 
 // Mirrors the public organisations endpoint's saved-field semantics, while
 // checking a single organisation without exposing the tenant's organisation list.
 export async function isOrganizationEligibleForField({ db, tenantId, organization, field }) {
+  if (retainsOrganization(field, organization?.id)) return true;
   const filter = configuredFilter(field);
   if (filter === INVALID_FILTER) return false;
   if (!filter) return true;
