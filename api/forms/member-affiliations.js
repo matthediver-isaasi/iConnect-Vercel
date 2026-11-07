@@ -40,7 +40,18 @@ export default async function handler(req, res, deps = {}) {
       ...(profile ? { p_version: route.policy.version } : {}),
     });
     if (captureError || !captured?.token || !captured?.graph || !captured?.config) throw new Error('Snapshot unavailable');
-    if (profile && captured.graph.organization_id && captured.config.organizationCountryFieldId) {
+    if (!profile && captured.config.prefillAffiliationQuestions === true) {
+      let organization = null;
+      if (captured.graph.organization_id) {
+        const result = await db.from('organization').select('organization_group_id')
+          .eq('tenant_id', tenantId).eq('id', captured.graph.organization_id).single();
+        if (result.error || !result.data) throw new Error('Organisation unavailable');
+        organization = result.data;
+      }
+      captured.profile_group_id = member.organization_group_id || organization?.organization_group_id || '';
+    }
+    if ((profile || captured.config.prefillAffiliationQuestions === true)
+      && captured.graph.organization_id && captured.config.organizationCountryFieldId) {
       const { data: country, error } = await db.from('organization_preference_value').select('value')
         .eq('organization_id', captured.graph.organization_id).eq('field_id', captured.config.organizationCountryFieldId).maybeSingle();
       if (error) throw error;

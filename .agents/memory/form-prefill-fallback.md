@@ -3,6 +3,17 @@ name: Form prefill logged-in fallback
 description: Precedence and race rules for member/org form prefill across the parallel form-rendering surfaces.
 ---
 
+Affiliation prefill must populate controlling country/site answers as well as the
+stored organisation and department selections, without changing the form's
+submission policy.
+
+**Why:** A renewal can have correct stored selections but hide them behind
+unanswered visibility questions. Reusing profile-edit mutation semantics to
+fix display would incorrectly bypass renewal's existing review rules.
+
+**How to apply:** Configure controlling answers explicitly; retain renewal
+review behaviour and preserve drafts and respondent edits.
+
 Lock forms during prefill and show a spinner with “Please wait while we load some data” over the form.
 
 **Why:** The user reported blank fields remaining editable for several seconds while prefill ran and explicitly requested this form-level loading treatment. This is distinct from the rejected public-page loading bars and skeletons.

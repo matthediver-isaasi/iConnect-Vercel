@@ -47,3 +47,20 @@ test('prefill exposes only configured answers, never the raw relationship graph'
   const f = fixture();
   assert.deepEqual(memberAffiliationPrefill(f.snapshot), { values: { org: id(3) }, managedFieldIds: ['org'] });
 });
+test('renewal opt-in prefills controlling answers without switching to profile mutations', () => {
+  const f = fixture();
+  Object.assign(f.snapshot.config, { prefillAffiliationQuestions: true,
+    organizationGroupFieldId: 'trust', countryFieldId: 'country',
+    siteQuestionFieldId: 'site', additionalQuestionFieldId: 'additional',
+    secondaryMemberDefinitionId: id(8) });
+  f.snapshot.profile_group_id = id(7);
+  f.snapshot.profile_country = 'United Kingdom';
+  assert.deepEqual(memberAffiliationPrefill(f.snapshot).values, {
+    org: id(3), trust: id(7), country: 'United Kingdom', site: 'Yes', additional: 'No',
+  });
+  f.snapshot.graph.links.push({ relationship_definition_id: id(8) });
+  assert.equal(memberAffiliationPrefill(f.snapshot).values.additional, 'Yes');
+  f.snapshot.graph.organization_id = null;
+  assert.equal(memberAffiliationPrefill(f.snapshot).values.site, 'No, I have a trust-wide or organisation-wide role');
+  assert.equal(f.snapshot.config.purpose, undefined);
+});

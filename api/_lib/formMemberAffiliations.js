@@ -83,7 +83,7 @@ export function memberAffiliationPrefill(snapshot) {
     e.relationship_definition_id === cfg.departmentOrganizationDefinitionId
       && ((e.source_record_id === id && e.target_record_id === org) || (e.target_record_id === id && e.source_record_id === org))));
   const values = {};
-  if (cfg.purpose === 'profile') {
+  if (cfg.purpose === 'profile' || cfg.prefillAffiliationQuestions === true) {
     if (cfg.organizationGroupFieldId) values[cfg.organizationGroupFieldId] = snapshot.profile_group_id || '';
     if (cfg.countryFieldId) values[cfg.countryFieldId] = snapshot.profile_country || '';
     if (cfg.siteQuestionFieldId) values[cfg.siteQuestionFieldId] = graph.organization_id ? 'Yes' : 'No, I have a trust-wide or organisation-wide role';

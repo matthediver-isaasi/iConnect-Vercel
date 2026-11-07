@@ -50,6 +50,12 @@ export function assertAffiliationFormCompatibility(form) {
 export function validateMemberAffiliationConfig(form, input, metadata) {
   if (!input || input.version !== 1 || typeof input.enabled !== 'boolean') throw new Error('Invalid affiliation configuration.');
   const cfg = { version: 1, enabled: input.enabled };
+  if (input.prefillAffiliationQuestions === true) {
+    cfg.prefillAffiliationQuestions = true;
+    for (const key of ['organizationGroupFieldId', 'countryFieldId', 'siteQuestionFieldId', 'additionalQuestionFieldId', 'organizationCountryFieldId']) {
+      cfg[key] = typeof input[key] === 'string' && input[key] ? input[key] : null;
+    }
+  }
   if (input.purpose === 'profile') {
     cfg.purpose = 'profile';
     for (const key of ['organizationGroupFieldId', 'unknownOrganizationId', 'countryFieldId', 'siteQuestionFieldId', 'additionalQuestionFieldId']) {
@@ -73,6 +79,24 @@ export function validateMemberAffiliationConfig(form, input, metadata) {
     if (!found || (types && !types.includes(found.type))) throw new Error('A configured affiliation field is unavailable or has changed type.');
     return found;
   };
+  if (cfg.prefillAffiliationQuestions) {
+    for (const [key, types] of Object.entries({
+      organizationGroupFieldId: ['organisation_group_dropdown'],
+      countryFieldId: ['country'],
+      siteQuestionFieldId: ['radio'],
+      additionalQuestionFieldId: ['radio'],
+    })) {
+      if (cfg[key]) field(cfg[key], fields, types);
+    }
+    if (cfg.siteQuestionFieldId && !['Yes', 'No, I have a trust-wide or organisation-wide role']
+      .every(value => field(cfg.siteQuestionFieldId, fields).options?.includes(value))) {
+      throw new Error('The site question must offer the configured affiliation answers.');
+    }
+    if (cfg.additionalQuestionFieldId && !['Yes', 'No']
+      .every(value => field(cfg.additionalQuestionFieldId, fields).options?.includes(value))) {
+      throw new Error('The additional-sites question must offer Yes and No.');
+    }
+  }
   cfg.primaryOrganizationFieldIds.forEach(id => field(id, fields, ['organization_dropdown', 'organisation_dropdown']));
   const definition = id => {
     const found = metadata.relationships.find(d => d.id === id && d.status === 'active');
