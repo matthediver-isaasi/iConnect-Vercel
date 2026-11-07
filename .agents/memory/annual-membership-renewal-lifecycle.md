@@ -181,3 +181,15 @@ keep duplicate-payment blocking, and show no successor cancellation action
 without its reservation. Administrative release must verify provider identity
 and terminal cancellation before marking provisional local records cancelled;
 retain history rather than deleting it.
+
+Members must be able to recover an incomplete first checkout themselves after
+abandoning or refreshing the form; administrator-only recovery is not the
+accepted final product behavior.
+
+**Why:** The owner explicitly requires ordinary interrupted payment journeys
+to be reversible without contacting the membership team.
+
+**How to apply:** Offer resume or return-to-choices with server/provider checks.
+Refreshing alone must not cancel anything. Confirmed unpaid setup may be
+released; paid, authorized or uncertain outcomes must not permit duplicate
+checkout. Coordinate provider work and release durably, including across tabs.
