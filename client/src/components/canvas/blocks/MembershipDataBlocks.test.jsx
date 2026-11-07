@@ -784,7 +784,7 @@ test('guest, denied, error and loading never paint cached active data', () => {
   assert.match(render({ result: { status: 'ready', data: {} } }), /Join date not recorded/);
 });
 
-test('published payment details hide only for a ready normalized none state', () => {
+test('published payment details remain visible when loading resolves without a payment arrangement or eligible action', () => {
   const none = {
     membership: { state: 'active' },
     payment: { state: 'none' },
@@ -793,12 +793,10 @@ test('published payment details hide only for a ready normalized none state', ()
     type: 'payment-details',
     result: { status: 'ready', data: none },
   });
-  assert.match(published, /data-payment-details-visibility="hidden"/);
-  assert.match(published, /hidden=""/);
-  assert.match(
-    published,
-    /\[data-block-type="payment-details"\]:has\(> \[data-payment-details-visibility="hidden"\]\)\{display:none !important\}/,
-  );
+  assert.doesNotMatch(published, /data-payment-details-visibility|<section[^>]*hidden=""/);
+  assert.doesNotMatch(published, /display:none !important/);
+  assert.match(published, /No payment arrangement/);
+  assert.doesNotMatch(published, /membership-(joining|renewal)-cta/);
 
   const editor = render({
     type: 'payment-details',

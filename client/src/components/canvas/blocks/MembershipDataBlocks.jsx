@@ -100,12 +100,6 @@ export function MembershipDataView({
    const showRenewal = paymentCard && ready && !bankSetupPending && summary.renewal.eligible && !!renewalHref;
   const joiningHref = safeMembershipLink(summary.joining.entryHref);
   const showJoining = paymentCard && ready && state === 'none' && !showRenewal && summary.joining.eligible && !!joiningHref;
-  // A confirmed absence of payment data has no useful published presentation.
-  // Keep every unresolved/error lifecycle visible, and keep the editor sample
-  // selectable, but remove the complete public block (including its authored
-  // wrapper background/border and its V2 flow slot) once the normalized API
-  // state explicitly says `none`.
-  const hidePublishedPaymentDetails = paymentCard && ready && state === 'none' && !asEditor && !showRenewal && !showJoining;
   const copy = showJoining ? { ...content.states[state], heading: 'Become a member',
     supporting: 'Answer a few questions to find the right membership for you.' } : content.states[state];
   // Collapse only the duplicated generated label, never an author's heading.
@@ -152,9 +146,6 @@ export function MembershipDataView({
   ` : '';
   const ref = useReportReflowHeight(block.id, extraHeight, {
     includeExtraHeightPublic: true,
-    // V1 positioned pages use signed auto-height reflow for these cards. A
-    // hidden card must report zero so content below closes the authored gap.
-    allowZero: hidePublishedPaymentDetails,
   });
   const href = safeMembershipLink(content.manageLink);
   const plannedPayment = summary.payment.plannedPayment;
@@ -209,14 +200,11 @@ export function MembershipDataView({
     ...(summary.membership.paymentHistoryFrom ? ['paymentHistoryFrom'] : [])];
   return (
     <section ref={ref} data-membership-card={id} data-testid={`canvas-${type}`}
-      data-payment-details-visibility={hidePublishedPaymentDetails ? 'hidden' : undefined}
-      hidden={hidePublishedPaymentDetails}
       data-membership-state={state} aria-labelledby={`${id}-heading`}
       aria-busy={result?.status === 'loading'}
       style={{ width: '100%', minWidth: 0, minHeight, containerType: 'inline-size', visibility: awaitingStyles ? 'hidden' : undefined }}>
       <style dangerouslySetInnerHTML={{ __html: `${css}
         ${responsiveMinHeightCss}
-        [data-block-type="payment-details"]:has(> [data-payment-details-visibility="hidden"]){display:none !important}
         ${selector} .membership-fields{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:24px;margin:40px 0 0;padding:0}
         ${selector} .membership-fields > div{display:grid;grid-template-rows:subgrid;grid-row:span 2;row-gap:0;min-width:0}
         ${selector} .membership-fields > div > dd{align-self:start}

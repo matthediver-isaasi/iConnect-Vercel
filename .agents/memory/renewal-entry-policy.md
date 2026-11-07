@@ -35,3 +35,12 @@ as a fallback for joining.
 **How to apply:** Keep the two settings independent. A signed-in guest can use
 the public joining questionnaire without changing that form's public access or
 granting the guest financial-history permission.
+
+Keep the portal Payment Details card visible even when no payment arrangement
+or eligible action is available.
+
+**Why:** The owner explicitly retired the legacy auto-hide behaviour; the card
+must communicate the member's state rather than disappear after loading.
+
+**How to apply:** Gate joining/renewal/payment actions independently using verified
+eligibility. Missing payment evidence must not hide the entire card or grant an action.
