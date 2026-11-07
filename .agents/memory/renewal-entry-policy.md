@@ -18,3 +18,9 @@ schedule. Category changes at renewal are not mid-term amendments. Do not silent
 fall back to the previous schedule when a destination is unavailable. The owner
 identified form 090be663-5429-4e46-b6ee-d824d37d6d3b as BNMS's entry questionnaire;
 verify its current configuration before modifying it.
+
+The owner is preparing the remaining category renewal forms separately; testing
+currently focuses on Full and Full Junior. Do not expand renewal-entry routing
+work into creating category forms or adding temporary incomplete-category flows.
+
+**Why:** The owner explicitly excluded that work from this implementation.

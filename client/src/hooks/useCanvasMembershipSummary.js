@@ -79,6 +79,7 @@ export function useCanvasMembershipSummary({ asEditor = false } = {}) {
     meta: { private: true, persist: false },
   });
   const requestPrice = enabled && query.isSuccess && query.data?.renewal.eligible === true
+    && query.data?.renewal.journeyMode !== 'questionnaire'
     && ['upfront', 'card', 'bank_transfer', 'invoice'].includes(query.data?.payment.method);
   const priceQuery = useQuery({
     queryKey: ['canvas-membership-renewal-price', ...scopeKey.slice(1),

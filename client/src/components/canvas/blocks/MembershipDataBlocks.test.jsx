@@ -29,6 +29,21 @@ const { Simulate } = await import('react-dom/test-utils');
 const { renderToStaticMarkup } = await import('react-dom/server');
 const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query');
 const { MembershipDataView, MembershipDataInspector } = await import('./MembershipDataBlocks.jsx');
+test('questionnaire routes override canvas links without authorising an ineligible renewal', () => {
+  for (const state of [undefined, 'post_grace_renewal']) {
+    const html = renderToStaticMarkup(<MembershipDataView type="payment-details"
+      block={{content:{renewalLink:'/FormView?slug=old-schedule'}}}
+      result={{status:'ready',data:{membership:{state:'expired'},payment:{state:'paid',method:'upfront'},
+        renewal:{eligible:true,state,journeyMode:'questionnaire',entryHref:'/FormView?slug=renewing-with-bnms'}}}} />);
+    assert.match(html,/href="\/FormView\?slug=renewing-with-bnms"/);
+    assert.doesNotMatch(html,/href="\/FormView\?slug=old-schedule"/);
+    assert.match(html,/Answer a few questions/);
+  }
+  const html = renderToStaticMarkup(<MembershipDataView type="payment-details" block={{}}
+    result={{status:'ready',data:{membership:{state:'active'},payment:{state:'pending'},
+      renewal:{eligible:false,journeyMode:'questionnaire',entryHref:'/FormView?slug=renewing-with-bnms'}}}} />);
+  assert.doesNotMatch(html,/membership-renewal-cta/);
+});
 const { TenantBrandingProvider } = await import('../../../contexts/TenantBrandingContext.jsx');
 const { publicClient } = await import('../../../api/publicClient');
 const {

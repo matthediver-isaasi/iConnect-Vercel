@@ -93,7 +93,8 @@ export function MembershipDataView({
   const summary = normalizeCanvasMembershipSummary(result?.data);
   const ready = result?.status === 'ready';
   const state = ready ? (paymentCard ? summary.payment.state : summary.membership.state) : 'unavailable';
-  const renewalHref = safeMembershipLink(content.renewalLink);
+  const renewalHref = safeMembershipLink(summary.renewal.journeyMode === 'questionnaire'
+    ? summary.renewal.entryHref : content.renewalLink);
   const restart = summary.renewal.state === 'post_grace_renewal';
    const bankSetupPending = summary.payment.state === 'bank_setup_pending';
    const showRenewal = paymentCard && ready && !bankSetupPending && summary.renewal.eligible && !!renewalHref;
@@ -350,11 +351,17 @@ export function MembershipDataView({
         {content.manageLinkText}<ArrowRight size={18} aria-hidden="true" style={{ flexShrink: 0 }} />
       </a>}
       {showRenewal && <div style={{ marginTop: 24 }}>
+        {summary.renewal.journeyMode === 'questionnaire' && <p {...role('supporting')} style={{ marginBottom: 12 }}>
+          Answer a few questions to find the right membership for your circumstances before renewing.
+        </p>}
         <MembershipRenewalButton href={renewalHref} newTab={content.renewalLinkNewTab}
           restart={restart}
           asEditor={asEditor} tenantStyles={tenantStyles} stylesResolved={stylesResolved}
           breakpoint={breakpoint || viewportBreakpoint} />
       </div>}
+      {paymentCard && ready && summary.renewal.journeyUnavailable && <p role="status" {...role('supporting')} style={{ marginTop: 16 }}>
+        We could not load your renewal journey. Please try again or contact the membership team.
+      </p>}
     </section>
   );
 }

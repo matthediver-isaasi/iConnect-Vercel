@@ -9,6 +9,7 @@ import { canvasDirectDebitCollection } from '../_lib/canvasDirectDebitCollection
 import { isRetiredCanvasCheckout, loadCanvasRenewalEligibility } from '../_lib/canvasRenewalEligibility.js';
 import { signupMonthlyPriceFromAgreement, completedPendingBankActivation } from '../_lib/membershipSignupEvidence.js';
 import { resolveMemberAmendmentReadOverlays } from '../_lib/membershipAmendmentReadOverlay.js';
+import { applyRenewalJourney, readRenewalJourney } from '../_lib/membershipRenewalJourney.js';
 
 // This endpoint is deliberately self-only, including for administrators. It
 // reads retained commitments and read-only dynamic pricing projections, never
@@ -477,6 +478,8 @@ export function createCanvasSummaryHandler(dependencies = {}) {
       if (!owner) return res.status(404).json({ error: 'Member not found' });
       if (!belongsTo(owner, tenantId, 'id', member.id)) throw new Error('Member ownership mismatch');
       if (dependencies.renewalPriceOnly) {
+        const journey = await (dependencies.readRenewalJourney || readRenewalJourney)(db, tenantId);
+        if (journey.mode === 'questionnaire') return res.json({ price: null });
         const { loadFormMembershipRenewalContext } = await import('../_lib/formMembershipRenewalContext.js');
         const { createMembershipSimulator } = await import('../_lib/membershipSimulationCore.js');
         const result = await (dependencies.loadRenewalContext || loadFormMembershipRenewalContext)(db, {
@@ -536,6 +539,7 @@ export function createCanvasSummaryHandler(dependencies = {}) {
         // Payment remains the recorded prior term, never the unpaid renewal.
         summary.payment.state = 'paid';
       }
+      summary.renewal = await (dependencies.applyRenewalJourney || applyRenewalJourney)(db, tenantId, summary.renewal);
       return res.json(await canvasDirectDebitCollection(db, { tenantId, owner, plan, summary, today }));
     } catch {
       return res.status(500).json({ error: 'Unable to load membership summary' });
