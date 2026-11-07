@@ -4,22 +4,29 @@ import { handlePublicForm } from './[slug].js';
 
 async function request({ admin = false, authenticated = false, contextTenant = 'tenant', session = null,
   assigned = true, assignmentFailure = false, active = true, status = 'published',
-  lifecycle = 'active', type = 'survey', requireAuth = false, access = true, snapshot = true } = {}) {
+  lifecycle = 'active', type = 'survey', requireAuth = false, access = true, snapshot = true,
+  formRows = null } = {}) {
   const form = { id: 'form', tenant_id: 'tenant', slug: 'survey', form_type: type, is_active: active,
-    require_authentication: requireAuth, fields: [], pages: [], visibility_rules: [],
+    archived_at: null, require_authentication: requireAuth, fields: [], pages: [], visibility_rules: [],
     survey_settings: { status, lifecycle_state: lifecycle, current_version: 2 } };
   const queries = [];
   const db = { from(table) {
     queries.push(table);
+    const filters = [];
     const q = {
-      select() { return q; }, eq() { return q; }, limit() { return q; }, single() { return q; },
+      select() { return q; },
+      eq(key, value) { filters.push(row => row[key] === value); return q; },
+      is(key, value) { filters.push(row => row[key] === value); return q; },
+      limit() { return q; }, single() { return q; },
       maybeSingle() { return q; },
       then(resolve, reject) {
-        const data = table === 'form' ? structuredClone(form)
+        const matchedForms = (formRows || [form]).filter(row => filters.every(filter => filter(row)));
+        const data = table === 'form' ? structuredClone(matchedForms[0] || null)
           : table === 'survey_version' ? (snapshot ? { fields: [], pages: [], survey_settings: {}, version_number: 2 } : null)
           : table === 'event_survey_assignment' ? (assigned ? [{ id: 'assignment' }] : [])
           : null;
-        return Promise.resolve({ data, error: table === 'event_survey_assignment' && assignmentFailure
+        return Promise.resolve({ data, error: table === 'form' && matchedForms.length !== 1
+          ? { code: 'PGRST116' } : table === 'event_survey_assignment' && assignmentFailure
           ? { message: 'unavailable' } : null }).then(resolve, reject);
       },
     };
@@ -82,4 +89,43 @@ test('assignment discovery failure never grants ordinary survey access', async (
 
 test('ordinary inactive forms remain blocked even for administrators', async () => {
   assert.equal((await request({ admin: true, type: 'application', active: false })).res.statusCode, 404);
+});
+
+const publicQuestionnaire = {
+  id: 'joining', tenant_id: 'tenant', slug: 'survey', form_type: 'standard',
+  is_active: true, archived_at: null, fields: [], pages: [],
+};
+
+test('a public questionnaire resolves despite archived and foreign-tenant copies of its slug', async () => {
+  for (const authenticated of [false, true]) {
+    const { res } = await request({ authenticated, session: authenticated ? { id: 'session' } : null,
+      formRows: [
+        { ...publicQuestionnaire, id: 'archived', archived_at: '2026-09-30', is_active: false },
+        { ...publicQuestionnaire, id: 'foreign', tenant_id: 'other-tenant' },
+        publicQuestionnaire,
+      ] });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.id, 'joining');
+  }
+});
+
+test('archived-only URLs stay unavailable even if their old active flag is true', async () => {
+  const { res } = await request({ formRows: [
+    { ...publicQuestionnaire, archived_at: '2026-09-30' },
+  ] });
+  assert.equal(res.statusCode, 404);
+});
+
+test('duplicate unarchived URLs fail closed instead of selecting an arbitrary form', async () => {
+  const { res } = await request({ formRows: [
+    publicQuestionnaire, { ...publicQuestionnaire, id: 'duplicate' },
+  ] });
+  assert.equal(res.statusCode, 404);
+});
+
+test('archive filtering does not bypass access policy or scheduled deactivation', async () => {
+  assert.equal((await request({ access: false, formRows: [publicQuestionnaire] })).res.statusCode, 403);
+  assert.equal((await request({ formRows: [
+    { ...publicQuestionnaire, deactivate_at: '2020-01-01T00:00:00Z' },
+  ] })).res.statusCode, 404);
 });

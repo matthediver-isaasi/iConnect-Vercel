@@ -98,6 +98,9 @@ export async function handlePublicForm(req, res, dependencies = {}) {
       .select('*')
       .eq('slug', slug)
       .eq('tenant_id', tenant.id)
+      // Archived forms retain their slug for history; only live records own
+      // the public URL. Keep single() so conflicting live records fail closed.
+      .is('archived_at', null)
       .single();
 
     if (error) {
