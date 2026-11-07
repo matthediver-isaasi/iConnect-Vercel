@@ -1,5 +1,7 @@
 # Membership payment topics
 
+- [Variable Direct Debit quotation](variable-dd-quotation.md) — a credit-allocation period count is not a fixed obligation to collect that many payments before expiry.
+
 - [Portal pending DD evidence](portal-pending-dd-evidence.md) — completion, joined pricing and collection facts remain separate; saved link labels cannot establish renewal eligibility.
 - [GoCardless Drop-in modal](gocardless-dropin.md) — modal wrapper falls back to hosted redirect on load failure.
 - [GoCardless account discovery isolation](gocardless-discovery-isolation.md) — account discovery requires tenant-owned credentials, never platform fallback.

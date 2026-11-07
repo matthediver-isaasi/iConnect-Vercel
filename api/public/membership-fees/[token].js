@@ -670,11 +670,16 @@ return async function handler(req, res) {
             monthlySnapshot = feeToken.cost_breakdown.membershipVoucherRequote.monthlySnapshot;
           }
           if (monthlySnapshot?.commitment) {
-            const { assertMonthlyCollectionsWithinTerm } = await import('../../_lib/rollingMonthlyRenewal.js');
-            const first = monthlySnapshot.deferred_billing?.first_charge_date || monthlySnapshot.commitment.term_start_date;
-            assertMonthlyCollectionsWithinTerm(monthlySnapshot,
-              first && first > new Date().toISOString().slice(0, 10) ? `${first}T00:00:00Z` : new Date(),
-              monthlySnapshot.instalment_count);
+            if (paymentMode === 'direct_debit') {
+              const { assertDdConsentScheduleWithinTerm } = await import('../../_lib/gocardlessDirectDebit.js');
+              assertDdConsentScheduleWithinTerm(monthlySnapshot);
+            } else {
+              const { assertMonthlyCollectionsWithinTerm } = await import('../../_lib/rollingMonthlyRenewal.js');
+              const first = monthlySnapshot.deferred_billing?.first_charge_date || monthlySnapshot.commitment.term_start_date;
+              assertMonthlyCollectionsWithinTerm(monthlySnapshot,
+                first && first > new Date().toISOString().slice(0, 10) ? `${first}T00:00:00Z` : new Date(),
+                monthlySnapshot.instalment_count);
+            }
           }
           const quote = await persistMembershipVoucherQuote(supabase, feeToken, req.body.voucherIds, new Date(), authority, monthlySnapshot);
           return res.json({ quote, message: 'Preview only. Credit has not been reserved or applied.' });

@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolveStructureCollectionPolicy, resolveSavedCollectionPolicy, describeCollectionPolicy } from '../../shared/gocardlessCollectionPolicy.js';
-import { resolveDdOffer, buildAgreementSnapshot, monthlyBillingRequestFingerprint, isMonthlyConsentPolicyCurrent, newDdConsentScheduleError } from './gocardlessDirectDebit.js';
+import { resolveDdOffer, buildAgreementSnapshot, monthlyBillingRequestFingerprint, isMonthlyConsentPolicyCurrent, newDdConsentScheduleError, assertDdConsentScheduleWithinTerm } from './gocardlessDirectDebit.js';
+import { buildMembershipVoucherQuote } from './membershipVoucherQuote.js';
 import { shouldSuppressAnnualInvoice } from './membershipInstalmentInvoicing.js';
 import { decideRenewalAction } from './gocardlessDdRenewals.js';
 import { assertMonthlyCollectionsWithinTerm } from './rollingMonthlyRenewal.js';
@@ -19,6 +20,55 @@ function simulation(endPolicy, pricingPolicy, startMode = 'immediate') {
     membershipYear: { label: startMode === 'immediate' ? 'rolling:2026-09-18' : '2026/2027', start: '2026-09-18', end: '2027-09-17' },
   };
 }
+
+test('in-grace variable DD quotation accepts November commencement for an October renewal without changing credit allocation', () => {
+  for (const end of ['continue','stop']) {
+    const sim = simulation(end,'dynamic');
+    sim.membershipYear = { label:'rolling:2026-10-01',start:'2026-10-01',end:'2027-09-30' };
+    const snapshot = {...buildAgreementSnapshot({offer:resolveDdOffer(sim),simResult:sim}),payment_mode:'direct_debit'};
+    const before=structuredClone(snapshot);
+    const now=new Date('2026-11-07T07:27:22Z');
+    assert.doesNotThrow(()=>assertDdConsentScheduleWithinTerm(snapshot,now));
+    assert.equal(newDdConsentScheduleError(snapshot,now),null);
+    const token={id:'token',tenant_id:'tenant',member_id:'member',currency:'GBP',status:'pending',expires_at:'2027-01-01'};
+    const discovery={enabled:true,vouchers:[{id:'credit',member_id:'member',ownerType:'member',value:32.79,expires_at:'2027-01-01'}]};
+    for (const vouchers of [[],['credit']]) {
+      const quote=buildMembershipVoucherQuote(token,discovery,vouchers,now,snapshot);
+      assert.equal(quote.grossMinor,null);
+      assert.equal(quote.creditMinor,vouchers.length ? 3279 : 0);
+      assert.equal(quote.creditSchedule.length,12);
+      assert.equal(quote.creditSchedule.reduce((sum,row)=>sum+row.allocatedCreditMinor,0),quote.creditMinor);
+    }
+    assert.deepEqual(snapshot,before,'preflight must not redate the term or alter purchased terms');
+    assert.throws(()=>assertDdConsentScheduleWithinTerm(snapshot,new Date('2027-10-01')),/outside/);
+  }
+});
+
+test('DD quotation preserves finite plans and rejects unknown policy or a next collection beyond expiry', () => {
+  const sim=simulation('continue','fixed');
+  const fixed=buildAgreementSnapshot({offer:resolveDdOffer(sim),simResult:sim});
+  const late=new Date('2026-11-07');
+  assert.throws(()=>assertDdConsentScheduleWithinTerm(fixed,late),/outside/);
+  assert.throws(()=>assertMonthlyCollectionsWithinTerm(fixed,late,12),/outside/,'card fixed-plan guard remains unchanged');
+  const legacy={...fixed};delete legacy.collection_policy;delete legacy.commitment.commitment_snapshot.collection_policy;
+  legacy.auto_renew=true;
+  assert.throws(()=>assertDdConsentScheduleWithinTerm(legacy,late),/outside/);
+  const dynamic=simulation('continue','dynamic');
+  const variable=buildAgreementSnapshot({offer:resolveDdOffer(dynamic),simResult:dynamic});
+  assert.throws(()=>assertDdConsentScheduleWithinTerm({...variable,collection_policy:{version:99,pricing_policy:'dynamic'}},late),/policy is unknown/);
+  for(const rule of ['nominated_day','anniversary']) {
+    assert.throws(()=>assertDdConsentScheduleWithinTerm({...variable,first_collection_rule:rule,collection_day:18},
+      new Date('2027-09-17')),/outside/);
+  }
+  assert.throws(()=>assertDdConsentScheduleWithinTerm({...variable,deferred_billing:{first_charge_date:'2027-09-18'}},late),/outside/);
+});
+
+test('voucher endpoint uses the shared DD consent guard, retaining the full-count card guard before persistence', () => {
+  const source=readFileSync(new URL('../public/membership-fees/[token].js',import.meta.url),'utf8');
+  const quote=source.slice(source.indexOf("if (action === 'quote_vouchers')"),source.indexOf("if (formVoucherElection && !['quote_vouchers'"));
+  assert.match(quote,/if \(paymentMode === 'direct_debit'\)[\s\S]*assertDdConsentScheduleWithinTerm\(monthlySnapshot\);[\s\S]*else[\s\S]*assertMonthlyCollectionsWithinTerm/);
+  assert.ok(quote.indexOf('assertDdConsentScheduleWithinTerm(monthlySnapshot)')<quote.indexOf('await persistMembershipVoucherQuote'));
+});
 
 test('pending variable-funded consent resumes with its original allocation without freezing new gross prices', () => {
   const sim=simulation('stop','dynamic');

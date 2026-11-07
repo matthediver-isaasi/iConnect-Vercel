@@ -438,20 +438,31 @@ export function computeFirstCollectionDate({ rule, collectionDay = null, members
  * Reject a schedule already known not to fit before creating a mandate flow.
  * Actual bank/provider earliest-charge dates are checked again during setup.
  */
+export function assertDdConsentScheduleWithinTerm(snapshot, now = new Date()) {
+  const policy = resolveSavedCollectionPolicy(snapshot);
+  if (policy.needs_review) {
+    throw new Error('Direct Debit collection policy is unknown; administrator review is required.');
+  }
+  const today = toDateOnly(now)?.toISOString().slice(0, 10);
+  if (!today) throw new Error('Monthly collection start date is invalid.');
+  const start = snapshot.commitment?.term_start_date || snapshot.membership_year_start;
+  const deferred = snapshot.deferred_billing?.first_charge_date;
+  const earliest = [today, start, deferred].filter(Boolean).sort().at(-1);
+  const schedule = computeSubscriptionCollectionDate(snapshot, earliest, null, now);
+  // Variable-price consent authorises eligible monthly collections, not
+  // twelve fixed payments. Check the next collection without changing the
+  // saved instalment count, credit allocation or renewal-boundary controls.
+  const count = policy.pricing_policy === 'dynamic' ? 1 : snapshot.instalment_count;
+  assertMonthlyCollectionsWithinTerm(snapshot, schedule.startDate || earliest, count);
+}
+
 export function newDdConsentScheduleError(snapshot, now = new Date()) {
   // Only new policy snapshots are checked here. Existing purchased legacy
   // agreements retain their original contract and reconciliation behaviour.
   if (!snapshot?.collection_policy
       || !(snapshot.commitment?.membership_renewal_date || snapshot.membership_renewal_date)) return null;
-  const today = toDateOnly(now)?.toISOString().slice(0, 10);
-  const start = snapshot.commitment?.term_start_date || snapshot.membership_year_start;
-  const earliest = start && start > today ? start : today;
   try {
-    const schedule = computeSubscriptionCollectionDate(snapshot, earliest, null, now);
-    // Dynamic consent authorises eligible monthly collections, not a fixed
-    // total/count obligation. At least one future collection must fit.
-    const count = snapshot.collection_policy.pricing_policy === 'dynamic' ? 1 : snapshot.instalment_count;
-    assertMonthlyCollectionsWithinTerm(snapshot, schedule.startDate || earliest, count);
+    assertDdConsentScheduleWithinTerm(snapshot, now);
     return null;
   } catch {
     return {
