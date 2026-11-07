@@ -14,6 +14,25 @@ export const legacyForm = {
 };
 const save = (form, previousForm) => validateFormMutationAccessSave({ form, previousForm, isCreate: !previousForm });
 
+test('removing Primary Member survives hydrate and sparse save when activating a login-only form', () => {
+  const persisted = { ...legacyForm, is_active: false,
+    structured_actions: { version: 1, actions: [] },
+    mutation_access_policy: { version: 1, mode: 'public_member_signup' } };
+  const editor = hydrateForm(persisted);
+  const baseline = captureFormEditorBaseline(persisted, editor);
+  const edited = { ...editor, require_authentication: true, is_active: true,
+    entity_pipelines: { members: [], organisations: [] } };
+  const patch = formEditorPatch(prepareFormEditorUpdate(edited, baseline), baseline);
+  assert.deepEqual(patch.entity_pipelines, { members: [], organisations: [] });
+  assert.equal(patch.require_authentication, true);
+  assert.equal(patch.is_active, true);
+  const saved = { ...persisted, ...patch };
+  const result = save(saved, persisted);
+  assert.equal(result.ok, true);
+  assert.equal(result.hasExistingRecordMutation, false);
+  assert.deepEqual(hydrateForm(saved).entity_pipelines.members, []);
+});
+
 test('actual hydrate/save preserves exact legacy mutation keys on slug change and reload', () => {
   const editor = hydrateForm(legacyForm);
   assert.equal(save(normalizeFormEditorSave(editor), legacyForm).ok, false);

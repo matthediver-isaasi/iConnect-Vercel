@@ -88,6 +88,30 @@ test('both server write boundaries persist derived policy without requiring it i
   assert.match(builder, /<details[^>]*data-testid="advanced-form-access"[\s\S]*<ApplicantContinuationLinkGenerator[\s\S]*<\/details>/);
 });
 
+test('removing the last member pipeline permits activation with login despite the retained signup policy', () => {
+  const previousForm = {
+    is_active: false, require_authentication: false,
+    mutation_access_policy: { version: 1, mode: 'public_member_signup' },
+    entity_pipelines: { members: [{ mappings: [{ target_field: 'email' }] }], organisations: [] },
+  };
+  for (const require_authentication of [true, false]) {
+    const form = { ...previousForm, is_active: true, require_authentication,
+      entity_pipelines: { members: [], organisations: [] } };
+    const result = validateFormMutationAccessSave({ form, previousForm });
+    assert.equal(result.ok, true);
+    assert.equal(result.hasExistingRecordMutation, false);
+  }
+  const retained = validateFormMutationAccessSave({
+    form: { ...previousForm, is_active: true, require_authentication: true }, previousForm,
+  });
+  assert.equal(retained.ok, false, 'an incompatible policy must still block actual record updates');
+  const source = readFileSync(new URL('../client/src/pages/FormBuilder.jsx', import.meta.url), 'utf8');
+  const submit = source.slice(source.indexOf('const handleSubmit = () =>'));
+  assert.doesNotMatch(submit.slice(0, 1000), /!publicMemberSignupEligible/);
+  assert.match(submit, /validateFormMutationAccessSave\(\{/);
+  assert.match(submit, /if \(!mutationAccessSave\.ok\)/);
+});
+
 test('classifies current mapped updates and legacy create separately', () => {
   const current = classifyFormMutationContract({
     fields: [{ id: 'phone', type: 'text' }],

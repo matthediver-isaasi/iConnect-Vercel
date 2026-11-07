@@ -12159,11 +12159,9 @@ function FormBuilderEditor() {
   );
 
   const handleSubmit = () => {
-    if (formData.mutation_access_policy?.mode === PUBLIC_MEMBER_SIGNUP_MODE
-      && !publicMemberSignupEligible) {
-      toast.error('Public member signup is only available for a public member-only update contract without unsupported structured mutations.');
-      return;
-    }
+    // Validate access against the normalized save payload below. The signup
+    // selector's eligibility is not a save guard: removing all record updates
+    // legitimately leaves an inert, previously saved signup policy behind.
     console.log('[FormBuilder] handleSubmit called');
     console.log('[FormBuilder] formData:', JSON.stringify(formData, null, 2));
     
