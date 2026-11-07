@@ -1,5 +1,5 @@
 import { useId, useState } from 'react';
-import { ArrowRight, CreditCard, TriangleAlert } from 'lucide-react';
+import { ArrowRight, CreditCard, Loader2, TriangleAlert } from 'lucide-react';
 import { useTenantBranding } from '@/contexts/TenantBrandingContext';
 import {
   buildTenantButtonInlineStyle, composeButtonLabelStyle, resolveTenantButtonStyle,
@@ -92,6 +92,7 @@ export function MembershipDataView({
   const selector = `[data-membership-card="${id}"]`;
   const summary = normalizeCanvasMembershipSummary(result?.data);
   const ready = result?.status === 'ready';
+  const checkingPayment = paymentCard && result?.status === 'loading';
   const state = ready ? (paymentCard ? summary.payment.state : summary.membership.state) : 'unavailable';
   const renewalHref = safeMembershipLink(summary.renewal.journeyMode === 'questionnaire'
     ? summary.renewal.entryHref : content.renewalLink);
@@ -220,7 +221,9 @@ export function MembershipDataView({
       )}
       {!hideDuplicateEyebrow && <p {...role('eyebrow')}>{content.eyebrow}</p>}
       <div className="membership-title">
-        <h2 id={`${id}-heading`} {...role('heading')}>{copy.heading}</h2>
+        <h2 id={`${id}-heading`} {...role('heading')}>
+          {checkingPayment ? 'Checking membership status' : copy.heading}
+        </h2>
         {ready && !paymentCard && <span {...role('status', { color: summary.membership.grace ? '#865d10' : stateColors[state], display: 'inline-flex', alignItems: 'center', gap: 8 })}>
           <span aria-hidden="true" style={{ width: 10, height: 10, borderRadius: '50%', background: 'currentColor', flexShrink: 0 }} />
           {summary.membership.grace ? 'In grace period — renewal due' : copy.status}
@@ -241,7 +244,11 @@ export function MembershipDataView({
       </p>}
       {!ready ? (
         <p {...role('supporting', { marginTop: 16 })} role={result?.status === 'error' || result?.status === 'denied' ? 'alert' : 'status'}>
-          {content.messages[result?.status] || content.messages.error}
+          {checkingPayment ? <>
+            <Loader2 size={18} aria-hidden="true" className="inline-block animate-spin motion-reduce:animate-none"
+              style={{ marginRight: 8, verticalAlign: 'middle' }} />
+            Please wait while we check your membership details.
+          </> : content.messages[result?.status] || content.messages.error}
         </p>
       ) : paymentCard ? (
         <div data-testid="membership-payment-panel" style={{

@@ -774,6 +774,19 @@ test('next collection is prioritised in payment details while historical confirm
   assert.doesNotMatch(summary, /15 December 2030/);
 });
 
+test('payment loading uses a friendly heading and spinner without presenting cached details or an error', () => {
+  const html = render({ type: 'payment-details', result: { status: 'loading', data: live } });
+  assert.match(html, /Checking membership status/);
+  assert.match(html, /Please wait while we check your membership details/);
+  assert.match(html, /aria-busy="true"/);
+  assert.match(html, /role="status"/);
+  assert.match(html, /animate-spin motion-reduce:animate-none/);
+  assert.doesNotMatch(html, /Payment details unavailable|Professional|Monthly Direct Debit|membership-(joining|renewal)-cta/);
+  const failed = render({ type: 'payment-details', result: { status: 'error', data: live } });
+  assert.match(failed, /Payment details unavailable/);
+  assert.doesNotMatch(failed, /Checking membership status|animate-spin/);
+});
+
 test('guest, denied, error and loading never paint cached active data', () => {
   for (const status of ['guest', 'denied', 'error', 'loading']) {
     const html = render({ result: { status, data: live } });
