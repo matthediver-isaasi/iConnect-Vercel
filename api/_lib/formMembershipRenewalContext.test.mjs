@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadFormMembershipRenewalContext } from './formMembershipRenewalContext.js';
 import { resolveFormMembershipOrganizationId } from './formMembershipOwner.js';
+import { bindFormPersonalPaymentOwner } from './formPersonalPaymentAuthority.js';
 import { snapshotFormMembershipPayment, createReservedFormMembershipIntent,
   historyFromFormPaymentSnapshot, loadFormMembershipPaymentQuote } from './formMembershipPaymentQuote.js';
 import { buildAgreementSnapshot, buildMonthlyBillingRequest, computeSubscriptionCollectionDate, resolveDdOffer } from './gocardlessDirectDebit.js';
@@ -254,6 +255,7 @@ for (const method of ['monthly_card', 'direct_debit']) {
       let routed = false;
       class Clock extends Date { constructor(value) { super(value ?? `${date}T12:00:00Z`); } }
       const sandbox = vm.createContext({ Date: Clock,
+        bindFormPersonalPaymentOwner,
         resolveFormMembershipOrganizationId,
         supabase: f.db,
         beginRenewalProviderWork: async () => 'operation',

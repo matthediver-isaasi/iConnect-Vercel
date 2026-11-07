@@ -1,4 +1,5 @@
 import { supabase } from '../_lib/database.js';
+import { bindFormPersonalPaymentOwner } from '../_lib/formPersonalPaymentAuthority.js';
 import { authorizeMemberAccess } from '../membership/payment-plan.js';
 import { simulateMembershipForOrg, simulateMembershipForMember } from '../_lib/membershipSimulation.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
@@ -656,6 +657,7 @@ async function handlePost(req, res, resolvedTenantId) {
     }
     req.body = { ...req.body, action: 'start',
       ...(organizationId ? { organizationId } : {}) };
+    bindFormPersonalPaymentOwner(req, { tenantId, memberId: member.id, organizationId });
     const reservation = { tenant_id: tenantId,
       quote: { simResult: { formRenewalElectionId: req.membershipPaymentContext?.electionId } } };
     const operation = await beginRenewalProviderWork(supabase, reservation);

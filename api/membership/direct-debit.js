@@ -40,6 +40,7 @@ import { sendDdLifecycleEmail } from '../_lib/gocardlessDdEmails.js';
 import { markRenewalConfirmed } from '../_lib/gocardlessDdRenewals.js';
 import { STATUS } from '../_lib/gocardlessState.js';
 import { authorizeMemberAccess } from './payment-plan.js';
+import { hasFormPersonalPaymentOwner } from '../_lib/formPersonalPaymentAuthority.js';
 
 export default async function handler(req, res) {
   if (!supabase) return res.status(503).json({ error: 'Database not configured' });
@@ -84,7 +85,7 @@ async function loadMember(memberId, resolvedTenantId, res, req) {
     res.status(403).json({ error: 'Member does not belong to this tenant' });
     return null;
   }
-  if (member.organization_id) {
+  if (member.organization_id && !hasFormPersonalPaymentOwner(req, member)) {
     res.status(400).json({ error: 'Direct Debit is only available for individual memberships' });
     return null;
   }

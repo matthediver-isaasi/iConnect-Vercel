@@ -23,6 +23,7 @@ import { resolveCardMonthlyOffer, buildCardAgreementSnapshot, CARD_PLAN_KIND } f
 import { STATUS } from '../_lib/gocardlessState.js';
 import { deferredCardCheckoutOptions } from '../_lib/stripeDeferredCardTerms.js';
 import { authorizeMemberAccess } from './payment-plan.js';
+import { hasFormPersonalPaymentOwner } from '../_lib/formPersonalPaymentAuthority.js';
 
 const OPEN_AGREEMENT_STATUSES = [
   STATUS.PAYMENT_SETUP_REQUIRED,
@@ -70,7 +71,7 @@ async function loadMember(memberId, resolvedTenantId, res, req) {
     res.status(403).json({ error: 'Member does not belong to this tenant' });
     return null;
   }
-  if (member.organization_id) {
+  if (member.organization_id && !hasFormPersonalPaymentOwner(req, member)) {
     res.status(400).json({ error: 'Monthly card payment is only available for individual memberships' });
     return null;
   }
