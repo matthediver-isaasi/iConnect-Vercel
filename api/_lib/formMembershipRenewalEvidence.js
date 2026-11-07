@@ -39,6 +39,19 @@ export function assessFormMembershipRenewalEvidence({
         ? { state: 'renewal_pending', eligible: false }
         : { state: 'joining', eligible: false, reason: 'use_joining_checkout' };
     }
+    // A provisional first purchase is not a paid predecessor for next year's
+    // renewal. It has no successor election that a method switch can release.
+    if (retained.length === 1) {
+      const initial = retained[0];
+      const setup = openAgreements.find(agreement => agreement.id === initial.billing_agreement_id);
+      if (!initial.previous_term_id && !initial.membership_successor_election_id
+        && initial.status === 'pending_payment_setup' && initial.payment_status === 'unpaid'
+        && !initial.paid_at && setup?.status === 'payment_setup_required'
+        && !setup.membership_successor_election_id) {
+        return { state: 'initial_checkout_pending', eligible: false,
+          reason: 'unfinished_first_membership', pendingAgreementId: setup.id };
+      }
+    }
     if (retained.some(row => !row.term_start_date
         && (organizationId || !assignedFormExpiryPolicy(row, tenantId, expiryOnlyPolicies[row.id])))) {
       return review('expiry_only_policy_unavailable');

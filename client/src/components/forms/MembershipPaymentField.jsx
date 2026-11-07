@@ -861,6 +861,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
   const canPay = !creditCheckoutActive && !data.voucherCheckoutToken && !selectedVouchers.length && !switchingPayment && renewal?.switchState !== 'reconciling'
     && (isJoining ? joiningAvailable : (!isRenewal || renewal.eligible === true || resuming));
   const renewalMessages = {
+    initial_checkout_pending: 'Your first membership payment setup is unfinished. No new checkout has been started here. Please contact the membership team to check and safely release the earlier setup before choosing a different membership or payment method.',
     post_grace_renewal: renewal?.eligible === true
       ? 'Restart your membership. Your grace period has ended.'
       : 'Membership restart is not currently available. Please contact the membership team before paying.',
@@ -886,7 +887,8 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
             <p className="text-sm">Any remaining payments for your current membership are still due.</p>
             <DirectDebitPlanCard memberId={memberId} />
           </>}
-          {renewal.state === 'renewal_pending' && <Button type="button" variant="outline" disabled={busy} onClick={() => releaseUnusedRenewal()}>{switchingPayment ? 'Confirming cancellation…' : 'Change payment method'}</Button>}
+          {renewal.state === 'renewal_pending' && renewal.electionId && <Button type="button" variant="outline" disabled={busy} onClick={() => releaseUnusedRenewal()}>{switchingPayment ? 'Confirming cancellation…' : 'Change payment method'}</Button>}
+          {renewal.state === 'renewal_pending' && !renewal.electionId && <p className="text-sm">Please contact the membership team to check this unfinished payment setup before starting another payment.</p>}
           {switchingPayment && <p role="status">Checking your payment so you can safely choose another method. Please keep this page open.</p>}
           {paymentError && <p role="alert" className="text-sm text-destructive">{paymentError}</p>}
         </CardContent>

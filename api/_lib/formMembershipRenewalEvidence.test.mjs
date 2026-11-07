@@ -11,6 +11,24 @@ const history = {
   payment_status: 'paid', term_start_date: '2026-01-01', term_end_date: '2026-12-31',
   commitment_snapshot: { config, payment_frequency: 'upfront' },
 };
+
+test('unfinished first checkout is not a next-year renewal or a releasable election', () => {
+  const initial = { ...history, status: 'pending_payment_setup', payment_status: 'unpaid',
+    billing_agreement_id: 'initial-dd', previous_term_id: null };
+  const agreement = { id: 'initial-dd', tenant_id: 'tenant', member_id: 'member',
+    status: 'payment_setup_required', provider: 'gocardless' };
+  const input = fixture({ histories: [initial], agreements: [agreement] });
+  const result = assess(input);
+  assert.equal(result.state, 'initial_checkout_pending');
+  assert.equal(result.eligible, false);
+  assert.equal(result.successorStart, undefined);
+  assert.equal(result.currentEnd, undefined);
+  assert.equal(result.electionId, undefined);
+  assert.notEqual(assess({ ...input, histories: [{ ...initial, payment_status: 'paid' }] }).state,
+    'initial_checkout_pending');
+  assert.equal(assess({ ...input, histories: [{ ...initial, status: 'cancelled' }],
+    agreements: [{ ...agreement, status: 'cancelled' }] }).state, 'joining');
+});
 function fixture(extra = {}) {
   return {
     tenantId: 'tenant', memberId: 'member', histories: [structuredClone(history)],

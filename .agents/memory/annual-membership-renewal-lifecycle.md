@@ -168,3 +168,16 @@ recreating a quote on a later day could otherwise permit a competing payment.
 **How to apply:** Keep first purchases separate from successor elections and
 require confirmed credit/provider release before changing methods. Do not
 remove outstanding reservations merely to restore the payment-choice screen.
+
+An unpaid first membership awaiting payment setup is not an established
+predecessor for next year's renewal.
+
+**Why:** Revisiting through another mapped form can otherwise display a
+provisional term as current membership and offer a successor-switch action
+without a successor reservation. Refreshing cannot create that missing authority.
+
+**How to apply:** Distinguish unfinished initial setup from successor renewal,
+keep duplicate-payment blocking, and show no successor cancellation action
+without its reservation. Administrative release must verify provider identity
+and terminal cancellation before marking provisional local records cancelled;
+retain history rather than deleting it.

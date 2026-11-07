@@ -96,6 +96,23 @@ test('active access alone is not reported as paid; explicitly settled scheduled 
   }
 });
 
+test('unfinished first checkout does not offer an invalid successor switch or future renewal dates', async () => {
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    renewal: { state: 'initial_checkout_pending', eligible: false, pendingAgreementId: 'initial-dd' },
+  }));
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(<MembershipPaymentField field={{ id: 'payment' }} resolvedMemberId="member" onChange={() => {}} />);
+    await new Promise(resolve => setTimeout(resolve, 30));
+  });
+  assert.match(host.textContent, /first membership payment setup is unfinished/);
+  assert.doesNotMatch(host.textContent, /Your renewal covers|Current membership ends|Change payment method|remaining payments/);
+  await act(async () => root.unmount());
+  host.remove();
+});
+
 test('payment method change uses authenticated request and displays refusal rather than another payment', async () => {
   window.history.replaceState({}, '', '/forms/renew');
   const requests = [];
