@@ -13,6 +13,7 @@ import { getGocardlessCredentials } from '../_lib/gocardlessCredentials.js';
 import { loadFormMembershipRenewalContext } from '../_lib/formMembershipRenewalContext.js';
 import { resolveFormRenewalSelection, FormRenewalSelectionError } from '../_lib/formRenewalSelection.js';
 import { resolveFormMembershipOrganizationId } from '../_lib/formMembershipOwner.js';
+import { findJoiningVoucherCheckout, bindJoiningVoucherCheckout } from '../_lib/formJoiningVouchers.js';
 import { discoverFormMembershipVouchers, bindFormMembershipVoucherCheckout, findFormVoucherCheckout, formVoucherSetupStatus, formVoucherCheckoutReady, validateFormVoucherSelection, FORM_VOUCHER_MODES } from '../_lib/formMembershipVouchers.js';
 import { reserveMembershipSuccessor } from '../_lib/membershipSuccessorElection.js';
 import { requireFormScope, FormVoucherVerificationError } from '../_lib/formMembershipVouchers.js';
@@ -95,6 +96,9 @@ async function renewalContext(tenantId, member, organizationId, req = null, fiel
     renewalSelection, fieldOverrides,
     simulate: organizationId ? simulateMembershipForOrg : simulateMembershipForMember,
   });
+  if (context.renewal.state === 'joining' && await findJoiningVoucherCheckout(supabase, { tenantId, memberId: member.id })) {
+    return { renewal: { state: 'renewal_pending', eligible: false }, simulation: null, organizationId };
+  }
   return { ...context, organizationId };
 }
 
@@ -281,13 +285,35 @@ async function handleGet(req, res, resolvedTenantId) {
   }
 
   const tenantId = member.tenant_id;
+  if (!req.query.voucherCheckoutId) {
+    const joining = await findJoiningVoucherCheckout(supabase, { tenantId, memberId: member.id });
+    if (joining && joining.breakdown?.formJoiningVoucher?.formId === req.query.formId
+        && joining.breakdown?.formJoiningVoucher?.paymentFieldId === req.query.paymentFieldId) {
+      const saved = await supabase.from('membership_fee_token').select('status,history_record_id')
+        .eq('id', joining.fee_token_id).eq('tenant_id', tenantId).maybeSingle();
+      if (saved.error) throw new Error('Saved credit checkout could not be verified.');
+      if (saved.data?.status === 'pending') {
+        // An ongoing first-term instalment plan must not hide a separately
+        // eligible successor. Explicit saved checkout IDs still resume it.
+        const later = saved.data.history_record_id ? await renewalContext(tenantId, member, null, req,
+          req.query.fieldOverrides ? JSON.parse(req.query.fieldOverrides) : {}) : null;
+        if (!later?.renewal?.eligible && !later?.election && later?.renewal?.state !== 'next_term_purchased') {
+          req.query.voucherCheckoutId = joining.fee_token_id;
+        }
+      }
+    }
+  }
   if (req.query.voucherCheckoutId) {
     try {
       const { readFormVoucherCheckout } = await import('../_lib/formMembershipVouchers.js');
-      const { token, election, history, setup } = await readFormVoucherCheckout(supabase, {
+      const { token, election: savedElection, joining, history, setup } = await readFormVoucherCheckout(supabase, {
         tenantId, memberId: member.id, checkoutId: req.query.voucherCheckoutId,
         formId: req.query.formId, paymentFieldId: req.query.paymentFieldId,
       });
+      const election = savedElection || { quote: { simulation: joining.simulation },
+        payment_method: Object.keys(FORM_VOUCHER_MODES).find(key => FORM_VOUCHER_MODES[key] === joining.paymentMode),
+        term_start_date: joining.simulation.membershipYear.start,
+        term_end_date: joining.simulation.membershipYear.end };
       return res.json({
         ...buildCostResponse(history, election.quote.simulation),
         memberScoped: true, membershipYear: token.membership_year,
@@ -541,6 +567,16 @@ async function handlePost(req, res, resolvedTenantId) {
   if (req.body.configId) explicitConfigId = req.body.configId;
 
   if (action === 'close_voucher_checkout') {
+    const joining = await findJoiningVoucherCheckout(supabase, { tenantId, memberId: member.id });
+    if (joining) {
+      requireFormScope(req.body.formId, req.body.paymentFieldId);
+      const { data, error } = await supabase.rpc('release_form_joining_voucher_checkout', {
+        p_tenant_id: tenantId, p_member_id: member.id,
+        p_form_id: req.body.formId, p_field_id: req.body.paymentFieldId,
+      });
+      if (error || data !== true) return res.status(409).json({ error: error?.message || 'Credit checkout could not be closed.' });
+      return res.json({ released: true });
+    }
     const context = await renewalContext(tenantId, member, organizationId, req, fieldOverrides);
     if (!context.election?.id) return res.status(409).json({ error: 'No reserved renewal was found' });
     const { error } = await supabase.rpc('release_form_membership_voucher_checkout', {
@@ -557,7 +593,7 @@ async function handlePost(req, res, resolvedTenantId) {
       const method = req.body.paymentMethod;
       if (!FORM_VOUCHER_MODES[method]) throw new Error('Choose a payment method for the remaining balance');
       const context = await renewalContext(tenantId, member, organizationId, req, fieldOverrides);
-      if (!context.simulation || context.renewal.state === 'joining') {
+      if (!context.simulation) {
         throw new Error('This renewal does not yet support the form credit checkout. No credit has been reserved.');
       }
       const sim = context.simulation;
@@ -572,6 +608,13 @@ async function handlePost(req, res, resolvedTenantId) {
       });
       if (!discovery.vouchers.length) throw new Error('No eligible membership credit is currently available');
       const selected = validateFormVoucherSelection(discovery, req.body.voucherIds);
+      if (context.renewal.state === 'joining') {
+        const token = await bindJoiningVoucherCheckout(supabase, {
+          tenantId, memberId: member.id, simulation: sim, paymentMethod: method,
+          formId: req.body.formId, paymentFieldId: req.body.paymentFieldId,
+        });
+        return res.json({ token: token.token, checkoutId: token.id, voucherIds: selected.map(v => v.id) });
+      }
       const election = await reserveFormSuccessor(context, tenantId, member, method, [], offer);
       const token = await bindFormMembershipVoucherCheckout(supabase, {
         tenantId, memberId: member.id, election, formId: req.body.formId, paymentFieldId: req.body.paymentFieldId,

@@ -158,3 +158,13 @@ requested the same member-facing layout and credit experience as renewal.
 **How to apply:** Separate pricing/payment availability from renewal eligibility.
 Do not invent a predecessor to make first-purchase credit fit renewal-only
 database contracts, or silently ignore selected vouchers.
+
+An unresolved first-membership credit checkout must retain its original
+purchase authority across date changes and form revisits, until safely released.
+
+**Why:** First purchases have no predecessor to provide renewal identity;
+recreating a quote on a later day could otherwise permit a competing payment.
+
+**How to apply:** Keep first purchases separate from successor elections and
+require confirmed credit/provider release before changing methods. Do not
+remove outstanding reservations merely to restore the payment-choice screen.

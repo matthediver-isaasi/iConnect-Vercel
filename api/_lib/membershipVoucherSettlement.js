@@ -97,7 +97,7 @@ async function historySnapshot(db, token, deps) {
   if (!memberPurchase && !savedRenewal && !simulationFromFeeCommitment(token) && !regenerated) {
     throw new Error('Original organisation membership terms are unavailable; request a new saved fee quote.');
   }
-  const savedSimulation = token.cost_breakdown?.formVoucher?.simulation || regenerated || simulationFromMemberStart(token) || simulationFromFeeCommitment(token) || savedRenewal;
+  const savedSimulation = token.cost_breakdown?.formJoiningVoucher?.simulation || token.cost_breakdown?.formVoucher?.simulation || regenerated || simulationFromMemberStart(token) || simulationFromFeeCommitment(token) || savedRenewal;
   const sim = savedSimulation
     || (deps.simulate ? await deps.simulate(token) : await (await import('./membershipSimulation.js'))
       .simulateMembershipForMember(token.tenant_id, token.member_id, {

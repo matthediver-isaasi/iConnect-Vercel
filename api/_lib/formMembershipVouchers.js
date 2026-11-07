@@ -1,6 +1,7 @@
 import { discoverMembershipVouchers } from './membershipVoucherQuote.js';
 import { randomBytes } from 'node:crypto';
 import { snapshotFormMembershipPayment } from './formMembershipPaymentQuote.js';
+import { loadJoiningVoucherAuthority, joiningVoucherHistoryFields } from './formJoiningVouchers.js';
 
 export const FORM_VOUCHER_MODES = {
   upfront: 'stripe_upfront', monthly_card: 'stripe_monthly', direct_debit: 'direct_debit',
@@ -123,6 +124,24 @@ export async function readFormVoucherCheckout(db, { tenantId, memberId, checkout
     .eq('tenant_id', tenantId).eq('member_id', memberId).is('organization_id', null).maybeSingle();
   const token = fee.data;
   if (fee.error) verificationUnavailable();
+  if (token?.cost_breakdown?.formJoiningVoucher) {
+    const marker = await loadJoiningVoucherAuthority(db, token);
+    if (marker.formId !== formId || marker.paymentFieldId !== paymentFieldId) {
+      throw new FormVoucherVerificationError('FORM_VOUCHER_CHECKOUT_MISMATCH', 'Continue in the original membership form.');
+    }
+    let history = null;
+    if (token.history_record_id) {
+      const saved = await db.from('member_membership_history').select('*').eq('id', token.history_record_id)
+        .eq('tenant_id', tenantId).eq('member_id', memberId).maybeSingle();
+      if (saved.error || !saved.data
+          || saved.data.membership_year !== token.membership_year
+          || String(saved.data.term_start_date).slice(0, 10) !== String(marker.simulation.membershipYear.start).slice(0, 10)
+          || String(saved.data.term_end_date).slice(0, 10) !== String(marker.simulation.membershipYear.end).slice(0, 10)) verificationUnavailable();
+      history = saved.data;
+    }
+    const setup = await formVoucherSetupStatus(db, { tenantId, memberId, token: token.token, joining: true });
+    return { token, history, setup, election: null, joining: marker };
+  }
   if (token && (!token.cost_breakdown?.formVoucher?.formId || !token.cost_breakdown?.formVoucher?.paymentFieldId)) {
     throw new FormVoucherVerificationError('FORM_VOUCHER_SCOPE_UNVERIFIED',
       'This saved checkout needs support to verify its original renewal form. Do not start another payment.');
@@ -163,8 +182,8 @@ export async function findFormVoucherCheckout(db, { tenantId, memberId, election
   return receipt.token.token;
 }
 
-export async function formVoucherSetupStatus(db, { tenantId, memberId, electionId, token }) {
-  if (!token || !electionId) return null;
+export async function formVoucherSetupStatus(db, { tenantId, memberId, electionId, token, joining = false }) {
+  if (!token || (!electionId && !joining)) return null;
   const fee = await db.from('membership_fee_token').select('id')
     .eq('token', token).eq('tenant_id', tenantId).eq('member_id', memberId).maybeSingle();
   if (fee.error) verificationUnavailable();
@@ -173,10 +192,12 @@ export async function formVoucherSetupStatus(db, { tenantId, memberId, electionI
     .eq('fee_token_id', fee.data.id).eq('tenant_id', tenantId).neq('state', 'released').maybeSingle();
   if (funding.error) verificationUnavailable();
   if (!funding.data?.billing_agreement_id || !['plan_committed', 'committed'].includes(funding.data.state)) return null;
-  const agreement = await db.from('membership_billing_agreements')
+  let agreementQuery = db.from('membership_billing_agreements')
     .select('id,provider,status,gocardless_mandate_id')
     .eq('id', funding.data.billing_agreement_id).eq('tenant_id', tenantId).eq('member_id', memberId)
-    .eq('membership_successor_election_id', electionId).is('organization_id', null).maybeSingle();
+    .is('organization_id', null);
+  if (electionId) agreementQuery = agreementQuery.eq('membership_successor_election_id', electionId);
+  const agreement = await agreementQuery.maybeSingle();
   if (agreement.error) verificationUnavailable();
   const a = agreement.data;
   if (!a || !['active', 'first_payment_pending'].includes(a.status)) return null;
@@ -193,6 +214,7 @@ export async function formVoucherSetupStatus(db, { tenantId, memberId, electionI
 }
 
 export function formVoucherHistoryFields(token) {
+  if (token.cost_breakdown?.formJoiningVoucher) return joiningVoucherHistoryFields(token);
   const marker = token.cost_breakdown?.formVoucher;
   if (!marker) return {};
   return {
