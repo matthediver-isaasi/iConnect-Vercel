@@ -1,5 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { bindFormPersonalPaymentOwner } from '../_lib/formPersonalPaymentAuthority.js';
+import { findInitialCheckout, initialRecoveryGeneration, recoverInitialCheckout } from '../_lib/formInitialCheckoutRecovery.js';
 import { authorizeMemberAccess } from '../membership/payment-plan.js';
 import { simulateMembershipForOrg, simulateMembershipForMember } from '../_lib/membershipSimulation.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
@@ -97,8 +98,22 @@ async function renewalContext(tenantId, member, organizationId, req = null, fiel
     renewalSelection, fieldOverrides,
     simulate: organizationId ? simulateMembershipForOrg : simulateMembershipForMember,
   });
+  if (!organizationId && context.renewal.state === 'renewal_pending'
+      && !context.election && !context.renewal.predecessorId) {
+    const unfinished = await findInitialCheckout(supabase, tenantId, member.id);
+    if (unfinished.agreements.length || unfinished.quotes.length) {
+      return { renewal: { state: 'initial_checkout_pending', eligible: false }, simulation: null, organizationId };
+    }
+  }
   if (context.renewal.state === 'joining' && await findJoiningVoucherCheckout(supabase, { tenantId, memberId: member.id })) {
     return { renewal: { state: 'renewal_pending', eligible: false }, simulation: null, organizationId };
+  }
+  if (!organizationId && context.renewal.state === 'joining' && context.simulation) {
+    const unfinished = await findInitialCheckout(supabase, tenantId, member.id);
+    if (unfinished.agreements.length || unfinished.quotes.length) {
+      return { renewal: { state: 'initial_checkout_pending', eligible: false }, simulation: null, organizationId };
+    }
+    context.simulation.initialRecoveryGeneration = await initialRecoveryGeneration(supabase, tenantId, member.id);
   }
   return { ...context, organizationId };
 }
@@ -504,12 +519,12 @@ async function handlePost(req, res, resolvedTenantId) {
   const tenantId = member.tenant_id;
   // Confirmations and payment-method switches use their persisted payment /
   // election ownership. Do not block those callbacks on fresh scope discovery.
-  const organizationId = ['confirm_payment', 'change_renewal_payment_method'].includes(action)
+  const organizationId = ['confirm_payment', 'change_renewal_payment_method', 'recover_initial_checkout'].includes(action)
     ? member.organization_id || null
     : await resolveFormMembershipOrganizationId(supabase, tenantId, member, req);
   const isMemberScoped = !organizationId;
 
-  if (action === 'change_renewal_payment_method') {
+  if (['change_renewal_payment_method', 'recover_initial_checkout'].includes(action)) {
     try {
       const activeCredit = await supabase.from('form_membership_voucher_checkout').select('fee_token_id,membership_fee_token!inner(status)')
         .eq('tenant_id', tenantId).eq('member_id', member.id).is('released_at', null)
@@ -524,7 +539,8 @@ async function handlePost(req, res, resolvedTenantId) {
         const Stripe = (await import('stripe')).default;
         return new Stripe(key, { timeout: 15000, maxNetworkRetries: 1 });
       };
-      return res.json(await changeRenewalPaymentMethod({
+      const recover = action === 'recover_initial_checkout' ? recoverInitialCheckout : changeRenewalPaymentMethod;
+      return res.json(await recover({
         db: supabase, tenantId, memberId: member.id, organizationId: organizationId || null,
         electionId: req.body.electionId,
         stripeForQuote: saved => stripeForEnvironment(saved.quote.stripeEnvironment),

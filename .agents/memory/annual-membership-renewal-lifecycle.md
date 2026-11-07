@@ -193,3 +193,15 @@ to be reversible without contacting the membership team.
 Refreshing alone must not cancel anything. Confirmed unpaid setup may be
 released; paid, authorized or uncertain outcomes must not permit duplicate
 checkout. Coordinate provider work and release durably, including across tabs.
+
+Confirmed cancellation must retire the purchased-term reservation as well as
+marking the checkout cancelled.
+
+**Why:** A cancelled status alone can leave uniqueness/overlap authority and
+the payment-method claim in place, preventing a safe new checkout even though
+the provider has already cancelled the previous one.
+
+**How to apply:** Preserve evidence, retire only the exact verified unpaid
+reservation, release only its own claim, and assign a fresh checkout generation.
+Late writes from the retired generation must stay blocked. Never retire paid or
+authorised terms merely to make another payment method available.

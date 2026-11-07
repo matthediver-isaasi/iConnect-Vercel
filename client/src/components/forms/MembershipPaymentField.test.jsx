@@ -107,7 +107,8 @@ test('unfinished first checkout does not offer an invalid successor switch or fu
     root.render(<MembershipPaymentField field={{ id: 'payment' }} resolvedMemberId="member" onChange={() => {}} />);
     await new Promise(resolve => setTimeout(resolve, 30));
   });
-  assert.match(host.textContent, /first membership payment setup is unfinished/);
+  assert.match(host.textContent, /unfinished membership checkout/);
+  assert.match(host.textContent, /Back to payment choices/);
   assert.doesNotMatch(host.textContent, /Your renewal covers|Current membership ends|Change payment method|remaining payments/);
   await act(async () => root.unmount());
   host.remove();
@@ -593,10 +594,25 @@ test('joining Back never sends an outstanding Stripe checkout to renewal cancell
     await continueToPayment(mounted.host);
     await click(mounted.host.querySelector('[data-testid="button-pay-membership-payment"]'));
     await click([...mounted.host.querySelectorAll('button')].find(button => button.textContent === 'Back'));
-    assert.match(mounted.host.querySelector('[role="alert"]').textContent, /already started.*Do not start another payment/);
+    assert.match(mounted.host.querySelector('[role="alert"]').textContent, /Cancellation has not been confirmed/);
     assert.ok(mounted.host.querySelector('[data-testid="button-confirm-payment-payment"]'));
-    assert.deepEqual(mounted.posts.map(post => post.action), ['create_payment']);
+    assert.deepEqual(mounted.posts.map(post => post.action), ['create_payment', 'recover_initial_checkout']);
   } finally { await mounted.close(); delete window.Stripe; }
+});
+
+test('first-checkout Back checks the provider before restoring selectable payment cards', async () => {
+  const mounted = await mountRenewal(
+    { renewal: { state: 'initial_checkout_pending', eligible: false } },
+    { released: true }, joiningQuote());
+  try {
+    assert.equal(mounted.posts.length, 0, 'loading must not cancel a checkout');
+    await click([...mounted.host.querySelectorAll('button')].find(button => button.textContent === 'Back to payment choices'));
+    assert.deepEqual(mounted.posts.map(post => post.action), ['recover_initial_checkout']);
+    assert.ok(mounted.card('upfront'));
+    assert.ok(mounted.card('monthly_card'));
+    assert.ok(mounted.card('direct_debit'));
+    assert.equal(mounted.host.querySelectorAll('button[aria-pressed="true"]').length, 0);
+  } finally { await mounted.close(); }
 });
 
 test('joining reuses voucher estimates and one Continue, preserving checkout refusals', async () => {

@@ -200,6 +200,7 @@ async function handlePost(req, res, resolvedTenantId) {
     .eq('tenant_id', tenantId)
     .eq('member_id', member.id)
     .eq('membership_year', yearLabel)
+    .is('cancelled_for_switch_at', null)
     .neq('status', 'expired_checkout')
     .maybeSingle();
   if (existingHistory && existingHistory.payment_method !== 'direct_debit') {
@@ -216,6 +217,7 @@ async function handlePost(req, res, resolvedTenantId) {
   }
 
   const baseIdempotencyKey = buildIdempotencyKey('dd-agree', tenantId, member.id, yearLabel,
+    ...(simResult.initialRecoveryGeneration ? [simResult.initialRecoveryGeneration] : []),
     ...(req.membershipPaymentContext?.electionId ? [req.membershipPaymentContext.electionId] : []));
   const replacementKey = monthlyConsentReplacementKey(baseIdempotencyKey);
 
@@ -291,7 +293,7 @@ async function handlePost(req, res, resolvedTenantId) {
     status: STATUS.PAYMENT_SETUP_REQUIRED,
     idempotency_key: idempotencyKey,
     environment: creds.environment || 'sandbox',
-    metadata: { dd: snapshot, ...(snapshot.commitment?.term_key ? { commitment: snapshot.commitment } : {}) },
+    metadata: { dd: snapshot, initialRecoveryGeneration: simResult.initialRecoveryGeneration || null, ...(snapshot.commitment?.term_key ? { commitment: snapshot.commitment } : {}) },
   };
   if (reusable) {
     agreementInsert.gocardless_mandate_id = reusable.mandateId;

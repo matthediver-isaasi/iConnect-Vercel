@@ -217,6 +217,7 @@ async function handlePost(req, res, resolvedTenantId) {
     .eq('tenant_id', tenantId)
     .eq('member_id', member.id)
     .eq('membership_year', yearLabel)
+    .is('cancelled_for_switch_at', null)
     .neq('status', 'expired_checkout')
     .maybeSingle();
   if (existingHistory && existingHistory.payment_method !== 'card_monthly') {
@@ -233,7 +234,7 @@ async function handlePost(req, res, resolvedTenantId) {
     return res.status(400).json({ error: 'A monthly Direct Debit plan is already set up for this membership year' });
   }
 
-  const idempotencyKey = `card-agree:${tenantId}:${member.id}:${yearLabel}${req.membershipPaymentContext?.electionId ? `:${req.membershipPaymentContext.electionId}` : ''}`;
+  const idempotencyKey = `card-agree:${tenantId}:${member.id}:${yearLabel}${req.membershipPaymentContext?.electionId ? `:${req.membershipPaymentContext.electionId}` : ''}${simResult.initialRecoveryGeneration ? `:${simResult.initialRecoveryGeneration}` : ''}`;
 
   // Idempotent re-entry: reuse the in-flight agreement + its Checkout URL.
   const { data: existingAgreement } = await supabase
@@ -242,7 +243,8 @@ async function handlePost(req, res, resolvedTenantId) {
     .eq('idempotency_key', idempotencyKey)
     .maybeSingle();
   const isRolling = simResult.config?.start_mode === 'immediate';
-  const electedFixed = !!req.membershipPaymentContext?.electionId && !isRolling;
+  const electedFixed = (!!req.membershipPaymentContext?.electionId && !isRolling)
+    || req.membershipPaymentContext?.source === 'form-joining';
   if (existingAgreement && !isRolling && !electedFixed) {
     if (existingAgreement.status === STATUS.PAYMENT_SETUP_REQUIRED && existingAgreement.redirect_url) {
       return res.json({ checkoutUrl: existingAgreement.redirect_url, agreementId: existingAgreement.id, resumed: true });
@@ -269,10 +271,12 @@ async function handlePost(req, res, resolvedTenantId) {
     reservedAgreement = existingAgreement;
     if (!reservedAgreement) {
       const result = await supabase.from('membership_billing_agreements').insert({
+        ...(snapshot.commitment || {}),
         tenant_id: tenantId, member_id: member.id, agreement_type: 'member',
         provider: 'stripe', status: STATUS.PAYMENT_SETUP_REQUIRED, environment,
-        membership_successor_election_id: req.membershipPaymentContext.electionId,
-        idempotency_key: idempotencyKey, metadata: { card: snapshot },
+        membership_successor_election_id: req.membershipPaymentContext.electionId || null,
+        idempotency_key: idempotencyKey, metadata: { card: snapshot, initialRecoveryGeneration: simResult.initialRecoveryGeneration || null,
+          ...(snapshot.commitment?.term_key ? { commitment: snapshot.commitment } : {}) },
       }).select().single();
       if (result.error?.code === '23505') {
         const raced = await supabase.from('membership_billing_agreements').select('*')
@@ -284,7 +288,7 @@ async function handlePost(req, res, resolvedTenantId) {
         reservedAgreement = result.data;
       }
     }
-    if (reservedAgreement.membership_successor_election_id !== req.membershipPaymentContext.electionId) {
+    if ((reservedAgreement.membership_successor_election_id || null) !== (req.membershipPaymentContext.electionId || null)) {
       return res.status(409).json({ error: 'This card agreement belongs to another renewal reservation.' });
     }
     snapshot = reservedAgreement.metadata.card;
@@ -437,7 +441,7 @@ async function handlePost(req, res, resolvedTenantId) {
     idempotency_key: idempotencyKey,
     redirect_url: session.url,
     environment,
-    metadata: { card: snapshot, ...(snapshot.commitment?.term_key ? { commitment: snapshot.commitment } : {}) },
+    metadata: { card: snapshot, initialRecoveryGeneration: simResult.initialRecoveryGeneration || null, ...(snapshot.commitment?.term_key ? { commitment: snapshot.commitment } : {}) },
   };
 
   const { data: agreement, error: agreeErr } = reservedAgreement

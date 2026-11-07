@@ -550,7 +550,9 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
     try {
       const response = await fetch('/api/forms/membership-payment', {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'change_renewal_payment_method', memberId,
+        body: JSON.stringify({ action: (!data?.renewal?.electionId && !paymentTerm?.renewalElectionId
+          && ['joining', 'initial_checkout_pending'].includes(data?.renewal?.state))
+          ? 'recover_initial_checkout' : 'change_renewal_payment_method', memberId,
           electionId: data?.renewal?.electionId || paymentTerm?.renewalElectionId }),
       });
       const result = await response.json();
@@ -574,7 +576,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
       if (!refreshed) throw new Error('Your checkout was cancelled, but payment choices could not be loaded. Please try again.');
       setPaymentStage(false);
       if (nextMethod) {
-        if (refreshed?.renewal?.eligible && renewalOptions(refreshed).some(option => option.id === nextMethod)) {
+        if ((refreshed?.renewal?.eligible || isPricedJoining(refreshed)) && renewalOptions(refreshed).some(option => option.id === nextMethod)) {
           setChosenMethod(nextMethod);
         } else {
           setPaymentError('Your previous checkout was cancelled, but this payment option could not be confirmed. Please review the available payment choices.');
@@ -664,7 +666,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
     // the renewal cancellation endpoint or discard an outstanding agreement.
     if (data?.renewal?.state === 'joining'
         && (paymentMode || ddStarted || hasDdPlan || hasCardPlan || data.voucherSetup?.agreementId)) {
-      setPaymentError('Your payment setup has already started. Please complete it or contact the membership team before choosing another payment method. Do not start another payment.');
+      await releaseUnusedRenewal();
       return;
     }
     if (data?.renewal?.electionId || paymentTerm?.renewalElectionId || paymentMode || ddStarted || hasCardPlan) {
@@ -861,7 +863,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
   const canPay = !creditCheckoutActive && !data.voucherCheckoutToken && !selectedVouchers.length && !switchingPayment && renewal?.switchState !== 'reconciling'
     && (isJoining ? joiningAvailable : (!isRenewal || renewal.eligible === true || resuming));
   const renewalMessages = {
-    initial_checkout_pending: 'Your first membership payment setup is unfinished. No new checkout has been started here. Please contact the membership team to check and safely release the earlier setup before choosing a different membership or payment method.',
+    initial_checkout_pending: 'You have an unfinished membership checkout. Returning to payment choices checks your previous payment first and cancels it only if it has not been authorised or paid. No second payment will be started.',
     post_grace_renewal: renewal?.eligible === true
       ? 'Restart your membership. Your grace period has ended.'
       : 'Membership restart is not currently available. Please contact the membership team before paying.',
@@ -883,6 +885,12 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
         <CardContent className="pt-6 space-y-3" data-testid="membership-renewal-summary">
           <p className="font-medium">{renewalMessages[renewal.state] || 'Membership renewal is not currently available.'}</p>
           <RenewalTermSummary renewal={renewal} />
+          {renewal.state === 'initial_checkout_pending' && <>
+            <Button type="button" variant="outline" disabled={busy} onClick={() => releaseUnusedRenewal()}>
+              {switchingPayment ? 'Checking your previous payment…' : 'Back to payment choices'}
+            </Button>
+            <Button type="button" variant="ghost" disabled={busy} onClick={() => fetchFees({ fresh: true })}>Check payment status</Button>
+          </>}
           {renewal.currentAgreementId && <>
             <p className="text-sm">Any remaining payments for your current membership are still due.</p>
             <DirectDebitPlanCard memberId={memberId} />
