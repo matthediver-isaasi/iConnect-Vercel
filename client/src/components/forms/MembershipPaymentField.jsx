@@ -54,6 +54,15 @@ function isBelowStripeMinimum(amount, currency) {
   return parseFloat(amount || 0) < min;
 }
 
+// Joining is deliberately not renewal-eligible. It still needs a server quote
+// before exposing the shared payment choices.
+function isPricedJoining(data) {
+  const amount = data?.totalWithVat ?? data?.finalCost;
+  return data?.renewal?.state === 'joining' && !!data.membershipYear
+    && amount != null && Number.isFinite(Number(amount)) && Number(amount) >= 0
+    && !data.approvalPending;
+}
+
 // Keep payment-based wording during checkout too: the existing pending-election
 // transition retains these server-provided commencement fields.
 function isRestartRenewal(renewal) {
@@ -585,6 +594,8 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
   // Ref guards also cover multiple clicks before React has rendered busy state.
   const runPaymentAction = async (action) => {
     if (actionInFlight.current || switchInFlight.current || loading || disabled) return;
+    if (data?.renewal?.state === 'joining'
+        && (!isPricedJoining(data) || hasDdPlan || hasCardPlan || ddStarted || data.voucherSetup?.agreementId)) return;
     if (data?.renewal?.state === 'post_grace_renewal' && data.renewal.eligible !== true) return;
     actionInFlight.current = true;
     try { await action(); } finally { actionInFlight.current = false; }
@@ -592,6 +603,8 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
 
   const chooseRenewalMethod = (method) => {
     if (continueInFlight.current || actionInFlight.current || switchInFlight.current || loading || disabled || ddDropin) return;
+    if (data?.renewal?.state === 'joining'
+        && (!isPricedJoining(data) || hasDdPlan || hasCardPlan || ddStarted || data.voucherSetup?.agreementId)) return;
     if (data?.renewal?.state === 'post_grace_renewal' && data.renewal.eligible !== true) return;
     if (!renewalOptions(data).some(option => option.id === method)) return;
     setChosenMethod(method);
@@ -620,6 +633,11 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
         setPaymentError('Your monthly payment setup has already been recorded. Do not start another payment.');
         return false;
       }
+      if (latest.renewal?.state === 'joining'
+          && (!isPricedJoining(latest) || hasDdPlan || hasCardPlan || ddStarted)) {
+        setPaymentError('We could not confirm an available membership payment. Please review your membership details or contact the membership team. No new payment has been started.');
+        return false;
+      }
       if (previous !== renewalReviewSnapshot(latest)) {
         setChosenMethod(latest.renewal?.selectedMethod || null);
         setPaymentError('Your renewal details have changed. Review the updated amount, membership dates and available payment methods below, then choose Continue to payment again. No new payment has been started.');
@@ -642,6 +660,13 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
   };
 
   const backToChoices = async () => {
+    // Joining checkouts have no renewal election to release. Never send them to
+    // the renewal cancellation endpoint or discard an outstanding agreement.
+    if (data?.renewal?.state === 'joining'
+        && (paymentMode || ddStarted || hasDdPlan || hasCardPlan || data.voucherSetup?.agreementId)) {
+      setPaymentError('Your payment setup has already started. Please complete it or contact the membership team before choosing another payment method. Do not start another payment.');
+      return;
+    }
     if (data?.renewal?.electionId || paymentTerm?.renewalElectionId || paymentMode || ddStarted || hasCardPlan) {
       await releaseUnusedRenewal();
     } else {
@@ -825,13 +850,16 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
 
   const renewal = data.renewal;
   const isRenewal = renewal && renewal.state !== 'joining';
+  const isJoining = renewal?.state === 'joining';
+  const usesMethodChooser = isRenewal || isJoining;
+  const joiningAvailable = isPricedJoining(data) && !hasDdPlan && !hasCardPlan && !ddStarted && !data.voucherSetup?.agreementId;
   const restart = isRestartRenewal(renewal);
   const resuming = renewal?.state === 'renewal_pending' && renewal?.selectedMethod && data.membershipYear;
   const busy = disabled || loading || checkingContinue || switchingPayment || processingPayment || creatingPayment || startingDd || startingCard || !!ddDropin;
   const choicesStage = !paymentStage && !creditCheckoutActive && !data.voucherCheckoutToken;
   const selectedMethod = chosenMethod || renewal?.selectedMethod;
   const canPay = !creditCheckoutActive && !data.voucherCheckoutToken && !selectedVouchers.length && !switchingPayment && renewal?.switchState !== 'reconciling'
-    && (!isRenewal || renewal.eligible === true || resuming);
+    && (isJoining ? joiningAvailable : (!isRenewal || renewal.eligible === true || resuming));
   const renewalMessages = {
     post_grace_renewal: renewal?.eligible === true
       ? 'Restart your membership. Your grace period has ended.'
@@ -887,7 +915,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
           selectedMethod={selectedMethod} onCheckoutChange={setCreditCheckoutActive}
           onBeforeContinue={checkBeforeContinue}
           hideChoices={paymentStage}
-          disabled={disabled || busy || !!paymentMode} resumeToken={data.voucherCheckoutToken}
+          disabled={disabled || busy || !!paymentMode || (isJoining && !joiningAvailable)} resumeToken={data.voucherCheckoutToken}
           onBackgroundRefresh={() => fetchFees({ background: true })}
           onRefresh={fetchFees} />}
         {choicesStage && <div className="space-y-2">
@@ -992,7 +1020,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
           </div>
         )}
 
-        {isRenewal && choicesStage && (renewal.eligible === true || resuming) && (
+        {usesMethodChooser && choicesStage && (isJoining ? joiningAvailable : (renewal.eligible === true || resuming)) && (
           <>
           {selectedVouchers.length > 0 && <p className="text-sm text-muted-foreground" role="status">
             Selected credit towards this membership: {formatCurrency(renewalCreditPreview(data, selectedVouchers).credit, data.currency)}.
@@ -1010,7 +1038,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
               }
             }}>
               {checkingContinue && <Loader2 aria-hidden="true" className="mr-2 h-4 w-4 animate-spin" />}
-              {checkingContinue ? 'Checking your renewal…' : 'Continue to payment'}
+              {checkingContinue ? (isJoining ? 'Checking your membership…' : 'Checking your renewal…') : 'Continue to payment'}
             </Button>
           </MembershipPrimaryAction>}
           </>
@@ -1027,11 +1055,11 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
           </Button>
         </MembershipPrimaryAction>}
         {(() => {
-          if (isRenewal && !paymentStage) return null;
+          if (usesMethodChooser && !paymentStage) return null;
           const hasAnyPlan = !isRenewal && (hasDdPlan || hasCardPlan);
-          const showStripeOption = canPay && (!isRenewal || data.zeroDue || chosenMethod === 'upfront') && !data.approvalPending && (data.zeroDue || (!belowMinimum && data.stripeEnabled)) && !paymentMode && !hasAnyPlan;
-          const showDdOption = canPay && (!isRenewal || chosenMethod === 'direct_debit') && !data.approvalPending && !ddStarted && !hasAnyPlan && data.directDebit && !paymentMode;
-          const showCardMonthlyOption = canPay && (!isRenewal || chosenMethod === 'monthly_card') && !data.approvalPending && !ddStarted && !hasAnyPlan && data.cardMonthly && !paymentMode;
+          const showStripeOption = canPay && (!usesMethodChooser || data.zeroDue || chosenMethod === 'upfront') && !data.approvalPending && (data.zeroDue || (!belowMinimum && data.stripeEnabled)) && !paymentMode && !hasAnyPlan;
+          const showDdOption = canPay && (!usesMethodChooser || chosenMethod === 'direct_debit') && !data.approvalPending && !ddStarted && !hasAnyPlan && data.directDebit && !paymentMode;
+          const showCardMonthlyOption = canPay && (!usesMethodChooser || chosenMethod === 'monthly_card') && !data.approvalPending && !ddStarted && !hasAnyPlan && data.cardMonthly && !paymentMode;
           if (!showStripeOption && !showDdOption && !showCardMonthlyOption) return null;
           const cardMonthly = data.cardMonthly;
           const cardCurrency = cardMonthly?.currency || data.currency;

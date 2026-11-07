@@ -147,3 +147,14 @@ never held a membership, without fabricating historical renewal evidence.
 rules for first purchases. Preserve renewal rules for existing terms and block
 uncertain evidence or outstanding arrangements. Carry the same server-selected
 quote into all payment providers; do not infer a predecessor or renewal election.
+
+First memberships and renewals must share the selectable payment-card journey,
+voucher selection and a single Continue to payment action, rather than exposing
+three provider setup buttons at once.
+
+**Why:** The owner confirmed first-membership creation worked but explicitly
+requested the same member-facing layout and credit experience as renewal.
+
+**How to apply:** Separate pricing/payment availability from renewal eligibility.
+Do not invent a predecessor to make first-purchase credit fit renewal-only
+database contracts, or silently ignore selected vouchers.

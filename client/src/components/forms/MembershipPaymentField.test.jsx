@@ -487,13 +487,155 @@ test('switch refresh finding completed renewal cannot start the replacement', as
   await mounted.close();
 });
 
-test('joining behaviour keeps original continuation buttons without renewal chooser', async () => {
-  const mounted = await mountRenewal({ ...renewalQuote(), renewal: { state: 'joining' } });
-  assert.equal(mounted.host.querySelectorAll('button[aria-pressed]').length, 0);
-  for (const id of ['button-pay-membership', 'button-monthly-card', 'button-direct-debit']) {
-    assert.ok(mounted.host.querySelector(`[data-testid="${id}-payment"]`));
+const joiningQuote = () => ({ ...renewalQuote(), renewal: { state: 'joining', eligible: false } });
+const setupButton = {
+  upfront: 'button-pay-membership', monthly_card: 'button-monthly-card', direct_debit: 'button-direct-debit',
+};
+
+test('priced joining shares renewal cards and one Continue, then only the selected payment setup', async () => {
+  for (const method of Object.keys(setupButton)) {
+    const mounted = await mountRenewal(joiningQuote(), { error: 'Provider fixture refuses setup' });
+    try {
+      assert.equal(mounted.host.querySelectorAll('button[aria-pressed]').length, 3);
+      const next = [...mounted.host.querySelectorAll('button')].filter(button => button.textContent === 'Continue to payment');
+      assert.equal(next.length, 1);
+      assert.equal(next[0].disabled, true);
+      for (const id of Object.values(setupButton)) {
+        assert.equal(mounted.host.querySelector(`[data-testid="${id}-payment"]`), null);
+      }
+      await click(mounted.card(method));
+      assert.equal(mounted.card(method).getAttribute('aria-pressed'), 'true');
+      assert.equal(mounted.posts.length, 0);
+      await continueToPayment(mounted.host);
+      assert.equal(mounted.host.querySelectorAll('button[aria-pressed]').length, 0);
+      for (const [id, button] of Object.entries(setupButton)) {
+        assert.equal(!!mounted.host.querySelector(`[data-testid="${button}-payment"]`), id === method);
+      }
+      await click(mounted.host.querySelector(`[data-testid="${setupButton[method]}-payment"]`));
+      assert.equal(mounted.posts.length, 1);
+      assert.equal(mounted.posts[0].credentials, 'include');
+      assert.equal(mounted.posts[0].action, {
+        upfront: 'create_payment', monthly_card: 'start_monthly_card', direct_debit: 'start_direct_debit',
+      }[method]);
+      assert.match(mounted.host.querySelector('[role="alert"]').textContent, /Provider fixture refuses setup/);
+    } finally { await mounted.close(); }
   }
+});
+
+test('joining Back before setup refreshes choices without attempting a renewal cancellation', async () => {
+  const mounted = await mountRenewal(joiningQuote());
+  try {
+    await click(mounted.card('monthly_card'));
+    await continueToPayment(mounted.host);
+    const reads = mounted.gets.length;
+    await click([...mounted.host.querySelectorAll('button')].find(button => button.textContent === 'Back'));
+    assert.ok(mounted.gets.length > reads);
+    assert.equal(mounted.host.querySelectorAll('button[aria-pressed]').length, 3);
+    assert.equal(mounted.card('monthly_card').getAttribute('aria-pressed'), 'true');
+    assert.equal(mounted.posts.length, 0);
+  } finally { await mounted.close(); }
+});
+
+test('joining cannot offer choices without pricing, during approval, or after monthly setup', async () => {
+  for (const change of [
+    { membershipYear: null }, { totalWithVat: null, finalCost: null },
+    { totalWithVat: 'invalid' }, { approvalPending: true },
+    { voucherSetup: { agreementId: 'existing-agreement', status: 'monthly_card_started' } },
+  ]) {
+    const mounted = await mountRenewal({ ...joiningQuote(), ...change });
+    try {
+      assert.equal(mounted.host.querySelectorAll('button[aria-pressed]').length, 0);
+      for (const id of Object.values(setupButton)) assert.equal(mounted.host.querySelector(`[data-testid="${id}-payment"]`), null);
+      assert.equal(mounted.posts.length, 0);
+    } finally { await mounted.close(); }
+  }
+});
+
+test('joining Continue reviews changed quotes and refuses an existing agreement', async () => {
+  for (const change of ['amount', 'agreement']) {
+    const quote = joiningQuote();
+    const mounted = await mountRenewal(quote);
+    try {
+      await click(mounted.card('direct_debit'));
+      if (change === 'amount') quote.totalWithVat = 137.42;
+      else quote.voucherSetup = { agreementId: 'already-started', status: 'direct_debit_started' };
+      await continueToPayment(mounted.host);
+      assert.match(mounted.host.querySelector('[role="alert"]').textContent,
+        change === 'amount' ? /details have changed/ : /already been recorded/);
+      assert.equal(mounted.host.querySelector('[data-testid="button-direct-debit-payment"]'), null);
+      assert.equal(mounted.posts.length, 0);
+    } finally { await mounted.close(); }
+  }
+});
+
+test('joining Back never sends an outstanding Stripe checkout to renewal cancellation', async () => {
+  window.Stripe = () => ({ elements: () => ({ create: () => ({ mount() {} }) }) });
+  const mounted = await mountRenewal(joiningQuote(), { clientSecret: 'fixture', membershipYear: '2027' });
+  try {
+    await click(mounted.card('upfront'));
+    await continueToPayment(mounted.host);
+    await click(mounted.host.querySelector('[data-testid="button-pay-membership-payment"]'));
+    await click([...mounted.host.querySelectorAll('button')].find(button => button.textContent === 'Back'));
+    assert.match(mounted.host.querySelector('[role="alert"]').textContent, /already started.*Do not start another payment/);
+    assert.ok(mounted.host.querySelector('[data-testid="button-confirm-payment-payment"]'));
+    assert.deepEqual(mounted.posts.map(post => post.action), ['create_payment']);
+  } finally { await mounted.close(); delete window.Stripe; }
+});
+
+test('joining reuses voucher estimates and one Continue, preserving checkout refusals', async () => {
+  const { MembershipCheckoutDraftContext } = await import('./MembershipCheckoutDraftContext.jsx');
+  const posts = [];
+  let saves = 0;
+  globalThis.fetch = async (input, options = {}) => {
+    const url = String(input);
+    if (options.method === 'POST') {
+      posts.push(JSON.parse(options.body));
+      return new Response(JSON.stringify({ error: 'Joining credit checkout is not available.' }), { status: 409 });
+    }
+    return new Response(JSON.stringify(url.includes('payment-plan') ? { currentPlan: null }
+      : url.includes('action=vouchers') ? {
+        enabled: true, checkoutReady: true, currency: 'GBP',
+        vouchers: [{ id: 'credit', value: 17.31, code: 'CREDIT-17' }],
+      } : { ...joiningQuote(), memberScoped: true }));
+  };
+  const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+  try {
+    await act(async () => {
+      root.render(<MembershipCheckoutDraftContext.Provider value={async () => { saves++; }}>
+        <MembershipPaymentField field={{ id: 'payment' }} resolvedMemberId="member" formId="join" />
+      </MembershipCheckoutDraftContext.Provider>);
+    });
+    await click(host.querySelector('input[type="checkbox"]'));
+    await click([...host.querySelectorAll('button[aria-pressed]')].find(button => button.textContent.includes('Pay in full by card')));
+    assert.match(host.textContent, /£102\.69 after credit \(estimate\)/);
+    assert.equal([...host.querySelectorAll('button')].filter(button => button.textContent === 'Continue to payment').length, 1);
+    assert.equal(posts.length, 0);
+    await continueToPayment(host);
+    assert.equal(saves, 1);
+    assert.deepEqual(posts, [{ formId: 'join', paymentFieldId: 'payment', memberId: 'member',
+      action: 'start_voucher_checkout', paymentMethod: 'upfront', voucherIds: ['credit'] }]);
+    assert.match(host.querySelector('[role="alert"]').textContent, /Joining credit checkout is not available/);
+    assert.equal(host.querySelector('input[type="checkbox"]').checked, true);
+    assert.equal(host.querySelector('[data-testid="button-pay-membership-payment"]'), null);
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
+test('joining voucher availability errors remain visible and do not invent selectable credit', async () => {
+  const mounted = await mountRenewal({ ...joiningQuote(), memberScoped: true });
+  const previousFetch = globalThis.fetch;
+  // Remount the credit resource with a distinct saved form context.
   await mounted.close();
+  globalThis.fetch = async (input, options) => String(input).includes('action=vouchers')
+    ? new Response(JSON.stringify({ error: 'Credit eligibility must be checked by the membership team.' }), { status: 409 })
+    : previousFetch(input, options);
+  const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+  try {
+    await act(async () => root.render(<MembershipPaymentField field={{ id: 'payment' }} resolvedMemberId="member" formId="join" />));
+    assert.match(host.querySelector('[role="alert"]').textContent, /Credit eligibility must be checked/);
+    assert.equal(host.querySelector('input[type="checkbox"]'), null);
+    assert.equal(host.querySelectorAll('button[aria-pressed]').length, 3);
+    assert.equal(mounted.posts.length, 0);
+  } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
 const restartQuote = eligible => ({
