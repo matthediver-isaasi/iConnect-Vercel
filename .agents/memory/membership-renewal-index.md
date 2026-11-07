@@ -4,6 +4,7 @@ description: Renewal boundaries, post-grace payment commencement, rollout and pa
 ---
 
 - [Annual lifecycle](annual-membership-renewal-lifecycle.md) — saved policy, in-grace boundaries and answer-driven schedule mapping.
+- [Renewal entry policy](renewal-entry-policy.md) — BNMS reassesses eligibility through a questionnaire; other tenants may retain same-schedule renewal.
 - [Post-grace renewal](post-grace-renewal-policy.md) — owner-approved late renewals start on payment; retain the prior class independently of Former.
 - [Tenant rollout](renewal-tenant-rollout.md) — BNMS-first enablement is not a global launch.
 - [Payment-method choice](renewal-payment-method-choice.md) — opening checkout is not authority to lock out other methods; reconcile switching.
