@@ -47,7 +47,7 @@ const stateColors = {
 // Use the same Primary slot, size/background/border and label composition as
 // Canvas Button, rather than the membership link typography or a local colour.
 export function MembershipRenewalButton({
-  href, newTab, asEditor, tenantStyles, stylesResolved, breakpoint, restart = false,
+  href, newTab, asEditor, tenantStyles, stylesResolved, breakpoint, restart = false, joining = false,
 }) {
   const branding = useTenantBranding()?.branding || null;
   const buttonStyle = resolveTenantButtonStyle('tenant-primary', branding);
@@ -63,7 +63,7 @@ export function MembershipRenewalButton({
   });
   const icon = buttonStyle?.icon;
   const iconElement = icon?.name ? renderStyleIcon(icon.name, Number.isFinite(icon.size) ? icon.size : 18, icon.color) : null;
-  return <a href={href} data-testid="membership-renewal-cta"
+  return <a href={href} data-testid={joining ? 'membership-joining-cta' : 'membership-renewal-cta'}
     target={newTab ? '_blank' : undefined} rel={newTab ? 'noopener noreferrer' : undefined}
     onClick={asEditor ? event => event.preventDefault() : undefined}
     onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
@@ -76,7 +76,7 @@ export function MembershipRenewalButton({
       lineHeight: undefined, maxWidth: '100%', textDecoration: 'none',
     }}>
     {iconElement && icon.position !== 'after' && <span aria-hidden="true" style={{ display: 'inline-flex', flexShrink: 0 }}>{iconElement}</span>}
-    <span style={{ ...labelCss, visibility: awaitingLabel ? 'hidden' : undefined }}>{restart ? 'Restart your membership' : 'Renew your subscription'}</span>
+    <span style={{ ...labelCss, visibility: awaitingLabel ? 'hidden' : undefined }}>{joining ? 'Become a member' : restart ? 'Restart your membership' : 'Renew your subscription'}</span>
     {iconElement && icon.position === 'after' && <span aria-hidden="true" style={{ display: 'inline-flex', flexShrink: 0 }}>{iconElement}</span>}
   </a>;
 }
@@ -98,13 +98,16 @@ export function MembershipDataView({
   const restart = summary.renewal.state === 'post_grace_renewal';
    const bankSetupPending = summary.payment.state === 'bank_setup_pending';
    const showRenewal = paymentCard && ready && !bankSetupPending && summary.renewal.eligible && !!renewalHref;
+  const joiningHref = safeMembershipLink(summary.joining.entryHref);
+  const showJoining = paymentCard && ready && state === 'none' && !showRenewal && summary.joining.eligible && !!joiningHref;
   // A confirmed absence of payment data has no useful published presentation.
   // Keep every unresolved/error lifecycle visible, and keep the editor sample
   // selectable, but remove the complete public block (including its authored
   // wrapper background/border and its V2 flow slot) once the normalized API
   // state explicitly says `none`.
-  const hidePublishedPaymentDetails = paymentCard && ready && state === 'none' && !asEditor && !showRenewal;
-  const copy = content.states[state];
+  const hidePublishedPaymentDetails = paymentCard && ready && state === 'none' && !asEditor && !showRenewal && !showJoining;
+  const copy = showJoining ? { ...content.states[state], heading: 'Become a member',
+    supporting: 'Answer a few questions to find the right membership for you.' } : content.states[state];
   // Collapse only the duplicated generated label, never an author's heading.
   const hideDuplicateEyebrow = paymentCard && ready
     && !['monthly_direct_debit', 'monthly_card'].includes(summary.payment.method)
@@ -356,6 +359,11 @@ export function MembershipDataView({
         </p>}
         <MembershipRenewalButton href={renewalHref} newTab={content.renewalLinkNewTab}
           restart={restart}
+          asEditor={asEditor} tenantStyles={tenantStyles} stylesResolved={stylesResolved}
+          breakpoint={breakpoint || viewportBreakpoint} />
+      </div>}
+      {showJoining && <div style={{ marginTop: 24 }}>
+        <MembershipRenewalButton href={joiningHref} joining
           asEditor={asEditor} tenantStyles={tenantStyles} stylesResolved={stylesResolved}
           breakpoint={breakpoint || viewportBreakpoint} />
       </div>}

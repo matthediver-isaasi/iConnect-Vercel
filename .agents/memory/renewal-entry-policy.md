@@ -24,3 +24,14 @@ currently focuses on Full and Full Junior. Do not expand renewal-entry routing
 work into creating category forms or adding temporary incomplete-category flows.
 
 **Why:** The owner explicitly excluded that work from this implementation.
+
+BNMS uses a different questionnaire for first membership:
+ab2d6278-686c-4604-be28-05d4bb328e03. Verify the form before configuration.
+
+**Why:** The owner distinguishes new-member questions leading to join forms from
+renewal questions leading to renewal forms. Never substitute the renewal entry
+as a fallback for joining.
+
+**How to apply:** Keep the two settings independent. A signed-in guest can use
+the public joining questionnaire without changing that form's public access or
+granting the guest financial-history permission.

@@ -1187,6 +1187,7 @@ export default function AdminSettings() {
           <CookieConsentSettings key={`cookie-consent-${tenant?.id}`} tenantId={tenant?.id} />
           <MembershipChangePolicySettings key={`membership-change-policy-${tenant?.id}`} tenantId={tenant?.id} />
           <MembershipRenewalJourneySettings key={`membership-renewal-journey-${tenant?.id}`} tenantId={tenant?.id} />
+          <MembershipRenewalJourneySettings key={`membership-joining-journey-${tenant?.id}`} tenantId={tenant?.id} joining />
           <JobAlertsSettings key={`job-alerts-${tenant?.id}`} tenantId={tenant?.id} />
           <MemberAiAssistantSettings key={tenant?.id} tenantId={tenant?.id} />
           <Card className="bg-slate-800/50 border-slate-700">

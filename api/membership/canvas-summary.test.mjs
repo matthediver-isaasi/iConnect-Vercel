@@ -894,7 +894,6 @@ for (const [name, options, status] of [
   ['tenant mismatch', { context: { tenantId: 'tenant-b' } }, 409],
   ['flagged tenant mismatch', { context: { tenantId: 'tenant-a', tenantMismatch: true } }, 409],
   ['missing tenant', { context: {} }, 403],
-  ['history gate denied', { permission: false }, 403],
   ['missing role', { session: { ...member, role_id: null } }, 403],
 ]) {
   test(`${name} is rejected before any membership reads`, async () => {
@@ -905,6 +904,28 @@ for (const [name, options, status] of [
     assert.match(res.headers['Cache-Control'], /no-store/);
   });
 }
+
+test('history-denied guest gets no financial data when joining is not configured', async () => {
+  const h = harness({ permission: false });
+  const res = await h.request();
+  assert.equal(res.statusCode,403);
+  assert.ok(h.db.calls.every(call => ['member','membership_joining_journey'].includes(call.table)));
+  assert.match(res.headers['Cache-Control'],/no-store/);
+});
+
+test('authenticated guests without history permission receive only verified joining navigation',async()=>{
+ const h=harness({permission:false,extra:{loadJoiningJourney:async(db,{tenantId,owner})=>{
+  assert.equal(tenantId,'tenant-a');assert.equal(owner.id,member.id);
+  return {eligible:true,entryHref:'/FormView?slug=join'};
+ }}});
+ const res=await h.request();
+ assert.equal(res.statusCode,200);
+ assert.deepEqual(res.payload,{membership:{state:'none'},payment:{state:'none'},
+  joining:{eligible:true,entryHref:'/FormView?slug=join'}});
+ assert.ok(h.db.calls.every(c=>c.table==='member'));
+ const existing=harness({permission:false,extra:{loadJoiningJourney:async()=>({eligible:false})}});
+ assert.equal((await existing.request()).statusCode,403);
+});
 
 test('member feature exclusions are passed through unchanged; member admin retains existing bypass', async () => {
   const exclusions = ['commerce.history'];

@@ -46,3 +46,30 @@ cross-tenant form rejection and inactive authentication requirements.
 
 The local preview uses the legacy database target and may fail tenant branding;
 isolated rendered tests are not a signed-in deployed BNMS browser test.
+
+## First-membership entry
+
+The separate **First-membership joining journey** card selects a joining
+questionnaire, or **Not configured** to hide the action. Public standard forms
+are valid here; their access settings are not changed. Renewal still requires
+its separately configured login-required form.
+
+The portal offers **Become a member** only to an authenticated account with a
+verified role and confirmed absence of retained personal/organisation membership
+and unresolved membership payment evidence. A bare organisation affiliation is
+not itself a paid entitlement. Paused/cancelled accounts and failed evidence
+reads never acquire joining eligibility. Explicitly retired unpaid checkouts
+remain distinct from ordinary expiry, and expired voucher tokens require
+confirmed release evidence.
+
+Guests who lack commerce-history permission can receive this minimal joining
+navigation, not financial history. Accounts with history remain subject to the
+existing permission gate. The final form still owns signup and payment
+validation; showing a link never creates or activates membership.
+
+`scripts/apply-membership-joining-journey.mjs` applies the pinned
+`202701210003_membership_joining_journey.sql` migration and configures BNMS's
+approved joining questionnaire. It verifies that the renewal setting and the
+form's public-access configuration remain unchanged. Other tenants remain
+unconfigured. To back out, clear the joining form in settings; do not remove
+the audit history or alter payment records.

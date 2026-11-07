@@ -29,6 +29,23 @@ const { Simulate } = await import('react-dom/test-utils');
 const { renderToStaticMarkup } = await import('react-dom/server');
 const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query');
 const { MembershipDataView, MembershipDataInspector } = await import('./MembershipDataBlocks.jsx');
+test('first membership action keeps the empty payment card visible and uses only the joining route', () => {
+  const result = {status:'ready',data:{membership:{state:'none'},payment:{state:'none'},
+    joining:{eligible:true,entryHref:'/FormView?slug=getting-started-with-bnms'}}};
+  const html=renderToStaticMarkup(<MembershipDataView type="payment-details"
+    block={{content:{renewalLink:'/FormView?slug=renewing-with-bnms'}}} result={result} />);
+  assert.match(html,/Become a member/);
+  assert.match(html,/href="\/FormView\?slug=getting-started-with-bnms"/);
+  assert.doesNotMatch(html,/<section[^>]*hidden|membership-renewal-cta|No payment arrangement|renewing-with-bnms/);
+  for(const state of ['pending','paid','unavailable','bank_setup_pending']) {
+    const blocked=renderToStaticMarkup(<MembershipDataView type="payment-details" block={{}}
+      result={{...result,data:{...result.data,payment:{state}}}} />);
+    assert.doesNotMatch(blocked,/membership-joining-cta/);
+  }
+  const unknown=renderToStaticMarkup(<MembershipDataView type="payment-details" block={{}}
+    result={{...result,status:'loading'}} />);
+  assert.doesNotMatch(unknown,/membership-joining-cta/);
+});
 test('questionnaire routes override canvas links without authorising an ineligible renewal', () => {
   for (const state of [undefined, 'post_grace_renewal']) {
     const html = renderToStaticMarkup(<MembershipDataView type="payment-details"

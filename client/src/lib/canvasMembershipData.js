@@ -256,11 +256,14 @@ export function normalizeCanvasMembershipSummary(value) {
   const membership = record(source.membership);
   const payment = record(source.payment);
   const renewal = record(source.renewal);
+  const joining = record(source.joining);
   const price = record(renewal.price);
   const termStartDate = isoDate(membership.termStartDate);
   const termEndDate = isoDate(membership.termEndDate);
   const orderedTerm = !termStartDate || !termEndDate || termStartDate.slice(0, 10) <= termEndDate.slice(0, 10);
   return {
+    joining: { eligible: joining.eligible === true,
+      entryHref: typeof joining.entryHref === 'string' && /^\/FormView\?slug=[^&\s]+$/.test(joining.entryHref) ? joining.entryHref : '' },
     // Only the authenticated server response can establish renewal eligibility.
     // A retained payment, signup quote or current collection is not a renewal quote.
     renewal: { eligible: renewal.eligible === true,

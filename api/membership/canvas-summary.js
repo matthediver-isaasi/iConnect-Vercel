@@ -10,6 +10,7 @@ import { isRetiredCanvasCheckout, loadCanvasRenewalEligibility } from '../_lib/c
 import { signupMonthlyPriceFromAgreement, completedPendingBankActivation } from '../_lib/membershipSignupEvidence.js';
 import { resolveMemberAmendmentReadOverlays } from '../_lib/membershipAmendmentReadOverlay.js';
 import { applyRenewalJourney, readRenewalJourney } from '../_lib/membershipRenewalJourney.js';
+import { loadJoiningJourney } from '../_lib/membershipJoiningJourney.js';
 
 // This endpoint is deliberately self-only, including for administrators. It
 // reads retained commitments and read-only dynamic pricing projections, never
@@ -467,16 +468,23 @@ export function createCanvasSummaryHandler(dependencies = {}) {
       if (!tenantId || !context?.tenantId) return res.status(403).json({ error: 'Membership tenant context required' });
       const adminContext = !context.tenantUserId
         ? { ...context, tenantId, memberId: member.id, roleId: member.role_id || null } : context;
-      if (!(await checkAdmin(adminContext)) && (!member.role_id
-          || !(await checkFeature(member.role_id, 'commerce.history', member.member_excluded_features)))) {
-        return res.status(403).json({ error: 'Membership history access permission required' });
-      }
+      const isAdmin = await checkAdmin(adminContext);
+      if (!isAdmin && !member.role_id) return res.status(403).json({ error: 'Membership role could not be verified' });
+      const canViewHistory = isAdmin || (member.role_id
+          && await checkFeature(member.role_id, 'commerce.history', member.member_excluded_features));
       const { data: owner, error } = await db.from('member')
-        .select('id, tenant_id, organization_id, membership_paused')
+        .select('id, tenant_id, organization_id, membership_paused, membership_cancelled')
         .eq('tenant_id', tenantId).eq('id', member.id).maybeSingle();
       if (error) throw error;
       if (!owner) return res.status(404).json({ error: 'Member not found' });
       if (!belongsTo(owner, tenantId, 'id', member.id)) throw new Error('Member ownership mismatch');
+      if (!canViewHistory) {
+        if (!dependencies.renewalPriceOnly) {
+          const joining = await (dependencies.loadJoiningJourney || loadJoiningJourney)(db, { tenantId, owner });
+          if (joining.eligible) return res.json({ membership: { state: 'none' }, payment: { state: 'none' }, joining });
+        }
+        return res.status(403).json({ error: 'Membership history access permission required' });
+      }
       if (dependencies.renewalPriceOnly) {
         const journey = await (dependencies.readRenewalJourney || readRenewalJourney)(db, tenantId);
         if (journey.mode === 'questionnaire') return res.json({ price: null });
@@ -540,6 +548,9 @@ export function createCanvasSummaryHandler(dependencies = {}) {
         summary.payment.state = 'paid';
       }
       summary.renewal = await (dependencies.applyRenewalJourney || applyRenewalJourney)(db, tenantId, summary.renewal);
+      if (!selected && summary.payment.state === 'none') {
+        summary.joining = await (dependencies.loadJoiningJourney || loadJoiningJourney)(db, { tenantId, owner });
+      }
       return res.json(await canvasDirectDebitCollection(db, { tenantId, owner, plan, summary, today }));
     } catch {
       return res.status(500).json({ error: 'Unable to load membership summary' });
