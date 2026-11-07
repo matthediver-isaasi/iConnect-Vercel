@@ -135,3 +135,15 @@ its election still references the predecessor.
 **How to apply:** Test real paid-history insertion and replay under the complete
 migration chain, plus form re-entry after child persistence on and after
 commencement. Keep the original quote/provider identity and paused-owner checks.
+
+Mapped membership forms may create a first individual membership when the
+authenticated member genuinely has no retained term or open payment agreement.
+Organisation affiliation alone must not redirect that purchase to the organisation.
+
+**Why:** The owner explicitly expects the same form to support members who have
+never held a membership, without fabricating historical renewal evidence.
+
+**How to apply:** Use the saved schedule mapping and its normal commencement
+rules for first purchases. Preserve renewal rules for existing terms and block
+uncertain evidence or outstanding arrangements. Carry the same server-selected
+quote into all payment providers; do not infer a predecessor or renewal election.

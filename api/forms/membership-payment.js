@@ -86,13 +86,13 @@ async function getMemberById(memberId) {
 
 async function renewalContext(tenantId, member, organizationId, req = null, fieldOverrides = {}) {
   const input = req?.method === 'GET' ? req.query : req?.body;
-  const renewalSelection = req ? await resolveFormRenewalSelection(supabase, {
+  const renewalSelection = req?.resolvedFormRenewalSelection ?? (req ? await resolveFormRenewalSelection(supabase, {
     req, tenantId, formId: input?.formId, paymentFieldId: input?.paymentFieldId, fieldOverrides,
     scheduleAnswer: input?.renewalScheduleAnswer,
-  }) : null;
+  }) : null);
   const context = await loadFormMembershipRenewalContext(supabase, {
     tenantId, memberId: member.id, organizationId,
-    renewalSelection,
+    renewalSelection, fieldOverrides,
     simulate: organizationId ? simulateMembershipForOrg : simulateMembershipForMember,
   });
   return { ...context, organizationId };
@@ -305,7 +305,7 @@ async function handleGet(req, res, resolvedTenantId) {
       error: error.message, code: error.code, retryable: error.retryable === true,
     }); }
   }
-  const organizationId = await resolveFormMembershipOrganizationId(supabase, tenantId, member);
+  const organizationId = await resolveFormMembershipOrganizationId(supabase, tenantId, member, req);
   const isMemberScoped = !organizationId;
 
   let fieldOverrides = {};
@@ -479,7 +479,7 @@ async function handlePost(req, res, resolvedTenantId) {
   // election ownership. Do not block those callbacks on fresh scope discovery.
   const organizationId = ['confirm_payment', 'change_renewal_payment_method'].includes(action)
     ? member.organization_id || null
-    : await resolveFormMembershipOrganizationId(supabase, tenantId, member);
+    : await resolveFormMembershipOrganizationId(supabase, tenantId, member, req);
   const isMemberScoped = !organizationId;
 
   if (action === 'change_renewal_payment_method') {
@@ -608,6 +608,8 @@ async function handlePost(req, res, resolvedTenantId) {
       if (election.quote?.payerMemberId !== member.id) return res.status(409).json({ error: 'Another payer owns this renewal checkout.' });
       req.membershipPaymentContext = { source: 'form-renewal', electionId: election.id,
         electionCreatedAt: election.created_at, simulation: election.quote.simulation };
+    } else if (context.simulation) {
+      req.membershipPaymentContext = { source: 'form-joining', simulation: context.simulation };
     }
     req.body = { ...req.body, action: 'start',
       ...(organizationId ? { organizationId } : {}) };

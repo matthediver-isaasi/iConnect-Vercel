@@ -190,7 +190,7 @@ async function handlePost(req, res, resolvedTenantId) {
     return res.status(400).json({ error: 'Card payment is not available for this organisation' });
   }
 
-  const simResult = req.membershipPaymentContext?.source === 'form-renewal'
+  const simResult = ['form-renewal', 'form-joining'].includes(req.membershipPaymentContext?.source)
     ? req.membershipPaymentContext.simulation
     : await simulateMembershipForMember(tenantId, member.id, { source: 'monthly-card', mode: 'manual' });
   if (!simResult.success) {

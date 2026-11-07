@@ -21,14 +21,83 @@ test('mapped personal renewal cannot fall through to organisation checkout', asy
   assert.equal(result.simulation, null);
 });
 
-test('mapped renewal without a personal term cannot become a new joining checkout', async () => {
+test('mapped form without a personal term quotes a first membership using saved schedule commencement', async () => {
   const f = fixture();
   f.tables.member_membership_history = [];
   f.options.renewalSelection = { configId: 'structure' };
   const result = await loadFormMembershipRenewalContext(f.db, f.options);
-  assert.equal(result.renewal.state, 'individual_term_required');
-  assert.equal(result.simulation, null);
-  assert.equal(f.calls.length, 0);
+  assert.equal(result.renewal.state, 'joining');
+  assert.equal(result.simulation.config.id, 'structure');
+  assert.equal(f.calls.length, 1);
+  assert.equal(f.calls[0].options.configId, 'structure');
+  assert.equal(f.calls[0].options.termStartDate, undefined);
+  assert.equal(result.simulation.formRenewal, undefined);
+  assert.equal(f.tables.member_membership_history.length, 0);
+});
+
+test('first membership remains blocked for an existing payment agreement or paused owner', async () => {
+  for (const paused of [false, true]) {
+    const f = fixture({ paused });
+    f.tables.member_membership_history = [];
+    f.options.renewalSelection = { configId: 'structure' };
+    if (!paused) f.tables.membership_billing_agreements.push({
+      id: 'agreement', tenant_id: 'tenant', member_id: 'member', status: 'pending',
+    });
+    const result = await loadFormMembershipRenewalContext(f.db, f.options);
+    assert.equal(result.renewal.state, paused ? 'paused' : 'renewal_pending');
+    assert.equal(result.simulation, null);
+    assert.equal(f.calls.length, 0);
+  }
+});
+
+test('first membership preserves pricing answers but saved schedule controls the class', async () => {
+  const f = fixture();
+  f.tables.member_membership_history = [];
+  f.options.renewalSelection = { configId: 'structure', fieldId: 'class', value: 'Associate' };
+  f.options.fieldOverrides = { class: 'Untrusted', other: 'Price input' };
+  await loadFormMembershipRenewalContext(f.db, f.options);
+  assert.deepEqual(f.calls[0].options.fieldOverrides, { class: 'Associate', other: 'Price input' });
+});
+
+test('first membership refuses failed or incorrectly scoped simulation', async () => {
+  for (const simulation of [{ success: false }, { success: true, config: { id: 'other', structure_scope_type: 'member' } },
+    { success: true, config: { id: 'structure', structure_scope_type: 'organization' } }]) {
+    const f = fixture();
+    f.tables.member_membership_history = [];
+    f.options.renewalSelection = { configId: 'structure' };
+    f.options.simulate = async () => simulation;
+    const result = await loadFormMembershipRenewalContext(f.db, f.options);
+    assert.equal(result.renewal.state, 'review_required');
+    assert.equal(result.simulation, null);
+  }
+});
+
+test('first membership quote preserves its purchased dates on confirmation without a predecessor election', async () => {
+  const f = fixture();
+  f.tables.member_membership_history = [];
+  f.options.renewalSelection = { configId: 'structure' };
+  const { simulation } = await loadFormMembershipRenewalContext(f.db, f.options);
+  simulation.paymentSchedule = { term_start_date: '2027-01-01', term_end_date: '2027-12-31', status: 'scheduled' };
+  const snapshot = snapshotFormMembershipPayment(simulation, []);
+  const history = historyFromFormPaymentSnapshot(snapshot);
+  assert.equal(history.term_start_date, '2027-01-01');
+  assert.equal(history.term_end_date, '2027-12-31');
+  assert.equal(history.membership_successor_election_id, undefined);
+});
+
+test('monthly providers consume the same server-selected first-membership quote rather than repricing', async () => {
+  for (const filename of ['direct-debit.js', 'monthly-card.js']) {
+    const source = readFileSync(new URL(`../membership/${filename}`, import.meta.url), 'utf8');
+    const start = source.indexOf('  const simResult =');
+    const end = source.indexOf('\n  if (!simResult.success)', start);
+    const simulation = { success: true, config: { id: 'selected-schedule' }, totalWithVat: 71 };
+    const context = vm.createContext({
+      req: { membershipPaymentContext: { source: 'form-joining', simulation } },
+      simulateMembershipForMember() { throw new Error('Must use saved selection'); },
+    });
+    const result = await vm.runInContext(`(async () => { ${source.slice(start, end)}; return simResult; })()`, context);
+    assert.equal(result, simulation);
+  }
 });
 
 function fixture({ paused = false, election = null, now = '2026-11-01T00:00:00Z' } = {}) {

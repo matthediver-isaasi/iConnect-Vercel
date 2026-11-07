@@ -19,7 +19,7 @@ async function allRows(query) {
 
 /** Server-only discovery. No request-supplied structure, year or price is used. */
 export async function loadFormMembershipRenewalContext(db, {
-  tenantId, memberId, organizationId = null, simulate, now = new Date(), renewalSelection = null,
+  tenantId, memberId, organizationId = null, simulate, now = new Date(), renewalSelection = null, fieldOverrides = {},
 }) {
   // A saved individual schedule mapping must never fall through to an
   // organisation checkout simply because the viewer has no personal history.
@@ -48,12 +48,32 @@ export async function loadFormMembershipRenewalContext(db, {
   const evidence = { ...scope, histories, agreements, now, paused: owners[0].membership_paused === true };
   if (evidence.paused) return { renewal: { state: 'paused', eligible: false }, simulation: null };
   const retained = histories.filter(row => !['cancelled', 'canceled', 'void', 'expired_checkout'].includes(row.status));
-  if (!retained.length) return {
-    renewal: renewalSelection
-      ? { state: 'individual_term_required', eligible: false }
-      : assessFormMembershipRenewalEvidence(evidence),
-    simulation: null,
-  };
+  if (!retained.length) {
+    const renewal = assessFormMembershipRenewalEvidence(evidence);
+    if (!renewalSelection || renewal.state !== 'joining') return { renewal, simulation: null };
+    // Missing history is not sufficient: the evidence assessment above also
+    // rejects outstanding agreements. Only a verified first purchase may join.
+    let configId = renewalSelection.configId;
+    if (!configId) {
+      const configs = await allRows(db.from('membership_tier_config').select('*').eq('tenant_id', tenantId));
+      const matches = configs.filter(config => config.is_active !== false
+        && config.structure_scope_type === 'member'
+        && config.structure_field_id === renewalSelection.fieldId
+        && config.structure_match_value === renewalSelection.value);
+      if (matches.length !== 1) return { renewal: { state: 'review_required', eligible: false }, simulation: null };
+      configId = matches[0].id;
+    }
+    const simulation = await simulate(tenantId, memberId, {
+      source: 'form-payment', mode: 'manual', configId,
+      fieldOverrides: { ...fieldOverrides,
+        ...(renewalSelection.fieldId ? { [renewalSelection.fieldId]: renewalSelection.value } : {}) },
+    });
+    if (!simulation?.success || simulation.config?.id !== configId
+        || simulation.config?.structure_scope_type !== 'member') {
+      return { renewal: { state: 'review_required', eligible: false }, simulation: null };
+    }
+    return { renewal, simulation };
+  }
   evidence.expiryOnlyPolicies = {};
   if (!organizationId) {
     for (const history of retained.filter(row => row.term_start_date == null)) {

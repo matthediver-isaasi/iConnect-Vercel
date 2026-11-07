@@ -13,6 +13,10 @@ function fixture(tables = {}, failedTable) {
       select() { return this; },
       eq(key, value) { filters[key] = value; return this; },
       is(key, value) { filters[key] = value; return this; },
+      async maybeSingle() {
+        return { data: (tables[table] || []).find(row =>
+          Object.entries(filters).every(([key, value]) => row[key] === value)) || null };
+      },
       async limit() {
         if (table === failedTable) return { error: { code: 'unavailable' } };
         return { data: (tables[table] || []).filter(row =>
@@ -52,10 +56,31 @@ test('unaffiliated members stay individual and database failures cannot silently
 });
 test('form quote, reservation and start paths share resolved ownership while confirmation keeps saved ownership', async () => {
   const source = await readFile(new URL('../forms/membership-payment.js', import.meta.url), 'utf8');
-  assert.equal((source.match(/await resolveFormMembershipOrganizationId\(supabase, tenantId, member\)/g) || []).length, 2);
-  assert.equal((source.match(/await renewalContext\(tenantId, member, organizationId\)/g) || []).length, 4);
+  assert.equal((source.match(/await resolveFormMembershipOrganizationId\(supabase, tenantId, member, req\)/g) || []).length, 2);
+  assert.equal((source.match(/await renewalContext\(tenantId, member, organizationId, req, fieldOverrides\)/g) || []).length, 5);
+  assert.equal((source.match(/await renewalContext\(tenantId, member, organizationId\)/g) || []).length, 1);
   assert.match(source, /memberId: context\.organizationId \? null : member\.id/);
   assert.match(source, /organizationId: context\.organizationId \|\| null/);
   assert.match(source, /const organizationId = saved \? saved\.organizationId/);
   assert.doesNotMatch(source, /simulate: member\.organization_id/);
+});
+
+test('saved personal schedule pins first membership to member despite organisation affiliation', async () => {
+  const tables = {
+    form: [{ id: 'form', tenant_id: 'tenant', is_active: true, require_authentication: true, fields: [
+      { id: 'answer', type: 'radio', options: ['Associate'] },
+      { id: 'payment', type: 'membership_payment', membership_schedule_mapping: {
+        source_field_id: 'answer', entries: [{ value: 'Associate', config_id: 'personal' }],
+      } },
+    ] }],
+    membership_tier_config: [{ id: 'personal', tenant_id: 'tenant', structure_scope_type: 'member' }],
+  };
+  for (const method of ['GET', 'POST']) {
+    const input = { formId: 'form', paymentFieldId: 'payment', renewalScheduleAnswer: 'Associate' };
+    const req = { method, query: input, body: input };
+    assert.equal(await resolveFormMembershipOrganizationId(fixture(tables), 'tenant', member, req), null);
+    assert.equal(req.resolvedFormRenewalSelection.configId, 'personal');
+    input.renewalScheduleAnswer = 'Forged';
+    await assert.rejects(resolveFormMembershipOrganizationId(fixture(tables), 'tenant', member, req), /valid answer/);
+  }
 });

@@ -3,9 +3,23 @@
  * Do not filter by status: cancelled/paused/uncertain evidence must still go
  * through the individual renewal eligibility checks, not switch owner.
  */
-export async function resolveFormMembershipOrganizationId(db, tenantId, member) {
+import { resolveFormRenewalSelection } from './formRenewalSelection.js';
+
+export async function resolveFormMembershipOrganizationId(db, tenantId, member, req = null) {
   if (!tenantId || member?.tenant_id !== tenantId || !member?.id) {
     throw new Error('Membership owner tenant could not be verified');
+  }
+  if (req) {
+    const input = req.method === 'GET' ? req.query : req.body;
+    const overrides = typeof input?.fieldOverrides === 'string'
+      ? JSON.parse(input.fieldOverrides) : input?.fieldOverrides || {};
+    req.resolvedFormRenewalSelection = await resolveFormRenewalSelection(db, {
+      req, tenantId, formId: input?.formId, paymentFieldId: input?.paymentFieldId,
+      fieldOverrides: overrides, scheduleAnswer: input?.renewalScheduleAnswer,
+    });
+    // A saved personal schedule is purchase authority for the member, not
+    // their affiliated organisation, including their first membership.
+    if (req.resolvedFormRenewalSelection) return null;
   }
   if (!member.organization_id) return null;
   for (const table of ['member_membership_history', 'membership_billing_agreements']) {
