@@ -388,16 +388,17 @@ export function LinkField({ label, value, onChange, placeholder, testId, newTab,
 
   return (
     <Field label={label}>
-      <div className="flex items-center gap-1">
-        <Input
-          value={value || ''}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder || 'https://… or #section'}
-          className="h-8 flex-1"
-          data-testid={testId}
-        />
+      <Input
+        value={value || ''}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder || 'https://… or #section'}
+        className="h-8 w-full min-w-0"
+        data-testid={testId}
+      />
+      <div className="flex flex-wrap items-center gap-1">
         <Button
           size="icon"
+          className="shrink-0"
           variant="outline"
           type="button"
           onClick={openPagePicker}
@@ -411,6 +412,7 @@ export function LinkField({ label, value, onChange, placeholder, testId, newTab,
           variant="outline"
           type="button"
           onClick={openFileRepository}
+          className="shrink-0"
           title="Link to an image or file from the File Repository"
           data-testid={testId ? `${testId}-file-picker` : 'link-file-picker'}
         >
@@ -424,6 +426,7 @@ export function LinkField({ label, value, onChange, placeholder, testId, newTab,
                 variant="outline"
                 type="button"
                 title="Link to a section on this page"
+                className="shrink-0"
                 data-testid={testId ? `${testId}-anchor-picker` : 'link-anchor-picker'}
               >
                 <Hash className="w-4 h-4" />
@@ -9937,7 +9940,7 @@ function SlideDndList({ slides, onChange, breakpoint, defaultPaddingV = 60, defa
                 testId={`hcc-slide-${idx}-content`}
                 breakpoint={breakpoint}
               />
-              <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-2 min-w-0">
                 <TextField
                   label="CTA button text"
                   value={slide.ctaText || ''}

@@ -719,7 +719,7 @@ function FontSelect({ value, onChange, className = "w-full px-3 py-2 border bord
   );
 }
 
-export function IEditFeaturedJobElementEditor({ element, onChange }) {
+export function IEditFeaturedJobElementEditor({ element, onChange, canvasInspector = false }) {
   const { data: jobs = [] } = useQuery({
     queryKey: ['all-jobs-for-selector'],
     queryFn: async () => {
@@ -1330,7 +1330,7 @@ export function IEditFeaturedJobElementEditor({ element, onChange }) {
         {/* Button */}
         <div className="space-y-3 p-3 bg-slate-50 rounded-md">
           <div className="text-xs font-semibold text-slate-400 uppercase">Button</div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className={canvasInspector ? 'space-y-3 min-w-0' : 'grid grid-cols-2 gap-3'}>
             <div className="space-y-1">
               <label className="text-sm font-medium">Text</label>
               <input 

@@ -9085,6 +9085,7 @@ function FeaturedJobInspector({ block, update, breakpoint }) {
         testId="toggle-featured-job-full-bleed"
       />
       <IEditFeaturedJobElementEditor
+        canvasInspector
         element={{ content: c }}
         onChange={(el) =>
           update((b) => ({

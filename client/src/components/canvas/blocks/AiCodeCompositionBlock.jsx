@@ -613,7 +613,7 @@ function UnresolvedActionRow({ compositionId, action, onResolved }) {
             value={value}
             onChange={(e) => setValue(e.target.value)}
             placeholder={SELF_RESOLVING_PLACEHOLDER[action.type]}
-            className="flex-1"
+            className="w-full min-w-0 basis-full"
             data-testid={`input-aicc-resolve-${action.key}`}
           />
           <Button

@@ -713,12 +713,12 @@ function MenuBar({
       )}
 
       {showLinkInput && (
-        <div className="flex gap-1 items-center px-1 pb-1">
+        <div className={anchorOptions ? 'flex flex-wrap gap-1 items-center min-w-0 px-1 pb-1' : 'flex gap-1 items-center px-1 pb-1'}>
           <Input
             value={linkUrl}
             onChange={(e) => setLinkUrl(e.target.value)}
             placeholder="https://example.com"
-            className="h-7 text-xs"
+            className={anchorOptions ? 'h-7 text-xs w-full min-w-0 basis-full' : 'h-7 text-xs'}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault();
