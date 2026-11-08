@@ -44,3 +44,12 @@ must communicate the member's state rather than disappear after loading.
 
 **How to apply:** Gate joining/renewal/payment actions independently using verified
 eligibility. Missing payment evidence must not hide the entire card or grant an action.
+
+Associate renewal must respect the Associate join form's primary-organisation-only
+questions. Do not copy the Full/Full Junior trust, department or secondary-site questions.
+
+**Why:** The owner clarified that “same renewal process” means prefill and safe
+affiliation updates for the fields that exist, not identical questionnaires.
+
+**How to apply:** Configure only the represented affiliations and preserve each
+membership category's questions and schedule mappings.
