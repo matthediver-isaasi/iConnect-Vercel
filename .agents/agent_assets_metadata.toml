@@ -1881,3 +1881,17 @@ mtime_ms = 1793689840305
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/2d854510-1d7f-4515-8fde-9a4b8e1bb97c/95cc9e03-68f6-4381-862d-d7c55b6776ca"
 storage_version_token = "1793788860902665"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "MTp_OtE3YGjJH9n0MbYq3"
+uri = "file://generated-artifacts/student-membership-audit/membership-date-evidence.csv"
+type = "table"
+title = "BNMS Student membership evidence audit"
+description = "Read-only audit of 65 Student-class records, including saved course dates, existing membership history and candidate submissions. Review evidence only; no memberships were reconstructed."
+logical_id = "0129c38c-2b12-4bca-8487-df86fc052077"
+content_hash = "sha256:25c61f70cbf4ae5895b43b2ac496a85e8112f4f14a2cf23b6d15fd7bb3f44adf"
+size = 16918
+mtime_ms = 1794133411370
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/0129c38c-2b12-4bca-8487-df86fc052077/b9107950-6553-4f91-9aba-80b9da69d289"
+storage_version_token = "1794133564396062"
+content_type = "text/csv"

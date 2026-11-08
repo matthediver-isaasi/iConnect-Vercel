@@ -2,6 +2,7 @@ import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tenantContext.js';
 import { createMemberStartService } from '../_lib/memberStart.js';
 import { START_UUID } from '../_lib/memberStartQuote.js';
+import { previewMemberDateExtension } from '../../shared/memberDateMembershipTerm.js';
 
 export function createMemberStartHandler({ db = supabase, getContext = getTenantContext,
   isAdmin = hasAdminAccess, hasFinance = hasFeatureAccess, service = null } = {}) {
@@ -18,6 +19,25 @@ export function createMemberStartHandler({ db = supabase, getContext = getTenant
         'commerce.monthly-finance-report', context.memberExcludedFeatures || []))) return res.status(403).json({ error: 'Membership finance permission required' });
       const actorId = context.tenantUserId || context.memberId;
       if (!actorId) return res.status(403).json({ error: 'Authenticated audit identity required' });
+      if (req.method === 'POST' && req.body?.action === 'extend-date-term') {
+        const { memberId, historyId, expectedEnd, newEnd, reason } = req.body;
+        if (!START_UUID.test(memberId || '') || !START_UUID.test(historyId || '')) {
+          return res.status(400).json({ error: 'Valid member and membership IDs are required.' });
+        }
+        const { data: history, error } = await db.from('member_membership_history').select('*')
+          .eq('tenant_id', context.tenantId).eq('member_id', memberId).eq('id', historyId).maybeSingle();
+        if (error) return res.status(503).json({ error: 'Could not verify the existing membership.' });
+        if (!history) return res.status(404).json({ error: 'Membership not found.' });
+        if (history.term_end_date !== expectedEnd) return res.status(409).json({ error: 'This membership changed. Reload before extending it.' });
+        try { previewMemberDateExtension({ current: history, newEndDate: newEnd, reason }); }
+        catch (validation) { return res.status(422).json({ error: validation.message }); }
+        const extended = await db.rpc('extend_member_date_term', {
+          p_tenant_id: context.tenantId, p_member_id: memberId, p_history_id: historyId,
+          p_expected_end: expectedEnd, p_new_end: newEnd, p_actor: actorId, p_reason: reason.trim(),
+        });
+        if (extended.error) return res.status(409).json({ error: 'The extension could not be confirmed. Another membership or a recent change may conflict; reload and review the membership history.' });
+        return res.json(extended.data);
+      }
       const start = service || createMemberStartService({ db });
       if (req.method === 'GET') {
         if (!START_UUID.test(req.query?.memberId || '')) return res.status(400).json({ error: 'Valid memberId required' });

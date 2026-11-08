@@ -6,6 +6,7 @@ import { normalizeInvoiceRecipients, validateInvoiceRecipientsShape } from '../_
 import { parseFlatMembershipCost } from '../../shared/membershipFlatCost.js';
 import { normalizeMembershipProjectCode } from '../../shared/membershipProjectCode.js';
 import { getActiveAccountingProvider } from '../_lib/accountingProvider.js';
+import { assertMemberDateSchedule } from '../_lib/memberDateTermPolicy.js';
 
 function todayStr() {
   return new Date().toISOString().split('T')[0];
@@ -64,6 +65,22 @@ export default async function handler(req, res) {
 
 async function handleGet(req, res, tenantId) {
   const { action, configId } = req.query;
+  if (action === 'date_term_schedules') {
+    const { data, error } = await supabase.from('membership_tier_config').select('id,name,effective_from,effective_to')
+      .eq('tenant_id', tenantId).eq('structure_scope_type', 'member').eq('is_active', true)
+      .eq('term_end_mode', 'member_date_field').order('name');
+    if (error) return res.status(503).json({ error: 'Could not load date-based membership schedules.' });
+    return res.json({ schedules: (data || []).filter(c => isConfigInEffect(c)) });
+  }
+
+  if (action === 'term_end_fields') {
+    const { data, error } = await supabase.from('preference_field')
+      .select('id,name,label,field_type').eq('tenant_id', tenantId)
+      .eq('entity_scope', 'member').eq('field_type', 'date').eq('is_active', true)
+      .is('custom_object_id', null).order('label');
+    if (error) return res.status(503).json({ error: 'Could not load membership end-date fields.' });
+    return res.json({ fields: data || [] });
+  }
 
   if (action === 'fields') {
     return getAvailableFields(req, res, tenantId);
@@ -638,6 +655,15 @@ async function validateFeeLinkEmailTemplate(tenantId, templateId) {
 }
 
 async function validateRenewalPolicy(tenantId, config) {
+  const termMode = config.term_end_mode || 'standard';
+  if (!['standard', 'member_date_field'].includes(termMode)) return { error: 'Invalid membership term end mode.' };
+  if (termMode === 'member_date_field') {
+    try { assertMemberDateSchedule(config); } catch (error) { return { error: error.message }; }
+    const { data: field, error } = await supabase.from('preference_field').select('id')
+      .eq('tenant_id', tenantId).eq('id', config.term_end_field_id).eq('entity_scope', 'member')
+      .eq('field_type', 'date').eq('is_active', true).is('custom_object_id', null).maybeSingle();
+    if (error || !field) return { error: 'Choose an active member date field belonging to this tenant.' };
+  }
   const integerDays = (field, fallback) => {
     if (config[field] === undefined || config[field] === null) return { value: fallback };
     if (typeof config[field] !== 'number' || !Number.isInteger(config[field]) || config[field] < 0 || config[field] > 366) {
@@ -678,6 +704,8 @@ async function validateRenewalPolicy(tenantId, config) {
   return {
     ok: true,
     fields: {
+      term_end_mode: termMode,
+      term_end_field_id: termMode === 'member_date_field' ? config.term_end_field_id : null,
       renewal_open_days: openDays.value,
       renewal_grace_days: graceDays.value,
       renewal_disable_login: config.renewal_disable_login === true,
@@ -763,6 +791,13 @@ async function handlePost(req, res, tenantId) {
 
   if (!config) {
     return res.status(400).json({ error: 'Configuration is required' });
+  }
+  const existingId = config.id || req.query.configId;
+  if (existingId && config.term_end_mode === undefined) {
+    const previous = await supabase.from('membership_tier_config').select('term_end_mode,term_end_field_id')
+      .eq('tenant_id', tenantId).eq('id', existingId).maybeSingle();
+    if (previous.error || !previous.data) return res.status(409).json({ error: 'Could not verify the saved term settings. Reload before saving.' });
+    config = { ...config, term_end_mode: previous.data.term_end_mode, term_end_field_id: previous.data.term_end_field_id };
   }
 
   const ddPolicy = validateDdCollectionPolicy(config);

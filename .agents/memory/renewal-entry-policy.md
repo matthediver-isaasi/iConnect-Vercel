@@ -83,3 +83,14 @@ requirement as other classes, and administrative course extensions are distinct.
 **How to apply:** Do not automatically roll Student memberships forward. Audit
 existing Student-class members for supporting term-date evidence before
 reconstructing their memberships; class alone is not evidence of valid dates.
+
+Date-field terms are initially limited to no-charge individual schedules.
+Paid schedules and instalments must not inherit this mode implicitly.
+
+**Why:** An arbitrary course end is not a fixed-month financial commitment;
+adapting paid terms requires separate consent, pricing and collection design.
+
+**How to apply:** Keep standard paid schedules unchanged. Form-based no-charge
+activation must be explicit, follow completed processing/required approval,
+and never retroactively activate old submissions merely because a form setting
+was enabled. A repeated form must not silently extend an existing term.

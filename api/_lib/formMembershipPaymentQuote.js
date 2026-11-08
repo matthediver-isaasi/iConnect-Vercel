@@ -6,6 +6,12 @@ import { beginRenewalProviderWork, finishRenewalProviderWork } from './renewalPa
 /** Freeze server-derived simulation, including addon prices, before charging. */
 export function snapshotFormMembershipPayment(simulation, addonLines = [], paymentMethod = 'stripe') {
   const simResult = structuredClone(simulation);
+  if (simResult.memberDateTerm) {
+    if (addonLines.length || Number(simResult.totalWithVat) !== 0 || !simResult.paymentSchedule?.term_source_snapshot) {
+      throw new Error('Invalid no-charge member-date quote.');
+    }
+    return { version: 1, simResult, addonLines: [] };
+  }
   Object.assign(simResult, membershipIncentiveSnapshot(simResult));
   if (simResult.config?.start_mode === 'immediate' && !simResult.commitment) {
     const start = new Date(simResult.membershipYear?.start).toISOString().slice(0, 10);

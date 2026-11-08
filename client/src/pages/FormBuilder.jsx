@@ -65,6 +65,7 @@ import FormSubmissionAlerts from "@/components/forms/FormSubmissionAlerts";
 import MemberChangeFormSettings from "@/components/MemberChangeFormSettings";
 import MemberAffiliationSettings from "@/components/forms/MemberAffiliationSettings";
 import FormBuilderSubmitterCopySettings from "@/components/forms/FormBuilderSubmitterCopySettings";
+import DateMembershipSubmissionSettings from "@/components/forms/DateMembershipSubmissionSettings";
 import FormBuilderEmailTemplatePicker from "@/components/forms/FormBuilderEmailTemplatePicker";
 import { useFormAlertTenant } from "@/hooks/useFormAlerts";
 import BundleSelectionSettings from "@/components/forms/BundleSelectionSettings";
@@ -10903,6 +10904,7 @@ function FormBuilderEditor() {
     submitter_copy_email_message: null,
     allow_save_continue_later: true,
     prevent_duplicate_email_submission: false,
+    date_membership_config_id: null,
     owners: [], // Member IDs who own this form (see Owners card / "My Forms" tab)
     is_application_form: false,
     is_job_posting: false, // Flags this form for the member-group vacancy form picker
@@ -11571,6 +11573,7 @@ function FormBuilderEditor() {
         submitter_copy_email_message: existingForm.submitter_copy_email_message ?? null,
         allow_save_continue_later: existingForm.allow_save_continue_later !== false,
         prevent_duplicate_email_submission: existingForm.prevent_duplicate_email_submission ?? false,
+        date_membership_config_id: existingForm.date_membership_config_id ?? null,
         owners: Array.isArray(existingForm.owners) ? existingForm.owners : [],
         is_application_form: existingForm.is_application_form || false,
         application_level: existingForm.application_level || "member",
@@ -13829,6 +13832,11 @@ function FormBuilderEditor() {
 
         {/* Submission Settings Tab */}
           <TabsContent value="submission">
+            <DateMembershipSubmissionSettings
+              form={formData}
+              tenantContext={alertTenantId}
+              onChange={value => setFormData(current => ({ ...current, date_membership_config_id: value }))}
+            />
             {/* Submission Rules */}
             <Card className="border-slate-200 mb-6">
               <CardHeader className="pb-4">

@@ -77,6 +77,15 @@ function windowFromLabel(label, config) {
 }
 
 export function deriveAnnualTerm(history = {}, config = {}, now = new Date()) {
+  if (history.term_source_snapshot?.type === 'member_date_field') {
+    const start = dateOnly(history.term_start_date);
+    const end = dateOnly(history.term_end_date);
+    const nextStart = dateOnly(history.membership_renewal_date);
+    if (!start || !end || end < start || !nextStart || +addDays(end, 1) !== +nextStart) {
+      throw new Error('The member-date membership term needs review.');
+    }
+    return { start, end, nextStart };
+  }
   if (history.term_key || config.start_mode === 'immediate' || history.commitment_snapshot?.start_mode === 'immediate') {
     const start = dateOnly(history.term_start_date);
     const end = dateOnly(history.term_end_date);

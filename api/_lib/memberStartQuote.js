@@ -41,8 +41,11 @@ const date = ms => new Date(ms).toISOString().slice(0, 10);
 /** A deliberately bounded purchase quote, never an inference from custom class/expiry.
  * Complex incentives/overrides are rejected rather than approximated or silently lost.
  */
-export function buildStartQuote({ request, config, band, discounts = [], vatOverrides = [], overrides = [], vatSetting, today }) {
+export function buildStartQuote({ request, config, band, discounts = [], vatOverrides = [], overrides = [], vatSetting, today, memberDateTerm = null }) {
   const { startDate, paymentMode } = request;
+  if (config?.term_end_mode === 'member_date_field' && (!memberDateTerm || paymentMode !== 'free')) {
+    throw startError('This schedule requires a verified member end date and No charge.');
+  }
   if (paymentMode === 'member_choice') throw startError('Member choice requires complete per-method quotes from the Start preview service.');
   if (!config || config.id !== request.configId || config.structure_scope_type !== 'member' || config.is_active !== true
       || config.billing_period !== 'annual' || !['immediate', 'fixed_date'].includes(config.start_mode)
@@ -118,12 +121,16 @@ export function buildStartQuote({ request, config, band, discounts = [], vatOver
   const amounts = { annual_cost: annualMinor / 100, final_cost: finalMinor / 100, vat_amount: vatMinor / 100, total_with_vat: totalMinor / 100, currency };
   const tierLabel = flat ? 'Flat Rate' : band.label;
   const pricingSnapshot = { band: band || null, tier_label: tierLabel, vat_rate_percent: vatRatePercent, taxType };
-  const commitment = paymentOffer
+  const commitment = memberDateTerm || (paymentOffer
     ? startMonthlyCommitment({ config, quote: { termStart: startDate, termEnd }, amounts: { ...amounts, monthly_amount: paymentOffer.monthlyAmount, instalment_count: paymentOffer.instalmentCount }, pricingSnapshot, mode: paymentMode })
     : config.start_mode === 'immediate'
     ? buildRollingCommitment({ config, startDate, paymentMethod: startPaymentMethod(paymentMode) || 'free', paymentFrequency: 'upfront', amounts, pricingSnapshot })
     : { term_start_date: startDate, term_end_date: termEnd, commitment_snapshot: { version: 1, start_mode: 'fixed_date', config_id: config.id,
-      config, billing_period: 'annual', payment_method: startPaymentMethod(paymentMode), payment_frequency: 'upfront', amounts, pricing: pricingSnapshot } };
+      config, billing_period: 'annual', payment_method: startPaymentMethod(paymentMode), payment_frequency: 'upfront', amounts, pricing: pricingSnapshot } });
+  if (memberDateTerm) {
+    termEnd = memberDateTerm.term_end_date;
+    membershipYear = `member-date:${startDate}:${termEnd}`;
+  }
   if (paymentMode === 'direct_debit') commitment.commitment_snapshot.collection_policy = paymentOffer.collectionPolicy;
   if (dynamic) {
     // The initial quote remains immutable evidence, not a promise of a fixed

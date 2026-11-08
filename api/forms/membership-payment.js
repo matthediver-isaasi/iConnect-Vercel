@@ -93,6 +93,17 @@ async function renewalContext(tenantId, member, organizationId, req = null, fiel
     req, tenantId, formId: input?.formId, paymentFieldId: input?.paymentFieldId, fieldOverrides,
     scheduleAnswer: input?.renewalScheduleAnswer,
   }) : null);
+  if (!organizationId && renewalSelection?.configId) {
+    const selected = await supabase.from('membership_tier_config').select('*')
+      .eq('tenant_id', tenantId).eq('id', renewalSelection.configId).maybeSingle();
+    if (selected.error) throw new Error('Could not verify the selected membership schedule.');
+    if (selected.data?.term_end_mode === 'member_date_field') {
+      const simulation = await simulateMembershipForMember(tenantId, member.id, {
+        source: 'form-payment', mode: 'manual', configId: selected.data.id, fieldOverrides, memberDateAuthorized: true,
+      });
+      return { renewal: { state: 'joining', eligible: simulation.success }, simulation, organizationId: null };
+    }
+  }
   const context = await loadFormMembershipRenewalContext(supabase, {
     tenantId, memberId: member.id, organizationId,
     renewalSelection, fieldOverrides,
@@ -1357,7 +1368,7 @@ async function settleExistingFormZeroDueMembership({
   const idValue = isMemberScoped ? member.id : organizationId;
   const { data: existingRow, error } = await supabase
     .from(table)
-    .select('id, payment_status, paid_at, total_with_vat, member_id, organization_id')
+    .select(`id, payment_status, paid_at, total_with_vat, ${idColumn}`)
     .eq('tenant_id', tenantId)
     .eq(idColumn, idValue)
     .eq('membership_year', membershipYear)

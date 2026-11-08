@@ -40,6 +40,12 @@ export async function resolveFormRenewalSelection(db, {
     if (!target || target.is_active === false || target.structure_scope_type !== 'member') {
       reject('The membership schedule for this answer is unavailable.');
     }
+    const endSourceId = payment.field_mappings?.[target.term_end_field_id];
+    const endSource = fields.find(field => field.id === endSourceId && field.type === 'date');
+    if (target.term_end_mode === 'member_date_field'
+        && Object.prototype.hasOwnProperty.call(fieldOverrides, target.term_end_field_id) && !endSource) {
+      reject('The membership end-date answer is not mapped by this form.');
+    }
     return { configId: target.id, fieldId: target.structure_field_id || null,
       value: target.structure_match_value ?? null, sourceValue: scheduleAnswer, formId, paymentFieldId };
   }

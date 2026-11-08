@@ -1,6 +1,6 @@
 import { FORM_MUTATION_CONFIG_KEYS } from '../../../shared/formMutationContract.js';
 
-const keys = [...FORM_MUTATION_CONFIG_KEYS, 'access_policy', 'is_active'];
+const keys = [...FORM_MUTATION_CONFIG_KEYS, 'access_policy', 'is_active', 'date_membership_config_id'];
 const clone = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value));
 const canonical = value => Array.isArray(value) ? value.map(canonical)
   : value && typeof value === 'object'

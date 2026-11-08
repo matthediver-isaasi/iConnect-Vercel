@@ -37,6 +37,7 @@ import {
 import { parseFlatMembershipCost } from "../../../shared/membershipFlatCost.js";
 import { billingPeriodMonths } from "../../../shared/rollingMembershipTerm.js";
 import { directDebitPolicyText } from "@/lib/directDebitConsentSummary";
+import { termEndFieldsFromConfig, memberDateTermPolicyErrors } from "@/lib/memberDateTermPolicy";
 
 const MONTHS = [
   { value: 1, label: 'January' }, { value: 2, label: 'February' }, { value: 3, label: 'March' },
@@ -345,6 +346,7 @@ export default function MembershipTierManagement() {
     dd_invoicing_mode: 'annual',
     renewal_open_days: 0,
     renewal_grace_days: 0,
+    ...termEndFieldsFromConfig(null),
     renewal_disable_login: false,
     renewal_change_role: false,
     renewal_fallback_role_id: null,
@@ -406,6 +408,25 @@ export default function MembershipTierManagement() {
       if (!response.ok) throw new Error('Failed to fetch discount fields');
       return response.json();
     },
+  });
+
+  const {
+    data: termEndFields = [],
+    isPending: loadingTermEndFields,
+    isError: termEndFieldsFailed,
+    refetch: refetchTermEndFields,
+    isFetching: fetchingTermEndFields,
+  } = useQuery({
+    queryKey: ['membership-term-end-fields'],
+    queryFn: async () => {
+      const response = await fetch('/api/membership/tiers?action=term_end_fields', { credentials: 'include' });
+      if (!response.ok) throw new Error('Could not load member date fields');
+      const result = await response.json();
+      if (!Array.isArray(result.fields)) throw new Error('Invalid member date fields response');
+      return result.fields.filter(field => field.field_type === 'date');
+    },
+    enabled: config.structure_scope_type === 'member' || config.term_end_mode === 'member_date_field',
+    retry: false,
   });
 
   const { data: structureFields = [] } = useQuery({
@@ -677,6 +698,9 @@ export default function MembershipTierManagement() {
         if (error.field === 'fee_link_email_template_id') {
           setWizardStep(5);
         }
+        if (['term_end_mode', 'term_end_field_id'].includes(error.field)) {
+          setWizardStep(3);
+        }
       }
       toast.error(error.message || 'Failed to save tier structure');
     },
@@ -875,6 +899,9 @@ export default function MembershipTierManagement() {
   // below runs during render — referencing a const declared later throws
   // "Cannot access ... before initialization" (TDZ) and crashes the page.
   const isMemberScoped = config.structure_scope_type === 'member';
+  const usesMemberDateTerm = config.term_end_mode === 'member_date_field';
+  const termPolicyErrors = memberDateTermPolicyErrors(config);
+  const selectedTermEndField = termEndFields.find(field => field.id === config.term_end_field_id);
   const isAnnualStructure = isAnnualTierStructure(config);
   const maxTermInstalments = config.start_mode === 'immediate'
     ? billingPeriodMonths(config.billing_period || 'annual') : 12;
@@ -898,6 +925,19 @@ export default function MembershipTierManagement() {
     const isFlat = config.pricing_model === 'flat';
     const isImmediate = config.start_mode === 'immediate';
     const parsedFlatCost = isFlat ? parseFlatMembershipCost(config.flat_cost) : null;
+
+    if (usesMemberDateTerm) {
+      const errors = [...termPolicyErrors];
+      if (termEndFieldsFailed) errors.push('Member date fields could not be loaded. Retry before saving; your saved field selection has been kept.');
+      else if (loadingTermEndFields || fetchingTermEndFields) errors.push('Wait for member date fields to finish loading before saving.');
+      else if (!selectedTermEndField) errors.push('The selected member date field is unavailable. Choose an active member date field before saving.');
+      if (errors.length) {
+        setFieldErrors(prev => ({ ...prev, term_end_mode: errors.join(' ') }));
+        toast.error(errors[0]);
+        setWizardStep(3);
+        return;
+      }
+    }
 
     if (config.dd_enabled && (!config.dd_collection_end_policy || !config.dd_pricing_policy)) {
       toast.error('Choose both Direct Debit collection policies before saving.');
@@ -926,6 +966,7 @@ export default function MembershipTierManagement() {
     const payload = {
       config: {
         ...configWithoutUiFlags,
+        ...termEndFieldsFromConfig(config),
         dd_enabled: ddEnabled,
         card_monthly_enabled: isMemberScoped && !!config.card_monthly_enabled,
         dd_instalment_count: (ddEnabled || (isMemberScoped && config.card_monthly_enabled)) ? effectiveInstalmentCount : (config.dd_instalment_count ?? 12),
@@ -1058,6 +1099,7 @@ export default function MembershipTierManagement() {
   });
 
   const renewalFieldsFromConfig = (c) => ({
+    ...termEndFieldsFromConfig(c),
     renewal_open_days: c?.renewal_open_days ?? 0,
     renewal_grace_days: c?.renewal_grace_days ?? 0,
     renewal_disable_login: c?.renewal_disable_login === true,
@@ -2240,6 +2282,96 @@ export default function MembershipTierManagement() {
             <p className="text-sm text-muted-foreground">
               Membership starts immediately upon creation. Pro-rata and rollover discount are not applicable.
             </p>
+          </div>
+        )}
+
+        {(isMemberScoped || usesMemberDateTerm) && (
+          <div className="space-y-4 rounded-md border p-4" data-testid="term-end-policy">
+            <div className="space-y-2">
+              <Label htmlFor="term-end-mode">Membership term end</Label>
+              <Select
+                value={config.term_end_mode || 'standard'}
+                onValueChange={(value) => {
+                  handleConfigChange('term_end_mode', value);
+                  setFieldErrors(prev => ({ ...prev, term_end_mode: null }));
+                }}
+                disabled={!isEditable}
+              >
+                <SelectTrigger id="term-end-mode" data-testid="select-term-end-mode">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="standard">Standard schedule</SelectItem>
+                  <SelectItem value="member_date_field" disabled={!isMemberScoped}>Member date custom field</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-sm text-muted-foreground">
+                Standard uses the existing schedule dates. A member date field sets each member's inclusive last day of membership; renewal is the following day and the configured renewal grace period still applies.
+              </p>
+            </div>
+            {usesMemberDateTerm && (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  Available only for member-scoped, flat zero-cost schedules without Direct Debit, monthly card payments, pro-rata, free periods or rollover. Change any conflicting settings explicitly before saving. Selecting this option does not change prices.
+                </p>
+                <div className="space-y-2">
+                  <Label htmlFor="term-end-field">Member date custom field</Label>
+                  <Select
+                    value={config.term_end_field_id || ''}
+                    onValueChange={(value) => {
+                      handleConfigChange('term_end_field_id', value);
+                      setFieldErrors(prev => ({ ...prev, term_end_mode: null }));
+                    }}
+                    disabled={!isEditable || loadingTermEndFields || termEndFieldsFailed || fetchingTermEndFields}
+                  >
+                    <SelectTrigger id="term-end-field" data-testid="select-term-end-field">
+                      <SelectValue placeholder={loadingTermEndFields ? 'Loading member date fields…' : 'Choose a member date field'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {config.term_end_field_id && !selectedTermEndField && (
+                        <SelectItem value={config.term_end_field_id} disabled>
+                          Saved field ({config.term_end_field_id}) — {termEndFieldsFailed || loadingTermEndFields ? 'not verified' : 'unavailable'}
+                        </SelectItem>
+                      )}
+                      {termEndFields.map(field => (
+                        <SelectItem key={field.id} value={field.id}>{field.label || field.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {!loadingTermEndFields && !termEndFieldsFailed && termEndFields.length === 0 && (
+                    <p className="text-sm text-muted-foreground">No active member date custom fields are available. Add one in member custom field settings, then retry.</p>
+                  )}
+                  {!loadingTermEndFields && !termEndFieldsFailed && config.term_end_field_id && !selectedTermEndField && (
+                    <p className="text-sm text-destructive" role="alert">The saved field is unavailable. Its ID has been kept; choose an active member date field before saving.</p>
+                  )}
+                </div>
+                {termPolicyErrors.length > 0 && (
+                  <Alert variant="destructive" role="alert">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>
+                      <p className="font-medium">Before saving this term policy:</p>
+                      <ul className="list-disc pl-4 mt-1">{termPolicyErrors.map(error => <li key={error}>{error}</li>)}</ul>
+                    </AlertDescription>
+                  </Alert>
+                )}
+                {fieldErrors.term_end_mode && <p className="text-sm text-destructive" role="alert">{fieldErrors.term_end_mode}</p>}
+                {fieldErrors.term_end_field_id && <p className="text-sm text-destructive" role="alert">{fieldErrors.term_end_field_id}</p>}
+              </>
+            )}
+            {termEndFieldsFailed && (
+              <Alert variant="destructive" role="alert">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  Member date fields could not be loaded. Any saved field selection has been kept.
+                  <Button type="button" variant="outline" size="sm" className="ml-2" onClick={() => refetchTermEndFields()} disabled={fetchingTermEndFields}>
+                    {fetchingTermEndFields ? 'Retrying…' : 'Retry'}
+                  </Button>
+                </AlertDescription>
+              </Alert>
+            )}
+            {usesMemberDateTerm && !termEndFieldsFailed && !loadingTermEndFields && termEndFields.length === 0 && (
+              <Button type="button" variant="outline" size="sm" onClick={() => refetchTermEndFields()} disabled={fetchingTermEndFields}>Reload member date fields</Button>
+            )}
           </div>
         )}
 
@@ -3594,6 +3726,20 @@ export default function MembershipTierManagement() {
         <div className="pt-4">
           {renderSummarySection('Period', 3, (
             <>
+              <div className="flex justify-between gap-2" data-testid="summary-term-end-policy">
+                <span className="text-muted-foreground">Term end policy</span>
+                <span className="font-medium text-right">
+                  {usesMemberDateTerm
+                    ? `Member date field: ${selectedTermEndField?.label || selectedTermEndField?.name || config.term_end_field_id || 'No field selected'}`
+                    : 'Standard schedule'}
+                </span>
+              </div>
+              {usesMemberDateTerm && (
+                <p className="text-sm text-muted-foreground">
+                  The member's field date is the inclusive term end. Renewal is the following day; the configured grace period applies.
+                  {termEndFieldsFailed ? ' Field labels could not be loaded; the saved field ID is shown above.' : ''}
+                </p>
+              )}
               <div className="flex justify-between gap-2">
                 <span className="text-muted-foreground">Start Mode</span>
                 <span className="font-medium">

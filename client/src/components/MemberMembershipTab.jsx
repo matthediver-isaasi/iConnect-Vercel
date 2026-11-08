@@ -2,6 +2,8 @@ import { Fragment, useState, useEffect, useSyncExternalStore } from "react";
 import ApproveCardMembership from "@/components/membership/ApproveCardMembership";
 import MemberMembershipAmendments from "@/components/MemberMembershipAmendments";
 import MemberMembershipStart from "@/components/MemberMembershipStart";
+import ExtendMemberDateTerm from "@/components/membership/ExtendMemberDateTerm";
+import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -603,6 +605,8 @@ import MembershipAccountingStatus from './MembershipAccountingStatus';
 
 export default function MemberMembershipTab({ memberId, memberEmail, memberTenantId }) {
   const queryClient = useQueryClient();
+  const { isAdmin, isAccessReady, isFeatureExcluded } = useMemberAccess();
+  const canAdmin = isAccessReady && isAdmin && !isFeatureExcluded("commerce.monthly-finance-report");
   const selectedTenantId = useSyncExternalStore(
     subscribeToActiveTenantId,
     getActiveTenantId,
@@ -1791,6 +1795,15 @@ export default function MemberMembershipTab({ memberId, memberEmail, memberTenan
                       <tr className="border-b last:border-0" data-testid={`row-member-history-${record.id}`}>
                         <td className="p-3 font-medium">
                           <div>{membershipHistoryTermLabel(record)}</div>
+                          {membershipSource === 'personal' && record.term_source_snapshot?.type === 'member_date_field' && (
+                            <ExtendMemberDateTerm
+                              key={`${activeTenantId}:${memberId}:${record.id}:${record.term_end_date}`}
+                              record={record}
+                              memberId={memberId}
+                              tenantId={activeTenantId}
+                              canAdmin={canAdmin}
+                            />
+                          )}
                           {!record.term_start_date && record.term_end_date && (
                             <div className="text-xs text-muted-foreground font-normal mt-1">
                               Expires: {historyScheduleDateLabel(record.term_end_date) || 'Unknown'}

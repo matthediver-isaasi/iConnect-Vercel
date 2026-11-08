@@ -4,6 +4,7 @@ import { accountingMembershipQueueEnabled, queueMembershipInvoice, resolveAccoun
 import { resolveInvoiceAddress } from './invoiceAddressResolver.js';
 import { resolveMembershipNominalCode } from './membershipNominalCode.js';
 import { fireNewZeroDueMembershipPaidWorkflow } from './zeroDueMembership.js';
+import { resolveMemberDateTerm } from './memberDateTermPolicy.js';
 import { startPaymentOptions, startQuoteSimulation, SELF_SERVICE_START_MODES } from './memberStartPayment.js';
 import { getStripeCredentials } from './stripeCredentials.js';
 import { getGocardlessCredentials } from './gocardlessCredentials.js';
@@ -175,7 +176,9 @@ export function createMemberStartService({
       const vatOverrides = await rows('membership_tier_vat_override', tenantId, 'config_id', request.configId);
       const overrides = await rows('member_membership_override', tenantId, 'member_id', request.memberId);
       const vatSetting = await loadStartVatSetting(db, tenantId);
-      const quote = buildStartQuote({ request, config, band, discounts, vatOverrides, overrides, vatSetting, today: today() });
+      const memberDateTerm = config?.term_end_mode === 'member_date_field'
+        ? await resolveMemberDateTerm(db, { tenantId, memberId: request.memberId, config, startDate: request.startDate }) : null;
+      const quote = buildStartQuote({ request, config, band, discounts, vatOverrides, overrides, vatSetting, today: today(), memberDateTerm });
       const history = await rows('member_membership_history', tenantId, 'member_id', request.memberId);
       if (history.some(row => row.payment_status !== 'voided' && row.term_start_date && row.term_end_date
         && row.term_start_date <= quote.termEnd && row.term_end_date >= quote.termStart)) {
