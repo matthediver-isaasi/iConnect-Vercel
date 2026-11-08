@@ -5,6 +5,7 @@ const tenant = 'ff2df806-b321-4254-b651-3af11fccf1db';
 const formId = 'fa639380-b5a0-4a5c-9d56-fb321d5d0d19';
 const oldSchedule = '5bf28257-540e-4aff-9b15-bfbaf0290396';
 const newSchedule = '5ab8875e-25a7-4224-a8b9-b9ff53871800';
+assert.ok(process.argv.includes('--apply'), 'Explicit --apply is required');
 const db = await connectDestination();
 try {
   await db.query('BEGIN');
@@ -12,7 +13,10 @@ try {
   const source = (await db.query('select to_jsonb(f) row from form f where tenant_id=$1 and id=$2 for update',
     [tenant, formId])).rows[0]?.row;
   assert.ok(source);
-  assert.equal(source.is_active, false, 'Do not amend a published payment form through this correction');
+  // The owner separately approved correcting the now-active form. Keep that
+  // authority explicit; all other settings remain protected by full-row checks.
+  if (source.is_active) assert.ok(process.argv.includes('--approved-active-form'),
+    'Active-form correction requires explicit owner approval');
   const schedules = (await db.query(`select id,structure_scope_type,structure_field_id
     from membership_tier_config where tenant_id=$1 and structure_match_value='Trainee'`, [tenant])).rows;
   assert.equal(schedules.length, 1);
@@ -32,6 +36,7 @@ try {
     [JSON.stringify(expected.fields), formId, tenant]);
   assert.deepEqual((await db.query('select to_jsonb(f) row from form f where id=$1', [formId])).rows[0].row, expected);
   await db.query('COMMIT');
-  console.log(JSON.stringify({ corrected: true, formId, traineeSchedule: newSchedule, otherSettingsUnchanged: true }));
+  console.log(JSON.stringify({ corrected: true, formId, traineeSchedule: newSchedule,
+    active: source.is_active, otherSettingsUnchanged: true }));
 } catch (e) { await db.query('ROLLBACK'); throw e; }
 finally { await db.end(); }
