@@ -72,4 +72,14 @@ of member-date-based schedule expiry.
 
 **How to apply:** Preserve the existing student questions and date evidence.
 Implement this through generic schedule configuration, not a BNMS-only rule.
-Policy for later course-date changes still needs to be agreed before implementation.
+Students must use the normal renewal questionnaire when their term ends; it may
+route them into another membership class rather than another Student term.
+An administrator changing the course end date must be handled as an audited
+manual membership extension, not an automatic renewal.
+
+**Why:** The owner clarified that Student membership has the same renewal
+requirement as other classes, and administrative course extensions are distinct.
+
+**How to apply:** Do not automatically roll Student memberships forward. Audit
+existing Student-class members for supporting term-date evidence before
+reconstructing their memberships; class alone is not evidence of valid dates.
