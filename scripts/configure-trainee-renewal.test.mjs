@@ -37,7 +37,7 @@ function fixture() {
 test('trainee renewal retains questions and schedule, with owner auth and represented affiliations only', () => {
   const original = fixture();
   const before = structuredClone(original);
-  const { form, config } = buildTraineeRenewal(original);
+  const { form, config } = buildTraineeRenewal(original, 'trainee-schedule');
   assert.deepEqual(original, before);
   assert.equal(form.name, 'Trainee renew');
   assert.equal(form.slug, 'trainee-renew');
@@ -67,8 +67,20 @@ test('trainee renewal retains questions and schedule, with owner auth and repres
 test('configuration drift stops conversion instead of guessing membership class or department ownership', () => {
   const wrongClass = fixture();
   wrongClass.fields[3].options = ['Other'];
-  assert.throws(() => buildTraineeRenewal(wrongClass));
+  assert.throws(() => buildTraineeRenewal(wrongClass, 'trainee-schedule'));
   const missingRelationship = fixture();
   missingRelationship.entity_pipelines.members[0].related_records = [];
-  assert.throws(() => buildTraineeRenewal(missingRelationship));
+  assert.throws(() => buildTraineeRenewal(missingRelationship, 'trainee-schedule'));
+});
+
+test('a copied Full schedule default cannot override the verified Trainee mapping', () => {
+  const original = fixture();
+  original.fields.find(f => f.type === 'payment').membership_config_id = 'full-schedule';
+  const { form } = buildTraineeRenewal(original, 'verified-trainee-schedule');
+  const payment = form.fields.find(f => f.type === 'membership_payment');
+  assert.equal(payment.membership_config_id, 'verified-trainee-schedule');
+  assert.deepEqual(payment.membership_schedule_mapping.entries, [
+    { value: 'Trainee', config_id: 'verified-trainee-schedule' },
+  ]);
+  assert.throws(() => buildTraineeRenewal(original), /verified Trainee schedule/);
 });

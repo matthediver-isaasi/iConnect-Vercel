@@ -53,3 +53,13 @@ affiliation updates for the fields that exist, not identical questionnaires.
 
 **How to apply:** Configure only the represented affiliations and preserve each
 membership category's questions and schedule mappings.
+
+When converting a join form to explicit renewal schedule mappings, verify the
+schedule's category match rather than trusting the join field's default schedule.
+
+**Why:** A Trainee join copy retained a Full-member default while its legacy
+automatic rule selected Trainee. Copying that default into an explicit mapping
+changed the intended category.
+
+**How to apply:** Check tenant, member scope, class field and exact class match
+before saving a mapping; ambiguous matches require review.

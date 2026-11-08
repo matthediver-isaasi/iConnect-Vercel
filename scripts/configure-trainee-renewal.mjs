@@ -19,7 +19,8 @@ const KEYS = ['name', 'slug', 'require_authentication', 'prefill_source', 'prefi
   'fields', 'visibility_rules', 'entity_pipelines', 'member_affiliation_enabled'];
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
-export function buildTraineeRenewal(original) {
+export function buildTraineeRenewal(original, traineeScheduleId) {
+  assert.ok(traineeScheduleId, 'A verified Trainee schedule is required');
   assert.equal(original.id, TARGET);
   assert.equal(original.tenant_id, TENANT);
   assert.equal(original.member_affiliation_enabled, false);
@@ -45,6 +46,7 @@ export function buildTraineeRenewal(original) {
   }
   payment.type = 'membership_payment';
   delete payment.stripe_billing_address_mappings;
+  payment.membership_config_id = traineeScheduleId;
   payment.membership_schedule_mapping = { source_field_id: CLASS,
     entries: [{ value: 'Trainee', config_id: payment.membership_config_id }] };
   const countryField = form.fields.find(f => f.id === COUNTRY);
@@ -116,12 +118,13 @@ async function main() {
       [TENANT, 'trainee-renew', TARGET]);
     assert.equal(conflicts.rowCount, 0, 'Slug already in use');
     assert.equal((await db.query('select form_id from form_member_affiliation_config where form_id=$1', [TARGET])).rowCount, 0);
-    const { form, config } = buildTraineeRenewal(target);
-    const payment = form.fields.find(f => f.type === 'membership_payment');
-    const schedule = (await db.query('select structure_field_id,structure_scope_type from membership_tier_config where tenant_id=$1 and id=$2',
-      [TENANT, payment.membership_config_id])).rows[0];
+    const schedules = (await db.query('select id,structure_field_id,structure_scope_type from membership_tier_config where tenant_id=$1 and structure_match_value=$2',
+      [TENANT, 'Trainee'])).rows;
+    assert.equal(schedules.length, 1, 'A unique Trainee schedule is required');
+    const schedule = schedules[0];
     assert.equal(schedule?.structure_scope_type, 'member');
     assert.equal(schedule.structure_field_id, '87f120ff-92e6-4d52-944b-9ba9d7b1fac0');
+    const { form, config } = buildTraineeRenewal(target, schedule.id);
     const relationships = (await db.query('select * from custom_object_relationship_definition where tenant_id=$1 and id=any($2::uuid[])',
       [TENANT, [config.memberDepartmentDefinitionId, config.departmentOrganizationDefinitionId]])).rows;
     const validated = validateMemberAffiliationConfig(form, config, { complete: true, relationships, objects: [], fields: {} });
@@ -144,7 +147,7 @@ async function main() {
     } else await db.query('ROLLBACK');
     console.log(JSON.stringify({ applied: apply, reviewSha256: digest, name: form.name, slug: form.slug,
       fieldCount: form.fields.length, questionsAdded: 0, active: form.is_active,
-      existingSchedulePreserved: true, affiliations: 'primary organisation and departments' }));
+      traineeScheduleVerified: true, affiliations: 'primary organisation and departments' }));
   } catch (e) { await db.query('ROLLBACK'); throw e; }
   finally { await db.end(); }
 }
