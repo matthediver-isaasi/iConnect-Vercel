@@ -63,3 +63,13 @@ changed the intended category.
 
 **How to apply:** Check tenant, member scope, class field and exact class match
 before saving a mapping; ambiguous matches require review.
+
+BNMS Student memberships are free and their term length is defined by the
+member's course end date, not an assumed annual paid term.
+
+**Why:** The owner explicitly stated this business rule when requesting investigation
+of member-date-based schedule expiry.
+
+**How to apply:** Preserve the existing student questions and date evidence.
+Implement this through generic schedule configuration, not a BNMS-only rule.
+Policy for later course-date changes still needs to be agreed before implementation.
