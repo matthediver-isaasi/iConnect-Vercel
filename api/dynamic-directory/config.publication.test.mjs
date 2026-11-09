@@ -63,7 +63,7 @@ test('detail cannot retrieve an organisation in another tenant', async () => {
 
 test('role-restricted detail denies guests before inventory reads', async () => {
   const { res, queries } = await detailRequest({ denied: true });
-  assert.equal(res.code, 403);
+  assert.equal(res.code, 401);
   assert.equal(queries.some(q => q.table === 'organization'), false);
 });
 

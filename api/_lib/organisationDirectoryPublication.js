@@ -1,8 +1,9 @@
 import { fetchOrgDisplaySettings } from './directoryConfig.js';
 import { resolveOrganisationCorePublication } from '../../shared/organisationDirectoryCore.js';
 
-// Preserve the legacy full-directory public access rule (unrestricted role
-// lists permit guests). Carousel has a separate, authenticated-only contract.
+// Shared by member and organisation directory reads. Preserve the legacy
+// full-directory public rule (unrestricted lists permit guests).
+// Carousel has a separate, authenticated-only contract.
 export function canReadOrganisationDirectory(directory, context, tenantId) {
   if (context?.tenantMismatch || (context?.tenantId && context.tenantId !== tenantId)) return false;
   let roles = directory?.allowed_role_ids;

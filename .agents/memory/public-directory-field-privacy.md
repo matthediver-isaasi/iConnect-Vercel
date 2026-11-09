@@ -3,6 +3,17 @@ name: Public directory field privacy
 description: Privacy boundary for public features that reuse member-directory data.
 ---
 
+Role-restricted member directories must gate every guest-facing data path,
+not only navigation or organisation-scoped reads. Preserve the existing
+public contract for empty role lists; invalid role lists fail closed.
+
+**Why:** GFI's saved Freelancer Directory role restrictions were bypassed by
+anonymous standalone member-directory requests.
+
+**How to apply:** Use the same policy for configuration, member results,
+directory-scoped preferences and embeds; test denied reads before metadata
+or member data is queried.
+
 Public member projections must enforce two separate policies on the server: whether a member may appear at all, and which front-facing profile fields the tenant allows.
 
 Public carousel display requires its own administrator-approved, default-off source permission, for both primary and dynamic directories. Active flags, unrestricted role lists, guest introduction copy and field publication switches do not constitute this consent. Do not automatically opt in existing directories or change legacy full-directory/embed access while extending carousels.

@@ -79,10 +79,11 @@ export default function DynamicDirectoryView() {
     queryFn: async () => {
       const res = await fetch(`/api/dynamic-directory/config?slug=${encodeURIComponent(slug)}`, { credentials: 'include' });
       if (res.status === 404) return { notFound: true };
+      if (res.status === 401 || res.status === 403) return { accessDenied: res.status };
       if (!res.ok) throw new Error('Failed to fetch directory config');
       return res.json();
     },
-    enabled: !!slug && authResolved && (isGuest || authDirectory?.entity_type === 'organization'),
+    enabled: !!slug && authResolved,
     staleTime: 0,
     refetchOnMount: "always",
     refetchOnWindowFocus: true,
@@ -90,8 +91,8 @@ export default function DynamicDirectoryView() {
   });
 
   // Both guests and authenticated visitors receive server-projected organisation rows.
-  const directory = !isGuest && authDirectory?.entity_type === 'member'
-    ? authDirectory : (publicConfig?.notFound ? null : (publicConfig?.directory || null));
+  const directory = !configSuccess || publicConfig?.accessDenied || publicConfig?.notFound ? null
+    : !isGuest && authDirectory?.entity_type === 'member' ? authDirectory : (publicConfig?.directory || null);
   const isLoadingDirectory = (!isGuest && isLoadingAuthDirectory) || isLoadingPublicConfig;
   const objectSourceQuery = useDirectoryObjectSources({
     directoryId: directory?.id,
@@ -459,12 +460,12 @@ export default function DynamicDirectoryView() {
   const memberIdsForPrefs = useMemo(() => members.map(m => m.id).join(','), [members]);
 
   const { data: allMemberPreferenceValues = [] } = useQuery({
-    queryKey: ['directory-member-preferences', memberIdsForPrefs],
+    queryKey: ['directory-member-preferences', slug, memberInfo?.tenant_id, memberInfo?.id, memberIdsForPrefs],
     enabled: !!directory && directory.entity_type === 'member' && members.length > 0,
     queryFn: async () => {
       if (!memberIdsForPrefs) return [];
       try {
-        const res = await fetch(`/api/dynamic-directory/member-preferences?member_ids=${memberIdsForPrefs}`, { credentials: 'include' });
+        const res = await fetch(`/api/dynamic-directory/member-preferences?slug=${encodeURIComponent(slug)}&member_ids=${memberIdsForPrefs}`, { credentials: 'include' });
         if (!res.ok) return [];
         return await res.json();
       } catch {
@@ -774,6 +775,18 @@ export default function DynamicDirectoryView() {
   };
 
   const isLoading = (!authResolved && !directory) || isLoadingDirectory || (directory?.entity_type === 'organization' ? isLoadingOrgs : isLoadingMembers);
+
+  if (publicConfig?.accessDenied) {
+    return (
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
+        <Card className="max-w-md w-full"><CardContent className="p-8 text-center space-y-4">
+          <h2 className="text-xl font-semibold">{isGuest ? 'Sign in to view this directory' : 'Directory access restricted'}</h2>
+          <p>This directory is available only to members with permission to view it.</p>
+          {isGuest && <Button asChild><a href={`/login?returnTo=${encodeURIComponent(window.location.pathname)}`}>Sign in</a></Button>}
+        </CardContent></Card>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (

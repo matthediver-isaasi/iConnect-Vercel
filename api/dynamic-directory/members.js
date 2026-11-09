@@ -1,6 +1,7 @@
 import { getTenantContext, hasFeatureAccess } from '../_lib/tenantContext.js';
 import { directoryEligibleIds, revalidateDirectoryInclusion } from '../_lib/directoryExpression.js';
-import { supabase } from '../_lib/database.js';
+import { supabase, supabase as defaultDb } from '../_lib/database.js';
+import { canReadOrganisationDirectory } from '../_lib/organisationDirectoryPublication.js';
 import {
   buildOrganisationMembersResponse,
   fetchMemberDisplaySettings,
@@ -9,12 +10,14 @@ import {
 } from '../_lib/directoryConfig.js';
 import { resolveDepartmentMemberIds, enrichMembersWithDepartments, listDepartmentOptions, MemberDepartmentError } from '../_lib/memberDepartments.js';
 
-export default async function handler(req, res) {
+export default async function handler(req, res, dependencies = {}) {
+  const supabase = dependencies.supabase || defaultDb;
+  res.setHeader('Cache-Control', 'private, no-store, max-age=0');
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const tenantContext = await getTenantContext(req);
+  const tenantContext = await (dependencies.getTenantContext || getTenantContext)(req);
   if (!tenantContext.tenantId) {
     return res.status(401).json({ error: 'Unauthorized - tenant required' });
   }
@@ -74,15 +77,8 @@ export default async function handler(req, res) {
 
       directory = directories?.[0];
       if (!directory) return res.status(404).json({ error: 'Directory not found' });
-      const allowedRoles = parseArray(directory.allowed_role_ids);
-      const isTenantAdmin = !!tenantContext.tenantUserId;
-      if (
-        organizationId &&
-        !isTenantAdmin &&
-        allowedRoles.length > 0 &&
-        !allowedRoles.includes(tenantContext.roleId)
-      ) {
-        return res.status(403).json({ error: 'Directory access denied' });
+      if (!canReadOrganisationDirectory(directory, tenantContext, tenantId)) {
+        return res.status(tenantContext.isAuthenticated ? 403 : 401).json({ error: 'Directory access denied' });
       }
       viewMembersRoleIds = await resolveOrgViewMembersRoleIds(supabase, tenantId, directory);
     }

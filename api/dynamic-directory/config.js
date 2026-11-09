@@ -71,6 +71,9 @@ export default async function handler(req, res, dependencies = {}) {
     if (!directory) {
       return res.status(404).json({ error: 'Directory not found' });
     }
+    if (!canReadOrganisationDirectory(directory, tenantContext, tenantId)) {
+      return res.status(tenantContext.isAuthenticated ? 403 : 401).json({ error: 'Directory access denied' });
+    }
     if (organizationId && directory.entity_type !== 'organization') {
       return res.status(400).json({ error: 'Organisation details require an organisation directory' });
     }

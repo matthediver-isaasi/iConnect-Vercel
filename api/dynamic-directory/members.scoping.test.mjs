@@ -17,7 +17,7 @@ test('organisation and directory access are tenant scoped', () => {
   assert.match(source, /\.eq\('tenant_id', tenantId\)[\s\S]*\.eq\('slug', slug\)/);
   assert.match(source, /\.eq\('tenant_id', tenantId\)[\s\S]*\.eq\('id', organizationId\)/);
   assert.match(source, /membership\.organisation-directory/);
-  assert.match(source, /allowedRoles\.includes\(tenantContext\.roleId\)/);
+  assert.match(source, /canReadOrganisationDirectory\(directory, tenantContext, tenantId\)/);
   assert.match(source, /org_directory_allowed_application_statuses/);
   assert.match(source, /org_directory_visible_org_types/);
 });

@@ -186,10 +186,10 @@ export async function dynamicDirectoryHandler(req, res, dependencies = {}) {
     const pageSize = Math.min(50, Math.max(1, parseInt(limit, 10) || 12));
     const offset = (pageNum - 1) * pageSize;
     // Check organisation access before reading its filter definitions.
-    const context = directory.entity_type === 'organization'
-      ? await (dependencies.getTenantContext || getTenantContext)(tenantRequest) : null;
-    if (directory.entity_type === 'organization' && !canReadOrganisationDirectory(directory, context, tenantId)) {
-      return res.status(403).json({ error: 'Directory access denied' });
+    res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+    const context = await (dependencies.getTenantContext || getTenantContext)(tenantRequest);
+    if (!canReadOrganisationDirectory(directory, context, tenantId)) {
+      return res.status(context?.isAuthenticated ? 403 : 401).json({ error: 'Directory access denied' });
     }
     const visitorFilterFields = await fetchDirectoryVisitorFields(supabase, tenantId, directory);
     let visitorConstraints;
