@@ -7,4 +7,12 @@ The inspected official packages @cookieyes/react 0.13.3 and @cookieyes/scripts 0
 
 **Why:** Host-only cookies separate domains but not tenants sharing one origin. Reinitializing the UI cannot be assumed to isolate pending records or invalidate consent after a material policy change.
 
+## Form iframe consent ownership
+
+The surrounding page owns the cookie interface for embedded forms; suppression must not be treated as permission to track inside the frame.
+
+**Why:** Starting another consent engine creates duplicate controls and independent analytics sessions. Parent consent is not automatically trusted across frame or tenant boundaries.
+
+**How to apply:** Keep optional tracking denied in form embeds unless a separately reviewed consent-sharing contract is introduced. Standalone form URLs must retain their own consent controls.
+
 **How to apply:** Recheck the installed version's contract before integration. The owner approved a minimal, version-pinned SDK patch for tenant isolation, policy revision and retry cleanup. Do not replace the consent engine or globally intercept browser storage. Preserve the SDK's bounded retry semantics: at most ten records for seven days, not indefinite delivery.

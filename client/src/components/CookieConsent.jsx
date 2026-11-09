@@ -7,12 +7,19 @@ import { CONSENT_CATEGORIES } from '../../../shared/cookieConsent.js';
 import { useTenantBranding } from '../contexts/TenantBrandingContext';
 import { consentState } from '../lib/consentState.js';
 import { disableTracking, enableTracking, trackConsentPage, clearTrackingStorage } from '../lib/consentTracking.js';
+import { isEmbeddedFormFrame } from '../lib/embeddedFormConsent.js';
 
 export default function CookieConsent() {
   const branding = useTenantBranding();
   const [ready,setReady] = useState(false);
   const [links,setLinks]=useState({});
   useEffect(() => {
+    // The host page owns consent UI. Keep optional consent denied in form
+    // iframes and avoid a second SDK, tracking session, or storage poller.
+    if (isEmbeddedFormFrame()) {
+      consentState.deny();
+      return;
+    }
     let disposed = false, runtime, scope, granted = false, tagReady = false;
     let initialRevision, initialTenant, initialActive;
     let observedCookie;
@@ -129,7 +136,7 @@ export default function CookieConsent() {
       if (granted) disableTracking();
     };
   },[branding?.tenantSlug]);
-  if (!ready) return null;
+  if (isEmbeddedFormFrame() || !ready) return null;
   return <><CookieBanner /><CookiePreferences /><RecallButton />
     {links.privacy && <nav aria-label="Privacy policies" className="fixed bottom-2 right-2 z-[9999] rounded bg-white p-2 text-sm text-slate-900 shadow">
       <a className="underline" href={links.privacy}>Privacy policy</a>
