@@ -2140,7 +2140,7 @@ function MembersListPageInner({ access }) {
                         key={member.id} 
                         {...alphabet.targetProps(member.id)}
                         className={`cursor-pointer hover:bg-slate-50 data-[alphabet-highlighted=true]:bg-blue-50 data-[alphabet-highlighted=true]:ring-2 data-[alphabet-highlighted=true]:ring-inset data-[alphabet-highlighted=true]:ring-blue-400 ${selectedMembers.includes(member.id) ? 'bg-blue-50' : ''}`}
-                        onClick={() => navigate(getMemberDetailUrl(member.id))}
+                        onClick={() => window.open(getMemberDetailUrl(member.id), '_blank', 'noopener,noreferrer')}
                         data-testid={`member-row-${member.id}`}
                       >
                         <TableCell onClick={(e) => e.stopPropagation()}>
@@ -2178,7 +2178,7 @@ function MembersListPageInner({ access }) {
                       key={member.id} 
                       {...alphabet.targetProps(member.id)}
                       className="cursor-pointer hover:shadow-md transition-shadow data-[alphabet-highlighted=true]:ring-2 data-[alphabet-highlighted=true]:ring-blue-400"
-                      onClick={() => navigate(getMemberDetailUrl(member.id))}
+                      onClick={() => window.open(getMemberDetailUrl(member.id), '_blank', 'noopener,noreferrer')}
                       data-testid={`member-card-${member.id}`}
                     >
                       <CardContent className="p-4">

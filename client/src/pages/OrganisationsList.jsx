@@ -1935,7 +1935,7 @@ function OrganisationsListPageInner({ access }) {
                         key={org.id} 
                         {...alphabet.targetProps(org.id)}
                         className={`hover:bg-slate-50 cursor-pointer transition-colors data-[alphabet-highlighted=true]:bg-blue-50 data-[alphabet-highlighted=true]:ring-2 data-[alphabet-highlighted=true]:ring-inset data-[alphabet-highlighted=true]:ring-blue-400 ${selectedOrgs.includes(org.id) ? 'bg-blue-50' : ''}`}
-                        onClick={() => navigate(`/organisations/${org.id}`)}
+                        onClick={() => window.open(`/organisations/${org.id}`, '_blank', 'noopener,noreferrer')}
                         data-testid={`row-org-${org.id}`}
                       >
                         <td className="w-12 px-4 py-3" onClick={(e) => e.stopPropagation()}>
@@ -2143,7 +2143,7 @@ function OrganisationsListPageInner({ access }) {
                     key={org.id} 
                     {...alphabet.targetProps(org.id)}
                     className="cursor-pointer hover:shadow-md transition-shadow hover-elevate data-[alphabet-highlighted=true]:ring-2 data-[alphabet-highlighted=true]:ring-blue-400"
-                    onClick={() => navigate(`/organisations/${org.id}`)}
+                    onClick={() => window.open(`/organisations/${org.id}`, '_blank', 'noopener,noreferrer')}
                     data-testid={`card-org-${org.id}`}
                   >
                     <CardContent className="p-4">
