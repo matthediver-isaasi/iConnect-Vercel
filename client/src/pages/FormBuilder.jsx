@@ -9935,7 +9935,7 @@ function FieldCard({
               )}
 
               {field.type === 'sales_bundle' && (
-                <BundleSelectionSettings field={field} onChange={ids => updateField(originalIndex, { allowed_bundle_ids: ids })} />
+                <BundleSelectionSettings field={field} onChange={ids => updateField(originalIndex, { allowed_bundle_ids: ids })} onCategoryFilterChange={enabled => updateField(originalIndex, { show_bundle_category: enabled })} />
               )}
               {field.type === 'membership_payment' && (
                 <MembershipPaymentSettings

@@ -26,6 +26,25 @@ test('configuration rejects nested, survey, multiple and ambiguous currency bund
   await assert.rejects(validateBundleConfiguration(dbFor([{ ...row, currency: 'EUR' }]), form), /currency/);
   await assert.rejects(validateBundleConfiguration(dbFor([]), form), /tenant/);
 });
+test('category filter exposes only tenant-scoped category names and preserves price and stock authority', async () => {
+  const calls = [];
+  const db = { from(table) {
+    const rows = table === 'sales_catalogue_bundle' ? [{ ...row, category_id: 'category-a' }]
+      : table === 'sales_catalogue_category' ? [{ id: 'category-a', name: 'Bronze Exhibitor' }]
+        : [{ bundle_id: id, remaining: 0 }];
+    return { select() { return this; }, eq(k,v) { calls.push([table,k,v]); return this; },
+      in(k,v) { calls.push([table,k,v]); return this; }, then(resolve) { resolve({ data: rows }); } };
+  } };
+  const filtered = { ...form, fields: [{ ...form.fields[0], show_bundle_category: true }, form.fields[1]] };
+  const [option] = await bundleOptions(db, filtered, 'bundle');
+  assert.equal(option.categoryName, 'Bronze Exhibitor');
+  assert.equal(option.categoryId, 'category-a');
+  assert.equal(option.amountMinor, row.selling_price_minor);
+  assert.equal(option.available, false);
+  assert.ok(calls.some(([table,k,v]) => table === 'sales_catalogue_category' && k === 'tenant_id' && v === form.tenant_id));
+  assert.equal((await bundleOptions(db, form, 'bundle'))[0].categoryName, undefined);
+  assert.match(bundleConfigurationError({ ...form, fields: [{ ...form.fields[0], show_bundle_category: 'true' }] }), /on or off/);
+});
 test('UUID is never parsed as a price; browser labels and prices have no authority', async () => {
   const db = dbFor();
   const values = { bundle: id, __bundle_labels: { bundle: 'Forged' }, amount: 1 };

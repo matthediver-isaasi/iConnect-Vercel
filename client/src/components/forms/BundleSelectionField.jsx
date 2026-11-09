@@ -11,10 +11,11 @@ export default function BundleSelectionField({ field, formId, value, onChange, d
   // form's options after sign-out/sign-in in the same QueryClient.
   const [instance] = useState(() => ++queryInstance);
   const [unavailable, setUnavailable] = useState(false);
+  const [category, setCategory] = useState('');
   const callbacks = useRef({ onChange, onValidityChange });
   callbacks.current = { onChange, onValidityChange };
   const query = useQuery({
-    queryKey: ['public-form-bundles', publicClient.getTenantSlug(), formId, field.id, instance],
+    queryKey: ['public-form-bundles', publicClient.getTenantSlug(), formId, field.id, instance, field.show_bundle_category === true],
     queryFn: () => publicClient.listFormBundles(formId, field.id),
     enabled: !!formId,
     retry: false,
@@ -34,6 +35,14 @@ export default function BundleSelectionField({ field, formId, value, onChange, d
     return () => window.removeEventListener(BUNDLE_UNAVAILABLE_EVENT, handleUnavailable);
   }, [formId, field.id]);
   const items = query.data?.items || [];
+  const categories = [...new Map(items.map(item => [item.categoryId || '_uncategorised',
+    item.categoryName || 'Uncategorised'])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  // A restored answer remains visible even if the user has not chosen a filter.
+  const visibleItems = !field.show_bundle_category || !category ? items
+    : items.filter(item => (item.categoryId || '_uncategorised') === category);
+  useEffect(() => {
+    if (category && value && !visibleItems.some(item => item.id === value)) setCategory('');
+  }, [category, value, items, field.show_bundle_category]);
   const selected = items.find(item => item.id === value);
   const valid = (!value && !field.required) || (!!selected && selected.available === true);
   useEffect(() => {
@@ -45,16 +54,31 @@ export default function BundleSelectionField({ field, formId, value, onChange, d
       : query.isPending || query.isFetching ? <div role="status" className="animate-pulse rounded-md bg-muted p-3 text-sm text-muted-foreground">Loading bundles…</div>
       : query.isError ? <div role="alert" className="space-y-2 text-sm text-destructive"><p>Bundle options could not be loaded.</p><Button type="button" variant="outline" size="sm" onClick={() => query.refetch()}>Retry bundles</Button></div>
       : items.length === 0 ? <p className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">No bundles are currently offered on this form.</p>
-      : <select aria-label={field.label || 'Bundle selection'} required={field.required} disabled={disabled} value={value || ''}
+      : <>
+      {field.show_bundle_category === true && <div className="space-y-1">
+        <label htmlFor={`bundle-category-${field.id}`} className="text-sm font-medium">Category</label>
+        <select id={`bundle-category-${field.id}`} disabled={disabled} value={category}
+          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:opacity-50"
+          onChange={event => {
+            const next = event.target.value;
+            setCategory(next);
+            if (value && next && (selected?.categoryId || '_uncategorised') !== next) onChange('');
+          }}>
+          <option value="">All categories</option>
+          {categories.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+        </select>
+      </div>}
+      <select aria-label={field.label || 'Bundle selection'} required={field.required} disabled={disabled} value={value || ''}
         aria-invalid={!!value && !valid} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:opacity-50"
         onChange={event => { setUnavailable(false); onChange(event.target.value); }}>
         <option value="">Choose a bundle…</option>
         {value && !selected && <option value={value} disabled>Previously selected bundle — unavailable</option>}
-        {items.map(item => <option key={item.id} value={item.id} disabled={!item.available}>
+        {visibleItems.map(item => <option key={item.id} value={item.id} disabled={!item.available}>
           {item.name} — {new Intl.NumberFormat('en-GB', { style: 'currency', currency: item.currency }).format(item.amountMinor / 100)}
           {!item.available ? ' — Sold out / unavailable' : item.remaining === null ? '' : ` — ${item.remaining} available`}
         </option>)}
-      </select>}
+      </select>
+      </>}
     <p className="text-xs text-muted-foreground">Your bundle selection cannot be changed after submission. Deleting a submission does not automatically restore stock.</p>
   </div>;
 }

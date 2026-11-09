@@ -121,7 +121,7 @@ export function CatalogueTable({ rows, type, categories, products, onEdit, onDup
       const archived = row.isActive === false || row.archivedAt;
       const reference = row.eventReference || {};
       return <TableRow key={row.id} className={archived ? "bg-slate-50/70 text-slate-500" : ""}>
-        <TableCell><div className="font-semibold text-slate-900">{row.name}</div>{(type === "categories" || showInternalCode) && row.code && <div className="mt-0.5 font-mono text-[11px] text-slate-500">{row.code}</div>}</TableCell>
+        <TableCell><div className="font-semibold text-slate-900">{row.name}</div>{type === "bundles" && row.categoryId && <div className="text-xs text-blue-700">{categoryName(row.categoryId)}</div>}{(type === "categories" || showInternalCode) && row.code && <div className="mt-0.5 font-mono text-[11px] text-slate-500">{row.code}</div>}</TableCell>
         <TableCell className="max-w-[280px] text-xs text-slate-600">{type === "products" ? <><span className="font-medium text-blue-700">{categoryName(row.categoryId)}</span>{showSku && row.sku && <span className="ml-2 font-mono text-slate-500">SKU {row.sku}</span>}</> : type === "bundles" ? <span>{(row.items || []).map((item) => `${item.quantity} × ${productName(item.productId)}`).join(" · ") || "No products selected"}</span> : row.description || "—"}</TableCell>
         <TableCell>{type === "products" ? <><div className="font-medium text-slate-800">{money(row.standardPriceMinor, row.currency)}</div><div className="text-[11px] text-slate-500">minimum {money(row.minimumPriceMinor, row.currency)}{reference.eventId ? ` · ${row.delegateCapacity ?? "Unavailable"} delegate${row.delegateCapacity === 1 ? "" : "s"}` : " · general"}</div></> : type === "bundles" ? <><div className="font-medium text-slate-800">{money(row.sellingPriceMinor, row.currency)}</div><div className="text-[11px] text-slate-500">{(row.items || []).length} products</div></> : <Badge variant="outline">{archived ? "Archived" : "Active"}</Badge>}</TableCell>
         {type === "bundles" && <TableCell><div className="text-sm">{row.bundleStock ? row.bundleStock.remaining === null ? "Unlimited" : `${row.bundleStock.remaining} available` : "Stock unavailable"}</div><div className="text-xs text-slate-500">{row.bundleStock ? `${row.bundleStock.reserved} reserved` : "Reload to check stock"}</div>{row.bundleStock?.requiresAttention && <Badge variant="outline" className="mt-1 border-amber-300 bg-amber-50 text-amber-800">Holds need administrator review</Badge>}{canManage && onStock && <Button type="button" variant="link" size="sm" className="h-auto px-0 text-xs" disabled={!row.bundleStock} onClick={() => onStock(row)} aria-label={`Edit stock for ${row.name}`}>Edit stock</Button>}</TableCell>}
@@ -249,7 +249,17 @@ export function EditDialog({ config, categories, categoriesLoading, productsLoad
      {type === "categories" && <><Field label="Category code"><Input required maxLength={64} aria-invalid={Boolean(categoryError)} aria-describedby="category-code-help category-code-error" value={form.code || ""} onChange={(e) => updateCategoryCode(e.target.value)} /><p id="category-code-help" className="mt-1 text-xs text-slate-500">1–64 uppercase letters, numbers, underscores, or hyphens. Codes must be unique.</p>{categoryError && <p id="category-code-error" className="mt-1 text-xs font-medium text-red-600">{categoryError}</p>}</Field><Field label="Description" wide><Textarea value={form.description || ""} onChange={(e) => update("description", e.target.value)} /></Field></>}
     {type === "products" && <ProductFields form={form} update={update} categories={categories} events={events} existing={config.row} showSku={showSku} taxOptions={taxOptions} selectedTaxId={selectedTaxId} onTaxChange={(value) => { copyTaxInitialized.current = true; setSelectedTaxId(value); }} />}
     {type === "products" && <ProductSpaceRequirement value={form.spaceRequirementId} onChange={value => update("spaceRequirementId", value)} />}
-     {type === "bundles" && <BundleFields form={form} update={update} />}
+     {type === "bundles" && <>
+       <Field label="Bundle category">
+         <ProductSelect aria-label="Bundle category" value={form.categoryId || ""} onChange={event => update("categoryId", event.target.value)}>
+           <option value="">Uncategorised</option>
+           {form.categoryId && !categories.some(item => item.id === form.categoryId) && <option value={form.categoryId}>Saved category (unavailable)</option>}
+           {categories.filter(item => item.isActive !== false || item.id === form.categoryId).map(item =>
+             <option key={item.id} value={item.id}>{item.name}{item.isActive === false ? " (archived)" : ""}</option>)}
+         </ProductSelect>
+       </Field>
+       <BundleFields form={form} update={update} />
+     </>}
       {type === "bundles" && <BundleItems form={form} update={update} products={products} categories={categories} loading={categoriesLoading || productsLoading || catalogueError} />}
       {type === "bundles" && catalogueError && <p role="alert">Categories or products could not be loaded. Close and reopen the editor to retry; saved items have not been changed.</p>}
       {type === "bundles" && <BundleBillingGroups key={config.row?.id || config.copySource?.id || "new"} form={form} update={update} products={products} />}

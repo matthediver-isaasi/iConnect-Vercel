@@ -45,6 +45,8 @@ test('billing settings and bundle saves: real SQL replay, CAS, tenancy, integrit
     await db.query(migration('202610180004_sales_billing_configuration'));
     await db.query(migration('202610180005_sales_partnership_terms'));
     await db.query(migration('202610180005_sales_partnership_terms'));
+    await db.query(migration('202612310100_sales_bundle_categories'));
+    await db.query(migration('202612310100_sales_bundle_categories'));
     const a = await connect(true), b = await connect(true);
     const patch = (c, version, fields, tenant = id(1)) => c.query('SELECT * FROM patch_sales_settings($1,$2,$3,$4,$5)', [tenant, version, fields, 'actor', 'tenant_user']);
     const term = { id: id(3), name: '7 days', days: 7, isActive: true, isDefault: true };
@@ -77,6 +79,24 @@ test('billing settings and bundle saves: real SQL replay, CAS, tenancy, integrit
     const groups = [{ id: id(4), name: 'Deposit', position: 0, allocatedMinor: 75, productIds: [p.id], timing: { kind: 'acceptance', days: 0 }, paymentTerms: { id: term.id, name: term.name, days: term.days } },
       { id: id(5), name: 'Other', position: 1, allocatedMinor: 25, productIds: [p2.id], timing: { kind: 'fixed', date: '2026-10-18' }, paymentTerms: { id: term.id, name: term.name, days: term.days } }];
     const record = { code: 'B1', name: 'Bundle', currency: 'GBP', selling_price_minor: 100, presentation_mode: 'bundle', display_order: 0, billing_groups: groups };
+    await db.query(`INSERT INTO sales_catalogue_category(id,tenant_id,code,name,is_active,archived_at)
+      VALUES($1,$2,'LOCAL','Local',true,null),($3,$4,'FOREIGN','Foreign',true,null),($5,$2,'ARCHIVED','Archived',false,now())`,
+      [id(70), id(1), id(71), id(2), id(72)]);
+    for (const categoryId of [id(71), id(72)]) {
+      await assert.rejects(create('bundles', { ...record, code: 'INVALID_CATEGORY', category_id: categoryId }, items), /active category belonging/);
+    }
+    const categorised = await create('bundles', { ...record, code: 'CATEGORISED', category_id: id(70) }, items);
+    assert.equal(categorised.category_id, id(70));
+    const changeCategory = async (categoryPatch, expected = categorised.updated_at) => (await a.query(
+      'SELECT update_sales_catalogue_bundle($1,$2,$3,$4,$5,$6,$7) AS record',
+      [id(1), categorised.id, expected, { ...record, code: 'CATEGORISED', ...categoryPatch }, JSON.stringify(items), 'actor', 'tenant_user']
+    )).rows[0].record;
+    await assert.rejects(changeCategory({ category_id: id(71) }), /active category belonging/);
+    const preserved = await changeCategory({});
+    assert.equal(preserved.category_id, id(70), 'old clients preserve saved category');
+    const cleared = await changeCategory({ category_id: null }, preserved.updated_at);
+    assert.equal(cleared.category_id, null);
+    assert.equal((await db.query('SELECT count(*)::int AS n FROM sales_audit_event WHERE entity_id=$1', [categorised.id])).rows[0].n, 3);
     const bundle = await create('bundles', record, items);
     assert.deepEqual(bundle.billing_groups, groups);
     const update = async (r, i = items, expected = bundle.updated_at) => (await a.query('SELECT update_sales_catalogue_bundle($1,$2,$3,$4,$5,$6,$7) AS record',

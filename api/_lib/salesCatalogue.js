@@ -90,6 +90,7 @@ const mapProduct = (row) => ({
   isActive: row.is_active, archivedAt: row.archived_at, createdAt: row.created_at, updatedAt: row.updated_at,
 });
 const mapBundle = (row) => ({
+  categoryId: row.category_id || null,
   billingGroups: row.billing_groups || [],
   id: row.id, code: row.code, name: row.name, description: row.description, currency: row.currency,
   sellingPriceMinor: Number(row.selling_price_minor),
@@ -238,6 +239,7 @@ const productRow = (value) => ({
   ticket_type_id: value.eventReference?.ticketTypeId ?? null,
 });
 const bundleRow = (value) => ({
+  category_id: value.categoryId ?? null,
   ...(value.copySourceId ? { copy_source_id: value.copySourceId } : {}),
   billing_groups: value.billingGroups || [],
   code: value.code, name: value.name.trim(), description: value.description ?? null,
@@ -252,7 +254,7 @@ async function ensureCategory(db, tenantId, id) {
   const result = await db.from(TABLES.categories).select('id,is_active').eq('tenant_id', tenantId).eq('id', id).maybeSingle();
   throwDb(result.error);
   if (!result.data) throw new SalesHttpError(400, 'Category does not belong to this tenant');
-  if (!result.data.is_active) throw new SalesHttpError(400, 'Active products require an active category');
+  if (!result.data.is_active) throw new SalesHttpError(400, 'Select an active category');
 }
 
 async function ensureBundleProducts(db, tenantId, items) {
@@ -291,6 +293,7 @@ export async function createCatalogueRecord(db, tenantId, actor, type, value, op
     eventReference = await resolveEventTicketReference(db, tenantId, value.eventReference);
   }
   if (type === 'bundles') {
+    await ensureCategory(db, tenantId, value.categoryId);
     await ensureBundleProducts(db, tenantId, value.items);
     let previous = [];
     if (value.copySourceId) {
@@ -350,7 +353,10 @@ export async function updateCatalogueRecord(db, tenantId, actor, type, id, value
     await ensureCategory(db, tenantId, value.categoryId);
     if ('eventReference' in value) await resolveEventTicketReference(db, tenantId, value.eventReference);
   }
-  if (type === 'bundles') await ensureBundleProducts(db, tenantId, value.items);
+  if (type === 'bundles') {
+    if ('categoryId' in value && value.categoryId !== current.data.category_id) await ensureCategory(db, tenantId, value.categoryId);
+    await ensureBundleProducts(db, tenantId, value.items);
+  }
   if (type === 'products') {
     const standard = value.standardPriceMinor ?? Number(current.data.standard_price_minor);
     const minimum = 'minimumPriceMinor' in value ? value.minimumPriceMinor

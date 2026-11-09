@@ -31,7 +31,7 @@ const id = '12345678-1234-4234-8234-123456789012';
 const field = { id: 'offer', label: 'Your bundle', required: true, type: 'sales_bundle' };
 const item = { id, name: 'Delegate package', amountMinor: 8750, currency: 'GBP', available: true, remaining: 7 };
 const settle = async () => { await act(async () => { await new Promise(resolve => setTimeout(resolve, 25)); }); };
-async function mount(initialValue = '') {
+async function mount(initialValue = '', fieldOverrides = {}) {
   const container = document.createElement('div');
   document.body.append(container);
   const root = createRoot(container);
@@ -39,7 +39,7 @@ async function mount(initialValue = '') {
   const answers = [];
   function Fixture() {
     const [value, setValue] = useState(initialValue);
-    return <BundleSelectionField field={field} formId="form-one" value={value} onChange={next => { answers.push(next); setValue(next); }} />;
+    return <BundleSelectionField field={{...field, ...fieldOverrides}} formId="form-one" value={value} onChange={next => { answers.push(next); setValue(next); }} />;
   }
   await act(async () => root.render(<QueryClientProvider client={client}><Fixture /></QueryClientProvider>));
   return { container, answers, close: async () => { await act(async () => root.unmount()); client.clear(); container.remove(); } };
@@ -75,6 +75,29 @@ test('sold-out bundles remain visible and disabled; selection remains a UUID', a
     await act(async () => { select.value = id; select.dispatchEvent(new Event('change', { bubbles: true })); });
     assert.deepEqual(fixture.answers, [id]);
   } finally { await fixture.close(); }
+});
+test('optional category filter narrows allowed bundles and clears incompatible selection', async () => {
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ items: [
+    { ...item, categoryId: 'bronze', categoryName: 'Bronze Exhibitor' },
+    { ...item, id: 'silver-bundle', categoryId: 'silver', categoryName: 'Silver Exhibitor' },
+    { ...item, id: 'uncategorised', categoryId: null, categoryName: null },
+  ] }) });
+  const fixture = await mount(id, { show_bundle_category: true });
+  try {
+    await settle();
+    const [filter, bundle] = fixture.container.querySelectorAll('select');
+    assert.equal(bundle.value, id, 'restored selection remains visible');
+    assert.equal(filter.options.length, 4);
+    await act(async () => { filter.value = 'silver'; filter.dispatchEvent(new Event('change', { bubbles: true })); });
+    assert.deepEqual(fixture.answers, ['']);
+    assert.equal(bundle.options.length, 2);
+    assert.equal(bundle.options[1].value, 'silver-bundle');
+    await act(async () => { filter.value = ''; filter.dispatchEvent(new Event('change', { bubbles: true })); });
+    assert.equal(bundle.options.length, 4);
+  } finally { await fixture.close(); }
+  const legacy = await mount();
+  try { await settle(); assert.equal(legacy.container.querySelectorAll('select').length, 1); }
+  finally { await legacy.close(); }
 });
 test('stock conflict refreshes options and clears only this bundle answer', async () => {
   let calls = 0;

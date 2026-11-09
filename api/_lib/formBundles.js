@@ -29,19 +29,32 @@ export async function bundleOptions(db, form, fieldId) {
   const field = (form.fields || []).find(f => f.id === fieldId && f.type === BUNDLE_FIELD_TYPE);
   if (!field) throw new FormBundleError('Bundle field not found', 404);
   const { data, error: dbError } = await db.from('sales_catalogue_bundle')
-    .select('id,name,selling_price_minor,currency,is_active,archived_at,available_from,available_to')
+    .select('id,name,selling_price_minor,currency,is_active,archived_at,available_from,available_to,category_id')
     .eq('tenant_id', form.tenant_id).in('id', field.allowed_bundle_ids);
   if (dbError) throw dbError;
   const { data: stocks, error: stockError } = await db.from('form_bundle_stock')
     .select('bundle_id,remaining').eq('tenant_id', form.tenant_id).in('bundle_id', field.allowed_bundle_ids);
   if (stockError) throw stockError;
+  // Expose only category labels attached to this form's tenant-scoped allowed bundles.
+  const categoryIds = [...new Set((data || []).map(b => b.category_id).filter(Boolean))];
+  let categories = [];
+  if (field.show_bundle_category && categoryIds.length) {
+    const result = await db.from('sales_catalogue_category').select('id,name')
+      .eq('tenant_id', form.tenant_id).in('id', categoryIds);
+    if (result.error) throw result.error;
+    categories = result.data || [];
+  }
   const now = Date.now();
   return (data || []).filter(b => b.is_active && !b.archived_at
     && (!b.available_from || Date.parse(b.available_from) <= now)
     && (!b.available_to || Date.parse(b.available_to) >= now)).map(b => {
     const remaining = stocks?.find(s => s.bundle_id === b.id)?.remaining ?? null;
     return { id: b.id, name: b.name, amountMinor: Number(b.selling_price_minor), currency: b.currency,
-      remaining, available: remaining !== 0 };
+      remaining, available: remaining !== 0,
+      ...(field.show_bundle_category ? {
+        categoryId: categories.find(c => c.id === b.category_id)?.id || null,
+        categoryName: categories.find(c => c.id === b.category_id)?.name || null,
+      } : {}) };
   });
 }
 // Mutates only the bundle's effective stored answer, never other raw answers.

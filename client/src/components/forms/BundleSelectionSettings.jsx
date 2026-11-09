@@ -2,7 +2,7 @@ import { useCatalogue } from '@/pages/sales/useCatalogue';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 
-export default function BundleSelectionSettings({ field, onChange }) {
+export default function BundleSelectionSettings({ field, onChange, onCategoryFilterChange }) {
   const catalogue = useCatalogue('bundles');
   const rows = Array.isArray(catalogue.data) ? catalogue.data : catalogue.data?.items || [];
   const selected = field.allowed_bundle_ids || [];
@@ -12,6 +12,11 @@ export default function BundleSelectionSettings({ field, onChange }) {
   return <div className="space-y-3 rounded-md border border-slate-200 bg-slate-50 p-4">
     <p className="text-sm font-medium">Allowed bundles</p>
     <p className="text-xs text-slate-500">Choose the packaged offers available on this form. Prices and availability are resolved by the server.</p>
+    <label className="flex items-center gap-2 text-sm">
+      <Checkbox checked={field.show_bundle_category === true} onCheckedChange={checked => onCategoryFilterChange?.(checked === true)} />
+      Show a category filter above the bundle selector
+    </label>
+    <p className="text-xs text-slate-500">When enabled, visitors can narrow the allowed bundles by their sales category. Only categories represented by the allowed bundles appear.</p>
     <div className="flex flex-wrap items-center gap-2">
       <Button type="button" variant="outline" size="sm"
         disabled={catalogue.isPending || catalogue.isError || unselected.length === 0 || remainingSlots === 0}

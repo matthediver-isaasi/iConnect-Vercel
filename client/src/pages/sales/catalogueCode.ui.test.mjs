@@ -73,7 +73,9 @@ for (const mode of ["row", "copySource"]) test(`category-first bundle ${mode} pr
     await click("Remove item 1");
     assert.equal(value("Included category 1"), "c1");
     assert.equal(value("Quantity 1"), "2");
+    await select("Bundle category", "c2");
     await submitForm();
+    assert.equal(saved.categoryId, "c2", "bundle category is independent from component categories");
     assert.deepEqual(saved.items, [{ productId: "p1", quantity: 2 }, { productId: "p3", quantity: 1 }]);
     assert.ok(saved.items.every(item => Object.keys(item).sort().join() === "productId,quantity"));
   });
