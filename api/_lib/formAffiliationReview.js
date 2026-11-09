@@ -1,11 +1,21 @@
 import { resolveCustomObjectDisplayValue } from './customObjectDomain.js';
 
-export async function allAffiliationRows(makeQuery, limit = 10000) {
+export async function allAffiliationRows(makeQuery, limit = 10000, { orderBy = 'id', operation = 'affiliation.discovery' } = {}) {
   const rows = [];
   for (let offset = 0; offset <= limit; offset += 500) {
-    const { data, error, count } = await makeQuery().order('id').range(offset, offset + 499);
+    let result;
+    try {
+      result = await makeQuery().order(orderBy).range(offset, offset + 499);
+    } catch (cause) {
+      const error = new Error('Complete affiliation choices could not be loaded.', { cause });
+      error.operation = operation;
+      throw error;
+    }
+    const { data, error, count } = result;
     if (error || !Array.isArray(data) || !Number.isInteger(count)) {
-      throw new Error('Complete affiliation choices could not be loaded.');
+      const failure = new Error('Complete affiliation choices could not be loaded.', { cause: error });
+      failure.operation = operation;
+      throw failure;
     }
     rows.push(...data);
     if (rows.length > limit || count > limit) throw new Error('There are too many affiliation choices to safely review.');

@@ -78,9 +78,12 @@ export async function loadProfileFormPolicy(db, tenantId) {
 }
 export async function profileFormMetadata(db, tenantId) {
   const [fields, forms, configs] = await Promise.all([
-    allAffiliationRows(() => db.from('preference_field').select('id,label,options,entity_scope,custom_object_id,is_active', { count: 'exact' }).eq('tenant_id', tenantId)),
-    allAffiliationRows(() => db.from('form').select('*', { count: 'exact' }).eq('tenant_id', tenantId)),
-    allAffiliationRows(() => db.from('form_member_affiliation_config').select('form_id,config', { count: 'exact' }).eq('tenant_id', tenantId)),
+    allAffiliationRows(() => db.from('preference_field').select('id,label,options,entity_scope,custom_object_id,is_active', { count: 'exact' }).eq('tenant_id', tenantId),
+      10000, { operation: 'forms.preference_fields' }),
+    allAffiliationRows(() => db.from('form').select('*', { count: 'exact' }).eq('tenant_id', tenantId),
+      10000, { operation: 'forms.forms' }),
+    allAffiliationRows(() => db.from('form_member_affiliation_config').select('form_id,config', { count: 'exact' }).eq('tenant_id', tenantId),
+      10000, { orderBy: 'form_id', operation: 'forms.affiliation_configs' }),
   ]);
   return {
     fields: [...profileCoreFields, ...fields.filter(f => f.is_active !== false && !f.custom_object_id

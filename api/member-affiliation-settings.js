@@ -8,6 +8,7 @@ import { loadProfileFormPolicy, profileFormMetadata, validateProfileFormPolicy }
 export default async function handler(req, res, deps = {}) {
   res.setHeader('Cache-Control', 'no-store');
   if (!['GET', 'PUT'].includes(req.method)) return res.status(405).json({ error: 'Method not allowed' });
+  let operation = 'authorization';
   try {
     const db = deps.db || supabase;
     const context = await (deps.getTenantContext || getTenantContext)(req);
@@ -17,13 +18,16 @@ export default async function handler(req, res, deps = {}) {
       return res.status(403).json({ error: 'Administrator access required.' });
     }
     if (req.query?.mode === 'forms') {
+      operation = 'forms.metadata';
       const metadata = await profileFormMetadata(db, tenantId);
+      operation = 'forms.policy.load';
       let policy = await loadProfileFormPolicy(db, tenantId);
       if (req.method === 'PUT') {
         if (!Number.isSafeInteger(req.body?.version) || req.body.version < 0) return res.status(400).json({ error: 'Reload settings before saving.' });
         let config;
         try { config = validateProfileFormPolicy(req.body.config, metadata); }
         catch (error) { return res.status(400).json({ error: error.message }); }
+        operation = 'forms.policy.save';
         const { data, error } = await db.rpc('profile_affiliation_form_policy_save', {
           p_tenant: tenantId, p_version: req.body.version, p_config: config,
         });
@@ -32,13 +36,16 @@ export default async function handler(req, res, deps = {}) {
       }
       return res.json({ ...policy, metadata });
     }
+    operation = 'legacy.metadata';
     const metadata = await (deps.discover || discoverMemberAffiliations)(db, tenantId);
+    operation = 'legacy.policy.load';
     let policy = await loadProfilePolicy(db, tenantId);
     if (req.method === 'PUT') {
       if (!Number.isSafeInteger(req.body?.version) || req.body.version < 0) return res.status(400).json({ error: 'Reload the settings before saving.' });
       let config;
       try { config = validateProfileAffiliationConfig(req.body.config, metadata); }
       catch (error) { return res.status(400).json({ error: error.message }); }
+      operation = 'legacy.policy.save';
       const { data, error } = await db.rpc('profile_affiliation_policy_save', {
         p_tenant: tenantId, p_version: req.body.version, p_config: config,
       });
@@ -47,6 +54,14 @@ export default async function handler(req, res, deps = {}) {
     }
     return res.json({ version: policy.version, config: policy.config, metadata });
   } catch (error) {
+    // Codes and authored operation names only: provider messages/details can
+    // contain row values, SQL, credentials or private form content.
+    const code = error?.cause?.code || error?.code;
+    (deps.logger || console).error('[member-affiliation-settings] unavailable', {
+      operation: error?.operation || operation,
+      method: req.method,
+      code: typeof code === 'string' && /^(?:[0-9A-Z]{5}|PGRST[0-9]{3})$/.test(code) ? code : 'unknown',
+    });
     return res.status(error.code === '40001' ? 409 : 503).json({
       error: error.code === '40001' ? 'Settings changed. Reload before saving.' : 'Affiliation settings could not be loaded or saved. Editing remains unavailable.',
     });

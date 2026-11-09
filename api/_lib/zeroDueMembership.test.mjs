@@ -72,7 +72,13 @@ test('zero-due endpoint retries require a settled row and confirmed workflow del
     new URL('../membership/member-fees.js', import.meta.url),
   ]) {
     const source = fs.readFileSync(endpoint, 'utf8');
-    assert.match(source, /payment_status, paid_at, total_with_vat, member_id, organization_id/);
+    if (endpoint.pathname.endsWith('/forms/membership-payment.js')) {
+      assert.match(source, /const idColumn = isMemberScoped \? 'member_id' : 'organization_id'/);
+      assert.match(source, /payment_status, paid_at, total_with_vat, \$\{idColumn\}/);
+      assert.match(source, /\.eq\(idColumn, idValue\)/);
+    } else {
+      assert.match(source, /payment_status, paid_at, total_with_vat, member_id, organization_id/);
+    }
     assert.match(source, /existingRow\.payment_status !== 'paid'/);
     assert.match(source, /isZeroDueExistingMembership\(existingRow\)/);
     assert.match(source, /deliver(?:Form|Portal)ZeroDueWorkflow/);

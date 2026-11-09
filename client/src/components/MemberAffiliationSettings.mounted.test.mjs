@@ -6,6 +6,7 @@ import { build } from "esbuild";
 import { JSDOM } from "jsdom";
 import { affiliationFixture } from "./memberAffiliationSettings.fixtures.js";
 import { EMPTY_CONFIG } from "./memberAffiliationSettingsModel.js";
+import { emptyProfileFormPolicy } from "../../../api/_lib/profileAffiliationForms.js";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "https://isolated.example.test" });
 for (const key of ["window", "document", "navigator", "HTMLElement", "HTMLInputElement", "HTMLButtonElement", "Element", "Node", "Event", "MouseEvent", "CustomEvent", "MutationObserver", "getComputedStyle"]) {
@@ -44,7 +45,7 @@ async function change(element, value, event = "change") {
     element.dispatchEvent(new dom.window.Event(event, { bubbles: true }));
   });
 }
-async function mount(initial) {
+async function mount(initial, formInitial = null, formFailure = null) {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
@@ -52,9 +53,15 @@ async function mount(initial) {
   const calls = [];
   let saved = structuredClone(initial);
   let failure = null;
+  let formSaved = formInitial || { version: 0, config: emptyProfileFormPolicy(), metadata: { fields: [], forms: [] } };
   // In-memory transport only. Never make requests to an application or DB.
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, options) => {
+    if (url === "/api/member-affiliation-settings?mode=forms") {
+      if (formFailure) return { ok: false, status: 503, json: async () => ({ error: formFailure }) };
+      if (options.method === "PUT") formSaved = { ...formSaved, config: JSON.parse(options.body).config, version: formSaved.version + 1 };
+      return { ok: true, json: async () => structuredClone(formSaved) };
+    }
     assert.equal(url, "/api/member-affiliation-settings");
     assert.equal(options.credentials, "include");
     calls.push({ ...options, body: options.body && JSON.parse(options.body) });
@@ -64,14 +71,46 @@ async function mount(initial) {
   };
   await act(async () => root.render(React.createElement(QueryClientProvider, { client }, React.createElement(React.StrictMode, null, React.createElement(Settings)))));
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+  // Form policy loads first; legacy discovery starts only after its off state
+  // has reached the parent. Flush that second request separately.
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
   return {
     calls, client,
     setSaved: data => { saved = structuredClone(data); },
     fail: message => { failure = message; },
+    failForms: message => { formFailure = message; },
+    getForms: () => formSaved,
     cleanup: async () => { await act(async () => root.unmount()); client.clear(); host.remove(); globalThis.fetch = originalFetch; },
   };
 }
 const data = () => { const { config, metadata } = affiliationFixture(); return { config, metadata, version: 7 }; };
+
+test("form settings fail closed, retry, save fallback and enablement, and reload", async () => {
+  const formId = "00000000-0000-4000-8000-000000000002";
+  const fixture = await mount(data(), {
+    version: 0, config: emptyProfileFormPolicy(), metadata: { fields: [],
+      forms: [{ id: formId, name: "Active standalone form", eligible: true },
+        { id: "inactive", name: "Inactive form", eligible: false, reason: "Activate the form first." }] },
+  }, "Affiliation settings could not be loaded or saved. Editing remains unavailable.");
+  try {
+    assert.equal(document.getElementById("affiliation-fallback-form"), null);
+    fixture.failForms(null);
+    await click(button("Retry loading form settings"));
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)); });
+    const fallback = document.getElementById("affiliation-fallback-form");
+    assert.equal([...fallback.options].find(o => o.value === "inactive").disabled, true);
+    await change(fallback, formId);
+    await click(button("Save form affiliation settings"));
+    assert.equal(fixture.getForms().config.fallbackFormId, formId);
+    assert.equal(fixture.getForms().config.enabled, false);
+    await click(document.getElementById("form-affiliations-enabled"));
+    await click(button("Save form affiliation settings"));
+    assert.equal(fixture.getForms().config.enabled, true);
+    await click(button("Reload saved form settings"));
+    assert.equal(document.getElementById("affiliation-fallback-form").value, formId);
+    assert.equal(document.getElementById("form-affiliations-enabled").getAttribute("aria-checked"), "true");
+  } finally { await fixture.cleanup(); }
+});
 
 test("default is off, optional setup is collapsed, suggestions require confirmation and do not save", async () => {
   const initial = data();
@@ -79,7 +118,7 @@ test("default is off, optional setup is collapsed, suggestions require confirmat
   const fixture = await mount(initial);
   try {
     assert.match(document.body.textContent, /Let members update their organisation and departments/);
-    assert.equal(document.querySelector('[role="switch"]').getAttribute("aria-checked"), "false");
+    assert.equal(document.getElementById("member-affiliations-enabled").getAttribute("aria-checked"), "false");
     assert.equal([...document.querySelectorAll("details")][0].open, false);
     assert.equal(select("memberDepartmentDefinitionId").value, "");
     assert.equal(select("departmentOrganizationDefinitionId").disabled, true);
@@ -166,11 +205,11 @@ test("save errors retain the draft; reload requires confirmation and deliberatel
   const fixture = await mount(data());
   const originalConfirm = dom.window.confirm;
   try {
-    await click(document.querySelector('[role="switch"]'));
+    await click(document.getElementById("member-affiliations-enabled"));
     fixture.fail("Settings changed. Reload and try again.");
     await click(button("Save affiliation settings"));
     assert.match(document.body.textContent, /Settings changed. Reload and try again/);
-    assert.equal(document.querySelector('[role="switch"]').getAttribute("aria-checked"), "false");
+    assert.equal(document.getElementById("member-affiliations-enabled").getAttribute("aria-checked"), "false");
     fixture.fail(null);
     fixture.setSaved({ ...data(), version: 12 });
     dom.window.confirm = () => false;
@@ -179,7 +218,7 @@ test("save errors retain the draft; reload requires confirmation and deliberatel
     assert.equal(fixture.calls.length, count);
     dom.window.confirm = () => true;
     await click(button("Reload saved settings"));
-    assert.equal(document.querySelector('[role="switch"]').getAttribute("aria-checked"), "true");
+    assert.equal(document.getElementById("member-affiliations-enabled").getAttribute("aria-checked"), "true");
     assert.match(document.body.textContent, /Saved version: 12/);
   } finally { dom.window.confirm = originalConfirm; await fixture.cleanup(); }
 });
@@ -210,7 +249,7 @@ test("invalid retained selections cannot be enabled or implicitly replaced by th
   const fixture = await mount(initial);
   try {
     assert.equal(select("memberDepartmentDefinitionId").value, "missing-saved-connection");
-    await click(document.querySelector('[role="switch"]'));
+    await click(document.getElementById("member-affiliations-enabled"));
     assert.equal(select("memberDepartmentDefinitionId").value, "missing-saved-connection");
     assert.equal(button("Save affiliation settings").disabled, true);
     assert.match(document.body.textContent, /This saved choice is not available/);
@@ -227,7 +266,7 @@ test("invalid retained selections cannot be enabled or implicitly replaced by th
 test("a failed save can be retried without losing selections; later saves use the returned version", async () => {
   const fixture = await mount(data());
   try {
-    await click(document.querySelector('[role="switch"]'));
+    await click(document.getElementById("member-affiliations-enabled"));
     fixture.fail("Unable to save now. Please retry.");
     await click(button("Save affiliation settings"));
     assert.match(document.body.textContent, /Please retry/);
@@ -235,7 +274,7 @@ test("a failed save can be retried without losing selections; later saves use th
     await click(button("Save affiliation settings"));
     assert.equal(fixture.calls.at(-1).body.version, 7);
     assert.match(document.body.textContent, /Saved version: 8/);
-    await click(document.querySelector('[role="switch"]'));
+    await click(document.getElementById("member-affiliations-enabled"));
     await click(button("Save affiliation settings"));
     assert.equal(fixture.calls.at(-1).body.version, 8);
     assert.equal(fixture.calls.at(-1).body.config.enabled, true);

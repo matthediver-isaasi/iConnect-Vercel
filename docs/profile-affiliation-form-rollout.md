@@ -81,3 +81,45 @@ was made. Publication and tenant cutover still require separate approval.
 The first draft insert rolled back because the database requires a non-null
 structured-actions document. The adaptation now supplies the schema's empty
 `{version: 1, actions: []}` document, covered by a regression test.
+
+## Settings loading diagnosis — 2026-11-09
+
+Read-only checks against pinned DEST confirmed that `preference_field.label`
+and `options` exist. Both the preference-field and form discovery queries
+succeeded (93 fields and 67 forms before filtering). The private configuration
+query failed with SQLSTATE `42703`: `form_member_affiliation_config.id` does not
+exist. This table has a tenant/form composite identity, not an `id` column.
+The shared pagination helper had unconditionally ordered every table by `id`.
+
+The fix supplies `form_id` as the stable order within the tenant filter, retaining
+exact counts, all pages and fail-closed checks. Other callers retain their `id`
+ordering. Provider causes are retained internally; the settings endpoint logs
+only operation, HTTP method and validated database error code, not provider
+messages, details, row contents or request bodies.
+
+With corrected code, live read-only metadata discovery returned 38 routing
+fields and 67 forms. The installed `update-my-affiliations` form is now active
+and eligible with no eligibility warning. Tenant routing remained disabled at
+policy version 0. No form, policy, member or schema writes were made.
+
+Verification:
+- Endpoint/query-contract tests cover the missing-order-column reproduction,
+  populated metadata, tenant/admin authorization, unavailable forms, sanitized
+  diagnostics, retry, complete pagination and isolated versioned save/reload.
+- Mounted settings tests cover fail-closed loading, retry, fallback save,
+  enablement, reload and retained legacy behavior. The legacy test transport
+  now answers the form-policy request separately and waits for the dependent
+  legacy request; switches are selected by their distinct IDs.
+- All 29 targeted API/domain tests and 9 mounted settings tests passed.
+- The development workflow restarted and serves port 5000. Its legacy SOURCE
+  tenant-resolution failures are unrelated to this DEST query reproduction.
+
+Deployment boundary: the reported URL still serves asset
+`/assets/index-B4vpnV4Y.js`, containing build
+`9cf89ba5f03dcb07f34440ca0cccecc31d964660`. An unauthenticated settings request
+returns “Administrator access required”; the page screenshot shows sign-in.
+No authenticated deployed failure trace was available. The confirmed exception
+above comes from executing the exact discovery queries read-only against DEST,
+not from a signed-in deployed request. This fork was not deployed, so corrected
+deployed-panel verification remains pending merge/release and authorized admin
+access. Do not describe the isolated UI tests as that verification.
