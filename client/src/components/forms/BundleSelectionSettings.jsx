@@ -6,9 +6,26 @@ export default function BundleSelectionSettings({ field, onChange }) {
   const catalogue = useCatalogue('bundles');
   const rows = Array.isArray(catalogue.data) ? catalogue.data : catalogue.data?.items || [];
   const selected = field.allowed_bundle_ids || [];
+  const selectable = rows.filter(row => row.isActive !== false && !row.archivedAt);
+  const unselected = selectable.filter(row => !selected.includes(row.id));
+  const remainingSlots = Math.max(0, 100 - selected.length);
   return <div className="space-y-3 rounded-md border border-slate-200 bg-slate-50 p-4">
     <p className="text-sm font-medium">Allowed bundles</p>
     <p className="text-xs text-slate-500">Choose the packaged offers available on this form. Prices and availability are resolved by the server.</p>
+    <div className="flex flex-wrap items-center gap-2">
+      <Button type="button" variant="outline" size="sm"
+        disabled={catalogue.isPending || catalogue.isError || unselected.length === 0 || remainingSlots === 0}
+        onClick={() => onChange([...new Set([...selected, ...unselected.slice(0, remainingSlots).map(row => row.id)])])}>
+        Select all bundles
+      </Button>
+      <Button type="button" variant="ghost" size="sm" disabled={selected.length === 0} onClick={() => onChange([])}>
+        Clear selection
+      </Button>
+      <span role="status" className="text-xs text-slate-500">{selected.length} of 100 selected</span>
+    </div>
+    {!catalogue.isPending && !catalogue.isError && unselected.length > remainingSlots && (
+      <p className="text-xs text-amber-700">You can select up to 100 bundles. Select all adds bundles in the order shown until that limit is reached, keeping your existing selections.</p>
+    )}
     {catalogue.isPending ? <div role="status" className="animate-pulse rounded bg-slate-200 p-3 text-sm">Loading catalogue…</div>
       : catalogue.isError ? <div role="alert"><p className="text-sm text-destructive">The bundle catalogue could not be loaded.</p><Button type="button" variant="outline" size="sm" onClick={() => catalogue.refetch()}>Retry catalogue</Button></div>
       : rows.length === 0 ? <p className="text-sm text-slate-500">No catalogue bundles yet. Add a bundle in Sales → Catalogue.</p>
