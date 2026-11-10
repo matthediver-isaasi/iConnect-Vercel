@@ -46,6 +46,35 @@ export function makeTableTypographyMetrics(style, fallbackFontSize = 16) {
   };
 }
 
+// Resolve optional content settings without backfilling legacy documents.
+// Unset horizontal settings retain the existing 2px header / 1px body rules.
+export function resolveTableLines(content = {}) {
+  const width = (value, fallback) => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 12 ? value : fallback;
+  const color = (value) => typeof value === 'string' && /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(value.trim()) ? value.trim() : undefined;
+  const horizontal = content.horizontalLines !== false;
+  const vertical = content.verticalLines === true;
+  const headerWidth = horizontal ? width(content.horizontalLineWidth, 2) : 0;
+  const bodyWidth = horizontal ? width(content.horizontalLineWidth, 1) : 0;
+  const verticalWidth = vertical ? width(content.verticalLineWidth, 1) : 0;
+  const horizontalColor = color(content.horizontalLineColor);
+  const verticalColor = color(content.verticalLineColor) || '#e2e8f0';
+  return {
+    headerWidth,
+    bodyWidth,
+    verticalWidth,
+    headerStyle: {
+      borderBottomWidth: !horizontal || headerWidth !== 2 ? headerWidth : undefined,
+      borderBottomColor: horizontalColor,
+    },
+    bodyStyle: {
+      borderBottomWidth: !horizontal || bodyWidth !== 1 ? bodyWidth : undefined,
+      borderBottomColor: horizontalColor,
+    },
+    // Interior dividers only. Do not add a new outer table border.
+    verticalStyle: vertical ? { borderRight: `${verticalWidth}px solid ${verticalColor}` } : {},
+  };
+}
+
 export function normalizeTableContent(content = {}) {
   const rawColumns = Array.isArray(content.columns) ? content.columns : [];
   const used = new Set();
@@ -164,13 +193,14 @@ export function estimateDataTableHeight(content, breakpoint = 'desktop', styles 
   const width = Number.isFinite(styles.contentWidth) ? Math.max(0, styles.contentWidth) : 1200;
   const cellWidth = Math.max(1, width / Math.max(1, table.columns.length) - 24);
   const { widths } = resolveTableColumnWidths(table.columns);
+  const lines = resolveTableLines(table);
   const rowHeight = (values, metrics, style) => {
     const fontSize = Math.max(8, Number(metricAtBreakpoint(metrics, 'fontSize', breakpoint)) || 16);
     const lineHeight = Math.max(0.5, Number(metricAtBreakpoint(metrics, 'lineHeight', breakpoint)) || 1.5);
     const letterSpacing = Number(metricAtBreakpoint(metrics, 'letterSpacing', breakpoint)) || 0;
     const lines = Math.max(1, ...values.map((value, index) =>
       wrappedLineCount(value, widths ? Math.max(1, width * widths[index] / 100 - 24) : cellWidth, fontSize, letterSpacing, style?.text_transform)));
-    return Math.ceil(fontSize * lineHeight * lines) + 17; // 16px y-padding + border
+    return Math.ceil(fontSize * lineHeight * lines) + 16; // y-padding; borders added below
   };
   const headerMetrics = makeTableTypographyMetrics(styles.headerStyle, 16);
   const bodyMetrics = makeTableTypographyMetrics(styles.bodyStyle, 16);
@@ -179,8 +209,7 @@ export function estimateDataTableHeight(content, breakpoint = 'desktop', styles 
     (sum, row) => sum + rowHeight(table.columns.map((column) => row.cells?.[column.id] ?? ''), bodyMetrics, styles.bodyStyle),
     0,
   );
-  // Header has a 2px collapsed border instead of the body's 1px border.
-  return headerHeight + bodyHeight + 1;
+  return headerHeight + bodyHeight + lines.headerWidth + table.rows.length * lines.bodyWidth;
 }
 
 export function addTableColumn(content, heading = 'Column') {

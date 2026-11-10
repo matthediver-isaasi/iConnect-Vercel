@@ -111,6 +111,7 @@ import {
   removeTableColumn,
   reorderTableColumns,
   resolveTableColumnWidths,
+  resolveTableLines,
   setTableColumnWidth,
   parseDelimitedTable,
   appendParsedTableRows,
@@ -10473,6 +10474,7 @@ function HeroCarouselMobileInspector(props) {
 function DataTableRender({ block, breakpoint, asEditor = false }) {
   const c = normalizeTableContent(block.content);
   const { widths } = resolveTableColumnWidths(c.columns);
+  const lines = resolveTableLines(c);
   const { styles: tenantStyles, resolved } = useTenantTypographyStylesState();
   const headerStyle = resolveTenantStyle(c.headerTypographyStyleId, tenantStyles);
   const bodyStyle = resolveTenantStyle(c.bodyTypographyStyleId, tenantStyles);
@@ -10509,9 +10511,9 @@ function DataTableRender({ block, breakpoint, asEditor = false }) {
             </colgroup>
           )}
           <thead>
-            <tr className="border-b-2 border-slate-300">
-              {c.columns.map((column) => (
-                <th key={column.id} scope="col" data-tg-r="table-header" className="px-3 py-2 font-semibold align-top whitespace-pre-wrap [overflow-wrap:anywhere]" style={headerInline}>
+            <tr className="border-b-2 border-slate-300" style={lines.headerStyle}>
+              {c.columns.map((column, index) => (
+                <th key={column.id} scope="col" data-tg-r="table-header" className="px-3 py-2 font-semibold align-top whitespace-pre-wrap [overflow-wrap:anywhere]" style={{ ...headerInline, ...(index < c.columns.length - 1 ? lines.verticalStyle : {}) }}>
                   {column.heading}
                 </th>
               ))}
@@ -10519,9 +10521,9 @@ function DataTableRender({ block, breakpoint, asEditor = false }) {
           </thead>
           <tbody>
             {c.rows.map((row) => (
-              <tr key={row.id} className="border-b border-slate-200">
-                {c.columns.map((column) => (
-                  <td key={column.id} data-tg-r="table-cell" className="px-3 py-2 align-top whitespace-pre-wrap [overflow-wrap:anywhere]" style={bodyInline}>
+              <tr key={row.id} className="border-b border-slate-200" style={lines.bodyStyle}>
+                {c.columns.map((column, index) => (
+                  <td key={column.id} data-tg-r="table-cell" className="px-3 py-2 align-top whitespace-pre-wrap [overflow-wrap:anywhere]" style={{ ...bodyInline, ...(index < c.columns.length - 1 ? lines.verticalStyle : {}) }}>
                     {row.cells?.[column.id] || ''}
                   </td>
                 ))}
@@ -10622,6 +10624,52 @@ function DataTableInspector({ block, update }) {
           </div>
         )}
         <Button type="button" size="sm" variant="outline" disabled={columns.length >= TABLE_LIMITS.maxColumns} onClick={() => setContent(addTableColumn(c, `Column ${columns.length + 1}`))} data-testid="table-column-add"><Plus className="w-4 h-4 mr-1" />Add column</Button>
+      </div>
+
+      <div className="space-y-3 border-t pt-3">
+        <Label className="text-xs text-slate-600">Table lines</Label>
+        {['horizontal', 'vertical'].map((axis) => {
+          const title = axis === 'horizontal' ? 'Horizontal' : 'Vertical';
+          const shown = axis === 'horizontal' ? c.horizontalLines !== false : c.verticalLines === true;
+          return (
+            <div key={axis} className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor={`table-${axis}-lines-${block.id}`} className="text-xs text-slate-600">Show {axis} lines</Label>
+                <Switch id={`table-${axis}-lines-${block.id}`} checked={shown} onCheckedChange={(value) => set({ [`${axis}Lines`]: value })} data-testid={`table-${axis}-lines`} />
+              </div>
+              {shown && (
+                <div className="space-y-2 pl-2">
+                  <div className="space-y-1">
+                    <Label htmlFor={`table-${axis}-weight-${block.id}`} className="text-xs text-slate-600">{title} line weight (px)</Label>
+                    <Input
+                      id={`table-${axis}-weight-${block.id}`}
+                      type="number" min="0" max="12" step="0.5"
+                      value={c[`${axis}LineWidth`] ?? ''}
+                      placeholder={axis === 'horizontal' ? 'Auto (header 2, body 1)' : 'Auto (1)'}
+                      className="h-8"
+                      data-testid={`table-${axis}-line-width`}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        if (raw !== '' && (!Number.isFinite(Number(raw)) || Number(raw) < 0 || Number(raw) > 12)) return;
+                        const next = { ...c };
+                        if (raw === '') delete next[`${axis}LineWidth`];
+                        else next[`${axis}LineWidth`] = Number(raw);
+                        setContent(next);
+                      }}
+                    />
+                  </div>
+                  <ColorField label={`${title} line colour`} value={c[`${axis}LineColor`] || ''} fallback={axis === 'horizontal' ? '#cbd5e1' : '#e2e8f0'} placeholder="Default" onChange={(value) => {
+                    const next = { ...c };
+                    if (!value) delete next[`${axis}LineColor`];
+                    else next[`${axis}LineColor`] = value;
+                    setContent(next);
+                  }} testId={`table-${axis}-line-color`} />
+                </div>
+              )}
+            </div>
+          );
+        })}
+        <p className="text-xs text-slate-500">Blank weight or colour keeps the default. Vertical lines divide columns, without an outer border.</p>
       </div>
 
       <div className="space-y-2 border-t pt-3">
