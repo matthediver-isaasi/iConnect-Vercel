@@ -15,6 +15,20 @@ not permission to treat the full event price as a membership-only fee, infer
 payment settlement, include deleted members, or overwrite a separately recorded
 expiry without considering its existing authority.
 
+Historical entitlement reconstruction is not a new rolling purchase. Preserve
+retained expiry and unknown membership-only amounts, especially for bundled event
+invoices. Do not fabricate rolling duration or price to satisfy a purchase guard.
+
+**Why:** Invoice-based commencement and retained legacy expiry can legitimately
+differ from an exact annual rolling term; bundled invoices do not allocate a
+membership price. Legacy renewal policy can also be protected despite being null.
+
+**How to apply:** Use exact audited maintenance transitions for protected legacy
+policy repairs; preserve ordinary immutability. Renewal snapshots need schedule
+identity (start mode, owner scope, matching field and value), not just grace days.
+Verify through the full renewal-context loader: passing a successor config
+directly to the lower-level assessor skips discovery and can conceal a blocker.
+
 An explicit owner confirmation may authorise a paid membership reconstruction
 even when its supporting invoice was fully cleared by credit rather than cash.
 Keep the owner attestation and provider settlement facts distinct.

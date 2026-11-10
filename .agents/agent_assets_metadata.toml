@@ -1951,3 +1951,17 @@ mtime_ms = 1794351205462
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/3095798c-476c-4908-8aa3-2a16dc8c03ac/f92431bf-2791-4a01-a95f-30d512f53e26"
 storage_version_token = "1794351215135239"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "-x08YgLg9jKuto0xMz1_s"
+uri = "file://generated-artifacts/bnms-invoice-date-repair/BNMS-membership-repairs-and-remaining-review.xlsx"
+type = "table"
+title = "BNMS membership repairs and remaining review"
+description = "45 repaired memberships with names, invoice references and dates; 15 remaining renewal blockers with reasons. Deleted members excluded."
+logical_id = "488fe306-0351-4977-b9ac-70586e831e65"
+content_hash = "sha256:e464788c6eff7b2a6f76b828814b83c5b083fb2cec39588adfe952dce1205b0c"
+size = 14215
+mtime_ms = 1794353420034
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/488fe306-0351-4977-b9ac-70586e831e65/ee0307eb-6700-47d8-9e93-d042e720b76f"
+storage_version_token = "1794353461128636"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
