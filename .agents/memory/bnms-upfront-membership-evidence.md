@@ -12,8 +12,10 @@ evidence was too strict: “we can take invoice dates as term start dates.”
 **How to apply:** Use the matched membership invoice date rather than withholding
 a reconstruction solely for missing commencement evidence. This is date authority,
 not permission to treat the full event price as a membership-only fee, infer
-payment settlement, include deleted members, or overwrite a separately recorded
-expiry without considering its existing authority.
+payment settlement or include deleted members. For the incomplete records in
+this recovery, the owner subsequently chose “Calculate expiry from structure”:
+derive expiry from the invoice start and matching structure duration rather than
+retain conflicting legacy expiry. Leave existing fully documented purchases alone.
 
 For this BNMS recovery the owner authorises deriving missing membership prices
 from the structure selected by the correct member_class. Reconstruct the full
@@ -29,9 +31,10 @@ totals. Do not substitute the package total or claim new cash settlement. Verify
 the rendered history and commitment presentation as well as renewal eligibility.
 This overrides the previous unknown-price hold for this authorised BNMS recovery.
 
-Historical entitlement reconstruction is not a new payment collection. Retained
-expiry can differ from an exact rolling duration; resolve that conflict explicitly
-rather than fabricate a duration merely to satisfy a purchase guard.
+Historical entitlement reconstruction is not a new payment collection. Where
+legacy expiry conflicts with invoice start plus structure duration, this owner's
+explicit calculation choice supplies date authority; it is not a general rule
+for unrelated tenants or previously documented purchases.
 
 **Why:** Invoice-based commencement and retained legacy expiry can legitimately
 differ from an exact annual rolling term; bundled invoices do not allocate a

@@ -1965,3 +1965,17 @@ mtime_ms = 1794353420034
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/488fe306-0351-4977-b9ac-70586e831e65/ee0307eb-6700-47d8-9e93-d042e720b76f"
 storage_version_token = "1794353461128636"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "5BUQavoGOtGz1ojDs3JYP"
+uri = "file://generated-artifacts/bnms-invoice-date-repair/BNMS-complete-priced-membership-commitments.xlsx"
+type = "table"
+title = "Corrected BNMS membership commitments"
+description = "Supersedes the earlier workbook: 45 full commitments with saved structures, structure-derived prices, recalculated expiry dates and renewal dates."
+logical_id = "8851922a-3609-414c-a690-fa42b9c1ae74"
+content_hash = "sha256:cccf9859ab6ec244ce87bf25653ec1f5cc748ee9ff24750c9b486593b047c0d5"
+size = 15033
+mtime_ms = 1794354251010
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/8851922a-3609-414c-a690-fa42b9c1ae74/ddda71a3-9720-42fc-aa89-de23b93878b6"
+storage_version_token = "1794354271249507"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

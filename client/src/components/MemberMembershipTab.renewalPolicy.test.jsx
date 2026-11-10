@@ -1,5 +1,6 @@
 import test, { after } from "node:test";
 import assert from "node:assert/strict";
+import { existsSync, readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 import { historyStructureFixtures } from "./membership/historyStructureFixtures";
 
@@ -21,6 +22,32 @@ const { createRoot } = await import("react-dom/client");
 const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
 const { default: MemberMembershipTab } = await import("./MemberMembershipTab.jsx");
 const { setActiveTenantId } = await import("../api/base44Client.js");
+
+// Optional private receipt: verifies real repaired rows without committing member data.
+const repairReceipt = 'generated-artifacts/bnms-invoice-date-repair/priced-verify.json';
+test('verified reconstruction receipts render complete priced membership history', { skip: !existsSync(repairReceipt) }, async () => {
+  const { results, held } = JSON.parse(readFileSync(repairReceipt, 'utf8'));
+  assert.equal(held.length, 0);
+  assert.equal(results.length, 45);
+  for (const result of results) {
+    const history = { ...result.expected, id: 'verified-history', member_id: 'member' };
+    await mounted({ dataOverrides: {
+      config: history.commitment_snapshot.config,
+      legacyCurrentMembership: null,
+      history: [history],
+      commitments: [],
+      currentCommitments: [],
+    } }, container => {
+      const row = container.querySelector('[data-testid="row-member-history-verified-history"]');
+      assert.ok(row);
+      assert.ok(row.textContent.includes(result.structure));
+      assert.ok(row.textContent.includes(result.prices.agreed.text));
+      assert.match(row.textContent, /12 months/);
+      assert.match(row.textContent, /upfront/);
+      assert.doesNotMatch(row.textContent, /Uncommitted|Structure unknown|Frequency unknown|Duration unknown|Renewal: Unknown/);
+    });
+  }
+});
 
 test('personal and organisation-sourced ledger rows separate classification from structure without changing financial evidence', async () => {
   for (const membership_source of ['personal', 'organisation']) {
