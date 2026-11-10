@@ -52,12 +52,27 @@ function AuthorizationLink({ request, paymentUrl }) {
     {message && <p role="status">{message}</p>}
   </div>;
 }
+function needsSetupRecovery(request) {
+  return request?.recoveryRequired === true || request?.reconciliation_required === true
+    || ["reconciliation_required", "pending_invoice", "notification_pending"].includes(request?.status);
+}
+function setupMessage(request) {
+  if (needsSetupRecovery(request)) {
+    if (request?.status === "notification_pending") return "Membership created — notification needs attention";
+    if (request?.status === "pending_invoice") return "Membership saved — invoice creation needs attention";
+    return "Membership setup needs attention";
+  }
+  if (request?.accounting_pending || request?.status === "accounting_pending") return "Membership saved — accounting is processing";
+  if (request?.status === "completed") return "Membership created — no payment outstanding";
+  if (request?.status === "pending_payment") return request?.paymentMode === "invoice"
+    ? "Membership created — invoice awaiting payment" : "Membership saved — awaiting payment";
+  if (request?.status === "awaiting_member_authorization") return "Membership saved — awaiting the member’s payment setup";
+  return "Membership setup status could not be confirmed";
+}
 function RequestState({ request }) {
   return <div className="space-y-1">
-    <p>Request status: {request?.status || "Not supplied"}{request?.paymentMode ? ` · ${modeLabel(request.paymentMode)}` : ""}</p>
+    <p>{setupMessage(request)}</p>
     {request?.status === "awaiting_member_authorization" && <p>Awaiting member authorization — no payment is confirmed. The member must authorize their saved payment choice.</p>}
-    {request?.status === "pending_payment" && <p>Payment is pending. Authorization or a saved payment plan is not evidence of settlement.</p>}
-    <p className="text-muted-foreground">The saved request is the immutable authority for its payment method, term and pricing policy. Dynamic collections follow the saved policy; the initial quote is not a fixed future charge.</p>
   </div>;
 }
 function QuoteDetails({ quote }) {
@@ -183,7 +198,10 @@ function StartPanel({ memberId, tenantId }) {
   const bands = Array.isArray(selected?.bands) ? selected.bands : [];
   const isFlat = selected?.pricing_model === "flat";
   const blockers = Array.isArray(data?.blockers) ? data.blockers : [];
-  const requests = Array.isArray(data?.requests) ? data.requests : [];
+  const requests = (Array.isArray(data?.requests) ? data.requests : []).map(item =>
+    outcome?.reconciliation_required && outcome?.request?.id === item.id
+      ? { ...item, ...outcome.request, recoveryRequired: true, canResume: true }
+      : item);
   const selectedBand = bands.find(item => String(item.id) === form.bandId);
   const optionSource = selectedBand && (Array.isArray(selectedBand.paymentOptions) || Array.isArray(selectedBand.paymentModes)) ? selectedBand : selected;
   const options = paymentOptions(optionSource);
@@ -449,7 +467,7 @@ function StartPanel({ memberId, tenantId }) {
         <p>{outcome.reconciliation_required ? "Reconciliation is required. Review and recover the same saved request below; do not create another membership." : "The request remains pending. This is not a payment receipt."}</p>
       </div>}
       {saved?.record && <div role="status" className="rounded-md border p-3 text-sm space-y-1">
-        <p className="font-medium">Membership record created · {saved.record.id}</p>
+        <p className="font-medium">Membership record created</p>
         <p>{saved.record.payment_status === "paid" && saved.record.total_with_vat === 0 ? "Zero-value membership recorded — no payment collected." : "Creation is not a payment receipt. Review the recorded payment status in membership history below."}</p>
         <p>Recorded payment status: {saved.record.payment_status || "Not supplied"}.{saved.accounting_pending ? " Accounting processing is pending." : ""}</p>
       </div>}
@@ -459,29 +477,36 @@ function StartPanel({ memberId, tenantId }) {
         <AuthorizationLink request={saved.request} paymentUrl={saved.paymentUrl} />
       </div>}
       {!isLoading && <section aria-label="Saved membership start requests" className="space-y-3">
-        <h3 className="text-sm font-medium">Saved start / renewal requests</h3>
+        <details open={requests.some(item => needsSetupRecovery(item) || item.status === "awaiting_member_authorization") || isError}>
+        <summary className="text-sm font-medium cursor-pointer">Membership setup history ({requests.length})</summary>
         {!requests.length ? <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">{isError ? "Saved requests could not be confirmed. Retry loading options." : "No start / renewal requests have been recorded in this workflow."}</p> :
           <ol className="space-y-3">{requests.map(item => <li key={item.id} className="rounded-md border p-3 space-y-2 text-sm">
-            <p className="font-medium break-all">Request {item.id}</p>
-            <p>Request status: {item.status || "Not supplied"} · Payment status: {item.payment_status || "Not supplied"}</p>
             <RequestState request={item} />
             <AuthorizationLink request={item} />
+            <details>
+            <summary className="cursor-pointer text-muted-foreground">View setup details</summary>
             {item.quote && <QuoteDetails quote={item.quote} />}
             <p className="whitespace-pre-wrap break-words">Reason: {item.reason || "Not supplied"}</p>
+            <p className="break-all">Request {item.id}</p>
+            <p>Request status: {item.status || "Not supplied"} · Payment status: {item.payment_status || "Not supplied"}</p>
             {item.record_id && <p className="break-all">Membership record: {item.record_id}</p>}
+            </details>
             {item.accounting_pending && <p>Accounting processing is pending. This is not evidence of payment.</p>}
-            {item.reconciliation_required && <p role="alert">Reconciliation required. Resume only this saved immutable request.</p>}
-            {item.canResume === true && <>
+            {needsSetupRecovery(item) && <p role="alert">{item.status === "notification_pending"
+              ? "The membership is saved, but its notification did not finish. Review the saved setup before retrying."
+              : "Some setup processing could not be confirmed. Review the saved setup before retrying; do not create another membership."}</p>}
+            {item.canResume === true && needsSetupRecovery(item) && <>
               <Button variant="outline" disabled={!!pending || !!attempt || isError} onClick={() => openConfirmation(item)} aria-label={`Review recovery for request ${item.id}`}>Review recovery</Button>
               <p className="text-xs text-muted-foreground">{attempt ? "Resolve the original retained request before recovering another request." : "Recovery uses the saved request, without re-pricing or creating another membership term."}</p>
             </>}
           </li>)}</ol>}
+        </details>
       </section>}
       <Dialog open={confirmOpen} onOpenChange={open => { if (!pending) setConfirmOpen(open); }}>
         <DialogContent className="max-h-[85dvh] overflow-y-auto" hideCloseButton={!!pending} onEscapeKeyDown={event => { if (pending) event.preventDefault(); }} onPointerDownOutside={event => { if (pending) event.preventDefault(); }}>
           <DialogHeader>
             <DialogTitle>{recoveryTarget ? "Recover the saved membership request?" : attempt ? "Retry the original membership request?" : "Confirm membership creation"}</DialogTitle>
-            <DialogDescription>{recoveryTarget ? "Resume the server’s immutable saved request. This does not select a new price or create another membership term; accounting or notification recovery may be attempted." : attempt ? "This sends exactly the same request and request key. A previous attempt may already have completed." : "This creates a financial membership record. Confirm only after reviewing the term, amount and payment option."}</DialogDescription>
+            <DialogDescription>{recoveryTarget ? "Retry unfinished processing for this saved membership. This will not create another membership or change its price or dates. It may finish creating the invoice or sending a notification; it does not mark an unpaid invoice as paid." : attempt ? "This sends exactly the same request and request key. A previous attempt may already have completed." : "This creates a financial membership record. Confirm only after reviewing the term, amount and payment option."}</DialogDescription>
           </DialogHeader>
           {recoveryTarget ? <div className="text-sm space-y-2">
             <p className="break-all">Request {recoveryTarget.id}</p>

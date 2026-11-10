@@ -95,6 +95,52 @@ function fixture() {
   } };
   return { db, saved, record };
 }
+test('setup listing only offers recovery for unfinished invoice work needing attention', async () => {
+  for (const [linked, queueState, paid, expected] of [
+    [true, 'complete', false, false],
+    [true, null, false, false],
+    [true, 'complete', true, false],
+    [true, 'review', false, true],
+    [true, 'review', true, true],
+    [false, 'pending', false, false],
+    [false, 'review', false, true],
+    [false, null, false, true],
+  ]) {
+    const { saved, record } = fixture();
+    if (linked) record.accounting_invoice_id = id(8);
+    if (paid) record.payment_status = 'paid';
+    const tables = {
+      member_membership_start: [saved], member_membership_history: [record],
+      accounting_request_queue: queueState ? [{ id: id(7), tenant_id: id(1), source_type: 'member_membership_history',
+        source_id: record.id, operation: 'invoice', state: queueState }] : [],
+    };
+    const db = {
+      async rpc(name) {
+        return { data: name === 'member_start_state'
+          ? { member: { id: id(4) }, blockers: [] } : {}, error: null };
+      },
+      from(table) {
+        const filters = [];
+        const matches = () => (tables[table] || []).filter(row => filters.every(([k, v]) => row[k] === v));
+        const chain = { select() { return chain; }, eq(k, v) { filters.push([k, v]); return chain; },
+          order() { return chain; }, range() { return chain; },
+          async maybeSingle() { return { data: matches()[0] || null, error: null }; },
+          then(resolve, reject) { return Promise.resolve({ data: matches(), error: null }).then(resolve, reject); } };
+        return chain;
+      },
+    };
+    const service = createMemberStartService({ db, invoiceParties: async () => [],
+      queueEnabled: () => true, getProvider: async () => ({ name: 'xero' }), accountingBinding: async () => ({}),
+      stripeCredentials: async () => null, ddCredentials: async () => null,
+      invoice: () => assert.fail('Listing must not retry accounting') });
+    const result = await service.list(id(1), id(4));
+    assert.equal(result.requests[0].canResume, expected, JSON.stringify({ linked, queueState, paid }));
+    assert.equal(result.requests[0].recoveryRequired, expected);
+    if (linked && !paid) assert.equal(result.requests[0].status, 'pending_payment');
+    assert.equal(record.payment_status, paid ? 'paid' : 'unpaid');
+  }
+});
+
 test('saved-request resume is tenant/member bound, uses original invoice quote, and never inserts history', async () => {
   const { db, saved } = fixture();
   const calls = [];

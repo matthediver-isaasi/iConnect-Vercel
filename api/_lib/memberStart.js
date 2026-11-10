@@ -109,7 +109,11 @@ export function createMemberStartService({
       reason: saved.request.reason, status, payment_status: record?.payment_status || null,
       paymentMode: payment?.paymentMode || saved.request.paymentMode, paymentUrl,
       paymentLinkExpired: !!payment?.expired,
-      accounting_request_id: accounting?.id || null, canResume: true,
+      accounting_request_id: accounting?.id || null,
+      recoveryRequired: accounting?.state === 'review' || status === 'reconciliation_required'
+        || status === 'pending_invoice',
+      canResume: accounting?.state === 'review' || status === 'reconciliation_required'
+        || status === 'pending_invoice',
       accounting_pending: !!accounting && accounting.state !== 'complete', reconciliation_required: status === 'reconciliation_required' };
   }
   async function list(tenantId, memberId) {

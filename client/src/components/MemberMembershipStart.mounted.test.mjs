@@ -196,7 +196,7 @@ test("positive-price No charge shows the period-only waiver and confirms zero du
     assert.match(view.container.textContent, /Amount due: £0.00/);
     assert.match(view.container.textContent, /later renewal pricing are unchanged/);
     await confirm();
-    await waitFor(() => view.container.textContent.includes("waived-period"));
+    await waitFor(() => view.container.textContent.includes("Zero-value membership recorded — no payment collected."));
     assert.equal(view.calls.filter(call => call.payload?.action === "create").length, 1);
     assert.equal(view.calls.find(call => call.payload?.action === "create").payload.paymentMode, "free");
     assert.equal(view.container.querySelector('a[href*="membership-fees"]'), null);
@@ -604,10 +604,31 @@ test("pending payment is confirmed creation, never a paid success", async () => 
   } finally { await view.cleanup(); }
 });
 
+test("successful setup is collapsed and awaiting payment does not offer recovery", async () => {
+  for (const status of ["pending_payment", "completed", "accounting_pending"]) {
+    const view = await mount({ data: { ...fixture(), requests: [{
+      id: "saved-invoice", record_id: "membership", status, paymentMode: "invoice",
+      payment_status: status === "completed" ? "paid" : "unpaid",
+      canResume: true, quote: quote().quote,
+      accounting_pending: status === "accounting_pending",
+    }] } });
+    try {
+      await waitFor(() => view.container.querySelector('section[aria-label="Saved membership start requests"] details'));
+      const history = view.container.querySelector('section[aria-label="Saved membership start requests"] details');
+      assert.equal(history.open, false);
+      assert.match(history.querySelector("summary").textContent, /Membership setup history/);
+      assert.equal(button("Review recovery"), undefined);
+      assert.equal(history.querySelector("li details").open, false);
+      if (status === "pending_payment") assert.match(history.textContent, /Membership created — invoice awaiting payment/);
+      assert.equal(view.calls.filter(call => call.payload).length, 0);
+    } finally { await view.cleanup(); }
+  }
+});
+
 test("saved request recovery remains available despite new-purchase blockers and uses no browser key or new quote", async () => {
   const data = {
     ...fixture(), blockers: ["An existing pending obligation blocks a new purchase."],
-    requests: [{ id: "request-confirmed", record_id: "record-confirmed", quote: quote().quote, reason: "Existing immutable request", status: "accounting_pending", payment_status: "unpaid", canResume: true, accounting_pending: true }],
+    requests: [{ id: "request-confirmed", record_id: "record-confirmed", quote: quote().quote, reason: "Existing immutable request", status: "reconciliation_required", payment_status: "unpaid", canResume: true, accounting_pending: true }],
   };
   const view = await mount({ data, post: payload => {
     assert.deepEqual(payload, { action: "resume", memberId: "member-personal", requestId: "request-confirmed" });
@@ -615,6 +636,7 @@ test("saved request recovery remains available despite new-purchase blockers and
   } });
   try {
     await waitFor(() => button("Review recovery"));
+    assert.equal(view.container.querySelector('section[aria-label="Saved membership start requests"] details').open, true);
     assert.equal(button("Preview membership"), undefined);
     assert.equal(view.calls.filter(call => call.payload).length, 0);
     await click(button("Review recovery"));
@@ -725,7 +747,7 @@ test("dynamic Direct Debit accepts the server offer without a fictional count or
     await confirm();
     await waitFor(() => view.container.textContent.includes("Membership request saved"));
     assert.equal(view.calls.find(call => call.payload?.action === "create").payload.paymentMode, "direct_debit");
-    assert.match(view.container.textContent, /Dynamic collections follow the saved policy/);
+    assert.match(view.container.textContent, /Membership saved — awaiting the member’s payment setup/);
     assert.doesNotMatch(view.container.textContent, /later structure changes do not re-price/);
   } finally { await view.cleanup(); }
 });
@@ -760,7 +782,7 @@ test("authorization request without a record resolves retained attempt and shows
     await waitFor(() => button("Copy member authorization link"));
     assert.equal(document.querySelector('a').getAttribute("href"), request.paymentUrl);
     assert.match(view.container.textContent, /Awaiting member authorization — no payment is confirmed/);
-    assert.match(view.container.textContent, /immutable authority/);
+    assert.match(view.container.textContent, /Membership saved — awaiting the member’s payment setup/);
     assert.doesNotMatch(view.container.textContent, /Membership record created|Payment received|Payment successful/);
     assert.equal(button("Review retry"), undefined);
     assert.equal(sessionStorage.getItem("membership-start:tenant-safe:member-personal"), null);
