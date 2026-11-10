@@ -153,3 +153,4 @@
 - [CPD signature retention](cpd-signature-retention.md) — transactional private blobs preserve snapshot identity; pdf-lib JPEG embedding needs zero-offset bytes.
 - [Provider idempotent publication](provider-idempotent-publication.md) — shared provider intent IDs change whether a losing publication request may safely cancel.
 - [Non-allocating bundle receipts](bundle-nonallocating-receipts.md) — stock opt-out must retain immutable selection/payment evidence without creating a hold.
+- [Existing guest joining](existing-guest-joining-policy.md) — separate authenticated joining copies preserve category-specific joining and approval, rather than using renewal workflows.
