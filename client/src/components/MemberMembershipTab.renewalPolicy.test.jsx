@@ -21,6 +21,23 @@ const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query
 const { default: MemberMembershipTab } = await import("./MemberMembershipTab.jsx");
 const { setActiveTenantId } = await import("../api/base44Client.js");
 
+test('history displays the saved structure and tier together without substituting current pricing', async () => {
+  await mounted({ dataOverrides: { history: [
+    { id: 'manual', tier_label: 'Flat Rate', commitment_snapshot: { config: { name: '2026-2027 Full member with NMC' } } },
+    { id: 'older', tier_label: 'Flat Rate', commitment_snapshot: { structure_name: '2025-2026 Full member with NMC' } },
+    { id: 'same-label', tier_label: 'Student', commitment_snapshot: { config: { name: 'Student' } } },
+    { id: 'reconstructed', tier_label: 'Retired', reconstructed_structure_name: 'Historical retired schedule' },
+    { id: 'unknown', tier_label: 'Flat Rate' },
+  ] } }, async container => {
+    const structure = id => container.querySelector(`[data-testid="row-member-history-${id}"]`).children[1].textContent;
+    assert.equal(structure('manual'), '2026-2027 Full member with NMC · Flat Rate');
+    assert.equal(structure('older'), '2025-2026 Full member with NMC · Flat Rate');
+    assert.equal(structure('same-label'), 'Student');
+    assert.equal(structure('reconstructed'), 'Historical retired schedule · Retired');
+    assert.match(structure('unknown'), /Flat Rate.*Structure unknown/);
+  });
+});
+
 test('No charge history requires explicit evidence and unpaid invoices retain their processing state', async () => {
   await mounted({ dataOverrides: { history: [
     { id: 'waived', member_id: 'member', payment_status: 'paid', payment_method: null, total_with_vat: 0, admin_no_charge: true },
