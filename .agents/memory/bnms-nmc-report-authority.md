@@ -34,7 +34,7 @@ Customer numbers are fulfilment identifiers, not membership evidence. Missing me
 
 **Why:** The owner requested existing NMC customer numbers in both recipient downloads only, with no import, backfill or eligibility changes.
 
-**How to apply:** Preserve the delivery-only export scope; the online-only download may include the customer number alongside title, first name, last name and email.
+**How to apply:** Preserve the delivery-only export scope; both recipient downloads may also include Member Class, as explicitly requested by the owner, using the member custom field rather than RBAC roles. The online-only download may include the customer number alongside title, first name, last name and email.
 
 Normal new monthly first-collection waits should be distinguished from
 membership evidence problems inside Review before fulfilment, not a separate

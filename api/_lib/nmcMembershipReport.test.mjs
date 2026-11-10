@@ -61,8 +61,8 @@ test('live first-payment waits are separate from review and never exported; paym
       assert.equal(pending.total, 0);
       assert.ok(pending.sheets.every(s => s.count === 0));
       const wb = XLSX.read(nmcMembershipWorkbook(pending), { type: 'buffer' });
-      assert.equal(wb.Sheets[NMC_SHEETS[0]]['!ref'], 'A1:K1');
-      assert.equal(wb.Sheets['Online-only']['!ref'], 'A1:E1');
+      assert.equal(wb.Sheets[NMC_SHEETS[0]]['!ref'], 'A1:L1');
+      assert.equal(wb.Sheets['Online-only']['!ref'], 'A1:F1');
       const paid = { ...input,
         plans: [{ ...input.plans[0], status: 'active', instalments_paid: 1, last_payment_status: 'confirmed' }],
         agreements: [{ ...input.agreements[0], status: 'active' }],
@@ -251,11 +251,11 @@ test('two recipient sheets use exact reduced headers and literal text; class cou
     assert.equal(sheet[cell].t, 's'); assert.equal(sheet[cell].f, undefined);
   }
   assert.equal(sheet.H2.v, '00120');
-  assert.equal(sheet.E2.v, ''); assert.equal(sheet.K2.v, ''); assert.equal(sheet.L2, undefined);
+  assert.equal(sheet.E2.v, ''); assert.equal(sheet.K2.v, ''); assert.equal(sheet.L2.v, 'Full with NMC');
   assert.equal(wb.Sheets['Class counts'].B5.v, 1);
   const empty = XLSX.read(nmcMembershipWorkbook(report({ members: [] })), { type: 'buffer' });
-  assert.equal(empty.Sheets[NMC_SHEETS[0]]['!ref'], 'A1:K1');
-  assert.equal(empty.Sheets['Online-only']['!ref'], 'A1:E1');
+  assert.equal(empty.Sheets[NMC_SHEETS[0]]['!ref'], 'A1:L1');
+  assert.equal(empty.Sheets['Online-only']['!ref'], 'A1:F1');
   assert.equal(empty.Sheets[NMC_SHEETS[0]].K1.v, 'NMC Customer Number');
   assert.equal(empty.Sheets['Online-only'].E1.v, 'NMC Customer Number');
 });
@@ -286,14 +286,14 @@ test('customer numbers append to both recipient sheets as literal text without c
   assert.deepEqual(wb.Sheets['Class counts'], before.Sheets['Class counts']);
   const expectedHeaders = [
     ['Title', 'First name', 'Last name', 'NMC address line 1', 'NMC address line 2', 'NMC address line 3',
-      'NMC address city', 'NMC address post/zip code', 'NMC address country', 'Email address', 'NMC Customer Number'],
-    ['Title', 'First name', 'Last name', 'Email address', 'NMC Customer Number'],
+      'NMC address city', 'NMC address post/zip code', 'NMC address country', 'Email address', 'NMC Customer Number', 'Member Class'],
+    ['Title', 'First name', 'Last name', 'Email address', 'NMC Customer Number', 'Member Class'],
   ];
   NMC_SHEETS.forEach((name, group) => {
     const sheet = wb.Sheets[name], grid = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
     assert.deepEqual(grid[0], expectedHeaders[group]);
     assert.equal(grid.length, numbers.length + 1);
-    const lastColumn = expectedHeaders[group].length - 1;
+    const lastColumn = expectedHeaders[group].indexOf('NMC Customer Number');
     assert.ok(sheet['!cols'][lastColumn].wch >= 20);
     assert.equal(sheet['!autofilter'].ref, sheet['!ref']);
     result.rows.filter(row => row.sheet === name).forEach((row, index) => {
@@ -309,6 +309,34 @@ test('customer numbers append to both recipient sheets as literal text without c
       }
     });
   });
+});
+
+test('both recipient exports include the saved member class label, not the role, as literal text', () => {
+  for (const [index, klass] of ['Full with NMC', 'Full'].entries()) {
+    for (const label of ['Readable member class', '=1+1']) {
+      const result = report({
+        members: [{ ...member, role_id: 'role-id' }],
+        roles: [{ id: 'role-id', tenant_id, name: 'Different RBAC role' }],
+        fields: fields.map(f => f.name === 'member_class' ? {
+          ...f, options: options.map(value => ({ value, label: value === klass ? label : value })),
+        } : f),
+        preferences: [pref('member_class', klass)],
+      });
+      const wb = XLSX.read(nmcMembershipWorkbook(result), { type: 'buffer', cellNF: true });
+      const sheet = wb.Sheets[NMC_SHEETS[index]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+      const column = rows[0].indexOf('Member Class');
+      assert.ok(column >= 0);
+      assert.equal(rows[1][column], label);
+      const cell = sheet[XLSX.utils.encode_cell({ r: 1, c: column })];
+      assert.equal(cell.t, 's');
+      assert.equal(cell.z, '@');
+      assert.equal(cell.f, undefined);
+      assert.equal(cell.l, undefined);
+      assert.equal(result.total, 1);
+      assert.equal(rows[0].includes('RBAC Role'), false);
+    }
+  }
 });
 
 test('customer-number definitions retain unique active member authority and duplicate values stay review-only', () => {
@@ -404,7 +432,8 @@ test('full loader/export passes 1000-row limit and smaller provider caps, with u
   assert.equal(XLSX.utils.sheet_to_json(wb.Sheets[NMC_SHEETS[0]]).length, 604);
   for (const name of NMC_SHEETS) {
     const grid = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: '' });
-    assert.deepEqual(grid.slice(1).map(row => row.at(-1)), result.rows.filter(row => row.sheet === name).map(row => row.cells[16]));
+    assert.deepEqual(grid.slice(1).map(row => row[grid[0].indexOf('NMC Customer Number')]), result.rows.filter(row => row.sheet === name).map(row => row.cells[16]));
+    assert.deepEqual(grid.slice(1).map(row => row[grid[0].indexOf('Member Class')]), result.rows.filter(row => row.sheet === name).map(row => row.cells[14]));
   }
   await assert.rejects(loadNmcReport(fakeDatabase({}, { failTable: 'member' }), '2026-10-07'));
   await assert.rejects(nmcReadAll(() => ({ order() { return this; }, limit() { return Promise.resolve({ data: [], count: 1 }); } })));
