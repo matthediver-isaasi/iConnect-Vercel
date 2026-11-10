@@ -11,7 +11,7 @@ const form = { tenant_id: 'tenant', fields: [
 const row = { id, name: 'Saved name', selling_price_minor: 12345, currency: 'GBP', is_active: true };
 function dbFor(rows = [row], remaining = null) {
   const calls = [];
-  return { calls, from(table) {
+  return { calls, rpc: async () => ({ data: 1 }), from(table) {
     const result = table === 'sales_catalogue_bundle' ? rows : [{ bundle_id: id, remaining }];
     return { select() { return this; }, eq(k, v) { calls.push([table,k,v]); return this; },
       in() { return this; }, then(resolve) { resolve({ data: result }); } };
@@ -25,6 +25,20 @@ test('configuration rejects nested, survey, multiple and ambiguous currency bund
   assert.match(bundleConfigurationError({ ...form, visibility_rules: [{ actions: [{ action_type: 'membership_structure' }] }] }), /membership/);
   await assert.rejects(validateBundleConfiguration(dbFor([{ ...row, currency: 'EUR' }]), form), /currency/);
   await assert.rejects(validateBundleConfiguration(dbFor([]), form), /tenant/);
+});
+test('stock policy is strictly boolean, defaults on, and does not bypass resolution', async () => {
+  for (const policy of [undefined, true, false]) {
+    const configured = { ...form, fields: [{ ...form.fields[0], reduce_bundle_stock_on_submission: policy }, form.fields[1]] };
+    assert.equal(bundleConfigurationError(configured), null);
+    const values = { bundle: id, other: 'retained' };
+    assert.equal(await bundlePayableAmount(dbFor(), configured, values, configured.fields[1]), 123.45);
+    assert.equal(values.__bundle_labels.bundle, 'Saved name');
+    await assert.rejects(resolveFormBundle(dbFor([row], 0), configured, values), /no longer available/);
+    assert.equal(values.other, 'retained');
+  }
+  for (const policy of [null, 'false', 0, {}, []]) {
+    assert.match(bundleConfigurationError({ ...form, fields: [{ ...form.fields[0], reduce_bundle_stock_on_submission: policy }] }), /on or off/);
+  }
 });
 test('category filter exposes only tenant-scoped category names and preserves price and stock authority', async () => {
   const calls = [];

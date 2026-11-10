@@ -7,6 +7,7 @@ import {
 } from '../../../shared/salesContracts.js';
 import { requireSalesContext, SalesHttpError } from '../../_lib/salesAccess.js';
 import { getSalesSettings } from '../../_lib/salesFoundation.js';
+import { formBundleStockOptionReady } from '../../_lib/formBundleStockReadiness.js';
 import {
   createCatalogueRecord, generateCatalogueCode, listCatalogue, listCatalogueEventOptions, reorderCatalogue, setCatalogueActive,
   updateCatalogueRecord, updateBundleStock,
@@ -48,6 +49,7 @@ export function createSalesCatalogueHandler(dependencies = {}) {
       }
       if (isRead) {
         return res.status(200).json({
+          ...(type === 'bundles' ? { stockOptionReady: await formBundleStockOptionReady(db) } : {}),
           items: await listCatalogue(db, actor.tenantId, type, {
             includeInactive: req.query?.includeInactive === 'true',
             q: typeof req.query?.q === 'string' ? req.query.q.trim()

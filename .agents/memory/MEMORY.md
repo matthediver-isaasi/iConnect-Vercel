@@ -152,3 +152,4 @@
 - [CRM jump cache authority](crm-jump-cache-authority.md) — exact-ID jumps must revalidate cached target pages; cache freshness is not evidence after concurrent changes.
 - [CPD signature retention](cpd-signature-retention.md) — transactional private blobs preserve snapshot identity; pdf-lib JPEG embedding needs zero-offset bytes.
 - [Provider idempotent publication](provider-idempotent-publication.md) — shared provider intent IDs change whether a losing publication request may safely cancel.
+- [Non-allocating bundle receipts](bundle-nonallocating-receipts.md) — stock opt-out must retain immutable selection/payment evidence without creating a hold.

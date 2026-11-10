@@ -2,6 +2,13 @@ import { bundleConfigurationError, BUNDLE_FIELD_TYPE, BUNDLE_LABELS_KEY, bundleP
 import { computeAuthoritativeHiddenFieldIds, findPaymentField } from './formFieldVisibility.js';
 import { rulesUseLmicOperators } from './formLmicConditions.js';
 import { loadTenantLmicCodes } from './tenantLmicCodes.js';
+import { formBundleStockOptionReady } from './formBundleStockReadiness.js';
+
+async function requireStockOption(db, field) {
+  if (field?.reduce_bundle_stock_on_submission === false && !await formBundleStockOptionReady(db)) {
+    throw new FormBundleError('Bundle stock settings require a database update before stock reduction can be disabled.', 503, 'BUNDLE_STOCK_OPTION_NOT_READY');
+  }
+}
 
 export class FormBundleError extends Error {
   constructor(message, status = 400, code = 'INVALID_BUNDLE_SELECTION') {
@@ -13,6 +20,7 @@ export async function validateBundleConfiguration(db, form) {
   if (error) throw new FormBundleError(error);
   const field = (form?.fields || []).find(f => f.type === BUNDLE_FIELD_TYPE);
   if (!field) return;
+  await requireStockOption(db, field);
   const { data, error: dbError } = await db.from('sales_catalogue_bundle')
     .select('id,currency').eq('tenant_id', form.tenant_id).in('id', field.allowed_bundle_ids);
   if (dbError) throw dbError;
@@ -28,6 +36,7 @@ export async function bundleOptions(db, form, fieldId) {
   if (error) throw new FormBundleError(error);
   const field = (form.fields || []).find(f => f.id === fieldId && f.type === BUNDLE_FIELD_TYPE);
   if (!field) throw new FormBundleError('Bundle field not found', 404);
+  await requireStockOption(db, field);
   const { data, error: dbError } = await db.from('sales_catalogue_bundle')
     .select('id,name,selling_price_minor,currency,is_active,archived_at,available_from,available_to,category_id')
     .eq('tenant_id', form.tenant_id).in('id', field.allowed_bundle_ids);
@@ -103,10 +112,17 @@ export async function bundlePayableAmount(db, form, values, paymentField) {
 // particular, an archive/price edit must not strand an already-payable intent.
 export async function recoverBundlePaymentAttempt(db, submission, values, provider) {
   if (!submission) return null;
-  const { data: allocation, error } = await db.from('form_bundle_allocation')
+  let { data: allocation, error } = await db.from('form_bundle_allocation')
     .select('*').eq('tenant_id', submission.tenant_id)
     .eq('submission_id', submission.id).maybeSingle();
   if (error) throw error;
+  if (!allocation) {
+    if (!await formBundleStockOptionReady(db)) return null;
+    const receipt = await db.from('form_bundle_selection').select('*')
+      .eq('tenant_id', submission.tenant_id).eq('submission_id', submission.id).maybeSingle();
+    if (receipt.error) throw receipt.error;
+    allocation = receipt.data;
+  }
   if (!allocation) return null;
   if (values?.[allocation.field_id] !== allocation.bundle_id
     || submission.submission_data?.[allocation.field_id] !== allocation.bundle_id) {

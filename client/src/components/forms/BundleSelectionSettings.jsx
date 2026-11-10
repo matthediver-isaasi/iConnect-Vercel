@@ -2,16 +2,23 @@ import { useCatalogue } from '@/pages/sales/useCatalogue';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 
-export default function BundleSelectionSettings({ field, onChange, onCategoryFilterChange }) {
+export default function BundleSelectionSettings({ field, onChange, onCategoryFilterChange, onStockReductionChange }) {
   const catalogue = useCatalogue('bundles');
   const rows = Array.isArray(catalogue.data) ? catalogue.data : catalogue.data?.items || [];
   const selected = field.allowed_bundle_ids || [];
   const selectable = rows.filter(row => row.isActive !== false && !row.archivedAt);
   const unselected = selectable.filter(row => !selected.includes(row.id));
   const remainingSlots = Math.max(0, 100 - selected.length);
+  const stockOptionReady = catalogue.data?.stockOptionReady === true;
   return <div className="space-y-3 rounded-md border border-slate-200 bg-slate-50 p-4">
     <p className="text-sm font-medium">Allowed bundles</p>
     <p className="text-xs text-slate-500">Choose the packaged offers available on this form. Prices and availability are resolved by the server.</p>
+    <label className="flex items-center gap-2 text-sm">
+      <Checkbox disabled={!stockOptionReady} checked={field.reduce_bundle_stock_on_submission !== false} onCheckedChange={checked => onStockReductionChange?.(checked === true)} />
+      Reduce bundle stock on submission
+    </label>
+    {!stockOptionReady && <p role="status" className="text-xs text-amber-700">Stock reduction settings are unavailable until the required database update is installed and the catalogue is loaded.</p>}
+    <p className="text-xs text-slate-500">When enabled, an accepted selection uses one unit. Paid submissions reserve one unit before checkout and consume that same reservation on confirmed payment. When disabled, new submissions do not reserve or reduce stock, but bundle eligibility and sold-out checks still apply. Existing payment reservations are unchanged. Unlimited stock remains Unlimited.</p>
     <label className="flex items-center gap-2 text-sm">
       <Checkbox checked={field.show_bundle_category === true} onCheckedChange={checked => onCategoryFilterChange?.(checked === true)} />
       Show a category filter above the bundle selector

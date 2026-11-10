@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import Module from 'node:module';
 import { build } from 'esbuild';
+import { captureFormEditorBaseline, prepareFormEditorUpdate, formEditorPatch } from '../../lib/formEditorSave.js';
 
 const compiled = await build({
   stdin: { contents: `export {default} from "./client/src/components/forms/BundleSelectionSettings.jsx"; export {state} from "@/pages/sales/useCatalogue";`, resolveDir: process.cwd(), loader: 'jsx' },
@@ -60,4 +61,42 @@ test('bulk selection is disabled when unavailable, full, or already selected', (
     [[{ id: 'a' }], Array.from({ length: 100 }, (_, i) => `${i}`), {}],
   ]) assert.equal(render(rows, selected, flags).buttons[0].props.disabled, true);
   assert.equal(render([], []).buttons[1].props.disabled, true);
+});
+test('stock setting defaults on and round-trips explicit false and true', () => {
+  Object.assign(state, { data: { items: [], stockOptionReady: true }, isPending: false, isError: false });
+  let field = { allowed_bundle_ids: [] };
+  const checkbox = () => {
+    const tree = Settings({ field, onChange() {}, onStockReductionChange(value) {
+      field = JSON.parse(JSON.stringify({ ...field, reduce_bundle_stock_on_submission: value }));
+    } });
+    return tree.props.children.find(node => node?.type === 'label').props.children[0];
+  };
+  assert.equal(checkbox().props.checked, true);
+  assert.equal(checkbox().props.disabled, false);
+  checkbox().props.onCheckedChange(false);
+  assert.equal(field.reduce_bundle_stock_on_submission, false);
+  assert.equal(checkbox().props.checked, false);
+  checkbox().props.onCheckedChange(true);
+  assert.equal(checkbox().props.checked, true);
+});
+test('stock option stays disabled until migrated capability is confirmed', () => {
+  for (const data of [[], { items: [] }, { items: [], stockOptionReady: false }]) {
+    Object.assign(state, { data, isPending: false, isError: false });
+    const tree = Settings({ field: {}, onChange() {} });
+    const checkbox = tree.props.children.find(node => node?.type === 'label').props.children[0];
+    assert.equal(checkbox.props.disabled, true);
+    assert.equal(checkbox.props.checked, true);
+  }
+});
+test('builder save patch and reopened baseline preserve both stock settings', () => {
+  let persisted = { fields: [{ id: 'bundle', type: 'sales_bundle', allowed_bundle_ids: [] }] };
+  for (const policy of [false, true, false]) {
+    const baseline = captureFormEditorBaseline(persisted, persisted);
+    const editor = { ...persisted, fields: [{ ...persisted.fields[0], reduce_bundle_stock_on_submission: policy }] };
+    const patch = formEditorPatch(prepareFormEditorUpdate(editor, baseline), baseline);
+    assert.equal(patch.fields[0].reduce_bundle_stock_on_submission, policy);
+    persisted = JSON.parse(JSON.stringify({ ...persisted, ...patch }));
+    const reopened = captureFormEditorBaseline(persisted, persisted);
+    assert.equal(reopened.editor.fields[0].reduce_bundle_stock_on_submission, policy);
+  }
 });

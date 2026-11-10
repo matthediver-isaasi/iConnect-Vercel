@@ -22,6 +22,7 @@ import { invalidRequiredAddressLookupFields } from '../_lib/idealPostcodes.js';
 import { computeAuthoritativeHiddenFieldIds } from '../_lib/formFieldVisibility.js';
 import { rulesUseLmicOperators } from '../_lib/formLmicConditions.js';
 import { validateFutureDateFields } from '../../shared/formFutureDates.js';
+import { resolveFormBundle, FormBundleError } from '../_lib/formBundles.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(path.join(here, 'manual-form-submission.js'), 'utf8');
@@ -83,6 +84,8 @@ test('manual handler accepts retained hidden Not-listed rows and rejects visible
         rulesUseLmicOperators,
         loadTenantLmicCodes: async () => { throw new Error('Unexpected LMIC lookup'); },
         validateFutureDateFields,
+        resolveFormBundle,
+        FormBundleError,
       };
       const handler = new Function(...Object.keys(bindings), handlerBody)(...Object.values(bindings));
       const row = {
@@ -137,7 +140,7 @@ test('manual submissions enforce relationship and Organisation Group validation 
 test('manual submissions snapshot repeatable not-listed labels before persistence', () => {
   assert.match(
     source,
-    /submission_data: snapshotFormNotListedLabels\(form\.fields \|\| \[\], submission_data \|\| \{\}\)/,
+    /submission_data: snapshotFormNotListedLabels\(form\.fields \|\| \[\], bundleValues\)/,
   );
   assert.match(source, /rulesUseLmicOperators\(form\.visibility_rules\)/);
   assert.match(source, /loadTenantLmicCodes\(supabase, tenantId\)/);
@@ -156,7 +159,51 @@ test('manual API sends raw hidden repeatable Not-listed rows to the real root re
   assert.match(relationshipValidation, /submissionData: submission_data \|\| \{\}/);
   assert.match(relationshipValidation, /hiddenFieldIds,/);
   // Storage also intentionally retains the raw hidden answer for restoration.
-  assert.match(source, /submission_data: snapshotFormNotListedLabels\(form\.fields \|\| \[\], submission_data \|\| \{\}\)/);
+  assert.match(source, /submission_data: snapshotFormNotListedLabels\(form\.fields \|\| \[\], bundleValues\)/);
+});
+
+test('manual bundle insertion resolves trusted hidden state, labels and sold-out feedback for either policy', async () => {
+  const id = '20000000-0000-4000-8000-000000000001';
+  for (const enabled of [true, false]) for (const hidden of [true, false]) for (const remaining of [0, 1]) {
+    const form = { id: 'form-fixture', tenant_id: 'tenant-fixture', fields: [{
+      id: 'bundle', type: 'sales_bundle', allowed_bundle_ids: [id],
+      reduce_bundle_stock_on_submission: enabled, starts_hidden: hidden,
+    }] };
+    const inserted = [];
+    const db = { rpc: async () => ({ data: 1 }), from(table) {
+      assert.ok(['form', 'form_submission', 'sales_catalogue_bundle', 'form_bundle_stock'].includes(table));
+      const data = table === 'form' ? form : table === 'form_submission' ? { id: 'submission-fixture' }
+        : table === 'form_bundle_stock' ? [{ bundle_id: id, remaining }]
+        : [{ id, name: 'Trusted label', is_active: true, selling_price_minor: 12345, currency: 'GBP' }];
+      return { select() { return this; }, eq() { return this; }, in() { return this; },
+        single() { return this; }, insert(record) { inserted.push(record); return this; },
+        then(resolve) { resolve({ data, error: null }); } };
+    } };
+    const bindings = {
+      supabase: db, getSessionMember: async () => ({ tenant_id: form.tenant_id }),
+      createFormRelationshipService, FormRelationshipError, validateRepeatableRowSubmission,
+      snapshotFormNotListedLabels, validateFormOrganisationGroupAnswers,
+      validateOrganisationGroupDependentOrganizationAnswers, invalidRequiredAddressLookupFields,
+      computeAuthoritativeHiddenFieldIds, rulesUseLmicOperators, validateFutureDateFields,
+      resolveFormBundle, FormBundleError,
+    };
+    const handler = new Function(...Object.keys(bindings), source.slice(source.indexOf('export default async function handler'))
+      .replace('export default ', 'return '))(...Object.values(bindings));
+    const res = { statusCode: 200, setHeader() {}, status(code) { this.statusCode = code; return this; },
+      json(body) { this.body = body; return this; } };
+    await handler({ method: 'POST', headers: {}, body: { form_id: form.id,
+      submission_data: { bundle: id, other: 'retained', __bundle_hidden: hidden ? 'forged' : 'bundle',
+        __bundle_labels: { bundle: 'Forged label' } } } }, res);
+    assert.equal(res.statusCode, !hidden && remaining === 0 ? 409 : 200);
+    if (!hidden && remaining === 0) {
+      assert.equal(inserted.length, 0);
+      assert.equal(res.body.code, 'BUNDLE_UNAVAILABLE');
+    } else {
+      assert.equal(inserted[0].submission_data.other, 'retained');
+      assert.equal(inserted[0].submission_data.__bundle_hidden, hidden ? 'bundle' : undefined);
+      assert.equal(inserted[0].submission_data.__bundle_labels?.bundle, hidden ? undefined : 'Trusted label');
+    }
+  }
 });
 
 test('manual submission UI delegates address lookup to the shared structured renderer', async () => {

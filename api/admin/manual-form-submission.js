@@ -12,6 +12,7 @@ import { computeAuthoritativeHiddenFieldIds } from '../_lib/formFieldVisibility.
 import { rulesUseLmicOperators } from '../_lib/formLmicConditions.js';
 import { loadTenantLmicCodes } from '../_lib/tenantLmicCodes.js';
 import { validateFutureDateFields } from '../../shared/formFutureDates.js';
+import { resolveFormBundle, FormBundleError } from '../_lib/formBundles.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -170,12 +171,15 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to validate submission' });
     }
 
+    // Recompute hidden markers and labels; manual entry cannot forge either.
+    const bundleValues = { ...(submission_data || {}) };
+    await resolveFormBundle(supabase, form, bundleValues, { hiddenFieldIds });
     const submissionRecord = {
       form_id,
       form_name: form_name || form.name,
       submitted_by_name: submitted_by_name || null,
       submitted_by_email: submitted_by_email || null,
-      submission_data: snapshotFormNotListedLabels(form.fields || [], submission_data || {}),
+      submission_data: snapshotFormNotListedLabels(form.fields || [], bundleValues),
       created_date: new Date().toISOString(),
       tenant_id: tenantId,
     };
@@ -187,6 +191,9 @@ export default async function handler(req, res) {
       .single();
 
     if (insertError) {
+      if (/Bundle is sold out|Bundle is unavailable/.test(insertError.message || '')) {
+        return res.status(409).json({ code: 'BUNDLE_UNAVAILABLE', error: 'This bundle is no longer available. Your other answers are saved here; please choose another bundle.' });
+      }
       console.error('[Manual Form Submission] Insert error:', insertError);
       return res.status(500).json({ error: 'Failed to create submission' });
     }
@@ -253,6 +260,7 @@ export default async function handler(req, res) {
     });
 
   } catch (error) {
+    if (error instanceof FormBundleError) return res.status(error.status).json({ error: error.message, code: error.code });
     console.error('[Manual Form Submission] Error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }

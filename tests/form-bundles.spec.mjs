@@ -2,13 +2,14 @@ import { test, expect } from '@playwright/test';
 const bundle = '20000000-0000-4000-8000-000000000001';
 const sold = '20000000-0000-4000-8000-000000000002';
 for (const mode of ['public','authenticated','embedded']) {
-  test(`${mode}: sold-out choices, authoritative price and conflict recovery`, async ({ page }, info) => {
+ for (const stockPolicy of [undefined, true, false]) {
+  test(`${mode}, stock=${stockPolicy}: sold-out choices, authoritative price and conflict recovery`, async ({ page }, info) => {
     let quotes = 0, creates = 0;
     const form = { id: 'bundle-fixture', slug: 'bundle-fixture', name: 'Bundle fixture', blank_layout: true,
       is_active: true, form_type: 'application', layout_type: 'standard', pages: [], visibility_rules: [],
       entity_pipelines: {}, fields: [
         { id: 'name', type: 'text', label: 'Your name', required: true },
-        { id: 'bundle', type: 'sales_bundle', label: 'Choose package', required: true, allowed_bundle_ids: [bundle,sold] },
+        { id: 'bundle', type: 'sales_bundle', label: 'Choose package', required: true, allowed_bundle_ids: [bundle,sold], reduce_bundle_stock_on_submission: stockPolicy },
         { id: 'payment', type: 'payment', label: 'Payment', payment_currency: 'GBP', price_field_id: 'bundle', payment_providers: ['stripe'] },
       ] };
     const member = { id: 'fixture-member', tenant_id: 'fixture-tenant', role_id: 'fixture-role', first_name: 'Fixture', email: 'fixture@example.invalid', member_excluded_features: [] };
@@ -54,7 +55,8 @@ for (const mode of ['public','authenticated','embedded']) {
       scope = page.frameLocator('iframe[title="fixture"]');
     } else await page.goto('/FormView?slug=bundle-fixture');
     const select = scope.getByRole('combobox', { name: 'Choose package' });
-    await expect(select).toBeVisible();
+    // First navigation can include cold Vite transforms of the full form renderer.
+    await expect(select).toBeVisible({ timeout: 30000 });
     await expect(select.locator(`option[value="${sold}"]`)).toBeDisabled();
     await scope.getByRole('textbox').first().fill('Keep my answer');
     await select.selectOption(bundle);
@@ -65,4 +67,5 @@ for (const mode of ['public','authenticated','embedded']) {
     await expect(scope.getByRole('textbox').first()).toHaveValue('Keep my answer');
     await expect(select).toHaveValue('');
   });
+ }
 }

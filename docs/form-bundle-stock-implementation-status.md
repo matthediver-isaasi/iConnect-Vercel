@@ -35,6 +35,54 @@ already-payable attempt. New attempts still use current catalogue terms.
 
 ## Migration evidence
 
+### Per-element stock option (prepared, not applied)
+
+`202701200002_form_bundle_submission_stock_option.sql` requires the base migration
+below. The application gates the setting on a service-only schema capability:
+before migration the checkbox is disabled with an explanation, disabled-setting
+saves/acceptance fail explicitly, and legacy retries never read the absent receipt
+table. Operational probe errors fail closed rather than pretending readiness.
+Apply the migration **before enabling the option for authors**. Obtain its
+offline hash with `node scripts/apply-form-bundle-stock.mjs --stock-option`.
+Application requires explicit approval of the destination and deployment authority,
+then the same runner with `--stock-option --apply --reviewed-sha256=<hash>
+--confirm-destination=<approved-project>`. No live migration was applied for this
+option. Read-only destination preflight on 2026-11-10 confirmed both base tables,
+enabled insertion/settlement triggers and reservation/finalization functions;
+the new selection-receipt table is absent. This confirms schema prerequisites,
+not a deployed application or provider checkout. Recheck with
+`node scripts/apply-form-bundle-stock.mjs --stock-option --preflight`.
+
+The author setting `reduce_bundle_stock_on_submission` defaults true on new fields;
+absence on an existing field means enabled. Only boolean false disables new stock
+allocation. It does not bypass tenant, allowlist, eligibility, sold-out or price
+checks. Disabled accepted selections retain a private immutable non-allocation
+receipt so labels and original payment terms survive catalogue/configuration
+changes. That receipt is not a hold and is never visited by hold cleanup.
+Existing allocation settlement/cleanup is unchanged. No historical rows are
+backfilled, reallocated or released. Manual entries now recompute hidden markers
+and labels instead of trusting submitted markers.
+
+Isolated PostgreSQL coverage includes disabled paid/unpaid acceptance, rollback,
+invalid settings, finite and Unlimited modes, immutable original terms, denied
+direct receipt writes, setting changes in both directions during checkout,
+attempted retroactive allocation, duplicate insertion and final-unit contention.
+Builder component/save-patch tests verify false/true round trips; browser fixtures
+cover public, signed-in and iframe rendering for absent/true/false settings.
+These are fixture checks, not customer submissions or live provider verification.
+All nine browser cases passed (the first two initially exceeded the cold Vite
+startup wait and passed on targeted rerun with a 30-second initial-render wait).
+The focused suite passed 21 checks; the broader compatibility/payment suite
+passed 216 checks. Workspace screenshot still shows the pre-existing
+“Tenant not found” screen; signed-in live UI was not verified.
+
+Completion validation exposed a pre-existing rolling-membership fixture issue:
+equivalent PostgreSQL timestamps were compared as native Date versus FrozenDate
+prototypes. The snapshot assertions now compare serialized values, retaining the
+full value comparison without changing membership behavior.
+After the readiness gate and fixture correction, all 28 focused checks and all
+777 `rolling-memberships` checks passed.
+
 `supabase/migrations/202701200001_form_bundle_stock.sql` was applied on
 2026-11-06 to verified destination `lvmzliemqnieeoruhkik` using
 `scripts/apply-form-bundle-stock.mjs`.

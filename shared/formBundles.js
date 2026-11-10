@@ -15,6 +15,7 @@ export function bundleConfigurationError(form) {
   if (form.form_type === 'survey' || bundles.length > 1) return 'Only one Bundle field is supported, on standard forms only.';
   if (fields.filter(f => f.type === 'payment').length > 1) return 'Bundle forms support only one payment element.';
   const field = bundles[0];
+  if (field.reduce_bundle_stock_on_submission !== undefined && typeof field.reduce_bundle_stock_on_submission !== 'boolean') return 'Reduce bundle stock on submission must be on or off.';
   if (field.show_bundle_category !== undefined && typeof field.show_bundle_category !== 'boolean') return 'Bundle category filter must be on or off.';
   if (field.multiple || field.multi_select || field.parent_field_id) return 'Bundle fields must be single-selection and top-level.';
   if (!Array.isArray(field.allowed_bundle_ids) || !field.allowed_bundle_ids.length

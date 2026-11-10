@@ -16,18 +16,22 @@ const submission = {
   payment_amount: 125, payment_currency: 'GBP', payment_meta: { price_field_id: 'bundle', stripe_feature: 'forms' },
 };
 for (const change of ['price changed', 'bundle archived']) {
-  test(`same-key retry recovers original payable intent after ${change}`, async () => {
+ for (const allocates of [true, false]) {
+  test(`same-key retry recovers original payable intent after ${change}, allocates=${allocates}`, async () => {
     let recovered = 0;
     const catalogue = { selling_price_minor: change === 'price changed' ? 99000 : 12500,
       is_active: change !== 'bundle archived' };
     const allocation = { tenant_id: 'tenant', submission_id: 'submission',
       field_id: 'bundle', bundle_id: bundleId, state: 'held', amount_minor: 12500, currency: 'GBP' };
-    const db = { from(table) {
+    const db = { rpc: async () => ({ data: 1 }), from(table) {
       assert.notEqual(table, 'sales_catalogue_bundle', `must not consult changed catalogue: ${JSON.stringify(catalogue)}`);
-      assert.ok(['form','form_submission','form_bundle_allocation'].includes(table), `unexpected ${table}`);
+      assert.ok(['form','form_submission','form_bundle_allocation','form_bundle_selection'].includes(table), `unexpected ${table}`);
       return {
         select() { return this; }, eq() { return this; }, maybeSingle() { return this; }, single() { return this; },
-        then(resolve) { resolve({ data: table === 'form' ? form : table === 'form_submission' ? submission : allocation }); },
+        then(resolve) { resolve({ data: table === 'form'
+          ? { ...form, fields: [{ ...form.fields[0], reduce_bundle_stock_on_submission: !allocates }, form.fields[1]] }
+          : table === 'form_submission' ? submission
+          : table === 'form_bundle_allocation' ? (allocates ? allocation : null) : { ...allocation, state: undefined } }); },
       };
     } };
     const res = { statusCode: 200, setHeader() {}, status(code) { this.statusCode = code; return this; },
@@ -54,4 +58,5 @@ for (const change of ['price changed', 'bundle archived']) {
     assert.equal(res.body.currency, 'GBP');
     assert.equal(recovered, 1);
   });
+ }
 }

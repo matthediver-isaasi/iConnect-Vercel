@@ -231,7 +231,11 @@ test('rolling commitment migration and atomic guards on isolated PostgreSQL', { 
             membership_payment_quote_id: quote.id, membership_successor_election_id: election.id,
             final_cost: 120, total_with_vat: 120, currency: 'GBP',
           })).rows[0];
-          assert.deepEqual((await db.query(`SELECT * FROM ${historyTable} WHERE id=$1`, [stored.id])).rows[0], stored);
+          // The isolated runner replaces Date with FrozenDate; pg may parse
+          // equivalent rows on either side of that switch. Compare values,
+          // not Date prototypes (as for the successor snapshot below).
+          assert.deepEqual(JSON.parse(JSON.stringify((await db.query(`SELECT * FROM ${historyTable} WHERE id=$1`, [stored.id])).rows[0])),
+            JSON.parse(JSON.stringify(stored)));
         }
         const firstCollectionDate = `${year}-${organization ? '02' : '01'}-05`;
         await db.query(`INSERT INTO membership_payment_plans(id,tenant_id,billing_agreement_id,status,metadata,gocardless_mandate_id,dynamic_next_collection_date)
@@ -295,7 +299,7 @@ test('rolling commitment migration and atomic guards on isolated PostgreSQL', { 
         assert.equal(after.payment_status, 'paid');
         assert.ok(after.paid_at);
         for (const key of ['final_cost', 'vat_amount', 'total_with_vat', 'commitment_snapshot', 'term_key']) {
-          assert.deepEqual(after[key], stored[key]);
+          assert.deepEqual(JSON.parse(JSON.stringify(after[key])), JSON.parse(JSON.stringify(stored[key])));
         }
         const completedPlan = (await db.query('SELECT * FROM membership_payment_plans WHERE id=$1', [planId])).rows[0];
         assert.equal(completedPlan.status, 'expired');

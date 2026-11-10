@@ -9935,7 +9935,7 @@ function FieldCard({
               )}
 
               {field.type === 'sales_bundle' && (
-                <BundleSelectionSettings field={field} onChange={ids => updateField(originalIndex, { allowed_bundle_ids: ids })} onCategoryFilterChange={enabled => updateField(originalIndex, { show_bundle_category: enabled })} />
+                <BundleSelectionSettings field={field} onChange={ids => updateField(originalIndex, { allowed_bundle_ids: ids })} onCategoryFilterChange={enabled => updateField(originalIndex, { show_bundle_category: enabled })} onStockReductionChange={enabled => updateField(originalIndex, { reduce_bundle_stock_on_submission: enabled })} />
               )}
               {field.type === 'membership_payment' && (
                 <MembershipPaymentSettings
@@ -11866,7 +11866,7 @@ function FormBuilderEditor() {
         toast.error('Bundle selection is limited to one top-level field on a non-survey form.');
         return;
       }
-      updates = { allowed_bundle_ids: [], parent_field_id: null, multiple: false, multi_select: false, default_value: '', ...updates };
+      updates = { allowed_bundle_ids: [], reduce_bundle_stock_on_submission: true, parent_field_id: null, multiple: false, multi_select: false, default_value: '', ...updates };
     }
     const newFields = [...formData.fields];
     newFields[index] = { ...newFields[index], ...updates };

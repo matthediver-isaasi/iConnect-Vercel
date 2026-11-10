@@ -61,7 +61,10 @@ test('bundle ledger serializes last unit, CAS edits, rollback and provider final
       ${Array.from({ length: 8 }, (_, i) => `INSERT INTO form_submission(id,tenant_id,form_id,idempotency_key,submission_data)
         VALUES('${sub(i + 1)}','${tenant}','${tenant}','key-${i + 1}','{"bundle":"${bundle}"}');`).join('\n')}
       \\i ${migration}
+      \\i ${fileURLToPath(new URL('../../supabase/migrations/202701200002_form_bundle_submission_stock_option.sql', import.meta.url))}
     `);
+    assert.equal(sql('SET ROLE service_role; SELECT form_bundle_stock_option_version();'), '1');
+    denied('SET ROLE anon; SELECT form_bundle_stock_option_version();', /permission denied/);
     // Unconfigured is Unlimited, not zero; rollback leaves no lazy stock row.
     sql(`BEGIN; ${reserve(1)} ROLLBACK;`);
     assert.equal(sql('SELECT count(*) FROM form_bundle_stock;'), '0');
@@ -147,6 +150,50 @@ test('bundle ledger serializes last unit, CAS edits, rollback and provider final
     sql(insert(12, false, '0', ',"__bundle_hidden":"bundle"'));
     assert.equal(stock().remaining, 1, 'server-resolved hidden selection does not allocate');
     denied(`DELETE FROM form_submission WHERE id='${sub(9)}'`, /foreign key/);
+    const setting = value => sql(`UPDATE form SET fields=jsonb_set(fields,'{0,reduce_bundle_stock_on_submission}','${value}');`);
+    setting(false);
+    sql(insert(13));
+    sql(insert(14, true));
+    assert.equal(stock().remaining, 1);
+    assert.equal(stock().reserved, 0);
+    assert.equal(sql(`SELECT count(*) FROM form_bundle_allocation WHERE submission_id IN ('${sub(13)}','${sub(14)}')`), '0');
+    assert.equal(sql(`SELECT count(*) FROM form_bundle_selection`), '2');
+    assert.equal(sql(`SELECT submission_data->'__bundle_labels'->>'bundle' FROM form_submission WHERE id='${sub(13)}'`), 'Historical bundle');
+    denied(insert(15, true, '0.01'), /price changed/);
+    denied(`BEGIN; ${insert(15)} SELECT 1/0; COMMIT;`, /division by zero/);
+    assert.equal(sql(`SELECT count(*) FROM form_bundle_selection`), '2');
+    denied(`UPDATE form_submission SET payment_amount=1 WHERE id='${sub(14)}'`, /immutable/);
+    denied(`UPDATE form_submission SET submission_data='{}' WHERE id='${sub(13)}'`, /cannot change/);
+    denied(`SET ROLE service_role; INSERT INTO form_bundle_selection SELECT * FROM form_bundle_selection;`, /permission denied/);
+    denied(`SET ROLE anon; SELECT * FROM form_bundle_selection;`, /permission denied/);
+    setting(true);
+    denied(reserve(13), /does not allocate/);
+    assert.equal(stock().remaining, 1, 'failed retroactive allocation rolls back stock changes');
+    sql(`UPDATE form_submission SET payment_status='paid' WHERE id='${sub(14)}';`);
+    assert.equal(stock().remaining, 1, 'disabled attempt stays non-allocating after enabling');
+    sql(insert(15, true));
+    assert.equal(stock().remaining, 0);
+    setting(false);
+    denied(insert(16), /sold out/);
+    sql(`UPDATE form_submission SET payment_status='paid' WHERE id='${sub(15)}';`);
+    assert.equal(stock().remaining, 0);
+    assert.equal(stock().reserved, 0, 'enabled hold settles even after disabling');
+    sql(edit(stock().version, 'NULL'));
+    sql(insert(16));
+    assert.equal(stock().remaining, null);
+    sql(insert(17, false, '0', ',"__bundle_hidden":"bundle"'));
+    sql(`INSERT INTO form_submission(id,tenant_id,form_id,submission_data) VALUES('${sub(18)}','${tenant}','${tenant}','{}');`);
+    assert.equal(sql(`SELECT count(*) FROM form_bundle_selection WHERE submission_id IN ('${sub(17)}','${sub(18)}')`), '0');
+    setting('"false"');
+    denied(insert(19), /on or off/);
+    setting(true);
+    sql(edit(stock().version, 1));
+    const insertRaces = await Promise.all([19,20].map(n => asyncRun('psql', args, insert(n))));
+    assert.equal(insertRaces.filter(r => r.status === 0).length, 1);
+    assert.equal(stock().remaining, 0);
+    const accepted = insertRaces[0].status === 0 ? 19 : 20;
+    denied(insert(accepted), /duplicate key/);
+    assert.equal(stock().remaining, 0);
   } finally {
     if (started) run('pg_ctl', ['-D', data, '-m', 'immediate', '-w', 'stop']);
     await rm(root, { recursive: true, force: true });
