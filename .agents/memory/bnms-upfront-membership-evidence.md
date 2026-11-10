@@ -15,9 +15,23 @@ not permission to treat the full event price as a membership-only fee, infer
 payment settlement, include deleted members, or overwrite a separately recorded
 expiry without considering its existing authority.
 
-Historical entitlement reconstruction is not a new rolling purchase. Preserve
-retained expiry and unknown membership-only amounts, especially for bundled event
-invoices. Do not fabricate rolling duration or price to satisfy a purchase guard.
+For this BNMS recovery the owner authorises deriving missing membership prices
+from the structure selected by the correct member_class. Reconstruct the full
+priced term, not only invoice links and renewal admission. Record these prices
+as structure-derived reconstruction values, not as an allocation proved by Xero.
+
+**Why:** The owner rejected the repaired history still displaying “Uncommitted”,
+“Structure unknown”, unknown renewal/frequency and unknown duration. They explicitly
+said membership price needs to be derived from the structure.
+
+**How to apply:** Preserve real invoice evidence separately, including bundled-event
+totals. Do not substitute the package total or claim new cash settlement. Verify
+the rendered history and commitment presentation as well as renewal eligibility.
+This overrides the previous unknown-price hold for this authorised BNMS recovery.
+
+Historical entitlement reconstruction is not a new payment collection. Retained
+expiry can differ from an exact rolling duration; resolve that conflict explicitly
+rather than fabricate a duration merely to satisfy a purchase guard.
 
 **Why:** Invoice-based commencement and retained legacy expiry can legitimately
 differ from an exact annual rolling term; bundled invoices do not allocate a
