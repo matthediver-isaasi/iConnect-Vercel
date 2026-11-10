@@ -1,4 +1,5 @@
 import { supabase as rawSupabase } from './database.js';
+import { buildOptionValueOrConditions } from './prefValueOptionFilter.js';
 import { campaignLifecycle, archivedCampaignConflict, campaignLifecycleError } from './campaignLifecycle.js';
 import { readCampaignList, isMissingCampaignArchiveColumn } from './campaignReads.js';
 import { recordedAudienceAttendance } from './campaignRecordedAttendance.js';
@@ -2197,8 +2198,8 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
             const batchSize = 1000;
             let hasMore = true;
             while (hasMore) {
-              const { data: batch, error } = await query.range(offset, offset + batchSize - 1);
-              if (error) { console.error('[FieldFilter] core member query error:', error); break; }
+              const { data: batch, error } = await query.order('id').range(offset, offset + batchSize - 1);
+              if (error) throw error;
               if (batch && batch.length > 0) {
                 allIds.push(...batch.map(r => r.id));
                 offset += batch.length;
@@ -2224,8 +2225,8 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
             const batchSize = 1000;
             let hasMore = true;
             while (hasMore) {
-              const { data: batch, error } = await query.range(offset, offset + batchSize - 1);
-              if (error) { console.error('[FieldFilter] custom member query error:', error); break; }
+              const { data: batch, error } = await query.order('id').range(offset, offset + batchSize - 1);
+              if (error) throw error;
               if (batch && batch.length > 0) {
                 allRows.push(...batch);
                 offset += batch.length;
@@ -2539,7 +2540,7 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
 
         if (unionIds.size > 0) {
           const idArr = [...unionIds];
-          const idBatchSize = 500;
+          const idBatchSize = 100;
           for (let i = 0; i < idArr.length; i += idBatchSize) {
             const idBatch = idArr.slice(i, i + idBatchSize);
             const { data: members, error: memberError } = await supabase
@@ -2548,7 +2549,7 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
               .eq('tenant_id', tenantId)
               .in('id', idBatch)
               .not('email', 'ilike', 'deleted_%@deleted.local');
-            if (memberError && customConditions.length) throw memberError;
+            if (memberError) throw memberError;
             if (members) recipients.push(...members.filter(m => m.email));
           }
         }
@@ -2607,24 +2608,21 @@ export function applyConditionToQuery(query, fieldKey, operator, value, dataType
 
 export function applyPrefValueCondition(query, operator, value, dataType) {
   const isNumericType = dataType === 'number' || dataType === 'decimal';
-  const isMultiSelectType = dataType === 'list' || dataType === 'multiselect' || dataType === 'multi_select' || dataType === 'countries' || dataType === 'country';
+  const isMultiSelectType = dataType === 'picklist' || dataType === 'list' || dataType === 'multiselect' || dataType === 'multi_select' || dataType === 'countries' || dataType === 'country';
   switch (operator) {
     case 'equals':
+      if (dataType === 'picklist' || dataType === 'dropdown' || isMultiSelectType) {
+        return { query: query.or(buildOptionValueOrConditions([value])), postFilter: null };
+      }
       return { query: query.eq('value', String(value)), postFilter: null };
     case 'not_equals':
       return { query: query.neq('value', String(value)), postFilter: null };
     case 'contains':
-      if (isMultiSelectType && Array.isArray(value) && value.length > 0) {
-        const escapeLike = (s) => String(s).replace(/([%_\\])/g, '\\$1');
-        const escapeOr = (s) => String(s).replace(/([\\(),"])/g, '\\$1');
-        const orClause = value
-          .map(v => `value.ilike."%\\"${escapeOr(escapeLike(v))}\\"%"`)
-          .join(',');
-        return { query: query.or(orClause), postFilter: null };
-      }
-      if (isMultiSelectType && value) {
-        const escapeLike = (s) => String(s).replace(/([%_\\])/g, '\\$1');
-        return { query: query.ilike('value', `%"${escapeLike(value)}"%`), postFilter: null };
+      if (isMultiSelectType && value && (!Array.isArray(value) || value.length)) {
+        return {
+          query: query.or(buildOptionValueOrConditions(Array.isArray(value) ? value : [value])),
+          postFilter: null,
+        };
       }
       return { query: query.ilike('value', `%${value}%`), postFilter: null };
     case 'is_not_empty':
@@ -2650,6 +2648,10 @@ export function applyPrefValueCondition(query, operator, value, dataType) {
     case 'after':
       return { query: query.gt('value', String(value)), postFilter: null };
     case 'is_one_of':
+      if (dataType === 'picklist' || dataType === 'dropdown' || isMultiSelectType) {
+        const values = Array.isArray(value) ? value : [value];
+        if (values.length) return { query: query.or(buildOptionValueOrConditions(values)), postFilter: null };
+      }
       if (Array.isArray(value)) {
         return { query: query.in('value', value.map(String)), postFilter: null };
       }

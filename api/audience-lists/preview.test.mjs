@@ -14,7 +14,7 @@ async function loadCampaignService() {
   const replacements = new Map();
 
   for (const [, names, specifier] of source.matchAll(importPattern)) {
-    if (specifier === 'crypto' || specifier === './eventSurveyAudience.js' || specifier === './campaignRecordedAttendance.js') continue;
+    if (specifier === 'crypto' || specifier === './prefValueOptionFilter.js' || specifier === './eventSurveyAudience.js' || specifier === './campaignRecordedAttendance.js') continue;
     const exports = [];
     for (const entry of names.replace(/[{}]/g, '').split(',').map((value) => value.trim()).filter(Boolean)) {
       const [imported, local = imported] = entry.split(/\s+as\s+/);
@@ -52,7 +52,7 @@ async function loadCampaignService() {
   return import(`data:text/javascript;base64,${encoded}`);
 }
 
-function database(rows = {}, { missingReviewSchema = false } = {}) {
+function database(rows = {}, { missingReviewSchema = false, failTable = null } = {}) {
   const calls = [];
   return {
     calls,
@@ -74,6 +74,7 @@ function database(rows = {}, { missingReviewSchema = false } = {}) {
           return query;
         },
         order() { return query; },
+        not() { return query; },
         or(expression) {
           const emails = [...expression.matchAll(/email\.ilike\.([^,]+)/g)].map(match => match[1].replaceAll('"', '').toLowerCase());
           filters.push(row => emails.includes(row.email?.toLowerCase()));
@@ -88,6 +89,7 @@ function database(rows = {}, { missingReviewSchema = false } = {}) {
         catch(rejectResult) { return execute(false).catch(rejectResult); },
       };
       async function execute(single) {
+        if (table === failTable) return { data: null, error: { message: 'Lookup unavailable' } };
         if (missingReviewSchema && table === 'audience_list' && call.select.includes('category_review_required')) {
           return { data: null, error: { message: 'column audience_list.category_review_required does not exist' } };
         }
@@ -220,12 +222,80 @@ function useServiceFixture(db) {
   globalThis[serviceSlot] = {
     db,
     dependency(name, args) {
+      if (name === 'resolveCustomObjectConditions') return null;
       if (name === 'isActiveCommunicationMember') return true;
       if (name === 'buildEmailCaseInsensitiveOr') return args[0].map(email => `email.ilike.${email}`).join(',');
       throw new Error(`Unexpected dependency: ${name}`);
     },
   };
 }
+
+test('field audiences hydrate more than 1000 matches in bounded tenant-scoped batches', async () => {
+  const member = Array.from({ length: 1205 }, (_, i) => ({
+    id: `member-${i}`, tenant_id: 'tenant-a', email: `member-${i}@example.test`,
+    communications_opted_out_all: i === 0,
+  }));
+  const db = database({
+    member,
+    member_preference_value: member.map(m => ({ member_id: m.id, field_id: 'role', value: 'Employer engagement' })),
+  });
+  useServiceFixture(db);
+  const result = await campaignService.getTargetRecipients({
+    target_audiences: [{ type: 'field_filter', filter_groups: [{ conditions: [{
+      entity_scope: 'member', field_type: 'custom', field_key: 'role',
+      operator: 'equals', value: 'Employer engagement', data_type: 'text',
+    }] }] }],
+  }, 'tenant-a', true);
+  assert.equal(result.success, true);
+  assert.equal(result.stats.totalAudience, 1205);
+  assert.equal(result.count, 1204);
+  const reads = db.calls.filter(c => c.table === 'member');
+  assert.equal(reads.length, 13);
+  for (const read of reads) {
+    assert.ok(read.filters.find(f => f[0] === 'in')[2].length <= 100);
+    assert.ok(read.filters.some(f => f[1] === 'tenant_id' && f[2] === 'tenant-a'));
+  }
+});
+
+test('field audience lookup failures never return a successful zero count', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  for (const failTable of ['member_preference_value', 'member']) {
+    useServiceFixture(database({
+      member_preference_value: [{ member_id: 'one', field_id: 'role', value: 'Employer engagement' }],
+    }, { failTable }));
+    const result = await campaignService.getTargetRecipients({
+      target_audiences: [{ type: 'field_filter', filter_groups: [{ conditions: [{
+        entity_scope: 'member', field_type: 'custom', field_key: 'role',
+        operator: 'equals', value: 'Employer engagement', data_type: 'text',
+      }] }] }],
+    }, 'tenant-a', true);
+    assert.equal(result.success, false);
+    assert.equal(result.count, undefined);
+    assert.match(result.error, /Lookup unavailable/);
+  }
+});
+
+test('multi-option contains matches scalar and array storage, not partial option names', () => {
+  for (const type of ['picklist', 'multiselect', 'list']) {
+    let expression;
+    const query = { or(value) { expression = value; return this; } };
+    campaignService.applyPrefValueCondition(query, 'contains', ['Employer engagement'], type);
+    assert.match(expression, /value\.eq\."Employer engagement"/);
+    assert.ok(expression.includes('\\"Employer engagement\\"'));
+    assert.ok(!expression.includes('*Employer engagement*'));
+  }
+});
+
+test('picklist option selections support scalar and array answers using the editor operators', () => {
+  for (const operator of ['equals', 'is_one_of']) {
+    let expression;
+    const query = { or(value) { expression = value; return this; } };
+    campaignService.applyPrefValueCondition(query, operator,
+      operator === 'equals' ? 'Employer engagement' : ['Employer engagement'], 'picklist');
+    assert.match(expression, /value\.eq\."Employer engagement"/);
+    assert.ok(expression.includes('\\"Employer engagement\\"'));
+  }
+});
 
 test('shared audience-list validation accepts valid and empty targeting', async () => {
   const db = database({
