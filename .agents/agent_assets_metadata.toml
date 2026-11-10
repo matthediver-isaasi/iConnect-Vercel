@@ -1895,3 +1895,31 @@ mtime_ms = 1794133411370
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/0129c38c-2b12-4bca-8487-df86fc052077/8163d118-e157-45cb-8bea-64fa07f26b85"
 storage_version_token = "1794134182302691"
 content_type = "text/csv"
+
+[[outputs]]
+id = "1h9G0vVQ1ECDoTD3eYvjg"
+uri = "file://generated-artifacts/bnms-all-renewal/report.html"
+type = "html"
+title = "BNMS renewal readiness — 10 November 2026"
+description = "Member-ID-only evidence report, overlapping counts, limitations and approval queue. Share only with authorised reviewers."
+logical_id = "78f25b3b-825d-47bb-a8f7-4b53b75ce82c"
+content_hash = "sha256:99579ee11dc16ca53ab7497bc7b8726caa373502cc37041b014ef740dae85237"
+size = 1536839
+mtime_ms = 1794339978787
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/78f25b3b-825d-47bb-a8f7-4b53b75ce82c/f64e638e-e5c5-477f-a3f1-0cfe97d08e26"
+storage_version_token = "1794340062545975"
+content_type = "text/html"
+
+[[outputs]]
+id = "boF44RsUZ37YJSTmNHd1g"
+uri = "file://generated-artifacts/bnms-all-renewal/members.csv"
+type = "table"
+title = "BNMS all-member renewal audit CSV"
+description = "4,080 unique members with classifications, term evidence, references, reasons, confidence and recommended next actions."
+logical_id = "f391144b-9cf6-48c4-b869-6aedf68b850f"
+content_hash = "sha256:34c297667957265b67084086e3d2fd1f8dfb49d5ff037fafade7c766fcde16b7"
+size = 4455438
+mtime_ms = 1794339977931
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/f391144b-9cf6-48c4-b869-6aedf68b850f/5abd90a9-cf31-4c47-aef8-227c0d14e3ab"
+storage_version_token = "1794340063577762"
+content_type = "text/csv"

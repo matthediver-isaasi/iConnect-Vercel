@@ -275,7 +275,7 @@ async function readHistory(db, tenantId, column, ownerId, table, source) {
   }
 }
 
-async function matchingBillingEvidence(db, selected, tenantId, memberId) {
+export async function matchingBillingEvidence(db, selected, tenantId, memberId) {
   const record = selected?.record;
   if (!record || record.membership_source !== 'personal' || !record.billing_agreement_id) return null;
   const { data: agreement, error } = await db.from('membership_billing_agreements')
@@ -326,7 +326,7 @@ async function matchingBillingEvidence(db, selected, tenantId, memberId) {
 // A fulfilled, processed billing request establishes authorisation, not an
 // active mandate, first payment, or scheduled collection. Never substitute
 // this historic signup quote for a current plan's amount.
-async function pendingSignupPrice(db, { selected, agreement, plan, owner, tenantId, today }) {
+export async function pendingSignupPrice(db, { selected, agreement, plan, owner, tenantId, today }) {
   const record = selected?.record;
   if (plan || !agreement || !record || record.membership_source !== 'personal'
       || record.tenant_id !== tenantId || record.member_id !== owner.id
@@ -357,7 +357,7 @@ async function pendingSignupPrice(db, { selected, agreement, plan, owner, tenant
     ? { expectedMonthlyPrice: signupMonthlyPriceFromAgreement(agreement) } : null;
 }
 
-async function collectionEvidence(db, plan, tenantId, memberId, today) {
+export async function collectionEvidence(db, plan, tenantId, memberId, today) {
   if (!plan || plan.provider !== 'gocardless') return null;
   const rows = [];
   for (let offset = 0; ; offset += 500) {
@@ -389,7 +389,7 @@ async function collectionEvidence(db, plan, tenantId, memberId, today) {
   return { confirmed: shape(past, false, true), planned: shape(future) };
 }
 
-async function pilotHistoricalEvidence(db, selected, plan, tenantId, memberId) {
+export async function pilotHistoricalEvidence(db, selected, plan, tenantId, memberId) {
   if (!selected || !plan || plan.provider !== 'gocardless'
       || plan.membership_billing_agreements?.metadata?.dd?.billing_request_mode !== 'migration_existing_mandate') {
     return null;

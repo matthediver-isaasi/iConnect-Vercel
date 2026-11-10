@@ -156,3 +156,4 @@
 - [Non-allocating bundle receipts](bundle-nonallocating-receipts.md) — stock opt-out must retain immutable selection/payment evidence without creating a hold.
 - [Existing guest joining](existing-guest-joining-policy.md) — separate authenticated joining copies preserve category-specific joining and approval, rather than using renewal workflows.
 - [Form commerce boundaries](form-cart-policy.md) — independent form stock is not proposal capacity; bundle tax needs explicit authority rather than component inference.
+- [Offline audit adapters](offline-audit-adapters.md) — optional helpers swallow unsupported query errors; verify adapter semantics before treating unavailable projections as data defects.
