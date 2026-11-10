@@ -25,16 +25,22 @@ work into creating category forms or adding temporary incomplete-category flows.
 
 **Why:** The owner explicitly excluded that work from this implementation.
 
-BNMS uses a different questionnaire for first membership:
-ab2d6278-686c-4604-be28-05d4bb328e03. Verify the form before configuration.
+BNMS's approved entry policy distinguishes four states: public new applicants
+use Getting Started (ab2d6278-686c-4604-be28-05d4bb328e03); authenticated
+never-held accounts and eligible post-grace former members use Continuing
+(7e263a45-ad57-4404-bc18-05288fd52ec9); eligible open-window and within-grace
+renewals use Renewing (090be663-5429-4e46-b6ee-d824d37d6d3b).
 
-**Why:** The owner distinguishes new-member questions leading to join forms from
-renewal questions leading to renewal forms. Never substitute the renewal entry
-as a fallback for joining.
+**Why:** The owner approved separate public joining, existing-account joining,
+and ordinary renewal journeys. This supersedes the earlier direction to send
+signed-in guests to Getting Started.
 
-**How to apply:** Keep the two settings independent. A signed-in guest can use
-the public joining questionnaire without changing that form's public access or
-granting the guest financial-history permission.
+**How to apply:** Verify live contracts before configuration. Preserve public
+joining and existing-account authentication; signed-out visitors are not
+necessarily new accounts. Destination selection never grants purchase
+authority or financial-history access. A shared Continuing entry must not
+classify a former member's restart as a new-applicant purchase, and branch
+changes must preserve category-specific questions and approval.
 
 Keep the portal Payment Details card visible even when no payment arrangement
 or eligible action is available.

@@ -11,6 +11,7 @@ import { signupMonthlyPriceFromAgreement, completedPendingBankActivation } from 
 import { resolveMemberAmendmentReadOverlays } from '../_lib/membershipAmendmentReadOverlay.js';
 import { applyRenewalJourney, readRenewalJourney } from '../_lib/membershipRenewalJourney.js';
 import { loadJoiningJourney } from '../_lib/membershipJoiningJourney.js';
+import { loadMembershipEntryOnly } from '../_lib/membershipEntryOnly.js';
 
 // This endpoint is deliberately self-only, including for administrators. It
 // reads retained commitments and read-only dynamic pricing projections, never
@@ -482,6 +483,12 @@ export function createCanvasSummaryHandler(dependencies = {}) {
         if (!dependencies.renewalPriceOnly) {
           const joining = await (dependencies.loadJoiningJourney || loadJoiningJourney)(db, { tenantId, owner });
           if (joining.eligible) return res.json({ membership: { state: 'none' }, payment: { state: 'none' }, joining });
+          const { loadFormMembershipRenewalContext } = await import('../_lib/formMembershipRenewalContext.js');
+          const { createMembershipSimulator } = await import('../_lib/membershipSimulationCore.js');
+          const entry = await loadMembershipEntryOnly(db, { tenantId, owner, now: now(),
+            loadContext: dependencies.loadRenewalContext || loadFormMembershipRenewalContext,
+            simulate: dependencies.simulate || createMembershipSimulator(db).simulateMembershipForMember });
+          if (entry) return res.json(entry);
         }
         return res.status(403).json({ error: 'Membership history access permission required' });
       }

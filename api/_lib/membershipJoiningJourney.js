@@ -15,8 +15,9 @@ export async function loadJoiningJourney(db, { tenantId, owner }) {
     const settings = await readJoiningJourney(db, tenantId);
     if (!settings.form_id) return hidden;
     const { data: form, error } = await db.from('form')
-      .select('id,tenant_id,slug,is_active,form_type').eq('tenant_id', tenantId).eq('id', settings.form_id).maybeSingle();
+      .select('id,tenant_id,slug,is_active,form_type,archived_at,deactivate_at').eq('tenant_id', tenantId).eq('id', settings.form_id).maybeSingle();
     if (error || !form || form.tenant_id !== tenantId || !form.slug || !form.is_active
+      || form.archived_at || (form.deactivate_at && (!Number.isFinite(Date.parse(form.deactivate_at)) || Date.parse(form.deactivate_at) <= Date.now()))
       || ![null,undefined,'standard'].includes(form.form_type)) return hidden;
     const checks = [
       ['member_membership_history','member_id',owner.id,'cancelled_for_switch_at'],

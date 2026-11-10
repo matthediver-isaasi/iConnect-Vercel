@@ -51,3 +51,50 @@ test('settings API enforces admin/tenant scope and revision conflicts',async()=>
   const r=res();await handler({method:'PUT',body:{mode:'questionnaire',formId:id,expectedRevision:1,tenantId:'forged'}},r);
   assert.equal(r.code,409);assert.equal(saved.p_tenant_id,'tenant');assert.equal(saved.p_actor,'member:admin');
 });
+test('post-grace override is independent, optional, and never grants eligibility',async()=>{
+  const setting={mode:'same_schedule',form_id:null,post_grace_form_id:id};
+  assert.deepEqual(await applyRenewalJourney(fixture(setting),'tenant',{eligible:true,inGrace:true}),{eligible:true,inGrace:true});
+  assert.equal((await applyRenewalJourney(fixture(setting),'tenant',{eligible:true,state:'post_grace_renewal'})).entryHref,'/FormView?slug=renewing-with-bnms');
+  const blocked=fixture(setting);
+  assert.deepEqual(await applyRenewalJourney(blocked,'tenant',{eligible:false,state:'post_grace_renewal'}),{eligible:false,state:'post_grace_renewal'});
+  assert.equal(blocked.calls.length,0);
+});
+test('expired or archived destinations fail closed without falling back',async()=>{
+  for(const patch of [{archived_at:'2026-01-01'}, {deactivate_at:'2020-01-01'}, {deactivate_at:'invalid'}]){
+    const db=fixture({mode:'questionnaire',form_id:id,post_grace_form_id:id},
+      {id,tenant_id:'tenant',slug:'continuing',is_active:true,require_authentication:true,...patch});
+    assert.equal((await applyRenewalJourney(db,'tenant',{eligible:true,state:'post_grace_renewal'})).journeyUnavailable,true);
+  }
+});
+test('old schema projection preserves the old destination during staged rollout',async()=>{
+  const selections=[];
+  const db={from(){const q={select(columns){selections.push(columns);return q;},eq(){return q;},
+    async maybeSingle(){return selections.length===1 ? {error:{code:'42703'}} :
+      {data:{mode:'questionnaire',form_id:id,revision:1}};}};return q;}};
+  assert.deepEqual(await readRenewalJourney(db,'tenant'),{mode:'questionnaire',form_id:id,revision:1,post_grace_form_id:null});
+  assert.equal(selections.length,2);
+});
+test('ordinary and inclusive-grace renewal retain the ordinary form while only post-grace selects its override',async()=>{
+  const restart='7e263a45-ad57-4404-bc18-05288fd52ec9';
+  for(const renewal of [{eligible:true},{eligible:true,inGrace:true},{eligible:true,state:'post_grace_renewal'}]) {
+    const db=fixture({mode:'questionnaire',form_id:id,post_grace_form_id:restart});
+    await applyRenewalJourney(db,'tenant',renewal);
+    assert.ok(db.calls.some(([table,key,value])=>table==='form'&&key==='id'&&
+      value===(renewal.state==='post_grace_renewal'?restart:id)));
+  }
+});
+test('admin save includes an explicit restart choice but old requests do not erase it',async()=>{
+  const calls=[];
+  const db={rpc:async(name,args)=>{calls.push(args);return {data:{revision:2}};}};
+  const handler=createRenewalJourneyHandler({db,getContext:async()=>({isAuthenticated:true,tenantId:'tenant',memberId:'admin'}),isAdmin:async()=>true});
+  const response=()=>({setHeader(){},status(code){this.code=code;return this;},json(body){this.body=body;return this;}});
+  const body={mode:'questionnaire',formId:id,expectedRevision:1};
+  await handler({method:'PUT',body},response());
+  assert.equal(Object.hasOwn(calls[0],'p_post_grace_form_id'),false);
+  await handler({method:'PUT',body:{...body,postGraceFormId:id}},response());
+  assert.equal(calls[1].p_post_grace_form_id,id);
+  await handler({method:'PUT',body:{...body,postGraceFormId:null}},response());
+  assert.equal(calls[2].p_post_grace_form_id,null);
+  const bad=response();await handler({method:'PUT',body:{...body,postGraceFormId:'bad'}},bad);
+  assert.equal(bad.code,400);assert.equal(calls.length,3);
+});

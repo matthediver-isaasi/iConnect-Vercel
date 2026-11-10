@@ -17,6 +17,8 @@ test('renewal journey settings enforce tenant ownership, revision CAS, audit and
    CREATE TABLE tenant(id uuid primary key);
    CREATE TABLE form(id uuid primary key,tenant_id uuid,is_active boolean,require_authentication boolean,slug text,form_type text);`);
   await db.query(readFileSync(new URL('../../supabase/migrations/202701210002_membership_renewal_journey.sql',import.meta.url),'utf8'));
+  await db.query('alter table form add column archived_at timestamptz, add column deactivate_at timestamptz');
+  await db.query(readFileSync(new URL('../../supabase/migrations/202701210004_membership_post_grace_journey.sql',import.meta.url),'utf8'));
   const t='10000000-0000-0000-0000-000000000001',other='10000000-0000-0000-0000-000000000002',f='20000000-0000-0000-0000-000000000001';
   await db.query('insert into tenant values($1),($2)',[t,other]);
   await db.query("insert into form values($1,$2,true,true,'questionnaire','standard')",[f,t]);
@@ -32,5 +34,17 @@ test('renewal journey settings enforce tenant ownership, revision CAS, audit and
   const result=await save(t,1,'same_schedule',null);assert.equal(result.rows[0].setting.mode,'same_schedule');
   assert.equal((await db.query('select count(*)::int as n from membership_renewal_journey_history')).rows[0].n,2);
   assert.equal((await db.query('select count(*)::int as n from membership_renewal_journey where tenant_id=$1',[other])).rows[0].n,0);
+  await db.query('update form set require_authentication=true where id=$1',[f]);
+  const saveRestart=(revision,target=f)=>db.query('select save_membership_renewal_journey($1,$2,$3,$4,$5,$6) as setting',[t,'test:admin','same_schedule',null,revision,target]);
+  assert.equal((await saveRestart(2)).rows[0].setting.post_grace_form_id,f);
+  assert.equal((await save(t,3,'same_schedule',null)).rows[0].setting.post_grace_form_id,f,'old clients retain override');
+  await assert.rejects(saveRestart(3),/Settings changed/);
+  await db.query('update form set deactivate_at=now() where id=$1',[f]);
+  await assert.rejects(saveRestart(4),/from this tenant/);
+  await db.query('update form set deactivate_at=null,archived_at=now() where id=$1',[f]);
+  await assert.rejects(saveRestart(4),/from this tenant/);
+  assert.equal((await saveRestart(4,null)).rows[0].setting.post_grace_form_id,null);
+  assert.equal((await db.query('select post_grace_form_id from membership_renewal_journey_history where tenant_id=$1 and revision=4',[t])).rows[0].post_grace_form_id,f);
+  await db.query('set role authenticated');await assert.rejects(saveRestart(5),/permission denied/);await db.query('reset role');
  }finally{if(db)await db.end();if(started)spawnSync('pg_ctl',['-D',h.data,'-m','immediate','stop']);await h.cleanup();}
 });

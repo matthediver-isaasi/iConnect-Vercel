@@ -7,6 +7,7 @@ export default function MembershipRenewalJourneySettings({ tenantId, joining = f
   const [saved, setSaved] = useState(null);
   const [mode, setMode] = useState('same_schedule');
   const [formId, setFormId] = useState('');
+  const [postGraceFormId, setPostGraceFormId] = useState('');
   const [forms, setForms] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -22,6 +23,7 @@ export default function MembershipRenewalJourneySettings({ tenantId, joining = f
     try {
       const result = await request();
       setSaved(result.settings); setMode(result.settings.mode); setFormId(result.settings.form_id || ''); setForms(result.forms);
+      setPostGraceFormId(result.settings.post_grace_form_id || '');
     } catch (e) { setError(e.message); setSaved(null); } finally { setBusy(false); }
   }
   useEffect(() => { if (tenantId) void load(); }, [tenantId]);
@@ -29,7 +31,7 @@ export default function MembershipRenewalJourneySettings({ tenantId, joining = f
     event.preventDefault(); setBusy(true); setError(''); setMessage('');
     try {
       const result = await request({ method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...(!joining ? {mode} : {}), formId: joining || mode === 'questionnaire' ? formId || null : null, expectedRevision: saved.revision }) });
+        body: JSON.stringify({ ...(!joining ? {mode, postGraceFormId: postGraceFormId || null} : {}), formId: joining || mode === 'questionnaire' ? formId || null : null, expectedRevision: saved.revision }) });
       setSaved(result.settings); setMessage(`${joining ? 'Joining' : 'Renewal'} journey saved. Memberships and payments have not been changed.`);
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
@@ -51,6 +53,14 @@ export default function MembershipRenewalJourneySettings({ tenantId, joining = f
               {formId && !forms.some(f => f.id === formId) && <option value={formId}>Saved form is currently unavailable</option>}
               {[...forms].sort((a,b) => (a.name || '').localeCompare(b.name || '')).map(f => <option key={f.id} value={f.id}>{f.name || 'Unnamed form'}</option>)}
             </select><span className="block text-sm text-muted-foreground">{joining ? 'Active standard forms are listed, including public joining questionnaires. This does not change their access settings.' : 'Only active forms requiring login are listed.'} This is the starting questionnaire, not necessarily the form that takes payment.</span></label>}
+          {!joining && <label className="block space-y-2"><span>Post-grace restart entry form</span>
+            <select className="block w-full rounded-md border bg-background p-2" value={postGraceFormId} onChange={e => setPostGraceFormId(e.target.value)}>
+              <option value="">Use the ordinary renewal journey</option>
+              {postGraceFormId && !forms.some(f => f.id === postGraceFormId) && <option value={postGraceFormId}>Saved form is currently unavailable</option>}
+              {[...forms].sort((a,b) => (a.name || '').localeCompare(b.name || '')).map(f => <option key={f.id} value={f.id}>{f.name || 'Unnamed form'}</option>)}
+            </select>
+            <span className="block text-sm text-muted-foreground">Optional separate questionnaire for eligible members whose grace period has ended. This does not change eligibility, dates or payment protections.</span>
+          </label>}
         </fieldset>
         <div className="flex gap-2"><Button type="submit" disabled={busy || !saved || (!joining && mode === 'questionnaire' && !formId)}>{busy ? 'Please wait…' : joining ? 'Save joining journey' : 'Save renewal journey'}</Button>
           <Button type="button" variant="outline" disabled={busy} onClick={load}>Reload settings</Button></div>
