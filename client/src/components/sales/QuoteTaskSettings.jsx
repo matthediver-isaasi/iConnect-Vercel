@@ -15,6 +15,7 @@ function SettingsForm({ query, settings, canManage }) {
   const naming = resolveQuoteNaming(settings);
   const qc = useQueryClient();
   const save = useMutation({
+    retry: false,
     mutationFn: () => query.patch({
       expectedVersion: settings.version, quoteTaskListName: name.trim(),
     }),

@@ -11,6 +11,7 @@ function PresetForm({ query, settings, canManage }) {
   const presets = draft ?? settings.billingPresets ?? empty;
   const invalid = Object.values(presets).some(rows => rows.some(row => !row.name.trim() || !/^\d+$/.test(String(row.days)) || !Number.isSafeInteger(Number(row.days)) || (row.isDefault && !row.isActive)));
   const save = useMutation({
+    retry: false,
     mutationFn: () => query.patch({ expectedVersion: settings.version, billingPresets: Object.fromEntries(Object.entries(presets).map(([key, rows]) => [key, rows.map(row => ({ ...row, name: row.name.trim(), days: Number(row.days) }))])) }),
     onSuccess: async result => { await query.accept(result); setDraft(null); },
     onError: async error => { if (error.status === 409) await query.refetch(); },

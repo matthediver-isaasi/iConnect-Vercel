@@ -14,6 +14,7 @@ function TermsForm({ query, settings, canManage }) {
   const value = draft ?? saved;
   const dirty = value !== saved;
   const save = useMutation({
+    retry: false,
     mutationFn: () => query.patch({ expectedVersion: settings.version, partnershipTermsHtml: value }),
     onSuccess: async result => {
       await query.accept(result);

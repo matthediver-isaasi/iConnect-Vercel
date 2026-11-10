@@ -28,6 +28,33 @@ function response() {
   };
 }
 
+test('conflicts make one RPC attempt and emit only scoped content-free diagnostics', async () => {
+  let writes = 0;
+  const logs = [];
+  const handler = createSalesSettingsHandler({
+    getTenantContext: async () => ({ isAuthenticated: true, tenantId: 'private-tenant', tenantUserId: 'private-actor' }),
+    logConflict: event => logs.push(event),
+    db: {
+      rpc: async () => { writes++; return { error: { code: '40001' } }; },
+      from: table => {
+        assert.equal(table, 'sales_settings');
+        return { select(columns) { assert.equal(columns, 'version'); return this; },
+          eq(key, value) { assert.deepEqual([key, value], ['tenant_id', 'private-tenant']); return this; },
+          maybeSingle: async () => ({ data: { version: 8 } }) };
+      },
+    },
+  });
+  const res = response();
+  await handler({ method: 'PATCH', body: { expectedVersion: 7, defaultTerms: 'PRIVATE CONTENT' } }, res);
+  assert.equal(res.statusCode, 409);
+  assert.equal(writes, 1);
+  assert.equal(logs.length, 1);
+  assert.equal(logs[0].expectedVersion, 7);
+  assert.equal(logs[0].observedVersion, 8);
+  assert.deepEqual(logs[0].fields, ['defaultTerms']);
+  assert.doesNotMatch(JSON.stringify(logs), /private-tenant|private-actor|PRIVATE CONTENT/);
+});
+
 test('Sales settings contract rejects unknown, malformed, and stale-shape values', () => {
   assert.equal(DEFAULT_SALES_SETTINGS.showInternalCode, true);
   assert.equal(DEFAULT_SALES_SETTINGS.showSku, true);

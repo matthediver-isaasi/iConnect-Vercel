@@ -22,6 +22,7 @@ function NamingForm({ query, settings, canManage }) {
   const errors = quoteNamingErrors(patch);
   const dirty = patch.quoteSingularName !== saved.singular || patch.quotePluralName !== saved.plural || patch.quoteUrlSegment !== saved.slug;
   const save = useMutation({
+    retry: false,
     mutationFn: () => query.patch({ expectedVersion: settings.version, ...patch }),
     onSuccess: async result => {
       await query.accept(result);

@@ -35,7 +35,7 @@ const settle = () => new Promise(resolve => setTimeout(resolve, 35));
 
 async function mount(request, canManage = true, authResolved = true, card = "Card") {
   const client = new QueryClient({ defaultOptions: {
-    queries: { retry: false, gcTime: Infinity }, mutations: { gcTime: Infinity },
+    queries: { retry: false, gcTime: Infinity }, mutations: { retry: 3, retryDelay: 1, gcTime: Infinity },
   } });
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
@@ -114,6 +114,38 @@ test("task-list viewer is read-only and unresolved authentication makes no reque
     assert.match(pending.host.textContent, /Loading task settings/);
     assert.equal(pending.host.querySelector("input"), null);
   } finally { await pending.close(); }
+});
+
+test("catalogue blocks stale submits during refresh and retains choices after failed recovery", async () => {
+  let reads = 0, writes = 0, finish;
+  const fixture = await mount(async (_url, options) => {
+    if (options?.method === "PATCH") {
+      writes++;
+      throw Object.assign(new Error("Conflict"), { status: 409 });
+    }
+    if (++reads === 1) return settings;
+    return new Promise((resolve, reject) => { finish = { resolve, reject }; });
+  }, true, true, "Catalogue");
+  const submit = async () => act(async () => {
+    fixture.host.querySelector("form").dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
+    await settle();
+  });
+  try {
+    assert.equal(writes, 0, "idle discovery never writes");
+    await act(async () => fixture.host.querySelector("input").click());
+    let refresh;
+    await act(async () => { refresh = fixture.client.refetchQueries({ queryKey: ["sales-settings"] }); await settle(); });
+    await submit();
+    assert.equal(writes, 0, "refresh must block programmatic submission as well as the button");
+    await act(async () => { finish.resolve({ ...settings, version: 2 }); await refresh; await settle(); });
+    await submit();
+    assert.equal(writes, 1, "global retry defaults must not replay conflicts");
+    await act(async () => { finish.reject(new Error("Read unavailable")); await settle(); });
+    await submit();
+    assert.equal(writes, 1);
+    assert.equal(fixture.host.querySelector("input").checked, false);
+    assert.match(fixture.host.textContent, /Read unavailable/);
+  } finally { await fixture.close(); }
 });
 
 for (const card of ["Card", "Naming"]) {
