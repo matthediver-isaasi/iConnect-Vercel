@@ -1,3 +1,4 @@
+import { formatCartReceipt } from "@/lib/formCart";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
@@ -2576,6 +2577,7 @@ export default function ReviewSubmissionPage() {
               )}
             </CardHeader>
             <CardContent className="p-6 space-y-2">
+              {formatCartReceipt(ddSubmission.form_submission?.submission_data?.__cart_receipt) && <div className="mb-4 space-y-2 rounded-lg border bg-slate-50 p-4"><Label>Cart receipt</Label><p className="whitespace-pre-wrap text-sm">{formatCartReceipt(ddSubmission.form_submission.submission_data.__cart_receipt)}</p><p className="text-xs text-muted-foreground">Checkout selections are immutable.</p></div>}
               {currentPageFields.length > 0 ? (
                 <div className="grid grid-cols-2 gap-4">
                   <div className="font-semibold text-sm uppercase tracking-wide text-muted-foreground">Original</div>
@@ -2611,6 +2613,8 @@ export default function ReviewSubmissionPage() {
                       );
                     }
                     
+                    if (field.id === ddSubmission.form_submission?.submission_data?.__cart_receipt?.fieldId) return null;
+                    if (field.type === 'sales_cart') return <p key={fieldKey} className="text-sm text-muted-foreground">Cart receipt unavailable</p>;
                     return (
                       <ReviewFieldEditor
                         key={fieldKey || `field-${index}`}

@@ -1,0 +1,100 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import Module from 'node:module';
+import { build } from 'esbuild';
+import { cartConfigurationError, formatCartReceipt } from '../../lib/formCart.js';
+import { resolveSubmissionToPrepared } from '../../lib/formSubmissionWordExport.js';
+
+const compiled = await build({
+  stdin: { contents: 'export {default} from "./client/src/components/forms/CartSettings.jsx"; export {state} from "@/pages/sales/useCatalogue";', resolveDir: process.cwd(), loader: 'jsx' },
+  bundle: true, write: false, packages: 'external', platform: 'node', format: 'cjs', jsx: 'automatic',
+  plugins: [{
+    name: 'catalogue-boundary',
+    setup(builder) {
+      builder.onResolve({ filter: /^@\/pages\/sales\/useCatalogue$/ }, args => ({ path: args.path, namespace: 'stub' }));
+      builder.onResolve({ filter: /^@\/components\/ui\// }, args => ({ path: args.path, namespace: 'stub' }));
+      builder.onLoad({ filter: /.*/, namespace: 'stub' }, args => ({
+        contents: args.path.includes('useCatalogue')
+          ? 'export const state = {}; export const useCatalogue = kind => state[kind];'
+          : 'export const Button = "button"; export const Checkbox = "checkbox"; export const Input = "input";',
+      }));
+    },
+  }],
+});
+const mod = new Module(`${process.cwd()}/cart-settings-test.cjs`);
+mod.filename = `${process.cwd()}/cart-settings-test.cjs`;
+mod.paths = Module._nodeModulePaths(process.cwd());
+mod._compile(compiled.outputFiles[0].text, mod.filename);
+const { default: Settings, state } = mod.exports;
+const productId = '12345678-1234-4234-8234-123456789012';
+const bundleId = '12345678-1234-4234-8234-123456789013';
+function walk(node, result = []) {
+  if (!node || typeof node !== 'object') return result;
+  if (Array.isArray(node)) node.forEach(child => walk(child, result));
+  else { result.push(node); walk(node.props?.children, result); }
+  return result;
+}
+function render(field) {
+  const changes = [];
+  const nodes = walk(Settings({ field, onChange: patch => changes.push(patch) }));
+  return { nodes, changes };
+}
+test('only independent products and bundles can be newly selected; unknown saved choices stay removable', () => {
+  state.products = { data: { cartStockReady: true, items: [
+    { id: productId, name: 'Handbook' },
+    { id: 'event', name: 'Event ticket', eventReference: { eventId: 'event-one' } },
+    { id: 'space', name: 'Exhibit', spaceRequirementId: 'space-one' },
+  ] } };
+  state.bundles = { data: { cartStockReady: true, items: [
+    { id: bundleId, name: 'Reading pack', items: [{ productId }] },
+    { id: 'event-bundle', name: 'Conference pack', items: [{ productId: 'event' }] },
+    { id: 'missing-bundle', name: 'Unreadable pack', items: [{ productId: 'missing' }] },
+  ] } };
+  const { nodes, changes } = render({ allowed_product_ids: ['saved-missing'], allowed_bundle_ids: [] });
+  const choices = nodes.filter(node => node.type === 'checkbox');
+  assert.deepEqual(choices.map(choice => choice.props.disabled), [false, true, true, undefined, false, true, true]);
+  const saved = choices.find(choice => choice.props.checked === true);
+  saved.props.onCheckedChange(false);
+  assert.deepEqual(changes[0], { allowed_product_ids: [] });
+});
+test('bundle tax is explicit, standard rate starts unset, and zero is a valid deliberate rate', () => {
+  state.products = { data: { cartStockReady: true, items: [{ id: productId, name: 'Handbook' }] } };
+  state.bundles = { data: { cartStockReady: true, items: [{ id: bundleId, name: 'Reading pack', items: [{ productId }] }] } };
+  const field = { id: 'cart', type: 'sales_cart', cart_version: 1, allowed_product_ids: [], allowed_bundle_ids: [bundleId], bundle_tax: {} };
+  const form = { form_type: 'standard', fields: [field, { id: 'payment', type: 'payment', price_field_id: 'cart' }] };
+  assert.match(cartConfigurationError(form), /explicit valid tax/);
+  const { nodes, changes } = render(field);
+  const treatment = nodes.find(node => node.type === 'select');
+  assert.equal(treatment.props.value, '');
+  treatment.props.onChange({ target: { value: 'standard' } });
+  assert.equal(changes[0].bundle_tax[bundleId].rateBps, null);
+  const next = { ...field, ...changes[0] };
+  const rate = render(next).nodes.find(node => node.type === 'input');
+  assert.equal(rate.props.value, '');
+  const configured = { ...field, bundle_tax: { [bundleId]: { treatment: 'standard', rateBps: 0 } } };
+  assert.equal(cartConfigurationError({ ...form, fields: [configured, form.fields[1]] }), null);
+});
+test('Word export uses the immutable receipt and hides its internal metadata', () => {
+  const receipt = { version: 1, fieldId: 'cart', currency: 'GBP', netMinor: 1735, taxMinor: 347, grossMinor: 2082, lines: [{
+    kind: 'product', id: productId, name: 'Original handbook', description: 'Archived edition', quantity: 1, unitPriceMinor: 1735, netMinor: 1735, taxMinor: 347, grossMinor: 2082, taxTreatment: 'standard', taxRateBps: 2000,
+  }] };
+  const submission = { submission_data: { cart: { version: 1, lines: [{ kind: 'product', id: productId, quantity: 1 }] }, __cart_receipt: receipt } };
+  const before = JSON.stringify(submission);
+  const prepared = resolveSubmissionToPrepared({
+    submission, form: { fields: [{ id: 'cart', type: 'sales_cart', label: 'Cart' }] },
+    selectedOptions: [{ key: 'cart', label: 'Cart' }, { key: '__cart_receipt', label: 'Internal metadata' }], resolvers: {},
+  });
+  assert.equal(prepared.rows.length, 1);
+  const text = prepared.rows[0].lines.map(line => line.text).join('\n');
+  assert.match(text, /Original handbook — Archived edition/);
+  assert.match(text, /Total: GBP 20.82/);
+  assert.equal(text, formatCartReceipt(receipt));
+  assert.equal(JSON.stringify(submission), before);
+  for (const form of [null, { fields: [] }, { fields: [{ id: 'cart', type: 'text', label: 'Renamed and retyped' }] }]) {
+    for (const selectedOptions of [[{ key: 'cart', label: 'Old cart' }], []]) {
+      const historical = resolveSubmissionToPrepared({ submission, form, selectedOptions, resolvers: {} });
+      assert.equal(historical.rows.length, 1);
+      assert.equal(historical.rows[0].lines.map(line => line.text).join('\n'), formatCartReceipt(receipt));
+    }
+  }
+});

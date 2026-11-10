@@ -5,6 +5,8 @@ import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { resolveFormAccess, sendFormAccessDenied } from '../_lib/formAccessPolicy.js';
 import { isFormScheduleAvailable } from '../_lib/formAvailability.js';
 import { bundleOptions, FormBundleError } from '../_lib/formBundles.js';
+import { cartOptions, FormCartError } from '../_lib/formCart.js';
+import { cartField } from '../../shared/formCart.js';
 
 export async function formBundlesHandler(req, res, dependencies = {}) {
   res.setHeader('Cache-Control', 'private, no-store');
@@ -29,11 +31,12 @@ export async function formBundlesHandler(req, res, dependencies = {}) {
         return res.status(403).json({ error: 'Sign in to access this form' });
       }
     }
-    return res.status(200).json({ items: await bundleOptions(db, form, req.query?.field_id) });
+    return res.status(200).json({ items: await (cartField(form) ? cartOptions : bundleOptions)(db, form, req.query?.field_id) });
   } catch (error) {
-    return res.status(error instanceof FormBundleError ? error.status : 500).json({
-      error: error instanceof FormBundleError ? error.message : 'Bundle availability could not be loaded',
-      code: error instanceof FormBundleError ? error.code : 'BUNDLE_OPTIONS_FAILED',
+    const known = error instanceof FormBundleError || error instanceof FormCartError;
+    return res.status(known ? error.status : 500).json({
+      error: known ? error.message : 'Catalogue availability could not be loaded',
+      code: known ? error.code : 'BUNDLE_OPTIONS_FAILED',
     });
   }
 }

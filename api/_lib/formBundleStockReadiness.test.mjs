@@ -43,6 +43,6 @@ test('catalogue publishes migration readiness to the builder without changing it
     const res = { status(c) { this.code = c; return this; }, json(data) { this.body = data; return this; } };
     await handler({ method: 'GET', query: { path: ['bundles'] } }, res);
     assert.equal(res.code, 200);
-    assert.deepEqual(res.body, { items: [], stockOptionReady: ready });
+    assert.deepEqual(res.body, { items: [], stockOptionReady: ready, cartStockReady: ready });
   }
 });

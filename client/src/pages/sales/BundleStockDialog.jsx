@@ -7,7 +7,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { parseBundleStock } from '@/lib/formBundles';
 
 export default function BundleStockDialog({ row, saving, onSave, onClose, onRefresh }) {
-  const stock = row.bundleStock;
+  const stock = row.productStock || row.bundleStock;
+  const kind = row.productStock ? 'product' : 'bundle';
   const [unlimited, setUnlimited] = useState(stock?.remaining === null);
   const [remaining, setRemaining] = useState(stock?.remaining ?? '');
   const [error, setError] = useState('');
@@ -24,7 +25,7 @@ export default function BundleStockDialog({ row, saving, onSave, onClose, onRefr
     }
   };
   return <Dialog open onOpenChange={open => !open && !saving && onClose()}><DialogContent className="max-w-lg">
-    <form onSubmit={submit} className="space-y-4"><DialogHeader><DialogTitle>Edit bundle stock</DialogTitle><DialogDescription>{row.name}. Stock is managed separately from bundle contents and pricing.</DialogDescription></DialogHeader>
+    <form onSubmit={submit} className="space-y-4"><DialogHeader><DialogTitle>Edit {kind} stock</DialogTitle><DialogDescription>{row.name}. Stock is managed separately from {kind} contents and pricing.</DialogDescription></DialogHeader>
       <div className="rounded-md border bg-muted/40 p-3 text-sm">Available: {stock ? stock.remaining === null ? 'Unlimited' : stock.remaining : 'Not loaded'} · Reserved: {stock?.reserved ?? 'Not loaded'}</div>
       {stock?.requiresAttention && <p role="alert" className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">Reserved holds need administrator review. Editing available stock does not resolve these holds or confirm their payment status.</p>}
       <label className="flex items-center gap-2 text-sm"><Checkbox checked={unlimited} disabled={saving || conflict} onCheckedChange={value => setUnlimited(value === true)} />Unlimited</label>

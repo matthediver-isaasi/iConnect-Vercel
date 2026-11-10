@@ -4,6 +4,7 @@ import { resolveSalesTaxCode } from './salesCatalogueTaxOptions.js';
 import { SalesHttpError } from './salesAccess.js';
 import { getSalesSettings } from './salesFoundation.js';
 import { bundleBillingGroupErrors, resolveBillingGroups } from '../../shared/salesBillingConfiguration.js';
+import { formCartReady } from './formCart.js';
 
 const TABLES = {
   categories: 'sales_catalogue_category',
@@ -131,6 +132,13 @@ async function hydrateBundles(db, tenantId, rows) {
   const holdResult = await db.from('form_bundle_allocation').select('bundle_id,last_error')
     .eq('tenant_id', tenantId).eq('state', 'held').in('bundle_id', rows.map(row => row.id));
   throwDb(holdResult.error);
+  let cartHolds = [];
+  if (await formCartReady(db)) {
+    const result = await db.from('form_cart_receipt').select('terms,last_error')
+      .eq('tenant_id', tenantId).eq('state', 'held').not('last_error', 'is', null);
+    throwDb(result.error);
+    cartHolds = result.data || [];
+  }
   const itemResult = await db.from('sales_catalogue_bundle_item')
     .select('id,bundle_id,product_id,quantity,display_order')
     .eq('tenant_id', tenantId).in('bundle_id', rows.map((row) => row.id))
@@ -144,7 +152,8 @@ async function hydrateBundles(db, tenantId, rows) {
   }), bundleStock: (() => {
     const stock = stockResult.data?.find(s => s.bundle_id === row.id);
     return stock ? { remaining: stock.remaining, reserved: stock.reserved, version: Number(stock.version),
-      requiresAttention: (holdResult.data || []).some(h => h.bundle_id === row.id && h.last_error) }
+      requiresAttention: (holdResult.data || []).some(h => h.bundle_id === row.id && h.last_error)
+        || cartHolds.some(h => h.terms?.lines?.some(line => line.kind === 'bundle' && line.id === row.id)) }
       : { remaining: null, reserved: 0, version: 0 };
   })() }));
 }
@@ -161,6 +170,16 @@ export async function updateBundleStock(db, tenantId, actor, id, body) {
   return { remaining: data.remaining, reserved: data.reserved, version: Number(data.version) };
 }
 
+export async function updateProductStock(db, tenantId, actor, id, body) {
+  if (!await formCartReady(db)) throw new SalesHttpError(503, 'Product stock requires a database update.');
+  if (!validateBundleStockEdit(body)) throw new SalesHttpError(400, 'Stock must be Unlimited or a nonnegative whole number; reload before editing.');
+  const { data, error } = await db.rpc('set_form_product_stock', { p_tenant_id: tenantId,
+    p_product_id: id, p_expected_version: body.expectedVersion, p_remaining: body.remaining, p_actor_id: actor.actorId });
+  if (error?.code === 'P0002') throw new SalesHttpError(404, 'Product not found');
+  throwDb(error);
+  return { remaining: data.remaining, reserved: data.reserved, version: Number(data.version) };
+}
+
 export async function listCatalogue(db, tenantId, type, options = {}) {
   let query = db.from(TABLES[type]).select('*').eq('tenant_id', tenantId);
   if (!options.includeInactive) query = query.eq('is_active', true);
@@ -168,7 +187,23 @@ export async function listCatalogue(db, tenantId, type, options = {}) {
   query = query.order('display_order', { ascending: true });
   const result = await query;
   throwDb(result.error);
-  if (type === 'products') return Promise.all((result.data || []).map((row) => hydrateProduct(db, tenantId, row)));
+  if (type === 'products') {
+    const products = await Promise.all((result.data || []).map((row) => hydrateProduct(db, tenantId, row)));
+    if (!products.length || !await formCartReady(db)) return products;
+    const stocks = await db.from('form_product_stock').select('product_id,remaining,reserved,version')
+      .eq('tenant_id', tenantId).in('product_id', products.map(product => product.id));
+    throwDb(stocks.error);
+    const holds = await db.from('form_cart_receipt').select('terms,last_error')
+      .eq('tenant_id', tenantId).eq('state', 'held').not('last_error', 'is', null);
+    throwDb(holds.error);
+    return products.map(product => {
+      const stock = stocks.data?.find(stock => stock.product_id === product.id);
+      return { ...product, cartStockReady: true, productStock: stock ? { remaining: stock.remaining, reserved: stock.reserved,
+        version: Number(stock.version), requiresAttention: (holds.data || []).some(hold =>
+          hold.terms?.lines?.some(line => line.kind === 'product' && line.id === product.id)) }
+        : { remaining: null, reserved: 0, version: 0 } };
+    });
+  }
   if (type === 'bundles') return hydrateBundles(db, tenantId, result.data || []);
   return (result.data || []).map(mapper(type));
 }

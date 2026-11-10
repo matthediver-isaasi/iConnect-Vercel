@@ -79,6 +79,8 @@ function idempotencyAnswerValues(values) {
   delete normalized[FORM_NOT_LISTED_LABELS_KEY];
   delete normalized.__bundle_labels;
   delete normalized.__bundle_hidden;
+  delete normalized.__cart_receipt;
+  delete normalized.__cart_hidden;
   return normalized;
 }
 
@@ -1735,6 +1737,9 @@ export default async function handler(req, res, dependencies = {}) {
 
     if (insertError) {
       if (!isSurvey) console.error('[Public Form Submission] Insert error:', insertError);
+      if (form.fields?.some(field => field.type === 'sales_cart') && ['P0001', '40001'].includes(insertError.code)) {
+        return res.status(409).json({ error: 'Cart stock or pricing changed. Refresh the cart and try again.', code: 'CART_UNAVAILABLE' });
+      }
       if (insertError.code === 'P0001' && /Bundle is sold out/.test(insertError.message || '')) {
         return res.status(409).json({ error: insertError.message, code: 'BUNDLE_UNAVAILABLE' });
       }
@@ -2014,7 +2019,7 @@ export default async function handler(req, res, dependencies = {}) {
           // operation, however: retain the row so a retry can safely re-run
           // its submission-id-bound reconciliation rather than losing audit
           // context or accidentally treating a later edit as the same save.
-          if (!hasCurrentSetProcessing && !hasMemberAffiliations && !applicantGrant && !form.fields?.some(f => f.type === 'sales_bundle')) {
+          if (!hasCurrentSetProcessing && !hasMemberAffiliations && !applicantGrant && !form.fields?.some(f => ['sales_bundle', 'sales_cart'].includes(f.type))) {
             console.log('[Public Form Submission] Rolling back submission due to pipeline failure:', submission.id);
             await supabase.from('form_submission').delete().eq('id', submission.id);
           }
@@ -2160,7 +2165,7 @@ export default async function handler(req, res, dependencies = {}) {
         // Keep its durable idempotency row for an explicit replay rather than
         // deleting the only safe retry handle.
         console.error('[Public Form Submission] Entity pipeline error:', err);
-        if (!hasCurrentSetProcessing && !hasMemberAffiliations && !applicantGrant && !form.fields?.some(f => f.type === 'sales_bundle')) {
+        if (!hasCurrentSetProcessing && !hasMemberAffiliations && !applicantGrant && !form.fields?.some(f => ['sales_bundle', 'sales_cart'].includes(f.type))) {
           console.log('[Public Form Submission] Rolling back submission due to pipeline error:', submission.id);
           try {
             await supabase.from('form_submission').delete().eq('id', submission.id);

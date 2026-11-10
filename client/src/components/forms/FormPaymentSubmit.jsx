@@ -16,6 +16,7 @@ import {
 import { directDebitFirstCollectionText, directDebitPolicyText, directDebitHasFixedTermTotal } from "@/lib/directDebitConsentSummary";
 import MembershipCommitmentNotice from "@/components/membership/MembershipCommitmentNotice";
 import { notifyBundleUnavailable } from "@/lib/formBundles";
+import { formatCartReceipt, lockFormCart, notifyCartUnavailable, unlockFormCart } from "@/lib/formCart";
 
 const CURRENCY_SYMBOLS = { GBP: '\u00a3', USD: '$', EUR: '\u20ac', AUD: 'A$', NZD: 'NZ$' };
 const PAYMENT_METHOD_CARD_CLASS = "flex min-h-[9.35rem] w-full gap-3 rounded-[0.55rem] border border-border bg-background p-4 text-left text-foreground transition-[border-color,background-color] duration-150 hover:border-foreground/50 hover:bg-muted/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring/50 disabled:cursor-not-allowed disabled:opacity-50";
@@ -104,6 +105,7 @@ export default function FormPaymentSubmit({
   const [confirming, setConfirming] = useState(false);
   const [paymentError, setPaymentError] = useState(null);
   const [bundleAttemptStatus, setBundleAttemptStatus] = useState(null);
+  const cartAttemptFormIdRef = useRef(null);
   const [stripeMounted, setStripeMounted] = useState(false);
   const [stripeAddressRequired, setStripeAddressRequired] = useState(false);
   const [preparedMembershipTerm, setPreparedMembershipTerm] = useState(null);
@@ -129,7 +131,7 @@ export default function FormPaymentSubmit({
   }, []);
 
   const fieldCurrency = (field?.payment_currency || 'GBP').toUpperCase();
-  const derivedAmount = useMemo(() => membershipQuote?.source === 'bundle' ? 0 : derivePaymentAmountClient(field, formValues), [field, formValues, membershipQuote?.source]);
+  const derivedAmount = useMemo(() => ['bundle', 'cart'].includes(membershipQuote?.source) ? 0 : derivePaymentAmountClient(field, formValues), [field, formValues, membershipQuote?.source]);
   const effective = useMemo(() => resolveEffectivePayment({
     membershipMatched: !!membershipQuote?.matched,
     quote: membershipQuote?.quote,
@@ -143,7 +145,7 @@ export default function FormPaymentSubmit({
   const directDebitOffer = effective.membership?.direct_debit
     || effective.membership?.direct_debit_offer
     || null;
-  const paymentPurpose = membershipQuote?.matched && membershipQuote?.source !== 'bundle' ? 'membership' : 'forms';
+  const paymentPurpose = membershipQuote?.matched && !['bundle', 'cart'].includes(membershipQuote?.source) ? 'membership' : 'forms';
 
   // Provider detection (public, secrets-free). Keep this query keyed only by
   // purpose: payment fields and membership quotes are recreated frequently as
@@ -330,12 +332,19 @@ export default function FormPaymentSubmit({
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
-        if (json.code === 'BUNDLE_ATTEMPT_ENDED' || json.code === 'BUNDLE_ATTEMPT_UNRESOLVED') {
+        if (['BUNDLE_ATTEMPT_ENDED', 'BUNDLE_ATTEMPT_UNRESOLVED', 'CART_ATTEMPT_ENDED', 'CART_ATTEMPT_UNRESOLVED'].includes(json.code)) {
+          if (membershipQuote?.source === 'cart' || json.code.startsWith('CART_')) {
+            cartAttemptFormIdRef.current = payload.form_id;
+            lockFormCart(payload.form_id);
+          }
           setBundleAttemptStatus(json.code);
-          setPaymentError(json.code === 'BUNDLE_ATTEMPT_ENDED'
-            ? 'This bundle payment attempt has ended. Start a new attempt before choosing a payment method.'
-            : 'This bundle payment needs administrator review. Do not retry or make another payment.');
+          setPaymentError(json.code.endsWith('_ENDED')
+            ? `This ${membershipQuote?.source === 'cart' || json.code.startsWith('CART_') ? 'cart' : 'bundle'} payment attempt has ended. Start a new attempt before choosing a payment method.`
+            : `This ${membershipQuote?.source === 'cart' || json.code.startsWith('CART_') ? 'cart' : 'bundle'} payment needs administrator review. Do not retry or make another payment.`);
           return;
+        }
+        if (notifyCartUnavailable(payload.form_id, json, res.status)) {
+          throw new Error('A cart item is unavailable. Your cart and other answers have been kept. Review the refreshed options before retrying.');
         }
         if (notifyBundleUnavailable(payload.form_id, json, res.status)) {
           throw new Error('That bundle is no longer available. Your other answers have been kept. Please choose again.');
@@ -346,6 +355,9 @@ export default function FormPaymentSubmit({
         }
         throw new Error(json.error || 'Failed to start payment');
       }
+      // A successful create binds an immutable selection and stock reservation
+      // to this checkout. Never change answers underneath its payment widgets.
+      if (membershipQuote?.source === 'cart') lockFormCart(payload.form_id);
       if (json.alreadyPaid) {
         if (!mountedRef.current) return;
         try {
@@ -566,15 +578,25 @@ export default function FormPaymentSubmit({
 
       {bundleAttemptStatus ? (
         <div className="space-y-3 rounded-md border bg-muted/40 p-4" data-testid="bundle-payment-attempt-status">
-          <p className="text-sm font-medium">{bundleAttemptStatus === 'BUNDLE_ATTEMPT_ENDED' ? 'Payment attempt ended' : 'Administrator review required'}</p>
-          {bundleAttemptStatus === 'BUNDLE_ATTEMPT_ENDED' && onNewAttempt ? (
-            <Button type="button" disabled={disabled || anyBusy} onClick={() => {
-              onNewAttempt();
-              setBundleAttemptStatus(null);
-              setPaymentError(null);
-              setSelectedProvider(null);
-              setStripeMounted(false);
-              setExternalCheckoutUrl(null);
+          <p className="text-sm font-medium">{bundleAttemptStatus.endsWith('_ENDED') ? 'Payment attempt ended' : 'Administrator review required'}</p>
+          {bundleAttemptStatus.endsWith('_ENDED') && onNewAttempt ? (
+            <Button type="button" disabled={disabled || anyBusy} onClick={async () => {
+              if (startupInFlightRef.current) return;
+              startupInFlightRef.current = true;
+              try {
+                await onNewAttempt();
+                unlockFormCart(cartAttemptFormIdRef.current);
+                cartAttemptFormIdRef.current = null;
+                setBundleAttemptStatus(null);
+                setPaymentError(null);
+                setSelectedProvider(null);
+                setStripeMounted(false);
+                setExternalCheckoutUrl(null);
+              } catch (error) {
+                setPaymentError(error.message || 'Could not start a new attempt. Your cart remains locked.');
+              } finally {
+                startupInFlightRef.current = false;
+              }
             }}>Start a new payment attempt</Button>
           ) : <p className="text-sm text-muted-foreground">Contact the association administrator before continuing. Your answers have been kept. Do not pay again.</p>}
         </div>
@@ -693,6 +715,7 @@ export default function FormPaymentSubmit({
           <p className="text-sm font-medium">
             Amount due: <span data-testid={`form-payment-amount-${field?.id}`}>{formatPaymentAmount(amount, currency)}</span>
           </p>
+          {membershipQuote?.source === 'cart' && <p className="whitespace-pre-wrap rounded-md border bg-muted/40 p-3 text-xs">{formatCartReceipt(membershipQuote?.quote?.cart) || 'Review your cart items above. The total shown includes tax.'}</p>}
           {effective.membership && (
             <p className="text-xs text-muted-foreground" data-testid={`form-payment-membership-context-${field?.id}`}>
               {[effective.membership.config_name, effective.membership.tier_label,

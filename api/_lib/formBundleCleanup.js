@@ -1,15 +1,19 @@
 import { retrieveTenantPaymentIntent } from './stripeCredentials.js';
 import { gocardlessForTenant } from './gocardless.js';
 import { validateGocardlessProviderContext } from './gocardlessFormProviderContext.js';
+import { formCartReady } from './formCart.js';
 
 // Called by the durable payment reconciliation cron. The age threshold only
 // permits requesting cancellation; it never itself releases a reservation.
 export async function cleanupFormBundleHolds(db, {
   limit = 10, deadlineAt = Date.now() + 10000,
   retrieveStripe = retrieveTenantPaymentIntent, getGc = gocardlessForTenant,
+  cart = false,
 } = {}) {
+  if (cart && !await formCartReady(db)) return { checked: 0, released: 0, unresolved: 0 };
+  const finalize = cart ? 'finalize_form_cart' : 'finalize_form_bundle';
   const result = { checked: 0, released: 0, unresolved: 0 };
-  const { data: holds, error } = await db.from('form_bundle_allocation')
+  const { data: holds, error } = await db.from(cart ? 'form_cart_receipt' : 'form_bundle_allocation')
     .select('tenant_id,submission_id').eq('state', 'held')
     .lte('next_check_at', new Date().toISOString()).order('next_check_at').order('id').limit(limit);
   if (error) throw error;
@@ -22,7 +26,7 @@ export async function cleanupFormBundleHolds(db, {
         .eq('tenant_id', hold.tenant_id).eq('id', hold.submission_id).single();
       if (rowError) throw rowError;
       if (row.payment_status === 'paid') {
-        const done = await db.rpc('finalize_form_bundle', { p_tenant_id: row.tenant_id,
+        const done = await db.rpc(finalize, { p_tenant_id: row.tenant_id,
           p_submission_id: row.id, p_state: 'consumed' });
         if (done.error) throw done.error;
         continue;
@@ -59,7 +63,7 @@ export async function cleanupFormBundleHolds(db, {
           && !br.links?.payment_request_payment && !br.links?.payment;
       }
       if (cancelled) {
-        const released = await db.rpc('finalize_form_bundle', { p_tenant_id: row.tenant_id,
+        const released = await db.rpc(finalize, { p_tenant_id: row.tenant_id,
           p_submission_id: row.id, p_state: 'released', p_release_evidence: {
             provider: row.payment_provider, reference: row.payment_reference,
             terminal_status: 'cancelled', verified_at: new Date().toISOString(),
@@ -72,7 +76,7 @@ export async function cleanupFormBundleHolds(db, {
       diagnostic = 'Provider verification or finalization failed. Stock remains held; administrator review may be required.';
     }
     result.unresolved++;
-    const deferred = await db.rpc('defer_form_bundle_check', {
+    const deferred = await db.rpc(cart ? 'defer_form_cart_check' : 'defer_form_bundle_check', {
       p_tenant_id: hold.tenant_id, p_submission_id: hold.submission_id, p_error: diagnostic,
     });
     if (deferred.error) throw deferred.error;

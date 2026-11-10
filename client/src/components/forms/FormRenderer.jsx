@@ -15,6 +15,7 @@ import ScoreField from "@/components/forms/ScoreField";
 import MembershipPaymentField from "@/components/forms/MembershipPaymentField";
 import AddressLookupField from "@/components/forms/AddressLookupField";
 import BundleSelectionField from "@/components/forms/BundleSelectionField";
+import CartField from "@/components/forms/CartField";
 import { resolveAddressManualOnly } from "../../../../shared/formAddressLookup.js";
 import {
   Select,
@@ -4171,6 +4172,8 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
 
       case 'sales_bundle':
         return <BundleSelectionField field={field} formId={formId} value={value} onChange={onChange} disabled={disabled} onValidityChange={onValidityChange} />;
+      case 'sales_cart':
+        return <CartField field={field} formId={formId} value={value} onChange={onChange} disabled={disabled} onValidityChange={onValidityChange} />;
       case 'membership_payment':
         return (
           <MembershipPaymentField
@@ -4191,7 +4194,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
       case 'payment': {
         const symbols = { GBP: '\u00a3', USD: '$', EUR: '\u20ac', AUD: 'A$', NZD: 'NZ$' };
         const cur = (field.payment_currency || 'GBP').toUpperCase();
-        const bundleSource = (allFields || []).some(source => source.id === field.price_field_id && source.type === 'sales_bundle');
+        const bundleSource = (allFields || []).some(source => source.id === field.price_field_id && ['sales_bundle', 'sales_cart'].includes(source.type));
         let raw = !bundleSource && field.price_field_id ? allFormValues?.[field.price_field_id] : null;
         if (typeof raw === 'string' && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(raw)) raw = null;
         if (raw && typeof raw === 'object' && !Array.isArray(raw)) raw = raw.amount ?? raw.value ?? null;

@@ -69,6 +69,8 @@ import DateMembershipSubmissionSettings from "@/components/forms/DateMembershipS
 import FormBuilderEmailTemplatePicker from "@/components/forms/FormBuilderEmailTemplatePicker";
 import { useFormAlertTenant } from "@/hooks/useFormAlerts";
 import BundleSelectionSettings from "@/components/forms/BundleSelectionSettings";
+import CartSettings from "@/components/forms/CartSettings";
+import { cartConfigurationError } from "@/lib/formCart";
 import { bundleConfigurationError } from "@/lib/formBundles";
 import {
   getEligibleRelationshipParents,
@@ -234,6 +236,7 @@ const STANDARD_FIELD_TYPES = [
 
 const PREPOPULATE_FIELD_TYPES = [
   { value: 'sales_bundle', label: 'Bundle selection' },
+  { value: 'sales_cart', label: 'Cart' },
   { value: 'organisation_dropdown', label: 'Organisation Dropdown' },
   { value: 'organisation_group_dropdown', label: 'Organisation Group Dropdown' },
   { value: 'relationship_dropdown', label: 'Relationship Dropdown' },
@@ -5138,7 +5141,7 @@ function PaymentFieldSettings({
   };
 
   const priceSourceFields = allFields.filter(f =>
-    f.id !== field.id && (PAYMENT_PRICE_SOURCE_TYPES.has(f.type) || f.type === 'sales_bundle')
+    f.id !== field.id && (PAYMENT_PRICE_SOURCE_TYPES.has(f.type) || ['sales_bundle', 'sales_cart'].includes(f.type))
   );
   const mappingForm = formConfig || {
     fields: allFields,
@@ -7968,7 +7971,7 @@ function FieldCard({
                     </SelectTrigger>
                     <SelectContent className="max-h-60 overflow-y-auto">
                       {PREPOPULATE_FIELD_TYPES.map(type => (
-                        <SelectItem key={type.value} value={type.value} disabled={type.value === 'sales_bundle' && (isSurveyForm || allFields.some(other => other.type === 'sales_bundle' && other.id !== field.id))}>
+                        <SelectItem key={type.value} value={type.value} disabled={(type.value === 'sales_bundle' && (isSurveyForm || allFields.some(other => ['sales_bundle', 'sales_cart'].includes(other.type) && other.id !== field.id))) || (type.value === 'sales_cart' && (isSurveyForm || !!field.parent_field_id || allFields.some(other => ['sales_cart', 'sales_bundle', 'membership_payment'].includes(other.type) && other.id !== field.id)))}>
                           {type.label}
                         </SelectItem>
                       ))}
@@ -9937,6 +9940,7 @@ function FieldCard({
               {field.type === 'sales_bundle' && (
                 <BundleSelectionSettings field={field} onChange={ids => updateField(originalIndex, { allowed_bundle_ids: ids })} onCategoryFilterChange={enabled => updateField(originalIndex, { show_bundle_category: enabled })} onStockReductionChange={enabled => updateField(originalIndex, { reduce_bundle_stock_on_submission: enabled })} />
               )}
+              {field.type === 'sales_cart' && <CartSettings field={field} onChange={updates => updateField(originalIndex, updates)} />}
               {field.type === 'membership_payment' && (
                 <MembershipPaymentSettings
                   field={field}
@@ -10608,7 +10612,7 @@ function FieldCard({
               })()}
 
               {/* Default Value Section - for non-boolean fields */}
-              {!['sales_bundle', 'boolean', 'terms_conditions', 'file', 'list', 'instructions', 'image', 'country', 'countries', 'user_name', 'user_email', 'user_organization', 'user_job_title', 'organisation_dropdown', 'organisation_group_dropdown', 'category_multiselect', 'category_dropdown', 'communication_preferences', 'contact', 'grouped_question', 'signature'].includes(field.type) && (
+              {!['sales_cart', 'sales_bundle', 'boolean', 'terms_conditions', 'file', 'list', 'instructions', 'image', 'country', 'countries', 'user_name', 'user_email', 'user_organization', 'user_job_title', 'organisation_dropdown', 'organisation_group_dropdown', 'category_multiselect', 'category_dropdown', 'communication_preferences', 'contact', 'grouped_question', 'signature'].includes(field.type) && (
                 <div className="space-y-2 p-3 bg-slate-50 border border-slate-200 rounded-lg">
                   <Label className="text-xs font-medium">Default Value</Label>
                   <p className="text-xs text-slate-500 mb-2">Pre-filled value when form loads</p>
@@ -11739,6 +11743,7 @@ function FormBuilderEditor() {
   };
 
   const duplicateRestrictionFor = (field, currentForm = formData) => {
+    if (field.type === 'sales_cart') return 'A form can contain only one Cart field.';
     if (field.type === 'sales_bundle') {
       return 'A form can contain only one Bundle selection field.';
     }
@@ -11861,6 +11866,13 @@ function FormBuilderEditor() {
   };
 
   const updateField = (index, updates) => {
+    if (updates.type === 'sales_cart') {
+      if ((formData.form_type && formData.form_type !== 'standard') || formData.fields.some((field, i) => i !== index && ['sales_cart', 'sales_bundle', 'membership_payment'].includes(field.type))) {
+        toast.error('Cart is limited to one top-level field on a standard form, without legacy Bundle selections or membership fees.');
+        return;
+      }
+      updates = { cart_version: 1, allowed_product_ids: [], allowed_bundle_ids: [], bundle_tax: {}, parent_field_id: null, multiple: false, multi_select: false, default_value: '', ...updates };
+    }
     if (updates.type === 'sales_bundle') {
       if (formData.form_type === 'survey' || formData.fields.some((field, i) => i !== index && field.type === 'sales_bundle')) {
         toast.error('Bundle selection is limited to one top-level field on a non-survey form.');
@@ -12272,6 +12284,11 @@ function FormBuilderEditor() {
 
     // Task #3483: generic Payment fields need at least one enabled provider
     // and a price-source field before the form can be saved.
+    const cartError = cartConfigurationError(formData);
+    if (cartError) {
+      toast.error(cartError);
+      return;
+    }
     const bundleError = bundleConfigurationError(formData);
     if (bundleError) {
       toast.error(bundleError);

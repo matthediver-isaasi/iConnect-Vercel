@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { bundleSubmissionLabel } from "@/lib/formBundles";
+import { formatCartReceipt } from "@/lib/formCart";
 import { Link, useSearchParams, useLocation } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
 import { reconcileDeletedSubmission } from "@/lib/formSubmissionDeletion";
@@ -1231,7 +1232,7 @@ export default function FormSubmissionsPage() {
       if (!submission.submission_data) return;
       const form = formsById[submission.form_id];
       Object.keys(submission.submission_data).forEach(key => {
-        if (key === '__bundle_labels' || key === FORM_NOT_LISTED_LABELS_KEY || key === FORM_NOT_LISTED_TEXT_KEY) return;
+        if (key === '__cart_receipt' || key === '__bundle_labels' || key === FORM_NOT_LISTED_LABELS_KEY || key === FORM_NOT_LISTED_TEXT_KEY) return;
         if (dynamicFieldKeys.has(key)) return;
         let label = key;
         if (form?.fields) {
@@ -1381,7 +1382,7 @@ export default function FormSubmissionsPage() {
   const buildAvailableFieldOptionsForSubmission = (submission) => {
     const form = formsById[submission.form_id];
     const dynamicEntries = Object.keys(submission.submission_data || {})
-      .filter(key => key !== '__bundle_labels' && key !== FORM_NOT_LISTED_LABELS_KEY && key !== FORM_NOT_LISTED_TEXT_KEY)
+      .filter(key => key !== '__cart_receipt' && key !== '__bundle_labels' && key !== FORM_NOT_LISTED_LABELS_KEY && key !== FORM_NOT_LISTED_TEXT_KEY)
       .map(key => {
       const field = resolveSubmissionField(form?.fields, key);
       return { key, label: field?.label || key };
@@ -1694,13 +1695,15 @@ export default function FormSubmissionsPage() {
           case '__submission_date':
             return moment(submission.created_date).format('YYYY-MM-DD HH:mm');
           default: {
-            if (field.key === '__bundle_labels' || field.key === FORM_NOT_LISTED_LABELS_KEY || field.key === FORM_NOT_LISTED_TEXT_KEY) return '';
+            if (field.key === submission.submission_data?.__cart_receipt?.fieldId) return formatCartReceipt(submission.submission_data.__cart_receipt);
+            if (field.key === '__cart_receipt' || field.key === '__bundle_labels' || field.key === FORM_NOT_LISTED_LABELS_KEY || field.key === FORM_NOT_LISTED_TEXT_KEY) return '';
             const fieldDef = resolveSubmissionField(form?.fields, field.key);
             const val = fieldDef
               ? getSubmissionFieldValue(submission.submission_data, fieldDef)
               : submission.submission_data?.[field.key];
             const fieldType = fieldDef?.type;
             if (val == null) return '';
+            if (fieldType === 'sales_cart') return formatCartReceipt(submission.submission_data?.__cart_receipt) || 'Cart receipt unavailable';
             if (fieldType === 'sales_bundle') return bundleSubmissionLabel(submission.submission_data, fieldDef, val);
             if (fieldType === 'score') return formatScoreCsvAnswer(val);
             if (fieldType === 'relationship_dropdown') {
@@ -1797,6 +1800,13 @@ export default function FormSubmissionsPage() {
       });
     });
 
+    // Receipts remain part of the historical record even when their original
+    // field has been deleted, retyped, renamed or excluded from current options.
+    if (filteredSubmissions.some(submission => submission.submission_data?.__cart_receipt
+      && !selectedOptions.some(option => option.key === submission.submission_data.__cart_receipt.fieldId))) {
+      headers.push('Cart receipt');
+      rows.forEach((row, index) => row.push(formatCartReceipt(filteredSubmissions[index].submission_data?.__cart_receipt)));
+    }
     const csvContent = [headers, ...rows]
       .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
       .join('\n');
@@ -2933,11 +2943,14 @@ export default function FormSubmissionsPage() {
               <div>
                 <h3 className="font-semibold text-slate-900 mb-3">Submission Data</h3>
                 <div className="space-y-3">
+                  {formatCartReceipt(viewingSubmission.submission_data?.__cart_receipt) && <div className="rounded-lg border bg-white p-3"><Label className="mb-1 block text-xs uppercase tracking-wide text-slate-600">Cart receipt</Label><p className="whitespace-pre-wrap text-sm">{formatCartReceipt(viewingSubmission.submission_data.__cart_receipt)}</p></div>}
                   {Object.entries(viewingSubmission.submission_data || {})
-                    .filter(([key]) => key !== '__bundle_labels' && key !== FORM_NOT_LISTED_LABELS_KEY && key !== FORM_NOT_LISTED_TEXT_KEY)
+                    .filter(([key]) => key !== '__cart_receipt' && key !== viewingSubmission.submission_data?.__cart_receipt?.fieldId && key !== '__bundle_labels' && key !== FORM_NOT_LISTED_LABELS_KEY && key !== FORM_NOT_LISTED_TEXT_KEY)
                     .map(([key, value]) => {
                     const field = resolveSubmissionField(viewingForm?.fields, key);
-                    const displayValue = field?.type === 'sales_bundle'
+                    const displayValue = field?.type === 'sales_cart'
+                      ? formatCartReceipt(viewingSubmission.submission_data?.__cart_receipt) || 'Cart receipt unavailable'
+                      : field?.type === 'sales_bundle'
                       ? bundleSubmissionLabel(viewingSubmission.submission_data, field, value)
                       : field?.type === 'relationship_dropdown'
                       ? formatRelationshipAnswerDisplayValue(

@@ -183,15 +183,15 @@ export async function markFormSubmissionPaid(supabase, submissionId, {
     .maybeSingle();
   if (error) {
     console.error('[formPaymentFinalize] CAS update failed:', error);
-    if (error.code === '23514' && /Bundle allocation/.test(error.message || '')) {
+    if (error.code === '23514' && /(?:Bundle|Cart) allocation/.test(error.message || '')) {
       const existing = await supabase.from('form_submission').select('payment_meta').eq('id', submissionId).maybeSingle();
       if (existing.data) await supabase.from('form_submission').update({
         payment_meta: { ...existing.data.payment_meta, bundle_payment_attention: {
-          reason: 'Payment succeeded after the bundle allocation ended. Do not fulfil or charge again.',
+          reason: 'Payment succeeded after the stock allocation ended. Do not fulfil or charge again.',
           reference, amount, currency, recorded_at: new Date().toISOString(),
         } },
       }).eq('id', submissionId);
-      throw new Error('Payment succeeded but bundle allocation requires administrator attention. Do not pay again.');
+      throw new Error('Payment succeeded but stock allocation requires administrator attention. Do not pay again.');
     }
     throw new Error('Failed to record payment on submission');
   }

@@ -1,3 +1,4 @@
+import { formatCartReceipt } from "@/lib/formCart";
 import { useEffect, useRef, useState } from "react";
 import { useParams, Link, useSearchParams, useNavigate } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
@@ -333,7 +334,10 @@ export default function FormSubmissionView() {
     
     const value = getSubmissionFieldValue(submissionData, field);
     const notListedDisplayValue = resolveFormNotListedDisplayValue(field, value, submissionData);
-    const isEditable = field.type !== 'page_break';
+    const isEditable = !['page_break', 'sales_cart'].includes(field.type);
+    if (field.type === 'sales_cart' || field.id === submissionData.__cart_receipt?.fieldId) {
+      return <div key={field.id} className="space-y-2 rounded-lg border bg-slate-50 p-4"><p className="text-sm font-medium">{field.label || 'Cart receipt'}</p><p className="whitespace-pre-wrap text-sm">{formatCartReceipt(submissionData.__cart_receipt) || 'Cart receipt unavailable'}</p></div>;
+    }
     
     if (value === undefined || value === null || value === '') {
       return (
@@ -743,6 +747,7 @@ export default function FormSubmissionView() {
             </CardDescription>
           </CardHeader>
           <CardContent>
+            {formatCartReceipt(submissionData.__cart_receipt) && !visibleFields.some(field => field.type === 'sales_cart' || field.id === submissionData.__cart_receipt.fieldId) && <div className="mb-4 space-y-2 rounded-lg border bg-slate-50 p-4"><p className="text-sm font-medium">Cart receipt</p><p className="whitespace-pre-wrap text-sm">{formatCartReceipt(submissionData.__cart_receipt)}</p></div>}
             {visibleFields.length > 0 ? (
               <div className="space-y-4">
                 {renderAllFields()}
@@ -750,7 +755,7 @@ export default function FormSubmissionView() {
             ) : (
               <div className="space-y-4">
                 {Object.entries(submissionData)
-                  .filter(([key]) => key !== FORM_NOT_LISTED_LABELS_KEY && key !== FORM_NOT_LISTED_TEXT_KEY)
+                  .filter(([key]) => key !== '__cart_receipt' && key !== submissionData.__cart_receipt?.fieldId && key !== FORM_NOT_LISTED_LABELS_KEY && key !== FORM_NOT_LISTED_TEXT_KEY)
                   .map(([key, value]) => {
                   const field = resolveSubmissionField(fields, key);
                   const displayValue = field?.type === 'relationship_dropdown'

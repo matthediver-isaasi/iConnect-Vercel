@@ -1,6 +1,7 @@
 import { withEventConsentNonce } from '@/lib/eventConsentRequest.mjs';
 import { adminFetch } from '@/lib/adminFetch';
 import { notifyBundleUnavailable } from '@/lib/formBundles';
+import { notifyCartUnavailable } from '@/lib/formCart';
 /**
  * Public Client for Multi-Tenant SaaS
  * 
@@ -222,6 +223,7 @@ async function publicFetch(url, options = {}, tenantSlug = null) {
         let body = {};
         try { body = JSON.parse(options.body || '{}'); } catch { /* GET */ }
         notifyBundleUnavailable(body.form_id, err);
+        notifyCartUnavailable(body.form_id, err);
       }
       throw err;
     }

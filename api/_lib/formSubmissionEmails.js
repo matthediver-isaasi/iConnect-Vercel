@@ -23,6 +23,7 @@ import { isPreferencePlaceholder } from './transactionalPreferences.js';
 import { randomUUID } from 'node:crypto';
 import { getAccountingProvider } from './accountingProvider.js';
 import { generatePasswordSetupUrl } from './passwordSetupUrl.js';
+import { formatCartReceipt } from '../../shared/formCart.js';
 import {
   collectRelationshipRecordIds,
   formatRelationshipAnswerDisplayValue,
@@ -493,6 +494,9 @@ export function resolveSubmissionEmailFieldDisplayValue({
 }) {
   const field = (fields || []).find((candidate) => candidate?.id === fieldKey)
     || (fields || []).find((candidate) => candidate?.name === fieldKey);
+  if ((persistedSubmissionData?.__cart_receipt?.fieldId && persistedSubmissionData.__cart_receipt.fieldId === fieldKey) || field?.type === 'sales_cart') {
+    return formatCartReceipt(persistedSubmissionData?.__cart_receipt) || 'Cart receipt unavailable';
+  }
   const persistedValue = field ? getSubmissionRelationshipValue(persistedSubmissionData, field) : rawValue;
   const displayValue = resolveFormNotListedDisplayValue(field, persistedValue ?? rawValue, persistedSubmissionData);
   if (isRepeatableRowsField(field)) {

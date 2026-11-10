@@ -781,7 +781,7 @@ test('current-set retries retain the durable submission and replay processing be
   // Affiliation submissions share the durable retry lifecycle; their additional
   // guard must not make this current-set contract expect the older condition.
   assert.match(source, /if \(hasCurrentSetProcessing \|\| hasMemberAffiliations \|\| applicantGrant\) \{[\s\S]*?retry processing failed/);
-  assert.match(source, /if \(!hasCurrentSetProcessing && !hasMemberAffiliations && !applicantGrant && !form\.fields\?\.some\(f => f\.type === 'sales_bundle'\)\) \{[\s\S]*?delete\(\)\.eq\('id', submission\.id\)/);
+  assert.match(source, /if \(!hasCurrentSetProcessing && !hasMemberAffiliations && !applicantGrant && !form\.fields\?\.some\(f => \['sales_bundle', 'sales_cart'\]\.includes\(f\.type\)\)\) \{[\s\S]*?delete\(\)\.eq\('id', submission\.id\)/);
   assert.match(source, /!hasCurrentSetProcessing && !hasMemberAffiliations && usesStandardEmailLimit\(form\)/);
 });
 

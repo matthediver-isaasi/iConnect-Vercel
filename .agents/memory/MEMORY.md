@@ -155,3 +155,4 @@
 - [Provider idempotent publication](provider-idempotent-publication.md) — shared provider intent IDs change whether a losing publication request may safely cancel.
 - [Non-allocating bundle receipts](bundle-nonallocating-receipts.md) — stock opt-out must retain immutable selection/payment evidence without creating a hold.
 - [Existing guest joining](existing-guest-joining-policy.md) — separate authenticated joining copies preserve category-specific joining and approval, rather than using renewal workflows.
+- [Form commerce boundaries](form-cart-policy.md) — independent form stock is not proposal capacity; bundle tax needs explicit authority rather than component inference.

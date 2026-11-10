@@ -336,6 +336,7 @@ export async function reconcileFormPayments(supabase, {
   };
   const now = Date.now();
   try {
+    results.cartHolds = await cleanupFormBundleHolds(supabase, { cart: true, deadlineAt });
     results.bundleHolds = await cleanupFormBundleHolds(supabase, {
       deadlineAt: now + Math.min(8000, timeBudgetMs / 4), retrieveStripe: retrievePaymentIntent,
     });

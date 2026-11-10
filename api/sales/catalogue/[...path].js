@@ -8,9 +8,10 @@ import {
 import { requireSalesContext, SalesHttpError } from '../../_lib/salesAccess.js';
 import { getSalesSettings } from '../../_lib/salesFoundation.js';
 import { formBundleStockOptionReady } from '../../_lib/formBundleStockReadiness.js';
+import { formCartReady } from '../../_lib/formCart.js';
 import {
   createCatalogueRecord, generateCatalogueCode, listCatalogue, listCatalogueEventOptions, reorderCatalogue, setCatalogueActive,
-  updateCatalogueRecord, updateBundleStock,
+  updateCatalogueRecord, updateBundleStock, updateProductStock,
 } from '../../_lib/salesCatalogue.js';
 
 const validators = {
@@ -50,6 +51,7 @@ export function createSalesCatalogueHandler(dependencies = {}) {
       if (isRead) {
         return res.status(200).json({
           ...(type === 'bundles' ? { stockOptionReady: await formBundleStockOptionReady(db) } : {}),
+          ...(['products', 'bundles'].includes(type) ? { cartStockReady: await formCartReady(db) } : {}),
           items: await listCatalogue(db, actor.tenantId, type, {
             includeInactive: req.query?.includeInactive === 'true',
             q: typeof req.query?.q === 'string' ? req.query.q.trim()
@@ -59,6 +61,9 @@ export function createSalesCatalogueHandler(dependencies = {}) {
       }
       if (req.method === 'PATCH' && type === 'bundles' && id && action === 'stock') {
         return res.status(200).json(await updateBundleStock(db, actor.tenantId, actor, id, req.body));
+      }
+      if (req.method === 'PATCH' && type === 'products' && id && action === 'stock') {
+        return res.status(200).json(await updateProductStock(db, actor.tenantId, actor, id, req.body));
       }
       if (req.method === 'POST' && id === 'reorder' && !action) {
         const validation = validateCatalogueReorder(req.body);

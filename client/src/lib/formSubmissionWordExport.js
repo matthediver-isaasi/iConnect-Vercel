@@ -1,4 +1,5 @@
 import { bundleSubmissionLabel } from './formBundles.js';
+import { formatCartReceipt } from './formCart.js';
 import {
   Document,
   Packer,
@@ -204,6 +205,9 @@ function getAwardCategory(submission, form) {
 function formatResponseValueToJson(value, fieldDef, resolvers, submissionData = {}) {
   if (value == null || value === '') return { lines: [{ kind: 'text', text: '' }], files: [] };
   const fieldType = fieldDef?.type;
+  if (fieldType === 'sales_cart') {
+    return { lines: makeLinesFromText(formatCartReceipt(submissionData?.__cart_receipt) || 'Cart receipt unavailable'), files: [] };
+  }
   if (fieldType === 'sales_bundle') {
     return { lines: makeLinesFromText(String(bundleSubmissionLabel(submissionData, fieldDef, value))), files: [] };
   }
@@ -374,9 +378,11 @@ export function resolveSubmissionToPrepared({ submission, form, selectedOptions,
   const formMissing = !form;
   const rows = [];
   const supportingDocs = [];
+  const receipt = submission.submission_data?.__cart_receipt;
+  let receiptIncluded = false;
 
   for (const opt of selectedOptions) {
-    if (opt.key === '__bundle_labels' || opt.key === FORM_NOT_LISTED_LABELS_KEY || opt.key === FORM_NOT_LISTED_TEXT_KEY) continue;
+    if (opt.key === '__cart_receipt' || opt.key === '__bundle_labels' || opt.key === FORM_NOT_LISTED_LABELS_KEY || opt.key === FORM_NOT_LISTED_TEXT_KEY) continue;
     const label = cleanMojibake(opt.label || '');
     let lines = null;
     let files = [];
@@ -400,6 +406,11 @@ export function resolveSubmissionToPrepared({ submission, form, selectedOptions,
         lines = makeLinesFromText(moment(submission.created_date).format('YYYY-MM-DD HH:mm'));
         break;
       default: {
+        if (receipt?.fieldId === opt.key || resolveSubmissionField(form?.fields, opt.key)?.type === 'sales_cart') {
+          lines = makeLinesFromText(formatCartReceipt(receipt) || 'Cart receipt unavailable');
+          receiptIncluded = true;
+          break;
+        }
         const fieldDef = resolveSubmissionField(form?.fields, opt.key);
         const val = fieldDef
           ? getSubmissionFieldValue(submission.submission_data, fieldDef)
@@ -418,6 +429,9 @@ export function resolveSubmissionToPrepared({ submission, form, selectedOptions,
     }
   }
 
+  if (!receiptIncluded && formatCartReceipt(receipt)) {
+    rows.push({ label: 'Cart receipt', kind: 'lines', lines: makeLinesFromText(formatCartReceipt(receipt)) });
+  }
   return { applicantName, awardCategory, formMissing, rows, supportingDocs };
 }
 

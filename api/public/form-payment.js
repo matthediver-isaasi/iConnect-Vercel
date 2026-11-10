@@ -37,6 +37,9 @@ import { gocardlessForTenant, buildIdempotencyKey } from '../_lib/gocardless.js'
 import { validateGocardlessProviderContext, retrieveFormGocardlessBillingRequest } from '../_lib/gocardlessFormProviderContext.js';
 import { resolveFormBundle, recoverBundlePaymentAttempt, FormBundleError } from '../_lib/formBundles.js';
 import { bundlePriceField } from '../../shared/formBundles.js';
+import { cartField, normalizeCartAnswer } from '../../shared/formCart.js';
+import { recoverCartPaymentAttempt, FormCartError } from '../_lib/formCart.js';
+import { missingCartRequiredAnswers } from '../../shared/formCartRequiredAnswers.js';
 import { resolveFormPaymentOrganization } from '../_lib/formPaymentOrganization.js';
 import {
   computeAuthoritativeHiddenFieldIds,
@@ -128,6 +131,13 @@ function normalizePaymentIdempotencyAnswers(values) {
   delete normalized[FORM_NOT_LISTED_LABELS_KEY];
   delete normalized.__bundle_labels;
   delete normalized.__bundle_hidden;
+  delete normalized.__cart_receipt;
+  delete normalized.__cart_hidden;
+  for (const [key, value] of Object.entries(normalized)) {
+    if (value?.version === 1 && Array.isArray(value.lines)) {
+      try { normalized[key] = normalizeCartAnswer(value); } catch { /* Invalid answers never compare equal to accepted answers. */ }
+    }
+  }
   return normalized;
 }
 
@@ -288,7 +298,7 @@ export default async function handler(req, res, dependencies = {}) {
     if (action === 'quote') return await handleQuote(req, res, supabase, tenantData, dependencies);
     return res.status(400).json({ error: 'Unknown action' });
   } catch (err) {
-    if (err instanceof FormBundleError) return res.status(err.status).json({ error: err.message, code: err.code });
+    if (err instanceof FormBundleError || err instanceof FormCartError) return res.status(err.status).json({ error: err.message, code: err.code });
     if (err instanceof FormApplicantContinuationError) {
       return res.status(err.status).json({ error: err.message, code: err.code });
     }
@@ -394,6 +404,13 @@ export async function validatePaymentRelationships(
       hiddenFieldIds,
     );
     await resolveFormBundle(supabase, form, values, { hiddenFieldIds, checkStock: false });
+    if (cartField(form)) {
+      const missing = missingCartRequiredAnswers(form, values, hiddenFieldIds);
+      if (missing.length) {
+        res.status(400).json({ error: 'Complete all required form answers before checkout.', code: 'CART_REQUIRED_ANSWERS', fields: missing });
+        return false;
+      }
+    }
     if (invalidAddressFields.length) {
       res.status(400).json({
         error: 'Required address information is missing',
@@ -612,14 +629,16 @@ async function resolvePayableCharge({ supabase, tenantData, form, paymentField, 
   const bundle = await resolveFormBundle(supabase, form, values, { checkStock: false });
   if (bundle && membershipMeta) return { error: { status: 400, body: { error: 'Bundles cannot use membership pricing' } } };
   const bundleSource = bundlePriceField(form, paymentField);
-  const amount = bundleSource ? (bundle?.amountMinor || 0) / 100 : membershipMeta
+  const cartSource = cartField(form);
+  const cart = cartSource ? values.__cart_receipt || null : null;
+  const amount = cartSource ? (cart?.grossMinor || 0) / 100 : bundleSource ? (bundle?.amountMinor || 0) / 100 : membershipMeta
     ? (membershipMeta.quote.total_with_vat || membershipMeta.quote.final_cost)
     : derivePaymentAmount(paymentField, values);
   const currency = bundleSource ? (bundle?.currency || paymentField.payment_currency || 'GBP') : membershipMeta
     ? (membershipMeta.quote.currency || 'GBP').toUpperCase()
     : (paymentField.payment_currency || 'GBP').toUpperCase();
 
-  return { membershipMeta, amount, currency, evalOptions, organizationId };
+  return { membershipMeta, amount, currency, evalOptions, organizationId, cart };
 }
 
 /**
@@ -692,6 +711,7 @@ async function handleQuote(req, res, supabase, tenantData, dependencies = {}) {
     required: true,
     amount,
     currency,
+    ...(resolved.cart ? { cart: resolved.cart } : {}),
     membership: membershipMeta ? {
       config_name: membershipMeta.quote.config_name || null,
       membership_year: membershipMeta.quote.membership_year || null,
@@ -1182,11 +1202,14 @@ async function handleCreate(req, res, supabase, tenantData, dependencies = {}) {
     existingIdempotentPayment = existing || null;
   }
 
-  const existingBundleAttempt = existingIdempotentPayment
+  const existingCartAttempt = existingIdempotentPayment
+    && (cartField(form) || existingIdempotentPayment.submission_data?.__cart_receipt)
+    ? await recoverCartPaymentAttempt(supabase, existingIdempotentPayment, values, provider) : null;
+  const existingBundleAttempt = existingCartAttempt || (existingIdempotentPayment
     && (form.fields?.some(f => f.type === 'sales_bundle')
       || existingIdempotentPayment.submission_data?.__bundle_labels)
     ? await recoverBundlePaymentAttempt(supabase, existingIdempotentPayment, values, provider)
-    : null;
+    : null);
 
   // Conditional-logic submit control FIRST (pre-existing ordering): a
   // matched disable rule blocks STARTING a payment exactly as it blocks a
@@ -1389,7 +1412,7 @@ async function handleCreate(req, res, supabase, tenantData, dependencies = {}) {
   }
 
   // Resolve once: the exact client used for creation owns the durable origin.
-  const creationGc = provider === 'gocardless' ? await gocardlessForTenant(tenantData.id) : null;
+  const creationGc = provider === 'gocardless' ? await (dependencies.gocardlessForTenant || gocardlessForTenant)(tenantData.id) : null;
   if (creationGc && (!creationGc.isConfigured() || !creationGc.providerContext)) {
     return res.status(400).json({ error: 'Direct Debit is not configured for this organisation' });
   }
@@ -1432,6 +1455,9 @@ async function handleCreate(req, res, supabase, tenantData, dependencies = {}) {
       .select()
       .single();
     if (insertError) {
+      if (cartField(form) && ['P0001', '40001'].includes(insertError.code)) {
+        return res.status(409).json({ error: 'Cart stock or pricing changed. Your other answers have been kept. Refresh the cart and try again.', code: 'CART_UNAVAILABLE' });
+      }
       if (insertError.code === 'P0001' && /Bundle is sold out/.test(insertError.message || '')) {
         return res.status(409).json({ error: insertError.message, code: 'BUNDLE_UNAVAILABLE' });
       }
@@ -1466,7 +1492,9 @@ async function handleCreate(req, res, supabase, tenantData, dependencies = {}) {
   if (access.applicantGrant) await bindApplicantContinuation({
     db: supabase, form, grant: access.applicantGrant, submissionId: submissionRow.id,
   });
-  const description = (paymentField.payment_label || paymentField.label || form.name || 'Form payment').slice(0, 100);
+  const commerceAttempt = !!existingBundleAttempt || form.fields?.some(f => ['sales_bundle', 'sales_cart'].includes(f.type));
+  const description = (cartField(form) || existingCartAttempt
+    ? `Cart payment ${submissionRow.id}` : paymentField.payment_label || paymentField.label || form.name || 'Form payment').slice(0, 100);
 
   if (provider === 'stripe') {
     const creds = await (dependencies.getStripeCredentials || getStripeCredentials)(tenantData.id, stripeFeature);
@@ -1477,9 +1505,9 @@ async function handleCreate(req, res, supabase, tenantData, dependencies = {}) {
       });
     }
     const Stripe = (await import('stripe')).default;
-    const stripe = new Stripe(creds.secret_key);
+    const stripe = dependencies.stripe || new Stripe(creds.secret_key);
     let stripeCustomer = null;
-    let stripeReceiptEmail = submitterEmail || undefined;
+    let stripeReceiptEmail = (commerceAttempt ? submissionRow.submitted_by_email : submitterEmail) || undefined;
     if (membershipMeta) {
       const { prepareRequiredStripeCustomer } = await import('../_lib/stripeCredentials.js');
       const customerResult = await prepareRequiredStripeCustomer(stripe, {
@@ -1595,7 +1623,7 @@ async function handleCreate(req, res, supabase, tenantData, dependencies = {}) {
           console.error('[form-payment] Could not cancel superseded intent', prior.intent.id, prior.error?.message);
           return res.status(409).json({ error: 'An earlier payment attempt is still open. Please try again shortly.', code: 'PAYMENT_ALREADY_INITIATED' });
         }
-        if (form.fields?.some(f => f.type === 'sales_bundle')) {
+        if (commerceAttempt) {
           return res.status(409).json({ error: 'This bundle payment attempt has ended. Start a new payment attempt.', code: 'BUNDLE_ATTEMPT_ENDED' });
         }
       } catch (err) {
@@ -1604,7 +1632,7 @@ async function handleCreate(req, res, supabase, tenantData, dependencies = {}) {
       }
     }
 
-    if (form.fields?.some(f => f.type === 'sales_bundle') && !priorStripeReference
+    if (commerceAttempt && !priorStripeReference
       && Date.now() - Date.parse(submissionRow.created_date) > 23 * 60 * 60 * 1000) {
       return res.status(409).json({ error: 'This bundle payment needs administrator review before retrying.', code: 'BUNDLE_ATTEMPT_UNRESOLVED' });
     }
@@ -1620,7 +1648,7 @@ async function handleCreate(req, res, supabase, tenantData, dependencies = {}) {
         form_id: String(form.id),
         tenant_id: String(tenantData.id),
       },
-    }, form.fields?.some(f => f.type === 'sales_bundle')
+    }, commerceAttempt
       ? { idempotencyKey: `form-bundle:${submissionRow.id}` } : undefined);
     // Atomic publication: the reference update is conditional on the row
     // still carrying the reference we started from (null for a fresh row,
@@ -1641,7 +1669,7 @@ async function handleCreate(req, res, supabase, tenantData, dependencies = {}) {
       // Lost the race (or row left pending): our intent must never be paid.
       // Bundle creates use one provider idempotency key. A concurrent loser
       // has the SAME intent as the winner, so cancelling it cancels checkout.
-      if (!form.fields?.some(f => f.type === 'sales_bundle')) {
+      if (!commerceAttempt) {
         try { await stripe.paymentIntents.cancel(paymentIntent.id); }
         catch (cancelErr) { console.error('[form-payment] Failed to cancel losing intent', paymentIntent.id, cancelErr?.message); }
       }
@@ -1741,13 +1769,26 @@ async function handleCreate(req, res, supabase, tenantData, dependencies = {}) {
       form_submission_id: String(submissionRow.id),
     },
   });
+  // Publish the cart's provider reference BEFORE creating the hosted flow.
+  // A flow failure must not leave an uncancellable hold with no known identity.
+  if (cartField(form) || existingCartAttempt) {
+    const publication = await supabase.from('form_submission')
+      .update({ payment_reference: billingRequest.id }).eq('id', submissionRow.id)
+      .eq('payment_status', 'pending').select('id,payment_reference').maybeSingle();
+    if (publication.error || !publication.data) {
+      return res.status(409).json({ error: 'This cart checkout needs payment reconciliation. Do not start another payment.', code: 'CART_ATTEMPT_UNRESOLVED' });
+    }
+    if (['cancelled', 'failed'].includes(billingRequest.status)) {
+      return res.status(409).json({ error: 'This cart payment attempt has ended.', code: 'CART_ATTEMPT_ENDED' });
+    }
+  }
   const flow = await gc.createBillingRequestFlow({
     billingRequestId: billingRequest.id,
     redirectUri,
     exitUri,
     idempotencyKey: buildIdempotencyKey('form-payment-flow', submissionRow.id),
   });
-  await supabase
+  const flowPublication = await supabase
     .from('form_submission')
     .update({
       payment_reference: billingRequest.id,
@@ -1762,6 +1803,9 @@ async function handleCreate(req, res, supabase, tenantData, dependencies = {}) {
     })
     .eq('id', submissionRow.id)
     .eq('payment_status', 'pending');
+  if ((cartField(form) || existingCartAttempt) && flowPublication.error) {
+    return res.status(409).json({ error: 'The cart payment flow could not be saved. Continue this same attempt after reconciliation.', code: 'CART_ATTEMPT_UNRESOLVED' });
+  }
 
   return res.status(200).json({
     provider: 'gocardless',

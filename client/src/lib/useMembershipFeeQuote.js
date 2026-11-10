@@ -11,6 +11,7 @@ import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { resolveMembershipMatch, membershipQuoteKey } from './formPaymentQuote';
 import { bundlePriceSource, notifyBundleUnavailable } from './formBundles.js';
+import { cartPriceSource, notifyCartUnavailable } from './formCart.js';
 
 export function useMembershipFeeQuote({
   form,
@@ -23,12 +24,15 @@ export function useMembershipFeeQuote({
 }) {
   const match = useMemo(() => resolveMembershipMatch(form, formValues), [form, formValues]);
   const bundle = bundlePriceSource(form);
-  const requiresQuote = !!match || !!bundle;
+  const cart = cartPriceSource(form);
+  const requiresQuote = !!match || !!bundle || !!cart;
   const key = useMemo(() => JSON.stringify({
     membership: membershipQuoteKey(match, formValues, form),
     bundleFieldId: bundle?.id || null,
     bundleId: bundle ? formValues?.[bundle.id] ?? null : null,
-  }), [match, formValues, form, bundle]);
+    cartFieldId: cart?.id || null,
+    answers: formValues || {},
+  }), [match, formValues, form, bundle, cart]);
 
   const query = useQuery({
     // credentialDiscriminator is an opaque caller-generated scope. Raw bearer
@@ -55,6 +59,7 @@ export function useMembershipFeeQuote({
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
         notifyBundleUnavailable(form.id, json, res.status);
+        notifyCartUnavailable(form.id, json, res.status);
         throw new Error(json.error || 'The fee could not be calculated');
       }
       return json;
@@ -62,7 +67,7 @@ export function useMembershipFeeQuote({
     enabled: !!enabled && !!form?.id && requiresQuote,
     // Bundle selection changes must re-quote, including A → B → A. A cached
     // price is never a fallback while the new authoritative request runs.
-    staleTime: bundle ? 0 : 60 * 1000,
+    staleTime: bundle || cart ? 0 : 60 * 1000,
     gcTime: 5 * 60 * 1000,
     refetchOnMount: false,
     refetchOnWindowFocus: false,
@@ -72,8 +77,8 @@ export function useMembershipFeeQuote({
 
   return {
     matched: requiresQuote,
-    source: match ? 'membership' : bundle ? 'bundle' : null,
-    quote: requiresQuote && !query.isError && !(bundle && query.isFetching) ? query.data || null : null,
+    source: cart ? 'cart' : match ? 'membership' : bundle ? 'bundle' : null,
+    quote: requiresQuote && !query.isError && !((bundle || cart) && query.isFetching) ? query.data || null : null,
     loading: requiresQuote && (query.isLoading || query.isFetching),
     error: query.error ? (query.error.message || 'The fee could not be calculated') : null,
     refetch: query.refetch,

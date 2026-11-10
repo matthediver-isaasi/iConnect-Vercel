@@ -6,6 +6,7 @@
 // byte-for-byte equivalent in behaviour.
 
 import { jsPDF } from 'jspdf';
+import { formatCartReceipt } from '../../shared/formCart.js';
 import { groupedQuestionPdfAnswers } from './groupedQuestionPdf.js';
 import { toWinAnsi } from './pdfWinAnsi.js';
 import { loadTenantRelationshipDisplayLabels } from './relationshipDisplayLabels.js';
@@ -73,6 +74,9 @@ export function formatFormSubmissionFieldValue(
   organisationNamesById = {},
   organisationGroupNamesById = {},
 ) {
+  if ((submissionData?.__cart_receipt?.fieldId && submissionData.__cart_receipt.fieldId === field?.id) || field?.type === 'sales_cart') {
+    return formatCartReceipt(submissionData?.__cart_receipt) || 'Cart receipt unavailable';
+  }
   const displayValue = resolveFormNotListedDisplayValue(field, value, submissionData);
   if (field?.type === 'grouped_question') {
     return groupedQuestionPdfAnswers(field, value)
@@ -209,8 +213,11 @@ export function buildFormSubmissionPdf({
 
   doc.setTextColor(0);
 
-  const allFields = Array.isArray(fields) ? fields : [];
   const data = submissionData || {};
+  const allFields = [...(Array.isArray(fields) ? fields : [])];
+  if (data.__cart_receipt?.fieldId && !allFields.some(field => field.id === data.__cart_receipt.fieldId)) {
+    allFields.push({ id: data.__cart_receipt.fieldId, type: 'sales_cart', label: 'Cart receipt' });
+  }
 
   for (const field of allFields) {
     if (field.type === 'instructions' || field.type === 'heading') {

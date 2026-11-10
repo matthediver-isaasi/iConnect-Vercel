@@ -3,6 +3,8 @@ import { computeAuthoritativeHiddenFieldIds, findPaymentField } from './formFiel
 import { rulesUseLmicOperators } from './formLmicConditions.js';
 import { loadTenantLmicCodes } from './tenantLmicCodes.js';
 import { formBundleStockOptionReady } from './formBundleStockReadiness.js';
+import { validateCartConfiguration, resolveFormCart, FormCartError } from './formCart.js';
+import { cartField } from '../../shared/formCart.js';
 
 async function requireStockOption(db, field) {
   if (field?.reduce_bundle_stock_on_submission === false && !await formBundleStockOptionReady(db)) {
@@ -16,6 +18,11 @@ export class FormBundleError extends Error {
   }
 }
 export async function validateBundleConfiguration(db, form) {
+  try { await validateCartConfiguration(db, form); }
+  catch (error) {
+    if (error instanceof FormCartError) throw new FormBundleError(error.message, error.status, error.code);
+    throw error;
+  }
   const error = bundleConfigurationError(form);
   if (error) throw new FormBundleError(error);
   const field = (form?.fields || []).find(f => f.type === BUNDLE_FIELD_TYPE);
@@ -69,6 +76,11 @@ export async function bundleOptions(db, form, fieldId) {
 // Mutates only the bundle's effective stored answer, never other raw answers.
 // A hidden selection has no allocation/pricing authority.
 export async function resolveFormBundle(db, form, values, { hiddenFieldIds, checkStock = true } = {}) {
+  try { await resolveFormCart(db, form, values, { hiddenFieldIds, checkStock }); }
+  catch (error) {
+    if (error instanceof FormCartError) throw new FormBundleError(error.message, error.status, error.code);
+    throw error;
+  }
   const field = (form?.fields || []).find(f => f.type === BUNDLE_FIELD_TYPE);
   delete values[BUNDLE_LABELS_KEY];
   delete values.__bundle_hidden;
@@ -104,6 +116,10 @@ export async function resolveFormBundle(db, form, values, { hiddenFieldIds, chec
 }
 
 export async function bundlePayableAmount(db, form, values, paymentField) {
+  if (cartField(form)) {
+    await resolveFormBundle(db, form, values);
+    return (values.__cart_receipt?.grossMinor || 0) / 100;
+  }
   const selected = await resolveFormBundle(db, form, values);
   return bundlePriceField(form, paymentField) ? (selected?.amountMinor || 0) / 100 : null;
 }

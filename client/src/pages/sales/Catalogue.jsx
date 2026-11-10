@@ -71,7 +71,7 @@ export default function Catalogue({ section = "categories" }) {
   const showInternalCode = settings.data?.showInternalCode === true;
   const showSku = settings.data?.showSku === true;
   return <div className="min-w-0">
-    {canManage && stockRow && stockRow.scopeKey === settings.scopeKey && <BundleStockDialog key={`${stockRow.id}:${stockRow.bundleStock?.version}`} row={stockRow} saving={catalogue.updateStock.isPending} onClose={() => setStockRow(null)} onRefresh={async () => {
+    {canManage && stockRow && stockRow.scopeKey === settings.scopeKey && <BundleStockDialog key={`${stockRow.id}:${(stockRow.productStock || stockRow.bundleStock)?.version}`} row={stockRow} saving={catalogue.updateStock.isPending} onClose={() => setStockRow(null)} onRefresh={async () => {
       const result = await catalogue.refetch();
       if (!result.isError) {
         const row = asList(result.data).find(row => row.id === stockRow.id);
@@ -114,17 +114,18 @@ export function CatalogueTable({ rows, type, categories, products, onEdit, onDup
       <TableHead>{type === "categories" ? "Category" : type === "products" ? "Product" : "Bundle"}</TableHead>
       <TableHead>{type === "categories" ? "Description" : type === "products" ? showSku ? "Category / SKU" : "Category" : "Included items"}</TableHead>
       <TableHead>{type === "categories" ? "Status" : "Price / capacity"}</TableHead>
-      {type === "bundles" && <TableHead>Available / reserved</TableHead>}
+      {type !== "categories" && <TableHead>Available / reserved</TableHead>}
       {canManage && <TableHead className="w-28 text-right">Actions</TableHead>}
     </TableRow></TableHeader>
     <TableBody>{rows.map((row, index) => {
       const archived = row.isActive === false || row.archivedAt;
       const reference = row.eventReference || {};
+      const stock = type === "products" ? row.productStock : row.bundleStock;
       return <TableRow key={row.id} className={archived ? "bg-slate-50/70 text-slate-500" : ""}>
         <TableCell><div className="font-semibold text-slate-900">{row.name}</div>{type === "bundles" && row.categoryId && <div className="text-xs text-blue-700">{categoryName(row.categoryId)}</div>}{(type === "categories" || showInternalCode) && row.code && <div className="mt-0.5 font-mono text-[11px] text-slate-500">{row.code}</div>}</TableCell>
         <TableCell className="max-w-[280px] text-xs text-slate-600">{type === "products" ? <><span className="font-medium text-blue-700">{categoryName(row.categoryId)}</span>{showSku && row.sku && <span className="ml-2 font-mono text-slate-500">SKU {row.sku}</span>}</> : type === "bundles" ? <span>{(row.items || []).map((item) => `${item.quantity} × ${productName(item.productId)}`).join(" · ") || "No products selected"}</span> : row.description || "—"}</TableCell>
         <TableCell>{type === "products" ? <><div className="font-medium text-slate-800">{money(row.standardPriceMinor, row.currency)}</div><div className="text-[11px] text-slate-500">minimum {money(row.minimumPriceMinor, row.currency)}{reference.eventId ? ` · ${row.delegateCapacity ?? "Unavailable"} delegate${row.delegateCapacity === 1 ? "" : "s"}` : " · general"}</div></> : type === "bundles" ? <><div className="font-medium text-slate-800">{money(row.sellingPriceMinor, row.currency)}</div><div className="text-[11px] text-slate-500">{(row.items || []).length} products</div></> : <Badge variant="outline">{archived ? "Archived" : "Active"}</Badge>}</TableCell>
-        {type === "bundles" && <TableCell><div className="text-sm">{row.bundleStock ? row.bundleStock.remaining === null ? "Unlimited" : `${row.bundleStock.remaining} available` : "Stock unavailable"}</div><div className="text-xs text-slate-500">{row.bundleStock ? `${row.bundleStock.reserved} reserved` : "Reload to check stock"}</div>{row.bundleStock?.requiresAttention && <Badge variant="outline" className="mt-1 border-amber-300 bg-amber-50 text-amber-800">Holds need administrator review</Badge>}{canManage && onStock && <Button type="button" variant="link" size="sm" className="h-auto px-0 text-xs" disabled={!row.bundleStock} onClick={() => onStock(row)} aria-label={`Edit stock for ${row.name}`}>Edit stock</Button>}</TableCell>}
+        {type !== "categories" && <TableCell><div className="text-sm">{stock ? stock.remaining === null ? "Unlimited" : `${stock.remaining} available` : "Stock unavailable"}</div><div className="text-xs text-slate-500">{stock ? `${stock.reserved} reserved` : "Reload to check stock"}</div>{stock?.requiresAttention && <Badge variant="outline" className="mt-1 border-amber-300 bg-amber-50 text-amber-800">Holds need administrator review</Badge>}{canManage && onStock && <Button type="button" variant="link" size="sm" className="h-auto px-0 text-xs" disabled={!stock || (type === "products" && row.cartStockReady !== true)} onClick={() => onStock(row)} aria-label={`Edit stock for ${row.name}`}>Edit stock</Button>}{type === "products" && row.cartStockReady !== true && <p className="text-xs text-amber-700">Cart stock is not ready. Reload after the required database update.</p>}</TableCell>}
         {canManage && <TableCell><div className="flex justify-end gap-1">
           <Button variant="ghost" size="icon" aria-label={`Edit ${row.name}`} onClick={() => onEdit(row)} className="h-8 w-8"><Pencil className="h-3.5 w-3.5" /></Button>
           {type !== "categories" && <Button variant="ghost" size="icon" aria-label={`Duplicate ${row.name}`} onClick={() => onDuplicate(row)} className="h-8 w-8"><Copy className="h-3.5 w-3.5" /></Button>}
