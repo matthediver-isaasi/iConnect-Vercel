@@ -124,7 +124,10 @@ export default async function handler(req, res) {
         .eq('tenant_id', tenant.id)
         .order('display_order', { ascending: true });
 
-      if (tcError) return res.status(503).json({ error: 'Unable to load event tickets' });
+      if (tcError) {
+        console.error('[Public Complex Events] ticket class query error:', tcError.code, tcError.message);
+        return res.status(503).json({ error: 'Unable to load event tickets' });
+      }
       if (ticketClasses) {
         for (const tc of ticketClasses) {
           if (!ticketClassesByEvent[tc.complex_event_id]) {

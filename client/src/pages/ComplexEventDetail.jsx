@@ -1396,7 +1396,7 @@ export function ComplexEventDetailExperience({
 
   const isSlugLookup = !!explicitEventSlug && !explicitEventId && !allocationContext?.eventId;
 
-  const { data: slugResolvedEvent, isLoading: isSlugLoading } = useQuery({
+  const { data: slugResolvedEvent, isLoading: isSlugLoading, error: slugError, refetch: retrySlug, isFetching: slugFetching } = useQuery({
     queryKey: ['complex-event-by-slug', explicitEventSlug, ...viewerKey],
     queryFn: async () => await publicClient.getComplexEventBySlug(explicitEventSlug),
     enabled: isSlugLookup
@@ -1404,7 +1404,7 @@ export function ComplexEventDetailExperience({
 
   const eventId = allocationContext?.eventId || explicitEventId || (slugResolvedEvent?.id) || null;
 
-  const { data: queriedEvent, isLoading: eventLoading } = useQuery({
+  const { data: queriedEvent, isLoading: eventLoading, error: eventError, refetch: retryEvent, isFetching: eventFetching } = useQuery({
     queryKey: ['complex-event', eventId, ...viewerKey],
     queryFn: async () => await publicClient.getComplexEvent(eventId),
     enabled: !!eventId,
@@ -1616,7 +1616,25 @@ export function ComplexEventDetailExperience({
     return <div className="min-h-screen bg-slate-50 p-6"><Card className="mx-auto max-w-lg border-rose-200"><CardContent className="p-6 text-rose-700"><AlertCircle className="mr-2 inline h-5 w-5" />This allocation link is invalid, expired, or no longer available.</CardContent></Card></div>;
   }
 
-  if (!event) {
+  const lookupError = (isSlugLookup && slugError) || eventError;
+  if (lookupError && lookupError.status !== 404) {
+    return (
+      <div className={embedded ? "w-full flex items-center justify-center" : "min-h-screen bg-white flex items-center justify-center"}>
+        <Card className="border-slate-200 max-w-md w-full mx-4">
+          <CardContent className="p-8 text-center" role="alert">
+            <AlertCircle className="w-12 h-12 text-slate-400 mx-auto mb-4" />
+            <h2 className="text-xl font-semibold text-slate-900 mb-2" data-testid="text-event-load-error">Unable to load event</h2>
+            <p className="text-slate-600 mb-4">We couldn’t load the event details. Please try again.</p>
+            <Button onClick={() => isSlugLookup && slugError ? retrySlug() : retryEvent()} disabled={slugFetching || eventFetching} data-testid="button-retry-event">
+              Try again
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!event || lookupError?.status === 404) {
     return (
       <div className={embedded ? "w-full flex items-center justify-center" : "min-h-screen bg-white flex items-center justify-center"}>
         <Card className="border-slate-200 max-w-md w-full mx-4">

@@ -8,6 +8,8 @@
 
 # Membership Management Platform
 
+- **Public complex-event ticket loading:** `202612310005_ticket_selected_member_audience.sql` was owner-approved and applied to verified DEST on 2026-11-10, SHA256 `1df3da1ce2fe2d94a69fb15cfd09c01137532f2c183f5f2e7e7db5d65c05ff33`. Missing audience columns caused GSF list/detail 503s; both live endpoints returned 200 after schema installation. Existing settings were not backfilled; SOURCE untouched. Retryable-error UI/API changes require merge. No live registrations, payments or emails were attempted.
+
 - **Form bundle stock:** `202701200001_form_bundle_stock.sql` applied to verified DEST on 2026-11-06, SHA256 `62a10142ef34e6401925746e319bf7199c9b11b7a2e8cb1bbecdd7425d9ddfc7`; SOURCE untouched. Matching code awaits merge. See `docs/form-bundle-stock-implementation-status.md` for semantics, verification and provider-test limitations.
 
 - **CPD signature images:** Image and draft-cleanup migrations `202701190002` / `202701190003` applied to verified DEST on 2026-11-06; SOURCE and existing template content unchanged. Matching code awaits merge/release. See `docs/cpd-certificate-signature-images.md` for exact hashes, retention policy and isolated/deployed verification boundaries.

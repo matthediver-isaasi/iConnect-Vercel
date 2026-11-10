@@ -91,3 +91,18 @@ test('waiting-list cards advertise interest even when normal capacity is exhaust
   assert.equal(resolveEventCtaLabel({ waitingListEnabled: true, isSoldOut: true, perEventLabel: 'Buy now' }), 'Join waiting list');
   assert.equal(resolveEventCtaLabel({ waitingListEnabled: true, isRegistrationClosed: true }), 'Registration Closed');
 });
+
+test('waiting cards retain internal complex detail navigation instead of external overrides', () => {
+  const card = source('../components/events/EventCard.jsx');
+  assert.match(card, /event\.waiting_list_enabled !== true && event\.cta_override_url/);
+  assert.match(card, /window\.location\.href = event\.is_complex[\s\S]*?session-events/);
+});
+
+test('detail distinguishes slug and ID service errors and retries the failed lookup', () => {
+  const detail = source('../pages/ComplexEventDetail.jsx');
+  assert.match(detail, /error: slugError, refetch: retrySlug/);
+  assert.match(detail, /error: eventError, refetch: retryEvent/);
+  assert.match(detail, /lookupError && lookupError\.status !== 404/);
+  assert.match(detail, /isSlugLookup && slugError \? retrySlug\(\) : retryEvent\(\)/);
+  assert.ok(detail.indexOf('text-event-load-error') < detail.indexOf('text-event-not-found'));
+});

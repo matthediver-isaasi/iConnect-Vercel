@@ -56,9 +56,13 @@ export default async function handler(req, res) {
       query = query.eq('slug', slug);
     }
 
-    const { data: event, error } = await query.single();
+    const { data: event, error } = await query.maybeSingle();
 
-    if (error || !event) {
+    if (error) {
+      console.error('[Public Complex Event] event query error:', error.code, error.message);
+      return res.status(503).json({ error: 'Unable to load event' });
+    }
+    if (!event) {
       return res.status(404).json({ error: 'Event not found' });
     }
 
@@ -82,7 +86,7 @@ export default async function handler(req, res) {
       .order('display_order', { ascending: true });
 
     if (tcError) {
-      console.error('[Public Complex Event] ticket class query error:', tcError.message);
+      console.error('[Public Complex Event] ticket class query error:', tcError.code, tcError.message);
       return res.status(503).json({ error: 'Unable to load event tickets' });
     }
     const viewer = await loadPrivateTicketViewer(req, tenant.id, supabase);
