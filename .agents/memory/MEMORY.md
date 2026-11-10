@@ -14,7 +14,6 @@
 - [Member Group topics](member-group-index.md) — custom-field ownership, role naming, scoped lists, resource links, admin redaction and event access.
 - [PostgREST and pagination topics](postgrest-pagination-index.md) — index of durable rules for PostgREST caps, stable ranged pages, bounded exports, large filters, and exact totals.
 - [Membership invoice boundaries](membership-invoice-index.md) — duplicate prevention, override display, add-on lines and PO contracts.
-- [Accounting tax choices](accounting-tax-choice-policy.md) — connected tax selectors must use provider codes, never iConnect no-VAT defaults.
 - [Background worker self-trigger](background-worker-self-trigger.md) — a self-re-triggering chunked worker needs a handoff bypass on its heartbeat lock, or the chain blocks itself and falls back to cron pace.
 - [Reindex concurrency guard](reindex-concurrency-guard.md) — historical background-worker pattern; Member Content now uses the dedicated operation authority documented below, not system_settings.
 - [Member-content reindex operation authority](member-content-reindex-operations.md) — CRON_SECRET is fail-closed; use the dedicated service-only operations singleton/RPCs, never browser-writable system_settings.
@@ -78,7 +77,6 @@
 - [Immutable child re-parenting](immutable-child-reparenting.md) — child immutability triggers must validate both OLD and NEW parents or updates can move data out of locked snapshots.
 - [Custom Object cardinality migrations](custom-object-cardinality-migrations.md) — widen with a new pinned migration; preserve definition history and global legacy-trigger behavior.
 - [Allocated delegate claim ordering](allocated-delegate-claim-ordering.md) — claim invite entitlement only after booking capacity checks; compensate the whole checkout if a later claim fails.
-- [Mixed-encoding CSV imports](mixed-encoding-csv-imports.md) — preserve valid UTF-8 sequences while decoding isolated Windows-1252 bytes; whole-file fallback can silently create mojibake.
 - [Stripe feature mode for shared payments](stripe-feature-payment-mode.md) — discovery, creation, and confirmation must use one persisted feature when a shared flow serves several products.
 - [Department relationship replacement](department-relationship-replacement.md) — primary-organisation changes must preserve valid secondary affiliations; explicitly reconcile departments, never hard-delete.
 - [Profile affiliation boundaries](profile-affiliation-boundaries.md) — existing-record self-service is separate from renewal review; relationship names are not endpoint authority.
@@ -86,10 +84,8 @@
 - [Editor query lifecycles](editor-query-lifecycle-index.md) — discovery/save-first, pending queries, stable fallbacks, and saved-metadata reconciliation.
 - [Automatic-group source invalidation](automatic-group-source-invalidation.md) — source writes must generation-fence workers; custom values need direct statement triggers to avoid per-row churn.
 - [Gallery visibility and storage](gallery-visibility-storage.md) — gallery public/private transitions must be server-owned and ordered with bucket moves so policy changes cannot leave public objects exposed.
-- [Pinned import identity vs matching](pinned-import-identity-matching.md) — make live-name matching legacy-encoding tolerant without changing historical identity-hash normalization.
 - [Contextual Custom Object creation](contextual-custom-object-create.md) — create a record and initial edges in one RPC; requiredness follows the new record’s source side.
 - [Platform-managed tenant integrations](platform-managed-tenant-integrations.md) — shared secrets stay server-only; tenants store only enablement and receive boolean availability.
-- [Long-running pinned imports](long-running-pinned-imports.md) — sequential compensated imports may outlive interactive shells; resume idempotently and require a zero-write replay.
 - [Relationship picker graph scopes](relationship-picker-graph-scopes.md) — constrain direct links by intersecting bounded source/target relationship paths; active graph only, fail closed.
 - [Relationship preview config aliases](relationship-preview-config-aliases.md) — compact_preview and legacy compact_preview_fields may coexist; merge and dedupe field IDs across both.
 - [Relationship edge metadata enforcement](relationship-edge-metadata-enforcement.md) — generic edge writes bypass the interactive service; defaults and required/type rules need DB enforcement too.
@@ -151,7 +147,6 @@
 - [Guest registration associations](guest-registration-association-policy.md) — explicit direct group selection never implies an organisation or changes historical registration details.
 - [Stripe payout reporting policy](stripe-payout-report-policy.md) — BNMS reconciliation is read-only; historical matching claims require evidence, and multiple invoice links never imply allocations.
 - [CookieYes isolation limitations](cookieyes-sdk-isolation.md) — fixed SDK storage names and undisposed retries need an approved isolation extension for shared-origin tenants.
-- [Quote-backed membership accounting](quote-backed-membership-accounting.md) — paid quotes need independent invoice recovery; submission sweeps and paid-history existence are insufficient.
 - [BNMS completion approval](bnms-completion-approval.md) — returned workbook scope does not inherit historical write/date approvals; blank readiness never authorizes imports.
 - [CMS popup policy](cms-popup-policy.md) — opt-outs survive ordinary edits; one popup per history entry and same-organisation conjunctions are independent delivery rules.
 - [CRM jump cache authority](crm-jump-cache-authority.md) — exact-ID jumps must revalidate cached target pages; cache freshness is not evidence after concurrent changes.

@@ -1,5 +1,12 @@
 # Billing, import, and evidence topics
 
+- [Xero optional-field searches](xero-optional-field-search.md) — null-guard string operations; rejected lookup never proves absence.
+- [Accounting tax choices](accounting-tax-choice-policy.md) — connected selectors use provider codes, never platform VAT defaults.
+- [Mixed-encoding CSV imports](mixed-encoding-csv-imports.md) — retain valid UTF-8 while decoding isolated Windows-1252 bytes.
+- [Pinned import identity](pinned-import-identity-matching.md) — tolerant live-name matching must not alter historical identity hashes.
+- [Long-running imports](long-running-pinned-imports.md) — resume compensated imports idempotently and require a zero-write replay.
+- [Quote-backed membership accounting](quote-backed-membership-accounting.md) — paid quotes need independent invoice recovery.
+
 - [Xero shared quotas](xero-shared-quota-boundary.md) — app-plus-organisation pauses, rollout approval and no automatic financial replay.
 
 - [Accounting temporary failures](accounting-transient-retry-policy.md) — rate limits and transient failures do not consume genuine retry allowances.

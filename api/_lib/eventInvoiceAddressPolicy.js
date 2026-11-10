@@ -43,7 +43,8 @@ export async function lookupEventXeroContact(api, { name, email, contactId = nul
     return contacts[0];
   }
   if (!name || !email) fail('Verified member name and email are required');
-  const where = `EmailAddress.ToLower()==${JSON.stringify(normalized(email))}||Name.ToLower()==${JSON.stringify(normalized(name))}`;
+  // Xero rejects method calls on optional fields unless each branch is null-guarded.
+  const where = `(EmailAddress!=null&&EmailAddress.ToLower()==${JSON.stringify(normalized(email))})||(Name!=null&&Name.ToLower()==${JSON.stringify(normalized(name))})`;
   const found = new Map();
   for (let page = 1; page <= 3; page++) {
     const result = await api(`Contacts?where=${encodeURIComponent(where)}&includeArchived=true&page=${page}&pageSize=100`);

@@ -35,6 +35,22 @@ function fixture(overrides = {}) {
   return { db, calls, stored, rows, input: { db, tenantId: 'tenant', memberId: 'member', eventId: 'event', source: 'simple', requestId, lookup: async () => null } };
 }
 
+test('customer search null-guards optional Xero fields and safely quotes normalized identity', async () => {
+  const name = ' Test "Quoted" Buyer ';
+  const email = ' BUYER@example.test ';
+  let requests = 0;
+  await lookupEventXeroContact(async path => {
+    requests++;
+    const url = new URL(path, 'https://example.test/');
+    assert.equal(url.searchParams.get('where'),
+      `(EmailAddress!=null&&EmailAddress.ToLower()==${JSON.stringify(email.trim().toLowerCase())})||(Name!=null&&Name.ToLower()==${JSON.stringify(name.trim().toLowerCase())})`);
+    assert.equal(url.searchParams.get('includeArchived'), 'true');
+    assert.equal(url.searchParams.get('page'), '1');
+    return { Contacts: [] };
+  }, { name, email });
+  assert.equal(requests, 1);
+});
+
 test('exact lookup exhausts pages and rejects duplicates, archived, namesakes, errors and incomplete results', async () => {
   assert.equal(await lookupEventXeroContact(async () => ({ Contacts: [] }), contact), null);
   let calls = 0;
