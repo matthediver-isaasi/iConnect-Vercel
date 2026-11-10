@@ -45,6 +45,7 @@ import MonthlyCollectionSchedule, {
   isMonthlyCollectionCommitment,
 } from "@/components/membership/MonthlyCollectionSchedule";
 import HistoricalDdPayments from "@/components/membership/HistoricalDdPayments";
+import HistoricalStructureLabel from "@/components/membership/HistoricalStructureLabel";
 import MembershipPricingDisplay from "@/components/membership/MembershipPricingDisplay";
 import { getMembershipPricingPresentation } from "@/components/membership/membershipPricingPresentation";
 import { formatMembershipMessageDates } from "@/components/membership/membershipMessageDates.mjs";
@@ -1776,16 +1777,6 @@ export default function MemberMembershipTab({ memberId, memberEmail, memberTenan
                 <tbody>
                   {history.map((record) => {
                     const membershipSource = getMembershipSource(record);
-                    // Use this term's saved structure, never the member's current pricing configuration.
-                    const historicalStructureName = record.commitment_snapshot?.structure_name
-                      || record.commitment_snapshot?.config?.name
-                      || record.reconstructed_structure_name;
-                    const historicalTierLabel = record.tier_label
-                      || record.commitment_snapshot?.pricing?.tier_label
-                      || record.commitment_snapshot?.tier_label;
-                    const historicalStructureLabel = historicalStructureName
-                      ? `${historicalStructureName}${historicalTierLabel && historicalTierLabel !== historicalStructureName ? ` · ${historicalTierLabel}` : ''}`
-                      : historicalTierLabel || '-';
                     const membershipRecordKey = `${membershipSource}:${record.id}`;
                     const hasAdjustments = (record.free_period_discount > 0) || (record.prorata_cost !== null) || (record.rollover_discount > 0);
                     const invoiceId = record.payment_status === 'unverified' ? null : record.accounting_invoice_id || record.xero_invoice_id;
@@ -1835,12 +1826,7 @@ export default function MemberMembershipTab({ memberId, memberEmail, memberTenan
                           )}
                         </td>
                         <td className="p-3">
-                          <Badge variant="secondary">{historicalStructureLabel}</Badge>
-                          {!historicalStructureName && (
-                            <div className="text-xs text-muted-foreground mt-1">
-                              {record.config_id ? `Structure ${record.config_id}` : 'Structure unknown'}
-                            </div>
-                          )}
+                          <HistoricalStructureLabel record={record} />
                           <ExpiryRenewalPolicy record={record} />
                         </td>
                         <td className="p-3 text-right">

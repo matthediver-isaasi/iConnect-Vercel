@@ -1,6 +1,7 @@
 import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
+import { historyStructureFixtures } from "./membership/historyStructureFixtures";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/" });
 Object.assign(globalThis, {
@@ -32,6 +33,27 @@ const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query
 const { MemoryRouter } = await import("react-router-dom");
 const { default: OrgMembershipTab } = await import("./OrgMembershipTab.jsx");
 after(() => dom.window.close());
+
+test('organisation ledger uses historical structure evidence, never the current configuration', async () => {
+  const history = historyStructureFixtures.map(({ expected, ...row }) => ({
+    ...row, membership_year: '2025/2026', currency: 'GBP',
+    annual_cost: 61, final_cost: 61, payment_status: 'paid',
+    accounting_invoice_id: 'saved-invoice', accounting_invoice_number: '300004834',
+  }));
+  const before = structuredClone(history);
+  await mounted({ history }, ({ container, calls }) => {
+    for (const fixture of historyStructureFixtures) {
+      const row = container.querySelector(`[data-testid="row-history-${fixture.id}"]`);
+      assert.equal(row.children[1].textContent, fixture.expected);
+      assert.match(row.textContent, /£61\.00/);
+      assert.match(row.textContent, /Paid/);
+      assert.match(row.textContent, /2025\/2026/);
+      assert.ok(row.querySelector(`[data-testid="button-view-invoice-${fixture.id}"]`));
+    }
+    assert.deepEqual(history, before);
+    assert.deepEqual(calls, []);
+  });
+});
 
 const year = (membershipYear, yearNumber, finalCost) => ({
   membershipYear, yearNumber, finalCost, annualCost: finalCost,

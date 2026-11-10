@@ -38,6 +38,7 @@ import MemberJoinLinkSection from "@/components/MemberJoinLinkSection";
 import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
 import { getMembershipHistoryLifecycle } from "@/lib/membershipHistoryLifecycle";
 import FormInvoiceSettlementControl from "@/components/FormInvoiceSettlementControl";
+import HistoricalStructureLabel from "@/components/membership/HistoricalStructureLabel";
 
 function PaymentStatusBadge({ paymentStatus }) {
   const status = paymentStatus || 'unpaid';
@@ -1735,7 +1736,7 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                 <thead>
                   <tr className="border-b bg-muted/50">
                     <th className="text-left p-3 font-medium">Year</th>
-                    <th className="text-left p-3 font-medium">Tier</th>
+                    <th className="text-left p-3 font-medium">Structure / Tier</th>
                     <th className="text-right p-3 font-medium">{fieldLabel}</th>
                     <th className="text-right p-3 font-medium">{periodLabel} Cost</th>
                     <th className="text-right p-3 font-medium">Adjustments</th>
@@ -1761,7 +1762,7 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                     <tr key={record.id} className="border-b last:border-0" data-testid={`row-history-${record.id}`}>
                       <td className="p-3 font-medium">{record.membership_year}</td>
                       <td className="p-3">
-                        <Badge variant="secondary">{record.tier_label || '-'}</Badge>
+                        <HistoricalStructureLabel record={record} />
                       </td>
                       <td className="p-3 text-right">{record.field_value?.toLocaleString() ?? '-'}</td>
                       <td className="p-3 text-right">{formatCost(record.annual_cost, record.currency)}</td>

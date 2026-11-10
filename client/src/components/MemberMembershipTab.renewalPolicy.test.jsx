@@ -1,6 +1,7 @@
 import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
+import { historyStructureFixtures } from "./membership/historyStructureFixtures";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/" });
 Object.assign(globalThis, {
@@ -21,6 +22,35 @@ const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query
 const { default: MemberMembershipTab } = await import("./MemberMembershipTab.jsx");
 const { setActiveTenantId } = await import("../api/base44Client.js");
 
+test('personal and organisation-sourced ledger rows separate classification from structure without changing financial evidence', async () => {
+  for (const membership_source of ['personal', 'organisation']) {
+    const history = historyStructureFixtures.map(({ expected, ...row }) => ({
+      ...row, membership_source, membership_year: '2025/2026', currency: 'GBP',
+      term_start_date: '2026-01-14', term_end_date: '2027-01-12',
+      final_cost: 61, total_with_vat: 61, payment_status: 'paid',
+      accounting_invoice_id: 'saved-invoice', accounting_invoice_number: '300004834',
+    }));
+    const before = structuredClone(history);
+    await mounted({ dataOverrides: {
+      config: { id: 'config', name: 'Today’s matching structure', currency: 'GBP' },
+      history,
+    } }, (container, calls) => {
+      for (const fixture of historyStructureFixtures) {
+        const row = container.querySelector(`[data-testid="row-member-history-${fixture.id}"]`);
+        assert.equal(row.children[1].textContent, fixture.expected);
+        assert.match(row.textContent, /£61\.00/);
+        assert.match(row.textContent, /Paid/);
+        assert.match(row.textContent, /14 January 2026/);
+        assert.match(row.textContent, /12 January 2027/);
+        assert.equal(row.querySelector(`[data-testid="button-view-invoice-${fixture.id}"]`).title, 'View invoice 300004834');
+        assert.doesNotMatch(row.children[1].textContent, /Today’s matching structure/);
+      }
+      assert.deepEqual(history, before);
+      assert.deepEqual(calls, []);
+    });
+  }
+});
+
 test('history displays the saved structure and tier together without substituting current pricing', async () => {
   await mounted({ dataOverrides: { history: [
     { id: 'manual', tier_label: 'Flat Rate', commitment_snapshot: { config: { name: '2026-2027 Full member with NMC' } } },
@@ -34,7 +64,7 @@ test('history displays the saved structure and tier together without substitutin
     assert.equal(structure('older'), '2025-2026 Full member with NMC · Flat Rate');
     assert.equal(structure('same-label'), 'Student');
     assert.equal(structure('reconstructed'), 'Historical retired schedule · Retired');
-    assert.match(structure('unknown'), /Flat Rate.*Structure unknown/);
+    assert.equal(structure('unknown'), 'Structure unknownRecorded tier / classification: Flat Rate');
   });
 });
 
