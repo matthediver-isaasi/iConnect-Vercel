@@ -203,12 +203,12 @@ export async function handleCollectionDayAction(req, res, {
 
 async function handleGet(req, res, tenantId, db = supabase) {
   const view = req.query.view || 'summary';
-  if (view === 'summary') return res.json(await buildSummary(tenantId));
+    if (view === 'summary') return res.json(await buildSummary(tenantId, { db }));
   if (view === 'plans') return res.json(await listPlans(tenantId, req.query, db));
   if (view === 'plans_export') return exportPlansCsv(res, tenantId, req.query, db);
   if (view === 'plan') return res.json(await planDetail(tenantId, req.query.planId, res));
-  if (view === 'reconciliation') return res.json(await reconciliationView(tenantId, req.query));
-  if (view === 'export') return exportReconciliationCsv(res, tenantId, req.query);
+    if (view === 'reconciliation') return res.json(await reconciliationView(tenantId, req.query, { db }));
+    if (view === 'export') return exportReconciliationCsv(res, tenantId, req.query, { db });
   if (view === 'migration') return res.json(await consoleMigrationFunnel(tenantId));
   if (view === 'renewals') return res.json(await listRenewals(tenantId, req.query));
   return res.status(400).json({ error: `Unknown view '${view}'` });
@@ -515,7 +515,7 @@ export async function planDetail(tenantId, planId, res, { db: supabase = console
   };
 }
 
-async function reconciliationView(tenantId, query) {
+export async function reconciliationView(tenantId, query, { db: supabase = consoleDatabase } = {}) {
   const bucket = query.bucket || 'all';
   const rawPayments = await readConsoleRows(() => {
     let q = supabase
@@ -548,8 +548,8 @@ async function reconciliationView(tenantId, query) {
 }
 
 // CSV export of a reconciliation bucket (finance handoff).
-async function exportReconciliationCsv(res, tenantId, query) {
-  const { payments } = await reconciliationView(tenantId, query);
+async function exportReconciliationCsv(res, tenantId, query, deps) {
+  const { payments } = await reconciliationView(tenantId, query, deps);
   const cols = [
     'gocardless_payment_id', 'status', 'charge_date', 'currency',
     'amount_minor', 'fee_minor', 'net_minor', 'amount_refunded_minor',

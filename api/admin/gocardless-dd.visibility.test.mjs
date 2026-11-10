@@ -82,6 +82,50 @@ const response = () => ({
 });
 const csvIds = res => res.body.slice(1).trimEnd().split('\r\n').slice(1).map(line => line.split(',')[0]);
 
+test('33 accounting failures match headline, complete reconciliation and unchanged bucket export', async () => {
+  const db = fixture();
+  const payment = (n, overrides = {}) => ({
+    id: `pay-${n}`, tenant_id: 'tenant', plan_id: '0001',
+    gocardless_payment_id: `PM${n}`, amount_minor: 1300, currency: 'GBP',
+    charge_date: '2026-10-01', updated_at: '2026-10-01',
+    status: ['confirmed', 'paid_out', 'failed'][n % 3],
+    accounting_sync_status: 'failed', accounting_sync_error: n % 2 ? 'Recorded error <b>literal</b>' : null,
+    ...overrides,
+  });
+  db.tables.gocardless_payments = [
+    ...Array.from({ length: 33 }, (_, n) => payment(n)),
+    payment(100, { plan_id: '0000' }), // deleted owner
+    payment(101, { tenant_id: 'other' }),
+    payment(102, { plan_id: 'missing' }),
+    payment(103, { provider: 'stripe' }),
+    payment(104, { accounting_sync_status: 'posted' }),
+  ];
+  const request = async (view, bucket = 'accounting_failed') => {
+    const res = response();
+    await handler({ method: 'GET', query: { view, bucket } }, res, {
+      db, getContext: async () => ({ tenantId: 'tenant' }), adminAccess: async () => true,
+    });
+    assert.equal(res.statusCode, 200);
+    return res.body;
+  };
+  const summary = await request('summary');
+  const list = await request('reconciliation');
+  assert.equal(summary.failedAccounting, 33);
+  assert.equal(list.payments.length, 33);
+  assert.deepEqual(new Set(list.payments.map(p => p.id)), new Set(db.tables.gocardless_payments.slice(0, 33).map(p => p.id)));
+  assert.equal(list.payments.find(p => p.id === 'pay-1').accounting_sync_error, 'Recorded error <b>literal</b>');
+  assert.equal(list.payments.find(p => p.id === 'pay-0').accounting_sync_error, null);
+  assert.deepEqual(new Set(list.payments.map(p => p.status)), new Set(['confirmed', 'paid_out', 'failed']));
+  const csv = await request('export');
+  assert.equal(csv.split('\n').length, 34);
+  assert.ok(csv.startsWith('gocardless_payment_id,status,charge_date,'));
+  assert.equal((await request('reconciliation', 'all')).payments.length, 34);
+  // Cross the read-page boundary; no arbitrary result cap may hide failures.
+  db.tables.gocardless_payments = Array.from({ length: 503 }, (_, n) => payment(n));
+  assert.equal((await request('summary')).failedAccounting, 503);
+  assert.equal((await request('reconciliation')).payments.length, 503);
+});
+
 test('CSV exports all matching pages in list order and ignores UI paging', async () => {
   const db = fixture(), res = response();
   await exportPlansCsv(res, 'tenant', { page: 20, pageSize: 1 }, db);
@@ -140,7 +184,8 @@ test('CSV excludes other tenants, providers, missing owners and discovery-only m
   assert.equal(res.body.split('\r\n').length, 2);
 });
 
-test('actual export route enforces authentication, tenant admin and feature gates before reads', async () => {
+test('actual read routes enforce authentication, tenant admin and feature gates before reads', async () => {
+  for (const view of ['plans_export', 'summary', 'reconciliation', 'export']) {
   for (const scenario of [
     { getContext: async () => { throw Error('no session'); }, code: 401 },
     { getContext: async () => ({}), code: 403 },
@@ -148,13 +193,14 @@ test('actual export route enforces authentication, tenant admin and feature gate
     { featureAccess: async () => false, code: 403 },
   ]) {
     const res = response();
-    await handler({ method: 'GET', query: { view: 'plans_export' } }, res, {
+    await handler({ method: 'GET', query: { view } }, res, {
       db: { from() { assert.fail('Denied requests must not read'); } },
       getContext: async () => ({ tenantId: 'tenant', roleId: 'role' }),
       adminAccess: async () => true, featureAccess: async () => true, ...scenario,
     });
     assert.equal(res.statusCode, scenario.code);
     assert.equal(res.headers['Content-Disposition'], undefined);
+  }
   }
 });
 

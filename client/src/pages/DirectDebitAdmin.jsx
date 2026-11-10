@@ -62,6 +62,17 @@ function StatusBadge({ status }) {
   );
 }
 
+function AccountingFailure({ payment }) {
+  if (payment.accounting_sync_status !== "failed") return null;
+  return (
+    <span className="block text-sm whitespace-pre-wrap break-words" data-testid={`text-accounting-failure-${payment.id}`}>
+      <span className="font-medium">Accounting failure reason: </span>
+      {typeof payment.accounting_sync_error === "string" && payment.accounting_sync_error.trim()
+        ? payment.accounting_sync_error : "No accounting failure reason was recorded."}
+    </span>
+  );
+}
+
 const PLAN_STATUS_FILTERS = [
   "all", "current", "membership_unverified", "pending_activation", "first_payment_pending", "active", "payment_grace_period", "payment_overdue", "suspended",
   "restricted", "mandate_pending", "completed", "cancelled",
@@ -384,11 +395,12 @@ function PlanDetail({ planId, onBack }) {
                   <div className="space-y-0.5">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-medium">{money(p.amount_minor, p.currency)}</span>
-                      <StatusBadge status={p.status} />
+                      <span>Collection status: <StatusBadge status={p.status} /></span>
                       {p.refund_status && <Badge variant="secondary">refund: {p.refund_status}</Badge>}
                       {p.chargeback_reversed_after_payout && <Badge variant="destructive">chargeback after payout</Badge>}
                       {p.accounting_sync_status === "failed" && <Badge variant="destructive">accounting failed</Badge>}
                     </div>
+                    <AccountingFailure payment={p} />
                     <p className="text-muted-foreground text-xs">
                       {p.gocardless_payment_id} · charge {fmtDate(p.charge_date)}
                       {p.fee_minor != null && ` · fee ${money(p.fee_minor, p.currency)}`}
@@ -611,8 +623,7 @@ function CancellationRequests() {
 // ---------------------------------------------------------------------------
 // Reconciliation tab
 
-function Reconciliation() {
-  const [bucket, setBucket] = useState("all");
+function Reconciliation({ bucket, setBucket }) {
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["/api/admin/gocardless-dd", "reconciliation", bucket],
     queryFn: () => api(`/api/admin/gocardless-dd?view=reconciliation&bucket=${bucket}`),
@@ -641,7 +652,8 @@ function Reconciliation() {
             {payments.map((p) => (
               <p key={p.id} className="text-sm" data-testid={`text-recon-${p.id}`}>
                 <span className="font-medium">{money(p.amount_minor, p.currency)}</span>{" "}
-                <StatusBadge status={p.status} />{" "}
+                <span>Collection status: <StatusBadge status={p.status} /></span>{" "}
+                {p.accounting_sync_status === "failed" && <Badge variant="destructive">Accounting sync failed</Badge>}{" "}
                 <span className="text-muted-foreground text-xs">
                   {p.gocardless_payment_id} · charge {fmtDate(p.charge_date)}
                   {p.fee_minor != null && ` · fee ${money(p.fee_minor, p.currency)}`}
@@ -649,6 +661,7 @@ function Reconciliation() {
                   {p.gocardless_payout_id && ` · payout ${p.gocardless_payout_id}`}
                   {p.amount_refunded_minor ? ` · refunded ${money(p.amount_refunded_minor, p.currency)}` : ""}
                 </span>
+                <AccountingFailure payment={p} />
               </p>
             ))}
           </div>
@@ -865,6 +878,20 @@ export default function DirectDebitAdmin() {
   const [page, setPage] = useState(1);
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [tab, setTab] = useState("plans");
+  const [reconciliationBucket, setReconciliationBucket] = useState("all");
+  useEffect(() => {
+    const reset = () => {
+      setReconciliationBucket("all");
+      setTab("plans");
+      setSelectedPlan(null);
+    };
+    window.addEventListener("tenant-context-changed", reset);
+    return () => window.removeEventListener("tenant-context-changed", reset);
+  }, []);
+  const showAccountingFailures = () => {
+    setReconciliationBucket("accounting_failed");
+    setTab("reconciliation");
+  };
   const [plansExporting, setPlansExporting] = useState(false);
   const [plansExportError, setPlansExportError] = useState("");
   const plansExportInFlight = useRef(false);
@@ -1028,10 +1055,14 @@ export default function DirectDebitAdmin() {
                   <p className="text-2xl font-semibold" data-testid="stat-cancellations">{summary?.pendingCancellations || 0}</p>
                   <p className="text-xs text-muted-foreground">Pending cancellation requests</p>
                 </CardContent></Card>
-                <Card><CardContent className="pt-4">
-                  <p className="text-2xl font-semibold" data-testid="stat-accounting">{summary?.failedAccounting || 0}</p>
-                  <p className="text-xs text-muted-foreground">Payments with accounting failures</p>
-                </CardContent></Card>
+                <Card>
+                  <button type="button" onClick={showAccountingFailures}
+                    className="w-full rounded-lg p-6 pt-4 text-left hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    data-testid="button-accounting-failures">
+                    <span className="block text-2xl font-semibold" data-testid="stat-accounting">{summary?.failedAccounting || 0}</span>
+                    <span className="block text-xs text-muted-foreground">Payments with accounting failures</span>
+                  </button>
+                </Card>
                 <Card><CardContent className="pt-4">
                   <p className="text-2xl font-semibold" data-testid="stat-chargebacks">{summary?.chargebacksAfterPayout || 0}</p>
                   <p className="text-xs text-muted-foreground">Payments charged back after payout</p>
@@ -1140,7 +1171,7 @@ export default function DirectDebitAdmin() {
             </TabsContent>
 
             <TabsContent value="requests"><CancellationRequests /></TabsContent>
-            <TabsContent value="reconciliation"><Reconciliation /></TabsContent>
+            <TabsContent value="reconciliation"><Reconciliation bucket={reconciliationBucket} setBucket={setReconciliationBucket} /></TabsContent>
             <TabsContent value="renewals"><RenewalsTab /></TabsContent>
             <TabsContent value="migration"><MigrationTab /></TabsContent>
           </Tabs>

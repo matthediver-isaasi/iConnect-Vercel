@@ -43,6 +43,13 @@ const PLANS = [
   ...Array.from({ length: 100 }, (_, index) => plan(index + 1)),
   OLDER,
 ];
+const ACCOUNTING_PAYMENTS = Array.from({ length: 33 }, (_, n) => ({
+  id: `accounting-${n}`, gocardless_payment_id: `PM${n}`,
+  amount_minor: 1300, currency: "GBP", charge_date: "2026-10-01",
+  status: ["confirmed", "paid_out", "failed"][n % 3],
+  accounting_sync_status: "failed",
+  accounting_sync_error: n === 0 ? '<script>unsafe()</script> Recorded provider error' : n === 1 ? "  " : null,
+}));
 
 function json(route, body, status = 200) {
   return route.fulfill({
@@ -143,9 +150,13 @@ async function installFixture(page, current = false) {
           attention: [],
           pendingActivations: 0,
           pendingCancellations: 0,
-          failedAccounting: 0,
+          failedAccounting: current === "accounting" ? 33 : 0,
           chargebacksAfterPayout: 0,
         });
+      }
+      if (view === "reconciliation") {
+        const bucket = url.searchParams.get("bucket");
+        return json(route, { payments: bucket === "paid_out" ? [] : ACCOUNTING_PAYMENTS, payouts: [] });
       }
       if (view === "plans") {
         const query = (url.searchParams.get("q") || "").trim().toLowerCase();
@@ -179,7 +190,7 @@ async function installFixture(page, current = false) {
               },
             },
           },
-          payments: [],
+          payments: current === "accounting" ? ACCOUNTING_PAYMENTS.slice(0, 3) : [],
           statusHistory: [],
           adminActions: [],
           cancellationRequests: [],
@@ -237,6 +248,53 @@ test("older imported members remain searchable with complete pagination, status,
 
   expect(state.writes).toEqual([]);
   expect(state.mockedSessionWrites.length).toBeLessThanOrEqual(1);
+  expect(state.pageErrors).toEqual([]);
+});
+
+test("accounting failure drilldown supports mouse, keyboard, mounted filters and read-only reasons", async ({ page }, testInfo) => {
+  const state = await installFixture(page, "accounting");
+  await page.goto("/DirectDebitAdmin");
+  const card = page.getByTestId("button-accounting-failures");
+  await expect(page.getByTestId("stat-accounting")).toHaveText("33");
+  await card.click();
+  await expect(page.getByTestId("tab-reconciliation")).toHaveAttribute("data-state", "active");
+  await expect(page.getByTestId("select-recon-bucket")).toHaveText("Accounting sync failed");
+  await expect(page.locator('[data-testid^="text-recon-accounting-"]')).toHaveCount(33);
+  const first = page.getByTestId("text-recon-accounting-0");
+  await expect(first).toContainText("£13.00");
+  await expect(first).toContainText("PM0 · charge 01 Oct 2026");
+  await expect(first).toContainText("Collection status: confirmed");
+  await expect(first).toContainText("Accounting failure reason: <script>unsafe()</script> Recorded provider error");
+  await expect(first.locator("script")).toHaveCount(0);
+  await expect(page.getByTestId("text-accounting-failure-accounting-1")).toContainText("No accounting failure reason was recorded.");
+  await expect(page.getByTestId("text-accounting-failure-accounting-2")).toContainText("No accounting failure reason was recorded.");
+  await expect(page.getByTestId("button-recon-export")).toHaveAttribute("href", /view=export&bucket=accounting_failed/);
+  for (const key of ["Enter", "Space"]) {
+    await page.getByTestId("select-recon-bucket").click();
+    await page.getByRole("option", { name: "All payments", exact: true }).click();
+    await expect(page.getByTestId("select-recon-bucket")).toHaveText("All payments");
+    await card.focus();
+    await card.press(key);
+    await expect(page.getByTestId("select-recon-bucket")).toHaveText("Accounting sync failed");
+  }
+  await page.getByTestId("select-recon-bucket").click();
+  await page.getByRole("option", { name: "Paid out", exact: true }).click();
+  await expect(page.getByText("No payments in this bucket.")).toBeVisible();
+  await card.click();
+  await expect(page.locator('[data-testid^="text-recon-accounting-"]')).toHaveCount(33);
+  await page.screenshot({ path: testInfo.outputPath("accounting-failures.png") });
+  await page.getByTestId("tab-plans").click();
+  await page.getByTestId("input-plan-search").fill("Older Imported");
+  await page.getByTestId(`card-plan-${OLDER.id}`).click();
+  await expect(page.getByTestId("card-payment-accounting-0")).toContainText("Accounting failure reason: <script>unsafe()</script> Recorded provider error");
+  await expect(page.getByTestId("card-payment-accounting-1")).toContainText("No accounting failure reason was recorded.");
+  await expect(page.getByTestId("button-retry-accounting-0")).toHaveCount(0);
+  await page.getByTestId("button-reconcile-accounting-0").click();
+  await expect(page.getByTestId("dialog-dd-action")).toBeVisible();
+  await expect(page.getByTestId("button-action-confirm")).toHaveText("Reconcile payment");
+  await page.getByTestId("button-action-cancel").click();
+  expect(state.reads.some(r => r.includes("view=reconciliation&bucket=accounting_failed"))).toBe(true);
+  expect(state.writes).toEqual([]);
   expect(state.pageErrors).toEqual([]);
 });
 
