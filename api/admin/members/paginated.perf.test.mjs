@@ -44,6 +44,28 @@ const enrichDepartments = async (_db, _tenantId, rows) => rows.map((row) => ({
   departments: [{ id: 'department-1', name: 'Membership' }],
 }));
 
+test('optional term enrichment retains paging, counts and tenant/page scope', async () => {
+  const db = makeFakeSupabase(call => {
+    if (call.table === 'member') return { data: [member], count: 151 };
+    if (call.table === 'member_membership_history') return { data: [{
+      id: 'term', tenant_id: 'tenant-1', member_id: member.id,
+      status: 'expired', payment_status: 'paid', term_end_date: '2020-09-05',
+    }] };
+    throw new Error(`Unexpected table ${call.table}`);
+  });
+  const res = makeResponse();
+  await handlePaginatedMembers(request({ fields: 'none', membershipTermEnd: '1', page: '2' }), res, {
+    db, getContext: authenticatedTenant, enrichDepartments,
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.members[0].membership_term_end_date, '2020-09-05');
+  assert.deepEqual(res.body.pagination, { page: 2, limit: 50, total: 151, totalPages: 4 });
+  assert.deepEqual(methodArguments(db.calls.find(call => call.table === 'member'), 'range'), [[50, 99]]);
+  const historyCall = db.calls.find(call => call.table === 'member_membership_history');
+  assert.deepEqual(methodArguments(historyCall, 'eq'), [['tenant_id', 'tenant-1']]);
+  assert.deepEqual(methodArguments(historyCall, 'in'), [['member_id', [member.id]]]);
+});
+
 test('fields=none skips member custom-value reads while retaining department enrichment', async () => {
   const db = memberDb();
   const res = makeResponse();

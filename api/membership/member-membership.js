@@ -247,6 +247,7 @@ export function shapePersistedCommitment(record, now = new Date()) {
     ),
     paymentMethod: firstPresent(record.payment_method, snapshot.payment_method),
     status: record.status || null,
+    paymentStatus: record.payment_status || null,
   };
 }
 

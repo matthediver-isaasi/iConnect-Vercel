@@ -2,10 +2,28 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   appendMissingColumns,
+  formatMembershipTermEnd,
   formatMemberDepartments,
   normalizeMemberDepartments,
   uniqueMemberRows,
 } from './memberListColumnUtils.mjs';
+
+test('term calendar dates are zero-padded and independent of the local timezone', () => {
+  const previous = process.env.TZ;
+  try {
+    for (const zone of ['Pacific/Honolulu', 'Pacific/Kiritimati', 'Europe/London']) {
+      process.env.TZ = zone;
+      assert.equal(formatMembershipTermEnd('2027-09-05'), '05/09/2027');
+      assert.equal(formatMembershipTermEnd('2028-02-29'), '29/02/2028');
+      for (const invalid of [null, '', undefined, '2027-02-29', '2027-04-31', '2027-9-5', '2027-09-05T00:00:00Z']) {
+        assert.equal(formatMembershipTermEnd(invalid), '—');
+      }
+    }
+  } finally {
+    if (previous === undefined) delete process.env.TZ;
+    else process.env.TZ = previous;
+  }
+});
 
 test('appends newly introduced default columns without changing saved preferences', () => {
   const saved = [

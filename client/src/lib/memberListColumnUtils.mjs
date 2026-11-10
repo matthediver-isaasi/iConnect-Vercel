@@ -1,4 +1,5 @@
 // Merge schema additions into persisted column preferences without changing
+export { formatMembershipTermEnd } from '../../../shared/membershipTermExpiry.js';
 // the order or visibility of columns already chosen by a member.
 export const appendMissingColumns = (columns, defaultColumns) => {
   const current = Array.isArray(columns) ? columns : [];

@@ -105,6 +105,7 @@ import { useWidgetDrill, WidgetDrillChip } from "@/components/dashboard/widgetDr
 import { listAllOrganizationsForAdmin } from '@/lib/adminOrgList';
 import {
   appendMissingColumns,
+  formatMembershipTermEnd,
   formatMemberDepartments,
   normalizeMemberDepartments,
   uniqueMemberRows,
@@ -115,6 +116,7 @@ const DEFAULT_COLUMNS = [
   { id: 'email', label: 'Email', visible: true, locked: false },
   { id: 'organization', label: 'Organisation', visible: true, locked: false },
   { id: 'department', label: 'Department', visible: false, locked: false },
+  { id: 'membership_term_end_date', label: 'Membership term end date', visible: false, locked: false },
   { id: 'job_title', label: 'Job Title', visible: true, locked: false },
   { id: 'mobile', label: 'Mobile', visible: false, locked: false },
   { id: 'status', label: 'Status', visible: true, locked: false },
@@ -487,7 +489,8 @@ function MembersListPageInner({ access }) {
   }), [debouncedSearch, effectiveOrgParam, effectiveDepartmentParam, effectiveRoleParam,
     statusFilter, sortField, sortDir, customFiltersParam, organizationFiltersParam, coreFiltersParam]);
 
-  const memberPageQueryKey = ['members-paginated', memberInfo?.tenant_id, memberInfo?.id, currentPage, itemsPerPage, debouncedSearch, effectiveOrgParam, effectiveRoleParam, effectiveDepartmentParam, statusFilter, sortField, sortDir, customFiltersParam, organizationFiltersParam, coreFiltersParam, customFieldIdsParam, drillIdsParam];
+  const membershipTermEndVisible = columns.some(column => column.id === 'membership_term_end_date' && column.visible);
+  const memberPageQueryKey = ['members-paginated', memberInfo?.tenant_id, memberInfo?.id, currentPage, itemsPerPage, debouncedSearch, effectiveOrgParam, effectiveRoleParam, effectiveDepartmentParam, statusFilter, sortField, sortDir, customFiltersParam, organizationFiltersParam, coreFiltersParam, customFieldIdsParam, drillIdsParam, membershipTermEndVisible];
   const {
     data: membersData,
     isLoading: membersLoading,
@@ -507,6 +510,7 @@ function MembersListPageInner({ access }) {
         limit: itemsPerPage.toString(),
       });
       params.set('fields', customFieldIdsParam);
+      if (membershipTermEndVisible) params.set('membershipTermEnd', '1');
       // A drill id list can be thousands of UUIDs — too long for a URL, so
       // it travels in a POST body while the other params stay in the query.
       const response = await fetch(`/api/admin/members/paginated?${params}`, {
@@ -1542,6 +1546,8 @@ function MembersListPageInner({ access }) {
         return org?.name || '-';
       case 'department':
         return formatMemberDepartments(member) || '-';
+      case 'membership_term_end_date':
+        return formatMembershipTermEnd(member.membership_term_end_date);
       case 'job_title':
         return member.job_title || '-';
       case 'mobile':

@@ -1,4 +1,5 @@
 import { supabase } from '../../_lib/database.js';
+import { loadMemberListTermExpiries } from '../../_lib/memberListTermExpiry.js';
 import { getTenantContext } from '../../_lib/tenantContext.js';
 import { requireCrmListAccess } from '../../_lib/crmListAccess.js';
 import { memberAlphabetRecorder, sendAlphabet } from '../../_lib/crmAlphabet.js';
@@ -206,9 +207,12 @@ export async function handlePaginatedMembers(req, res, {
     };
 
     // These page enrichments read independent tables and can run concurrently.
-    const [, enrichedMemberRows] = await Promise.all([
+    const [, enrichedMemberRows, termExpiries] = await Promise.all([
       loadPreferenceValues(),
       enrichDepartments(db, tenantId, memberRows),
+      req.query.membershipTermEnd === '1'
+        ? loadMemberListTermExpiries(db, tenantId, memberIds)
+        : Promise.resolve(new Map()),
     ]);
     requireRows(enrichedMemberRows, 'Failed to fetch member departments');
     const filteredMembers = enrichedMemberRows.map(m => {
@@ -217,6 +221,7 @@ export async function handlePaginatedMembers(req, res, {
       stripFilterJoinAliases(rest, filterCtx);
       return {
         ...rest,
+        membership_term_end_date: termExpiries.get(m.id) ?? null,
         disabled: m.login_enabled === false,
         profile_photo: m.profile_photo_url,
         custom_fields: customFieldValuesByMember[m.id] || {}
