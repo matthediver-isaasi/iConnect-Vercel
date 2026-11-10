@@ -92,6 +92,9 @@ async function main() {
       assert(where || table === 'membership_successor_rollout', `Unscoped table ${table}`);
       const selected = (minimal[table] || cols.filter(c => !sensitive.test(c) && !['payload','evidence','request','provider_evidence'].includes(c))).filter(c => cols.includes(c));
       let projection = selected.map(c => `t."${c}"`).join(',');
+      // Preserve deletion evidence without exporting the identifying address.
+      // Member status remains "active" after anonymisation in this application.
+      if (table === 'member') projection += `,(coalesce(t.email,'') LIKE 'deleted\\_%@deleted.local' ESCAPE '\\') is_deleted`;
       if (table === 'payment_webhook_events') projection += `,jsonb_build_object(
         'id',t.payload->'id','resource_type',t.payload->'resource_type',
         'action',t.payload->'action','links',t.payload->'links') payload,

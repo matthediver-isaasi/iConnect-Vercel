@@ -10,10 +10,14 @@ const evidence = JSON.parse(await fs.readFile(`${dir}/evidence.json`, 'utf8'));
 const snapshot = JSON.parse(await fs.readFile(`${dir}/snapshot.json`, 'utf8'));
 const purchases = JSON.parse(await fs.readFile(`${dir}/purchase-evidence.json`, 'utf8'));
 const t = snapshot.tables;
+const existingMembers = evidence.rows.filter(r => r.exclusion !== 'deleted');
 const history = id => t.member_membership_history.find(h => h.id === id);
 const config = id => t.membership_tier_config.find(c => c.id === id);
 const blockers = evidence.rows.filter(r => !r.exclusion && r.issues.some(i => i.code === 'renewal_admission_review'));
-const reconstruction = purchases.map(p => {
+const reconstruction = purchases.filter(p => {
+  const h = t.member_membership_history.find(h => h.id === p.result?.history_id);
+  return h && existingMembers.some(r => r.memberId === h.member_id);
+}).map(p => {
   const h = history(p.result?.history_id);
   assert.ok(h && p.result.entity_id === h.member_id);
   assert.equal(h.payment_status, 'paid');
@@ -34,7 +38,6 @@ const reconstruction = purchases.map(p => {
     remaining: 'Obtain approval for reconstruction and renewal/grace policy. No live Stripe/Xero check performed. Re-test eligibility after repair.',
   };
 });
-assert.equal(reconstruction.length, 2);
 const policies = blockers.filter(r => r.renewalReason === 'purchased_policy_unavailable').map(r => {
   const h = history(r.selectedHistoryId), c = config(h.config_id);
   return { member: r.memberId, history: h.id, invoice: h.accounting_invoice_number || h.xero_invoice_number || '',
@@ -59,7 +62,9 @@ function sheet(name, headers, rows) {
 sheet('Read me', [['label', 'Item', 34], ['value', 'Finding / limitation', 110]], [
   { label: 'Report', value: 'BNMS renewal readiness — fresh read-only regeneration; not the original missing attachment.' },
   { label: 'Snapshot UTC', value: evidence.summary.as_of },
-  { label: 'All members', value: evidence.rows.length },
+  { label: 'Non-deleted members', value: existingMembers.length },
+  { label: 'Deleted members excluded', value: evidence.rows.length - existingMembers.length },
+  { label: 'Correction to earlier shortlist', value: 'Both previously proposed reconstructions (INV-8889 and INV-8888) belong to deleted members and are withdrawn. No reconstruction has been performed.' },
   { label: 'Non-excluded blockers or risks', value: evidence.summary.uniqueActionableMembers },
   { label: 'Non-excluded renewal blockers', value: blockers.length },
   { label: 'Strong reconstruction candidates', value: reconstruction.length },
@@ -89,19 +94,22 @@ const memberColumns = [['memberId', 'Member ID', 39], ['memberClass', 'Member cl
 const project = r => ({ ...r, issuesText: r.issues.map(i => `${i.code}: ${i.reason}`).join('\n'),
   nextText: [...new Set(r.issues.map(i => i.nextAction).filter(Boolean))].join('\n') });
 sheet('Renewal blockers', memberColumns, blockers.map(project));
-sheet('All members', memberColumns, evidence.rows.map(project));
-sheet('Issue counts', [['code', 'Finding', 46], ['members', 'All members', 18],
-  ['activePopulationMembers', 'Non-excluded members', 24], ['occurrences', 'Occurrences', 18]],
-Object.entries(evidence.summary.issueCounts).map(([code, data]) => ({ code, ...data })));
-const output = `${dir}/BNMS-renewal-readiness-and-reconstruction.xlsx`;
+sheet('All members', memberColumns, existingMembers.map(project));
+sheet('Issue counts', [['code', 'Finding', 46], ['members', 'Non-deleted members', 24],
+  ['activePopulationMembers', 'Non-excluded members', 24]],
+Object.keys(evidence.summary.issueCounts).map(code => ({ code,
+  members: existingMembers.filter(r => r.issues.some(i => i.code === code)).length,
+  activePopulationMembers: existingMembers.filter(r => !r.exclusion && r.issues.some(i => i.code === code)).length,
+})));
+const output = `${dir}/BNMS-renewal-readiness-deleted-excluded.xlsx`;
 await wb.xlsx.writeFile(output);
 await fs.chmod(output, 0o600);
 const check = new ExcelJS.Workbook();
 await check.xlsx.readFile(output);
 assert.equal(check.worksheets[0].name, 'Read me');
-assert.equal(check.getWorksheet('All members').rowCount, 4081);
+assert.equal(check.getWorksheet('All members').rowCount, existingMembers.length + 1);
 assert.equal(check.getWorksheet('Renewal blockers').rowCount, blockers.length + 1);
-assert.equal(check.getWorksheet('Reconstruction shortlist').rowCount, 3);
-assert.equal(check.getWorksheet('Reconstruction shortlist').getCell('D2').value, reconstruction[0].start);
+assert.equal(check.getWorksheet('Reconstruction shortlist').rowCount, reconstruction.length + 1);
+if (reconstruction.length) assert.equal(check.getWorksheet('Reconstruction shortlist').getCell('D2').value, reconstruction[0].start);
 console.log(JSON.stringify({ output, sheets: check.worksheets.map(s => ({ name: s.name, dataRows: s.rowCount - 1 })),
   reconstruction, policyCandidates: policies.filter(p => p.schedule !== 'No matching saved schedule').length }, null, 2));

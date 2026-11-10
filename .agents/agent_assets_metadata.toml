@@ -1937,3 +1937,17 @@ mtime_ms = 1794350131910
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/37c16f39-9265-4e16-8884-2b74440a07fe/726d47e4-291a-4e96-a422-6ee8d12c65b6"
 storage_version_token = "1794350151980852"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "9IX-c_YBU6jrytlsZaU7e"
+uri = "file://generated-artifacts/bnms-all-renewal/BNMS-renewal-readiness-deleted-excluded.xlsx"
+type = "table"
+title = "Corrected BNMS audit — deleted members excluded"
+description = "Supersedes the earlier workbook. Excludes 139 deleted accounts: 60 renewal blockers and 70 members with a blocker or risk remain. Both previous reconstruction candidates are withdrawn."
+logical_id = "3095798c-476c-4908-8aa3-2a16dc8c03ac"
+content_hash = "sha256:cb22e848a5c0e133d6164f4c5468b2ca07eb46a26bc4c48187ce27e655f5a79b"
+size = 279321
+mtime_ms = 1794351205462
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/3095798c-476c-4908-8aa3-2a16dc8c03ac/f92431bf-2791-4a01-a95f-30d512f53e26"
+storage_version_token = "1794351215135239"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

@@ -4,6 +4,12 @@ import {offlineDatabase} from './lib/renewal-audit-snapshot.mjs';
 import {classifyMember,historicalInvoiceLinkMatches} from './lib/bnms-renewal-classification.mjs';
 const base=()=>({member:{id:'m',tenant_id:'t'},tenantId:'t',histories:[],agreements:[],plans:[],payments:[],
   invoices:[],today:'2026-11-10',memberClass:'Full',membershipStatus:'Active'});
+test('anonymised members remain excluded even when retained status is active',()=>{
+  const input = base();
+  input.member = { ...input.member, status: 'active', is_deleted: true };
+  const result = classifyMember(input);
+  assert.equal(result.exclusion, 'deleted');
+});
 test('import invoice references provider history, not membership history',()=>{
   const payment={id:'provider-history',member_id:'m',tenant_id:'t',provider_payment_id:'pay'};
   const link={...payment,history_id:'provider-history'};
