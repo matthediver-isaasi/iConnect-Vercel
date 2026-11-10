@@ -1,3 +1,4 @@
+- [BNMS student date import policy](bnms-student-date-import-policy.md) — timestamp and survey-revision effects approved only for the exact student course-end cohort.
 - [RLS review boundaries](rls-review-boundaries.md) — retained read-only review; remediation awaits owner approval and preview is not database isolation.
 - [Portal build display](portal-build-display.md) — shared portal build identifier must never show descriptive release labels or tenant-specific comments.
 - [Better Stack subhourly timezone](better-stack-subhourly-timezone.md) — a server-timezone adjustment must be cleared with approval before setting a subhourly interval.
