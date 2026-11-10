@@ -3,6 +3,18 @@ name: BNMS upfront membership evidence
 description: Operator-attested current membership establishment is distinct from verified invoice settlement and future billing authority.
 ---
 
+For BNMS membership reconstruction, the owner accepts the supporting invoice date
+as term-start evidence, including event invoices explicitly including membership.
+
+**Why:** On 2026-11-10 the owner clarified that demanding separate commencement
+evidence was too strict: “we can take invoice dates as term start dates.”
+
+**How to apply:** Use the matched membership invoice date rather than withholding
+a reconstruction solely for missing commencement evidence. This is date authority,
+not permission to treat the full event price as a membership-only fee, infer
+payment settlement, include deleted members, or overwrite a separately recorded
+expiry without considering its existing authority.
+
 An explicit owner confirmation may authorise a paid membership reconstruction
 even when its supporting invoice was fully cleared by credit rather than cash.
 Keep the owner attestation and provider settlement facts distinct.
