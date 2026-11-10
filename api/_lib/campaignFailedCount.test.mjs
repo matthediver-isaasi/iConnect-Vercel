@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-test('campaign enrichment and completed badge use the exact failed recipient count', async () => {
+test('campaign enrichment and Failures column use exact counts without inventing zero', async () => {
   const [serviceSource, uiSource] = await Promise.all([
     readFile(new URL('./campaignService.js', import.meta.url), 'utf8'),
     readFile(new URL('../../client/src/components/EmailCampaigns.jsx', import.meta.url), 'utf8'),
@@ -17,11 +17,14 @@ test('campaign enrichment and completed badge use the exact failed recipient cou
   assert.match(enrichSource, /if \(failedResult\.error\) throw failedResult\.error/);
   assert.match(enrichSource, /failed_count: liveFailedCount/);
 
-  const countStart = uiSource.indexOf('const completedFailureCount');
+  const countStart = uiSource.indexOf('const failureCount');
   const countEnd = uiSource.indexOf('return (', countStart);
   assert.ok(countStart >= 0 && countEnd > countStart);
   const completedCountSource = uiSource.slice(countStart, countEnd);
 
-  assert.match(completedCountSource, /campaign\.failed_count \|\| 0/);
+  assert.match(completedCountSource, /campaign\.failed_count \?\? campaign\.delivery_summary\?\.failed/);
   assert.doesNotMatch(completedCountSource, /total_recipients|sent_count|pending_count|Math\.max/);
+  assert.match(uiSource, />Failures<\/TableHead>/);
+  assert.match(uiSource, /failureCount \?\? <span aria-label="Failure count unavailable"/);
+  assert.doesNotMatch(uiSource, /Completed with|badge-completed-with-failures/);
 });

@@ -57,8 +57,9 @@ const seed = () => [
   html_content: '<h2>Retained campaign preview</h2><p>Member news remains available after archiving.</p>'
 }));
 
-async function fixture(page, { schemaReady = true, deliveryOutcomes = false, cancelled = false, processing = 0 } = {}) {
+async function fixture(page, { schemaReady = true, deliveryOutcomes = false, cancelled = false, processing = 0, overrides = [] } = {}) {
   let campaigns = seed();
+  overrides.forEach((override, index) => Object.assign(campaigns[index], override));
   if (cancelled) Object.assign(campaigns[0], {status:'cancelled',pending_count:1,queued_count:processing?0:1,processing_count:processing});
   const deliverySummary = {
     sent: 4826, excluded: 150, failed: 0, queued: 0, processing: 15,
@@ -128,6 +129,9 @@ async function fixture(page, { schemaReady = true, deliveryOutcomes = false, can
         return reply({ success: true });
       }
       if (url.searchParams.has('heatmap')) return reply({ heatmapData: [] });
+      if (url.searchParams.has('timings')) return reply({ campaign, timings: {
+        started_at: '2026-10-19T09:00:00Z', completed_at: '2026-10-19T09:10:00Z', notes: [],
+      } });
       if (url.searchParams.has('stats')) return reply({
         campaign,
         stats: { sent: 100, delivered: 100, opened: 50, clicked: 10, total: 1, totalTrackedClicks: 10,
@@ -153,7 +157,7 @@ async function fixture(page, { schemaReady = true, deliveryOutcomes = false, can
 
 const screenshot = (page, name) => page.screenshot({ path: `/tmp/campaign-lifecycle-browser/evidence/${name}.png`, fullPage: true });
 async function closeDialog(page) {
-  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).first().click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
 }
 function assertIsolated(state) {
@@ -187,10 +191,12 @@ test('cancelled queued removal and processing protection use separate authoritat
 test('outcomes separate exclusions and uncertain sends, offer inspection not retry, and filter details', async ({ page }) => {
   const state = await fixture(page, { deliveryOutcomes: true });
   const row = page.getByTestId('row-campaign-sent-a');
-  await expect(row).toContainText('4,826 sent · 150 excluded (skipped) · 0 failed · 15 awaiting reconciliation · 0 queued');
+  await expect(row.getByText('Failed', { exact: true })).toBeVisible();
   await expect(row.getByRole('button', { name: /Resume/ })).toHaveCount(0);
-  await expect(row.getByTestId('campaign-reconciliation-alert')).toContainText('before any resend');
-  await row.getByRole('button', { name: 'Inspect delivery details' }).click();
+  await row.getByTestId('button-campaign-timings-sent-a').click();
+  await expect(page.getByRole('dialog')).toContainText('4,826 sent · 150 excluded (skipped) · 0 failed · 15 awaiting reconciliation · 0 queued');
+  await expect(page.getByTestId('campaign-reconciliation-alert')).toContainText('before any resend');
+  await page.getByRole('button', { name: 'Inspect delivery details' }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog.getByTestId('text-stats-excluded')).toHaveText('150');
   await expect(dialog.getByTestId('text-stats-processing')).toHaveText('15');
@@ -204,6 +210,72 @@ test('outcomes separate exclusions and uncertain sends, offer inspection not ret
   await expect(dialog.getByTestId('row-recipient-processing')).toContainText('Awaiting reconciliation');
   await expect(dialog.getByTestId('row-recipient-suppressed')).toHaveCount(0);
   await screenshot(page, 'delivery-outcomes');
+  expect(state.mutations).toEqual([]);
+  assertIsolated(state);
+});
+
+for (const width of [1440, 390]) {
+  test(`completion counts and timing actions across views at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1000 });
+    const state = await fixture(page, { overrides: [
+      { sent_count: 3543, failed_count: 13, total_recipients: 4000,
+        delivery_summary: { sent: 3543, failed: 13, excluded: 444, queued: 0, processing: 0 },
+        is_test_mode: true, deleted_category_name: 'Old category', category_review_required: true },
+      { failed_count: 0, delivery_summary: { sent: 100, failed: 9, excluded: 12, queued: 0, processing: 0 },
+        archived_at: '2026-10-20T00:00:00Z' },
+    ] });
+    const partial = page.getByTestId('row-campaign-sent-a');
+    await expect(partial.getByText('Completed', { exact: true })).toHaveCount(1);
+    await expect(partial).not.toContainText('Completed with');
+    await expect(partial.getByRole('cell').nth(3)).toHaveText('3543');
+    await expect(page.getByTestId('campaign-failures-sent-a')).toHaveText('13');
+    await expect(page.getByTestId('campaign-failures-draft')).toHaveText('—');
+    await expect(page.getByLabel('Failure count unavailable')).toHaveCount(1);
+    await expect(page.getByTestId('badge-test-mode-sent-a')).toBeVisible();
+    await expect(page.getByTestId('badge-category-review-sent-a')).toBeVisible();
+    await expect(page.getByTestId('badge-deleted-category-sent-a')).toBeVisible();
+    const headings = await page.getByRole('columnheader').allTextContents();
+    expect(headings.slice(3, 5)).toEqual(['Accepted', 'Failures']);
+    await screenshot(page, `completion-${width}`);
+    if (width === 390) {
+      await page.getByRole('columnheader', { name: 'Failures', exact: true }).scrollIntoViewIfNeeded();
+      await expect(page.getByRole('columnheader', { name: 'Accepted', exact: true })).toBeInViewport();
+      await expect(page.getByRole('columnheader', { name: 'Failures', exact: true })).toBeInViewport();
+      await screenshot(page, 'completion-narrow-counts');
+    }
+    await page.getByTestId('button-campaign-timings-sent-a').click();
+    await expect(page.getByRole('dialog')).toContainText('Campaign finish');
+    await closeDialog(page);
+    await page.getByTestId('campaign-view-archived').click();
+    await expect(page.getByTestId('campaign-failures-sent-b')).toHaveText('0');
+    await expect(page.getByTestId('row-campaign-sent-b').getByText('Completed', { exact: true })).toHaveCount(1);
+    await expect(page.getByTestId('badge-archived-sent-b')).toBeVisible();
+    await page.getByTestId('button-campaign-timings-sent-b').click();
+    await expect(page.getByRole('dialog')).toContainText('Summer briefing');
+    await closeDialog(page);
+    await page.getByTestId('campaign-view-all').click();
+    await expect(page.getByTestId('campaign-failures-sent-a')).toHaveText('13');
+    await expect(page.getByTestId('campaign-failures-sent-b')).toHaveText('0');
+    await page.getByTestId('button-preview-email-sent-a').click();
+    await expect(page.getByTestId('sent-preview-raw-html')).toBeVisible();
+    expect(state.mutations).toEqual([]);
+    assertIsolated(state);
+  });
+}
+
+test('summary fallback preserves zero and reconciliation remains Needs attention', async ({ page }) => {
+  const state = await fixture(page, { overrides: [
+    { failed_count: null, delivery_summary: { sent: 100, failed: 13, excluded: 20, queued: 0, processing: 0 } },
+    { delivery_summary: { sent: 100, failed: 0, excluded: 20, queued: 0, processing: 0 } },
+    { status: 'sending', delivery_summary: { sent: 0, failed: 2, excluded: 20, queued: 5, processing: 3,
+      reconciliationAlert: { count: 3, message: '3 recipients await reconciliation.' } } },
+  ] });
+  await expect(page.getByTestId('campaign-failures-sent-a')).toHaveText('13');
+  await expect(page.getByTestId('campaign-failures-sent-b')).toHaveText('0');
+  await expect(page.getByTestId('campaign-failures-draft')).toHaveText('2');
+  await expect(page.getByTestId('row-campaign-draft').getByText('Needs attention', { exact: true })).toBeVisible();
+  await page.getByTestId('button-campaign-timings-draft').click();
+  await expect(page.getByTestId('campaign-reconciliation-alert')).toContainText('before any resend');
   expect(state.mutations).toEqual([]);
   assertIsolated(state);
 });
@@ -253,14 +325,14 @@ test('cancel makes no mutations; archive retains totals, preview/detail and rest
   await expect(page.getByTestId('row-campaign-sent-a')).toHaveCount(0);
   await page.getByTestId('campaign-view-active').click();
   await expect(page.getByTestId('row-campaign-sent-a')).toBeVisible();
-  await expect(page.getByTestId('row-campaign-sent-a').getByText('Sent', { exact: true })).toBeVisible();
+   await expect(page.getByTestId('row-campaign-sent-a').getByText('Completed', { exact: true })).toBeVisible();
   await expect(page.getByTestId('button-edit-sent-a')).toHaveCount(0);
   await expect(page.getByTestId('stat-emails-delivered')).toContainText('200');
   await expect(page.getByTestId('stat-open-rate')).toContainText('35.0%');
   await expect(page.getByTestId('stat-click-rate')).toContainText('20.0%');
   await page.reload();
   await expect(page.getByTestId('row-campaign-sent-a')).toBeVisible();
-  await expect(page.getByTestId('row-campaign-sent-a').getByText('Sent', { exact: true })).toBeVisible();
+   await expect(page.getByTestId('row-campaign-sent-a').getByText('Completed', { exact: true })).toBeVisible();
   await expect(page.getByTestId('badge-archived-sent-a')).toHaveCount(0);
   await expect(page.getByTestId('stat-emails-delivered')).toContainText('200');
   await expect(page.getByTestId('stat-open-rate')).toContainText('35.0%');

@@ -1063,9 +1063,8 @@ export default function EmailCampaigns() {
       preparing: { label: 'Preparing', variant: 'outline', className: 'border-warning/50 text-warning' },
       sending: { label: 'Sending', variant: 'outline', className: 'border-warning/50 text-warning' },
       needs_attention: { label: 'Needs attention', variant: 'destructive' },
-      completed_with_failures: { label: 'Completed with failures', variant: 'outline', className: 'border-warning/50 text-warning' },
       paused: { label: 'Paused', variant: 'outline', className: 'border-slate-400 text-slate-600' },
-      sent: { label: 'Sent', variant: 'outline', className: 'border-green-500 text-green-600' },
+      sent: { label: 'Completed', variant: 'outline', className: 'border-green-500 text-green-600' },
       failed: { label: 'Failed', variant: 'destructive' },
       cancelled: { label: 'Cancelled', variant: 'secondary' }
     };
@@ -1265,6 +1264,7 @@ export default function EmailCampaigns() {
                     <TableHead>Status</TableHead>
                     <TableHead>Audience</TableHead>
                     <TableHead className="text-right">Accepted</TableHead>
+                    <TableHead className="text-right whitespace-nowrap w-20">Failures</TableHead>
                     <TableHead className="text-right">Tracking-image requests</TableHead>
                     <TableHead className="text-right">Unique recipients clicked</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
@@ -1278,9 +1278,8 @@ export default function EmailCampaigns() {
                     const clickRate = campaign.sent_count > 0 
                       ? ((campaign.clicked_count || 0) / campaign.sent_count * 100).toFixed(1)
                       : 0;
-                    const completedFailureCount = campaign.status === 'sent'
-                      ? (campaign.failed_count || 0)
-                      : 0;
+                    // Exact recipient counts only; missing enrichment is not a verified zero.
+                    const failureCount = campaign.failed_count ?? campaign.delivery_summary?.failed;
 
                     return (
                       <TableRow key={campaign.id} data-testid={`row-campaign-${campaign.id}`}>
@@ -1306,7 +1305,7 @@ export default function EmailCampaigns() {
                         <TableCell>
                           <div className="flex flex-col gap-1">
                             <div className="flex items-center gap-1 flex-wrap">
-                              {getStatusBadge(campaignDisplayStatus(campaign))}
+                              {getStatusBadge(campaign.status === 'sent' ? 'sent' : campaignDisplayStatus(campaign))}
                               <Button
                                 type="button"
                                 variant="ghost"
@@ -1321,15 +1320,6 @@ export default function EmailCampaigns() {
                                 <Clock className="h-3.5 w-3.5" aria-hidden="true" />
                               </Button>
                               {campaign.archived_at && <Badge variant="secondary" data-testid={`badge-archived-${campaign.id}`}>Archived</Badge>}
-                              {completedFailureCount > 0 && (
-                                <Badge
-                                  variant="outline"
-                                  className="border-warning/50 text-warning"
-                                  data-testid={`badge-completed-with-failures-${campaign.id}`}
-                                >
-                                  Completed with {completedFailureCount} failure{completedFailureCount === 1 ? '' : 's'}
-                                </Badge>
-                              )}
                               {campaign.deleted_category_name && (
                                 <Badge
                                   variant="outline"
@@ -1369,6 +1359,9 @@ export default function EmailCampaigns() {
                         </TableCell>
                         <TableCell className="text-right font-medium">
                           {campaign.delivery_summary?.sent ?? campaign.sent_count ?? 0}
+                        </TableCell>
+                        <TableCell className="text-right font-medium tabular-nums" data-testid={`campaign-failures-${campaign.id}`}>
+                          {failureCount ?? <span aria-label="Failure count unavailable" title="Failure count unavailable">—</span>}
                         </TableCell>
                         <TableCell className="text-right">
                           {campaign.status === 'sent' ? (
