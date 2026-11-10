@@ -3,6 +3,17 @@ name: Campaign outcome evidence
 description: Why skipped recipients and uncertain processing must not imply cancelled mail or safe retries.
 ---
 
+Mailgun sending credentials may lack Events read permission. Treat an Events
+401 separately from permission to send; prefer a configured Events credential.
+
+**Why:** Live reconciliation succeeded with the dedicated Events credential
+after the sending credential returned 401. A functioning sender did not prove
+that background or user-requested evidence checks could run.
+
+**How to apply:** Ensure both initial and paginated event reads use the read
+credential. Fail visibly when evidence is unavailable; never convert an access
+failure or missing event into confirmed non-delivery or permission to resend.
+
 Suppression before submission means the recipient was skipped, not that mail was
 recalled. A post-send unsubscribe or bounce is not an unsent exclusion.
 Uncertain processing must remain separate from queued work and must never be

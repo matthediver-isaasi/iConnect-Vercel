@@ -2,7 +2,8 @@ import { supabase } from './database.js';
 import { classifyEmailDelivery } from './emailDeliveryClassification.js';
 import { trustedProviderEvent } from './campaignEngagement.js';
 
-const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY;
+// Sending-only keys cannot read Events; use the dedicated read credential.
+const MAILGUN_API_KEY = process.env.MAILGUN_EVENTS_API_KEY || process.env.MAILGUN_API_KEY;
 const MAILGUN_REGION = process.env.MAILGUN_REGION || 'eu';
 
 export async function fetchMailgunEvents(domain, params) {

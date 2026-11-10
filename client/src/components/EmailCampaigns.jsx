@@ -1026,10 +1026,13 @@ export default function EmailCampaigns() {
 
       const result = await response.json();
       const { summary } = result;
+      const reconciliation = `${summary.acceptance_recovered || 0} uncertain sends confirmed; ${summary.awaiting_reconciliation || 0} still awaiting evidence. No emails resent.`;
       if (result.partial) {
-        toast.info(`Partial sync: ${summary.processed} processed, ${summary.skipped} skipped. ${summary.message || 'Click Sync again to continue.'}`);
+        toast.info(`Partial resync: ${reconciliation} Run resync again to continue.`);
+      } else if (summary.awaiting_reconciliation > 0) {
+        toast.info(`${reconciliation} Checked ${summary.acceptance_checked || 0} uncertain recipients this time. You can resync again to check more.`);
       } else {
-        toast.success(`Sync complete: ${summary.processed} events processed, ${summary.skipped} skipped`);
+        toast.success(`Resync complete: ${summary.processed} events processed. ${reconciliation}`);
       }
 
       const campaign = campaigns.find(c => c.id === statsCampaignId);
@@ -1932,7 +1935,7 @@ export default function EmailCampaigns() {
                   ) : (
                     <RefreshCw className="w-4 h-4 mr-1" />
                   )}
-                  {syncingStats ? 'Syncing...' : 'Sync with Mailgun'}
+                  {syncingStats ? 'Checking delivery status...' : 'Resync delivery status'}
                 </Button>
                 <Button
                   variant="outline"
@@ -2033,7 +2036,7 @@ export default function EmailCampaigns() {
                       {statsData.sent_only} provider-accepted emails do not yet have delivery confirmation.
                     </span>
                     <span className="text-warning dark:text-warning ml-1">
-                      This may indicate delayed or missing webhook data from Mailgun. Use "Sync with Mailgun" to recover missing events.
+                      This may indicate delayed or missing webhook data from Mailgun. Use "Resync delivery status" to check missing events. No emails will be resent.
                     </span>
                   </div>
                 </div>
@@ -2071,6 +2074,7 @@ export default function EmailCampaigns() {
                     <span className="font-medium">{statsData.pending} recipient{statsData.pending === 1 ? '' : 's'} pending.</span>
                     <span className="text-muted-foreground ml-1">
                       {statsData.queued} queued and {statsData.processing} awaiting reconciliation. Uncertain deliveries must not be retried.
+                      {' '}Resync delivery status checks Mailgun for proof of sending; recipients without evidence remain awaiting reconciliation.
                     </span>
                   </div>
                 </div>

@@ -15,12 +15,12 @@ export function acceptedCampaignEvidence(events, campaign, recipient) {
   return evidence;
 }
 
-export async function recoverCampaignAcceptance(db, campaign, domain, fetchEvents, deadline) {
+export async function recoverCampaignAcceptance(db, campaign, domain, fetchEvents, deadline, { detailed = false } = {}) {
   const {data: rows,error} = await db.rpc('campaign_acceptance_candidates', {
     p_campaign_id:campaign.id,p_tenant_id:campaign.tenant_id,
   });
   if (error) throw error;
-  let recovered=0;
+  let recovered=0, checked=0;
   for (const row of rows || []) {
     if (Date.now()+6000>=deadline) break;
     const response=await fetchEvents(domain,{event:'accepted',recipient:row.email,
@@ -33,6 +33,7 @@ export async function recoverCampaignAcceptance(db, campaign, domain, fetchEvent
       ...(evidence ? {provider_evidence:evidence} : {}),
     },{onConflict:'recipient_id'});
     if(auditError)throw auditError;
+    checked++;
     if (!evidence) continue;
     const {data:changed,error:writeError}=await db.from('email_campaign_recipient').update({
       status:'sent',sent_at:new Date(evidence.timestamp*1000).toISOString(),
@@ -42,5 +43,5 @@ export async function recoverCampaignAcceptance(db, campaign, domain, fetchEvent
     if(writeError)throw writeError;
     recovered+=changed?.length || 0;
   }
-  return recovered;
+  return detailed ? { recovered, checked, batchIncomplete: checked < (rows || []).length } : recovered;
 }

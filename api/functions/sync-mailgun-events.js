@@ -1,6 +1,8 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
-import { syncCampaignEvents } from '../_lib/mailgunEventSync.js';
+import { syncCampaignEvents, fetchMailgunEvents } from '../_lib/mailgunEventSync.js';
+import { recoverCampaignAcceptance } from '../_lib/campaignAcceptanceRecovery.js';
+import { finalizeCampaignDelivery } from '../_lib/campaignClaimJournal.js';
 
 const ALLOWED_ORIGINS = ['https://iconn.app', 'https://www.iconn.app'];
 const TIME_BUDGET_MS = 50_000;
@@ -32,6 +34,7 @@ export default async function handler(req, res) {
   if (!campaignId) return res.status(400).json({ error: 'campaignId is required' });
 
   try {
+    const started = Date.now();
     const { data: campaign, error: campaignError } = await supabase
       .from('email_campaign')
       .select('id, tenant_id, from_email, status, sent_at')
@@ -41,21 +44,34 @@ export default async function handler(req, res) {
 
     if (campaignError || !campaign) return res.status(404).json({ error: 'Campaign not found' });
 
-    const { data: tenant } = await supabase
+    const { data: tenant, error: tenantError } = await supabase
       .from('tenant')
       .select('settings')
       .eq('id', tenantId)
       .single();
 
+    if (tenantError) throw new Error('Unable to load tenant email settings');
     const emailDomain = tenant?.settings?.email_domain?.domain;
     if (!emailDomain) return res.status(400).json({ error: 'No email domain configured for this tenant' });
 
-    const result = await syncCampaignEvents(campaign, emailDomain, tenantId, TIME_BUDGET_MS, { lookbackDays: 7 });
+    // Positive acceptance evidence only. This never invokes the sender or
+    // releases uncertain submissions back to the queue.
+    const acceptance = await recoverCampaignAcceptance(supabase, campaign, emailDomain, fetchMailgunEvents,
+      started + 25_000, { detailed: true });
+    const result = await syncCampaignEvents(campaign, emailDomain, tenantId,
+      Math.max(1000, TIME_BUDGET_MS - (Date.now() - started)), { lookbackDays: 7 });
+    await finalizeCampaignDelivery(supabase, campaign.id, tenantId);
+    const { count: unresolved, error: countError } = await supabase.from('email_campaign_recipient')
+      .select('id', { count: 'exact', head: true }).eq('campaign_id', campaign.id).eq('status', 'processing');
+    if (countError) throw countError;
 
     return res.json({
       success: true,
       partial: result.timedOut,
       summary: {
+        acceptance_checked: acceptance.checked,
+        acceptance_recovered: acceptance.recovered,
+        awaiting_reconciliation: unresolved,
         total_events: result.totalEvents,
         processed: result.processed,
         skipped: result.skipped,
@@ -66,6 +82,6 @@ export default async function handler(req, res) {
     });
   } catch (error) {
     console.error('[Sync Mailgun Events] Error:', error);
-    return res.status(500).json({ error: 'Failed to sync Mailgun events', details: error.message });
+    return res.status(503).json({ error: 'Delivery status could not be fully checked. No emails were resent. Please retry or ask an administrator to check Mailgun Events access.' });
   }
 }
