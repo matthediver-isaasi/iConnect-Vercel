@@ -1993,3 +1993,17 @@ mtime_ms = 1794380222349
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/9b0a8e78-ab5a-45ae-9078-86d776a2ad95/23098b1c-7408-4e8d-9d96-ee7c2e6ecf8e"
 storage_version_token = "1794380232071316"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "tYsh7TquXchS0JgF_0PJD"
+uri = "file://generated-artifacts/bnms-student-reconstruction/BNMS-Student-membership-results.csv"
+type = "table"
+title = "BNMS Student membership results"
+description = "Results for all 51 non-deleted Student-role members, including term dates, outstanding dates and member record links."
+logical_id = "5a306e52-335b-43a3-ad2f-40d7098d1242"
+content_hash = "sha256:5fa25da3e1d85ccedd9473e8eebcd519708183ff823e70f82b1415dda4aa456a"
+size = 8205
+mtime_ms = 1794385132915
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/5a306e52-335b-43a3-ad2f-40d7098d1242/968dfeda-0916-4dae-afc8-03fa3fed2d9e"
+storage_version_token = "1794385154301030"
+content_type = "text/csv"

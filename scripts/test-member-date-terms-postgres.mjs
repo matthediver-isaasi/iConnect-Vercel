@@ -32,17 +32,36 @@ try {
     CREATE TABLE member_preference_value(member_id uuid,field_id uuid,value text,unique(member_id,field_id));
     CREATE TABLE membership_tier_config(id uuid primary key,tenant_id uuid,structure_scope_type text,pricing_model text,
       flat_cost numeric,dd_enabled boolean,card_monthly_enabled boolean,prorata_enabled boolean,free_period_amount integer,rollover_enabled boolean,
-      name text,currency text,is_active boolean default true,effective_from date,effective_to date,structure_field_id uuid,structure_match_value text,renewal_grace_days integer);
+      name text,currency text,is_active boolean default true,effective_from date,effective_to date,structure_field_id uuid,structure_match_value text,renewal_grace_days integer,
+      start_mode text default 'immediate');
     CREATE TABLE member_membership_history(id uuid primary key default gen_random_uuid(),tenant_id uuid,member_id uuid,config_id uuid,
       annual_cost numeric,final_cost numeric,total_with_vat numeric,vat_amount numeric,billing_agreement_id uuid,term_key text,
       term_start_date date,term_end_date date,membership_renewal_date date,status text,payment_status text,
-      membership_year text,tier_label text,currency text,billing_period text,paid_at timestamptz,notes text);
+      membership_year text,tier_label text,currency text,billing_period text,paid_at timestamptz,notes text,
+      term_duration_months integer,term_anchor_date date,previous_term_id uuid,commitment_snapshot jsonb,renewal_policy_snapshot jsonb,payment_method text,
+      CONSTRAINT member_membership_history_rolling_complete_check CHECK (
+        (term_key IS NULL AND membership_renewal_date IS NULL AND commitment_snapshot IS NULL)
+        OR (term_key IS NOT NULL AND commitment_snapshot IS NOT NULL AND membership_renewal_date IS NOT NULL)));
     CREATE TABLE membership_billing_agreements(id uuid primary key,tenant_id uuid,member_id uuid,status text);
     CREATE TABLE form(id uuid primary key,tenant_id uuid,fields jsonb,form_type text,is_anonymous boolean,due_diligence_required boolean);
     CREATE TABLE form_submission(id uuid primary key,tenant_id uuid,form_id uuid,entity_processing_completed_at timestamptz,
       created_member_id uuid,is_anonymous boolean,status text);
   `);
   await db.query(readFileSync('supabase/migrations/202612310090_member_date_terms.sql', 'utf8'));
+  // Reproduce the pre-existing immediate-term fence. The original fixture
+  // omitted it and the rolling completeness constraint, hiding incompatibility.
+  await db.query(`CREATE FUNCTION enforce_rolling_membership_commitment() RETURNS trigger LANGUAGE plpgsql AS $$
+    DECLARE is_agreement boolean:=false; r jsonb:=to_jsonb(NEW);
+    BEGIN
+      IF TG_OP = 'INSERT' AND NOT is_agreement AND EXISTS (
+        SELECT 1 FROM membership_tier_config WHERE id=NEW.config_id AND start_mode='immediate'
+      ) THEN RAISE EXCEPTION 'Immediate membership requires an authoritative dated commitment'; END IF;
+      RETURN NEW;
+    END $$;
+    CREATE TRIGGER rolling_commitment_guard BEFORE INSERT OR UPDATE ON member_membership_history
+      FOR EACH ROW EXECUTE FUNCTION enforce_rolling_membership_commitment();`);
+  await db.query(readFileSync('supabase/migrations/202701220001_member_date_rolling_compatibility.sql','utf8'));
+  await db.query(readFileSync('supabase/migrations/202701220001_member_date_rolling_compatibility.sql','utf8'));
   await db.query('insert into member(id,tenant_id) values($1,$2)', [member, tenant]);
   await db.query(`insert into preference_field values($1,$2,'member','date',true,null)`, [field, tenant]);
   await db.query(`insert into membership_tier_config(id,tenant_id,structure_scope_type,pricing_model,flat_cost,term_end_mode,term_end_field_id)

@@ -16,3 +16,17 @@ The owner subsequently authorised reconstruction for BNMS members with role **St
 **Why:** Students must have a recorded term so they can follow the normal renewal journey when their course ends.
 
 **How to apply:** Select by role, not merely membership-class preference. Exclude deleted members; do not invent missing dates or override immutable existing commitments. Preserve the rule that later course-date changes require an audited manual extension rather than silently changing an issued term. This approval does not authorise emails or charges.
+
+The owner approved creating a course-date successor with the original Student structure name, retaining the issued annual structure as legacy and preserving its existing membership. The Student joining and renewal forms may point to that successor without changing their questions or approval requirements.
+
+**Why:** A structure with an issued annual commitment cannot safely have its term policy changed in place.
+
+**How to apply:** Continue using the course-date successor for new Student terms; never migrate an already-issued annual term merely because its structure is now legacy.
+
+## Integration-test boundary
+
+Date-based membership tests must include the pre-existing rolling-term completeness constraints, insertion guards, successor-policy immutability and column-level service grants, not only the date-term migration.
+
+**Why:** An isolated date-term fixture passed while the actual combined database rejected date terms and protected legacy repairs.
+
+**How to apply:** Verify successful inserts and exact authorised repairs as the runtime role, alongside negative tests for price changes, extensions, overlap and existing issued terms.
