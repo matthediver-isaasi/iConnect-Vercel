@@ -3,9 +3,19 @@ name: Renewal entry policy
 description: Tenant choice between same-schedule renewal and questionnaire-led reassessment.
 ---
 
-BNMS requires members to answer eligibility questions before being routed to the
+BNMS's default is for members to answer eligibility questions before being routed to the
 appropriate renewal form. A previous membership schedule must not determine the
 renewal destination or bypass this reassessment.
+
+The owner clarified that BNMS Retired members will remain Retired, and wants
+category-specific exceptions to questionnaire routing considered. This is a
+business-rule clarification, not approval of a particular routing implementation.
+
+**Why:** Reassessing eligibility is unnecessary for categories that cannot change.
+
+**How to apply:** Preserve the questionnaire default for other categories.
+Do not infer that a current Former access role erases the previous membership
+category, or that a role-based navigation choice alone enforces purchase restrictions.
 
 **Why:** The owner states members' circumstances can change; BNMS wants the
 renewed schedule to reflect their current situation. Other tenants may explicitly
