@@ -1,6 +1,12 @@
 const BLOCKED_CPD_POINTS_ENTITY_ALIASES = new Set([
   'eventcpdpointsrule',
   'eventcpdpointsrules',
+  'membercpdmerge',
+  'membercpdmerges',
+  'membercpdownership',
+  'membercpdownerships',
+  'membercpdeffectiveledger',
+  'membercpdeffectiveledgers',
   'membercpdpointsledger',
   'membercpdpointsledgers',
   'eventcpdpointsawardattempt',

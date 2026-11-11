@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { CertificatePdfCanvasPreview } from "@/components/events/AttendeeCpdCertificateDialog";
 import MemberCpdPointsLedger from "@/components/MemberCpdPointsLedger";
 import ManualCpdAwardDialog from "@/components/ManualCpdAwardDialog";
+import { formatCpdPoints } from "../../../shared/cpdPointDisplay.js";
 
 const PAGE_SIZE = 20;
 
@@ -46,8 +47,7 @@ async function fetchCertificatePdf(memberId, id, signal) {
 }
 
 function formatPoints(value) {
-  const number = Number(value || 0);
-  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 6 }).format(number);
+  return formatCpdPoints(value);
 }
 
 function formatDate(value) {

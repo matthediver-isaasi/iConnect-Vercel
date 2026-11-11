@@ -1,4 +1,5 @@
 import { supabase } from '../_lib/database.js';
+import { loadCpdMember } from '../_lib/cpdMemberScope.js';
 import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tenantContext.js';
 
 const FEATURE_ID = 'cpd.points-corrections';
@@ -53,15 +54,15 @@ export function createMemberCpdPointsHandler(overrides = {}) {
   const memberId = String(req.method === 'GET' ? req.query?.member_id : req.body?.member_id || '');
   if (!UUID.test(memberId)) return res.status(400).json({ error: 'A valid member_id is required' });
 
-  const { data: member, error: memberError } = await deps.db.from('member').select('id')
-    .eq('id', memberId).eq('tenant_id', context.tenantId).maybeSingle();
-  if (memberError) return res.status(500).json({ error: 'Failed to validate CPD member' });
+  let member;
+  try { member = await loadCpdMember(deps.db,context.tenantId,memberId); }
+  catch { return res.status(500).json({ error: 'Failed to validate CPD member' }); }
   if (!member) return res.status(404).json({ error: 'Member not found' });
 
   if (req.method === 'GET') {
-    const { data, error } = await deps.db.from('member_cpd_points_ledger')
+    const { data, error } = await deps.db.from('member_cpd_effective_ledger')
       .select('id,entry_kind,points_value,event_type,event_id,activity_date,activity_title,ticket_name_snapshot,award_trigger,reversal_of,correction_of,reason,created_by,created_at')
-      .eq('tenant_id', context.tenantId).eq('member_id', memberId)
+      .eq('tenant_id', context.tenantId).eq('effective_member_id', memberId)
       .order('created_at', { ascending: false }).order('id', { ascending: false }).limit(200);
     if (error) return res.status(500).json({ error: 'Failed to load CPD points history' });
     return res.status(200).json({ entries: (data || []).map(publicEntry) });

@@ -5,6 +5,18 @@ description: Durable integrity rules for event-driven CPD point awards, retries,
 
 CPD points use a signed, append-only ledger. Never make a mutable total authoritative, and never edit or delete an award to correct it; append a linked reversal or future adjustment instead.
 
+Member merges transfer only the existing CPD award history, not a permanent alias for all future activity by the source member. Inclusion is independent of engagement and transfers ownership even when both member records remain.
+
+**Why:** The owner explicitly required preservation of immutable awards and certificates without duplicating earned points or granting the kept member access to future activity on a retained source.
+
+**How to apply:** Resolve linked reversals/corrections through the original award's effective owner. Keep original certificate signatures and storage identities intact. A retry of a completed transfer must not sweep newly earned source activity.
+
+A booking's member link may identify a third-party purchaser, and source anonymisation removes the original attendee's current email match.
+
+**Why:** Requiring either of those mutable identities after an audited CPD transfer can deny the kept member their legitimately issued certificate.
+
+**How to apply:** For transferred awards, authorize against effective ownership plus the immutable tenant/booking/event binding; retain reversal, event eligibility and original certificate-signature checks.
+
 The owner approved releasing the 64 registration-only imports for BNMS Autumn Meeting 2026 for CPD points and attendee certificate eligibility, not badge awards or automatic email sends.
 
 Simple events retain event-wide CPD. Training events configure points on agenda line items; complex events configure points per session. Daily certificate content groups actual attended-item awards and the certificate total sums those awards.

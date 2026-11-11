@@ -14,10 +14,15 @@ test('custom email preserves basic formatting and strips active HTML',()=>{
  assert.match(html,/<strong>member<\/strong>/);assert.doesNotMatch(html,/script|onerror|javascript:|<img/);
 });
 test('manual certificate cannot escape tenant/member storage prefix',async()=>{
- const row={entry_kind:'manual_award',member_id:id,manual_certificate:{path:`wrong/manual-cpd/${id}/a.pdf`,sha256:'a'.repeat(64)}};
+ const row={tenant_id:id,entry_kind:'manual_award',member_id:id,manual_certificate:{path:`wrong/manual-cpd/${id}/a.pdf`,sha256:'a'.repeat(64)}};
  assert.equal((await resolveManualCertificate({}, {tenantId:id,memberCertificateId:id,row})).available,false);
  row.manual_certificate.path=`${id}/manual-cpd/${id}/a.pdf`;
  assert.equal((await resolveManualCertificate({}, {tenantId:id,memberCertificateId:id,row})).available,true);
+ row.effective_member_id='kept-member';
+ assert.equal((await resolveManualCertificate({}, {tenantId:id,memberCertificateId:id,row})).available,false);
+ const moved=await resolveManualCertificate({}, {tenantId:id,memberCertificateId:'kept-member',row});
+ assert.equal(moved.available,true);
+ assert.equal(moved.template.source_path,`${id}/manual-cpd/${id}/a.pdf`);
 });
 function response(){return {statusCode:200,setHeader(){},status(n){this.statusCode=n;return this;},json(body){this.body=body;return this;}};}
 test('unprivileged member cannot create an award or enumerate templates',async()=>{
@@ -38,9 +43,10 @@ test('preview has no effects; saving and email retries never duplicate points or
     maybeSingle(){return Promise.resolve(result());},single(){return Promise.resolve(result());},
     then(resolve,reject){return Promise.resolve(result()).then(resolve,reject);}};
    function result(){
+    if(table==='member')return {data:{id,tenant_id:null,organization:{tenant_id:id},first_name:'Test',last_name:'Member',email:'member@example.test'}};
     assert.equal(filters.tenant_id || value?.tenant_id,id);
-    if(table==='member')return {data:{id,first_name:'Test',last_name:'Member',email:'member@example.test'}};
     if(table==='member_cpd_points_ledger')return {data:award};
+    if(table==='member_cpd_effective_ledger')return {data:award && {...award,effective_member_id:award.member_id}};
     if(table==='manual_cpd_email_delivery'){
      if(operation==='insert'){if(delivery)return {error:{code:'23505'}};delivery={...value};return {data:null};}
      if(operation==='update'){if(filters.status!==delivery.status)return {data:[]};Object.assign(delivery,value);return {data:[{ledger_entry_id:id}]};}
@@ -51,7 +57,7 @@ test('preview has no effects; saving and email retries never duplicate points or
    return chain;
   },
   async rpc(name,args){rpcCalls++;assert.equal(name,'record_manual_cpd_award');assert.equal(args.p_tenant_id,id);
-   award={id,member_id:id,created_by:`tenant_user:${id}`,entry_kind:'manual_award',manual_certificate:args.p_certificate};return {data:award};}
+   award={id,tenant_id:id,member_id:id,created_by:`tenant_user:${id}`,entry_kind:'manual_award',manual_certificate:args.p_certificate};return {data:award};}
  };
  const handler=createManualCpdAwardsHandler({db,getTenantContext:async()=>({isAuthenticated:true,tenantId:id,tenantUserId:id}),
   prepareManualCertificate:async()=>({pdf:Buffer.from('%PDF-preview')}),

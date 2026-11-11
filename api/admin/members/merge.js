@@ -4,6 +4,7 @@ import { isResourceExcluded } from '../../_lib/roleVisibility.js';
 import { anonymizeMember } from '../../_lib/memberAnonymize.js';
 import { checkMergeSourceDisposal, readMergeFinancialSummary } from '../../_lib/memberMergeFinancialSafety.js';
 import { isMemberSoftDeleted } from '../../_lib/memberLoginResolver.js';
+import { loadMemberCpdPointsHistory } from '../../_lib/eventCpdPointsService.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -109,16 +110,17 @@ export function buildAuditNotePayload({ targetId, adminId, adminName, sourceName
       + `Fields copied: ${summary.copiedCoreFields.length ? summary.copiedCoreFields.join(', ') : 'none'}. `
       + `Custom fields copied: ${summary.copiedCustomFields.length}. `
       + `Engagement statistics ${summary.engagementCopied ? 'copied' : 'not copied'}. `
+      + `CPD history and certificates ${summary.cpdTransferred ? `transferred (${summary.cpdTransfer.historyCount} entries, ${summary.cpdTransfer.balance} points; transfer ${summary.cpdTransfer.mergeId})` : 'not transferred; ownership unchanged'}. `
       + `Source outcome: ${outcomeLabel}.`,
   };
 }
 
-async function verifyPermission(req) {
-  const sessionMember = await getSessionMember(req);
+async function verifyPermission(req, db = supabase, session = getSessionMember) {
+  const sessionMember = await session(req);
   if (!sessionMember) return { hasPermission: false, status: 401, error: 'Not authenticated' };
-  if (!sessionMember.role_id || !supabase) return { hasPermission: false, status: 403, error: 'Permission denied' };
+  if (!sessionMember.role_id || !db) return { hasPermission: false, status: 403, error: 'Permission denied' };
 
-  const { data: role, error: roleError } = await supabase
+  const { data: role, error: roleError } = await db
     .from('role')
     .select('excluded_features')
     .eq('id', sessionMember.role_id)
@@ -265,7 +267,9 @@ async function reassignRef({ table, column, memberAuthorsOnly, optionalTable }, 
   return { table, column, ok: true, moved, droppedDuplicates: dropped };
 }
 
-export default async function handler(req, res) {
+export function createMemberMergeHandler({ db = supabase, session = getSessionMember } = {}) {
+  const supabase = db;
+  return async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -273,7 +277,7 @@ export default async function handler(req, res) {
     return res.status(503).json({ error: 'Database not configured' });
   }
 
-  const perm = await verifyPermission(req);
+  const perm = await verifyPermission(req, supabase, session);
   if (!perm.hasPermission) {
     return res.status(perm.status).json({ error: perm.error });
   }
@@ -287,6 +291,7 @@ export default async function handler(req, res) {
       coreFields = [],
       customFieldIds = [],
       includeEngagement = false,
+      includeCpd = false,
       sourceDisposal = 'keep', // 'reassign' | 'anonymise' | 'keep'
     } = req.body || {};
 
@@ -301,6 +306,9 @@ export default async function handler(req, res) {
     }
     if (!['reassign', 'anonymise', 'keep'].includes(sourceDisposal)) {
       return res.status(400).json({ error: 'Invalid sourceDisposal' });
+    }
+    if (typeof includeCpd !== 'boolean') {
+      return res.status(400).json({ error: 'includeCpd must be a boolean' });
     }
 
     // Load both members and verify same-tenant scope against the caller.
@@ -323,10 +331,10 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Guest records cannot be merged' });
     }
 
-    const callerTenantId = await resolveMemberTenantId(adminMember);
+    const callerTenantId = await resolveMemberTenantId(adminMember, supabase);
     const [sourceTenantId, targetTenantId] = await Promise.all([
-      resolveMemberTenantId(source),
-      resolveMemberTenantId(target),
+      resolveMemberTenantId(source, supabase),
+      resolveMemberTenantId(target, supabase),
     ]);
     if (!callerTenantId || sourceTenantId !== callerTenantId || targetTenantId !== callerTenantId) {
       return res.status(403).json({ error: 'Both members must belong to your tenant' });
@@ -343,10 +351,11 @@ export default async function handler(req, res) {
       const disposalSafety = await checkMergeSourceDisposal(supabase, {
         source, target, tenantId: callerTenantId, directDebit: sourceFinancial.directDebit,
       });
-      const [sourcePrefs, targetPrefs, sourceEngagement] = await Promise.all([
+      const [sourcePrefs, targetPrefs, sourceEngagement, sourceCpd] = await Promise.all([
         supabase.from('member_preference_value').select('field_id, value').eq('member_id', sourceId),
         supabase.from('member_preference_value').select('field_id, value').eq('member_id', targetId),
-        computeEngagementTotals(source),
+        computeEngagementTotals(source, supabase),
+        loadMemberCpdPointsHistory({ tenantId: callerTenantId, memberId: sourceId, pageSize: 1 }, { db: supabase }),
       ]);
       return res.json({
         source,
@@ -356,6 +365,9 @@ export default async function handler(req, res) {
         sourcePreferenceValues: sourcePrefs.data || [],
         targetPreferenceValues: targetPrefs.data || [],
         sourceEngagement,
+        sourceCpd: sourceCpd
+          ? { balance: sourceCpd.balance, historyCount: sourceCpd.total, available: true }
+          : { balance: null, historyCount: null, available: false },
         sameOrganisation,
         copyableCoreFields: COPYABLE_CORE_FIELDS,
       });
@@ -369,6 +381,7 @@ export default async function handler(req, res) {
       coreFields,
       customFieldIds,
       includeEngagement,
+      includeCpd,
       sourceDisposal,
       adminMember,
       callerTenantId,
@@ -378,7 +391,9 @@ export default async function handler(req, res) {
     console.error('[Member Merge] Error:', error);
     return res.status(500).json({ error: 'Merge failed', details: error.message });
   }
+  };
 }
+export default createMemberMergeHandler();
 
 /**
  * Execute the merge. Ordering guarantee: ALL non-destructive copies onto the
@@ -394,6 +409,7 @@ export async function performMerge({
   coreFields = [],
   customFieldIds = [],
   includeEngagement = false,
+  includeCpd = false,
   sourceDisposal = 'keep',
   adminMember,
   callerTenantId,
@@ -402,6 +418,17 @@ export async function performMerge({
 }) {
   const sourceId = source.id;
   const targetId = target.id;
+  // An earlier attempt may have transferred CPD successfully before disposal
+  // failed. Do not let a changed checkbox silently misreport that transfer.
+  if (!includeCpd) {
+    const { data: prior, error } = await db.from('member_cpd_merge').select('result')
+      .eq('tenant_id', callerTenantId).eq('source_id', sourceId).eq('target_id', targetId).maybeSingle();
+    if (error) return { status: 503, body: { error: 'Could not verify previous CPD transfer. Retry before merging.', retryable: true } };
+    if (prior?.result) return { status: 409, body: {
+      error: 'CPD was already transferred in an earlier attempt. Select Include CPD history and certificates and retry with the same members; points will not be transferred twice.',
+      retryable: true, cpdTransfer: prior.result,
+    } };
+  }
   // Check before copying or moving anything: a refusal must not leave a half merge.
   if (sourceDisposal === 'anonymise' || sourceDisposal === 'reassign') {
     // source/target were freshly loaded by the endpoint, never accepted from
@@ -414,6 +441,7 @@ export async function performMerge({
     copiedCoreFields: [],
     copiedCustomFields: [],
     engagementCopied: false,
+    cpdTransferred: false,
     reassigned: [],
     sourceOutcome: sourceDisposal,
   };
@@ -583,6 +611,29 @@ export async function performMerge({
         };
       }
       summary.reassigned.push(result);
+    }
+  }
+
+  // CPD is not a generic reassignment. A database-owned snapshot transfers
+  // immutable award roots, including their linked corrections and certificates.
+  // This also runs for "keep" and "anonymise", independently of engagement.
+  if (includeCpd) {
+    try {
+      const { data, error } = await db.rpc('transfer_member_cpd', {
+        p_tenant_id: callerTenantId, p_source_id: sourceId,
+        p_target_id: targetId, p_actor_id: adminMember.id,
+      });
+      if (error) throw error;
+      if (!data?.mergeId || !Number.isSafeInteger(data.historyCount) || typeof data.balance !== 'string') {
+        throw new Error('CPD transfer confirmation was incomplete');
+      }
+      summary.cpdTransferred = true;
+      summary.cpdTransfer = data;
+    } catch (error) {
+      return { status: 500, body: {
+        error: `CPD transfer could not be confirmed: ${error.message}. The source has not been removed. Retry with the same members and CPD choice; if this persists, ask an administrator to check the CPD migration.`,
+        retryable: true, partial: summary,
+      } };
     }
   }
 

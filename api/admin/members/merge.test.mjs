@@ -5,7 +5,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
-import { REASSIGN_REFS, buildAuditNotePayload, performMerge } from './merge.js';
+process.env.ROLE_ACCESS_OVERLAY_SKIP_PRIME = '1';
+const { __setRoleAccessOverlayForTests } = await import('../../_lib/roleVisibility.js');
+__setRoleAccessOverlayForTests([]);
+const { REASSIGN_REFS, buildAuditNotePayload, performMerge, createMemberMergeHandler } = await import('./merge.js');
 
 // Minimal supabase-compatible fake. `failOn` maps "table.op" -> error object.
 // Records every terminal operation so tests can assert ordering/absence.
@@ -63,6 +66,90 @@ function makeFakeAnonymize(db) {
   };
 }
 const anonRan = (db) => db.ops.some(op => op.startsWith('ANONYMIZE:'));
+
+for (const sourceDisposal of ['keep','anonymise','reassign']) {
+  test(`CPD transfers independently of engagement before ${sourceDisposal} disposal`, async () => {
+    const db = makeFakeDb();
+    const previousRpc = db.rpc;
+    const transfer = { mergeId: 'transfer', balance: '-0.000001', historyCount: 31, alreadyApplied: false };
+    let saved = false;
+    db.rpc = async (name, args) => {
+      if (name !== 'transfer_member_cpd') return previousRpc(name, args);
+      db.ops.push('CPD_TRANSFER');
+      assert.deepEqual(args, { p_tenant_id:'t1', p_source_id:baseSource.id, p_target_id:baseTarget.id, p_actor_id:admin.id });
+      const result = { data: { ...transfer, alreadyApplied: saved } };
+      saved = true; return result;
+    };
+    const run = () => performMerge({ db, source:baseSource, target:baseTarget, adminMember:admin,
+      callerTenantId:'t1', sourceDisposal, includeCpd:true, anonymize:makeFakeAnonymize(db) });
+    const result = await run();
+    assert.equal(result.status,200);
+    assert.equal(result.body.summary.engagementCopied,false);
+    assert.deepEqual(result.body.summary.cpdTransfer,transfer);
+    if (sourceDisposal !== 'keep') assert.ok(db.ops.indexOf('CPD_TRANSFER') < db.ops.findIndex(op=>op.startsWith('ANONYMIZE:')));
+    else assert.equal(anonRan(db),false);
+    assert.equal((await run()).body.summary.cpdTransfer.alreadyApplied,true);
+  });
+  test(`CPD failure stops ${sourceDisposal} disposal and explains safe retry`, async () => {
+    const db=makeFakeDb({failOn:{'rpc.transfer_member_cpd':{message:'ownership migration unavailable'}}});
+    const result=await performMerge({db,source:baseSource,target:baseTarget,adminMember:admin,
+      callerTenantId:'t1',sourceDisposal,includeCpd:true,anonymize:makeFakeAnonymize(db)});
+    assert.equal(result.status,500); assert.equal(result.body.retryable,true);
+    assert.match(result.body.error,/CPD transfer.*source has not been removed.*same members/);
+    assert.equal(anonRan(db),false);
+  });
+}
+
+test('merge API denies unauthenticated, unauthorized and cross-tenant CPD transfer', async () => {
+  for (const mode of ['anonymous','denied','cross-tenant']) {
+    const db = { from(table) {
+      const q = { select(){return q;},eq(){return q;},in(){return q;},
+        single:async()=>({data:{excluded_features:mode==='denied'?['admin.role-management']:[]}}),
+        then:resolve=>Promise.resolve({data:[{...baseSource,tenant_id:'other'}, {...baseTarget,tenant_id:'t1'}]}).then(resolve) };
+      return q;
+    }, rpc(){assert.fail('Unauthorized transfer must not reach RPC');} };
+    const handler=createMemberMergeHandler({db,session:async()=>mode==='anonymous'?null:{...admin,role_id:'role',tenant_id:'t1'}});
+    const res={status(code){this.code=code;return this;},json(body){this.body=body;return this;}};
+    await handler({method:'POST',body:{action:'execute',sourceId:baseSource.id,targetId:baseTarget.id,includeCpd:true}},res);
+    assert.equal(res.code,mode==='anonymous'?401:403);
+  }
+});
+
+test('retry cannot hide a completed CPD transfer by deselecting inclusion', async () => {
+  const db=makeFakeDb();
+  const from=db.from;
+  db.from=table=>table==='member_cpd_merge'?{
+    select(){return this;},eq(){return this;},
+    maybeSingle:async()=>({data:{result:{mergeId:'saved'}}}),
+  }:from(table);
+  const result=await performMerge({db,source:baseSource,target:baseTarget,adminMember:admin,
+    callerTenantId:'t1',includeCpd:false,sourceDisposal:'reassign',anonymize:makeFakeAnonymize(db)});
+  assert.equal(result.status,409);
+  assert.match(result.body.error,/already transferred.*Select Include CPD/);
+  assert.equal(anonRan(db),false);
+});
+
+test('organisation-scoped source remains previewable when CPD reader returns null', async () => {
+  const source={...baseSource,tenant_id:null,organization_id:'org'};
+  const target={...baseTarget,tenant_id:'t1',organization_id:'org'};
+  const db=makeFakeDb();
+  const fallback=db.from;
+  db.from=table=>{
+    if (!['role','member','organization'].includes(table)) return fallback(table);
+    const data=table==='role'?{excluded_features:[]}:table==='organization'?{tenant_id:'t1'}:[source,target];
+    const q={select(){return q;},eq(){return q;},in(){return q;},
+      single:async()=>({data}),maybeSingle:async()=>({data}),
+      then:(resolve,reject)=>Promise.resolve({data}).then(resolve,reject)};
+    return q;
+  };
+  db.rpc=async name=>({data:name==='get_member_cpd_points_history'?null:[],error:null});
+  const handler=createMemberMergeHandler({db,session:async()=>({...admin,role_id:'role',tenant_id:'t1'})});
+  const res={code:200,status(code){this.code=code;return this;},json(body){this.body=body;return this;}};
+  await handler({method:'POST',body:{action:'preview',sourceId:source.id,targetId:target.id}},res);
+  assert.equal(res.code,200);
+  assert.deepEqual(res.body.sourceCpd,{balance:null,historyCount:null,available:false});
+  assert.equal(res.body.source.id,source.id);
+});
 
 const admin = { id: 'admin-1', first_name: 'Ada', last_name: 'Admin', email: 'ada@example.com' };
 const baseSource = { id: '11111111-1111-4111-8111-111111111111', first_name: 'Old', last_name: 'Record', email: 'old@example.com', engagement_opening_balances: {} };

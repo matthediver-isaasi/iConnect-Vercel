@@ -73,6 +73,7 @@ export default function MemberMergeDialog({ open, onOpenChange, currentMember, c
   // Explicit choices belong to member identities, not source/target roles.
   const [choices, setChoices] = useState({});
   const [includeEngagement, setIncludeEngagement] = useState(false);
+  const [includeCpd, setIncludeCpd] = useState(false);
   const [sourceDisposal, setSourceDisposal] = useState("reassign");
   const [previewRequested, setPreviewRequested] = useState(false);
   const disposalDefaultDirection = useRef(null);
@@ -86,8 +87,10 @@ export default function MemberMergeDialog({ open, onOpenChange, currentMember, c
       disposalDefaultDirection.current = null;
       setStep(1); setSearch(""); setOtherMember(null); setDirection("into-current");
       setChoices({}); setIncludeEngagement(false);
+      setIncludeCpd(false);
       setSourceDisposal("reassign"); setPreviewRequested(false);
   }, [open, currentMember?.id]);
+  useEffect(() => { setIncludeCpd(false); }, [sourceId, targetId]);
 
   const { data: searchResults = [], isFetching: searching } = useQuery({
     queryKey: ["member-merge-search", search],
@@ -148,16 +151,23 @@ export default function MemberMergeDialog({ open, onOpenChange, currentMember, c
       coreFields: selectedCore,
       customFieldIds: selectedCustom,
       includeEngagement,
+      includeCpd,
       sourceDisposal,
       });
     },
     onSuccess: (result) => {
       toast.success("Members merged successfully");
+      toast.success(result.summary?.cpdTransferred
+        ? `CPD transferred: ${result.summary.cpdTransfer.historyCount} entries, ${result.summary.cpdTransfer.balance} points.`
+        : "CPD was not transferred; ownership is unchanged.");
       (result.warnings || []).forEach((w) => toast.warning(w));
       queryClient.invalidateQueries({ queryKey: ["member"] });
       queryClient.invalidateQueries({ queryKey: ["members"] });
       queryClient.invalidateQueries({ queryKey: ["member-pref-values"] });
       queryClient.invalidateQueries({ queryKey: ["member-notes"] });
+      queryClient.invalidateQueries({ queryKey: ["member-cpd-points"] });
+      queryClient.invalidateQueries({ queryKey: ["member-cpd-certificates"] });
+      queryClient.invalidateQueries({ queryKey: ["member-merge-preview"], refetchType: "none" });
       onOpenChange(false);
       onMerged?.(result, { sourceId, targetId });
     },
@@ -223,7 +233,7 @@ export default function MemberMergeDialog({ open, onOpenChange, currentMember, c
           <DialogDescription>
             {step === 1 && "Find and select the other member record to merge."}
             {step === 2 && "Choose the record to keep, then select one value for each field. Yellow marks the kept record; green marks selected values."}
-            {step === 3 && "Engagement statistics and what happens to the old record."}
+            {step === 3 && "Engagement, CPD history and what happens to the old record."}
             {step === 4 && "Review and confirm the merge."}
           </DialogDescription>
         </DialogHeader>
@@ -303,6 +313,23 @@ export default function MemberMergeDialog({ open, onOpenChange, currentMember, c
               </div>
             </div>
 
+            <div className="flex items-start gap-2">
+              <Checkbox id="merge-cpd" checked={includeCpd}
+                disabled={preview.sourceCpd?.available === false}
+                onCheckedChange={v => setIncludeCpd(!!v)} data-testid="checkbox-merge-cpd" />
+              <div>
+                <Label htmlFor="merge-cpd" className="cursor-pointer">Include CPD history and certificates</Label>
+                <p className="text-sm text-slate-500 mt-1" data-testid="merge-cpd-summary">
+                  Source CPD: {preview.sourceCpd?.balance ?? "Unavailable"} points, {preview.sourceCpd?.historyCount ?? "unavailable"} history entries.
+                  {preview.sourceCpd?.available === false && " CPD could not be resolved for this member. You can merge without CPD; ask an administrator to check CPD setup before transferring it."}
+                </p>
+                <p className="text-sm text-slate-500 mt-1">
+                  Transfers existing CPD ownership and eligible certificates to the kept member, even if the source record is retained.
+                  Points are not duplicated. Future activity on a retained source stays there.
+                  If excluded, CPD ownership stays with the source, including when it is anonymised.
+                </p>
+              </div>
+            </div>
             <div className="space-y-2">
               <Label>What happens to the source (old) record?</Label>
               <Alert>
@@ -326,7 +353,7 @@ export default function MemberMergeDialog({ open, onOpenChange, currentMember, c
                 <div className="flex items-start gap-2">
                   <RadioGroupItem value="reassign" id="disposal-reassign" data-testid="radio-disposal-reassign" />
                   <Label htmlFor="disposal-reassign" className="font-normal cursor-pointer">
-                    <strong>Full merge</strong> — reassign all history (bookings, group roles, submissions, messages…) to the kept record, then remove the source record.
+                    <strong>Full merge</strong> — reassign history (bookings, group roles, submissions, messages…) to the kept record, then remove the source record. CPD follows the separate choice above.
                     {!sameOrg && " The source organisation loses this history."}
                   </Label>
                 </div>
@@ -340,7 +367,7 @@ export default function MemberMergeDialog({ open, onOpenChange, currentMember, c
                 <div className="flex items-start gap-2">
                   <RadioGroupItem value="keep" id="disposal-keep" data-testid="radio-disposal-keep" />
                   <Label htmlFor="disposal-keep" className="font-normal cursor-pointer">
-                    <strong>Leave the source untouched</strong> — copy-only merge; both records remain.
+                    <strong>Leave the source untouched</strong> — both records remain; included CPD is transferred, not copied.
                   </Label>
                 </div>
               </RadioGroup>
@@ -369,6 +396,12 @@ export default function MemberMergeDialog({ open, onOpenChange, currentMember, c
               <div>
                 <span className="text-slate-500">Engagement statistics:</span>{" "}
                 {includeEngagement ? "copied to the kept record's opening balances" : "not copied"}
+              </div>
+              <div>
+                <span className="text-slate-500">CPD history and certificates:</span>{" "}
+                {includeCpd
+                  ? `transfer ${preview.sourceCpd?.historyCount} entries (${preview.sourceCpd?.balance} points) to the kept member; the source loses ownership even if retained`
+                  : "not transferred; ownership stays with the source even if anonymised"}
               </div>
               <div>
                 <span className="text-slate-500">Source record:</span>{" "}

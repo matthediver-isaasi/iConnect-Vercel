@@ -131,15 +131,38 @@ async function guestCertificatePoints(db, { tenantId, booking, bookingSource, ev
     : { evidence };
 }
 
-export async function resolveAttendeeCertificate(db, { tenantId, bookingId, bookingSource, memberCertificateId = null, emailOnly = false }) {
+export async function resolveAttendeeCertificate(db, { tenantId, bookingId, bookingSource, memberCertificateId = null, emailOnly = false, cpdEntry = null }) {
   const booking = await one(db, CERTIFICATE_BOOKINGS[bookingSource], tenantId, bookingId);
   if (!booking) throw Object.assign(new Error('Attendee booking not found'), { status: 404 });
   const eventType = bookingSource === 'complex' ? 'complex' : 'simple';
   const event = await one(db, eventType === 'complex' ? 'complex_event' : 'event', tenantId, booking.event_id);
   if (!event) throw Object.assign(new Error('Event not found'), { status: 404 });
   // The booking member_id can be the purchaser of another person's ticket.
-  const attendeeMemberId = await resolveMember(db, tenantId, booking);
-  if (memberCertificateId && String(attendeeMemberId) !== String(memberCertificateId)) {
+  let attendeeMemberId = await resolveMember(db, tenantId, booking);
+  if (!cpdEntry && !emailOnly) {
+    const award = await db.from('member_cpd_effective_ledger').select('*')
+      .eq('tenant_id', tenantId).eq('booking_type', CERTIFICATE_BOOKINGS[bookingSource])
+      .eq('booking_id', bookingId).eq('event_id', booking.event_id)
+      .eq('entry_kind', 'event_award').order('id').limit(1);
+    if (award.error) throw award.error;
+    const candidate = award.data?.[0];
+    if (candidate && candidate.effective_member_id !== candidate.member_id) cpdEntry = candidate;
+  }
+  // Independently verify the supplied entry against the ownership authority.
+  // Preserve the original attendee ID for the retained signature and ledger
+  // provenance; the effective owner only authorizes access.
+  let transferred = false;
+  if (cpdEntry?.id) {
+    const verified = await one(db, 'member_cpd_effective_ledger', tenantId, cpdEntry.id);
+    if (verified?.entry_kind === 'event_award' && (!memberCertificateId || verified.effective_member_id === memberCertificateId)
+      && verified.member_id !== verified.effective_member_id && verified.booking_id === bookingId
+      && verified.booking_type === CERTIFICATE_BOOKINGS[bookingSource] && verified.event_id === booking.event_id
+      && verified.event_type === (bookingSource === 'complex' ? 'complex_event' : 'event')) {
+      transferred = true;
+      attendeeMemberId = verified.member_id;
+    }
+  }
+  if (memberCertificateId && !transferred && String(attendeeMemberId) !== String(memberCertificateId)) {
     return { available: false, reason: 'This award does not belong to the booking attendee.' };
   }
   const member = attendeeMemberId ? await one(db, 'member', tenantId, attendeeMemberId) : null;
@@ -251,9 +274,10 @@ export async function resolveAttendeeCertificate(db, { tenantId, bookingId, book
       // Always resolve the ledger, independently of template placeholder choices.
       // Paginate even when a deployment's REST row cap is below 500.
       for (let offset = 0; ; ) {
-        const result = await db.from('member_cpd_points_ledger').select('id,member_id,points_value,entry_kind,rule_snapshot,reversal_of')
+        const result = await db.from('member_cpd_effective_ledger').select('id,member_id,points_value,entry_kind,rule_snapshot,reversal_of')
           .eq('tenant_id', tenantId).eq('booking_type', CERTIFICATE_BOOKINGS[bookingSource])
-          .eq('booking_id', bookingId).eq('event_id', booking.event_id).eq('member_id', attendeeMemberId)
+          .eq('booking_id', bookingId).eq('event_id', booking.event_id)
+          .eq('effective_member_id', transferred ? cpdEntry.effective_member_id : attendeeMemberId)
           .eq('event_type', eventType === 'simple' ? 'event' : 'complex_event')
           .order('id').range(offset, offset + 499);
         if (result.error) throw result.error;

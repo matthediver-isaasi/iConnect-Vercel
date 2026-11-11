@@ -14,7 +14,7 @@ function response() {
   };
 }
 
-function db({ member = { id: MEMBER }, entries = [], rpcResult = null, calls = [] } = {}) {
+function db({ member = { id: MEMBER, tenant_id: 'tenant' }, entries = [], rpcResult = null, calls = [] } = {}) {
   return {
     from(table) {
       const query = {
@@ -93,6 +93,7 @@ test('member history is tenant-scoped and redacts internal evidence', async () =
 test('corrections require reason and signed adjustment and call the guarded RPC', async () => {
   const calls = [];
   const database = db({
+    member: { id: MEMBER, tenant_id: null, organization: { tenant_id: 'tenant' } },
     calls,
     rpcResult: { id: KEY, points_value: '-1.25', entry_kind: 'manual_adjustment' },
   });
@@ -110,4 +111,10 @@ test('corrections require reason and signed adjustment and call the guarded RPC'
   assert.equal(calls[0].args.p_tenant_id, 'tenant');
   assert.equal(calls[0].args.p_member_id, MEMBER);
   assert.equal(calls[0].args.p_reason, 'Exceptional correction');
+});
+
+test('CPD administration never substitutes organisation tenancy for a different direct tenant', async () => {
+  assert.equal((await run({admin:true,database:db({
+    member:{id:MEMBER,tenant_id:'foreign',organization:{tenant_id:'tenant'}},
+  })})).code,404);
 });

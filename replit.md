@@ -9,6 +9,10 @@
 
 # Membership Management Platform
 
+- **CPD merge lifecycle follow-on:** `202701190003_cpd_transferred_lifecycle.sql` was also applied to verified DEST on 2026-11-11. The current three-file runner hash is `2aa09970769e2d05fb2306d7b8adeabf6026d8864bb120103d5884f116637302`. This aligns linked corrections/manual awards with organisation-based tenancy and preserves replay for third-party-booker awards after source anonymisation. No live merges or ledger rewrites were performed.
+
+- **Member merge CPD ownership:** `202701190001_member_cpd_ownership.sql` and `202701190002_cpd_organization_tenant_scope.sql` were applied to verified DEST on 2026-11-11 using `scripts/apply-member-cpd-ownership.mjs --apply --review-sha256=e7f373a0e1f82d6d2edf7b093bc81f22268e12f1c6f6cebcb2cd5bb5613dbafb`. Service-only grants were verified; no live member merges or ledger rewrites were performed. SOURCE is unchanged. Matching application code still requires merge/rollout. Verify with `node scripts/run-isolated-tests.mjs --allow-local-postgres node --test supabase/migrations/memberCpdOwnership.test.mjs api/admin/members/merge.test.mjs` and `node --test tests/member-merge.browser.test.mjs` (synthetic browser APIs only). The workspace root preview has an existing tenant-not-found error; it does not establish signed-in live verification.
+
 - **Public complex-event ticket loading:** `202612310005_ticket_selected_member_audience.sql` was owner-approved and applied to verified DEST on 2026-11-10, SHA256 `1df3da1ce2fe2d94a69fb15cfd09c01137532f2c183f5f2e7e7db5d65c05ff33`. Missing audience columns caused GSF list/detail 503s; both live endpoints returned 200 after schema installation. Existing settings were not backfilled; SOURCE untouched. Retryable-error UI/API changes require merge. No live registrations, payments or emails were attempted.
 
 - **Form bundle stock:** `202701200001_form_bundle_stock.sql` applied to verified DEST on 2026-11-06, SHA256 `62a10142ef34e6401925746e319bf7199c9b11b7a2e8cb1bbecdd7425d9ddfc7`; SOURCE untouched. Matching code awaits merge. See `docs/form-bundle-stock-implementation-status.md` for semantics, verification and provider-test limitations.

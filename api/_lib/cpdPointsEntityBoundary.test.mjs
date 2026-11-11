@@ -9,6 +9,7 @@ import {
 const aliases = [
   'EventCpdPointsRule', 'event_cpd_points_rule', 'event-cpd-points-rules',
   'MemberCpdPointsLedger', 'member_cpd_points_ledgers',
+  'MemberCpdMerge', 'member_cpd_ownership', 'member_cpd_effective_ledger',
   'EventCpdPointsAwardAttempt', 'event_cpd_points_award_attempts',
   'EventCpdPointsFollowup', 'event-cpd-points-followups',
   'EventCpdPointsOutbox', 'event_cpd_points_outboxes',

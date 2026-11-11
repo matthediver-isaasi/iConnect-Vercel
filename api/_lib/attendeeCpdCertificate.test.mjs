@@ -78,7 +78,10 @@ function database(rows) {
               rows[table].push(inserted);
               filters.push(row => row.id === inserted.id);
             }
-            let data = (rows[table] || []).filter(row => filters.every(f => f(row)));
+            const input = table === 'member_cpd_effective_ledger'
+              ? (rows.member_cpd_points_ledger || []).map(row => ({ ...row, effective_member_id: row.effective_member_id || row.member_id }))
+              : (rows[table] || []);
+            let data = input.filter(row => filters.every(f => f(row)));
             if (update) data.forEach(row => Object.assign(row, update));
             data = data.slice().sort((a, b) => {
               for (const [key, asc] of orders) {

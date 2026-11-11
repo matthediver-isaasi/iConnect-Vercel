@@ -161,7 +161,10 @@ async function fixture(source = 'booking') {
       then(resolve, reject) { return Promise.resolve({ data: result(), error: null }).then(resolve, reject); },
     };
     function result() {
-      let rows = (db.rows[table] || []).filter(row => conditions.every(condition => condition(row)));
+      const input = table === 'member_cpd_effective_ledger'
+        ? (db.rows.member_cpd_points_ledger || []).map(row => ({ ...row, effective_member_id: row.effective_member_id || row.member_id }))
+        : (db.rows[table] || []);
+      let rows = input.filter(row => conditions.every(condition => condition(row)));
       if (ordering) rows = rows.slice().sort((a, b) => String(a[ordering]).localeCompare(String(b[ordering])));
       return rows.slice(offset, offset + count).map(row => ({ ...row }));
     }
@@ -225,6 +228,50 @@ test('a missing saved PDF fails closed rather than generating a replacement', as
   assert.equal((await request(f)).statusCode, 200);
   f.db.rows.issued_cpd_certificate[0].source_path = `${tenant}/issued-cpd/missing.pdf`;
   assert.equal((await request(f)).statusCode, 503);
+});
+
+test('transferred event and imported certificates retain original PDFs and deny the retained source', async () => {
+  const kept = '88888888-8888-4888-8888-888888888888';
+  for (const make of [() => fixture('booking'), () => fixture('complex_event_booking'), historicFixture]) {
+    for (const disposition of ['keep','anonymise','reassign','third-party-purchaser']) {
+      const f = await make();
+      const original = await request(f);
+      assert.equal(original.statusCode,200);
+      const snapshots = structuredClone(f.db.rows.issued_cpd_certificate);
+      const entry = f.db.rows.member_cpd_points_ledger[0];
+      entry.effective_member_id = kept;
+      f.db.rows.member.push({id:kept,tenant_id:tenant,email:'kept@example.test',first_name:'Kept',last_name:'Member'});
+      if (entry.entry_kind === 'event_award') {
+        // Mirrors the source-owned booking and the merge's existing disposal choices.
+        f.db.rows[entry.booking_type][0].member_id = disposition === 'third-party-purchaser'
+          ? 'purchaser' : disposition === 'reassign' ? kept : memberId;
+      }
+      if (disposition !== 'keep') {
+        Object.assign(f.db.rows.member[0],{email:'deleted@deleted.local',first_name:'Deleted',last_name:'Member'});
+      }
+      const auth={getSessionMember:async()=>({...member,id:kept})};
+      const access = await request(f,{memberId:kept,ledger_entry_ids:awardId},auth);
+      assert.equal(access.body.certificates[awardId].available,true,`${entry.entry_kind}/${disposition}`);
+      const download=await request(f,{memberId:kept},auth);
+      assert.equal(download.statusCode,200);
+      assert.deepEqual(download.body,original.body);
+      assert.deepEqual(f.db.rows.issued_cpd_certificate,snapshots);
+      assert.equal((await request(f)).statusCode,404);
+      f.db.rows.member_cpd_points_ledger.push({tenant_id:tenant,member_id:memberId,reversal_of:awardId});
+      assert.equal((await request(f,{memberId:kept},auth)).statusCode,404);
+    }
+  }
+});
+
+test('ownership changing during PDF generation prevents the old owner download', async () => {
+  const f = await historicFixture();
+  const result=await request(f,{},{
+    renderAttendeeCertificate:async()=> {
+      f.db.rows.member_cpd_points_ledger[0].effective_member_id='another-member';
+      return Buffer.from('discard');
+    },
+  });
+  assert.equal(result.statusCode,409);
 });
 
 test('member downloads embed signatures for both event types and historic awards; retained bytes never change', async () => {
@@ -299,6 +346,7 @@ test('independent tenant administration serves metadata and actual PDF for eithe
     assert.deepEqual(inputs, Array(3).fill(null).map(() => ({
       tenantId: tenant, bookingId, bookingSource: source === 'booking' ? 'standard' : 'complex',
       memberCertificateId: memberId,
+      cpdEntry: { ...f.db.rows.member_cpd_points_ledger[0], effective_member_id: memberId },
     })));
     assert.equal(f.queried.includes('email_template'), false);
     assert.equal(f.queried.includes('certificate_survey_entitlement'), false);

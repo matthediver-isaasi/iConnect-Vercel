@@ -4,6 +4,7 @@ import { signatureResolver } from './cpdCertificateImages.js';
 import { inspectPdf, renderCpdCertificatePdf } from './cpdCertificatePdf.js';
 import { hasHistoricCertificateFields } from '../../shared/historicCpdCertificateContract.js';
 import { loadIssuedCertificate, awardSignature } from './issuedCpdCertificates.js';
+import { loadCpdMember } from './cpdMemberScope.js';
 
 const unavailable = () => ({ available: false, reason: 'Historic certificate unavailable. Please contact your administrator.' });
 export async function resolveHistoricCertificate(db, { tenantId, memberCertificateId, row }) {
@@ -25,7 +26,7 @@ export async function resolveHistoricCertificate(db, { tenantId, memberCertifica
   const template = await get('cpd_certificate_template', 'id', designation.template_id);
   if (!template || template.status !== 'active' || template.source_bucket !== 'private-uploads'
     || !template.source_path?.startsWith(`${tenantId}/`) || !/^[a-f0-9]{64}$/.test(template.source_sha256 || '')) return unavailable();
-  const member = await get('member', 'id', memberCertificateId);
+  const member = await loadCpdMember(db, tenantId, memberCertificateId);
   if (!member) return unavailable();
   const result = await db.from('cpd_certificate_placeholder').select('*')
     .eq('tenant_id', tenantId).eq('template_id', template.id).order('page_number').order('display_order').order('id');

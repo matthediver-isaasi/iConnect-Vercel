@@ -17,6 +17,7 @@ const fields = ['first_name', 'last_name', 'email', 'mobile', 'landline', 'job_t
 function preview(body) {
   return { source: members[body.sourceId], target: members[body.targetId], copyableCoreFields: fields,
     disposalSafety: { success: true },
+     sourceCpd: { balance: body.sourceId === 'a' ? '-1.250001' : '2.500001', historyCount: body.sourceId === 'a' ? 31 : 3 },
     financialSummaries: Object.fromEntries([body.sourceId, body.targetId].map(id => [id, {
       membership: { state: id === 'a' ? 'active_paid' : 'none' },
       directDebit: { active: id === 'a', verified: true, statuses: id === 'a' ? ['active'] : [] },
@@ -88,6 +89,31 @@ async function setup(options = {}) {
   return { page, calls };
 }
 const value = (page, field, id) => page.getByTestId(`value-${field}-${id}`);
+test('CPD is independent, displays exact source totals and resets when direction changes', async () => {
+  const {page,calls}=await setup();
+  try {
+    await page.getByTestId('button-merge-next-2').click();
+    await expect(page.getByTestId('merge-cpd-summary')).toHaveText('Source CPD: 2.500001 points, 3 history entries.');
+    await expect(page.getByTestId('checkbox-merge-cpd')).not.toBeChecked();
+    await page.getByTestId('checkbox-merge-cpd').click();
+    await expect(page.getByTestId('checkbox-merge-engagement')).not.toBeChecked();
+    await page.getByTestId('button-merge-back').click();
+    await page.getByTestId('survivor-b').click();
+    await expect(page.getByTestId('button-merge-next-2')).toBeEnabled();
+    await page.getByTestId('button-merge-next-2').click();
+    await expect(page.getByTestId('checkbox-merge-cpd')).not.toBeChecked();
+    await expect(page.getByTestId('merge-cpd-summary')).toHaveText('Source CPD: -1.250001 points, 31 history entries.');
+    await page.getByTestId('checkbox-merge-cpd').click();
+    await page.getByTestId('radio-disposal-keep').click();
+    await page.getByTestId('button-merge-next-3').click();
+    await expect(page.getByRole('dialog')).toContainText('transfer 31 entries (-1.250001 points)');
+    await expect(page.getByRole('dialog')).toContainText('source loses ownership even if retained');
+    await page.getByTestId('button-merge-confirm').click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    assert.equal(calls.at(-1).includeCpd,true);
+    assert.equal(calls.at(-1).includeEngagement,false);
+  } finally {await page.close();}
+});
 test('financial headers and refusal follow original records, not copied email or survivor', async () => {
   const { page, calls } = await setup({ viewport: { width: 390, height: 640 },
     previewHandler: async (route, body) => {
@@ -223,7 +249,7 @@ for (const survivor of ['a', 'b']) test(`independent choices, back navigation an
     assert.deepEqual(calls.find(c => c.action === 'execute'), {
       action: 'execute', sourceId: survivor === 'a' ? 'b' : 'a', targetId: survivor,
       coreFields: survivor === 'a' ? ['first_name'] : ['mobile'],
-      customFieldIds: survivor === 'a' ? ['multi'] : ['empty'], includeEngagement: true, sourceDisposal: 'keep',
+      customFieldIds: survivor === 'a' ? ['multi'] : ['empty'], includeEngagement: true, includeCpd: false, sourceDisposal: 'keep',
     });
     assert.deepEqual(await page.evaluate(() => window.merged), { sourceId: survivor === 'a' ? 'b' : 'a', targetId: survivor });
     await page.getByRole('button', { name: 'Reopen' }).click();

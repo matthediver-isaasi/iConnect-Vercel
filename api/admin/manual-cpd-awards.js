@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tenantContext.js';
 import { sendEmail } from '../_lib/emailService.js';
+import { loadCpdMember } from '../_lib/cpdMemberScope.js';
 import { renderAttendeeCertificate, validCertificateRecipient } from '../_lib/attendeeCpdCertificate.js';
 import { uuid, problem, one, validateManualAward, prepareManualCertificate, storeManualCertificate,
   resolveManualCertificate, sanitizeManualMessage } from '../_lib/manualCpdAwards.js';
@@ -22,7 +23,7 @@ export function createManualCpdAwardsHandler(overrides = {}) {
       const body = req.body || {};
       const memberId = req.method === 'GET' ? req.query?.member_id : body.member_id;
       if (!uuid(memberId)) throw problem('A valid member is required.');
-      const member = await one(db,'member',tenantId,memberId);
+      const member = await loadCpdMember(db,tenantId,memberId);
       if (!member) throw problem('Member not found',404);
       if (req.method === 'GET') {
         const r = await db.from('cpd_certificate_template').select('id,name').eq('tenant_id',tenantId).eq('status','active').order('name');
@@ -58,8 +59,8 @@ export function createManualCpdAwardsHandler(overrides = {}) {
         return res.status(201).json({entry:{id:result.data.id},email_status:'not_sent'});
       }
       if (body.action !== 'email' || !uuid(body.ledger_entry_id) || !uuid(body.idempotency_key)) throw problem('Invalid manual CPD action.');
-      const row = await one(db,'member_cpd_points_ledger',tenantId,body.ledger_entry_id);
-      if (!row || row.member_id !== memberId || row.entry_kind !== 'manual_award') throw problem('Manual award not found',404);
+      const row = await one(db,'member_cpd_effective_ledger',tenantId,body.ledger_entry_id);
+      if (!row || row.effective_member_id !== memberId || row.entry_kind !== 'manual_award') throw problem('Manual award not found',404);
       const resolved = await resolveManualCertificate(db,{tenantId,memberCertificateId:memberId,row});
       if (!resolved.available) throw problem(resolved.reason,409);
       if (!validCertificateRecipient(member.email)) throw problem('The member needs a valid email address.');

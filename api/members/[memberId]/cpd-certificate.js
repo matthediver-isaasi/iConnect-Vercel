@@ -20,22 +20,23 @@ async function one(db, table, tenantId, id) {
 }
 
 async function eligibility(db, tenantId, memberId, entryId) {
-  const row = await one(db, 'member_cpd_points_ledger', tenantId, entryId);
-  if (!row || String(row.member_id) !== String(memberId) || !['event_award', 'imported_award', 'manual_award'].includes(row.entry_kind)
+  const row = await one(db, 'member_cpd_effective_ledger', tenantId, entryId);
+  if (!row || String(row.effective_member_id) !== String(memberId) || !['event_award', 'imported_award', 'manual_award'].includes(row.entry_kind)
     || !(Number(row.points_value) > 0) || (row.entry_kind === 'event_award' && (!sources[row.booking_type]
     || row.event_type !== (row.booking_type === 'booking' ? 'event' : 'complex_event')
     || !row.event_id || !row.booking_id))) {
     return null;
   }
   const { data: reversals, error } = await db.from('member_cpd_points_ledger').select('id')
-    .eq('tenant_id', tenantId).eq('member_id', memberId).eq('reversal_of', entryId).limit(1);
+    .eq('tenant_id', tenantId).eq('member_id', row.member_id).eq('reversal_of', entryId).limit(1);
   if (error) throw error;
   if (reversals?.length) return null;
   if (['imported_award', 'manual_award'].includes(row.entry_kind)) return row;
   const booking = await one(db, row.booking_type, tenantId, row.booking_id);
   if (!booking || String(booking.event_id) !== String(row.event_id)
     || booking.status !== 'confirmed'
-    || String(await resolveMember(db, tenantId, booking)) !== String(memberId)) return null;
+    || !(String(await resolveMember(db, tenantId, booking)) === String(row.member_id)
+      || row.effective_member_id !== row.member_id)) return null;
   const event = await one(db, row.event_type, tenantId, row.event_id);
   if (!event) return null;
   return row;
@@ -51,7 +52,7 @@ export function createMemberCpdCertificateHandler(deps = {}) {
     if (input.row?.entry_kind === 'manual_award') return (deps.resolveManualCertificate || resolveManualCertificate)(db, input);
     if (input.row?.entry_kind === 'imported_award') return (deps.resolveHistoricCertificate || resolveHistoricCertificate)(db, input);
     const { row, ...eventInput } = input;
-    return (deps.resolveAttendeeCertificate || resolveAttendeeCertificate)(db, eventInput);
+    return (deps.resolveAttendeeCertificate || resolveAttendeeCertificate)(db, { ...eventInput, cpdEntry: row });
   };
   const render = deps.renderAttendeeCertificate || renderAttendeeCertificate;
   return async function handler(req, res) {

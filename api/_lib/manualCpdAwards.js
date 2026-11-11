@@ -56,8 +56,9 @@ export async function prepareManualCertificate(db, tenantId, member, input) {
 }
 export async function resolveManualCertificate(db, { tenantId, memberCertificateId, row }) {
   const certificate = row.manual_certificate;
-  if (row.entry_kind !== 'manual_award' || row.member_id !== memberCertificateId
-    || !certificate?.path?.startsWith(`${tenantId}/manual-cpd/${memberCertificateId}/`)
+  if (row.entry_kind !== 'manual_award' || (row.effective_member_id || row.member_id) !== memberCertificateId
+    || row.tenant_id !== tenantId
+    || !certificate?.path?.startsWith(`${tenantId}/manual-cpd/${row.member_id}/`)
     || !/^[a-f0-9]{64}$/.test(certificate.sha256 || '')) {
     return { available: false, reason: 'Manual certificate unavailable.' };
   }
