@@ -306,6 +306,7 @@ export default function EditEvent() {
     enabled: isGroupLimited && !!groupId
   });
   const groupName = limitedGroup?.name || '';
+  const zoomTimeHelperText = `Managed by Zoom ${event?.zoom_meeting_id ? 'meeting' : 'webinar'}`;
 
   // Ticket classes state for one-off events
   const [ticketClasses, setTicketClasses] = useState([createEmptyTicketClass(true)]);
@@ -3287,7 +3288,7 @@ export default function EditEvent() {
                     <p key={error} role="alert" className="text-sm text-destructive">{error}</p>
                   ))}
                   {!isTraining && isOnlineEvent && !isGroupLimited && eventTiming !== 'tbc' && (
-                    <p className="text-xs text-slate-500">Managed by Zoom {event?.zoom_meeting_id ? 'meeting' : 'webinar'}</p>
+                    <p className="text-xs text-slate-500">{zoomTimeHelperText}</p>
                   )}
                 </div>
                 <div className="space-y-2">
@@ -3306,7 +3307,7 @@ export default function EditEvent() {
                     <p className="text-xs text-slate-500">Taken from the latest agenda date</p>
                   )}
                   {!isTraining && isOnlineEvent && !isGroupLimited && eventTiming !== 'tbc' && (
-                    <p className="text-xs text-slate-500">Managed by Zoom webinar</p>
+                    <p className="text-xs text-slate-500">{zoomTimeHelperText}</p>
                   )}
                 </div>
               </div>
