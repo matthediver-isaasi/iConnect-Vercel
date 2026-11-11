@@ -330,6 +330,27 @@ for (const bundle_display of ['cards', 'dropdown']) {
   });
 }
 
+test('custom labels, alphabetical choices and bundle-only requiredness', async () => {
+  const other = '12345678-1234-4234-8234-123456789013';
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ items: [item,
+    { ...item, kind: 'bundle', name: 'Zulu' },
+    { ...item, id: other, kind: 'bundle', name: 'alpha' },
+  ] }) });
+  const fixture = await mount(saved, 'form-one', { bundle_display: 'dropdown', show_bundle_category: true,
+    bundle_label: 'Package', bundle_category_label: 'Exhibitor level', bundle_required: true });
+  try {
+    await settle();
+    const picker = fixture.container.querySelector('[aria-label="Package"]');
+    assert(fixture.container.querySelector('[aria-label="Exhibitor level"]'));
+    assert.deepEqual([...picker.options].slice(1).map(o => o.value), [other, id]);
+    assert.equal(fixture.validity.at(-1), false, 'product alone does not satisfy bundle requirement');
+    await selectValue(picker, other);
+    assert.equal(fixture.validity.at(-1), false, 'uncommitted selection is not a cart line');
+    await act(async () => [...fixture.container.querySelectorAll('button')].find(b => b.textContent === 'Add bundle').click());
+    assert.equal(fixture.validity.at(-1), true);
+  } finally { await fixture.close(); }
+});
+
 test('mixed product and bundle quantities use separate identities and stock violations block validity', async () => {
   globalThis.fetch = async () => ({ ok: true, json: async () => ({ items: [item, { ...item, kind: 'bundle', name: 'Reading pack', remaining: 4 }] }) });
   const fixture = await mount(saved);

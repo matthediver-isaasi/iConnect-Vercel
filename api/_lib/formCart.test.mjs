@@ -1,12 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cartOptions } from './formCart.js';
+import { cartOptions, resolveFormCart } from './formCart.js';
 
 const id = '20000000-0000-4000-8000-000000000001';
 const category = '20000000-0000-4000-8000-000000000002';
 const base = { id, tenant_id: 'tenant', name: 'Pack', currency: 'GBP', is_active: true, selling_price_minor: 100, category_id: category };
 const field = { id: 'cart', type: 'sales_cart', cart_version: 1, allowed_product_ids: [], allowed_bundle_ids: [id],
   bundle_tax: { [id]: { treatment: 'zero_rated', rateBps: 0 } } };
+test('required bundles reject empty and product-only answers before checkout; hidden carts remain exempt', async () => {
+  const db = { rpc: async () => ({ data: 1 }) };
+  const form = { fields: [{ ...field, bundle_required: true }, { id: 'pay', type: 'payment', price_field_id: 'cart' }] };
+  for (const lines of [[], [{ id, kind: 'product', quantity: 1 }]]) {
+    await assert.rejects(resolveFormCart(db, form, { cart: { version: 1, lines } }, { hiddenFieldIds: new Set() }), /Add at least one bundle/);
+  }
+  assert.equal(await resolveFormCart(db, form, {}, { hiddenFieldIds: new Set(['cart']) }), null);
+});
 for (const enabled of [false, true]) test(`cart bundle category metadata is tenant scoped and optional: ${enabled}`, async () => {
   const reads = [];
   const db = {

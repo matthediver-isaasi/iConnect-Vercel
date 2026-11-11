@@ -10,6 +10,11 @@ const item = { id, kind: 'product', name: 'Original name', description: 'Accepte
   unitPriceMinor: 101, taxTreatment: 'standard', taxRateBps: 2000, currency: 'GBP', remaining: 3, available: true };
 
 test('presentation configuration accepts old defaults and validates explicit values', () => {
+  const check = patch => cartConfigurationError({ ...form, fields: [{ ...field, ...patch }, form.fields[1]] });
+  assert.equal(check({ bundle_label: 'Package', bundle_category_label: 'Exhibitor level', bundle_required: false }), null);
+  assert.match(check({ bundle_required: 'true' }), /on or off/);
+  assert.match(check({ bundle_required: true }), /at least one bundle/);
+  assert.match(check({ bundle_label: 'x'.repeat(121) }), /120/);
   for (const bundle_display of [undefined, 'cards', 'dropdown']) {
     for (const show_bundle_category of [undefined, true, false]) {
       const restored = JSON.parse(JSON.stringify({ ...form, fields: [{ ...field, bundle_display, show_bundle_category }, form.fields[1]] }));

@@ -20,6 +20,13 @@ export default function CartSettings({ field, onChange }) {
   return <div className="space-y-4 rounded-md border border-slate-200 bg-slate-50 p-4">
     <div><p className="text-sm font-medium">Cart catalogue</p><p className="text-xs text-slate-500">Offer up to 100 products and bundles in the Payment currency. Prices, tax and stock are checked by the server. Event and space-dependent items are not supported.</p></div>
     <p role="status" className="text-xs text-slate-500">{count} of 100 items selected</p>
+    <label className="block text-sm">Bundle label<Input maxLength={120} value={field.bundle_label ?? ''} placeholder="Bundle" onChange={event => onChange({ bundle_label: event.target.value })} /></label>
+    <label className="block text-sm">Bundle category label<Input maxLength={120} value={field.bundle_category_label ?? ''} placeholder="Bundle category" onChange={event => onChange({ bundle_category_label: event.target.value })} /></label>
+    <label className="flex items-center gap-2 text-sm">
+      <Checkbox checked={field.bundle_required === true} onCheckedChange={checked => onChange({ bundle_required: checked === true })} />
+      Require at least one bundle
+    </label>
+    <p className="text-xs text-slate-500">When enabled, respondents must add a bundle to their cart. Products alone do not satisfy this requirement. Leave off to make bundles optional.</p>
     <label className="block text-sm">Bundle display
       <select aria-label="Bundle display" className="mt-1 h-10 w-full rounded-md border bg-background px-3 text-sm"
         value={field.bundle_display || 'cards'} onChange={event => onChange({ bundle_display: event.target.value })}>

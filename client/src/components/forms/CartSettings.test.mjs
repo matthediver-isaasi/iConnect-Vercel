@@ -52,7 +52,7 @@ test('presentation patches survive serialization without changing allowlists or 
     control.props.onChange({ target: { value: display } });
     field = { ...field, ...result.changes[0] };
     result = render(field);
-    result.nodes.find(node => node.type === 'checkbox').props.onCheckedChange(true);
+    result.nodes.filter(node => node.type === 'checkbox')[1].props.onCheckedChange(true);
     field = JSON.parse(JSON.stringify({ ...field, ...result.changes[0] }));
     assert.equal(field.bundle_display, display);
     assert.equal(field.show_bundle_category, true);
@@ -71,7 +71,7 @@ test('only independent products and bundles can be newly selected; unknown saved
     { id: 'missing-bundle', name: 'Unreadable pack', items: [{ productId: 'missing' }] },
   ] } };
   const { nodes, changes } = render({ allowed_product_ids: ['saved-missing'], allowed_bundle_ids: [] });
-  const choices = nodes.filter(node => node.type === 'checkbox').slice(1);
+  const choices = nodes.filter(node => node.type === 'checkbox').slice(2);
   assert.deepEqual(choices.map(choice => choice.props.disabled), [false, true, true, undefined, false, true, true]);
   const saved = choices.find(choice => choice.props.checked === true);
   saved.props.onCheckedChange(false);

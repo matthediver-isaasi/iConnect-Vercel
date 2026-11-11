@@ -48,6 +48,11 @@ export function cartConfigurationError(form) {
     return 'Only one Cart is supported, on standard forms only.';
   }
   const cart = carts[0];
+  for (const key of ['bundle_label', 'bundle_category_label']) {
+    if (cart[key] !== undefined && (typeof cart[key] !== 'string' || cart[key].length > 120)) return 'Cart labels must be text of up to 120 characters.';
+  }
+  if (cart.bundle_required !== undefined && typeof cart.bundle_required !== 'boolean') return 'Require a bundle must be on or off.';
+  if (cart.bundle_required && !cart.allowed_bundle_ids?.length) return 'Choose at least one bundle when a bundle is required.';
   if (cart.bundle_display !== undefined && !['cards', 'dropdown'].includes(cart.bundle_display)) {
     return 'Choose Item cards or Dropdown for Bundle display.';
   }

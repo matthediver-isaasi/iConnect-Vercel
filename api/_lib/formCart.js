@@ -116,6 +116,9 @@ export async function resolveFormCart(db, form, values, { hiddenFieldIds, checkS
   try { answer = normalizeCartAnswer(values[field.id]); }
   catch (error) { throw new FormCartError(error.message); }
   if (field.required && !answer.lines.length) throw new FormCartError('Choose at least one cart item.');
+  if (field.bundle_required === true && !answer.lines.some(line => line.kind === 'bundle')) {
+    throw new FormCartError('Add at least one bundle to continue.');
+  }
   values[field.id] = answer;
   const options = await cartOptions(db, form, field.id);
   let receipt;
