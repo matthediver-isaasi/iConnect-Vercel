@@ -48,6 +48,12 @@ export function cartConfigurationError(form) {
     return 'Only one Cart is supported, on standard forms only.';
   }
   const cart = carts[0];
+  if (cart.bundle_display !== undefined && !['cards', 'dropdown'].includes(cart.bundle_display)) {
+    return 'Choose Item cards or Dropdown for Bundle display.';
+  }
+  if (cart.show_bundle_category !== undefined && typeof cart.show_bundle_category !== 'boolean') {
+    return 'Enable bundle category filter must be a boolean.';
+  }
   if (cart.cart_version !== CART_VERSION || !cart.id || cart.parent_field_id || cart.multiple || cart.multi_select) {
     return 'Use a version 1 top-level Cart.';
   }

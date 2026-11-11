@@ -17,7 +17,11 @@ const form = { id: 'cart-fixture', slug: 'cart-fixture', name: 'Cart fixture', b
       allowed_product_ids: [product], allowed_bundle_ids: [bundle], bundle_tax: { [bundle]: { treatment: 'zero_rated', rateBps: 0 } } },
     { id: 'payment', type: 'payment', label: 'Payment', price_field_id: 'cart', payment_currency: 'GBP', payment_providers: ['stripe'] },
   ] };
-async function mock(page, info) {
+async function mock(page, info, { display, authenticated = false } = {}) {
+  const offered = display ? [...items.map(item => item.kind === 'bundle' ? { ...item, categoryId: 'packs', categoryName: 'Packages' } : item),
+    { ...items[1], id: '20000000-0000-4000-8000-000000000003', name: 'Extra pack', categoryId: null, categoryName: null }] : items;
+  const configuredForm = display ? { ...form, fields: form.fields.map(field => field.type === 'sales_cart'
+    ? { ...field, bundle_display: display, show_bundle_category: true } : field) } : form;
   const state = { creates: 0, confirms: 0, failStock: true, lastAnswers: null };
   await page.route('**/*', async route => {
     const request = route.request(), url = new URL(request.url()), p = url.pathname;
@@ -37,14 +41,14 @@ async function mock(page, info) {
     if (p === '/api/tenant-info') return json({ id: 'fixture-tenant', slug: 'fixture', name: 'Fixture', branding: {} });
     if (p === '/api/public/tenant-branding') return json({ tenant_id: 'fixture-tenant', name: 'Fixture', header_config: {}, footer_config: {} });
     if (['/api/public/session','/api/me','/api/auth/user'].includes(p)) return json(p === '/api/public/session'
-      ? { authenticated: false, member: null } : { error: 'Not authenticated' }, p === '/api/public/session' ? 200 : 401);
-    if (p === '/api/public/form/cart-fixture') return json(form);
-    if (p === '/api/public/form-bundles') return json({ items });
+      ? { authenticated, member: authenticated ? { id: 'fixture-member', tenant_id: 'fixture-tenant', email: 'fixture@example.test' } : null } : { error: 'Not authenticated' }, p === '/api/public/session' ? 200 : 401);
+    if (p === '/api/public/form/cart-fixture') return json(configuredForm);
+    if (p === '/api/public/form-bundles') return json({ items: offered });
     if (p === '/api/public/form-payment-providers') return json({ providers: [{ id: 'stripe', configured: true, name: 'Credit / debit card' }] });
     if (p === '/api/public/form-payment') {
       const body = request.postDataJSON();
       if (body.action === 'quote') {
-        const receipt = priceCartLines(body.submission_data.cart, items, 'GBP');
+        const receipt = priceCartLines(body.submission_data.cart, offered, 'GBP');
         return json({ required: receipt.grossMinor > 0, amount: receipt.grossMinor / 100, currency: 'GBP', cart: { ...receipt, fieldId: 'cart' } });
       }
       if (body.action === 'create') {
@@ -59,6 +63,42 @@ async function mock(page, info) {
     return json([]);
   });
   return state;
+}
+for (const mode of ['public', 'authenticated', 'embedded']) {
+  for (const width of [390, 1280]) {
+    test(`${mode} dropdown at ${width}px retains multiple bundles across filters`, async ({ page }, info) => {
+      await page.setViewportSize({ width, height: 950 });
+      await mock(page, info, { display: 'dropdown', authenticated: mode === 'authenticated' });
+      let scope = page;
+      if (mode === 'embedded') {
+        await page.goto('/');
+        await page.setContent(`<iframe title="cart fixture" src="${info.project.use.baseURL}/embed/form/cart-fixture" style="width:100%;height:900px;border:0"></iframe>`);
+        scope = page.frameLocator('iframe[title="cart fixture"]');
+      } else await page.goto('/FormView?slug=cart-fixture');
+      const picker = scope.getByLabel('Bundle', { exact: true });
+      const quantity = scope.getByLabel('Bundle quantity', { exact: true });
+      await expect(picker).toBeVisible({ timeout: 45000 });
+      await picker.selectOption(bundle);
+      await quantity.fill('2');
+      await scope.getByRole('button', { name: 'Add bundle', exact: true }).click();
+      await scope.getByLabel('Bundle category', { exact: true }).selectOption('_uncategorised');
+      await expect(picker).toHaveValue('');
+      await expect(scope.locator(`#cart-cart-bundle-${bundle}`)).toHaveValue('2');
+      await picker.selectOption('20000000-0000-4000-8000-000000000003');
+      await scope.getByRole('button', { name: 'Add bundle', exact: true }).click();
+      await expect(scope.getByText(/Amount due:.*75.00/).first()).toBeVisible();
+      await scope.getByLabel('Bundle category', { exact: true }).selectOption('');
+      await picker.selectOption(bundle);
+      await expect(quantity).toHaveValue('2');
+      await quantity.fill('1');
+      await scope.getByRole('button', { name: 'Update bundle', exact: true }).click();
+      await expect(scope.getByText(/Amount due:.*50.00/).first()).toBeVisible();
+      await scope.locator(`#cart-cart-bundle-${bundle}`).locator('..').getByRole('button', { name: 'Remove', exact: true }).click();
+      await expect(scope.getByText(/Amount due:.*25.00/).first()).toBeVisible();
+      const overflow = await picker.evaluate(el => el.ownerDocument.documentElement.scrollWidth > el.ownerDocument.documentElement.clientWidth);
+      expect(overflow).toBe(false);
+    });
+  }
 }
 for (const mode of ['public', 'embedded']) {
   test(`${mode}: mixed quantities, required answer, conflict recovery and checkout`, async ({ page }, info) => {

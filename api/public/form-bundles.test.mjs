@@ -7,7 +7,7 @@ const baseForm = { id: 'f', tenant_id: 't', is_active: true, fields: [
 ] };
 async function request(form, { member = null, access = true, rows = [] } = {}) {
   const queries = [];
-  const db = { from(table) {
+  const db = { rpc: async () => ({ data: 1 }), from(table) {
     const q = { select() { return this; }, eq(k,v) { queries.push([table,k,v]); return this; },
       in() { return this; }, maybeSingle() { return this; },
       then(resolve) { resolve({ data: table === 'form' ? form : rows }); } };
@@ -36,4 +36,18 @@ test('private form options deny guests and cross-tenant members', async () => {
 test('surveys and unavailable forms never expose catalogue options', async () => {
   assert.equal((await request({ ...baseForm, form_type: 'survey' })).res.statusCode, 404);
   assert.equal((await request({ ...baseForm, deactivate_at: '2000-01-01' })).res.statusCode, 404);
+});
+test('cart options retain private-form authorization with category presentation enabled', async () => {
+  const form = { ...baseForm, require_authentication: true, fields: [
+    { id: 'b', type: 'sales_cart', cart_version: 1, bundle_display: 'dropdown', show_bundle_category: true,
+      allowed_product_ids: [], allowed_bundle_ids: [id], bundle_tax: { [id]: { treatment: 'zero_rated', rateBps: 0 } } },
+    { id: 'pay', type: 'payment', price_field_id: 'b' },
+  ] };
+  for (const member of [null, { tenant_id: 'other' }]) {
+    const { res, queries } = await request(form, { member });
+    assert.equal(res.statusCode, 403);
+    assert.equal(queries.some(([table]) => table.startsWith('sales_catalogue')), false);
+  }
+  assert.equal((await request(form, { member: { tenant_id: 't' } })).res.statusCode, 200);
+  assert.equal((await request({ ...form, require_authentication: false })).res.statusCode, 200);
 });

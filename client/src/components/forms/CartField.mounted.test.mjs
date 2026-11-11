@@ -37,7 +37,7 @@ const id = '12345678-1234-4234-8234-123456789012';
 const item = { kind: 'product', id, name: 'Annual handbook', description: 'Printed edition', unitPriceMinor: 1735, currency: 'GBP', taxTreatment: 'standard', taxRateBps: 2000, available: true, remaining: 7 };
 const saved = { version: 1, lines: [{ kind: 'product', id, quantity: 2 }] };
 const settle = async () => { await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)); }); };
-async function mount(initialValue = '', formId = 'form-one') {
+async function mount(initialValue = '', formId = 'form-one', settings = {}) {
   const container = document.createElement('div');
   document.body.append(container);
   const root = createRoot(container);
@@ -47,7 +47,7 @@ async function mount(initialValue = '', formId = 'form-one') {
   function Fixture() {
     const [value, setValue] = React.useState(initialValue);
     return React.createElement(CartField, {
-      field: { id: 'cart', type: 'sales_cart', required: true }, formId, value,
+      field: { id: 'cart', type: 'sales_cart', required: true, ...settings }, formId, value,
       onChange: next => { answers.push(next); setValue(next); },
       onValidityChange: (_id, valid) => validity.push(valid),
     });
@@ -255,6 +255,81 @@ const setInput = async (input, value) => act(async () => {
   input.dispatchEvent(new Event('change', { bubbles: true }));
 });
 
+const selectValue = async (select, value) => act(async () => {
+  select.value = value;
+  select.dispatchEvent(new Event('change', { bubbles: true }));
+});
+test('dropdown preserves restored sold-out bundles and blocks mutations during option failures', async () => {
+  const restored = { version: 1, lines: [{ kind: 'bundle', id, quantity: 2 }] };
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ items: [{ ...item, kind: 'bundle', remaining: 0, available: false }] }) });
+  const fixture = await mount(restored, 'form-one', { bundle_display: 'dropdown', show_bundle_category: true });
+  try {
+    await settle();
+    const { container, answers, validity } = fixture;
+    assert.equal(container.querySelector(`option[value="${id}"]`).disabled, true);
+    assert.equal(container.querySelector(`#cart-cart-bundle-${id}`).value, '2');
+    assert.equal(container.querySelector(`#cart-cart-bundle-${id}`).disabled, true);
+    assert.equal(validity.at(-1), false);
+    let finish;
+    globalThis.fetch = () => new Promise(resolve => { finish = resolve; });
+    await act(async () => window.dispatchEvent(new CustomEvent('form-cart-unavailable', { detail: { formId: 'form-one' } })));
+    assert.ok([...container.querySelectorAll('input,select,button')].every(control => control.disabled));
+    await act(async () => finish({ ok: false, status: 503, text: async () => '{"error":"Catalogue unavailable"}' }));
+    await settle();
+    assert.match(container.textContent, /Cart options are unavailable/);
+    assert.deepEqual(answers, []);
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({ items: [] }) });
+    await act(async () => [...container.querySelectorAll('button')].find(button => button.textContent === 'Retry cart options').click());
+    await settle();
+    await act(async () => [...container.querySelectorAll('button')].find(button => button.textContent === 'Remove saved item').click());
+    assert.deepEqual(answers.at(-1), { version: 1, lines: [] });
+  } finally { await fixture.close(); }
+});
+for (const bundle_display of ['cards', 'dropdown']) {
+  test(`${bundle_display}: categories retain selected bundles and product identity; quantities and locks are enforced`, async () => {
+    const other = '12345678-1234-4234-8234-123456789013';
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({ items: [item,
+      { ...item, kind: 'bundle', name: 'Pack A', categoryId: 'a', categoryName: 'Books' },
+      { ...item, id: other, kind: 'bundle', name: 'Pack B', categoryId: null, categoryName: null },
+    ] }) });
+    const fixture = await mount(saved, 'form-one', { bundle_display, show_bundle_category: true });
+    const { container, answers } = fixture;
+    const picker = () => container.querySelector('[aria-label="Bundle"]');
+    const draft = () => container.querySelector('[aria-label="Bundle quantity"]');
+    const action = () => [...container.querySelectorAll('button')].find(b => /^(Add|Update) bundle$/.test(b.textContent));
+    try {
+      await settle();
+      assert.equal(answers.length, 0);
+      if (bundle_display === 'dropdown') {
+        assert.equal(container.querySelectorAll('input').length, 2, 'unselected bundle cards absent');
+        await selectValue(picker(), id);
+        await setInput(draft(), '3');
+        await act(async () => action().click());
+        await selectValue(picker(), other);
+        await act(async () => action().click());
+        await selectValue(picker(), id);
+        assert.equal(draft().value, '3');
+        assert.equal(action().textContent, 'Update bundle');
+        await setInput(draft(), '4');
+        await act(async () => action().click());
+        assert.equal(answers.at(-1).lines.length, 3);
+        await setInput(draft(), '8');
+        assert.equal(action().disabled, true);
+      } else {
+        await setInput(container.querySelector(`#cart-cart-bundle-${id}`), '4');
+      }
+      await selectValue(container.querySelector('[aria-label="Bundle category"]'), '_uncategorised');
+      assert.equal(container.querySelector(`#cart-cart-bundle-${id}`).value, '4');
+      assert.equal(container.querySelector(`#cart-cart-product-${id}`).value, '2');
+      if (picker()) assert.equal(picker().value, '', 'only uncommitted choice clears');
+      const before = answers.length;
+      await act(async () => window.dispatchEvent(new CustomEvent('form-cart-locked', { detail: { formId: 'form-one' } })));
+      assert.ok([...container.querySelectorAll('input,select,button')].every(control => control.disabled));
+      assert.equal(answers.length, before);
+    } finally { await fixture.close(); }
+  });
+}
+
 test('mixed product and bundle quantities use separate identities and stock violations block validity', async () => {
   globalThis.fetch = async () => ({ ok: true, json: async () => ({ items: [item, { ...item, kind: 'bundle', name: 'Reading pack', remaining: 4 }] }) });
   const fixture = await mount(saved);
@@ -267,7 +342,7 @@ test('mixed product and bundle quantities use separate identities and stock viol
     ] });
     assert.equal(fixture.validity.at(-1), true);
     await setInput(inputs[0], '8');
-    assert.equal(fixture.validity.at(-1), false);
+    assert.equal(fixture.answers.at(-1).lines.find(line => line.kind === 'product').quantity, 2, 'over-stock mutation is rejected');
     await setInput(inputs[0], '1');
     assert.equal(fixture.validity.at(-1), true);
     const beforeFraction = fixture.answers.length;
@@ -301,7 +376,7 @@ test('mounted settings preserve missing selections and require explicit bundle t
     assert.deepEqual(field.allowed_bundle_ids, [bundleId]);
     assert.deepEqual(field.allowed_product_ids, ['missing']);
     assert.equal(field.bundle_tax[bundleId], undefined);
-    const treatment = container.querySelector('select');
+    const treatment = container.querySelector('select[aria-label="Tax treatment for Reading pack"]');
     await act(async () => { treatment.value = 'standard'; treatment.dispatchEvent(new Event('change', { bubbles: true })); });
     assert.equal(field.bundle_tax[bundleId].rateBps, null);
     const rate = container.querySelector('input[type="number"]');

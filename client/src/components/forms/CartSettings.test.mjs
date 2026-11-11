@@ -39,6 +39,26 @@ function render(field) {
   const nodes = walk(Settings({ field, onChange: patch => changes.push(patch) }));
   return { nodes, changes };
 }
+test('presentation patches survive serialization without changing allowlists or explicit tax', () => {
+  state.products = { data: { items: [] } };
+  state.bundles = { data: { items: [] } };
+  const original = { allowed_product_ids: [productId], allowed_bundle_ids: [bundleId],
+    bundle_tax: { [bundleId]: { treatment: 'standard', rateBps: 1750 } } };
+  let field = original;
+  for (const display of ['dropdown', 'cards']) {
+    let result = render(field);
+    const control = result.nodes.find(node => node.props?.['aria-label'] === 'Bundle display');
+    assert.equal(control.props.value, field.bundle_display || 'cards');
+    control.props.onChange({ target: { value: display } });
+    field = { ...field, ...result.changes[0] };
+    result = render(field);
+    result.nodes.find(node => node.type === 'checkbox').props.onCheckedChange(true);
+    field = JSON.parse(JSON.stringify({ ...field, ...result.changes[0] }));
+    assert.equal(field.bundle_display, display);
+    assert.equal(field.show_bundle_category, true);
+    for (const key of Object.keys(original)) assert.deepEqual(field[key], original[key]);
+  }
+});
 test('only independent products and bundles can be newly selected; unknown saved choices stay removable', () => {
   state.products = { data: { cartStockReady: true, items: [
     { id: productId, name: 'Handbook' },
@@ -51,7 +71,7 @@ test('only independent products and bundles can be newly selected; unknown saved
     { id: 'missing-bundle', name: 'Unreadable pack', items: [{ productId: 'missing' }] },
   ] } };
   const { nodes, changes } = render({ allowed_product_ids: ['saved-missing'], allowed_bundle_ids: [] });
-  const choices = nodes.filter(node => node.type === 'checkbox');
+  const choices = nodes.filter(node => node.type === 'checkbox').slice(1);
   assert.deepEqual(choices.map(choice => choice.props.disabled), [false, true, true, undefined, false, true, true]);
   const saved = choices.find(choice => choice.props.checked === true);
   saved.props.onCheckedChange(false);
@@ -64,7 +84,7 @@ test('bundle tax is explicit, standard rate starts unset, and zero is a valid de
   const form = { form_type: 'standard', fields: [field, { id: 'payment', type: 'payment', price_field_id: 'cart' }] };
   assert.match(cartConfigurationError(form), /explicit valid tax/);
   const { nodes, changes } = render(field);
-  const treatment = nodes.find(node => node.type === 'select');
+  const treatment = nodes.find(node => node.props?.['aria-label'] === 'Tax treatment for Reading pack');
   assert.equal(treatment.props.value, '');
   treatment.props.onChange({ target: { value: 'standard' } });
   assert.equal(changes[0].bundle_tax[bundleId].rateBps, null);

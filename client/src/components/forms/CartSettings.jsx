@@ -20,6 +20,16 @@ export default function CartSettings({ field, onChange }) {
   return <div className="space-y-4 rounded-md border border-slate-200 bg-slate-50 p-4">
     <div><p className="text-sm font-medium">Cart catalogue</p><p className="text-xs text-slate-500">Offer up to 100 products and bundles in the Payment currency. Prices, tax and stock are checked by the server. Event and space-dependent items are not supported.</p></div>
     <p role="status" className="text-xs text-slate-500">{count} of 100 items selected</p>
+    <label className="block text-sm">Bundle display
+      <select aria-label="Bundle display" className="mt-1 h-10 w-full rounded-md border bg-background px-3 text-sm"
+        value={field.bundle_display || 'cards'} onChange={event => onChange({ bundle_display: event.target.value })}>
+        <option value="cards">Item cards</option><option value="dropdown">Dropdown</option>
+      </select>
+    </label>
+    <label className="flex items-center gap-2 text-sm">
+      <Checkbox checked={field.show_bundle_category === true} onCheckedChange={checked => onChange({ show_bundle_category: checked === true })} />
+      Enable bundle category filter
+    </label>
     {sections.map(({ kind, label, query, rows, eligible }) => {
       const key = `allowed_${kind}_ids`;
       const selected = field[key] || [];

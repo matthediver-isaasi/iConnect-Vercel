@@ -13,12 +13,15 @@ export default function CartField({ field, formId, value, onChange, disabled, on
   const [instance] = useState(() => ++instanceCounter);
   const [locked, setLocked] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
+  const [category, setCategory] = useState('');
+  const [bundleId, setBundleId] = useState('');
+  const [bundleQuantity, setBundleQuantity] = useState('1');
   const lockQuery = useQuery({ queryKey: ['form-cart-locked', formId], queryFn: () => false, enabled: false });
   const cartLocked = locked || lockQuery.data === true;
   const callbacks = useRef({ onChange, onValidityChange });
   callbacks.current = { onChange, onValidityChange };
   const query = useQuery({
-    queryKey: ['public-form-cart', publicClient.getTenantSlug(), formId, field.id, instance],
+    queryKey: ['public-form-cart', publicClient.getTenantSlug(), formId, field.id, instance, field.show_bundle_category === true],
     queryFn: () => publicClient.listFormBundles(formId, field.id),
     enabled: !!formId, retry: false, staleTime: 0, gcTime: 0,
   });
@@ -58,6 +61,17 @@ export default function CartField({ field, formId, value, onChange, disabled, on
   }
   const items = query.data?.items || [];
   const findItem = line => items.find(item => item.kind === line.kind && item.id === line.id);
+  const bundles = items.filter(item => item.kind === 'bundle');
+  const categoryKey = item => item.categoryId || '_uncategorised';
+  const categories = [...new Map(bundles.map(item => [categoryKey(item), item.categoryName || 'Uncategorised'])).entries()]
+    .sort((a, b) => a[1].localeCompare(b[1]));
+  const visibleBundles = bundles.filter(item => !field.show_bundle_category || !category || categoryKey(item) === category);
+  const pickedBundle = visibleBundles.find(item => item.id === bundleId);
+  const pickedLine = answer.lines.find(line => line.kind === 'bundle' && line.id === bundleId);
+  const dropdown = field.bundle_display === 'dropdown';
+  useEffect(() => {
+    if (bundleId && !pickedBundle && !query.isFetching && !query.isError) setBundleId('');
+  }, [bundleId, pickedBundle, query.isFetching, query.isError]);
   const valid = !invalidAnswer && (!field.required || answer.lines.length > 0) && answer.lines.every(line => {
     const item = findItem(line);
     return item?.available === true && (item.remaining === null || line.quantity <= item.remaining);
@@ -66,13 +80,19 @@ export default function CartField({ field, formId, value, onChange, disabled, on
     callbacks.current.onValidityChange?.(field.id, !!formId && valid && !query.isError && !query.isFetching);
   }, [field.id, formId, valid, query.isError, query.isFetching]);
   const changeQuantity = (kind, id, quantity) => {
-    if (cartLocked || disabled) return;
+    if (readonly || !Number.isSafeInteger(quantity) || quantity < 0 || quantity > 1000) return;
+    const item = findItem({ kind, id });
+    if (quantity > 0 && (!item?.available || quantity > (item.remaining ?? 1000))) return;
     const lines = answer.lines.filter(line => !(line.kind === kind && line.id === id));
     if (quantity > 0) lines.push({ kind, id, quantity });
     callbacks.current.onChange({ version: 1, lines });
     setUnavailable(false);
+    if (kind === 'bundle' && id === bundleId) setBundleQuantity(String(quantity || 1));
   };
-  const readonly = disabled || cartLocked || query.isFetching || query.isError;
+  const readonly = disabled || cartLocked || !formId || query.isPending || query.isFetching || query.isError;
+  const draftQuantity = Number(bundleQuantity);
+  const canAdd = pickedBundle?.available && Number.isSafeInteger(draftQuantity) && draftQuantity >= 1
+    && draftQuantity <= Math.min(1000, pickedBundle.remaining ?? 1000);
   return <div className="space-y-3">
     {cartLocked && <p role="status" className="rounded-md border bg-muted/40 p-3 text-sm">Checkout has started. Your cart is locked to this payment attempt.</p>}
     {unavailable && <p role="alert" className="text-sm text-destructive">A cart item is no longer available. Your cart and other answers have been kept. Review quantities before retrying.</p>}
@@ -80,7 +100,43 @@ export default function CartField({ field, formId, value, onChange, disabled, on
       : query.isFetching || query.isPending ? <div role="status" className="animate-pulse rounded-md bg-muted p-3 text-sm">Loading cart options…</div>
       : query.isError ? <div role="alert" className="space-y-2 text-sm text-destructive"><p>Cart options are unavailable. Your selections have been kept.</p><Button type="button" variant="outline" size="sm" onClick={() => query.refetch()}>Retry cart options</Button></div>
       : items.length === 0 ? <p className="rounded-md border bg-muted/40 p-3 text-sm">No items are currently offered on this form.</p> : null}
-    {!query.isPending && !query.isError && items.map(item => {
+    {field.show_bundle_category === true && bundles.length > 0 && <label className="block text-sm">Bundle category
+      <select aria-label="Bundle category" className="mt-1 h-10 w-full min-w-0 rounded-md border bg-background px-3 text-sm"
+        disabled={readonly} value={category} onChange={event => {
+          setCategory(event.target.value);
+          if (event.target.value && pickedBundle && categoryKey(pickedBundle) !== event.target.value) setBundleId('');
+        }}>
+        <option value="">All categories</option>
+        {categories.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+      </select>
+    </label>}
+    {!query.isPending && !query.isError && bundles.length > 0 && visibleBundles.length === 0 && <p role="status" className="text-sm">No bundles match this category.</p>}
+    {dropdown && !query.isPending && !query.isError && <div className="space-y-2">
+      <label className="block text-sm">Bundle
+        <select aria-label="Bundle" className="mt-1 h-10 w-full min-w-0 rounded-md border bg-background px-3 text-sm"
+          disabled={readonly} value={bundleId} onChange={event => {
+            setBundleId(event.target.value);
+            setBundleQuantity(String(answer.lines.find(line => line.kind === 'bundle' && line.id === event.target.value)?.quantity || 1));
+          }}>
+          <option value="">Choose a bundle…</option>
+          {visibleBundles.map(item => <option key={item.id} value={item.id} disabled={!item.available}>
+            {item.name} — {money(item.unitPriceMinor, item.currency)}{!item.available ? ' — Sold out / unavailable' : ''}
+          </option>)}
+        </select>
+      </label>
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="text-sm">Quantity<Input aria-label="Bundle quantity" className="w-24" type="number" min="1"
+          max={Math.min(1000, pickedBundle?.remaining ?? 1000)} step="1" value={bundleQuantity}
+          disabled={readonly || !pickedBundle?.available} aria-invalid={!!bundleId && !canAdd}
+          onChange={event => setBundleQuantity(event.target.value)} /></label>
+        <Button type="button" disabled={readonly || !canAdd} onClick={() => changeQuantity('bundle', bundleId, draftQuantity)}>
+          {pickedLine ? 'Update bundle' : 'Add bundle'}
+        </Button>
+      </div>
+    </div>}
+    {!query.isPending && !query.isError && items.filter(item => item.kind !== 'bundle'
+      || answer.lines.some(line => line.kind === 'bundle' && line.id === item.id)
+      || (!dropdown && visibleBundles.includes(item))).map(item => {
       const line = answer.lines.find(line => line.kind === item.kind && line.id === item.id);
       const quantity = line?.quantity || 0;
       return <div key={`${item.kind}:${item.id}`} className="space-y-2 rounded-md border bg-background p-3">
@@ -92,8 +148,8 @@ export default function CartField({ field, formId, value, onChange, disabled, on
         }} />{quantity > 0 && <Button type="button" variant="ghost" size="sm" disabled={readonly} onClick={() => changeQuantity(item.kind, item.id, 0)}>Remove</Button>}</div>
       </div>;
     })}
-    {answer.lines.filter(line => !findItem(line)).map((line, index) => <div key={`${line.kind}:${line.id}:${index}`} className="rounded-md border border-amber-200 p-3 text-sm"><p className="text-amber-700">Saved {line.kind || 'item'} unavailable ({line.id}) · quantity {line.quantity}</p><Button type="button" variant="ghost" size="sm" disabled={disabled || cartLocked} onClick={() => changeQuantity(line.kind, line.id, 0)}>Remove saved item</Button></div>)}
-    {invalidAnswer && <div role="alert" className="text-sm text-destructive"><p>This saved cart cannot be read. It has not been changed automatically.</p><Button type="button" variant="outline" size="sm" disabled={disabled || cartLocked} onClick={() => callbacks.current.onChange({ version: 1, lines: [] })}>Clear unreadable cart</Button></div>}
+    {answer.lines.filter(line => !findItem(line)).map((line, index) => <div key={`${line.kind}:${line.id}:${index}`} className="rounded-md border border-amber-200 p-3 text-sm"><p className="text-amber-700">Saved {line.kind || 'item'} unavailable ({line.id}) · quantity {line.quantity}</p><Button type="button" variant="ghost" size="sm" disabled={readonly} onClick={() => changeQuantity(line.kind, line.id, 0)}>Remove saved item</Button></div>)}
+    {invalidAnswer && <div role="alert" className="text-sm text-destructive"><p>This saved cart cannot be read. It has not been changed automatically.</p><Button type="button" variant="outline" size="sm" disabled={readonly} onClick={() => { if (!readonly) callbacks.current.onChange({ version: 1, lines: [] }); }}>Clear unreadable cart</Button></div>}
     {!valid && answer.lines.length > 0 && !query.isFetching && <p role="alert" className="text-sm text-destructive">Review unavailable items and quantities before checkout.</p>}
     <p className="text-xs text-muted-foreground">Nothing is added automatically. The Payment total includes tax and is confirmed before checkout. Cart selections cannot be edited after checkout starts.</p>
   </div>;

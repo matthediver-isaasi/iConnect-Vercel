@@ -9,6 +9,17 @@ const answer = quantity => ({ version: 1, lines: [{ id, kind: 'product', quantit
 const item = { id, kind: 'product', name: 'Original name', description: 'Accepted description',
   unitPriceMinor: 101, taxTreatment: 'standard', taxRateBps: 2000, currency: 'GBP', remaining: 3, available: true };
 
+test('presentation configuration accepts old defaults and validates explicit values', () => {
+  for (const bundle_display of [undefined, 'cards', 'dropdown']) {
+    for (const show_bundle_category of [undefined, true, false]) {
+      const restored = JSON.parse(JSON.stringify({ ...form, fields: [{ ...field, bundle_display, show_bundle_category }, form.fields[1]] }));
+      assert.equal(cartConfigurationError(restored), null);
+    }
+  }
+  for (const bundle_display of ['', null, 'grid', true]) assert.match(cartConfigurationError({ ...form, fields: [{ ...field, bundle_display }, form.fields[1]] }), /Bundle display/);
+  for (const show_bundle_category of [null, 'true', 1]) assert.match(cartConfigurationError({ ...form, fields: [{ ...field, show_bundle_category }, form.fields[1]] }), /boolean/);
+});
+
 test('cart configuration restricts placement, supported forms and payment ownership', () => {
   assert.equal(cartConfigurationError(form), null);
   for (const type of ['survey', 'other']) assert.match(cartConfigurationError({ ...form, form_type: type }), /standard/);

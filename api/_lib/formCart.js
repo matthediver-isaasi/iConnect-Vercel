@@ -51,6 +51,8 @@ export async function cartOptions(db, form, fieldId) {
   const componentProducts = await rows(db, 'sales_catalogue_product', form.tenant_id,
     [...new Set(components.map(component => component.product_id))]);
   const currency = (findPaymentField(form)?.payment_currency || 'GBP').toUpperCase();
+  const categories = field.show_bundle_category === true ? await rows(db, 'sales_catalogue_category',
+    form.tenant_id, [...new Set(bundles.map(bundle => bundle.category_id).filter(Boolean))], 'id,name') : [];
   const result = [];
   for (const [kind, items, stocks] of [['product', products, productStocks], ['bundle', bundles, bundleStocks]]) {
     for (const item of items) {
@@ -68,6 +70,10 @@ export async function cartOptions(db, form, fieldId) {
       }
       const remaining = stocks.find(stock => stock[`${kind}_id`] === item.id)?.remaining ?? null;
       result.push({ kind, id: item.id, name: item.name, description: item.description || '',
+        ...(kind === 'bundle' && field.show_bundle_category === true ? {
+          categoryId: categories.find(category => category.id === item.category_id)?.id || null,
+          categoryName: categories.find(category => category.id === item.category_id)?.name || null,
+        } : {}),
         unitPriceMinor: Number(kind === 'bundle' ? item.selling_price_minor : item.standard_price_minor),
         taxTreatment: tax.treatment, taxRateBps: tax.rateBps, currency, remaining, available: remaining !== 0 });
     }
