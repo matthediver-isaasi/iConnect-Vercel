@@ -94,8 +94,8 @@ export function MembershipDataView({
   const ready = result?.status === 'ready';
   const checkingPayment = paymentCard && result?.status === 'loading';
   const state = ready ? (paymentCard ? summary.payment.state : summary.membership.state) : 'unavailable';
-  const renewalHref = safeMembershipLink(summary.renewal.journeyMode === 'questionnaire'
-    ? summary.renewal.entryHref : content.renewalLink);
+  const renewalHref = safeMembershipLink(summary.renewal.entryHref || (
+    summary.renewal.journeyMode === 'questionnaire' ? null : content.renewalLink));
   const restart = summary.renewal.state === 'post_grace_renewal';
    const bankSetupPending = summary.payment.state === 'bank_setup_pending';
    const showRenewal = paymentCard && ready && !bankSetupPending && summary.renewal.eligible && !!renewalHref;

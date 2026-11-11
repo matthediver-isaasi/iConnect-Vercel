@@ -201,6 +201,7 @@ before(async () => {
     'membershipSimulationCore.js',
     'memberDateTermSimulation.js',
     'memberDateTermPolicy.js',
+    'membershipRenewalExceptions.js',
     'reviewedHistoricalRenewal.js',
     'expiryOnlyRenewalPolicy.js',
     'formExpiryOnlyRenewal.js',

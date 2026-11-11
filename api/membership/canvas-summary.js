@@ -554,7 +554,7 @@ export function createCanvasSummaryHandler(dependencies = {}) {
         // Payment remains the recorded prior term, never the unpaid renewal.
         summary.payment.state = 'paid';
       }
-      summary.renewal = await (dependencies.applyRenewalJourney || applyRenewalJourney)(db, tenantId, summary.renewal);
+      summary.renewal = await (dependencies.applyRenewalJourney || applyRenewalJourney)(db, tenantId, summary.renewal,owner.id);
       if (!selected && summary.payment.state === 'none') {
         summary.joining = await (dependencies.loadJoiningJourney || loadJoiningJourney)(db, { tenantId, owner });
       }

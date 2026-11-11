@@ -2,8 +2,13 @@ import { useEffect, useState } from 'react';
 import { adminFetch } from '@/lib/adminFetch';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import MembershipRenewalExceptions from './MembershipRenewalExceptions';
 
 export default function MembershipRenewalJourneySettings({ tenantId, joining = false }) {
+  return <MembershipRenewalJourneySettingsContent key={`${tenantId}:${joining}`} tenantId={tenantId} joining={joining} />;
+}
+
+function MembershipRenewalJourneySettingsContent({ tenantId, joining }) {
   const [saved, setSaved] = useState(null);
   const [mode, setMode] = useState('same_schedule');
   const [formId, setFormId] = useState('');
@@ -65,6 +70,7 @@ export default function MembershipRenewalJourneySettings({ tenantId, joining = f
         <div className="flex gap-2"><Button type="submit" disabled={busy || !saved || (!joining && mode === 'questionnaire' && !formId)}>{busy ? 'Please wait…' : joining ? 'Save joining journey' : 'Save renewal journey'}</Button>
           <Button type="button" variant="outline" disabled={busy} onClick={load}>Reload settings</Button></div>
       </form>
+      {!joining && <MembershipRenewalExceptions key={tenantId} tenantId={tenantId} />}
     </CardContent>
   </Card>;
 }

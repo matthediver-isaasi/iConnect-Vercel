@@ -12,6 +12,7 @@ import { addDays, toDateString } from './annualRenewalPolicy.js';
 import { resolveMemberAmendmentReadOverlay, effectiveMemberEntitlement } from './membershipAmendmentReadOverlay.js';
 import { findUnresolvedUnverifiedHistory } from '../../shared/unverifiedMembershipHistory.js';
 import { simulateMemberDateTerm } from './memberDateTermSimulation.js';
+import { assertRenewalCategory } from './membershipRenewalExceptions.js';
 
 // A saved usage amount is not evidence of the rate/entitlement that produced it.
 // In particular, never substitute the renewal schedule for the joining schedule.
@@ -1455,6 +1456,10 @@ async function simulateMembershipForMember(tenantId, memberId, options = {}) {
   let config = explicitConfigId
     ? await getConfigByIdDirect(tenantId, explicitConfigId)
     : await getConfigForMember(tenantId, memberId, fieldOverrides, asOfDate);
+  if(config && ['form-payment','form-renewal'].includes(source)) {
+    try { await assertRenewalCategory(supabase,tenantId,memberId,config.id); }
+    catch(error) {return {success:false,steps,code:'RENEWAL_CATEGORY_RESTRICTED',error:error.message};}
+  }
   if (config?.term_end_mode === 'member_date_field') {
     return simulateMemberDateTerm(supabase, { tenantId, member, config, options,
       today: clock().toISOString().slice(0, 10) });

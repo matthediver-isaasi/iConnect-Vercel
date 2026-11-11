@@ -9,8 +9,8 @@ export async function loadMembershipEntryOnly(db, { tenantId, owner, now, loadCo
     if (!result.renewal?.eligible) return null;
     const routed = await applyRenewalJourney(db, tenantId, {
       eligible: true, ...(result.renewal.state === 'post_grace_renewal' ? { state: 'post_grace_renewal' } : {}),
-    });
-    if (!routed.eligible || routed.journeyMode !== 'questionnaire') return null;
+    },owner.id);
+    if (!routed.eligible || !['questionnaire','same_schedule'].includes(routed.journeyMode)) return null;
     return { membership: { state: 'unavailable' }, payment: { state: 'unavailable' },
       renewal: routed };
   } catch { return null; }

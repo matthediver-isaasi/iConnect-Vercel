@@ -7,15 +7,20 @@ BNMS's default is for members to answer eligibility questions before being route
 appropriate renewal form. A previous membership schedule must not determine the
 renewal destination or bypass this reassessment.
 
-The owner clarified that BNMS Retired members will remain Retired, and wants
-category-specific exceptions to questionnaire routing considered. This is a
-business-rule clarification, not approval of a particular routing implementation.
+The owner approved category-specific renewal exceptions: BNMS Retired members
+retain their purchased Retired category and use direct renewal, while other
+categories keep the questionnaire default. Direct renewal uses current applicable
+pricing, not a permanent lock to the historical schedule.
 
 **Why:** Reassessing eligibility is unnecessary for categories that cannot change.
 
 **How to apply:** Preserve the questionnaire default for other categories.
 Do not infer that a current Former access role erases the previous membership
 category, or that a role-based navigation choice alone enforces purchase restrictions.
+New checkouts must enforce category restrictions server-side. Already authorised
+quotes and reservations retain their purchased terms when an exception changes.
+The original BNMS direct-renewal form was deliberately archived; use an authenticated
+copy rather than reactivating the public original.
 
 **Why:** The owner states members' circumstances can change; BNMS wants the
 renewed schedule to reflect their current situation. Other tenants may explicitly

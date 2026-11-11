@@ -4,6 +4,7 @@ import { loadMembershipEntryOnly } from './membershipEntryOnly.js';
 const owner={id:'member',tenant_id:'tenant'};
 function db(mode='questionnaire') {
   return {from(table){const q={select(){return q;},eq(){return q;},async maybeSingle(){
+    if(table==='membership_renewal_exceptions')return {data:null,error:null};
     return {data:table==='form'?{id:'form',tenant_id:'tenant',slug:'continue',is_active:true,require_authentication:true}:
       {mode,form_id:'form',post_grace_form_id:mode==='questionnaire'?'form':null}};} };return q;}};
 }

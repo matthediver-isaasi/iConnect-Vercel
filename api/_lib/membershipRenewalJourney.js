@@ -1,3 +1,4 @@
+import { resolveRenewalException } from './membershipRenewalExceptions.js';
 export const DEFAULT_RENEWAL_JOURNEY = Object.freeze({ mode: 'same_schedule', form_id: null, post_grace_form_id: null, revision: 0 });
 
 export async function readRenewalJourney(db, tenantId) {
@@ -12,12 +13,18 @@ export async function readRenewalJourney(db, tenantId) {
   return data || { ...DEFAULT_RENEWAL_JOURNEY };
 }
 
-export async function applyRenewalJourney(db, tenantId, renewal) {
+export async function applyRenewalJourney(db, tenantId, renewal, memberId = null) {
   // Routing grants no eligibility. Outstanding checkouts and already purchased
   // successors retain the existing server-side suppression.
   if (!renewal?.eligible) return renewal;
   try {
-    const setting = await readRenewalJourney(db, tenantId);
+    const exception = memberId ? await resolveRenewalException(db,tenantId,memberId) : null;
+    if(exception?.route==='same_schedule' && !exception.formId) {
+      const {entryHref,journeyUnavailable,...rest}=renewal;
+      return {...rest,journeyMode:'same_schedule'};
+    }
+    const setting = exception ? {mode:'questionnaire',form_id:exception.formId,post_grace_form_id:exception.formId}
+      : await readRenewalJourney(db, tenantId);
     const restartForm = renewal.state === 'post_grace_renewal' ? setting.post_grace_form_id : null;
     if (!restartForm && setting.mode === 'same_schedule') return renewal;
     const formId = restartForm || setting.form_id;
@@ -28,7 +35,7 @@ export async function applyRenewalJourney(db, tenantId, renewal) {
       || form.archived_at || (form.deactivate_at && (!Number.isFinite(Date.parse(form.deactivate_at)) || Date.parse(form.deactivate_at) <= Date.now()))
       || ![null,undefined,'standard'].includes(form.form_type)) throw new Error('Renewal entry unavailable');
     const { price, priceState, ...rest } = renewal;
-    return { ...rest, journeyMode: 'questionnaire', entryHref: `/FormView?slug=${encodeURIComponent(form.slug)}` };
+    return { ...rest, journeyMode: exception?.route || 'questionnaire', entryHref: `/FormView?slug=${encodeURIComponent(form.slug)}` };
   } catch {
     // Never silently fall back to a previous schedule on a configuration/read error.
     return { ...renewal, eligible: false, journeyUnavailable: true };
