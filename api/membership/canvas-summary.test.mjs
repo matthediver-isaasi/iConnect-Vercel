@@ -406,6 +406,45 @@ function pendingSignupRows() {
   };
 }
 
+test('self-only summary hides only evidenced rolling monthly DD management boundaries', async () => {
+  for (const [policy, expected] of [
+    [{ version: 1, end_policy: 'continue', pricing_policy: 'dynamic' }, true],
+    [{ version: 1, end_policy: 'stop', pricing_policy: 'dynamic' }, false],
+    [{ version: 1, end_policy: 'continue', pricing_policy: 'fixed' }, false],
+    [{ version: 1, end_policy: 'stop', pricing_policy: 'fixed' }, false],
+    [null, false], [{ version: 2, end_policy: 'continue', pricing_policy: 'dynamic' }, false],
+  ]) {
+    const rows = pendingSignupRows();
+    rows.member_membership_history[0].term_end_date = '2026-12-31';
+    rows.membership_billing_agreements[0].metadata.dd.collection_policy = policy;
+    const before = structuredClone(rows);
+    const response = await harness({ rows }).request();
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.payload.payment.hideTermEndDate === true, expected);
+    assert.equal(response.payload.membership.expiryDate, '2026-12-31');
+    assert.deepEqual(rows, before);
+  }
+  for (const change of [
+    r => { r.member_membership_history[0].payment_method = 'card'; },
+    r => { r.member_membership_history[0].billing_period = 'annual'; },
+    r => { r.membership_billing_agreements[0].term_key = 'other-term'; },
+    r => { r.membership_billing_agreements[0].provider = 'stripe'; },
+    r => { r.membership_billing_agreements[0].metadata.dd = { auto_renew: true }; },
+    r => { r.member_membership_history[0].commitment_snapshot = {
+      collection_policy: { version: 1, end_policy: 'stop', pricing_policy: 'fixed' } }; },
+  ]) {
+    const rows = pendingSignupRows();
+    change(rows);
+    const response = await harness({ rows }).request();
+    assert.equal(response.statusCode, 200);
+    assert.notEqual(response.payload.payment.hideTermEndDate, true);
+  }
+  const rows = dynamicRows();
+  rows.membership_billing_agreements[0].metadata.dd.collection_policy.end_policy = 'continue';
+  assert.equal((await harness({ rows }).request()).payload.payment.hideTermEndDate, true,
+    'dynamic collection adapter preserves the presentation flag');
+});
+
 test('completed new signup without a plan exposes historical monthly quote but no charge or date', async () => {
   for (const start of ['2026-01-01', '2026-10-01']) {
     const rows = pendingSignupRows();

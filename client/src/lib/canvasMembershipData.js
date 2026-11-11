@@ -298,6 +298,8 @@ export function normalizeCanvasMembershipSummary(value) {
     },
     payment: {
       state: MEMBERSHIP_PAYMENT_STATES.includes(payment.state) ? payment.state : 'unavailable',
+      ...(payment.hideTermEndDate === true && payment.method === 'monthly_direct_debit'
+        ? { hideTermEndDate: true } : {}),
       ...(payment.state === 'bank_setup_pending' && Number.isFinite(payment.expectedMonthlyPrice?.amount)
         && payment.expectedMonthlyPrice.amount > 0
         && /^[A-Z]{3}$/.test(payment.expectedMonthlyPrice.currency) ? {

@@ -12,6 +12,7 @@ import { resolveMemberAmendmentReadOverlays } from '../_lib/membershipAmendmentR
 import { applyRenewalJourney, readRenewalJourney } from '../_lib/membershipRenewalJourney.js';
 import { loadJoiningJourney } from '../_lib/membershipJoiningJourney.js';
 import { loadMembershipEntryOnly } from '../_lib/membershipEntryOnly.js';
+import { resolveSavedCollectionPolicy } from '../../shared/gocardlessCollectionPolicy.js';
 
 // This endpoint is deliberately self-only, including for administrators. It
 // reads retained commitments and read-only dynamic pricing projections, never
@@ -256,6 +257,21 @@ export function buildCanvasSummary({ selected, plan = null, paused = false, toda
 
 function belongsTo(row, tenantId, column, ownerId) {
   return row?.tenant_id === tenantId && row[column] === ownerId;
+}
+
+// Presentation only: fixed-price annual instalments (including auto-renewing
+// ones) are not rolling monthly collections. Never consult today's tier.
+function hidesRollingDirectDebitTermEnd(selected, agreement, method) {
+  if (selected?.record?.membership_source !== 'personal'
+      || method !== 'monthly_direct_debit' || agreement?.provider !== 'gocardless') return false;
+  const policy = resolveSavedCollectionPolicy(agreement.metadata?.dd);
+  if (policy.evidence !== 'explicit' || policy.end_policy !== 'continue'
+      || policy.pricing_policy !== 'dynamic') return false;
+  const retained = resolveSavedCollectionPolicy(selected.record.commitment_snapshot);
+  // Missing older snapshots are allowed; contradictory or malformed saved
+  // policy is not permission to remove a date.
+  return retained.evidence === 'missing' || (retained.evidence === 'explicit'
+    && retained.end_policy === 'continue' && retained.pricing_policy === 'dynamic');
 }
 
 async function readHistory(db, tenantId, column, ownerId, table, source) {
@@ -534,6 +550,9 @@ export function createCanvasSummaryHandler(dependencies = {}) {
       const summary = buildCanvasSummary({
         selected: selectedWithEvidence, plan, paused: owner.membership_paused === true, today,
       });
+      if (hidesRollingDirectDebitTermEnd(selected, billing?.agreement, summary.payment.method)) {
+        summary.payment.hideTermEndDate = true;
+      }
       try {
         const completedSetup = await pendingSignupPrice(db, {
           selected, agreement: billing?.agreement, plan, owner, tenantId, today,

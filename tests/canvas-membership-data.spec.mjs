@@ -262,10 +262,12 @@ async function installFixtures(page, {
   duplicate = false, symbol = false, microsite = false,
   summaryOverride = null, membershipMinHeight, longMembershipContent = false,
   symbolMinHeight, savedPaymentContent = null,
+  portal = false,
 } = {}) {
   const fixturePage = pageFixture(version, {
     empty, duplicate, symbol, microsite, membershipMinHeight, longMembershipContent,
   });
+  if (portal) fixturePage.slug = "portal";
   if (savedPaymentContent) {
     fixturePage.canvas_design.root.sections[0].children = fixturePage.canvas_design.root.sections[0].children
       .map(item => item.type === "payment-details"
@@ -394,6 +396,35 @@ async function openPublished(page, fixture) {
     throw error;
   }
 }
+
+for (const version of [1, 2]) test(`V${version} portal rolling DD hides only Payment Details term end`, async ({ page }, testInfo) => {
+  const summary = {
+    ...SUMMARIES.alpha,
+    membership: { ...SUMMARIES.alpha.membership, termStartDate: "2026-01-01", expiryDate: "2026-12-31" },
+    payment: { ...SUMMARIES.alpha.payment, hideTermEndDate: true },
+  };
+  const fixture = await installFixtures(page, { version, portal: true, summaryOverride: summary });
+  await openPublished(page, fixture);
+  const payment = page.getByTestId("canvas-payment-details").first();
+  const membership = page.getByTestId("canvas-membership-summary").first();
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await expect(payment).toBeVisible();
+    await expect(payment).not.toContainText("Membership valid until");
+    await expect(payment).not.toContainText("31 December 2026");
+    await expect(payment).toContainText("1 January 2026");
+    await expect(payment).toContainText("£18.50");
+    await expect(payment).toContainText("3 November 2031");
+    await expect(membership).toContainText("31 December 2026");
+    await page.screenshot({ path: testInfo.outputPath(`rolling-dd-v${version}-${width}.png`), fullPage: true });
+  }
+  summary.payment.hideTermEndDate = false;
+  await openPublished(page, fixture);
+  await expect(payment).toContainText("Membership valid until");
+  await expect(payment).toContainText("31 December 2026");
+  expect(fixture.writes).toEqual([]);
+  expect(fixture.pageErrors).toEqual([]);
+});
 
 async function assertAlphaData(page) {
   const membership = page.getByTestId("canvas-membership-summary").first();

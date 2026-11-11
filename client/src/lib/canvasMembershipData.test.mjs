@@ -84,6 +84,21 @@ test('saved term dates remain separate from original join and renewal dates', ()
   assert.equal(noTerm.membership.termEndDate, undefined);
 });
 
+test('term-end suppression is strict, payment-only evidence and preserves retained dates', () => {
+  for (const method of ['monthly_direct_debit', 'direct_debit', 'monthly_card', 'card', 'upfront', undefined]) {
+    for (const hideTermEndDate of [true, false, 'true', 1, undefined, null]) {
+      const input = { membership: { termEndDate: '2027-09-23', expiryDate: '2027-09-22' },
+        payment: { method, hideTermEndDate } };
+      const normalized = normalizeCanvasMembershipSummary(input);
+      assert.equal(normalized.payment.hideTermEndDate === true, method === 'monthly_direct_debit' && hideTermEndDate === true);
+      assert.deepEqual(normalized.membership.termEndDate, input.membership.termEndDate);
+      assert.deepEqual(normalized.membership.expiryDate, input.membership.expiryDate);
+      assert.deepEqual(normalizeCanvasMembershipSummary(normalized), normalized);
+    }
+  }
+  assert.equal(normalizeCanvasMembershipContent({ payment: { hideTermEndDate: true } }).payment, undefined);
+});
+
 test('renewal price requires explicit verified current quote, never historical amounts', () => {
   const payment = { amount: 117, currency: 'GBP', confirmedPayment: { date: '2025-09-24', amount: 117, currency: 'GBP' } };
   for (const amount of [0, 163.75]) {

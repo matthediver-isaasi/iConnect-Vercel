@@ -196,6 +196,27 @@ function render(overrides = {}) {
   />);
 }
 
+test('rolling DD hides end labels and expiry fallback only in Payment Details', () => {
+  for (const fallback of [false, true]) {
+    for (const state of ['active', 'bank_setup_pending', 'paused', 'current_direct_debit']) {
+      const data = { ...live, membership: { ...live.membership, termStartDate: '2026-09-24',
+        ...(fallback ? {} : { termEndDate: '2027-09-23' }), expiryDate: '2027-09-23' },
+      payment: { ...live.payment, state, hideTermEndDate: true } };
+      for (const breakpoint of ['desktop', 'mobile']) {
+        const html = render({ type: 'payment-details', breakpoint, result: { status: 'ready', data } });
+        assert.doesNotMatch(html, /Membership valid until|23 September 2027/);
+        assert.match(html, /Membership valid from|24 September 2026/);
+        assert.match(render({ result: { status: 'ready', data } }), /Membership valid until/);
+        for (const method of ['upfront', 'card', 'monthly_card', 'monthly_direct_debit']) {
+          const unchanged = { ...data, payment: { ...data.payment, method, hideTermEndDate: false } };
+          assert.match(render({ type: 'payment-details', result: { status: 'ready', data: unchanged } }),
+            /23 September 2027/);
+        }
+      }
+    }
+  }
+});
+
 test('post-grace Canvas restart CTA uses server state, strict eligibility and existing renewal destination', () => {
   const block = { id: 'restart', content: { renewalLink: '/forms/renew?source=portal' } };
   for (const eligible of [true, false, undefined, 'true']) {

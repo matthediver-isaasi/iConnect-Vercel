@@ -108,7 +108,8 @@ export function MembershipDataView({
     && !['monthly_direct_debit', 'monthly_card'].includes(summary.payment.method)
     && (summary.payment.state === 'paid' || summary.payment.method === 'upfront')
     && content.eyebrow === 'PAYMENT DETAILS' && copy.heading === 'Your subscription';
-  const termEndDate = summary.membership.termEndDate || summary.membership.expiryDate;
+   const termEndDate = paymentCard && summary.payment.hideTermEndDate
+     ? null : summary.membership.termEndDate || summary.membership.expiryDate;
    const termEndLabel = summary.membership.grace || restart ? content.fields.previousMembershipEnded : content.fields.expiryDate;
   const renewalPrice = paymentCard && !bankSetupPending && summary.renewal.price
     ? formatMembershipAmount(summary.renewal.price.amount, summary.renewal.price.currency) : null;
