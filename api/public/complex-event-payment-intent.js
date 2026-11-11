@@ -450,6 +450,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       clientSecret: paymentIntent.client_secret,
+      ...(invoiceAddressPolicy?.policy.mode === 'deferred' ? { invoiceDeferred: true } : {}),
       publishableKey: creds.publishable_key,
       amount: creditQuote.remainingMinor,
       grossAmount: grandTotalMinor,

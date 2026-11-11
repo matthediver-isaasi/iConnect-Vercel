@@ -70,6 +70,22 @@ historical Xero invoices.
 pre-Stripe address selector above. Do not extend it to QuickBooks or treat
 the selection of an organisation address as changing the invoice customer.
 
+Xero availability must not block member event-ticket Stripe payment or
+registration. Defer invoice processing rather than treating an unavailable
+customer lookup as evidence that the customer does not exist.
+
+**Why:** The owner approved separating successful booking/payment from a
+temporary accounting outage. Existing Xero addresses must remain protected.
+
+**How to apply:** Freeze deferred instructions with the original checkout,
+retain any known customer/company binding, and use the durable accounting
+recovery queue. Resolve the customer again before writing. Existing customers
+keep their address; absent customers need a valid saved personal invoice
+address or administrator review. Never substitute a card-verification or
+organisation address. Unverified company selection needs review, not an
+automatic invoice in an arbitrary company. Ownership and payment-replay
+conflicts still fail closed.
+
 Checkout retry identity must retain the original invoice instructions. Do not
 silently generate a new payment attempt when the invoice-address choice changes
 after preparation.

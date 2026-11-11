@@ -213,6 +213,10 @@ async function loadContext(db, tenantId) {
   const tokenResult = await db.from('xero_token').select('id, tenant_id').eq('app_tenant_id', tenantId);
   if (tokenResult.error) throw new Error('Xero connection could not be snapshotted');
   const tokens = tokenResult.data || [];
+  // Preserve the complete paid booking/line/address-policy evidence even when
+  // no company is selected. This remains needs_review, never an automatic
+  // write to an unverified company.
+  if (tokens.length === 0) return { settings, provider: null };
   if (tokens.length !== 1 || !tokens[0].id || !tokens[0].tenant_id || tokens[0].tenant_id === 'PENDING_SELECTION') {
     throw new Error('A unique selected Xero connection is required');
   }

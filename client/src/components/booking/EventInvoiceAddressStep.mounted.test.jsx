@@ -51,6 +51,26 @@ test("missing personal/org addresses collect editable personal fields; populated
   });
 });
 
+test("discovery is silent; deferred invoicing continues without an address dialog, including required-address retry", async () => {
+  let finish;
+  let result = 'not finished';
+  const request = () => new Promise(resolve => { finish = resolve; });
+  function Harness() {
+    const address = useEventInvoiceAddress({ scopeKey: 'member', eventId: 'event', source: 'simple', request });
+    return <><button onClick={() => address.collect({ forceRequired: true }).then(value => { result = value; })}>Start</button>{address.step}</>;
+  }
+  await mount(<Harness />, async container => {
+    await click(container.querySelector('button'));
+    assert.equal(document.querySelector('[role="dialog"]'), null);
+    assert.equal(result, 'not finished');
+    await act(async () => finish({ ok: true, json: async () => ({ applicable: true, required: false, deferred: true,
+      message: 'You can continue with your booking. Your invoice may take a little longer to become available.' }) }));
+    assert.equal(result, undefined);
+    assert.equal(document.querySelector('[role="dialog"]'), null);
+    assert.match(container.querySelector('[role="status"]').textContent, /invoice may take a little longer/);
+  });
+});
+
 test("linked legacy/structured organisation is read-only and only the organisation mode is submitted", async () => {
   for (const organizationAddress of [
     { source: "legacy", address: "Legacy office\nLondon" },

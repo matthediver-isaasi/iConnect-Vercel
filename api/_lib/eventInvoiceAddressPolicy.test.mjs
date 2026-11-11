@@ -4,6 +4,7 @@ import { eventAddressContext, lookupEventXeroContact, selectedEventInvoiceAddres
   prepareEventInvoiceAddressPolicy, loadPaidEventInvoicePolicy, policyInvoiceContact, createPolicyPaymentIntent } from './eventInvoiceAddressPolicy.js';
 import { enqueueCheckoutEventInvoice } from './eventInvoiceProducer.js';
 import { createEventInvoiceRecoveryXero } from './eventInvoiceRecoveryXero.js';
+import { validRecoverySnapshot } from './eventInvoiceRecovery.js';
 
 const address = { invoicing_address_line1: 'Personal street', invoicing_city: 'London',
   invoicing_postal_code: 'SW1A 1AA', invoicing_country: 'United Kingdom' };
@@ -182,14 +183,115 @@ test('QuickBooks, disabled invoices and guest discovery unchanged; errors never 
   }
   const f = fixture();
   assert.equal((await eventAddressContext({ ...f.input, memberId: null })).applicable, false);
-  for (const overrides of [{ member: null }, { event: null }, { xero_token: [] },
+  for (const overrides of [{ member: null }, { event: null },
     { xero_token: [{ id: 'a', tenant_id: 'one' }, { id: 'b', tenant_id: 'two' }] },
-    { tenant_accounting_settings: { error: {} } }, { tenant_integrations: { is_enabled: false } },
+    { tenant_accounting_settings: { error: {} } },
     { organization: null }, { invoicing_address_private: { error: {} } }]) {
     const bad = fixture(overrides);
     await assert.rejects(eventAddressContext(bad.input));
   }
 });
+
+for (const source of ['simple', 'complex']) test(`${source}: disconnected Xero freezes deferred invoice instructions, not an absent-customer claim`, async () => {
+  const f = fixture({ tenant_integrations: { is_enabled: false } });
+  const input = { ...f.input, source };
+  const context = await eventAddressContext(input);
+  assert.equal(context.required, false);
+  assert.equal(context.deferred, true);
+  assert.deepEqual(context.provider, provider);
+  const frozen = await prepareEventInvoiceAddressPolicy(input);
+  assert.equal(frozen.policy.mode, 'deferred');
+  assert.equal(frozen.policy.address, null);
+  assert.equal(frozen.policy.existingContactId, null);
+  assert.deepEqual(policyInvoiceContact(frozen.policy), { Name: contact.name, EmailAddress: contact.email });
+  f.rows.tenant_integrations = { is_enabled: true };
+  assert.deepEqual(await prepareEventInvoiceAddressPolicy(input), frozen, 'reconnection cannot reinterpret the original checkout');
+  await assert.rejects(prepareEventInvoiceAddressPolicy({ ...input, charge: { amount: 2000 } }), /changed after/);
+  assert.equal(f.calls.some(c => c.table === 'invoicing_address_private'), false);
+});
+
+test('provider lookup has a short total timeout and no address dialog is required afterwards', async () => {
+  const f = fixture();
+  const context = await eventAddressContext({ ...f.input, lookup: () => new Promise(() => {}) });
+  assert.equal(context.deferred, true);
+  assert.equal(context.required, false);
+});
+
+test('missing connection defers registration but ambiguous companies and invalid ownership still fail', async () => {
+  const f = fixture({ xero_token: [] });
+  const result = await eventAddressContext(f.input);
+  assert.equal(result.deferred, true);
+  assert.equal(result.provider, null);
+  assert.equal((await prepareEventInvoiceAddressPolicy(f.input)).policy.mode, 'deferred');
+});
+
+test('deferred policy preserves known customer lookup identity without claiming a verified existing customer', async () => {
+  const f = fixture({ tenant_integrations: { is_enabled: false } });
+  f.rows.member.xero_contact_id = 'customer';
+  const frozen = await prepareEventInvoiceAddressPolicy(f.input);
+  assert.equal(frozen.policy.lookupContactId, 'customer');
+  assert.equal(frozen.policy.lookupContactTrusted, false);
+  assert.equal(frozen.policy.existingContactId, null);
+});
+
+for (const outcome of ['existing', 'saved-address', 'missing-address', 'disconnected', 'provider-offline']) {
+  test(`deferred invoice recovery: ${outcome}`, async () => {
+    const policy = { version: 1, mode: 'deferred', tenantId: 'tenant', memberId: 'member',
+      provider, contact, address: null };
+    const row = { tenant_id: 'tenant', booking_group_reference: 'BOOK-DEFERRED', snapshot: {
+      provider, contact, invoiceAddressPolicy: policy, paymentMethod: 'stripe',
+      invoice: { Contact: policyInvoiceContact(policy), LineItems: [{ Description: 'Ticket' }] } } };
+    const reads = [], writes = [];
+    const db = { from(table) {
+      const filters = {};
+      return { select() { return this; }, eq(key, value) { filters[key] = value; return this; },
+        async maybeSingle() {
+          reads.push({ table, filters });
+          return { data: table === 'tenant_accounting_settings' ? { active_provider: 'xero' }
+            : table === 'tenant_integrations' ? { is_enabled: outcome !== 'disconnected' }
+            : table === 'invoicing_address_private' ? outcome === 'saved-address' ? address : null
+            : { tenant_id: 'company', access_token: 'isolated-test', expires_at: new Date(Date.now() + 3600000).toISOString() } };
+        } };
+    } };
+    const run = async () => {
+      let contactReads = 0;
+      const writer = await createEventInvoiceRecoveryXero({ db, row, identity: 'identity', guard: async () => {},
+        deadlineAt: Date.now() + 20000, fetchImpl: async (url, init) => {
+          if (outcome === 'provider-offline') throw new Error('Network unavailable');
+          if (init.method === 'GET') return { ok: true, json: async () => ({
+            Contacts: outcome === 'existing' && contactReads++ === 0 ? [existing] : [],
+          }) };
+          writes.push({ url, body: JSON.parse(init.body) });
+          return { ok: true, json: async () => url.endsWith('/Contacts') ? { Contacts: [existing] } : { Invoices: [{ InvoiceID: 'invoice' }] } };
+        } });
+      await writer.prepareInvoice();
+      assert.equal(writes.length, 0, 'preparation is read-only');
+      await writer.createInvoice();
+    };
+    if (['missing-address', 'disconnected', 'provider-offline'].includes(outcome)) {
+      await assert.rejects(run(), error => {
+        assert.equal(error.code, outcome === 'missing-address' ? 'invoice_address_required'
+          : outcome === 'disconnected' ? 'provider_reconnect_required' : 'transport_ambiguous');
+        assert.equal(error.retry, outcome !== 'missing-address');
+        return true;
+      });
+      assert.equal(writes.length, 0);
+    } else {
+      await run();
+      const invoice = writes.find(w => w.url.endsWith('/Invoices'));
+      assert.deepEqual(invoice.body.Invoices[0].Contact, { ContactID: 'customer' });
+      const contactWrite = writes.find(w => w.url.endsWith('/Contacts'));
+      if (outcome === 'existing') {
+        assert.equal(contactWrite, undefined);
+        assert.equal(reads.some(r => r.table === 'invoicing_address_private'), false);
+      } else {
+        assert.equal(contactWrite.body.Contacts[0].Addresses[0].AddressLine1, 'Personal street');
+        const addressRead = reads.find(r => r.table === 'invoicing_address_private');
+        assert.deepEqual(addressRead.filters, { tenant_id: 'tenant', owner_type: 'member', owner_id: 'member' });
+      }
+    }
+  });
+}
 
 test('frozen policy requires matching member, company, event, tenant and server PI metadata', async () => {
   const f = fixture();
@@ -226,6 +328,14 @@ test('producer uses frozen personal address, not subsequent charge address; miss
   await enqueueCheckoutEventInvoice(input, deps);
   assert.equal(snapshot.invoice.Contact.Addresses[0].AddressLine1, 'Personal street');
   assert.equal(snapshot.contact.stripeBillingAddress, undefined);
+  // Deferred checkouts use exactly the same durable queue, with a complete
+  // payment/line envelope. They never invent an address from card details.
+  prepared.policy.mode = 'deferred';
+  prepared.policy.address = null;
+  await enqueueCheckoutEventInvoice(input, deps);
+  assert.equal(snapshot.invoiceAddressPolicy.mode, 'deferred');
+  assert.equal(snapshot.invoice.Contact.Addresses, undefined);
+  assert.equal(validRecoverySnapshot(snapshot), true);
   delete pi.metadata.event_invoice_policy_id;
   await enqueueCheckoutEventInvoice(input, deps);
   assert.equal(snapshot.invoice, null);

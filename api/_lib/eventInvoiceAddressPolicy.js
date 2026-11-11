@@ -3,6 +3,8 @@ import { xeroRateLimitedFetch as fetch } from './xeroRateLimit.js';
 
 const fail = (message, statusCode = 503) => { throw Object.assign(new Error(message), { statusCode }); };
 const normalized = value => String(value || '').trim().toLowerCase();
+const unavailable = message => { throw Object.assign(new Error(message), { statusCode: 503, accountingUnavailable: true }); };
+export const DEFERRED_EVENT_INVOICE_MESSAGE = 'You can continue with your booking. Your invoice may take a little longer to become available.';
 
 export async function knownEventXeroContact(db, tenantId, member, provider) {
   if (member.xero_contact_id && member.xero_tenant_id && member.xero_tenant_id !== provider.xeroTenantId) {
@@ -82,6 +84,11 @@ export async function eventAddressContext({ db, tenantId, memberId, eventId, sou
     .eq('id', memberId).eq('tenant_id', tenantId).maybeSingle();
   if (memberResult.error || !memberResult.data) fail('Unable to verify purchasing member', 403);
   const member = memberResult.data;
+  const contact = { name: `${member.first_name || ''} ${member.last_name || ''}`.trim() || member.email,
+    email: member.email, isOrganization: false, provenance: { kind: 'member', id: member.id } };
+  let provider = null;
+  let known = null;
+  try {
   const active = await db.from('tenant_accounting_settings').select('active_provider').eq('tenant_id', tenantId).maybeSingle();
   if (active.error) fail('Unable to verify accounting provider');
   if (['none', 'quickbooks'].includes(active.data?.active_provider)) return { applicable: false, required: false };
@@ -92,33 +99,49 @@ export async function eventAddressContext({ db, tenantId, memberId, eventId, sou
   if (enabled.data?.setting_value !== 'true') return { applicable: false, required: false };
   const integration = await db.from('tenant_integrations').select('is_enabled').eq('tenant_id', tenantId)
     .eq('integration_type', 'xero').maybeSingle();
-  if (integration.error || integration.data?.is_enabled !== true) fail('Xero connection requires reconnection');
   const tokens = await db.from('xero_token').select('id,tenant_id').eq('app_tenant_id', tenantId);
+  if (!tokens.error && tokens.data?.length > 1) fail('Xero company selection is ambiguous');
   if (tokens.error || tokens.data?.length !== 1 || !tokens.data[0].id || !tokens.data[0].tenant_id
-    || tokens.data[0].tenant_id === 'PENDING_SELECTION') fail('A unique selected Xero company is required');
-  const provider = { connectionId: tokens.data[0].id, xeroTenantId: tokens.data[0].tenant_id };
-  const contact = { name: `${member.first_name || ''} ${member.last_name || ''}`.trim() || member.email,
-    email: member.email, isOrganization: false, provenance: { kind: 'member', id: member.id } };
-  const known = await knownEventXeroContact(db, tenantId, member, provider);
+    || tokens.data[0].tenant_id === 'PENDING_SELECTION') unavailable('A unique selected Xero company is required');
+  provider = { connectionId: tokens.data[0].id, xeroTenantId: tokens.data[0].tenant_id };
+  known = await knownEventXeroContact(db, tenantId, member, provider);
+  if (integration.error || integration.data?.is_enabled !== true) unavailable('Xero connection requires reconnection');
   const knownContactId = known.contactId;
   const identity = { ...contact, ...(knownContactId ? { contactId: knownContactId } : {}) };
   let existing;
-  if (lookup) existing = await lookup(identity, provider);
+  // Only provider availability is deferred. Ownership/mapping ambiguity above,
+  // or an inconsistent customer response below, remains a hard safety failure.
+  const controller = new AbortController();
+  let timer;
+  const lookupWork = async () => {
+  if (lookup) return lookup(identity, provider);
   else {
     const { getValidXeroAccessToken } = await import('./xero.js');
-    const credentials = await getValidXeroAccessToken(tenantId);
+    let credentials;
+    try { credentials = await getValidXeroAccessToken(tenantId); }
+    catch { unavailable('Xero connection unavailable'); }
     if (credentials.tenantId !== provider.xeroTenantId) fail('Xero company changed during lookup');
-    existing = await lookupEventXeroContact(async path => {
-      const response = await fetch(`https://api.xero.com/api.xro/2.0/${path}`, {
+    return lookupEventXeroContact(async path => {
+      let response;
+      try { response = await fetch(`https://api.xero.com/api.xro/2.0/${path}`, {
         headers: { Authorization: `Bearer ${credentials.accessToken}`, 'xero-tenant-id': provider.xeroTenantId, Accept: 'application/json' },
-        signal: AbortSignal.timeout(8000),
-      });
-      if (!response.ok) fail('Xero customer lookup unavailable');
+        signal: controller.signal,
+      }); } catch { unavailable('Xero customer lookup unavailable'); }
+      if (!response.ok) unavailable('Xero customer lookup unavailable');
       const data = await response.json();
       if (data?.ErrorNumber || data?.HasErrors) fail('Xero customer lookup rejected');
       return data;
     }, identity);
   }
+  };
+  try {
+    existing = await Promise.race([lookupWork(), new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(Object.assign(new Error('Xero customer lookup timed out'), { accountingUnavailable: true }));
+      }, 3000);
+    })]);
+  } finally { clearTimeout(timer); }
   // A legacy bare ContactID is not a company binding. Verify it in the selected
   // company and verify purchaser email before freezing that binding. Missing or
   // invalid known IDs NEVER fall through to absent-customer creation.
@@ -145,6 +168,12 @@ export async function eventAddressContext({ db, tenantId, memberId, eventId, sou
     result.organizationLabel = org.data.name;
   }
   return result;
+  } catch (error) {
+    if (!error.accountingUnavailable) throw error;
+    return { applicable: true, required: false, deferred: true, provider, contact,
+      existingContactId: null, lookupContactId: known?.contactId || null,
+      lookupContactTrusted: known?.trusted === true, message: DEFERRED_EVENT_INVOICE_MESSAGE };
+  }
 }
 
 export function selectedEventInvoiceAddress(context, selection) {
@@ -212,7 +241,8 @@ export async function prepareEventInvoiceAddressPolicy(input) {
   const policy = { version: 1, tenantId: input.tenantId, eventId: input.eventId, source: input.source,
     memberId: input.memberId, provider: context.provider, contact: context.contact,
     existingContactId: context.existingContactId, address,
-    mode: context.required ? input.selection.mode : 'existing', request: requested };
+    ...(context.deferred ? { lookupContactId: context.lookupContactId, lookupContactTrusted: context.lookupContactTrusted } : {}),
+    mode: context.deferred ? 'deferred' : context.required ? input.selection.mode : 'existing', request: requested };
   const id = input.requestId;
   const saved = await input.db.from('event_invoice_address_policy').insert({
     id, tenant_id: input.tenantId, member_id: input.memberId, event_id: input.eventId, source: input.source, snapshot: policy,
@@ -304,7 +334,8 @@ export async function loadPaidEventInvoicePolicy({ db, tenantId, eventId, source
   const policy = result.data?.snapshot;
   if (result.error || !policy || policy.version !== 1 || policy.memberId !== contact?.provenance?.id
     || policy.tenantId !== tenantId || policy.eventId !== eventId
-    || policy.provider.connectionId !== provider.connectionId || policy.provider.xeroTenantId !== provider.xeroTenantId
+    || (policy.provider && (policy.provider.connectionId !== provider.connectionId || policy.provider.xeroTenantId !== provider.xeroTenantId))
+    || (!policy.provider && policy.mode !== 'deferred')
     || paymentIntent.metadata.tenant_id !== tenantId || paymentIntent.metadata.event_id !== eventId
     || paymentIntent.metadata.event_invoice_policy_id !== id
     || paymentIntent.metadata.event_invoice_member_id !== policy.memberId) fail('Invoice policy payment ownership or company mismatch');
@@ -313,6 +344,7 @@ export async function loadPaidEventInvoicePolicy({ db, tenantId, eventId, source
 
 export function policyInvoiceContact(policy) {
   if (policy.existingContactId) return { ContactID: policy.existingContactId };
+  if (policy.mode === 'deferred') return { Name: policy.contact.name, EmailAddress: policy.contact.email };
   if (!policy.address) fail('Frozen invoice address missing');
   return { Name: policy.contact.name, EmailAddress: policy.contact.email, Addresses: [invoicingAddressToXero(policy.address)] };
 }

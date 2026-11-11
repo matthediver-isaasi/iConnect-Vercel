@@ -15,6 +15,7 @@ export default async function handler(req, res, dependencies = {}) {
     const result = await eventAddressContext({ db: dependencies.db || supabase, tenantId: context.tenantId,
       memberId: context.memberId, eventId: req.body?.eventId, source: req.body?.source, lookup: dependencies.lookup });
     return res.json({ applicable: result.applicable, required: result.required,
+      deferred: result.deferred === true, message: result.message || null,
       personalAddress: result.personalAddress || null, organizationAddress: result.organizationAddress || null,
       organizationLabel: result.organizationLabel || null });
   } catch (error) {

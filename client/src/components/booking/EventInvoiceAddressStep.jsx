@@ -34,16 +34,16 @@ export function useEventInvoiceAddress({ scopeKey, eventId, source, request }) {
   const load = async work => {
     if (pending.current !== work || liveScope.current !== work.scopeKey || work.loading) return;
     work.loading = true;
-    setState({ loading: true });
+    setState(null);
     try {
       const data = await discoverEventInvoiceAddress(request, {
         eventId, source, signal: work.controller.signal,
       });
       if (pending.current !== work || liveScope.current !== work.scopeKey) return;
       if (!data.required) {
-        if (work.forceRequired) throw new Error("Invoice requirements changed. Cancel and retry checkout to check again.");
+        if (work.forceRequired && !data.deferred) throw new Error("Invoice requirements changed. Cancel and retry checkout to check again.");
         pending.current = null;
-        setState(null);
+        setState(data.deferred ? { notice: data.message } : null);
         work.resolve(undefined);
       } else {
         setState({ data });
@@ -73,7 +73,9 @@ export function useEventInvoiceAddress({ scopeKey, eventId, source, request }) {
   };
   return {
     collect,
-    step: state ? <Dialog open onOpenChange={open => { if (!open) cancel(); }}>
+    markDeferred: () => setState({ notice: 'You can continue with your booking. Your invoice may take a little longer to become available.' }),
+    notice: state?.notice || null,
+    step: state?.notice ? <p role="status">{state.notice}</p> : state ? <Dialog open onOpenChange={open => { if (!open) cancel(); }}>
       <DialogContent className="max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Choose invoice address</DialogTitle>

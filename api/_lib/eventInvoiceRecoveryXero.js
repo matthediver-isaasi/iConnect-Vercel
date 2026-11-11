@@ -2,6 +2,7 @@ import { EventInvoiceRecoveryError, recoveryLineAmount } from './eventInvoiceRec
 import { xeroRateLimitedFetch as fetch } from './xeroRateLimit.js';
 import { createDecipheriv, scryptSync } from 'node:crypto';
 import { lookupEventXeroContact, policyInvoiceContact } from './eventInvoiceAddressPolicy.js';
+import { INVOICING_ADDRESS_KEYS, resolveStoredInvoicingAddress, invoicingAddressToXero, invoicingAddressError } from '../../shared/invoicingAddress.js';
 
 const day = value => {
   const xero = /^\/Date\((\d+)(?:[+-]\d{4})?\)\/$/.exec(String(value || ''));
@@ -113,7 +114,8 @@ export async function createEventInvoiceRecoveryXero({
   const enabled = await databaseQuery(db.from('tenant_integrations').select('is_enabled,credentials')
     .eq('tenant_id', row.tenant_id).eq('integration_type', 'xero').maybeSingle());
   if (enabled.error) throw new EventInvoiceRecoveryError('provider_settings_unavailable', { retry: true });
-  if (enabled.data?.is_enabled !== true) throw new EventInvoiceRecoveryError('provider_reconnect_required');
+  const deferredInvoice = snapshot.invoiceAddressPolicy?.mode === 'deferred';
+  if (enabled.data?.is_enabled !== true) throw new EventInvoiceRecoveryError('provider_reconnect_required', { retry: deferredInvoice });
   const tokenResult = await databaseQuery(db.from('xero_token').select('*')
     .eq('app_tenant_id', row.tenant_id).eq('id', snapshot.provider.connectionId).maybeSingle());
   if (tokenResult.error) throw new EventInvoiceRecoveryError('connection_lookup_unavailable', { retry: true });
@@ -127,7 +129,7 @@ export async function createEventInvoiceRecoveryXero({
       client_secret: credential(enabled.data.credentials?.client_secret),
     };
     if (!credentials?.is_enabled || !credentials.client_id || !credentials.client_secret || !token.refresh_token) {
-      throw new EventInvoiceRecoveryError('provider_reconnect_required');
+      throw new EventInvoiceRecoveryError('provider_reconnect_required', { retry: deferredInvoice });
     }
     const auth = await request('https://identity.xero.com/connect/token', {
       method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded',
@@ -135,7 +137,7 @@ export async function createEventInvoiceRecoveryXero({
       body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: token.refresh_token }).toString(),
     });
     if (!auth.access_token || !auth.refresh_token || !Number.isFinite(auth.expires_in)) {
-      throw new EventInvoiceRecoveryError('provider_reconnect_required');
+      throw new EventInvoiceRecoveryError('provider_reconnect_required', { retry: deferredInvoice });
     }
     const saved = await databaseQuery(db.from('xero_token').update({
       access_token: auth.access_token, refresh_token: auth.refresh_token,
@@ -302,8 +304,10 @@ export async function createEventInvoiceRecoveryXero({
     if (snapshot.paymentMethod === 'stripe' && snapshot.contact?.provenance?.kind === 'member') {
       const policy = snapshot.invoiceAddressPolicy;
       if (policy && (policy.version !== 1 || policy.memberId !== snapshot.contact.provenance.id
-        || policy.tenantId !== row.tenant_id || policy.provider?.connectionId !== snapshot.provider.connectionId
-        || policy.provider?.xeroTenantId !== snapshot.provider.xeroTenantId)) {
+        || policy.tenantId !== row.tenant_id
+        || (policy.provider && (policy.provider.connectionId !== snapshot.provider.connectionId
+          || policy.provider.xeroTenantId !== snapshot.provider.xeroTenantId))
+        || (!policy.provider && policy.mode !== 'deferred'))) {
         throw new EventInvoiceRecoveryError('invoice_address_policy_binding_invalid');
       }
       let existing;
@@ -311,13 +315,33 @@ export async function createEventInvoiceRecoveryXero({
         existing = await lookupEventXeroContact(api, {
           name: policy?.contact?.name || snapshot.contact.name,
           email: policy?.contact?.email || snapshot.contact.email,
-          contactId: policy?.existingContactId || contact.ContactID,
+          contactId: policy?.existingContactId || policy?.lookupContactId || contact.ContactID,
         });
       } catch (error) {
         if (error instanceof EventInvoiceRecoveryError) throw error;
         throw new EventInvoiceRecoveryError('invoice_customer_identity_unverified');
       }
+      if (policy?.lookupContactId && (!existing || existing.ContactID !== policy.lookupContactId
+        || (!policy.lookupContactTrusted
+          && String(existing.EmailAddress || '').trim().toLowerCase() !== String(policy.contact.email || '').trim().toLowerCase()))) {
+        throw new EventInvoiceRecoveryError('invoice_customer_identity_unverified');
+      }
       if (existing) contact = { ContactID: existing.ContactID };
+      else if (policy?.mode === 'deferred') {
+        // Never use a card-verification or organisation address as a fallback.
+        // A new customer needs the member's own saved invoicing address.
+        const saved = await db.from('invoicing_address_private').select(INVOICING_ADDRESS_KEYS.join(','))
+          .eq('tenant_id', row.tenant_id).eq('owner_type', 'member')
+          .eq('owner_id', policy.memberId).maybeSingle();
+        if (saved.error) throw new EventInvoiceRecoveryError('invoice_address_lookup_unavailable', { retry: true });
+        const address = resolveStoredInvoicingAddress(saved.data || {}, 'member');
+        if (!address || invoicingAddressError(address.address) || !address.address.invoicing_city
+          || !address.address.invoicing_postal_code || !address.address.invoicing_country) {
+          throw new EventInvoiceRecoveryError('invoice_address_required');
+        }
+        contact = { Name: policy.contact.name, EmailAddress: policy.contact.email,
+          Addresses: [invoicingAddressToXero(address)] };
+      }
       else if (policy) contact = policyInvoiceContact(policy);
       // Legacy absent-customer work retains its original frozen evidence.
     }

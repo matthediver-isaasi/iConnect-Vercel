@@ -909,7 +909,8 @@ const functionHandlers = {
       await bindPublicTicketPayment(supabase, publicTicketPurchase.id, tenantId, paymentIntent.id);
     }
 
-    return { success: true, clientSecret: paymentIntent.client_secret, paymentIntentId: paymentIntent.id };
+    return { success: true, clientSecret: paymentIntent.client_secret, paymentIntentId: paymentIntent.id,
+      ...(invoiceAddressPolicy?.policy.mode === 'deferred' ? { invoiceDeferred: true } : {}) };
   },
 
   // Task #1660 — Create a Training Fund top-up purchase.

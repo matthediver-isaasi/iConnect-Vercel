@@ -1455,6 +1455,7 @@ function NormalPaymentOptions({
           throw piError;
         }
         if (invoiceAddressRequired(piResponse) || invoiceAddressConflictMessage(piResponse)) throw piResponse;
+        if (piResponse.invoiceDeferred) invoiceAddress.markDeferred();
         if (!piResponse.clientSecret || !piResponse.publishableKey) {
           const errMsg = piResponse?.error || '';
           if (errMsg.includes('zero') || errMsg.includes('free registration')) {
@@ -1509,6 +1510,7 @@ function NormalPaymentOptions({
         console.log('[PaymentOptions] Stripe payment intent response:', response.data);
         if (!response.data.success) {
           if (invoiceAddressRequired(response.data) || invoiceAddressConflictMessage(response.data)) throw response.data;
+          if (response.data?.invoiceDeferred) invoiceAddress.markDeferred();
           toast.error("Failed to initialize payment: " + (response.data.error || "Unknown error"));
           return;
         }
@@ -2896,6 +2898,9 @@ function NormalPaymentOptions({
             <SheetDescription>
               Complete your booking by entering your card information below.
             </SheetDescription>
+            {invoiceAddress.notice && <p role="status" className="text-sm text-muted-foreground">
+              {invoiceAddress.notice}
+            </p>}
           </SheetHeader>
           
           <div className="flex-1 overflow-y-auto pb-6">
