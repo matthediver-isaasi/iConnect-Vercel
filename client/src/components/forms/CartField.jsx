@@ -21,6 +21,7 @@ export default function CartField({ field, formId, value, onChange, disabled, on
   const [draftQuantities, setDraftQuantities] = useState({});
   const lockQuery = useQuery({ queryKey: ['form-cart-locked', formId], queryFn: () => false, enabled: false });
   const cartLocked = locked || lockQuery.data === true;
+  const recovery = useQuery({ queryKey: ['form-cart-recovery', formId], queryFn: () => null, enabled: false });
   const callbacks = useRef({ onChange, onValidityChange });
   callbacks.current = { onChange, onValidityChange };
   const query = useQuery({
@@ -41,6 +42,7 @@ export default function CartField({ field, formId, value, onChange, disabled, on
     const handleUnlocked = event => {
       if (event.detail?.formId !== formId) return;
       setLocked(false);
+      setUnavailable(false);
       refresh.current();
     };
     window.addEventListener(CART_UNAVAILABLE_EVENT, handleUnavailable);
@@ -124,7 +126,14 @@ export default function CartField({ field, formId, value, onChange, disabled, on
     } catch { totalsAvailable = false; }
   }
   return <div className="space-y-3">
-    {cartLocked && <p role="status" className="rounded-md border bg-muted/40 p-3 text-sm">Checkout has started. Your cart is locked to this payment attempt.</p>}
+    {cartLocked && <div className="rounded-md border bg-muted/40 p-3 text-sm">
+      <p role="status">Your cart is reserved for payment. To make changes, safely cancel the unfinished card payment first.</p>
+      <Button type="button" variant="outline" data-testid="cart-recover-payment" disabled={recovery.data?.busy}
+        onClick={() => window.dispatchEvent(new CustomEvent('form-cart-edit-request', { detail: { formId } }))}>
+        {recovery.data?.busy ? 'Checking payment…' : 'Cancel unfinished payment and edit cart'}
+      </Button>
+      {recovery.data?.error && <p role="alert">{recovery.data.error}</p>}
+    </div>}
     {unavailable && <p role="alert" className="text-sm text-destructive">A cart item is no longer available. Your cart and other answers have been kept. Review quantities before retrying.</p>}
     {!formId ? <p className="text-sm text-muted-foreground">Save the form to preview cart options.</p>
       : query.isFetching || query.isPending ? <div role="status" className="animate-pulse rounded-md bg-muted p-3 text-sm">Loading cart options…</div>
@@ -183,7 +192,7 @@ export default function CartField({ field, formId, value, onChange, disabled, on
         </Button></div>
       </div>;
     })}
-    {contentsVisible && <section aria-label="Cart contents" className="space-y-3">
+    {contentsVisible && query.isSuccess && !query.isFetching && <section aria-label="Cart contents" className="space-y-3">
       <p className="text-sm font-medium">Cart contents</p>
       {answer.lines.length === 0 && <p className="rounded-md border bg-muted/40 p-3 text-sm">Your cart is empty. Add an item to get started.</p>}
       {pricedLines.map(({ item, ...line }, index) => item
@@ -198,7 +207,7 @@ export default function CartField({ field, formId, value, onChange, disabled, on
             <Button type="button" variant="ghost" size="sm" disabled={readonly} onClick={() => changeQuantity(item.kind, item.id, 0)}>Remove</Button>
           </div>
         </div>
-        : <div key={`${line.kind}:${line.id}:${index}`} className="rounded-md border border-amber-200 p-3 text-sm"><p className="text-amber-700">Saved {line.kind || 'item'} unavailable ({line.id}) · quantity {line.quantity}</p><Button type="button" variant="ghost" size="sm" disabled={readonly} onClick={() => changeQuantity(line.kind, line.id, 0)}>Remove saved item</Button></div>)}
+        : <div key={`${line.kind}:${line.id}:${index}`} className="rounded-md border border-amber-200 p-3 text-sm"><p className="text-amber-700">Saved {line.kind || 'item'} unavailable · quantity {line.quantity}</p><Button type="button" variant="ghost" size="sm" disabled={readonly} onClick={() => changeQuantity(line.kind, line.id, 0)}>Remove saved item</Button></div>)}
       {totalsAvailable ? <dl className="space-y-1 rounded-md border bg-muted/40 p-3 text-sm">
         <div className="flex justify-between gap-3"><dt>Subtotal</dt><dd>{money(totals.netMinor, currency)}</dd></div>
         <div className="flex justify-between gap-3"><dt>Tax</dt><dd>{money(totals.taxMinor, currency)}</dd></div>
@@ -207,7 +216,7 @@ export default function CartField({ field, formId, value, onChange, disabled, on
     </section>}
     {invalidAnswer && <div role="alert" className="text-sm text-destructive"><p>This saved cart cannot be read. It has not been changed automatically.</p><Button type="button" variant="outline" size="sm" disabled={readonly} onClick={() => { if (!readonly) callbacks.current.onChange({ version: 1, lines: [] }); }}>Clear unreadable cart</Button></div>}
     {missingBundle && !query.isFetching && <p role="alert" className="text-sm text-destructive">Add at least one bundle to continue.</p>}
-    {!valid && !missingBundle && answer.lines.length > 0 && !query.isFetching && <p role="alert" className="text-sm text-destructive">Review unavailable items and quantities before checkout.</p>}
+    {!valid && !missingBundle && answer.lines.length > 0 && query.isSuccess && !query.isFetching && !cartLocked && <p role="alert" className="text-sm text-destructive">Review unavailable items and quantities before checkout.</p>}
     <p className="text-xs text-muted-foreground">Nothing is added automatically. The Payment total includes tax and is confirmed before checkout. Cart selections cannot be edited after checkout starts.</p>
   </div>;
 }

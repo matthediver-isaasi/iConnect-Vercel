@@ -111,6 +111,19 @@ export default function FormPaymentSubmit({
   const [paymentError, setPaymentError] = useState(null);
   const [bundleAttemptStatus, setBundleAttemptStatus] = useState(null);
   const cartAttemptFormIdRef = useRef(null);
+  useEffect(() => {
+    const resetReleasedCart = event => {
+      if (!cartAttemptFormIdRef.current || event.detail?.formId !== cartAttemptFormIdRef.current) return;
+      setSelectedProvider(null);
+      setStripeMounted(false);
+      setPaymentError(null);
+      setBundleAttemptStatus(null);
+      setExternalCheckoutUrl(null);
+      cartAttemptFormIdRef.current = null;
+    };
+    window.addEventListener('form-cart-unlocked', resetReleasedCart);
+    return () => window.removeEventListener('form-cart-unlocked', resetReleasedCart);
+  }, []);
   const [stripeMounted, setStripeMounted] = useState(false);
   const [stripeAddressRequired, setStripeAddressRequired] = useState(false);
   const [preparedMembershipTerm, setPreparedMembershipTerm] = useState(null);

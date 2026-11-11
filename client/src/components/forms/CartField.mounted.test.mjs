@@ -95,8 +95,63 @@ test('cart conflicts refresh options without clearing saved selections; checkout
     assert.equal(fixture.container.querySelector('input').disabled, false);
     await act(async () => window.dispatchEvent(new CustomEvent('form-cart-locked', { detail: { formId: 'form-one' } })));
     assert.equal(fixture.container.querySelector('input').disabled, true);
-    assert.equal(fixture.container.querySelector('button').disabled, true);
+    assert.ok([...fixture.container.querySelectorAll('button:not([data-testid="cart-recover-payment"])')].every(button => button.disabled));
+    assert.equal(fixture.container.querySelector('[data-testid="cart-recover-payment"]').disabled, false);
   } finally { await fixture.close(); }
+});
+
+test('loading saved cart never shows missing-item warnings or internal identifiers', async () => {
+  let finish;
+  globalThis.fetch = () => new Promise(resolve => { finish = resolve; });
+  const fixture = await mount(saved);
+  try {
+    assert.match(fixture.container.textContent, /Loading cart options/);
+    assert.doesNotMatch(fixture.container.textContent, /unavailable|Review unavailable/);
+    assert.equal(fixture.container.textContent.includes(id), false);
+    await act(async () => finish({ ok: true, json: async () => ({ items: [item] }) }));
+    await settle();
+    assert.match(fixture.container.textContent, new RegExp(item.name));
+  } finally { await fixture.close(); }
+});
+
+test('cart recovery preserves answers and only unlocks after server cancellation', async () => {
+  let release;
+  let rotations = 0;
+  const form = { id: 'form-one', fields: [{ id: 'cart', type: 'sales_cart' }] };
+  globalThis.fetch = async (url, options) => {
+    if (String(url).includes('form-bundles')) return { ok: true, json: async () => ({ items: [item] }) };
+    assert.equal(JSON.parse(options.body).action, 'cancel_cart');
+    return new Promise(resolve => { release = resolve; });
+  };
+  const client = createClient();
+  const container = document.createElement('div'); document.body.append(container);
+  const root = createRoot(container);
+  function Fixture() {
+    const [values, setValues] = React.useState({ cart: saved });
+    useFormBundleUnavailable(form, setValues, () => {}, {
+      getIdempotencyKey: () => 'original-checkout-key', rotateIdempotencyKey: () => { rotations++; },
+    });
+    return React.createElement(CartField, { field: form.fields[0], formId: form.id, value: values.cart, onChange: cart => setValues({ cart }) });
+  }
+  try {
+    await act(async () => root.render(React.createElement(QueryClientProvider, { client }, React.createElement(Fixture))));
+    await settle();
+    await act(async () => window.dispatchEvent(new CustomEvent('form-cart-locked', { detail: { formId: form.id } })));
+    await act(async () => container.querySelector('[data-testid="cart-recover-payment"]').click());
+    await settle();
+    assert.match(container.textContent, /Checking payment/);
+    assert.equal(client.getQueryData(['form-cart-locked', form.id]), true);
+    await act(async () => release({ ok: false, json: async () => ({ error: 'Payment is processing' }) }));
+    await settle();
+    assert.equal(rotations, 0);
+    assert.match(container.textContent, /Payment is processing/);
+    await act(async () => container.querySelector('[data-testid="cart-recover-payment"]').click());
+    await act(async () => release({ ok: true, json: async () => ({ released: true }) }));
+    await settle();
+    assert.equal(rotations, 1);
+    assert.equal(client.getQueryData(['form-cart-locked', form.id]), false);
+    assert.equal(container.querySelector(`#cart-cart-product-${id}`).value, '2');
+  } finally { await act(async () => root.unmount()); client.clear(); container.remove(); }
 });
 
 test('missing and unreadable selections are retained, with explicit removal', async () => {
@@ -328,7 +383,7 @@ for (const bundle_display of ['cards', 'dropdown']) {
       if (picker()) assert.equal(picker().value, '', 'only uncommitted choice clears');
       const before = answers.length;
       await act(async () => window.dispatchEvent(new CustomEvent('form-cart-locked', { detail: { formId: 'form-one' } })));
-      assert.ok([...container.querySelectorAll('input,select,button')].every(control => control.disabled));
+      assert.ok([...container.querySelectorAll('input,select,button:not([data-testid="cart-recover-payment"])')].every(control => control.disabled));
       assert.equal(answers.length, before);
     } finally { await fixture.close(); }
   });

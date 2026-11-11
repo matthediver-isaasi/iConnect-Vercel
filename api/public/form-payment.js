@@ -40,6 +40,7 @@ import { resolveFormBundle, recoverBundlePaymentAttempt, FormBundleError } from 
 import { bundlePriceField } from '../../shared/formBundles.js';
 import { cartField, normalizeCartAnswer } from '../../shared/formCart.js';
 import { recoverCartPaymentAttempt, FormCartError } from '../_lib/formCart.js';
+import { cancelCartPayment } from '../_lib/formCartRecovery.js';
 import { missingCartRequiredAnswers } from '../../shared/formCartRequiredAnswers.js';
 import { resolveFormPaymentOrganization } from '../_lib/formPaymentOrganization.js';
 import {
@@ -293,6 +294,7 @@ export default async function handler(req, res, dependencies = {}) {
     if (!tenantData) return res.status(404).json({ error: 'Tenant not found' });
 
     const { action } = req.body || {};
+    if (action === 'cancel_cart') return await handleCancelCart(req, res, supabase, tenantData, dependencies);
     if (action === 'create') return await handleCreate(req, res, supabase, tenantData, dependencies);
     if (action === 'create_monthly_card') return await handleCreateMonthlyCard(req, res, supabase, tenantData, dependencies);
     if (action === 'confirm') return await handleConfirm(req, res, supabase, tenantData, dependencies);
@@ -2146,6 +2148,25 @@ async function markMonthlySetupAcknowledged(db, submissionId) {
     return { ok: true, row: reread.data };
   }
   return { ok: false, row: reread.data || null, error: new Error('monthly setup acknowledgement CAS lost') };
+}
+
+export async function handleCancelCart(req, res, supabase, tenantData, dependencies = {}) {
+  const { form_id, idempotency_key } = req.body || {};
+  if (!form_id || typeof idempotency_key !== 'string' || idempotency_key.trim().length < 16) {
+    return res.status(400).json({ error: 'The original checkout identity is required.' });
+  }
+  const { data: row, error } = await supabase.from('form_submission').select('*')
+    .eq('tenant_id', tenantData.id).eq('form_id', form_id)
+    .eq('idempotency_key', `pay:${idempotency_key.trim()}`.slice(0, 120)).maybeSingle();
+  if (error) return res.status(503).json({ error: 'We could not check your payment. Please retry.' });
+  if (!row) return res.status(404).json({ error: 'The original payment could not be found. Your cart has been kept.' });
+  // The random checkout key is the guest capability, just as for create's
+  // idempotent retries. It must match the stored tenant + form + attempt.
+  try {
+    return res.status(200).json(await cancelCartPayment(supabase, row, dependencies.retrieveStripe));
+  } catch (error) {
+    return res.status(409).json({ error: error.message || 'Your payment could not be safely cancelled. Please retry.' });
+  }
 }
 
 export async function handleConfirm(req, res, supabase, tenantData, dependencies = {}) {

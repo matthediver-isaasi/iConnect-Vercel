@@ -2100,7 +2100,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // Task #3498: server-derived membership fee when a conditional membership
   // rule matches — the payment card/button must show and charge THAT amount,
   // not the (usually absent) price-source answer.
-  useFormBundleUnavailable(form, setFormValues, setSubmissionError);
+  useFormBundleUnavailable(form, setFormValues, setSubmissionError, { getIdempotencyKey, rotateIdempotencyKey });
   const membershipFeeQuote = useMembershipFeeQuote({
     form,
     formValues,
