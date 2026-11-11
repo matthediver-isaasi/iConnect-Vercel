@@ -2537,6 +2537,11 @@ export default function FormSubmissionsPage() {
                                 : ''}
                             </Badge>
                           )}
+                          {submission.payment_provider === 'invoice' && submission.payment_status !== 'paid' && (
+                            <Badge variant="outline" className="border-amber-200 text-amber-800">
+                              Order confirmed · Invoice unpaid
+                            </Badge>
+                          )}
                           {submission.payment_status === 'paid' && (
                             <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200" data-testid={`badge-payment-${submission.id}`}>
                               Paid {submission.payment_amount != null ? `${(submission.payment_currency || 'GBP').toUpperCase()} ${Number(submission.payment_amount).toFixed(2)}` : ''}

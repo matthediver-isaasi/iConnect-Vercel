@@ -31,10 +31,11 @@ const journeyForm = {
     { ...form.fields[2], page_id: 'review-page' },
   ],
 };
-async function mock(page, info, { display, authenticated = false, journey = false } = {}) {
+async function mock(page, info, { display, authenticated = false, journey = false, invoice = false } = {}) {
   const offered = display ? [...items.map(item => item.kind === 'bundle' ? { ...item, categoryId: 'packs', categoryName: 'Packages' } : item),
     { ...items[1], id: '20000000-0000-4000-8000-000000000003', name: 'Extra pack', categoryId: null, categoryName: null }] : items;
-  const configuredForm = journey ? journeyForm : display ? { ...form, fields: form.fields.map(field => field.type === 'sales_cart'
+  const configuredForm = invoice ? { ...form, fields: form.fields.map(field => field.type === 'payment'
+    ? { ...field, payment_providers: ['invoice'] } : field) } : journey ? journeyForm : display ? { ...form, fields: form.fields.map(field => field.type === 'sales_cart'
     ? { ...field, bundle_display: display, show_bundle_category: true } : field) } : form;
   const state = { creates: 0, confirms: 0, failStock: true, lastAnswers: null, quotes: [], cartFieldIds: [] };
   await page.route('**/*', async route => {
@@ -61,7 +62,10 @@ async function mock(page, info, { display, authenticated = false, journey = fals
       state.cartFieldIds.push(url.searchParams.get('field_id'));
       return json({ items: offered });
     }
-    if (p === '/api/public/form-payment-providers') return json({ providers: [{ id: 'stripe', configured: true, name: 'Credit / debit card' }] });
+    if (p === '/api/public/form-payment-providers') return json({ providers: [
+      { id: 'stripe', configured: true, name: 'Credit / debit card' },
+      { id: 'invoice', configured: true, name: 'Pay by invoice' },
+    ] });
     if (p === '/api/public/form-payment') {
       const body = request.postDataJSON();
       if (body.action === 'quote') {
@@ -71,6 +75,10 @@ async function mock(page, info, { display, authenticated = false, journey = fals
       }
       if (body.action === 'create') {
         state.creates++; state.lastAnswers = body.submission_data;
+        if (invoice) {
+          expect(body.provider).toBe('invoice');
+          return json({ submissionId: 'invoice-fixture', invoiceOrderConfirmed: true, paymentStatus: 'unpaid' });
+        }
         if (state.failStock) return json({ error: 'Stock changed', code: 'CART_UNAVAILABLE' }, 409);
         return json({ alreadyPaid: true, submissionId: 'fixture-payment', provider: 'stripe', status: 'paid' });
       }
@@ -160,6 +168,26 @@ test('provider return confirms the original submission without creating another 
   await expect.poll(() => state.confirms, { timeout: 45000 }).toBeGreaterThan(0);
   expect(state.creates).toBe(0);
 });
+for (const route of ['/FormView?slug=cart-fixture', '/embed/form/cart-fixture']) {
+  test(`invoice order confirmation stays unpaid ${route}`, async ({ page }, info) => {
+    await page.setViewportSize({ width: 390, height: 950 });
+    const state = await mock(page, info, { invoice: true });
+    await page.goto(route);
+    await page.getByRole('textbox').first().fill('Invoice buyer');
+    const quantity = page.locator(`#cart-draft-cart-product-${product}`);
+    await quantity.fill('1');
+    await quantity.locator('..').getByRole('button', { name: 'Add to cart' }).click();
+    const invoice = page.getByTestId('button-form-payment-invoice-payment');
+    await expect(invoice).toBeVisible();
+    await expect(page.getByTestId('button-form-payment-stripe-payment')).toHaveCount(0);
+    await invoice.click();
+    await expect(page.getByText('Order confirmed', { exact: true })).toBeVisible();
+    await expect(page.getByText(/Payment remains outstanding; no card or Direct Debit payment has been taken/)).toBeVisible();
+    expect(state.creates).toBe(1);
+    expect(state.confirms).toBe(0);
+  });
+}
+
 for (const width of [390, 1280]) {
  for (const route of ['/FormView?slug=cart-fixture', '/embed/form/cart-fixture']) {
   test(`${route} three-page cart journey at ${width}px retains purchases and edits the original answer from review`, async ({ page }, info) => {

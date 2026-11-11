@@ -191,6 +191,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   const invitationInitializedRef = useRef(null);
   const [emptyRelationshipParentValues, setEmptyRelationshipParentValues] = useState({});
   const [submitted, setSubmitted] = useState(false);
+  const [invoiceOrderConfirmed, setInvoiceOrderConfirmed] = useState(false);
   const [fieldValidity, setFieldValidity] = useState({}); // Track format validity for each field
   const [submissionError, setSubmissionError] = useState(null); // Inline error display for validation failures
   const [defaultsInitialized, setDefaultsInitialized] = useState(false);
@@ -3194,8 +3195,10 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
             <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <CheckCircle2 className="w-8 h-8 text-green-600" />
             </div>
-            <h3 className="text-xl font-semibold text-slate-900 mb-2">Success!</h3>
-            <p className="text-slate-600">{surveySuccessMessage(form)}</p>
+            <h3 className="text-xl font-semibold text-slate-900 mb-2">{invoiceOrderConfirmed ? 'Order confirmed' : 'Success!'}</h3>
+            <p className="text-slate-600">{invoiceOrderConfirmed
+              ? 'Your order is confirmed and your invoice has been requested. Payment remains outstanding; no card or Direct Debit payment has been taken.'
+              : surveySuccessMessage(form)}</p>
             {affiliationSubmissionStatus === 'awaiting_review' && <p role="status" className="mt-4 text-sm text-slate-700">
               Your requested affiliation changes have been saved for review. Your existing affiliations remain unchanged until approval.
             </p>}
@@ -3425,6 +3428,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                   disabledMessage={departmentCurrentSetBlocked || submitControl.message}
                   busy={submitFormMutation.isPending}
                   onPaid={() => { rotateIdempotencyKey(); setSubmitted(true); }}
+                  onInvoiceConfirmed={() => { setInvoiceOrderConfirmed(true); rotateIdempotencyKey(); setSubmitted(true); }}
                   onPaymentAccepted={({ submissionId, provider, status, paymentSucceeded }) => {
                     rotateIdempotencyKey();
                     paymentReturn.adoptPaymentAcceptance({
@@ -3937,6 +3941,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                     disabledMessage={departmentCurrentSetBlocked || submitControl.message}
                     busy={submitFormMutation.isPending}
                     onPaid={() => { rotateIdempotencyKey(); setSubmitted(true); }}
+                    onInvoiceConfirmed={() => { setInvoiceOrderConfirmed(true); rotateIdempotencyKey(); setSubmitted(true); }}
                     onPaymentAccepted={({ submissionId, provider, status, paymentSucceeded }) => {
                       rotateIdempotencyKey();
                       paymentReturn.adoptPaymentAcceptance({

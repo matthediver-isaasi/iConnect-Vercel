@@ -2,7 +2,8 @@ import { useState, useRef, useMemo, useCallback, useEffect } from "react";
 import { useFormPrefillLocked } from './FormPrefillBoundary';
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { Loader2, CreditCard, AlertCircle, Landmark, Info } from "lucide-react";
+import { Loader2, CreditCard, AlertCircle, Landmark, Info, FileText } from "lucide-react";
+import { INVOICE_PAYMENT_HELP } from "./InvoicePaymentSetting";
 import { filterPaymentProvidersForMembership, resolveEffectivePayment } from "@/lib/formPaymentQuote";
 import GoCardlessDropinFlow from "@/components/gocardless/GoCardlessDropinFlow";
 import {
@@ -57,6 +58,8 @@ export function derivePaymentAmountClient(paymentField, formValues) {
  *  - disabled / disabledMessage: submit-control rule state
  *  - busy: parent-side submitting state
  *  - onPaid(submissionId): payment verified server-side — show success
+ *  - onInvoiceConfirmed({ submissionId, invoiceOrderConfirmed: true,
+ *    paymentStatus: 'unpaid' }): order confirmed without collecting payment
  *  - onSetupComplete(submissionId): GoCardless Direct Debit membership was
  *    verified and the application was finalized — show the dedicated
  *    application-submitted outcome (distinct from a paid card payment)
@@ -80,6 +83,7 @@ export default function FormPaymentSubmit({
   disabledMessage = null,
   busy = false,
   onPaid,
+  onInvoiceConfirmed,
   onPaymentAccepted,
   onSetupComplete,
   onNormalSubmit,
@@ -112,6 +116,7 @@ export default function FormPaymentSubmit({
   const [preparedMembershipTerm, setPreparedMembershipTerm] = useState(null);
   const [paymentCaptured, setPaymentCaptured] = useState(false);
   const [paymentStage, setPaymentStage] = useState(null);
+  const [invoiceOutcome, setInvoiceOutcome] = useState(null);
   const [externalCheckoutUrl, setExternalCheckoutUrl] = useState(null);
   // GoCardless Drop-in modal state: { flowId, environment, authorisationUrl }
   const [gcDropin, setGcDropin] = useState(null);
@@ -175,11 +180,15 @@ export default function FormPaymentSubmit({
   const providers = providerQuery.data ?? null;
 
   const enabledProviderIds = Array.isArray(field?.payment_providers) ? field.payment_providers : [];
+  // Invoice is only an ordinary-form option, never a membership schedule escape.
+  const invoiceAllowed = field?.type !== 'membership_payment'
+    && paymentPurpose === 'forms' && !effective.membership;
   const usableProviders = useMemo(() => {
     if (!providers) return null;
-    const configured = providers.filter((p) => p.configured && enabledProviderIds.includes(p.id));
+    const configured = providers.filter((p) => p.configured && enabledProviderIds.includes(p.id)
+      && (p.id !== 'invoice' || invoiceAllowed));
     return filterPaymentProvidersForMembership(configured, effective.membership);
-  }, [providers, enabledProviderIds, effective.membership]);
+  }, [providers, enabledProviderIds, effective.membership, invoiceAllowed]);
 
   const stripeProvider = usableProviders?.find((p) => p.id === 'stripe') || null;
   const unavailableStripe = providers?.find((p) => p.id === 'stripe' && !p.configured) || null;
@@ -298,7 +307,8 @@ export default function FormPaymentSubmit({
   };
 
   const startPayment = async (providerId) => {
-    if (startupInFlightRef.current || disabled || busy || processing || confirming || bundleAttemptStatus) return;
+    if (startupInFlightRef.current || disabled || busy || processing || confirming || bundleAttemptStatus || invoiceOutcome) return;
+    if (providerId === 'invoice' && !invoiceAllowed) return;
     startupInFlightRef.current = true;
     setPendingMethod(providerId);
     setPaymentError(null);
@@ -359,6 +369,22 @@ export default function FormPaymentSubmit({
       // A successful create binds an immutable selection and stock reservation
       // to this checkout. Never change answers underneath its payment widgets.
       if (membershipQuote?.source === 'cart') lockFormCart(payload.form_id);
+      // Invoice create confirms an order, not a payment. Stop here before
+      // paid handling, payment-return storage, Direct Debit or Stripe setup.
+      if (providerId === 'invoice') {
+        if (!json.submissionId || json.invoiceOrderConfirmed !== true || json.paymentStatus !== 'unpaid') {
+          throw new Error('The invoice order could not be confirmed. Please try again.');
+        }
+        if (!mountedRef.current) return;
+        const outcome = {
+          submissionId: json.submissionId,
+          invoiceOrderConfirmed: true,
+          paymentStatus: 'unpaid',
+        };
+        setInvoiceOutcome(outcome);
+        onInvoiceConfirmed?.(outcome);
+        return;
+      }
       if (json.alreadyPaid) {
         if (!mountedRef.current) return;
         try {
@@ -577,7 +603,12 @@ export default function FormPaymentSubmit({
         </div>
       )}
 
-      {bundleAttemptStatus ? (
+      {invoiceOutcome ? (
+        <div className="space-y-2 rounded-md border bg-muted/40 p-4" role="status" data-testid={`form-invoice-confirmed-${field?.id}`}>
+          <p className="flex items-center gap-2 text-sm font-medium"><FileText className="h-4 w-4" aria-hidden="true" />Order confirmed</p>
+          <p className="text-sm text-muted-foreground">Payment remains outstanding until the invoice is paid.</p>
+        </div>
+      ) : bundleAttemptStatus ? (
         <div className="space-y-3 rounded-md border bg-muted/40 p-4" data-testid="bundle-payment-attempt-status">
           <p className="text-sm font-medium">{bundleAttemptStatus.endsWith('_ENDED') ? 'Payment attempt ended' : 'Administrator review required'}</p>
           {bundleAttemptStatus.endsWith('_ENDED') && onNewAttempt ? (
@@ -744,7 +775,7 @@ export default function FormPaymentSubmit({
               </p>
               {creating && (
                 <p className="mt-2 text-xs font-medium text-muted-foreground" role="status">
-                  Starting secure payment…
+                  {pendingMethod === 'invoice' ? 'Confirming your invoice order…' : 'Starting secure payment…'}
                 </p>
               )}
             </div>
@@ -773,6 +804,7 @@ export default function FormPaymentSubmit({
               )}
               {(usableProviders || []).map((p) => {
                 const isCard = p.id === 'stripe';
+                const isInvoice = p.id === 'invoice';
                 const monthlyDirectDebit = p.id === 'gocardless' && directDebitOffer;
                 return (
                   <button
@@ -784,13 +816,15 @@ export default function FormPaymentSubmit({
                     data-testid={`button-form-payment-${p.id}-${field?.id}`}
                   >
                     <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-border text-muted-foreground" aria-hidden="true">
-                      {pendingMethod === p.id ? <Loader2 className="h-5 w-5 animate-spin" /> : isCard ? <CreditCard className="h-5 w-5" /> : <Landmark className="h-5 w-5" />}
+                      {pendingMethod === p.id ? <Loader2 className="h-5 w-5 animate-spin" /> : isInvoice ? <FileText className="h-5 w-5" /> : isCard ? <CreditCard className="h-5 w-5" /> : <Landmark className="h-5 w-5" />}
                     </span>
                     <span className="flex min-w-0 flex-1 flex-col items-start break-words">
                       <span className="min-h-10 text-sm font-semibold leading-snug">
-                        {isCard ? 'Pay in full by card' : monthlyDirectDebit ? 'Pay monthly by Direct Debit' : 'Pay by Direct Debit'}
+                        {isInvoice ? 'Pay by invoice' : isCard ? 'Pay in full by card' : monthlyDirectDebit ? 'Pay monthly by Direct Debit' : 'Pay by Direct Debit'}
                       </span>
-                      {isCard ? (cartViewPresent && membershipQuote?.source === 'cart' ? null : (
+                      {isInvoice ? (
+                        <span className="mt-1.5 block text-xs leading-relaxed text-muted-foreground break-words">{INVOICE_PAYMENT_HELP}</span>
+                      ) : isCard ? (cartViewPresent && membershipQuote?.source === 'cart' ? null : (
                         <span className="mt-1.5 block text-xs leading-relaxed text-muted-foreground break-words">{formatPaymentAmount(amount, currency)} due today</span>
                       )) : monthlyDirectDebit ? (
                         <>

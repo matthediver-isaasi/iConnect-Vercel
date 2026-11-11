@@ -115,6 +115,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
   const lastChangedFieldRef = useRef({ formId: null, fieldId: null, revision: 0 });
   const [emptyRelationshipParentValues, setEmptyRelationshipParentValues] = useState({});
   const [submitted, setSubmitted] = useState(false);
+  const [invoiceOrderConfirmed, setInvoiceOrderConfirmed] = useState(false);
   const inlineCompletionRef = useRef(false);
   // The payment hook cleans history before later confirmation/poll renders.
   // Retain navigation context only; the parent still authorizes the relay.
@@ -1563,9 +1564,11 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
         <Card className="w-full max-w-md">
           <CardContent className="pt-6 text-center">
             <CheckCircle2 className="h-12 w-12 text-green-500 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold mb-2">Thank You!</h3>
+            <h3 className="text-lg font-semibold mb-2">{invoiceOrderConfirmed ? 'Order confirmed' : 'Thank You!'}</h3>
             <p className="text-muted-foreground">
-              {surveySuccessMessage(form) || 'Your submission has been received.'}
+              {invoiceOrderConfirmed
+                ? 'Your order is confirmed and your invoice has been requested. Payment remains outstanding; no card or Direct Debit payment has been taken.'
+                : surveySuccessMessage(form) || 'Your submission has been received.'}
             </p>
             {form.redirect_url && (
               <p className="text-sm text-muted-foreground mt-2">Redirecting...</p>
@@ -1713,6 +1716,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
                     disabledMessage={departmentCurrentSetBlocked || submitControl.message}
                     busy={submitFormMutation.isPending}
                     onPaid={() => { rotateIdempotencyKey(); setSubmitted(true); notifyParentResize(); }}
+                    onInvoiceConfirmed={() => { setInvoiceOrderConfirmed(true); rotateIdempotencyKey(); setSubmitted(true); notifyParentResize(); }}
                     onPaymentAccepted={({ submissionId, provider, status, paymentSucceeded }) => {
                       inlineCompletionRef.current = true;
                       rotateIdempotencyKey();
@@ -1924,6 +1928,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
                 disabledMessage={departmentCurrentSetBlocked || submitControl.message}
                 busy={submitFormMutation.isPending}
                 onPaid={() => { rotateIdempotencyKey(); setSubmitted(true); notifyParentResize(); }}
+                onInvoiceConfirmed={() => { setInvoiceOrderConfirmed(true); rotateIdempotencyKey(); setSubmitted(true); notifyParentResize(); }}
                 onPaymentAccepted={({ submissionId, provider, status, paymentSucceeded }) => {
                   inlineCompletionRef.current = true;
                   rotateIdempotencyKey();

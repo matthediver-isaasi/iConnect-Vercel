@@ -22,3 +22,13 @@ bundle rate from components would invent financial terms.
 
 **How to apply:** Reject ambiguous rates, calculate catalogue net plus
 line-rounded tax once, and freeze accepted treatment/rates with the receipt.
+
+Opt-in form invoice checkout confirms the order and allocates stock immediately,
+without waiting for payment. It must remain unpaid, not simulate a successful
+card collection.
+
+**Why:** The owner explicitly chose immediate order confirmation for invoice
+checkout; invoice creation is not evidence of payment.
+
+**How to apply:** Keep order acceptance, stock allocation and the durable invoice
+request atomic, with retries reusing the original order and accounting identity.

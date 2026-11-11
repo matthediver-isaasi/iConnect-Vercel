@@ -18,7 +18,7 @@ const values = { cart: answer, name: 'Required answer' };
 const res = () => ({ statusCode: 200, setHeader() {}, status(code) { this.statusCode = code; return this; },
   json(body) { this.body = body; return this; } });
 
-function fixture({ ready = true, insertError = null, existing = null } = {}) {
+function fixture({ ready = true, insertError = null, existing = null, invoice = false } = {}) {
   const state = { row: existing, receipt: existing?.submission_data?.__cart_receipt ? {
     field_id: 'cart', answer, terms: existing.submission_data.__cart_receipt, state: 'held',
   } : null, inserts: 0, updates: 0, providerCreates: 0, scopes: [], noCatalogue: false,
@@ -47,7 +47,9 @@ function fixture({ ready = true, insertError = null, existing = null } = {}) {
             state.updates++; state.row = { ...state.row, ...patch };
           }
           const entries = {
-            form: form, form_submission: state.row, form_cart_receipt: state.receipt,
+            form: invoice ? { ...form, fields: form.fields.map(f => f.type === 'payment'
+              ? { ...f, payment_providers: ['stripe', 'invoice'] } : f) } : form,
+            form_submission: state.row, form_cart_receipt: state.receipt,
             sales_catalogue_product: state.products, sales_catalogue_bundle: state.bundles,
             sales_catalogue_bundle_item: [{ bundle_id: bundle, product_id: product }],
             form_product_stock: [{ product_id: product, remaining: 10 }],
@@ -100,6 +102,32 @@ test('mixed cart quote and checkout ignore browser prices, then recover immutabl
   const edited = await request('create', { submission_data: { ...values, cart: { version: 1, lines: [] } } });
   assert.equal(edited.statusCode, 409);
   assert.equal(edited.body.code, 'IDEMPOTENCY_KEY_REUSED');
+});
+
+test('invoice checkout is opt-in and returns unpaid confirmation without invoking card providers', async () => {
+  const disabled = fixture();
+  assert.equal((await disabled.request('create', { provider: 'invoice' })).statusCode, 400);
+  assert.equal(disabled.state.providerCreates, 0);
+  const enabled = fixture({ invoice: true });
+  enabled.dependencies.prepareFormInvoiceOrder = async args => {
+    assert.equal(args.amount, 7.4);
+    assert.equal(args.tenantId, 'tenant');
+    return { version: 1, amount: 7.4, currency: 'GBP' };
+  };
+  enabled.dependencies.submitInvoiceForm = async (req, res, dependencies) => {
+    assert.equal(req.body.form_name, form.name);
+    assert.ok(req.body.idempotency_key.startsWith('pay:'));
+    assert.ok(Object.getOwnPropertySymbols(dependencies).length > 0);
+    return res.status(201).json({ success: true, id: 'invoice-submission' });
+  };
+  const accepted = await enabled.request('create', { provider: 'invoice' });
+  assert.equal(accepted.statusCode, 201);
+  assert.equal(accepted.body.invoiceOrderConfirmed, true);
+  assert.equal(accepted.body.paymentStatus, 'unpaid');
+  assert.equal(accepted.body.alreadyPaid, undefined);
+  assert.equal(enabled.state.providerCreates, 0);
+  const missingKey = await enabled.request('create', { provider: 'invoice', idempotency_key: null });
+  assert.equal(missingKey.statusCode, 400);
 });
 test('readiness, required fields and reservation conflicts fail before provider creation', async () => {
   for (const scenario of ['not-ready', 'required', 'stock']) {

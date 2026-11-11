@@ -7,6 +7,7 @@ import { isPublicMemberSignup, preflightPublicMemberSignup, preflightApplicantTa
 import { loadPersistedFormEntityCreations } from '../_lib/formEntityCreationProvenance.js';
 import { resolveTenantFromRequest, getHostFromRequest } from '../_lib/tenantResolver.js';
 import { initializeFormDueDiligence } from '../_lib/formDueDiligence.js';
+import { invoiceOrderAuthority } from '../_lib/formInvoiceOrder.js';
 import { sendSubmitterCopyEmail } from '../forms/send-submitter-copy.js';
 import { getSession, getSessionMember } from '../_lib/session.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
@@ -695,7 +696,7 @@ export default async function handler(req, res, dependencies = {}) {
               formValues: submission_data || {},
               visibilityOptions: submitControlOptions,
             });
-            if (!hiddenIds.has(paymentField.id)) {
+            if (!hiddenIds.has(paymentField.id) && !dependencies[invoiceOrderAuthority]) {
               return res.status(400).json({
                 error: 'This form requires payment. Please complete payment to submit.',
                 code: 'PAYMENT_REQUIRED',
@@ -1495,6 +1496,14 @@ export default async function handler(req, res, dependencies = {}) {
       throw error;
     }
     const submissionRecord = {
+      ...(dependencies[invoiceOrderAuthority] ? {
+        payment_provider: 'invoice', payment_status: 'unpaid',
+        payment_amount: dependencies[invoiceOrderAuthority].amount,
+        payment_currency: dependencies[invoiceOrderAuthority].currency,
+        payment_meta: { invoice_order: dependencies[invoiceOrderAuthority],
+          verified_submitter_member_id: sessionMemberId || null,
+          verified_admin_access: sessionHasAdminAccess === true },
+      } : {}),
       form_id,
       form_name,
       // Prefer the email the form itself collected; fall back to the

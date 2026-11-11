@@ -1,5 +1,6 @@
 import { attachRetainedRenewalAffiliations } from '../_lib/retainedRenewalAffiliations.js';
 import { createLegacyApplicationScope } from '../_lib/formLegacyApplication.js';
+import { prepareFormInvoiceOrder, invoiceOrderAuthority } from '../_lib/formInvoiceOrder.js';
 /**
  * POST /api/public/form-payment (Task #3483)
  *
@@ -1142,7 +1143,7 @@ async function handleCreate(req, res, supabase, tenantData, dependencies = {}) {
   } = req.body || {};
 
   if (!form_id) return res.status(400).json({ error: 'Form ID is required' });
-  if (!provider || !['stripe', 'gocardless'].includes(provider)) {
+  if (!provider || !['stripe', 'gocardless', 'invoice'].includes(provider)) {
     return res.status(400).json({ error: 'Invalid payment provider' });
   }
 
@@ -1200,6 +1201,45 @@ async function handleCreate(req, res, supabase, tenantData, dependencies = {}) {
       });
     }
     existingIdempotentPayment = existing || null;
+  }
+
+  if (provider === 'invoice') {
+    if (!idemKey) return res.status(400).json({ error: 'An idempotency key is required for invoice orders.' });
+    if (existingIdempotentPayment && existingIdempotentPayment.payment_provider !== 'invoice') {
+      return res.status(409).json({ error: 'This checkout already uses another payment method. Complete or cancel it before starting a new order.' });
+    }
+    try {
+      let authority = existingIdempotentPayment?.payment_meta?.invoice_order;
+      if (!authority) {
+        const resolvedInvoice = await resolvePayableCharge({
+          supabase, tenantData, form, paymentField, values, prefill_organization_id,
+        });
+        if (resolvedInvoice.error) return res.status(resolvedInvoice.error.status).json(resolvedInvoice.error.body);
+        if (!(resolvedInvoice.amount > 0)) return res.status(400).json({ error: 'No payment is due.', code: 'NO_PAYMENT_REQUIRED' });
+        authority = await (dependencies.prepareFormInvoiceOrder || prepareFormInvoiceOrder)({
+          db: supabase, tenantId: tenantData.id, form, field: paymentField, values,
+          ...resolvedInvoice,
+        });
+      }
+      // Use the ordinary submission validation and guarded processing lifecycle.
+      // The symbol cannot be supplied over HTTP; all writes still pass its
+      // stored-form/access/required-field checks. The database atomically
+      // allocates stock and enqueues the unpaid invoice with this submission.
+      const submit = dependencies.submitInvoiceForm || (await import('./form-submission.js')).default;
+      const originalJson = res.json.bind(res);
+      res.json = body => originalJson(body?.success && body?.id ? {
+        ...body, submissionId: body.id, invoiceOrderConfirmed: true, paymentStatus: 'unpaid',
+      } : body);
+      const invoiceRequest = Object.create(req);
+      invoiceRequest.body = { ...req.body, form_name: form.name, idempotency_key: idemKey };
+      return await submit(invoiceRequest, res,
+        { ...dependencies, [invoiceOrderAuthority]: authority });
+    } catch (error) {
+      return res.status(error.status || 503).json({
+        error: error.status ? error.message : 'Invoice checkout could not be prepared. Please retry.',
+        code: error.code || 'FORM_INVOICE_UNAVAILABLE',
+      });
+    }
   }
 
   const existingCartAttempt = existingIdempotentPayment

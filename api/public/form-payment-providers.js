@@ -9,6 +9,9 @@
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { getStripeCredentials } from '../_lib/stripeCredentials.js';
 import { getGocardlessCredentials } from '../_lib/gocardlessCredentials.js';
+import { formInvoiceReady } from '../_lib/formInvoiceOrder.js';
+import { getActiveAccountingProvider } from '../_lib/accountingProvider.js';
+import { supabase } from '../_lib/database.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -70,6 +73,12 @@ export default async function handler(req, res) {
       configured: gcConfigured,
     });
 
+    let invoiceConfigured = false;
+    try {
+      invoiceConfigured = purpose === 'forms' && await formInvoiceReady(supabase)
+        && await getActiveAccountingProvider(tenantData.id) === 'xero';
+    } catch { /* Keep unavailable if readiness cannot be verified. */ }
+    providers.push({ id: 'invoice', name: 'Pay by invoice', configured: invoiceConfigured });
     return res.status(200).json({ providers });
   } catch (err) {
     console.error('[form-payment-providers] Error:', err);

@@ -645,9 +645,17 @@ export default function FormSubmissionView() {
                         ? ` — ${(submission.payment_currency || 'GBP').toUpperCase()} ${Number(submission.payment_amount).toFixed(2)}`
                         : ''}
                       {submission.payment_provider
-                        ? ` (${submission.payment_provider === 'gocardless' ? 'Direct Debit' : 'Card'})`
+                        ? ` (${submission.payment_provider === 'invoice' ? 'Invoice' : submission.payment_provider === 'gocardless' ? 'Direct Debit' : 'Card'})`
                         : ''}
                     </p>
+                    {submission.payment_provider === 'invoice' && (
+                      <p className="text-sm text-slate-600">
+                        {submission.payment_meta?.invoice_result?.invoiceNumber || submission.payment_meta?.invoice_result?.invoice_number
+                          ? `Invoice ${submission.payment_meta.invoice_result.invoiceNumber || submission.payment_meta.invoice_result.invoice_number}`
+                          : 'Invoice requested — accounting processing is pending.'}
+                        {' '}The order is confirmed. Invoice creation does not mean payment has been received.
+                      </p>
+                    )}
                     {submission.payment_reference && (
                       <p className="text-xs text-slate-500 font-mono">{submission.payment_reference}</p>
                     )}

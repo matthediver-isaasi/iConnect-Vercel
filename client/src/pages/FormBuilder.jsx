@@ -70,6 +70,7 @@ import FormBuilderEmailTemplatePicker from "@/components/forms/FormBuilderEmailT
 import { useFormAlertTenant } from "@/hooks/useFormAlerts";
 import BundleSelectionSettings from "@/components/forms/BundleSelectionSettings";
 import CartSettings from "@/components/forms/CartSettings";
+import InvoicePaymentSetting, { invoiceBillingConfigurationError } from "@/components/forms/InvoicePaymentSetting";
 import { cartConfigurationError } from "@/lib/formCart";
 import { bundleConfigurationError } from "@/lib/formBundles";
 import {
@@ -5182,7 +5183,7 @@ function PaymentFieldSettings({
         {providers === null ? (
           <p className="text-xs text-slate-400">Checking configured providers…</p>
         ) : (
-          providers.map(p => (
+          providers.filter(p => p.id !== 'invoice').map(p => (
             <div key={p.id} className="flex items-start gap-2">
               <Checkbox
                 id={`payment-provider-${p.id}-${field.id}`}
@@ -5202,6 +5203,13 @@ function PaymentFieldSettings({
             </div>
           ))
         )}
+        <InvoicePaymentSetting
+          field={field}
+          allFields={allFields}
+          onChange={updates => updateField(originalIndex, updates)}
+          provider={providers?.find(p => p.id === 'invoice')}
+          onCheckedChange={checked => toggleProvider('invoice', checked)}
+        />
       </div>
 
       {enabled.includes('stripe') && (
@@ -12306,6 +12314,11 @@ function FormBuilderEditor() {
       return;
     }
     for (const pf of paymentFields) {
+      const invoiceBillingError = invoiceBillingConfigurationError(pf, formData.fields);
+      if (invoiceBillingError) {
+        toast.error(invoiceBillingError);
+        return;
+      }
       const enabledProviders = Array.isArray(pf.payment_providers) ? pf.payment_providers : [];
       if (enabledProviders.length === 0) {
         toast.error(`Payment field "${pf.label || 'Payment'}" needs at least one payment method enabled.`);

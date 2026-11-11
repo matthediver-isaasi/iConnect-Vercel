@@ -1,3 +1,4 @@
+import { isConfirmedFormInvoice } from '../_lib/formInvoiceOrder.js';
 import { organizationNameError } from '../../shared/organizationNameValidation.js';
 
 import { loadLegacyApplicationScope } from '../_lib/formLegacyApplication.js';
@@ -1030,7 +1031,8 @@ export default async function handler(req, res, {
         createdMemberIds: signupCreatedRecords.member,
       });
     }
-    if (!canProcessPersistedPaymentStatus(persistedSubmission.payment_status, { trustedInternal })) {
+    const confirmedInvoiceOrder = trustedInternal && await isConfirmedFormInvoice(supabase, persistedSubmission);
+    if (!canProcessPersistedPaymentStatus(persistedSubmission.payment_status, { trustedInternal }) && !confirmedInvoiceOrder) {
       return res.status(409).json({ error: 'Payment must be completed before application processing', code: 'PAYMENT_NOT_COMPLETED' });
     }
     // Paid completion supplies a one-attempt operation UUID.  This durable
