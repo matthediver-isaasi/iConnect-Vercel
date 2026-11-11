@@ -11,6 +11,8 @@ const db=await connectDestination(),results=[];
 try{
  await db.query('begin read only');
  const audits=(await db.query('select * from bnms_returned_membership_repair_audit where tenant_id=$1',[tenant])).rows;
+ const decisions=(await db.query('select * from bnms_returned_decisions_audit where tenant_id=$1',[tenant])).rows;
+ assert.equal(decisions.length,2);
  assert.equal(audits.length,13);
  for(const r of evidence){
   const audit=audits.find(a=>a.member_id===r.id);
@@ -19,7 +21,8 @@ try{
   assert.deepEqual((await db.query('select to_jsonb(m) row from member m where tenant_id=$1 and id=$2',[tenant,r.id])).rows[0].row,r.member);
   for(const table of Object.keys(r.related))
    assert.deepEqual((await db.query(`select to_jsonb(x) row from ${table} x where tenant_id=$1 and member_id=$2 order by id`,[tenant,r.id])).rows.map(r=>r.row),r.related[table]);
-  for(const h of histories)assert.deepEqual(h,h.id===audit?.history_id?audit.after_record:r.histories.find(old=>old.id===h.id));
+  for(const h of histories)assert.deepEqual(h,decisions.find(d=>d.id===h.id)?.after_record
+   ||(h.id===audit?.history_id?audit.after_record:r.histories.find(old=>old.id===h.id)));
   if(audit){
    const h=histories.find(h=>h.id===audit.history_id),display=shapePersistedCommitment(h),prices=getMembershipPricingPresentation(h);
    assert(display.structureName&&display.startDate&&display.endDate&&display.renewalDate);
@@ -38,9 +41,10 @@ try{
     start:h.term_start_date,end:h.term_end_date,amount:h.final_cost,renewal:h.membership_renewal_date,
     renewalAssessment:assessment,
     note:!h.accounting_invoice_id?'Imported paid invoice used; Xero document identity remains unresolved.':
-      histories.length>1?'Previous-year term repaired; current six-month membership unchanged. Its separate missing renewal-policy snapshot still needs review before future renewal.':'Paid annual term reconstructed; no new collection arrangement created.'});
-  }else results.push({name:r.name,id:r.id,status:r.note?'Decision needed':'Excluded test record',
-    note:r.note?'Workbook says unpaid/Former, but retained invoice 200007749 and membership both say paid. Owner decision needed; no change made.':'Test record excluded; no change made.'});
+      histories.length>1?'Previous-year term repaired. Current term remains 1 October 2026–31 March 2027 at £30.50; approved Trainee renewal policy added (90-day early renewal and 90-day grace), without changing the purchased term.':'Paid annual term reconstructed; no new collection arrangement created.'});
+  }else results.push({name:r.name,id:r.id,status:r.note?'Workbook correction applied':'Excluded test record',
+    invoice:r.note?'200007749':'',
+    note:r.note?'Owner confirmed workbook correction: disputed paid/active membership cancelled and marked unpaid. Former class and original invoice evidence retained; no Xero changes.':'Test record excluded; no change made.'});
  }
  await db.query('rollback');
  await fs.writeFile(`${root}/verified-results.json`,JSON.stringify(results,null,2),{mode:0o600});
@@ -59,5 +63,5 @@ try{
  }});
  const file=`${root}/BNMS-membership-repair-results.xlsx`;await book.xlsx.writeFile(file);await fs.chmod(file,0o600);
  const check=new ExcelJS.Workbook();await check.xlsx.readFile(file);assert.equal(check.getWorksheet(1).rowCount,16);
- console.log(JSON.stringify({verifiedRepairs:13,membersNeedingDecision:2,testExcluded:1,renewalAssessments:results.filter(r=>r.renewalAssessment).map(r=>({name:r.name,state:r.renewalAssessment.state,reason:r.renewalAssessment.reason})),file},null,2));
+ console.log(JSON.stringify({verifiedRepairs:13,approvedDecisionsApplied:2,membersNeedingDecision:0,testExcluded:1,renewalAssessments:results.filter(r=>r.renewalAssessment).map(r=>({name:r.name,state:r.renewalAssessment.state,reason:r.renewalAssessment.reason})),file},null,2));
 }catch(e){await db.query('rollback');throw e;}finally{await db.end();}
