@@ -89,10 +89,29 @@ test('bundle tax is explicit, standard rate starts unset, and zero is a valid de
   treatment.props.onChange({ target: { value: 'standard' } });
   assert.equal(changes[0].bundle_tax[bundleId].rateBps, null);
   const next = { ...field, ...changes[0] };
-  const rate = render(next).nodes.find(node => node.type === 'input');
+  const rate = render(next).nodes.find(node => node.props?.['aria-label'] === 'Tax rate for Reading pack');
   assert.equal(rate.props.value, '');
   const configured = { ...field, bundle_tax: { [bundleId]: { treatment: 'standard', rateBps: 0 } } };
   assert.equal(cartConfigurationError({ ...form, fields: [configured, form.fields[1]] }), null);
+});
+test('selected bundle maximum is optional, bounded, and preserves other bundle limits', () => {
+  state.products = { data: { cartStockReady: true, items: [{ id: productId, name: 'Handbook' }] } };
+  state.bundles = { data: { cartStockReady: true, items: [{ id: bundleId, name: 'Reading pack', items: [{ productId }] }] } };
+  const field = { allowed_bundle_ids: [bundleId], bundle_max_quantities: { other: 8 } };
+  const { nodes, changes } = render(field);
+  const max = nodes.find(node => node.props?.['aria-label'] === 'Maximum quantity for Reading pack');
+  assert.equal(max.props.value, '');
+  assert.equal(max.props.placeholder, '1000');
+  for (const value of ['0', '-1', '1001', '1.5']) max.props.onChange({ target: { value } });
+  assert.equal(changes.length, 0);
+  max.props.onChange({ target: { value: '1' } });
+  assert.deepEqual(changes.at(-1), { bundle_max_quantities: { other: 8, [bundleId]: 1 } });
+  const updated = render({ ...field, ...changes.at(-1) });
+  const updatedMax = updated.nodes.find(node => node.props?.['aria-label'] === 'Maximum quantity for Reading pack');
+  assert.equal(updatedMax.props.value, 1);
+  updatedMax.props.onChange({ target: { value: '' } });
+  assert.deepEqual(updated.changes.at(-1), { bundle_max_quantities: { other: 8 } });
+  assert.equal(render({ allowed_bundle_ids: [] }).nodes.some(node => node.props?.['aria-label'] === 'Maximum quantity for Reading pack'), false);
 });
 test('Word export uses the immutable receipt and hides its internal metadata', () => {
   const receipt = { version: 1, fieldId: 'cart', currency: 'GBP', netMinor: 1735, taxMinor: 347, grossMinor: 2082, lines: [{

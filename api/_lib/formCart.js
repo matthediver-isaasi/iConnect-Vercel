@@ -1,5 +1,5 @@
 import {
-  cartField, cartConfigurationError, normalizeCartAnswer, priceCartLines, CART_RECEIPT_KEY,
+  cartField, cartConfigurationError, normalizeCartAnswer, priceCartLines, CART_RECEIPT_KEY, cartQuantityError,
 } from '../../shared/formCart.js';
 import { computeAuthoritativeHiddenFieldIds, findPaymentField } from './formFieldVisibility.js';
 import { rulesUseLmicOperators } from './formLmicConditions.js';
@@ -115,6 +115,8 @@ export async function resolveFormCart(db, form, values, { hiddenFieldIds, checkS
   let answer;
   try { answer = normalizeCartAnswer(values[field.id]); }
   catch (error) { throw new FormCartError(error.message); }
+  const quantityError = cartQuantityError(field, answer);
+  if (quantityError) throw new FormCartError(quantityError);
   if (field.required && !answer.lines.length) throw new FormCartError('Choose at least one cart item.');
   if (field.bundle_required === true && !answer.lines.some(line => line.kind === 'bundle')) {
     throw new FormCartError('Add at least one bundle to continue.');

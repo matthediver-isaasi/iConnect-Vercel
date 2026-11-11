@@ -237,6 +237,7 @@ const STANDARD_FIELD_TYPES = [
 const PREPOPULATE_FIELD_TYPES = [
   { value: 'sales_bundle', label: 'Bundle selection' },
   { value: 'sales_cart', label: 'Cart' },
+  { value: 'sales_cart_view', label: 'Cart view' },
   { value: 'organisation_dropdown', label: 'Organisation Dropdown' },
   { value: 'organisation_group_dropdown', label: 'Organisation Group Dropdown' },
   { value: 'relationship_dropdown', label: 'Relationship Dropdown' },
@@ -10612,7 +10613,7 @@ function FieldCard({
               })()}
 
               {/* Default Value Section - for non-boolean fields */}
-              {!['sales_cart', 'sales_bundle', 'boolean', 'terms_conditions', 'file', 'list', 'instructions', 'image', 'country', 'countries', 'user_name', 'user_email', 'user_organization', 'user_job_title', 'organisation_dropdown', 'organisation_group_dropdown', 'category_multiselect', 'category_dropdown', 'communication_preferences', 'contact', 'grouped_question', 'signature'].includes(field.type) && (
+              {!['sales_cart_view', 'sales_cart', 'sales_bundle', 'boolean', 'terms_conditions', 'file', 'list', 'instructions', 'image', 'country', 'countries', 'user_name', 'user_email', 'user_organization', 'user_job_title', 'organisation_dropdown', 'organisation_group_dropdown', 'category_multiselect', 'category_dropdown', 'communication_preferences', 'contact', 'grouped_question', 'signature'].includes(field.type) && (
                 <div className="space-y-2 p-3 bg-slate-50 border border-slate-200 rounded-lg">
                   <Label className="text-xs font-medium">Default Value</Label>
                   <p className="text-xs text-slate-500 mb-2">Pre-filled value when form loads</p>
@@ -10804,6 +10805,7 @@ function FieldCard({
               )}
 
               {/* Field Settings Section */}
+                {field.type !== 'sales_cart_view' && (
                 <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-4">
                   <Label className="text-sm font-medium">Field Settings</Label>
                   <div className="grid grid-cols-2 gap-4">
@@ -10864,6 +10866,7 @@ function FieldCard({
                     </div>
                   </div>
                 </div>
+                )}
               </div>
             </SheetContent>
           </Sheet>
@@ -11866,6 +11869,9 @@ function FormBuilderEditor() {
   };
 
   const updateField = (index, updates) => {
+    if (updates.type === 'sales_cart_view') {
+      updates = { ...updates, required: false, parent_field_id: null, multiple: false, multi_select: false, default_value: '' };
+    }
     if (updates.type === 'sales_cart') {
       if ((formData.form_type && formData.form_type !== 'standard') || formData.fields.some((field, i) => i !== index && ['sales_cart', 'sales_bundle', 'membership_payment'].includes(field.type))) {
         toast.error('Cart is limited to one top-level field on a standard form, without legacy Bundle selections or membership fees.');

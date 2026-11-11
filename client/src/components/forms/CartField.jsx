@@ -1,21 +1,24 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { ShoppingCart } from 'lucide-react';
 import { publicClient } from '@/api/publicClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { CART_LOCKED_EVENT, CART_UNLOCKED_EVENT, CART_UNAVAILABLE_EVENT } from '@/lib/formCart';
 import { normalizeCartAnswer } from '../../../../shared/formCart.js';
+import { calculateQuoteTotals } from '../../../../shared/salesContracts.js';
 
 let instanceCounter = 0;
 const money = (value, currency) => new Intl.NumberFormat('en-GB', { style: 'currency', currency }).format(value / 100);
 
-export default function CartField({ field, formId, value, onChange, disabled, onValidityChange }) {
+export default function CartField({ field, formId, value, onChange, disabled, onValidityChange, viewOnly = false, showCartContents = true }) {
   const [instance] = useState(() => ++instanceCounter);
   const [locked, setLocked] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
   const [category, setCategory] = useState('');
   const [bundleId, setBundleId] = useState('');
   const [bundleQuantity, setBundleQuantity] = useState('1');
+  const [draftQuantities, setDraftQuantities] = useState({});
   const lockQuery = useQuery({ queryKey: ['form-cart-locked', formId], queryFn: () => false, enabled: false });
   const cartLocked = locked || lockQuery.data === true;
   const callbacks = useRef({ onChange, onValidityChange });
@@ -70,14 +73,19 @@ export default function CartField({ field, formId, value, onChange, disabled, on
     .sort((a, b) => a[1].localeCompare(b[1]));
   const visibleBundles = bundles.filter(item => !field.show_bundle_category || !category || categoryKey(item) === category);
   const pickedBundle = visibleBundles.find(item => item.id === bundleId);
-  const pickedLine = answer.lines.find(line => line.kind === 'bundle' && line.id === bundleId);
+  const maximum = item => {
+    const configured = item?.kind === 'bundle' ? field.bundle_max_quantities?.[item.id] : undefined;
+    return Number.isInteger(configured) && configured >= 1 && configured <= 1000 ? configured : 1000;
+  };
+  const limit = item => Math.min(maximum(item), item?.remaining ?? 1000);
+  const committedQuantity = item => answer.lines.find(line => line.kind === item.kind && line.id === item.id)?.quantity || 0;
   const dropdown = field.bundle_display === 'dropdown';
   useEffect(() => {
     if (bundleId && !pickedBundle && !query.isFetching && !query.isError) setBundleId('');
   }, [bundleId, pickedBundle, query.isFetching, query.isError]);
   const valid = !invalidAnswer && !missingBundle && (!field.required || answer.lines.length > 0) && answer.lines.every(line => {
     const item = findItem(line);
-    return item?.available === true && (item.remaining === null || line.quantity <= item.remaining);
+    return item?.available === true && line.quantity <= limit(item);
   });
   useEffect(() => {
     callbacks.current.onValidityChange?.(field.id, !!formId && valid && !query.isError && !query.isFetching);
@@ -85,25 +93,44 @@ export default function CartField({ field, formId, value, onChange, disabled, on
   const changeQuantity = (kind, id, quantity) => {
     if (readonly || !Number.isSafeInteger(quantity) || quantity < 0 || quantity > 1000) return;
     const item = findItem({ kind, id });
-    if (quantity > 0 && (!item?.available || quantity > (item.remaining ?? 1000))) return;
+    if (quantity > 0 && (!item?.available || quantity > limit(item))) return;
     const lines = answer.lines.filter(line => !(line.kind === kind && line.id === id));
     if (quantity > 0) lines.push({ kind, id, quantity });
     callbacks.current.onChange({ version: 1, lines });
     setUnavailable(false);
-    if (kind === 'bundle' && id === bundleId) setBundleQuantity(String(quantity || 1));
   };
   const readonly = disabled || cartLocked || !formId || query.isPending || query.isFetching || query.isError;
-  const draftQuantity = Number(bundleQuantity);
-  const canAdd = pickedBundle?.available && Number.isSafeInteger(draftQuantity) && draftQuantity >= 1
-    && draftQuantity <= Math.min(1000, pickedBundle.remaining ?? 1000);
+  const draftQuantity = maximum(pickedBundle) === 1 ? 1 : Number(bundleQuantity);
+  const canAddQuantity = (item, quantity) => item?.available && Number.isSafeInteger(quantity) && quantity >= 1
+    && committedQuantity(item) + quantity <= limit(item);
+  const canAdd = canAddQuantity(pickedBundle, draftQuantity);
+  const add = (item, quantity) => {
+    if (!readonly && canAddQuantity(item, quantity)) changeQuantity(item.kind, item.id, committedQuantity(item) + quantity);
+  };
+  const contentsVisible = viewOnly || showCartContents;
+  const pricedLines = answer.lines.map(line => ({ ...line, item: findItem(line) }));
+  let totalsAvailable = !invalidAnswer && !query.isPending && !query.isFetching && !query.isError
+    && pricedLines.every(line => line.item && Number.isSafeInteger(line.item.unitPriceMinor))
+    && new Set(pricedLines.map(line => line.item?.currency)).size <= 1;
+  const currency = pricedLines[0]?.item?.currency || items[0]?.currency || 'GBP';
+  let totals;
+  if (totalsAvailable) {
+    try {
+      totals = pricedLines.length === 0 ? { netMinor: 0, taxMinor: 0, grossMinor: 0 } : calculateQuoteTotals(pricedLines.map(line => ({
+        quantity: String(line.quantity),
+        quotedUnitPriceMinor: line.item.unitPriceMinor,
+        taxRateBps: line.item.taxTreatment === 'standard' ? line.item.taxRateBps : 0,
+      })));
+    } catch { totalsAvailable = false; }
+  }
   return <div className="space-y-3">
     {cartLocked && <p role="status" className="rounded-md border bg-muted/40 p-3 text-sm">Checkout has started. Your cart is locked to this payment attempt.</p>}
     {unavailable && <p role="alert" className="text-sm text-destructive">A cart item is no longer available. Your cart and other answers have been kept. Review quantities before retrying.</p>}
     {!formId ? <p className="text-sm text-muted-foreground">Save the form to preview cart options.</p>
       : query.isFetching || query.isPending ? <div role="status" className="animate-pulse rounded-md bg-muted p-3 text-sm">Loading cart options…</div>
       : query.isError ? <div role="alert" className="space-y-2 text-sm text-destructive"><p>Cart options are unavailable. Your selections have been kept.</p><Button type="button" variant="outline" size="sm" onClick={() => query.refetch()}>Retry cart options</Button></div>
-      : items.length === 0 ? <p className="rounded-md border bg-muted/40 p-3 text-sm">No items are currently offered on this form.</p> : null}
-    {field.show_bundle_category === true && bundles.length > 0 && <label className="block text-sm">{categoryLabel}
+      : !viewOnly && items.length === 0 ? <p className="rounded-md border bg-muted/40 p-3 text-sm">No items are currently offered on this form.</p> : null}
+    {!viewOnly && field.show_bundle_category === true && bundles.length > 0 && <label className="block text-sm">{categoryLabel}
       <select aria-label={categoryLabel} className="mt-1 h-10 w-full min-w-0 rounded-md border bg-background px-3 text-sm"
         disabled={readonly} value={category} onChange={event => {
           setCategory(event.target.value);
@@ -113,13 +140,13 @@ export default function CartField({ field, formId, value, onChange, disabled, on
         {categories.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
       </select>
     </label>}
-    {!query.isPending && !query.isError && bundles.length > 0 && visibleBundles.length === 0 && <p role="status" className="text-sm">No bundles match this category.</p>}
-    {dropdown && !query.isPending && !query.isError && <div className="space-y-2">
+    {!viewOnly && !query.isPending && !query.isError && bundles.length > 0 && visibleBundles.length === 0 && <p role="status" className="text-sm">No bundles match this category.</p>}
+    {!viewOnly && dropdown && !query.isPending && !query.isError && <div className="space-y-2">
       <label className="block text-sm">{bundleLabel}{field.bundle_required === true ? ' (required)' : ''}
         <select aria-label={bundleLabel} className="mt-1 h-10 w-full min-w-0 rounded-md border bg-background px-3 text-sm"
           disabled={readonly} value={bundleId} onChange={event => {
             setBundleId(event.target.value);
-            setBundleQuantity(String(answer.lines.find(line => line.kind === 'bundle' && line.id === event.target.value)?.quantity || 1));
+            setBundleQuantity('1');
           }}>
           <option value="">Choose a bundle…</option>
           {visibleBundles.map(item => <option key={item.id} value={item.id} disabled={!item.available}>
@@ -128,30 +155,56 @@ export default function CartField({ field, formId, value, onChange, disabled, on
         </select>
       </label>
       <div className="flex flex-wrap items-end gap-2">
-        <label className="text-sm">Quantity<Input aria-label="Bundle quantity" className="w-24" type="number" min="1"
-          max={Math.min(1000, pickedBundle?.remaining ?? 1000)} step="1" value={bundleQuantity}
+        {maximum(pickedBundle) !== 1 && <label className="text-sm">Quantity<Input aria-label="Bundle quantity" className="w-24" type="number" min="1"
+          max={pickedBundle ? Math.max(0, limit(pickedBundle) - committedQuantity(pickedBundle)) : 1000} step="1" value={bundleQuantity}
           disabled={readonly || !pickedBundle?.available} aria-invalid={!!bundleId && !canAdd}
-          onChange={event => setBundleQuantity(event.target.value)} /></label>
-        <Button type="button" disabled={readonly || !canAdd} onClick={() => changeQuantity('bundle', bundleId, draftQuantity)}>
-          {pickedLine ? 'Update bundle' : 'Add bundle'}
+          onChange={event => setBundleQuantity(event.target.value)} /></label>}
+        <Button type="button" disabled={readonly || !canAdd} onClick={() => add(pickedBundle, draftQuantity)}>
+          <ShoppingCart aria-hidden="true" className="mr-2 h-4 w-4" />Add to cart
         </Button>
       </div>
     </div>}
-    {!query.isPending && !query.isError && items.filter(item => item.kind !== 'bundle'
-      || answer.lines.some(line => line.kind === 'bundle' && line.id === item.id)
+    {!viewOnly && !query.isPending && !query.isError && items.filter(item => item.kind !== 'bundle'
       || (!dropdown && visibleBundles.includes(item))).map(item => {
-      const line = answer.lines.find(line => line.kind === item.kind && line.id === item.id);
-      const quantity = line?.quantity || 0;
+      const key = `${item.kind}:${item.id}`;
+      const quantity = maximum(item) === 1 ? 1 : Number(draftQuantities[key] ?? '1');
+      const canAddItem = canAddQuantity(item, quantity);
       return <div key={`${item.kind}:${item.id}`} className="space-y-2 rounded-md border bg-background p-3">
         <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-sm font-medium">{item.name}</p>{item.description && <p className="text-xs text-muted-foreground">{item.description}</p>}</div><p className="text-sm font-medium">{money(item.unitPriceMinor, item.currency)} each</p></div>
         <p className="text-xs text-muted-foreground">{item.taxTreatment === 'standard' ? `Plus ${item.taxRateBps / 100}% tax` : item.taxTreatment?.replaceAll('_', ' ')} · {!item.available ? 'Unavailable' : item.remaining === null ? 'Unlimited availability' : `${item.remaining} available`}</p>
-        <div className="flex flex-wrap items-center gap-2"><label className="text-xs" htmlFor={`cart-${field.id}-${item.kind}-${item.id}`}>Quantity</label><Input id={`cart-${field.id}-${item.kind}-${item.id}`} className="w-24" type="number" min={quantity > 0 ? 1 : 0} max={Math.min(1000, item.remaining ?? 1000)} step="1" value={quantity} disabled={readonly || !item.available} aria-invalid={quantity > (item.remaining ?? 1000)} onChange={event => {
-          const next = Number(event.target.value);
-          if (Number.isSafeInteger(next) && next >= 0 && next <= 1000) changeQuantity(item.kind, item.id, next);
-        }} />{quantity > 0 && <Button type="button" variant="ghost" size="sm" disabled={readonly} onClick={() => changeQuantity(item.kind, item.id, 0)}>Remove</Button>}</div>
+        <div className="flex flex-wrap items-center gap-2">{maximum(item) !== 1 && <>
+          <label className="text-xs" htmlFor={`cart-draft-${field.id}-${item.kind}-${item.id}`}>Quantity</label>
+          <Input id={`cart-draft-${field.id}-${item.kind}-${item.id}`} className="w-24" type="number" min="1"
+            max={Math.max(0, limit(item) - committedQuantity(item))} step="1" value={draftQuantities[key] ?? '1'}
+            disabled={readonly || !item.available} aria-invalid={!canAddItem}
+            onChange={event => setDraftQuantities(previous => ({ ...previous, [key]: event.target.value }))} />
+        </>}<Button type="button" disabled={readonly || !canAddItem} onClick={() => add(item, quantity)}>
+          <ShoppingCart aria-hidden="true" className="mr-2 h-4 w-4" />Add to cart
+        </Button></div>
       </div>;
     })}
-    {answer.lines.filter(line => !findItem(line)).map((line, index) => <div key={`${line.kind}:${line.id}:${index}`} className="rounded-md border border-amber-200 p-3 text-sm"><p className="text-amber-700">Saved {line.kind || 'item'} unavailable ({line.id}) · quantity {line.quantity}</p><Button type="button" variant="ghost" size="sm" disabled={readonly} onClick={() => changeQuantity(line.kind, line.id, 0)}>Remove saved item</Button></div>)}
+    {contentsVisible && <section aria-label="Cart contents" className="space-y-3">
+      <p className="text-sm font-medium">Cart contents</p>
+      {answer.lines.length === 0 && <p className="rounded-md border bg-muted/40 p-3 text-sm">Your cart is empty. Add an item to get started.</p>}
+      {pricedLines.map(({ item, ...line }, index) => item
+        ? <div key={`${line.kind}:${line.id}:${index}`} className="space-y-2 rounded-md border bg-background p-3">
+          <div className="flex flex-wrap justify-between gap-2"><p className="text-sm font-medium">{item.name}</p><p className="text-sm">{money(item.unitPriceMinor * line.quantity, item.currency)}</p></div>
+          <div className="flex flex-wrap items-center gap-2">
+            {maximum(item) !== 1 ? <><label className="text-xs" htmlFor={`cart-${field.id}-${item.kind}-${item.id}`}>Cart quantity for {item.name}</label>
+              <Input id={`cart-${field.id}-${item.kind}-${item.id}`} className="w-24" type="number" min="1" max={limit(item)} step="1" value={line.quantity}
+                disabled={readonly || !item.available} aria-invalid={line.quantity > limit(item)}
+                onChange={event => changeQuantity(item.kind, item.id, Number(event.target.value))} /></>
+              : <p className="text-xs">Quantity: {line.quantity}</p>}
+            <Button type="button" variant="ghost" size="sm" disabled={readonly} onClick={() => changeQuantity(item.kind, item.id, 0)}>Remove</Button>
+          </div>
+        </div>
+        : <div key={`${line.kind}:${line.id}:${index}`} className="rounded-md border border-amber-200 p-3 text-sm"><p className="text-amber-700">Saved {line.kind || 'item'} unavailable ({line.id}) · quantity {line.quantity}</p><Button type="button" variant="ghost" size="sm" disabled={readonly} onClick={() => changeQuantity(line.kind, line.id, 0)}>Remove saved item</Button></div>)}
+      {totalsAvailable ? <dl className="space-y-1 rounded-md border bg-muted/40 p-3 text-sm">
+        <div className="flex justify-between gap-3"><dt>Subtotal</dt><dd>{money(totals.netMinor, currency)}</dd></div>
+        <div className="flex justify-between gap-3"><dt>Tax</dt><dd>{money(totals.taxMinor, currency)}</dd></div>
+        <div className="flex justify-between gap-3 border-t pt-2 font-medium"><dt>Total</dt><dd>{money(totals.grossMinor, currency)}</dd></div>
+      </dl> : <p className="text-xs text-muted-foreground">Totals are unavailable until all cart items can be checked.</p>}
+    </section>}
     {invalidAnswer && <div role="alert" className="text-sm text-destructive"><p>This saved cart cannot be read. It has not been changed automatically.</p><Button type="button" variant="outline" size="sm" disabled={readonly} onClick={() => { if (!readonly) callbacks.current.onChange({ version: 1, lines: [] }); }}>Clear unreadable cart</Button></div>}
     {missingBundle && !query.isFetching && <p role="alert" className="text-sm text-destructive">Add at least one bundle to continue.</p>}
     {!valid && !missingBundle && answer.lines.length > 0 && !query.isFetching && <p role="alert" className="text-sm text-destructive">Review unavailable items and quantities before checkout.</p>}

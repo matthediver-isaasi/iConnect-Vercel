@@ -15,6 +15,13 @@ test('required bundles reject empty and product-only answers before checkout; hi
   }
   assert.equal(await resolveFormCart(db, form, {}, { hiddenFieldIds: new Set(['cart']) }), null);
 });
+test('server rejects combined bundle quantities above the saved limit', async () => {
+  const db = { rpc: async () => ({ data: 1 }) };
+  const form = { fields: [{ ...field, bundle_max_quantities: { [id]: 1 } }, { id: 'pay', type: 'payment', price_field_id: 'cart' }] };
+  await assert.rejects(resolveFormCart(db, form, { cart: { version: 1, lines: [
+    { id, kind: 'bundle', quantity: 1 }, { id, kind: 'bundle', quantity: 1 },
+  ] } }, { hiddenFieldIds: new Set() }), /maximum of 1/);
+});
 for (const enabled of [false, true]) test(`cart bundle category metadata is tenant scoped and optional: ${enabled}`, async () => {
   const reads = [];
   const db = {

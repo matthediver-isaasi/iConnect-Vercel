@@ -1492,7 +1492,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     }
   }, [visiblePages.length, currentPageIndex, hasPages]);
 
-  const NON_INPUT_FIELD_TYPES = useMemo(() => new Set(['instructions', 'image', 'section_header', 'heading', 'paragraph', 'divider', 'spacer', 'html']), []);
+  const NON_INPUT_FIELD_TYPES = useMemo(() => new Set(['instructions', 'image', 'section_header', 'heading', 'paragraph', 'divider', 'spacer', 'html', 'sales_cart_view']), []);
 
   const autoSubmitTimerRef = useRef(null);
   const lastPaymentFieldRef = useRef(null);
@@ -2195,6 +2195,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                   membershipPaymentMemberId={prefillMemberId}
                   key={currentStep}
                   field={currentField}
+                  onCartChange={handleFieldChange}
                   value={formValues[currentField.id]}
                   onChange={(value) => handleFieldChange(currentField.id, value)}
                   onFormNotListedTextChange={(text) => handleFormNotListedTextChange(currentField.id, text)}
@@ -2354,6 +2355,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                     membershipPaymentMemberId={prefillMemberId}
                     key={field.id}
                     field={field}
+                    onCartChange={handleFieldChange}
                     value={formValues[field.id]}
                     onChange={(value) => handleFieldChange(field.id, value)}
                     onFormNotListedTextChange={(text) => handleFormNotListedTextChange(field.id, text)}
@@ -2388,6 +2390,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                           membershipPaymentMemberId={prefillMemberId}
                           key={field.id}
                           field={field}
+                          onCartChange={handleFieldChange}
                           value={formValues[field.id]}
                           onChange={(value) => handleFieldChange(field.id, value)}
                           onFormNotListedTextChange={(text) => handleFormNotListedTextChange(field.id, text)}
@@ -2422,6 +2425,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                               membershipPaymentMemberId={prefillMemberId}
                               key={field.id}
                               field={field}
+                              onCartChange={handleFieldChange}
                               value={formValues[field.id]}
                               onChange={(value) => handleFieldChange(field.id, value)}
                               onFormNotListedTextChange={(text) => handleFormNotListedTextChange(field.id, text)}

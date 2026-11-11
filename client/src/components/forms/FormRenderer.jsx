@@ -1427,7 +1427,7 @@ function CommunicationPreferencesField({ field, value, onChange, disabled, membe
   );
 }
 
-export default function FormRenderer({ field, value: suppliedValue, onChange, onGroupInitialSelection, onFormNotListedTextChange, onFileUploadStateChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, inheritedFieldLock = false, onValidityChange, onRelationshipEmptyStateChange, onRecordSelectionOptionsChange, onRepeatableAvailabilityChange, onRepeatableVisibilityChange, repeatableAvailabilitySupport = null, preserveValueWhenUnavailable = false, autoFocus = false, hideLabel = false, formId = null, formSlug = null, formMemberRoleId = null, communicationMemberContext = false, communicationAccess = null, communicationEligibilityReady = true, communicationEligibilityError = null, groupInitialSelectionReady = false, allFormValues = {}, prefillData = null, currentSetOptionLabels = null, currentSetExistingBlankFieldsByRow = null, allFields = [], membershipFeeQuote = null, notListedDisplayLabel = '', rootAllFields = null, rootAllFormValues = null, repeatableSiblingUniqueValues: siblingUniqueValues = [], repeatableFormExcludedValues: formExcludedValues = [], hiddenFieldIds = new Set(), parentHidden = false, availabilityProbe = false, suppressPaymentSummary = false, membershipPaymentMemberId = null }) {
+export default function FormRenderer({ field, value: suppliedValue, onChange, onCartChange, onGroupInitialSelection, onFormNotListedTextChange, onFileUploadStateChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, inheritedFieldLock = false, onValidityChange, onRelationshipEmptyStateChange, onRecordSelectionOptionsChange, onRepeatableAvailabilityChange, onRepeatableVisibilityChange, repeatableAvailabilitySupport = null, preserveValueWhenUnavailable = false, autoFocus = false, hideLabel = false, formId = null, formSlug = null, formMemberRoleId = null, communicationMemberContext = false, communicationAccess = null, communicationEligibilityReady = true, communicationEligibilityError = null, groupInitialSelectionReady = false, allFormValues = {}, prefillData = null, currentSetOptionLabels = null, currentSetExistingBlankFieldsByRow = null, allFields = [], membershipFeeQuote = null, notListedDisplayLabel = '', rootAllFields = null, rootAllFormValues = null, repeatableSiblingUniqueValues: siblingUniqueValues = [], repeatableFormExcludedValues: formExcludedValues = [], hiddenFieldIds = new Set(), parentHidden = false, availabilityProbe = false, suppressPaymentSummary = false, membershipPaymentMemberId = null }) {
   const prefillLocked = useFormPrefillLocked();
   disabled = disabled || prefillLocked;
   autoFocus = autoFocus && !prefillLocked;
@@ -4173,7 +4173,16 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
       case 'sales_bundle':
         return <BundleSelectionField field={field} formId={formId} value={value} onChange={onChange} disabled={disabled} onValidityChange={onValidityChange} />;
       case 'sales_cart':
-        return <CartField field={field} formId={formId} value={value} onChange={onChange} disabled={disabled} onValidityChange={onValidityChange} />;
+        return <CartField field={field} formId={formId} value={value} onChange={onChange} disabled={disabled} onValidityChange={onValidityChange}
+          showCartContents={!allFields.some(other => other.type === 'sales_cart_view' && !hiddenFieldIds.has(other.id))} />;
+      case 'sales_cart_view': {
+        const source = allFields.find(other => other.type === 'sales_cart');
+        if (!source) return <p className="text-sm text-muted-foreground">Add a Cart element to this form to display its contents here.</p>;
+        if (hiddenFieldIds.has(source.id)) return null;
+        return <CartField field={source} formId={formId} value={allFormValues[source.id]} viewOnly
+          onChange={next => onCartChange?.(source.id, next)} disabled={disabled || source.locked || !onCartChange}
+          onValidityChange={(_id, valid) => onValidityChange?.(field.id, valid)} />;
+      }
       case 'membership_payment':
         return (
           <MembershipPaymentField

@@ -1937,7 +1937,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     }
   }, [visiblePagesForClamp, currentPageIndex]);
 
-  const NON_INPUT_FIELD_TYPES = new Set(['instructions', 'image', 'section_header', 'heading', 'paragraph', 'divider', 'spacer', 'html']);
+  const NON_INPUT_FIELD_TYPES = new Set(['instructions', 'image', 'section_header', 'heading', 'paragraph', 'divider', 'spacer', 'html', 'sales_cart_view']);
 
   const autoSubmitTimerRef = useRef(null);
   const lastPaymentFieldRef = useRef(null);
@@ -3289,6 +3289,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                 membershipPaymentMemberId={applicantContinuationToken ? null : prefillMemberId}
                 key={currentStep}
                 field={currentField}
+                onCartChange={handleFieldChange}
                 value={formValues[currentField.id]}
                 onChange={(value) => {
                   handleFieldChange(currentField.id, value);
@@ -3670,6 +3671,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                   membershipPaymentMemberId={applicantContinuationToken ? null : prefillMemberId}
                   key={field.id}
                   field={field}
+                  onCartChange={handleFieldChange}
                   value={formValues[field.id]}
                   onChange={(value) => {
                     handleFieldChange(field.id, value);

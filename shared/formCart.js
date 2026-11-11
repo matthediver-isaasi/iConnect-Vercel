@@ -39,15 +39,26 @@ export function cartConfigurationError(form) {
   const carts = fields.filter(field => field?.type === CART_FIELD_TYPE);
   const nested = value => Array.isArray(value) ? value.some(nested)
     : value && typeof value === 'object'
-      ? value.type === CART_FIELD_TYPE || Object.values(value).some(nested) : false;
+      ? [CART_FIELD_TYPE, 'sales_cart_view'].includes(value.type) || Object.values(value).some(nested) : false;
   if (fields.some(field => Object.entries(field || {}).some(([key, value]) => key !== 'type' && nested(value)))) {
     return 'Cart elements cannot be nested or repeated.';
   }
-  if (!carts.length) return null;
+  const views = fields.filter(field => field?.type === 'sales_cart_view');
+  if (views.some(field => field.parent_field_id || field.required || field.multiple || field.multi_select)) {
+    return 'Cart view must be a top-level display element without required answers.';
+  }
+  if (!carts.length) return views.length ? 'Add a Cart element before using Cart view.' : null;
   if (carts.length !== 1 || (form.form_type && form.form_type !== 'standard')) {
     return 'Only one Cart is supported, on standard forms only.';
   }
   const cart = carts[0];
+  if (cart.bundle_max_quantities !== undefined) {
+    const limits = cart.bundle_max_quantities;
+    if (!limits || typeof limits !== 'object' || Array.isArray(limits)
+      || Object.entries(limits).some(([id, max]) => !uuid.test(id) || !Number.isSafeInteger(max) || max < 1 || max > CART_MAX_QUANTITY)) {
+      return 'Bundle purchase limits must be whole numbers from 1 to 1000.';
+    }
+  }
   for (const key of ['bundle_label', 'bundle_category_label']) {
     if (cart[key] !== undefined && (typeof cart[key] !== 'string' || cart[key].length > 120)) return 'Cart labels must be text of up to 120 characters.';
   }
@@ -90,6 +101,17 @@ export function cartConfigurationError(form) {
       || (tax.treatment !== 'standard' && tax.rateBps !== 0)) {
       return 'Set an explicit valid tax treatment and rate for every Cart bundle.';
     }
+  }
+  return null;
+}
+
+export function cartQuantityError(field, answer) {
+  const normalized = normalizeCartAnswer(answer);
+  for (const line of normalized.lines) {
+    if (line.kind !== 'bundle') continue;
+    const max = field.bundle_max_quantities?.[line.id] ?? CART_MAX_QUANTITY;
+    if (!Number.isSafeInteger(max) || max < 1 || max > CART_MAX_QUANTITY) return 'Invalid bundle purchase limit.';
+    if (line.quantity > max) return `You can add a maximum of ${max} of this bundle per cart.`;
   }
   return null;
 }

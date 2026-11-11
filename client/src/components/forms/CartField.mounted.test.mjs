@@ -37,7 +37,7 @@ const id = '12345678-1234-4234-8234-123456789012';
 const item = { kind: 'product', id, name: 'Annual handbook', description: 'Printed edition', unitPriceMinor: 1735, currency: 'GBP', taxTreatment: 'standard', taxRateBps: 2000, available: true, remaining: 7 };
 const saved = { version: 1, lines: [{ kind: 'product', id, quantity: 2 }] };
 const settle = async () => { await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)); }); };
-async function mount(initialValue = '', formId = 'form-one', settings = {}) {
+async function mount(initialValue = '', formId = 'form-one', settings = {}, props = {}) {
   const container = document.createElement('div');
   document.body.append(container);
   const root = createRoot(container);
@@ -50,18 +50,19 @@ async function mount(initialValue = '', formId = 'form-one', settings = {}) {
       field: { id: 'cart', type: 'sales_cart', required: true, ...settings }, formId, value,
       onChange: next => { answers.push(next); setValue(next); },
       onValidityChange: (_id, valid) => validity.push(valid),
+      ...props,
     });
   }
   await act(async () => root.render(React.createElement(QueryClientProvider, { client }, React.createElement(Fixture))));
   return { container, answers, validity, close: async () => { await act(async () => root.unmount()); client.clear(); container.remove(); } };
 }
 
-test('items start at zero; removing an item emits identities and quantities only', async () => {
+test('drafts start at one without committing; removing an item emits identities and quantities only', async () => {
   globalThis.fetch = async () => ({ ok: true, json: async () => ({ items: [item] }) });
   const empty = await mount();
   try {
     await settle();
-    assert.equal(empty.container.querySelector('input').value, '0');
+    assert.equal(empty.container.querySelector('input').value, '1');
     assert.equal(empty.answers.length, 0, 'no accidental preselection');
     assert.equal(empty.validity.at(-1), false);
     assert.match(empty.container.textContent, /17.35 each/);
@@ -70,9 +71,9 @@ test('items start at zero; removing an item emits identities and quantities only
   const selected = await mount(saved);
   try {
     await settle();
-    assert.equal(selected.container.querySelector('input').value, '2');
+    assert.equal(selected.container.querySelector(`#cart-cart-product-${id}`).value, '2');
     assert.equal(selected.validity.at(-1), true);
-    await act(async () => selected.container.querySelector('button').click());
+    await act(async () => [...selected.container.querySelectorAll('button')].find(button => button.textContent === 'Remove').click());
     assert.deepEqual(selected.answers, [{ version: 1, lines: [] }]);
   } finally { await selected.close(); }
 });
@@ -89,7 +90,7 @@ test('cart conflicts refresh options without clearing saved selections; checkout
     await settle();
     assert.equal(calls, 2);
     assert.deepEqual(fixture.answers, []);
-    assert.equal(fixture.container.querySelector('input').value, '2');
+    assert.equal(fixture.container.querySelector(`#cart-cart-product-${id}`).value, '2');
     await act(async () => window.dispatchEvent(new CustomEvent('form-cart-locked', { detail: { formId: 'other-form' } })));
     assert.equal(fixture.container.querySelector('input').disabled, false);
     await act(async () => window.dispatchEvent(new CustomEvent('form-cart-locked', { detail: { formId: 'form-one' } })));
@@ -131,7 +132,7 @@ test('missing runtime schema produces a retryable error, not an empty catalogue'
     const retry = [...fixture.container.querySelectorAll('button')].find(button => button.textContent === 'Retry cart options');
     await act(async () => retry.click());
     await settle();
-    assert.equal(fixture.container.querySelector('input').value, '2');
+    assert.equal(fixture.container.querySelector(`#cart-cart-product-${id}`).value, '2');
     assert.equal(fixture.validity.at(-1), true);
   } finally { await fixture.close(); }
 });
@@ -296,27 +297,30 @@ for (const bundle_display of ['cards', 'dropdown']) {
     const { container, answers } = fixture;
     const picker = () => container.querySelector('[aria-label="Bundle"]');
     const draft = () => container.querySelector('[aria-label="Bundle quantity"]');
-    const action = () => [...container.querySelectorAll('button')].find(b => /^(Add|Update) bundle$/.test(b.textContent));
+    const action = () => [...container.querySelectorAll('button')].find(b => b.textContent === 'Add to cart');
     try {
       await settle();
       assert.equal(answers.length, 0);
       if (bundle_display === 'dropdown') {
-        assert.equal(container.querySelectorAll('input').length, 2, 'unselected bundle cards absent');
+        assert.equal(container.querySelectorAll('input').length, 3, 'only bundle draft and product draft/committed quantity');
         await selectValue(picker(), id);
         await setInput(draft(), '3');
         await act(async () => action().click());
         await selectValue(picker(), other);
         await act(async () => action().click());
         await selectValue(picker(), id);
-        assert.equal(draft().value, '3');
-        assert.equal(action().textContent, 'Update bundle');
-        await setInput(draft(), '4');
+        assert.equal(draft().value, '1', 'switching choices resets only the draft');
+        assert.equal(action().textContent, 'Add to cart');
+        await setInput(draft(), '1');
         await act(async () => action().click());
         assert.equal(answers.at(-1).lines.length, 3);
         await setInput(draft(), '8');
         assert.equal(action().disabled, true);
       } else {
-        await setInput(container.querySelector(`#cart-cart-bundle-${id}`), '4');
+        await setInput(container.querySelector(`#cart-draft-cart-bundle-${id}`), '4');
+        assert.equal(answers.length, 0, 'draft editing does not change the answer');
+        const card = container.querySelector(`#cart-draft-cart-bundle-${id}`).closest('div.rounded-md');
+        await act(async () => card.querySelector('button').click());
       }
       await selectValue(container.querySelector('[aria-label="Bundle category"]'), '_uncategorised');
       assert.equal(container.querySelector(`#cart-cart-bundle-${id}`).value, '4');
@@ -346,7 +350,7 @@ test('custom labels, alphabetical choices and bundle-only requiredness', async (
     assert.equal(fixture.validity.at(-1), false, 'product alone does not satisfy bundle requirement');
     await selectValue(picker, other);
     assert.equal(fixture.validity.at(-1), false, 'uncommitted selection is not a cart line');
-    await act(async () => [...fixture.container.querySelectorAll('button')].find(b => b.textContent === 'Add bundle').click());
+    await act(async () => [...fixture.container.querySelectorAll('button')].find(b => b.textContent === 'Add to cart').click());
     assert.equal(fixture.validity.at(-1), true);
   } finally { await fixture.close(); }
 });
@@ -356,21 +360,156 @@ test('mixed product and bundle quantities use separate identities and stock viol
   const fixture = await mount(saved);
   try {
     await settle();
-    const inputs = fixture.container.querySelectorAll('input');
-    await setInput(inputs[1], '3');
+    const bundleDraft = fixture.container.querySelector(`#cart-draft-cart-bundle-${id}`);
+    await setInput(bundleDraft, '3');
+    assert.equal(fixture.answers.length, 0);
+    await act(async () => bundleDraft.closest('div.rounded-md').querySelector('button').click());
     assert.deepEqual(fixture.answers.at(-1), { version: 1, lines: [
       { kind: 'product', id, quantity: 2 }, { kind: 'bundle', id, quantity: 3 },
     ] });
     assert.equal(fixture.validity.at(-1), true);
-    await setInput(inputs[0], '8');
+    const productQuantity = fixture.container.querySelector(`#cart-cart-product-${id}`);
+    await setInput(productQuantity, '8');
     assert.equal(fixture.answers.at(-1).lines.find(line => line.kind === 'product').quantity, 2, 'over-stock mutation is rejected');
-    await setInput(inputs[0], '1');
+    await setInput(productQuantity, '1');
     assert.equal(fixture.validity.at(-1), true);
     const beforeFraction = fixture.answers.length;
-    await setInput(inputs[0], '1.5');
+    await setInput(productQuantity, '1.5');
     assert.equal(fixture.answers.length, beforeFraction, 'fractional quantities never become answers');
-    await setInput(inputs[1], '0');
+    await setInput(fixture.container.querySelector(`#cart-cart-bundle-${id}`), '0');
     assert.deepEqual(fixture.answers.at(-1), { version: 1, lines: [{ kind: 'product', id, quantity: 1 }] });
+  } finally { await fixture.close(); }
+});
+
+for (const bundle_display of ['cards', 'dropdown']) {
+  test(`${bundle_display}: a maximum of one hides quantity controls and repeated Add cannot exceed the cap`, async () => {
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({ items: [{ ...item, kind: 'bundle' }] }) });
+    const fixture = await mount('', 'form-one', { bundle_display, bundle_max_quantities: { [id]: 1 }, bundle_required: true });
+    try {
+      await settle();
+      if (bundle_display === 'dropdown') await selectValue(fixture.container.querySelector('[aria-label="Bundle"]'), id);
+      assert.equal(fixture.container.querySelector('input'), null);
+      assert.equal(fixture.answers.length, 0);
+      const add = [...fixture.container.querySelectorAll('button')].find(button => button.textContent === 'Add to cart');
+      assert.ok(add.querySelector('svg'), 'Add includes ShoppingCart icon');
+      await act(async () => add.click());
+      assert.deepEqual(fixture.answers.at(-1), { version: 1, lines: [{ kind: 'bundle', id, quantity: 1 }] });
+      assert.equal(fixture.validity.at(-1), true);
+      assert.equal(add.disabled, true);
+      await act(async () => add.click());
+      assert.equal(fixture.answers.length, 1);
+      assert.equal(fixture.container.querySelector('input'), null, 'committed max-one bundle also has no quantity input');
+      await act(async () => [...fixture.container.querySelectorAll('button')].find(button => button.textContent === 'Remove').click());
+      assert.equal(add.disabled, false);
+      assert.equal(fixture.validity.at(-1), false);
+    } finally { await fixture.close(); }
+  });
+
+  for (const cap of [3, 9]) {
+    test(`${bundle_display}: repeated additions accumulate without exceeding ${cap < 7 ? 'bundle maximum' : 'stock'}`, async () => {
+      globalThis.fetch = async () => ({ ok: true, json: async () => ({ items: [{ ...item, kind: 'bundle' }] }) });
+      const fixture = await mount('', 'form-one', { bundle_display, bundle_max_quantities: { [id]: cap } });
+      try {
+        await settle();
+        if (bundle_display === 'dropdown') await selectValue(fixture.container.querySelector('[aria-label="Bundle"]'), id);
+        const draft = fixture.container.querySelector('input');
+        const add = [...fixture.container.querySelectorAll('button')].find(button => button.textContent === 'Add to cart');
+        await setInput(draft, '2');
+        assert.equal(fixture.answers.length, 0);
+        await act(async () => add.click());
+        assert.equal(fixture.answers.at(-1).lines[0].quantity, 2);
+        if (cap === 3) {
+          assert.equal(add.disabled, true, 'second draft of two would exceed cap');
+          await setInput(draft, '1');
+          await act(async () => add.click());
+        } else {
+          await act(async () => add.click());
+          assert.equal(fixture.answers.at(-1).lines[0].quantity, 4);
+          await setInput(draft, '3');
+          await act(async () => add.click());
+        }
+        assert.equal(fixture.answers.at(-1).lines[0].quantity, Math.min(cap, item.remaining));
+        assert.equal(add.disabled, true);
+        const before = fixture.answers.length;
+        await act(async () => add.click());
+        assert.equal(fixture.answers.length, before);
+      } finally { await fixture.close(); }
+    });
+  }
+}
+
+test('product additions are explicit, cumulative, stock-bounded and use the cart icon', async () => {
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ items: [item] }) });
+  const fixture = await mount();
+  try {
+    await settle();
+    const draft = fixture.container.querySelector('input');
+    const add = [...fixture.container.querySelectorAll('button')].find(button => button.textContent === 'Add to cart');
+    assert.ok(add.querySelector('svg'));
+    await setInput(draft, '3');
+    assert.equal(fixture.answers.length, 0);
+    await act(async () => add.click());
+    await act(async () => add.click());
+    assert.equal(fixture.answers.at(-1).lines[0].quantity, 6);
+    assert.equal(add.disabled, true);
+    await setInput(draft, '1');
+    await act(async () => add.click());
+    assert.equal(fixture.answers.at(-1).lines[0].quantity, 7);
+    assert.equal(add.disabled, true);
+  } finally { await fixture.close(); }
+});
+
+test('view-only uses the original field catalogue, renders only committed lines, and derives editable totals from catalogue prices', async () => {
+  const requests = [];
+  const other = '12345678-1234-4234-8234-123456789013';
+  globalThis.fetch = async url => {
+    requests.push(String(url));
+    return { ok: true, json: async () => ({ items: [item, { ...item, id: other, kind: 'bundle', name: 'Unselected pack' }] }) };
+  };
+  const fixture = await mount(saved, 'form-one', { bundle_display: 'dropdown', show_bundle_category: true }, { viewOnly: true, showCartContents: false });
+  try {
+    await settle();
+    assert.equal(new URL(requests[0], 'http://localhost').searchParams.get('field_id'), 'cart');
+    assert.equal(fixture.container.querySelector('select'), null);
+    assert.doesNotMatch(fixture.container.textContent, /Unselected pack|Add to cart/);
+    assert.equal(fixture.container.querySelectorAll('input').length, 1);
+    const totals = () => [...fixture.container.querySelectorAll('dl > div')].map(row => row.textContent);
+    assert.deepEqual(totals(), ['Subtotal£34.70', 'Tax£6.94', 'Total£41.64']);
+    assert.equal(fixture.answers.length, 0);
+    await setInput(fixture.container.querySelector('input'), '3');
+    assert.deepEqual(fixture.answers.at(-1), { version: 1, lines: [{ kind: 'product', id, quantity: 3 }] });
+    assert.deepEqual(totals(), ['Subtotal£52.05', 'Tax£10.41', 'Total£62.46']);
+    await act(async () => fixture.container.querySelector('button').click());
+    assert.deepEqual(fixture.answers.at(-1), { version: 1, lines: [] });
+    assert.match(fixture.container.textContent, /Your cart is empty/);
+    assert.deepEqual(totals(), ['Subtotal£0.00', 'Tax£0.00', 'Total£0.00']);
+  } finally { await fixture.close(); }
+});
+
+test('regular mode can hide committed contents without hiding purchasing controls or resetting the answer', async () => {
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ items: [item] }) });
+  const fixture = await mount(saved, 'form-one', {}, { showCartContents: false });
+  try {
+    await settle();
+    assert.equal(fixture.container.querySelector('[aria-label="Cart contents"]'), null);
+    assert.equal(fixture.container.querySelector('input').value, '1');
+    const add = [...fixture.container.querySelectorAll('button')].find(button => button.textContent === 'Add to cart');
+    await act(async () => add.click());
+    assert.equal(fixture.answers.at(-1).lines[0].quantity, 3);
+  } finally { await fixture.close(); }
+});
+
+test('restored over-cap bundles remain unchanged and invalid until corrected in the view', async () => {
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ items: [{ ...item, kind: 'bundle' }] }) });
+  const fixture = await mount({ version: 1, lines: [{ kind: 'bundle', id, quantity: 4 }] }, 'form-one',
+    { bundle_max_quantities: { [id]: 3 } }, { viewOnly: true });
+  try {
+    await settle();
+    assert.equal(fixture.validity.at(-1), false);
+    assert.equal(fixture.answers.length, 0);
+    await setInput(fixture.container.querySelector('input'), '3');
+    assert.equal(fixture.validity.at(-1), true);
+    assert.equal(fixture.answers.at(-1).lines[0].quantity, 3);
   } finally { await fixture.close(); }
 });
 
@@ -400,7 +539,7 @@ test('mounted settings preserve missing selections and require explicit bundle t
     const treatment = container.querySelector('select[aria-label="Tax treatment for Reading pack"]');
     await act(async () => { treatment.value = 'standard'; treatment.dispatchEvent(new Event('change', { bubbles: true })); });
     assert.equal(field.bundle_tax[bundleId].rateBps, null);
-    const rate = container.querySelector('input[type="number"]');
+    const rate = container.querySelector('[aria-label="Tax rate for Reading pack"]');
     await setInput(rate, '17.5');
     assert.equal(field.bundle_tax[bundleId].rateBps, 1750);
     testCatalogue.products.data.cartStockReady = false;
@@ -514,7 +653,7 @@ for (const code of ['CART_ATTEMPT_ENDED', 'CART_ATTEMPT_UNRESOLVED', 'BUNDLE_ATT
         assert.equal(rotations, 1);
         assert.equal(client.getQueryData(['form-cart-locked', form.id]), false);
         assert.equal(container.querySelector('input').disabled, false);
-        assert.equal(container.querySelector('input').value, '2', 'answers survive restart');
+        assert.equal(container.querySelector(`#cart-cart-product-${id}`).value, '2', 'answers survive restart');
         await act(async () => checkout().click());
         assert.equal(creates.length, 2);
         assert.notEqual(creates[0].idempotency_key, creates[1].idempotency_key);

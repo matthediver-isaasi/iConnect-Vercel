@@ -1,7 +1,7 @@
 import { isAddressLookupAnswerFilled } from './formAddressLookup.js';
 
 const displayOnly = new Set(['instructions', 'image', 'section_header', 'heading', 'paragraph',
-  'divider', 'spacer', 'html', 'payment']);
+  'divider', 'spacer', 'html', 'payment', 'sales_cart_view']);
 const empty = value => value == null || value === '' || (typeof value === 'string' && !value.trim())
   || (Array.isArray(value) && !value.length);
 

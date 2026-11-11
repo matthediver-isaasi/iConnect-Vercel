@@ -1647,6 +1647,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
                 membershipPaymentMemberId={prefillMemberId}
                 key={currentStep}
                 field={currentField}
+                onCartChange={handleFieldChange}
                 value={formValues[currentField.id]}
                 onChange={(value) => {
                   handleFieldChange(currentField.id, value);
@@ -1864,6 +1865,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
                 membershipPaymentMemberId={prefillMemberId}
                 key={field.id}
                 field={field}
+                onCartChange={handleFieldChange}
                 value={formValues[field.id]}
                 onChange={(value) => handleFieldChange(field.id, value)}
                 onFormNotListedTextChange={(text) => handleFormNotListedTextChange(field.id, text)}

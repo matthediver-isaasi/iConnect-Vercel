@@ -1,5 +1,5 @@
 const DISPLAY_ONLY_TYPES = new Set([
-  'instructions', 'image', 'section_header', 'heading', 'paragraph', 'divider', 'spacer', 'html',
+  'instructions', 'image', 'section_header', 'heading', 'paragraph', 'divider', 'spacer', 'html', 'sales_cart_view',
 ]);
 
 const COLLECTION_TYPES = new Set([

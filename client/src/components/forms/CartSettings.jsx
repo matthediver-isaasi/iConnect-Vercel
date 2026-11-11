@@ -56,7 +56,23 @@ export default function CartSettings({ field, onChange }) {
             const checked = selected.includes(row.id);
             const tax = field.bundle_tax?.[row.id];
             return <div key={row.id} className="space-y-2 rounded border bg-background p-3">
-              <label className="flex items-start gap-2 text-sm"><Checkbox checked={checked} disabled={!checked && (!ready || !available || count >= 100)} onCheckedChange={value => toggle(row.id, value === true)} /><span>{row.name}{!available && <span className="text-amber-700"> — unavailable / ineligible</span>}</span></label>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <label className="flex items-start gap-2 text-sm"><Checkbox checked={checked} disabled={!checked && (!ready || !available || count >= 100)} onCheckedChange={value => toggle(row.id, value === true)} /><span>{row.name}{!available && <span className="text-amber-700"> — unavailable / ineligible</span>}</span></label>
+                {kind === 'bundle' && checked && <label className="text-xs">Maximum quantity
+                  <Input aria-label={`Maximum quantity for ${row.name}`} className="mt-1 w-24" type="number" min="1" max="1000" step="1"
+                    value={field.bundle_max_quantities?.[row.id] ?? ''} placeholder="1000"
+                    onChange={event => {
+                      const next = { ...field.bundle_max_quantities };
+                      if (event.target.value === '') delete next[row.id];
+                      else {
+                        const quantity = Number(event.target.value);
+                        if (!Number.isInteger(quantity) || quantity < 1 || quantity > 1000) return;
+                        next[row.id] = quantity;
+                      }
+                      onChange({ bundle_max_quantities: next });
+                    }} />
+                </label>}
+              </div>
               {kind === 'bundle' && checked && <div className="space-y-2 pl-6">
                 <label className="block text-xs">Bundle tax treatment (required)
                   <select aria-label={`Tax treatment for ${row.name}`} className="mt-1 h-10 w-full rounded-md border bg-background px-3 text-sm" value={tax?.treatment || ''} onChange={event => {
