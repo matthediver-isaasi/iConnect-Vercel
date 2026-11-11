@@ -1,4 +1,5 @@
 import { reviewedHistoricalRenewalConfig } from './reviewedHistoricalRenewal.js';
+import { FORM_RENEWAL_SIMULATION_AUTHORITY } from './formRenewalSimulationAuthority.js';
 import { createDiscountHelper } from './discountHelperCore.js';
 import { createVatOverrideHelper } from './vatOverrideHelperCore.js';
 import { createMembershipConfigResolver } from './membershipConfigResolverCore.js';
@@ -245,7 +246,23 @@ async function resolveRollingSimulationContext(client, {
     }
     const existing = sorted.find(row => row.term_start_date === previousTerm.membership_renewal_date);
     if (existing) return { existing, previousTerm };
-    config = await resolveRollingSuccessorConfig(client, { tenantId, previousTerm });
+    const selection = options[FORM_RENEWAL_SIMULATION_AUTHORITY];
+    if (selection) {
+      const start = toDateString(addDays(previousTerm.term_end_date, 1));
+      if (options.source !== 'form-renewal' || !memberId || organizationId
+          || selection.tenantId !== tenantId || selection.memberId !== memberId
+          || selection.predecessorId !== previousTerm.id
+          || selection.configId !== config?.id || options.configId !== config?.id
+          || selection.start !== start || options.termStartDate !== start || options.asOfDate !== start
+          || config.tenant_id !== tenantId || config.is_active === false
+          || config.structure_scope_type !== 'member' || config.start_mode !== 'immediate'
+          || (config.effective_from && config.effective_from > start)
+          || (config.effective_to && config.effective_to < start)) {
+        throw new Error('Selected form renewal structure does not match its validated predecessor or boundary.');
+      }
+    } else {
+      config = await resolveRollingSuccessorConfig(client, { tenantId, previousTerm });
+    }
     // Provider renewals pass their own explicitly resolved ID; never accept an
     // unrelated or no-longer-eligible structure in a renewal request.
     if (options.configId && options.configId !== config.id) {

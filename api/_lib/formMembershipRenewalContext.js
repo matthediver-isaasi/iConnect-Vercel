@@ -1,4 +1,5 @@
 import { assessFormMembershipRenewalEvidence } from './formMembershipRenewalEvidence.js';
+import { FORM_RENEWAL_SIMULATION_AUTHORITY } from './formRenewalSimulationAuthority.js';
 import { reviewedHistoricalRenewalConfig } from './reviewedHistoricalRenewal.js';
 import { addDays, toDateString } from './annualRenewalPolicy.js';
 import { createHash } from 'node:crypto';
@@ -187,6 +188,12 @@ export async function loadFormMembershipRenewalContext(db, {
   }
   const simulation = await simulate(tenantId, ownerId, {
     source: 'form-renewal', mode: 'manual', configId: successorConfig.id,
+    ...(renewalSelection && !organizationId ? {
+      [FORM_RENEWAL_SIMULATION_AUTHORITY]: {
+        tenantId, memberId, predecessorId: previous.id,
+        configId: successorConfig.id, start: renewal.successorStart,
+      },
+    } : {}),
     asOfDate: renewal.successorStart, termStartDate: renewal.successorStart,
     ...(renewalSelection?.fieldId ? { fieldOverrides: { [renewalSelection.fieldId]: renewalSelection.value } } : {}),
     ...(reviewedHistory ? { reviewedHistoricalHistoryId: previous.id }

@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { FORM_RENEWAL_SIMULATION_AUTHORITY } from './formRenewalSimulationAuthority.js';
 import assert from 'node:assert/strict';
 import { loadFormMembershipRenewalContext } from './formMembershipRenewalContext.js';
 import { resolveFormMembershipOrganizationId } from './formMembershipOwner.js';
@@ -176,6 +177,7 @@ test('form class choice selects the next-term schedule without changing the pred
     assert.equal(result.simulation.config.id, 'target');
     assert.equal(result.simulation.totalWithVat, 90);
     assert.equal(f.calls[0].termStartDate, '2027-01-01');
+    assert.equal(f.calls[0][FORM_RENEWAL_SIMULATION_AUTHORITY].configId, 'target');
     assert.deepEqual(f.calls[0].fieldOverrides, { class: to });
     assert.deepEqual(result.simulation.formRenewal.selection, f.options.renewalSelection);
     assert.deepEqual(f.predecessor, original);

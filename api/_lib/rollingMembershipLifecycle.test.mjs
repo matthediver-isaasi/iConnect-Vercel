@@ -20,6 +20,7 @@ before(async () => {
   temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'rolling-lifecycle-'));
   const lib = path.join(temporaryRoot, 'api', '_lib');
   await mkdir(lib, { recursive: true });
+  await cp(new URL('formRenewalSimulationAuthority.js', import.meta.url), path.join(lib, 'formRenewalSimulationAuthority.js'));
   await mkdir(path.join(temporaryRoot, 'shared'));
   await writeFile(path.join(temporaryRoot, 'package.json'), '{"type":"module"}');
   await cp(new URL('../../shared/rollingMembershipTerm.js', import.meta.url), path.join(temporaryRoot, 'shared', 'rollingMembershipTerm.js'));
