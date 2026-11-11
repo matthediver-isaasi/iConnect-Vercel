@@ -86,6 +86,7 @@ export default function FormPaymentSubmit({
   onNewAttempt,
   submitLabel = 'Submit',
   membershipQuote = null,
+  cartViewPresent = false,
   continueHref = '/',
   continueLabel = 'Continue to site',
   continueTarget,
@@ -712,10 +713,10 @@ export default function FormPaymentSubmit({
         </div>
       ) : (
         <div className="w-full space-y-4">
-          <p className="text-sm font-medium">
+          {!(cartViewPresent && membershipQuote?.source === 'cart') && <p className="text-sm font-medium">
             Amount due: <span data-testid={`form-payment-amount-${field?.id}`}>{formatPaymentAmount(amount, currency)}</span>
-          </p>
-          {membershipQuote?.source === 'cart' && <p className="whitespace-pre-wrap rounded-md border bg-muted/40 p-3 text-xs">{formatCartReceipt(membershipQuote?.quote?.cart) || 'Review your cart items above. The total shown includes tax.'}</p>}
+          </p>}
+          {!cartViewPresent && membershipQuote?.source === 'cart' && <p className="whitespace-pre-wrap rounded-md border bg-muted/40 p-3 text-xs">{formatCartReceipt(membershipQuote?.quote?.cart) || 'Review your cart items above. The total shown includes tax.'}</p>}
           {effective.membership && (
             <p className="text-xs text-muted-foreground" data-testid={`form-payment-membership-context-${field?.id}`}>
               {[effective.membership.config_name, effective.membership.tier_label,
@@ -789,9 +790,9 @@ export default function FormPaymentSubmit({
                       <span className="min-h-10 text-sm font-semibold leading-snug">
                         {isCard ? 'Pay in full by card' : monthlyDirectDebit ? 'Pay monthly by Direct Debit' : 'Pay by Direct Debit'}
                       </span>
-                      {isCard ? (
+                      {isCard ? (cartViewPresent && membershipQuote?.source === 'cart' ? null : (
                         <span className="mt-1.5 block text-xs leading-relaxed text-muted-foreground break-words">{formatPaymentAmount(amount, currency)} due today</span>
-                      ) : monthlyDirectDebit ? (
+                      )) : monthlyDirectDebit ? (
                         <>
                           <span className="mt-1.5 block text-xs leading-relaxed text-muted-foreground break-words">
                             {directDebitHasFixedTermTotal(directDebitOffer)

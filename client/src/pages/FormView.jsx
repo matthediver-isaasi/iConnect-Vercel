@@ -3442,6 +3442,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                   onNormalSubmit={handleSubmit}
                   submitLabel={form.submit_button_text}
                   membershipQuote={membershipFeeQuote}
+                  cartViewPresent={form.fields.some(f => f.type === 'sales_cart_view' && !effectiveHiddenFieldIds.has(f.id))}
                   continueHref={memberInfo ? '/Dashboard' : '/'}
                   continueLabel={memberInfo ? 'Go to member area' : 'Continue to site'}
                   showFieldDescriptions
@@ -3953,6 +3954,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                     onNormalSubmit={handleSubmit}
                     submitLabel={form.submit_button_text}
                     membershipQuote={membershipFeeQuote}
+                    cartViewPresent={form.fields.some(f => f.type === 'sales_cart_view' && !effectiveHiddenFieldIds.has(f.id))}
                     continueHref={memberInfo ? '/Dashboard' : '/'}
                     continueLabel={memberInfo ? 'Go to member area' : 'Continue to site'}
                     showFieldDescriptions

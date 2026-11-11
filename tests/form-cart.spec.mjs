@@ -161,12 +161,13 @@ test('provider return confirms the original submission without creating another 
   expect(state.creates).toBe(0);
 });
 for (const width of [390, 1280]) {
-  test(`FormView three-page cart journey at ${width}px retains purchases and edits the original answer from review`, async ({ page }, info) => {
+ for (const route of ['/FormView?slug=cart-fixture', '/embed/form/cart-fixture']) {
+  test(`${route} three-page cart journey at ${width}px retains purchases and edits the original answer from review`, async ({ page }, info) => {
     await page.setViewportSize({ width, height: 950 });
     const state = await mock(page, info, { journey: true });
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
-    await page.goto('/FormView?slug=cart-fixture');
+    await page.goto(route);
 
     const picker = page.getByLabel('Bundle', { exact: true });
     await expect(picker).toBeVisible({ timeout: 45000 });
@@ -208,6 +209,12 @@ for (const width of [390, 1280]) {
     await expect(totalRow('Tax')).toContainText('£4.00');
     await expect(totalRow('Total')).toContainText('£49.00');
     await expect(page.getByText(/Amount due:.*49.00/).first()).toBeVisible();
+    await expect(page.getByText(/Amount due:.*49.00/)).toHaveCount(1);
+    await expect(page.getByTestId('form-payment-amount-payment')).toHaveCount(0);
+    await expect(page.getByText(/1 × Member package: GBP/)).toHaveCount(0);
+    const choices = page.getByTestId('form-payment-provider-choices-payment');
+    await expect(choices).toBeVisible();
+    expect((await previous.boundingBox()).y).toBeGreaterThan((await choices.boundingBox()).y);
 
     // Revisit the purchasing page: remounting controls must not reset committed
     // quantities or allow the max-one bundle to be added a second time.
@@ -243,4 +250,5 @@ for (const width of [390, 1280]) {
     expect(state.lastAnswers).not.toHaveProperty('cart-review');
     expect(errors).toEqual([]);
   });
+ }
 }

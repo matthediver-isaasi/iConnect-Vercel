@@ -4288,7 +4288,8 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
   // The final checkout replaces the active generic payment field in-place.
   // Return null here (rather than only hiding renderField()) so its label and
   // outer spacing wrapper are not duplicated alongside FormPaymentSubmit.
-  if (field.type === 'payment' && suppressPaymentSummary) {
+  if (field.type === 'payment' && suppressPaymentSummary
+    && !allFields.some(f => f.type === 'sales_cart_view' && !hiddenFieldIds.has(f.id))) {
     return null;
   }
 

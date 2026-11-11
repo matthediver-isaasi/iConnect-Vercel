@@ -1691,18 +1691,16 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
                 <p className="text-sm text-red-700">{submissionError}</p>
               </div>
             )}
-            <div className="flex justify-between">
-              <Button
+            <div className={isLastStep ? "flex flex-col gap-3" : "flex justify-between"}>
+              {!isLastStep && <Button
                 variant="outline"
                 onClick={currentStep === 0 ? returnToPreviousForm : handlePrevious}
                 disabled={currentStep === 0 && !canReturnToPreviousForm}
-                data-testid={currentStep === 0 && canReturnToPreviousForm
-                  ? 'button-return-to-source-form'
-                  : 'button-previous-step'}
+                data-testid={currentStep === 0 && canReturnToPreviousForm ? 'button-return-to-source-form' : 'button-previous-step'}
               >
                 <ChevronLeft className="w-4 h-4 mr-2" />
                 {currentStep === 0 && canReturnToPreviousForm ? 'Back to previous form' : 'Previous'}
-              </Button>
+              </Button>}
               {isLastStep ? (
                 visiblePaymentField ? (
                   <FormPaymentSubmit
@@ -1736,6 +1734,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
                     onNormalSubmit={handleSubmit}
                     submitLabel={form.submit_button_text || 'Submit'}
                     membershipQuote={membershipFeeQuote}
+                    cartViewPresent={visibleFields.some(f => f.type === 'sales_cart_view')}
                     continueHref={paymentContinue.destination}
                     continueLabel="Continue to site"
                     onContinue={paymentContinue.mayNavigateParent ? continuePaymentReturn : undefined}
@@ -1768,6 +1767,17 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
                   <ChevronRight className="w-4 h-4 ml-2" />
                 </Button>
               )}
+              {isLastStep && <Button
+                variant="outline"
+                onClick={currentStep === 0 ? returnToPreviousForm : handlePrevious}
+                disabled={currentStep === 0 && !canReturnToPreviousForm}
+                data-testid={currentStep === 0 && canReturnToPreviousForm
+                  ? 'button-return-to-source-form'
+                  : 'button-previous-step'}
+              >
+                <ChevronLeft className="w-4 h-4 mr-2" />
+                {currentStep === 0 && canReturnToPreviousForm ? 'Back to previous form' : 'Previous'}
+              </Button>}
             </div>
             {isLastStep && <FormConsentNotice configuration={consentConfiguration} />}
           </div>
@@ -1902,6 +1912,44 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
           )}
 
           <div className="mt-6 space-y-5" data-testid="embed-form-final-actions">
+            {currentPageIndex >= pages.length - 1 && visiblePaymentField && (
+              <div className="w-full border-t pt-5" data-testid="embed-form-payment-area">
+              <FormPaymentSubmit
+                field={visiblePaymentField}
+                formValues={formValues}
+                buildPayload={buildSubmissionPayload}
+                idempotencyKey={getIdempotencyKey()}
+                onNewAttempt={rotateIdempotencyKey}
+                disabled={submitControl.disabled || !!departmentCurrentSetBlocked}
+                disabledMessage={departmentCurrentSetBlocked || submitControl.message}
+                busy={submitFormMutation.isPending}
+                onPaid={() => { rotateIdempotencyKey(); setSubmitted(true); notifyParentResize(); }}
+                onPaymentAccepted={({ submissionId, provider, status, paymentSucceeded }) => {
+                  inlineCompletionRef.current = true;
+                  rotateIdempotencyKey();
+                  paymentReturn.adoptPaymentAcceptance({ submissionId, provider, status, paymentSucceeded });
+                  notifyParentResize();
+                }}
+                onSetupComplete={(setup) => {
+                  inlineCompletionRef.current = true;
+                  rotateIdempotencyKey();
+                  paymentReturn.adoptCompletion(
+                    typeof setup === 'string' ? { submissionId: setup, provider: 'gocardless' } : setup,
+                  );
+                  notifyParentResize();
+                }}
+                onNormalSubmit={handleSubmit}
+                submitLabel={form.submit_button_text || 'Submit'}
+                membershipQuote={membershipFeeQuote}
+                cartViewPresent={visibleFields.some(f => f.type === 'sales_cart_view')}
+                continueHref={paymentContinue.destination}
+                continueLabel="Continue to site"
+                onContinue={paymentContinue.mayNavigateParent ? continuePaymentReturn : undefined}
+                continueTarget={isFramed ? '_blank' : undefined}
+                continueRel={isFramed ? 'noopener noreferrer' : undefined}
+              />
+              </div>
+            )}
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               {isMultiPage && currentPageIndex > 0 ? (
                 <Button
@@ -1961,47 +2009,6 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
                 </Button>
               ) : null}
             </div>
-            {currentPageIndex >= pages.length - 1 && visiblePaymentField && (
-              <div className="w-full border-t pt-5" data-testid="embed-form-payment-area">
-              <FormPaymentSubmit
-                field={visiblePaymentField}
-                formValues={formValues}
-                buildPayload={buildSubmissionPayload}
-                idempotencyKey={getIdempotencyKey()}
-                onNewAttempt={rotateIdempotencyKey}
-                disabled={submitControl.disabled || !!departmentCurrentSetBlocked}
-                disabledMessage={departmentCurrentSetBlocked || submitControl.message}
-                busy={submitFormMutation.isPending}
-                onPaid={() => { rotateIdempotencyKey(); setSubmitted(true); notifyParentResize(); }}
-                onPaymentAccepted={({ submissionId, provider, status, paymentSucceeded }) => {
-                  inlineCompletionRef.current = true;
-                  rotateIdempotencyKey();
-                  paymentReturn.adoptPaymentAcceptance({
-                    submissionId, provider, status, paymentSucceeded,
-                  });
-                  notifyParentResize();
-                }}
-                onSetupComplete={(setup) => {
-                  inlineCompletionRef.current = true;
-                  rotateIdempotencyKey();
-                  paymentReturn.adoptCompletion(
-                    typeof setup === 'string'
-                      ? { submissionId: setup, provider: 'gocardless' }
-                      : setup,
-                  );
-                  notifyParentResize();
-                }}
-                onNormalSubmit={handleSubmit}
-                submitLabel={form.submit_button_text || 'Submit'}
-                membershipQuote={membershipFeeQuote}
-                continueHref={paymentContinue.destination}
-                continueLabel="Continue to site"
-                onContinue={paymentContinue.mayNavigateParent ? continuePaymentReturn : undefined}
-                continueTarget={isFramed ? '_blank' : undefined}
-                continueRel={isFramed ? 'noopener noreferrer' : undefined}
-              />
-              </div>
-            )}
             {currentPageIndex >= pages.length - 1 && <FormConsentNotice configuration={consentConfiguration} />}
           </div>
         </CardContent>
