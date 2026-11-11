@@ -1979,3 +1979,17 @@ mtime_ms = 1794354251010
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/8851922a-3609-414c-a690-fa42b9c1ae74/ddda71a3-9720-42fc-aa89-de23b93878b6"
 storage_version_token = "1794354271249507"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "TqPQaO---2mcCkLAN9y9i"
+uri = "file://generated-artifacts/bnms-portal-test-cases.xlsx"
+type = "table"
+title = "BNMS Payment Details test cases"
+description = "11 member examples with clickable record links, expected behaviour, and test-result columns."
+logical_id = "9b0a8e78-ab5a-45ae-9078-86d776a2ad95"
+content_hash = "sha256:555ff7294f9a297b61b75fe4834675947b115f5d25e9349d4f1ac4fdab3b56d1"
+size = 10154
+mtime_ms = 1794380222349
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/9b0a8e78-ab5a-45ae-9078-86d776a2ad95/23098b1c-7408-4e8d-9d96-ee7c2e6ecf8e"
+storage_version_token = "1794380232071316"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
