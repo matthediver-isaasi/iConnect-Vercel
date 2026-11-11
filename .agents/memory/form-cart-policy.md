@@ -3,6 +3,16 @@ name: Form commerce cart boundaries
 description: Independent stock and explicit bundle tax authority for form commerce.
 ---
 
+Backing out of card checkout with Previous must automatically cancel the
+unfinished payment before navigating back to an editable cart. Do not require
+a separate manual cancellation button.
+
+**Why:** The owner explicitly rejected a separate recovery action as unwanted
+checkout friction.
+
+**How to apply:** Keep navigation gated on verified provider cancellation and
+stock release; processing or successful payments must remain protected.
+
 Form commerce bundles consume their own form-stock allowance, never component
 product stock. Ordinary product stock is finite/unlimited inventory, not Sales
 capacity metadata, and does not extend to proposal purchases.

@@ -2100,7 +2100,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // Task #3498: server-derived membership fee when a conditional membership
   // rule matches — the payment card/button must show and charge THAT amount,
   // not the (usually absent) price-source answer.
-  useFormBundleUnavailable(form, setFormValues, setSubmissionError, { getIdempotencyKey, rotateIdempotencyKey });
+  const returnFromCartPayment = useFormBundleUnavailable(form, setFormValues, setSubmissionError, { getIdempotencyKey, rotateIdempotencyKey });
   const membershipFeeQuote = useMembershipFeeQuote({
     form,
     formValues,
@@ -3456,7 +3456,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
             <div className="flex justify-between gap-2">
               <Button
                 variant="outline"
-                onClick={currentStep === 0 ? returnToPreviousForm : () => setCurrentStep(currentStep - 1)}
+                onClick={() => returnFromCartPayment(currentStep === 0 ? returnToPreviousForm : () => setCurrentStep(currentStep - 1))}
                 disabled={currentStep === 0 && !canReturnToPreviousForm}
                 data-testid={currentStep === 0 && canReturnToPreviousForm
                   ? 'button-return-to-source-form'
@@ -3971,7 +3971,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                 {hasPages && !isFirstPage ? (
                   <Button
                     variant="outline"
-                    onClick={goToPreviousPage}
+                    onClick={() => returnFromCartPayment(goToPreviousPage)}
                     className="w-full sm:w-auto"
                   >
                     <ChevronLeft className="w-4 h-4 mr-2" />

@@ -127,11 +127,7 @@ export default function CartField({ field, formId, value, onChange, disabled, on
   }
   return <div className="space-y-3">
     {cartLocked && <div className="rounded-md border bg-muted/40 p-3 text-sm">
-      <p role="status">Your cart is reserved for payment. To make changes, safely cancel the unfinished card payment first.</p>
-      <Button type="button" variant="outline" data-testid="cart-recover-payment" disabled={recovery.data?.busy}
-        onClick={() => window.dispatchEvent(new CustomEvent('form-cart-edit-request', { detail: { formId } }))}>
-        {recovery.data?.busy ? 'Checking payment…' : 'Cancel unfinished payment and edit cart'}
-      </Button>
+      <p role="status">{recovery.data?.busy ? 'Cancelling unfinished payment… Please wait.' : 'Your cart is reserved for payment. Choose Previous to return and make changes.'}</p>
       {recovery.data?.error && <p role="alert">{recovery.data.error}</p>}
     </div>}
     {unavailable && <p role="alert" className="text-sm text-destructive">A cart item is no longer available. Your cart and other answers have been kept. Review quantities before retrying.</p>}

@@ -16,6 +16,10 @@ export function useFormBundleUnavailable(form, setValues, setError, recovery = {
     let recovering = false;
     const handleEdit = async event => {
       if (event.detail?.formId !== formId || recovering) return;
+      if (queryClient.getQueryData(['form-cart-locked', formId]) !== true) {
+        event.detail?.onReleased?.();
+        return;
+      }
       recovering = true;
       queryClient.setQueryData(['form-cart-recovery', formId], { busy: true });
       try {
@@ -33,8 +37,10 @@ export function useFormBundleUnavailable(form, setValues, setError, recovery = {
         unlockFormCart(formId);
         current.setError(null);
         queryClient.setQueryData(['form-cart-recovery', formId], null);
+        event.detail?.onReleased?.();
       } catch (error) {
         queryClient.setQueryData(['form-cart-recovery', formId], { error: error.message });
+        latest.current.setError(error.message);
       } finally { recovering = false; }
     };
     const handleCart = event => {
@@ -81,4 +87,7 @@ export function useFormBundleUnavailable(form, setValues, setError, recovery = {
       queryClient.removeQueries({ queryKey: ['form-cart-locked', formId], exact: true });
     };
   }, [queryClient, formId]);
+  return navigate => {
+    window.dispatchEvent(new CustomEvent('form-cart-edit-request', { detail: { formId, onReleased: navigate } }));
+  };
 }

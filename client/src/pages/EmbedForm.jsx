@@ -1104,7 +1104,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
   // Task #3498: server-derived membership fee when a conditional membership
   // rule matches — the payment card/button must show and charge THAT amount,
   // not the (usually absent) price-source answer.
-  useFormBundleUnavailable(form, setFormValues, setSubmissionError, { getIdempotencyKey, rotateIdempotencyKey });
+  const returnFromCartPayment = useFormBundleUnavailable(form, setFormValues, setSubmissionError, { getIdempotencyKey, rotateIdempotencyKey });
   const membershipFeeQuote = useMembershipFeeQuote({
     form,
     formValues,
@@ -1697,7 +1697,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
             <div className={isLastStep ? "flex flex-col gap-3" : "flex justify-between"}>
               {!isLastStep && <Button
                 variant="outline"
-                onClick={currentStep === 0 ? returnToPreviousForm : handlePrevious}
+                onClick={() => returnFromCartPayment(currentStep === 0 ? returnToPreviousForm : handlePrevious)}
                 disabled={currentStep === 0 && !canReturnToPreviousForm}
                 data-testid={currentStep === 0 && canReturnToPreviousForm ? 'button-return-to-source-form' : 'button-previous-step'}
               >
@@ -1773,7 +1773,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
               )}
               {isLastStep && <Button
                 variant="outline"
-                onClick={currentStep === 0 ? returnToPreviousForm : handlePrevious}
+                onClick={() => returnFromCartPayment(currentStep === 0 ? returnToPreviousForm : handlePrevious)}
                 disabled={currentStep === 0 && !canReturnToPreviousForm}
                 data-testid={currentStep === 0 && canReturnToPreviousForm
                   ? 'button-return-to-source-form'
@@ -1960,7 +1960,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={handlePrevious}
+                  onClick={() => returnFromCartPayment(handlePrevious)}
                   className="w-full sm:w-auto"
                   data-testid="button-previous-page"
                 >
