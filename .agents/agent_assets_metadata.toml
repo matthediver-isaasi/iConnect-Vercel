@@ -2007,3 +2007,17 @@ mtime_ms = 1794385132915
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/5a306e52-335b-43a3-ad2f-40d7098d1242/968dfeda-0916-4dae-afc8-03fa3fed2d9e"
 storage_version_token = "1794385154301030"
 content_type = "text/csv"
+
+[[outputs]]
+id = "PrNz02709H76HTU2h0xdI"
+uri = "file://generated-artifacts/bnms-returned-membership-review/BNMS-membership-repair-results.xlsx"
+type = "table"
+title = "BNMS membership repair results"
+description = "Results for all 15 remaining rows, with repaired terms, invoice references, member links and outstanding decisions."
+logical_id = "e8af9f56-adc9-4924-907d-d4424bc53f73"
+content_hash = "sha256:07f34a9f5670280f2216bc9c46ccabf9231c0d92fc74b7cecfc8dc9410ad6152"
+size = 9424
+mtime_ms = 1794388168618
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/e8af9f56-adc9-4924-907d-d4424bc53f73/89da387a-67d7-4cf0-bf9c-808e88f4e1d9"
+storage_version_token = "1794388203581935"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

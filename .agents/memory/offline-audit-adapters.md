@@ -14,6 +14,15 @@ evidence appear unavailable for a whole cohort without throwing to the audit.
 with fixtures; cross-check representative unavailable outcomes against the actual
 helper query path. Keep missing tables and unsupported operations explicit.
 
+Pure renewal assessments also need the successor schedule effective at the
+renewal boundary, not simply today's schedule.
+
+**Why:** Passing no successor or the current version can report “structure
+unavailable” for sound historical terms whose next boundary used an earlier version.
+
+**How to apply:** Reproduce the production schedule-resolution inputs before
+treating that assessment as a defect or changing membership records.
+
 Derive deletion markers before redacting personal data from membership audits.
 Deleted records must be excluded from renewal-repair cohorts.
 
