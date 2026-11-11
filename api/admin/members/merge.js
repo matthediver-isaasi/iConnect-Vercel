@@ -60,7 +60,7 @@ const REASSIGN_REFS = [
   { table: 'member_inbox_message_state', column: 'member_id', uniqueCollisions: true },
   { table: 'member_inbox_folder', column: 'member_id', uniqueCollisions: true },
   // Support tickets/replies use submitter_email/responder_email, not member_id.
-  { table: 'workflow_log', column: 'member_id' },
+  { table: 'workflow_log', column: 'entity_id', entityType: 'member' },
   { table: 'discount_code_usage', column: 'member_id' },
   // (training_fund_transaction is organization-keyed — no member_id column)
   { table: 'voucher_transaction', column: 'member_id' },
@@ -222,7 +222,16 @@ async function computeEngagementTotals(member, db = supabase) {
  * unique-violation fall back to per-row updates, deleting the source row
  * (keeping the target's) when an individual row collides.
  */
-async function reassignRef({ table, column, memberAuthorsOnly, optionalTable }, sourceId, targetId, db = supabase) {
+async function reassignRef({ table, column, memberAuthorsOnly, optionalTable, entityType }, sourceId, targetId, db = supabase, tenantId) {
+  if (entityType) {
+    // Move ownership only. Payload identities, outcomes, timestamps and
+    // delivery keys are execution evidence, not mutable member references.
+    // Never use the generic collision fallback: it deletes historical rows.
+    if (!tenantId) return { table, column, ok: false, error: 'Tenant is required for workflow history transfer' };
+    const { error } = await db.from(table).update({ [column]: targetId })
+      .eq('tenant_id', tenantId).eq('entity_type', entityType).eq(column, sourceId);
+    return error ? { table, column, ok: false, error: error.message } : { table, column, ok: true };
+  }
   const scope = query => memberAuthorsOnly ? query.eq('created_by_type', 'member') : query;
   const { error } = await scope(db
     .from(table)
@@ -598,7 +607,7 @@ export async function performMerge({
     } };
     for (const ref of REASSIGN_REFS) {
       if (ref.table === 'member_group_assignment') continue;
-      const result = await reassignRef(ref, sourceId, targetId, db);
+      const result = await reassignRef(ref, sourceId, targetId, db, callerTenantId);
       if (!result.ok) {
         return {
           status: 500,

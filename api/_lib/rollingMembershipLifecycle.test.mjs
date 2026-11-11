@@ -29,7 +29,7 @@ before(async () => {
   for (const file of ['memberDateMembershipTerm.js', 'membershipFlatCost.js']) {
     await cp(new URL(`../../shared/${file}`, import.meta.url), path.join(temporaryRoot, 'shared', file));
   }
-  for (const file of ['memberDateTermSimulation.js', 'memberDateTermPolicy.js']) {
+  for (const file of ['memberDateTermSimulation.js', 'memberDateTermPolicy.js', 'membershipRenewalExceptions.js']) {
     await cp(new URL(file, import.meta.url), path.join(lib, file));
   }
   await cp(new URL('memberMonthlyEntitlement.js', import.meta.url), path.join(lib, 'memberMonthlyEntitlement.js'));

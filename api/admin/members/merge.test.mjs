@@ -171,6 +171,20 @@ function makePersistentDb() {
       { id: 'email-only', created_member_id: null, submitted_by_email: baseSource.email, submission_data: { answer: 'Email only' } },
     ],
     member_note: [],
+    workflow_log: [
+      ...['success', 'partial', 'failed', 'skipped'].map((status, i) => ({
+        id: `log-${i}`, tenant_id: 't1', entity_type: 'member', entity_id: baseSource.id,
+        workflow_id: 'workflow', status, created_at: '2026-01-01T10:00:00Z',
+        trigger_data: { member_id: baseSource.id, email: baseSource.email },
+        actions_executed: [{ status, recipient: baseSource.email }],
+        error_message: status === 'failed' ? 'Original failure' : null,
+        delivery_key: `original-delivery-${i}`,
+      })),
+      { id: 'org', tenant_id: 't1', entity_type: 'organization', entity_id: baseSource.id },
+      { id: 'job', tenant_id: 't1', entity_type: 'job_posting', entity_id: baseSource.id },
+      { id: 'other-tenant', tenant_id: 't2', entity_type: 'member', entity_id: baseSource.id },
+      { id: 'target', tenant_id: 't1', entity_type: 'member', entity_id: baseTarget.id },
+    ],
     forum_thread: [
       { id: 'member-thread', created_by: baseSource.id, created_by_type: 'member', title: 'Original title' },
       { id: 'staff-thread', created_by: baseSource.id, created_by_type: 'tenant_user', title: 'Staff title' },
@@ -190,6 +204,13 @@ function makePersistentDb() {
         like: (key, value) => { filters.push(row => row[key]?.includes(value.slice(1, -1))); return query; },
         then: (resolve, reject) => Promise.resolve().then(() => {
           db.ops.push(`${table}.${op}`);
+          if (table === 'workflow_log' && op === 'update') {
+            if ('member_id' in values) return { data: null, error: {
+              code: 'PGRST204', message: "Could not find the 'member_id' column of 'workflow_log' in the schema cache",
+            } };
+            assert.deepEqual(Object.keys(values), ['entity_id'], 'only ownership may change');
+            if (db.workflowError) return { data: null, error: db.workflowError };
+          }
           if (table.startsWith('forum_')) {
             if (op === 'update' && table !== 'forum_reaction' && 'member_id' in values) {
               return { data: null, error: { code: 'PGRST204', message: `${table} has no member_id column` } };
@@ -219,6 +240,90 @@ function makePersistentDb() {
   };
   return db;
 }
+
+test('workflow history contract is explicit even without schema JSON', async () => {
+  assert.deepEqual(REASSIGN_REFS.filter(ref => ref.table === 'workflow_log'),
+    [{ table: 'workflow_log', column: 'entity_id', entityType: 'member' }]);
+  const writer = fs.readFileSync(path.join(repoRoot, 'api/_lib/workflows.js'), 'utf8');
+  assert.match(writer, /entity_type: entityType,\s+entity_id: entityId/);
+  assert.match(writer, /\.eq\('entity_type', entityType\)\s+\.eq\('entity_id', entityId\)/);
+  const migration = fs.readFileSync(path.join(repoRoot, 'supabase/migrations/20260830_attendance_transition_outbox.sql'), 'utf8');
+  assert.match(migration, /INSERT INTO workflow_log\(\s*tenant_id,\s*workflow_id,\s*entity_type,\s*entity_id/);
+  const anonymizer = fs.readFileSync(path.join(repoRoot, 'api/_lib/memberAnonymize.js'), 'utf8');
+  assert.ok(!anonymizer.includes("table: 'workflow_log'"), 'disposal must not delete workflow evidence');
+  const db = makePersistentDb();
+  const result = await db.from('workflow_log').update({ member_id: baseTarget.id }).eq('member_id', baseSource.id);
+  assert.equal(result.error.code, 'PGRST204');
+  assert.match(result.error.message, /'member_id'.*'workflow_log'.*schema cache/);
+});
+
+for (const code of ['PGRST204', '42703', '42P01', '42501', '23505', 'XX000']) {
+  test(`workflow transfer failure ${code} preserves source and same-choice retry preserves evidence`, async () => {
+    const db = makePersistentDb();
+    const original = structuredClone(db.rows);
+    db.workflowError = { code, message: 'Workflow history transfer failed' };
+    let cpdTransfers = 0;
+    let cpdSaved = false;
+    const rpc = db.rpc;
+    db.rpc = async (name, args) => {
+      if (name !== 'transfer_member_cpd') return rpc(name, args);
+      db.ops.push(`rpc.${name}`);
+      const alreadyApplied = cpdSaved;
+      if (!cpdSaved) cpdTransfers++;
+      cpdSaved = true;
+      return { data: { mergeId: 'cpd-transfer', balance: '7', historyCount: 2, alreadyApplied }, error: null };
+    };
+    let disposalFails = true;
+    const run = () => performMerge({
+      db, source: structuredClone(db.rows.member[0]), target: structuredClone(db.rows.member[1]),
+      includeEngagement: true, includeCpd: true, sourceDisposal: 'reassign',
+      callerTenantId: 't1', adminMember: admin,
+      anonymize: async id => {
+        db.ops.push(`ANONYMIZE:${id}`);
+        return disposalFails ? { success: false, error: 'Synthetic disposal failure' } : { success: true };
+      },
+    });
+    const first = await run();
+    assert.equal(first.status, 500);
+    assert.equal(first.body.retryable, true);
+    assert.match(first.body.error, /workflow_log.entity_id.*Workflow history transfer failed/);
+    assert.equal(anonRan(db), false);
+    assert.equal(cpdTransfers, 0);
+    assert.deepEqual(db.rows.member[0], original.member[0]);
+    assert.deepEqual(db.rows.workflow_log, original.workflow_log);
+    assert.equal(db.rows.booking[0].member_id, baseTarget.id);
+    assert.equal(db.rows.member_note.length, 0);
+    db.workflowError = null;
+    assert.equal((await run()).status, 500); // CPD moved, disposal failed.
+    disposalFails = false;
+    const success = await run();
+    assert.equal(success.status, 200);
+    assert.equal(success.body.summary.engagementAlreadyApplied, true);
+    assert.equal(success.body.summary.cpdTransfer.alreadyApplied, true);
+    assert.equal(cpdTransfers, 1);
+    assert.equal(db.rows.member[1].engagement_opening_balances.eventsAttended, 5);
+    assert.deepEqual(db.rows.workflow_log, original.workflow_log.map(row =>
+      row.tenant_id === 't1' && row.entity_type === 'member' && row.entity_id === baseSource.id
+        ? { ...row, entity_id: baseTarget.id } : row));
+    assert.equal(db.rows.member_note.length, 1);
+    assert.equal((await run()).status, 200);
+    assert.equal(db.rows.member_note.length, 1);
+    assert.equal(cpdTransfers, 1);
+    assert.ok(!db.ops.some(op => /workflow.*(insert|delete)/.test(op)));
+    assert.ok(db.ops.filter(op => op.startsWith('rpc.')).every(op =>
+      ['rpc.merge_member_group_assignments', 'rpc.transfer_member_cpd'].includes(op)));
+  });
+}
+
+test('empty workflow history completes without creating or replaying history', async () => {
+  const db = makePersistentDb();
+  db.rows.workflow_log = [];
+  const result = await performMerge({ db, source: baseSource, target: baseTarget,
+    sourceDisposal: 'reassign', callerTenantId: 't1', adminMember: admin, anonymize: makeFakeAnonymize(db) });
+  assert.equal(result.status, 200);
+  assert.deepEqual(db.rows.workflow_log, []);
+  assert.equal(anonRan(db), true);
+});
 
 test('fixture reproduces the reported PostgREST response for the invalid submission column', async () => {
   const db = makePersistentDb();

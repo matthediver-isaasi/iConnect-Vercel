@@ -66,7 +66,8 @@ export async function anonymizeMember(memberId, { supabase = defaultSupabase } =
     { table: 'form_submission', column: 'member_id' },
     { table: 'support_ticket_response', column: 'member_id' },
     { table: 'support_ticket', column: 'member_id' },
-    { table: 'workflow_log', column: 'member_id' },
+    // Workflow logs are execution evidence, keyed by entity_type/entity_id.
+    // Full merges transfer ownership before disposal; do not delete evidence.
     // organization_note's author column is member_id (organization_id is the subject)
     { table: 'organization_note', column: 'member_id' },
   ];
