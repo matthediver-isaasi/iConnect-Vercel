@@ -7,7 +7,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { CheckCircle2, Clock, XCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { CheckCircle2, Clock, XCircle, AlertCircle, Loader2, Info } from 'lucide-react';
 import {
   parsePaymentReturn,
   stripPaymentParams,
@@ -250,7 +250,7 @@ function readInitialPaymentReturn(windowObj = typeof window !== 'undefined' ? wi
  *  - status: 'confirming' | 'paid' | 'pending' | 'cancelled' | 'failed' | 'error'
  *  - dismiss(): return to the form (used from the cancelled/error screens)
  */
-export function useFormPaymentReturn() {
+export function useFormPaymentReturn({ onCartReleased } = {}) {
   const initial = readInitialPaymentReturn();
   const [state, setState] = useState(() => initial.state);
   const stateRef = useRef(initial.state);
@@ -653,13 +653,25 @@ export function useFormPaymentReturn() {
     });
   }, [updateState]);
 
-  const dismiss = useCallback(() => {
+  const dismiss = useCallback(async () => {
+    if (stateRef.current.status === 'cart_unpaid') {
+      if (inFlightRef.current || !contextRef.current) return;
+      const context = contextRef.current;
+      updateState(previous => ({ ...previous, status: 'confirming', error: null, canRecheck: false }));
+      const result = await confirmFormPayment({ ...context, returnToCart: true });
+      if (result.status !== 'cart_released') {
+        updateState(previous => ({ ...previous, status: 'blocked', error: result.error || 'We could not safely cancel this payment. Please check its status again.', canRecheck: true }));
+        return;
+      }
+      try { clearPaymentSubmissionContext(); } catch { /* storage may be unavailable */ }
+      onCartReleased?.(result.formId);
+    }
     contextRef.current = null;
     requestSequenceRef.current += 1;
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = null;
     updateState({ ...DEFAULT_PAYMENT_RETURN_STATE });
-  }, [updateState]);
+  }, [updateState, onCartReleased]);
   const recheck = useCallback(() => runConfirm({ manual: true }), [runConfirm]);
   return { ...state, dismiss, recheck, adoptCompletion, adoptPaymentAcceptance };
 }
@@ -712,6 +724,13 @@ const SCREENS = {
     bubbleClass: 'bg-amber-100',
     title: 'Payment status needs attention',
     body: 'We could not finish checking this payment. Do not make another payment. You can safely check the same submission again.',
+  },
+  cart_unpaid: {
+    icon: Info,
+    iconClass: 'text-blue-600',
+    bubbleClass: 'bg-blue-100',
+    title: 'Payment not completed',
+    body: 'Choose Back to cart to return to your form. Any unfinished payment will be cancelled safely.',
   },
   cancelled: {
     icon: XCircle,
@@ -816,10 +835,10 @@ export function FormPaymentReturnScreen({
     : monthlyCardSetup || monthlyDebitSetup
       ? 'Application submitted — monthly payments set up'
     : directDebitCompleted ? 'Application submitted' : def.title;
-  const showReturn = ['cancelled', 'failed'].includes(status) && onReturnToForm;
+  const showReturn = ['cancelled', 'failed', 'cart_unpaid'].includes(status) && onReturnToForm;
   // Never offer a completed, pending, or ambiguous payment back to the form:
   // that page contains payment controls and could invite a second attempt.
-  const showContinue = !['confirming', 'cancelled', 'failed'].includes(status) && !!continueHref;
+  const showContinue = !['confirming', 'cancelled', 'failed', 'cart_unpaid'].includes(status) && !!continueHref;
 
   const card = (
     <Card
@@ -836,10 +855,10 @@ export function FormPaymentReturnScreen({
         {body && <p className="text-slate-600 whitespace-pre-line" data-testid="payment-return-body">{body}</p>}
         {showReturn && (
           <Button className="mt-6" variant="outline" onClick={onReturnToForm} data-testid="button-return-to-form">
-            Return to form
+            {status === 'cart_unpaid' ? 'Back to cart' : 'Return to form'}
           </Button>
         )}
-        {canRecheck && onRecheck && status !== 'confirming' && !directDebitCompleted && (
+        {canRecheck && onRecheck && !['confirming', 'cart_unpaid'].includes(status) && !directDebitCompleted && (
           <Button className="mt-6" variant="outline" onClick={onRecheck} data-testid="button-payment-return-recheck">
             Check status again
           </Button>

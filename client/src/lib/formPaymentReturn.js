@@ -25,6 +25,8 @@ export const MONTHLY_PAYMENT_PROVIDERS = new Set([
 ]);
 export const NORMAL_PAYMENT_PROVIDERS = new Set(['stripe', 'gocardless']);
 export const VERIFIED_PAYMENT_STATUSES = new Set([
+  'cart_unpaid',
+  'cart_released',
   'pending',
   'finalizing',
   'setup_complete',
@@ -33,6 +35,16 @@ export const VERIFIED_PAYMENT_STATUSES = new Set([
   'accounting_pending',
   'attention',
 ]);
+
+// Keep the iframe URL/receipt scope unchanged. Only resolve its exit link:
+// a microsite prefix is not a usable landing page without an assigned home.
+export function resolvePaymentContinueDestination(path, microsites) {
+  const safe = sanitizePaymentContinuePath(path || '/');
+  if (safe === '/') return safe;
+  if (!Array.isArray(microsites)) return null;
+  const site = microsites.find(site => `/${site.path_prefix}` === safe.replace(/\/$/, ''));
+  return site && !site.home_page_id ? '/' : safe;
+}
 
 export const PAYMENT_RETURN_PARAMS = [
   'form_payment_submission',
@@ -343,6 +355,7 @@ export async function confirmFormPayment({
   submissionId,
   paymentIntentId = null,
   provider = null,
+  returnToCart = false,
   fetchImpl = fetch,
 }) {
   try {
@@ -352,6 +365,7 @@ export async function confirmFormPayment({
       credentials: 'include',
       body: JSON.stringify({
         action: 'confirm',
+        ...(returnToCart ? { return_to_cart: true } : {}),
         submission_id: submissionId,
         // This is an opt-in request-body capability, not a client-side
         // payment-type decision. The server ignores it for non-monthly rows
@@ -389,6 +403,7 @@ export async function confirmFormPayment({
 
     const result = {
       status,
+      ...(status === 'cart_released' ? { formId: json.formId } : {}),
       provider: verifiedProvider,
       ...(paymentProvider ? { paymentProvider } : {}),
       ...(setupVerified ? { setupVerified: true } : {}),

@@ -19,6 +19,7 @@ import { useSubmissionIdempotencyKey } from "@/lib/useSubmissionIdempotencyKey";
 import { useCardSwipeAutoFocus } from "@/lib/cardSwipeAutoFocus";
 import { useMembershipFeeQuote } from "@/lib/useMembershipFeeQuote";
 import { useFormBundleUnavailable } from "@/lib/useFormBundleUnavailable";
+import { resolvePaymentContinueDestination } from "@/lib/formPaymentReturn";
 import { COUNTRIES } from "@/data/countries";
 import { evaluateLmicCondition } from "../../../api/_lib/formLmicConditions.js";
 import { resolveSubmitControl } from "../../../api/_lib/formSubmitControl.js";
@@ -344,15 +345,25 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
   });
   // Return-leg confirmation is safe before the form body is released: it can
   // only finalize a server-created pending payment carrying prior access proof.
-  const paymentReturn = useFormPaymentReturn();
+  const paymentReturn = useFormPaymentReturn({ onCartReleased: (formId) => {
+    rotateIdempotencyKey();
+    window.dispatchEvent(new CustomEvent('form-cart-unlocked', { detail: { formId } }));
+  } });
+  const { data: paymentMicrosites } = useQuery({
+    queryKey: ['public-microsites'],
+    queryFn: async () => (await publicClient.listMicrosites())?.microsites || [],
+    enabled: paymentReturn.active,
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
   const paymentContinue = useMemo(() => {
     const navigation = getPaymentNavigationContext();
     return {
-      destination: sanitizePaymentContinuePath(paymentReturn.continuePath || embedContinuePath),
+      destination: resolvePaymentContinueDestination(paymentReturn.continuePath || embedContinuePath, paymentMicrosites),
       mayNavigateParent: navigation.target === 'top',
       navigation,
     };
-  }, [embedContinuePath, paymentReturn.continuePath]);
+  }, [embedContinuePath, paymentReturn.continuePath, paymentMicrosites]);
   const continuePaymentReturn = useCallback(() => {
     if (!paymentContinue.mayNavigateParent) return;
     navigateToPaymentProvider(paymentContinue.destination, paymentContinue.navigation);

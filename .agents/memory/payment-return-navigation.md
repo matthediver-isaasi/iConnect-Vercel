@@ -44,3 +44,15 @@ Embedded outcome navigation must follow a committed receipt and actual provider-
 **Why:** Inline completion has no hosted-return relay, and a tall form can shrink underneath a still-mounted GoCardless overlay. Scrolling before that overlay releases its height can leave the receipt outside the containing viewport.
 
 **How to apply:** Keep inline completion distinct from relay-authorized hosted returns, report the final height before the one-shot readiness signal, and let Canvas settle before a visibility-aware parent scroll. Capture return navigation context before URL cleanup; later server-confirmed terminal transitions must not depend on payment query parameters still being present.
+
+An unfinished cart can resume into the page-level receipt after a refresh,
+outside the wizard's Previous-button flow. Both surfaces need the same
+provider-verified cancellation boundary before returning to editable fields.
+
+**Why:** Fixing only the wizard left refreshed card checkouts stranded on an
+error receipt despite the provider still awaiting a payment method.
+
+**How to apply:** Preserve recovery identity on uncertain outcomes and clear
+it only after verified release. Correct continuation destinations independently
+of the iframe URL: changing that URL can orphan the existing scoped receipt.
+A microsite prefix without an assigned homepage is not a valid exit destination.

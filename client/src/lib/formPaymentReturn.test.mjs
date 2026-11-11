@@ -1,6 +1,14 @@
 // Task #3501: payment return-leg decision logic + wiring contracts.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { resolvePaymentContinueDestination } from './formPaymentReturn.js';
+
+test('microsite without a homepage falls back without changing iframe scope', () => {
+  assert.equal(resolvePaymentContinueDestination('/meeting', [{ path_prefix: 'meeting', home_page_id: null }]), '/');
+  assert.equal(resolvePaymentContinueDestination('/meeting', [{ path_prefix: 'meeting', home_page_id: 'home' }]), '/meeting');
+  assert.equal(resolvePaymentContinueDestination('/meeting/booking', [{ path_prefix: 'meeting', home_page_id: null }]), '/meeting/booking');
+  assert.equal(resolvePaymentContinueDestination('/meeting', undefined), null);
+});
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -509,7 +517,7 @@ test('ordinary payment confirmation still sends the harmless setup opt-in flag',
 test('both form pages mount the page-level return handler before wizard state', () => {
   for (const page of ['../pages/FormView.jsx', '../pages/EmbedForm.jsx']) {
     const src = read(page);
-    assert.match(src, /useFormPaymentReturn\(\)/, `${page} must call useFormPaymentReturn`);
+    assert.match(src, /useFormPaymentReturn\(/, `${page} must call useFormPaymentReturn`);
     assert.match(src, /paymentReturn\.active/, `${page} must render the status screen when active`);
     assert.match(src, /<FormPaymentReturnScreen/, `${page} must render FormPaymentReturnScreen`);
     // The status screen must render before loading/access/not-found/submitted

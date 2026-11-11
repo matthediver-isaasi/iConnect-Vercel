@@ -2749,7 +2749,7 @@ export async function handleConfirm(req, res, supabase, tenantData, dependencies
     // start a second payment or to run completion synchronously.
     let found;
     try {
-      found = await retrieveTenantPaymentIntent(
+      found = await (dependencies.retrieveStripe || retrieveTenantPaymentIntent)(
         tenantData.id,
         stripeFeature,
         piId,
@@ -2782,6 +2782,21 @@ export async function handleConfirm(req, res, supabase, tenantData, dependencies
     const storedMatches = row.payment_reference && row.payment_reference === pi.id;
     if (!metadataMatches && !storedMatches) {
       return res.status(400).json({ error: 'Payment does not match this submission' });
+    }
+    const recoverableCart = row.submission_data?.__cart_receipt
+      && !row.payment_meta?.membership && !row.payment_meta?.monthly_card
+      && row.payment_status !== 'paid' && storedMatches && metadataMatches;
+    if (recoverableCart && req.body?.return_to_cart === true) {
+      try {
+        await cancelCartPayment(supabase, row, dependencies.retrieveStripe);
+        return res.status(200).json({ status: 'cart_released', provider: 'stripe', formId: row.form_id });
+      } catch (error) {
+        return res.status(409).json({ status: 'blocked', error: error.message });
+      }
+    }
+    if (recoverableCart && ['requires_payment_method', 'requires_confirmation', 'requires_action', 'canceled'].includes(pi.status)) {
+      return res.status(200).json({ status: 'cart_unpaid', provider: 'stripe',
+        error: 'Your payment was not completed. Choose Back to cart to return to your form. Any unfinished payment will be cancelled safely.' });
     }
     if (pi.status !== 'succeeded') {
       return res.status(400).json({ error: `Payment has not completed (status: ${pi.status})`, code: 'PAYMENT_NOT_SUCCEEDED' });

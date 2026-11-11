@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { cancelCartPayment } from './formCartRecovery.js';
-import { handleCancelCart } from '../public/form-payment.js';
+import { handleCancelCart, handleConfirm } from '../public/form-payment.js';
 const row = { id: 'submission', tenant_id: 'tenant', form_id: 'form', payment_provider: 'stripe', payment_status: 'pending', payment_reference: 'pi_1' };
 function fixture(status, state = 'held') {
   const calls = [];
@@ -60,4 +60,27 @@ test('cancellation lookup is tenant/form/original-key scoped; missing keys fail 
   await handleCancelCart({ body: { form_id: 'form', idempotency_key: 'original-checkout-key' } }, res, db, { id: 'tenant' });
   assert.equal(res.statusCode, 404);
   assert.deepEqual(filters, [['tenant_id', 'tenant'], ['form_id', 'form'], ['idempotency_key', 'pay:original-checkout-key']]);
+});
+
+test('refresh reports unpaid cart without cancelling; Back verifies and releases it', async () => {
+  const f = fixture('requires_payment_method');
+  f.pi.metadata.type = 'form_payment';
+  const stored = { ...row, submission_data: { __cart_receipt: { lines: [] } },
+    payment_meta: { access_authorized_at: new Date().toISOString() } };
+  const db = { ...f.db, from(table) {
+    if (table === 'form_cart_receipt') return f.db.from(table);
+    const q = { select: () => q, eq: () => q, maybeSingle: async () => ({ data: table === 'form_submission' ? stored : null }) };
+    return q;
+  } };
+  const req = { body: { submission_id: row.id }, headers: { host: 'example.test' } };
+  const res = { status(n) { this.statusCode = n; return this; }, json(body) { this.body = body; return this; } };
+  await handleConfirm(req, res, db, { id: row.tenant_id }, { retrieveStripe: f.retrieve });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.status, 'cart_unpaid');
+  assert.equal(f.calls.length, 0);
+  req.body.return_to_cart = true;
+  await handleConfirm(req, res, db, { id: row.tenant_id }, { retrieveStripe: f.retrieve });
+  assert.equal(res.body.status, 'cart_released');
+  assert.equal(f.calls[0], 'cancel');
+  assert.equal(f.calls[1].args.p_state, 'released');
 });

@@ -59,6 +59,50 @@ function HookProbe() {
   });
 }
 
+test('refreshed unpaid cart returns only after verified cancellation and clears its receipt', async () => {
+  window.sessionStorage.clear();
+  window.history.replaceState({}, '', '/forms/cart-return');
+  savePaymentSubmissionContext({ submissionId: 'cart-submission', provider: 'stripe', pathname: '/forms/cart-return' });
+  let release;
+  let restored = 0;
+  globalThis.fetch = async (_url, options) => {
+    const body = JSON.parse(options.body);
+    assert.equal(body.submission_id, 'cart-submission');
+    if (body.return_to_cart) return new Promise(resolve => { release = resolve; });
+    return { ok: true, json: async () => ({ provider: 'stripe', status: 'cart_unpaid' }) };
+  };
+  function CartProbe() {
+    const result = useFormPaymentReturn({ onCartReleased: () => { restored++; } });
+    return result.active
+      ? React.createElement(FormPaymentReturnScreen, { ...result, onReturnToForm: result.dismiss, onRecheck: result.recheck, continueHref: '/bad-exit' })
+      : React.createElement('output', { 'data-testid': 'inactive' });
+  }
+  const container = document.createElement('div'); document.body.appendChild(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => { root.render(React.createElement(CartProbe)); await new Promise(resolve => setTimeout(resolve, 20)); });
+    assert.equal(container.querySelector('[data-testid="button-payment-return-continue"]'), null);
+    const back = container.querySelector('[data-testid="button-return-to-form"]');
+    assert.equal(back.textContent, 'Back to cart');
+    await act(async () => back.click());
+    assert.equal(restored, 0);
+    assert.equal(container.querySelector('[data-testid="inactive"]'), null);
+    await act(async () => release({ ok: false, json: async () => ({ status: 'blocked', error: 'Payment is still processing.' }) }));
+    assert.equal(restored, 0);
+    assert.equal(container.querySelector('[data-testid="button-return-to-form"]'), null);
+    assert.ok(window.sessionStorage.length > 0, 'unknown payment keeps its recovery identity');
+    await act(async () => container.querySelector('[data-testid="button-payment-return-recheck"]').click());
+    await act(async () => container.querySelector('[data-testid="button-return-to-form"]').click());
+    await act(async () => release({ ok: true, json: async () => ({ status: 'cart_released', provider: 'stripe', formId: 'form' }) }));
+    assert.equal(restored, 1);
+    assert.ok(container.querySelector('[data-testid="inactive"]'));
+    assert.equal(window.sessionStorage.length, 0);
+  } finally {
+    await act(async () => root.unmount()); container.remove();
+    window.history.replaceState({}, '', '/forms/example');
+  }
+});
+
 test('hook resumes a path-scoped refresh and preserves setup_complete truthfully', async () => {
   window.sessionStorage.clear();
   savePaymentSubmissionContext({

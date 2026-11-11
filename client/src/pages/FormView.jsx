@@ -404,7 +404,10 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // checks the live policy for legacy rows and accepts its own authorization
   // proof for already-started payments, so membership changes cannot strand
   // money after the provider redirect.
-  const paymentReturn = useFormPaymentReturn();
+  const paymentReturn = useFormPaymentReturn({ onCartReleased: (formId) => {
+    rotateIdempotencyKey();
+    window.dispatchEvent(new CustomEvent('form-cart-unlocked', { detail: { formId } }));
+  } });
 
   useEffect(() => {
     if (!paymentReturn.active || paymentReturnScrollDoneRef.current) return;
