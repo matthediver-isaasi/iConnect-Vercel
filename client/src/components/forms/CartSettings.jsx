@@ -22,6 +22,8 @@ export default function CartSettings({ field, onChange }) {
     <p role="status" className="text-xs text-slate-500">{count} of 100 items selected</p>
     <label className="block text-sm">Bundle label<Input maxLength={120} value={field.bundle_label ?? ''} placeholder="Bundle" onChange={event => onChange({ bundle_label: event.target.value })} /></label>
     <label className="block text-sm">Bundle category label<Input maxLength={120} value={field.bundle_category_label ?? ''} placeholder="Bundle category" onChange={event => onChange({ bundle_category_label: event.target.value })} /></label>
+    <label className="block text-sm">Products heading (optional)<Input maxLength={120} value={field.products_heading ?? ''} placeholder="Select other options" onChange={event => onChange({ products_heading: event.target.value })} /></label>
+    <p className="text-xs text-slate-500">Shown above the products, after any bundles. Leave blank to show no heading.</p>
     <label className="flex items-center gap-2 text-sm">
       <Checkbox checked={field.bundle_required === true} onCheckedChange={checked => onChange({ bundle_required: checked === true })} />
       Require at least one bundle

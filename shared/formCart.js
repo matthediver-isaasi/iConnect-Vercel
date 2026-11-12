@@ -59,7 +59,7 @@ export function cartConfigurationError(form) {
       return 'Bundle purchase limits must be whole numbers from 1 to 1000.';
     }
   }
-  for (const key of ['bundle_label', 'bundle_category_label']) {
+  for (const key of ['bundle_label', 'bundle_category_label', 'products_heading']) {
     if (cart[key] !== undefined && (typeof cart[key] !== 'string' || cart[key].length > 120)) return 'Cart labels must be text of up to 120 characters.';
   }
   if (cart.bundle_required !== undefined && typeof cart.bundle_required !== 'boolean') return 'Require a bundle must be on or off.';

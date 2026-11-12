@@ -28,6 +28,12 @@ test('presentation configuration accepts old defaults and validates explicit val
   assert.match(check({ bundle_required: 'true' }), /on or off/);
   assert.match(check({ bundle_required: true }), /at least one bundle/);
   assert.match(check({ bundle_label: 'x'.repeat(121) }), /120/);
+  for (const products_heading of ['', 'Select other options', 'x'.repeat(120)]) {
+    assert.equal(check(JSON.parse(JSON.stringify({ products_heading }))), null);
+  }
+  for (const products_heading of [null, 123, {}, 'x'.repeat(121)]) {
+    assert.match(check({ products_heading }), /120/);
+  }
   for (const bundle_display of [undefined, 'cards', 'dropdown']) {
     for (const show_bundle_category of [undefined, true, false]) {
       const restored = JSON.parse(JSON.stringify({ ...form, fields: [{ ...field, bundle_display, show_bundle_category }, form.fields[1]] }));

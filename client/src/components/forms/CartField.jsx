@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ShoppingCart } from 'lucide-react';
 import { publicClient } from '@/api/publicClient';
@@ -82,6 +82,9 @@ export default function CartField({ field, formId, value, onChange, disabled, on
   const limit = item => Math.min(maximum(item), item?.remaining ?? 1000);
   const committedQuantity = item => answer.lines.find(line => line.kind === item.kind && line.id === item.id)?.quantity || 0;
   const dropdown = field.bundle_display === 'dropdown';
+  const productsHeading = field.products_heading?.trim();
+  const catalogueItems = [...(dropdown ? [] : visibleBundles), ...items.filter(item => item.kind === 'product')];
+  const firstProduct = catalogueItems.find(item => item.kind === 'product');
   useEffect(() => {
     if (bundleId && !pickedBundle && !query.isFetching && !query.isError) setBundleId('');
   }, [bundleId, pickedBundle, query.isFetching, query.isError]);
@@ -169,24 +172,24 @@ export default function CartField({ field, formId, value, onChange, disabled, on
         </Button>
       </div>
     </div>}
-    {!viewOnly && !query.isPending && !query.isError && items.filter(item => item.kind !== 'bundle'
-      || (!dropdown && visibleBundles.includes(item))).map(item => {
+    {!viewOnly && !query.isPending && !query.isError && catalogueItems.map(item => {
       const key = `${item.kind}:${item.id}`;
       const quantity = maximum(item) === 1 ? 1 : Number(draftQuantities[key] ?? '1');
       const canAddItem = canAddQuantity(item, quantity);
-      return <div key={`${item.kind}:${item.id}`} className="space-y-2 rounded-md border bg-background p-3">
+      return <Fragment key={`${item.kind}:${item.id}`}>
+        {item === firstProduct && productsHeading && <h3 className="pt-3 text-sm font-medium">{productsHeading}</h3>}
+        <div className="space-y-2 rounded-md border bg-background p-3">
         <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-sm font-medium">{item.name}</p>{item.description && <p className="text-xs text-muted-foreground">{item.description}</p>}</div><p className="text-sm font-medium">{money(item.unitPriceMinor, item.currency)} each</p></div>
         <p className="text-xs text-muted-foreground">{item.taxTreatment === 'standard' ? `Plus ${item.taxRateBps / 100}% tax` : item.taxTreatment?.replaceAll('_', ' ')} · {!item.available ? 'Unavailable' : item.remaining === null ? 'Unlimited availability' : `${item.remaining} available`}</p>
-        <div className="flex flex-wrap items-center gap-2">{maximum(item) !== 1 && <>
-          <label className="text-xs" htmlFor={`cart-draft-${field.id}-${item.kind}-${item.id}`}>Quantity</label>
+        <div className="flex flex-wrap items-end gap-2">{maximum(item) !== 1 && <label className="text-sm" htmlFor={`cart-draft-${field.id}-${item.kind}-${item.id}`}>Quantity
           <Input id={`cart-draft-${field.id}-${item.kind}-${item.id}`} className="w-24" type="number" min="1"
             max={Math.max(0, limit(item) - committedQuantity(item))} step="1" value={draftQuantities[key] ?? '1'}
             disabled={readonly || !item.available} aria-invalid={!canAddItem}
             onChange={event => setDraftQuantities(previous => ({ ...previous, [key]: event.target.value }))} />
-        </>}<Button type="button" disabled={readonly || !canAddItem} onClick={() => add(item, quantity)}>
+        </label>}<Button type="button" disabled={readonly || !canAddItem} onClick={() => add(item, quantity)}>
           <ShoppingCart aria-hidden="true" className="mr-2 h-4 w-4" />Add to cart
         </Button></div>
-      </div>;
+      </div></Fragment>;
     })}
     {contentsVisible && query.isSuccess && !query.isFetching && <section aria-label="Cart contents" className="space-y-3">
       <p className="text-sm font-medium">Cart contents</p>

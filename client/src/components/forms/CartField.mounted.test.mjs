@@ -300,7 +300,7 @@ for (const conflict of [true, false]) {
         assert.equal(locked, null);
         assert.match(container.textContent, /cart and other answers have been kept/);
       } else {
-        assert.deepEqual(locked, { formId: 'form-one' });
+        assert.deepEqual(locked, { formId: 'form-one', provider: 'stripe' });
         assert.equal(paid, 'paid-submission');
       }
     } finally {
@@ -394,6 +394,44 @@ for (const bundle_display of ['cards', 'dropdown']) {
     } finally { await fixture.close(); }
   });
 }
+
+test('product quantities match bundle layout and optional heading separates the groups', async () => {
+  const bundle = { ...item, kind: 'bundle', name: 'Exhibitor package' };
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ items: [item, bundle] }) });
+  for (const bundle_display of ['cards', 'dropdown']) {
+    const fixture = await mount('', 'form-one', { bundle_display, products_heading: 'Select other options' });
+    try {
+      await settle();
+      const heading = fixture.container.querySelector('h3');
+      assert.equal(heading.textContent, 'Select other options');
+      assert.equal(fixture.container.querySelectorAll('h3').length, 1);
+      const productInput = fixture.container.querySelector(`#cart-draft-cart-product-${id}`);
+      const bundleInput = bundle_display === 'cards'
+        ? fixture.container.querySelector(`#cart-draft-cart-bundle-${id}`)
+        : fixture.container.querySelector('[aria-label="Bundle quantity"]');
+      assert.equal(productInput.parentElement.tagName, 'LABEL');
+      assert.equal(productInput.parentElement.className, bundleInput.parentElement.className);
+      assert.equal(productInput.className, bundleInput.className);
+      assert(productInput.parentElement.parentElement.classList.contains('items-end'));
+      assert(heading.compareDocumentPosition(productInput) & Node.DOCUMENT_POSITION_FOLLOWING);
+      assert(bundleInput.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING);
+      await act(async () => [...fixture.container.querySelectorAll('button')].filter(b => b.textContent === 'Add to cart').at(-1).click());
+      assert.deepEqual(fixture.answers.at(-1).lines, [{ kind: 'product', id, quantity: 1 }]);
+    } finally { await fixture.close(); }
+  }
+  for (const settings of [{}, { products_heading: '   ' }]) {
+    const fixture = await mount('', 'form-one', settings);
+    try { await settle(); assert.equal(fixture.container.querySelector('h3'), null); }
+    finally { await fixture.close(); }
+  }
+  const view = await mount(saved, 'form-one', { products_heading: 'Select other options' }, { viewOnly: true });
+  try { await settle(); assert.equal(view.container.querySelector('h3'), null); }
+  finally { await view.close(); }
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ items: [bundle] }) });
+  const bundlesOnly = await mount('', 'form-one', { products_heading: 'Select other options' });
+  try { await settle(); assert.equal(bundlesOnly.container.querySelector('h3'), null); }
+  finally { await bundlesOnly.close(); }
+});
 
 test('custom labels, alphabetical choices and bundle-only requiredness', async () => {
   const other = '12345678-1234-4234-8234-123456789013';
@@ -603,6 +641,12 @@ test('mounted settings preserve missing selections and require explicit bundle t
     const rate = container.querySelector('[aria-label="Tax rate for Reading pack"]');
     await setInput(rate, '17.5');
     assert.equal(field.bundle_tax[bundleId].rateBps, 1750);
+    const heading = container.querySelector('input[placeholder="Select other options"]');
+    assert.equal(heading.maxLength, 120);
+    await setInput(heading, 'Select other options');
+    assert.equal(field.products_heading, 'Select other options');
+    await setInput(heading, '');
+    assert.equal(field.products_heading, '');
     testCatalogue.products.data.cartStockReady = false;
     await act(async () => root.render(React.createElement(Fixture)));
     assert.match(container.textContent, /Cart stock is not ready for products/);
