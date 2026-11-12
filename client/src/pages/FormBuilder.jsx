@@ -9949,7 +9949,7 @@ function FieldCard({
               {field.type === 'sales_bundle' && (
                 <BundleSelectionSettings field={field} onChange={ids => updateField(originalIndex, { allowed_bundle_ids: ids })} onCategoryFilterChange={enabled => updateField(originalIndex, { show_bundle_category: enabled })} onStockReductionChange={enabled => updateField(originalIndex, { reduce_bundle_stock_on_submission: enabled })} />
               )}
-              {field.type === 'sales_cart' && <CartSettings field={field} onChange={updates => updateField(originalIndex, updates)} />}
+              {field.type === 'sales_cart' && <CartSettings field={field} fields={allFields} onChange={updates => updateField(originalIndex, updates)} />}
               {field.type === 'membership_payment' && (
                 <MembershipPaymentSettings
                   field={field}

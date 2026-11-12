@@ -1,4 +1,5 @@
 import { calculateQuoteLine, SALES_TAX_TREATMENTS } from './salesContracts.js';
+import { cartAccountingConfigurationError } from './formCartAccounting.js';
 
 export const CART_FIELD_TYPE = 'sales_cart';
 export const CART_VERSION = 1;
@@ -52,6 +53,8 @@ export function cartConfigurationError(form) {
     return 'Only one Cart is supported, on standard forms only.';
   }
   const cart = carts[0];
+  const accountingError = cartAccountingConfigurationError(cart, fields);
+  if (accountingError) return accountingError;
   if (cart.bundle_max_quantities !== undefined) {
     const limits = cart.bundle_max_quantities;
     if (!limits || typeof limits !== 'object' || Array.isArray(limits)

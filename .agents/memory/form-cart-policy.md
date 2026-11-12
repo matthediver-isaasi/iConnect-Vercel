@@ -67,3 +67,15 @@ invoice insertion; fixtures without the browser's nested token missed it.
 **How to apply:** Test the complete browser answer through database triggers,
 including both reservation references, for products and bundles. Never broadly
 exempt cart answers from invoice immutability to allow this transition.
+
+Cart project codes refer to the accounting tracking category, not actual
+accounting project entities. A missing purchase-order answer must produce
+exactly `TBC` as the invoice reference, without an internal recovery suffix.
+
+**Why:** The owner confirmed tracking-category semantics and relies on the
+literal TBC reference for the purchase-order report.
+
+**How to apply:** Keep accounting configuration admin-owned and snapshot it
+when accepting an order. Keep provider recovery identifiers separate from the
+customer reference. Do not assume Xero ledger/tracking codes are QuickBooks
+item/class identifiers.

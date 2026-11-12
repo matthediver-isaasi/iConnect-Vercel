@@ -4,13 +4,15 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { catalogueRows, eligibleCartProduct } from '@/lib/formCart';
 import { SALES_TAX_TREATMENTS } from '../../../../shared/salesContracts.js';
+import { CART_PO_FIELD_TYPES } from '../../../../shared/formCartAccounting.js';
 
-export default function CartSettings({ field, onChange }) {
+export default function CartSettings({ field, fields = [], onChange }) {
   const products = useCatalogue('products');
   const bundles = useCatalogue('bundles');
   const productRows = catalogueRows(products.data);
   const bundleRows = catalogueRows(bundles.data);
   const count = (field.allowed_product_ids || []).length + (field.allowed_bundle_ids || []).length;
+  const poFields = fields.filter(source => CART_PO_FIELD_TYPES.includes(source.type) && !source.parent_field_id);
   const sections = [
     { kind: 'product', label: 'Products', query: products, rows: productRows, eligible: eligibleCartProduct },
     { kind: 'bundle', label: 'Bundles', query: bundles, rows: bundleRows, eligible: row =>
@@ -20,6 +22,30 @@ export default function CartSettings({ field, onChange }) {
   return <div className="space-y-4 rounded-md border border-slate-200 bg-slate-50 p-4">
     <div><p className="text-sm font-medium">Cart catalogue</p><p className="text-xs text-slate-500">Offer up to 100 products and bundles in the Payment currency. Prices, tax and stock are checked by the server. Event and space-dependent items are not supported.</p></div>
     <p role="status" className="text-xs text-slate-500">{count} of 100 items selected</p>
+    <section className="space-y-3 rounded border bg-background p-3">
+      <h4 className="text-sm font-medium">Invoice accounting</h4>
+      <p className="text-xs text-slate-500">Admin-only settings for Xero invoice checkout. These controls are not shown to the purchaser. QuickBooks cart invoice checkout is not currently supported.</p>
+      <label className="block text-sm">Nominal ledger code
+        <Input aria-label="Nominal ledger code" maxLength={100} value={field.nominal_code ?? ''}
+          onChange={event => onChange({ nominal_code: event.target.value })} />
+      </label>
+      <p className="text-xs text-slate-500">Applies to every product and bundle invoice line. Leave blank to use the accounting sales account default.</p>
+      <label className="block text-sm">Projects tracking code
+        <Input aria-label="Projects tracking code" maxLength={100} value={field.project_code ?? ''}
+          onChange={event => onChange({ project_code: event.target.value })} />
+      </label>
+      <p className="text-xs text-slate-500">Enter the option name from the Xero tracking category named Projects. Leave blank for no project tracking.</p>
+      <label className="block text-sm">Purchase order field
+        <select aria-label="Purchase order field" className="mt-1 h-10 w-full rounded-md border bg-background px-3 text-sm"
+          value={field.purchase_order_field_id || ''} onChange={event => onChange({ purchase_order_field_id: event.target.value })}>
+          <option value="">No field — use TBC</option>
+          {field.purchase_order_field_id && !poFields.some(source => source.id === field.purchase_order_field_id)
+            && <option value={field.purchase_order_field_id}>Previously selected field is unavailable — choose another</option>}
+          {poFields.map(source => <option key={source.id} value={source.id}>{source.label || source.title || 'Untitled text field'}</option>)}
+        </select>
+      </label>
+      <p className="text-xs text-slate-500">Choose a Text field from this form. Its answer becomes the invoice reference. If no field is selected or the answer is blank, the reference is exactly TBC so it appears on the purchase order report.</p>
+    </section>
     <label className="block text-sm">Bundle label<Input maxLength={120} value={field.bundle_label ?? ''} placeholder="Bundle" onChange={event => onChange({ bundle_label: event.target.value })} /></label>
     <label className="block text-sm">Bundle category label<Input maxLength={120} value={field.bundle_category_label ?? ''} placeholder="Bundle category" onChange={event => onChange({ bundle_category_label: event.target.value })} /></label>
     <label className="block text-sm">Products heading (optional)<Input maxLength={120} value={field.products_heading ?? ''} placeholder="Select other options" onChange={event => onChange({ products_heading: event.target.value })} /></label>

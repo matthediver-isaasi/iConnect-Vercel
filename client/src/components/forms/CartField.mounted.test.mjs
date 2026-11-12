@@ -786,7 +786,9 @@ test('mounted settings preserve missing selections and require explicit bundle t
   function Fixture() {
     const [value, setValue] = React.useState({ id: 'cart', type: 'sales_cart', cart_version: 1, allowed_product_ids: ['missing'], allowed_bundle_ids: [], bundle_tax: {} });
     field = value;
-    return React.createElement(CartSettings, { field: value, onChange: patch => setValue(old => ({ ...old, ...patch })) });
+    return React.createElement(CartSettings, { field: value,
+      fields: [{ id: 'po', type: 'text', label: 'Your purchase order' }, { id: 'payment', type: 'payment' }],
+      onChange: patch => setValue(old => ({ ...old, ...patch })) });
   }
   const container = document.createElement('div');
   document.body.append(container);
@@ -794,6 +796,17 @@ test('mounted settings preserve missing selections and require explicit bundle t
   try {
     await act(async () => root.render(React.createElement(Fixture)));
     assert.match(container.textContent, /Unavailable saved product \(missing\)/);
+    await setInput(container.querySelector('[aria-label="Nominal ledger code"]'), '201');
+    await setInput(container.querySelector('[aria-label="Projects tracking code"]'), 'Exhibition');
+    assert.equal(field.nominal_code, '201');
+    assert.equal(field.project_code, 'Exhibition');
+    const po = container.querySelector('[aria-label="Purchase order field"]');
+    assert.equal(po.options.length, 2);
+    await act(async () => { po.value = 'po'; po.dispatchEvent(new Event('change', { bubbles: true })); });
+    assert.equal(field.purchase_order_field_id, 'po');
+    assert.match(container.textContent, /reference is exactly TBC/);
+    await act(async () => { po.value = ''; po.dispatchEvent(new Event('change', { bubbles: true })); });
+    assert.equal(field.purchase_order_field_id, '');
     const eventChoice = [...container.querySelectorAll('[role="checkbox"]')].find(choice => choice.closest('label')?.textContent.includes('Event ticket'));
     assert.equal(eventChoice.disabled, true);
     const bundleChoice = [...container.querySelectorAll('[role="checkbox"]')].find(choice => choice.closest('label')?.textContent.includes('Reading pack'));

@@ -45,3 +45,36 @@ test('invoice preparation publishes frozen cart lines and no settlement instruct
   assert.equal(result.invoice.envelope.payload.LineItems[0].UnitAmount, 100);
   assert.equal(result.invoice.envelope.expected.totalMinor, 12000);
 });
+
+test('cart accounting stays frozen on every line and TBC reference has no recovery suffix', async () => {
+  for (const reference of ['TBC', 'PO-42']) {
+    const lines = invoiceLines({
+      cartTerms: { lines: [{ name: 'Bundle', quantity: 1, taxRateBps: 2000,
+        netMinor: 10000, taxMinor: 2000, grossMinor: 12000 },
+      { name: 'Product', quantity: 1, taxRateBps: 2000,
+        netMinor: 1000, taxMinor: 200, grossMinor: 1200 }] },
+      taxOptions: [{ id: 'OUTPUT2', rateBps: 2000 }], accountCode: '201', projectCode: 'Exhibition',
+    });
+    const row = { tenant_id: 'tenant', source_type: 'form_invoice_order', source_id: 'submission',
+      provider: 'xero', company_id: 'company', snapshot: { version: 1, preparation: true, payment: null,
+        linkage: { formId: 'form' }, lines,
+        invoice: { args: { appTenantId: 'tenant', currency: 'GBP', reference }, totalMinor: 13200, settings: {},
+          recoveryUrl: 'https://example.org/portal', dueDate: '2026-12-11', invoiceDate: '2026-11-11' } } };
+    const result = await prepareFormInvoiceSource({ row, transport: {} }, { prepare: async args => ({
+      companyId: 'company', contactId: 'contact', payload: { Type: 'ACCREC', Reference: args.reference,
+        CurrencyCode: 'GBP', Contact: { ContactID: 'contact' }, LineItems: [{ UnitAmount: 132 }] },
+    }) });
+    const envelope = result.invoice.envelope;
+    assert.equal(envelope.payload.Reference, reference);
+    assert.equal(envelope.expected.fields.Reference, reference);
+    assert.equal(envelope.markerField, 'Url');
+    assert.match(envelope.payload.Url, /accountingRequest=/);
+    for (const line of envelope.payload.LineItems) {
+      assert.equal(line.AccountCode, '201');
+      assert.deepEqual(line.Tracking, [{ Name: 'Projects', Option: 'Exhibition' }]);
+    }
+    assert.deepEqual(envelope.expected.fields.LineItems, envelope.payload.LineItems);
+    assert.equal(envelope.expected.totalMinor, 13200);
+    assert.equal(result.payment, null);
+  }
+});

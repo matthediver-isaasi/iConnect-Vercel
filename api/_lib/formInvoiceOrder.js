@@ -5,6 +5,8 @@ import { listCatalogueTaxOptions } from './salesCatalogueTaxOptions.js';
 import { resolveFormCart } from './formCart.js';
 import { buildXeroSalesInvoiceLine } from './xero.js';
 import { isDeepStrictEqual } from 'node:util';
+import { cartAccountingSettings } from '../../shared/formCartAccounting.js';
+import { membershipProjectTracking } from '../../shared/membershipProjectCode.js';
 
 export const FORM_INVOICE_SOURCE = 'form_invoice_order';
 // This object is supplied only by the server payment handler, never req.body.
@@ -41,7 +43,7 @@ export function invoiceBillingDetails(field, fields, values) {
   return { name, email, address: typeof address === 'string' ? address.slice(0, 2000) : null };
 }
 
-export function invoiceLines({ cartTerms, amount, label, taxOptions, defaultCode, accountCode }) {
+export function invoiceLines({ cartTerms, amount, label, taxOptions, defaultCode, accountCode, projectCode }) {
   if (!accountCode) fail('Set the accounting sales account before enabling invoice checkout.');
   if (cartTerms) {
     return cartTerms.lines.map(line => {
@@ -50,7 +52,7 @@ export function invoiceLines({ cartTerms, amount, label, taxOptions, defaultCode
       if (!code) fail('The cart tax rate needs an unambiguous accounting tax code before invoice checkout.');
       return { description: line.name, quantity: line.quantity,
         netMinor: line.netMinor, taxMinor: line.taxMinor, grossMinor: line.grossMinor,
-        taxCode: code.id, accountCode };
+        taxCode: code.id, accountCode, ...(projectCode ? { projectCode } : {}) };
     });
   }
   const code = taxOptions.find(code => code.id === defaultCode);
@@ -80,17 +82,25 @@ export async function prepareFormInvoiceOrder({ db, tenantId, form, field, value
     .select('default_product_tax_code').eq('tenant_id', tenantId).maybeSingle();
   if (salesError) throw salesError;
   const cart = await resolveFormCart(db, form, values);
+  let accounting;
+  try {
+    accounting = cartAccountingSettings(form, values);
+  } catch (error) {
+    fail(error.message, 'CART_ACCOUNTING_INVALID', 400);
+  }
   const lines = invoiceLines({
     cartTerms: cart || null, amount, label: field.payment_label || form.name,
     taxOptions: taxes.items, defaultCode: sales?.default_product_tax_code?.id,
-    accountCode: settings?.find(s => s.setting_key === 'xero_sales_account_code')?.setting_value,
+    accountCode: accounting?.nominalCode || settings?.find(s => s.setting_key === 'xero_sales_account_code')?.setting_value,
+    projectCode: accounting?.projectCode,
   });
   const totalMinor = lines.reduce((sum, line) => sum + line.grossMinor, 0);
   if (totalMinor !== Math.round(amount * 100)) fail('Invoice total changed. Refresh the payment summary.');
   const invoice = await freezeMembershipPreparation({ db, totalMinor, args: {
     appTenantId: tenantId, organizationName: billing.name, invoicingEmail: billing.email,
     invoicingAddress: billing.address, finalCost: amount, currency,
-    invoiceDescription: field.payment_label || form.name, reference: form.name,
+    invoiceDescription: field.payment_label || form.name, reference: accounting?.reference ?? form.name,
+    ...(accounting ? { nominalCode: accounting.nominalCode, xeroProjectCode: accounting.projectCode } : {}),
   } });
   return {
     version: 1, provider: binding.provider, connectionId: binding.connectionId, companyId: binding.companyId,
@@ -133,7 +143,9 @@ export async function prepareFormInvoiceSource({ row, transport }, dependencies 
   const prepared = await prepareMembershipSourceRequest({ row, transport }, dependencies);
   const envelope = prepared.invoice.envelope;
   const payload = { ...envelope.payload, Status: 'AUTHORISED', LineAmountTypes: 'Exclusive',
-    LineItems: row.snapshot.lines.map(buildXeroSalesInvoiceLine) };
+    LineItems: row.snapshot.lines.map(line => ({
+      ...buildXeroSalesInvoiceLine(line), ...membershipProjectTracking(line.projectCode),
+    })) };
   // Keep the already-created stable recovery marker without appending another.
   const totalMinor = row.snapshot.lines.reduce((sum, line) => sum + line.grossMinor, 0);
   prepared.invoice.envelope = { ...envelope, payload, expected: {
