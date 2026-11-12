@@ -148,6 +148,86 @@ test('mixed cart transaction: shared bundle stock, quantities, replay, rollback,
     assert.equal(sql(`SELECT touch_form_cart_activity('${tenant}','${id(30)}');`), 'f');
     denied(`SET ROLE authenticated; SELECT touch_form_cart_activity('${tenant}','${id(30)}');`, /permission denied/);
     denied(`SET ROLE authenticated; SELECT claim_form_cart_cleanup('${tenant}','${id(30)}');`, /permission denied/);
+    sql(`\\i ${migration('202701200008_form_cart_shopping_holds.sql')}`);
+    sql(`UPDATE form_submission SET payment_status='paid' WHERE id IN ('${id(4)}','${id(30)}');`);
+    edit('product', 10); edit('bundle', 10);
+    const startHeld = stock('product').reserved;
+    const holdCall = (n, a = null, version = 0) =>
+      `SELECT update_form_cart_hold('${tenant}','${tenant}','${id(n)}',${a ? `'${JSON.stringify(a)}'` : 'NULL'},${version});`;
+    const hold = JSON.parse(sql(holdCall(100, answer(2, 1))));
+    assert.equal(hold.state, 'shopping');
+    assert.equal(stock('product').remaining, 8);
+    assert.equal(stock('product').reserved, startHeld + 2);
+    assert.equal(stock('bundle').remaining, 9);
+    assert.equal(sql(`SELECT count(*) FROM form_submission WHERE id='${id(100)}';`), '0');
+    const updated = JSON.parse(sql(holdCall(100, answer(3, 0), hold.version)));
+    assert.equal(updated.expiresAt, hold.expiresAt, 'editing must not extend the deadline');
+    assert.equal(stock('product').remaining, 7);
+    assert.equal(stock('bundle').remaining, 10);
+    denied(holdCall(100, answer(4, 0), 0), /changed in another tab/);
+    assert.equal(stock('product').remaining, 7);
+    denied(`SELECT update_form_cart_hold('${id(99)}','${tenant}','${id(100)}');`, /unavailable/);
+    denied(`SET ROLE anon; ${holdCall(100)}`, /permission denied/);
+    denied(`SET ROLE authenticated; ${holdCall(100)}`, /permission denied/);
+    denied('SET ROLE service_role; UPDATE form_cart_hold SET expires_at=now();', /permission denied/);
+    denied(`SET ROLE service_role; SELECT reserve_form_cart_without_shopping_hold('${tenant}','${id(30)}');`, /permission denied/);
+    // Empty selection releases the last items, once.
+    const cleared = JSON.parse(sql(holdCall(100, answer(0, 0), updated.version)));
+    assert.equal(cleared.state, 'released');
+    assert.equal(stock('product').remaining, 10);
+    sql(holdCall(100, answer(2, 0), cleared.version));
+    assert.equal(stock('product').remaining, 10, 'ended IDs cannot revive');
+    // Concurrent shoppers compete for exactly one unit.
+    edit('product', 1);
+    const shoppers = await Promise.all([101, 102].map(n => asyncRun(args, holdCall(n, answer(1, 0)))));
+    assert.equal(shoppers.filter(r => r.status === 0).length, 1);
+    const shopper = shoppers[0].status === 0 ? 101 : 102;
+    assert.equal(stock('product').remaining, 0);
+    // Checkout transfers, never double reserves, even at zero availability.
+    const checkoutValues = { cart: { ...answer(1, 0), reservation_id: id(shopper) }, __cart_reservation: id(shopper), other: 'accepted' };
+    const checkoutSql = n => `INSERT INTO form_submission VALUES('${id(n)}','${tenant}','${tenant}','attempt-${n}',
+      '${JSON.stringify(checkoutValues)}','pending','stripe','pi_${n}',1.21,'GBP');`;
+    const beforeCheckout = stock('product').reserved;
+    sql(checkoutSql(110));
+    assert.equal(stock('product').remaining, 0);
+    assert.equal(stock('product').reserved, beforeCheckout);
+    const expiry = sql(`SELECT expires_at FROM form_cart_hold WHERE id='${id(shopper)}';`);
+    assert.equal(sql(`SELECT next_check_at FROM form_cart_receipt WHERE submission_id='${id(110)}';`), expiry);
+    sql(`SELECT touch_form_cart_activity('${tenant}','${id(110)}');`);
+    assert.equal(sql(`SELECT next_check_at FROM form_cart_receipt WHERE submission_id='${id(110)}';`), expiry);
+    denied(checkoutSql(111), /expired/);
+    sql(`UPDATE form_submission SET payment_status='paid' WHERE id='${id(110)}';`);
+    assert.equal(JSON.parse(sql(holdCall(shopper))).state, 'consumed');
+    assert.equal(stock('product').reserved, beforeCheckout - 1);
+    // Expired shopping holds release without contacting a payment provider.
+    edit('product', 3);
+    sql(holdCall(120, answer(2, 0)));
+    sql(`UPDATE form_cart_hold SET expires_at=now()-interval '1 second' WHERE id='${id(120)}';`);
+    assert.equal(sql('SELECT expire_form_cart_shopping_holds();'), '1');
+    assert.equal(stock('product').remaining, 3);
+    assert.equal(sql('SELECT expire_form_cart_shopping_holds();'), '0');
+    assert.equal(JSON.parse(sql(holdCall(120))).state, 'released');
+    // A failed transfer rolls back the release and keeps the original hold.
+    sql(holdCall(130, answer(1, 0)));
+    const badCheckout = `INSERT INTO form_submission VALUES('${id(131)}','${tenant}','${tenant}','attempt-131',
+      '{"cart":${JSON.stringify(answer(1, 0))},"__cart_reservation":"${id(130)}"}','pending','stripe','pi_131',0.01,'GBP');`;
+    denied(badCheckout, /terms changed/);
+    assert.equal(stock('product').remaining, 2);
+    assert.equal(JSON.parse(sql(holdCall(130))).state, 'shopping');
+    const deadlineBeforeBack = sql(`SELECT expires_at FROM form_cart_hold WHERE id='${id(130)}';`);
+    sql(badCheckout.replace(id(131), id(132)).replace('0.01', '1.21'));
+    denied(`SELECT resume_form_cart_shopping('${tenant}','${id(132)}');`, /Verified cancellation/);
+    sql(`SELECT finalize_form_cart('${tenant}','${id(132)}','released',
+      '{"provider":"stripe","reference":"pi_131","terminal_status":"cancelled","verified_at":"2026-11-12"}');`);
+    assert.equal(sql(`SELECT resume_form_cart_shopping('${tenant}','${id(132)}');`), 't');
+    assert.equal(JSON.parse(sql(holdCall(130))).state, 'shopping');
+    assert.equal(sql(`SELECT expires_at FROM form_cart_hold WHERE id='${id(130)}';`), deadlineBeforeBack);
+    assert.equal(stock('product').remaining, 2, 'Back preserves the stock once, with the original deadline');
+    assert.equal(sql(`SELECT resume_form_cart_shopping('${tenant}','${id(132)}');`), 'f', 'Back replay cannot reserve twice');
+    sql(`UPDATE form SET fields=jsonb_set(fields,'{0,reservation_minutes}','12');`);
+    const longer = JSON.parse(sql(holdCall(140, answer(1, 0))));
+    assert.ok(Date.parse(longer.expiresAt) - Date.parse(longer.serverNow) >= 719000);
+    assert.equal(sql(`SELECT expires_at FROM form_cart_hold WHERE id='${id(130)}';`), deadlineBeforeBack);
   } finally {
     if (started) run('pg_ctl', ['-D', data, '-m', 'immediate', '-w', 'stop']);
     await rm(root, { recursive: true, force: true });

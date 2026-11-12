@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { BUNDLE_UNAVAILABLE_EVENT } from './formBundles.js';
 import { clearPaymentSubmissionContext } from './formPaymentReturn.js';
 import { CART_LOCKED_EVENT, CART_UNLOCKED_EVENT, CART_UNAVAILABLE_EVENT, unlockFormCart } from './formCart.js';
+import { useFormCartReservation } from './useFormCartReservation.js';
 
 // Page-level handling matters in paginated forms: the bundle dropdown may be
 // unmounted by the time a submit/payment stock conflict arrives.
@@ -11,9 +12,28 @@ export function useFormBundleUnavailable(form, setValues, setError, recovery = {
   const latest = useRef({ form, setValues, setError });
   latest.current = { form, setValues, setError, recovery };
   const formId = form?.id;
+  const cart = form?.fields?.find(field => field.type === 'sales_cart');
+  useFormCartReservation(formId, cart, next => {
+    if (!cart) return;
+    latest.current.setValues(values => JSON.stringify(values[cart.id]) === JSON.stringify(next)
+      ? values : { ...values, [cart.id]: next });
+  });
   useEffect(() => {
-    queryClient.setQueryData(['form-cart-locked', formId], false);
+    if (queryClient.getQueryData(['form-cart-locked', formId]) === undefined) {
+      queryClient.setQueryData(['form-cart-locked', formId], false);
+    }
     let recovering = false;
+    const reservationEnded = async event => {
+      if (event.detail?.formId !== formId || recovering) return;
+      recovering = true;
+      try {
+        await latest.current.recovery.rotateIdempotencyKey?.();
+        clearPaymentSubmissionContext({ pathname: window.location.pathname, search: window.location.search });
+        unlockFormCart(formId);
+      } catch {
+        latest.current.setError('Your reservation has ended. Reload the form before starting another checkout.');
+      } finally { recovering = false; }
+    };
     let activityEnabled = false;
     let lastActivitySent = 0;
     let activityRequest = null;
@@ -90,6 +110,7 @@ export function useFormBundleUnavailable(form, setValues, setError, recovery = {
       activityEnabled = false;
       queryClient.setQueryData(['form-cart-locked', formId], false);
       queryClient.invalidateQueries({ queryKey: ['public-form-cart'] });
+      queryClient.invalidateQueries({ queryKey: ['form-cart-reservation'] });
       queryClient.invalidateQueries({ queryKey: ['membership-fee-quote', formId] });
     };
     const handle = event => {
@@ -115,6 +136,7 @@ export function useFormBundleUnavailable(form, setValues, setError, recovery = {
     window.addEventListener('form-cart-input', activity);
     window.addEventListener(CART_UNLOCKED_EVENT, handleCartUnlocked);
     window.addEventListener('form-cart-edit-request', handleEdit);
+    window.addEventListener('form-cart-reservation-ended', reservationEnded);
     return () => {
       window.removeEventListener(BUNDLE_UNAVAILABLE_EVENT, handle);
       window.removeEventListener(CART_UNAVAILABLE_EVENT, handleCart);
@@ -125,6 +147,7 @@ export function useFormBundleUnavailable(form, setValues, setError, recovery = {
       window.removeEventListener('form-cart-input', activity);
       window.removeEventListener(CART_UNLOCKED_EVENT, handleCartUnlocked);
       window.removeEventListener('form-cart-edit-request', handleEdit);
+      window.removeEventListener('form-cart-reservation-ended', reservationEnded);
       queryClient.removeQueries({ queryKey: ['form-cart-locked', formId], exact: true });
     };
   }, [queryClient, formId]);

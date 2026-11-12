@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { CART_LOCKED_EVENT, CART_UNLOCKED_EVENT, CART_UNAVAILABLE_EVENT } from '@/lib/formCart';
 import { normalizeCartAnswer } from '../../../../shared/formCart.js';
 import { calculateQuoteTotals } from '../../../../shared/salesContracts.js';
+import { useFormCartReservation, formatReservationTime } from '@/lib/useFormCartReservation';
 
 let instanceCounter = 0;
 const money = (value, currency) => new Intl.NumberFormat('en-GB', { style: 'currency', currency }).format(value / 100);
@@ -19,14 +20,28 @@ export default function CartField({ field, formId, value, onChange, disabled, on
   const [bundleId, setBundleId] = useState('');
   const [bundleQuantity, setBundleQuantity] = useState('1');
   const [draftQuantities, setDraftQuantities] = useState({});
+  const [reservationError, setReservationError] = useState(null);
+  const [clock, setClock] = useState(Date.now());
+  const shopping = useFormCartReservation(formId, field, next => {
+    if (JSON.stringify(next) !== JSON.stringify(value || { version: 1, lines: [] })) onChange?.(next);
+  }, value);
+  useEffect(() => {
+    if (shopping.reservation?.state === 'shopping') setReservationError(null);
+  }, [shopping.reservation]);
+  useEffect(() => {
+    if (!shopping.reservation?.expiresAt) return;
+    const timer = setInterval(() => setClock(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [shopping.reservation?.expiresAt]);
   const lockQuery = useQuery({ queryKey: ['form-cart-locked', formId], queryFn: () => false, enabled: false });
-  const cartLocked = locked || lockQuery.data === true;
+  const cartLocked = locked || lockQuery.data === true || shopping.reservation?.state === 'held';
+  const cartCommitted = shopping.reservation?.state === 'consumed';
   const recovery = useQuery({ queryKey: ['form-cart-recovery', formId], queryFn: () => null, enabled: false });
   const callbacks = useRef({ onChange, onValidityChange });
   callbacks.current = { onChange, onValidityChange };
   const query = useQuery({
-    queryKey: ['public-form-cart', publicClient.getTenantSlug(), formId, field.id, instance, field.show_bundle_category === true],
-    queryFn: () => publicClient.listFormBundles(formId, field.id),
+    queryKey: ['public-form-cart', publicClient.getTenantSlug(), formId, field.id, instance, field.show_bundle_category === true, shopping.token],
+    queryFn: () => publicClient.listFormBundles(formId, field.id, shopping.token),
     enabled: !!formId, retry: false, staleTime: 0, gcTime: 0,
   });
   const refresh = useRef(query.refetch);
@@ -88,23 +103,31 @@ export default function CartField({ field, formId, value, onChange, disabled, on
   useEffect(() => {
     if (bundleId && !pickedBundle && !query.isFetching && !query.isError) setBundleId('');
   }, [bundleId, pickedBundle, query.isFetching, query.isError]);
+  const reservationElapsed = shopping.reservation?.expiresAt
+    && ['shopping', 'held'].includes(shopping.reservation.state)
+    && formatReservationTime(shopping.reservation, clock) === '0:00';
   const valid = !invalidAnswer && !missingBundle && (!field.required || answer.lines.length > 0) && answer.lines.every(line => {
     const item = findItem(line);
     return item?.available === true && line.quantity <= limit(item);
   });
   useEffect(() => {
-    callbacks.current.onValidityChange?.(field.id, !!formId && valid && !query.isError && !query.isFetching);
-  }, [field.id, formId, valid, query.isError, query.isFetching]);
+    callbacks.current.onValidityChange?.(field.id, !!formId && valid && !query.isError && !query.isFetching
+      && !shopping.busy && !shopping.error && !reservationElapsed);
+  }, [field.id, formId, valid, query.isError, query.isFetching, shopping.busy, shopping.error, reservationElapsed]);
   const changeQuantity = (kind, id, quantity) => {
     if (readonly || !Number.isSafeInteger(quantity) || quantity < 0 || quantity > 1000) return;
     const item = findItem({ kind, id });
     if (quantity > 0 && (!item?.available || quantity > limit(item))) return;
     const lines = answer.lines.filter(line => !(line.kind === kind && line.id === id));
     if (quantity > 0) lines.push({ kind, id, quantity });
-    callbacks.current.onChange({ version: 1, lines });
+    if (query.data?.reservationReady) {
+      setReservationError(null);
+      shopping.update({ version: 1, lines }).catch(error => setReservationError(error.message));
+    } else callbacks.current.onChange({ version: 1, lines });
     setUnavailable(false);
   };
-  const readonly = disabled || cartLocked || !formId || query.isPending || query.isFetching || query.isError;
+  const readonly = disabled || cartLocked || cartCommitted || shopping.busy || reservationElapsed || !!shopping.error
+    || !formId || query.isPending || query.isFetching || query.isError;
   const draftQuantity = maximum(pickedBundle) === 1 ? 1 : Number(bundleQuantity);
   const canAddQuantity = (item, quantity) => item?.available && Number.isSafeInteger(quantity) && quantity >= 1
     && committedQuantity(item) + quantity <= limit(item);
@@ -113,6 +136,15 @@ export default function CartField({ field, formId, value, onChange, disabled, on
     if (!readonly && canAddQuantity(item, quantity)) changeQuantity(item.kind, item.id, committedQuantity(item) + quantity);
   };
   const contentsVisible = viewOnly || showCartContents;
+  const restoredLegacySelection = useRef(false);
+  useEffect(() => {
+    // Older saved drafts predate reservation IDs. Reserve their existing
+    // selections once, instead of sending them to an impossible checkout.
+    if (restoredLegacySelection.current || !query.data?.reservationReady || shopping.token
+      || value?.reservation_id || !answer.lines.length || invalidAnswer || cartLocked || cartCommitted) return;
+    restoredLegacySelection.current = true;
+    shopping.update(answer).catch(error => setReservationError(error.message));
+  }, [query.data?.reservationReady, shopping.token, value, invalidAnswer, cartLocked, cartCommitted]);
   const pricedLines = answer.lines.map(line => ({ ...line, item: findItem(line) }));
   let totalsAvailable = !invalidAnswer && !query.isPending && !query.isFetching && !query.isError
     && pricedLines.every(line => line.item && Number.isSafeInteger(line.item.unitPriceMinor))
@@ -129,7 +161,21 @@ export default function CartField({ field, formId, value, onChange, disabled, on
     } catch { totalsAvailable = false; }
   }
   return <div className="space-y-3">
-    {cartLocked && <div className="rounded-md border bg-muted/40 p-3 text-sm">
+    {shopping.busy && <p role="status" className="text-sm">Updating your stock reservation…</p>}
+    {(reservationError || shopping.error) && <p role="alert" className="text-sm text-destructive">{reservationError || 'Your reservation could not be checked. Your cart has been kept; please check your connection.'}</p>}
+    {shopping.message && <p role="status" className="rounded-md border bg-muted/40 p-3 text-sm">{shopping.message}</p>}
+    {reservationElapsed ? <p role="status" className="rounded-md border bg-muted/40 p-3 text-sm">{shopping.reservation.state === 'held'
+      ? 'Your reservation time has ended. Checking payment before clearing your cart…'
+      : 'Your reservation time has ended. Confirming expiry and clearing your cart…'}</p>
+      : field.show_reservation_countdown === true && ['shopping', 'held'].includes(shopping.reservation?.state) && <p className="rounded-md border bg-muted/40 p-3 text-sm">
+        {(() => {
+          const label = field.reservation_label?.trim() || 'Your items are reserved for {time}';
+          const time = formatReservationTime(shopping.reservation, clock);
+          return label.includes('{time}') ? label.replaceAll('{time}', time) : `${label} ${time}`;
+        })()}
+      </p>}
+    {cartCommitted && <p role="status" className="rounded-md border bg-muted/40 p-3 text-sm">This order has been confirmed. Its items cannot be changed here.</p>}
+    {cartLocked && !cartCommitted && <div className="rounded-md border bg-muted/40 p-3 text-sm">
       <p role="status">{recovery.data?.busy ? 'Cancelling unfinished payment… Please wait.' : 'Your cart is reserved for payment. Choose Previous to return and make changes.'}</p>
       {recovery.data?.error && <p role="alert">{recovery.data.error}</p>}
     </div>}
@@ -213,9 +259,16 @@ export default function CartField({ field, formId, value, onChange, disabled, on
         <div className="flex justify-between gap-3 border-t pt-2 font-medium"><dt>Total</dt><dd>{money(totals.grossMinor, currency)}</dd></div>
       </dl> : <p className="text-xs text-muted-foreground">Totals are unavailable until all cart items can be checked.</p>}
     </section>}
-    {invalidAnswer && <div role="alert" className="text-sm text-destructive"><p>This saved cart cannot be read. It has not been changed automatically.</p><Button type="button" variant="outline" size="sm" disabled={readonly} onClick={() => { if (!readonly) callbacks.current.onChange({ version: 1, lines: [] }); }}>Clear unreadable cart</Button></div>}
+    {invalidAnswer && <div role="alert" className="text-sm text-destructive"><p>This saved cart cannot be read. It has not been changed automatically.</p><Button type="button" variant="outline" size="sm" disabled={readonly} onClick={() => {
+      if (readonly) return;
+      const empty = { version: 1, lines: [] };
+      if (query.data?.reservationReady) shopping.update(empty).catch(error => setReservationError(error.message));
+      else callbacks.current.onChange(empty);
+    }}>Clear unreadable cart</Button></div>}
     {missingBundle && !query.isFetching && <p role="alert" className="text-sm text-destructive">Add at least one bundle to continue.</p>}
     {!valid && !missingBundle && answer.lines.length > 0 && query.isSuccess && !query.isFetching && !cartLocked && <p role="alert" className="text-sm text-destructive">Review unavailable items and quantities before checkout.</p>}
-    <p className="text-xs text-muted-foreground">Nothing is added automatically. The Payment total includes tax and is confirmed before checkout. Cart selections cannot be edited after checkout starts.</p>
+    <p className="text-xs text-muted-foreground">{query.data?.reservationReady
+      ? 'Adding an item reserves stock for the time set on this form. The Payment total includes tax and is confirmed before checkout. Return from checkout to change your cart.'
+      : 'Nothing is added automatically. The Payment total includes tax and is confirmed before checkout. Cart selections cannot be edited after checkout starts.'}</p>
   </div>;
 }

@@ -135,6 +135,7 @@ function normalizePaymentIdempotencyAnswers(values) {
   delete normalized.__bundle_hidden;
   delete normalized.__cart_receipt;
   delete normalized.__cart_hidden;
+  delete normalized.__cart_reservation;
   for (const [key, value] of Object.entries(normalized)) {
     if (value?.version === 1 && Array.isArray(value.lines)) {
       try { normalized[key] = normalizeCartAnswer(value); } catch { /* Invalid answers never compare equal to accepted answers. */ }
@@ -2180,7 +2181,7 @@ export async function handleCancelCart(req, res, supabase, tenantData, dependenc
       });
       return res.status(200).json({ active: true });
     }
-    return res.status(200).json(await cancelCartPayment(supabase, row, dependencies.retrieveStripe));
+    return res.status(200).json(await cancelCartPayment(supabase, row, dependencies.retrieveStripe, { resumeShopping: true }));
   } catch (error) {
     return res.status(409).json({ error: error.message || 'Your payment could not be safely cancelled. Please retry.' });
   }
@@ -2805,7 +2806,7 @@ export async function handleConfirm(req, res, supabase, tenantData, dependencies
       && row.payment_status !== 'paid' && storedMatches && metadataMatches;
     if (recoverableCart && req.body?.return_to_cart === true) {
       try {
-        await cancelCartPayment(supabase, row, dependencies.retrieveStripe);
+        await cancelCartPayment(supabase, row, dependencies.retrieveStripe, { resumeShopping: true });
         return res.status(200).json({ status: 'cart_released', provider: 'stripe', formId: row.form_id });
       } catch (error) {
         return res.status(409).json({ status: 'blocked', error: error.message });

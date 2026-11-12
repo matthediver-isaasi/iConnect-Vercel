@@ -3,7 +3,16 @@ import { retrieveTenantPaymentIntent } from './stripeCredentials.js';
 // The caller must resolve the submission using the original unguessable
 // checkout key, scoped to the tenant and form. Never accept a browser's
 // claim that an unpaid/abandoned payment is safe to release.
-export async function cancelCartPayment(db, row, retrieveStripe = retrieveTenantPaymentIntent) {
+export async function cancelCartPayment(db, row, retrieveStripe = retrieveTenantPaymentIntent, { resumeShopping = false } = {}) {
+  const releasedResult = async () => {
+    if (resumeShopping && row.submission_data?.__cart_reservation) {
+      const resumed = await db.rpc('resume_form_cart_shopping', {
+        p_tenant_id: row.tenant_id, p_submission_id: row.id,
+      });
+      if (resumed.error) throw new Error('Payment was cancelled, but your cart could not yet be reopened. Please retry.');
+    }
+    return { released: true };
+  };
   if (row.payment_provider !== 'stripe' || row.payment_status === 'paid'
     || row.payment_meta?.membership || row.payment_meta?.monthly_card) {
     throw new Error('This order cannot be cancelled here. If you have paid, do not pay again.');
@@ -14,7 +23,7 @@ export async function cancelCartPayment(db, row, retrieveStripe = retrieveTenant
   if (!receipt || !['held', 'released'].includes(receipt.state)) {
     throw new Error('This order is already confirmed or cannot be safely changed.');
   }
-  if (receipt.state === 'released') return { released: true };
+  if (receipt.state === 'released') return releasedResult();
   if (!row.payment_reference) throw new Error('Payment setup is still being checked. Please retry shortly.');
   const found = await retrieveStripe(row.tenant_id, row.payment_meta?.stripe_feature || 'forms',
     row.payment_reference, { timeoutMs: 10000 });
@@ -35,5 +44,5 @@ export async function cancelCartPayment(db, row, retrieveStripe = retrieveTenant
       terminal_status: 'cancelled', verified_at: new Date().toISOString() },
   });
   if (released.error) throw new Error('Payment was cancelled, but your cart could not yet be released. Please retry.');
-  return { released: true };
+  return releasedResult();
 }

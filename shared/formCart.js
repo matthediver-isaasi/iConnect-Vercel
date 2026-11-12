@@ -59,7 +59,12 @@ export function cartConfigurationError(form) {
       return 'Bundle purchase limits must be whole numbers from 1 to 1000.';
     }
   }
-  for (const key of ['bundle_label', 'bundle_category_label', 'products_heading']) {
+  if (cart.reservation_minutes !== undefined && (!Number.isSafeInteger(cart.reservation_minutes)
+    || cart.reservation_minutes < 1 || cart.reservation_minutes > 60)) return 'Cart reservation duration must be 1 to 60 minutes.';
+  if (cart.show_reservation_countdown !== undefined && typeof cart.show_reservation_countdown !== 'boolean') {
+    return 'Show reservation countdown must be on or off.';
+  }
+  for (const key of ['bundle_label', 'bundle_category_label', 'products_heading', 'reservation_label']) {
     if (cart[key] !== undefined && (typeof cart[key] !== 'string' || cart[key].length > 120)) return 'Cart labels must be text of up to 120 characters.';
   }
   if (cart.bundle_required !== undefined && typeof cart.bundle_required !== 'boolean') return 'Require a bundle must be on or off.';

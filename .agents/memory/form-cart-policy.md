@@ -13,15 +13,19 @@ checkout friction.
 **How to apply:** Keep navigation gated on verified provider cancellation and
 stock release; processing or successful payments must remain protected.
 
-Card cart reservations should expire after five minutes of checkout inactivity,
-not 24 hours. Keep active card entry protected; failed/cancelled attempts should
-release promptly after provider verification.
+Reserve cart stock when the first item is added, with a configurable fixed
+deadline (five minutes by default), rather than starting at checkout or
+extending the deadline with checkout activity. Refresh and further additions
+must not restart the timer. Expiry clears only cart selections.
 
-**Why:** The owner explicitly rejected the 24-hour stock hold and selected a
-five-minute inactivity timeout to avoid unnecessarily blocking availability.
+**Why:** The owner superseded the earlier checkout-inactivity choice by approving
+reservation on adding items, a configurable countdown and automatic cart
+clearing. Other form answers must survive expiry.
 
-**How to apply:** Coordinate the activity-aware checkout deployment and database
-timeout activation. Never restore availability while payment may still succeed.
+**How to apply:** Use the server's original deadline across pages and checkout.
+Returning from a safely cancelled checkout may retain stock only for that
+original window. Coordinate deployment and database activation; never restore
+availability or clear a purchased cart while payment may still succeed.
 
 Form commerce bundles consume their own form-stock allowance, never component
 product stock. Ordinary product stock is finite/unlimited inventory, not Sales

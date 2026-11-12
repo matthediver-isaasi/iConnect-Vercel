@@ -34,6 +34,11 @@ test('presentation configuration accepts old defaults and validates explicit val
   for (const products_heading of [null, 123, {}, 'x'.repeat(121)]) {
     assert.match(check({ products_heading }), /120/);
   }
+  for (const reservation_minutes of [1, 5, 60]) assert.equal(check({ reservation_minutes }), null);
+  for (const reservation_minutes of [0, 61, 1.5, '5', null]) assert.match(check({ reservation_minutes }), /1 to 60/);
+  assert.equal(check({ show_reservation_countdown: true, reservation_label: 'Reserved for {time}' }), null);
+  assert.match(check({ show_reservation_countdown: 'true' }), /on or off/);
+  assert.match(check({ reservation_label: 'x'.repeat(121) }), /120/);
   for (const bundle_display of [undefined, 'cards', 'dropdown']) {
     for (const show_bundle_category of [undefined, true, false]) {
       const restored = JSON.parse(JSON.stringify({ ...form, fields: [{ ...field, bundle_display, show_bundle_category }, form.fields[1]] }));

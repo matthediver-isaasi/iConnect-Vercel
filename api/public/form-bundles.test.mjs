@@ -5,7 +5,7 @@ const id = '20000000-0000-4000-8000-000000000001';
 const baseForm = { id: 'f', tenant_id: 't', is_active: true, fields: [
   { id: 'b', type: 'sales_bundle', allowed_bundle_ids: [id] },
 ] };
-async function request(form, { member = null, access = true, rows = [] } = {}) {
+async function request(form, { member = null, access = true, rows = [], method = 'GET', body } = {}) {
   const queries = [];
   const db = { rpc: async () => ({ data: 1 }), from(table) {
     const q = { select() { return this; }, eq(k,v) { queries.push([table,k,v]); return this; },
@@ -14,7 +14,7 @@ async function request(form, { member = null, access = true, rows = [] } = {}) {
     return q;
   } };
   const res = { setHeader() {}, status(n) { this.statusCode = n; return this; }, json(body) { this.body = body; return this; } };
-  await formBundlesHandler({ method: 'GET', query: { form_id: 'f', field_id: 'b' } }, res, {
+  await formBundlesHandler({ method, body, query: { form_id: 'f', field_id: 'b' } }, res, {
     db, resolveTenant: async () => ({ id: 't' }), resolveAccess: async () => ({ allowed: access }),
     getSessionMember: async () => member, getTenantContext: async () => ({}),
   });
@@ -47,6 +47,11 @@ test('cart options retain private-form authorization with category presentation 
     const { res, queries } = await request(form, { member });
     assert.equal(res.statusCode, 403);
     assert.equal(queries.some(([table]) => table.startsWith('sales_catalogue')), false);
+    const mutation = await request(form, { member, method: 'POST', body: {
+      action: 'reserve', reservation_id: id, version: 0, answer: { version: 1, lines: [] },
+    } });
+    assert.equal(mutation.res.statusCode, 403, 'reservation mutations retain the same access gate');
+    assert.equal(mutation.queries.some(([table]) => table.startsWith('sales_catalogue')), false);
   }
   assert.equal((await request(form, { member: { tenant_id: 't' } })).res.statusCode, 200);
   assert.equal((await request({ ...form, require_authentication: false })).res.statusCode, 200);

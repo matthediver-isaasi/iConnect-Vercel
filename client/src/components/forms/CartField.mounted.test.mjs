@@ -5,7 +5,7 @@ import { build } from 'esbuild';
 import { JSDOM } from 'jsdom';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/forms/cart' });
-for (const name of ['window', 'document', 'navigator', 'HTMLElement', 'Element', 'Node', 'Event', 'CustomEvent', 'MutationObserver', 'getComputedStyle', 'localStorage', 'location']) {
+for (const name of ['window', 'document', 'navigator', 'HTMLElement', 'Element', 'Node', 'Event', 'CustomEvent', 'MutationObserver', 'getComputedStyle', 'localStorage', 'sessionStorage', 'location']) {
   Object.defineProperty(globalThis, name, { value: name === 'window' ? dom.window : dom.window[name], configurable: true, writable: true });
 }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -54,7 +54,7 @@ async function mount(initialValue = '', formId = 'form-one', settings = {}, prop
     });
   }
   await act(async () => root.render(React.createElement(QueryClientProvider, { client }, React.createElement(Fixture))));
-  return { container, answers, validity, close: async () => { await act(async () => root.unmount()); client.clear(); container.remove(); } };
+  return { container, client, answers, validity, close: async () => { await act(async () => root.unmount()); client.clear(); container.remove(); } };
 }
 
 test('drafts start at one without committing; removing an item emits identities and quantities only', async () => {
@@ -395,6 +395,96 @@ for (const bundle_display of ['cards', 'dropdown']) {
   });
 }
 
+test('adding reserves stock, countdown survives remount, and verified expiry clears only the cart', async () => {
+  sessionStorage.clear();
+  let hold = null;
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    if (options?.method === 'POST') {
+      const body = JSON.parse(options.body);
+      calls.push(body);
+      if (body.action === 'reserve') hold = {
+        id: body.reservation_id, state: 'shopping', version: (hold?.version || 0) + 1,
+        answer: body.answer, serverNow: new Date().toISOString(),
+        expiresAt: hold?.expiresAt || new Date(Date.now() + 300000).toISOString(),
+      };
+      return { ok: true, json: async () => ({ reservation: { ...hold, serverNow: new Date().toISOString() } }) };
+    }
+    return { ok: true, json: async () => ({ items: [item], reservationReady: true, reservation: hold }) };
+  };
+  const settings = { show_reservation_countdown: true, reservation_label: 'Reserved: {time}' };
+  let fixture = await mount('', 'form-one', settings);
+  try {
+    await settle();
+    assert.equal(calls.length, 0, 'opening the cart does not reserve stock');
+    await act(async () => [...fixture.container.querySelectorAll('button')].find(b => b.textContent === 'Add to cart').click());
+    await settle(); await settle();
+    assert.equal(calls.find(c => c.action === 'reserve').answer.lines[0].quantity, 1);
+    assert.equal(fixture.answers.at(-1).reservation_id, hold.id);
+    assert.match(fixture.container.textContent, /Reserved: [45]:[0-5][0-9]/);
+    const expiry = hold.expiresAt;
+    await fixture.close();
+    fixture = await mount('', 'form-one', settings);
+    await settle(); await settle();
+    assert.equal(hold.expiresAt, expiry);
+    assert.equal(fixture.answers.at(-1).reservation_id, hold.id, 'refresh restores the same reservation');
+    hold = { ...hold, state: 'released', version: hold.version + 1 };
+    await act(async () => fixture.client.invalidateQueries({ queryKey: ['form-cart-reservation'] }));
+    await settle();
+    assert.deepEqual(fixture.answers.at(-1), { version: 1, lines: [] });
+    assert.match(fixture.container.textContent, /reservation has ended/);
+    assert.equal(sessionStorage.length, 0);
+  } finally { await fixture.close(); sessionStorage.clear(); }
+});
+
+test('unknown payment at expiry never clears the held cart', async () => {
+  sessionStorage.clear();
+  const token = '12345678-1234-4234-8234-123456789099';
+  const hold = { id: token, version: 2, state: 'held', answer: saved,
+    expiresAt: new Date(Date.now() - 5000).toISOString(), serverNow: new Date().toISOString() };
+  globalThis.fetch = async (_url, options) => options?.method === 'POST'
+    ? { ok: true, json: async () => ({ reservation: hold }) }
+    : { ok: true, json: async () => ({ items: [item], reservationReady: true }) };
+  const fixture = await mount({ ...saved, reservation_id: token }, 'form-one', { show_reservation_countdown: true });
+  try {
+    await settle(); await settle();
+    assert.match(fixture.container.textContent, /Checking payment before clearing/);
+    assert.deepEqual(fixture.answers, []);
+    assert.equal(fixture.container.querySelector('input').disabled, true);
+  } finally { await fixture.close(); sessionStorage.clear(); }
+});
+
+test('reservation expires on another form page without erasing other answers', async () => {
+  sessionStorage.clear();
+  const token = '12345678-1234-4234-8234-123456789098';
+  sessionStorage.setItem('form-cart-reservation:cart-test:form-one', token);
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ reservation: {
+    id: token, state: 'released', version: 3, answer: saved,
+    expiresAt: new Date(Date.now() - 5000).toISOString(), serverNow: new Date().toISOString(),
+  } }) });
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container), client = createClient();
+  let current, rotations = 0;
+  function LaterPage() {
+    const [values, setValues] = React.useState({ cart: { ...saved, reservation_id: token }, name: 'Keep this answer' });
+    current = values;
+    useFormBundleUnavailable({ id: 'form-one', fields: [{ id: 'cart', type: 'sales_cart' }] }, setValues, () => {}, {
+      rotateIdempotencyKey: () => { rotations++; },
+    });
+    return React.createElement('p', null, values.name);
+  }
+  try {
+    await act(async () => root.render(React.createElement(QueryClientProvider, { client }, React.createElement(LaterPage))));
+    await settle(); await settle();
+    assert.equal(current.name, 'Keep this answer');
+    assert.deepEqual(current.cart, { version: 1, lines: [] });
+    assert.equal(rotations, 1);
+  } finally {
+    await act(async () => root.unmount()); client.clear(); container.remove(); sessionStorage.clear();
+  }
+});
+
 test('product quantities match bundle layout and optional heading separates the groups', async () => {
   const bundle = { ...item, kind: 'bundle', name: 'Exhibitor package' };
   globalThis.fetch = async () => ({ ok: true, json: async () => ({ items: [item, bundle] }) });
@@ -647,6 +737,14 @@ test('mounted settings preserve missing selections and require explicit bundle t
     assert.equal(field.products_heading, 'Select other options');
     await setInput(heading, '');
     assert.equal(field.products_heading, '');
+    const duration = container.querySelector('input[max="60"]');
+    await setInput(duration, '12');
+    assert.equal(field.reservation_minutes, 12);
+    const countdown = [...container.querySelectorAll('[role="checkbox"]')].find(c => c.closest('label').textContent.includes('Show reservation countdown'));
+    await act(async () => countdown.click());
+    assert.equal(field.show_reservation_countdown, true);
+    await setInput(container.querySelector('input[placeholder="Your items are reserved for {time}"]'), 'Complete within {time}');
+    assert.equal(field.reservation_label, 'Complete within {time}');
     testCatalogue.products.data.cartStockReady = false;
     await act(async () => root.render(React.createElement(Fixture)));
     assert.match(container.textContent, /Cart stock is not ready for products/);

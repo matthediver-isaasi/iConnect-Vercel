@@ -55,6 +55,8 @@ test('invoice order commits unpaid stock and queue atomically; retries, tamperin
       \\i ${migration('202612050001_accounting_request_queue.sql')}
       \\i ${migration('202612050002_accounting_request_gc_preparation.sql')}
       \\i ${migration('202701200006_form_invoice_orders.sql')}
+      \\i ${migration('202701200007_form_cart_inactivity.sql')}
+      \\i ${migration('202701200008_form_cart_shopping_holds.sql')}
       SELECT set_form_product_stock('${tenant}','${product}',0,3,'test');
     `);
     const authority = { version: 1, provider: 'xero', connectionId: 'connection', companyId: 'company',
@@ -88,6 +90,15 @@ test('invoice order commits unpaid stock and queue atomically; retries, tamperin
     denied(`SELECT finalize_form_cart('${tenant}','${id(3)}','consumed');`, /payment success/);
     sql(`UPDATE form_submission SET payment_status='paid' WHERE id='${id(3)}';`);
     assert.equal(sql(`SELECT state FROM form_cart_receipt WHERE submission_id='${id(3)}';`), 'consumed');
+    sql(`UPDATE form SET fields=jsonb_set(fields,'{1,payment_providers}','["stripe","invoice"]');`);
+    const heldAnswer = { version: 1, lines: [{ kind: 'product', id: product, quantity: 1 }] };
+    sql(`SELECT update_form_cart_hold('${tenant}','${tenant}','${id(20)}','${JSON.stringify(heldAnswer)}',0);`);
+    assert.equal(sql('SELECT remaining||\':\'||reserved FROM form_product_stock;'), '0:1');
+    const reservedInsert = insert(21).replace(`'{"cart":`, `'{"__cart_reservation":"${id(20)}","cart":`);
+    sql(reservedInsert);
+    assert.equal(sql('SELECT remaining||\':\'||reserved FROM form_product_stock;'), '0:0');
+    assert.equal(sql(`SELECT state FROM form_cart_receipt WHERE submission_id='${id(21)}';`), 'consumed');
+    assert.equal(sql(`SELECT payment_status FROM form_submission WHERE id='${id(21)}';`), 'unpaid');
   } finally {
     if (started) spawnSync('pg_ctl', ['-D', data, '-m', 'immediate', '-w', 'stop']);
     await rm(root, { recursive: true, force: true });

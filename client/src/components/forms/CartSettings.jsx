@@ -24,6 +24,18 @@ export default function CartSettings({ field, onChange }) {
     <label className="block text-sm">Bundle category label<Input maxLength={120} value={field.bundle_category_label ?? ''} placeholder="Bundle category" onChange={event => onChange({ bundle_category_label: event.target.value })} /></label>
     <label className="block text-sm">Products heading (optional)<Input maxLength={120} value={field.products_heading ?? ''} placeholder="Select other options" onChange={event => onChange({ products_heading: event.target.value })} /></label>
     <p className="text-xs text-slate-500">Shown above the products, after any bundles. Leave blank to show no heading.</p>
+    <label className="block text-sm">Stock reservation time (minutes)<Input type="number" min="1" max="60" step="1"
+      value={field.reservation_minutes ?? 5} onChange={event => {
+        const minutes = Number(event.target.value);
+        if (Number.isInteger(minutes) && minutes >= 1 && minutes <= 60) onChange({ reservation_minutes: minutes });
+      }} /></label>
+    <p className="text-xs text-slate-500">Starts with the first item added. Adding items or refreshing does not restart it. Existing reservations keep their original deadline. Expiry clears the cart, not other form answers; payments in progress must be checked before stock is released.</p>
+    <label className="flex items-center gap-2 text-sm"><Checkbox checked={field.show_reservation_countdown === true}
+      onCheckedChange={checked => onChange({ show_reservation_countdown: checked === true })} />Show reservation countdown</label>
+    {field.show_reservation_countdown === true && <label className="block text-sm">Countdown label<Input maxLength={120}
+      value={field.reservation_label ?? ''} placeholder="Your items are reserved for {time}"
+      onChange={event => onChange({ reservation_label: event.target.value })} />
+      <span className="text-xs text-slate-500">Use {'{time}'} for the countdown. If omitted, the time appears after your label.</span></label>}
     <label className="flex items-center gap-2 text-sm">
       <Checkbox checked={field.bundle_required === true} onCheckedChange={checked => onChange({ bundle_required: checked === true })} />
       Require at least one bundle

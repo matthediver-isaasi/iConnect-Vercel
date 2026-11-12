@@ -104,6 +104,35 @@ test('mixed cart quote and checkout ignore browser prices, then recover immutabl
   assert.equal(edited.body.code, 'IDEMPOTENCY_KEY_REUSED');
 });
 
+test('checkout retains the reservation through repeated validation and rejects missing or changed holds', async () => {
+  const f = fixture();
+  const token = '12345678-1234-4234-8234-123456789012';
+  let hold = { id: token, state: 'shopping', answer, expiresAt: new Date(Date.now() + 300000).toISOString() };
+  const original = f.db.rpc;
+  f.db.rpc = async (name, args) => {
+    if (name === 'form_cart_shopping_hold_version') return { data: 1 };
+    if (name === 'update_form_cart_hold') {
+      assert.equal(args.p_tenant_id, 'tenant');
+      assert.equal(args.p_form_id, 'form');
+      assert.equal(args.p_id, token);
+      return { data: hold };
+    }
+    return original(name, args);
+  };
+  const raw = { ...structuredClone(values), cart: { ...answer, reservation_id: token } };
+  for (let i = 0; i < 2; i++) {
+    await resolveFormCart(f.db, form, raw, { hiddenFieldIds: new Set() });
+    assert.equal(raw.cart.reservation_id, token);
+    assert.equal(raw.__cart_reservation, token);
+  }
+  const created = await f.request('create', { submission_data: raw });
+  assert.equal(created.statusCode, 200, JSON.stringify(created.body));
+  assert.equal(f.state.providerCreates, 1);
+  await assert.rejects(resolveFormCart(f.db, form, structuredClone(values), { hiddenFieldIds: new Set() }), /reserve your selected/);
+  hold = { ...hold, state: 'released' };
+  await assert.rejects(resolveFormCart(f.db, form, raw, { hiddenFieldIds: new Set() }), /ended or changed/);
+});
+
 test('invoice checkout is opt-in and returns unpaid confirmation without invoking card providers', async () => {
   const disabled = fixture();
   assert.equal((await disabled.request('create', { provider: 'invoice' })).statusCode, 400);

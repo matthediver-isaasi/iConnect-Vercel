@@ -5,6 +5,7 @@ import { computeAuthoritativeHiddenFieldIds, findPaymentField } from './formFiel
 import { rulesUseLmicOperators } from './formLmicConditions.js';
 import { loadTenantLmicCodes } from './tenantLmicCodes.js';
 import { resolveSalesTaxCode } from './salesCatalogueTaxOptions.js';
+import { shoppingHoldsReady, readShoppingHold, withOwnStock } from './formCartShoppingHold.js';
 
 export class FormCartError extends Error {
   constructor(message, status = 400, code = 'INVALID_CART') {
@@ -99,6 +100,7 @@ export async function validateCartConfiguration(db, form) {
 export async function resolveFormCart(db, form, values, { hiddenFieldIds, checkStock = true } = {}) {
   delete values[CART_RECEIPT_KEY];
   delete values.__cart_hidden;
+  delete values.__cart_reservation;
   const error = cartConfigurationError(form);
   if (error) throw new FormCartError(error);
   const field = cartField(form);
@@ -121,8 +123,19 @@ export async function resolveFormCart(db, form, values, { hiddenFieldIds, checkS
   if (field.bundle_required === true && !answer.lines.some(line => line.kind === 'bundle')) {
     throw new FormCartError('Add at least one bundle to continue.');
   }
-  values[field.id] = answer;
-  const options = await cartOptions(db, form, field.id);
+  let hold = null;
+  if (answer.lines.length && await shoppingHoldsReady(db)) {
+    try { hold = await readShoppingHold(db, form, values[field.id]?.reservation_id); }
+    catch { throw new FormCartError('Return to your cart to reserve your selected items before checkout.', 409, 'CART_RESERVATION_REQUIRED'); }
+    const displayHeldCheckout = !checkStock && hold.state === 'held';
+    if ((!displayHeldCheckout && (hold.state !== 'shopping' || Date.parse(hold.expiresAt) <= Date.now()))
+      || JSON.stringify(normalizeCartAnswer(hold.answer)) !== JSON.stringify(answer)) {
+      throw new FormCartError('Your cart reservation has ended or changed. Return to the cart before paying.', 409, 'CART_RESERVATION_EXPIRED');
+    }
+    values.__cart_reservation = hold.id;
+  }
+  values[field.id] = hold ? { ...answer, reservation_id: hold.id } : answer;
+  const options = withOwnStock(await cartOptions(db, form, field.id), hold);
   let receipt;
   try {
     receipt = priceCartLines(answer, checkStock ? options : options.map(item => ({ ...item, remaining: null, available: true })),

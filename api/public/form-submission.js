@@ -82,6 +82,7 @@ function idempotencyAnswerValues(values) {
   delete normalized.__bundle_hidden;
   delete normalized.__cart_receipt;
   delete normalized.__cart_hidden;
+  delete normalized.__cart_reservation;
   return normalized;
 }
 

@@ -243,11 +243,18 @@ async function publicFetch(url, options = {}, tenantSlug = null) {
  * Automatically injects tenant parameter for proper multi-tenant isolation
  */
 class PublicClient {
-  async listFormBundles(formId, fieldId) {
+  async listFormBundles(formId, fieldId, reservationId) {
     const params = new URLSearchParams({ form_id: formId, field_id: fieldId });
+    if (reservationId) params.set('reservation_id', reservationId);
     const result = await this._fetch(`/api/public/form-bundles?${params}`, { credentials: 'include' });
     if (!Array.isArray(result?.items)) throw new Error('Bundle options could not be loaded.');
     return result;
+  }
+
+  async updateFormCartReservation(formId, fieldId, payload) {
+    return this._fetch('/api/public/form-bundles', { method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...payload, form_id: formId, field_id: fieldId }) });
   }
 
   constructor() {

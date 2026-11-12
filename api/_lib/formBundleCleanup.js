@@ -11,6 +11,10 @@ export async function cleanupFormBundleHolds(db, {
   cart = false,
 } = {}) {
   if (cart && !await formCartReady(db)) return { checked: 0, released: 0, unresolved: 0 };
+  if (cart) {
+    const expired = await db.rpc('expire_form_cart_shopping_holds', { p_limit: 100 });
+    if (expired.error && !['42883', 'PGRST202'].includes(expired.error.code)) throw expired.error;
+  }
   const finalize = cart ? 'finalize_form_cart' : 'finalize_form_bundle';
   const result = { checked: 0, released: 0, unresolved: 0 };
   const { data: holds, error } = await db.from(cart ? 'form_cart_receipt' : 'form_bundle_allocation')
