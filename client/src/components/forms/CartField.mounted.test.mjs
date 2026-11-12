@@ -57,6 +57,29 @@ async function mount(initialValue = '', formId = 'form-one', settings = {}, prop
   return { container, client, answers, validity, close: async () => { await act(async () => root.unmount()); client.clear(); container.remove(); } };
 }
 
+test('catalogue refresh keeps cart contents and totals visible while guarding edits', async () => {
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ items: [item] }) });
+  const fixture = await mount(saved);
+  let release;
+  try {
+    await settle();
+    const section = fixture.container.querySelector('[aria-label="Cart contents"]');
+    const text = section.textContent;
+    globalThis.fetch = () => new Promise(resolve => { release = () => resolve({ ok: true, json: async () => ({ items: [item] }) }); });
+    await act(async () => { void fixture.client.invalidateQueries({ queryKey: ['public-form-cart'] }); });
+    await settle();
+    assert.equal(fixture.container.querySelector('[aria-label="Cart contents"]'), section);
+    assert.equal(section.textContent, text);
+    assert.doesNotMatch(fixture.container.textContent, /Loading cart options/);
+    assert.match(fixture.container.textContent, /Checking availability/);
+    assert.equal(section.querySelector('input').disabled, true);
+    assert.equal(fixture.validity.at(-1), false);
+    await act(async () => release());
+    await settle();
+    assert.equal(section.querySelector('input').disabled, false);
+  } finally { release?.(); await fixture.close(); }
+});
+
 test('drafts start at one without committing; removing an item emits identities and quantities only', async () => {
   globalThis.fetch = async () => ({ ok: true, json: async () => ({ items: [item] }) });
   const empty = await mount();

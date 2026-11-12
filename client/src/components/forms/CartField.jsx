@@ -39,8 +39,13 @@ export default function CartField({ field, formId, value, onChange, disabled, on
   const recovery = useQuery({ queryKey: ['form-cart-recovery', formId], queryFn: () => null, enabled: false });
   const callbacks = useRef({ onChange, onValidityChange });
   callbacks.current = { onChange, onValidityChange };
+  const catalogueScope = ['public-form-cart', publicClient.getTenantSlug(), formId, field.id, instance, field.show_bundle_category === true];
   const query = useQuery({
-    queryKey: ['public-form-cart', publicClient.getTenantSlug(), formId, field.id, instance, field.show_bundle_category === true, shopping.token],
+    queryKey: [...catalogueScope, shopping.token],
+    // A first reservation changes the token, not the catalogue. Keep its last
+    // display while refreshing, but never carry data into another form/tenant.
+    placeholderData: (previous, previousQuery) =>
+      JSON.stringify(previousQuery?.queryKey.slice(0, -1)) === JSON.stringify(catalogueScope) ? previous : undefined,
     queryFn: () => publicClient.listFormBundles(formId, field.id, shopping.token),
     enabled: !!formId, retry: false, staleTime: 0, gcTime: 0,
   });
@@ -146,7 +151,7 @@ export default function CartField({ field, formId, value, onChange, disabled, on
     shopping.update(answer).catch(error => setReservationError(error.message));
   }, [query.data?.reservationReady, shopping.token, value, invalidAnswer, cartLocked, cartCommitted]);
   const pricedLines = answer.lines.map(line => ({ ...line, item: findItem(line) }));
-  let totalsAvailable = !invalidAnswer && !query.isPending && !query.isFetching && !query.isError
+  let totalsAvailable = !invalidAnswer && !query.isPending && !query.isError
     && pricedLines.every(line => line.item && Number.isSafeInteger(line.item.unitPriceMinor))
     && new Set(pricedLines.map(line => line.item?.currency)).size <= 1;
   const currency = pricedLines[0]?.item?.currency || items[0]?.currency || 'GBP';
@@ -181,9 +186,10 @@ export default function CartField({ field, formId, value, onChange, disabled, on
     </div>}
     {unavailable && <p role="alert" className="text-sm text-destructive">A cart item is no longer available. Your cart and other answers have been kept. Review quantities before retrying.</p>}
     {!formId ? <p className="text-sm text-muted-foreground">Save the form to preview cart options.</p>
-      : query.isFetching || query.isPending ? <div role="status" className="animate-pulse rounded-md bg-muted p-3 text-sm">Loading cart options…</div>
+      : query.isPending ? <div role="status" className="animate-pulse rounded-md bg-muted p-3 text-sm">Loading cart options…</div>
       : query.isError ? <div role="alert" className="space-y-2 text-sm text-destructive"><p>Cart options are unavailable. Your selections have been kept.</p><Button type="button" variant="outline" size="sm" onClick={() => query.refetch()}>Retry cart options</Button></div>
       : !viewOnly && items.length === 0 ? <p className="rounded-md border bg-muted/40 p-3 text-sm">No items are currently offered on this form.</p> : null}
+    {query.isFetching && !query.isPending && !shopping.busy && <p role="status" className="text-xs text-muted-foreground">Checking availability…</p>}
     {!viewOnly && field.show_bundle_category === true && bundles.length > 0 && <label className="block text-sm">{categoryLabel}
       <select aria-label={categoryLabel} className="mt-1 h-10 w-full min-w-0 rounded-md border bg-background px-3 text-sm"
         disabled={readonly} value={category} onChange={event => {
@@ -237,7 +243,7 @@ export default function CartField({ field, formId, value, onChange, disabled, on
         </Button></div>
       </div></Fragment>;
     })}
-    {contentsVisible && query.isSuccess && !query.isFetching && <section aria-label="Cart contents" className="space-y-3">
+    {contentsVisible && query.isSuccess && <section aria-label="Cart contents" className="space-y-3">
       <p className="text-sm font-medium">Cart contents</p>
       {answer.lines.length === 0 && <p className="rounded-md border bg-muted/40 p-3 text-sm">Your cart is empty. Add an item to get started.</p>}
       {pricedLines.map(({ item, ...line }, index) => item
