@@ -88,6 +88,7 @@ import { matchSubmissionSearch } from '@/lib/formSubmissionSearch';
 import { formatScoreCsvAnswer } from '@/lib/formSubmissionScoreCsv';
 import {
   getFormSubmissionPaymentReview,
+  isConfirmedUnpaidInvoiceSubmission,
   isVisibleFormSubmission,
 } from '@/lib/formSubmissionPaymentReview';
 
@@ -1028,14 +1029,13 @@ export default function FormSubmissionsPage() {
   // the member owns; the All tab keeps every submission. All stats, filters,
   // pagination and exports below operate on this scoped set.
   const scopedSubmissions = useMemo(() => {
-    // Task #3483: submissions awaiting payment aren't real submissions yet —
-    // they're finalised (or reconciled) once the payment confirms. Failed
-    // payments stay hidden too.
-    const paid = submissions.filter(isVisibleFormSubmission);
+    // Card attempts wait for payment; accepted invoice orders are visible
+    // immediately while remaining unpaid. Review-required attempts also remain visible.
+    const visible = submissions.filter(isVisibleFormSubmission);
     if (activeTab === 'owned') {
-      return paid.filter(s => ownedFormIds.has(s.form_id));
+      return visible.filter(s => ownedFormIds.has(s.form_id));
     }
-    return paid;
+    return visible;
   }, [submissions, activeTab, ownedFormIds]);
 
   const submissionSearchMatches = useMemo(() => new Map(scopedSubmissions.map(submission => [
@@ -2537,15 +2537,15 @@ export default function FormSubmissionsPage() {
                                 : ''}
                             </Badge>
                           )}
-                          {submission.payment_provider === 'invoice' && submission.payment_status !== 'paid' && (
+                          {isConfirmedUnpaidInvoiceSubmission(submission) && (
                             <Badge variant="outline" className="border-amber-200 text-amber-800">
-                              Order confirmed · Invoice unpaid
+                              Order confirmed · Invoice awaiting payment
                             </Badge>
                           )}
                           {submission.payment_status === 'paid' && (
                             <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200" data-testid={`badge-payment-${submission.id}`}>
                               Paid {submission.payment_amount != null ? `${(submission.payment_currency || 'GBP').toUpperCase()} ${Number(submission.payment_amount).toFixed(2)}` : ''}
-                              {submission.payment_provider ? ` · ${submission.payment_provider === 'gocardless' ? 'Direct Debit' : 'Card'}` : ''}
+                              {submission.payment_provider ? ` · ${submission.payment_provider === 'invoice' ? 'Invoice' : submission.payment_provider === 'gocardless' ? 'Direct Debit' : 'Card'}` : ''}
                             </Badge>
                           )}
                           {submission.payment_provider === 'stripe_monthly_card'
@@ -2846,7 +2846,9 @@ export default function FormSubmissionsPage() {
                   <h3 className="font-semibold text-slate-900 mb-3">Payment</h3>
                   <div className="bg-white rounded-lg p-3 border border-slate-200 space-y-1" data-testid="panel-payment-details">
                     <div className="flex items-center gap-2 flex-wrap">
-                      {{
+                      {isConfirmedUnpaidInvoiceSubmission(viewingSubmission)
+                        ? <Badge className="bg-amber-100 text-amber-800 border-amber-200">Order confirmed · Invoice awaiting payment</Badge>
+                        : {
                         paid: <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200">Paid</Badge>,
                         setup_complete: <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200">Monthly card set up</Badge>,
                         pending_payment: <Badge className="bg-amber-100 text-amber-800 border-amber-200">Awaiting payment</Badge>,

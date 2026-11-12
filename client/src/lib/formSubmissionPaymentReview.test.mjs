@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   getFormSubmissionPaymentReview,
   getSafeProcessingNoteDetails,
+  isConfirmedUnpaidInvoiceSubmission,
   isVisibleFormSubmission,
 } from './formSubmissionPaymentReview.js';
 
@@ -46,6 +47,38 @@ test('review metadata makes pending and failed submissions visible with safe rea
 test('normal unpaid submissions remain hidden', () => {
   assert.equal(isVisibleFormSubmission({ payment_status: 'pending' }), false);
   assert.equal(isVisibleFormSubmission({ payment_status: 'failed', payment_meta: {} }), false);
+});
+
+test('accepted invoice orders are visible before accounting or payment completes', () => {
+  const order = {
+    payment_provider: 'invoice', payment_status: 'unpaid', status: 'new',
+    payment_meta: { invoice_order: { version: 1 } },
+    submission_data: { __cart_receipt: { lines: [] } },
+  };
+  const before = structuredClone(order);
+  assert.equal(isConfirmedUnpaidInvoiceSubmission(order), true);
+  assert.equal(isVisibleFormSubmission(order), true);
+  // Ordinary invoice forms share the same accepted-order contract.
+  assert.equal(isVisibleFormSubmission({ ...order, submission_data: {} }), true);
+  assert.deepEqual(order, before);
+  assert.equal(isVisibleFormSubmission({ ...order, payment_status: 'paid' }), true);
+  assert.equal(isConfirmedUnpaidInvoiceSubmission({ ...order, payment_status: 'paid' }), false);
+});
+
+test('invoice visibility requires server acceptance and does not expose unfinished card attempts', () => {
+  for (const submission of [
+    { payment_provider: 'invoice', payment_status: 'unpaid' },
+    { payment_provider: 'invoice', payment_status: 'unpaid', payment_meta: { invoice_order: { version: 2 } } },
+    ...['pending', 'failed', 'cancelled', 'setup_complete'].map(payment_status => ({
+      payment_provider: 'invoice', payment_status, payment_meta: { invoice_order: { version: 1 } },
+    })),
+    ...['pending', 'failed', 'unpaid'].map(payment_status => ({
+      payment_provider: 'stripe', payment_status, payment_meta: { invoice_order: { version: 1 } },
+    })),
+  ]) {
+    assert.equal(isConfirmedUnpaidInvoiceSubmission(submission), false);
+    assert.equal(isVisibleFormSubmission(submission), false);
+  }
 });
 
 test('review state does not fabricate payment status and paid remains paid', () => {

@@ -138,9 +138,19 @@ export function getFormSubmissionPaymentReview(submission) {
   return null;
 }
 
+// Persisted invoice_order v1 is server-owned: insertion atomically accepts the
+// order, allocates stock and queues accounting. Do not wait for invoice payment
+// (or accounting-provider availability) before showing that accepted order.
+export function isConfirmedUnpaidInvoiceSubmission(submission) {
+  return submission?.payment_provider === 'invoice'
+    && submission.payment_status === 'unpaid'
+    && submission.payment_meta?.invoice_order?.version === 1;
+}
+
 export function isVisibleFormSubmission(submission) {
   return !submission?.payment_status
     || submission.payment_status === 'paid'
+    || isConfirmedUnpaidInvoiceSubmission(submission)
     || (submission.payment_provider === 'stripe_monthly_card'
       && submission.payment_status === 'setup_complete')
     || Boolean(getFormSubmissionPaymentReview(submission));
