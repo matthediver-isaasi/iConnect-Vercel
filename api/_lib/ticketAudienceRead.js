@@ -1,4 +1,4 @@
-import { filterViewerTickets, projectSimpleTicketAudience } from '../../shared/ticketAudienceProjection.js';
+import { filterViewerTickets, projectSimpleTicketAudience, projectTicketOrganizationType } from '../../shared/ticketAudienceProjection.js';
 export { filterViewerTickets, projectSimpleTicketAudience } from '../../shared/ticketAudienceProjection.js';
 import { loadPrivateTicketViewer } from './privateTicketAccess.js';
 import { hasAdminAccess } from './tenantContext.js';
@@ -45,7 +45,7 @@ export async function loadTicketAudienceReadContext({ req, ctx, db }) {
   }
   return {
     tenantId, admin, simpleGroups, complexGroups, managedComplexIds,
-    viewer: admin ? null : await loadPrivateTicketViewer(req, tenantId, db),
+    viewer: admin && !ctx.memberId ? null : await loadPrivateTicketViewer(req, tenantId, db),
   };
 }
 
@@ -63,13 +63,22 @@ export function scopeTicketAudienceQuery(query, entity, context) {
 }
 
 export function projectTicketAudienceRows(rows, entity, context) {
-  if (context.admin) return rows;
+  const editable = row => {
+    if (entity === 'complexeventticketclass') return projectTicketOrganizationType(row, context.viewer, context.tenantId);
+    let config = row.pricing_config;
+    const stringConfig = typeof config === 'string';
+    if (stringConfig) { try { config = JSON.parse(config); } catch { return row; } }
+    if (!Array.isArray(config?.ticket_classes) || !config.ticket_classes.some(t => t.organization_type_enabled)) return row;
+    const next = { ...config, ticket_classes: config.ticket_classes.map(t => projectTicketOrganizationType(t, context.viewer, context.tenantId)) };
+    return { ...row, pricing_config: stringConfig ? JSON.stringify(next) : next };
+  };
+  if (context.admin) return (rows || []).map(editable);
   return (rows || []).flatMap(row => {
     if (row.tenant_id !== context.tenantId) return [];
     const manager = entity === 'complexeventticketclass'
       ? context.managedComplexIds.has(row.complex_event_id)
       : (entity === 'event' ? context.simpleGroups : context.complexGroups).has(row.member_group_id);
-    if (manager) return [row];
+    if (manager) return [editable(row)];
     if (entity === 'complexeventticketclass') {
       return filterViewerTickets([row], context.viewer, context.tenantId);
     }

@@ -159,6 +159,8 @@ export default async function handler(req, res) {
           visibility_mode: tc.visibility_mode,
           audience_mode: tc.audience_mode,
           ...(tc.private_ticket_eligible === true ? { private_ticket_eligible: true } : {}),
+          organization_type_enabled: tc.organization_type_enabled === true,
+          organization_type_eligible: tc.organization_type_eligible === true,
           ...publicTicketMemberPolicy(tc),
           is_public: tc.is_public,
           early_bird_enabled: tc.early_bird_enabled || false,

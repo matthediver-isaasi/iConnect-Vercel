@@ -1,6 +1,9 @@
 import { getSession } from './session.js';
 import { hasAdminAccess } from './tenantContext.js';
 import { isPrivateTicket, isPrivateTicketEligible } from '../../shared/ticketAudience.js';
+import { ticketOrganizationTypeAllowed } from '../../shared/ticketOrganizationType.js';
+import { loadTicketOrganizationTypes } from './ticketOrganizationType.js';
+import { isTicketAccessibleToMember, getMemberGroupIdsForMember } from './ticketAccess.js';
 
 export class PrivateTicketAccessError extends Error {
   constructor(message = 'You do not have access to this ticket class', statusCode = 403) {
@@ -16,17 +19,24 @@ export async function loadPrivateTicketViewer(req, tenantId, db) {
   const memberId = session?.data?.memberId;
   if (!memberId || !tenantId) return null;
   const { data: member, error } = await db.from('member')
-    .select('id,tenant_id,login_enabled,membership_paused,email')
+    .select('id,tenant_id,role_id,login_enabled,membership_paused,email')
     .eq('id', memberId).maybeSingle();
   if (error) throw new PrivateTicketAccessError('Unable to verify ticket eligibility', 503);
   if (!member || member.login_enabled === false || member.membership_paused === true
     || (member.email?.startsWith('deleted_') && member.email?.endsWith('@deleted.local'))) return null;
   const ownerTenantId = member.tenant_id;
-  return ownerTenantId === tenantId ? { memberId: member.id, tenantId: ownerTenantId } : null;
+  return ownerTenantId === tenantId ? { memberId: member.id, tenantId: ownerTenantId, roleId: member.role_id,
+    organizationTypes: await loadTicketOrganizationTypes(db, tenantId, member.id) } : null;
 }
 
 // allocationContext must ONLY come from resolveAllocationInvitation, never from
 // a request body. Its purchased entitlement is limited to its exact ticket.
+export function isPurchasedTicketAllocation(context, event, ticket, eventKind = 'simple') {
+  return !!context && context.tenantId === event.tenant_id
+    && context.eventKind === eventKind && String(context.eventId) === String(event.id)
+    && String(context.ticketTypeId) === String(ticket.id);
+}
+
 export async function assertPrivateTicketsAccessible({
   req, db, event, tickets, ticketIds, eventKind = 'simple', allocationContext = null,
 }) {
@@ -46,15 +56,19 @@ export async function assertPrivateTicketsAccessible({
     if (ticket.audience_mode && !['legacy', 'selected_members'].includes(ticket.audience_mode)) {
       throw new PrivateTicketAccessError();
     }
-    if (isPrivateTicket(ticket)) {
-      const purchased = allocationContext
-        && allocationContext.tenantId === event.tenant_id
-        && allocationContext.eventKind === eventKind
-        && String(allocationContext.eventId) === String(event.id)
-        && String(allocationContext.ticketTypeId) === String(ticket.id);
+    if (isPrivateTicket(ticket) || ticket.organization_type_enabled) {
+      const purchased = isPurchasedTicketAllocation(allocationContext, event, ticket, eventKind);
       if (!purchased) {
         if (viewer === undefined) viewer = await loadPrivateTicketViewer(req, event.tenant_id, db);
-        if (!isPrivateTicketEligible(ticket, viewer, event.tenant_id)) throw new PrivateTicketAccessError();
+        if (isPrivateTicket(ticket) && !isPrivateTicketEligible(ticket, viewer, event.tenant_id)) throw new PrivateTicketAccessError();
+        if (!ticketOrganizationTypeAllowed(ticket, viewer, event.tenant_id)) {
+          throw new PrivateTicketAccessError('Your primary organisation does not meet this ticket’s Organisation Type requirement.');
+        }
+        if (ticket.organization_type_enabled && !isTicketAccessibleToMember({
+          ticketClass: ticket, memberRoleId: viewer?.roleId,
+          memberGroupIds: await getMemberGroupIdsForMember(db, viewer?.memberId),
+          organizationTypeViewer: viewer, tenantId: event.tenant_id,
+        })) throw new PrivateTicketAccessError();
       }
     }
     selected.push(ticket);

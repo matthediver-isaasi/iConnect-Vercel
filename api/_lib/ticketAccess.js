@@ -2,6 +2,7 @@
 // booking endpoints. Extends the existing role_match_only guard so a ticket
 // may be restricted by roles AND/OR member groups (OR logic).
 import { isPrivateTicket, isPrivateTicketEligible } from '../../shared/ticketAudience.js';
+import { ticketOrganizationTypeAllowed } from '../../shared/ticketOrganizationType.js';
 
 export function getTicketRoleIds(ticketClass) {
   return Array.isArray(ticketClass?.role_ids) ? ticketClass.role_ids : [];
@@ -14,6 +15,7 @@ export function getTicketMemberGroupIds(ticketClass) {
 export function ticketHasAccessRestrictions(ticketClass) {
   if (!ticketClass) return false;
   if (isPrivateTicket(ticketClass)) return true;
+  if (ticketClass.organization_type_enabled) return true;
   if (!ticketClass.role_match_only) return false;
   return getTicketRoleIds(ticketClass).length > 0 || getTicketMemberGroupIds(ticketClass).length > 0;
 }
@@ -53,13 +55,15 @@ export async function isActiveMemberOfGroup(supabase, memberId, groupId) {
   return group.is_active !== false;
 }
 
-export function isTicketAccessibleToMember({ ticketClass, memberRoleId, memberGroupIds, memberId, tenantId, ticketTenantId }) {
+export function isTicketAccessibleToMember({ ticketClass, memberRoleId, memberGroupIds, memberId, tenantId, ticketTenantId, organizationTypeViewer }) {
   if (isPrivateTicket(ticketClass)) {
     return isPrivateTicketEligible(ticketClass, { memberId, tenantId }, ticketTenantId || ticketClass.tenant_id);
   }
-  if (!ticketHasAccessRestrictions(ticketClass)) return true;
+  if (!ticketOrganizationTypeAllowed(ticketClass, organizationTypeViewer, ticketTenantId || tenantId)) return false;
+  if (!ticketClass?.role_match_only) return true;
   const roleIds = getTicketRoleIds(ticketClass);
   const groupIds = getTicketMemberGroupIds(ticketClass);
+  if (!roleIds.length && !groupIds.length) return true;
   if (memberRoleId && roleIds.includes(memberRoleId)) return true;
   const memberGroups = Array.isArray(memberGroupIds) ? memberGroupIds : [];
   if (memberGroups.some(g => groupIds.includes(g))) return true;

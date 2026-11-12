@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { getCallerGroupEventsAccess } from '../_lib/memberGroupEventsAccess.js';
+import { loadTicketOrganizationTypeFields } from '../_lib/ticketOrganizationType.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export default async function handler(req, res) {
@@ -22,6 +23,9 @@ export default async function handler(req, res) {
     if (!await hasAdminAccess(context)) {
       const access = await getCallerGroupEventsAccess(req);
       if (access.error || !access.groups?.some(group => group.groupId === parentGroup && (type === 'complex' ? group.complexEnabled : group.simpleEnabled))) return res.status(403).json({ error: 'Event management permission required' });
+    }
+    if (req.query.organization_types === 'true') {
+      return res.status(200).json({ fields: await loadTicketOrganizationTypeFields(supabase, context.tenantId) });
     }
     const ids = [...new Set(String(req.query.ids || '').split(',').filter(Boolean))];
     const query = String(req.query.q || '').trim();

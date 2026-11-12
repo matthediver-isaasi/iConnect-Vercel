@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { isResourceExcluded } from './roleVisibility.js';
 import { simpleTicketClasses, loadComplexReleaseTickets } from './ticketReleaseAccess.js';
-import { assertPrivateTicketsAccessible } from './privateTicketAccess.js';
+import { assertPrivateTicketsAccessible, loadPrivateTicketViewer } from './privateTicketAccess.js';
 import { isTicketAccessibleToMember, isActiveMemberOfGroup } from './ticketAccess.js';
 import { isTicketVisibleToUser, resolveTicketPrice, parsePricingConfig } from './complexEventPricing.js';
 import { enforceAttendeeJobTitles } from './attendeeJobTitleRequirement.js';
@@ -63,6 +63,8 @@ export async function buildWaitingEntries(db, req, member, request, excluded) {
   const tickets = request.event_kind === 'simple' ? simpleTicketClasses(event) : await loadComplexReleaseTickets(db, event);
   const ticketIds = request.attendees.map(a => a.ticket_class_id);
   await assertPrivateTicketsAccessible({ req, db, event, tickets, ticketIds, eventKind: request.event_kind });
+  const organizationTypeViewer = tickets.some(t => t.organization_type_enabled)
+    ? await loadPrivateTicketViewer(req, member.tenant_id, db) : null;
   const { data: assignments, error: assignmentError } = await db.from('member_group_assignment')
     .select('group_id,expires_at').eq('member_id', member.id);
   if (assignmentError) throw assignmentError;
@@ -120,6 +122,7 @@ export async function buildWaitingEntries(db, req, member, request, excluded) {
     if (tickets.length && !ticket) fail('Select a valid ticket');
     if (ticket && (!isTicketVisibleToUser(ticket, true) || !isTicketAccessibleToMember({
       ticketClass: ticket, memberRoleId: member.role_id, memberGroupIds: groups,
+      organizationTypeViewer,
       memberId: member.id, tenantId: member.tenant_id, ticketTenantId: member.tenant_id,
     }))) fail('You do not have access to this ticket', 403);
     const allowedSessions = sessions.filter(session => !ticket || ticket.all_tracks ||

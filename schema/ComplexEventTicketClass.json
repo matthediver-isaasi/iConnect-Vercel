@@ -2,6 +2,9 @@
   "name": "ComplexEventTicketClass",
   "type": "object",
   "properties": {
+    "organization_type_enabled": { "type": "boolean", "default": false },
+    "organization_type_field_id": { "type": ["string", "null"], "format": "uuid" },
+    "organization_type_values": { "type": "array", "items": { "type": "string" }, "default": [] },
     "complex_event_id": {
       "type": "string",
       "format": "uuid",

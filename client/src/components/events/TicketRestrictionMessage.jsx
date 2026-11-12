@@ -21,7 +21,9 @@ export default function TicketRestrictionMessage({
     reason = '';
     login = true;
   } else {
-    reason = restricted ? 'Your membership is not eligible for this ticket.' : 'This ticket is not available to your account.';
+    reason = ticket.organization_type_enabled && ticket.organization_type_eligible !== true
+      ? 'Your primary organisation does not meet this ticket’s Organisation Type requirement.'
+      : restricted ? 'Your membership is not eligible for this ticket.' : 'This ticket is not available to your account.';
   }
   return (
     <p className="text-xs text-slate-600 mt-1" data-testid={`ticket-disabled-${suffix}`}>

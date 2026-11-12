@@ -51,7 +51,7 @@ import {
 } from '../_lib/allocationPaymentBinding.js';
 import { loadEventPaymentPolicy, assertEventPaymentMethodsAllowed } from '../_lib/eventPaymentPolicy.js';
 import { assertRequestedTicketsReleased, loadComplexReleaseTickets } from '../_lib/ticketReleaseAccess.js';
-import { assertPrivateTicketsAccessible } from '../_lib/privateTicketAccess.js';
+import { assertPrivateTicketsAccessible, loadPrivateTicketViewer, isPurchasedTicketAllocation } from '../_lib/privateTicketAccess.js';
 import { isPrivateTicket } from '../../shared/ticketAudience.js';
 import { compensateRejectedEventCreditPayment } from '../_lib/eventPaymentPolicyCompensation.js';
 
@@ -502,13 +502,17 @@ async function processBooking(req, res) {
         return res.status(403).json({ error: 'You do not have access to this ticket class' });
       }
 
-      if (ticketClass && !isPrivateTicket(ticketClass) && ticketHasAccessRestrictions(ticketClass)) {
+      if (ticketClass && !isPrivateTicket(ticketClass) && ticketHasAccessRestrictions(ticketClass)
+        && !isPurchasedTicketAllocation(allocationContext, event, ticketClass, 'complex')) {
         if (!isMember) {
           return res.status(403).json({ error: 'You do not have access to this ticket class' });
         }
         const memberGroupIds = await loadMemberGroupIds();
         const allowed = isTicketAccessibleToMember({
           ticketClass,
+          organizationTypeViewer: ticketClass.organization_type_enabled
+            ? await loadPrivateTicketViewer(req, event.tenant_id, supabase) : null,
+          tenantId: event.tenant_id,
           memberRoleId: authenticatedMember.role_id,
           memberGroupIds
         });

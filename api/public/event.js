@@ -177,6 +177,8 @@ export default async function handler(req, res) {
         available_count: tc.available_count,
         is_unlimited_tickets: tc.is_unlimited_tickets,
         role_match_only: tc.role_match_only || false,
+        organization_type_enabled: tc.organization_type_enabled === true,
+        organization_type_eligible: tc.organization_type_eligible === true,
         role_ids: tc.role_ids || [],
         member_group_ids: Array.isArray(tc.member_group_ids) ? tc.member_group_ids : [],
         is_default: tc.is_default || false

@@ -13,7 +13,7 @@ const viewer = { memberId, tenantId: 'tenant' };
 const source = (await readFile(new URL('./privateTicketAccess.js', import.meta.url), 'utf8'))
   .replace("import { getSession } from './session.js';", 'const getSession = async req => req.verifiedSession || null;')
   .replace("import { hasAdminAccess } from './tenantContext.js';", 'const hasAdminAccess = async ctx => ctx.admin === true;')
-  .replace("'../../shared/ticketAudience.js'", JSON.stringify(new URL('../../shared/ticketAudience.js', import.meta.url).href));
+  .replace(/from '(\.[^']+)'/g, (_, path) => `from ${JSON.stringify(new URL(path, import.meta.url).href)}`);
 const { loadPrivateTicketViewer, assertPrivateTicketsAccessible, assertSimplePrivateTicketsAccessible, assertGenericPrivateTicketBooking } =
   await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 

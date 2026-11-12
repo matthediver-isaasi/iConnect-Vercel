@@ -27,7 +27,7 @@
 - [Bearer-token (mobile) API auth](bearer-token-auth.md) — mobile clients send Authorization: Bearer <token>; token IS the unsigned session sid, reuses session table, gated by sess.authMethod==='bearer'; cookie path unchanged.
 - [Campaign send-time resolution & tracked-link entities](campaign-send-time-resolution.md) — campaign recipients are persisted+re-claimed, so booking/QR/scope must resolve at SEND time; tracked hrefs corrupt query strings via &amp; unless decoded before encodeURIComponent. [Event survey assignments](survey-event-assignments.md) covers reusable survey URL tokens, explicit event/assignment selection and delivery-time revalidation.
 - [tenant-branding secondaryBar sanitization](tenant-branding-secondarybar-sanitize.md) — branding PATCH rebuilds header_config.secondaryBar from scratch; new subfields silently dropped unless whitelisted in the sanitizer.
-- [Count-based ticket availability & oversell guard](ticket-capacity-count-based.md) — available_count is a fixed max; derive remaining from confirmed bookings; oversell needs a DB advisory-lock guard, not a stored decrement.
+- [Ticket purchase policies](ticket-policy-index.md) — capacity, private audiences, primary Organisation Type and public contact boundaries.
 - [getTenantIdFromSession only checks membership](tenant-session-admin-gate.md) — admin-only /api endpoints must use getTenantContext + hasAdminAccess; getTenantIdFromSession verifies tenant membership only, not admin role.
 - [Guest-rendering an auth-only page](guest-public-admin-page.md) — 4 moves: guest endpoint + gate every auth query (watch TDZ) + render-gate admin affordances + loading gate on authResolved to stop "Not Found" flash.
 - [Member inbox authority](member-inbox-unread-count.md) — historical test modes stay fixed; unread counts ignore ineligible states; auto-read needs exact-key invalidation.
@@ -128,8 +128,6 @@
 - [Team and portal dual access](team-portal-dual-access.md) — team revocation must preserve member access; shared status cannot independently suspend both access types.
 - [Deferred card Checkout timing](deferred-card-checkout.md) — trial minimum lead time needs an anchor alternative; provider trial semantics never imply free membership access.
 - [Synthetic renewal fixture authority](synthetic-renewal-fixture-authority.md) — BNMS counterfactual terms are fixture-only approval; reserved emails do not suppress transactional provider calls.
-- [Public ticket contact creation](public-ticket-contact-boundary.md) — purchaser and attendee CRM records never imply activation, membership, affiliation or consent.
-- [Private ticket purchase authority](private-ticket-purchase-authority.md) — selected-member lists govern new purchases; sibling tickets and purchased allocation entitlements retain independent access.
 - [Website first-content paths](website-critical-path.md) — metadata remount reuse differs from page authority; compare matched builds and separate dispatch from real-content timing.
 - [Survey score CSV contract](survey-score-csv-contract.md) — preserve historical raw scores; reject coercion-only answers without applying current survey ranges.
 - [About-me Job Title](about-me-job-title.md) — never show a placeholder in the Job Title input.

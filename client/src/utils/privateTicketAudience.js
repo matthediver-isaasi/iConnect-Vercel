@@ -18,6 +18,12 @@ export function reconcilePrivateCart(cart, tickets, member, allocationContext = 
   for (const [id, entry] of Object.entries(cart)) {
     const original = entry.ticketClass || entry.ticket || entry;
     const current = byId.get(String(id));
+    if ((original.organization_type_enabled || current?.organization_type_enabled)
+      && (!current || !member || current.organization_type_eligible !== true)
+      && !(current?.allocation_ticket_eligible === true && String(current.id) === String(allocationContext?.ticketTypeId))) {
+      changed = true;
+      continue;
+    }
     if ((original.audience_mode === 'selected_members' || current?.audience_mode === 'selected_members')
       && (!current || (!privateTicketVisible(current, member) && !(current.allocation_ticket_eligible === true && String(current.id) === String(allocationContext?.ticketTypeId))))) {
       changed = true;

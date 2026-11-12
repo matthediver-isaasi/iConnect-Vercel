@@ -1,15 +1,16 @@
 import { publicTicketMemberPolicy } from '../../../shared/publicTicketMemberPolicy.js';
+import { organizationTypePolicy } from '../../../shared/ticketOrganizationType.js';
 export const isProvisionableRole = role => !!role
   && !role.is_admin && !role.is_tenant_admin && !role.requires_effective_from_date
   && role.max_members == null && !role.requires_organization;
 
 export function ticketMemberPolicy(ticket = {}) {
-  return { ...publicTicketMemberPolicy(ticket), ...(ticket?.audience_mode ? { audience_mode: ticket.audience_mode, selected_member_ids: ticket.selected_member_ids || [] } : {}) };
+  return { ...organizationTypePolicy(ticket), ...publicTicketMemberPolicy(ticket), ...(ticket?.audience_mode ? { audience_mode: ticket.audience_mode, selected_member_ids: ticket.selected_member_ids || [] } : {}) };
 }
 
 export function updateTicketMemberField(ticket, field, value) {
   if (field === 'audience_mode') return value === 'selected_members'
-    ? { ...ticket, audience_mode: value, selected_member_ids: ticket.selected_member_ids || [], role_ids: [], member_group_ids: [], role_match_only: false, visibility_mode: 'members_only', is_public: false, create_member_records: false, auto_create_guest_accounts: false, new_member_role_id: null }
+    ? { ...ticket, organization_type_enabled: false, organization_type_field_id: null, organization_type_values: [], audience_mode: value, selected_member_ids: ticket.selected_member_ids || [], role_ids: [], member_group_ids: [], role_match_only: false, visibility_mode: 'members_only', is_public: false, create_member_records: false, auto_create_guest_accounts: false, new_member_role_id: null }
     : { ...ticket, audience_mode: 'legacy', selected_member_ids: [] };
   if (ticket.audience_mode === 'selected_members' && ['role_ids', 'member_group_ids', 'visibility_mode', 'create_member_records', 'new_member_role_id'].includes(field)) {
     ticket = { ...ticket, audience_mode: 'legacy', selected_member_ids: [] };

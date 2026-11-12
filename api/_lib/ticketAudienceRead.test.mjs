@@ -83,7 +83,7 @@ test('projection/aliases, JSON-path filters and sort cannot be used as audience 
   assert.match(ticketAudienceProjectionError('booking', { expand: 'id,x:event(pricing_config)' }), /projections/);
 });
 
-test('read context requires tenant-matched group authority; admin skips viewer lookup and group DB read', async () => {
+test('read context requires tenant-matched group authority; admin member retains purchase identity without group DB read', async () => {
   const queries = [];
   const db = { from(table) {
     queries.push(table);
@@ -100,7 +100,7 @@ test('read context requires tenant-matched group authority; admin skips viewer l
   assert.equal(outsider.complexGroups.size, 0);
   const admin = await loadTicketAudienceReadContext({ req, ctx: { ...ctx, admin: true }, db });
   assert.equal(admin.admin, true);
-  assert.equal(admin.viewer, null);
+  assert.deepEqual(admin.viewer, viewer);
   assert.deepEqual(queries, ['complex_event']);
 });
 

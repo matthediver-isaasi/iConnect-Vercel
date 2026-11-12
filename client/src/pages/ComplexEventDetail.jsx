@@ -639,6 +639,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
         && String(tc.id) === String(allocationContext.ticketTypeId)
         && (tc.audience_mode !== 'selected_members' || tc.allocation_ticket_eligible === true)) return true;
       if (tc.audience_mode === 'selected_members') return !isGuest && tc.private_ticket_eligible === true;
+      if (tc.organization_type_enabled && isGuest) return false;
       const vis = getTicketVisibility(tc);
       const ticketRoleIds = Array.isArray(tc.role_ids) ? tc.role_ids : [];
       const ticketGroupIds = Array.isArray(tc.member_group_ids) ? tc.member_group_ids : [];
@@ -658,6 +659,8 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
   }, [ticketClasses, isGuest, userRoleId, memberGroupIds, allocationContext?.ticketTypeId]);
 
   const isTicketRestricted = (tc) => {
+    if (tc.allocation_ticket_eligible === true && String(tc.id) === String(allocationContext?.ticketTypeId)) return false;
+    if (tc.organization_type_enabled && (isGuest || tc.organization_type_eligible !== true)) return true;
     const vis = getTicketVisibility(tc);
     if (isGuest) return vis === 'members_only';
     return vis === 'public_only';
@@ -1032,7 +1035,8 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
                   {restricted && (
                     <Badge variant="secondary" className="text-xs bg-slate-100 text-slate-600">
                       <Lock className="w-3 h-3 mr-1" />
-                      {isGuest ? 'Members Only' : 'Public Only'}
+                      {tc.organization_type_enabled && tc.organization_type_eligible !== true
+                        ? 'Organisation Type required' : isGuest ? 'Members Only' : 'Public Only'}
                     </Badge>
                   )}
                   {tc.is_group_ticket && tc.group_size > 1 && (
@@ -1502,6 +1506,7 @@ export function ComplexEventDetailExperience({
     const visibleTickets = allTickets.filter(tc => {
       if (tc.allocation_ticket_eligible === true && String(tc.id) === String(allocationContext?.ticketTypeId)) return true;
       if (tc.audience_mode === 'selected_members') return !isGuest && tc.private_ticket_eligible === true;
+      if (tc.organization_type_enabled && (isGuest || tc.organization_type_eligible !== true)) return false;
       const vis = getVis(tc);
       const ticketRoleIds = Array.isArray(tc.role_ids) ? tc.role_ids : [];
       const ticketGroupIds = Array.isArray(tc.member_group_ids) ? tc.member_group_ids : [];

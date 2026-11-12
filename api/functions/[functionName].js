@@ -45,7 +45,7 @@ import { runBookingCreditAttempt, finalizeBookingCredit, bookingCreditInvoiceInp
 import { continueProgramVoucherAccounting } from '../_lib/programVoucherAccounting.js';
 import { loadEventPaymentPolicy, assertEventPaymentMethodsAllowed } from '../_lib/eventPaymentPolicy.js';
 import { assertSimpleTicketsReleased, normalizeSimpleTicketId } from '../_lib/ticketReleaseAccess.js';
-import { assertSimplePrivateTicketsAccessible } from '../_lib/privateTicketAccess.js';
+import { assertSimplePrivateTicketsAccessible, loadPrivateTicketViewer, isPurchasedTicketAllocation } from '../_lib/privateTicketAccess.js';
 import { isPrivateTicket } from '../../shared/ticketAudience.js';
 import {
   buildEventCreditSnapshotMetadata,
@@ -2476,7 +2476,8 @@ const functionHandlers = {
     // is only purchasable by members whose role OR member group matches.
     if (ticketClassId && event.pricing_config?.ticket_classes) {
       const selectedTicketClass = event.pricing_config.ticket_classes.find(tc => tc.id === ticketClassId);
-      if (selectedTicketClass && !isPrivateTicket(selectedTicketClass) && ticketHasAccessRestrictions(selectedTicketClass)) {
+      if (selectedTicketClass && !isPrivateTicket(selectedTicketClass) && ticketHasAccessRestrictions(selectedTicketClass)
+        && !isPurchasedTicketAllocation(allocationContext, event, selectedTicketClass)) {
         if (isGuestBooking || !member) {
           console.log('[createOneOffEventBooking] Blocking guest from restricted ticket:', ticketClassId);
           return { success: false, error: 'You do not have access to this ticket class' };
@@ -2484,6 +2485,9 @@ const functionHandlers = {
         const memberGroupIds = await getMemberGroupIdsForMember(supabase, member.id);
         const allowed = isTicketAccessibleToMember({
           ticketClass: selectedTicketClass,
+          organizationTypeViewer: selectedTicketClass.organization_type_enabled
+            ? await loadPrivateTicketViewer(req, event.tenant_id, supabase) : null,
+          tenantId: event.tenant_id,
           memberRoleId: member.role_id,
           memberGroupIds
         });

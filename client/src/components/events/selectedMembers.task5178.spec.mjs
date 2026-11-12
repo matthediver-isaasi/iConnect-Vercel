@@ -14,7 +14,7 @@ const member = { id: memberId, tenant_id: 'fixture-tenant', email: 'member@examp
 const stubs = {
   '@/components/auth/useEventLogin': `export const useEventLogin = () => ({ openLogin: () => {}, loginModal: null });`,
   '@stripe/stripe-js': `export const loadStripe = async () => ({});`,
-  '@stripe/react-stripe-js': `export const Elements = ({children}) => children; export const PaymentElement = () => null; export const useElements = () => ({}); export const useStripe = () => ({});`,
+  '@stripe/react-stripe-js': `export const Elements = ({children}) => children; export const AddressElement = () => null; export const PaymentElement = () => null; export const useElements = () => ({}); export const useStripe = () => ({});`,
   '@/api/base44Client': `
     export const getActiveTenantId = () => 'fixture-tenant';
     export const subscribeToActiveTenantId = () => () => {};
@@ -148,6 +148,7 @@ async function mount(page, options = {}) {
   await page.route('**/*', async route => {
     const url = new URL(route.request().url());
     if (url.origin !== 'http://selected-members.fixture') return route.abort();
+    if (url.pathname === '/api/admin/event-registration-communication') return route.fulfill({ json: { categories: [], category_ids: [] } });
     if (url.pathname.startsWith('/fixture/entities/') && ['POST', 'PATCH', 'DELETE'].includes(route.request().method())) {
       const entity = url.pathname.split('/').pop();
       const data = route.request().postDataJSON();
@@ -160,6 +161,13 @@ async function mount(page, options = {}) {
     if (url.pathname === '/fixture/event') return route.fulfill({ json: event });
     if (url.pathname === '/fixture/sessions') return route.fulfill({ json: options.sessions || [] });
     if (url.pathname === '/api/events/ticket-members') {
+      if (url.searchParams.get('organization_types') === 'true') {
+        return route.fulfill({ status: options.typeReadFailure ? 503 : 200, json: options.typeReadFailure
+          ? { error: 'Unable to load Organisation Types.' }
+          : { fields: [{ id: 'type-field', name: 'org_type', label: 'Organisation Type', options: [
+            { value: 'hospital', label: 'Hospital' }, { value: 'university', label: 'University' },
+          ] }] } });
+      }
       searches.push(url);
       return route.fulfill({ json: { results: [member], selected: url.searchParams.has('ids') ? [member] : [] } });
     }
@@ -170,6 +178,79 @@ async function mount(page, options = {}) {
   await page.evaluate(config => { window.fixture = config; }, fixture);
   await page.addScriptTag({ content: script });
   return { event, searches, writes };
+}
+
+test('Organisation Type controls retain values across loading failure and private mode is exclusive', async ({ page }) => {
+  const ticket = { ...sibling, organization_type_enabled: true, organization_type_field_id: 'type-field', organization_type_values: ['hospital'] };
+  await mount(page, { editor: true, ticket, typeReadFailure: true });
+  await expect(page.getByLabel('Restrict by Organisation Type')).toBeChecked();
+  await expect(page.getByText('Unable to load Organisation Types.', { exact: false })).toBeVisible();
+  await expect(page.getByTestId('ticket-state')).toContainText('"hospital"');
+  await page.unroute('**/*');
+  await mount(page, { editor: true, ticket });
+  await expect(page.getByLabel('Hospital', { exact: true })).toBeChecked();
+  await page.getByLabel('University', { exact: true }).check();
+  await expect(page.getByTestId('ticket-state')).toContainText('"university"');
+  await page.getByLabel('Selected members only').check();
+  await expect(page.getByTestId('ticket-state')).toContainText('"organization_type_enabled":false');
+  await expect(page.getByLabel('Restrict by Organisation Type')).toHaveCount(0);
+});
+
+for (const complex of [false, true]) for (const edit of [false, true]) {
+  test(`${complex ? 'complex' : 'simple'} ${edit ? 'edit' : 'create'} saves and reopens Organisation Type policy`, async ({ page }) => {
+    const { writes } = await mount(page, { actualEditor: true, complex, edit, signedIn: true, tickets: [sibling] });
+    if (!edit) {
+      await page.getByTestId('input-title').fill('Organisation type fixture');
+      await page.getByTestId('input-slug').fill('organisation-type-fixture');
+      if (!complex) await page.getByTestId('radio-timing-tbc').click();
+    }
+    if (complex) await page.getByRole('tab', { name: 'Tickets', exact: true }).click();
+    else if (edit) await page.getByTestId('button-tab-tickets').click();
+    await page.getByTestId('button-add-ticket-class').click();
+    const removeButtons = page.locator('[data-testid^="button-remove-ticket-"]');
+    if (await removeButtons.count()) await removeButtons.first().click();
+    await page.locator('[data-testid^="input-ticket-name-"]').last().fill('Organisation ticket');
+    await page.locator('[data-testid^="switch-free-"]').last().check();
+    await page.getByLabel('Restrict by Organisation Type').last().check();
+    await page.getByLabel('Hospital', { exact: true }).check();
+    await page.getByLabel('University', { exact: true }).check();
+    if (complex) await page.getByTestId('button-save').click();
+    else if (edit) await page.getByTestId('button-save-event').click();
+    else await page.getByRole('button', { name: 'Create Event', exact: true }).click();
+    const saved = () => complex
+      ? writes.find(write => write.entity === 'ComplexEventTicketClass')?.data
+      : writes.find(write => write.entity === 'Event')?.data.pricing_config?.ticket_classes?.[0];
+    await expect.poll(saved).toMatchObject({ organization_type_enabled: true, organization_type_field_id: 'type-field',
+      organization_type_values: ['hospital', 'university'] });
+    await page.unroute('**/*');
+    await mount(page, { actualEditor: true, complex, edit: true, signedIn: true, tickets: [saved()] });
+    if (complex) await page.getByRole('tab', { name: 'Tickets', exact: true }).click();
+    else await page.getByTestId('button-tab-tickets').click();
+    await expect(page.getByLabel('Restrict by Organisation Type')).toBeChecked();
+    await expect(page.getByLabel('Hospital', { exact: true })).toBeChecked();
+    await expect(page.getByLabel('University', { exact: true })).toBeChecked();
+  });
+}
+
+for (const complex of [false, true]) {
+  for (const eligible of [false, true]) {
+    test(`${complex ? 'complex' : 'simple'} Organisation Type ticket purchase follows server eligibility ${eligible}`, async ({ page }) => {
+      await mount(page, { complex, signedIn: true, tickets: [{
+        ...sibling, organization_type_enabled: true, organization_type_eligible: eligible,
+      }] });
+      if (complex) {
+        const card = page.getByTestId('ticket-class-sibling');
+        await expect(card).toBeVisible();
+        if (!eligible) {
+          await expect(card).toContainText('Organisation Type required');
+          await expect(card.getByRole('button', { name: /add/i })).toBeDisabled();
+        }
+      } else {
+        if (!eligible) await expect(page.getByText('Your primary organisation does not meet this ticket’s Organisation Type requirement.').first()).toBeVisible();
+        else await expect(page.getByText('Your primary organisation does not meet this ticket’s Organisation Type requirement.')).toHaveCount(0);
+      }
+    });
+  }
 }
 
 test('complex account switch removes only the invalid private cart entry', async ({ page }) => {

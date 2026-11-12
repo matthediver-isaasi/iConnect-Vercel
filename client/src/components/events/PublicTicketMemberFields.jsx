@@ -3,9 +3,11 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { isProvisionableRole } from "@/utils/publicTicketMembers";
 import SelectedMemberAudience from "./SelectedMemberAudience";
+import TicketOrganizationTypeFields from "./TicketOrganizationTypeFields";
 
 export default function PublicTicketMemberFields({ ticket, roles = [], onChange, loading = false, eventId, eventType, groupId }) {
-  const audience = <SelectedMemberAudience ticket={ticket} onChange={onChange} eventId={eventId} eventType={eventType} groupId={groupId} />;
+  const audience = <><SelectedMemberAudience ticket={ticket} onChange={onChange} eventId={eventId} eventType={eventType} groupId={groupId} />
+    <TicketOrganizationTypeFields ticket={ticket} onChange={onChange} eventId={eventId} eventType={eventType} groupId={groupId} /></>;
   if (ticket.audience_mode === "selected_members" || !["public_only", "members_and_public"].includes(ticket.visibility_mode)) return audience;
   const eligibleRoles = roles.filter(isProvisionableRole);
   return (

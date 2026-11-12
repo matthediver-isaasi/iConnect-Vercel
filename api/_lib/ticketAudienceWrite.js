@@ -1,4 +1,5 @@
 // Write boundary only. Booking/read enforcement lives in ticketAccess.
+import { validateTicketOrganizationType } from './ticketOrganizationType.js';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const own = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -32,6 +33,8 @@ function parsePricing(value) {
 
 async function normalizeTicket({ db, tenantId, ticket, explicitMode }) {
   if (!object(ticket)) invalid('Each ticket class must be an object.');
+  try { await validateTicketOrganizationType({ db, tenantId, ticket }); }
+  catch (error) { invalid(error.message); }
   const mode = ticket.audience_mode ?? 'legacy';
   if (!['legacy', 'selected_members'].includes(mode)) {
     invalid('audience_mode must be legacy or selected_members.');

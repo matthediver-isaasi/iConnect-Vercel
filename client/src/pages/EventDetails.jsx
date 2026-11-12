@@ -830,6 +830,7 @@ export function EventDetailsExperience({
           audience_mode: tc.audience_mode || 'legacy',
           allocation_ticket_eligible: tc.allocation_ticket_eligible === true,
           private_ticket_eligible: tc.private_ticket_eligible === true,
+          organization_type_eligible: tc.organization_type_eligible === true,
           id: String(tc.id || `ticket-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`),
           name: String(tc.name || 'Ticket'),
           price: Number(tc.price) || 0,
@@ -916,6 +917,7 @@ export function EventDetailsExperience({
   const isTicketPurchasable = (ticket) => {
     if (!ticket) return false;
     if (allocationMode && String(ticket.id) === allocationContext.ticketTypeId) return true;
+    if (ticket.organization_type_enabled && (!currentMemberInfo || ticket.organization_type_eligible !== true)) return false;
     if (!waitingListEnabled && !isTicketReleased(ticket, releaseNowMs)) return false;
     
     // Count-based availability (Task #1758): availability is derived from the
@@ -1004,6 +1006,7 @@ export function EventDetailsExperience({
     
     // Otherwise only show tickets that include public visibility
     return allNormalizedTickets.filter(tc => {
+      if (tc.organization_type_enabled) return false;
       if (tc.visibility_mode !== 'members_and_public' && tc.visibility_mode !== 'public_only') {
         return false;
       }
@@ -1059,6 +1062,8 @@ export function EventDetailsExperience({
   // Mirrors the OR logic used by isTicketPurchasable / availableTicketClasses:
   // a member qualifies if their role matches OR any of their member groups match.
   const canSelfRegister = useMemo(() => {
+    if (selectedTicketClass?.organization_type_enabled && selectedTicketClass.organization_type_eligible !== true
+      && !(allocationMode && String(selectedTicketClass.id) === allocationContext?.ticketTypeId)) return false;
     if (!isOneOffEvent || !selectedTicketClass) return true; // Non-one-off events have no role restrictions
 
     // Restrictions only apply when role_match_only is enabled
@@ -1072,7 +1077,7 @@ export function EventDetailsExperience({
     const roleMatches = !!userRoleId && roleIds.includes(userRoleId);
     const groupMatches = (userMemberGroupIds || []).some(g => groupIds.includes(g));
     return roleMatches || groupMatches;
-  }, [isOneOffEvent, selectedTicketClass, userRoleId, userMemberGroupIds]);
+  }, [isOneOffEvent, selectedTicketClass, userRoleId, userMemberGroupIds, allocationMode, allocationContext?.ticketTypeId]);
   
   // Task #1519: Group events (member_group_id set) force self-only registration.
   // No colleagues / external / multi-attendee booking is permitted.

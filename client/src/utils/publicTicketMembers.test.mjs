@@ -9,8 +9,9 @@ const attendee = { first_name: "Ellis", last_name: "Reid", email: "ellis@example
 const item = (attendees = [attendee], ticketClass = ticket) => ({ ticketClass, attendees });
 
 test("policy defaults off and provisioning accepts both public audiences, never members-only", () => {
-  assert.deepEqual(ticketMemberPolicy(), { create_member_records: false, new_member_role_id: null });
-  assert.deepEqual(ticketMemberPolicy(null), { create_member_records: false, new_member_role_id: null });
+  const defaults = { create_member_records: false, new_member_role_id: null, organization_type_enabled: false, organization_type_field_id: null, organization_type_values: [] };
+  assert.deepEqual(ticketMemberPolicy(), defaults);
+  assert.deepEqual(ticketMemberPolicy(null), defaults);
   assert.equal(ticketMemberPolicy({ ...ticket, visibility_mode: "members_and_public" }).create_member_records, true);
   assert.equal(ticketMemberPolicy({ ...ticket, visibility_mode: "members_only" }).create_member_records, false);
   assert.equal(ticketMemberPolicy({ ...ticket, create_member_records: false }).new_member_role_id, null);
@@ -66,7 +67,8 @@ test("standard and complex editor serialization and checkout recovery carry the 
   assert.match(payment, /purchaserInfo: paidPaymentSnapshot\?\.purchaserInfo/);
   assert.match(payment, /purchase_request_id: savedPayload.purchase_request_id/);
   assert.match(payment, /purchase_request_id: paidPaymentSnapshot\?\.purchase_request_id/);
-  assert.match(payment, /sessionStorage.getItem\(key\) \|\| uuidv4\(\)/);
+  assert.match(payment, /getItem: key => sessionStorage.getItem\(key\)/);
+  assert.match(payment, /createId: uuidv4/);
   const complex = readFileSync(new URL("../pages/ComplexEventDetail.jsx", import.meta.url), "utf8");
   assert.equal((complex.match(/purchase_request_id: data.purchase_request_id/g) || []).length, 2);
   assert.match(complex, /attendees: ci\.attendees\.map\(a => \(\{ \.\.\.purchaseIdentity\(a\), job_title: a\.job_title \|\| '' \}\)\)/);
