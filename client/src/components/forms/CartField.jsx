@@ -174,7 +174,7 @@ export default function CartField({ field, formId, value, onChange, disabled, on
       })));
     } catch { totalsAvailable = false; }
   }
-  return <div className="space-y-3">
+  return <div className="space-y-3 scroll-mt-6" data-form-cart-view={viewOnly ? '' : undefined} tabIndex={viewOnly ? -1 : undefined}>
     {shopping.busy && <p role="status" className="text-sm">Updating your stock reservation…</p>}
     {(reservationError || shopping.error) && <p role="alert" className="text-sm text-destructive">{reservationError || 'Your reservation could not be checked. Your cart has been kept; please check your connection.'}</p>}
     {shopping.message && <p role="status" className="rounded-md border bg-muted/40 p-3 text-sm">{shopping.message}</p>}

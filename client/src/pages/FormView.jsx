@@ -3235,11 +3235,11 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     return withManagementReturn(
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
         <FormPrefillBoundary state={prefillState} className="w-full min-w-0" style={{ maxWidth: getFormMaxWidth(form.form_width) }}>
-        <Card className="w-full min-w-0 border-slate-200" style={{ maxWidth: getFormMaxWidth(form.form_width) }} data-testid="form-width-container">
+        <Card data-form-cart-shell className="w-full min-w-0 border-slate-200" style={{ maxWidth: getFormMaxWidth(form.form_width) }} data-testid="form-width-container">
           <CardHeader>
             <div className="flex items-start justify-between gap-3">
               <CardTitle className="min-w-0 break-words">{form.name}</CardTitle>
-              <FormCartCount form={form} values={formValues} />
+              <FormCartCount form={form} values={formValues} navigation={{ fields: filterVisibleFields(form.fields), pages: (form.pages || []).filter(p => !hiddenPageIds.has(p.id)), layout: form.layout_type, setPage: setCurrentPageIndex, setStep: setCurrentStep }} />
             </div>
             {form.description && <CardDescription className="whitespace-pre-line">{form.description}</CardDescription>}
             <MemberChangeFormLink formId={form.id} disabled={!!urlPrefillMemberId || !!previewOrigin} />
@@ -3570,11 +3570,11 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8" ref={formContainerRef}>
       <FormTransitionOverlay active={isTransitioning} prefillState={prefillState}>
       <div className="w-full min-w-0 mx-auto" style={{ maxWidth: getFormMaxWidth(form.form_width) }} data-testid="form-width-container">
-        <Card className="border-slate-200">
+        <Card data-form-cart-shell className="border-slate-200">
           <CardHeader>
             <div className="flex items-start justify-between gap-3">
               <CardTitle className="min-w-0 break-words">{form.name}</CardTitle>
-              <FormCartCount form={form} values={formValues} />
+              <FormCartCount form={form} values={formValues} navigation={{ fields: filterVisibleFields(form.fields), pages: visiblePages, layout: form.layout_type, setPage: setCurrentPageIndex, setStep: setCurrentStep }} />
             </div>
             {form.description && <CardDescription className="whitespace-pre-line">{form.description}</CardDescription>}
             <MemberChangeFormLink formId={form.id} disabled={!!urlPrefillMemberId || !!previewOrigin} />

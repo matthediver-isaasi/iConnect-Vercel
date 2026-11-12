@@ -1201,10 +1201,10 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
     }
   }, [pages.length, currentPageIndex]);
 
-  const validateCurrentPage = () => {
-    const fieldsToValidate = form?.layout_type === 'card_swipe' 
+  const validateCurrentPage = (allFields = null) => {
+    const fieldsToValidate = allFields || (form?.layout_type === 'card_swipe'
       ? [visibleFields[currentStep]]
-      : currentPageFields;
+      : currentPageFields);
     
     for (const field of fieldsToValidate) {
       if (!field) continue;
@@ -1277,7 +1277,9 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
       if (submitControl.message) toast.error(submitControl.message);
       return null;
     }
-    if (!validateCurrentPage()) {
+    // Cart review can jump over information pages. Validate every visible
+    // page before payment/submission, not just the page containing checkout.
+    if (!validateCurrentPage(visibleFields.filter(field => !hiddenPageIds.has(field.page_id)))) {
       toast.error('Please fill in all required fields correctly');
       return null;
     }
@@ -1605,11 +1607,11 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
       <FormTransitionOverlay active={isTransitioning} prefillState={prefillState}>
       <div className="p-4" data-testid="embed-form-container">
         <Toaster />
-        <Card className="w-full min-w-0 mx-auto" style={{ maxWidth: getFormMaxWidth(form.form_width) }} data-testid="form-width-container">
+        <Card data-form-cart-shell className="w-full min-w-0 mx-auto" style={{ maxWidth: getFormMaxWidth(form.form_width) }} data-testid="form-width-container">
           <CardHeader>
             <div className="flex items-start justify-between gap-3">
               <CardTitle className="min-w-0 break-words" data-testid="embed-form-title">{form.name}</CardTitle>
-              <FormCartCount form={form} values={formValues} />
+              <FormCartCount form={form} values={formValues} navigation={{ fields: visibleFields, pages, layout: form.layout_type, setPage: setCurrentPageIndex, setStep: setCurrentStep }} />
             </div>
             {form.description && (
               <CardDescription data-testid="embed-form-description">{form.description}</CardDescription>
@@ -1811,11 +1813,11 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
     <FormTransitionOverlay active={isTransitioning} prefillState={prefillState}>
     <div className="p-4" data-testid="embed-form-container">
       <Toaster />
-      <Card className="w-full min-w-0 mx-auto" style={{ maxWidth: getFormMaxWidth(form.form_width) }} data-testid="form-width-container">
+      <Card data-form-cart-shell className="w-full min-w-0 mx-auto" style={{ maxWidth: getFormMaxWidth(form.form_width) }} data-testid="form-width-container">
         <CardHeader>
           <div className="flex items-start justify-between gap-3">
             <CardTitle className="min-w-0 break-words" data-testid="embed-form-title">{form.name}</CardTitle>
-            <FormCartCount form={form} values={formValues} />
+            <FormCartCount form={form} values={formValues} navigation={{ fields: visibleFields, pages, layout: form.layout_type, setPage: setCurrentPageIndex, setStep: setCurrentStep }} />
           </div>
           {form.description && (
             <CardDescription data-testid="embed-form-description">{form.description}</CardDescription>

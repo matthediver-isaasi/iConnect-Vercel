@@ -2150,15 +2150,15 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
           style={{ maxWidth: `${content_max_width}px` }}
         >
           {renderHeaderSection()}
-          <Card className="iedit-form-styled !rounded-none" style={{ ...formFieldStyles, ...getCardStyle() }}>
+          <Card data-form-cart-shell className="iedit-form-styled !rounded-none" style={{ ...formFieldStyles, ...getCardStyle() }}>
             {!show_form_title && !show_form_description && form.fields?.some(field => field.type === 'sales_cart') && (
-              <div className="flex justify-end px-6 pt-6"><FormCartCount form={form} values={formValues} /></div>
+              <div className="flex justify-end px-6 pt-6"><FormCartCount form={form} values={formValues} navigation={{ fields: filterVisibleFields(form.fields), pages: visiblePages, layout: form.layout_type, setPage: setCurrentPageIndex, setStep: setCurrentStep }} /></div>
             )}
             {(show_form_title || show_form_description) && (
               <CardHeader>
                 <div className="flex items-start justify-between gap-3">
                   {show_form_title ? <CardTitle className="min-w-0 break-words">{form.name}</CardTitle> : <span />}
-                  <FormCartCount form={form} values={formValues} />
+                  <FormCartCount form={form} values={formValues} navigation={{ fields: filterVisibleFields(form.fields), pages: visiblePages, layout: form.layout_type, setPage: setCurrentPageIndex, setStep: setCurrentStep }} />
                 </div>
                 {show_form_description && form.description && (
                   <CardDescription className="whitespace-pre-line">{form.description}</CardDescription>
@@ -2312,11 +2312,11 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
         style={{ maxWidth: `${content_max_width}px` }}
       >
         {renderHeaderSection()}
-        <Card className="iedit-form-styled !rounded-none" style={{ ...formFieldStyles, ...getCardStyle() }}>
+        <Card data-form-cart-shell className="iedit-form-styled !rounded-none" style={{ ...formFieldStyles, ...getCardStyle() }}>
           <CardHeader>
             <div className="flex items-start justify-between gap-3">
               {show_form_title ? <CardTitle className="min-w-0 break-words">{form.name}</CardTitle> : <span />}
-              <FormCartCount form={form} values={formValues} />
+              <FormCartCount form={form} values={formValues} navigation={{ fields: filterVisibleFields(form.fields), pages: visiblePages, layout: form.layout_type, setPage: setCurrentPageIndex, setStep: setCurrentStep }} />
             </div>
             {show_form_description && form.description && (
               <CardDescription className="whitespace-pre-line">{form.description}</CardDescription>

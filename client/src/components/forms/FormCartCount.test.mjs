@@ -27,14 +27,23 @@ mod.paths = Module._nodeModulePaths(process.cwd());
 mod._compile(built.outputFiles[0].text, mod.id);
 const form = { id: 'count-form', fields: [{ id: 'cart', type: 'sales_cart' }] };
 const id = '12345678-1234-4234-8234-123456789012';
-const render = (values, definition = form, busy = false) => {
+const render = (values, definition = form, busy = false, navigation, locked = false) => {
   const client = new QueryClient();
   client.setQueryData(['form-cart-pending', definition.id], busy);
+  client.setQueryData(['form-cart-locked', definition.id], locked);
   const html = renderToStaticMarkup(React.createElement(QueryClientProvider, { client },
-    React.createElement(mod.exports.default, { form: definition, values })));
+    React.createElement(mod.exports.default, { form: definition, values, navigation })));
   client.clear();
   return html;
 };
+test('cart shortcut is a non-submit button only with a visible destination and respects payment locks', () => {
+  const navigation = { fields: [{ id: 'view', type: 'sales_cart_view' }], setPage() {}, setStep() {} };
+  assert.match(render({}, form, false, navigation), /<button type="button"/);
+  assert.match(render({}, form, false, navigation), /aria-label="View cart/);
+  assert.match(render({}, form, true, navigation), /disabled=""/);
+  assert.match(render({}, form, false, navigation, true), /disabled=""/);
+  assert.doesNotMatch(render({}, form, false, { fields: [] }), /<button/);
+});
 test('pill shows pending feedback without inflating the confirmed quantity', () => {
   const html = render({}, form, true);
   assert.match(html, /Updating cart. 0 items in cart/);
