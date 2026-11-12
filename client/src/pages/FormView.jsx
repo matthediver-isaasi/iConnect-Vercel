@@ -29,6 +29,7 @@ import { useSubmissionIdempotencyKey } from "@/lib/useSubmissionIdempotencyKey";
 import { useCardSwipeAutoFocus } from "@/lib/cardSwipeAutoFocus";
 import { useMembershipFeeQuote } from "@/lib/useMembershipFeeQuote";
 import { useFormBundleUnavailable } from "@/lib/useFormBundleUnavailable";
+import FormCartCount from "@/components/forms/FormCartCount";
 import { COUNTRIES } from "@/data/countries";
 import FormAccessRestriction, { resolveFormAccess } from "@/components/forms/FormAccessRestriction";
 import { evaluateFormLogicCondition } from "@/lib/formLogicConditions";
@@ -3236,7 +3237,10 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
         <FormPrefillBoundary state={prefillState} className="w-full min-w-0" style={{ maxWidth: getFormMaxWidth(form.form_width) }}>
         <Card className="w-full min-w-0 border-slate-200" style={{ maxWidth: getFormMaxWidth(form.form_width) }} data-testid="form-width-container">
           <CardHeader>
-            <CardTitle>{form.name}</CardTitle>
+            <div className="flex items-start justify-between gap-3">
+              <CardTitle className="min-w-0 break-words">{form.name}</CardTitle>
+              <FormCartCount form={form} values={formValues} />
+            </div>
             {form.description && <CardDescription className="whitespace-pre-line">{form.description}</CardDescription>}
             <MemberChangeFormLink formId={form.id} disabled={!!urlPrefillMemberId || !!previewOrigin} />
             <div className="mt-3">
@@ -3568,7 +3572,10 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       <div className="w-full min-w-0 mx-auto" style={{ maxWidth: getFormMaxWidth(form.form_width) }} data-testid="form-width-container">
         <Card className="border-slate-200">
           <CardHeader>
-            <CardTitle>{form.name}</CardTitle>
+            <div className="flex items-start justify-between gap-3">
+              <CardTitle className="min-w-0 break-words">{form.name}</CardTitle>
+              <FormCartCount form={form} values={formValues} />
+            </div>
             {form.description && <CardDescription className="whitespace-pre-line">{form.description}</CardDescription>}
             <MemberChangeFormLink formId={form.id} disabled={!!urlPrefillMemberId || !!previewOrigin} />
             <div className="mt-3">

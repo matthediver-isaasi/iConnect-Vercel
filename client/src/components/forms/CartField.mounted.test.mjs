@@ -78,6 +78,26 @@ test('drafts start at one without committing; removing an item emits identities 
   } finally { await selected.close(); }
 });
 
+test('cart view uses the same above-input quantity layout for bundles and products', async () => {
+  const bundle = { ...item, kind: 'bundle', name: 'Package' };
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ items: [item, bundle] }) });
+  const fixture = await mount({ version: 1, lines: [
+    { kind: 'product', id, quantity: 2 }, { kind: 'bundle', id, quantity: 1 },
+  ] }, 'form-one', {}, { viewOnly: true });
+  try {
+    await settle();
+    const inputs = [...fixture.container.querySelectorAll('input')];
+    assert.equal(inputs.length, 2);
+    for (const input of inputs) {
+      assert.equal(input.parentElement.tagName, 'LABEL');
+      assert.equal(input.parentElement.textContent, 'Quantity');
+      assert.equal(input.parentElement.className, 'text-sm');
+      assert(input.parentElement.parentElement.classList.contains('items-end'));
+      assert.match(input.getAttribute('aria-label'), /^Cart quantity for /);
+    }
+  } finally { await fixture.close(); }
+});
+
 test('cart conflicts refresh options without clearing saved selections; checkout lock is form-scoped', async () => {
   let calls = 0;
   globalThis.fetch = async () => { calls++; return { ok: true, json: async () => ({ items: [item] }) }; };

@@ -243,13 +243,13 @@ export default function CartField({ field, formId, value, onChange, disabled, on
       {pricedLines.map(({ item, ...line }, index) => item
         ? <div key={`${line.kind}:${line.id}:${index}`} className="space-y-2 rounded-md border bg-background p-3">
           <div className="flex flex-wrap justify-between gap-2"><p className="text-sm font-medium">{item.name}</p><p className="text-sm">{money(item.unitPriceMinor * line.quantity, item.currency)}</p></div>
-          <div className="flex flex-wrap items-center gap-2">
-            {maximum(item) !== 1 ? <><label className="text-xs" htmlFor={`cart-${field.id}-${item.kind}-${item.id}`}>Cart quantity for {item.name}</label>
-              <Input id={`cart-${field.id}-${item.kind}-${item.id}`} className="w-24" type="number" min="1" max={limit(item)} step="1" value={line.quantity}
+          <div className="flex flex-wrap items-end gap-2">
+            {maximum(item) !== 1 ? <label className="text-sm" htmlFor={`cart-${field.id}-${item.kind}-${item.id}`}>Quantity
+              <Input id={`cart-${field.id}-${item.kind}-${item.id}`} aria-label={`Cart quantity for ${item.name}`} className="w-24" type="number" min="1" max={limit(item)} step="1" value={line.quantity}
                 disabled={readonly || !item.available} aria-invalid={line.quantity > limit(item)}
-                onChange={event => changeQuantity(item.kind, item.id, Number(event.target.value))} /></>
-              : <p className="text-xs">Quantity: {line.quantity}</p>}
-            <Button type="button" variant="ghost" size="sm" disabled={readonly} onClick={() => changeQuantity(item.kind, item.id, 0)}>Remove</Button>
+                onChange={event => changeQuantity(item.kind, item.id, Number(event.target.value))} /></label>
+              : <div className="text-sm">Quantity<div className="flex h-10 w-24 items-center">{line.quantity}</div></div>}
+            <Button type="button" variant="ghost" disabled={readonly} onClick={() => changeQuantity(item.kind, item.id, 0)}>Remove</Button>
           </div>
         </div>
         : <div key={`${line.kind}:${line.id}:${index}`} className="rounded-md border border-amber-200 p-3 text-sm"><p className="text-amber-700">Saved {line.kind || 'item'} unavailable · quantity {line.quantity}</p><Button type="button" variant="ghost" size="sm" disabled={readonly} onClick={() => changeQuantity(line.kind, line.id, 0)}>Remove saved item</Button></div>)}
