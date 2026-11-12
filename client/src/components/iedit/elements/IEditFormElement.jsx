@@ -22,6 +22,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useIsMobile } from "@/hooks/use-mobile";
+import FormCartCount from "@/components/forms/FormCartCount";
 import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
 import { AlignLeft, AlignCenter, AlignRight } from "lucide-react";
 import { buildPrefillValues, coerceConditionalSetValue, isFieldValueFilled, resolveEffectivePrefillIds, resolveMemberSourceOrgId, shouldWaitForPrefillCustomValues, shouldWaitForPrefillOrgEntity } from "@/lib/formFieldPrefill";
@@ -2150,9 +2151,15 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
         >
           {renderHeaderSection()}
           <Card className="iedit-form-styled !rounded-none" style={{ ...formFieldStyles, ...getCardStyle() }}>
+            {!show_form_title && !show_form_description && form.fields?.some(field => field.type === 'sales_cart') && (
+              <div className="flex justify-end px-6 pt-6"><FormCartCount form={form} values={formValues} /></div>
+            )}
             {(show_form_title || show_form_description) && (
               <CardHeader>
-                {show_form_title && <CardTitle>{form.name}</CardTitle>}
+                <div className="flex items-start justify-between gap-3">
+                  {show_form_title ? <CardTitle className="min-w-0 break-words">{form.name}</CardTitle> : <span />}
+                  <FormCartCount form={form} values={formValues} />
+                </div>
                 {show_form_description && form.description && (
                   <CardDescription className="whitespace-pre-line">{form.description}</CardDescription>
                 )}
@@ -2307,7 +2314,10 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
         {renderHeaderSection()}
         <Card className="iedit-form-styled !rounded-none" style={{ ...formFieldStyles, ...getCardStyle() }}>
           <CardHeader>
-            {show_form_title && <CardTitle>{form.name}</CardTitle>}
+            <div className="flex items-start justify-between gap-3">
+              {show_form_title ? <CardTitle className="min-w-0 break-words">{form.name}</CardTitle> : <span />}
+              <FormCartCount form={form} values={formValues} />
+            </div>
             {show_form_description && form.description && (
               <CardDescription className="whitespace-pre-line">{form.description}</CardDescription>
             )}

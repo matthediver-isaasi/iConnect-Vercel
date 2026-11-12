@@ -6,6 +6,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useParams, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import FormCartCount from "@/components/forms/FormCartCount";
 import { Loader2, ChevronLeft, ChevronRight, CheckCircle2, Lock } from "lucide-react";
 import FormRenderer, { RepeatableAvailabilityProbe } from "../components/forms/FormRenderer";
 import { groupInitialSelectionSurfaceReady, hasGroupInitialSelectionAnswer } from "@/lib/formGroupInitialSelection";
@@ -1606,7 +1607,10 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
         <Toaster />
         <Card className="w-full min-w-0 mx-auto" style={{ maxWidth: getFormMaxWidth(form.form_width) }} data-testid="form-width-container">
           <CardHeader>
-            <CardTitle data-testid="embed-form-title">{form.name}</CardTitle>
+            <div className="flex items-start justify-between gap-3">
+              <CardTitle className="min-w-0 break-words" data-testid="embed-form-title">{form.name}</CardTitle>
+              <FormCartCount form={form} values={formValues} />
+            </div>
             {form.description && (
               <CardDescription data-testid="embed-form-description">{form.description}</CardDescription>
             )}
@@ -1809,7 +1813,10 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
       <Toaster />
       <Card className="w-full min-w-0 mx-auto" style={{ maxWidth: getFormMaxWidth(form.form_width) }} data-testid="form-width-container">
         <CardHeader>
-          <CardTitle data-testid="embed-form-title">{form.name}</CardTitle>
+          <div className="flex items-start justify-between gap-3">
+            <CardTitle className="min-w-0 break-words" data-testid="embed-form-title">{form.name}</CardTitle>
+            <FormCartCount form={form} values={formValues} />
+          </div>
           {form.description && (
             <CardDescription data-testid="embed-form-description">{form.description}</CardDescription>
           )}

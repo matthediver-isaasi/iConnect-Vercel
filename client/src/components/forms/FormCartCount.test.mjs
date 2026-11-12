@@ -4,8 +4,21 @@ import Module from 'node:module';
 import { build } from 'esbuild';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { readFile } from 'node:fs/promises';
+import { transform } from 'esbuild';
 
 globalThis.React = React;
+test('standalone and embedded forms wire the count to live answers in both layouts', async () => {
+  for (const path of [
+    'client/src/pages/FormView.jsx',
+    'client/src/pages/EmbedForm.jsx',
+    'client/src/components/iedit/elements/IEditFormElement.jsx',
+  ]) {
+    const source = await readFile(path, 'utf8');
+    assert((source.match(/<FormCartCount form=\{form\} values=\{formValues\}/g) || []).length >= 2, path);
+    await transform(source, { loader: 'jsx' });
+  }
+});
 const built = await build({ entryPoints: ['client/src/components/forms/FormCartCount.jsx'], bundle: true,
   packages: 'external', platform: 'node', format: 'cjs', write: false });
 const mod = new Module(`${process.cwd()}/cart-count-test.cjs`);
