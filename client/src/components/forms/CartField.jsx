@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ShoppingCart } from 'lucide-react';
+import { ShoppingCart, Loader2 } from 'lucide-react';
 import { publicClient } from '@/api/publicClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,6 +21,7 @@ export default function CartField({ field, formId, value, onChange, disabled, on
   const [bundleQuantity, setBundleQuantity] = useState('1');
   const [draftQuantities, setDraftQuantities] = useState({});
   const [reservationError, setReservationError] = useState(null);
+  const [addingItem, setAddingItem] = useState(null);
   const [clock, setClock] = useState(Date.now());
   const shopping = useFormCartReservation(formId, field, next => {
     if (JSON.stringify(next) !== JSON.stringify(value || { version: 1, lines: [] })) onChange?.(next);
@@ -127,7 +128,9 @@ export default function CartField({ field, formId, value, onChange, disabled, on
     if (quantity > 0) lines.push({ kind, id, quantity });
     if (query.data?.reservationReady) {
       setReservationError(null);
-      shopping.update({ version: 1, lines }).catch(error => setReservationError(error.message));
+      return shopping.update({ version: 1, lines })
+        .catch(error => setReservationError(error.message))
+        .finally(() => setUnavailable(false));
     } else callbacks.current.onChange({ version: 1, lines });
     setUnavailable(false);
   };
@@ -138,8 +141,14 @@ export default function CartField({ field, formId, value, onChange, disabled, on
     && committedQuantity(item) + quantity <= limit(item);
   const canAdd = canAddQuantity(pickedBundle, draftQuantity);
   const add = (item, quantity) => {
-    if (!readonly && canAddQuantity(item, quantity)) changeQuantity(item.kind, item.id, committedQuantity(item) + quantity);
+    if (readonly || !canAddQuantity(item, quantity)) return;
+    setAddingItem(`${item.kind}:${item.id}`);
+    Promise.resolve(changeQuantity(item.kind, item.id, committedQuantity(item) + quantity))
+      .finally(() => setAddingItem(null));
   };
+  const addLabel = item => addingItem === `${item?.kind}:${item?.id}`
+    ? <><Loader2 aria-hidden="true" className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" />Adding…</>
+    : <><ShoppingCart aria-hidden="true" className="mr-2 h-4 w-4" />Add to cart</>;
   const contentsVisible = viewOnly || showCartContents;
   const restoredLegacySelection = useRef(false);
   useEffect(() => {
@@ -220,7 +229,7 @@ export default function CartField({ field, formId, value, onChange, disabled, on
           disabled={readonly || !pickedBundle?.available} aria-invalid={!!bundleId && !canAdd}
           onChange={event => setBundleQuantity(event.target.value)} /></label>}
         <Button type="button" disabled={readonly || !canAdd} onClick={() => add(pickedBundle, draftQuantity)}>
-          <ShoppingCart aria-hidden="true" className="mr-2 h-4 w-4" />Add to cart
+        {addLabel(pickedBundle)}
         </Button>
       </div>
     </div>}
@@ -239,7 +248,7 @@ export default function CartField({ field, formId, value, onChange, disabled, on
             disabled={readonly || !item.available} aria-invalid={!canAddItem}
             onChange={event => setDraftQuantities(previous => ({ ...previous, [key]: event.target.value }))} />
         </label>}<Button type="button" disabled={readonly || !canAddItem} onClick={() => add(item, quantity)}>
-          <ShoppingCart aria-hidden="true" className="mr-2 h-4 w-4" />Add to cart
+          {addLabel(item)}
         </Button></div>
       </div></Fragment>;
     })}

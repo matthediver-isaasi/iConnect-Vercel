@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { publicClient } from '@/api/publicClient';
 import { normalizeCartAnswer } from '../../../shared/formCart.js';
+import { cartPendingKey } from './formCartPending';
 
 const tokenEvent = 'form-cart-reservation-token';
 const empty = { version: 1, lines: [] };
@@ -30,6 +31,7 @@ export function useFormCartReservation(formId, field, onUpdate, savedValue) {
   const client = useQueryClient();
   const [token, setToken] = useState(() => formId ? readToken(formId) : null);
   const [busy, setBusy] = useState(false);
+  const sharedPending = useQuery({ queryKey: cartPendingKey(formId), queryFn: () => false, enabled: false });
   const pending = useRef(false);
   const latest = useRef(onUpdate);
   latest.current = onUpdate;
@@ -86,9 +88,10 @@ export function useFormCartReservation(formId, field, onUpdate, savedValue) {
     }
   }, [query.data, token, formId, client]);
   const update = async answer => {
-    if (pending.current) return;
+    if (pending.current || client.getQueryData(cartPendingKey(formId))) return;
     pending.current = true;
     setBusy(true);
+    client.setQueryData(cartPendingKey(formId), true);
     const id = token || crypto.randomUUID();
     try {
       const result = await publicClient.updateFormCartReservation(formId, field.id, {
@@ -108,7 +111,11 @@ export function useFormCartReservation(formId, field, onUpdate, savedValue) {
       saveToken(formId, id);
       client.invalidateQueries({ queryKey: reservationKey(formId) });
       throw error;
-    } finally { pending.current = false; setBusy(false); }
+    } finally {
+      pending.current = false;
+      setBusy(false);
+      client.setQueryData(cartPendingKey(formId), false);
+    }
   };
-  return { token, reservation: query.data, busy, update, error: query.error, message: message.data };
+  return { token, reservation: query.data, busy: busy || sharedPending.data === true, update, error: query.error, message: message.data };
 }

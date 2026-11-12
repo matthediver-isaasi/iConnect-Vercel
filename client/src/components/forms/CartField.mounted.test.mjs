@@ -57,6 +57,39 @@ async function mount(initialValue = '', formId = 'form-one', settings = {}, prop
   return { container, client, answers, validity, close: async () => { await act(async () => root.unmount()); client.clear(); container.remove(); } };
 }
 
+test('add button immediately shows pending feedback and keeps the answer uncommitted until confirmed', async () => {
+  sessionStorage.clear();
+  let release, hold;
+  globalThis.fetch = async (_url, options) => {
+    if (options?.method === 'POST') {
+      const body = JSON.parse(options.body);
+      if (body.action === 'reserve') {
+        await new Promise(resolve => { release = resolve; });
+        hold = { id: body.reservation_id, state: 'shopping', version: 1, answer: body.answer,
+          expiresAt: new Date(Date.now() + 300000).toISOString(), serverNow: new Date().toISOString() };
+      }
+      return { ok: true, json: async () => ({ reservation: hold }) };
+    }
+    return { ok: true, json: async () => ({ items: [item], reservationReady: true }) };
+  };
+  const fixture = await mount('', 'pending-add');
+  try {
+    await settle();
+    const add = [...fixture.container.querySelectorAll('button')].find(b => b.textContent === 'Add to cart');
+    await act(async () => add.click());
+    assert.equal(add.textContent, 'Adding…');
+    assert(add.querySelector('.animate-spin'));
+    assert.equal(add.disabled, true);
+    assert.equal(fixture.client.getQueryData(['form-cart-pending', 'pending-add']), true);
+    assert.equal(fixture.answers.length, 0);
+    await act(async () => release());
+    await settle();
+    assert.equal(fixture.answers.at(-1).lines[0].quantity, 1);
+    assert.equal(fixture.client.getQueryData(['form-cart-pending', 'pending-add']), false);
+    assert.equal(add.textContent, 'Add to cart');
+  } finally { release?.(); await fixture.close(); sessionStorage.clear(); }
+});
+
 test('catalogue refresh keeps cart contents and totals visible while guarding edits', async () => {
   globalThis.fetch = async () => ({ ok: true, json: async () => ({ items: [item] }) });
   const fixture = await mount(saved);
