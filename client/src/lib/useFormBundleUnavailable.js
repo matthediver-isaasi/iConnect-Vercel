@@ -14,6 +14,33 @@ export function useFormBundleUnavailable(form, setValues, setError, recovery = {
   useEffect(() => {
     queryClient.setQueryData(['form-cart-locked', formId], false);
     let recovering = false;
+    let activityEnabled = false;
+    let lastActivitySent = 0;
+    let activityRequest = null;
+    const touch = (force = false) => {
+      if (queryClient.getQueryData(['form-cart-locked', formId]) !== true) return Promise.resolve();
+      if (activityRequest) return activityRequest;
+      if (!force && Date.now() - lastActivitySent < 30000) return Promise.resolve();
+      const key = latest.current.recovery.getIdempotencyKey?.();
+      if (!key) return Promise.reject(new Error('Your checkout identity is unavailable. Return to your cart.'));
+      lastActivitySent = Date.now();
+      activityRequest = fetch('/api/public/form-payment', {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'cart_activity', form_id: formId, idempotency_key: key }),
+      }).then(async response => {
+        const result = await response.json();
+        if (!response.ok || result.active !== true) throw new Error(result.error || 'We could not check your stock reservation. Please retry.');
+      }).finally(() => { activityRequest = null; });
+      return activityRequest;
+    };
+    const activity = () => {
+      if (activityEnabled && document.visibilityState === 'visible') touch().catch(error => latest.current.setError(error.message));
+    };
+    const explicitActivity = event => {
+      if (event.detail?.formId !== formId) return;
+      event.detail.handled = true;
+      touch(true).then(event.detail.resolve, event.detail.reject);
+    };
     const handleEdit = async event => {
       if (event.detail?.formId !== formId || recovering) return;
       if (queryClient.getQueryData(['form-cart-locked', formId]) !== true) {
@@ -41,6 +68,7 @@ export function useFormBundleUnavailable(form, setValues, setError, recovery = {
       } catch (error) {
         queryClient.setQueryData(['form-cart-recovery', formId], { error: error.message });
         latest.current.setError(error.message);
+        event.detail?.onError?.(error);
       } finally { recovering = false; }
     };
     const handleCart = event => {
@@ -51,10 +79,15 @@ export function useFormBundleUnavailable(form, setValues, setError, recovery = {
       queryClient.invalidateQueries({ queryKey: ['public-form-cart'] });
     };
     const handleCartLocked = event => {
-      if (event.detail?.formId === formId) queryClient.setQueryData(['form-cart-locked', formId], true);
+      if (event.detail?.formId === formId) {
+        queryClient.setQueryData(['form-cart-locked', formId], true);
+        activityEnabled = event.detail.provider === 'stripe';
+        lastActivitySent = 0;
+      }
     };
     const handleCartUnlocked = event => {
       if (event.detail?.formId !== formId) return;
+      activityEnabled = false;
       queryClient.setQueryData(['form-cart-locked', formId], false);
       queryClient.invalidateQueries({ queryKey: ['public-form-cart'] });
       queryClient.invalidateQueries({ queryKey: ['membership-fee-quote', formId] });
@@ -76,12 +109,20 @@ export function useFormBundleUnavailable(form, setValues, setError, recovery = {
     window.addEventListener(BUNDLE_UNAVAILABLE_EVENT, handle);
     window.addEventListener(CART_UNAVAILABLE_EVENT, handleCart);
     window.addEventListener(CART_LOCKED_EVENT, handleCartLocked);
+    document.addEventListener('pointerdown', activity);
+    document.addEventListener('keydown', activity);
+    window.addEventListener('form-cart-activity', explicitActivity);
+    window.addEventListener('form-cart-input', activity);
     window.addEventListener(CART_UNLOCKED_EVENT, handleCartUnlocked);
     window.addEventListener('form-cart-edit-request', handleEdit);
     return () => {
       window.removeEventListener(BUNDLE_UNAVAILABLE_EVENT, handle);
       window.removeEventListener(CART_UNAVAILABLE_EVENT, handleCart);
       window.removeEventListener(CART_LOCKED_EVENT, handleCartLocked);
+      document.removeEventListener('pointerdown', activity);
+      document.removeEventListener('keydown', activity);
+      window.removeEventListener('form-cart-activity', explicitActivity);
+      window.removeEventListener('form-cart-input', activity);
       window.removeEventListener(CART_UNLOCKED_EVENT, handleCartUnlocked);
       window.removeEventListener('form-cart-edit-request', handleEdit);
       queryClient.removeQueries({ queryKey: ['form-cart-locked', formId], exact: true });

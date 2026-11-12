@@ -61,6 +61,7 @@ test('mixed cart transaction: shared bundle stock, quantities, replay, rollback,
       \\i ${migration('202701200001_form_bundle_stock.sql')}
       \\i ${migration('202701200002_form_bundle_submission_stock_option.sql')}
       \\i ${migration('202701200003_form_cart.sql')}
+      \\i ${migration('202701200007_form_cart_inactivity.sql')}
     `);
     const insert = (n, pq = 1, bq = 1, amount = (pq * 101 + Math.round(pq * 101 * .2) + bq * 500) / 100) =>
       `INSERT INTO form_submission VALUES('${id(n)}','${tenant}','${tenant}','attempt-${n}',
@@ -133,6 +134,20 @@ test('mixed cart transaction: shared bundle stock, quantities, replay, rollback,
     assert.equal(sql(`SELECT count(*) FROM form_cart_receipt WHERE submission_id='${id(8)}';`), '0');
     assert.equal(stock('product').reserved, 3);
     assert.equal(sql("SELECT count(*) FROM sales_audit_event WHERE action='product.stock_updated';"), '2');
+    // Activity extends only a live hold. Cleanup cannot act on a stale
+    // candidate selected before that renewal, and claimed cleanup cannot revive.
+    sql(insert(30, 1, 0));
+    assert.equal(sql(`SELECT next_check_at BETWEEN now()+interval '4 minutes' AND now()+interval '6 minutes'
+      FROM form_cart_receipt WHERE submission_id='${id(30)}';`), 't');
+    assert.equal(sql(`SELECT touch_form_cart_activity('${tenant}','${id(30)}');`), 't');
+    assert.equal(sql(`SELECT claim_form_cart_cleanup('${tenant}','${id(30)}');`), 'f');
+    assert.equal(sql(`SELECT touch_form_cart_activity('10000000-0000-4000-8000-000000000099','${id(30)}');`), 'f');
+    sql(`UPDATE form_submission SET payment_status='failed' WHERE id='${id(30)}';`);
+    assert.equal(sql(`SELECT touch_form_cart_activity('${tenant}','${id(30)}');`), 'f');
+    assert.equal(sql(`SELECT claim_form_cart_cleanup('${tenant}','${id(30)}');`), 't');
+    assert.equal(sql(`SELECT touch_form_cart_activity('${tenant}','${id(30)}');`), 'f');
+    denied(`SET ROLE authenticated; SELECT touch_form_cart_activity('${tenant}','${id(30)}');`, /permission denied/);
+    denied(`SET ROLE authenticated; SELECT claim_form_cart_cleanup('${tenant}','${id(30)}');`, /permission denied/);
   } finally {
     if (started) run('pg_ctl', ['-D', data, '-m', 'immediate', '-w', 'stop']);
     await rm(root, { recursive: true, force: true });

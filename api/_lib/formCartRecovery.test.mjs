@@ -62,6 +62,21 @@ test('cancellation lookup is tenant/form/original-key scoped; missing keys fail 
   assert.deepEqual(filters, [['tenant_id', 'tenant'], ['form_id', 'form'], ['idempotency_key', 'pay:original-checkout-key']]);
 });
 
+test('activity renews only the scoped checkout and respects an expired or claimed hold', async () => {
+  for (const active of [true, false]) {
+    const calls = [];
+    const db = { from() {
+      const q = { select: () => q, eq: () => q, maybeSingle: async () => ({ data: row }) }; return q;
+    }, rpc: async (name, args) => { calls.push({ name, args }); return { data: active }; } };
+    const res = { status(n) { this.statusCode = n; return this; }, json(body) { this.body = body; return this; } };
+    await handleCancelCart({ body: { action: 'cart_activity', form_id: row.form_id,
+      idempotency_key: 'original-checkout-key' } }, res, db, { id: row.tenant_id });
+    assert.equal(res.statusCode, active ? 200 : 409);
+    assert.deepEqual(calls, [{ name: 'touch_form_cart_activity',
+      args: { p_tenant_id: row.tenant_id, p_submission_id: row.id } }]);
+  }
+});
+
 test('refresh reports unpaid cart without cancelling; Back verifies and releases it', async () => {
   const f = fixture('requires_payment_method');
   f.pi.metadata.type = 'form_payment';

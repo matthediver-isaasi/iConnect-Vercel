@@ -175,12 +175,25 @@ test('hidden carts cannot allocate or price retained answers; outages are not un
   assert.equal(raw.__cart_receipt, undefined);
   await assert.rejects(formCartReady({ rpc: async () => ({ error: { code: '08006' } }) }), error => error.code === '08006');
 });
+
+test('cleanup skips a hold refreshed after candidate discovery without contacting Stripe', async () => {
+  const db = { rpc: async name => ({ data: name === 'form_cart_version' ? 1 : false }),
+    from: () => {
+      const q = { select: () => q, eq: () => q, lte: () => q, order: () => q, limit: () => q,
+        then: resolve => resolve({ data: [{ tenant_id: 'tenant', submission_id: 'submission' }] }) };
+      return q;
+    } };
+  const result = await cleanupFormBundleHolds(db, { cart: true,
+    retrieveStripe: () => { throw new Error('A refreshed checkout must not be cancelled'); } });
+  assert.equal(result.checked, 0);
+  assert.equal(result.released, 0);
+});
 test('cart cleanup retains ambiguous outcomes and releases only verified terminal cancellation', async () => {
   for (const status of ['processing', 'succeeded', 'canceled']) {
     const calls = [];
     const row = { id: 'submission', tenant_id: 'tenant', form_id: 'form',
       payment_provider: 'stripe', payment_reference: 'pi_cart', payment_status: 'pending' };
-    const db = { rpc: async (name, args) => { calls.push([name, args]); return { data: name === 'form_cart_version' ? 1 : {} }; },
+    const db = { rpc: async (name, args) => { calls.push([name, args]); return { data: name === 'form_cart_version' ? 1 : name === 'claim_form_cart_cleanup' ? true : {} }; },
       from: table => {
         const q = { select() { return this; }, eq() { return this; }, lte() { return this; },
           order() { return this; }, limit() { return this; }, single() { return this; },

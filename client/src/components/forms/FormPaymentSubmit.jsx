@@ -1,3 +1,4 @@
+import { requestFormCartActivity } from '@/lib/formCartActivity';
 import { useState, useRef, useMemo, useCallback, useEffect } from "react";
 import { useFormPrefillLocked } from './FormPrefillBoundary';
 import { useQuery } from "@tanstack/react-query";
@@ -359,7 +360,7 @@ export default function FormPaymentSubmit({
         if (['BUNDLE_ATTEMPT_ENDED', 'BUNDLE_ATTEMPT_UNRESOLVED', 'CART_ATTEMPT_ENDED', 'CART_ATTEMPT_UNRESOLVED'].includes(json.code)) {
           if (membershipQuote?.source === 'cart' || json.code.startsWith('CART_')) {
             cartAttemptFormIdRef.current = payload.form_id;
-            lockFormCart(payload.form_id);
+            lockFormCart(payload.form_id, providerId);
           }
           setBundleAttemptStatus(json.code);
           setPaymentError(json.code.endsWith('_ENDED')
@@ -381,7 +382,10 @@ export default function FormPaymentSubmit({
       }
       // A successful create binds an immutable selection and stock reservation
       // to this checkout. Never change answers underneath its payment widgets.
-      if (membershipQuote?.source === 'cart') lockFormCart(payload.form_id);
+      if (membershipQuote?.source === 'cart') {
+        cartAttemptFormIdRef.current = payload.form_id;
+        lockFormCart(payload.form_id, providerId);
+      }
       // Invoice create confirms an order, not a payment. Stop here before
       // paid handling, payment-return storage, Direct Debit or Stripe setup.
       if (providerId === 'invoice') {
@@ -468,6 +472,14 @@ export default function FormPaymentSubmit({
       const paymentElement = requiresStripeAddress
         ? elements.create('payment', { fields: { billingDetails: { address: 'never' } } })
         : elements.create('payment');
+      // Stripe fields live in an iframe; document keyboard listeners cannot
+      // see that input. Only actual field interaction extends the reservation.
+      const cartInput = () => {
+        if (cartAttemptFormIdRef.current) window.dispatchEvent(new Event('form-cart-input'));
+      };
+      paymentElement.on('change', cartInput);
+      paymentElement.on('focus', cartInput);
+      addressElement?.on('change', cartInput);
       setSelectedProvider('stripe');
       setStripeMounted(true);
       setTimeout(() => {
@@ -526,6 +538,7 @@ export default function FormPaymentSubmit({
     setProcessing(true);
     setPaymentError(null);
     try {
+      await requestFormCartActivity(cartAttemptFormIdRef.current);
       const { error: submitError } = await elementsRef.current.submit();
       if (submitError) throw new Error(submitError.message);
 
@@ -537,7 +550,16 @@ export default function FormPaymentSubmit({
         confirmParams: { return_url: returnUrl.toString() },
         redirect: 'if_required',
       });
-      if (confirmError) throw new Error(confirmError.message);
+      if (confirmError) {
+        if (cartAttemptFormIdRef.current) {
+          // Verify with the provider before releasing; transport uncertainty,
+          // processing or completed payments must never free stock blindly.
+          await new Promise((resolve, reject) => window.dispatchEvent(new CustomEvent('form-cart-edit-request', {
+            detail: { formId: cartAttemptFormIdRef.current, onReleased: resolve, onError: reject },
+          })));
+        }
+        throw new Error(confirmError.message);
+      }
       if (paymentIntent?.status === 'succeeded') {
         // From this point the charge must never be offered again, even if the
         // server-side address snapshot/mapping call is temporarily unavailable.

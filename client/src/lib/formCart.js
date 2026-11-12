@@ -18,8 +18,8 @@ export function notifyCartUnavailable(formId, error) {
   return true;
 }
 
-export function lockFormCart(formId) {
-  if (formId && typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(CART_LOCKED_EVENT, { detail: { formId } }));
+export function lockFormCart(formId, provider = null) {
+  if (formId && typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(CART_LOCKED_EVENT, { detail: { formId, provider } }));
 }
 
 // Only call after the server has ended the previous attempt and the caller

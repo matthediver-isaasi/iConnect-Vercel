@@ -19,6 +19,16 @@ export async function cleanupFormBundleHolds(db, {
   if (error) throw error;
   for (const hold of holds || []) {
     if (Date.now() >= deadlineAt - 2000) break;
+    if (cart) {
+      // Recheck under a database lock: activity may have renewed the hold
+      // since the candidate list was read. Once claimed, activity cannot revive it.
+      const claim = await db.rpc('claim_form_cart_cleanup', {
+        p_tenant_id: hold.tenant_id, p_submission_id: hold.submission_id,
+      });
+      // Compatible rollout: retain the old timeout until the migration lands.
+      if (claim.error && !['42883', 'PGRST202'].includes(claim.error.code)) throw claim.error;
+      if (!claim.error && claim.data !== true) continue;
+    }
     result.checked++;
     let diagnostic = 'Provider outcome remains unresolved; stock remains held.';
     try {

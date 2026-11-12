@@ -294,7 +294,7 @@ export default async function handler(req, res, dependencies = {}) {
     if (!tenantData) return res.status(404).json({ error: 'Tenant not found' });
 
     const { action } = req.body || {};
-    if (action === 'cancel_cart') return await handleCancelCart(req, res, supabase, tenantData, dependencies);
+    if (action === 'cancel_cart' || action === 'cart_activity') return await handleCancelCart(req, res, supabase, tenantData, dependencies);
     if (action === 'create') return await handleCreate(req, res, supabase, tenantData, dependencies);
     if (action === 'create_monthly_card') return await handleCreateMonthlyCard(req, res, supabase, tenantData, dependencies);
     if (action === 'confirm') return await handleConfirm(req, res, supabase, tenantData, dependencies);
@@ -2163,6 +2163,23 @@ export async function handleCancelCart(req, res, supabase, tenantData, dependenc
   // The random checkout key is the guest capability, just as for create's
   // idempotent retries. It must match the stored tenant + form + attempt.
   try {
+    if (req.body.action === 'cart_activity') {
+      if (row.payment_provider !== 'stripe' || row.payment_status === 'paid'
+          || row.payment_meta?.membership || row.payment_meta?.monthly_card) {
+        return res.status(409).json({ error: 'This checkout is no longer editable.' });
+      }
+      const activity = await supabase.rpc('touch_form_cart_activity', {
+        p_tenant_id: tenantData.id, p_submission_id: row.id,
+      });
+      if (activity.error && ['42883', 'PGRST202'].includes(activity.error.code)) {
+        return res.status(200).json({ active: true, legacyTimeout: true });
+      }
+      if (activity.error) throw new Error('We could not extend your checkout. Please retry.');
+      if (activity.data !== true) return res.status(409).json({
+        error: 'Your checkout reservation has expired. Go back to check availability before paying.',
+      });
+      return res.status(200).json({ active: true });
+    }
     return res.status(200).json(await cancelCartPayment(supabase, row, dependencies.retrieveStripe));
   } catch (error) {
     return res.status(409).json({ error: error.message || 'Your payment could not be safely cancelled. Please retry.' });
