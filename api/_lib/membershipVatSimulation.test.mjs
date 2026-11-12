@@ -199,6 +199,7 @@ before(async () => {
   }
   for (const file of [
     'membershipSimulationCore.js',
+    'formRenewalSimulationAuthority.js',
     'memberDateTermSimulation.js',
     'memberDateTermPolicy.js',
     'membershipRenewalExceptions.js',

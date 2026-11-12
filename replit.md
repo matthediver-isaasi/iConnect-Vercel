@@ -9,6 +9,8 @@
 
 # Membership Management Platform
 
+- **BNMS organisation domains:** Restored the absent optional `verified_domains` organisation List field in verified DEST on 2026-11-12 using `scripts/restore-bnms-verified-domains.mjs`. Exactly one active BNMS definition was confirmed read-only afterward; no domain values or layout settings were written. Admin maintenance: CRM → Organisations → organisation → Overview → Edit → Custom Fields → Verified Domains. See `docs/bnms-verified-domains-restoration.md` for evidence and isolated-test boundaries.
+
 - **Optional form invoice checkout:** `202701200006_form_invoice_orders.sql` was applied to pinned DEST (`lvmzliemqnieeoruhkik`) on 2026-11-11, SHA256 `c5232602f77eed5aefcf79e6b2a9079a5aa4eb20ffbf08374a87f16238f6e0c0`. Readiness version 1, service-only access, enabled triggers, preserved cart grants and unchanged card-payment/release protections were verified before commit. SOURCE and existing form settings were untouched; no live orders, invoices or emails were created. Deploy matching application code before enabling Pay by invoice on a Payment field. This ordinary-order Xero flow confirms stock immediately but remains unpaid; membership schedule payment rules are unchanged.
 
 - **CPD merge lifecycle follow-on:** `202701190003_cpd_transferred_lifecycle.sql` was also applied to verified DEST on 2026-11-11. The current three-file runner hash is `2aa09970769e2d05fb2306d7b8adeabf6026d8864bb120103d5884f116637302`. This aligns linked corrections/manual awards with organisation-based tenancy and preserves replay for third-party-booker awards after source anonymisation. No live merges or ledger rewrites were performed.
