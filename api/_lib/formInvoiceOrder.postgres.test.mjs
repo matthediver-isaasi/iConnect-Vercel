@@ -94,11 +94,54 @@ test('invoice order commits unpaid stock and queue atomically; retries, tamperin
     const heldAnswer = { version: 1, lines: [{ kind: 'product', id: product, quantity: 1 }] };
     sql(`SELECT update_form_cart_hold('${tenant}','${tenant}','${id(20)}','${JSON.stringify(heldAnswer)}',0);`);
     assert.equal(sql('SELECT remaining||\':\'||reserved FROM form_product_stock;'), '0:1');
-    const reservedInsert = insert(21).replace(`'{"cart":`, `'{"__cart_reservation":"${id(20)}","cart":`);
+    // The actual browser answer includes its reservation token. Earlier tests
+    // omitted it, hiding the conflict with receipt canonicalization.
+    const reservedInsert = insert(21)
+      .replace(`'{"cart":`, `'{"__cart_reservation":"${id(20)}","cart":`)
+      .replace(`"cart":{"version":1`, `"cart":{"reservation_id":"${id(20)}","version":1`);
+    denied(reservedInsert, /Accepted invoice order is immutable/);
+    assert.equal(sql('SELECT remaining||\':\'||reserved FROM form_product_stock;'), '0:1');
+    assert.equal(sql(`SELECT count(*) FROM form_submission WHERE id='${id(21)}';`), '0');
+    sql(`\\i ${migration('202701200009_form_invoice_cart_normalization.sql')}`);
+    sql(`\\i ${migration('202701200009_form_invoice_cart_normalization.sql')}`);
     sql(reservedInsert);
     assert.equal(sql('SELECT remaining||\':\'||reserved FROM form_product_stock;'), '0:0');
     assert.equal(sql(`SELECT state FROM form_cart_receipt WHERE submission_id='${id(21)}';`), 'consumed');
     assert.equal(sql(`SELECT payment_status FROM form_submission WHERE id='${id(21)}';`), 'unpaid');
+    assert.equal(sql(`SELECT submission_data->'cart' ? 'reservation_id' FROM form_submission WHERE id='${id(21)}';`), 'f');
+    for (const change of [
+      `payment_amount=1`,
+      `payment_currency='USD'`,
+      `payment_provider='stripe'`,
+      `idempotency_key='changed'`,
+      `payment_meta=jsonb_set(payment_meta,'{invoice_order,amount}','1')`,
+      `submission_data=jsonb_set(submission_data,'{cart,lines,0,quantity}','2')`,
+      `submission_data=submission_data||'{"other":"changed"}'::jsonb`,
+      `submission_data=submission_data-'__cart_reservation'`,
+    ]) denied(`UPDATE form_submission SET ${change} WHERE id='${id(21)}';`, /immutable/);
+    assert.equal(sql(`SELECT count(*) FROM accounting_request_queue WHERE source_id='${id(21)}';`), '1');
+    // Exercise the same handoff for a finite-stock bundle, not only products.
+    const bundle = id(40);
+    sql(`
+      INSERT INTO sales_catalogue_bundle(id,tenant_id,name,selling_price_minor,currency,is_active)
+        VALUES('${bundle}','${tenant}','Stand',10000,'GBP',true);
+      UPDATE form SET fields=jsonb_set(jsonb_set(fields,'{0,allowed_bundle_ids}','["${bundle}"]'),
+        '{0,bundle_tax}','{"${bundle}":{"treatment":"standard","rateBps":2000}}');
+      SELECT set_form_bundle_stock('${tenant}','${bundle}',0,1,'test');
+    `);
+    const bundleAnswer = { version: 1, lines: [{ kind: 'bundle', id: bundle, quantity: 1 }] };
+    sql(`SELECT update_form_cart_hold('${tenant}','${tenant}','${id(41)}','${JSON.stringify(bundleAnswer)}',0);`);
+    assert.equal(sql('SELECT remaining||\':\'||reserved FROM form_bundle_stock;'), '0:1');
+    const bundleInsert = insert(42)
+      .replace(`"kind":"product","id":"${product}"`, `"kind":"bundle","id":"${bundle}"`)
+      .replace(`'{"cart":`, `'{"__cart_reservation":"${id(41)}","cart":`)
+      .replace(`"cart":{"version":1`, `"cart":{"reservation_id":"${id(41)}","version":1`);
+    sql(`GRANT INSERT ON form_submission TO service_role; SET ROLE service_role; ${bundleInsert}`);
+    assert.equal(sql('SELECT remaining||\':\'||reserved FROM form_bundle_stock;'), '0:0');
+    assert.equal(sql(`SELECT state FROM form_cart_receipt WHERE submission_id='${id(42)}';`), 'consumed');
+    assert.equal(sql(`SELECT payment_status FROM form_submission WHERE id='${id(42)}';`), 'unpaid');
+    denied(bundleInsert, /duplicate key/);
+    assert.equal(sql(`SELECT count(*) FROM accounting_request_queue WHERE source_id='${id(42)}';`), '1');
   } finally {
     if (started) spawnSync('pg_ctl', ['-D', data, '-m', 'immediate', '-w', 'stop']);
     await rm(root, { recursive: true, force: true });

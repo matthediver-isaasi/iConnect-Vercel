@@ -56,3 +56,14 @@ checkout; invoice creation is not evidence of payment.
 
 **How to apply:** Keep order acceptance, stock allocation and the durable invoice
 request atomic, with retries reusing the original order and accounting identity.
+
+Invoice immutability must permit receipt-verified cart canonicalization while
+preserving all other answers and financial terms.
+
+**Why:** Shopping answers contain a temporary reservation token that the
+authoritative receipt removes. Treating this removal as an order edit blocked
+invoice insertion; fixtures without the browser's nested token missed it.
+
+**How to apply:** Test the complete browser answer through database triggers,
+including both reservation references, for products and bundles. Never broadly
+exempt cart answers from invoice immutability to allow this transition.

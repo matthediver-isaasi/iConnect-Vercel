@@ -8,6 +8,7 @@ import { loadPersistedFormEntityCreations } from '../_lib/formEntityCreationProv
 import { resolveTenantFromRequest, getHostFromRequest } from '../_lib/tenantResolver.js';
 import { initializeFormDueDiligence } from '../_lib/formDueDiligence.js';
 import { invoiceOrderAuthority } from '../_lib/formInvoiceOrder.js';
+import { invoiceOrderInsertFailure } from '../_lib/formSubmissionInsertError.js';
 import { sendSubmitterCopyEmail } from '../forms/send-submitter-copy.js';
 import { getSession, getSessionMember } from '../_lib/session.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
@@ -1747,6 +1748,8 @@ export default async function handler(req, res, dependencies = {}) {
 
     if (insertError) {
       if (!isSurvey) console.error('[Public Form Submission] Insert error:', insertError);
+      const invoiceFailure = invoiceOrderInsertFailure(insertError);
+      if (invoiceFailure) return res.status(invoiceFailure.status).json(invoiceFailure.body);
       if (form.fields?.some(field => field.type === 'sales_cart') && ['P0001', '40001'].includes(insertError.code)) {
         return res.status(409).json({ error: 'Cart stock or pricing changed. Refresh the cart and try again.', code: 'CART_UNAVAILABLE' });
       }
