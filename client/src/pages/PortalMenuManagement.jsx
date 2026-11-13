@@ -1,4 +1,8 @@
 import React, { useState, useMemo, useEffect } from "react";
+import { DndContext, PointerSensor, KeyboardSensor, useSensor, useSensors, closestCenter } from '@dnd-kit/core';
+import { SortableContext, verticalListSortingStrategy, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
+import SortablePortalMenuItem from '@/components/SortablePortalMenuItem';
+import { createPortalMenuOrderQueue } from '@/lib/portalMenuOrder';
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -275,7 +279,50 @@ export default function PortalMenuManagementPage() {
     retry: false,
     refetchOnMount: false
   });
-  const menuItems = useMemo(() => allMenuItems.filter(item => isBnmsTenant || !isNmcReportDestination(item)), [allMenuItems, isBnmsTenant]);
+  const [orderState, setOrderState] = useState(null);
+  const [orderRecovering, setOrderRecovering] = useState(false);
+  const [orderError, setOrderError] = useState(false);
+  const scopeKey = JSON.stringify(navigationScope);
+  const menuQueryKey = ['portal-menu', ...(navigationScope || ['unverified'])];
+  const orderQueue = useMemo(() => createPortalMenuOrderQueue({
+    write: (id, display_order) => base44.entities.PortalMenu.update(id, { display_order }),
+    changed: rows => setOrderState({ scope: scopeKey, rows }),
+    persisted: rows => {
+      queryClient.setQueryData(['portal-menu', ...(navigationScope || ['unverified'])], rows);
+    },
+    saved: () => {
+      setOrderState(null);
+      // Other navigation consumers use this same scoped cache. No blocking reload.
+    },
+    failed: async () => {
+      setOrderRecovering(true);
+      toast.error('Some menu positions could not be saved. Reloading the saved order.');
+      try {
+        await queryClient.invalidateQueries({ queryKey: ['portal-menu', ...(navigationScope || ['unverified'])], exact: true }, { throwOnError: true });
+        setOrderState(null);
+        setOrderRecovering(false);
+      } catch {
+        setOrderError(true);
+      }
+    },
+  }), [scopeKey, queryClient]);
+  useEffect(() => {
+    orderQueue.start();
+    setOrderRecovering(false);
+    setOrderError(false);
+    return () => orderQueue.stop();
+  }, [orderQueue]);
+  const isOrderSaving = orderState?.scope === scopeKey;
+  useEffect(() => {
+    if (!isOrderSaving) return;
+    const warnBeforeLeaving = event => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', warnBeforeLeaving);
+    return () => window.removeEventListener('beforeunload', warnBeforeLeaving);
+  }, [isOrderSaving]);
+  const orderedRows = isOrderSaving ? orderState.rows : allMenuItems;
+  const menuItems = useMemo(() => orderedRows.filter(item => isBnmsTenant || !isNmcReportDestination(item)), [orderedRows, isBnmsTenant]);
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
 
   // Fetch published IEdit pages from CMS
   const { data: ieditPages = [] } = useQuery({
@@ -547,47 +594,12 @@ export default function PortalMenuManagementPage() {
     }
   };
 
-  const moveItem = async (itemId, direction) => {
-    const item = menuItems.find(i => i.id === itemId);
-    if (!item) return;
-
-    // Normalize parent_id comparison (treat null, undefined, "" as equivalent)
-    const normalizeParentId = (parentId) => parentId || "";
-    const itemParentId = normalizeParentId(item.parent_id);
-
-    // Get siblings within the same section AND parent
-    const siblings = menuItems
-      .filter(i => i.section === item.section && normalizeParentId(i.parent_id) === itemParentId && i.is_active)
-      .sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
-
-    const currentIndex = siblings.findIndex(i => i.id === itemId);
-    const newIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-
-    if (newIndex < 0 || newIndex >= siblings.length) return;
-
-    // Reorder the array by moving the item to the new position
-    const reorderedSiblings = [...siblings];
-    const [movedItem] = reorderedSiblings.splice(currentIndex, 1);
-    reorderedSiblings.splice(newIndex, 0, movedItem);
-
-    // Use section-scoped base offset to prevent collisions between sections
-    // user section: 0-9999, admin section: 10000-19999
-    // Also add parent-based offset for sub-items
-    const sectionOffset = item.section === 'admin' ? 10000 : 0;
-    const parentOffset = itemParentId ? 5000 : 0; // Sub-items get offset within section
-    const baseOffset = sectionOffset + parentOffset;
-
-    // Update all siblings with new sequential display_order values (scoped to section)
-    await Promise.all(
-      reorderedSiblings.map((sibling, index) => 
-        base44.entities.PortalMenu.update(sibling.id, { 
-          display_order: baseOffset + index 
-        })
-      )
-    );
-
-    await queryClient.invalidateQueries({ queryKey: ['portal-menu'] });
-    toast.success('Menu order updated');
+  const moveItem = (itemId, destination) => {
+    if (orderRecovering || createMutation.isPending || updateMutation.isPending || deleteMutation.isPending) return;
+    // Hidden rows retain their order and cannot be drag destinations.
+    if (!['up', 'down'].includes(destination) && !menuItems.some(row => row.id === destination)) return;
+    void queryClient.cancelQueries({ queryKey: menuQueryKey, exact: true });
+    orderQueue.move(orderedRows, itemId, destination, menuItems.map(row => row.id));
   };
 
   const toggleExpand = (itemId) => {
@@ -600,8 +612,10 @@ export default function PortalMenuManagementPage() {
     const isExpanded = expandedItems[item.id];
 
     return (
-      <div key={item.id} className={isChild ? 'ml-8' : ''}>
+      <SortablePortalMenuItem key={item.id} item={item} disabled={orderRecovering} className={isChild ? 'ml-8' : ''}>
+        {handle => <>
         <div className="flex items-center gap-2 p-3 bg-white border border-slate-200 rounded-lg hover:border-blue-400 transition-colors mb-2">
+          {handle}
           {hasChildren && (
             <button
               onClick={() => toggleExpand(item.id)}
@@ -635,6 +649,8 @@ export default function PortalMenuManagementPage() {
               variant="ghost"
               size="sm"
               onClick={() => moveItem(item.id, 'up')}
+              disabled={orderRecovering}
+              aria-label={`Move ${item.title} up`}
               className="h-8 w-8 p-0"
             >
               ▲
@@ -643,6 +659,8 @@ export default function PortalMenuManagementPage() {
               variant="ghost"
               size="sm"
               onClick={() => moveItem(item.id, 'down')}
+              disabled={orderRecovering}
+              aria-label={`Move ${item.title} down`}
               className="h-8 w-8 p-0"
             >
               ▼
@@ -652,6 +670,7 @@ export default function PortalMenuManagementPage() {
                 variant="ghost"
                 size="sm"
                 onClick={() => handleCreate(section, item.id)}
+                disabled={isOrderSaving || orderRecovering}
                 className="h-8 w-8 p-0"
               >
                 <Plus className="w-4 h-4" />
@@ -661,6 +680,7 @@ export default function PortalMenuManagementPage() {
               variant="ghost"
               size="sm"
               onClick={() => handleEdit(item)}
+              disabled={isOrderSaving || orderRecovering}
               className="h-8 w-8 p-0"
               aria-label={`Edit ${item.title}`}
             >
@@ -670,6 +690,7 @@ export default function PortalMenuManagementPage() {
               variant="ghost"
               size="sm"
               onClick={() => handleDelete(item)}
+              disabled={isOrderSaving || orderRecovering}
               className="h-8 w-8 p-0 text-red-600"
             >
               <Trash2 className="w-4 h-4" />
@@ -679,10 +700,13 @@ export default function PortalMenuManagementPage() {
 
         {hasChildren && isExpanded && (
           <div className="ml-8 space-y-2 mb-2">
+            <SortableContext items={item.children.map(child => child.id)} strategy={verticalListSortingStrategy}>
             {item.children.map(child => renderMenuItem(child, section, true))}
+            </SortableContext>
           </div>
         )}
-      </div>
+        </>}
+      </SortablePortalMenuItem>
     );
   };
 
@@ -714,10 +738,23 @@ export default function PortalMenuManagementPage() {
             Portal Menu Management
           </h1>
           <p className="text-slate-600">
-            Configure the portal navigation menu structure
+            Drag the handles or use the arrows to reorder items within their group.
           </p>
+          <p role="status" className="mt-2 text-sm text-slate-500">
+            {orderError ? 'The saved order could not be loaded. Reload before making more changes.' : orderRecovering ? 'Reloading saved order…' : isOrderSaving ? 'Saving order… You can keep reordering.' : 'Menu order is saved.'}
+          </p>
+          {orderError && <Button variant="outline" onClick={() => window.location.reload()}>Reload saved order</Button>}
         </div>
 
+        <DndContext sensors={sensors} collisionDetection={args => {
+          const activeItem = menuItems.find(item => item.id === args.active.id);
+          return closestCenter({ ...args, droppableContainers: args.droppableContainers.filter(container => {
+            const target = menuItems.find(item => item.id === container.id);
+            return target && activeItem && target.section === activeItem.section
+              && (target.parent_id || '') === (activeItem.parent_id || '');
+          }) });
+        }}
+          onDragEnd={({ active, over }) => { if (over && active.id !== over.id) moveItem(active.id, over.id); }}>
         <div className="grid md:grid-cols-2 gap-6">
           {/* User Navigation */}
           <Card>
@@ -729,6 +766,7 @@ export default function PortalMenuManagementPage() {
                 </CardTitle>
                 <Button
                   onClick={() => handleCreate('user')}
+                  disabled={isOrderSaving || orderRecovering}
                   size="sm"
                   className="gap-2"
                 >
@@ -744,7 +782,9 @@ export default function PortalMenuManagementPage() {
                 </div>
               ) : (
                 <div className="space-y-2">
+                  <SortableContext items={userMenu.map(item => item.id)} strategy={verticalListSortingStrategy}>
                   {userMenu.map(item => renderMenuItem(item, 'user'))}
+                  </SortableContext>
                 </div>
               )}
             </CardContent>
@@ -760,6 +800,7 @@ export default function PortalMenuManagementPage() {
                 </CardTitle>
                 <Button
                   onClick={() => handleCreate('admin')}
+                  disabled={isOrderSaving || orderRecovering}
                   size="sm"
                   className="gap-2"
                 >
@@ -775,12 +816,15 @@ export default function PortalMenuManagementPage() {
                 </div>
               ) : (
                 <div className="space-y-2">
+                  <SortableContext items={adminMenu.map(item => item.id)} strategy={verticalListSortingStrategy}>
                   {adminMenu.map(item => renderMenuItem(item, 'admin'))}
+                  </SortableContext>
                 </div>
               )}
             </CardContent>
           </Card>
         </div>
+        </DndContext>
 
         {/* Edit/Create Dialog */}
         <Dialog open={showDialog} onOpenChange={setShowDialog}>
