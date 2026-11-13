@@ -5,6 +5,7 @@ import { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/api/supabaseClient";
 import { Loader2, ArrowLeft, User, Pencil, Save, X, Building2, Mail, Smartphone, PhoneCall, Briefcase, Shield, CalendarDays, LogIn, Users, Globe, ClipboardList, FolderTree, Trophy, Award, StickyNote, Plus, Search, MessageSquare, Trash2, ChevronLeft, ChevronRight, Key, Copy, Check, UserCheck, LayoutGrid, ChevronDown, ChevronUp, ExternalLink, AlertTriangle, Wallet, Settings2, Tag, Lock, ClipboardCheck, Eye, GitMerge } from "lucide-react";
 import MemberEmails from "@/components/MemberEmails";
+import { MemberDocumentUpload, MemberNoteDocuments } from "@/components/MemberNoteDocuments";
 import MemberActivityTimeline from "@/components/MemberActivityTimeline";
 import MemberMembershipTab from "@/components/MemberMembershipTab";
 import MemberBadgesTab from "@/components/MemberBadgesTab";
@@ -2552,6 +2553,7 @@ export default function MemberDetail() {
 
         {/* Notes Tab */}
         <TabsContent value="notes" className="space-y-6">
+          <MemberDocumentUpload key={id} memberId={id} />
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -2686,6 +2688,7 @@ export default function MemberDetail() {
                           ) : (
                             <>
                               <p className="text-slate-700 dark:text-slate-200 whitespace-pre-wrap">{note.content}</p>
+                              <MemberNoteDocuments memberId={id} note={note} />
                               <div className="flex items-center justify-between text-sm">
                                 <div className="flex items-center gap-2 text-slate-500">
                                   <User className="w-3 h-3" />

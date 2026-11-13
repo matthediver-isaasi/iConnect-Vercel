@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import RoleBadge from "@/components/RoleBadge";
 import MemberLoginStatusBadge from "@/components/MemberLoginStatusBadge";
+import { MemberDocumentUpload, MemberNoteDocuments } from "@/components/MemberNoteDocuments";
 import GuestAccessControl from "@/components/GuestAccessControl";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -2388,6 +2389,7 @@ export default function MemberDetailView({
           </TabsContent>
 
           <TabsContent value="notes" className="space-y-6">
+            <MemberDocumentUpload key={member.id} memberId={member.id} />
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -2522,6 +2524,7 @@ export default function MemberDetailView({
                             ) : (
                               <>
                                 <p className="text-slate-700 dark:text-slate-200 whitespace-pre-wrap">{note.content}</p>
+                                <MemberNoteDocuments memberId={member.id} note={note} />
                                 <div className="flex items-center justify-between text-sm">
                                   <div className="flex items-center gap-2 text-slate-500">
                                     <User className="w-3 h-3" />

@@ -1,6 +1,9 @@
 import { getSessionMember } from '../../../../_lib/session.js';
 import { createClient } from '@supabase/supabase-js';
 import { isResourceExcluded } from '../../../../_lib/roleVisibility.js';
+import { uploadMemberNoteDocument, memberNoteDocumentUrl } from '../../../../_lib/memberNoteDocuments.js';
+import { checkStorageQuota } from '../../../../_lib/planQuota.js';
+import { addTenantStorageBytes } from '../../../../_lib/tenantStorageUsage.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -50,6 +53,7 @@ async function verifyAdminAccess(req) {
 }
 
 export default async function handler(req, res) {
+  res.setHeader('Cache-Control', 'private, no-store');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -82,6 +86,25 @@ export default async function handler(req, res) {
     .maybeSingle();
   if (targetError) return res.status(500).json({ error: targetError.message });
   if (!targetMember) return res.status(404).json({ error: 'Member not found' });
+
+  if (req.method === 'GET' && req.query.documentNoteId) {
+    try {
+      const url = await memberNoteDocumentUrl({ db: supabase, tenantId, memberId: targetMemberId,
+        noteId: req.query.documentNoteId, index: Number(req.query.documentIndex) });
+      return res.json({ url });
+    } catch (error) {
+      return res.status(error.status || 500).json({ error: error.message });
+    }
+  }
+  if (req.method === 'POST' && req.body?.document) {
+    try {
+      const note = await uploadMemberNoteDocument({ db: supabase, tenantId, memberId: targetMemberId,
+        authorId: memberId, document: req.body.document, quotaCheck: checkStorageQuota, accountBytes: addTenantStorageBytes });
+      return res.status(201).json({ ...note, author_name: memberName });
+    } catch (error) {
+      return res.status(error.status || 500).json({ error: error.message });
+    }
+  }
 
   if (req.method === 'GET') {
     try {
@@ -130,6 +153,9 @@ export default async function handler(req, res) {
   if (req.method === 'POST') {
     try {
       const { content, attachments } = req.body;
+      if (attachments?.length) {
+        return res.status(400).json({ error: 'Use Upload document to attach files securely.' });
+      }
 
       if (!content || !content.trim()) {
         return res.status(400).json({ error: 'Note content is required' });

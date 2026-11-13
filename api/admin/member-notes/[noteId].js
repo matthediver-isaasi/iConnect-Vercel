@@ -1,6 +1,8 @@
 import { getSessionMember } from '../../_lib/session.js';
 import { createClient } from '@supabase/supabase-js';
 import { isResourceExcluded } from '../../_lib/roleVisibility.js';
+import { removeMemberNoteDocuments } from '../../_lib/memberNoteDocuments.js';
+import { addTenantStorageBytes } from '../../_lib/tenantStorageUsage.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -28,6 +30,7 @@ async function verifyAdminAccess(req) {
       .from('role')
       .select('excluded_features')
       .eq('id', sessionMember.role_id)
+      .eq('tenant_id', sessionMember.tenant_id)
       .single();
 
     if (roleError || !role) {
@@ -38,7 +41,7 @@ async function verifyAdminAccess(req) {
     const isAdmin = !isResourceExcluded(excludedFeatures, 'admin.role-management');
     
     if (isAdmin) {
-      return { hasAccess: true, memberId: sessionMember.id };
+      return { hasAccess: true, memberId: sessionMember.id, tenantId: sessionMember.tenant_id };
     }
 
     return { hasAccess: false, memberId: sessionMember.id };
@@ -58,7 +61,7 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  const { hasAccess, error, memberId } = await verifyAdminAccess(req);
+  const { hasAccess, error, memberId, tenantId } = await verifyAdminAccess(req);
 
   if (error) {
     return res.status(401).json({ error });
@@ -73,6 +76,14 @@ export default async function handler(req, res) {
   }
 
   const { noteId } = req.query;
+  const { data: scopedNote, error: noteError } = await supabase.from('member_note')
+    .select('id,target_member_id,attachments').eq('id', noteId).maybeSingle();
+  if (noteError) return res.status(500).json({ error: 'Could not load note' });
+  if (!scopedNote) return res.status(404).json({ error: 'Note not found' });
+  const { data: targetMember, error: targetError } = await supabase.from('member')
+    .select('id').eq('id', scopedNote.target_member_id).eq('tenant_id', tenantId).maybeSingle();
+  if (targetError) return res.status(500).json({ error: 'Could not verify note access' });
+  if (!targetMember) return res.status(404).json({ error: 'Note not found' });
 
   if (req.method === 'PATCH') {
     try {
@@ -89,6 +100,7 @@ export default async function handler(req, res) {
           updated_at: new Date().toISOString()
         })
         .eq('id', noteId)
+        .eq('target_member_id', targetMember.id)
         .select()
         .single();
 
@@ -109,14 +121,17 @@ export default async function handler(req, res) {
       const { error: deleteError } = await supabase
         .from('member_note')
         .delete()
-        .eq('id', noteId);
+        .eq('id', noteId)
+        .eq('target_member_id', targetMember.id);
 
       if (deleteError) {
         console.error('[Delete Member Note] Error:', deleteError);
         return res.status(500).json({ error: deleteError.message });
       }
 
-      return res.json({ success: true });
+      const documentsRemoved = await removeMemberNoteDocuments({ db: supabase, tenantId, memberId: targetMember.id,
+        attachments: scopedNote.attachments, accountBytes: addTenantStorageBytes });
+      return res.json({ success: true, documentsRemoved });
     } catch (error) {
       console.error('[Delete Member Note] Error:', error);
       return res.status(500).json({ error: 'Failed to delete note' });
