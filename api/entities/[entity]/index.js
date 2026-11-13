@@ -114,6 +114,7 @@ import { evaluateGalleryAccessPolicy, validateGalleryAccessPolicy } from '../../
 import { validateFormStripeAddressMappingConfig } from '../../_lib/formStripeAddressMappingConfig.js';
 import { validateFormRowSourceConfiguration } from '../../_lib/formRowSourceConfiguration.js';
 import { validateFormGroupInitialSelection } from '../../_lib/formGroupInitialSelection.js';
+import { validateFormOwners } from '../../_lib/formOwners.js';
 import { resolveTrustedSchemaCapabilities } from '../../_lib/customObjectSchemaAccess.js';
 import {
   computeAuthoritativeHiddenFieldIds,
@@ -1732,6 +1733,8 @@ export default async function handler(req, res) {
       }
 
       if (entityNorm === 'form') {
+        const ownerError = await validateFormOwners({ db: supabase, tenantId: tenantCtx.tenantId, payload: sanitizedBody });
+        if (ownerError) return res.status(422).json({ error: ownerError, code: 'INVALID_FORM_OWNERS' });
         try {
           await validateBundleConfiguration(supabase, { ...sanitizedBody, tenant_id: tenantCtx.tenantId });
         } catch (error) {

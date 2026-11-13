@@ -9,7 +9,7 @@ function getMemberLabel(member) {
 
 /**
  * Lets a form admin assign any number of members as owners of a form.
- * Reuses MemberCombobox (tenant-wide member search) to add owners one at a time,
+ * Reuses MemberCombobox (default-organisation search) to add owners one at a time,
  * and shows the current selection as removable badges. Owner display names are
  * resolved via /api/members/by-ids so reopened forms render real names.
  */
@@ -65,6 +65,7 @@ export default function FormOwnersSelector({ owners = [], onChange }) {
         placeholder="Search members by name or email..."
         unassignedLabel="Add an owner..."
         testId="combobox-form-owner"
+        organizationId="__form_owners__"
       />
 
       {owners.length > 0 ? (

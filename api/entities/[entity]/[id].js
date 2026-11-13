@@ -127,6 +127,7 @@ import { enrichMembersWithDepartments, MemberDepartmentError } from '../../_lib/
 import { validateFormStripeAddressMappingConfig } from '../../_lib/formStripeAddressMappingConfig.js';
 import { validateFormRowSourceConfiguration } from '../../_lib/formRowSourceConfiguration.js';
 import { validateFormGroupInitialSelection } from '../../_lib/formGroupInitialSelection.js';
+import { validateFormOwners } from '../../_lib/formOwners.js';
 import { resolveTrustedSchemaCapabilities } from '../../_lib/customObjectSchemaAccess.js';
 import { computeAuthoritativeHiddenFieldIds } from '../../_lib/formFieldVisibility.js';
 import { validateFutureDateFields } from '../../../shared/formFutureDates.js';
@@ -1468,6 +1469,10 @@ export default async function handler(req, res, dependencies = {}) {
       }
 
       if (entityNormalized === 'form') {
+        const ownerError = await validateFormOwners({
+          db: supabase, tenantId: tenantCtx.effectiveTenantId || tenantCtx.tenantId, payload: sanitizedBody,
+        });
+        if (ownerError) return res.status(422).json({ error: ownerError, code: 'INVALID_FORM_OWNERS' });
         const { data: bundleForm, error: bundleFormError } = await supabase.from('form').select('*')
           .eq('id', id).eq('tenant_id', tenantCtx.effectiveTenantId || tenantCtx.tenantId).maybeSingle();
         if (bundleFormError) throw bundleFormError;

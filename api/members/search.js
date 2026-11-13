@@ -1,5 +1,6 @@
 import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tenantContext.js';
 import { supabase } from '../_lib/database.js';
+import { resolveFormOwnerOrganization } from '../_lib/formOwners.js';
 
 // Resolve the tenant's primary organisation (is_primary=true, created at
 // provisioning). Falls back to the tenant's earliest-created organisation when
@@ -86,7 +87,11 @@ export default async function handler(req, res) {
     // - any other value (org UUID)    => members in that organisation
     if (organizationId) {
       const noOrgValues = ['none', '__no_org__', 'null'];
-      if (organizationId === '__primary__') {
+      if (organizationId === '__form_owners__') {
+        const ownerOrgId = await resolveFormOwnerOrganization(supabase, tenantId);
+        if (!ownerOrgId) return res.json([]);
+        memberQuery = memberQuery.eq('organization_id', ownerOrgId);
+      } else if (organizationId === '__primary__') {
         const primaryOrgId = await resolvePrimaryOrganizationId(tenantId);
         if (!primaryOrgId) {
           // Tenant has no organisations at all — nothing can match the filter.

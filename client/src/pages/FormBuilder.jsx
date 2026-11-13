@@ -13843,7 +13843,7 @@ function FormBuilderEditor() {
                 Owners
               </CardTitle>
               <p className="text-sm text-muted-foreground mt-1">
-                Assign members as owners of this form. Owners get a dedicated "My Forms" tab on the Form Submissions page that lists only the submissions for forms they own.
+                Assign members from your tenant's default organisation as owners of this form. Owners get a dedicated "My Forms" tab on the Form Submissions page that lists only the submissions for forms they own.
               </p>
             </CardHeader>
             <CardContent>
