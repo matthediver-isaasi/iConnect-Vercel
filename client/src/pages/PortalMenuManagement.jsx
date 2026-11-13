@@ -174,6 +174,7 @@ const builtInPages = [
   { value: "MemberRoleAssignment", label: "Member Role Assignment" },
   { value: "MemberRoleReport", label: "Member Role Report" },
   { value: "members", label: "Members (CRM)" },
+  { value: "MicrositeManagement", label: "Microsite Management", featureId: "site-builder.micro-sites" },
   { value: "MyBookings", label: "My Bookings" },
   { value: "CpdPoints", route: "cpdpoints", label: "My CPD Points" },
   { value: "MyJobPostings", label: "My Job Postings" },
