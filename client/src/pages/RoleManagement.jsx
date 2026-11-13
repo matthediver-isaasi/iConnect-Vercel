@@ -641,7 +641,6 @@ export default function RoleManagementPage() {
       default_landing_page: editingRole.default_landing_page || "about-me",
       layout_theme: editingRole.layout_theme || "default",
       requires_effective_from_date: editingRole.requires_effective_from_date || false,
-      is_tenant_admin: editingRole.is_tenant_admin || false,
       badge_image_url: editingRole.badge_image_url || null,
       badge_background_colour: editingRole.badge_background_colour || null,
       badge_text_colour: editingRole.badge_text_colour || null,
@@ -1349,21 +1348,6 @@ export default function RoleManagementPage() {
                       {roles.filter((role) => role.is_tenant_admin !== true).length === 0 && (
                         <p className="text-xs text-slate-500">No eligible destination roles are available.</p>
                       )}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-3 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                    <Switch
-                      id="is-tenant-admin"
-                      checked={editingRole.is_tenant_admin || false}
-                      onCheckedChange={(checked) => setEditingRole({ ...editingRole, is_tenant_admin: checked })}
-                      data-testid="switch-tenant-admin"
-                    />
-                    <div className="flex-1">
-                      <Label htmlFor="is-tenant-admin" className="cursor-pointer font-medium text-blue-900">Tenant level admin</Label>
-                      <p className="text-xs text-blue-700 mt-1">
-                        Marks this as a tenant-level admin role. It will be hidden from the Role selector in the Edit Member modal on the Team page.
-                      </p>
                     </div>
                   </div>
 
