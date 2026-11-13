@@ -22,3 +22,16 @@ test("existing customised layouts are not repopulated with new billing fields", 
     assert.deepEqual(merge(structuredClone(layout), []), layout);
   }
 });
+
+test("organisation training fund visibility survives layout merges and saving", () => {
+  for (const visible of [true, false]) {
+    const layout = { showTrainingFund: visible, cards: [{
+      id: 'details', title: 'Details', columns: 1,
+      fields: [{ id: 'core:name', fieldKey: 'name', type: 'core', columnIndex: 0 }],
+    }] };
+    const merged = mergeOrg(layout, [{ id: 'new-field', label: 'New field' }]);
+    assert.equal(merged.showTrainingFund, visible);
+    assert.equal(JSON.parse(JSON.stringify(merged)).showTrainingFund, visible);
+  }
+  assert.notEqual(mergeOrg({ cards: [] }, []).showTrainingFund, false, 'Legacy layouts remain visible by default');
+});

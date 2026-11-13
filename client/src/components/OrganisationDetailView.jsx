@@ -2124,6 +2124,7 @@ export default function OrganisationDetailView({
       {showLayoutEditor && (
         <OrgDetailLayoutEditor
           layout={effectiveLayout}
+          showTrainingFundSetting
           customFields={orgCustomFields}
           relationshipPanels={relatedRecords.panels}
           onSave={async (newLayout) => {
@@ -2196,21 +2197,19 @@ export default function OrganisationDetailView({
 
             {!isNew && (
               <div className="space-y-6">
-                {!hideTrainingFundCard && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-base flex items-center gap-2">
-                        <Wallet className="w-4 h-4 text-green-600" />
-                        Training Fund
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="text-center py-4">
-                        <p className="text-3xl font-bold text-green-600">
+                {!hideTrainingFundCard && !isLayoutLoading && effectiveLayout.showTrainingFund !== false && (
+                  <Card data-testid="organisation-training-fund-card">
+                    <CardContent className="p-4 flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <h3 className="text-sm font-medium flex items-center gap-2">
+                          <Wallet className="w-4 h-4 text-green-600" />
+                          Training Fund
+                        </h3>
+                        <p className="text-xs text-slate-500 mt-1">Available balance</p>
+                      </div>
+                        <p className="text-xl font-semibold text-green-600 tabular-nums">
                           £{(organization?.training_fund_balance || 0).toFixed(2)}
                         </p>
-                        <p className="text-sm text-slate-500 mt-1">Available Balance</p>
-                      </div>
                     </CardContent>
                   </Card>
                 )}

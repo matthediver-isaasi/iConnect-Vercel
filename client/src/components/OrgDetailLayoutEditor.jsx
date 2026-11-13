@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { 
@@ -44,6 +45,7 @@ export default function OrgDetailLayoutEditor({
   onCancel,
   isSaving,
   coreFields = CORE_FIELDS,
+  showTrainingFundSetting = false,
   title = 'Customize Organisation Layout'
 }) {
   const [editedLayout, setEditedLayout] = useState(null);
@@ -287,6 +289,17 @@ export default function OrgDetailLayoutEditor({
         </div>
 
         <div className="flex-1 overflow-auto p-4">
+          {showTrainingFundSetting && (
+            <div className="mb-4 flex items-center justify-between gap-4 rounded-lg border p-3">
+              <div>
+                <Label htmlFor="layout-training-fund">Show Training Fund card</Label>
+                <p className="text-xs text-slate-500 mt-1">Applies to organisation detail views. Existing role permissions still apply.</p>
+              </div>
+              <Switch id="layout-training-fund" checked={editedLayout.showTrainingFund !== false}
+                disabled={isSaving}
+                onCheckedChange={checked => setEditedLayout(current => ({ ...current, showTrainingFund: checked }))} />
+            </div>
+          )}
           <DragDropContext onDragEnd={handleDragEnd}>
             <div className="flex gap-4">
               <div className="flex-1 space-y-4">
