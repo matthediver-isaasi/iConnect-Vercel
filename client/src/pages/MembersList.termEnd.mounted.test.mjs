@@ -89,6 +89,31 @@ const dispatch = async (node, type) => act(async () => {
 });
 after(() => { dom.window.close(); delete globalThis.__termFixture; });
 
+test('disabled-member toggle uses server status filtering and follows saved views', async () => {
+  localStorage.clear();
+  globalThis.__termFixture.settings = [];
+  globalThis.__termFixture.defaultView = null;
+  requests.length = 0;
+  let close = await mount();
+  const toggle = () => document.querySelector('[data-testid="switch-show-disabled-members"]');
+  assert.equal(toggle().getAttribute('aria-checked'), 'true');
+  await dispatch(toggle(), 'click');
+  await until(() => requests.some(url => url.includes('status=active')));
+  assert.equal(toggle().getAttribute('aria-checked'), 'false');
+  requests.length = 0;
+  await dispatch(toggle(), 'click');
+  await until(() => requests.some(url => url.includes('status=all')));
+  assert.equal(toggle().getAttribute('aria-checked'), 'true');
+  await close();
+  for (const status of ['active', 'disabled']) {
+    globalThis.__termFixture.defaultView = { id: `status-${status}`, columns: [], filters: { statusFilter: status } };
+    close = await mount();
+    assert.equal(toggle().getAttribute('aria-checked'), status === 'active' ? 'false' : 'true');
+    await close();
+  }
+  globalThis.__termFixture.defaultView = null;
+});
+
 test('older preferences discover hidden date; enable, reorder, reload and reset preserve normal column behaviour', async () => {
   localStorage.setItem('members_list_columns_fixture', JSON.stringify([
     {id:'name',label:'Member',visible:true,locked:true},

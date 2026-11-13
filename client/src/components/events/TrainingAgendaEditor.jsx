@@ -22,6 +22,7 @@ import { inferAgendaTypeBehaviour } from "@/hooks/useAgendaItemTypes";
 import EventSponsorSelector from "@/components/events/EventSponsorSelector";
 import AttendancePolicyEditor from "@/components/events/AttendancePolicyEditor";
 import TeamsMeetingConfig from "@/components/events/TeamsMeetingConfig";
+import ZoomSessionPicker from "@/components/events/ZoomSessionPicker";
 import {
   hasSupportedAttendanceTarget,
   normalizeAttendancePolicy,
@@ -233,19 +234,17 @@ export default function TrainingAgendaEditor({
   };
 
   // Same source as the event-level picker: future scheduled webinars/meetings only.
-  const { data: webinars = [], isLoading: loadingWebinars } = useQuery({
-    queryKey: ['/api/zoom/webinars'],
+  const { data: webinars = [], isLoading: loadingWebinars, error: webinarsError, refetch: retryWebinars } = useQuery({
+    queryKey: ['/api/zoom/webinars', 'event-link-options'],
     queryFn: async () => {
-      const data = await fetchJson('/api/zoom/webinars');
-      return data.filter((w) => w.status === 'scheduled' && new Date(w.start_time) > new Date());
+      return fetchJson('/api/zoom/webinars?upcoming=true&status=scheduled');
     },
     enabled: anyOnline,
   });
-  const { data: meetings = [], isLoading: loadingMeetings } = useQuery({
-    queryKey: ['/api/zoom/meetings'],
+  const { data: meetings = [], isLoading: loadingMeetings, error: meetingsError, refetch: retryMeetings } = useQuery({
+    queryKey: ['/api/zoom/meetings', 'event-link-options'],
     queryFn: async () => {
-      const data = await fetchJson('/api/zoom/meetings');
-      return data.filter((m) => m.status === 'scheduled' && new Date(m.start_time) > new Date());
+      return fetchJson('/api/zoom/meetings?upcoming=true&status=scheduled');
     },
     enabled: anyOnline,
   });
@@ -439,37 +438,17 @@ export default function TrainingAgendaEditor({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label className="text-xs flex items-center gap-1">{behaviourIcon(behaviour)} Webinar</Label>
-                  <Select
-                    value={line.zoom_webinar_id || undefined}
-                    onValueChange={(value) => updateLine(index, { zoom_webinar_id: value, zoom_meeting_id: null })}
-                  >
-                    <SelectTrigger data-testid={`select-agenda-webinar-${index}`}>
-                      <SelectValue placeholder={loadingWebinars ? 'Loading…' : 'Select a webinar'} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {webinars.length === 0 && <SelectItem value="__none" disabled>No upcoming webinars</SelectItem>}
-                      {webinars.map((w) => (
-                        <SelectItem key={w.id} value={w.id}>{w.topic || 'Untitled webinar'}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <ZoomSessionPicker items={webinars} value={line.zoom_webinar_id || ''}
+                    onValueChange={value => updateLine(index, { zoom_webinar_id: value, zoom_meeting_id: null })}
+                    loading={loadingWebinars} error={webinarsError} onRetry={retryWebinars}
+                    kind="webinar" testId={`select-agenda-webinar-${index}`} />
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">or Meeting</Label>
-                  <Select
-                    value={line.zoom_meeting_id || undefined}
-                    onValueChange={(value) => updateLine(index, { zoom_meeting_id: value, zoom_webinar_id: null })}
-                  >
-                    <SelectTrigger data-testid={`select-agenda-meeting-${index}`}>
-                      <SelectValue placeholder={loadingMeetings ? 'Loading…' : 'Select a meeting'} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {meetings.length === 0 && <SelectItem value="__none" disabled>No upcoming meetings</SelectItem>}
-                      {meetings.map((m) => (
-                        <SelectItem key={m.id} value={m.id}>{m.topic || 'Untitled meeting'}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <ZoomSessionPicker items={meetings} value={line.zoom_meeting_id || ''}
+                    onValueChange={value => updateLine(index, { zoom_meeting_id: value, zoom_webinar_id: null })}
+                    loading={loadingMeetings} error={meetingsError} onRetry={retryMeetings}
+                    kind="meeting" testId={`select-agenda-meeting-${index}`} />
                 </div>
               </div>
               ) : (

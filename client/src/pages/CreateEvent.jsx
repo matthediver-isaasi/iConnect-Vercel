@@ -6,6 +6,7 @@ import EventRegistrationCommunication, { saveEventRegistrationCommunication } fr
 import PublicTicketMemberFields from "@/components/events/PublicTicketMemberFields";
 import { deriveTrainingAgendaBounds } from "@shared/trainingAgendaBounds.js";
 import { getZoomWebinarEndTime } from "@shared/zoomWebinarTiming.js";
+import ZoomSessionPicker from "@/components/events/ZoomSessionPicker";
 import { ticketMemberPolicy, updateTicketMemberField, validateTicketMemberPolicies } from "@/utils/publicTicketMembers";
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -666,20 +667,18 @@ export default function CreateEvent() {
       .join(', ');
   };
 
-  const { data: webinars = [], isLoading: loadingWebinars } = useQuery({
-    queryKey: ['/api/zoom/webinars'],
+  const { data: webinars = [], isLoading: loadingWebinars, error: webinarsError, refetch: retryWebinars } = useQuery({
+    queryKey: ['/api/zoom/webinars', 'event-link-options'],
     queryFn: async () => {
-      const data = await apiRequest('/api/zoom/webinars');
-      return data.filter(w => w.status === 'scheduled' && new Date(w.start_time) > new Date());
+      return apiRequest('/api/zoom/webinars?upcoming=true&status=scheduled');
     },
     enabled: isOnline && zoomType === 'webinar'
   });
 
-  const { data: meetings = [], isLoading: loadingMeetings } = useQuery({
-    queryKey: ['/api/zoom/meetings'],
+  const { data: meetings = [], isLoading: loadingMeetings, error: meetingsError, refetch: retryMeetings } = useQuery({
+    queryKey: ['/api/zoom/meetings', 'event-link-options'],
     queryFn: async () => {
-      const data = await apiRequest('/api/zoom/meetings');
-      return data.filter(m => m.status === 'scheduled' && new Date(m.start_time) > new Date());
+      return apiRequest('/api/zoom/meetings?upcoming=true&status=scheduled');
     },
     enabled: isOnline && zoomType === 'meeting'
   });
@@ -1733,38 +1732,9 @@ export default function CreateEvent() {
                     <>
                       <div className="space-y-2">
                         <Label>Select Zoom Webinar</Label>
-                        <Select
-                          value={selectedWebinarId}
-                          onValueChange={setSelectedWebinarId}
-                          disabled={loadingWebinars}
-                          data-testid="select-webinar"
-                        >
-                          <SelectTrigger data-testid="select-webinar-trigger">
-                            <SelectValue placeholder={loadingWebinars ? "Loading webinars..." : "Choose a scheduled webinar"} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {webinars.length === 0 && !loadingWebinars && (
-                              <div className="p-4 text-center text-sm text-slate-500">
-                                No upcoming webinars available.
-                                <Button 
-                                  variant="link" 
-                                  className="p-0 h-auto ml-1"
-                                  onClick={() => window.location.href = createPageUrl('ZoomWebinarProvisioning')}
-                                >
-                                  Create one first
-                                </Button>
-                              </div>
-                            )}
-                            {webinars.map((webinar) => (
-                              <SelectItem key={webinar.id} value={webinar.id} data-testid={`select-webinar-${webinar.id}`}>
-                                <div className="flex flex-col">
-                                  <span className="font-medium">{webinar.topic}</span>
-                                  <span className="text-xs text-slate-500">{formatWebinarDateTime(webinar)}</span>
-                                </div>
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <ZoomSessionPicker items={webinars} value={selectedWebinarId} onValueChange={setSelectedWebinarId}
+                          loading={loadingWebinars} error={webinarsError} onRetry={retryWebinars} kind="webinar"
+                          formatDate={formatWebinarDateTime} testId="select-webinar-trigger" />
                       </div>
 
                       {selectedWebinar && (
@@ -1805,38 +1775,9 @@ export default function CreateEvent() {
                     <>
                       <div className="space-y-2">
                         <Label>Select Zoom Meeting</Label>
-                        <Select
-                          value={selectedMeetingId}
-                          onValueChange={setSelectedMeetingId}
-                          disabled={loadingMeetings}
-                          data-testid="select-meeting"
-                        >
-                          <SelectTrigger data-testid="select-meeting-trigger">
-                            <SelectValue placeholder={loadingMeetings ? "Loading meetings..." : "Choose a scheduled meeting"} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {meetings.length === 0 && !loadingMeetings && (
-                              <div className="p-4 text-center text-sm text-slate-500">
-                                No upcoming meetings available.
-                                <Button 
-                                  variant="link" 
-                                  className="p-0 h-auto ml-1"
-                                  onClick={() => window.location.href = createPageUrl('ZoomWebinarProvisioning')}
-                                >
-                                  Create one first
-                                </Button>
-                              </div>
-                            )}
-                            {meetings.map((meeting) => (
-                              <SelectItem key={meeting.id} value={meeting.id} data-testid={`select-meeting-${meeting.id}`}>
-                                <div className="flex flex-col">
-                                  <span className="font-medium">{meeting.topic}</span>
-                                  <span className="text-xs text-slate-500">{formatWebinarDateTime(meeting)}</span>
-                                </div>
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <ZoomSessionPicker items={meetings} value={selectedMeetingId} onValueChange={setSelectedMeetingId}
+                          loading={loadingMeetings} error={meetingsError} onRetry={retryMeetings} kind="meeting"
+                          formatDate={formatWebinarDateTime} testId="select-meeting-trigger" />
                       </div>
 
                       {selectedMeeting && (

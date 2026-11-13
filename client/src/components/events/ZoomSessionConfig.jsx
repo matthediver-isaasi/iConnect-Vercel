@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { Video, Users, Check, LinkIcon } from "lucide-react";
+import ZoomSessionPicker from "@/components/events/ZoomSessionPicker";
 
 async function fetchZoomList(url) {
   const response = await fetch(url, { credentials: 'include' });
@@ -52,10 +53,9 @@ export default function ZoomSessionConfig({
   const isWebinar = zoomType === 'webinar';
   const listUrl = isWebinar ? '/api/zoom/webinars' : '/api/zoom/meetings';
   const { data: upcomingItems = [], isLoading: loadingItems, isError: listError } = useQuery({
-    queryKey: [listUrl],
+    queryKey: [listUrl, 'event-link-options'],
     queryFn: async () => {
-      const data = await fetchZoomList(listUrl);
-      return data.filter(item => item.status === 'scheduled' && new Date(item.start_time) > new Date());
+      return fetchZoomList(`${listUrl}?upcoming=true&status=scheduled`);
     },
     staleTime: 60000,
     enabled: zoomLinkMode === 'link_existing',
@@ -223,38 +223,10 @@ export default function ZoomSessionConfig({
               </>
             ) : (
               <>
-                <Select
-                  value={storedId}
-                  onValueChange={(value) => onUpdate({ link_existing_zoom_id: value })}
-                  disabled={loadingItems}
-                >
-                  <SelectTrigger data-testid={`select-session-existing-zoom-trigger${testIdSuffix}`}>
-                    <SelectValue placeholder={loadingItems ? `Loading ${typeLabel}s...` : `Choose a scheduled ${typeLabel}`} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {upcomingItems.length === 0 && !loadingItems && !storedIdMissingFromList && (
-                      <div className="p-4 text-center text-sm text-slate-500">
-                        No upcoming {typeLabel}s available.
-                      </div>
-                    )}
-                    {storedIdMissingFromList && (
-                      <SelectItem value={storedId} data-testid={`select-session-existing-zoom-stored${testIdSuffix}`}>
-                        <div className="flex flex-col">
-                          <span className="font-medium">Zoom ID: {storedId}</span>
-                          <span className="text-xs text-slate-500">Previously entered (not in upcoming list)</span>
-                        </div>
-                      </SelectItem>
-                    )}
-                    {upcomingItems.map((item) => (
-                      <SelectItem key={item.id} value={zoomIdOf(item)} data-testid={`select-session-existing-zoom-${item.id}${testIdSuffix}`}>
-                        <div className="flex flex-col">
-                          <span className="font-medium">{item.topic}</span>
-                          <span className="text-xs text-slate-500">{formatZoomItemDateTime(item)}</span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <ZoomSessionPicker items={upcomingItems} value={storedId}
+                  onValueChange={value => onUpdate({ link_existing_zoom_id: value })}
+                  loading={loadingItems} kind={typeLabel} getValue={zoomIdOf}
+                  formatDate={formatZoomItemDateTime} testId={`select-session-existing-zoom-trigger${testIdSuffix}`} />
                 <p className="text-xs text-blue-700">
                   Choose an upcoming Zoom {typeLabel} to link to this session.
                 </p>

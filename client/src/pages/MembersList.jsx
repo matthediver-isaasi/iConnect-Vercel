@@ -8,6 +8,7 @@ import RoleBadge from "@/components/RoleBadge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -1972,6 +1973,21 @@ function MembersListPageInner({ access }) {
                   <Users className="w-4 h-4" />
                   Add {memberLabel}
                 </Button>
+                <div className="flex items-center gap-2">
+                  <Switch
+                    id="show-disabled-members"
+                    data-testid="switch-show-disabled-members"
+                    checked={statusFilter !== 'active'}
+                    disabled={!filtersReady}
+                    onCheckedChange={(show) => {
+                      setStatusFilter(show ? 'all' : 'active');
+                      setCurrentPage(1);
+                    }}
+                  />
+                  <Label htmlFor="show-disabled-members" className="text-sm text-slate-600 cursor-pointer">
+                    Show disabled members
+                  </Label>
+                </div>
                 <label className="flex items-center gap-2 text-sm text-slate-600">
                   <span>Sort</span>
                   <select
