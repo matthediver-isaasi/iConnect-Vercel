@@ -18,10 +18,18 @@ export default async function handler(req, res) {
   const { tenantId } = tenantContext;
 
   try {
-    const { data: lists, error } = await supabase
+    const ids = req.body?.ids;
+    if (ids !== undefined && (!Array.isArray(ids) || ids.length > 50 ||
+        ids.some(id => typeof id !== 'string' || !/^[0-9a-f-]{36}$/i.test(id)))) {
+      return res.status(400).json({ error: 'Invalid audience list selection.' });
+    }
+    if (Array.isArray(ids) && !ids.length) return res.json({ success: true, counts: {}, errors: {} });
+    let query = supabase
       .from('audience_list')
       .select('id, target_audiences, ignore_opt_outs')
       .eq('tenant_id', tenantId);
+    if (ids) query = query.in('id', ids);
+    const { data: lists, error } = await query;
 
     if (error) {
       console.error('[AudienceListCounts] Fetch error:', error);

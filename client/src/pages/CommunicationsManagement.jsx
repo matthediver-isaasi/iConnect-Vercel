@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Mail, Plus, Pencil, Trash2, Users, Shield, AlertTriangle, Download, Loader2, ChevronLeft, ChevronRight, ChevronDown, X, RefreshCw, Link2, Unlink, Send, Globe, ListFilter, Check, Save, Search, UserX, Eye } from "lucide-react";
+import { Mail, Plus, Pencil, Trash2, Users, Shield, AlertTriangle, Download, Loader2, ChevronLeft, ChevronRight, ChevronDown, X, RefreshCw, Link2, Unlink, Send, Globe, ListFilter, Check, Save, Search, UserX, Eye, Copy } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
@@ -21,6 +21,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import EmailCampaigns from "@/components/EmailCampaigns";
 import MemberCommunicationStatusReport from "@/components/communications/MemberCommunicationStatusReport";
 import HardBouncedAddressesReport from "@/components/communications/HardBouncedAddressesReport";
+import DuplicateAudienceListDialog from "@/components/communications/DuplicateAudienceListDialog";
 import CustomObjectAudienceCondition, { customObjectConditionError, customObjectSummary } from "@/components/communications/CustomObjectAudienceCondition";
 import EventSurveyAudiencePicker from "@/components/communications/EventSurveyAudiencePicker";
 import { FieldConditionRow } from "@/components/audience/FieldConditionEditor";
@@ -67,6 +68,15 @@ export default function CommunicationsManagementPage() {
   const [syncProgress, setSyncProgress] = useState(null); // { categoryId, processed, total, subscribed, unsubscribed, errors }
   const [activeJobId, setActiveJobId] = useState(null);
   const [communicationsTab, setCommunicationsTab] = useState('campaigns');
+  const [listSearch, setListSearch] = useState('');
+  const [debouncedListSearch, setDebouncedListSearch] = useState('');
+  const [listPage, setListPage] = useState(1);
+  const [listPageSize, setListPageSize] = useState(10);
+  const [duplicatingList, setDuplicatingList] = useState(null);
+  useEffect(() => {
+    const timer = setTimeout(() => { setDebouncedListSearch(listSearch.trim()); setListPage(1); }, 300);
+    return () => clearTimeout(timer);
+  }, [listSearch]);
 
   const [expandedCategories, setExpandedCategories] = useState({});
 
@@ -304,25 +314,45 @@ export default function CommunicationsManagementPage() {
     queryKey: ['audience-lists'],
     queryFn: async () => {
       const response = await fetch('/api/audience-lists', { credentials: 'include' });
-      if (!response.ok) return [];
+      if (!response.ok) throw new Error('Audience lists could not be loaded.');
       return response.json();
     },
     staleTime: 30000,
   });
 
+  const { data: listPageData, isFetching: listPageLoading, error: listPageError, refetch: retryListPage } = useQuery({
+    queryKey: ['audience-lists', 'page', debouncedListSearch, listPage, listPageSize],
+    enabled: communicationsTab === 'lists',
+    queryFn: async ({ signal }) => {
+      const params = new URLSearchParams({ page: String(listPage), pageSize: String(listPageSize), search: debouncedListSearch });
+      const response = await fetch(`/api/audience-lists?${params}`, { credentials: 'include', signal });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Audience lists could not be loaded.');
+      return data;
+    },
+    staleTime: 30000,
+  });
+  const visibleAudienceLists = listPageData?.lists || [];
+  const listTotal = listPageData?.total || 0;
+  const listTotalPages = Math.max(1, Math.ceil(listTotal / listPageSize));
+  useEffect(() => {
+    if (listPageData && listPage > listTotalPages) setListPage(listTotalPages);
+  }, [listPageData, listPage, listTotalPages]);
+  const visibleListIds = visibleAudienceLists.map(list => list.id);
   const { data: audienceCountResult = {}, isLoading: audienceCountsLoading, error: audienceCountsError, refetch: retryAudienceCounts } = useQuery({
-    queryKey: ['audience-list-counts'],
+    queryKey: ['audience-list-counts', visibleListIds],
     queryFn: async () => {
       const response = await fetch('/api/audience-lists/counts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
+        body: JSON.stringify({ ids: visibleListIds }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Unable to load audience counts.');
       return data;
     },
-    enabled: audienceLists.length > 0,
+    enabled: communicationsTab === 'lists' && visibleListIds.length > 0,
     staleTime: 30000,
   });
   const audienceListCounts = audienceCountResult.counts || {};
@@ -793,9 +823,15 @@ export default function CommunicationsManagementPage() {
       });
       if (response.ok) {
         toast.success(isCreating ? 'Audience list created' : 'Audience list updated');
+        if (isCreating) {
+          setListSearch(editListName.trim());
+          setDebouncedListSearch(editListName.trim());
+          setListPage(1);
+        }
         if (isCreating && editListAudiences.length === 0) toast.message('This list has no dynamic segments yet. Add external contacts from the list card.');
         setShowEditListDialog(false);
         queryClient.invalidateQueries({ queryKey: ['audience-lists'] });
+        queryClient.invalidateQueries({ queryKey: ['audience-list-counts'] });
       } else {
         const err = await response.json();
         toast.error(err.error || `Failed to ${isCreating ? 'create' : 'update'} list`);
@@ -1713,10 +1749,32 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                   </Button>
                 </div>
 
-                {audienceLists.length === 0 ? (
+                <div className="mb-4 flex flex-wrap items-center gap-3">
+                  <div className="relative flex-1 min-w-[220px]">
+                    <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" aria-hidden="true" />
+                    <Input className="pl-9 pr-10" aria-label="Search audience lists" placeholder="Search lists by name…"
+                      value={listSearch} maxLength={200} onChange={e => setListSearch(e.target.value)} />
+                    {listSearch && <Button type="button" variant="ghost" size="icon" className="absolute right-0 top-0"
+                      aria-label="Clear list search" onClick={() => setListSearch('')}><X className="w-4 h-4" /></Button>}
+                  </div>
+                  <Select value={String(listPageSize)} onValueChange={value => { setListPageSize(Number(value)); setListPage(1); }}>
+                    <SelectTrigger className="w-40" aria-label="Lists per page"><SelectValue /></SelectTrigger>
+                    <SelectContent>{[10, 25, 50].map(size => <SelectItem key={size} value={String(size)}>{size} per page</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+
+                {listPageError ? (
+                  <div role="alert" className="p-4 border rounded-md text-destructive">
+                    {listPageError.message} <Button variant="outline" onClick={() => retryListPage()}>Retry</Button>
+                  </div>
+                ) : listPageLoading || listSearch.trim() !== debouncedListSearch ? (
+                  <div role="status" className="py-12 flex justify-center items-center gap-2 text-muted-foreground">
+                    <Loader2 className="w-5 h-5 animate-spin" /> Loading lists…
+                  </div>
+                ) : visibleAudienceLists.length === 0 ? (
                   <div className="text-center py-12">
                     <ListFilter className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-                    <h3 className="text-lg font-medium text-slate-900 mb-2" data-testid="text-no-lists">No Audience Lists</h3>
+                    <h3 className="text-lg font-medium text-slate-900 mb-2" data-testid="text-no-lists">{debouncedListSearch ? 'No matching lists' : 'No Audience Lists'}</h3>
                     <p className="text-slate-600 mb-4">
                       Create audience lists to define reusable recipient groups for your email campaigns.
                     </p>
@@ -1731,14 +1789,14 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {audienceLists.map(list => (
+                    {visibleAudienceLists.map(list => (
                       <Card
                         key={list.id}
                         className="border border-slate-200"
                         data-testid={`card-list-${list.id}`}
                       >
                         <CardContent className="p-4">
-                          <div className="flex items-start justify-between gap-4">
+                          <div className="flex flex-col lg:flex-row items-start justify-between gap-4">
                             <div className="flex-1 min-w-0">
                               <div className="flex flex-wrap items-center gap-2">
                                 <h4 className="text-base font-semibold text-slate-900" data-testid={`text-list-name-${list.id}`}>
@@ -1771,7 +1829,11 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                 )}
                               </div>
                             </div>
-                            <div className="flex items-center gap-1">
+                            <div className="flex flex-wrap items-center gap-1">
+                              <Button variant="ghost" size="icon" onClick={() => setDuplicatingList(list)}
+                                aria-label={`Duplicate ${list.name}`} title="Duplicate list" data-testid={`button-duplicate-list-${list.id}`}>
+                                <Copy className="w-4 h-4" />
+                              </Button>
                               <Button
                                 variant="outline"
                                 size="sm"
@@ -1825,6 +1887,20 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                         </CardContent>
                       </Card>
                     ))}
+                  </div>
+                )}
+                {!listPageError && listPageData && (
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-sm text-muted-foreground" aria-live="polite">
+                      {listTotal === 0 ? '0 lists' : `${(listPage - 1) * listPageSize + 1}–${Math.min(listPage * listPageSize, listTotal)} of ${listTotal} lists`}
+                    </p>
+                    <div className="flex items-center gap-3">
+                      <Button variant="outline" size="sm" disabled={listPage <= 1 || listPageLoading}
+                        onClick={() => setListPage(page => page - 1)}><ChevronLeft className="w-4 h-4 mr-1" />Previous</Button>
+                      <span className="text-sm">Page {listPage} of {listTotalPages}</span>
+                      <Button variant="outline" size="sm" disabled={listPage >= listTotalPages || listPageLoading}
+                        onClick={() => setListPage(page => page + 1)}>Next<ChevronRight className="w-4 h-4 ml-1" /></Button>
+                    </div>
                   </div>
                 )}
               </TabsContent>
@@ -3094,6 +3170,18 @@ CREATE POLICY "Service role has full access to member_communication_preference"
           </DialogContent>
         </Dialog>
 
+        {duplicatingList && (
+          <DuplicateAudienceListDialog key={duplicatingList.id} list={duplicatingList} onClose={() => setDuplicatingList(null)}
+            onCreated={name => {
+              setDuplicatingList(null);
+              setListSearch(name);
+              setDebouncedListSearch(name);
+              setListPage(1);
+              queryClient.invalidateQueries({ queryKey: ['audience-lists'] });
+              queryClient.invalidateQueries({ queryKey: ['audience-list-counts'] });
+              toast.success('Email list duplicated');
+            }} />
+        )}
         <Dialog open={showEditListDialog} onOpenChange={setShowEditListDialog}>
           <DialogContent className="max-w-lg max-h-[80vh] overflow-hidden flex flex-col">
             <DialogHeader>
