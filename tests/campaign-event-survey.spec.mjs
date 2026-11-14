@@ -45,6 +45,10 @@ test('actual campaign context controls keep template reusable and reset survey o
   });
   await page.goto('https://campaign.fixture.invalid');
   await expect(page.getByText('{{event_survey_url}}', { exact: true })).toBeVisible();
+  // Consumers that do not opt into the campaign's wide layout stay guidance-first.
+  const guidance = await page.getByText('{{event_survey_url}}', { exact: true }).boundingBox();
+  const eventType = await page.getByLabel('Event type').boundingBox();
+  expect(guidance.y + guidance.height).toBeLessThan(eventType.y);
   await page.getByLabel('Event', { exact: true }).selectOption('e1');
   await expect(page.getByLabel('Survey assignment')).toContainText('Follow-up (Login required)');
   await page.getByLabel('Survey assignment').selectOption('a2');

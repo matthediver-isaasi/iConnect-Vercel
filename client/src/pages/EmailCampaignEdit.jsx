@@ -865,8 +865,8 @@ export default function EmailCampaignEdit() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="min-w-0 space-y-2">
                 <Label htmlFor="name">Campaign Name *</Label>
                 <Input
                   id="name"
@@ -876,9 +876,7 @@ export default function EmailCampaignEdit() {
                   data-testid="input-campaign-name"
                 />
               </div>
-              <div className="space-y-2">
-                <CampaignEventSurveySettings value={formData.event_survey_context} onChange={value => setFormData(prev => ({ ...prev, event_survey_context: value }))} />
-                {hasSurveyToken && surveyPreviewError && <p role="alert" className="text-sm text-destructive">{surveyPreviewError.message}</p>}
+              <div className="min-w-0 space-y-2">
                 <Label htmlFor="subject">Email Subject *</Label>
                 <Input
                   id="subject"
@@ -889,6 +887,8 @@ export default function EmailCampaignEdit() {
                 />
               </div>
             </div>
+            <CampaignEventSurveySettings wideLayout value={formData.event_survey_context} onChange={value => setFormData(prev => ({ ...prev, event_survey_context: value }))} />
+            {hasSurveyToken && surveyPreviewError && <p role="alert" className="text-sm text-destructive">{surveyPreviewError.message}</p>}
           </CardContent>
         </Card>
 

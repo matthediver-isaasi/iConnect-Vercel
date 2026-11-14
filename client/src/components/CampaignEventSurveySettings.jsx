@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 
-export default function CampaignEventSurveySettings({ value, onChange, fixedEvent = false }) {
+export default function CampaignEventSurveySettings({ value, onChange, fixedEvent = false, wideLayout = false }) {
   const context = value || {};
   const type = context.event_type || 'event';
   const { data: events = [], error: eventError } = useQuery({
@@ -21,9 +21,8 @@ export default function CampaignEventSurveySettings({ value, onChange, fixedEven
     queryKey: ['forms-for-surveys'],
     queryFn: () => base44.entities.Form.list(),
   });
-  const classes = 'w-full rounded-md border bg-background p-2';
-  return <fieldset className="space-y-3 rounded-md border p-4">
-    <legend className="px-1 font-medium">Event context (survey optional)</legend>
+  const classes = 'w-full min-w-0 max-w-full rounded-md border bg-background p-2';
+  const guidance = <div className="min-w-0 space-y-3 break-words">
     <p className="text-sm text-muted-foreground">
       Insert <code>{'{{event_sponsors}}'}</code> or <code>[[event.sponsors]]</code> in its own body paragraph
       to display public sponsor logos and names for this event. No survey is required.
@@ -35,23 +34,32 @@ export default function CampaignEventSurveySettings({ value, onChange, fixedEven
       {fixedEvent ? ' The event is taken from this email configuration. ' : ' Select the event here, not on the template. '}
       Using a survey URL requires an open assignment and an active published survey. Existing login and access restrictions still apply.
     </p>
+  </div>;
+  const controls = <div className="min-w-0 space-y-3">
     {(eventError || assignmentError || formError) && <p role="alert">Could not load event survey choices. Please retry.</p>}
-    {!fixedEvent && <><label className="block">Event type
+    {!fixedEvent && <><label className="block min-w-0">Event type
       <select aria-label="Event type" className={classes} value={type} onChange={e => onChange({ event_type: e.target.value, event_id: '', assignment_id: '' })}>
         <option value="event">Event</option><option value="complex_event">Complex event</option>
       </select>
     </label>
-    <label className="block">Event
+    <label className="block min-w-0">Event
       <select aria-label="Event" className={classes} value={context.event_id || ''} onChange={e => onChange({ event_type: type, event_id: e.target.value, assignment_id: '' })}>
         <option value="">Select an event</option>
         {events.map(event => <option key={event.id} value={event.id}>{event.title || event.name}</option>)}
       </select>
     </label></>}
-    <label className="block">Survey assignment (optional; only for survey URLs)
+    <label className="block min-w-0">Survey assignment (optional; only for survey URLs)
       <select aria-label="Survey assignment" className={classes} disabled={!context.event_id} value={context.assignment_id || ''} onChange={e => onChange({ ...context, assignment_id: e.target.value })}>
         <option value="">Automatic only when exactly one active assignment exists</option>
         {assignments.map(row => <option key={row.id} value={row.id}>{forms.find(form => form.id === row.form_id)?.name || 'Survey'} ({row.access_mode === 'authenticated' ? 'Login required' : 'Public assignment'})</option>)}
       </select>
     </label>
+  </div>;
+  return <fieldset className="min-w-0 space-y-3 rounded-md border p-4">
+    <legend className="max-w-full px-1 font-medium">Event context (survey optional)</legend>
+    {wideLayout ? <div className="grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-2">
+      {controls}
+      {guidance}
+    </div> : <>{guidance}{controls}</>}
   </fieldset>;
 }
