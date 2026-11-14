@@ -7,3 +7,9 @@ Browser-injected fixtures must reuse the dependency URLs from the running Vite-t
 **Why:** A fixture can render nothing even when the actual application is healthy: Vite normally supplies both path rewriting and CommonJS interop, which raw injected scripts bypass.
 
 **How to apply:** Reuse the established browser fixture setup, resolve dependencies from transformed source, and capture page errors before waiting for UI controls. Use the system Chromium executable when the downloaded Playwright binary lacks Nix shared libraries.
+
+Static Playwright fixtures may intercept only Vite's reload WebSocket rather than connecting it to the development server.
+
+**Why:** Middleware-mode Vite can advertise a direct fallback with an undefined port; isolated fixture routing can trigger that fallback even though all application interactions succeed. Switching to the proxied preview hostname alone does not resolve it.
+
+**How to apply:** Keep reload traffic local using a narrowly matched WebSocket route in static fixtures; retain page-error assertions and leave application WebSockets and production configuration unchanged.

@@ -11,6 +11,9 @@ import { tenantDateTime, tenantDateTimeToUtc } from "@/lib/popupSchedule";
 import { createPageUrl } from "@/utils";
 import { validatePopupConfig, validatePopupGroups } from "@shared/cmsPopupContract.js";
 
+const pageLabel = (page) => page.title || page.name || page.slug || "";
+const pageOrder = new Intl.Collator("en", { sensitivity: "accent" });
+
 export function PopupSelect({ label, value, onChange, options, disabled }) {
   return <label className="block space-y-1.5 text-sm font-medium">{label}<select disabled={disabled} className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm font-normal" value={value} onChange={(event) => onChange(event.target.value)}>
     {options.map(([key, text]) => <option key={key} value={key}>{text}</option>)}
@@ -27,11 +30,17 @@ export default forwardRef(function PopupSettings({ popup, discovery, saving, onS
   const [starts, setStarts] = useState(() => tenantDateTime(popup.starts_at, timezone));
   const [ends, setEnds] = useState(() => tenantDateTime(popup.ends_at, timezone));
   const [error, setError] = useState("");
+  // PopupManagement keys this form by popup ID, so reopening resets presentation state.
+  const [pageSearch, setPageSearch] = useState("");
   const patch = (value) => { setDraft((previous) => ({ ...previous, ...value })); onDirtyChange?.(true); };
   const config = draft.config;
   const change = (value) => patch({ config: { ...config, ...value } });
   const modal = (value) => change({ modal: { ...config.modal, ...value } });
-  const pages = (discovery?.pages || []).filter((page) => (page.microsite_id || null) === (popup.microsite_id || null));
+  const pages = (discovery?.pages || [])
+    .filter((page) => (page.microsite_id || null) === (popup.microsite_id || null))
+    .sort((a, b) => pageOrder.compare(pageLabel(a), pageLabel(b)) || String(a.id).localeCompare(String(b.id)));
+  const searchTerm = pageSearch.trim().toLowerCase();
+  const matchingPages = pages.filter((page) => pageLabel(page).toLowerCase().includes(searchTerm));
   const numeric = (label, value, update, min, max) => <label className="block space-y-1.5 text-sm font-medium">{label}<Input type="number" value={value} min={min} max={max} required onChange={(e) => update(e.target.value === "" ? "" : Number(e.target.value))} /></label>;
   const submit = async (event) => {
     event?.preventDefault();
@@ -82,10 +91,13 @@ export default forwardRef(function PopupSettings({ popup, discovery, saving, onS
       <TabsContent value="pages" className="space-y-4">
         <p className="text-sm text-muted-foreground">Scope: <strong>{(discovery?.microsites || []).find((site) => site.id === popup.microsite_id)?.name || "Main site"}</strong>. Typography and page assignments stay within this site. To use another scope, create a new popup.</p>
         <Toggle label="All eligible CMS pages in this site" checked={config.all_pages} onChange={(all_pages) => change({ all_pages })} />
-        {!config.all_pages && <div className="max-h-80 space-y-2 overflow-auto rounded-md border p-3">
-          {pages.length ? pages.map((page) => <label key={page.id} className="flex items-center gap-3 rounded p-2 text-sm hover:bg-muted"><input type="checkbox" checked={config.page_ids.includes(page.id)} onChange={(e) => change({ page_ids: e.target.checked ? [...config.page_ids, page.id] : config.page_ids.filter((id) => id !== page.id) })} /><span>{page.title || page.name || page.slug}<span className="ml-2 text-xs text-muted-foreground">{page.status}</span></span></label>) : <p className="text-sm text-muted-foreground">No eligible pages in this site yet.</p>}
+        {!config.all_pages && <>
+          <div className="space-y-1.5"><Label htmlFor="popup-page-search">Search pages</Label><Input id="popup-page-search" type="search" placeholder="Find a page…" value={pageSearch} onChange={(event) => setPageSearch(event.target.value)} /></div>
+          <div className="max-h-80 space-y-2 overflow-auto rounded-md border p-3">
+          {matchingPages.map((page) => <label key={page.id} className="flex items-center gap-3 rounded p-2 text-sm hover:bg-muted"><input type="checkbox" checked={config.page_ids.includes(page.id)} onChange={(e) => change({ page_ids: e.target.checked ? [...config.page_ids, page.id] : config.page_ids.filter((id) => id !== page.id) })} /><span>{pageLabel(page)}<span className="ml-2 text-xs text-muted-foreground">{page.status}</span></span></label>)}
+          {!matchingPages.length && <p role="status" className="text-sm text-muted-foreground">{pages.length ? "No pages match your search." : "No eligible pages in this site yet."}</p>}
           {config.page_ids.filter((id) => !pages.some((page) => page.id === id)).map((id) => <div key={id} className="flex items-center justify-between text-sm text-destructive">Unavailable page: {id}<Button type="button" size="sm" variant="ghost" onClick={() => change({ page_ids: config.page_ids.filter((value) => value !== id) })}>Remove</Button></div>)}
-        </div>}
+        </div></>}
       </TabsContent>
       <TabsContent value="audience" className="space-y-5">
         <PopupSelect label="Who can see this popup?" value={config.visibility} onChange={(visibility) => change({ visibility })} options={[["public", "Public — members and guests"], ["members", "Members only"], ["guests", "Guests only"]]} />

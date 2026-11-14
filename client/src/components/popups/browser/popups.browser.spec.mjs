@@ -4,12 +4,15 @@ import { popupEditorDimensions } from "../../../lib/popupEditorDimensions.js";
 
 const dialog = (page) => page.locator("[data-cms-popup-modal]");
 const block = (page, id) => dialog(page).locator(`[data-cb="${id}"]`).first();
-async function mount(page, options = {}, { candidates, denyStorage = false } = {}) {
+async function mount(page, options = {}, { candidates, denyStorage = false, discovery = {} } = {}) {
   const errors = [];
   const requests = [];
   page.on("pageerror", (error) => errors.push(error.message));
   const records = candidates || [popupFixtureRecord(options)];
   let failSave = false;
+  // Fixtures are static snapshots: keep Vite's reload socket local to the test.
+  // The server's direct fallback has no port in middleware mode.
+  await page.routeWebSocket(/[?&]token=/, () => {});
   await page.route("**/*", async (route) => {
     const url = new URL(route.request().url());
     if (options.mode === "authoring" && url.pathname === "/src/hooks/useMemberAccess.js") return route.fulfill({
@@ -25,13 +28,13 @@ async function mount(page, options = {}, { candidates, denyStorage = false } = {
         return route.fulfill({ json: id ? { ...context, popup: selected } : { ...context, candidates: records.map(({ design, symbols, ...record }) => record) } });
       }
       if (url.pathname === "/api/admin/cms-popups") {
-        const record = records[0];
+        const record = records.find((record) => record.id === (route.request().postDataJSON()?.id || url.searchParams.get("id"))) || records[0];
         if (route.request().method() === "PATCH") {
           if (failSave) return route.fulfill({ status: 409, json: { error: "Fixture revision conflict" } });
           Object.assign(record, route.request().postDataJSON(), { revision: record.revision + 1 });
           return route.fulfill({ json: { popup: record } });
         }
-        if (url.searchParams.has("discovery")) return route.fulfill({ json: { pages: [], microsites: [], fields: {}, timezone: "Europe/London" } });
+        if (url.searchParams.has("discovery")) return route.fulfill({ json: { pages: [], microsites: [], fields: {}, timezone: "Europe/London", ...discovery } });
         return route.fulfill({ json: url.searchParams.has("id") ? { popup: record } : { popups: records } });
       }
       return route.fulfill({ json: url.pathname.includes("tenant-canvas-theme") ? { theme: null } : [] });
@@ -189,6 +192,103 @@ async function dirtyEditor(page) {
   return stage;
 }
 const leaveDialog = (page) => page.getByTestId("dialog-popup-unsaved-changes");
+
+const pageId = (n) => `${String(n).padStart(8, "0")}-aaaa-4aaa-8aaa-aaaaaaaaaaaa`;
+const assignmentPages = [
+  { id: pageId(6), title: "zebra", status: "draft" },
+  { id: pageId(3), title: "alpha", status: "draft" },
+  { id: pageId(4), title: "", name: "Bravo", slug: "ignored", status: "published" },
+  { id: pageId(2), title: "Alpha", status: "published" },
+  { id: pageId(5), slug: "charlie", status: "published" },
+  { id: pageId(7), title: "Microsite only", microsite_id: "micro", status: "published" },
+];
+async function openPages(page, name = "Fixture announcement") {
+  await page.getByRole("button", { name: `Settings for ${name}`, exact: true }).click();
+  await page.getByRole("dialog").getByRole("tab", { name: "Pages", exact: true }).click();
+  return page.getByRole("dialog");
+}
+
+test("page assignments sort fallback labels, search live, and save hidden selections", async ({ page }) => {
+  const popup = popupFixtureRecord();
+  popup.config = { ...popup.config, all_pages: false, page_ids: [pageId(6), pageId(9)] };
+  const state = await mount(page, { mode: "authoring" }, { candidates: [popup], discovery: { pages: assignmentPages } });
+  await page.getByRole("button", { name: "Launch management" }).click();
+  const settings = await openPages(page);
+  const rows = settings.locator("label").filter({ has: page.getByRole("checkbox") });
+  await expect(rows).toHaveText(["Alphapublished", "alphadraft", "Bravopublished", "charliepublished", "zebradraft"]);
+  const search = settings.getByRole("searchbox", { name: "Search pages" });
+  await search.pressSequentially("  ALpH  ");
+  await expect(rows).toHaveText(["Alphapublished", "alphadraft"]);
+  await expect(settings.getByText(/2 selected pages/)).toBeVisible();
+  await expect(settings.getByText("Unavailable page:", { exact: false })).toHaveCount(1);
+  // Search alone must not set the unsaved-settings guard.
+  await page.keyboard.press("Escape");
+  await expect(leaveDialog(page)).toHaveCount(0);
+  await expect(settings).toHaveCount(0);
+  await openPages(page);
+  await expect(search).toHaveValue("");
+  await search.fill("brAV");
+  await settings.getByRole("checkbox", { name: "Bravo" }).focus();
+  await page.keyboard.press("Space");
+  await expect(settings.getByText(/3 selected pages/)).toBeVisible();
+  await search.fill("no such page");
+  await expect(settings.getByText("No pages match your search.")).toBeVisible();
+  await expect(settings.getByText("No eligible pages in this site yet.")).toHaveCount(0);
+  await expect(settings.getByText("Unavailable page:", { exact: false })).toHaveCount(1);
+  await settings.getByRole("button", { name: "Remove", exact: true }).click();
+  await expect(settings.getByText(/2 selected pages/)).toBeVisible();
+  await search.fill("");
+  await expect(rows).toHaveCount(5);
+  await expect(settings.getByRole("checkbox", { name: "zebra" })).toBeChecked();
+  await expect(settings.getByRole("checkbox", { name: "Bravo" })).toBeChecked();
+  await search.fill("alpha");
+  await settings.getByRole("switch", { name: "All eligible CMS pages in this site" }).click();
+  await expect(search).toHaveCount(0);
+  await expect(settings.getByText(/All scoped pages/)).toBeVisible();
+  await settings.getByRole("switch", { name: "All eligible CMS pages in this site" }).click();
+  await expect(search).toHaveValue("alpha");
+  await settings.getByRole("button", { name: "Save settings", exact: true }).click();
+  await expect(settings).toHaveCount(0);
+  const saved = state.requests.filter((request) => request.method === "PATCH");
+  expect(saved).toHaveLength(1);
+  expect(saved[0].body.config.page_ids).toEqual([pageId(6), pageId(4)]);
+  expect(saved[0].body.config.all_pages).toBe(false);
+  expect(saved[0].body.config).not.toHaveProperty("pageSearch");
+  await openPages(page);
+  await expect(search).toHaveValue("");
+  await expect(settings.getByRole("checkbox", { name: "Bravo" })).toBeChecked();
+  expect(state.errors).toEqual([]);
+});
+
+test("page assignments isolate microsites and distinguish empty eligibility", async ({ page }) => {
+  const main = popupFixtureRecord();
+  main.config.all_pages = false;
+  const micro = { ...popupFixtureRecord({ id: pageId(20) }), name: "Microsite popup", microsite_id: "micro" };
+  micro.config.all_pages = false;
+  const empty = { ...popupFixtureRecord({ id: pageId(21) }), name: "Empty site popup", microsite_id: "empty" };
+  empty.config.all_pages = false;
+  const state = await mount(page, { mode: "authoring" }, { candidates: [main, micro, empty], discovery: {
+    pages: assignmentPages, microsites: [{ id: "micro", name: "Microsite" }, { id: "empty", name: "Empty" }],
+  } });
+  await page.getByRole("button", { name: "Launch management" }).click();
+  let settings = await openPages(page);
+  await settings.getByLabel("Search pages").fill("Microsite");
+  await expect(settings.getByText("No pages match your search.")).toBeVisible();
+  await page.keyboard.press("Escape");
+  settings = await openPages(page, "Microsite popup");
+  await expect(settings.getByLabel("Search pages")).toHaveValue("");
+  await expect(settings.getByRole("checkbox")).toHaveCount(1);
+  await expect(settings.getByRole("checkbox", { name: "Microsite only" })).toBeVisible();
+  await settings.getByLabel("Search pages").fill("alpha");
+  await expect(settings.getByText("No pages match your search.")).toBeVisible();
+  await page.keyboard.press("Escape");
+  settings = await openPages(page, "Empty site popup");
+  await settings.getByLabel("Search pages").fill("alpha");
+  await expect(settings.getByText("No eligible pages in this site yet.")).toBeVisible();
+  await expect(settings.getByText("No pages match your search.")).toHaveCount(0);
+  expect(state.requests.filter((request) => request.method === "PATCH")).toHaveLength(0);
+  expect(state.errors).toEqual([]);
+});
 
 test("actual editor guards in-app navigation, failed save, retry/save-and-leave; cancel retains design and undo", async ({ page }) => {
   const state = await mount(page, { mode: "authoring" });
