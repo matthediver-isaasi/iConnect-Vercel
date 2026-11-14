@@ -32,6 +32,7 @@ export default forwardRef(function PopupSettings({ popup, discovery, saving, onS
   const [error, setError] = useState("");
   // PopupManagement keys this form by popup ID, so reopening resets presentation state.
   const [pageSearch, setPageSearch] = useState("");
+  const [portalSearch, setPortalSearch] = useState("");
   const patch = (value) => { setDraft((previous) => ({ ...previous, ...value })); onDirtyChange?.(true); };
   const config = draft.config;
   const change = (value) => patch({ config: { ...config, ...value } });
@@ -50,7 +51,7 @@ export default forwardRef(function PopupSettings({ popup, discovery, saving, onS
       const starts_at = tenantDateTimeToUtc(starts, timezone);
       const ends_at = tenantDateTimeToUtc(ends, timezone);
       if (starts_at && ends_at && starts_at >= ends_at) throw new Error("End time must be after the start.");
-      if (!config.all_pages && !config.page_ids.length && draft.status === "active") throw new Error("Assign at least one page before activation.");
+      if (!config.all_pages && !config.page_ids.length && !config.portal_pages.length && draft.status === "active") throw new Error("Assign at least one page before activation.");
       if (config.visibility === "guests" && config.groups.length) throw new Error("Guests cannot satisfy member or organisation targeting. Remove the targeting rules first.");
       validatePopupConfig(config);
       validatePopupGroups(config.groups, discovery?.fields || {});
@@ -91,6 +92,7 @@ export default forwardRef(function PopupSettings({ popup, discovery, saving, onS
       <TabsContent value="pages" className="space-y-4">
         <p className="text-sm text-muted-foreground">Scope: <strong>{(discovery?.microsites || []).find((site) => site.id === popup.microsite_id)?.name || "Main site"}</strong>. Typography and page assignments stay within this site. To use another scope, create a new popup.</p>
         <Toggle label="All eligible CMS pages in this site" checked={config.all_pages} onChange={(all_pages) => change({ all_pages })} />
+        <h3 className="font-semibold">CMS pages</h3>
         {!config.all_pages && <>
           <div className="space-y-1.5"><Label htmlFor="popup-page-search">Search pages</Label><Input id="popup-page-search" type="search" placeholder="Find a page…" value={pageSearch} onChange={(event) => setPageSearch(event.target.value)} /></div>
           <div className="max-h-80 space-y-2 overflow-auto rounded-md border p-3">
@@ -98,6 +100,18 @@ export default forwardRef(function PopupSettings({ popup, discovery, saving, onS
           {!matchingPages.length && <p role="status" className="text-sm text-muted-foreground">{pages.length ? "No pages match your search." : "No eligible pages in this site yet."}</p>}
           {config.page_ids.filter((id) => !pages.some((page) => page.id === id)).map((id) => <div key={id} className="flex items-center justify-between text-sm text-destructive">Unavailable page: {id}<Button type="button" size="sm" variant="ghost" onClick={() => change({ page_ids: config.page_ids.filter((value) => value !== id) })}>Remove</Button></div>)}
         </div></>}
+        {!popup.microsite_id && <section className="space-y-3">
+          <h3 className="font-semibold">Portal pages</h3>
+          <p className="text-sm text-muted-foreground">Explicit selections only, for signed-in members with page access. All CMS pages does not include portal pages.</p>
+          <Label htmlFor="popup-portal-search">Search portal pages</Label>
+          <Input id="popup-portal-search" type="search" value={portalSearch} onChange={event => setPortalSearch(event.target.value)} />
+          <div className="max-h-80 overflow-auto rounded-md border p-3">
+            {(discovery?.portal_pages || []).filter(page => page.label.toLowerCase().includes(portalSearch.trim().toLowerCase())).map(page => <label key={page.key} className="flex items-center gap-3 p-2 text-sm">
+              <input type="checkbox" checked={config.portal_pages.includes(page.key)} onChange={event => change({ portal_pages: event.target.checked ? [...config.portal_pages, page.key] : config.portal_pages.filter(key => key !== page.key) })} />{page.label}
+            </label>)}
+          </div>
+          <p className="text-xs text-muted-foreground">{config.portal_pages.length} portal pages selected</p>
+        </section>}
       </TabsContent>
       <TabsContent value="audience" className="space-y-5">
         <PopupSelect label="Who can see this popup?" value={config.visibility} onChange={(visibility) => change({ visibility })} options={[["public", "Public — members and guests"], ["members", "Members only"], ["guests", "Guests only"]]} />
@@ -128,7 +142,7 @@ export default forwardRef(function PopupSettings({ popup, discovery, saving, onS
       </TabsContent>
     </Tabs>
     <div className="mt-5 flex shrink-0 items-center justify-between gap-4 border-t pt-4">
-      <div>{error && <p role="alert" className="text-sm text-destructive">{error}</p>}<p className="text-xs text-muted-foreground">{config.visibility} · {config.all_pages ? "All scoped pages" : `${config.page_ids.length} selected pages`} · {config.trigger.type.replaceAll("_", " ")} · {config.frequency.type.replaceAll("_", " ")}</p></div>
+      <div>{error && <p role="alert" className="text-sm text-destructive">{error}</p>}<p className="text-xs text-muted-foreground">{config.visibility} · {config.all_pages ? "All CMS pages" : `${config.page_ids.length} selected pages`} · {config.portal_pages.length} portal pages · {config.trigger.type.replaceAll("_", " ")} · {config.frequency.type.replaceAll("_", " ")}</p></div>
       <Button type="submit" disabled={saving || !canDesign}>{saving ? "Saving…" : canDesign ? "Save settings" : "Editor permission required"}</Button>
     </div>
   </form>;

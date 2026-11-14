@@ -32,3 +32,9 @@ Only explicitly reviewed read-only background loaders may be exempted from popup
 **Why:** Diagnostic traces showed several seconds waiting after page eligibility was ready, but did not identify the specific busy element. Removing every busy check would also bypass embedded forms and transactional flows.
 
 **How to apply:** Keep accessibility busy indicators intact, label reviewed content loaders explicitly, preserve critical-flow precedence, and reuse session validation only within one request—not between eligibility and selected-content authorization.
+
+Portal targeting is explicit and main-site only; existing “all CMS pages” never opts a popup into built-in portal routes.
+
+**Why:** Portal delivery was approved as an extension of existing popup records, not permission to broaden existing assignments or reset member preferences.
+
+**How to apply:** Curate new non-transactional targets deliberately, require current member page access even on hybrid/public chrome, and keep preference identity independent of target surface.

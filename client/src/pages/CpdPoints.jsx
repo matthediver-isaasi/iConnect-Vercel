@@ -18,7 +18,7 @@ export function CpdPointsPage({
 
   if (!authResolved || !sessionValidated || !isAccessReady || !memberInfo?.id) {
     return (
-      <div className="flex justify-center py-16" aria-label="Loading member CPD points">
+      <div className="flex justify-center py-16" aria-busy="true" aria-label="Loading member CPD points">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
       </div>
     );
@@ -26,7 +26,7 @@ export function CpdPointsPage({
 
   if (isFeatureExcluded("cpd.member_cpd")) {
     return (
-      <div className="max-w-6xl mx-auto p-4 md:p-8">
+      <div className="max-w-6xl mx-auto p-4 md:p-8" data-popup-critical-flow>
         <h1 className="text-xl font-semibold">Access denied</h1>
         <p className="text-muted-foreground mt-1">You do not have access to this page.</p>
       </div>

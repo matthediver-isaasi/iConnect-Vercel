@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { createPopupDeliveryHandler } from './index.js';
 import { createPopupAdminHandler } from '../admin/cms-popups/index.js';
 import { POPUP_DEFAULT_CONFIG, POPUP_EMPTY_DESIGN } from '../../shared/cmsPopupContract.js';
+import { validatePopupDocument } from '../_lib/cmsPopupService.js';
+import { popupPortalAccess } from '../_lib/popupPortalAccess.js';
 const tid = '00000000-0000-0000-0000-000000000001';
 const pid = '00000000-0000-0000-0000-000000000002';
 const popupId = '00000000-0000-0000-0000-000000000003';
@@ -27,6 +29,89 @@ function response() {
 }
 const tenant = { id: tid, status: 'active', settings: { timezone: 'UTC' } };
 const guest = { isAuthenticated: false };
+test('Forum delivery uses actual forum access in every phase, without a permission stub', async () => {
+  const phases = [{}, { id: popupId, revision: 1 }, { revalidate: '1' },
+    { id: popupId, revision: 1, revalidate: '1' },
+    { id: popupId, revision: 1, generation: 1, action: 'shown' },
+    { id: popupId, revision: 1, generation: 1, action: 'permanent' }];
+  for (const phase of phases) {
+    for (const excluded of [false, true]) {
+      const notice = popup();
+      notice.config = { ...notice.config, all_pages: false, portal_pages: ['Forum'] };
+      const db = database({ cms_popup: [notice], role: { id: popupId, excluded_features: excluded ? ['forum'] : [] },
+        role_access_item: [], system_settings: null, cms_popup_member_state: [] });
+      let writes = 0;
+      db.rpc = () => { writes++; return Promise.resolve({ data: true }); };
+      const input = { portal_page: 'Forum', ...phase };
+      const res = response();
+      await createPopupDeliveryHandler({ db, resolveTenant: async () => tenant,
+        contextFor: async () => ({ isAuthenticated: true, tenantId: tid, memberId: pid,
+          roleId: popupId, memberExcludedFeatures: [] }) })({
+            method: phase.action ? 'POST' : 'GET', query: input, body: input,
+          }, res);
+      assert.equal(res.statusCode, excluded ? 403 : 200, JSON.stringify({ phase, excluded }));
+      assert.equal(writes, !excluded && !!phase.action ? 1 : 0);
+      if (excluded) {
+        assert.equal(res.body.popup, undefined);
+        assert.equal(res.body.candidates, undefined);
+        assert.equal(db.reads.some(read => read.table === 'cms_popup'), false);
+      }
+    }
+  }
+});
+test('portal page access requires fresh role and complete hierarchy evidence', async () => {
+  const context = { tenantId: tid, roleId: pid, memberExcludedFeatures: [] };
+  const role = { id: pid, excluded_features: [] };
+  assert.equal(await popupPortalAccess(database({ role, role_access_item: [] }), context, 'page_user_History'), true);
+  for (const override of [{ role: null }, { role: new Error('offline') }, { role_access_item: new Error('offline') }]) {
+    await assert.rejects(popupPortalAccess(database({ role, role_access_item: [], ...override }), context, 'page_user_History'));
+  }
+  const hierarchy = [{ id: 'module', item_key: 'custom-module', item_type: 'module', is_active: true },
+    { id: 'page', item_key: 'commerce.history', item_type: 'page', parent_id: 'module', is_active: true }];
+  assert.equal(await popupPortalAccess(database({ role: { ...role, excluded_features: ['custom-module'] }, role_access_item: hierarchy }), context, 'page_user_History'), false);
+});
+test('portal phases require explicit assignments and fresh member page access', async () => {
+  const member = { isAuthenticated: true, tenantId: tid, memberId: pid, roleId: popupId };
+  for (const phase of [{}, { id: popupId, revision: 1 }, { id: popupId, revision: 1, revalidate: '1' },
+    { id: popupId, revision: 1, generation: 1, action: 'permanent' }]) {
+    for (const scenario of ['allowed', 'removed', 'denied', 'guest', 'cross-tenant', 'preferences-failed', 'visibility-failed']) {
+      const p = popup();
+      p.config.portal_pages = scenario === 'removed' ? [] : ['Events'];
+      const db = database({ cms_popup: [p], cms_popup_member_state: scenario === 'preferences-failed' ? new Error('offline') : [],
+        system_settings: scenario === 'visibility-failed' ? new Error('offline') : null });
+      let writes = 0;
+      db.rpc = () => { writes++; return Promise.resolve({ data: true }); };
+      const res = response();
+      await createPopupDeliveryHandler({ db, resolveTenant: async () => tenant,
+        contextFor: async () => scenario === 'guest' ? guest : scenario === 'cross-tenant' ? { ...member, tenantId: pid } : member,
+        featureAccess: async () => scenario !== 'denied' })({
+          method: phase.action ? 'POST' : 'GET', query: { portal_page: 'Events', ...phase }, body: { portal_page: 'Events', ...phase },
+        }, res);
+      const expected = scenario === 'allowed' ? 200 : scenario === 'removed' ? (phase.id ? 404 : 200)
+        : scenario.endsWith('failed') ? 503 : 403;
+      assert.equal(res.statusCode, expected, `${scenario}: ${JSON.stringify(phase)}`);
+      if (scenario === 'removed' && !phase.id) assert.deepEqual(res.body.candidates, []);
+      if (scenario === 'allowed' && !phase.id) assert.equal(res.body.candidates[0].config.portal_pages, undefined);
+      assert.equal(writes, scenario === 'allowed' && !!phase.action ? 1 : 0);
+      assert.equal(db.reads.some(r => r.table === 'i_edit_page'), false);
+    }
+  }
+});
+test('portal modes reject ambiguous, microsite and unknown targets', async () => {
+  for (const input of [{ portal_page: 'AdminSetup' }, { portal_page: 'Events', page_id: pid },
+    { portal_page: 'Events', page_slug: 'home' }, { portal_page: 'Events', microsite_id: pid }]) {
+    assert.equal((await deliver({ input })).res.statusCode, 400);
+  }
+});
+test('portal-only activation and mixed assignments preserve CMS page validation', async () => {
+  const p = { ...popup(), name: 'Portal notice', config: { ...popup().config, all_pages: false, portal_pages: ['Events'] } };
+  const fields = { member: { core: [], custom: [] }, organization: { core: [], custom: [] } };
+  await validatePopupDocument(database(), tid, p, fields);
+  await assert.rejects(validatePopupDocument(database(), tid, { ...p, microsite_id: pid }, fields), /main-site/);
+  await assert.rejects(validatePopupDocument(database(), tid, { ...p, config: { ...p.config, portal_pages: [] } }, fields), /Assign/);
+  await validatePopupDocument(database({ i_edit_page: [{ id: pid, microsite_id: null }] }), tid,
+    { ...p, config: { ...p.config, page_ids: [pid] } }, fields);
+});
 test('popup requests reuse session only within each fresh authorization pass', async () => {
   let calls = 0;
   const handler = createPopupDeliveryHandler({ db: database(), resolveTenant: async () => tenant,

@@ -176,7 +176,7 @@ export default function SupportPage() {
   if (!memberInfo) {
     return (
       <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
-        <div className="animate-pulse text-slate-600">Loading...</div>
+        <div className="animate-pulse text-slate-600" aria-busy="true">Loading...</div>
       </div>
     );
   }

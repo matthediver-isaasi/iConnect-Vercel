@@ -107,6 +107,7 @@ async function installFixture(page) {
   const state = {
     pageGate: deferred(true),
     pageReads: 0,
+    popupTargets: [],
     documents: 0,
     authReads: 0,
     authStatus: 200,
@@ -188,6 +189,10 @@ async function installFixture(page) {
     }
 
     const key = `${method} ${url.pathname}${url.search}`;
+    if (url.pathname === '/api/cms-popups') {
+      state.popupTargets.push(Object.fromEntries(url.searchParams));
+      return json(route, { tenant_id: TENANT.id, viewer_key: `member:${MEMBER.id}`, timezone: 'UTC', candidates: [] });
+    }
     if (url.pathname === '/api/communication/inbox/alert-preferences') {
       state.alertReads++;
       if (state.alertFailure) return json(route, { error: 'Unavailable' }, 503);
@@ -345,6 +350,41 @@ function expectReadOnlyClean(state) {
   expect(state.unexpected).toEqual([]);
   expect(state.external).toEqual([]);
 }
+
+test('portal popup mounting waits for session and rejects denied or CMS-owned routes', async ({ page }) => {
+  const state = await installFixture(page);
+  state.setAuth({ hold: true });
+  await page.goto('/History');
+  await expect.poll(() => state.authReads).toBeGreaterThan(0);
+  expect(state.popupTargets).toEqual([]);
+  state.releaseAuth();
+  await expect.poll(() => state.popupTargets.some(target => target.portal_page === 'History')).toBe(true);
+  await page.goto('about:blank');
+  state.popupTargets.length = 0;
+  const deniedRole = { ...ROLE, excluded_features: ['commerce.history'] };
+  state.setRole({ body: deniedRole });
+  state.setAuth({ body: sessionBody(MEMBER, deniedRole) });
+  await page.goto('/History');
+  await page.waitForTimeout(1500);
+  expect(state.popupTargets.some(target => target.portal_page === 'History')).toBe(false);
+  await page.goto('about:blank');
+  state.setAuth();
+  state.setRole({ body: ROLE });
+  state.popupTargets.length = 0;
+  await page.goto('/session-boundary');
+  await expect(page.getByText('Session boundary content: session-boundary', { exact: true })).toBeVisible();
+  expect(state.popupTargets.some(target => target.portal_page)).toBe(false);
+});
+
+test('portal popup aliases resolve to the same explicit assignment', async ({ page }) => {
+  const state = await installFixture(page);
+  for (const path of ['/about-me', '/AboutMe', '/Preferences']) {
+    state.popupTargets.length = 0;
+    await page.goto(path);
+    await expect.poll(() => state.popupTargets.some(target => target.portal_page === 'Preferences')).toBe(true);
+    expect(state.popupTargets.every(target => !target.page_id && target.portal_page === 'Preferences')).toBe(true);
+  }
+});
 
 test('untouched inbox alert survives preference refresh errors and offers again after reload', async ({ page }) => {
   const state = await installFixture(page);

@@ -3,6 +3,30 @@ import assert from 'node:assert/strict';
 import { evaluatePopupAudience, matchPopupCondition, POPUP_DEFAULT_CONFIG, popupFrequencyAllows,
   popupScheduleAvailable, validatePopupConfig, validatePopupDesign, validatePopupSchedule } from './cmsPopupContract.js';
 import { tenantDateTimeToUtc } from '../client/src/lib/popupSchedule.js';
+import { popupPortalTargetForPath, popupTargetRequest } from './popupPortalTargets.js';
+import { POPUP_PORTAL_TARGETS } from './popupPortalTargets.js';
+import { MODULE_IDS, PAGE_IDS, FEATURE_TO_PAGE, LEGACY_TO_NEW_MAPPING } from '../api/_lib/roleAccessHierarchy.generated.js';
+
+test('every popup portal target uses a recognized capability, not an invented legacy key', () => {
+  const capabilities = new Set([...MODULE_IDS, ...PAGE_IDS, ...Object.keys(FEATURE_TO_PAGE)]);
+  for (const target of POPUP_PORTAL_TARGETS) {
+    assert.ok(capabilities.has(LEGACY_TO_NEW_MAPPING[target.feature] || target.feature), target.key);
+  }
+});
+
+test('portal assignments are bounded explicit keys; legacy CMS assignments stay valid', () => {
+  const legacy = structuredClone(POPUP_DEFAULT_CONFIG);
+  delete legacy.portal_pages;
+  validatePopupConfig(legacy);
+  validatePopupConfig({ ...legacy, portal_pages: ['Events', 'Preferences'] });
+  for (const portal_pages of [null, 'Events', ['AdminSetup'], ['events'], ['Events', 'Events'], Array(100).fill('Events')]) {
+    assert.throws(() => validatePopupConfig({ ...legacy, portal_pages }), /portal/);
+  }
+  assert.equal(popupPortalTargetForPath('/AboutMe/').key, 'Preferences');
+  assert.equal(popupPortalTargetForPath('/about-me').key, 'Preferences');
+  for (const path of ['/CanvasPageEditor', '/events/booking', '/login', '/embed/form/x', '/membership-fees/x', '/sales']) assert.equal(popupPortalTargetForPath(path), null);
+  assert.deepEqual(popupTargetRequest({ portal_key: 'Events' }), { portal_page: 'Events' });
+});
 
 const fields = {
   member: { core: [{ key: 'first_name', data_type: 'text' }], custom: [{ key: 'age', data_type: 'number' }] },

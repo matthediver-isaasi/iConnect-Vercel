@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { popupTargetRequest } from "@shared/popupPortalTargets.js";
 import { useLocation } from "react-router-dom";
 import { useCookieConsent } from "@/hooks/useCookieConsent";
 import { getTenantSlugFromLocation } from "@/api/publicClient";
@@ -68,7 +69,7 @@ export default function PopupRuntime({ page, viewerIdentity, initialDiscovery = 
     const alive = () => !controller.signal.aborted && token === tokenRef.current && scopeRef.current === runtimeScope;
     const viewerMatches = (data) => data?.viewer_key === viewerIdentity
       && (viewerIdentity === "guest" || /^(member|account):.+/.test(viewerIdentity));
-    const query = new URLSearchParams({ page_id: page.id, ...(page.microsite_id ? { microsite_id: page.microsite_id } : {}) }).toString();
+    const query = new URLSearchParams(popupTargetRequest(page)).toString();
     dismiss();
     const stateFor = (popup) => {
       const key = popupStorageKey(context.tenant_id, context.viewer_key, popup);
@@ -77,7 +78,7 @@ export default function PopupRuntime({ page, viewerIdentity, initialDiscovery = 
       return { key, ...mergePopupPreferenceState(durable, session, memory.get(key)) };
     };
     const writePreference = async (popup, action) => {
-      const write = { page_id: page.id, microsite_id: page.microsite_id || null, id: popup.id, revision: popup.revision, generation: popup.dismissal_generation, action,
+      const write = { ...popupTargetRequest(page), id: popup.id, revision: popup.revision, generation: popup.dismissal_generation, action,
         ...(action === "shown" ? { shown_at: new Date().toISOString() } : {}) };
       pendingWrite.current = write;
       try {
@@ -249,7 +250,7 @@ export default function PopupRuntime({ page, viewerIdentity, initialDiscovery = 
       dismiss(); return;
     }
     if (viewerIdentity.startsWith("member:")) {
-      const body = { page_id: page.id, microsite_id: page.microsite_id || null, id: popup.id, revision: popup.revision, generation: popup.dismissal_generation, action: "permanent" };
+      const body = { ...popupTargetRequest(page), id: popup.id, revision: popup.revision, generation: popup.dismissal_generation, action: "permanent" };
       pendingWrite.current = body;
       try {
         await requestPopup("", { publicRequest: true, method: "POST", body: JSON.stringify(body) });

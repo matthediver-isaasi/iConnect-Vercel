@@ -1,3 +1,18 @@
+# Built-in portal targeting
+
+Main-site popup settings support explicit `config.portal_pages` canonical keys
+from `shared/popupPortalTargets.js`. Legacy records default to no portal targets;
+`all_pages` continues to mean CMS pages only. Microsites cannot assign portal
+targets. The curated registry intentionally excludes transactional, editor,
+administrative and authentication routes; AboutMe/about-me resolve to Preferences.
+
+Delivery uses `portal_page` instead of `page_id`/`page_slug`. Mixed target modes
+are rejected. Each discovery, selected-content, revalidation and preference call
+independently requires a current tenant member and page capability. Layout only
+mounts after verified session, role, visibility and chrome readiness, and never
+owns CMS mounts. Existing interference checks and popup/member/generation
+preference keys are shared across both surfaces.
+
 # CMS popup frontend
 
 The feature uses the existing CMS visual system, Canvas standalone-document

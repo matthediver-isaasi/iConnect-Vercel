@@ -1,4 +1,5 @@
 import { supabase } from '../../_lib/database.js';
+import { POPUP_PORTAL_TARGETS } from '../../../shared/popupPortalTargets.js';
 import { getTenantContext, hasFeatureAccess } from '../../_lib/tenantContext.js';
 import { setMemberContentCacheHeaders } from '../../_lib/canvasMemberOnly.js';
 import { allAffiliationRows } from '../../_lib/formAffiliationReview.js';
@@ -29,7 +30,7 @@ export function createPopupAdminHandler({ db = supabase, contextFor = getTenantC
           discoverPopupFields(db, tenantId, { choices: true }),
           popupQuery(db.from('tenant').select('settings').eq('id', tenantId).single()),
         ]);
-        return res.json({ pages, microsites, fields, timezone: popupTimezone(tenant) });
+        return res.json({ pages, portal_pages: POPUP_PORTAL_TARGETS, microsites, fields, timezone: popupTimezone(tenant) });
       }
       if (req.method === 'GET' && !id) {
         const popups = await allAffiliationRows(() => db.from('cms_popup')

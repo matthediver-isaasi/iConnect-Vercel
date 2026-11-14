@@ -802,7 +802,7 @@ function ResourceLibraryPage() {
 
           <div className="flex-1">
             {isLoading ? (
-              <div className="grid xl:grid-cols-2 gap-6">
+              <div className="grid xl:grid-cols-2 gap-6" aria-busy="true">
                 {Array(12).fill(0).map((_, i) => (
                   <Card key={i} className="animate-pulse border-slate-200 rounded-none">
                     <div className="h-48 bg-slate-200" />

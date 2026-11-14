@@ -1,4 +1,5 @@
 import React, { useRef, useState } from "react";
+import { popupPortalTarget } from "@shared/popupPortalTargets.js";
 import { useNavigate } from "react-router-dom";
 import { Copy, Eye, FileEdit, Plus, Settings2, Trash2, PanelsTopLeft } from "lucide-react";
 import { toast } from "sonner";
@@ -79,7 +80,7 @@ export default function PopupManagement() {
         <TableBody>{popups.filter((popup) => popup.name.toLowerCase().includes(search.toLowerCase()) && (status === "all" || popup.status === status) && (site === "all" || (popup.microsite_id || "main") === site)).map((popup) => <TableRow key={popup.id}>
           <TableCell className="pl-5"><button className="text-left font-semibold hover:underline" onClick={() => edit(popup)}>{popup.name}</button><p className="mt-1 text-xs text-muted-foreground">{microsites.find((item) => item.id === popup.microsite_id)?.name || "Main site"} · Revision {popup.revision}</p></TableCell>
           <TableCell><Badge variant={popup.status === "active" ? "default" : "secondary"}>{popup.status}</Badge>{popup.status === "active" && popup.starts_at && Date.parse(popup.starts_at) > Date.now() && <p className="mt-1 text-xs text-muted-foreground">Scheduled</p>}{popup.ends_at && Date.parse(popup.ends_at) <= Date.now() && <p className="mt-1 text-xs text-muted-foreground">Schedule ended</p>}</TableCell>
-          <TableCell><span className="text-sm">{popup.config?.visibility || "public"}</span><p className="mt-1 text-xs text-muted-foreground">{popup.config?.all_pages ? "All scoped pages" : `${popup.config?.page_ids?.length || 0} pages`} · {popup.config?.groups?.length || 0} rule groups</p></TableCell>
+          <TableCell><span className="text-sm">{popup.config?.visibility || "public"}</span><p className="mt-1 text-xs text-muted-foreground">{popup.config?.all_pages ? "All CMS pages" : `${popup.config?.page_ids?.length || 0} CMS pages`} · {popup.config?.portal_pages?.length || 0} portal pages · {popup.config?.groups?.length || 0} rule groups</p><p className="text-xs text-muted-foreground">{(popup.config?.portal_pages || []).map(key => popupPortalTarget(key)?.label || key).join(", ")}</p></TableCell>
           <TableCell className="text-sm">{popup.config?.trigger?.type?.replaceAll("_", " ") || "immediate"}<p className="mt-1 text-xs text-muted-foreground">Priority {popup.config?.priority || 0}</p></TableCell>
           <TableCell><div className="flex flex-wrap justify-end gap-1">
             <Button variant="ghost" size="icon" title="Settings" aria-label={`Settings for ${popup.name}`} onClick={() => edit(popup)}><Settings2 className="h-4 w-4" /></Button>

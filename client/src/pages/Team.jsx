@@ -710,7 +710,7 @@ export default function TeamPage({ hasBanner }) {
 
   if (isLoading) {
     return (
-      <div className="min-h-[100dvh] p-4 md:p-8 max-w-7xl mx-auto" role="status" aria-label="Loading team">
+      <div className="min-h-[100dvh] p-4 md:p-8 max-w-7xl mx-auto" role="status" aria-busy="true" aria-label="Loading team">
         <div className="h-12 w-56 bg-slate-200 rounded mb-8 animate-pulse" />
         <div className="h-24 bg-slate-100 rounded-lg mb-6 animate-pulse" />
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

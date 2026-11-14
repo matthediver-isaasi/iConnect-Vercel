@@ -1868,7 +1868,7 @@ export default function EventsPage({
 
         {/* Events Display */}
         {isLoading ? (
-          <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
+          <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6" aria-busy="true">
             {Array(6)
               .fill(0)
               .map((_, i) => (

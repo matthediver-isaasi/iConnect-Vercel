@@ -1,3 +1,4 @@
+import { popupPortalTarget, POPUP_PORTAL_TARGETS } from './popupPortalTargets.js';
 // Pure contracts shared by authoring, delivery and isolated tests.
 export const POPUP_BLOCK_TYPES = Object.freeze([
   'box', 'section', 'row', 'group', 'text', 'image', 'button', 'spacer',
@@ -5,7 +6,7 @@ export const POPUP_BLOCK_TYPES = Object.freeze([
   'advanced-accordion', 'columns', 'logo-strip', 'symbol',
 ]);
 export const POPUP_DEFAULT_CONFIG = Object.freeze({
-  visibility: 'public', all_pages: false, page_ids: [], groups: [],
+  visibility: 'public', all_pages: false, page_ids: [], portal_pages: [], groups: [],
   trigger: { type: 'immediate', value: 0 },
   frequency: { type: 'page_view', days: 1 },
   priority: 0, allow_session: true, allow_permanent: true,
@@ -144,6 +145,10 @@ export function evaluatePopupAudience(config, viewer, fields, member, organizati
 }
 export function validatePopupConfig(config) {
   if (!object(config)) fail('Popup configuration is required.');
+  if (config.portal_pages !== undefined && (!Array.isArray(config.portal_pages)
+    || config.portal_pages.length > POPUP_PORTAL_TARGETS.length
+    || new Set(config.portal_pages).size !== config.portal_pages.length
+    || config.portal_pages.some(key => !popupPortalTarget(key)))) fail('Invalid portal page assignments.');
   if (!['public', 'members', 'guests'].includes(config.visibility)) fail('Invalid audience visibility.');
   if (typeof config.all_pages !== 'boolean' || !Array.isArray(config.page_ids) || config.page_ids.length > 500 || config.page_ids.some(id => !isPopupId(id))) fail('Invalid page assignments.');
   if (!Array.isArray(config.groups)) fail('Invalid audience groups.');

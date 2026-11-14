@@ -3,7 +3,7 @@ import { handleStaleChunkError } from '../../lib/staleChunkReload';
 
 export function RouteLoadingStatus() {
   return (
-    <div className="flex min-h-48 items-center justify-center p-8" role="status" aria-live="polite">
+    <div className="flex min-h-48 items-center justify-center p-8" role="status" aria-live="polite" data-popup-critical-flow>
       Loading page…
     </div>
   );
@@ -31,7 +31,7 @@ export class RouteErrorBoundary extends Component {
   render() {
     if (this.state.error) {
       return (
-        <section className="p-8 text-center" role="alert">
+        <section className="p-8 text-center" role="alert" data-popup-critical-flow>
           <h1 className="text-lg font-semibold">Unable to load this page</h1>
           <p className="my-3">Check your connection and refresh, or choose another page.</p>
           <button className="rounded border px-4 py-2" type="button" onClick={() => window.location.reload()}>

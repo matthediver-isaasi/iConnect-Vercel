@@ -1,12 +1,15 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
+import { popupPortalAccess } from '../_lib/popupPortalAccess.js';
+import { popupPortalTarget } from '../../shared/popupPortalTargets.js';
+import { allAffiliationRows } from '../_lib/formAffiliationReview.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { setMemberContentCacheHeaders } from '../_lib/canvasMemberOnly.js';
 import { eligiblePopups, popupQuery, popupRuntimeRecord, popupTimezone, resolvePopupDesign } from '../_lib/cmsPopupService.js';
 import { isPopupId } from '../../shared/cmsPopupContract.js';
 import { popupTimings } from '../_lib/cmsPopupTimings.js';
 
-export function createPopupDeliveryHandler({ db = supabase, resolveTenant = resolveTenantFromRequest, contextFor = getTenantContext } = {}) {
+export function createPopupDeliveryHandler({ db = supabase, resolveTenant = resolveTenantFromRequest, contextFor = getTenantContext, featureAccess = null } = {}) {
   return async function handler(req, res) {
     setMemberContentCacheHeaders(res, { includeHost: true });
     const measure = popupTimings(res);
@@ -14,12 +17,15 @@ export function createPopupDeliveryHandler({ db = supabase, resolveTenant = reso
     try {
       if (!db) return res.status(503).json({ error: 'Database unavailable' });
       const input = req.method === 'POST' ? req.body || {} : req.query || {};
+      const portalMode = input.portal_page !== undefined;
+      const portal = portalMode ? popupPortalTarget(input.portal_page) : null;
+      if (portalMode && (!portal || input.page_id !== undefined || input.page_slug !== undefined || input.microsite_id !== undefined)) return res.status(400).json({ error: 'Invalid portal target' });
       // Slug discovery may overlap page-content loading. Content and preference
       // requests still require the resolved page ID and fresh authorization.
       const slugDiscovery = req.method === 'GET' && !input.id && input.page_id === undefined
         && typeof input.page_slug === 'string' && input.page_slug.length > 0
         && input.page_slug.length <= 200 && !/[/?#\s]/.test(input.page_slug);
-      if ((!isPopupId(input.page_id) && !slugDiscovery) || (input.id && !isPopupId(input.id))) return res.status(400).json({ error: 'Invalid page or popup identifier' });
+      if ((!portalMode && !isPopupId(input.page_id) && !slugDiscovery) || (input.id && !isPopupId(input.id))) return res.status(400).json({ error: 'Invalid page or popup identifier' });
       const [tenant, context] = await Promise.all([
         // Reuse only the session validated in this invocation. Every eligibility,
         // selected-content and preference request still revalidates independently.
@@ -30,16 +36,43 @@ export function createPopupDeliveryHandler({ db = supabase, resolveTenant = reso
       if (context.tenantMismatch || (context.isAuthenticated && context.tenantId !== tenant.id)) return res.status(403).json({ error: 'Viewer context changed' });
       const viewer = { isAuthenticated: context.isAuthenticated === true,
         memberId: context.isAuthenticated ? context.memberId || null : null };
+      let page;
+      if (portalMode) {
+        if (!viewer.memberId || !context.roleId) return res.status(403).json({ error: 'Portal page unavailable' });
+        let allowed = featureAccess
+          ? await featureAccess(context.roleId, portal.feature, context.memberExcludedFeatures)
+          : await popupPortalAccess(db, context, portal.feature);
+        // Layout grants Support to current group administrators independently
+        // of role exclusions. Resolve that exception afresh, never from input.
+        if (!allowed && portal.key === 'Support') {
+          const assignments = await allAffiliationRows(() => db.from('member_group_assignment')
+            .select('id,expires_at', { count: 'exact' }).eq('tenant_id', tenant.id)
+            .eq('member_id', viewer.memberId).eq('is_group_admin', true));
+          allowed = assignments.some(row => !row.expires_at || Date.parse(row.expires_at) > Date.now());
+        }
+        if (!allowed) return res.status(403).json({ error: 'Portal page unavailable' });
+        // Visibility metadata failure must not turn a loading/error page into a
+        // delivery surface. Public/hybrid settings never waive member access.
+        const setting = await popupQuery(db.from('system_settings').select('setting_value')
+          .eq('tenant_id', tenant.id).eq('setting_key', 'page_visibility_settings').maybeSingle());
+        if (setting?.setting_value) {
+          const values = JSON.parse(setting.setting_value);
+          if (!values || typeof values !== 'object' || Array.isArray(values)
+            || Object.values(values).some(value => !['public', 'hybrid', 'portal'].includes(value))) throw new Error('Page visibility unavailable');
+        }
+        page = { id: `portal:${portal.key}`, portal_key: portal.key, microsite_id: null };
+      } else {
       let pageQuery = db.from('i_edit_page').select('id,tenant_id,status,layout_type,microsite_id')
         .eq('tenant_id', tenant.id).eq(slugDiscovery ? 'slug' : 'id', slugDiscovery ? input.page_slug : input.page_id).eq('status', 'published');
       pageQuery = input.microsite_id ? pageQuery.eq('microsite_id', input.microsite_id) : pageQuery.is('microsite_id', null);
-      const page = await measure('page', () => popupQuery(pageQuery.maybeSingle()));
+      page = await measure('page', () => popupQuery(pageQuery.maybeSingle()));
       if (!page || (page.microsite_id || null) !== (input.microsite_id || null)
         || !['public', 'hybrid', 'member', 'public_no_chrome', 'public_header_only', 'public_footer_only'].includes(page.layout_type)
         || (page.layout_type === 'member' && !viewer.memberId)) return res.status(404).json({ error: 'Page unavailable' });
       if (page.microsite_id) {
         const site = await measure('microsite', () => popupQuery(db.from('microsite').select('id').eq('tenant_id', tenant.id).eq('id', page.microsite_id).eq('is_active', true).maybeSingle()));
         if (!site) return res.status(404).json({ error: 'Page unavailable' });
+      }
       }
       const base = { tenant_id: tenant.id, page_id: page.id, viewer_key: viewer.memberId ? `member:${viewer.memberId}` : viewer.isAuthenticated ? `account:${context.tenantUserId}` : 'guest',
         timezone: popupTimezone(tenant) };

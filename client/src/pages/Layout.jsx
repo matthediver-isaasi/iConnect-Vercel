@@ -1,5 +1,7 @@
 import { refreshRoleSettingsQueries, subscribeRoleSettingsCopy } from "@/lib/roleSettingsCopy";
 import { MainLandmarkContext } from "@/contexts/MainLandmarkContext";
+import PopupRuntime from "@/components/popups/PopupRuntime";
+import { popupPortalTargetForPath } from "@shared/popupPortalTargets.js";
 
 import React, { useEffect, useLayoutEffect, useState, useRef, useMemo } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -2918,6 +2920,15 @@ useEffect(() => {
   ) : null;
 
   // Render blank layout when forced (e.g., form with blank_layout option)
+  const popupPortalTarget = popupPortalTargetForPath(location.pathname);
+  const portalPopupElement = popupPortalTarget && !pageOwned && chromeReady
+    && authResolved && sessionValidated && !sessionRecovering && !sessionRecoveryBlocked && !sessionError
+    && roleStatus === 'ready' && navigationStatus === 'ready' && visibilitySettingsFetched && !visibilitySettingsError
+    && memberInfo?.id && !isCurrentPageExcluded() && !isFeatureExcluded(popupPortalTarget.feature)
+    && !forceBlankLayout ? <PopupRuntime
+      page={{ id: `portal:${popupPortalTarget.key}`, portal_key: popupPortalTarget.key }}
+      viewerIdentity={`member:${memberInfo.id}`} /> : null;
+
   if (forceBlankLayout && !pageOwned) {
     return <>{children}</>;
   }
@@ -2936,6 +2947,7 @@ useEffect(() => {
           <PortalReadiness ready={!visibilitySettingsError} error={visibilitySettingsError} onRetry={retryVisibilitySettings}>
           <BarePublicLayout>
             {children}
+            {portalPopupElement}
             {chromeReady && !forceBlankLayout ? inboxUnreadPopupElement : null}
           </BarePublicLayout>
           </PortalReadiness>
@@ -2947,6 +2959,7 @@ useEffect(() => {
         <PortalReadiness ready={!visibilitySettingsError} error={visibilitySettingsError} onRetry={retryVisibilitySettings}>
         <PublicLayout currentPageName={effectivePageName}>
           {children}
+          {portalPopupElement}
           {chromeReady && !forceBlankLayout ? inboxUnreadPopupElement : null}
         </PublicLayout>
         </PortalReadiness>
@@ -3645,6 +3658,7 @@ useEffect(() => {
                   >
                     <BannerProvider belowFirstElementBanners={belowFirstElementBanners}>
                       {childrenWithProps}
+                      {portalPopupElement}
                     </BannerProvider>
                   </div>
                 ) : null}

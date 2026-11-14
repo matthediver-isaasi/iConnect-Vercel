@@ -17,7 +17,7 @@ export function popupTimezone(tenant) {
   return timezone;
 }
 export function popupRuntimeRecord(popup, state) {
-  const { groups, page_ids, ...config } = popup.config;
+  const { groups, page_ids, portal_pages, ...config } = popup.config;
   return { id: popup.id, revision: popup.revision, dismissal_generation: popup.dismissal_generation,
     ends_at: popup.ends_at, config, last_shown_at: state?.last_shown_at || null };
 }
@@ -25,6 +25,7 @@ export async function validatePopupDocument(db, tenantId, document, fields) {
   if (typeof document.name !== 'string' || !document.name.trim() || document.name.trim().length > 120) throw Object.assign(new Error('Name must be between 1 and 120 characters.'), { status: 400 });
   if (!['draft', 'active', 'paused', 'archived'].includes(document.status)) throw Object.assign(new Error('Invalid lifecycle.'), { status: 400 });
   validatePopupConfig(document.config);
+  if (document.microsite_id && document.config.portal_pages?.length) throw Object.assign(new Error('Portal pages are main-site only.'), { status: 400 });
   validatePopupGroups(document.config.groups, fields);
   const orgIds = [...new Set(document.config.groups.flatMap(g => g.conditions)
     .filter(c => c.entity_scope === 'organization' && c.field_type === 'core' && c.field_key === 'id')
@@ -44,7 +45,7 @@ export async function validatePopupDocument(db, tenantId, document, fields) {
       throw Object.assign(new Error('Pages must belong to the popup’s site and tenant.'), { status: 400 });
     }
   }
-  if (document.status === 'active' && !document.config.all_pages && !ids.length) throw Object.assign(new Error('Assign at least one page before activation.'), { status: 400 });
+  if (document.status === 'active' && !document.config.all_pages && !ids.length && !document.config.portal_pages?.length) throw Object.assign(new Error('Assign at least one page before activation.'), { status: 400 });
 }
 export async function resolvePopupDesign(db, tenantId, popup, memberContent) {
   const design = memberContent ? popup.design : projectMemberOnlyGuest(popup.design);
@@ -68,7 +69,9 @@ export async function eligiblePopups(db, tenant, page, viewer, { id = null, now 
   // Overflow is a hard failure, not a silently truncated candidate set.
   const { data, error, count } = await measure('candidates', () => query.order('id').range(0, 100));
   if (error || !Array.isArray(data) || count !== data.length || count > 100) throw new Error('Complete popup candidates unavailable.');
-  const rows = data.filter(p => popupScheduleAvailable(p, now) && (p.config.all_pages || p.config.page_ids?.includes(page.id)));
+  const rows = data.filter(p => popupScheduleAvailable(p, now) && (page.portal_key
+    ? !p.microsite_id && p.config.portal_pages?.includes(page.portal_key)
+    : p.config.all_pages || p.config.page_ids?.includes(page.id)));
   if (!rows.length) return [];
   const fields = await measure('fields', () => discoverPopupFields(db, tenant.id));
   rows.forEach(p => { validatePopupConfig(p.config); validatePopupGroups(p.config.groups, fields); });

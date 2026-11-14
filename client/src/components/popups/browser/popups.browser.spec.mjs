@@ -1,6 +1,20 @@
 import { test, expect } from "@playwright/test";
 import { popupFixtureRecord } from "./popupFixtureData.js";
 import { popupEditorDimensions } from "../../../lib/popupEditorDimensions.js";
+import { POPUP_PORTAL_TARGETS } from "../../../../../shared/popupPortalTargets.js";
+
+test("portal selections are searchable, independent of all CMS pages, and saved", async ({ page }) => {
+  const state = await mount(page, { mode: "authoring" }, { discovery: { portal_pages: POPUP_PORTAL_TARGETS } });
+  await page.getByRole("button", { name: "Launch management" }).click();
+  await openPages(page);
+  await page.getByLabel("Search portal pages", { exact: true }).fill("CPD");
+  await page.getByRole("checkbox", { name: "CPD points", exact: true }).check();
+  await page.getByRole("button", { name: "Save settings", exact: true }).click();
+  await expect.poll(() => state.requests.filter(request => request.method === "PATCH").length).toBeGreaterThan(0);
+  const saved = state.requests.find(request => request.method === "PATCH");
+  expect(saved.body.config.portal_pages).toEqual(["CpdPoints"]);
+  expect(state.errors).toEqual([]);
+});
 
 const dialog = (page) => page.locator("[data-cms-popup-modal]");
 const block = (page, id) => dialog(page).locator(`[data-cb="${id}"]`).first();
@@ -244,7 +258,7 @@ test("page assignments sort fallback labels, search live, and save hidden select
   await search.fill("alpha");
   await settings.getByRole("switch", { name: "All eligible CMS pages in this site" }).click();
   await expect(search).toHaveCount(0);
-  await expect(settings.getByText(/All scoped pages/)).toBeVisible();
+  await expect(settings.getByText(/public · All CMS pages/)).toBeVisible();
   await settings.getByRole("switch", { name: "All eligible CMS pages in this site" }).click();
   await expect(search).toHaveValue("alpha");
   await settings.getByRole("button", { name: "Save settings", exact: true }).click();

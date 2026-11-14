@@ -48,7 +48,7 @@ export default function OrganisationDirectoryPage() {
     return <div className="p-4 md:p-8 text-slate-600">The organisation directory is available in the authenticated application.</div>;
   }
   if (!authResolved) {
-    return <div className="px-4 py-8 md:py-12" role="status" aria-label="Loading directory"><Loader2 className="mx-auto w-6 h-6 animate-spin text-slate-500" /></div>;
+    return <div className="px-4 py-8 md:py-12" role="status" aria-busy="true" aria-label="Loading directory"><Loader2 className="mx-auto w-6 h-6 animate-spin text-slate-500" /></div>;
   }
   if (!memberInfo?.id || !memberInfo?.tenant_id) return <OrganisationDirectoryGuest />;
   return <AuthenticatedOrganisationDirectory />;
@@ -477,7 +477,7 @@ function AuthenticatedOrganisationDirectory() {
   // only include its pending state in the authenticated loading gate.
   if (isLoadingMembers || !displaySettings || directoryMetadataQuery.isPending) {
     return (
-      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center" aria-busy="true">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
       </div>
     );

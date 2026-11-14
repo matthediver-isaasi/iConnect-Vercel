@@ -395,7 +395,7 @@ export default function MemberDirectoryPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center" aria-busy="true">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
       </div>
     );

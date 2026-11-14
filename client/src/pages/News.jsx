@@ -440,7 +440,7 @@ export default function NewsPage() {
         </div>
 
         {isLoading ? (
-          <div className={getGridClass()}>
+          <div className={getGridClass()} aria-busy="true">
             {Array(6).fill(0).map((_, i) => (
               <Card key={i} className="animate-pulse border-slate-200">
                 <div className="h-48 bg-slate-200" />

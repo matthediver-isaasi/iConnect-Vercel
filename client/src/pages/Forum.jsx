@@ -157,7 +157,7 @@ export default function ForumPage() {
 
   if (!accessChecked) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]" data-testid="forum-loading">
+      <div className="flex items-center justify-center min-h-[400px]" aria-busy="true" data-testid="forum-loading">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
       </div>
     );
@@ -168,7 +168,7 @@ export default function ForumPage() {
 
     if (accessDataLoading) {
       return (
-        <div className="flex items-center justify-center min-h-[400px]" data-testid="forum-category-loading">
+        <div className="flex items-center justify-center min-h-[400px]" aria-busy="true" data-testid="forum-category-loading">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
         </div>
       );
@@ -188,7 +188,7 @@ export default function ForumPage() {
             </Button>
           </div>
           <Card>
-            <CardContent className="flex flex-col items-center justify-center py-12 text-muted-foreground" data-testid="text-category-unavailable">
+            <CardContent className="flex flex-col items-center justify-center py-12 text-muted-foreground" data-popup-critical-flow data-testid="text-category-unavailable">
               <MessageSquare className="w-10 h-10 mb-3 opacity-40" />
               <p>This forum is not available.</p>
             </CardContent>

@@ -1,3 +1,17 @@
+# Portal assignments
+
+Main-site popups may explicitly select supported built-in portal pages alongside
+CMS pages, including portal-only activation. Existing all-CMS assignments do not
+opt into any portal page. Portal delivery requires signed-in member page access,
+including when a supported page uses public or hybrid chrome. No anonymous
+built-in delivery or microsite portal targeting is introduced. Permanent opt-outs
+survive ordinary assignment edits and apply across CMS and portal visits.
+
+The supported list is intentionally curated in `shared/popupPortalTargets.js`;
+it does not include arbitrary routes, payment entry screens or administrative
+pages. No schema migration is needed: assignments stay in existing service-only
+JSON configuration, and the UUID CMS assignment join is unchanged.
+
 # CMS Canvas Popups — Phase 1 release boundaries
 
 ## Delay diagnostics

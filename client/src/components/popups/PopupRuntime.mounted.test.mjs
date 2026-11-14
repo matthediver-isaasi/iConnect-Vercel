@@ -56,7 +56,7 @@ after(() => { globalThis.setInterval = originalInterval; globalThis.clearInterva
 const settle = () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)); });
 let sequence = 0;
 async function mount({ member = false, pendingConsent = false, selectedError = false, otherDialog = false, slowRead = false, backgroundHtml = "",
-  home = null, trigger = { type: "immediate", value: 0 }, prefetch = null,
+  home = null, portal = null, trigger = { type: "immediate", value: 0 }, prefetch = null,
   frequency = "day", durableState, sessionState, actualViewer, expectedViewer,
   categories = { analytics: true, functional: true }, hasConsented = true } = {}) {
   sequence += 1;
@@ -100,6 +100,7 @@ async function mount({ member = false, pendingConsent = false, selectedError = f
   document.body.innerHTML = `<div id="root"></div>${backgroundHtml}${otherDialog ? '<div id="competing" role="dialog"></div>' : ""}${home?.stripeTelemetry ? '<iframe src="https://js.stripe.com/v3/m-outer.html" style="visibility:hidden;height:1px"></iframe>' : ""}`;
   const root = createRoot(document.getElementById("root"));
   const props = { page: { id: `page-${sequence}`, slug: `page-${sequence}`, microsite_id: "microsite-fixture" }, viewerIdentity: expectedViewer || (member ? context.viewer_key : "guest") };
+  if (portal) props.page = { id: `portal:${portal}`, portal_key: portal };
   if (prefetch) props.initialDiscovery = {
     pageSlug: props.page.slug, viewerIdentity: props.viewerIdentity,
     promise: Promise.resolve({ receivedAt: Date.now() - (prefetch.age || 0),
@@ -150,6 +151,43 @@ test("member impression includes microsite and daily revalidation preserves inte
   const refresh = app.calls.filter((call) => new URLSearchParams(call.query).get("revalidate") === "1");
   assert.equal(refresh.length, 2, "batched eligibility and selected authorization both bypass shown frequency");
   await app.unmount();
+});
+test("portal target follows discovery, content, revalidation and preference writes", async () => {
+  const app = await mount({ member: true, portal: "Events" });
+  try {
+    assert.ok(document.querySelector("[data-cms-popup-modal]"));
+    await app.tick(30000);
+    for (const call of app.calls) {
+      const input = call.options.method === "POST" ? JSON.parse(call.options.body) : Object.fromEntries(new URLSearchParams(call.query));
+      assert.equal(input.portal_page, "Events");
+      assert.equal(input.page_id, undefined);
+      assert.equal(input.microsite_id, undefined);
+    }
+  } finally { await app.unmount(); }
+});
+test("permanent dismissal follows a member from portal to CMS after edits", async () => {
+  const app = await mount({ member: true, portal: "Events" });
+  try {
+    const permanent = [...document.querySelectorAll("button")].find(button => button.textContent.includes("Don't show again"));
+    assert.ok(permanent);
+    await act(async () => permanent.click());
+    await settle();
+    const write = app.calls.filter(call => call.options.method === "POST")
+      .map(call => JSON.parse(call.options.body)).find(body => body.action === "permanent");
+    assert.equal(write.portal_page, "Events");
+    app.popup.revision++;
+    await app.rerender({ page: { id: "cms-after-portal" } }, { key: "cms-after-dismissal", pathname: "/cms-after-portal" });
+    assert.equal(document.querySelector("[data-cms-popup-modal]"), null);
+  } finally { await app.unmount(); }
+});
+test("portal popups still defer for active payment and other critical flows", async () => {
+  const app = await mount({ member: true, portal: "Events", backgroundHtml: '<div data-payment-active="true"></div>' });
+  try {
+    assert.equal(document.querySelector("[data-cms-popup-modal]"), null);
+    document.querySelector("[data-payment-active]").remove();
+    await app.tick();
+    assert.ok(document.querySelector("[data-cms-popup-modal]"));
+  } finally { await app.unmount(); }
 });
 test("prefetched discovery skips a duplicate batch but still freshly authorizes selected content", async () => {
   const app = await mount({ member: true, prefetch: {} });
