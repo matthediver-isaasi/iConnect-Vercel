@@ -43,6 +43,52 @@ test('100 recipients need ten bounded reads including category policy, not hundr
   assert.equal([...states.values()].filter(v => v === 'ready').length, 100);
 });
 
+for (const reason of ['global','category']) for (const prepared of [true,false]) {
+  test(`shared-address ${reason} exclusion wins over external identity, prepared=${prepared}`, async () => {
+    const f=fixture();
+    f.campaign.deliver_to_inbox_when_opted_out=true;
+    if (!prepared) delete f.campaign.preparation_generation;
+    f.entries[1].recipient.member_id=null;
+    f.entries[1].recipient.email=' PERSON0@example.invalid ';
+    f.data.campaign_preparation_recipient.forEach(r => {r.recipient.bypass_opt_out=true;});
+    if(reason==='global') f.data.member[0].communications_opted_out_all=true;
+    else f.data.member_communication_preference=f.data.member_communication_preference.filter(r=>r.member_id!=='m0');
+    const result=await bulkRecipientEligibility(f.db,f.entries,f.campaign,'tenant');
+    assert.equal(result.get('r0'),'inbox_only');
+    assert.equal(result.get('r1'),'unsubscribed');
+  });
+}
+
+for (const prepared of [true, false]) {
+  test(`optional inbox enforces consent despite bypass, prepared=${prepared}`, async () => {
+    const f = fixture();
+    f.campaign.deliver_to_inbox_when_opted_out = true;
+    f.campaign.ignore_opt_outs = true;
+    if (!prepared) delete f.campaign.preparation_generation;
+    f.data.campaign_preparation_recipient.forEach(r => { r.recipient.bypass_opt_out = true; });
+    f.data.member[0].communications_opted_out_all = true;
+    f.data.email_address_bounce.push({ tenant_id:'tenant',email:f.entries[0].recipient.email,resolved_at:null });
+    f.data.email_unsubscribe.push(
+      { tenant_id: 'tenant', email: f.entries[1].recipient.email, unsubscribe_type: 'all' },
+      { tenant_id: 'tenant', email: f.entries[2].recipient.email, unsubscribe_type: 'category', communication_category_id: 'category' });
+    f.data.member_communication_preference = f.data.member_communication_preference.filter(r => r.member_id !== 'm3');
+    f.entries[4].recipient.member_id = null;
+    f.data.email_unsubscribe.push({ tenant_id: 'tenant', email: f.entries[4].recipient.email, unsubscribe_type: 'all' });
+    f.data.member[5].email = 'changed@example.invalid';
+    f.data.member[5].communications_opted_out_all = true;
+    const result = await bulkRecipientEligibility(f.db, f.entries, f.campaign, 'tenant');
+    for (const n of [0,1,2,3]) assert.equal(result.get(`r${n}`), 'inbox_only');
+    assert.equal(result.get('r4'), 'unsubscribed', 'external contacts have no member inbox');
+    assert.equal(result.get('r5'), 'unsubscribed', 'changed member address fails closed');
+    assert.equal(result.get('r6'), 'ready');
+    if (prepared) {
+      f.data.campaign_preparation_recipient[6].recipient.inbox_only = true;
+      const retry = await bulkRecipientEligibility(f.db, f.entries, f.campaign, 'tenant');
+      assert.equal(retry.get('r6'), 'inbox_only', 'prepared inbox-only work cannot become email');
+    }
+  });
+}
+
 test('job category campaigns require enabled tenant, current subscription and Job Board access', async () => {
   const f = fixture();
   f.data.communication_category = [{ id: 'category', tenant_id: 'tenant', system_key: 'job_postings' }];
@@ -58,6 +104,10 @@ test('job category campaigns require enabled tenant, current subscription and Jo
   assert.equal(result.get('r1'), 'unsubscribed');
   assert.equal(result.get('r2'), 'ready');
   assert.ok(f.calls() < 20, 'RBAC is resolved in bounded set reads');
+  f.campaign.deliver_to_inbox_when_opted_out = true;
+  result = await bulkRecipientEligibility(f.db, f.entries, f.campaign, 'tenant');
+  assert.equal(result.get('r0'), 'unsubscribed', 'inbox option does not bypass Job Board access');
+  assert.equal(result.get('r1'), 'inbox_only', 'subscription exclusion affects email, not authorized inbox delivery');
   f.data.job_alert_settings[0].enabled = false;
   result = await bulkRecipientEligibility(f.db, f.entries, f.campaign, 'tenant');
   assert.ok([...result.values()].every(value => value === 'unsubscribed'));

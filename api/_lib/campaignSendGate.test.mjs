@@ -33,7 +33,7 @@ function installCampaignMock(campaign) {
   supabase.from = (table) => {
     calls.push({ table, method: 'from' });
     const query = {};
-    for (const method of ['select', 'eq', 'in', 'order', 'limit', 'not']) {
+    for (const method of ['select', 'eq', 'in', 'is', 'or', 'order', 'limit', 'not']) {
       query[method] = (...args) => {
         calls.push({ table, method, args });
         return query;

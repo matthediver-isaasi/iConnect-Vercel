@@ -231,6 +231,7 @@ export default function EmailCampaignEdit() {
   const [loadingRecipientList, setLoadingRecipientList] = useState(false);
   const [recipientTab, setRecipientTab] = useState('filtered');
   const [serverRecipientCount, setServerRecipientCount] = useState(null);
+  const [serverChannelStats, setServerChannelStats] = useState(null);
   const [loadingServerCount, setLoadingServerCount] = useState(false);
   const [recipientCountMismatch, setRecipientCountMismatch] = useState(false);
   const [recipientPage, setRecipientPage] = useState(1);
@@ -257,6 +258,7 @@ export default function EmailCampaignEdit() {
     design_json: null,
     event_survey_context: null,
     target_audiences: [],
+    deliver_to_inbox_when_opted_out: false,
     communication_category_id: '',
     scheduled_at: '',
     is_test_mode: false
@@ -326,6 +328,7 @@ export default function EmailCampaignEdit() {
         design_json: content.design_json,
         event_survey_context: campaign.event_survey_context || null,
         target_audiences: audiences,
+        deliver_to_inbox_when_opted_out: campaign.deliver_to_inbox_when_opted_out === true,
         communication_category_id: campaign.communication_category_id || '',
         scheduled_at: campaign.scheduled_at ? new Date(campaign.scheduled_at).toISOString().slice(0, 16) : '',
         is_test_mode: campaign.is_test_mode || false
@@ -416,6 +419,7 @@ export default function EmailCampaignEdit() {
           credentials: 'include',
           body: JSON.stringify({ 
             campaignId: 'preview',
+            deliver_to_inbox_when_opted_out: formData.deliver_to_inbox_when_opted_out,
             preview: true,
             targetAudiences: audiences,
             communicationCategoryId: formData.communication_category_id || null
@@ -435,7 +439,7 @@ export default function EmailCampaignEdit() {
 
     const debounceTimer = setTimeout(fetchRecipientCount, 300);
     return () => clearTimeout(debounceTimer);
-  }, [selectedListIds, selectedEventIds, directAudienceType, formData.communication_category_id, affectedSelectedList]);
+  }, [selectedListIds, selectedEventIds, directAudienceType, formData.communication_category_id, formData.deliver_to_inbox_when_opted_out, affectedSelectedList]);
 
   const linkedTemplate = emailTemplates.find(t => t.id === formData.email_template_id);
   const canReloadVisualTemplate = linkedTemplate && linkedTemplate.editor_type !== 'html' && normalizeEmailDesign(linkedTemplate.design_json);
@@ -641,6 +645,7 @@ export default function EmailCampaignEdit() {
     setShowSendConfirmDialog(true);
     setLoadingServerCount(true);
     setServerRecipientCount(null);
+    setServerChannelStats(null);
     setRecipientCountMismatch(false);
     try {
       const response = await fetch('/api/email-campaigns/send', {
@@ -652,6 +657,7 @@ export default function EmailCampaignEdit() {
       if (response.ok) {
         const data = await response.json();
         setServerRecipientCount(data.recipientCount);
+        setServerChannelStats(data.stats || null);
         if (recipientPreviewCount !== null && data.recipientCount !== recipientPreviewCount) {
           setRecipientCountMismatch(true);
         }
@@ -1089,6 +1095,22 @@ export default function EmailCampaignEdit() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="space-y-2">
+              <label className="flex items-start gap-2 text-sm">
+                <input type="checkbox" data-testid="campaign-inbox-opted-out"
+                  checked={formData.deliver_to_inbox_when_opted_out}
+                  disabled={!!campaign?.preparation_generation || (campaign && !['draft', 'scheduled'].includes(campaign.status))}
+                  onChange={event => setFormData(prev => ({ ...prev, deliver_to_inbox_when_opted_out: event.target.checked }))} />
+                Deliver to member inbox even if email is opted out
+              </label>
+              <p className="text-xs text-muted-foreground">
+                Email consent is still enforced and saved preferences are not changed. Your organisation must establish an appropriate lawful basis and honour applicable marketing objections across channels. Inbox delivery does not automatically make a campaign GDPR compliant.
+              </p>
+              {formData.deliver_to_inbox_when_opted_out && recipientStats && <p className="text-sm">
+                {recipientStats.emailEligible ?? 0} email eligible · {recipientStats.inboxOnly ?? 0} inbox-only candidates. Eligibility is checked again at delivery.
+              </p>}
             </div>
 
             {hasAudienceSelected && (
@@ -1551,6 +1573,10 @@ export default function EmailCampaignEdit() {
                 )}
               </span>
             </div>
+            {serverChannelStats && <p className="text-sm" data-testid="campaign-channel-confirmation">
+              {serverChannelStats.emailEligible ?? serverRecipientCount} email eligible · {serverChannelStats.inboxOnly ?? 0} inbox-only candidates.
+              {' '}Email exclusions will not receive email. Counts are rechecked at delivery.
+            </p>}
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">From</span>
               <span className="font-medium">{formData.from_name || 'Not set'} &lt;{formData.from_email || 'Not set'}&gt;</span>

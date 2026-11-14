@@ -22,7 +22,7 @@ async function fetchAllRecipients(memberId, tenantId) {
   for (;;) {
     const { data, error } = await campaignInboxRecipients(supabase)
       .select(
-        'id, campaign_id, email, first_name, last_name, status, sent_at, open_count, click_count, ' +
+        'id, campaign_id, email, first_name, last_name, status, sent_at, inbox_published_at, inbox_subject, open_count, click_count, ' +
         'email_campaign!inner(id, tenant_id, name, subject, from_name, from_email, sent_at, status, member_group_id, communication_category_id, deleted_category_name, preheader)'
       )
       .eq('member_id', memberId)
@@ -117,11 +117,11 @@ function toMessage(r, state, catMap) {
     recipient_id: r.id,
     campaign_id: r.campaign_id,
     name: c.name || '',
-    subject: c.subject || '',
+    subject: r.inbox_subject ?? c.subject ?? '',
     preheader: c.preheader || '',
     from_name: c.from_name || '',
     from_email: c.from_email || '',
-    sent_at: r.sent_at || c.sent_at || null,
+    sent_at: r.inbox_published_at || r.sent_at || c.sent_at || null,
     source,
     label: catName || (source === 'group' ? 'Group' : 'Announcement'),
     member_group_id: c.member_group_id || null,

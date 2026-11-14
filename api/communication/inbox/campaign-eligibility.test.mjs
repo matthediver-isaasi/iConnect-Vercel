@@ -97,7 +97,10 @@ function fixture() {
           }
           let rows;
           if (table === 'campaign_inbox_recipient') {
-            rows = f.tables.email_campaign_recipient.filter(r => r.sent_at !== null && r.delivery_is_test === false);
+            rows = f.tables.email_campaign_recipient.filter(r =>
+              (r.sent_at !== null && r.delivery_is_test === false) ||
+              (r.inbox_published_at && r.member_id && r.inbox_html != null &&
+                r.sent_at === null && r.mailgun_message_id == null && r.delivery_is_test == null));
           } else {
             assert.ok(table in f.tables, `Unexpected table ${table}`);
             rows = f.tables[table];
@@ -220,6 +223,29 @@ test('list includes only eligible owned campaigns, preserving folder/favourite/a
   assertScoped(f, 'campaign_inbox_recipient', 'email_campaign.tenant_id');
   assertScoped(f, 'member_inbox_message_state');
   assertScoped(f, 'member_transactional_message');
+  assertNoBaseReads(f);
+});
+
+test('inbox-only list, search, detail and sparse state mutations use finalized publication', async () => {
+  const f = fixture();
+  f.tables.email_campaign_recipient.push(recipient('inbox-only', {
+    sent_at: null, delivery_is_test: null, mailgun_message_id: null, status: 'unsubscribed',
+    inbox_published_at: sentAt, inbox_subject: 'Final personalized subject', inbox_html: '<p>Final specific body</p>',
+  }));
+  const list = await call(f, 'index');
+  const message = list.body.messages.find(r => r.recipient_id === 'inbox-only');
+  assert.equal(message.subject, 'Final personalized subject');
+  assert.equal(message.sent_at, sentAt);
+  const search = await call(f, 'search', { query: { q: 'specific body' } });
+  assert.deepEqual(search.body.recipientIds, ['inbox-only']);
+  const detail = await call(f, '[id]', { query: { id: 'inbox-only' } });
+  assert.equal(detail.body.message.html, '<p>Final specific body</p>');
+  assert.equal(detail.body.message.subject, message.subject);
+  for (const action of ['archive','unarchive','pin','unpin','unread','read','move']) {
+    const changed = await call(f, 'index', { method: 'POST',
+      body: { recipient_id: 'inbox-only', action, folder_id: action === 'move' ? 'folder-self' : null } });
+    assert.equal(changed.code, 200);
+  }
   assertNoBaseReads(f);
 });
 

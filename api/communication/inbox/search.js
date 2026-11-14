@@ -38,6 +38,7 @@ function parseDesign(campaign) {
 // in the reading pane. Applies the same transforms as the [id] render path, then
 // strips tags so searches don't match tag names, attributes, inline CSS or URLs.
 function toSearchableText(campaign, recipient) {
+  if (recipient.inbox_published_at) return htmlToSearchableText(recipient.inbox_html);
   const { slotValues, hiddenSlots, richSlots } = parseDesign(campaign);
   let html = campaign.html_content || '';
 
@@ -79,7 +80,7 @@ async function fetchMemberRecipientsForSearch(memberId, tenantId) {
   for (;;) {
     const { data, error } = await campaignInboxRecipients(supabase)
       .select(
-        'id, first_name, last_name, email, sent_at, ' +
+        'id, first_name, last_name, email, sent_at, inbox_published_at, inbox_html, ' +
         'email_campaign!inner(id, tenant_id, html_content, design_json)'
       )
       .eq('member_id', memberId)

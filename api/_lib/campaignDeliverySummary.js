@@ -19,7 +19,10 @@ export async function readCampaignDeliverySummary(db, campaign, now = Date.now()
   ]);
   const unsubscribedAfterSend = await count(q => q.eq('status', 'unsubscribed')
     .or('sent_at.not.is.null,mailgun_message_id.not.is.null'));
+  const inboxOnly = campaign.deliver_to_inbox_when_opted_out === true
+    ? await count(q => q.not('inbox_published_at', 'is', null)) : 0;
   return {
+    inboxOnly,
     sent: sent + unsubscribedAfterSend,
     excluded: cancelled + unsubscribedBeforeSend,
     failed, queued, processing, awaitingReconciliation: processing,

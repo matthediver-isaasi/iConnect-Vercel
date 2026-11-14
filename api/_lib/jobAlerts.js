@@ -61,7 +61,7 @@ export function jobAlertContent(job, url) {
 
 // Category campaigns use the same Job Board authority as automatic alerts.
 // Ordinary categories retain their existing behavior.
-export async function jobCategoryCampaignMembers(db, tenantId, categoryId, memberIds) {
+export async function jobCategoryCampaignMembers(db, tenantId, categoryId, memberIds, { channel = 'email' } = {}) {
   if (!categoryId) return null;
   const { data: categories, error } = await db.from('communication_category')
     .select('system_key').eq('tenant_id', tenantId).eq('id', categoryId).limit(1);
@@ -86,7 +86,7 @@ export async function jobCategoryCampaignMembers(db, tenantId, categoryId, membe
   const subscribed = new Set((preferences || []).map(preference => preference.member_id));
   const allowed = new Set();
   for (const member of members || []) {
-    if (subscribed.has(member.id) && member.communications_opted_out_all !== true &&
+    if ((channel === 'inbox' || (subscribed.has(member.id) && member.communications_opted_out_all !== true)) &&
         jobBoardAllowed(member, roleMap.get(member.role_id))) allowed.add(member.id);
   }
   return allowed;

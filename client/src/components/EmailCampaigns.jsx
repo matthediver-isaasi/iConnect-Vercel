@@ -1788,7 +1788,8 @@ export default function EmailCampaigns() {
                 </p>
                 {previewData.stats && (
                   <p className="text-sm text-muted-foreground mt-2">
-                    {previewData.stats.totalAudience} matching contacts; {previewData.stats.globalOptOuts} global consent exclusions; {previewData.stats.categoryOptOuts} category eligibility exclusions; {previewData.stats.duplicatesRemoved} duplicates removed.
+                    {previewData.stats.totalAudience} matching contacts; {previewData.stats.globalOptOuts} global email consent exclusions; {previewData.stats.categoryOptOuts} category email exclusions; {previewData.stats.duplicatesRemoved} duplicates removed.
+                    {' '}{previewData.stats.emailEligible ?? previewData.recipientCount} email eligible; {previewData.stats.inboxOnly ?? 0} inbox-only candidates. Eligibility is rechecked at delivery.
                   </p>
                 )}
                 {previewData.eligibilityMessage && (

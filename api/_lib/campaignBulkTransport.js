@@ -9,7 +9,8 @@ export function bulkCampaignCompatible(campaign) {
   const content = `${campaign.subject || ''}\n${campaign.html_content || ''}\n${JSON.stringify(campaign.design_json || {})}`;
   const hasSurveyContext = campaign.event_survey_context &&
     Object.keys(campaign.event_survey_context).length > 0;
-  return !campaign.member_group_id && !campaign.group_id && !campaign.event_id && !hasSurveyContext
+  return campaign.deliver_to_inbox_when_opted_out !== true &&
+    !campaign.member_group_id && !campaign.group_id && !campaign.event_id && !hasSurveyContext
     && !campaign.attachments?.length
     && !/(?:\{\{|\[\[)[^}\]]*(?:event[._]|booking[._]|survey|set_password_url)|EVENT_QR_BLOCK/i.test(content);
 }

@@ -5,6 +5,7 @@ export default function CampaignDeliverySummary({ summary, onInspect }) {
   return <div className="text-xs space-y-1 whitespace-normal max-w-md" data-testid="campaign-delivery-summary">
     <p>{summary.sent.toLocaleString()} sent · {summary.excluded.toLocaleString()} excluded (skipped) · {summary.failed.toLocaleString()} failed · {summary.processing.toLocaleString()} awaiting reconciliation · {summary.queued.toLocaleString()} queued</p>
     <p className="text-muted-foreground">Sent means accepted by the provider, not confirmed delivery. Exclusions were not sent; no email was recalled.</p>
+    {summary.inboxOnly > 0 && <p>{summary.inboxOnly.toLocaleString()} inbox-only copies published; these recipients are included in email exclusions, not emails sent.</p>}
     {summary.reconciliationAlert && <div role="alert" className="text-warning" data-testid="campaign-reconciliation-alert">
       <p>{summary.reconciliationAlert.message}</p>
       <p>{RECONCILIATION_GUIDANCE}</p>

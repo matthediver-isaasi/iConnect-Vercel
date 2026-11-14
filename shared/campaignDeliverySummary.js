@@ -5,6 +5,7 @@ export function isExcludedCampaignRecipient(row) {
 }
 
 export function campaignRecipientLabel(row) {
+  if (row.inbox_published_at) return 'Inbox published — email excluded by consent';
   if (isExcludedCampaignRecipient(row)) {
     if (/hard.bounced address/i.test(row.error_message || '')) return 'Skipped — hard-bounce suppression';
     if (row.status === 'unsubscribed') return 'Skipped — consent exclusion';

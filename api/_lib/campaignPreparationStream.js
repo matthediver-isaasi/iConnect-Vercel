@@ -373,7 +373,8 @@ export async function resolvePreparationChunk({ db, state, extensions = {}, cond
   }
   const next = result.done ? stack.slice(1) : [result.next || work, ...stack.slice(1)];
   return { facts: result.facts || [], candidates: (result.candidates || []).filter(r => r.email &&
-    !/^deleted_.*@deleted\.local$/i.test(r.email)).map(r => ({ ...r, bypass_opt_out: work.bypass === true })),
+    !/^deleted_.*@deleted\.local$/i.test(r.email)).map(r => ({ ...r,
+      bypass_opt_out: state.snapshot.deliver_to_inbox_when_opted_out !== true && work.bypass === true })),
   continuation: { stack: next }, done: next.length === 0 };
 }
 

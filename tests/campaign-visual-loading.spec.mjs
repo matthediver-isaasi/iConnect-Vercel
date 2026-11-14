@@ -207,6 +207,8 @@ async function installFixtures(page, campaignFixture, options = {}) {
           categoryOptOuts: 0,
           duplicatesRemoved: 0,
           finalCount: 1,
+          emailEligible: state.campaign.deliver_to_inbox_when_opted_out ? 0 : 1,
+          inboxOnly: state.campaign.deliver_to_inbox_when_opted_out ? 1 : 0,
         },
       });
     }
@@ -499,6 +501,23 @@ test('accepted async send reports background preparation, not a sent or zero-suc
   ]);
   expect(state.escapedWrites).toEqual([]);
   expectNoBrowserErrors(state);
+});
+
+test('optional inbox is default off, saves and reloads, and confirms separate channels', async ({ page }) => {
+  const fixture = await installFixtures(page, campaign({ status: 'draft' }));
+  await page.goto(`/EmailCampaignEdit/${campaignId}`);
+  const option = page.getByTestId('campaign-inbox-opted-out');
+  await expect(option).not.toBeChecked();
+  await option.check();
+  await page.getByTestId('button-save-campaign').click();
+  await expect.poll(() => fixture.writes.length).toBe(1);
+  expect(fixture.writes[0].deliver_to_inbox_when_opted_out).toBe(true);
+  await page.reload();
+  await expect(option).toBeChecked();
+  await page.getByTestId('button-send-campaign').click();
+  await expect(page.getByTestId('campaign-channel-confirmation')).toContainText('0 email eligible · 1 inbox-only candidates');
+  expect(fixture.sends.every(body => body.preview === true)).toBe(true);
+  expect(fixture.escapedWrites).toEqual([]);
 });
 
 test('campaign history shows deleted category and management issues one atomic category DELETE', async ({ page }) => {

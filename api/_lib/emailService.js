@@ -341,7 +341,7 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
   if (campaignDeadlineAt != null && campaignDeadlineAt - Date.now() < 6000) {
     return { success: false, notSubmitted: true, error: 'Campaign deadline exhausted before Mailgun delivery' };
   }
-  if (!MAILGUN_API_KEY && !dependencies.client) {
+  if (!dependencies.prepareOnly && !MAILGUN_API_KEY && !dependencies.client) {
     console.error('[Email Service] MAILGUN_API_KEY not configured');
     return {
       success: false,
@@ -349,8 +349,8 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
     };
   }
 
-  const client = dependencies.client || getMailgunClient(campaignTimeout ?? MAILGUN_TIMEOUT_MS);
-  if (!client) {
+  const client = dependencies.prepareOnly ? null : dependencies.client || getMailgunClient(campaignTimeout ?? MAILGUN_TIMEOUT_MS);
+  if (!dependencies.prepareOnly && !client) {
     return {
       success: false,
       error: 'Failed to initialize Mailgun client',

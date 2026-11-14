@@ -19,6 +19,8 @@ import { finishPreparedCampaignBatch } from './campaignBulkDrain.js';
 import { transitionCampaignClaims, recoverUnsubmittedCampaignClaims, finalizeCampaignDelivery } from './campaignClaimJournal.js';
 import { persistCampaignDeliveryProvenance, verifyCampaignDeliveryProvenance } from './campaignDeliveryProvenance.js';
 import { bulkRecipientEligibility } from './campaignBulkEligibility.js';
+import { validateCampaignInboxOption, publishCampaignInbox } from './campaignInboxOption.js';
+import { campaignAddressConsent } from './campaignAddressConsent.js';
 import { jobCategoryCampaignMembers } from './jobAlerts.js';
 import { resolveWaitingAudience, activeWaitingEmails, campaignWaitingIds } from './eventWaitingAudience.js';
 import { fittingCampaignBatchSize } from './campaignBulkTransport.js';
@@ -494,6 +496,7 @@ export async function createCampaign(campaignData, tenantId, createdBy) {
 
   try {
     const cleanedData = { ...campaignData };
+    validateCampaignInboxOption(cleanedData);
     delete cleanedData.archived_at;
     delete cleanedData.delivery_transport;
     delete cleanedData.delivery_transport_pinned_at;
@@ -563,6 +566,7 @@ export async function updateCampaign(campaignId, updates, tenantId, options = {}
 
   try {
     const cleanedUpdates = { ...updates };
+    validateCampaignInboxOption(cleanedUpdates);
     delete cleanedUpdates.archived_at;
     delete cleanedUpdates.status;
     delete cleanedUpdates.tenant_id;
@@ -2694,6 +2698,16 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false,
     if (campaign.ignore_opt_outs === true) {
       for (const r of allRecipients) r.bypass_opt_out = true;
     }
+    const independentInbox = campaign.deliver_to_inbox_when_opted_out === true;
+    if (independentInbox) {
+      for (const r of allRecipients) r.bypass_opt_out = false;
+    }
+    const inboxAudience = independentInbox
+      ? allRecipients.filter(r => r.member_id !== null && (r.member_id || r.id))
+      : [];
+    const addressConsent = independentInbox
+      ? await campaignAddressConsent(supabase, tenantId, allRecipients.map(r => r.email), campaign.communication_category_id)
+      : null;
 
     const totalAudience = allRecipients.length;
     const rawAudienceList = detailedLists ? allRecipients.map(r => ({ email: r.email, first_name: r.first_name, last_name: r.last_name })) : null;
@@ -2702,8 +2716,10 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false,
     // Recipients carrying bypass_opt_out (from an "ignore opt-outs" audience list)
     // are exempt from every opt-out suppression step below.
     const beforeGlobal = allRecipients.length;
-    const globalFlagRemoved = detailedLists ? allRecipients.filter(r => r.bypass_opt_out !== true && r.communications_opted_out_all === true) : [];
-    allRecipients = allRecipients.filter(r => r.bypass_opt_out === true || r.communications_opted_out_all !== true);
+    const globalFlagRemoved = detailedLists ? allRecipients.filter(r => r.bypass_opt_out !== true &&
+      (r.communications_opted_out_all === true || addressConsent?.global.has(r.email.trim().toLowerCase()))) : [];
+    allRecipients = allRecipients.filter(r => r.bypass_opt_out === true ||
+      (r.communications_opted_out_all !== true && !addressConsent?.global.has(r.email.trim().toLowerCase())));
 
     // Step 1b: Remove emails with global unsubscribe record
     let globalUnsubscribes = [];
@@ -2731,6 +2747,11 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false,
     const communicationCategoryId = campaign.communication_category_id;
     if (communicationCategoryId && allRecipients.some((recipient) => recipient.bypass_opt_out !== true)) {
       const beforeCategory = allRecipients.length;
+      if (detailedLists && addressConsent) {
+        categoryOptOutList.push(...allRecipients.filter(r => addressConsent.category.has(r.email.trim().toLowerCase()))
+          .map(r => ({ email: r.email, first_name: r.first_name, last_name: r.last_name })));
+      }
+      allRecipients = allRecipients.filter(r => !addressConsent?.category.has(r.email.trim().toLowerCase()));
       const resolveMemberId = (r) => {
         if (r.member_id === null) return null;
         return r.member_id || r.id;
@@ -2827,7 +2848,17 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false,
     }
     const duplicatesRemoved = beforeDedup - uniqueRecipients.length;
 
+    const emailEligible = uniqueRecipients.length;
+    for (const r of inboxAudience) {
+      const emailLower = r.email.toLowerCase();
+      if (!seenEmails.has(emailLower)) {
+        seenEmails.add(emailLower);
+        uniqueRecipients.push({ ...r, inbox_only: true, bypass_opt_out: false });
+      }
+    }
     const stats = {
+      emailEligible,
+      inboxOnly: uniqueRecipients.length - emailEligible,
       totalAudience,
       globalOptOuts,
       categoryOptOuts,
@@ -3615,6 +3646,10 @@ async function resolveRecipientBooking(recipient, campaign, tenantId, db = supab
 }
 
 async function preparedRecipientStillConsents(db, recipient, campaign, tenantId) {
+  if (campaign.deliver_to_inbox_when_opted_out === true) {
+    const decisions = await bulkRecipientEligibility(db, [{ recipient }], campaign, tenantId);
+    return decisions.get(recipient.id) === 'ready';
+  }
   const waitingEmails = await activeWaitingEmails(db, tenantId, campaign, [recipient.email]);
   if (waitingEmails && !waitingEmails.has(recipient.email.trim().toLowerCase())) return false;
   const jobMembers = await jobCategoryCampaignMembers(db, tenantId, campaign.communication_category_id,
@@ -3694,6 +3729,7 @@ export async function sendToRecipient(recipient, campaign, tenantId, tenantSlug,
     ? campaignReadBudget(supabase, options.deadline) : null;
   const recipientDb = budget?.db || supabase;
   try {
+    if (!testDestination && recipient.inbox_published_at) return 'inbox_only';
     let html = options.batchRender?.html ?? campaign.html_content ?? '';
     let subject = options.batchRender?.subject ?? campaign.subject ?? '';
 
@@ -3831,11 +3867,34 @@ export async function sendToRecipient(recipient, campaign, tenantId, tenantSlug,
     if (testDestination && surveyDelivery) html = `<p><strong>TEST: These are real attendee survey invitations. Open signed out/private to check access; do not submit a response.</strong></p>${html}`;
     // Survey/booking personalization can take seconds. Recheck immediately
     // before the provider call so a pause/cancellation during rendering wins.
-    if (!testDestination && options.recheckBeforeProvider && !options.prepareOnly) {
+    if (!testDestination && (options.recheckBeforeProvider || campaign.deliver_to_inbox_when_opted_out === true) && !options.prepareOnly) {
       nextTimingStage('preProviderGateMs');
       try {
         if (budget?.signal.aborted) throw new Error('Campaign preparation deadline exhausted');
         if (!await preparedRecipientStillConsents(recipientDb, recipient, campaign, tenantId)) {
+          if (campaign.deliver_to_inbox_when_opted_out === true) {
+            const eligibility = await bulkRecipientEligibility(recipientDb, [{ recipient }], campaign, tenantId);
+            if (eligibility.get(recipient.id) === 'inbox_only' && !campaignRecipientTestMode(recipient, campaign)) {
+              const gate = await checkCampaignBatchGate(campaign.id, tenantId, campaign);
+              if (!gate.allowed || options.shouldStop?.()) {
+                if (surveyDelivery?.deliveryId) await finishCampaignSurveyDelivery(supabase, surveyDelivery.deliveryId, false);
+                await releaseClaimedRecipients([recipient], gate.cancelled ? 'cancelled' : 'pending');
+                return 'stopped';
+              }
+              const composed = await sendEmail({
+                to: recipient.email, subject, html, tenantId,
+                from: campaign.from_name ? `${campaign.from_name} <${campaign.from_email}>` : campaign.from_email,
+                skipFooter: designInfo.skipFooter, contentWidth: designInfo.contentWidth,
+                campaignPreferences: { preferencesUrl }, resolveTransactionalPreferences: false,
+                disableTracking: true,
+              }, { prepareOnly: true });
+              if (!composed.prepared) throw new Error(composed.error || 'Inbox content could not be finalized');
+              await publishCampaignInbox(supabase, campaign, recipient, {
+                subject: composed.prepared.messageData.subject, html: composed.prepared.messageData.html,
+              });
+              return 'inbox_only';
+            }
+          }
           if (surveyDelivery?.deliveryId) await finishCampaignSurveyDelivery(supabase, surveyDelivery.deliveryId, false);
           await releaseClaimedRecipients([recipient], 'unsubscribed');
           return 'stopped';
@@ -3901,6 +3960,10 @@ export async function sendToRecipient(recipient, campaign, tenantId, tenantSlug,
       testMode: testDestination ? false : campaignRecipientTestMode(recipient, campaign)
     }, options.prepareOnly ? { prepareOnly: true } : testDestination ? {} : {
       beforeSubmit: async messageData => {
+        if (campaign.deliver_to_inbox_when_opted_out === true &&
+            !await preparedRecipientStillConsents(supabase, recipient, campaign, tenantId)) {
+          throw new Error('Email consent changed before submission; email was not sent');
+        }
         await transitionCampaignClaims(supabase, [recipient], 'submit');
         await persistCampaignDeliveryProvenance(supabase, campaign.id, [{ recipient }], messageData);
         providerSubmitted = true;
@@ -4647,7 +4710,7 @@ export async function getCampaignRecipients(campaignId, tenantId) {
     const recipients = await fetchAllRows((offset, limit) =>
       supabase
         .from('email_campaign_recipient')
-        .select('id, email, status, delivery_outcome, delivery_reason, delivery_outcome_at, open_count, click_count, error_message, sent_at, mailgun_message_id')
+        .select('id, email, status, delivery_outcome, delivery_reason, delivery_outcome_at, open_count, click_count, error_message, sent_at, mailgun_message_id, inbox_published_at')
         .eq('campaign_id', campaignId)
         .order('email', { ascending: true })
         .order('id', { ascending: true })

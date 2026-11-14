@@ -20,6 +20,7 @@ export default async function handler(req, res) {
 
   if (preview === true && campaignId === 'preview') {
     const fakeCampaign = {};
+    fakeCampaign.deliver_to_inbox_when_opted_out = req.body.deliver_to_inbox_when_opted_out === true;
     if (Array.isArray(targetAudiences) && targetAudiences.length > 0) {
       fakeCampaign.target_audiences = targetAudiences;
     } else {

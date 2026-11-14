@@ -155,7 +155,7 @@ export default async function handler(req, res) {
 
     const { data: recipient, error } = await campaignInboxRecipients(supabase)
       .select(
-        'id, campaign_id, email, first_name, last_name, sent_at, ' +
+        'id, campaign_id, email, first_name, last_name, sent_at, inbox_published_at, inbox_subject, inbox_html, ' +
         'email_campaign!inner(id, tenant_id, name, subject, from_name, from_email, sent_at, html_content, design_json, member_group_id, preheader)'
       )
       .eq('id', recipientId)
@@ -167,12 +167,12 @@ export default async function handler(req, res) {
       console.error('[Inbox] message fetch error:', error);
       return res.status(500).json({ error: 'Failed to load message' });
     }
-    if (!recipient || !recipient.sent_at) {
+    if (!recipient || (!recipient.sent_at && !recipient.inbox_published_at)) {
       return res.status(404).json({ error: 'Message not found' });
     }
 
     const campaign = recipient.email_campaign || {};
-    const html = renderBody(campaign, recipient);
+    const html = recipient.inbox_published_at ? recipient.inbox_html : renderBody(campaign, recipient);
 
     // Auto-mark read on open.
     const nowIso = new Date().toISOString();
@@ -195,11 +195,11 @@ export default async function handler(req, res) {
         recipient_id: recipient.id,
         campaign_id: recipient.campaign_id,
         name: campaign.name || '',
-        subject: campaign.subject || '',
+        subject: recipient.inbox_subject ?? campaign.subject ?? '',
         preheader: campaign.preheader || '',
         from_name: campaign.from_name || '',
         from_email: campaign.from_email || '',
-        sent_at: recipient.sent_at || campaign.sent_at || null,
+        sent_at: recipient.inbox_published_at || recipient.sent_at || campaign.sent_at || null,
         source: campaign.member_group_id ? 'group' : 'admin',
         html,
         is_read: true,

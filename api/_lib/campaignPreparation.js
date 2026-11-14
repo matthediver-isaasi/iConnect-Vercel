@@ -184,6 +184,7 @@ export async function prepareCampaignAudience({
           member_id: r.member_id !== undefined ? r.member_id : r.id,
           email: r.email, first_name: r.first_name || '', last_name: r.last_name || '',
           bypass_opt_out: r.bypass_opt_out === true,
+          inbox_only: r.inbox_only === true,
         }));
         state = await preparationStep(db, generation, owner, 'stage', {
           segment: state.segment, cursor: state.cursor, recipients,

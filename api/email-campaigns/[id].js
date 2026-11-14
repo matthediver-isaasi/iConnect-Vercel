@@ -2,6 +2,7 @@ import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { supabase } from '../_lib/database.js';
 import { campaignLifecycle, campaignLifecycleError } from '../_lib/campaignLifecycle.js';
 import { readCampaignTimings } from '../_lib/campaignTimings.js';
+import { validateCampaignInboxOption } from '../_lib/campaignInboxOption.js';
 import { getCampaign, updateCampaign, confirmCampaignCategoryReconfiguration, deleteCampaign, duplicateCampaign, cancelCampaign, pauseCampaign, resumeCampaign, getCampaignStats, getClickHeatmapData, getCampaignRecipients } from '../_lib/campaignService.js';
 
 export default async function handler(req, res) {
@@ -12,6 +13,12 @@ export default async function handler(req, res) {
 
   const { tenantId } = tenantContext;
   const { id } = req.query;
+  if (['POST', 'PATCH', 'PUT'].includes(req.method)) {
+    if (!tenantContext.isAuthenticated) return res.status(401).json({ error: 'Authentication required' });
+    if (tenantContext.tenantMismatch || !await hasAdminAccess(tenantContext)) {
+      return res.status(403).json({ error: 'Tenant administrator access required' });
+    }
+  }
   const lifecycleRequest = req.method === 'DELETE'
     || (req.method === 'POST' && ['archive', 'restore'].includes(req.body?.action));
   if (lifecycleRequest) {
@@ -146,6 +153,8 @@ export default async function handler(req, res) {
 
   if (req.method === 'PATCH' || req.method === 'PUT') {
     const updates = req.body;
+    try { validateCampaignInboxOption(updates); }
+    catch (error) { return res.status(400).json({ error: error.message }); }
     // Delivery status is server-owned; accepting it here would bypass send,
     // schedule, resume, and category-review claim gates.
     delete updates.status;

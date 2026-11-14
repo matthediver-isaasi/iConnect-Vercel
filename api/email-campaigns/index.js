@@ -2,6 +2,7 @@ import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { getCampaigns, createCampaign } from '../_lib/campaignService.js';
 import { supabase } from '../_lib/database.js';
 import { campaignSummary, campaignLifecycleReady } from '../_lib/campaignLifecycle.js';
+import { validateCampaignInboxOption } from '../_lib/campaignInboxOption.js';
 
 export default async function handler(req, res) {
   const tenantContext = await getTenantContext(req);
@@ -46,7 +47,13 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'POST') {
+    if (!tenantContext.isAuthenticated) return res.status(401).json({ error: 'Authentication required' });
+    if (tenantContext.tenantMismatch || !await hasAdminAccess(tenantContext)) {
+      return res.status(403).json({ error: 'Tenant administrator access required' });
+    }
     const campaignData = req.body;
+    try { validateCampaignInboxOption(campaignData); }
+    catch (error) { return res.status(400).json({ error: error.message }); }
 
     if (!campaignData.name || !campaignData.subject) {
       return res.status(400).json({ error: 'Name and subject are required' });

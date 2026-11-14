@@ -1,6 +1,7 @@
 import { isActiveCommunicationMember } from '../../shared/communicationCategoryMembership.js';
 import { jobCategoryCampaignMembers } from './jobAlerts.js';
 import { activeWaitingEmails } from './eventWaitingAudience.js';
+import { campaignAddressConsent } from './campaignAddressConsent.js';
 
 const normalize = value => String(value || '').trim().toLowerCase();
 const literal = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -19,10 +20,13 @@ export async function bulkRecipientEligibility(db, entries, campaign, tenantId) 
   const emails = [...new Set(recipients.map(r => normalize(r.email)))];
   const waitingEmails = await activeWaitingEmails(db, tenantId, campaign, emails);
   const memberIds = [...new Set(recipients.map(r => r.member_id).filter(Boolean))];
-  const jobMembers = await jobCategoryCampaignMembers(db, tenantId, campaign.communication_category_id, memberIds);
+  const independentInbox = campaign.deliver_to_inbox_when_opted_out === true;
+  const jobMembers = await jobCategoryCampaignMembers(db, tenantId, campaign.communication_category_id, memberIds,
+    { channel: independentInbox ? 'inbox' : 'email' });
   const prepared = Boolean(campaign.preparation_generation);
+  const checkConsent = prepared || independentInbox;
   const unsubscribeQueries = [];
-  if (prepared) for (let offset = 0; offset < emails.length; offset += 20) {
+  if (checkConsent) for (let offset = 0; offset < emails.length; offset += 20) {
     // imatch preserves literal '*' and case-insensitive address semantics;
     // small chunks also bound URL length for long email addresses.
     let query = db.from('email_unsubscribe').select('email,unsubscribe_type,communication_category_id')
@@ -37,10 +41,10 @@ export async function bulkRecipientEligibility(db, entries, campaign, tenantId) 
   const queries = [
     prepared ? rows(db.from('campaign_preparation_recipient').select('recipient_id,recipient')
       .eq('generation', campaign.preparation_generation).in('recipient_id', ids)) : Promise.resolve([]),
-    prepared && memberIds.length ? rows(db.from('member')
+    checkConsent && memberIds.length ? rows(db.from('member')
       .select('id,email,login_enabled,communications_opted_out_all')
       .eq('tenant_id', tenantId).in('id', memberIds)) : Promise.resolve([]),
-    prepared && memberIds.length && campaign.communication_category_id
+    checkConsent && memberIds.length && campaign.communication_category_id
       ? rows(db.from('member_communication_preference').select('member_id')
         .eq('tenant_id', tenantId).eq('category_id', campaign.communication_category_id)
         .eq('is_subscribed', true).in('member_id', memberIds)) : Promise.resolve([]),
@@ -51,6 +55,8 @@ export async function bulkRecipientEligibility(db, entries, campaign, tenantId) 
   const settled = await Promise.allSettled(queries);
   if (settled.some(r => r.status === 'rejected')) throw new Error('Campaign eligibility could not be verified');
   const [staged, members, preferences, bounces, ...unsubscribeSets] = settled.map(r => r.value);
+  const addressConsent = independentInbox
+    ? await campaignAddressConsent(db, tenantId, emails, campaign.communication_category_id) : null;
   const provenance = new Map(staged.map(r => [r.recipient_id, r.recipient]));
   const memberMap = new Map(members.map(r => [r.id, r]));
   const optedIn = new Set(preferences.map(r => r.member_id));
@@ -72,16 +78,24 @@ export async function bulkRecipientEligibility(db, entries, campaign, tenantId) 
     if (prepared && (!provenance.get(r.id) || typeof provenance.get(r.id) !== 'object' ||
       Array.isArray(provenance.get(r.id)))) throw new Error('Missing prepared consent provenance');
     let state = 'ready';
-    if (prepared && provenance.get(r.id)?.bypass_opt_out !== true) {
+    if (independentInbox || (prepared && provenance.get(r.id)?.bypass_opt_out !== true)) {
       const member = memberMap.get(r.member_id);
-      if (unsubscribed.has(email) || (r.member_id && (!member ||
+      if (unsubscribed.has(email) || addressConsent?.global.has(email) || addressConsent?.category.has(email) || (r.member_id && (!member ||
         member.communications_opted_out_all === true || normalize(member.email) !== email ||
         (campaign.communication_category_id && (!isActiveCommunicationMember(member) || !optedIn.has(member.id)))))) {
         state = 'unsubscribed';
       }
     }
+    // Preparation may only remove email eligibility, never restore it later.
+    if (independentInbox && provenance.get(r.id)?.inbox_only === true) state = 'unsubscribed';
+    const member = memberMap.get(r.member_id);
+    if (independentInbox && state === 'unsubscribed' && member &&
+        isActiveCommunicationMember(member) && normalize(member.email) === email) {
+      state = 'inbox_only';
+    }
+    if (independentInbox && r.inbox_published_at) state = 'inbox_only';
     // Consent exceptions never exempt a hard-bounced address.
-    if (bounced.has(email)) state = 'cancelled';
+    if (bounced.has(email) && state !== 'inbox_only') state = 'cancelled';
     result.set(r.id, state);
   }
   return result;
