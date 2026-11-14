@@ -19,6 +19,8 @@ import { throwUploadHttpError, showUploadErrorToast, isPlanQuotaError } from "@/
 import StorageUsageBanner from "@/components/StorageUsageBanner";
 
 const DEFAULT_RESOURCE_MAX_MB = 25;
+// Browsing-only scope: never a persisted folder ID or move destination.
+const ALL_FILES = Symbol("all-files");
 
 export default function FileManagementPage() {
   const { isFeatureExcluded, memberInfo, isAccessReady } = useMemberAccess();
@@ -50,6 +52,8 @@ export default function FileManagementPage() {
 
   // Folder management states
   const [selectedFolder, setSelectedFolder] = useState(null);
+  const isAllFiles = selectedFolder === ALL_FILES;
+  const destinationFolder = isAllFiles ? null : selectedFolder;
   const [showFolderDialog, setShowFolderDialog] = useState(false);
   const [editingFolder, setEditingFolder] = useState(null);
   const [showMoveDialog, setShowMoveDialog] = useState(false);
@@ -70,17 +74,17 @@ export default function FileManagementPage() {
 
   const queryClient = useQueryClient();
 
-  const { data: files = [], isLoading } = useQuery({
-    queryKey: ['file-repository'],
-    queryFn: () => base44.entities.FileRepository.list(),
+  const { data: files = [], isLoading, isError: filesError } = useQuery({
+    queryKey: ['file-repository', 'complete'],
+    queryFn: () => base44.entities.FileRepository.listAll({ sort: { id: 'asc' } }),
     staleTime: 0,
     refetchOnMount: true,
   });
 
   // Fetch folders (using FileRepositoryFolder entity)
-  const { data: folders = [], isLoading: foldersLoading } = useQuery({
-    queryKey: ['file-repository-folders'],
-    queryFn: () => base44.entities.FileRepositoryFolder.list('display_order'),
+  const { data: folders = [], isLoading: foldersLoading, isError: foldersError } = useQuery({
+    queryKey: ['file-repository-folders', 'complete'],
+    queryFn: () => base44.entities.FileRepositoryFolder.listAll({ sort: { display_order: 'asc', id: 'asc' } }),
     staleTime: 0,
     refetchOnMount: true,
   });
@@ -251,9 +255,9 @@ export default function FileManagementPage() {
 
   const filteredFiles = useMemo(() => {
     return files.filter(file => {
-      const matchesFolder = selectedFolder === null
+      const matchesFolder = selectedFolder === ALL_FILES || (selectedFolder === null
         ? !file.folder_id
-        : file.folder_id === selectedFolder;
+        : file.folder_id === selectedFolder);
       const matchesSearch = !searchQuery ||
         file.file_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         file.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -268,8 +272,18 @@ export default function FileManagementPage() {
     setCurrentPage(1);
   }, [searchQuery, fileTypeFilter, selectedFolder, itemsPerPage]);
 
+  useEffect(() => {
+    setSelectedFiles([]);
+    setDraggedFiles([]);
+    setDragOverFolder(null);
+    setShowMoveDialog(false);
+  }, [selectedFolder, searchQuery, fileTypeFilter]);
+
   // Pagination calculations
   const totalPages = Math.ceil(filteredFiles.length / itemsPerPage);
+  useEffect(() => {
+    setCurrentPage(page => Math.min(page, Math.max(1, totalPages)));
+  }, [totalPages]);
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
   const paginatedFiles = filteredFiles.slice(startIndex, endIndex);
@@ -464,7 +478,7 @@ export default function FileManagementPage() {
       mime_type: file.type,
       file_size: file.size,
       uploaded_by: memberInfo?.email || "unknown",
-      folder_id: selectedFolder,
+      folder_id: destinationFolder,
       storage_path: path,
       bucket: bucket
     });
@@ -592,8 +606,8 @@ export default function FileManagementPage() {
     setEditingFolder({
       name: "",
       description: "",
-      parent_folder_id: selectedFolder,
-      display_order: folders.filter(f => f.parent_folder_id === selectedFolder).length
+      parent_folder_id: destinationFolder,
+      display_order: folders.filter(f => f.parent_folder_id === destinationFolder).length
     });
     setShowFolderDialog(true);
   };
@@ -866,7 +880,7 @@ export default function FileManagementPage() {
           <div className="flex gap-2 items-center">
             <Button onClick={handleCreateFolder} variant="outline" className="border-blue-600 text-blue-600 hover:bg-blue-50">
               <FolderPlus className="w-4 h-4 mr-2" />
-              {selectedFolder ? 'New Subfolder' : 'New Folder'}
+              {destinationFolder ? 'New Subfolder' : 'New Folder'}
             </Button>
             <input
               type="file"
@@ -888,6 +902,17 @@ export default function FileManagementPage() {
             </Button>
           </div>
         </div>
+
+        {isAllFiles && (
+          <p className="text-sm text-slate-600 mb-4">
+            Uploads and new folders are saved to Root. Existing files stay in their original folders.
+          </p>
+        )}
+        {(filesError || foldersError) && (
+          <p role="alert" className="text-red-600 mb-4">
+            Could not load the complete repository. Please refresh to try again.
+          </p>
+        )}
 
         <div className="mb-6">
           <StorageUsageBanner />
@@ -987,6 +1012,7 @@ export default function FileManagementPage() {
             </div>
 
             {/* Breadcrumb */}
+            {isAllFiles && <h2 className="text-sm font-medium text-blue-600 mb-4 p-2 bg-slate-50 rounded-lg">All files</h2>}
             {(breadcrumb.length > 0 || selectedFolder === null) && (
               <div className="flex items-center gap-2 mb-4 p-2 bg-slate-50 rounded-lg">
                 <button
@@ -1019,7 +1045,19 @@ export default function FileManagementPage() {
               className="border border-slate-200 rounded-lg p-2 max-h-96 overflow-y-auto"
               onDragLeave={handleDragLeave}
             >
+              <button
+                type="button"
+                aria-pressed={isAllFiles}
+                data-testid="scope-all-files"
+                onClick={() => setSelectedFolder(ALL_FILES)}
+                className={`w-full flex items-center gap-2 py-2 px-3 rounded text-left ${isAllFiles ? 'bg-blue-100' : 'hover:bg-slate-100'}`}
+              >
+                <File className="w-4 h-4 text-slate-600" />
+                <span className="flex-1 text-sm font-medium">All files</span>
+                <span className="text-xs text-slate-500">({files.length})</span>
+              </button>
               <div
+                data-testid="scope-root"
                 className={`flex items-center gap-2 py-2 px-3 rounded cursor-pointer transition-all ${
                   selectedFolder === null ? 'bg-blue-100' : 'hover:bg-slate-100'
                 } ${
@@ -1067,7 +1105,7 @@ export default function FileManagementPage() {
         </Card>
 
         {/* Files Grid */}
-        {isLoading ? (
+        {filesError ? null : isLoading ? (
           <div className="text-center py-12">Loading files...</div>
         ) : filteredFiles.length === 0 ? (
           <Card className="border-slate-200 shadow-sm">
@@ -1077,7 +1115,7 @@ export default function FileManagementPage() {
                 No Files Found
               </h3>
               <p className="text-slate-600 mb-6">
-                {searchQuery || fileTypeFilter !== "all" || selectedFolder
+                {searchQuery || fileTypeFilter !== "all" || destinationFolder
                   ? "Try adjusting your filters"
                   : "Upload your first file to get started"}
               </p>
@@ -1340,12 +1378,15 @@ export default function FileManagementPage() {
           <DialogContent className="max-w-md">
             <DialogHeader>
               <DialogTitle>
-                {editingFolder?.id ? 'Edit Folder' : (selectedFolder ? 'Create New Subfolder' : 'Create New Folder')}
+                {editingFolder?.id ? 'Edit Folder' : (destinationFolder ? 'Create New Subfolder' : 'Create New Folder')}
               </DialogTitle>
             </DialogHeader>
 
             {editingFolder && (
               <div className="space-y-4">
+                {!editingFolder.id && !editingFolder.parent_folder_id && (
+                  <p className="text-sm text-slate-600">Parent Folder: Root</p>
+                )}
                 {editingFolder.parent_folder_id && (
                   <div className="p-3 bg-blue-50 rounded-lg">
                     <p className="text-sm text-blue-900">

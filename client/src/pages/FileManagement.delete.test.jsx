@@ -8,7 +8,7 @@ const dom = new JSDOM("<!doctype html><html><body></body></html>", {
 for (const key of [
   "window", "document", "navigator", "HTMLElement", "Element", "Node",
   "DocumentFragment", "HTMLInputElement", "MutationObserver", "CustomEvent", "Event",
-  "MouseEvent", "localStorage",
+  "MouseEvent", "localStorage", "NodeFilter",
 ]) {
   Object.defineProperty(globalThis, key, {
     configurable: true,
@@ -54,8 +54,10 @@ const entityMethods = [
   ["FileRepository", "list"],
   ["FileRepository", "delete"],
   ["FileRepository", "update"],
+  ["FileRepository", "create"],
   ["FileRepositoryFolder", "list"],
   ["FileRepositoryFolder", "delete"],
+  ["FileRepositoryFolder", "create"],
   ["SystemSettings", "filter"],
 ];
 const originals = new Map(entityMethods.map(([entity, method]) => [
@@ -78,9 +80,9 @@ async function waitFor(predicate, message = "condition") {
 async function mount({ files = [file], folders = [], deleteFile, updateFile, deleteFolder } = {}) {
   let currentFiles = structuredClone(files);
   let fileListCalls = 0;
-  base44.entities.FileRepository.list = async () => {
+  base44.entities.FileRepository.list = async ({ offset = 0, limit = 1000 } = {}) => {
     fileListCalls += 1;
-    return structuredClone(currentFiles);
+    return structuredClone(currentFiles.slice(offset, offset + limit));
   };
   base44.entities.FileRepository.delete = deleteFile || (async id => {
     currentFiles = currentFiles.filter(item => item.id !== id);
@@ -260,4 +262,126 @@ test.after(() => {
     base44.entities[entity][method] = original;
   }
   dom.window.close();
+});
+
+const clickText = async (container, text) => {
+  const button = [...container.querySelectorAll("button")].find(el => el.textContent.trim() === text);
+  assert.ok(button, `button ${text}`);
+  await act(async () => button.click());
+};
+const inputText = async (input, text) => {
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(input, text);
+    input.dispatchEvent(new window.Event("input", { bubbles: true }));
+  });
+};
+const scopeFolders = [
+  { id: "a", name: "Alpha", parent_folder_id: null },
+  { id: "b", name: "Beta", parent_folder_id: null },
+  { id: "c", name: "Child", parent_folder_id: "a" },
+  { id: "d", name: "Deep", parent_folder_id: "c" },
+];
+const scopeFiles = [
+  file,
+  { ...file, id: "a1", file_name: "alpha.png", file_type: "image", folder_id: "a", description: "special description" },
+  { ...file, id: "b1", file_name: "beta.pdf", folder_id: "b", tags: ["special-tag"] },
+  { ...file, id: "d1", file_name: "deep.pdf", folder_id: "d" },
+];
+
+test("All files combines root, siblings and deeply nested files with search, types and scope isolation", async () => {
+  const view = await mount({ files: scopeFiles, folders: scopeFolders });
+  try {
+    assert.equal(view.container.querySelectorAll('[aria-label^="Delete "]').length, 1);
+    await act(async () => view.container.querySelector('[data-testid="scope-all-files"]').click());
+    assert.equal(view.container.querySelectorAll('[aria-label^="Delete "]').length, 4);
+    assert.match(view.container.textContent, /Showing 1-4 of 4 files/);
+    const search = view.container.querySelector('input[placeholder="Search files..."]');
+    for (const [term, name] of [["DEEP", "deep.pdf"], ["description", "alpha.png"], ["special-tag", "beta.pdf"]]) {
+      await inputText(search, term);
+      assert.equal(view.container.querySelectorAll('[aria-label^="Delete "]').length, 1);
+      assert.ok(view.container.querySelector(`[aria-label="Delete ${name}"]`));
+    }
+    await inputText(search, "");
+    const images = [...view.container.querySelectorAll('[role="tab"]')].find(el => el.textContent === "Images");
+    await act(async () => images.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, button: 0 })));
+    assert.equal(view.container.querySelectorAll('[aria-label^="Delete "]').length, 1);
+    const all = [...view.container.querySelectorAll('[role="tab"]')].find(el => el.textContent === "All");
+    await act(async () => all.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, button: 0 })));
+    await clickText(view.container, "Bulk Move Mode");
+    await clickText(view.container, "Select All");
+    assert.match(view.container.textContent, /4 files selected/);
+    await act(async () => view.container.querySelector('[data-testid="scope-root"]').click());
+    assert.match(view.container.textContent, /Select files below/);
+    assert.equal(view.container.querySelectorAll('[aria-label^="Delete "]').length, 1);
+    await act(async () => [...view.container.querySelectorAll("span")].find(el => el.textContent === "Beta").click());
+    assert.ok(view.container.querySelector('[aria-label="Delete beta.pdf"]'));
+    assert.equal(view.container.querySelectorAll('[aria-label^="Delete "]').length, 1);
+  } finally { await view.cleanup(); }
+});
+
+test("complete collection loads beyond the server cap and paginates combined results", async () => {
+  window.scrollTo = () => {};
+  const files = Array.from({ length: 1001 }, (_, i) => ({
+    ...file, id: `f-${i}`, file_name: `file-${i}.pdf`, folder_id: i ? "d" : null,
+  }));
+  const view = await mount({ files, folders: scopeFolders });
+  try {
+    await act(async () => view.container.querySelector('[data-testid="scope-all-files"]').click());
+    assert.equal(view.getFileListCalls(), 2);
+    assert.match(view.container.textContent, /Showing 1-12 of 1001 files/);
+    await clickText(view.container, "2");
+    assert.match(view.container.textContent, /Showing 13-24 of 1001 files/);
+    await inputText(view.container.querySelector('input[placeholder="Search files..."]'), "file-1000.pdf");
+    assert.match(view.container.textContent, /Showing 1-1 of 1 files/);
+    assert.ok(view.container.querySelector('[aria-label="Delete file-1000.pdf"]'));
+  } finally { await view.cleanup(); }
+});
+
+test("All files creates folders and uploads at Root, and bulk moves only to real destinations", async () => {
+  const moves = [];
+  const createdFolders = [];
+  const createdFiles = [];
+  const view = await mount({ files: scopeFiles, folders: scopeFolders, updateFile: async (...args) => moves.push(args) });
+  base44.entities.FileRepositoryFolder.create = async data => { createdFolders.push(data); return data; };
+  base44.entities.FileRepository.create = async data => { createdFiles.push(data); return data; };
+  const fetchBefore = globalThis.fetch;
+  const xhrBefore = globalThis.XMLHttpRequest;
+  globalThis.fetch = async url => String(url) === "/api/storage/signed-upload-url"
+    ? { ok: true, json: async () => ({ signedUrl: "https://files.test/upload", fileUrl: "https://files.test/new.pdf", path: "new.pdf", bucket: "uploads" }) }
+    : fetchBefore(url);
+  globalThis.XMLHttpRequest = class {
+    status = 200;
+    upload = { addEventListener() {} };
+    addEventListener(event, handler) { if (event === "load") this.loaded = handler; }
+    open() {}
+    setRequestHeader() {}
+    send() { this.loaded(); }
+  };
+  try {
+    await act(async () => view.container.querySelector('[data-testid="scope-all-files"]').click());
+    assert.match(view.container.textContent, /Uploads and new folders are saved to Root/);
+    await clickText(view.container, "New Folder");
+    assert.match(document.querySelector('[role="dialog"]').textContent, /Parent Folder: Root/);
+    await inputText(document.querySelector("#folder-name"), "New at Root");
+    await clickText(document.querySelector('[role="dialog"]'), "Create Folder");
+    await waitFor(() => createdFolders.length === 1);
+    assert.equal(createdFolders[0].parent_folder_id, null);
+    const upload = view.container.querySelector('[data-testid="input-file-upload"]');
+    Object.defineProperty(upload, "files", { configurable: true, value: [new window.File(["pdf"], "new.pdf", { type: "application/pdf" })] });
+    await act(async () => upload.dispatchEvent(new window.Event("change", { bubbles: true })));
+    await waitFor(() => createdFiles.length === 1);
+    assert.equal(createdFiles[0].folder_id, null);
+    await clickText(view.container, "Bulk Move Mode");
+    await clickText(view.container, "Select All");
+    await clickText(view.container, "Move 4 Selected");
+    const dialog = document.querySelector('[role="dialog"]');
+    assert.doesNotMatch(dialog.textContent, /All files/);
+    await clickText(dialog, "Beta");
+    await waitFor(() => moves.length === 4);
+    assert.deepEqual(moves.map(([id, data]) => [id, data.folder_id]), scopeFiles.map(f => [f.id, "b"]));
+  } finally {
+    globalThis.fetch = fetchBefore;
+    globalThis.XMLHttpRequest = xhrBefore;
+    await view.cleanup();
+  }
 });
