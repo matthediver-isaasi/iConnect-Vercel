@@ -115,6 +115,13 @@ for (const [type, content] of surfaces) {
     const Renderer = getBlockDefinition(type).Renderer;
     try {
       await mounted.render(<Renderer block={source} asEditor breakpoint="desktop" />);
+      if (type.startsWith('hero-carousel')) {
+        const carousel = mounted.container.querySelector('[data-hcc]');
+        assert.equal(carousel.style.pointerEvents, 'auto', 'overflowing editor content remains selectable');
+        const click = new window.MouseEvent('click', { bubbles: true, cancelable: true });
+        carousel.dispatchEvent(click);
+        assert.equal(click.defaultPrevented, true, 'editor clicks cannot navigate embedded links');
+      }
       assert.ok(mounted.container.textContent.includes(TOKENS), 'authoring stage displays the original token template');
       assert.ok(!mounted.container.textContent.includes(rendered(valuesA)));
 
@@ -130,6 +137,13 @@ for (const [type, content] of surfaces) {
       }
 
       await mounted.render(<Renderer block={source} breakpoint="desktop" />, viewer(valuesB));
+      if (type.startsWith('hero-carousel')) {
+        const carousel = mounted.container.querySelector('[data-hcc]');
+        assert.equal(carousel.style.pointerEvents, '', 'public hit-testing is unchanged');
+        const click = new window.MouseEvent('click', { bubbles: true, cancelable: true });
+        carousel.dispatchEvent(click);
+        assert.equal(click.defaultPrevented, false, 'public clicks remain interactive');
+      }
       assert.ok(mounted.container.textContent.includes(rendered(valuesB)), 'same mounted renderer updates on identity change');
       assert.ok(!mounted.container.textContent.includes('Lovelace'));
 

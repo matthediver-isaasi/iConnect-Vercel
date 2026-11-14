@@ -9502,7 +9502,11 @@ function HeroCarouselRender({ block, asEditor, breakpoint, mobileVariant }) {
       data-hcc={safeBlockId}
       ref={isAspect ? aspectWrapRef : undefined}
       className={isAspect ? 'relative w-full overflow-hidden' : 'absolute inset-0 overflow-hidden'}
-      style={containerStyle}
+      // The visible carousel can extend beyond the authored block frame.
+      // Restore hit-testing there in the editor so pointer events reach the
+      // parent block's selection handler rather than the stage behind it.
+      style={{ ...containerStyle, ...(asEditor ? { pointerEvents: 'auto' } : {}) }}
+      onClickCapture={asEditor ? (event) => event.preventDefault() : undefined}
       onMouseEnter={pauseOnHover ? () => setIsPaused(true) : undefined}
       onMouseLeave={pauseOnHover ? () => setIsPaused(false) : undefined}
     >
