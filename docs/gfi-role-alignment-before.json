@@ -1,0 +1,307 @@
+{
+  "project": "lvmzliemqnieeoruhkik",
+  "tenant": {
+    "id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+    "name": "Graduate Futures Institute",
+    "slug": "gfi"
+  },
+  "before": {
+    "id": "d40255e9-13df-42a9-9cb2-b26452d692ad",
+    "name": "role_alignment",
+    "label": "Role alignment",
+    "options": [
+      {
+        "label": "Careers Information Advice and Guidance",
+        "value": "Careers Information Advice and Guidance"
+      },
+      {
+        "label": "Employer engagement",
+        "value": "Employer engagement"
+      },
+      {
+        "label": "Enterprise",
+        "value": "Enterprise"
+      },
+      {
+        "label": "Graduate Support",
+        "value": "Graduate Support"
+      },
+      {
+        "label": "Internships",
+        "value": "Internships"
+      },
+      {
+        "label": "Placements",
+        "value": "Placements"
+      }
+    ],
+    "is_active": true,
+    "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+    "created_at": "2025-12-14T06:40:48.518+00:00",
+    "created_by": null,
+    "field_type": "dropdown",
+    "max_length": null,
+    "min_length": null,
+    "updated_at": "2025-12-14T06:40:48.518+00:00",
+    "updated_by": null,
+    "is_required": false,
+    "entity_scope": "member",
+    "all_countries": null,
+    "display_order": 4,
+    "is_filterable": false,
+    "public_access": null,
+    "max_selections": null,
+    "min_selections": null,
+    "default_country": null,
+    "custom_object_id": null,
+    "default_countries": null,
+    "allowed_file_types": null,
+    "selected_countries": null,
+    "show_in_admin_list": true,
+    "filter_multi_select": false,
+    "directory_visibility": "{\"ids\":[\"main\"],\"labels\":{},\"display\":{\"main\":{\"front\":true,\"back\":true,\"order\":10}}}",
+    "show_in_admin_column": true,
+    "show_in_admin_filter": true,
+    "show_in_directory_card": true,
+    "show_in_my_preferences": true,
+    "show_in_my_organisation": true,
+    "show_in_member_directory": false,
+    "show_in_member_admin_list": true,
+    "show_in_member_admin_column": true,
+    "show_in_member_admin_filter": true
+  },
+  "category": {
+    "id": "a4bb8421-8895-450d-b003-3a4a6af80972",
+    "name": "Theme",
+    "is_active": true,
+    "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+    "description": "",
+    "display_order": 0,
+    "subcategories": [
+      "AI & Technology",
+      "Apprenticeships",
+      "Careers Education",
+      "Careers Information and Advice and Guidance",
+      "Conducting Research",
+      "Curriculum",
+      "Data & Insights",
+      "EDI (inc. Social Mobility)",
+      "Employer Engagement",
+      "Enterprise & Entrepreneurship",
+      "Graduates & Alumni",
+      "Information & Operations",
+      "International & Global",
+      "Leadership & Management",
+      "Managing your own career",
+      "Mentoring",
+      "Online/distance Learners",
+      "Placements/Internships/Work-based Learning",
+      "Postgraduates Taught & Research",
+      "Skills Development",
+      "Student Engagement",
+      "Student Workers",
+      "Sustainability",
+      "Transnational Education",
+      "Wellbeing"
+    ],
+    "excluded_role_ids": [],
+    "applies_to_content_types": [
+      "Articles",
+      "Resources",
+      "Events"
+    ],
+    "subcategory_excluded_role_ids": {}
+  },
+  "expected": {
+    "id": "d40255e9-13df-42a9-9cb2-b26452d692ad",
+    "name": "role_alignment",
+    "label": "Role alignment",
+    "options": [
+      {
+        "label": "Careers Information Advice and Guidance",
+        "value": "Careers Information Advice and Guidance"
+      },
+      {
+        "value": "Employer engagement",
+        "label": "Employer Engagement"
+      },
+      {
+        "label": "Enterprise",
+        "value": "Enterprise"
+      },
+      {
+        "label": "Graduate Support",
+        "value": "Graduate Support"
+      },
+      {
+        "label": "Internships",
+        "value": "Internships"
+      },
+      {
+        "label": "Placements",
+        "value": "Placements"
+      },
+      {
+        "value": "AI & Technology",
+        "label": "AI & Technology"
+      },
+      {
+        "value": "Apprenticeships",
+        "label": "Apprenticeships"
+      },
+      {
+        "value": "Careers Education",
+        "label": "Careers Education"
+      },
+      {
+        "value": "Careers Information and Advice and Guidance",
+        "label": "Careers Information and Advice and Guidance"
+      },
+      {
+        "value": "Conducting Research",
+        "label": "Conducting Research"
+      },
+      {
+        "value": "Curriculum",
+        "label": "Curriculum"
+      },
+      {
+        "value": "Data & Insights",
+        "label": "Data & Insights"
+      },
+      {
+        "value": "EDI (inc. Social Mobility)",
+        "label": "EDI (inc. Social Mobility)"
+      },
+      {
+        "value": "Enterprise & Entrepreneurship",
+        "label": "Enterprise & Entrepreneurship"
+      },
+      {
+        "value": "Graduates & Alumni",
+        "label": "Graduates & Alumni"
+      },
+      {
+        "value": "Information & Operations",
+        "label": "Information & Operations"
+      },
+      {
+        "value": "International & Global",
+        "label": "International & Global"
+      },
+      {
+        "value": "Leadership & Management",
+        "label": "Leadership & Management"
+      },
+      {
+        "value": "Managing your own career",
+        "label": "Managing your own career"
+      },
+      {
+        "value": "Mentoring",
+        "label": "Mentoring"
+      },
+      {
+        "value": "Online/distance Learners",
+        "label": "Online/distance Learners"
+      },
+      {
+        "value": "Placements/Internships/Work-based Learning",
+        "label": "Placements/Internships/Work-based Learning"
+      },
+      {
+        "value": "Postgraduates Taught & Research",
+        "label": "Postgraduates Taught & Research"
+      },
+      {
+        "value": "Skills Development",
+        "label": "Skills Development"
+      },
+      {
+        "value": "Student Engagement",
+        "label": "Student Engagement"
+      },
+      {
+        "value": "Student Workers",
+        "label": "Student Workers"
+      },
+      {
+        "value": "Sustainability",
+        "label": "Sustainability"
+      },
+      {
+        "value": "Transnational Education",
+        "label": "Transnational Education"
+      },
+      {
+        "value": "Wellbeing",
+        "label": "Wellbeing"
+      }
+    ],
+    "is_active": true,
+    "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+    "created_at": "2025-12-14T06:40:48.518+00:00",
+    "created_by": null,
+    "field_type": "dropdown",
+    "max_length": null,
+    "min_length": null,
+    "updated_at": "2025-12-14T06:40:48.518+00:00",
+    "updated_by": null,
+    "is_required": false,
+    "entity_scope": "member",
+    "all_countries": null,
+    "display_order": 4,
+    "is_filterable": false,
+    "public_access": null,
+    "max_selections": null,
+    "min_selections": null,
+    "default_country": null,
+    "custom_object_id": null,
+    "default_countries": null,
+    "allowed_file_types": null,
+    "selected_countries": null,
+    "show_in_admin_list": true,
+    "filter_multi_select": false,
+    "directory_visibility": "{\"ids\":[\"main\"],\"labels\":{},\"display\":{\"main\":{\"front\":true,\"back\":true,\"order\":10}}}",
+    "show_in_admin_column": true,
+    "show_in_admin_filter": true,
+    "show_in_directory_card": true,
+    "show_in_my_preferences": true,
+    "show_in_my_organisation": true,
+    "show_in_member_directory": false,
+    "show_in_member_admin_list": true,
+    "show_in_member_admin_column": true,
+    "show_in_member_admin_filter": true
+  },
+  "reviewSha256": "f05340979db6084dfdddb62eec150026f39b468c690797f114a22da2c79b2ce1",
+  "added": [
+    "AI & Technology",
+    "Apprenticeships",
+    "Careers Education",
+    "Careers Information and Advice and Guidance",
+    "Conducting Research",
+    "Curriculum",
+    "Data & Insights",
+    "EDI (inc. Social Mobility)",
+    "Enterprise & Entrepreneurship",
+    "Graduates & Alumni",
+    "Information & Operations",
+    "International & Global",
+    "Leadership & Management",
+    "Managing your own career",
+    "Mentoring",
+    "Online/distance Learners",
+    "Placements/Internships/Work-based Learning",
+    "Postgraduates Taught & Research",
+    "Skills Development",
+    "Student Engagement",
+    "Student Workers",
+    "Sustainability",
+    "Transnational Education",
+    "Wellbeing"
+  ],
+  "answersBefore": {
+    "count": 4,
+    "digest": "5a0a29ee92b7800fa035e4076876bb41"
+  }
+}

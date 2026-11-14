@@ -1,0 +1,173 @@
+{
+  "project": "lvmzliemqnieeoruhkik",
+  "verifiedAt": "2026-11-14T10:51:32.880Z",
+  "after": {
+    "id": "d40255e9-13df-42a9-9cb2-b26452d692ad",
+    "name": "role_alignment",
+    "label": "Role alignment",
+    "options": [
+      {
+        "label": "Careers Information Advice and Guidance",
+        "value": "Careers Information Advice and Guidance"
+      },
+      {
+        "label": "Employer Engagement",
+        "value": "Employer engagement"
+      },
+      {
+        "label": "Enterprise",
+        "value": "Enterprise"
+      },
+      {
+        "label": "Graduate Support",
+        "value": "Graduate Support"
+      },
+      {
+        "label": "Internships",
+        "value": "Internships"
+      },
+      {
+        "label": "Placements",
+        "value": "Placements"
+      },
+      {
+        "label": "AI & Technology",
+        "value": "AI & Technology"
+      },
+      {
+        "label": "Apprenticeships",
+        "value": "Apprenticeships"
+      },
+      {
+        "label": "Careers Education",
+        "value": "Careers Education"
+      },
+      {
+        "label": "Careers Information and Advice and Guidance",
+        "value": "Careers Information and Advice and Guidance"
+      },
+      {
+        "label": "Conducting Research",
+        "value": "Conducting Research"
+      },
+      {
+        "label": "Curriculum",
+        "value": "Curriculum"
+      },
+      {
+        "label": "Data & Insights",
+        "value": "Data & Insights"
+      },
+      {
+        "label": "EDI (inc. Social Mobility)",
+        "value": "EDI (inc. Social Mobility)"
+      },
+      {
+        "label": "Enterprise & Entrepreneurship",
+        "value": "Enterprise & Entrepreneurship"
+      },
+      {
+        "label": "Graduates & Alumni",
+        "value": "Graduates & Alumni"
+      },
+      {
+        "label": "Information & Operations",
+        "value": "Information & Operations"
+      },
+      {
+        "label": "International & Global",
+        "value": "International & Global"
+      },
+      {
+        "label": "Leadership & Management",
+        "value": "Leadership & Management"
+      },
+      {
+        "label": "Managing your own career",
+        "value": "Managing your own career"
+      },
+      {
+        "label": "Mentoring",
+        "value": "Mentoring"
+      },
+      {
+        "label": "Online/distance Learners",
+        "value": "Online/distance Learners"
+      },
+      {
+        "label": "Placements/Internships/Work-based Learning",
+        "value": "Placements/Internships/Work-based Learning"
+      },
+      {
+        "label": "Postgraduates Taught & Research",
+        "value": "Postgraduates Taught & Research"
+      },
+      {
+        "label": "Skills Development",
+        "value": "Skills Development"
+      },
+      {
+        "label": "Student Engagement",
+        "value": "Student Engagement"
+      },
+      {
+        "label": "Student Workers",
+        "value": "Student Workers"
+      },
+      {
+        "label": "Sustainability",
+        "value": "Sustainability"
+      },
+      {
+        "label": "Transnational Education",
+        "value": "Transnational Education"
+      },
+      {
+        "label": "Wellbeing",
+        "value": "Wellbeing"
+      }
+    ],
+    "is_active": true,
+    "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+    "created_at": "2025-12-14T06:40:48.518+00:00",
+    "created_by": null,
+    "field_type": "dropdown",
+    "max_length": null,
+    "min_length": null,
+    "updated_at": "2025-12-14T06:40:48.518+00:00",
+    "updated_by": null,
+    "is_required": false,
+    "entity_scope": "member",
+    "all_countries": null,
+    "display_order": 4,
+    "is_filterable": false,
+    "public_access": null,
+    "max_selections": null,
+    "min_selections": null,
+    "default_country": null,
+    "custom_object_id": null,
+    "default_countries": null,
+    "allowed_file_types": null,
+    "selected_countries": null,
+    "show_in_admin_list": true,
+    "filter_multi_select": false,
+    "directory_visibility": "{\"ids\":[\"main\"],\"labels\":{},\"display\":{\"main\":{\"front\":true,\"back\":true,\"order\":10}}}",
+    "show_in_admin_column": true,
+    "show_in_admin_filter": true,
+    "show_in_directory_card": true,
+    "show_in_my_preferences": true,
+    "show_in_my_organisation": true,
+    "show_in_member_directory": false,
+    "show_in_member_admin_list": true,
+    "show_in_member_admin_column": true,
+    "show_in_member_admin_filter": true
+  },
+  "categoryUnchanged": true,
+  "answersUnchanged": true,
+  "answers": {
+    "count": 4,
+    "digest": "5a0a29ee92b7800fa035e4076876bb41"
+  },
+  "repeatAdds": 0,
+  "authenticatedUiVerified": false
+}

@@ -157,3 +157,4 @@
 - [Form commerce boundaries](form-cart-policy.md) — independent form stock is not proposal capacity; bundle tax needs explicit authority rather than component inference.
 - [Offline audit adapters](offline-audit-adapters.md) — optional helpers swallow unsupported query errors; verify adapter semantics before treating unavailable projections as data defects.
 - [Member note document privacy](member-note-document-privacy.md) — tenant-wide file access is insufficient for admin CRM notes; protect every signing path.
+- [GFI Role Alignment preservation](gfi-role-alignment-policy.md) — one approved display-label correction retains its original stored value; no broader merging or synchronization authority.
