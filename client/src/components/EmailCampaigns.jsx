@@ -569,7 +569,7 @@ export default function EmailCampaigns() {
     setEmailPreviewMode('desktop');
     try {
       const [campaignRes, footerRes] = await Promise.all([
-        fetch(`/api/email-campaigns/${campaign.id}`, { credentials: 'include' }),
+        fetch(`/api/email-campaigns/${campaign.id}?preview=true`, { credentials: 'include' }),
         fetch('/api/email-campaigns/preview-footer', { credentials: 'include' })
       ]);
       if (!campaignRes.ok) throw new Error('Failed to fetch campaign');
@@ -617,7 +617,7 @@ export default function EmailCampaigns() {
     setEmailPreviewMode('desktop');
     try {
       const [campaignRes, footerRes] = await Promise.all([
-        fetch(`/api/email-campaigns/${statsCampaignId}`, { credentials: 'include' }),
+        fetch(`/api/email-campaigns/${statsCampaignId}?preview=true`, { credentials: 'include' }),
         fetch('/api/email-campaigns/preview-footer', { credentials: 'include' })
       ]);
       if (!campaignRes.ok) throw new Error('Failed to fetch campaign');

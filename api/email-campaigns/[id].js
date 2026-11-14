@@ -1,4 +1,6 @@
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
+import { getCampaignEmailComposition } from '../_lib/campaignEmailComposition.js';
+import { prepareCampaignBatchRender } from '../_lib/campaignService.js';
 import { supabase } from '../_lib/database.js';
 import { campaignLifecycle, campaignLifecycleError } from '../_lib/campaignLifecycle.js';
 import { readCampaignTimings } from '../_lib/campaignTimings.js';
@@ -98,6 +100,14 @@ export default async function handler(req, res) {
       return res.status(result.error === 'Campaign not found' ? 404 : 500).json({ error: result.error });
     }
 
+    if (req.query.preview === 'true') {
+      const composition = getCampaignEmailComposition(result.campaign);
+      if (composition.slotValues) {
+        const rendered = prepareCampaignBatchRender(result.campaign, composition);
+        // Resolve from the saved campaign, never today's linked template.
+        return res.json({ ...result.campaign, design_json: null, html_content: rendered.html, subject: rendered.subject });
+      }
+    }
     return res.json(result.campaign);
   }
 
