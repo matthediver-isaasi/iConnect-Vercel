@@ -26,6 +26,13 @@ export function log(message: string, source = "express") {
 
 export const app = express();
 
+app.use('/article-preview', (_req, res, next) => {
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  next();
+});
+
 declare module 'http' {
   interface IncomingMessage {
     rawBody: unknown
@@ -74,7 +81,7 @@ app.use((req, res, next) => {
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
       // Registration responses contain bearer links and delegate details.
-      if (capturedJsonResponse && path !== "/api/public/sales-ticket-registration") {
+      if (capturedJsonResponse && !["/api/public/sales-ticket-registration", "/api/public/article-preview"].includes(path)) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
 

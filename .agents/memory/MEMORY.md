@@ -149,3 +149,4 @@
 - [Offline audit adapters](offline-audit-adapters.md) — optional helpers swallow unsupported query errors; verify adapter semantics before treating unavailable projections as data defects.
 - [Member note document privacy](member-note-document-privacy.md) — tenant-wide file access is insufficient for admin CRM notes; protect every signing path.
 - [GFI Role Alignment preservation](gfi-role-alignment-policy.md) — one approved display-label correction retains its original stored value; no broader merging or synchronization authority.
+- [Shared article preview boundary](article-preview-boundary.md) — password access is server-verified and uncached; shared atomic rate counters use a separate namespace.

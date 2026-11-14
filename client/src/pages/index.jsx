@@ -892,6 +892,7 @@ function _getCurrentPage(url, quoteNaming) {
     
     // Handle parameterized routes like /members/:id (and member-list aliases)
     const urlParts = url.split('/').filter(Boolean);
+    if (urlParts[0]?.toLowerCase() === 'article-preview') return 'ArticlePreview';
     if (urlParts[0]?.toLowerCase() === 'sales') {
         const salesPage = urlParts[1]?.toLowerCase() || 'dashboard';
         const salesPages = {

@@ -2,6 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { findHandler } from "./vercel-api-adapter";
 
+test("public article password verification resolves as an exact handler", async () => {
+  const result = await findHandler("/api/public/article-preview");
+  assert.equal(typeof result?.handler, "function");
+  assert.deepEqual(result?.params, {});
+});
+
 test("publication imports resolve to the exact handler rather than a brief-id route", async () => {
   const result = await findHandler("/api/article-briefs/publication-import");
   assert.equal(typeof result?.handler, "function");
