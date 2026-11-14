@@ -54,6 +54,7 @@ import { useEventLogin } from "@/components/auth/useEventLogin";
 import { useComplexEventTicketAvailabilityRealtime } from "@/hooks/useComplexEventTicketAvailabilityRealtime";
 import PaymentOptions from "@/components/booking/PaymentOptions";
 import EventSponsorsCard from "@/components/events/EventSponsorsCard";
+import EventAwardsSection from "@/components/awards/EventAwardsSection";
 import { EventDisclosureHeading, useEventDisclosure } from "@/components/events/EventDisclosure";
 import { getSeatStatusLabels } from "@/lib/seatStatusLabels";
 import { allocationCartUnitPrice, normalizeAllocationContext } from "@/lib/eventAllocation.mjs";
@@ -1837,6 +1838,8 @@ export function ComplexEventDetailExperience({
             {sponsorsAfterDate && (
               <EventSponsorsCard eventId={event.id} eventType="complex" displayMode={event.sponsor_display_mode} />
             )}
+
+            {event.id === eventId && <EventAwardsSection eventId={event.id} type="complex" memberInfo={memberInfo} enabled={!eventLoading && event.id === eventId} />}
 
             {(event.description || event.summary) && (
               <Card className="border-slate-200">

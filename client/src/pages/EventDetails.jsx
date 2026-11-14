@@ -49,6 +49,7 @@ import PaymentOptions from "../components/booking/PaymentOptions";
 import ColleagueSelector from "../components/booking/ColleagueSelector";
 import PageTour from "../components/tour/PageTour";
 import EventSponsorsCard from "@/components/events/EventSponsorsCard";
+import EventAwardsSection from "@/components/awards/EventAwardsSection";
 import { EventDisclosureHeading, useEventDisclosure } from "@/components/events/EventDisclosure";
 import TourButton from "../components/tour/TourButton";
 import { getFocalPointStyle } from "@/components/FocalPointPicker";
@@ -1966,6 +1967,8 @@ export function EventDetailsExperience({
                   presentation="inline"
                 />
               )}
+
+              {event.id === eventId && <EventAwardsSection eventId={event.id} type="event" memberInfo={currentMemberInfo} enabled={!isLoading && event.id === eventId} inline />}
 
               {/* Sessions Schedule */}
               {eventSessions.length > 0 && (

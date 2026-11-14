@@ -74,6 +74,7 @@ import EventImageUpload from "@/components/events/EventImageUpload";
 import DeliveryModeCardSelector from "@/components/events/DeliveryModeCardSelector";
 import EventDocumentsManager from "@/components/events/EventDocumentsManager";
 import EventSurveysSection from "@/components/surveys/EventSurveysSection";
+import EventAwardsAdmin from "@/components/awards/EventAwardsAdmin";
 import EventOptionListsEditor from "@/components/events/EventOptionListsEditor";
 import { isAttendeeOptionsCollectionEnabled } from "@/lib/attendeeOptionsSetting";
 import ChangeZoomDialog from "@/components/events/ChangeZoomDialog";
@@ -2191,7 +2192,7 @@ export default function EditEvent() {
     // Hide tabs that would be empty in the current context, and fall back to
     // Details if the active tab becomes hidden (e.g. switching a one-off event
     // to a program event while on the Tickets tab).
-    const visibleTabs = new Set(['details', 'cpd', 'location', 'emails', 'surveys']);
+    const visibleTabs = new Set(['details', 'cpd', 'location', 'emails', 'surveys', 'awards']);
     if (isOneOffEvent) visibleTabs.add('tickets');
     if (isDonationGloballyEnabled) visibleTabs.add('donations');
     if (!isGroupLimited) visibleTabs.add('budget');
@@ -2298,6 +2299,7 @@ export default function EditEvent() {
               <TabsTrigger value="location" data-testid="button-tab-location">Location & Media</TabsTrigger>
               <TabsTrigger value="emails" data-testid="button-tab-emails">Emails</TabsTrigger>
               <TabsTrigger value="surveys" data-testid="button-tab-surveys">Surveys</TabsTrigger>
+              <TabsTrigger value="awards" data-testid="button-tab-awards">Awards</TabsTrigger>
               {!isGroupLimited && (
                 <TabsTrigger value="budget" data-testid="button-tab-budget">Budget</TabsTrigger>
               )}
@@ -5033,6 +5035,10 @@ export default function EditEvent() {
               <EventSurveysSection eventId={eventId} eventType="event" />
             </CardContent>
           </Card>
+          </TabsContent>
+
+          <TabsContent value="awards" forceMount className={TAB_PANEL_CLASS}>
+            {event?.id === eventId && <EventAwardsAdmin key={event.id} eventId={event.id} type="event" />}
           </TabsContent>
 
           <TabsContent value="budget" forceMount className={TAB_PANEL_CLASS}>

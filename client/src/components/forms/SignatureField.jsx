@@ -11,10 +11,15 @@ export default function SignatureField({
   disabled = false,
   required = false,
   label = 'Signature',
-  allowUpload = false
+  allowUpload = false,
+  evidenceOnly = false,
+  onPendingChange
 }) {
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const pendingRef = useRef(onPendingChange), typedEdited = useRef(false);
+  pendingRef.current = onPendingChange;
+  const preparationPaused = evidenceOnly && disabled;
   const uploadId = useRef(0);
   const [uploadError, setUploadError] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -127,13 +132,17 @@ export default function SignatureField({
   }, []);
 
   useEffect(() => {
-    if (mode === 'type' && typedName.trim()) {
+    if (mode === 'type' && typedName.trim() && (!evidenceOnly || typedEdited.current) && !preparationPaused) {
+      pendingRef.current?.(true);
       const timeoutId = setTimeout(() => {
-        renderTypedSignature(typedName);
+        try {
+          renderTypedSignature(typedName);
+          if (evidenceOnly) typedEdited.current = false;
+        } finally { pendingRef.current?.(false); }
       }, 300);
-      return () => clearTimeout(timeoutId);
+      return () => { clearTimeout(timeoutId); pendingRef.current?.(false); };
     }
-  }, [typedName, mode, renderTypedSignature]);
+  }, [typedName, mode, renderTypedSignature, evidenceOnly, preparationPaused]);
 
   const getCoordinates = (e) => {
     const canvas = canvasRef.current;
@@ -170,6 +179,7 @@ export default function SignatureField({
     ctx.stroke();
     setIsDrawing(true);
     setHasSignature(true);
+    pendingRef.current?.(true);
   };
 
   const draw = (e) => {
@@ -187,6 +197,7 @@ export default function SignatureField({
   const stopDrawing = () => {
     if (!isDrawing) return;
     setIsDrawing(false);
+    pendingRef.current?.(false);
     
     const canvas = canvasRef.current;
     const dataUrl = canvas.toDataURL('image/png');
@@ -199,6 +210,8 @@ export default function SignatureField({
   };
 
   const clearSignature = () => {
+    pendingRef.current?.(false);
+    typedEdited.current = false;
     uploadId.current += 1;
     setUploading(false);
     setUploadError('');
@@ -227,6 +240,8 @@ export default function SignatureField({
 
   const handleTypedNameChange = (e) => {
     const name = e.target.value;
+    typedEdited.current = true;
+    pendingRef.current?.(!!name.trim());
     onChangeRef.current(null);
     setHasSignature(false);
     setTypedName(name);

@@ -748,6 +748,23 @@ export const ROLE_ACCESS_MAP: Module[] = [
     icon: "Shield",
     pages: [
       {
+        id: "awards.management",
+        label: "Awards & Judging",
+        features: [
+          { id: "awards.management.configure", label: "Configure Programmes & Awards" },
+          { id: "awards.management.applications", label: "Review Applications & Eligibility" },
+          { id: "awards.management.assign", label: "Appoint & Allocate Judges" },
+          { id: "awards.management.assess", label: "Manage Assessment Reopening" },
+          { id: "awards.management.moderate", label: "Manage Moderation" },
+          { id: "awards.management.approve", label: "Approve Decisions" },
+          { id: "awards.management.publish", label: "Publish Results" },
+          { id: "awards.management.communicate", label: "Release Communications" },
+          { id: "awards.management.report", label: "View Reports & Exports" },
+          { id: "awards.management.identities", label: "View Judge Identities" },
+          { id: "awards.management.certificates", label: "Manage Award Certificates" },
+        ],
+      },
+      {
         id: "admin.role-management",
         label: "Role Management"
       },
@@ -1162,6 +1179,7 @@ export function getResourceLabel(resourceId: string): string | null {
 }
 
 export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
+  "awards": "awards.management",
   "data": "admin.data-studio",
   "data.custom-objects": "admin.data-studio",
   "page_user_BuyProgramTickets": "commerce.buy-tickets",
@@ -1322,6 +1340,8 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_TicketSalesAnalytics": "events.ticket-analytics",
   "page_PendingPurchaseOrdersReport": "events.pending-purchase-orders",
   "page_AwardManagement": "membership.awards",
+  "page_Awards": "awards.management",
+  "page_admin_Awards": "awards.management",
   "page_JobPostingManagement": "jobs.job-management",
   "page_JobBoardSettings": "jobs.job-settings",
   "page_PageBannerManagement": "site-builder.banners",

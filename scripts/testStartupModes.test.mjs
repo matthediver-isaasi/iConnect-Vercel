@@ -20,13 +20,16 @@ test('Run and default Project start only the application', () => {
 test('ordinary validation workflows use the isolated entry point and never live scripts', () => {
   for (const block of workflows) {
     if (!block.includes('isValidation = true')) continue;
-    assert.match(block, /args = "(?:node scripts\/run-regression-suite\.mjs|npm run test:safety-boundaries)/);
+    assert.match(block, /args = "(?:node scripts\/(?:run-regression-suite|test-awards-judging)\.mjs|npm run test:safety-boundaries)/);
     assert.doesNotMatch(block, /verify:production|verify-custom-object-relationship-list-live/);
   }
   for (const [name, command] of Object.entries(suites)) {
     assert.doesNotMatch(name, /live|production/);
     assert.doesNotMatch(command, /verify-|DEST_|SOURCE_|--apply/);
   }
+  const awardsRunner=readFileSync(new URL('./test-awards-judging.mjs',import.meta.url),'utf8');
+  assert.match(awardsRunner, /scripts\/run-isolated-tests\.mjs/);
+  assert.doesNotMatch(awardsRunner,/verify-awards-destination|DEST_|SOURCE_|--apply/);
 });
 
 test('production verification is separately available without an implicit opt-in', () => {

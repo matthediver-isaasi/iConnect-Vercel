@@ -40,6 +40,7 @@ const campaignCompositionUrl = moduleUrl(
 );
 let serviceSource = await readFile(new URL('./emailService.js', import.meta.url), 'utf8');
 serviceSource = serviceSource
+  .replace("'./campaignBulkTransport.js'", JSON.stringify(moduleUrl(await readFile(new URL('./campaignBulkTransport.js',import.meta.url),'utf8'))))
   .replace("'mailgun.js'", JSON.stringify(moduleUrl(`
     export default class Mailgun { client() { return { messages: { create: async (domain, payload) => {
       globalThis.__transactionalPreferenceFixture.payloads.push(payload);

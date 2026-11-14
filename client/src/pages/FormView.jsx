@@ -82,6 +82,7 @@ import { classifyFormMutationContract } from "../../../shared/formMutationContra
 import { memberOwnerRequired } from "@/lib/publicMemberSignup";
 import { Link, useLocation } from "react-router-dom";
 import { formCommunicationCreationRole, formCommunicationRoleSourceAnswers } from "@/lib/formCommunicationCategoryEligibility";
+import AwardAmendmentFormView from '@/components/forms/AwardAmendmentFormView';
 
 const EMPTY_FORM_COLLECTION = Object.freeze([]);
 
@@ -154,6 +155,14 @@ function resolveRedirectTarget(form, formValues) {
 // event, access mode and open/close window from the token — the client never
 // supplies an event id.
 export default function FormViewPage({ slug: slugProp = null, assignmentToken = null }) {
+  const location = useLocation();
+  const params = new URLSearchParams(location.search);
+  if (params.has('award_amendment') || params.has('externalApplicant')) return <AwardAmendmentFormView applicationId={params.get('award_amendment')} slug={slugProp || params.get('slug')} externalApplicant={params.has('externalApplicant')}
+    incompatibleRoute={!!assignmentToken || (params.has('externalApplicant') && (params.get('externalApplicant') !== '1' || params.getAll('externalApplicant').length !== 1)) || params.getAll('award_amendment').length !== 1 || ['draft', 'resume', 'applicant_token', 'applicantContinuationToken', 'applicant_continuation_token', 'applicant_continuation', 'contract_instance', 'signer_email', 'payment_intent', 'payment_intent_client_secret', 'setup_intent', 'setup_intent_client_secret', 'session_id', 'token'].some(key => params.has(key))} />;
+  return <StandardFormViewPage slug={slugProp} assignmentToken={assignmentToken} />;
+}
+
+function StandardFormViewPage({ slug: slugProp = null, assignmentToken = null }) {
   const location = useLocation();
   const [certificateGrant] = useState(() => {
     if (!assignmentToken) return null;
@@ -1533,6 +1542,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       // tenants consistently with EmbedForm and the canvas form surface.
       const result = await publicClient.submitForm({
         ...anonymousSurveySubmissionPayload(form, submissionData),
+        ...(urlParams.get('award_id') && { award_id: urlParams.get('award_id') }),
         ...(assignmentToken
           && String(form?.id || '') === String(loadedForm?.id || '')
           && { assignment_token: assignmentToken }),

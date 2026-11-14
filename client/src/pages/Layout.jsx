@@ -151,6 +151,13 @@ const navigationItems = [
     featureId: "page_MyTickets"
   },
   {
+    title: "My award applications",
+    url: "/award-applications",
+    icon: FileText,
+    // Member self-service, independent of legacy badges and awards management.
+    isAwardApplicantDestination: true
+  },
+  {
     title: "My Waiting Lists",
     url: "/waitingList",
     icon: Clock,
@@ -524,6 +531,12 @@ const adminNavigationItems = [
     url: createPageUrl("AwardManagement"),
     icon: Trophy,
     featureId: "page_AwardManagement"
+  },
+  {
+    title: "Awards & Judging",
+    url: "/awards",
+    icon: Trophy,
+    featureId: "awards.management"
   },
   {
     title: "Badge Management",
@@ -1493,6 +1506,10 @@ const getPageVisibility = (pageName) => {
   // Render only the request shell before login. The page verifies a validated
   // member session, and every data/action endpoint enforces member ownership.
   if (pageName === 'MembershipChange') return 'hybrid';
+  // A valid external certificate secret is authorised by its own public API.
+  // Tenant portal visibility settings must not impose a normal member login.
+  if (pageName === 'AwardCertificate' || pageName === 'AwardApplication'
+    || (pageName === 'FormView' && new URLSearchParams(location.search).has('externalApplicant'))) return 'hybrid';
   // First check dynamic settings
   if (pageVisibilitySettings[pageName]) {
     return pageVisibilitySettings[pageName];
@@ -1640,11 +1657,13 @@ useEffect(() => {
   // Hosted provider callbacks are hybrid: guests need the public tenant shell
   // without a login redirect, while authenticated members retain portal chrome.
   const hybridPages = ["PostJob", "ArticleView", "GalleryDirectory", "GalleryView", "NewsView", "icontent", "ViewPage", "OrganisationDirectory", "JobBoard", "JobDetails", "JobPostSuccess", "DirectDebitReturn", "MonthlyCardReturn", "_DynamicPage", "HomePageRedirect", "Events", "EventDetails", "ComplexEventDetail", "FormView", "Resources"];
+  hybridPages.push("Judging", "AwardCertificate", "AwardApplication");
   
   const adminPages = ["AdminSetup", "RoleManagement", "RoleAccessConfigManagement", "MemberRoleAssignment", "TeamMemberManagement", "CustomObjectsAdmin", "DiscountCodeManagement", "EventSettings", "CancellationRequests", "TicketSalesAnalytics", "PendingPurchaseOrdersReport", "MonthlyFinanceReport", "MembershipPaymentReport", "EventRegistrationReport", "EventBudgetReport", "SurveyReports", "AIReports", "AccessibilityAudits", "MembershipTierManagement", "MembershipSettings", "ResourceSettings", "ResourceManagement", "TagManagement", "ResourceAuthorSettings", "TourManagement", "FileManagement", "JobPostingManagement", "JobBoardSettings", "IEditPageManagement", "IEditTemplateManagement", "PageBannerManagement", "NavigationManagement", "MemberHandleManagement", "ButtonElements", "ButtonStyleManagement", "AwardManagement", "WallOfFameManagement", "TeamInviteSettings", "FormManagement", "FormSubmissions", "FloaterManagement", "MemberDirectorySettings", "SupportManagement", "PageVisibilitySettings", "CreateComplexEvent", "PhotoGalleries", "EventCheckIn", "EventCheckInDashboard", "CanvasLinksManager"];
 
   // Pages that should use the bare layout (no new header/footer)
   adminPages.push("NMCMembershipReport");
+  adminPages.push("Awards");
   adminPages.push("PopupManagement");
   adminPages.push("CanvasPopupEditor");
   adminPages.push("StripePayoutReport");
@@ -1785,6 +1804,7 @@ useEffect(() => {
     'MembershipTierManagement': 'page_admin_MembershipTierManagement',
     'MembershipSettings': 'page_MembershipSettings',
     'AwardManagement': 'page_admin_AwardManagement',
+    'Awards': 'awards.management',
     'CategoryManagement': 'page_admin_CategoryManagement',
     'ResourceSettings': 'page_admin_ResourceSettings',
     'ResourceManagement': 'page_admin_ResourceManagement',
@@ -1825,6 +1845,11 @@ useEffect(() => {
 
   // Helper function to check if current page is excluded
   const isCurrentPageExcluded = () => {
+    // Member ownership still requires normal authentication. External shells
+    // instead use independently verified scoped credentials; neither grants
+    // an administrative awards capability or legacy badge-awards access.
+    if (currentPageName === 'AwardApplications' || currentPageName === 'AwardCertificate' || currentPageName === 'AwardApplication'
+      || (currentPageName === 'FormView' && new URLSearchParams(location.search).has('externalApplicant'))) return false;
     const customObjectId = getCustomObjectIdFromPortalPath(location.pathname);
     if (customObjectId) return !viewableCustomObjectIds.has(customObjectId);
     // Use the mapped feature ID if available, otherwise fall back to legacy pattern
@@ -2620,14 +2645,28 @@ useEffect(() => {
         : [next];
     });
     const withWaitingLists = addWaitingListCompanion(clonedItems);
+    // Keep this small member destination discoverable with authored menus too.
+    // A menu's administrative feature ID cannot gate member-owned applications.
+    const applicantDestination = item => !item.isExternal && (
+      /^\/award-applications\/?(?:[?#].*)?$/i.test(item.url || '') || item.isAwardApplicantDestination);
+    // A nested authored link may sit below a restricted parent. Preserve that
+    // authored tree and guarantee one independently reachable top-level link.
+    const withApplicantApplications = withWaitingLists.map(item =>
+      applicantDestination(item) && !item.subItems?.length
+        ? { ...item, title: 'My award applications', url: '/award-applications', icon: item.icon || FileText,
+          featureId: undefined, isAwardApplicantDestination: true, subItems: undefined }
+        : item);
+    if (!withApplicantApplications.some(item => applicantDestination(item) && !item.subItems?.length)) withApplicantApplications.push({
+      title: 'My award applications', url: '/award-applications', icon: FileText, isAwardApplicantDestination: true,
+    });
     
     // When NOT using custom slug, return cloned items with original createPageUrl() URLs
     if (!isCustomSlug) {
-      return withWaitingLists;
+      return withApplicantApplications;
     }
     
     // Apply dynamic URLs only when custom slug is confirmed
-    return withWaitingLists.map(item => {
+    return withApplicantApplications.map(item => {
       const processedItem = { ...item };
       
       if (item.isDynamicArticleSection && articleDisplayName) {

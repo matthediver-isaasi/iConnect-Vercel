@@ -233,6 +233,8 @@ function buildDefaultSelectedOptions(form) {
  */
 export async function sendSubmitterCopyEmail(args, dependencies = {}) {
   try {
+    const {assertNotAwardAmendment}=await import('../_lib/assessment/amendmentBoundary.js');
+    await assertNotAwardAmendment(dependencies.supabase||defaultSupabase,args.form?.tenant_id,args.submission?.id);
     return await generateAndSendSubmitterCopy(args, dependencies);
   } catch (error) {
     console.error('[SubmitterCopy] Failed:', error.message);

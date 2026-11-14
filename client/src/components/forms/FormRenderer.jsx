@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { useFormPrefillLocked } from './FormPrefillBoundary';
+import { useFormAmendmentUpload } from './FormAmendmentUploadContext';
 import { useQuery } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -1428,6 +1429,40 @@ function CommunicationPreferencesField({ field, value, onChange, disabled, membe
 }
 
 export default function FormRenderer({ field, value: suppliedValue, onChange, onCartChange, onGroupInitialSelection, onFormNotListedTextChange, onFileUploadStateChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, inheritedFieldLock = false, onValidityChange, onRelationshipEmptyStateChange, onRecordSelectionOptionsChange, onRepeatableAvailabilityChange, onRepeatableVisibilityChange, repeatableAvailabilitySupport = null, preserveValueWhenUnavailable = false, autoFocus = false, hideLabel = false, formId = null, formSlug = null, formMemberRoleId = null, communicationMemberContext = false, communicationAccess = null, communicationEligibilityReady = true, communicationEligibilityError = null, groupInitialSelectionReady = false, allFormValues = {}, prefillData = null, currentSetOptionLabels = null, currentSetExistingBlankFieldsByRow = null, allFields = [], membershipFeeQuote = null, notListedDisplayLabel = '', rootAllFields = null, rootAllFormValues = null, repeatableSiblingUniqueValues: siblingUniqueValues = [], repeatableFormExcludedValues: formExcludedValues = [], hiddenFieldIds = new Set(), parentHidden = false, availabilityProbe = false, suppressPaymentSummary = false, membershipPaymentMemberId = null }) {
+  const amendment = useFormAmendmentUpload();
+  const isAwardAmendment = !!amendment;
+  const amendmentRef = useRef(amendment);
+  amendmentRef.current = amendment;
+  const amendmentChoiceEnabled = !isAwardAmendment || (
+    !amendment.locked && !field.repeatable_container_field_id
+    && ['relationship_dropdown', 'organisation_dropdown', 'organisation_group_dropdown'].includes(field.type)
+    && amendment.canQueryChoices?.(field) === true
+  );
+  const amendmentChoiceOptions = isAwardAmendment ? {
+    retry: false, staleTime: 0, gcTime: 0,
+    refetchOnWindowFocus: false, refetchOnReconnect: false,
+  } : {};
+  const checkedChoiceQuery = async (signal, query) => {
+    const check = () => {
+      if (!isAwardAmendment) return;
+      amendmentRef.current.assertChoiceAccess(field);
+      if (publicClient.getTenantSlug() !== amendmentRef.current.choiceTenantSlug) throw new Error('Ordinary form choice organisation context changed. Reload this application.');
+    };
+    check();
+    const result = await query(signal);
+    check();
+    if (isAwardAmendment) {
+      const options = field.type === 'relationship_dropdown' ? normalizeRelationshipOptions(result) : result;
+      if (!Array.isArray(options) || options.some(option => !option || typeof option.id !== 'string'
+        || typeof (field.type === 'relationship_dropdown' ? option.label : option.name) !== 'string')) {
+        throw new Error('Ordinary form choices were incomplete. Saved linked evidence remains read-only.');
+      }
+    }
+    return result;
+  };
+  // This context exists only in the isolated evidence editor and is inherited
+  // by canonical repeatable children as well as their parent renderer.
+  preserveValueWhenUnavailable = preserveValueWhenUnavailable || !!amendment;
   const prefillLocked = useFormPrefillLocked();
   disabled = disabled || prefillLocked;
   autoFocus = autoFocus && !prefillLocked;
@@ -1767,8 +1802,9 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
       Boolean(onRepeatableAvailabilityChange),
       organizationQueryInstance,
       organizationAnswersRevision.current,
+      ...(isAwardAmendment ? ['award-existing-choices', amendment.choiceScopeKey] : []),
     ],
-    queryFn: () => publicClient.listFormOrganizationOptions(
+    queryFn: ({ signal }) => checkedChoiceQuery(signal, () => publicClient.listFormOrganizationOptions(
       formSlug,
       formId,
       field.id,
@@ -1777,10 +1813,12 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
       null,
       {
         availabilityProbe: Boolean(onRepeatableAvailabilityChange),
+        signal,
       },
-    ),
-    enabled: field.type === 'organisation_dropdown' && !!(formSlug || formId),
-    staleTime: 5 * 60 * 1000
+    )),
+    enabled: amendmentChoiceEnabled && field.type === 'organisation_dropdown' && !!(formSlug || formId),
+    staleTime: 5 * 60 * 1000,
+    ...amendmentChoiceOptions,
   });
   useEffect(() => {
     if (preserveValueWhenUnavailable) return;
@@ -1804,15 +1842,18 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
   ]);
 
   const { data: organisationGroups = [], isLoading: organisationGroupsLoading, isError: organisationGroupsError, isSuccess: organisationGroupsLoaded } = useQuery({
-    queryKey: ['public-form-organisation-group-options', formSlug, formId, field.id, field.repeatable_container_field_id],
-    queryFn: () => publicClient.listFormOrganisationGroupOptions(
+    queryKey: ['public-form-organisation-group-options', formSlug, formId, field.id, field.repeatable_container_field_id]
+      .concat(isAwardAmendment ? ['award-existing-choices', amendment.choiceScopeKey] : []),
+    queryFn: ({ signal }) => checkedChoiceQuery(signal, () => publicClient.listFormOrganisationGroupOptions(
       formSlug,
       formId,
       field.id,
       field.repeatable_container_field_id,
-    ),
-    enabled: field.type === 'organisation_group_dropdown' && !!(formSlug || formId),
+      { signal },
+    )),
+    enabled: amendmentChoiceEnabled && field.type === 'organisation_group_dropdown' && !!(formSlug || formId),
     staleTime: 5 * 60 * 1000,
+    ...amendmentChoiceOptions,
   });
 
   const relationshipValues = field.type === 'relationship_dropdown'
@@ -1859,22 +1900,32 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
     refetch: retryRelationshipOptions,
   } = useQuery({
     queryKey: ['public-form-relationship-options', formSlug, field.id, relationshipParentValue, field.repeatable_container_field_id]
-      .concat([relationshipQueryInstance, relationshipDependencyRevision.current]),
-    queryFn: () => publicClient.listFormRelationshipOptions(
+      .concat([relationshipQueryInstance, relationshipDependencyRevision.current])
+      .concat(isAwardAmendment ? ['award-existing-choices', amendment.choiceScopeKey] : []),
+    queryFn: ({ signal }) => checkedChoiceQuery(signal, () => publicClient.listFormRelationshipOptions(
       formSlug,
       field.id,
       relationshipParentValue,
       field.repeatable_container_field_id,
       usesRowOptionSource ? relationshipDependencyAnswers : null,
-    ),
-    enabled: field.type === 'relationship_dropdown' && !!formSlug && (
+      { signal },
+    )),
+    enabled: amendmentChoiceEnabled && field.type === 'relationship_dropdown' && !!formSlug && (
       hasRowOptionSource
         ? (usesRowOptionSource && relationshipDependenciesReady
           && (!isDistinctRowSource(field) || (!!relationshipParentValue && relationshipParentValue !== FORM_NOT_LISTED_VALUE)))
         : (!!field.parent_field_id && !!relationshipParentValue && relationshipParentValue !== FORM_NOT_LISTED_VALUE)
     ),
     staleTime: 60 * 1000,
+    ...amendmentChoiceOptions,
   });
+  const amendmentChoiceStatus = field.type === 'organisation_dropdown' ? (orgsError ? 'unavailable' : orgsLoading ? 'pending' : 'resolved')
+    : field.type === 'organisation_group_dropdown' ? (organisationGroupsError ? 'unavailable' : organisationGroupsLoading ? 'pending' : 'resolved')
+      : relationshipOptionsError ? 'unavailable' : !relationshipOptionsLoaded ? 'pending' : 'resolved';
+  useEffect(() => {
+    if (!isAwardAmendment || !['relationship_dropdown', 'organisation_dropdown', 'organisation_group_dropdown'].includes(field.type)) return;
+    amendmentRef.current?.onChoiceState?.(field.id, amendmentChoiceStatus);
+  }, [isAwardAmendment, field.id, field.type, amendmentChoiceStatus]);
   const rawRelationshipOptions = useMemo(
     () => {
       const available = normalizeRelationshipOptions(relationshipOptionPayload);
@@ -1962,7 +2013,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
   const { data: categories = [], isLoading: categoriesLoading } = useQuery({
     queryKey: ['public-resource-categories-for-form'],
     queryFn: async () => await publicClient.listResourceCategories() || [],
-    enabled: field.type === 'category_multiselect' || field.type === 'category_dropdown',
+    enabled: !isAwardAmendment && (field.type === 'category_multiselect' || field.type === 'category_dropdown'),
     staleTime: 5 * 60 * 1000 // Cache for 5 minutes
   });
 
@@ -2009,7 +2060,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
     if (groupInitialSelectionState.current.scope !== groupInitialSelectionScope) {
       groupInitialSelectionState.current = { scope: groupInitialSelectionScope, consumed: false };
     }
-    if (field.type !== 'organisation_group_dropdown' || groupInitialSelectionState.current.consumed) return;
+    if (isAwardAmendment || field.type !== 'organisation_group_dropdown' || groupInitialSelectionState.current.consumed) return;
     // Parent form resets/restores and authenticated prefill must finish first;
     // otherwise an old form's answers can accidentally consume a new scope.
     if (!groupInitialSelectionReady) return;
@@ -2049,7 +2100,11 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
   // reporting labels: callers clear any old derived text and block submission
   // rather than accidentally preserving an ID or an obsolete name.
   useEffect(() => {
-    if (!onRecordSelectionOptionsChange || !isSupportedDisplayNameCopySource(field)) return;
+    const amendmentDirectory = isAwardAmendment && !field.repeatable_container_field_id && field.option_source === undefined
+      && ['organisation_dropdown', 'organisation_group_dropdown', 'relationship_dropdown'].includes(field.type);
+    // In amendments this reports option membership for validation only, not
+    // conditional copying or entity actions (including multi-select sources).
+    if (!onRecordSelectionOptionsChange || (!isSupportedDisplayNameCopySource(field) && !amendmentDirectory)) return;
     const scope = recordSelectionOptionScope(field, allFields, allFormValues);
     let status = 'resolved';
     let options = [];
@@ -2067,7 +2122,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
     }
     onRecordSelectionOptionsChange(field.id, { status, options, scope });
   }, [
-    field, allFields, allFormValues, onRecordSelectionOptionsChange, orgsLoading, orgsError, organisationOptions,
+    isAwardAmendment, field, allFields, allFormValues, onRecordSelectionOptionsChange, orgsLoading, orgsError, organisationOptions,
     organisationGroupsLoading, organisationGroupsError, organisationGroupOptions,
     relationshipOptionsLoading, relationshipOptionsLoaded, relationshipOptionsError,
     relationshipParentValue, relationshipOptions,
@@ -2117,7 +2172,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
   const { data: customFieldDef, isLoading: customFieldLoading } = useQuery({
     queryKey: ['public-custom-field', field.custom_field_id, formId],
     queryFn: async () => await publicClient.getCustomField(field.custom_field_id, formId) || null,
-    enabled: field.type === 'custom_field' && !!field.custom_field_id,
+    enabled: !isAwardAmendment && field.type === 'custom_field' && !!field.custom_field_id,
     staleTime: 5 * 60 * 1000,
   });
   const customFieldOptions = useMemo(
@@ -3240,7 +3295,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
               {relationshipOptionsLoading && <p className="text-xs text-slate-500">Loading related records…</p>}
               {relationshipOptionsError && <div className="flex items-center gap-2 text-xs text-red-600">
                 <span>Related records could not be loaded.</span>
-                <Button type="button" variant="outline" size="sm" onClick={() => retryRelationshipOptions()} data-testid={`retry-relationship-${field.id}`}>Retry</Button>
+                {!isAwardAmendment && <Button type="button" variant="outline" size="sm" onClick={() => retryRelationshipOptions()} data-testid={`retry-relationship-${field.id}`}>Retry</Button>}
               </div>}
               {relationshipResultIsEmpty && (
                 <p className="text-xs text-slate-500" data-testid={`relationship-empty-message-${field.id}`}>
@@ -3276,7 +3331,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
             {relationshipOptionsLoading && <p className="text-xs text-slate-500">Loading related records…</p>}
             {relationshipOptionsError && <div className="flex items-center gap-2 text-xs text-red-600">
               <span>Related records could not be loaded.</span>
-              <Button type="button" variant="outline" size="sm" onClick={() => retryRelationshipOptions()} data-testid={`retry-relationship-${field.id}`}>Retry</Button>
+              {!isAwardAmendment && <Button type="button" variant="outline" size="sm" onClick={() => retryRelationshipOptions()} data-testid={`retry-relationship-${field.id}`}>Retry</Button>}
             </div>}
             {relationshipResultIsEmpty && (
               <p className="text-xs text-slate-500" data-testid={`relationship-empty-message-${field.id}`}>
@@ -4162,8 +4217,10 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
         return (
           <SignatureField
             fieldId={field.id}
-            value={value?.data || value}
+            value={amendment ? value : (value?.data || value)}
             onChange={onChange}
+            evidenceOnly={!!amendment}
+            onPendingChange={amendment ? waiting => amendment.setControlPending(field.id, waiting) : undefined}
             disabled={isFieldDisabled}
             required={field.required}
             label={field.label}

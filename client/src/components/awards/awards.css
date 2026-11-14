@@ -1,0 +1,19 @@
+.awards-workspace { --awards-ink: #203d49; --awards-muted: #617780; --awards-tint: #edf4f4; color: var(--awards-ink); }
+.awards-workspace .awards-intro { background: var(--awards-tint); border: 1px solid #d3e3e4; border-radius: 12px; }
+.awards-workspace .awards-kicker { color: #436b73; font-size: 11px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; }
+.awards-workspace .awards-choice { width: 100%; padding: 18px; text-align: left; border-left: 3px solid transparent; border-bottom: 1px solid #e3eaed; background: transparent; }
+.awards-workspace .awards-choice:hover { background: #f3f7f7; }
+.awards-workspace .awards-choice[aria-pressed="true"] { background: #edf4f4; border-left-color: #32717a; }
+.awards-workspace .awards-choice:focus-visible { outline: 2px solid #32717a; outline-offset: -3px; }
+.awards-workspace .awards-section { padding: 24px 0; border-bottom: 1px solid #e3eaed; }
+.awards-workspace .awards-section:first-child { padding-top: 0; }
+.awards-workspace .awards-section h3 { font-size: 16px; font-weight: 600; margin-bottom: 5px; }
+.awards-workspace .awards-help { font-size: 13px; color: var(--awards-muted); line-height: 1.6; }
+.awards-workspace .awards-field { display: grid; gap: 8px; min-width: 0; }
+.awards-workspace .awards-select, .awards-workspace .awards-input { display: flex; width: 100%; min-height: 40px; padding: 8px 12px; border: 1px solid hsl(var(--input)); border-radius: 6px; background: hsl(var(--background)); font-size: 14px; }
+.awards-workspace .awards-select:focus-visible, .awards-workspace .awards-input:focus-visible { outline: 2px solid #32717a; outline-offset: 2px; }
+.awards-workspace fieldset:disabled { opacity: .75; }
+.awards-workspace fieldset { min-width: 0; }
+.awards-workspace .awards-status { border-radius: 5px; padding: 3px 8px; background: #eef1f4; color: #4c626c; font-size: 11px; font-weight: 600; white-space: nowrap; text-transform: capitalize; }
+.awards-workspace .awards-status[data-state="open"] { background: #e1efea; color: #326550; }
+.awards-workspace .awards-status[data-state="draft"] { background: #f6efde; color: #80642e; }

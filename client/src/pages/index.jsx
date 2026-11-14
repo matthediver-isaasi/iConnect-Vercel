@@ -1,7 +1,8 @@
 import { useHomepageCanonical } from "@/hooks/useHomepageCanonical";
 import { useQuoteNaming } from "@/hooks/useSalesSettings";
 import { getSalesDestination } from "@/lib/salesNavigation";
-import { useEffect, useRef, lazy, Suspense } from 'react';
+import { useEffect, useLayoutEffect, useRef, lazy, Suspense } from 'react';
+import { syncExternalAwardApplicantRoute } from '@/lib/externalAwardApplicantAccess';
 import Layout from "./Layout.jsx";
 import { BUILTIN_ARTICLE_ALIASES } from "@shared/articleAliases.js";
 import { BUILTIN_MEMBER_ALIASES } from "@shared/memberAliases.js";
@@ -163,6 +164,11 @@ const ButtonStyleManagement = lazy(() => import("./ButtonStyleManagement"));
 import BorderRadiusSettings from "./BorderRadiusSettings";
 
 const AwardManagement = lazy(() => import("./AwardManagement"));
+const Awards = lazy(() => import("./Awards"));
+const Judging = lazy(() => import("./Judging"));
+const AwardApplications = lazy(() => import("./AwardApplications"));
+const AwardCertificate = lazy(() => import("./AwardCertificate"));
+const AwardApplication = lazy(() => import("./AwardApplication"));
 
 const BadgeManagement = lazy(() => import("./BadgeManagement"));
 
@@ -681,6 +687,11 @@ const PAGES = {
     BorderRadiusSettings: BorderRadiusSettings,
     
     AwardManagement: AwardManagement,
+    Awards: Awards,
+    Judging: Judging,
+    AwardApplications: AwardApplications,
+    AwardCertificate: AwardCertificate,
+    AwardApplication: AwardApplication,
     
     BadgeManagement: BadgeManagement,
     
@@ -903,6 +914,21 @@ function _getCurrentPage(url, quoteNaming) {
     if (urlParts[0]?.toLowerCase() === 'cpdcertificatetemplates') {
         return 'CPDCertificateTemplates';
     }
+    if (urlParts[0]?.toLowerCase() === 'awards') {
+        return 'Awards';
+    }
+    if (urlParts[0]?.toLowerCase() === 'judging') {
+        return 'Judging';
+    }
+    if (urlParts[0]?.toLowerCase() === 'award-applications') {
+        return 'AwardApplications';
+    }
+    if (urlParts[0]?.toLowerCase() === 'award-certificate') {
+        return 'AwardCertificate';
+    }
+    if (urlParts[0]?.toLowerCase() === 'award-application') {
+        return 'AwardApplication';
+    }
     if (
         urlParts.length >= 3 &&
         urlParts[0]?.toLowerCase() === 'organisationdirectory' &&
@@ -974,6 +1000,7 @@ function PagesContent() {
     const quoteNaming = useQuoteNaming();
     useHomepageCanonical();
     const location = useLocation();
+    useLayoutEffect(syncExternalAwardApplicantRoute, [location.pathname, location.search, location.hash]);
     const { branding, loading: brandingLoading } = useTenantBranding();
     const { authResolved, sessionValidated, sessionRoleSnapshot, memberInfo, memberRole } = useLayoutContext();
     const { roleStatus } = useSessionMemberRole();
@@ -1200,6 +1227,11 @@ function PagesContent() {
                 <Route path="/BorderRadiusSettings" element={<BorderRadiusSettings />} />
                 
                 <Route path="/AwardManagement" element={<AwardManagement />} />
+                <Route path="/awards" element={<Awards />} />
+                <Route path="/judging" element={<Judging />} />
+                <Route path="/award-applications" element={<AwardApplications />} />
+                <Route path="/award-certificate" element={<AwardCertificate />} />
+                <Route path="/award-application" element={<AwardApplication />} />
                 <Route path="/BadgeManagement" element={<BadgeManagement />} />
                 
                 <Route path="/Team" element={<Team />} />
@@ -1445,7 +1477,8 @@ function PagesContent() {
     // microsite page may have the same slug as a built-in portal route).
     const matches = matchRoutes(createRoutesFromChildren(routes), location);
     const pageComponent = matches?.at(-1)?.route.element?.type;
-    const pageOwned = [DynamicPage, ViewPage, HomePageRedirect, SmartLoginRoute].includes(pageComponent);
+    const pageOwned = [DynamicPage, ViewPage, HomePageRedirect, SmartLoginRoute, AwardApplication].includes(pageComponent)
+        || (pageComponent === FormView && new URLSearchParams(location.search).has('externalApplicant'));
     const currentPage = pageComponent === DynamicPage ? '_DynamicPage' : _getCurrentPage(location.pathname, quoteNaming);
     const navigationScope = JSON.stringify([
         window.location.host, getTenantSlugFromLocation(), branding?.id,

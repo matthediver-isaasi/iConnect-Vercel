@@ -5,6 +5,12 @@ description: Which Supabase project the runtime vs migrations actually use, and 
 
 # Workspace DB targets
 
+Follow the documented DEST workflow for awards work; do not require a separate development database as a prerequisite.
+
+**Why:** The owner explicitly corrected the awards work on 2026-11-13: use the DEST Supabase database as documented in `replit.md`. Some `DEV_` aliases point to production; their names do not establish isolation, but this is not grounds to disregard the approved destination workflow.
+
+**How to apply:** Use pinned DEST connections, verified TLS, read-only preflight and rolled-back migration rehearsals before authorised application. Keep destructive/concurrency/provider tests in disposable fixtures; never invoke real emails/payments or alter customer data merely for tests. Do not overwrite shared settings or demand new test credentials.
+
 Provider-evidence runners must select DEST before importing application modules,
 including report helpers that indirectly initialize the shared Supabase client.
 

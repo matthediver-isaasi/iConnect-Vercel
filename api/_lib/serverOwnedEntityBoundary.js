@@ -18,10 +18,28 @@ const SERVER_OWNED_ENTITY_NAMES = new Set([
   'stagefieldmappingaction',
   'membershipexpirypolicyassignment',
   'badgeinstructionobject',
+  'awardsprogramme', 'awardscompetition', 'awardsformbinding',
+  'awardsapplication', 'awardsapplicationversion', 'awardsintakecapture',
+  'assessmentround', 'assessmentcriteriaversion', 'assessmentappointment',
+  'assessmentassignment', 'assessmentrevision', 'assessmentinvitation',
+  'assessmentroundentry',
+  'awardsreviewattachment',
+  'assessmentscoringtemplate',
+  'awardscertificatetemplate','awardscertificateaccess',
+  'awardsmessageconfiguration',
+  'awardsshortlistpublication',
+  'awardsamendment',
+  'awardsapplicantaccess',
+  'assessmentpanelconflict',
+  'assessmentsession', 'assessmentaccessratelimit', 'assessmentmoderation',
+  'assessmentmoderationmessage', 'assessmentmoderationrevision',
+  'assessmentshortlistdecision', 'awardsoutcomecategory', 'awardsoutcomerevision',
+  'awardseventlink', 'awardspublicationrevision', 'awardsdeliveryrelease',
+  'awardsdelivery', 'awardscertificateissue', 'awardsauditevent',
 ]);
 
 const GENERIC_SERVER_OWNED_FIELDS = new Map([
-  ['formsubmission', new Set(['legacy_application_scope'])],
+  ['formsubmission', new Set(['legacy_application_scope','awards_binding_id','awards_applicant_member_id','awards_amendment_application_id'])],
   // This is retry bookkeeping owned by the due-diligence stage-action
   // processor. FormSubmissionDueDiligence itself remains available through
   // the generic entity API; only this server-owned field is protected.

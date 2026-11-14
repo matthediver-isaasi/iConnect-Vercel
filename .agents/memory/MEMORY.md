@@ -1,8 +1,10 @@
+- [Awards and judging policy](awards-judging-policy.md) — approved competition contract; moderation, multiple rounds and events remain mandatory initial scope.
+- [PostgREST domain conflicts](postgrest-domain-conflicts.md) — optimistic conflicts use PT409; 40001 can cause endless transport-level serialization retries.
 - [BNMS Supporter import approval](bnms-supporter-import-policy.md) — automatic metadata effects approved only for the exact November Supporter classification cohort.
 - [BNMS student date import policy](bnms-student-date-import-policy.md) — timestamp and survey-revision effects approved only for the exact student course-end cohort.
 - [RLS review boundaries](rls-review-boundaries.md) — retained read-only review; remediation awaits owner approval and preview is not database isolation.
 - [Portal build display](portal-build-display.md) — shared portal build identifier must never show descriptive release labels or tenant-specific comments.
-- [Better Stack subhourly timezone](better-stack-subhourly-timezone.md) — a server-timezone adjustment must be cleared with approval before setting a subhourly interval.
+- [External services and environment](external-services-index.md) — provider leases/timezones, destination DB targets, rollout, domains, runtime logs, Git, npm and SDK isolation.
 - [BNMS membership topics](bnms-membership-index.md) — owner-approved membership evidence, historical test cohorts and NMC fulfilment eligibility.
 - [Router consistency in client/](router-consistency.md) — app uses react-router-dom; new pages built with wouter look like they navigate but break SPA routing.
 - [Serverless runtime topics](serverless-runtime-index.md) — catch-all routing, traceable payment-handler imports, and invocation time budgets.
@@ -20,7 +22,6 @@
 - [Reindex concurrency guard](reindex-concurrency-guard.md) — historical background-worker pattern; Member Content now uses the dedicated operation authority documented below, not system_settings.
 - [Member-content reindex operation authority](member-content-reindex-operations.md) — CRON_SECRET is fail-closed; use the dedicated service-only operations singleton/RPCs, never browser-writable system_settings.
 - [Platform manual backup orchestration](platform-manual-backup-orchestration.md) — manual R2 backup completes via a browser loop re-invoking a single-chunk resumable /run endpoint, not server self-chaining (stays within serverless maxDuration).
-- [Workspace DB targets](workspace-db-targets.md) — runtime SUPABASE_URL here == legacy SOURCE (stale); prod/migrations target DEST. Apply feature migrations to DEST only.
 - [Release evidence validation](release-evidence-validation.md) — keep curl attestations explicit and fresh through commit; accept guard evolution only against exact reviewed migration contracts.
 - [Private subsets of a tenant entity](private-subset-of-tenant-entity.md) — client-side hiding of group-private rows isn't access control; add server-side filter on entity list + by-id reads, exempt admins.
 - [Workflow trigger types & scheduled workflows](workflow-trigger-types.md) — trigger_type is free-text (no migration to add one); operator comparison centralized in evaluateConditionOperator; scheduled path has no before-value, date ops are UTC.
@@ -52,7 +53,6 @@
 - [RBAC map-driven parent resolution](rbac-parent-resolution.md) — parent lookups via map nesting, never dot-prefix; enforcement is a UNION of hardcoded map + role_access_item DB overlay; legacy mapping is generated, never hand-copied.
 - [Widget click-through drilldown](widget-drilldown-clickthrough.md) — big id lists POST in a body (never URL); toggle enforced server-side; Recharts click key via entry.key ?? payload.key ?? name.
 - [Member-driven membership fee tokens](member-fee-tokens.md) — fee tokens carry org_id OR member_id; every consumer must branch (history/invoicing/notes/sim); token DD adopts unpaid workflow rows.
-- [Outlook busy-time handling](outlook-busy-times.md) — Graph calendarview returns naive datetimes in the Prefer tz; never offset-detect via includes('-'); paginate nextLink; flag connection on failure.
 - [Cron email delivery model](speaker-award-notifications.md) — one-off notification emails need lease+delivered timestamp pairs (CAS everywhere) and a retry sweep independent of the parent's done-stamp; a claim is not delivery.
 - [Resource category & subcategory role access](resource-category-role-access.md) — name-level visible-wins hiding via one shared helper; ~6 surfaces must strip access fields + trim hidden names or roles leak.
 - [record_create workflows & custom fields](workflow-record-create-custom-fields.md) — trigger AFTER preference values persist or custom-field conditions see empty; workflow_log status check allows success|partial|failed|skipped.
@@ -64,7 +64,6 @@
 - [Organisation Group CRM parity](org-group-crm-parity.md) — preference_field.entity_scope is CHECK-constrained; org layout/rules editors take a coreFields prop, rule eval is entity-agnostic.
 - [Per-instalment monthly invoicing](per-instalment-invoicing.md) — mode snapshotted at consent; idempotency via invoice linkage (GC row cols / Stripe unique table); annual paths must call shouldSuppressAnnualInvoice.
 - [Tenant feed cron fairness](tenant-feed-cron-fairness.md) — time-bounded tenant feed crons need an ordered durable cursor, or the first page silently starves later tenants.
-- [WordPress option leases](wordpress-option-leases.md) — expiring locks need DB compare-and-swap takeover/renewal and compare-and-delete release; read/delete/add reopens concurrency races.
 - [Preference-field ownership scopes](preference-field-ownership-scopes.md) — adding a new field owner requires API and DB guards on every legacy value table, not just filtering field definitions.
 - [Mail delivery and evidence](mail-delivery-index.md) — Mailgun readiness, correspondence, bounce/click authority and recipient-history preservation.
 - [Attendance snapshot finalization](attendance-snapshot-finalization.md) — provider reports must publish atomically; idempotency includes bookings, policy, target, intervals, and matches.
@@ -91,7 +90,6 @@
 - [Relationship preview config aliases](relationship-preview-config-aliases.md) — compact_preview and legacy compact_preview_fields may coexist; merge and dedupe field IDs across both.
 - [Relationship edge metadata enforcement](relationship-edge-metadata-enforcement.md) — generic edge writes bypass the interactive service; defaults and required/type rules need DB enforcement too.
 - [Relationship multi-select answers](relationship-multiselect-answers.md) — mixed record IDs + Other must be reconciled, validated, and formatted member-by-member.
-- [Merge is not public rollout](merge-vs-public-rollout.md) — custom domains may keep serving an older frontend bundle after source merges; verify the live asset contains the feature.
 - [Entity-pipeline mapping ownership](entity-pipeline-mapping-ownership.md) — enclosing member/org pipeline owns every mapping destination; normalize saved metadata and reject mismatches at side-effect boundaries.
 - [Organisation reference vs mutation](organization-reference-mutation-auth.md) — a persisted tenant-valid selection may link records, but only explicit creation provenance can bypass mutation authorization.
 - [Organisation name recovery](organisation-name-recovery.md) — match original IDs; hidden form placeholders can conflict with explicit not-listed organisation answers.
@@ -109,9 +107,7 @@
 - [Member index schema compatibility](member-index-schema-contract.md) — legacy uniqueness breaks generation staging; inspect publication contracts before repairing ON CONFLICT errors.
 - [Chained list column identity](chained-list-column-identity.md) — pin endpoint/display-field meaning; incomplete discovery must not erase saved columns.
 - [Department current-set policy](department-current-set-policy.md) — maintain current records, not annual returns; allow existing missing equipment values but require them for new rows.
-- [Custom-domain recovery](custom-domain-recovery.md) — verify hosting and tenant mapping separately; a generic conflict is not permission to transfer an already-correct domain.
 - [Session role readiness](session-role-readiness.md) — verified role reuse must preserve invalidation; missing roles deny access, and late observers must not start refetch/remount loops.
-- [Vercel runtime log access](vercel-runtime-log-access.md) — live log streams cannot establish earlier failures; historical dashboard logs may need separate access.
 - [Public Invoice / PO intentions](public-invoice-po-intentions.md) — record-only registrations stay outside financial workflows; later attendee membership cannot redefine the purchaser.
 - [Vite lazy import ordering](vite-lazy-import-order.md) — development transforms can expose a lazy declaration TDZ that production builds miss.
 - [Unknown-page fallback authority](unknown-page-fallback.md) — missing routes require independent evidence; renderer gaps, access states and stale tenant settings must not decide redirects.
@@ -132,10 +128,8 @@
 - [About-me Job Title](about-me-job-title.md) — never show a placeholder in the Job Title input.
 - [Homepage canonical authority](homepage-canonical-authority.md) — explicit clearing beats legacy fallback; mutable selections cannot create cached permanent aliases.
 - [Crawler semantic content](crawler-semantic-content.md) — unstyled crawler responses must retain complete public content and semantic headings, not flattened excerpts.
-- [Git authentication authority](git-authentication-authority.md) — connection health and public reads do not prove push authentication; a successful bypass is not a permanent repair.
 - [Public bookmark query loops](public-bookmark-query-loop.md) — guest-only 401 loops can clear shared queries and blank unrelated public carousels.
 - [Public branding boundaries](public-branding-freshness.md) — fresh authority across serverless readers; linked favicon normalization and rollout constraints.
-- [Portable npm downloads](portable-npm-downloads.md) — dependency updates can record workspace-only registry URLs that break Vercel installs.
 - [Membership amendment policy](membership-amendment-policy.md) — approved mid-term changes cover collection, credit and refund, preserving purchase evidence and expiry by default.
 - [Badge instructions lifecycle](badge-instructions-lifecycle.md) — removal retains private guidance; failed deletion requires recoverable, fenced storage disposal.
 - [Individual training funds](individual-training-fund-terminology.md) — member-owned vouchers, not legacy organisation funds; valid for all membership renewal types.
@@ -144,7 +138,6 @@
 - [Team directory dates](team-directory-date-policy.md) — original record creation is the join date; recorded activity and login permission are independent.
 - [Guest registration associations](guest-registration-association-policy.md) — explicit direct group selection never implies an organisation or changes historical registration details.
 - [Stripe payout reporting policy](stripe-payout-report-policy.md) — BNMS reconciliation is read-only; historical matching claims require evidence, and multiple invoice links never imply allocations.
-- [CookieYes isolation limitations](cookieyes-sdk-isolation.md) — fixed SDK storage names and undisposed retries need an approved isolation extension for shared-origin tenants.
 - [BNMS completion approval](bnms-completion-approval.md) — returned workbook scope does not inherit historical write/date approvals; blank readiness never authorizes imports.
 - [CMS popup policy](cms-popup-policy.md) — opt-outs survive ordinary edits; one popup per history entry and same-organisation conjunctions are independent delivery rules.
 - [CRM jump cache authority](crm-jump-cache-authority.md) — exact-ID jumps must revalidate cached target pages; cache freshness is not evidence after concurrent changes.

@@ -75,6 +75,10 @@
   },
   "crons": [
     {
+      "path": "/api/cron/awards",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/zoom/attendance-auto-sync",
       "schedule": "*/10 * * * *"
     },

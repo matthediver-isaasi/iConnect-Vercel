@@ -183,6 +183,17 @@ isValidation = true
 task = "shell.exec"
 args = "node scripts/run-regression-suite.mjs member-profile-affiliations"
 
+[[workflows.workflow]]
+name = "awards-judging"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/test-awards-judging.mjs"
+
+[workflows.workflow.metadata]
+isValidation = true
+
 [userenv]
 
 [userenv.shared]

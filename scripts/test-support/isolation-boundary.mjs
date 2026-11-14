@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import childProcess from 'node:child_process';
 import dgram from 'node:dgram';
 import http from 'node:http';
+import {scopedPostgrest} from './scoped-postgrest.mjs';
 import https from 'node:https';
 import net from 'node:net';
 import tls from 'node:tls';
@@ -14,6 +15,7 @@ const auditFile = process.env.TEST_ISOLATION_AUDIT_FILE;
 const postgresStateFile = process.env.TEST_ISOLATION_PG_STATE_FILE;
 const active = true;
 const allowLocalPostgres = process.env.TEST_ISOLATION_ALLOW_LOCAL_PG === '1';
+const allowLocalPostgrest = allowLocalPostgres && process.env.TEST_ISOLATION_ALLOW_LOCAL_POSTGREST === '1';
 const boundaryImport = new URL(import.meta.url).pathname;
 
 // The server role-access module normally primes its database-backed hierarchy
@@ -254,26 +256,30 @@ function guardChildFunction(name, original) {
       && args[0] === '-c'
       && runnerShellCommand === args[1];
     const scopedPostgres = isScopedPostgresCommand(command, args, options);
+    const postgrestSocket = scopedPostgrest(command,args,{enabled:allowLocalPostgrest,hasSocket:path=>hasPostgresPath('socket',path)});
     const controlledEsbuild = isControlledEsbuildService(command, args);
-    if (!validatedRunnerShell && !isNodeCommand(command) && !scopedPostgres && !controlledEsbuild) {
+    if (!validatedRunnerShell && !isNodeCommand(command) && !scopedPostgres && !postgrestSocket && !controlledEsbuild) {
       return recordBlocked(`child_process.${name}`);
     }
     if (hasArgs) rest[0] = hardenedPostgresArgs(command, args);
     const safeOptions = guardedChildOptions(options);
+    if(postgrestSocket)for(const key of Object.keys(safeOptions.env))if(key.startsWith('PGRST_'))delete safeOptions.env[key];
     if (rest[optionsIndex] && typeof rest[optionsIndex] === 'object') {
       rest[optionsIndex] = safeOptions;
     } else {
       rest.splice(optionsIndex, 0, safeOptions);
     }
-    if (scopedPostgres) {
+    if (scopedPostgres || postgrestSocket) {
       for (const key of [
         'DATABASE_URL', 'DEST_DATABASE_URL', 'SOURCE_DATABASE_URL',
         'PGHOST', 'PGHOSTADDR', 'PGSERVICE', 'PGSERVICEFILE', 'PGDATABASE',
       ]) {
         delete safeOptions.env[key];
       }
+      if(postgrestSocket)for(const key of Object.keys(safeOptions.env))if(key.startsWith('PG'))delete safeOptions.env[key];
     }
     const result = original.call(childProcess, command, ...rest);
+    if(postgrestSocket)rememberPostgresPath('postgrest',postgrestSocket);
     const commandName = basename(String(command));
     const successfulSyncCall = name.endsWith('Sync')
       && (result?.status === undefined || result.status === 0);
@@ -296,7 +302,14 @@ if (active && !globalThis.__testIsolationBoundaryInstalled) {
 
   globalThis.fetch = () => recordBlocked('fetch');
 
-  http.request = () => recordBlocked('http.request');
+  const originalHttpRequest=http.request;
+  http.request = function(options,...rest){
+    if(!allowLocalPostgrest||!options||typeof options!=='object'||typeof options.socketPath!=='string'
+      ||!hasPostgresPath('postgrest',options.socketPath)||options.agent!==false
+      ||['host','hostname','port','createConnection','lookup','socket'].some(key=>Object.hasOwn(options,key)))
+      return recordBlocked('http.request');
+    return originalHttpRequest.call(http,options,...rest);
+  };
   http.get = () => recordBlocked('http.get');
   https.request = () => recordBlocked('https.request');
   https.get = () => recordBlocked('https.get');

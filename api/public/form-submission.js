@@ -1,4 +1,5 @@
 import { attachRetainedRenewalAffiliations } from '../_lib/retainedRenewalAffiliations.js';
+import { resolveAwardIntake, verifySavedAwardContext, finaliseAwardIntake, AwardsIntakeError } from '../_lib/assessment/intake.js';
 import { createLegacyApplicationScope } from '../_lib/formLegacyApplication.js';
 import { usesStandardEmailLimit, submissionEventContext } from '../_lib/formModeControls.js';
 import { createClient } from '@supabase/supabase-js';
@@ -220,6 +221,9 @@ export default async function handler(req, res, dependencies = {}) {
       });
       return res.status(404).json({ error: 'Form not found' });
     }
+    const awardBinding = await resolveAwardIntake(supabase, {
+      tenantId: tenantData.id, formId: form.id, awardId: req.body.award_id,
+    });
 
     // Scheduled deactivation: reject submissions once the configured time has
     // passed, even though is_active is still true. Mirrors the read-time guard
@@ -527,6 +531,9 @@ export default async function handler(req, res, dependencies = {}) {
         return res.status(409).json({ error: 'This survey submission key has already been used' });
       }
       existingIdempotentSubmission = existing || null;
+      if (existing) await verifySavedAwardContext(supabase, {
+        tenantId: tenantData.id, submissionId: existing.id, binding: awardBinding,
+      });
     }
 
     // --- Survey handling (Task #3330) -----------------------------------
@@ -1302,6 +1309,9 @@ export default async function handler(req, res, dependencies = {}) {
           retryable: true,
         });
       }
+      await finaliseAwardIntake(supabase, {
+        tenantId: tenantData.id, submissionId: row.id, binding: awardBinding,
+      });
       return originalSuccessResponse(row, currentSetProcessingResult);
     };
 
@@ -1498,6 +1508,10 @@ export default async function handler(req, res, dependencies = {}) {
       throw error;
     }
     const submissionRecord = {
+      ...(awardBinding ? {
+        awards_binding_id: awardBinding.id,
+        awards_applicant_member_id: surveyIsAnonymous ? null : sessionMemberId || null,
+      } : {}),
       ...(dependencies[invoiceOrderAuthority] ? {
         payment_provider: 'invoice', payment_status: 'unpaid',
         payment_amount: dependencies[invoiceOrderAuthority].amount,
@@ -1740,6 +1754,9 @@ export default async function handler(req, res, dependencies = {}) {
             code: 'IDEMPOTENCY_KEY_REUSED',
           });
         }
+        await verifySavedAwardContext(supabase, {
+          tenantId: tenantData.id, submissionId: winner.id, binding: awardBinding,
+        });
         return resumeDuplicateFinalization(winner);
       }
       console.error('[Public Form Submission] Unique violation but original row not found:', winnerErr);
@@ -2511,8 +2528,12 @@ export default async function handler(req, res, dependencies = {}) {
       }
     }
 
+    const awardApplication = await finaliseAwardIntake(supabase, {
+      tenantId: tenantData.id, submissionId: submission.id, binding: awardBinding,
+    });
     return res.status(201).json({
       success: true,
+      ...(awardApplication ? { award_application: awardApplication } : {}),
       ...(memberAffiliationResult ? { member_affiliations: { status: memberAffiliationResult.status } } : {}),
       id: submission.id,
       message: 'Form submitted successfully',
@@ -2525,6 +2546,9 @@ export default async function handler(req, res, dependencies = {}) {
       ...committedCurrentSetMarker(pipelineProcessingResult),
     });
   } catch (error) {
+    if (error instanceof AwardsIntakeError) {
+      return res.status(error.status).json({ error: error.message, code: error.code, retryable: error.status === 503 });
+    }
     if (error instanceof FormMemberOwnerError) {
       return res.status(error.status).json({ error: error.message, code: error.code });
     }

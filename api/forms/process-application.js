@@ -1,4 +1,5 @@
 import { isConfirmedFormInvoice } from '../_lib/formInvoiceOrder.js';
+import {assertNotAwardAmendment} from '../_lib/assessment/amendmentBoundary.js';
 import { organizationNameError } from '../../shared/organizationNameValidation.js';
 
 import { loadLegacyApplicationScope } from '../_lib/formLegacyApplication.js';
@@ -932,6 +933,8 @@ export default async function handler(req, res, {
     if (persistedSubmissionError || !persistedSubmission || persistedFormError || !persistedForm) {
       return res.status(404).json({ error: 'Persisted form submission was not found', code: 'SUBMISSION_NOT_FOUND' });
     }
+    try { await assertNotAwardAmendment(supabase,effectiveEntityTenantId,submission_id); }
+    catch(error){return res.status(error.status||503).json({error:error.message,code:error.code});}
     let currentSetConfiguration = null;
     if (persistedForm.id === DEPARTMENT_CURRENT_SET_FORM_ID) {
       const { data: currentSetConfig, error: currentSetConfigError } = await supabase

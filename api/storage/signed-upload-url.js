@@ -63,7 +63,7 @@ function sanitizeFileName(name) {
  * Determine which bucket to use based on upload type
  */
 function getBucketForType(uploadType) {
-  const privateTypes = ['form-submission', 'attachment', 'document', 'opportunity-document', 'private'];
+  const privateTypes = ['form-submission', 'attachment', 'document', 'opportunity-document', 'awards-certificate-template', 'private'];
   if (privateTypes.includes(uploadType)) {
     return BUCKETS.PRIVATE;
   }
@@ -76,7 +76,7 @@ function getBucketForType(uploadType) {
  * bucket with `isPrivate: false`.
  */
 export function shouldUsePrivateUpload(uploadType, isPrivate) {
-  if (uploadType === 'opportunity-document') return true;
+  if (['opportunity-document','awards-certificate-template'].includes(uploadType)) return true;
   return isPrivate === false ? false : (isPrivate || getBucketForType(uploadType || 'upload') === BUCKETS.PRIVATE);
 }
 
@@ -133,6 +133,8 @@ function buildStoragePath(tenantId, uploadType, entityId, fileName) {
   switch (uploadType) {
     case 'branding':
       return `${tenantId}/branding/${uniqueId}-${sanitizedName}`;
+    case 'awards-certificate-template':
+      return `${tenantId}/awards-certificate-template/${uniqueId}-${sanitizedName}`;
     case 'page':
       return `${tenantId}/pages/${entityId || 'general'}/${uniqueId}-${sanitizedName}`;
     case 'form-submission':

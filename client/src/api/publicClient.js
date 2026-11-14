@@ -233,6 +233,7 @@ async function publicFetch(url, options = {}, tenantSlug = null) {
     if (error.message && error.message.startsWith('Public API Error')) {
       throw error;
     }
+    if (error.name === 'AbortError') throw error;
     throw new Error(`Network Error: ${error.message || 'Failed to fetch'}`);
   }
 }
@@ -284,6 +285,10 @@ class PublicClient {
   async getEvent(id) {
     if (!id) return null;
     return this._fetch(`/api/public/event?id=${id}`);
+  }
+  async getEventAwards(eventId, type, audience = 'public') {
+    const params = new URLSearchParams({ eventId, type, audience });
+    return this._fetch(`/api/public/awards-event?${params.toString()}`);
   }
   
   async getEventBySlug(slug) {
@@ -413,12 +418,13 @@ class PublicClient {
     answers = {},
     containerFieldId = null,
     rootSourceAnswers = null,
-    { availabilityProbe = false } = {},
+    { availabilityProbe = false, signal } = {},
   ) {
     if ((!formSlug && !formId) || !fieldId) return [];
     return this._fetch('/api/public/organisations', {
       method: 'POST',
       credentials: 'include',
+      signal,
       body: JSON.stringify({
         formSlug: formSlug || null,
         formId: formId || null,
@@ -433,11 +439,12 @@ class PublicClient {
     });
   }
 
-  async listFormOrganisationGroupOptions(formSlug, formId, fieldId, containerFieldId = null) {
+  async listFormOrganisationGroupOptions(formSlug, formId, fieldId, containerFieldId = null, { signal } = {}) {
     if ((!formSlug && !formId) || !fieldId) return [];
     return this._fetch('/api/public/organisation-groups', {
       method: 'POST',
       credentials: 'include',
+      signal,
       body: JSON.stringify({
         formSlug: formSlug || null,
         formId: formId || null,
@@ -764,7 +771,7 @@ class PublicClient {
     return normalizeEligibleFormRelationshipDiscovery(response);
   }
 
-  async listFormRelationshipOptions(formSlug, fieldId, parentRecordId, containerFieldId = null, dependencyAnswers = null) {
+  async listFormRelationshipOptions(formSlug, fieldId, parentRecordId, containerFieldId = null, dependencyAnswers = null, { signal } = {}) {
     if (!formSlug || !fieldId) return [];
     const path = `/api/public/form/${encodeURIComponent(formSlug)}/relationship-options`;
     // Assignment-linked surveys use the same options endpoint as direct forms.
@@ -781,6 +788,7 @@ class PublicClient {
       const requestOptions = extra => this._fetch(path, {
           method: 'POST',
           credentials: 'include',
+          signal,
           body: JSON.stringify({
           fieldId,
           ...(containerFieldId ? { containerFieldId } : {}),
@@ -838,7 +846,7 @@ class PublicClient {
     if (containerFieldId) params.set('containerFieldId', containerFieldId);
     if (assignmentToken) params.set('assignment_token', assignmentToken);
     const requestOptions = {
-      credentials: 'include'
+      credentials: 'include', signal,
     };
     const first = await this._fetch(`${path}?${params.toString()}`, requestOptions);
     const firstItems = Array.isArray(first) ? first : first?.data || [];

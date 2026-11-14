@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { useSecureFileUrl, isSecureReference } from "@/hooks/useSecureFileUrl";
 import { throwUploadHttpError, showUploadErrorToast } from "@/lib/planQuotaError";
 import { formatCustomFieldFileSize, normalizeCustomFieldFileValue } from "@/lib/customFieldFileValue.mjs";
+import { useFormAmendmentUpload } from '@/components/forms/FormAmendmentUploadContext';
 
 const ALLOWED_FILE_TYPES = {
   pdf: { extension: '.pdf', mimeTypes: ['application/pdf'], icon: FileText },
@@ -96,6 +97,8 @@ export default function CustomFieldFileUpload({
   label = "Upload File",
   onUploadStateChange,
 }) {
+  const amendmentUpload = useFormAmendmentUpload();
+  disabled = disabled || Boolean(amendmentUpload?.locked);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef(null);
   const mountedRef = useRef(false);
@@ -125,6 +128,7 @@ export default function CustomFieldFileUpload({
   const parsedValue = normalizeCustomFieldFileValue(value).file;
   
   const handleFileSelect = async (event) => {
+    if (disabled) return;
     const file = event.target.files?.[0];
     if (!file) return;
     
@@ -146,6 +150,11 @@ export default function CustomFieldFileUpload({
     onUploadStateChange?.(true);
     
     try {
+      if (amendmentUpload) {
+        const fileData = await amendmentUpload.uploadFile({ file, fieldId, formId });
+        if (mountedRef.current && sequence === uploadSequence.current) onChange(JSON.stringify(fileData));
+        return;
+      }
       const isCustomObjectUpload = Boolean(customObjectId);
       const signedUrlResponse = await fetch(
         isCustomObjectUpload
@@ -222,7 +231,7 @@ export default function CustomFieldFileUpload({
   
   const FileIcon = parsedValue?.file_name ? getFileIcon(parsedValue.file_name) : File;
   
-  const fileUrl = parsedValue?.file_url;
+  const fileUrl = amendmentUpload ? null : parsedValue?.file_url;
   // A form respondent may upload privately without a member session. Merely
   // rendering their answer must not issue protected reads and reset the form.
   // Explicit access uses the authenticated redirect endpoint in a separate tab.
@@ -285,7 +294,7 @@ export default function CustomFieldFileUpload({
           )}
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          {isResolvingUrl || isResolvingDownloadUrl ? (
+          {!amendmentUpload && (isResolvingUrl || isResolvingDownloadUrl ? (
             <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
           ) : (
             <>
@@ -322,7 +331,7 @@ export default function CustomFieldFileUpload({
                 )}
               </Button>
             </>
-          )}
+          ))}
           {!disabled && (
             <Button
               variant="ghost"

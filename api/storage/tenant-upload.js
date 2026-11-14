@@ -175,6 +175,8 @@ function buildStoragePath(tenantId, uploadType, entityId, fileName) {
   switch (uploadType) {
     case 'branding':
       return `${tenantId}/branding/${uniqueId}-${sanitizedName}`;
+    case 'awards-certificate-template':
+      return `${tenantId}/awards-certificate-template/${uniqueId}-${sanitizedName}`;
     case 'page':
       return `${tenantId}/pages/${entityId || 'general'}/${uniqueId}-${sanitizedName}`;
     case 'form-submission':
@@ -241,7 +243,7 @@ export default async function handler(req, res) {
       }
     }
 
-    const isPrivate = fields.private === 'true' || getBucketForType(uploadType) === BUCKETS.PRIVATE;
+    const isPrivate = uploadType === 'awards-certificate-template' || fields.private === 'true' || getBucketForType(uploadType) === BUCKETS.PRIVATE;
 
     // Select bucket based on upload type
     const bucket = isPrivate ? BUCKETS.PRIVATE : BUCKETS.PUBLIC;

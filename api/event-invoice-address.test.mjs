@@ -38,7 +38,7 @@ test('discovery requires authenticated member and tenant match before private re
 });
 test('existing customer discovery exposes no provider identity or private addresses', async () => {
   const { res, calls } = await request();
-  assert.deepEqual(res.body, { applicable: true, required: false, personalAddress: null, organizationAddress: null, organizationLabel: null });
+  assert.deepEqual(res.body, { applicable: true, required: false, deferred: false, message: null, personalAddress: null, organizationAddress: null, organizationLabel: null });
   assert.equal(res.headers['Cache-Control'], 'private, no-store');
   assert.equal(calls.some(c => c.table === 'invoicing_address_private'), false);
   assert.ok(calls.every(c => c.filters.tenant_id === 'tenant' || c.filters.app_tenant_id === 'tenant'));

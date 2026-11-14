@@ -51,6 +51,7 @@ import { createPageUrl } from "@/utils";
 import EventImageUpload from "@/components/events/EventImageUpload";
 import EventDocumentsManager from "@/components/events/EventDocumentsManager";
 import EventSurveysSection from "@/components/surveys/EventSurveysSection";
+import EventAwardsAdmin from "@/components/awards/EventAwardsAdmin";
 import EventOptionListsEditor from "@/components/events/EventOptionListsEditor";
 import { isAttendeeOptionsCollectionEnabled } from "@/lib/attendeeOptionsSetting";
 import ZoomSessionConfig from "@/components/events/ZoomSessionConfig";
@@ -2556,7 +2557,7 @@ export default function CreateComplexEvent() {
         </div>
 
         <Tabs value={activeSection} onValueChange={setActiveSection}>
-          <TabsList className="mb-6">
+          <TabsList className="mb-6 h-auto flex-wrap justify-start">
             <TabsTrigger value="details" data-testid="button-section-details">Event Details</TabsTrigger>
             <TabsTrigger value="tracks" data-testid="button-section-tracks">Tracks</TabsTrigger>
             <TabsTrigger value="sessions" data-testid="button-section-sessions">Sessions</TabsTrigger>
@@ -2566,6 +2567,7 @@ export default function CreateComplexEvent() {
             {isEditMode && (
               <TabsTrigger value="surveys" data-testid="button-section-surveys">Surveys</TabsTrigger>
             )}
+            {isEditMode && existingEvent?.id === editId && <TabsTrigger value="awards" data-testid="button-section-awards">Awards</TabsTrigger>}
             {!isGroupLimited && (
               <TabsTrigger value="budget" data-testid="button-section-budget">Budget</TabsTrigger>
             )}
@@ -4859,6 +4861,9 @@ export default function CreateComplexEvent() {
           </TabsContent>
         )}
 
+        {isEditMode && existingEvent?.id === editId && <TabsContent value="awards" forceMount className="data-[state=inactive]:hidden">
+          <EventAwardsAdmin key={existingEvent.id} eventId={existingEvent.id} type="complex" />
+        </TabsContent>}
         </Tabs>
 
       <Dialog open={sessionDialogOpen} onOpenChange={() => closeSessionDialog()}>

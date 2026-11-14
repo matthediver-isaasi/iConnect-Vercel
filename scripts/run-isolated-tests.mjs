@@ -5,7 +5,7 @@ import { delimiter, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const usage = `Usage:
-  node scripts/run-isolated-tests.mjs [--allow-local-postgres] <command> [args...]
+  node scripts/run-isolated-tests.mjs [--allow-local-postgrest] [--allow-local-postgres] <command> [args...]
   node scripts/run-isolated-tests.mjs [--allow-local-postgres] --shell <command>
 
 The command runs with a fail-closed test boundary. It blocks fetch, HTTP(S),
@@ -16,11 +16,19 @@ temporary directory and PostgreSQL connections over a UNIX-domain socket.
 It does not permit TCP localhost, application previews, proxies, or remote DBs.
 
 Tests may replace blocked APIs with controlled in-memory mocks after startup.
+--allow-local-postgrest additionally permits a strictly configured UNIX-socket
+PostgREST gateway into a registered disposable PostgreSQL cluster; use it with
+--allow-local-postgres. TCP, remote URIs and ordinary fetch stay blocked.
 Native addons, worker threads, and browser processes are outside this JS guard
 and must not be used as a substitute for an explicitly authorized live check.`;
 
 let argv = process.argv.slice(2);
 let allowLocalPostgres = false;
+let allowLocalPostgrest = false;
+if (argv[0] === '--allow-local-postgrest') {
+  allowLocalPostgrest = true;
+  argv = argv.slice(1);
+}
 if (argv[0] === '--allow-local-postgres') {
   allowLocalPostgres = true;
   argv = argv.slice(1);
@@ -73,6 +81,7 @@ const env = {
   TEST_ISOLATION_AUDIT_FILE: auditFile,
   TEST_ISOLATION_PG_STATE_FILE: postgresStateFile,
   TEST_ISOLATION_ALLOW_LOCAL_PG: allowLocalPostgres ? '1' : '0',
+  TEST_ISOLATION_ALLOW_LOCAL_POSTGREST: allowLocalPostgrest && allowLocalPostgres ? '1' : '0',
   NODE_OPTIONS: [`--import=${boundary}`, ...existingNodeOptions].join(' '),
   PATH: String(process.env.PATH || '').split(delimiter).join(delimiter),
 };
