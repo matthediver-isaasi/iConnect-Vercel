@@ -317,7 +317,8 @@ export async function resolveIEditDynamic({
           c.show_date !== false && event.start_date, c.show_time !== false && event.end_date,
           c.show_location !== false && event.location]);
         if (c.show_speakers !== false && arr(event.speaker_ids).length) {
-          for (const s of await read('speaker', 'full_name,organization,job_title', { id: event.speaker_ids })) {
+          const speakerRows = await read('speaker', 'id,full_name,organization,job_title', { id: event.speaker_ids });
+          for (const s of event.speaker_ids.map(id => speakerRows.find(row => row.id === id)).filter(Boolean)) {
             source('speaker', s, [s.full_name, s.organization, s.job_title], [dep]);
           }
         }

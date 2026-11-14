@@ -191,7 +191,7 @@ export default function IEditEventSpotlightElement({ content, variant, settings 
 
   const eventSpeakers = useMemo(() => {
     if (!event?.speaker_ids || !Array.isArray(event.speaker_ids)) return [];
-    return speakers.filter(s => event.speaker_ids.includes(s.id));
+    return event.speaker_ids.map(id => speakers.find(s => s.id === id)).filter(Boolean);
   }, [event, speakers]);
 
   const formatEventDate = (dateStr) => {

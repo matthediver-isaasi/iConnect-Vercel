@@ -1733,7 +1733,7 @@ export default function CreateComplexEvent() {
   };
 
   const selectedSessionSpeakers = useMemo(() => {
-    return speakers.filter(s => (sessionForm.speaker_ids || []).includes(s.id));
+    return (sessionForm.speaker_ids || []).map(id => speakers.find(s => s.id === id)).filter(Boolean);
   }, [speakers, sessionForm.speaker_ids]);
 
   const addTicketClass = () => {

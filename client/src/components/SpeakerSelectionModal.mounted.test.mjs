@@ -80,6 +80,25 @@ async function mount(Component, initialProps) {
   return { render, renderNow, cleanup: async () => { await act(async () => root.unmount()); queryClient.clear(); host.remove(); } };
 }
 const selected = id => assert.ok(byId(`speaker-selected-${id}`));
+const selectedOrder = () => [...document.querySelectorAll('[data-testid^="speaker-selected-"]')].map(el => el.dataset.testid.replace("speaker-selected-", ""));
+
+test("display order moves within boundaries and retains unresolved IDs across late refreshes", async () => {
+  let confirmed;
+  const props = { open: true, speakers, selectedSpeakerIds: ["member", "missing", "external"], onOpenChange() {}, onConfirm: ids => { confirmed = ids; } };
+  const fixture = await mount(SpeakerSelectionModal, props);
+  try {
+    assert.deepEqual(selectedOrder(), props.selectedSpeakerIds);
+    assert.equal(byId("button-speaker-up-member").disabled, true);
+    assert.equal(byId("button-speaker-down-external").disabled, true);
+    await click("button-speaker-up-external");
+    await fixture.render({ ...props, speakers: [...speakers].reverse(), selectedSpeakerIds: ["external"] });
+    assert.deepEqual(selectedOrder(), ["member", "external", "missing"]);
+    await click("button-remove-speaker-member");
+    await click("speaker-available-member");
+    await click("button-confirm-speakers");
+    assert.deepEqual(confirmed, ["external", "missing", "member"]);
+  } finally { await fixture.cleanup(); }
+});
 
 test("controlled opening snapshots current IDs, preserves drafts across rerenders and late catalogue loading", async () => {
   let confirmed;
@@ -172,7 +191,49 @@ test("actual agenda chip/picker agree, item edits stay isolated and survive isol
   } finally { await fixture.cleanup(); }
 });
 
+test("agenda reordering persists without changing assignment membership", async () => {
+  const initial = [{ id: "agenda-order", item_type: "Discussion", speaker_ids: ["member", "external"] }];
+  let lines = structuredClone(initial);
+  let fixture;
+  const props = () => ({ lines, speakers, agendaItemTypes: [{ name: "Discussion", behaviour: "none" }],
+    onChange: value => { lines = value; fixture.renderNow(props()); } });
+  fixture = await mount(TrainingAgendaEditor, props());
+  try {
+    await click("button-agenda-speakers-0");
+    await click("button-speaker-up-external");
+    await click("button-confirm-speakers");
+    let saved;
+    await persistAgendaLinesWithRollback({
+      api: { update: async (id, payload) => { saved = JSON.parse(JSON.stringify({ id, ...payload })); },
+        create: () => assert.fail(), delete: () => assert.fail() },
+      initialRows: initial, orderedLines: lines,
+      buildPayload: line => ({ item_type: line.item_type, speaker_ids: line.speaker_ids }),
+    });
+    assert.deepEqual(saved.speaker_ids, ["external", "member"]);
+    await fixture.cleanup();
+    lines = [saved];
+    fixture = await mount(TrainingAgendaEditor, props());
+    await click("button-agenda-speakers-0");
+    assert.deepEqual(selectedOrder(), saved.speaker_ids);
+  } finally { await fixture.cleanup(); }
+});
+
 for (const [name, Surface] of Object.entries(pages)) {
+  test(`${name} reordered draft confirms and reloads in saved order`, async () => {
+    let fixture = await mount(Surface, { initial: ["member", "external"], speakers });
+    try {
+      await click("open");
+      assert.deepEqual(selectedOrder(), ["member", "external"]);
+      await click("button-speaker-up-external");
+      await click("button-confirm-speakers");
+      const saved = JSON.parse(byId("value").textContent);
+      assert.deepEqual(saved, ["external", "member"]);
+      await fixture.cleanup();
+      fixture = await mount(Surface, { initial: JSON.parse(JSON.stringify(saved)), speakers: [...speakers].reverse() });
+      await click("open");
+      assert.deepEqual(selectedOrder(), saved);
+    } finally { await fixture.cleanup(); }
+  });
   test(`${name} actual picker wiring preserves unchanged confirmation and add/remove on reopen`, async () => {
     const fixture = await mount(Surface, { initial: ["external"], speakers });
     try {

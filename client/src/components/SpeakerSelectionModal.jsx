@@ -3,7 +3,15 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Search, X, Mic, Check, ChevronRight } from "lucide-react";
+import { Search, X, Mic, Check, ChevronRight, ArrowUp, ArrowDown, GripVertical } from "lucide-react";
+import { DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors } from "@dnd-kit/core";
+import { SortableContext, verticalListSortingStrategy, sortableKeyboardCoordinates, arrayMove, useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+
+function SortableSpeaker({ id, children }) {
+  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id });
+  return children({ setNodeRef, style: { transform: CSS.Transform.toString(transform), transition }, handleProps: { ...attributes, ...listeners } });
+}
 
 export function SpeakerSelectionModal({ 
   open, 
@@ -15,6 +23,14 @@ export function SpeakerSelectionModal({
   const [searchTerm, setSearchTerm] = useState('');
   const [tempSelected, setTempSelected] = useState(() => [...selectedSpeakerIds]);
   const wasOpen = useRef(false);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+  const moveSpeaker = (id, target) => setTempSelected(prev => {
+    const from = prev.indexOf(id);
+    return from < 0 || target < 0 || target >= prev.length ? prev : arrayMove(prev, from, target);
+  });
 
   useEffect(() => {
     // Parents open this controlled dialog directly, without onOpenChange firing.
@@ -37,7 +53,8 @@ export function SpeakerSelectionModal({
   }, [speakers, searchTerm]);
 
   const selectedSpeakers = useMemo(() => {
-    return speakers.filter(s => tempSelected.includes(s.id));
+    const byId = new Map(speakers.map(s => [s.id, s]));
+    return tempSelected.map(id => byId.get(id) || { id, full_name: 'Unavailable speaker', title: 'Selection retained until you remove it' });
   }, [speakers, tempSelected]);
 
   const availableSpeakers = useMemo(() => {
@@ -45,7 +62,7 @@ export function SpeakerSelectionModal({
   }, [filteredSpeakers, tempSelected]);
 
   const handleSelect = (speakerId) => {
-    setTempSelected(prev => [...prev, speakerId]);
+    setTempSelected(prev => prev.includes(speakerId) ? prev : [...prev, speakerId]);
   };
 
   const handleRemove = (speakerId) => {
@@ -132,6 +149,7 @@ export function SpeakerSelectionModal({
               <h3 className="font-medium text-sm text-purple-700">
                 Selected Speakers ({selectedSpeakers.length})
               </h3>
+              <p className="text-xs text-purple-700 mt-1">Display order: drag a handle or use Move up / Move down.</p>
             </div>
             <ScrollArea className="flex-1 p-2">
               {selectedSpeakers.length === 0 ? (
@@ -139,13 +157,22 @@ export function SpeakerSelectionModal({
                   Click on speakers to add them
                 </div>
               ) : (
+                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={({ active, over }) => {
+                  if (over && active.id !== over.id) moveSpeaker(active.id, tempSelected.indexOf(over.id));
+                }}>
+                <SortableContext items={tempSelected} strategy={verticalListSortingStrategy}>
                 <div className="space-y-1">
-                  {selectedSpeakers.map(speaker => (
+                  {selectedSpeakers.map((speaker, index) => (
+                    <SortableSpeaker key={speaker.id} id={speaker.id}>
+                    {({ setNodeRef, style, handleProps }) => (
                     <div
-                      key={speaker.id}
+                      ref={setNodeRef} style={style}
                       className="flex items-center gap-3 p-2 rounded-lg bg-white border border-purple-200 group"
                       data-testid={`speaker-selected-${speaker.id}`}
                     >
+                      <button type="button" {...handleProps} aria-label={`Drag to reorder ${speaker.full_name}`} className="touch-none cursor-grab">
+                        <GripVertical className="h-4 w-4" />
+                      </button>
                       {speaker.profile_photo_url ? (
                         <img 
                           src={speaker.profile_photo_url} 
@@ -164,6 +191,20 @@ export function SpeakerSelectionModal({
                         )}
                       </div>
                       <Button
+                        type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0"
+                        disabled={index === 0} aria-label={`Move ${speaker.full_name} up`}
+                        data-testid={`button-speaker-up-${speaker.id}`} onClick={() => moveSpeaker(speaker.id, index - 1)}>
+                        <ArrowUp className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0"
+                        disabled={index === selectedSpeakers.length - 1} aria-label={`Move ${speaker.full_name} down`}
+                        data-testid={`button-speaker-down-${speaker.id}`} onClick={() => moveSpeaker(speaker.id, index + 1)}>
+                        <ArrowDown className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        aria-label={`Remove ${speaker.full_name}`}
                         variant="ghost"
                         size="icon"
                         className="h-7 w-7 text-slate-400 hover:text-red-500 hover:bg-red-50"
@@ -173,18 +214,22 @@ export function SpeakerSelectionModal({
                         <X className="h-4 w-4" />
                       </Button>
                     </div>
+                    )}
+                    </SortableSpeaker>
                   ))}
                 </div>
+                </SortableContext>
+                </DndContext>
               )}
             </ScrollArea>
           </div>
         </div>
 
         <DialogFooter className="mt-4">
-          <Button variant="outline" onClick={() => onOpenChange(false)} data-testid="button-cancel-speakers">
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} data-testid="button-cancel-speakers">
             Cancel
           </Button>
-          <Button onClick={handleConfirm} className="bg-purple-600 hover:bg-purple-700" data-testid="button-confirm-speakers">
+          <Button type="button" onClick={handleConfirm} className="bg-purple-600 hover:bg-purple-700" data-testid="button-confirm-speakers">
             <Check className="h-4 w-4 mr-2" />
             Confirm Selection
           </Button>

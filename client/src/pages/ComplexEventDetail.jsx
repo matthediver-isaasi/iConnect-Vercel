@@ -1,3 +1,4 @@
+import { speakersInOrder } from "../../../shared/speakerOrder.js";
 import RegistrationAssociationField from "@/components/booking/RegistrationAssociationField";
 import TenantEventTimeDisplay from "@/components/events/TenantEventTimeDisplay";
 import { reconcilePrivateCart, mergeAllocationTicket } from "@/utils/privateTicketAudience";
@@ -1588,8 +1589,11 @@ export function ComplexEventDetailExperience({
   }, [filteredSessions]);
 
   const visibleSpeakers = useMemo(() => {
-    return speakers.filter(s => speakerSessionsMap[s.id]?.length > 0);
-  }, [speakers, speakerSessionsMap]);
+    return speakersInOrder([
+      ...(event?.speaker_ids || []),
+      ...filteredSessions.flatMap(s => s.speaker_ids || []),
+    ], speakers).filter(s => speakerSessionsMap[s.id]?.length > 0);
+  }, [speakers, event?.speaker_ids, filteredSessions, speakerSessionsMap]);
 
   useEffect(() => {
     if (editorMode) return;

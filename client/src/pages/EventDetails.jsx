@@ -1,3 +1,4 @@
+import { speakersInOrder } from "../../../shared/speakerOrder.js";
 import RegistrationAssociationField from "@/components/booking/RegistrationAssociationField";
 import { ticketMemberPolicy } from "@/utils/publicTicketMembers";
 import { useEventCodeOfConduct } from "@/hooks/useEventCodeOfConduct";
@@ -582,7 +583,7 @@ export function EventDetailsExperience({
 
   const { data: eventSpeakers = [] } = useQuery({
     queryKey: ['event-speakers', allSpeakerIds],
-    queryFn: async () => await publicClient.listSpeakers(allSpeakerIds) || [],
+    queryFn: async () => speakersInOrder(allSpeakerIds, await publicClient.listSpeakers(allSpeakerIds)),
     enabled: allSpeakerIds.length > 0
   });
 
