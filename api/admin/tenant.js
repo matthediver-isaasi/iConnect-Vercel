@@ -25,6 +25,9 @@ export default async function handler(req, res) {
   }
 
   const tenantId = tenantUser.tenant_id;
+  if (req.headers['x-tenant-id'] && req.headers['x-tenant-id'] !== tenantId) {
+    return res.status(409).json({ code: 'TENANT_CONTEXT_CHANGED' });
+  }
 
   if (req.method === 'GET') {
     try {
@@ -79,6 +82,14 @@ export default async function handler(req, res) {
           return res.status(400).json({ error: 'settings must be an object' });
         }
         let assistantUpdates;
+        if (Object.prototype.hasOwnProperty.call(updates.settings, 'show_member_balances_tab')) {
+          if (!['owner', 'admin', 'super_admin'].includes(tenantUser.role)) {
+            return res.status(403).json({ error: 'Tenant administrator access required' });
+          }
+          if (typeof updates.settings.show_member_balances_tab !== 'boolean') {
+            return res.status(400).json({ error: 'show_member_balances_tab must be a boolean' });
+          }
+        }
         if (Object.prototype.hasOwnProperty.call(updates.settings, 'member_ai_assistant')) {
           try {
             assistantUpdates = validateMemberAiAssistant(updates.settings.member_ai_assistant);

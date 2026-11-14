@@ -23,3 +23,9 @@ the bundled component.
 
 **How to apply:** Match the provider's module entry point to the fixture bundle
 when using esbuild and `Module._compile`.
+
+Full settings forms also require JSDOM's `DocumentFragment`, `HTMLInputElement`
+and `Event` constructors, plus a fixture `ResizeObserver`, before mounting.
+
+**Why:** Radix Select and Switch use these browser APIs even when the test only
+interacts with one switch; otherwise unrelated controls crash the fixture.

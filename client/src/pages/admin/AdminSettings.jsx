@@ -41,6 +41,9 @@ import MembershipChangePolicySettings from "@/components/admin/MembershipChangeP
 import MembershipRenewalJourneySettings from "@/components/admin/MembershipRenewalJourneySettings";
 import CookieConsentSettings from "@/components/admin/CookieConsentSettings";
 import { voucherSettingsForm, voucherSettingsPayload } from '@/lib/voucherSettingsForm';
+import { useQueryClient } from '@tanstack/react-query';
+import { memberRecordPreferencesKey } from '@/hooks/useMemberBalancesVisibility';
+import { memberBalancesVisible } from '@shared/memberBalancesVisibility.js';
 
 const DATE_FORMAT_OPTIONS = [
   { value: 'dd/MM/yyyy', label: 'DD/MM/YYYY (31/12/2024)' },
@@ -53,6 +56,7 @@ const DATE_FORMAT_OPTIONS = [
 ];
 
 export default function AdminSettings() {
+  const queryClient = useQueryClient();
   const [tenant, setTenant] = useState(null);
   const [voucherSettings, setVoucherSettings] = useState(null);
   const [voucherSettingsError, setVoucherSettingsError] = useState('');
@@ -107,6 +111,7 @@ export default function AdminSettings() {
       email_from_name: '',
       email_from_address: '',
       member_portal_login_enabled: true,
+      show_member_balances_tab: true,
       member_google_login_enabled: true,
       allow_search_indexing: false
     }
@@ -168,6 +173,7 @@ export default function AdminSettings() {
                 email_from_name: emailDomain.from_name || settings.welcome_email_from_name || '',
                 email_from_address: emailDomain.from_email || settings.welcome_email_from_address || '',
                 member_portal_login_enabled: settings.member_portal_login_enabled !== false,
+                show_member_balances_tab: memberBalancesVisible(settings),
                 member_google_login_enabled: settings.member_google_login_enabled !== false,
                 allow_search_indexing: settings.allow_search_indexing === true
               }
@@ -325,6 +331,7 @@ export default function AdminSettings() {
       if (response.ok) {
         const data = await response.json();
         if (data.tenant) {
+          await queryClient.invalidateQueries({ queryKey: memberRecordPreferencesKey(tenant.id) });
           setTenant(data.tenant);
           const settings = data.tenant.settings || {};
           const emailDomain = settings.email_domain || {};
@@ -1070,6 +1077,20 @@ export default function AdminSettings() {
                     settings: { ...formData.settings, member_portal_login_enabled: checked }
                   })}
                   data-testid="switch-member-portal-login"
+                />
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <Label htmlFor="show-member-balances-tab">Show Balances tab on member records</Label>
+                  <p className="text-sm text-slate-500">Controls both member record views only. Saved balances, reports and the portal Balances page are unchanged.</p>
+                </div>
+                <Switch
+                  id="show-member-balances-tab"
+                  checked={formData.settings.show_member_balances_tab}
+                  disabled={saving}
+                  onCheckedChange={checked => setFormData(prev => ({
+                    ...prev, settings: { ...prev.settings, show_member_balances_tab: checked }
+                  }))}
                 />
               </div>
               {!formData.settings.member_portal_login_enabled && (

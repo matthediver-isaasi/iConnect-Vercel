@@ -5,6 +5,8 @@ description: Durable rules for directory scope, eligibility, privacy, exports, f
 
 Use the focused topic that matches the change:
 
+- [Member balances display policy](member-balances-display-policy.md) — record-tab visibility is presentation only, not financial authorization or portal visibility.
+
 - [Public directory field privacy](public-directory-field-privacy.md) — enforce member eligibility and tenant field visibility in public projections.
 - [Directory inclusion configuration](directory-inclusion-policy.md) — GFI must supply status values before its live Partner Directory is changed.
 - [Directory-owned member scope](directory-owned-member-scope.md) — keep contact views in the source directory; query params cannot change authorization scope.

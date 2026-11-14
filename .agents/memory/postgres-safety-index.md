@@ -4,6 +4,7 @@ description: Function permissions, pooled locks, nullable JSON and legacy schema
 ---
 - [SECURITY DEFINER RPC grants](security-definer-rpc-grants.md) — new functions are PUBLIC-executable by default; server-only functions need explicit grants and SQL validation.
 - [Supabase default table grants](supabase-default-table-grants.md) — narrow column grants do not remove default service-role table-wide permissions.
+- [Tenant-setting first-save races](tenant-setting-first-save-races.md) — update CAS cannot serialize first inserts; singleton settings need database-enforced identity.
 - [PL/pgSQL output names](plpgsql-output-column-qualification.md) — qualify output-name collisions and test execution, not installation alone.
 - [PostgREST service roles](postgrest-service-role-claims.md) — test modern JSON and legacy role claims; SECURITY DEFINER current_user is the owner, not caller.
 - [Transaction-pool advisory locks](transaction-pool-advisory-locks.md) — explicit transactions and transaction-scoped locks prevent pooled-session lock leakage.

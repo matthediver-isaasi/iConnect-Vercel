@@ -16,6 +16,10 @@ globalThis.localStorage = dom.window.localStorage;
 globalThis.Element = dom.window.Element;
 globalThis.HTMLElement = dom.window.HTMLElement;
 globalThis.Node = dom.window.Node;
+globalThis.DocumentFragment = dom.window.DocumentFragment;
+globalThis.HTMLInputElement = dom.window.HTMLInputElement;
+globalThis.Event = dom.window.Event;
+globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
 globalThis.getComputedStyle = dom.window.getComputedStyle;
 globalThis.requestAnimationFrame = callback => setTimeout(callback, 0);
 globalThis.cancelAnimationFrame = handle => clearTimeout(handle);
@@ -25,7 +29,7 @@ const React = (await import("react")).default;
 globalThis.React = React;
 const { act, useEffect } = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { MemoryRouter } = await import("react-router-dom");
+const { MemoryRouter, Routes, Route, useLocation } = await import("react-router-dom");
 const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
 const { TooltipProvider } = await import("@radix-ui/react-tooltip");
 // Bundle the view and its local contexts together while leaving package
@@ -37,6 +41,9 @@ await build({
     contents: `
       export { default as MemberDetailView } from "./client/src/components/MemberDetailView.jsx";
       export { LayoutProvider, useLayoutContext } from "./client/src/contexts/LayoutContext.jsx";
+      export { default as MemberDetail } from "./client/src/pages/MemberDetail.jsx";
+      export { default as AdminSettings } from "./client/src/pages/admin/AdminSettings.jsx";
+      export { useMemberBalancesVisibility } from "./client/src/hooks/useMemberBalancesVisibility.js";
     `,
     resolveDir: process.cwd(),
     loader: "jsx",
@@ -46,8 +53,15 @@ await build({
   format: "esm",
   platform: "node",
   packages: "external",
-  alias: { "@": path.join(process.cwd(), "client/src") },
+  alias: { "@": path.join(process.cwd(), "client/src"), "@shared": path.join(process.cwd(), "shared") },
   define: { "import.meta.env": "{}" },
+  plugins: [{
+    name: 'public-image-fixture',
+    setup(builder) {
+      builder.onResolve({ filter: /^\/dougal-avatar\.webp$/ }, args => ({ path: args.path, namespace: 'fixture-image' }));
+      builder.onLoad({ filter: /.*/, namespace: 'fixture-image' }, () => ({ contents: 'export default "/dougal-avatar.webp";' }));
+    },
+  }],
   logLevel: "silent",
 });
 const bundled = await import(pathToFileURL(bundlePath).href);
@@ -122,7 +136,7 @@ async function settle(delay = 20) {
   });
 }
 
-async function mount(child) {
+async function mount(child, initialEntries = ['/']) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -133,7 +147,7 @@ async function mount(child) {
     await act(async () => {
       root.render(
         <QueryClientProvider client={client}>
-          <MemoryRouter>
+          <MemoryRouter initialEntries={initialEntries}>
             <TooltipProvider>
               <LayoutProvider><Identity>{next}</Identity></LayoutProvider>
             </TooltipProvider>
@@ -146,6 +160,7 @@ async function mount(child) {
   await render(child);
   return {
     container,
+    client,
     render,
     async cleanup() {
       await act(async () => root.unmount());
@@ -285,6 +300,123 @@ test("definition failure on the reusable view exposes Retry and recovers", async
   assert.equal(view.container.querySelector('[data-testid="related-records-loading"]'), null);
   await view.cleanup();
 });
+
+function LocationProbe() {
+  const location = useLocation();
+  return <output data-testid="location">{location.search}</output>;
+}
+
+function PreferenceProbe({ tenantId }) {
+  const preference = bundled.useMemberBalancesVisibility(tenantId);
+  return <output data-testid="preference">{String(preference.visible)}</output>;
+}
+
+test('preference caches never reuse another tenant, even during failed loads', async () => {
+  globalThis.fetch = async (_url, options) => options.headers.get('X-Tenant-Id') === 'tenant-1'
+    ? json({ tenantId: 'tenant-1', show_member_balances_tab: true })
+    : json({ error: 'unavailable' }, 503);
+  const view = await mount(<PreferenceProbe tenantId="tenant-1" />);
+  assert.equal(view.container.textContent, 'true');
+  await view.render(<PreferenceProbe tenantId="tenant-2" />);
+  assert.equal(view.container.textContent, 'false');
+  await view.cleanup();
+});
+
+test('settings switch saves, invalidates the member preference, and reloads the saved value', async () => {
+  let settings = {};
+  let failSave = false;
+  const writes = [];
+  globalThis.fetch = async (url, options = {}) => {
+    const path = String(url);
+    if (path.includes('/api/auth/tenant-user-me')) return json({
+      authenticated: true, tenantUser: { role: 'admin' },
+      tenant: { id: 'tenant-1', name: 'Fixture tenant', settings },
+    });
+    if (path === '/api/admin/tenant') {
+      if (failSave) return json({ error: 'unavailable' }, 503);
+      writes.push(JSON.parse(options.body));
+      settings = { ...settings, ...writes.at(-1).settings };
+      return json({ tenant: { id: 'tenant-1', settings } });
+    }
+    return unrelatedResponse(path);
+  };
+  let view = await mount(<bundled.AdminSettings />);
+  let control = view.container.querySelector('#show-member-balances-tab');
+  assert.ok(control);
+  assert.equal(control.getAttribute('aria-checked'), 'true');
+  view.client.setQueryDefaults(['member-record-preferences', 'tenant-1'], { gcTime: Infinity });
+  view.client.setQueryData(['member-record-preferences', 'tenant-1'], { tenantId: 'tenant-1', show_member_balances_tab: true });
+  await act(async () => control.click());
+  await act(async () => view.container.querySelector('form').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true })));
+  await settle();
+  assert.equal(writes.at(-1).settings.show_member_balances_tab, false);
+  assert.equal(view.client.getQueryState(['member-record-preferences', 'tenant-1']).isInvalidated, true);
+  await view.cleanup();
+  view = await mount(<bundled.AdminSettings />);
+  control = view.container.querySelector('#show-member-balances-tab');
+  assert.equal(control.getAttribute('aria-checked'), 'false');
+  failSave = true;
+  await act(async () => control.click());
+  await act(async () => view.container.querySelector('form').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true })));
+  await settle();
+  assert.equal(settings.show_member_balances_tab, false);
+  await view.cleanup();
+});
+
+for (const standalone of [false, true]) {
+  test(`${standalone ? 'standalone' : 'embedded'} balances stay hidden during pending/error, restore unchanged data, and reset when disabled`, async () => {
+    let pending = deferred();
+    let mode = 'pending';
+    globalThis.fetch = async url => {
+      const path = String(url);
+      if (path.includes('/api/member-record-preferences')) {
+        if (mode === 'pending') return pending.promise;
+        if (mode === 'error') return json({ error: 'unavailable' }, 503);
+        return json({ tenantId: 'tenant-1', show_member_balances_tab: mode === 'true' });
+      }
+      if (/\/api\/entities\/Member\/member-1/.test(path)) return json({
+        ...member('member-1'), opening_balances: { eventsAttended: 42 },
+      });
+      if (path.includes('/core/relationship-definitions')) return json({ data: [], total: 0 });
+      return unrelatedResponse(path);
+    };
+    const child = standalone
+      ? <><Routes><Route path="/members/:id" element={<bundled.MemberDetail />} /></Routes><LocationProbe /></>
+      : <MemberDetailView {...propsFor({ ...member('member-1'), engagement_opening_balances: { eventsAttended: 42 } })} />;
+    const view = await mount(child, ['/members/member-1?tab=balances&keep=one%26two']);
+    const tab = () => view.container.querySelector('[data-testid="tab-member-balances"]');
+    assert.equal(tab(), null);
+    mode = 'error';
+    pending.resolve(json({ error: 'unavailable' }, 503));
+    await settle();
+    assert.equal(tab(), null);
+    assert.equal(view.container.querySelector('[data-testid="button-save-balances"]'), null);
+    mode = 'true';
+    await act(async () => { await view.client.invalidateQueries({ queryKey: ['member-record-preferences'] }); });
+    await settle();
+    assert.ok(tab());
+    await selectTab(tab());
+    assert.ok(view.container.querySelector('[data-testid="button-save-balances"]'));
+    assert.ok([...view.container.querySelectorAll('input')].some(input => input.value === '42'));
+    mode = 'false';
+    await act(async () => { await view.client.invalidateQueries({ queryKey: ['member-record-preferences'] }); });
+    await settle();
+    assert.equal(tab(), null);
+    assert.equal(view.container.querySelector('[data-testid="button-save-balances"]'), null);
+    assert.ok(view.container.querySelector('[data-testid="tab-member-overview"][data-state="active"]'));
+    if (standalone) {
+      const params = new URLSearchParams(view.container.querySelector('output').textContent);
+      assert.equal(params.get('keep'), 'one&two');
+      assert.notEqual(params.get('tab'), 'balances');
+    }
+    mode = 'true';
+    await act(async () => { await view.client.invalidateQueries({ queryKey: ['member-record-preferences'] }); });
+    await settle();
+    await selectTab(tab());
+    assert.ok([...view.container.querySelectorAll('input')].some(input => input.value === '42'));
+    await view.cleanup();
+  });
+}
 
 test.after(async () => {
   await unlink(bundlePath).catch(() => {});

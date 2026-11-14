@@ -73,7 +73,6 @@
 - [Directory access and privacy topics](directory-access-privacy-index.md) — scope, eligibility, field visibility, export, file access, and deleted-member history.
 - [Member security and lifecycle topics](member-security-lifecycle-index.md) — tenant-scoped deletion, reset authorization, access revocation, and member-only context.
 - [Member deletion billing policy](member-deletion-billing-policy.md) — access removal is not payment cancellation authority; unresolved billing must block destructive disposal.
-- [Controlled composite pending state](controlled-composite-pending-state.md) — queued sibling edits must drive rendering as well as mutations until the parent acknowledges them.
 - [Sales and Projects policies](sales-project-policy-index.md) — tasks, billing, agreements, catalogue/ticket capacity, bearer safety and exhibition event authority.
 - [Deactivating referenced workflow states](workflow-state-deactivation-races.md) — assignment and deactivation must serialize on the same database row; an existence check is raceable.
 - [Immutable child re-parenting](immutable-child-reparenting.md) — child immutability triggers must validate both OLD and NEW parents or updates can move data out of locked snapshots.
@@ -100,7 +99,6 @@
 - [Email column release gate](email-column-release-gate.md) — received-client approval and its CSS-evidence waiver; browser tests alone are not Gmail/Outlook proof.
 - [Transactional preference identity](transactional-preference-boundary.md) — personalization identity is not recipient authority; resolve after the final envelope and footer, separate from campaigns.
 - [Relationship report compatibility](relationship-report-compatibility.md) — saved semantics stay versioned; row-relative counts and native indexed cursors prevent sibling mixing and full-graph sorts.
-- [Tenant-setting first-save races](tenant-setting-first-save-races.md) — update CAS does not serialize first inserts; new singleton settings need database-enforced identity.
 - [Verification boundaries](browser-verification-index.md) — isolated tests vs production checks, browser route contracts, parallel output, and animation-safe assertions.
 - [Validation registration](validation-registration-startup.md) — named checks may be added to default startup automatically; retain application-only Run behavior.
 - [Provider replay outcomes](provider-replay-outcomes.md) — webhook acknowledgement is not recovery success; conflicts and retryable child outcomes must remain visible.

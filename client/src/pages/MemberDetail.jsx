@@ -88,6 +88,7 @@ import {
 } from "@/lib/memberDetailState.mjs";
 import CustomFieldFileUpload, { CustomFieldFileDisplay } from "@/components/CustomFieldFileUpload";
 import { normalizeMemberLanding } from "@shared/memberLanding.js";
+import { useMemberBalancesVisibility } from '@/hooks/useMemberBalancesVisibility';
 
 // Stable empty-array fallback for disabled/unloaded queries. Using an inline
 // `= []` destructure default creates a NEW array identity on every render,
@@ -173,6 +174,7 @@ export default function MemberDetail() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { isAdmin, isAccessReady, isFeatureExcluded, memberInfo } = useMemberAccess();
+  const balancesPreference = useMemberBalancesVisibility(memberInfo?.tenant_id);
   const { memberLabel, listPath } = useMemberTerminology();
   const { formatDate } = useDateFormat();
   const relatedRecords = useRelatedRecordDefinitions({
@@ -192,6 +194,12 @@ export default function MemberDetail() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [isEditing, setIsEditing] = useState(false);
   const [activeTab, setActiveTab] = useState(() => memberTabFromSearch(searchParams));
+  useEffect(() => {
+    if (balancesPreference.resolved && !balancesPreference.visible && memberTabFromSearch(searchParams) === 'balances') {
+      setActiveTab('overview');
+      setSearchParams(searchForMemberTab(searchParams, 'overview'), { replace: true });
+    }
+  }, [balancesPreference.resolved, balancesPreference.visible, searchParams, setSearchParams]);
   const [deleteSubmissionId, setDeleteSubmissionId] = useState(null);
   const [deleteConfirmStep, setDeleteConfirmStep] = useState(0);
   const [formData, setFormData] = useState({
@@ -1692,7 +1700,7 @@ export default function MemberDetail() {
 
       {/* Tabs */}
       {activeTab !== 'overview' && <MemberGraceWarning memberId={member?.id} enabled={isAccessReady} />}
-      <Tabs value={activeTab} onValueChange={(tab) => {
+      <Tabs value={activeTab === 'balances' && !balancesPreference.visible ? 'overview' : activeTab} onValueChange={(tab) => {
         setActiveTab((current) => current === tab ? current : tab);
         const next = searchForMemberTab(searchParams, tab);
         setSearchParams(next, { replace: true });
@@ -1723,10 +1731,10 @@ export default function MemberDetail() {
             <FolderTree className="w-4 h-4" />
             Categories
           </TabsTrigger>
-          <TabsTrigger value="balances" className="gap-1" data-testid="tab-member-balances">
+          {balancesPreference.visible && <TabsTrigger value="balances" className="gap-1" data-testid="tab-member-balances">
             <Trophy className="w-4 h-4" />
             Balances
-          </TabsTrigger>
+          </TabsTrigger>}
           <TabsTrigger value="notes" className="gap-1" data-testid="tab-member-notes">
             <StickyNote className="w-4 h-4" />
             Notes
@@ -2443,7 +2451,7 @@ export default function MemberDetail() {
         </TabsContent>
 
         {/* Balances Tab */}
-        <TabsContent value="balances" className="space-y-6">
+        {balancesPreference.visible && <TabsContent value="balances" className="space-y-6">
           <Card>
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
@@ -2551,6 +2559,7 @@ export default function MemberDetail() {
           </Card>
         </TabsContent>
 
+        }
         {/* Notes Tab */}
         <TabsContent value="notes" className="space-y-6">
           <MemberDocumentUpload key={id} memberId={id} />

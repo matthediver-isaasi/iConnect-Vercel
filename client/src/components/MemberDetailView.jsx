@@ -111,6 +111,7 @@ import {
 } from "@/lib/memberDetailState.mjs";
 import { normalizeMemberDepartments } from "@/lib/memberListColumnUtils.mjs";
 import CustomFieldFileUpload, { CustomFieldFileDisplay } from "@/components/CustomFieldFileUpload";
+import { useMemberBalancesVisibility } from '@/hooks/useMemberBalancesVisibility';
 
 // Stable empty-array fallback for disabled/unloaded useQuery data.
 // Inline `= []` defaults create a fresh array identity every render, which
@@ -210,6 +211,7 @@ export default function MemberDetailView({
   onDelete
 }) {
   const { isAdmin, memberInfo, isFeatureExcluded } = useMemberAccess();
+  const balancesPreference = useMemberBalancesVisibility(memberInfo?.tenant_id);
   const { formatDate } = useDateFormat();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -249,6 +251,9 @@ export default function MemberDetailView({
   // unambiguous: pre-select it and lock the field.
   const isOrgLocked = isNew && !!defaultOrganizationId;
   const [activeTab, setActiveTab] = useState('overview');
+  useEffect(() => {
+    if (balancesPreference.resolved && !balancesPreference.visible && activeTab === 'balances') setActiveTab('overview');
+  }, [balancesPreference.resolved, balancesPreference.visible, activeTab]);
   useEffect(() => {
     if (isNew || !member?.id) {
       if (activeTab.startsWith('relationship-')) setActiveTab('overview');
@@ -1167,7 +1172,7 @@ export default function MemberDetailView({
       </header>
 
       <main className="p-6">
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <Tabs value={activeTab === 'balances' && !balancesPreference.visible ? 'overview' : activeTab} onValueChange={setActiveTab}>
           <div className="max-w-full overflow-x-auto">
           <TabsList className="mb-6">
             <TabsTrigger value="overview" className="gap-1" data-testid="tab-member-overview">
@@ -1186,10 +1191,10 @@ export default function MemberDetailView({
               <FolderTree className="w-4 h-4" />
               Categories
             </TabsTrigger>
-            <TabsTrigger value="balances" className="gap-1" data-testid="tab-member-balances">
+            {balancesPreference.visible && <TabsTrigger value="balances" className="gap-1" data-testid="tab-member-balances">
               <Trophy className="w-4 h-4" />
               Opening Balances
-            </TabsTrigger>
+            </TabsTrigger>}
             <TabsTrigger value="notes" className="gap-1" data-testid="tab-member-notes">
               <StickyNote className="w-4 h-4" />
               Notes
@@ -2275,7 +2280,7 @@ export default function MemberDetailView({
             </Card>
           </TabsContent>
 
-          <TabsContent value="balances" className="space-y-6">
+          {balancesPreference.visible && <TabsContent value="balances" className="space-y-6">
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">
@@ -2388,6 +2393,7 @@ export default function MemberDetailView({
             </Card>
           </TabsContent>
 
+          }
           <TabsContent value="notes" className="space-y-6">
             <MemberDocumentUpload key={member.id} memberId={member.id} />
             <Card>
