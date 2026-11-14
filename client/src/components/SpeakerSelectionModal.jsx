@@ -80,7 +80,7 @@ export function SpeakerSelectionModal({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[80vh] flex flex-col">
+      <DialogContent className="w-[calc(100%-2rem)] max-w-6xl max-h-[90dvh] flex flex-col overflow-hidden">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Mic className="h-5 w-5 text-purple-600" />
@@ -88,9 +88,9 @@ export function SpeakerSelectionModal({
           </DialogTitle>
         </DialogHeader>
 
-        <div className="flex-1 flex gap-4 min-h-0">
+        <div className="flex-1 flex flex-col md:flex-row gap-4 min-h-0 overflow-y-auto">
           {/* Left Column - Available Speakers */}
-          <div className="flex-1 flex flex-col border rounded-lg">
+          <div className="flex-1 min-w-0 min-h-0 flex flex-col border rounded-lg">
             <div className="p-3 border-b bg-slate-50">
               <h3 className="font-medium text-sm text-slate-700 mb-2">Available Speakers</h3>
               <div className="relative">
@@ -144,7 +144,7 @@ export function SpeakerSelectionModal({
           </div>
 
           {/* Right Column - Selected Speakers */}
-          <div className="flex-1 flex flex-col border rounded-lg border-purple-200 bg-purple-50/30">
+          <div className="flex-1 md:flex-[1.3] min-w-0 min-h-0 flex flex-col border rounded-lg border-purple-200 bg-purple-50/30">
             <div className="p-3 border-b border-purple-200 bg-purple-50">
               <h3 className="font-medium text-sm text-purple-700">
                 Selected Speakers ({selectedSpeakers.length})
@@ -170,7 +170,7 @@ export function SpeakerSelectionModal({
                       className="flex items-center gap-3 p-2 rounded-lg bg-white border border-purple-200 group"
                       data-testid={`speaker-selected-${speaker.id}`}
                     >
-                      <button type="button" {...handleProps} aria-label={`Drag to reorder ${speaker.full_name}`} className="touch-none cursor-grab">
+                      <button type="button" {...handleProps} aria-label={`Drag to reorder ${speaker.full_name}`} className="touch-none cursor-grab shrink-0">
                         <GripVertical className="h-4 w-4" />
                       </button>
                       {speaker.profile_photo_url ? (
@@ -207,7 +207,7 @@ export function SpeakerSelectionModal({
                         aria-label={`Remove ${speaker.full_name}`}
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7 text-slate-400 hover:text-red-500 hover:bg-red-50"
+                        className="h-7 w-7 shrink-0 text-slate-400 hover:text-red-500 hover:bg-red-50"
                         onClick={() => handleRemove(speaker.id)}
                         data-testid={`button-remove-speaker-${speaker.id}`}
                       >
