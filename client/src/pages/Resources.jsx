@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
 import { listAllResources } from "@/lib/listAllResources";
+import { matchesResourceSubcategories } from "../../../shared/resourceSubcategoryFilter.mjs";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -588,14 +589,14 @@ function ResourceLibraryPage() {
         resource.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         resource.tags?.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()));
       
-      // If no subcategories are selected, show all resources
-      // If subcategories are selected, only show resources that have at least one matching subcategory
-      const matchesSubcategory = effectiveSelectedSubcategories.length === 0 || 
-        (resource.subcategories && Array.isArray(resource.subcategories) && resource.subcategories.some(sub => effectiveSelectedSubcategories.includes(sub)));
+      // Optional AND between categories; selections within a category remain OR.
+      const matchesSubcategory = matchesResourceSubcategories(
+        resource, effectiveSelectedSubcategories, categories, resourceSettings?.subcategory_filter_mode,
+      );
       
       return matchesSearch && matchesSubcategory;
     });
-  }, [roleVisibleResources, searchQuery, effectiveSelectedSubcategories, filteredResourceId]);
+  }, [roleVisibleResources, searchQuery, effectiveSelectedSubcategories, filteredResourceId, categories, resourceSettings?.subcategory_filter_mode]);
 
   const sortedResources = useMemo(() => {
     const sorted = [...filteredResources];
@@ -664,7 +665,7 @@ function ResourceLibraryPage() {
 
   React.useEffect(() => {
     setCurrentPage(1);
-  }, [selectedSubcategories, searchQuery, sortBy, itemsPerPage]);
+  }, [selectedSubcategories, searchQuery, sortBy, itemsPerPage, resourceSettings?.subcategory_filter_mode]);
 
   const handleSubcategoryToggle = (subcategory) => {
     setSelectedSubcategories(prev => {

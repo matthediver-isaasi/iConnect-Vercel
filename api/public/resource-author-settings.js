@@ -56,7 +56,7 @@ export default async function handler(req, res) {
 
     const { data, error } = await supabase
       .from('resource_author_settings')
-      .select('hide_empty_subcategories, enabled_social_icons')
+      .select('hide_empty_subcategories, enabled_social_icons, subcategory_filter_mode')
       .eq('tenant_id', tenantId)
       .limit(1)
       .single();
@@ -69,6 +69,7 @@ export default async function handler(req, res) {
     // Return defaults if no settings found
     return res.json(data || {
       hide_empty_subcategories: false,
+      subcategory_filter_mode: 'or',
       enabled_social_icons: ['x', 'linkedin', 'email']
     });
   } catch (error) {

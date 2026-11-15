@@ -3,6 +3,12 @@ name: Resource category & subcategory role access
 description: How per-role resource category/subcategory hiding works and every surface that must stay in sync
 ---
 
+BNMS wants AND between selected resource categories, with OR among selections inside each category. Other tenants retain OR unless explicitly changed.
+
+**Why:** The owner wants faceted filtering (for example type alternatives AND focus-area alternatives), not a requirement to match every selected tag.
+
+**How to apply:** Keep this a tenant setting, apply it after visibility filtering, and ignore categories without selections.
+
 Model (resource_category columns, both admin-only write via the atomic RPCs behind /api/resources/category-role-access):
 - `excluded_role_ids` (jsonb array): roles that cannot see the whole category. Non-empty = member-only (hidden from guests and roleless members too).
 - `subcategory_excluded_role_ids` (jsonb map sub-name → role ids): hides ONE subcategory occurrence within an otherwise-visible category. Same member-only semantics. Empty map = no behaviour change (no data migration needed).

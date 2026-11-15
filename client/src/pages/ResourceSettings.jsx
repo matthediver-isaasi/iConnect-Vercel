@@ -50,6 +50,7 @@ export default function ResourceSettingsPage() {
   const [showFolders, setShowFolders] = useState(true);
   const [enabledSocialIcons, setEnabledSocialIcons] = useState(['x', 'linkedin', 'email']);
   const [hideEmptySubcategories, setHideEmptySubcategories] = useState(false);
+  const [subcategoryFilterMode, setSubcategoryFilterMode] = useState('or');
 
   // Initialize selected roles and description limit when settings load
   React.useEffect(() => {
@@ -59,17 +60,19 @@ export default function ResourceSettingsPage() {
       setShowFolders(authorSettings.show_folders !== false);
       setEnabledSocialIcons(authorSettings.enabled_social_icons || ['x', 'linkedin', 'email']);
       setHideEmptySubcategories(authorSettings.hide_empty_subcategories === true);
+      setSubcategoryFilterMode(authorSettings.subcategory_filter_mode === 'and' ? 'and' : 'or');
     }
   }, [authorSettings]);
 
   const saveMutation = useMutation({
-    mutationFn: async ({ roleIds, limit, showFolders, socialIcons, hideEmpty }) => {
+    mutationFn: async ({ roleIds, limit, showFolders, socialIcons, hideEmpty, filterMode }) => {
       // Core payload without hide_empty_subcategories (column may not exist in database)
       const payload = {
         author_role_ids: roleIds,
         description_character_limit: limit,
         show_folders: showFolders,
         enabled_social_icons: socialIcons,
+        subcategory_filter_mode: filterMode,
       };
       
       // First, always get fresh settings from the database
@@ -96,6 +99,8 @@ export default function ResourceSettingsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['resource-author-settings'] });
+      queryClient.invalidateQueries({ queryKey: ['resourceAuthorSettings'] });
+      queryClient.invalidateQueries({ queryKey: ['public-resource-author-settings'] });
       toast.success('Settings saved successfully');
     },
     onError: (error) => {
@@ -130,7 +135,7 @@ export default function ResourceSettingsPage() {
       toast.error('Description limit must be a positive number');
       return;
     }
-    saveMutation.mutate({ roleIds: selectedRoles, limit, showFolders, socialIcons: enabledSocialIcons, hideEmpty: hideEmptySubcategories });
+    saveMutation.mutate({ roleIds: selectedRoles, limit, showFolders, socialIcons: enabledSocialIcons, hideEmpty: hideEmptySubcategories, filterMode: subcategoryFilterMode });
   };
 
   if (!accessChecked) {
@@ -299,6 +304,18 @@ export default function ResourceSettingsPage() {
                         Only show subcategory filters that have at least one resource available
                       </p>
                     </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="subcategory-filter-mode">Combine category filters</Label>
+                    <select id="subcategory-filter-mode" value={subcategoryFilterMode}
+                      onChange={event => setSubcategoryFilterMode(event.target.value)}
+                      className="w-full rounded-md border border-input bg-background p-2">
+                      <option value="or">Match any category (OR)</option>
+                      <option value="and">Match every selected category (AND)</option>
+                    </select>
+                    <p className="text-sm text-slate-500">
+                      Selections within the same category always use OR. AND requires a match in every category you select; categories with no selections are ignored.
+                    </p>
                   </div>
                 </div>
               </CardContent>
