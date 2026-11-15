@@ -41,6 +41,7 @@ import EventBudgetPanel from "@/components/events/EventBudgetPanel";
 import { checkEventClashes } from "@/lib/eventClash";
 import DOMPurify from "dompurify";
 import { computeTimelineLayout } from "@/lib/timelineUtils";
+import { latestSessionStart } from "@/lib/sessionStartDefault.mjs";
 import { useEventTypes } from "@/hooks/useEventTypes";
 import { useInternalEventTypes } from "@/hooks/useInternalEventTypes";
 import { internalEventTypePayload } from "@/lib/internalEventTypes";
@@ -1594,7 +1595,7 @@ export default function CreateComplexEvent() {
       ));
     } else {
       setEditingSession(null);
-      const prefillStartTime = prefill?.start_time || "";
+      const prefillStartTime = prefill?.start_time ?? latestSessionStart(sessions, toLocalDatetimeStr);
       const prefillTrackIds = prefill?.track_ids || [];
       setSessionForm({
         title: "",

@@ -4,6 +4,8 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
+    "test:session-start-default": "node --test client/src/lib/sessionStartDefault.test.mjs",
+    "test:session-start-default:browser": "playwright test --config=tests/session-start-default.config.mjs",
     "test:member-merge": "node scripts/run-isolated-tests.mjs node --test api/admin/members/merge.test.mjs && node --test tests/member-merge.browser.test.mjs",
     "test:cookie-consent": "node scripts/run-regression-suite.mjs cookie-consent",
     "test:cookie-consent:browser": "playwright test --config=tests/cookie-consent.config.mjs",
