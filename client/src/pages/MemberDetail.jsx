@@ -75,6 +75,7 @@ import { normalizeMemberCategorySelections } from '@/lib/memberResourceCategorie
 import { shouldShowMemberMembershipTab } from '@/lib/memberMembershipVisibility';
 import { RelatedRecordsDefinitionState, RelatedRecordsPanel, useRelatedRecordDefinitions } from "@/pages/customObjects/RelatedRecordsPanel";
 import { labelForSide, relationshipTabValue } from "@/pages/customObjects/relationshipHelpers";
+import { memberRelationshipTabs } from "@/lib/memberRelationshipTabs";
 import {
   fetchAdminMemberCommunicationPreferences,
   setAdminMemberCommunicationGlobalState,
@@ -181,6 +182,7 @@ export default function MemberDetail() {
     context: { kind: "member", recordId: id },
     enabled: isAccessReady && !!id,
   });
+  const relationshipTabs = useMemo(() => memberRelationshipTabs(relatedRecords.panels), [relatedRecords.panels]);
 
   const {
     pendingWorkflows,
@@ -259,13 +261,13 @@ export default function MemberDetail() {
       || relatedRecords.isFetching
       || relatedRecords.error
     ) return;
-    const selectedPanelExists = relatedRecords.panels.some(({ definition, side }) =>
+    const selectedPanelExists = relationshipTabs.some(({ definition, side }) =>
       relationshipTabValue(definition, side) === activeTab
     );
     if (selectedPanelExists) return;
     setActiveTab('overview');
     setSearchParams(searchForMemberTab(searchParams, 'overview'), { replace: true });
-  }, [activeTab, relatedRecords.data, relatedRecords.error, relatedRecords.isFetching, relatedRecords.panels, searchParams, setSearchParams]);
+  }, [activeTab, relatedRecords.data, relatedRecords.error, relatedRecords.isFetching, relationshipTabs, searchParams, setSearchParams]);
 
   // Delete member state
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -1753,7 +1755,7 @@ export default function MemberDetail() {
               Membership
             </TabsTrigger>
           )}
-          {relatedRecords.panels.map(({ definition, side, count }) => (
+          {relationshipTabs.map(({ definition, side, count }) => (
             <TabsTrigger key={`${definition.id}-${side}`} value={relationshipTabValue(definition, side)} className="gap-1" data-testid={`tab-relationship-${definition.id}-${side}`}>
               {labelForSide(definition, side)}{!relatedRecords.isFetching && count != null ? ` (${count})` : ""}
             </TabsTrigger>
@@ -2900,13 +2902,13 @@ export default function MemberDetail() {
               <MemberMembershipTab memberId={member?.id} memberEmail={member?.email} memberTenantId={member?.tenant_id} />
             </TabsContent>
           )}
-          {relatedRecords.panels.map(({ definition, side }) => (
+          {relationshipTabs.map(({ definition, side }) => (
             <TabsContent key={`${definition.id}-${side}`} value={relationshipTabValue(definition, side)} className="space-y-6">
               <RelatedRecordsPanel context={relatedRecords.context} record={member} definition={definition} side={side} showHeading={false} loadingOverlay />
             </TabsContent>
           ))}
           {activeTab.startsWith('relationship-')
-            && !relatedRecords.panels.some(({ definition, side }) =>
+            && !relationshipTabs.some(({ definition, side }) =>
               relationshipTabValue(definition, side) === activeTab)
             && (relatedRecords.data == null || relatedRecords.isFetching || relatedRecords.error) && (
             <div className="space-y-6" data-relationship-discovery>

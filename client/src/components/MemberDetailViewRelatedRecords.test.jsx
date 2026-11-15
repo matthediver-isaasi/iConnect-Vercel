@@ -306,6 +306,42 @@ function LocationProbe() {
   return <output data-testid="location">{location.search}</output>;
 }
 
+for (const standalone of [false, true]) {
+  test(`${standalone ? 'standalone' : 'embedded'} member tabs omit CRM-only relationships`, async () => {
+    const labels = ["Organisation Departments", "Secondary Organisation Assignments", "Historical Membership Records"];
+    globalThis.fetch = async url => {
+      const path = String(url);
+      if (path.includes("/core/relationship-definitions")) return json({
+        data: [
+          { definition, side: "source" },
+          ...labels.map((label, index) => ({
+            definition: { ...definition, id: `card-only-${index}`, source_label: label },
+            side: "source",
+          })),
+        ],
+        total: 4,
+      });
+      if (/\/api\/entities\/Member\/member-1/.test(path)) return json(member("member-1"));
+      return unrelatedResponse(path);
+    };
+    const child = standalone
+      ? <><Routes><Route path="/members/:id" element={<bundled.MemberDetail />} /></Routes><LocationProbe /></>
+      : <MemberDetailView {...propsFor(member("member-1"))} />;
+    const view = await mount(child, ['/members/member-1?tab=relationship-card-only-0-source&keep=yes']);
+    assert.ok(view.container.querySelector('[data-testid="tab-relationship-member-organisations-source"]'));
+    for (let index = 0; index < labels.length; index++) {
+      assert.equal(view.container.querySelector(`[data-testid="tab-relationship-card-only-${index}-source"]`), null);
+    }
+    if (standalone) {
+      assert.ok(view.container.querySelector('[data-testid="tab-member-overview"][data-state="active"]'));
+      const params = new URLSearchParams(view.container.querySelector('output').textContent);
+      assert.equal(params.get('keep'), 'yes');
+      assert.notEqual(params.get('tab'), 'relationship-card-only-0-source');
+    }
+    await view.cleanup();
+  });
+}
+
 function PreferenceProbe({ tenantId }) {
   const preference = bundled.useMemberBalancesVisibility(tenantId);
   return <output data-testid="preference">{String(preference.visible)}</output>;
