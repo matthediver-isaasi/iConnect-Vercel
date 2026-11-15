@@ -1,4 +1,6 @@
 import RegistrationAssociationField from "./RegistrationAssociationField";
+import PublicInvoicePoAddressFields from "./PublicInvoicePoAddressFields";
+import { normalizePublicInvoicePoAddress, publicInvoicePoAddressError } from "../../../../shared/publicInvoicePoAddress.js";
 import WaitingListCheckout from "./WaitingListCheckout";
 import { useEventCodeOfConduct } from "@/hooks/useEventCodeOfConduct";
 import CodeOfConductAcceptance from "./CodeOfConductAcceptance";
@@ -577,7 +579,7 @@ function NormalPaymentOptions({
   const selfBookingChoiceRequired = ticketRequiresPurchaserIdentity && isGuestCheckout
     && (!isComplexEvent || !!event?.member_group_id) && guestBookingForSelf !== undefined;
   const purchaserInfo = associationSelfPurchaser || (selfBookingChoiceRequired && guestBookingForSelf === true)
-    ? purchaseIdentity(guestInfo) : separatePurchaserInfo;
+    ? { ...purchaseIdentity(guestInfo), ...normalizePublicInvoicePoAddress(separatePurchaserInfo) } : separatePurchaserInfo;
   const showPurchaserFields = requiresPurchaserIdentity
     && !associationSelfPurchaser && (!selfBookingChoiceRequired || guestBookingForSelf === false);
   const [showStripeModal, setShowStripeModal] = useState(false);
@@ -663,7 +665,8 @@ function NormalPaymentOptions({
 
   useEffect(() => {
     if (!guestInfo || ticketRequiresPurchaserIdentity) return;
-    setPurchaserInfo({
+    setPurchaserInfo(previous => ({
+      ...previous,
       first_name: guestInfo.first_name || '',
       last_name: guestInfo.last_name || '',
       email: guestInfo.email || '',
@@ -671,7 +674,7 @@ function NormalPaymentOptions({
       registration_association: guestInfo.registration_association || null,
       phone: guestInfo.phone || '',
       job_title: guestInfo.job_title || ''
-    });
+    }));
   }, [
     guestInfo?.first_name,
     guestInfo?.last_name,
@@ -1378,7 +1381,8 @@ function NormalPaymentOptions({
     }
 
     if (isPublicInvoicePo && !purchaserInfoComplete) {
-      toast.error("Please provide the purchaser's first name, last name and email address");
+      toast.error(publicInvoicePoAddressError(purchaserInfo, { required: true })
+        || "Please provide the purchaser's first name, last name, valid email address and organisation name");
       return;
     }
 
@@ -2242,12 +2246,16 @@ function NormalPaymentOptions({
                             <p className="text-xs text-slate-500">These details identify the person requesting the invoice and may differ from the attendees.</p>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                               <Input
+                                aria-label="Purchaser first name"
+                                required
                                 placeholder="First name *"
                                 value={purchaserInfo.first_name}
                                 onChange={(e) => setPurchaserInfo(prev => ({ ...prev, first_name: e.target.value }))}
                                 data-testid="input-purchaser-first-name"
                               />
                               <Input
+                                aria-label="Purchaser last name"
+                                required
                                 placeholder="Last name *"
                                 value={purchaserInfo.last_name}
                                 onChange={(e) => setPurchaserInfo(prev => ({ ...prev, last_name: e.target.value }))}
@@ -2255,13 +2263,17 @@ function NormalPaymentOptions({
                               />
                             </div>
                             <Input
+                              aria-label="Purchaser email address"
+                              required
                               type="email"
                               placeholder="Email address *"
                               value={purchaserInfo.email}
                               onChange={(e) => setPurchaserInfo(prev => ({ ...prev, email: e.target.value }))}
                               data-testid="input-purchaser-email"
                             />
+                            <Label htmlFor="public-invoice-purchaser-organization">Organisation *</Label>
                             <RegistrationAssociationField
+                              id="public-invoice-purchaser-organization" required
                               eventId={event.id} eventKind={isComplexEvent ? "complex" : "simple"}
                               placeholder="Organisation"
                               value={purchaserInfo}
@@ -2276,6 +2288,10 @@ function NormalPaymentOptions({
                             />
                           </div>
                         )}
+                        {isPublicInvoicePo && <PublicInvoicePoAddressFields
+                          value={separatePurchaserInfo}
+                          onChange={patch => setPurchaserInfo(previous => ({ ...previous, ...patch }))}
+                        />}
                       </div>
                     </RadioGroup>
                   ) : (

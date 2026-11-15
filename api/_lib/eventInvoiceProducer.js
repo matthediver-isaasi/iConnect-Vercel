@@ -1,6 +1,7 @@
 // Checkout captures evidence; the recovery worker is the only accounting writer.
 // No provider calls or credentials belong in a durable snapshot.
 import { normalizeStripeBillingAddress } from './stripeInvoiceAddress.js';
+import { invoicingAddressToXero } from '../../shared/invoicingAddress.js';
 import { loadPaidEventInvoicePolicy, policyInvoiceContact } from './eventInvoiceAddressPolicy.js';
 const clone = value => JSON.parse(JSON.stringify(value));
 const minor = value => Math.round(Number(value) * 100);
@@ -40,6 +41,10 @@ function freezeLineTax(line, ticket) {
 export function invoiceContactPayload(contact) {
   if (!contact?.name) return null;
   const payload = { Name: contact.name, ...(contact.email ? { EmailAddress: contact.email } : {}) };
+  if (contact.invoicingAddress) {
+    payload.Addresses = [invoicingAddressToXero(contact.invoicingAddress)];
+    return payload;
+  }
   if (contact.stripeBillingAddress) {
     const a = normalizeStripeBillingAddress(contact.stripeBillingAddress);
     payload.Addresses = [{

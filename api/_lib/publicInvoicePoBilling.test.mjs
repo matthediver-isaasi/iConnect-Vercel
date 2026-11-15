@@ -2,12 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {publicPoInvoiceState} from './publicInvoicePoReconciliation.js';
 import {readFileSync} from 'node:fs';
-import {loadPublicPoBilling,generatePublicPoInvoice} from './publicInvoicePoBilling.js';
-function fixture({discount=0,roleMember=true,operation=null,correction=null,memberEmail='booker@example.invalid',correctionError=false}={}){
+import {loadPublicPoBilling,generatePublicPoInvoice,publicPoInvoiceLines} from './publicInvoicePoBilling.js';
+import {publicInvoicePoBillingContact} from '../../shared/publicInvoicePoAddress.js';
+import {invoiceContactPayload} from './eventInvoiceProducer.js';
+function fixture({discount=0,roleMember=true,operation=null,correction=null,memberEmail='booker@example.invalid',correctionError=false,projectCode=''}={}){
  const booking={id:'b1',tenant_id:'t',event_id:'e',booking_group_reference:'group',payment_method:'public_invoice_po',status:'confirmed',
    ticket_class_id:'ticket',total_cost:120,discount_code_amount:discount,attendee_email:'attendee@example.invalid',
    purchaser_context:{classification:'public_non_member',details:{first_name:'Original',last_name:'Booker',email:'booker@example.invalid'}}};
- const tables={booking:[booking],event:[{id:'e',tenant_id:'t',title:'Meeting',pricing_config:{ticket_classes:[{id:'ticket',vat_rate_key:'OUTPUT2',vat_rate_percentage:20}]}}],
+ const tables={booking:[booking],event:[{id:'e',tenant_id:'t',title:'Meeting',internal_reference:projectCode,pricing_config:{ticket_classes:[{id:'ticket',vat_rate_key:'OUTPUT2',vat_rate_percentage:20}]}}],
    member:roleMember?[{id:'m',tenant_id:'t',first_name:'Original',last_name:'Booker',email:memberEmail}]:[],
    public_po_booker_correction:correction?[correction]:[],
    public_invoice_po_billing:operation?[operation]:[]};
@@ -57,6 +59,15 @@ test('preview invoices original booker and deducts recorded simple-event discoun
  assert.equal(missing.public.canGenerate,false);
  assert.match(missing.public.reason,/original booker/);
 });
+
+test('changing event project code invalidates a previous manual invoice preview', async () => {
+ const before=await loadPublicPoBilling(fixture({projectCode:'OLD'}),'t','b1',false);
+ const after=await loadPublicPoBilling(fixture({projectCode:'NEW'}),'t','b1',false);
+ assert.equal(after.public.projectCode,'NEW');
+ assert.notEqual(before.public.fingerprint,after.public.fingerprint);
+ await assert.rejects(generatePublicPoInvoice(fixture({projectCode:'NEW'}),'t','admin',
+   {bookingId:'b1',isComplex:false,fingerprint:before.public.fingerprint}),/booking changed/i);
+});
 test('unpaid, partial, paid and void invoices use provider evidence, not a fabricated payment',()=>{
  const row={invoice_id:'i1',provider:'xero',currency:'GBP',amount:120};
  const invoice={InvoiceID:'i1',CurrencyCode:'GBP',Total:120,AmountDue:120,Status:'AUTHORISED',DateString:'2026-10-29T00:00:00'};
@@ -74,7 +85,35 @@ test('approval preserves record-only checkout and explicitly creates an unpaid p
  assert.match(source,/paymentMethod:'invoice'/);
  assert.match(source,/p_original:p.rows/);
  assert.match(source,/fingerprint!==p.public.fingerprint/);
- assert.match(source,/provenance:\{kind:'member',id:p.public.member.id\}/);
+ assert.match(source,/contact:p.public.billingContact/);
  assert.match(load('./eventInvoiceProducer.js'),/paymentMethod === 'public_invoice_po'.*paymentMethod === 'free'/);
  assert.doesNotMatch(load('./publicInvoicePoReconciliation.js'),/createPayment|Payments|recordPayment/);
+});
+
+test('manual invoice uses captured organisation and structured billing address, with corrected booker delivery', () => {
+ const original={organization:'Example Organisation',invoicing_address_line1:'1 Road',invoicing_address_line2:'Floor 2',
+   invoicing_city:'London',invoicing_region:'Greater London',invoicing_postal_code:'N1 1AA',invoicing_country:'United Kingdom'};
+ const booker={first_name:'Corrected',last_name:'Booker',email:'corrected@example.test'};
+ const contact=publicInvoicePoBillingContact(original,booker,'member');
+ assert.equal(contact.name,'Example Organisation');
+ assert.equal(contact.email,booker.email);
+ assert.equal(contact.isOrganization,true);
+ assert.deepEqual(contact.provenance,{kind:'member',id:'member'});
+ const payload=invoiceContactPayload(contact);
+ assert.equal(payload.Name,'Example Organisation');
+ assert.equal(payload.Addresses[0].City,'London');
+ assert.equal(payload.Addresses[0].AddressLine2,'Floor 2');
+ assert.equal(payload.Addresses[0].Region,'Greater London');
+ assert.equal(payload.Addresses[0].PostalCode,'N1 1AA');
+ const legacy=publicInvoicePoBillingContact({},booker,'member');
+ assert.equal(legacy.name,'Corrected Booker');
+ assert.equal(legacy.invoicingAddress,undefined);
+});
+
+test('manual public invoice lines carry event Projects tracking without replacing PO or economics', () => {
+ const preview={projectCode:'SPRING27',lines:[{description:'Ticket',amount:120,taxType:'OUTPUT2',taxPercentage:20}]};
+ const [line]=publicPoInvoiceLines(preview,'200');
+ assert.deepEqual(line.Tracking,[{Name:'Projects',Option:'SPRING27'}]);
+ assert.equal(line.UnitAmount,120);assert.equal(line.TaxAmount,20);assert.equal(line.AccountCode,'200');
+ assert.equal(publicPoInvoiceLines({...preview,projectCode:''},'200')[0].Tracking,undefined);
 });

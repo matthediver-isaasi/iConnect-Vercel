@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
+import {publicInvoicePoBillingContact} from '../../shared/publicInvoicePoAddress.js';
 import {spawnSync} from 'node:child_process';
 import path from 'node:path';
 import {createLocalPostgresHarness} from '../../scripts/test-support/local-postgres-harness.mjs';
@@ -70,12 +71,16 @@ test('booker correction preserves history, fences approval and freezes delivery 
   sql(`SET ROLE service_role; UPDATE public_po_booker_correction SET reason='rewritten'`,true);
   sql(`UPDATE booking SET purchaser_context='{}'`,true);
   const snapshot={paymentMethod:'invoice',settlement:null,amount:200,currency:'GBP',
-   contact:{email:'corrected@example.invalid',provenance:{kind:'member',id:m}},publicPoBookerCorrectionId:id};
+   contact:publicInvoicePoBillingContact({organization:'Captured Organisation',
+     invoicing_address_line1:'1 Road',invoicing_city:'London',invoicing_postal_code:'N1 1AA',invoicing_country:'United Kingdom'},
+     {first_name:'Original',last_name:'Booker',email:'corrected@example.invalid'},m),publicPoBookerCorrectionId:id};
   const bill=(snap=snapshot)=>`SELECT public_invoice_po_bill('${t}','booking','group','${m}','admin','${original}',200,'GBP','xero','${JSON.stringify(snap)}')`;
   sql(bill({...snapshot,publicPoBookerCorrectionId:null}),true);
   sql(bill({...snapshot,contact:{...snapshot.contact,email:'old@example.invalid'}}),true);
   sql(`SET ROLE service_role; ${bill()}`);
   assert.equal(sql(`SELECT billing_contact->>'email' FROM public_invoice_po_billing`),'corrected@example.invalid');
+  assert.equal(sql(`SELECT provider_snapshot#>>'{contact,name}' FROM public_invoice_po_billing`),'Captured Organisation');
+  assert.equal(sql(`SELECT provider_snapshot#>>'{contact,invoicingAddress,address,invoicing_city}' FROM public_invoice_po_billing`),'London');
   assert.equal(sql(`SELECT purchaser_context->'details'->>'email' FROM booking`),'old@example.invalid');
   assert.equal(sql(`SELECT original_records FROM public_invoice_po_billing`),original);
   sql(bill()); // Durable idempotency, no second approval.

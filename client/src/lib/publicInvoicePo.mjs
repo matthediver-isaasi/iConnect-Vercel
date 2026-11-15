@@ -1,3 +1,5 @@
+import { normalizePublicInvoicePoAddress, publicInvoicePoAddressError } from "../../../shared/publicInvoicePoAddress.js";
+
 export function isPublicInvoicePoAvailable({ event, isGuestCheckout, remainingBalance, ticket }) {
   const visibility = ticket?.visibility_mode
     || (ticket?.is_public === true ? 'members_and_public' : null);
@@ -20,6 +22,7 @@ export function normalizePublicInvoicePurchaser(info = {}) {
     } } : {}),
     phone: String(info.phone || '').trim(),
     job_title: String(info.job_title || '').trim(),
+    ...normalizePublicInvoicePoAddress(info),
   };
 }
 
@@ -29,5 +32,7 @@ export function isPublicInvoicePurchaserComplete(info = {}) {
     normalized.first_name
     && normalized.last_name
     && /\S+@\S+\.\S+/.test(normalized.email)
+    && normalized.organization
+    && !publicInvoicePoAddressError(info, { required: true })
   );
 }

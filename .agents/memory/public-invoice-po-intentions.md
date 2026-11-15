@@ -7,7 +7,7 @@ Public Invoice / PO is a registration intention, not an invoice or a receivable.
 
 The owner now authorises a separate, explicit administrator **Generate invoice**
 action after the original booker has a member account. It is one invoice for the
-whole booking, billed to the original booker—not separate attendee invoices.
+whole booking, using its captured billing details—not separate attendee invoices.
 Creating an attendee account alone must never trigger invoicing.
 
 After an administrator-approved public PO invoice is successfully created, it
@@ -36,6 +36,18 @@ an approval identifier. Keep approval authority separate from historical identit
 An owner-approved booker correction may link an existing member and redirect
 future invoice billing/delivery without rewriting the original purchaser history.
 Creating a provider contact alone never authorizes that correction.
+
+For new non-member Invoice / PO registrations, collect the organisation's invoice
+address and use the captured organisation name/address for the manually approved
+accounting invoice. The booker remains the email recipient. Include the event's
+Projects tracking code, independently of its purchase-order reference.
+
+**Why:** The owner explicitly requested organisation billing evidence for this
+manual flow; a later member account must not replace it with personal billing.
+
+**How to apply:** Preserve the captured address independently of CRM records and
+attendee identity. Do not invent missing addresses for older registrations or
+turn this into automatic invoicing at registration time.
 
 **Why:** The purchaser and attendee can be the same person using different
 email addresses; creating a second member to satisfy email matching duplicates

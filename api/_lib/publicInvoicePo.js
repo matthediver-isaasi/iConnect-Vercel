@@ -1,4 +1,5 @@
 import { publicTicketEmailExists } from './publicTicketEmail.js';
+import { normalizePublicInvoicePoAddress, publicInvoicePoAddressError } from '../../shared/publicInvoicePoAddress.js';
 export const PUBLIC_INVOICE_PO = 'public_invoice_po';
 
 // This records an intention only. It is not an invoice, receivable or payment.
@@ -38,6 +39,9 @@ export async function validatePublicInvoicePo({
     details[field] = details[field].trim();
   }
   details.email = details.email.toLowerCase();
+  const addressError = publicInvoicePoAddressError(purchaserInfo);
+  if (addressError) throw new Error(addressError);
+  Object.assign(details, normalizePublicInvoicePoAddress(purchaserInfo));
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(details.email)) {
     throw new Error('A valid purchaser email is required');
   }

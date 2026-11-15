@@ -1,6 +1,7 @@
 import { prepareAccountingRequestEnvelope } from './accountingRequestProviders.js';
 import { capturedEventSettlement, stripeEventInvoiceContact } from './eventInvoiceProducer.js';
 import { accountingOperationIdentity } from './accountingOperationIdentity.js';
+import { invoicingAddressToQuickBooks } from '../../shared/invoicingAddress.js';
 
 export const isAccountingEventSource = source => ['booking', 'complex_event_booking'].includes(source);
 const fail = (code, retry = false) => { throw Object.assign(new Error(code), { code, retry, permanent: !retry }); };
@@ -190,7 +191,9 @@ export async function prepareAccountingEventSource({ db, row, transport }) {
     .QueryResponse?.Customer || [];
   if (!Array.isArray(customers) || customers.length > 1) fail('ACCOUNTING_EVENT_PURCHASER_AMBIGUOUS');
   let customer = customers[0];
-  const capturedAddress = capturedBillAddress(intent.contact.address);
+  const structuredAddress = intent.contact.invoicingAddress
+    ? invoicingAddressToQuickBooks(intent.contact.invoicingAddress) : null;
+  const capturedAddress = structuredAddress || capturedBillAddress(intent.contact.address);
   if (customer && (!intent.contact.email || String(customer.PrimaryEmailAddr?.Address || '').toLowerCase() !== intent.contact.email.toLowerCase())) {
     fail('ACCOUNTING_EVENT_PURCHASER_MISMATCH');
   }
@@ -214,9 +217,9 @@ export async function prepareAccountingEventSource({ db, row, transport }) {
     Line1: stripeAddress.line1, ...(stripeAddress.line2 ? { Line2: stripeAddress.line2 } : {}),
     City: stripeAddress.city, CountrySubDivisionCode: stripeAddress.state || '',
     PostalCode: stripeAddress.postal_code, Country: stripeAddress.country,
-  } : customer.BillAddr && Object.keys(customer.BillAddr).some(key =>
+  } : structuredAddress || (customer.BillAddr && Object.keys(customer.BillAddr).some(key =>
     key !== 'Id' && typeof customer.BillAddr[key] === 'string' && customer.BillAddr[key].trim())
-    ? customer.BillAddr : capturedAddress;
+    ? customer.BillAddr : capturedAddress);
   if (billAddress) {
     // Address IDs belong to the customer record, not the new invoice address.
     const { Id: _addressId, ...addressFields } = billAddress;

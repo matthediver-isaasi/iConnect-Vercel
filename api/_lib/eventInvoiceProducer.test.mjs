@@ -7,6 +7,8 @@ import {
   complexEventInvoiceLines, capturedEventSettlement, invoiceBookerLabel,
 } from './eventInvoiceProducer.js';
 import { validRecoverySnapshot, validRecoveryTaxIntent } from './eventInvoiceRecovery.js';
+import { publicInvoicePoBillingContact } from '../../shared/publicInvoicePoAddress.js';
+import { publicPoInvoiceLines } from './publicInvoicePoBilling.js';
 
 function fixture({ provider = 'xero', enabled = 'true', invoiceStatus = 'AUTHORISED', settingsError = false, tokens, enqueueError = false } = {}) {
   const calls = [], queued = [];
@@ -75,6 +77,29 @@ function fixture({ provider = 'xero', enabled = 'true', invoiceStatus = 'AUTHORI
   };
   return { db, deps, input, calls, queued, event };
 }
+
+test('manual public PO captures organisation address, Projects tracking and PO in durable Xero evidence', async () => {
+  const f=fixture();
+  f.input.paymentMethod='invoice';
+  f.input.contact=publicInvoicePoBillingContact({
+    organization:'Invoice Organisation',invoicing_address_line1:'1 Road',invoicing_address_line2:'',
+    invoicing_city:'London',invoicing_region:'London',invoicing_postal_code:'N1 1AA',invoicing_country:'United Kingdom',
+  },{first_name:'Original',last_name:'Booker',email:'booker@example.test'},'member-a');
+  f.input.booker={first_name:'Original',last_name:'Booker',email:'booker@example.test'};
+  f.input.buildLines=accountCode=>publicPoInvoiceLines({
+    projectCode:'PROJECT-A',lines:[{description:'Event ticket',amount:25,taxType:'NONE',taxPercentage:0}],
+  },accountCode);
+  await enqueueCheckoutEventInvoice(f.input,f.deps);
+  const snapshot=f.queued[0].snapshot;
+  assert.equal(snapshot.invoice.Contact.Name,'Invoice Organisation');
+  assert.equal(snapshot.invoice.Contact.Addresses[0].City,'London');
+  assert.equal(snapshot.invoice.Contact.Addresses[0].PostalCode,'N1 1AA');
+  assert.deepEqual(snapshot.invoice.LineItems[0].Tracking,[{Name:'Projects',Option:'PROJECT-A'}]);
+  assert.equal(snapshot.invoice.Reference,'PO-ORIGINAL');
+  assert.equal(snapshot.booker.email,'booker@example.test');
+  assert.equal(snapshot.settlement,null);
+  assert.ok(validRecoverySnapshot(snapshot));
+});
 
 function paymentIntent(overrides = {}) {
   return {

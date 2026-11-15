@@ -8,7 +8,8 @@ import { eventInvoiceContact } from '../_lib/eventInvoiceProducer.js';
 // Run with scripts/run-isolated-tests.mjs. Only module boundaries are replaced;
 // the actual exported HTTP handlers, validation, pricing and persistence run.
 const slot = '__publicInvoicePoHandlerFixture';
-const purchaser = { first_name: 'Public', last_name: 'Purchaser', email: 'purchaser@example.test', organization: 'Independent company' };
+const purchaser = { first_name: 'Public', last_name: 'Purchaser', email: 'purchaser@example.test', organization: 'Independent company',
+  invoicing_address_line1: '1 Road', invoicing_city: 'London', invoicing_postal_code: 'N1 1AA', invoicing_country: 'United Kingdom' };
 const attendee = { first_name: 'Different', last_name: 'Attendee', email: 'attendee@example.test' };
 const imports = /import\s+([\s\S]*?)\s+from\s+['"]([^'"]+)['"];?/g;
 const handlers = {};

@@ -2,6 +2,21 @@ import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { usePublicInvoicePoBilling } from "@/hooks/usePublicInvoicePoBilling";
+import { INVOICING_ADDRESS_FIELDS } from "../../../../shared/invoicingAddress.js";
+
+function BillingContact({ data }) {
+  const contact = data?.billingContact;
+  const address = contact?.invoicingAddress?.source === "structured"
+    ? contact.invoicingAddress.address : null;
+  const name = contact?.name || [data?.booker?.first_name, data?.booker?.last_name].filter(Boolean).join(" ") || "Not supplied";
+  return <div className="space-y-1 text-sm">
+    <p className="text-muted-foreground">Billed to{contact?.isOrganization ? " · organisation" : ""}</p>
+    <p className="break-words font-medium">{name}</p>
+    {address && <address className="not-italic break-words">
+      {INVOICING_ADDRESS_FIELDS.map(({ key }) => address[key] ? <span className="block" key={key}>{address[key]}</span> : null)}
+    </address>}
+  </div>;
+}
 
 function money(amount, currency) {
   if (amount == null || !Number.isFinite(Number(amount))) return "Unavailable";
@@ -34,15 +49,16 @@ export default function PublicInvoicePoBilling({ bookingId, isComplex, tenantId,
   };
   return <section aria-label="Booking invoice" className="rounded-lg border bg-muted/20 p-4 space-y-4">
     <div><h3 className="font-semibold">Invoice for the whole booking</h3>
-      <p className="text-sm text-muted-foreground">One invoice covers every attendee in this booking, including attendees hidden by report filters. It is billed to the booker shown below, not individual attendees.</p></div>
+      <p className="text-sm text-muted-foreground">One invoice covers every attendee in this booking, including attendees hidden by report filters. It is billed to the organisation if supplied, otherwise the booker, and emailed to the booker, not individual attendees.</p></div>
     {billing.isLoading && <div role="status" className="space-y-2"><span className="text-sm">Loading invoice details…</span><div className="h-16 rounded bg-muted animate-pulse" /></div>}
     {billing.isError && <div role="alert" className="space-y-2"><p className="text-sm text-destructive">{billing.error.message}</p><Button variant="outline" onClick={() => billing.refetch()}>Retry invoice details</Button></div>}
     {data && <>
       <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-        <div><dt className="text-muted-foreground">{data.bookerCorrection ? "Corrected booker · billed to" : "Original booker · billed to"}</dt><dd className="break-words">{[data.booker?.first_name, data.booker?.last_name].filter(Boolean).join(" ") || "Not supplied"}<br />{data.booker?.email}</dd></div>
+        <div><dt className="text-muted-foreground">{data.bookerCorrection ? "Corrected booker · email recipient" : "Original booker · email recipient"}</dt><dd className="break-words">{[data.booker?.first_name, data.booker?.last_name].filter(Boolean).join(" ") || "Not supplied"}<br />{data.booker?.email}</dd></div>
         <div><dt className="text-muted-foreground">Whole-booking amount</dt><dd className="font-semibold">{money(data.amount, data.currency)}</dd></div>
         <div><dt className="text-muted-foreground">Booker account</dt><dd>{data.member?.id ? "Member account linked" : "No member account linked"}</dd></div>
       </dl>
+      <BillingContact data={data} />
       {data.bookerCorrection && <p className="text-sm text-muted-foreground">An approved billing-contact correction is in effect. The original booking email, {data.originalBooker?.email}, is retained as history. Invoice delivery uses {data.booker?.email}.</p>}
       <div className="space-y-2"><h4 className="text-sm font-medium">Booking lines and tax summary</h4>
         {data.lines?.length ? <ul className="divide-y text-sm">{data.lines.map((line, index) => <li key={index} className="flex flex-wrap justify-between gap-2 py-2">
@@ -63,7 +79,9 @@ export default function PublicInvoicePoBilling({ bookingId, isComplex, tenantId,
     </>}
     <Dialog open={confirmation} onOpenChange={open => { if (!generate.isPending) setConfirmation(open); }}>
       <DialogContent onEscapeKeyDown={event => { if (generate.isPending) event.preventDefault(); }} onPointerDownOutside={event => { if (generate.isPending) event.preventDefault(); }}>
-        <DialogHeader><DialogTitle>Generate one invoice for this booking?</DialogTitle><DialogDescription>The invoice covers the whole booking and is billed to the booker shown below. Once created, it will be emailed to them automatically. No payment will be recorded.</DialogDescription></DialogHeader>
+        <DialogHeader><DialogTitle>Generate one invoice for this booking?</DialogTitle><DialogDescription>The invoice covers the whole booking and is billed to the organisation if supplied, otherwise the booker. Once created, it will be emailed to the booker automatically. No payment will be recorded.</DialogDescription></DialogHeader>
+        <BillingContact data={data} />
+        <p className="text-sm text-muted-foreground">Invoice emailed to the booker:</p>
         <p className="text-sm">{data?.booker?.email} · {money(data?.amount, data?.currency)}</p>
         {generate.isError && <p role="alert" className="text-sm text-destructive">{generate.error.message}</p>}
         <DialogFooter><Button variant="outline" disabled={generate.isPending} onClick={() => setConfirmation(false)}>Cancel</Button><Button disabled={!canGenerate || billing.isFetching || generate.isPending} onClick={confirm}>{generate.isPending ? "Generating invoice…" : "Confirm generate invoice"}</Button></DialogFooter>

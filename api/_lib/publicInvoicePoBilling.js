@@ -3,8 +3,15 @@ import {enqueueCheckoutEventInvoice} from './eventInvoiceProducer.js';
 import {validRecoverySnapshot,validRecoveryTaxIntent} from './eventInvoiceRecovery.js';
 import {loadComplexReleaseTickets} from './ticketReleaseAccess.js';
 import {loadPublicPoBooker} from './publicPoBooker.js';
+import {publicInvoicePoBillingContact} from '../../shared/publicInvoicePoAddress.js';
 const fail=(message,status=409)=>{throw Object.assign(new Error(message),{status});};
 const hash=x=>createHash('sha256').update(JSON.stringify(x)).digest('hex');
+export function publicPoInvoiceLines(preview, accountCode) {
+ return preview.lines.map(l=>({Description:l.description,Quantity:1,UnitAmount:l.amount,
+   AccountCode:accountCode,TaxType:l.taxType,TaxAmount:Math.round(l.amount*l.taxPercentage/(100+l.taxPercentage)*100)/100,
+   ...(preview.projectCode?{Tracking:[{Name:'Projects',Option:preview.projectCode}]}:{}),
+   _invoiceLineAmountType:'Inclusive'}));
+}
 export async function loadPublicPoBilling(db,tenantId,bookingId,isComplex){
  const source=isComplex?'complex_event_booking':'booking';
  const first=await db.from(source).select('*').eq('tenant_id',tenantId).eq('id',bookingId).maybeSingle();
@@ -43,9 +50,11 @@ export async function loadPublicPoBilling(db,tenantId,bookingId,isComplex){
  });
  const amount=Math.round(lines.reduce((s,l)=>s+l.amount,0)*100)/100;
  if(!member)reason='Create the original booker’s member account first.';
- const fingerprint=hash({rows,member,event:lines,currency,correction});
+ const billingContact=publicInvoicePoBillingContact(originalBooker,booker,member?.id);
+ const projectCode=typeof event.internal_reference==='string'?event.internal_reference.trim():'';
+ const fingerprint=hash({rows,member,event:lines,currency,correction,billingContact,projectCode,accountCode:event.xero_account_code});
  const invoice=o?{id:o.invoice_id||null,number:o.invoice_number,provider:o.provider,status:o.invoice_status,paymentStatus:o.payment_status,emailStatus:o.email_status||'legacy_review',emailSentAt:o.email_sent_at||null}:null;
- return {public:{booker,originalBooker,bookerCorrection:correction?{id:correction.id,createdAt:correction.created_at}:null,member,amount,currency,lines,fingerprint,canGenerate:!reason&&!o,reason,invoice},
+ return {public:{booker,originalBooker,billingContact,projectCode,bookerCorrection:correction?{id:correction.id,createdAt:correction.created_at}:null,member,amount,currency,lines,fingerprint,canGenerate:!reason&&!o,reason,invoice},
    source,group,rows,event,operation:o};
 }
 
@@ -65,13 +74,10 @@ export async function generatePublicPoInvoice(db,tenantId,actorId,input){
  };
  const result=await enqueueCheckoutEventInvoice({
    db,tenantId,source:p.source,bookingGroupReference:p.group,event:p.event,amount:p.public.amount,currency:p.public.currency,
-   paymentMethod:'invoice',contact:{name:[p.public.booker.first_name,p.public.booker.last_name].filter(Boolean).join(' '),
-     email:p.public.booker.email,isOrganization:false,provenance:{kind:'member',id:p.public.member.id}},
+   paymentMethod:'invoice',contact:p.public.billingContact,
    booker:{...p.public.booker,id:p.public.member.id},
    purchaseOrderNumber:p.rows[0].purchase_order_number,poToFollow:p.rows[0].po_to_follow,
-   buildLines:accountCode=>p.public.lines.map(l=>({Description:l.description,Quantity:1,UnitAmount:l.amount,
-     AccountCode:accountCode,TaxType:l.taxType,TaxAmount:Math.round(l.amount*l.taxPercentage/(100+l.taxPercentage)*100)/100,
-     _invoiceLineAmountType:'Inclusive'})),
+   buildLines:accountCode=>publicPoInvoiceLines(p.public,accountCode),
  },{
    enqueue:async({snapshot})=>{
      if(!validRecoverySnapshot(snapshot)&&!validRecoveryTaxIntent(snapshot))fail('The accounting configuration requires review before generating this invoice.');

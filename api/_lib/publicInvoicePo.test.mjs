@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { validatePublicInvoicePo, requirePublicInvoicePoBalance } from './publicInvoicePo.js';
 import { literalNormalizedEmailPattern } from './publicTicketEmail.js';
 
-const purchaserInfo = { email: 'buyer@example.com', first_name: 'Public', last_name: 'Buyer', phone: '01234', organization: 'Example', answers: { access: 'Ramp' } };
+const purchaserInfo = { email: 'buyer@example.com', first_name: 'Public', last_name: 'Buyer', phone: '01234', organization: 'Example', answers: { access: 'Ramp' },
+  invoicing_address_line1: '1 Road', invoicing_city: 'London', invoicing_postal_code: 'N1 1AA', invoicing_country: 'United Kingdom' };
 function options({ member = false, error = null, ...overrides } = {}) {
   const calls = [];
   const query = {
@@ -26,7 +27,7 @@ test('snapshot retains collected contact data independently of member attendees,
   const snapshot = await validatePublicInvoicePo(args);
   assert.equal(snapshot.classification, 'public_non_member');
   const { answers, ...contactDetails } = purchaserInfo;
-  assert.deepEqual(snapshot.details, contactDetails);
+  assert.deepEqual(snapshot.details, { ...contactDetails, invoicing_address_line2: '', invoicing_region: '' });
   assert.ok(Date.parse(snapshot.submitted_at));
   args.purchaserInfo.phone = 'Changed';
   assert.equal(snapshot.details.phone, '01234');
@@ -67,4 +68,16 @@ test('zero, negative, invalid and fully discounted amounts cannot become unpaid 
     assert.throws(() => requirePublicInvoicePoBalance(amount));
   }
   assert.doesNotThrow(() => requirePublicInvoicePoBalance(50));
+});
+
+test('public invoice bookings require and preserve a bounded billing address', async () => {
+  const snapshot = await validatePublicInvoicePo(options());
+  assert.equal(snapshot.details.invoicing_address_line1, '1 Road');
+  assert.equal(snapshot.details.invoicing_country, 'United Kingdom');
+  for (const field of ['organization', 'invoicing_address_line1', 'invoicing_city', 'invoicing_postal_code', 'invoicing_country']) {
+    await assert.rejects(validatePublicInvoicePo(options({ purchaserInfo: { ...purchaserInfo, [field]: '' } })), /required/);
+  }
+  for (const value of [{ address: 'forged' }, 'x'.repeat(256), 'street\ninjected']) {
+    await assert.rejects(validatePublicInvoicePo(options({ purchaserInfo: { ...purchaserInfo, invoicing_address_line1: value } })));
+  }
 });

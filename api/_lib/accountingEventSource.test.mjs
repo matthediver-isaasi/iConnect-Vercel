@@ -42,6 +42,20 @@ for (const stripe of [false, true]) test(`QBO event preparation freezes exact ec
   assert.ok(f.calls.every(([, init]) => init.method === 'GET'));
 });
 
+test('manual public invoice uses captured structured address on the QBO invoice', async () => {
+  const f=fixture({stripe:false});
+  f.row.snapshot.invoice.contact.invoicingAddress={source:'structured',address:{
+    invoicing_address_line1:'1 Invoice Road',invoicing_address_line2:'Floor 2',
+    invoicing_city:'London',invoicing_region:'Greater London',invoicing_postal_code:'N1 1AA',invoicing_country:'United Kingdom',
+  }};
+  const resolved=await prepareAccountingEventSource(f);
+  assert.deepEqual(resolved.invoice.envelope.payload.BillAddr,{
+    Line1:'1 Invoice Road',Line2:'Floor 2',City:'London',CountrySubDivisionCode:'Greater London',
+    PostalCode:'N1 1AA',Country:'United Kingdom',
+  });
+  assert.ok(f.calls.every(([,init])=>init.method==='GET'));
+});
+
 for (const throttle of ['/item/', '/taxcode/', '/account/', '/query?']) test(`QBO preparation preserves throttle at ${throttle}`, async () => {
   const f = fixture({ throttle });
   await assert.rejects(prepareAccountingEventSource(f), error => error.status === 429 && error.retryAfter === '600');
