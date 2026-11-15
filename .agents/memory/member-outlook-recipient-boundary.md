@@ -3,6 +3,12 @@ name: Direct member correspondence policy
 description: Intentional CC and login-disabled contact semantics for direct member correspondence.
 ---
 
+Personal sender selection must use the signed-in user's name and Reply-To, retaining the configured verified From address.
+
+**Why:** The owner approved name-and-reply-to rather than sending from arbitrary personal domains or personal mailboxes.
+
+**How to apply:** Resolve the authenticated principal server-side; do not accept a browser-supplied sender identity or email address.
+
 Keep intentional CC supported on direct member correspondence; do not reuse campaign audience rules or treat disabling a contact's login as deletion. CRM composition must use tenant-aware Mailgun, not the administrator's Outlook mailbox; the separate Outlook synchronization integration remains independent.
 
 **Why:** The user explicitly requires Mailgun for CRM composition. Direct correspondence is an admin-selected member plus sender-entered copies, not a campaign. Login permission does not determine whether an administrator may contact a legitimate record or inspect its correspondence. Anonymized deletion is a separate boundary.

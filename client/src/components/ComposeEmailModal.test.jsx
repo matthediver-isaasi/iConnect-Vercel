@@ -72,6 +72,10 @@ async function changeBody(html) {
 }
 
 async function mount(overrides = {}) {
+  const deliveryFetch = globalThis.fetch;
+  globalThis.fetch = (url, options = {}) => options.method === 'POST'
+    ? deliveryFetch(url, options)
+    : Promise.resolve(response({ personalSender: { name: 'Admin Example', email: 'admin@example.com' } }));
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -99,10 +103,34 @@ async function mount(overrides = {}) {
     get successCount() { return successCount; },
     async cleanup() {
       await act(async () => root.unmount());
+      globalThis.fetch = deliveryFetch;
       document.body.innerHTML = '';
     },
   };
 }
+
+test('personal sender selection sends only a mode and explains reply routing', async () => {
+  const requests = [];
+  globalThis.fetch = async (url, options) => {
+    requests.push(JSON.parse(options.body));
+    return response({ success: true });
+  };
+  const view = await mount();
+  try {
+    const select = document.querySelector('#email-sender');
+    await act(async () => {
+      select.value = 'me';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      change(document.querySelector('[data-testid="input-email-subject"]'), 'Hello');
+    });
+    assert.match(document.body.textContent, /replies will go to admin@example.com/);
+    await changeBody('<p>Hello</p>');
+    await act(async () => document.querySelector('[data-testid="button-send-email"]').click());
+    assert.equal(requests[0].senderMode, 'me');
+    assert.equal(requests[0].replyTo, undefined);
+    assert.equal(requests[0].from, undefined);
+  } finally { await view.cleanup(); }
+});
 
 test('shows exact recipients and sends the pinned mailbox with parsed CC', async () => {
   const requests = [];

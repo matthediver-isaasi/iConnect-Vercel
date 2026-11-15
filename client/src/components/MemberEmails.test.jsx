@@ -130,13 +130,18 @@ test('direct entry survives fetch-interceptor null-to-tenant bootstrap and compo
 
     await act(async () => {
       change(document.querySelector('[data-testid="input-email-subject"]'), 'Subject');
-      change(document.querySelector('[data-testid="input-email-body"]'), 'Message');
+      const editor = document.querySelector('[data-testid="rte-content"] .tiptap');
+      editor.innerHTML = '<p>Message</p>';
+      editor.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await settle();
+    await act(async () => {
       document.querySelector('[data-testid="button-send-email"]')
         .dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
     await settle();
 
-    const send = requests.find(request => request.url === '/api/crm/send');
+    const send = requests.find(request => request.url === '/api/crm/send' && request.options.method === 'POST');
     assert.ok(send);
     const authRequests = requests.filter(request => request.url === '/api/auth/tenant-user-me');
     assert.ok(authRequests.length >= 2);
@@ -148,8 +153,8 @@ test('direct entry survives fetch-interceptor null-to-tenant bootstrap and compo
       to: 'member.a@example.com',
       cc: '',
       subject: 'Subject',
-      body: 'Message',
-      bodyType: 'text',
+      body: '<p>Message</p>',
+      bodyType: 'html',
     });
   } finally {
     await view.cleanup();

@@ -36,6 +36,9 @@ export default function ComposeEmailModal({
 }) {
   const { toast } = useToast();
   const [sending, setSending] = useState(false);
+  const [senderMode, setSenderMode] = useState('default');
+  const [personalSender, setPersonalSender] = useState(null);
+  const [senderState, setSenderState] = useState('loading');
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [cc, setCc] = useState('');
@@ -52,6 +55,7 @@ export default function ComposeEmailModal({
   const requestGenerationRef = useRef(0);
 
   const resetDraft = () => {
+    setSenderMode('default');
     setSubject('');
     setBody('');
     setCc('');
@@ -62,6 +66,24 @@ export default function ComposeEmailModal({
     sendInFlightRef.current = false;
     setSending(false);
   };
+
+  useEffect(() => {
+    if (!open || !tenantId) return;
+    let cancelled = false;
+    setPersonalSender(null);
+    setSenderState('loading');
+    fetch('/api/crm/send', {
+      credentials: 'include', headers: { 'X-Tenant-Id': tenantId },
+    }).then(async response => {
+      if (!response.ok) throw new Error('Sender unavailable');
+      const data = await response.json();
+      if (!cancelled) {
+        setPersonalSender(data.personalSender || null);
+        setSenderState('ready');
+      }
+    }).catch(() => { if (!cancelled) setSenderState('error'); });
+    return () => { cancelled = true; };
+  }, [open, tenantId, memberId]);
 
   useEffect(() => {
     const changed = contextRef.current !== contextKey;
@@ -156,6 +178,7 @@ export default function ComposeEmailModal({
         credentials: 'include',
         headers: { 'Content-Type': 'application/json', 'X-Tenant-Id': tenantId },
         body: JSON.stringify({
+          ...(senderMode === 'me' ? { senderMode } : {}),
           tenantId,
           memberId,
           to: recipient,
@@ -256,6 +279,21 @@ export default function ComposeEmailModal({
         </DialogHeader>
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto py-2 pr-1 sm:py-4">
+          <div className="space-y-2">
+            <Label htmlFor="email-sender">Sender</Label>
+            <select id="email-sender" className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              value={senderMode} onChange={event => setSenderMode(event.target.value)} disabled={draftLocked}>
+              <option value="default">Default sender</option>
+              <option value="me" disabled={!personalSender}>Send as me{personalSender ? ` — ${personalSender.name}` : ''}</option>
+            </select>
+            <p className="text-sm text-muted-foreground">
+              {senderMode === 'me' && personalSender
+                ? `Your name will be shown and replies will go to ${personalSender.email}. The verified sending address is retained for reliable delivery.`
+                : 'Uses the organisation’s configured sender, or the ICONN fallback address.'}
+            </p>
+            {senderState === 'loading' && <p className="text-sm text-muted-foreground">Checking your sender details…</p>}
+            {(senderState === 'error' || (senderState === 'ready' && !personalSender)) && <p className="text-sm text-muted-foreground">Your personal sender details are unavailable. You can still use the default sender.</p>}
+          </div>
           <div className="space-y-2">
             <Label htmlFor="to">To</Label>
             <Input

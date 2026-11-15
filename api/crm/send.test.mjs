@@ -54,7 +54,7 @@ async function invoke(overrides = {}) {
   const res = responseRecorder();
   await handleCrmSend(
     {
-      method: 'POST',
+      method: overrides.method || 'POST',
       headers: overrides.headers || { 'x-tenant-id': 'tenant-a' },
       body: overrides.body || body,
     },
@@ -65,6 +65,9 @@ async function invoke(overrides = {}) {
         isAuthenticated: true, tenantId: 'tenant-a',
       }),
       hasAdminAccess: async () => overrides.admin !== false,
+      quoteSenderHeaders: async (_tenant, sender) => ({
+        from: `${sender.name} <verified@example.test>`, replyTo: sender.email,
+      }),
       getSession: async () => ({
         data: overrides.session || { tenantId: 'tenant-a', identityId: 'identity-a' },
       }),
@@ -118,6 +121,35 @@ test('tenant-scoped admin send uses server member address and records Mailgun me
     fromAddress: 'Tenant Name <noreply@mail.tenant.test>',
     fallback: false,
   });
+});
+
+test('personal sender is resolved from the authenticated principal, never request headers', async () => {
+  for (const principal of [{ memberId: 'caller' }, { tenantUserId: 'caller' }]) {
+    const result = await invoke({
+      context: { isAuthenticated: true, tenantId: 'tenant-a', ...principal },
+      body: { ...body, senderMode: 'me' },
+    });
+    assert.equal(result.res.statusCode, 200);
+    assert.equal(result.deliveries[0].replyTo, member.email);
+    assert.equal(result.deliveries[0].from, `${member.email} <verified@example.test>`);
+    const read = result.database.operations[0];
+    assert.equal(read.table, principal.tenantUserId ? 'tenant_user' : 'member');
+    assert.deepEqual(read.filters, [['tenant_id', 'tenant-a'], ['id', 'caller']]);
+  }
+});
+
+test('sender discovery is read-only and personal sending fails closed without an identity', async () => {
+  const discovery = await invoke({ method: 'GET', context: { isAuthenticated: true, tenantId: 'tenant-a', memberId: 'caller' } });
+  assert.equal(discovery.res.body.personalSender.email, member.email);
+  assert.equal(discovery.deliveries.length, 0);
+  for (const senderMode of ['me', 'arbitrary']) {
+    const result = await invoke({ body: { ...body, senderMode } });
+    assert.ok([400, 409].includes(result.res.statusCode));
+    assert.equal(result.deliveries.length, 0);
+  }
+  const spoof = await invoke({ body: { ...body, senderMode: 'me', replyTo: 'other@example.test' } });
+  assert.equal(spoof.res.statusCode, 400);
+  assert.equal(spoof.deliveries.length, 0);
 });
 
 test('rich member email preserves formatting but strips active markup, unsafe URLs and CSS', async () => {

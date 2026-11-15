@@ -1,17 +1,31 @@
 import { getSession } from '../_lib/session.js';
 import { supabase } from '../_lib/database.js';
-import { sendEmail } from '../_lib/emailService.js';
+import { sendEmail, quoteSenderHeaders } from '../_lib/emailService.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { normalizeMemberEmailAddress, parseMemberEmailCc } from '../../shared/memberEmailRecipients.mjs';
 import { JSDOM } from 'jsdom';
 import { sanitizeSlotHtml } from '../_lib/slotHtmlSanitizer.js';
 
 const ALLOWED_FIELDS = new Set([
-  'memberId', 'tenantId', 'to', 'cc', 'subject', 'body', 'bodyType',
+  'memberId', 'tenantId', 'to', 'cc', 'subject', 'body', 'bodyType', 'senderMode',
 ]);
 
 function isDeletedMember(member) {
   return /^deleted_.+@deleted\.local$/i.test(String(member?.email || ''));
+}
+
+async function personalSender(database, context) {
+  const table = context.tenantUserId ? 'tenant_user' : 'member';
+  const id = context.tenantUserId || context.memberId;
+  if (!id) return null;
+  const { data, error } = await database.from(table).select('id,first_name,last_name,email')
+    .eq('tenant_id', context.tenantId).eq('id', id).maybeSingle();
+  if (error) throw error;
+  if (!data || isDeletedMember(data)) return null;
+  try {
+    const email = normalizeMemberEmailAddress(data.email);
+    return { email, name: [data.first_name, data.last_name].filter(Boolean).join(' ') || email };
+  } catch { return null; }
 }
 
 function senderParts(value) {
@@ -80,11 +94,11 @@ export async function handleCrmSend(req, res, dependencies = {}) {
 
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Tenant-Id');
 
   if (req.method === 'OPTIONS') return res.status(200).end();
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (!['GET', 'POST'].includes(req.method)) return res.status(405).json({ error: 'Method not allowed' });
 
   try {
     if (!database) return res.status(503).json({ error: 'Database not configured' });
@@ -105,6 +119,11 @@ export async function handleCrmSend(req, res, dependencies = {}) {
       return res.status(401).json({ error: 'Not authenticated' });
     }
 
+    if (req.method === 'GET') {
+      res.setHeader('Cache-Control', 'private, no-store');
+      return res.json({ personalSender: await personalSender(database, context) });
+    }
+
     const input = req.body;
     if (!input || typeof input !== 'object' || Array.isArray(input)) {
       return res.status(400).json({ error: 'Invalid request body' });
@@ -114,7 +133,14 @@ export async function handleCrmSend(req, res, dependencies = {}) {
       return res.status(400).json({ error: `Unsupported field: ${unsupported[0]}` });
     }
 
-    const { memberId, tenantId, to, cc, subject, body, bodyType = 'text' } = input;
+    const { memberId, tenantId, to, cc, subject, body, bodyType = 'text', senderMode = 'default' } = input;
+    if (!['default', 'me'].includes(senderMode)) return res.status(400).json({ error: 'Invalid sender option' });
+    let senderHeaders = {};
+    if (senderMode === 'me') {
+      const sender = await personalSender(database, context);
+      if (!sender) return res.status(409).json({ error: 'Your sender details are unavailable. Select Default sender or refresh before sending.' });
+      senderHeaders = await (dependencies.quoteSenderHeaders || quoteSenderHeaders)(context.tenantId, sender);
+    }
     if (typeof memberId !== 'string' || !memberId.trim()) {
       return res.status(400).json({ error: 'memberId must be a non-empty string' });
     }
@@ -185,6 +211,7 @@ export async function handleCrmSend(req, res, dependencies = {}) {
           ? { html: htmlBody.html, text: htmlBody.text }
           : { text: body.trim(), html: textToHtml(body.trim()) }),
         tenantId: context.tenantId,
+        ...senderHeaders,
         // CRM history must persist the exact final provider rendering. This is
         // deliberately opt-in so ordinary callers never receive message
         // content in sendEmail's result object.
