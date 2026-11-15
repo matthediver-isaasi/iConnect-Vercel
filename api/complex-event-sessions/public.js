@@ -1,6 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
-import { resolveSessionCategories, PUBLIC_SESSION_FIELDS, projectPublicSession } from '../_lib/sessionCategories.js';
+import { resolveSessionCategories, PUBLIC_SESSION_FIELDS, projectPublicSession } from '../_lib/sessionSubcategories.js';
 
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
@@ -63,7 +63,7 @@ export default async function handler(req, res) {
 
     const { data: sessions, error: sessionsError } = await supabase
       .from('complex_event_session')
-      .select([...PUBLIC_SESSION_FIELDS, 'category_ids'].join(', '))
+      .select([...PUBLIC_SESSION_FIELDS, 'subcategory_keys'].join(', '))
       .eq('complex_event_id', event_id)
       .eq('tenant_id', tenant.id)
       .order('display_order', { ascending: true })

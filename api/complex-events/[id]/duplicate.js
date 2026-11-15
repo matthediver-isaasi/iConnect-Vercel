@@ -2,7 +2,7 @@ import { cloneEventRegistrationCommunication } from '../../_lib/eventRegistratio
 import { duplicateSponsorCategories } from '../../_lib/duplicateSponsorCategories.js';
 import { randomUUID } from 'crypto';
 import { supabase } from '../../_lib/database.js';
-import { resolveSessionCategories } from '../../_lib/sessionCategories.js';
+import { resolveSessionCategories } from '../../_lib/sessionSubcategories.js';
 import { getTenantContext, hasAdminAccess } from '../../_lib/tenantContext.js';
 import { authorizeGroupAdminEventAction } from '../../_lib/groupAdminEventWrite.js';
 import { recomputeComplexEventDates } from '../../_lib/complexEventDateSync.js';
@@ -152,7 +152,7 @@ export default async function handler(req, res) {
           .from('complex_event_session')
           .insert({
             ...r,
-            category_ids: categories.map(c => c.id),
+            subcategory_keys: categories.map(c => c.id),
             complex_event_id: newEventId,
             tenant_id: tenantId,
             zoom_meeting_id: null,

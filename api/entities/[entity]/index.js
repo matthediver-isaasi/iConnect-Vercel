@@ -35,6 +35,7 @@ import {
 } from '../../_lib/serverOwnedEntityBoundary.js';
 import { isEventFamilyEntity, authorizeGroupAdminEventWrite } from '../../_lib/groupAdminEventWrite.js';
 import { guardGenericSessionCategories, validateSessionCategoryIds, sessionCategoryViewer } from '../../_lib/sessionCategories.js';
+import { validateSessionCategoryIds as validateSessionSubcategoryKeys } from '../../_lib/sessionSubcategories.js';
 import { checkBadgeWriteAccess } from '../../_lib/badgeAccess.js';
 import { isResourceEntity, applyGroupResourceSubcategoryDefaults } from '../../_lib/groupAdminResourceWrite.js';
 import { normalizeTenantFormResourceTarget } from '../../_lib/resourceFormTarget.js';
@@ -2746,6 +2747,15 @@ export default async function handler(req, res) {
         });
         if (!authz.ok) {
           return res.status(authz.status || 403).json({ error: authz.error });
+        }
+        if (entityNorm === 'complexeventsession' && Object.hasOwn(sanitizedBody, 'subcategory_keys')) {
+          try {
+            sanitizedBody.subcategory_keys = await validateSessionSubcategoryKeys(supabase, tenantCtx.tenantId,
+              sanitizedBody.subcategory_keys, [], await sessionCategoryViewer(tenantCtx));
+            authz.body.subcategory_keys = sanitizedBody.subcategory_keys;
+          } catch (error) {
+            return res.status(error.status || 500).json({ error: error.status ? error.message : 'Failed to validate session subcategories' });
+          }
         }
         if (entityNorm === 'complexeventsession' && Object.hasOwn(sanitizedBody, 'category_ids')) {
           try {

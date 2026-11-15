@@ -42,6 +42,7 @@ import {
 } from '../../_lib/serverOwnedEntityBoundary.js';
 import { isEventFamilyEntity, authorizeGroupAdminEventWrite, authorizeGroupAdminEventAction } from '../../_lib/groupAdminEventWrite.js';
 import { guardGenericSessionCategories, validateSessionCategoryIds, sessionCategoryViewer } from '../../_lib/sessionCategories.js';
+import { validateSessionCategoryIds as validateSessionSubcategoryKeys } from '../../_lib/sessionSubcategories.js';
 import { checkBadgeWriteAccess } from '../../_lib/badgeAccess.js';
 import { deleteOrDeactivateBadge } from '../../_lib/badgeDelete.js';
 import { isResourceEntity, authorizeGroupAdminResourceWrite } from '../../_lib/groupAdminResourceWrite.js';
@@ -2111,6 +2112,15 @@ export default async function handler(req, res, dependencies = {}) {
           existingQuery = existingQuery.eq('tenant_id', tenantCtx.tenantId);
         }
         const { data: existingRow, error: existingError } = await existingQuery.maybeSingle();
+        if (entityNorm === 'complexeventsession' && Object.hasOwn(sanitizedBody, 'subcategory_keys')) {
+          try {
+            if (existingError || existingRow?.tenant_id !== tenantCtx.tenantId) return res.status(404).json({ error: 'Session not found' });
+            sanitizedBody.subcategory_keys = await validateSessionSubcategoryKeys(supabase, tenantCtx.tenantId,
+              sanitizedBody.subcategory_keys, existingRow.subcategory_keys, await sessionCategoryViewer(tenantCtx));
+          } catch (error) {
+            return res.status(error.status || 500).json({ error: error.status ? error.message : 'Failed to validate session subcategories' });
+          }
+        }
         if (entityNorm === 'complexeventsession' && Object.hasOwn(sanitizedBody, 'category_ids')) {
           try {
             if (existingError || existingRow?.tenant_id !== tenantCtx.tenantId) return res.status(404).json({ error: 'Session not found' });

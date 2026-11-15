@@ -21,10 +21,10 @@ test('cold portal editor discovers categories without the dashboard tenant singl
   const {state,hook}=hookFixture();
   hook({memberInfo:{id:'member',tenant_id:'portal-tenant',role_id:'role'},isAccessReady:true});
   assert.equal(state.query.enabled,true);
-  state.response=[{id:'category',name:'Name'}];
+  state.response=[{id:'category:Name',name:'Name',category_id:'category',category_name:'Parent'}];
   assert.deepEqual(await state.query.queryFn({}),state.response);
   assert.equal(state.requests[0].tenant,'portal-tenant');
-  assert.deepEqual(state.query.queryKey,['session-resource-categories','portal-tenant','member','role',1]);
+  assert.deepEqual(state.query.queryKey,['session-resource-subcategories-v2','portal-tenant','member','role',1]);
 });
 test('context changes and recovery cannot publish an old catalogue or expose cached labels',async()=>{
   const {state,hook}=hookFixture();

@@ -3,7 +3,7 @@ import { getTenantContext } from '../_lib/tenantContext.js';
 import { getZoomAccessTokenForTenant } from '../_lib/zoomClient.js';
 import { recomputeComplexEventDates } from '../_lib/complexEventDateSync.js';
 import { authorizeGroupAdminEventAction, authorizeGroupAdminEventWrite } from '../_lib/groupAdminEventWrite.js';
-import { resolveSessionCategories, validateSessionCategoryIds, sessionCategoryViewer } from '../_lib/sessionCategories.js';
+import { resolveSessionCategories, validateSessionCategoryIds, sessionCategoryViewer } from '../_lib/sessionSubcategories.js';
 import { fromZonedTime, formatInTimeZone } from 'date-fns-tz';
 
 // Converts a datetime-local string (e.g. "2025-06-15T10:00") representing a time
@@ -185,7 +185,7 @@ export default async function handler(req, res) {
     try {
       const { data: session, error } = await supabase
         .from('complex_event_session')
-        .select(`${SESSION_FIELDS}, category_ids`)
+        .select(`${SESSION_FIELDS}, subcategory_keys`)
         .eq('id', id)
         .eq('tenant_id', tenantId)
         .single();
@@ -221,7 +221,7 @@ export default async function handler(req, res) {
 
       const { data: existing, error: fetchError } = await supabase
         .from('complex_event_session')
-        .select(`${SESSION_FIELDS}, category_ids`)
+        .select(`${SESSION_FIELDS}, subcategory_keys`)
         .eq('id', id)
         .eq('tenant_id', tenantId)
         .single();
@@ -238,7 +238,7 @@ export default async function handler(req, res) {
         const access = await authorizeGroupAdminEventAction({ req, tenantCtx, eventId: body.complex_event_id, eventTable: 'complex_event', requireTypeEnabled: true });
         if (!access.ok) return res.status(access.status || 403).json({ error: access.error });
       }
-      const categoryIds = await validateSessionCategoryIds(supabase, tenantId, body.category_ids, existing.category_ids, await sessionCategoryViewer(tenantCtx));
+      const categoryIds = await validateSessionCategoryIds(supabase, tenantId, body.subcategory_keys, existing.subcategory_keys, await sessionCategoryViewer(tenantCtx));
 
       const skipOverlapCheck = req.query.skipOverlapCheck === 'true';
 
@@ -358,7 +358,7 @@ export default async function handler(req, res) {
         'attendance_policy_override'
       ];
       const dbUpdates = { updated_at: new Date().toISOString() };
-      if (categoryIds !== undefined) dbUpdates.category_ids = categoryIds;
+      if (categoryIds !== undefined) dbUpdates.subcategory_keys = categoryIds;
       for (const field of ALLOWED_FIELDS) {
         if (field in body) {
           dbUpdates[field] = body[field];
@@ -378,7 +378,7 @@ export default async function handler(req, res) {
         .update(dbUpdates)
         .eq('id', id)
         .eq('tenant_id', tenantId)
-        .select(`${SESSION_FIELDS}, category_ids`)
+        .select(`${SESSION_FIELDS}, subcategory_keys`)
         .single();
 
       if (updateError) {

@@ -4,7 +4,7 @@ import { sendSessionUnavailable } from '../_lib/sessionAvailability.js';
 import { getZoomAccessTokenForTenant } from '../_lib/zoomClient.js';
 import { recomputeComplexEventDates } from '../_lib/complexEventDateSync.js';
 import { authorizeGroupAdminEventAction, authorizeGroupAdminEventWrite } from '../_lib/groupAdminEventWrite.js';
-import { resolveSessionCategories, validateSessionCategoryIds, sessionCategoryViewer, listSessionCategories } from '../_lib/sessionCategories.js';
+import { resolveSessionCategories, validateSessionCategoryIds, sessionCategoryViewer, listSessionCategories } from '../_lib/sessionSubcategories.js';
 import { fromZonedTime, formatInTimeZone } from 'date-fns-tz';
 
 // Converts a datetime-local string (e.g. "2025-06-15T10:00") representing a time
@@ -215,7 +215,7 @@ export default async function handler(req, res) {
 
       const { data: sessions, error } = await supabase
         .from('complex_event_session')
-        .select(`${SESSION_FIELDS}, category_ids`)
+        .select(`${SESSION_FIELDS}, subcategory_keys`)
         .eq('complex_event_id', event_id)
         .eq('tenant_id', tenantId)
         .order('display_order', { ascending: true })
@@ -284,7 +284,7 @@ export default async function handler(req, res) {
       });
       if (!authz.ok) return res.status(authz.status || 403).json({ error: authz.error });
       req.body = authz.body;
-      const categoryIds = await validateSessionCategoryIds(supabase, tenantId, req.body.category_ids, [], await sessionCategoryViewer(tenantCtx));
+      const categoryIds = await validateSessionCategoryIds(supabase, tenantId, req.body.subcategory_keys, [], await sessionCategoryViewer(tenantCtx));
       const {
         complex_event_id,
         event_id,
@@ -348,7 +348,7 @@ export default async function handler(req, res) {
       }
 
       const sessionData = {
-        category_ids: categoryIds || [],
+        subcategory_keys: categoryIds || [],
         complex_event_id: effectiveEventId,
         tenant_id: tenantId,
         title,
@@ -404,7 +404,7 @@ export default async function handler(req, res) {
       const { data: session, error: insertError } = await supabase
         .from('complex_event_session')
         .insert(sessionData)
-        .select(`${SESSION_FIELDS}, category_ids`)
+        .select(`${SESSION_FIELDS}, subcategory_keys`)
         .single();
 
       if (insertError) {

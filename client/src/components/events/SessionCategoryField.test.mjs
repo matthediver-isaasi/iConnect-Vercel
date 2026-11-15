@@ -54,15 +54,15 @@ test("failed catalogue retains selections, supports removal and retry, then reco
   const fixture = await mount(Field, props);
   try {
     assert.match(fixture.host.textContent, /Saved assignments have been kept/);
-    const remove = fixture.host.querySelector('[aria-label="Remove Saved category"]');
+    const remove = fixture.host.querySelector('[aria-label="Remove Saved subcategory"]');
     assert.ok(remove);
     await act(async () => remove.click());
     assert.deepEqual(changed, ["missing"]);
     const retry = [...fixture.host.querySelectorAll("button")].find(button => button.textContent.includes("Retry"));
     await act(async () => retry.click());
     assert.equal(retries, 1);
-    await fixture.render({ ...props, query: { data: [{ id: "saved", name: "Clinical practice" }], isError: false } });
-    assert.ok(fixture.host.querySelector('[aria-label="Remove Unavailable category"]'));
+    await fixture.render({ ...props, query: { data: [{ id: "saved", name: "Clinical practice", category_id: "clinical", category_name: "Clinical" }], isError: false } });
+    assert.ok(fixture.host.querySelector('[aria-label="Remove Unavailable subcategory"]'));
     const checkbox = fixture.host.querySelector('input[type="checkbox"]');
     assert.equal(checkbox.checked, true);
     await act(async () => checkbox.click());
@@ -75,12 +75,43 @@ test("loading and empty catalogue states are explicit and do not change IDs", as
   const props = { value: ["saved"], onChange() { mutations++; }, query: { isPending: true } };
   const fixture = await mount(Field, props);
   try {
-    assert.match(fixture.host.querySelector('[role="status"]').textContent, /Loading categories/);
-    assert.ok(fixture.host.querySelector('[aria-label="Remove Saved category"]'));
+    assert.match(fixture.host.querySelector('[role="status"]').textContent, /Loading subcategories/);
+    assert.ok(fixture.host.querySelector('[aria-label="Remove Saved subcategory"]'));
     await fixture.render({ ...props, query: { data: [] } });
-    assert.match(fixture.host.textContent, /No active categories/);
-    assert.ok(fixture.host.querySelector('[aria-label="Remove Unavailable category"]'));
+    assert.match(fixture.host.textContent, /No active subcategories/);
+    assert.ok(fixture.host.querySelector('[aria-label="Remove Unavailable subcategory"]'));
     assert.equal(mutations, 0);
+  } finally { await fixture.cleanup(); }
+});
+
+test("non-selectable parent headings group child checkboxes; selection preserves hidden keys", async () => {
+  const rows = [
+    { id: "clinical:Practice", name: "Practice", category_id: "clinical", category_name: "Clinical", display_order: 1 },
+    { id: "clinical:Research", name: "Research", category_id: "clinical", category_name: "Clinical", display_order: 2 },
+    { id: "policy:Research", name: "Research", category_id: "policy", category_name: "Policy", display_order: 3 },
+    { id: "clinical:Retired", name: "Retired", category_id: "clinical", category_name: "Clinical", is_active: false },
+    { id: "legacy-parent", name: "Legacy parent" },
+  ];
+  let changed;
+  const hidden = "private:Do not expose this key";
+  const props = { value: [hidden, "clinical:Research"], onChange: keys => { changed = keys; }, query: { data: rows } };
+  const fixture = await mount(Field, props);
+  try {
+    assert.deepEqual([...fixture.host.querySelectorAll("h4")].map(el => el.textContent), ["Clinical", "Policy"]);
+    assert.equal(fixture.host.querySelectorAll("h4 input, h4 button").length, 0);
+    assert.equal(fixture.host.querySelectorAll('input[type="checkbox"]').length, 3);
+    assert.equal(fixture.host.querySelector('[role="group"][aria-label="Clinical"]').querySelectorAll("input").length, 2);
+    assert.doesNotMatch(fixture.host.textContent, /private:|Do not expose|Retired|Legacy parent/);
+    assert.equal(fixture.host.querySelector('span[title="Clinical"]').textContent, "Research");
+    const inputs = fixture.host.querySelectorAll("input");
+    await act(async () => inputs[2].click());
+    assert.deepEqual(changed, [hidden, "clinical:Research", "policy:Research"]);
+    await fixture.render({ ...props, value: changed });
+    await act(async () => fixture.host.querySelectorAll("input")[1].click());
+    assert.deepEqual(changed, [hidden, "policy:Research"]);
+    await fixture.render({ ...props, value: changed });
+    await act(async () => fixture.host.querySelector('[aria-label="Remove Unavailable subcategory"]').click());
+    assert.deepEqual(changed, ["policy:Research"]);
   } finally { await fixture.cleanup(); }
 });
 

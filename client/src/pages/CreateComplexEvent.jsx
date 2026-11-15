@@ -734,7 +734,7 @@ export default function CreateComplexEvent() {
     image_focal_point: null,
     use_event_image: true,
     speaker_ids: [],
-    category_ids: [],
+    subcategory_keys: [],
     start_time: "",
     end_time: "",
     location: "",
@@ -1339,7 +1339,7 @@ export default function CreateComplexEvent() {
         ...s,
         _localId: s.id,
         speaker_ids: s.speaker_ids || [],
-        category_ids: sessionCategoryIds(s.category_ids),
+        subcategory_keys: sessionCategoryIds(s.subcategory_keys),
         speaker_names: s.speaker_names || [],
         track_ids: s.track_ids || [],
         image_focal_point: s.image_focal_point || null,
@@ -1567,7 +1567,7 @@ export default function CreateComplexEvent() {
         image_focal_point: session.image_focal_point || null,
         use_event_image: session.use_event_image !== undefined ? session.use_event_image : !session.image_url,
         speaker_ids: session.speaker_ids || [],
-        category_ids: sessionCategoryIds(session.category_ids),
+        subcategory_keys: sessionCategoryIds(session.subcategory_keys),
         start_time: toLocalDatetimeStr(session.start_time),
         end_time: toLocalDatetimeStr(session.end_time),
         location: session.location || "",
@@ -1608,7 +1608,7 @@ export default function CreateComplexEvent() {
         image_focal_point: null,
         use_event_image: true,
         speaker_ids: [],
-        category_ids: [],
+        subcategory_keys: [],
         start_time: prefillStartTime,
         end_time: "",
         location: "",
@@ -2142,7 +2142,7 @@ export default function CreateComplexEvent() {
           image_url: sessionImageUrl,
           image_focal_point: session.use_event_image ? null : (session.image_focal_point || null),
           speaker_ids: session.speaker_ids || [],
-          category_ids: sessionCategoryIds(session.category_ids),
+          subcategory_keys: sessionCategoryIds(session.subcategory_keys),
           speaker_names: session.speaker_names || [],
           start_time: session.start_time || null,
           end_time: session.end_time || null,
@@ -3854,7 +3854,7 @@ export default function CreateComplexEvent() {
                 <AdminScheduleGrid
                   sessions={sessions.map(session => ({
                     ...session,
-                    categories: resolveSessionCategories(session.category_ids, sessionCategoriesQuery.data, {
+                    categories: resolveSessionCategories(session.subcategory_keys, sessionCategoriesQuery.data, {
                       settled: !sessionCategoriesQuery.isPending && !sessionCategoriesQuery.isError,
                     }),
                   }))}
@@ -4901,8 +4901,8 @@ export default function CreateComplexEvent() {
               />
             </div>
             <SessionCategoryField
-              value={sessionForm.category_ids}
-              onChange={category_ids => setSessionForm(prev => ({ ...prev, category_ids }))}
+              value={sessionForm.subcategory_keys}
+              onChange={subcategory_keys => setSessionForm(prev => ({ ...prev, subcategory_keys }))}
               query={sessionCategoriesQuery}
             />
             <ItemCpdPointsField id="input-session-cpd-points"

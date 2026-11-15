@@ -85,13 +85,13 @@ export async function resolveSessionCategories(db, tenantId, sessions, viewer = 
 // The generic API is not a badge discovery API. Its unrestricted projections
 // must neither alias assignments nor search them to infer restricted IDs.
 export function guardGenericSessionCategories(req, res, entityNorm) {
-  if (/category_ids|complex_event_session/i.test(String(req.query?.expand || ''))
+  if (/category_ids|subcategory_keys|complex_event_session/i.test(String(req.query?.expand || ''))
     || (entityNorm === 'complexeventsession' && req.query?.expand)) {
     res.status(400).json({ error: 'Use the session API for session category projections' });
     return true;
   }
   if (entityNorm !== 'complexeventsession') return false;
-  if (/category_ids/i.test(JSON.stringify([req.query?.filter, req.query?.sort]))) {
+  if (/category_ids|subcategory_keys/i.test(JSON.stringify([req.query?.filter, req.query?.sort]))) {
     res.status(400).json({ error: 'Session category filtering is not supported' });
     return true;
   }
@@ -99,7 +99,7 @@ export function guardGenericSessionCategories(req, res, entityNorm) {
   const strip = value => {
     if (Array.isArray(value)) return value.map(strip);
     if (!value || typeof value !== 'object') return value;
-    return Object.fromEntries(Object.entries(value).filter(([key]) => key !== 'category_ids').map(([key, val]) => [key, strip(val)]));
+    return Object.fromEntries(Object.entries(value).filter(([key]) => key !== 'category_ids' && key !== 'subcategory_keys').map(([key, val]) => [key, strip(val)]));
   };
   res.json = value => json(strip(value));
   return false;

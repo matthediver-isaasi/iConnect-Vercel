@@ -14,7 +14,7 @@ export function useSessionCategories({ memberInfo, isAccessReady }) {
   const ready = isAccessReady && !!tenantId && !isViewerProtectedWorkPaused()
     && (!memberInfo?.tenant_id || !tenantIntent || memberInfo.tenant_id === tenantIntent);
   const query = useQuery({
-    queryKey: ["session-resource-categories", tenantId, memberInfo?.id, memberInfo?.role_id, generation],
+    queryKey: ["session-resource-subcategories-v2", tenantId, memberInfo?.id, memberInfo?.role_id, generation],
     enabled: ready,
     queryFn: async ({ signal }) => {
       const response = await adminFetch('/api/complex-event-sessions?catalogue=true', { signal, cache: 'no-store' }, tenantId);
