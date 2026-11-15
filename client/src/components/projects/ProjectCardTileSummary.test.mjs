@@ -94,3 +94,17 @@ test("persisted timestamp dates use written calendar days instead of shifting ac
   const doc = render({ title: "Local date", start_date: "2026-10-06T00:00:00Z", due_date: "2026-10-08T23:00:00-11:00" });
   assert.equal(doc.querySelector('[data-testid="tile-date-badge"]').textContent, "6 Oct – 8 Oct");
 });
+
+test("optional editor controls expose complete, reopen and busy states; display consumers stay non-interactive", () => {
+  for (const is_complete of [false, true]) {
+    const doc = new JSDOM(renderToStaticMarkup(React.createElement(Summary, {
+      card: { id: 'card', title: 'Task', is_complete }, onToggleComplete: () => {}, completionPending: true,
+    }))).window.document;
+    const button = doc.querySelector('button[role="checkbox"]');
+    assert.equal(button.getAttribute('aria-checked'), String(is_complete));
+    assert.equal(button.getAttribute('aria-label'), is_complete ? 'Reopen Task' : 'Complete Task');
+    assert.equal(button.getAttribute('aria-busy'), 'true');
+    assert.equal(button.disabled, true);
+    assert.equal(render({ title:'Task', is_complete }).querySelector('button'), null);
+  }
+});

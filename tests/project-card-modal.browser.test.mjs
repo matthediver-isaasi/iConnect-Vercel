@@ -20,6 +20,9 @@ async function setup() {
       import {Toaster} from 'sonner';
       import Modal from './client/src/components/sales/ProjectCardDetailModal.jsx';
       import {publishProjectCardUpdate} from './client/src/lib/projectBoardCache.js';
+      import Summary from './client/src/components/projects/ProjectCardTileSummary.jsx';
+      import {useProjectCardCompletion} from './client/src/components/projects/useProjectCardCompletion.js';
+      import {DragDropContext,Droppable,Draggable} from '@hello-pangea/dnd';
       const params=new URLSearchParams(location.search);
       const canEdit=!params.has('readonly');
       const card={id:'card',board_id:'board',list_id:'list',title:'Plan the autumn webinar',
@@ -30,9 +33,18 @@ async function setup() {
       client.setQueryData(['project-board','board'],{cards:[card],labels:[]});
       window.fixtureClient=client;
       function App(){
+        const [open,setOpen]=React.useState(!params.has('board'));
+        const completion=useProjectCardCompletion();
         const board=useQuery({queryKey:['project-board','board'],queryFn:()=>fetch('/api/projects/boards/board').then(r=>r.json())});
         return <><div data-testid="board-cover">{board.data.cards[0].cover_image||'No cover'}</div>
-          <Modal card={board.data.cards[0]} open onOpenChange={()=>{}} boardId="board"
+          <DragDropContext onDragStart={()=>window.fixtureDrags=(window.fixtureDrags||0)+1} onDragEnd={()=>{}}>
+          <Droppable droppableId="list">{drop=><div ref={drop.innerRef} {...drop.droppableProps}>
+          <Draggable draggableId="card" index={0} isDragDisabled={!canEdit}>{drag=>
+          <div ref={drag.innerRef} {...drag.draggableProps} {...drag.dragHandleProps} data-testid="summary-card" onClick={()=>setOpen(true)}>
+            <Summary card={board.data.cards[0]} completionPending={completion.pendingIds.has('card')}
+              onToggleComplete={canEdit?()=>completion.toggle(board.data.cards[0],true):undefined}/>
+          </div>}</Draggable>{drop.placeholder}</div>}</Droppable></DragDropContext>
+          <Modal card={board.data.cards[0]} open={open} onOpenChange={setOpen} boardId="board"
             labels={board.data.labels} lists={[{id:'list',name:'To do'}]}
             members={[{identity_id:'person',first_name:'Alex',last_name:'Example'}]}
             canEdit={canEdit} canManage={canEdit} canAssign={canEdit} canManageLabels={canEdit}
@@ -51,6 +63,7 @@ async function setup() {
   const config=loadConfig(`${process.cwd()}/tailwind.config.ts`);
   const css=(await postcss([tailwindcss({...config,content:[
     './client/src/components/sales/ProjectCardDetailModal.jsx',
+    './client/src/components/projects/ProjectCardTileSummary.jsx',
     './client/src/components/projects/CardAttachments.jsx',
     './client/src/components/projects/ActivityComposer.jsx',
     './client/src/components/projects/ProjectDescription.jsx',
@@ -380,32 +393,90 @@ for (const width of [1280,390]) test(`upload and header cover appear before slow
   } finally {await page.close();}
 });
 
-for (const width of [1280,390]) test(`completion draft tick/pill and save semantics at ${width}px`,async()=>{
+for (const width of [1280,390]) test(`immediate detail and summary completion persists at ${width}px`,async()=>{
   const page=await open(width);
   try {
-    const toggle=page.getByRole('checkbox',{name:'Mark card complete'});
+    let saved = false;
+    const writes = [];
+    await page.route('**/api/projects/cards/card', async route => {
+      if (route.request().method() === 'PATCH') {
+        const patch = route.request().postDataJSON(); writes.push(patch); saved = patch.is_complete;
+      }
+      return route.fulfill({contentType:'application/json',body:JSON.stringify({
+        card:{id:'card',board_id:'board',is_complete:saved},comments:[],activity:[],attachments:[],
+      })});
+    });
+    await page.route('**/api/projects/boards/board', route => route.abort());
+    const toggle=page.getByTestId('button-toggle-card-complete');
     assert.equal(await toggle.getAttribute('aria-checked'),'false');
     assert.equal(await page.getByTestId('card-complete-pill').count(),0);
     await toggle.click();
-    assert.equal(await toggle.getAttribute('aria-checked'),'true');
+    await page.waitForFunction(()=>document.querySelector('[data-testid="button-toggle-card-complete"]').getAttribute('aria-checked')==='true');
     assert.equal(await toggle.locator('svg').count(),1);
     await page.waitForFunction(()=>getComputedStyle(document.querySelector('[data-testid="button-toggle-card-complete"]')).backgroundColor==='rgb(90, 127, 35)');
     await page.getByTestId('card-complete-pill').waitFor();
     assert.equal(await page.evaluate(()=>window.savedPatch),undefined);
+    assert.deepEqual(writes,[{is_complete:true}]);
     await toggle.click();
-    assert.equal(await page.getByTestId('card-complete-pill').count(),0);
+    await page.waitForFunction(()=>!document.querySelector('[data-testid="card-complete-pill"]'));
     await toggle.focus();
     await page.keyboard.press('Space');
     await page.getByTestId('card-complete-pill').waitFor();
-    await page.getByTestId('button-save-card').click();
-    await page.waitForFunction(()=>window.savedPatch?.is_complete===true);
+    await page.getByTestId('card-detail-modal').getByRole('button',{name:'Close',exact:true}).click();
+    await page.getByTestId('card-detail-modal').waitFor({state:'detached'});
+    const summary = page.getByTestId('tile-complete-card');
+    assert.equal(await summary.getAttribute('aria-checked'),'true');
+    await summary.focus(); await page.keyboard.press('Enter');
+    await page.waitForFunction(()=>document.querySelector('[data-testid="tile-complete-card"]').getAttribute('aria-checked')==='false');
+    assert.equal(await page.getByTestId('card-detail-modal').count(),0);
+    await summary.click();
+    await page.waitForFunction(()=>document.querySelector('[data-testid="tile-complete-card"]').getAttribute('aria-checked')==='true');
+    assert.equal(await page.evaluate(()=>window.fixtureDrags||0),0);
+    await page.getByTestId('summary-card').getByText('Plan the autumn webinar').click();
+    assert.equal(await toggle.getAttribute('aria-checked'),'true');
+    await page.reload();
+    await page.waitForFunction(()=>document.querySelector('[data-testid="button-toggle-card-complete"]')?.getAttribute('aria-checked')==='true');
+  } finally {await page.close();}
+});
+
+test('summary failure and pending actions retain confirmed state and recover without opening or dragging', async () => {
+  const page=await open(390);
+  try {
+    await page.getByTestId('card-detail-modal').getByRole('button',{name:'Close',exact:true}).click();
+    await page.getByTestId('card-detail-modal').waitFor({state:'detached'});
+    let writes=0, release, fail=true;
+    await page.route('**/api/projects/cards/card',async route=>{
+      if(route.request().method()!=='PATCH') return route.abort();
+      writes++;
+      await new Promise(resolve=>{release=resolve;});
+      return route.fulfill({status:fail?403:200,contentType:'application/json',
+        body:JSON.stringify(fail?{error:'Completion permission denied'}:{card:{id:'card',is_complete:true}})});
+    });
+    await page.route('**/api/projects/boards/board',route=>route.abort());
+    const toggle=page.getByTestId('tile-complete-card');
+    await toggle.evaluate(el=>{el.click();el.click();});
+    await page.waitForFunction(()=>document.querySelector('[data-testid="tile-complete-card"]').disabled);
+    assert.equal(writes,1);
+    assert.equal(await toggle.getAttribute('aria-checked'),'false');
+    release();
+    await page.getByText('Completion permission denied',{exact:true}).waitFor();
+    assert.equal(await toggle.getAttribute('aria-checked'),'false');
+    fail=false;
+    await toggle.click();
+    while(writes<2) await new Promise(resolve=>setTimeout(resolve,10));
+    release();
+    await page.waitForFunction(()=>document.querySelector('[data-testid="tile-complete-card"]').getAttribute('aria-checked')==='true');
+    assert.equal(await page.getByTestId('card-detail-modal').count(),0);
+    assert.equal(await page.evaluate(()=>window.fixtureDrags||0),0);
+    await page.goto(origin+'/?board&readonly');
+    assert.equal(await page.getByTestId('tile-complete-card').count(),0);
   } finally {await page.close();}
 });
 
 test('read-only completed card has disabled completion and no cover actions',async()=>{
   const page=await open(390,'?readonly&complete');
   try {
-    const toggle=page.getByRole('checkbox',{name:'Mark card complete'});
+    const toggle=page.getByRole('checkbox',{name:'Reopen card'});
     assert.ok(await toggle.isDisabled());
     assert.equal(await toggle.getAttribute('aria-checked'),'true');
     assert.equal(await toggle.locator('svg').count(),1);

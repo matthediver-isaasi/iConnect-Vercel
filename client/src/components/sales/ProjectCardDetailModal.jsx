@@ -21,6 +21,7 @@ import ActivityComposer from "@/components/projects/ActivityComposer";
 import ProjectDescription from "@/components/projects/ProjectDescription";
 import { projectTaskRequest, refreshSalesProjects } from "./useSalesProjectTasks";
 import { TaskError } from "./SalesProjectTaskStates";
+import { useProjectCardCompletion } from "@/components/projects/useProjectCardCompletion";
 
 const LABEL_COLORS = ["#ef4444", "#f97316", "#f59e0b", "#eab308", "#84cc16", "#22c55e", "#14b8a6", "#06b6d4", "#3b82f6", "#6366f1", "#8b5cf6", "#a855f7", "#ec4899", "#f43f5e", "#78716c"];
 const editableValues = (card) => ({
@@ -69,6 +70,8 @@ export default function CardDetailModal({
   const [labelOverrides, setLabelOverrides] = useState({});
   const [showActivity, setShowActivity] = useState(true);
   const [saving, setSaving] = useState(false);
+  const savePending = useRef(false);
+  const completion = useProjectCardCompletion();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
@@ -259,11 +262,12 @@ export default function CardDetailModal({
     }));
   };
   const save = async () => {
-    if (!canEdit || saving) return;
+    if (!canEdit || savePending.current || completion.isPending(card.id)) return;
+    savePending.current = true;
     setSaving(true);
     const savingCardId = card.id;
     try {
-      const changes = Object.fromEntries([...dirtyFields.current].filter((key) => key !== "list_id")
+      const changes = Object.fromEntries([...dirtyFields.current].filter((key) => key !== "list_id" && key !== "is_complete")
         .map((key) => [key, ["start_date", "due_date"].includes(key) ? editedCard[key] || null : editedCard[key]]));
       const description = await descriptionEditor.current?.prepare(editedCard.description || "");
       if (description !== undefined && description !== (editedCard.description || "")) changes.description = description;
@@ -273,7 +277,7 @@ export default function CardDetailModal({
       }
       await refresh();
       if (activeCardId.current === savingCardId) onOpenChange(false);
-    } catch (error) { reportError(error); } finally { setSaving(false); }
+    } catch (error) { reportError(error); } finally { savePending.current = false; setSaving(false); }
   };
   const deleteCard = async () => {
     if (!canManage || saving || deletePending.current) return;
@@ -301,7 +305,7 @@ export default function CardDetailModal({
         <section aria-label="Card details" className="min-w-0 px-5 pb-6 pt-8 md:overflow-y-auto md:px-8">
           <DialogHeader className="text-left">
             <DialogTitle className="flex items-start gap-3">
-              <button type="button" role="checkbox" aria-label="Mark card complete" aria-checked={Boolean(editedCard.is_complete)} data-testid="button-toggle-card-complete" disabled={!canEdit || saving} onClick={() => editField("is_complete", !editedCard.is_complete)} className={`mt-2 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-default ${editedCard.is_complete ? "border-[#5a7f23] bg-[#5a7f23] text-white" : "border-muted-foreground/50 bg-background text-muted-foreground hover:border-[#5a7f23]"}`}>
+              <button type="button" role="checkbox" aria-label={editedCard.is_complete ? "Reopen card" : "Mark card complete"} aria-checked={Boolean(editedCard.is_complete)} aria-busy={completion.pendingIds.has(card.id)} data-testid="button-toggle-card-complete" disabled={!canEdit || saving || completion.pendingIds.has(card.id)} onClick={() => { if (!savePending.current) void completion.toggle(liveCard, canEdit); }} className={`mt-2 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-default ${editedCard.is_complete ? "border-[#5a7f23] bg-[#5a7f23] text-white" : "border-muted-foreground/50 bg-background text-muted-foreground hover:border-[#5a7f23]"}`}>
                 {editedCard.is_complete && <Check aria-hidden="true" className="h-4 w-4" strokeWidth={3} />}
               </button>
               {canEdit ? <Textarea aria-label="Card title" data-testid="input-card-title" value={editedCard.title || ""} disabled={saving} onChange={(event) => editField("title", event.target.value)} rows={2} className={`min-h-[72px] resize-none border-transparent bg-transparent px-2 text-xl md:text-xl font-semibold leading-snug shadow-none focus-visible:border-input ${editedCard.is_complete ? "line-through text-muted-foreground" : ""}`} />
@@ -432,7 +436,7 @@ export default function CardDetailModal({
           setConfirmDelete(true);
         }}><Trash2 className="mr-2 h-4 w-4" />Delete card</Button>}
         <Button variant="outline" disabled={saving || deleting} onClick={() => onOpenChange(false)}>{canEdit ? "Cancel" : "Close"}</Button>
-        {canEdit && <Button data-testid="button-save-card" disabled={!editedCard.title?.trim() || saving || deleting} onClick={save}>{saving ? "Saving…" : "Save changes"}</Button>}
+        {canEdit && <Button data-testid="button-save-card" disabled={!editedCard.title?.trim() || saving || deleting || completion.pendingIds.has(card.id)} onClick={save}>{saving ? "Saving…" : "Save changes"}</Button>}
       </DialogFooter>
     </DialogContent>
   </Dialog>

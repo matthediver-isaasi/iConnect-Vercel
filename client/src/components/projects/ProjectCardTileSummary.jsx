@@ -2,8 +2,8 @@ import { AlignLeft, Bell, Check, Clock, MessageSquare, Paperclip } from "lucide-
 import { format } from "date-fns";
 import { isCardOverdue, readCalendarDate } from "./projectCalendarDates";
 
-/** Non-interactive summary: the containing card keeps its click/drag behaviour. */
-export default function ProjectCardTileSummary({ card, children, hasUnreadMention = false, compact = false }) {
+/** Display-only unless the board supplies a completion action. */
+export default function ProjectCardTileSummary({ card, children, hasUnreadMention = false, compact = false, onToggleComplete, completionPending = false }) {
   const start = readCalendarDate(card.start_date);
   const due = readCalendarDate(card.due_date);
   const overdue = isCardOverdue(card);
@@ -20,7 +20,17 @@ export default function ProjectCardTileSummary({ card, children, hasUnreadMentio
 
   return <>
     <p className="flex min-w-0 items-start gap-2 text-sm font-medium">
-      {card.is_complete && <span role="img" aria-label="Completed" title="Completed" className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#5a7f23] text-white">
+      {onToggleComplete ? <button type="button" role="checkbox"
+        aria-label={`${card.is_complete ? "Reopen" : "Complete"} ${card.title}`}
+        aria-checked={Boolean(card.is_complete)} aria-busy={completionPending} disabled={completionPending}
+        data-testid={`tile-complete-${card.id}`}
+        onPointerDown={event => event.stopPropagation()} onMouseDown={event => event.stopPropagation()}
+        onTouchStart={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}
+        onKeyUp={event => event.stopPropagation()}
+        onClick={event => { event.stopPropagation(); if (!completionPending) onToggleComplete(); }}
+        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60 ${card.is_complete ? "border-[#5a7f23] bg-[#5a7f23] text-white" : "border-muted-foreground/50"}`}>
+        {card.is_complete && <Check aria-hidden="true" className="h-4 w-4" strokeWidth={3} />}
+      </button> : card.is_complete && <span role="img" aria-label="Completed" title="Completed" className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#5a7f23] text-white">
         <Check aria-hidden="true" className="h-3 w-3" strokeWidth={3} />
       </span>}
       <span className="min-w-0 [overflow-wrap:anywhere]">{card.title}</span>

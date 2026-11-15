@@ -35,6 +35,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { publishCreatedProjectCard, publishProjectCardUpdate } from "@/lib/projectBoardCache";
 import { useProjectListWrites } from "@/components/projects/useProjectListWrites";
 import ProjectListColour from "@/components/projects/ProjectListColour";
+import { useProjectCardCompletion } from "@/components/projects/useProjectCardCompletion";
 import { listAppearance } from "../../../shared/projectListAppearance.mjs";
 
 const PRIORITY_COLORS = {
@@ -66,6 +67,7 @@ export default function ProjectBoardPage() {
   const [boardView, setBoardView] = useState('board');
 
   const queryClient = useQueryClient();
+  const completion = useProjectCardCompletion();
   useEffect(() => {
     setSelectedCard(null);
     setShowCardDetail(false);
@@ -101,6 +103,10 @@ export default function ProjectBoardPage() {
   });
 
   useProjectBoardRealtime(boardId);
+  useEffect(() => {
+    setSelectedCard(current => current
+      ? boardData?.cards?.find(item => item.id === current.id) || current : current);
+  }, [boardData?.cards]);
   const listWrites = useProjectListWrites(boardId, boardData);
   const boardFilters = useProjectBoardFilters(boardId, boardData, accessChecked && !error && Boolean(boardData?.board));
   const inboxSummary = useBoardInboxSummary(boardId, accessChecked && !error && Boolean(boardData?.board));
@@ -589,7 +595,9 @@ export default function ProjectBoardPage() {
                                         })}
                                       </div>
                                     )}
-                                    <ProjectCardTileSummary card={card} hasUnreadMention={unreadCardIds.has(card.id)}>
+                                    <ProjectCardTileSummary card={card} hasUnreadMention={unreadCardIds.has(card.id)}
+                                      completionPending={completion.pendingIds.has(card.id)}
+                                      onToggleComplete={canEdit ? () => completion.toggle(card, canEdit) : undefined}>
                                       {card.priority && card.priority !== 'none' && (
                                         <Badge className={`text-xs ${PRIORITY_COLORS[card.priority]}`}>
                                           {card.priority}

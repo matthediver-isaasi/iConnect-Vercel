@@ -54,7 +54,7 @@ await build({
           export const DialogFooter = ({ children, ...props }) => <footer {...props}>{children}</footer>;
         ` };
         return { loader: "jsx", contents: `
-          export const Select = ({ value, disabled, onValueChange, children }) => <div><select aria-label="fixture-select" value={value} disabled={disabled} onChange={e => onValueChange(e.target.value)}><option value="list-a">Planning</option><option value="none">none</option><option value="high">high</option></select>{children}</div>;
+          export const Select = ({ value, disabled, onValueChange, children }) => <div><select aria-label="fixture-select" value={value} disabled={disabled} onChange={e => onValueChange(e.target.value)}><option value="list-a">Planning</option><option value="list-b">Doing</option><option value="none">none</option><option value="high">high</option></select>{children}</div>;
           export const SelectTrigger = ({ children, ...props }) => <div {...props}>{children}</div>;
           export const SelectValue = () => null;
           export const SelectContent = () => null;
@@ -95,6 +95,10 @@ async function mount(overrides = {}, fixture = {}) {
     }
     let result;
     if (url === "/api/projects/cards/card-a" && method === "GET") result = detail;
+    else if (url === "/api/projects/cards/card-a" && method === "PATCH") {
+      detail.card = { ...detail.card, ...body };
+      result = { card: detail.card };
+    }
     else if (url === "/api/projects/boards/board-a/inbox" && method === "PATCH") result = { success: true };
     else if (url === "/api/projects/boards/board-a/labels") result = method === "DELETE" ? { success: true } : { label: { ...body, id: body.id || "label-new", board_id: "board-a" } };
     else if (url === "/api/projects/cards/card-a/labels") {
@@ -411,31 +415,40 @@ test("failed card deletion keeps confirmation, error feedback and draft; retry s
   } finally { await app.close(); }
 });
 
-test("completion circle and due date pill follow reversible drafts without writing until save", async () => {
+test("completion persists separately, preserves drafts and survives closing and reopening", async () => {
   const app = await mount();
   try {
     const toggle = app.container.querySelector('[data-testid="button-toggle-card-complete"]');
     assert.equal(toggle.getAttribute("role"), "checkbox");
     assert.equal(toggle.getAttribute("aria-checked"), "false");
     assert.equal(app.container.querySelector('[data-testid="card-complete-pill"]'), null);
+    await type(app.container, '[data-testid="input-card-title"]', "Unsaved title");
+    await type(app.container, '[data-testid="input-card-description"]', "Unsaved description");
+    await type(app.container, '[data-testid="input-due-date"]', "2026-12-01");
     await click(app.container, '[data-testid="button-toggle-card-complete"]');
     assert.equal(toggle.getAttribute("aria-checked"), "true");
     assert.match(toggle.className, /bg-\[#5a7f23\]/);
     assert.ok(toggle.querySelector("svg"));
     assert.equal(app.container.querySelector('[data-testid="card-complete-pill"]').textContent, "Complete");
     assert.deepEqual(app.updates, []);
-    // Remote refresh cannot overwrite the completion draft.
-    await act(async () => app.client.setQueryData(["card-detail", "card-a"], {
-      ...app.detail, card: { ...app.detail.card, is_complete: false },
-    }));
-    await settle();
-    assert.equal(toggle.getAttribute("aria-checked"), "true");
+    assert.equal(app.detail.card.is_complete, true);
+    assert.equal(app.client.getQueryData(["project-board", "board-a"]).cards[0].is_complete, true);
+    assert.equal(app.container.querySelector('[data-testid="input-card-title"]').value, "Unsaved title");
+    assert.equal(app.container.querySelector('[data-testid="input-card-description"]').value, "Unsaved description");
+    assert.equal(app.container.querySelector('[data-testid="input-due-date"]').value, "2026-12-01");
+    await click(app.container, '[data-testid="button-save-card"]');
+    assert.deepEqual(app.updates, [{ title: "Unsaved title", description: "Unsaved description", due_date: "2026-12-01" }]);
+    app.props.open = false; await app.render();
+    app.props.open = true; await app.render();
+    const reopened = app.container.querySelector('[data-testid="button-toggle-card-complete"]');
+    assert.equal(reopened.getAttribute("aria-checked"), "true");
     await click(app.container, '[data-testid="button-toggle-card-complete"]');
-    assert.equal(toggle.getAttribute("aria-checked"), "false");
+    assert.equal(reopened.getAttribute("aria-checked"), "false");
     assert.equal(app.container.querySelector('[data-testid="card-complete-pill"]'), null);
     await click(app.container, '[data-testid="button-toggle-card-complete"]');
     await click(app.container, '[data-testid="button-save-card"]');
-    assert.deepEqual(app.updates, [{ is_complete: true }]);
+    assert.equal(app.detail.card.is_complete, true);
+    assert.ok(app.updates.every(patch => !Object.hasOwn(patch, "is_complete")));
   } finally { await app.close(); }
 });
 
@@ -454,13 +467,72 @@ test("completed read-only cards show the tick and Complete pill but cannot toggl
   } finally { await app.close(); }
 });
 
-test("a completed card can be reopened as a draft and saves false", async () => {
+test("pending completion blocks rapid toggles and Save; failure retains drafts and retry works", async () => {
+  let finish, fail = true;
+  const app = await mount({}, { respond: (url, options, detail) => {
+    if (url === "/api/projects/cards/card-a" && options.method === "PATCH") {
+      return new Promise(resolve => { finish = () => {
+        if (fail) resolve(response({ error: "Completion denied" }, 403));
+        else {
+          detail.card = { ...detail.card, ...JSON.parse(options.body) };
+          resolve(response({ card: detail.card }));
+        }
+      }; });
+    }
+  } });
+  try {
+    await type(app.container, '[data-testid="input-card-title"]', "Keep draft");
+    const toggle = app.container.querySelector('[data-testid="button-toggle-card-complete"]');
+    await act(async () => { toggle.click(); toggle.click(); });
+    assert.equal(app.calls.filter(c => c.method === "PATCH" && c.url.endsWith("/card-a")).length, 1);
+    assert.equal(toggle.disabled, true);
+    assert.equal(toggle.getAttribute("aria-checked"), "false");
+    assert.equal(app.container.querySelector('[data-testid="button-save-card"]').disabled, true);
+    await act(async () => finish()); await settle();
+    assert.equal(toggle.disabled, false);
+    assert.equal(toggle.getAttribute("aria-checked"), "false");
+    assert.match(globalThis.cardMentionErrors.at(-1)[0], /Completion denied/);
+    assert.equal(app.container.querySelector('[data-testid="input-card-title"]').value, "Keep draft");
+    fail = false;
+    await click(app.container, '[data-testid="button-toggle-card-complete"]');
+    await act(async () => finish()); await settle();
+    assert.equal(toggle.getAttribute("aria-checked"), "true");
+  } finally { await app.close(); }
+});
+
+test("completion neither moves an unsaved list nor commits other drafts; Cancel retains only completion", async () => {
+  const app = await mount();
+  try {
+    await type(app.container, '[data-testid="input-card-title"]', "Discard title");
+    await type(app.container, '[data-testid="input-card-description"]', "Discard description");
+    await type(app.container, '[data-testid="input-start-date"]', "2026-12-02");
+    const list = app.container.querySelector('select');
+    await act(async () => {
+      list.value = "list-b";
+      list.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    await click(app.container, '[data-testid="button-toggle-card-complete"]');
+    assert.equal(list.value, "list-b");
+    assert.equal(app.detail.card.list_id, "list-a");
+    assert.equal(app.calls.some(call => call.url.endsWith('/move')), false);
+    assert.deepEqual(app.updates, []);
+    app.props.open = false; await app.render();
+    app.props.open = true; await app.render();
+    assert.equal(app.container.querySelector('select').value, "list-a");
+    assert.equal(app.container.querySelector('[data-testid="input-card-title"]').value, fixtureCard.title);
+    assert.equal(app.container.querySelector('[data-testid="input-card-description"]').value, "");
+    assert.equal(app.container.querySelector('[data-testid="input-start-date"]').value, fixtureCard.start_date);
+    assert.equal(app.container.querySelector('[data-testid="button-toggle-card-complete"]').getAttribute("aria-checked"), "true");
+  } finally { await app.close(); }
+});
+
+test("a completed card reopens immediately without Save", async () => {
   const app = await mount({ card: { ...fixtureCard, is_complete: true } });
   try {
     await click(app.container, '[data-testid="button-toggle-card-complete"]');
     assert.equal(app.container.querySelector('[data-testid="card-complete-pill"]'), null);
-    await click(app.container, '[data-testid="button-save-card"]');
-    assert.deepEqual(app.updates, [{ is_complete: false }]);
+    assert.equal(app.detail.card.is_complete, false);
+    assert.deepEqual(app.updates, []);
   } finally { await app.close(); }
 });
 
