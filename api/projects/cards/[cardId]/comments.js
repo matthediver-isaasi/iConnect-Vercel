@@ -1,5 +1,6 @@
 import { supabase } from '../../../_lib/database.js';
 import { getSession } from '../../../_lib/session.js';
+import { guardSalesLinkedProject } from '../../../_lib/salesLinkedProjectGuard.js';
 
 async function getBoardMembershipForCard(cardId, identityId) {
   const { data: card } = await supabase
@@ -51,11 +52,12 @@ export default async function handler(req, res) {
     if (!access?.membership) {
       return res.status(403).json({ error: 'Not a member of this board' });
     }
+    if (!await guardSalesLinkedProject(req, res, access.card.board_id)) return;
 
     if (req.method === 'GET') {
       const { data: comments, error } = await supabase
         .from('project_card_comment')
-        .select('*')
+        .select('*, images:project_comment_image(attachment:project_card_attachment(id,name,url,file_type,file_size))')
         .eq('card_id', cardId)
         .order('created_at', { ascending: true });
 
@@ -95,9 +97,14 @@ export default async function handler(req, res) {
         return res.status(403).json({ error: 'Viewers cannot comment' });
       }
 
-      const { content, mentionIdentityIds = [] } = req.body || {};
+      const { content, mentionIdentityIds = [], attachmentIds = [], requestId } = req.body || {};
+      const uuid = id => typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+      if (!Array.isArray(attachmentIds) || attachmentIds.length > 10 || attachmentIds.some(id => !uuid(id))
+        || (requestId !== undefined && !uuid(requestId)) || (attachmentIds.length && !requestId)) {
+        return res.status(400).json({ error: 'Invalid comment images or request ID' });
+      }
 
-      if (typeof content !== 'string' || !content.trim() || content.length > 20000) {
+      if (typeof content !== 'string' || (!content.trim() && !attachmentIds.length) || content.length > 20000) {
         return res.status(400).json({ error: 'Comment content is required' });
       }
       if (!Array.isArray(mentionIdentityIds) || mentionIdentityIds.length > 50
@@ -106,9 +113,10 @@ export default async function handler(req, res) {
       }
 
       const { data: comment, error } = await supabase
-        .rpc('create_project_comment_with_mentions', {
+        .rpc(requestId ? 'create_project_comment_with_images' : 'create_project_comment_with_mentions', {
           p_card_id: cardId, p_actor_id: session.identityId,
-          p_content: content.trim(), p_recipient_ids: [...new Set(mentionIdentityIds)]
+          p_content: content.trim(), p_recipient_ids: [...new Set(mentionIdentityIds)],
+          ...(requestId ? { p_attachment_ids: [...new Set(attachmentIds)], p_request_id: requestId } : {})
         });
 
       if (error) {

@@ -73,11 +73,12 @@ export default async function handler(req, res) {
         return res.status(404).json({ error: 'Card not found' });
       }
 
-      const { data: comments } = await supabase
+      const { data: comments, error: commentsError } = await supabase
         .from('project_card_comment')
-        .select('*')
+        .select('*, images:project_comment_image(attachment:project_card_attachment(id,name,url,file_type,file_size))')
         .eq('card_id', cardId)
         .order('created_at', { ascending: true });
+      if (commentsError) return res.status(500).json({ error: 'Failed to load comments and images' });
 
       const { data: attachments } = await supabase
         .from('project_card_attachment')

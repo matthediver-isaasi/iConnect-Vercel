@@ -6,7 +6,7 @@ import { Calendar, Check, History, MessageSquare, Pencil, Plus, Tag, Trash2, Use
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { apiRequest } from "@/lib/queryClient";
-import { publishProjectCardComment } from "@/lib/projectBoardCache";
+import { publishProjectCardAssignee } from "@/lib/projectBoardCache";
 import { CardAttachments, CardCoverSection } from "@/components/projects/CardAttachments";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -17,8 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import BoardMentionTextarea from "@/components/projects/BoardMentionTextarea";
-import { mentionIdentityIds } from "@/components/projects/boardMentionHelpers.mjs";
+import ActivityComposer from "@/components/projects/ActivityComposer";
 import { projectTaskRequest, refreshSalesProjects } from "./useSalesProjectTasks";
 import { TaskError } from "./SalesProjectTaskStates";
 
@@ -59,8 +58,7 @@ export default function CardDetailModal({
   getMemberById = (id) => members.find((member) => member.identity_id === id),
 }) {
   const [editedCard, setEditedCard] = useState({});
-  const [newComment, setNewComment] = useState("");
-  const [commentMentions, setCommentMentions] = useState([]);
+  const activityDrafts = useRef(new Map());
   const [showLabelPicker, setShowLabelPicker] = useState(false);
   const [showMemberPicker, setShowMemberPicker] = useState(false);
   const [editingLabel, setEditingLabel] = useState(null);
@@ -141,7 +139,6 @@ export default function CardDetailModal({
   useEffect(() => {
     if (!open) {
       initialized.current = null;
-      setCommentMentions([]);
       dirtyFields.current.clear();
       setEditingLabel(null); setShowMemberPicker(false); setShowLabelPicker(false);
       return;
@@ -151,8 +148,7 @@ export default function CardDetailModal({
     if (initialized.current !== card.id) {
       initialized.current = card.id;
       dirtyFields.current.clear();
-      setEditedCard(values); setNewComment("");
-      setCommentMentions([]);
+      setEditedCard(values);
       setEditingLabel(null); setShowMemberPicker(false); setShowLabelPicker(false);
     } else {
       setEditedCard((draft) => {
@@ -200,17 +196,6 @@ export default function CardDetailModal({
     }
     void refresh();
   };
-  const publishComment = async (result) => {
-    await publishProjectCardComment(queryClient, boardId, card.id, result.comment);
-    setNewComment("");
-    setCommentMentions([]);
-    void invalidateInboxViews(queryClient, boardId);
-    void refresh();
-  };
-  const addComment = useMutation({
-    mutationFn: ({ content, mentionIdentityIds: ids }) => apiRequest("POST", `/api/projects/cards/${card.id}/comments`, { content, mentionIdentityIds: ids }),
-    onSuccess: publishComment, onError: reportError,
-  });
   const toggleLabel = useMutation({
     mutationFn: ({ id, applied }) => apiRequest(applied ? "DELETE" : "POST", `/api/projects/cards/${card.id}/labels`, { label_id: id }),
     onSuccess: async (_, { id, applied }) => {
@@ -236,10 +221,19 @@ export default function CardDetailModal({
     onSuccess: async (_, id) => { await publishLabel(null, id); if (editingLabel?.id === id) setEditingLabel(null); },
     onError: reportError,
   });
+  const assignmentBusy = useRef(false);
   const toggleAssignee = useMutation({
-    mutationFn: ({ id, assigned }) => apiRequest(assigned ? "DELETE" : "POST", `/api/projects/cards/${card.id}/assignees`, { identity_id: id }),
-    onSuccess: refresh, onError: reportError,
+    mutationFn: ({ id, assigned, cardId }) => apiRequest(assigned ? "DELETE" : "POST", `/api/projects/cards/${cardId}/assignees`, { identity_id: id }),
+    onSuccess: async (result, { id, assigned, cardId }) => {
+      await publishProjectCardAssignee(queryClient, cardId, id, assigned ? null : result.assignee);
+      void refresh();
+    }, onError: reportError, onSettled: () => { assignmentBusy.current = false; },
   });
+  const assign = (variables) => {
+    if (!canAssign || !details.data?.card || assignmentBusy.current) return;
+    assignmentBusy.current = true;
+    toggleAssignee.mutate({ ...variables, cardId: card.id });
+  };
   if (!card) return null;
   const cardDetails = details.data;
   const liveCard = { ...card, ...cardDetails?.card };
@@ -365,14 +359,14 @@ export default function CardDetailModal({
               <Label className="flex items-center gap-2"><Users className="h-4 w-4 text-muted-foreground" />Assignees</Label>
               <div className="mt-2 flex flex-wrap items-center gap-2">{assignees.map((item) => {
                 const member = getMemberById(item.identity_id);
-                return <button key={item.identity_id} disabled={!canAssign || toggleAssignee.isPending} aria-label={canAssign ? `Unassign ${personName(member)}` : personName(member)} className="flex items-center gap-1 rounded-full bg-muted px-3 py-1.5 text-xs" onClick={() => toggleAssignee.mutate({ id: item.identity_id, assigned: true })}>{personName(member)}{canAssign && <X className="h-3 w-3" />}</button>;
+                return <button key={item.identity_id} disabled={!canAssign || !cardDetails?.card || toggleAssignee.isPending} aria-label={canAssign ? `Unassign ${personName(member)}` : personName(member)} className="flex items-center gap-1 rounded-full bg-muted px-3 py-1.5 text-xs" onClick={() => assign({ id: item.identity_id, assigned: true })}>{personName(member)}{canAssign && <X className="h-3 w-3" />}</button>;
               })}
                 {!assignees.length && <span className="text-sm text-muted-foreground">Unassigned</span>}
                 {canAssign && <Button variant="outline" size="sm" aria-label="Add assignee" data-testid="button-add-assignee" aria-expanded={showMemberPicker} onClick={() => setShowMemberPicker(!showMemberPicker)}><Plus className="h-4 w-4" /></Button>}
               </div>
               {showMemberPicker && canAssign && <div className="mt-2 max-h-40 space-y-1 overflow-y-auto rounded-lg border p-2">
                 {!members.length && <p className="p-2 text-sm text-muted-foreground">No board members available.</p>}
-                {members.map((member) => <Button key={member.identity_id} variant="ghost" size="sm" className="h-auto w-full justify-start whitespace-normal" disabled={toggleAssignee.isPending} onClick={() => toggleAssignee.mutate({ id: member.identity_id, assigned: assignees.some((item) => item.identity_id === member.identity_id) })}>{personName(member)}{assignees.some((item) => item.identity_id === member.identity_id) && <Check className="ml-auto h-4 w-4" />}</Button>)}
+                {members.map((member) => <Button key={member.identity_id} variant="ghost" size="sm" className="h-auto w-full justify-start whitespace-normal" disabled={!cardDetails?.card || toggleAssignee.isPending} aria-pressed={assignees.some((item) => item.identity_id === member.identity_id)} onClick={() => assign({ id: member.identity_id, assigned: assignees.some((item) => item.identity_id === member.identity_id) })}>{personName(member)}{assignees.some((item) => item.identity_id === member.identity_id) && <Check className="ml-auto h-4 w-4" />}</Button>)}
               </div>}
             </div>
             <div><Label htmlFor="card-description" className="text-sm font-semibold">Description</Label>
@@ -387,10 +381,8 @@ export default function CardDetailModal({
             <h2 className="flex items-center gap-2 text-sm font-semibold"><MessageSquare className="h-4 w-4" />Comments and activity</h2>
             <Button variant="outline" size="sm" aria-expanded={showActivity} onClick={() => setShowActivity(!showActivity)}>{showActivity ? "Hide activity" : "Show activity"}</Button>
           </div>
-          {canEdit && <div className="mb-6 space-y-2">
-            <BoardMentionTextarea aria-label="Write a comment" data-testid="input-new-comment" value={newComment} disabled={addComment.isPending} onChange={setNewComment} mentions={commentMentions} onMentionsChange={setCommentMentions} members={members} placeholder="Write a comment..." rows={3} className="bg-background" />
-            <div className="flex justify-end"><Button size="sm" data-testid="button-add-comment" disabled={!newComment.trim() || addComment.isPending} onClick={() => addComment.mutate({ content: newComment, mentionIdentityIds: mentionIdentityIds(newComment, commentMentions, members) })}>{addComment.isPending ? "Posting…" : "Submit"}</Button></div>
-          </div>}
+          {canEdit && open && <ActivityComposer key={card.id} cardId={card.id} boardId={liveCard.board_id || boardId}
+            members={members} drafts={activityDrafts.current} refresh={refresh} />}
           {details.isLoading ? <div role="status" aria-label="Loading comments and activity" className="space-y-4">{[0, 1, 2].map((index) => <div key={index} className="h-20 animate-pulse rounded-lg bg-muted" />)}</div>
             : <div className="space-y-5">
               {!cardDetails?.comments?.length && <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground"><p className="font-medium text-foreground">No comments yet</p><p className="mt-1">Keep updates and decisions with this task.</p></div>}
@@ -400,7 +392,16 @@ export default function CardDetailModal({
                 const author = comment.author || getMemberById(comment.identity_id);
                 return <div key={comment.id} className="flex gap-3">
                   <Avatar className="h-8 w-8 shrink-0"><AvatarImage src={author?.avatar_url} /><AvatarFallback className="text-xs">{author?.first_name?.[0] || "B"}{author?.last_name?.[0] || "M"}</AvatarFallback></Avatar>
-                  <div className="min-w-0 flex-1"><p className="text-sm font-medium">{personName(author)}</p><time className="text-xs text-muted-foreground">{dateText(comment.created_at)}</time><p className="mt-2 whitespace-pre-wrap break-words rounded-lg border bg-background p-3 text-sm leading-relaxed shadow-sm">{comment.content}</p></div>
+                  <div className="min-w-0 flex-1"><p className="text-sm font-medium">{personName(author)}</p><time className="text-xs text-muted-foreground">{dateText(comment.created_at)}</time>
+                    {comment.content && <p className="mt-2 whitespace-pre-wrap break-words rounded-lg border bg-background p-3 text-sm leading-relaxed shadow-sm">{comment.content}</p>}
+                    {!comment.content && !comment.images?.length && <p className="mt-2 text-sm text-muted-foreground">Image attachment removed.</p>}
+                    {(comment.images || []).map(({ attachment }) => attachment &&
+                      ["image/png", "image/jpeg", "image/gif", "image/webp"].includes(attachment.file_type) &&
+                      /^(https?:\/\/|\/(?!\/))/i.test(attachment.url) &&
+                      <a key={attachment.id} href={attachment.url} target="_blank" rel="noopener noreferrer" className="mt-2 block">
+                        <img src={attachment.url} alt={attachment.name || "Activity image"} loading="lazy" className="max-h-80 max-w-full rounded-lg border object-contain" />
+                      </a>)}
+                  </div>
                 </div>;
               })}
               {showActivity && <div className="space-y-4 border-t pt-5">

@@ -10,7 +10,7 @@ import postcss from 'postcss';
 import tailwindcss from 'tailwindcss';
 import loadConfig from 'tailwindcss/loadConfig.js';
 
-let browser, server, origin;
+let browser, server, origin, screenshotBytes;
 async function setup() {
   const output = await build({
     outfile: '/tmp/card-modal-fixture.js',
@@ -50,17 +50,23 @@ async function setup() {
   const css=(await postcss([tailwindcss({...config,content:[
     './client/src/components/sales/ProjectCardDetailModal.jsx',
     './client/src/components/projects/CardAttachments.jsx',
+    './client/src/components/projects/ActivityComposer.jsx',
     './client/src/components/ui/**/*.{jsx,tsx}',
   ]})]).process(await readFile('client/src/index.css','utf8'),{from:'client/src/index.css'})).css
     + (output.outputFiles.find(file => file.path.endsWith('.css'))?.text || '');
   server = createServer((req, res) => {
     if (req.url === '/fixture.js') { res.setHeader('Content-Type', 'text/javascript'); return res.end(output.outputFiles[0].text); }
     if (req.url === '/fixture.css') { res.setHeader('Content-Type', 'text/css'); return res.end(css); }
+    if (req.url === '/saved-screenshot.png') { res.setHeader('Content-Type', 'image/png'); return res.end(screenshotBytes); }
     if (req.url.startsWith('/api/')) {
       res.setHeader('Content-Type', 'application/json');
       if (req.url === '/api/projects/cards/card') return res.end(JSON.stringify({
         card: { id: 'card',board_id:'board',list_id:'list',cover_image:null },
-        attachments:[],comments:[{id:'comment',identity_id:'person',content:'The draft agenda is ready for review.',created_at:'2026-10-09T10:00:00Z'}],activity:[],
+        attachments:[],comments:[{id:'comment',identity_id:'person',content:'The draft agenda is ready for review.',created_at:'2026-10-09T10:00:00Z',
+          images: req.headers.referer?.includes('image-demo') ? [{ attachment: {
+            id: 'fixture-image', name: 'Screenshot.png', file_type: 'image/png', url: '/saved-screenshot.png',
+          } }] : [],
+        }],activity:[],
       }));
       res.statusCode = 500; return res.end('{"error":"Unexpected fixture request"}');
     }
@@ -70,6 +76,15 @@ async function setup() {
   await new Promise(resolve => server.listen(process.argv.includes('--serve') ? 5187 : 0, '0.0.0.0', resolve));
   origin = `http://127.0.0.1:${server.address().port}`;
   browser = await chromium.launch({headless:true,executablePath:execFileSync('which',['chromium'],{encoding:'utf8'}).trim()});
+  const pixels = await browser.newPage();
+  screenshotBytes = Buffer.from(await pixels.evaluate(() => {
+    const canvas = document.createElement('canvas'); canvas.width = 240; canvas.height = 100;
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#e2e8f0'; context.fillRect(0, 0, 240, 100);
+    context.fillStyle = '#0f172a'; context.font = '18px sans-serif'; context.fillText('Activity screenshot', 20, 55);
+    return canvas.toDataURL('image/png').split(',')[1];
+  }), 'base64');
+  await pixels.close();
 }
 if (process.argv.includes('--serve')) {
   await setup(); console.log(`Fixture ready on ${origin}`); await new Promise(()=>{});
@@ -101,6 +116,138 @@ for (const width of [1280,390]) test(`wide/stacked layout and date fields at ${w
     await page.waitForFunction(()=>window.savedPatch?.start_date==='2026-10-10');
     assert.equal(await page.evaluate(()=>window.savedPatch.due_date),'2026-10-15');
   } finally {await page.close();}
+});
+
+async function pasteImage(page, { type = 'image/png', native = false } = {}) {
+  if (native) {
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+    await page.evaluate(async bytes => {
+      const blob = new Blob([new Uint8Array(bytes)], { type: 'image/png' });
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+    }, [...screenshotBytes]);
+    await page.getByTestId('input-new-comment').focus();
+    await page.keyboard.press('Control+V');
+  } else {
+    await page.getByTestId('input-new-comment').evaluate((el, type) => {
+      const clipboardData = new DataTransfer();
+      clipboardData.items.add(new File(['fixture'], 'screenshot.png', { type }));
+      el.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData }));
+    }, type);
+  }
+}
+
+test('native screenshot paste, failed submit retry, immediate image publication and reload persistence', async () => {
+  const page = await open(1280);
+  try {
+    const attachment = { id: '50000000-0000-0000-0000-000000000001', name: 'screenshot.png',
+      file_type: 'image/png', url: origin + '/saved-screenshot.png', file_size: screenshotBytes.length };
+    let saved = null, posts = [], confirmations = 0, preparations = 0;
+    const json = (route, body, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+    await page.route('**/saved-screenshot.png', route => route.fulfill({ contentType: 'image/png', body: screenshotBytes }));
+    await page.route('**/api/projects/cards/card/attachments', route => {
+      preparations++; assert.equal(route.request().postDataJSON().purpose, 'activity');
+      return json(route, { signedUrl: origin + '/storage', uploadToken: 'signed-fixture' });
+    });
+    await page.route('**/storage', route => route.fulfill({ status: 200, body: '' }));
+    await page.route('**/api/projects/cards/card/attachments/confirm', route => {
+      confirmations++; return json(route, { attachment });
+    });
+    await page.route('**/api/projects/cards/card/comments', route => {
+      const body = route.request().postDataJSON(); posts.push(body);
+      if (posts.length === 1) return json(route, { error: 'Comment service temporarily unavailable' }, 503);
+      saved = { id: 'image-comment', content: body.content, identity_id: 'person',
+        created_at: new Date().toISOString(), images: [{ attachment }] };
+      return json(route, { comment: saved });
+    });
+    // Publication must not depend on a successful detail refresh.
+    await page.route('**/api/projects/cards/card', route => route.abort());
+    await page.route('**/api/projects/boards/board', route => route.abort());
+    await pasteImage(page, { native: true });
+    await page.getByAltText(/Preview /).waitFor();
+    assert.equal(preparations, 0, 'pasting does not upload discarded images');
+    assert.equal(await page.getByAltText(/Preview /).count(), 1, 'items/files are not ingested twice');
+    await page.getByTestId('button-add-comment').click();
+    await page.getByRole('alert').filter({ hasText: 'Comment service temporarily unavailable' }).waitFor();
+    assert.equal(await page.getByAltText(/Preview /).count(), 1);
+    await page.getByTestId('button-add-comment').click();
+    await page.getByRole('complementary').getByAltText('screenshot.png', { exact: true }).waitFor();
+    assert.equal(preparations, 1);
+    assert.equal(confirmations, 1);
+    assert.equal(posts.length, 2);
+    assert.equal(posts[0].content, '');
+    assert.equal(posts[1].requestId, posts[0].requestId);
+    assert.deepEqual(posts[1].attachmentIds, [attachment.id]);
+    assert.equal(await page.getByAltText(/Preview /).count(), 0);
+    await page.unroute('**/api/projects/cards/card');
+    await page.route('**/api/projects/cards/card', route => json(route, {
+      card: { id: 'card', board_id: 'board', list_id: 'list' }, comments: [saved], attachments: [attachment], activity: [],
+    }));
+    await page.reload();
+    await page.getByRole('complementary').getByAltText('screenshot.png', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('complementary').getByAltText('screenshot.png', { exact: true }).count(), 1);
+    await page.waitForFunction(() => [...document.querySelectorAll('aside img')].some(image => image.naturalWidth === 240));
+  } finally { await page.close(); }
+});
+
+test('plain text paste and mentions survive; unsupported images and upload failures retain recoverable drafts', async () => {
+  const page = await open(1280);
+  try {
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+    await page.evaluate(() => navigator.clipboard.writeText('Pasted notes'));
+    await page.getByTestId('input-new-comment').focus();
+    await page.keyboard.press('Control+V');
+    await page.waitForFunction(() => document.querySelector('[data-testid="input-new-comment"]').value === 'Pasted notes');
+    await pasteImage(page, { type: 'image/svg+xml' });
+    await page.getByRole('alert').filter({ hasText: 'Choose PNG' }).waitFor();
+    assert.equal(await page.getByAltText(/Preview /).count(), 0);
+    await pasteImage(page);
+    await page.getByRole('button', { name: 'Remove image screenshot.png' }).click();
+    assert.equal(await page.getByAltText(/Preview /).count(), 0);
+    await page.getByTestId('input-new-comment').fill('Pasted notes @Al');
+    await page.getByRole('option').filter({ hasText: 'Alex Example' }).click();
+    await pasteImage(page);
+    const json = (route, body, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+    let attempts = 0, puts = 0, payload;
+    const attachment = { id: 'image', name: 'screenshot.png', file_type: 'image/png', url: origin + '/image.png' };
+    await page.route('**/api/projects/cards/card/attachments', route => {
+      attempts++;
+      return attempts === 1 ? json(route, { error: 'Storage quota exceeded' }, 403)
+        : json(route, { signedUrl: origin + '/storage', uploadToken: 'fixture' });
+    });
+    await page.route('**/storage', route => {
+      puts++; return route.fulfill({ status: puts === 1 ? 503 : 200, body: '' });
+    });
+    await page.route('**/api/projects/cards/card/attachments/confirm', route => puts < 2
+      ? json(route, { error: 'Upload not present' }, 400) : json(route, { attachment }));
+    await page.route('**/api/projects/cards/card/comments', route => {
+      payload = route.request().postDataJSON();
+      return json(route, { comment: { id: 'new', content: payload.content, images: [{ attachment }] } });
+    });
+    await page.route('**/api/projects/cards/card', route => route.abort());
+    await page.route('**/api/projects/boards/board', route => route.abort());
+    await page.getByTestId('button-add-comment').click();
+    await page.getByRole('alert').filter({ hasText: 'Storage quota exceeded' }).waitFor();
+    assert.equal(await page.getByAltText(/Preview /).count(), 1);
+    assert.match(await page.getByTestId('input-new-comment').inputValue(), /Pasted notes @Alex Example/);
+    await page.getByTestId('button-add-comment').click();
+    await page.getByRole('alert').filter({ hasText: 'Image upload failed' }).waitFor();
+    assert.equal(await page.getByAltText(/Preview /).count(), 1);
+    await page.getByTestId('button-add-comment').click();
+    await page.waitForFunction(() => document.querySelector('[data-testid="input-new-comment"]').value === '');
+    assert.deepEqual(payload.mentionIdentityIds, ['person']);
+    assert.deepEqual(payload.attachmentIds, ['image']);
+    assert.equal(attempts, 2);
+    assert.equal(puts, 2);
+  } finally { await page.close(); }
+});
+
+test('read-only viewers have no Activity composer or paste upload target', async () => {
+  const page = await open(1280, '?readonly');
+  try {
+    assert.equal(await page.getByTestId('input-new-comment').count(), 0);
+    assert.equal(await page.getByTestId('button-add-comment').count(), 0);
+    assert.equal(await page.getByTestId('input-file-upload').count(), 0);
+  } finally { await page.close(); }
 });
 for (const width of [1280,390]) test(`upload and header cover appear before slow refetches with visible controls at ${width}px`, async () => {
   const page=await open(width);

@@ -1,7 +1,58 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { QueryClient, QueryObserver } from '@tanstack/react-query';
-import { publishCreatedProjectCard, publishProjectCardUpdate, publishProjectCardComment } from './projectBoardCache.js';
+import { publishCreatedProjectCard, publishProjectCardUpdate, publishProjectCardComment, publishProjectCardAssignee } from './projectBoardCache.js';
+import { refreshSalesProjects } from '../components/sales/useSalesProjectTasks.js';
+test('assignment deltas cancel stale reads, preserve relationships and never await refreshes', async () => {
+  const client = new QueryClient();
+  const card = { id: 'card', title: 'Saved', project_card_label: [{ label_id: 'label' }],
+    project_card_assignee: [{ identity_id: 'existing' }] };
+  const detailKey = ['card-detail', 'card'];
+  const boardKey = ['project-board', 'board'];
+  client.setQueryData(detailKey, { card, comments: [{ id: 'comment', images: ['image'] }] });
+  client.setQueryData(boardKey, { cards: [card, { id: 'other' }] });
+  let finish;
+  const stale = client.fetchQuery({ queryKey: detailKey,
+    queryFn: () => new Promise(resolve => { finish = resolve; }) }).catch(() => {});
+  await publishProjectCardAssignee(client, 'card', 'new', { identity_id: 'new', id: 'assignment' });
+  await publishProjectCardAssignee(client, 'card', 'existing', null);
+  finish({ card }); await stale;
+  for (const saved of [client.getQueryData(detailKey).card, client.getQueryData(boardKey).cards[0]]) {
+    assert.deepEqual(saved.project_card_assignee, [{ identity_id: 'new', id: 'assignment' }]);
+    assert.deepEqual(saved.project_card_label, card.project_card_label);
+  }
+  assert.deepEqual(client.getQueryData(detailKey).comments, [{ id: 'comment', images: ['image'] }]);
+  client.clear();
+});
+
+test('isolated assignment latency separates the write from eight-root refresh waiting', async t => {
+  const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+  const client = new QueryClient();
+  const roots = ['sales-project-tasks', 'opportunity', 'opportunities', 'project-board', 'project-boards', 'card-detail', 'sales-dashboard', 'sales-reports'];
+  const subscriptions = roots.map(root => {
+    const key = [root, root === 'card-detail' ? 'card' : 'fixture'];
+    client.setQueryData(key, root === 'card-detail' ? { card: { id: 'card' } } : root === 'project-board' ? { cards: [{ id: 'card' }] } : {});
+    const observer = new QueryObserver(client, { queryKey: key, staleTime: Infinity,
+      queryFn: async () => { await sleep(150); return client.getQueryData(key); } });
+    return observer.subscribe(() => {});
+  });
+  const start = performance.now();
+  await sleep(25); // Isolated simulated write, not a production latency claim.
+  const written = performance.now();
+  await refreshSalesProjects(client); // Actual previous mutation callback.
+  const before = performance.now() - start;
+  const afterStart = performance.now();
+  await sleep(25);
+  const afterWrite = performance.now();
+  await publishProjectCardAssignee(client, 'card', 'person', { identity_id: 'person' });
+  void refreshSalesProjects(client);
+  const after = performance.now() - afterStart;
+  t.diagnostic(JSON.stringify({ fixtureWriteMs: written - start, beforePendingMs: before,
+    afterWriteMs: afterWrite - afterStart, afterPendingMs: after }));
+  assert.ok(after < before - 80);
+  subscriptions.forEach(unsubscribe => unsubscribe());
+  client.clear();
+});
 test('confirmed comments immediately update counts, deduplicate and preserve relationships', async () => {
   const client = new QueryClient();
   const card = { id: 'card', project_card_comment: [{ count: 2 }], project_card_label: [{ label_id: 'label' }], project_card_attachment: [{ id: 'file' }] };

@@ -3,6 +3,7 @@ import { getSession } from '../../../_lib/session.js';
 import { checkStorageQuota } from '../../../_lib/planQuota.js';
 import { addTenantStorageBytes } from '../../../_lib/tenantStorageUsage.js';
 import crypto from 'crypto';
+import { guardSalesLinkedProject } from '../../../_lib/salesLinkedProjectGuard.js';
 
 const STORAGE_BUCKET = 'file-repository';
 const TOKEN_SECRET = process.env.SESSION_SECRET || 'fallback-secret-for-dev-only';
@@ -81,6 +82,7 @@ export default async function handler(req, res) {
     if (!access?.membership) {
       return res.status(403).json({ error: 'Not a member of this board' });
     }
+    if (!await guardSalesLinkedProject(req, res, access.card.board_id)) return;
 
     if (req.method === 'GET') {
       const { data: attachments, error } = await supabase
@@ -103,11 +105,14 @@ export default async function handler(req, res) {
       }
 
       const { fileName, fileSize, mimeType, purpose = 'attachment' } = req.body || {};
+      if (purpose === 'activity' && !process.env.SESSION_SECRET) {
+        return res.status(503).json({ error: 'Activity image signing is not configured' });
+      }
 
-      if (!['attachment', 'cover'].includes(purpose)) {
+      if (!['attachment', 'cover', 'activity'].includes(purpose)) {
         return res.status(400).json({ error: 'Invalid upload purpose' });
       }
-      if (purpose === 'cover' && !['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(mimeType)) {
+      if (purpose !== 'attachment' && !['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(mimeType)) {
         return res.status(400).json({ error: 'Choose a JPEG, PNG, GIF or WebP cover image' });
       }
 
@@ -144,6 +149,12 @@ export default async function handler(req, res) {
       // Keep both upload types under the tenant prefix included in storage-quota
       // reconciliation. Cover-only files do not need attachment table records.
       const storagePath = `project-attachments/${access.board.tenant_id}/${access.card.board_id}/${cardId}/${purpose === 'cover' ? 'covers/' : ''}${uniqueId}-${sanitizedName}`;
+      const attachmentId = purpose === 'activity' ? crypto.randomUUID() : null;
+      if (attachmentId) {
+        const { error } = await supabase.from('project_activity_upload')
+          .insert({ id: attachmentId, storage_path: storagePath });
+        if (error) return res.status(500).json({ error: 'Could not prepare Activity image; try again' });
+      }
 
       const { data: signedData, error: signedError } = await supabase.storage
         .from(STORAGE_BUCKET)
@@ -162,6 +173,7 @@ export default async function handler(req, res) {
 
       const tokenPayload = {
         purpose,
+        ...(attachmentId ? { attachmentId } : {}),
         storagePath,
         publicUrl: publicUrlData.publicUrl,
         cardId,

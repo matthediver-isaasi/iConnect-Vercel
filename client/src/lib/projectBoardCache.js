@@ -1,3 +1,19 @@
+// Only publish confirmed deltas; never replace unrelated relationships with an
+// endpoint snapshot. Cancellation fences reads started before this write.
+export async function publishProjectCardAssignee(queryClient, cardId, identityId, assignee) {
+  const predicate = query =>
+    (query.queryKey[0] === 'card-detail' && query.queryKey[1] === cardId) ||
+    (query.queryKey[0] === 'project-board' && query.state.data?.cards?.some(card => card.id === cardId));
+  await queryClient.cancelQueries({ predicate });
+  const merge = card => {
+    const remaining = (card.project_card_assignee || []).filter(item => item.identity_id !== identityId);
+    return { ...card, project_card_assignee: assignee ? [...remaining, assignee] : remaining };
+  };
+  queryClient.setQueriesData({ predicate }, old => !old ? old : old.cards
+    ? { ...old, cards: old.cards.map(card => card.id === cardId ? merge(card) : card) }
+    : { ...old, card: old.card ? merge(old.card) : old.card });
+}
+
 // Publish a confirmed comment before the background refresh. Cancel pre-write
 // reads, deduplicate by ID, and preserve every other card relationship.
 export async function publishProjectCardComment(queryClient, boardId, cardId, comment) {

@@ -87,7 +87,7 @@ async function mount(overrides = {}, fixture = {}) {
     ...overrides,
   };
   globalThis.fetch = async (url, options = {}) => {
-    const method = options.method || "GET", body = options.body ? JSON.parse(options.body) : null;
+    const method = options.method || "GET", body = typeof options.body === "string" ? JSON.parse(options.body) : options.body || null;
     calls.push({ url, method, body, credentials: options.credentials });
     if (fixture.respond) {
       const response = fixture.respond(url, options, detail);
@@ -156,6 +156,104 @@ test("wide two-pane modal resolves raw comment/activity identities and uses the 
     await click(app.container, 'aside button');
     assert.equal(app.container.querySelector('[data-testid="card-activity-entry"]'), null);
   } finally { await app.close(); }
+});
+
+test("assignments publish before delayed refreshes, serialize rapid clicks and preserve drafts on failure", async () => {
+  let finishWrite, refreshRead, fail = false, holdReads = false;
+  const app = await mount({}, { respond: (url, options) => {
+    if (url.endsWith('/assignees')) return new Promise(resolve => {
+      finishWrite = () => resolve(response(fail ? { error: 'Assignment denied' }
+        : options.method === 'POST' ? { assignee: { identity_id: 'member-a' } } : { success: true }, fail ? 403 : 200));
+    });
+    if (holdReads && url === '/api/projects/cards/card-a') return new Promise(resolve => { refreshRead = resolve; });
+  } });
+  try {
+    await type(app.container, '[data-testid="input-card-title"]', 'Unsaved title');
+    await click(app.container, '[data-testid="button-add-assignee"]');
+    const picker = () => app.container.querySelector('button[aria-pressed]');
+    await act(async () => { picker().click(); picker().click(); });
+    assert.equal(app.calls.filter(call => call.url.endsWith('/assignees')).length, 1);
+    assert.equal(picker().getAttribute('aria-pressed'), 'false');
+    holdReads = true;
+    await act(async () => finishWrite()); await settle();
+    assert.equal(picker().disabled, false);
+    assert.equal(picker().getAttribute('aria-pressed'), 'true');
+    assert.equal(app.client.getQueryData(['project-board', 'board-a']).cards[0].project_card_assignee[0].identity_id, 'member-a');
+    assert.equal(app.container.querySelector('[data-testid="input-card-title"]').value, 'Unsaved title');
+    fail = true;
+    await click(app.container, '[aria-label="Unassign Maya Stone"]');
+    await act(async () => finishWrite()); await settle();
+    assert.equal(picker().getAttribute('aria-pressed'), 'true');
+    assert.match(globalThis.cardMentionErrors.at(-1)[0], /Assignment denied/);
+    fail = false;
+    await click(app.container, '[aria-label="Unassign Maya Stone"]');
+    await act(async () => finishWrite()); await settle();
+    assert.equal(picker().getAttribute('aria-pressed'), 'false');
+    assert.equal(app.container.querySelector('[data-testid="input-card-title"]').value, 'Unsaved title');
+    assert.ok(refreshRead);
+  } finally { await app.close(); }
+});
+
+test("assignment response stays on the originating card after switching cards", async () => {
+  let finish;
+  const app = await mount({}, { respond: (url, options) => {
+    if (url.endsWith('/assignees')) return new Promise(resolve => { finish = resolve; });
+    if (url === '/api/projects/cards/card-b') return response({ card: { ...fixtureCard, id: 'card-b' }, comments: [] });
+  } });
+  try {
+    await click(app.container, '[data-testid="button-add-assignee"]');
+    await click(app.container, 'button[aria-pressed]');
+    app.props.card = { ...fixtureCard, id: 'card-b' }; await app.render();
+    await act(async () => finish(response({ assignee: { identity_id: 'member-a' } }))); await settle();
+    assert.equal(app.container.querySelector('[aria-label="Unassign Maya Stone"]'), null);
+    assert.equal(app.client.getQueryData(['project-board', 'board-a']).cards[0].project_card_assignee[0].identity_id, 'member-a');
+  } finally { await app.close(); }
+});
+
+test("image drafts and late uploads stay with their originating card, including reopening during submission", async () => {
+  const originalCreate = URL.createObjectURL, originalRevoke = URL.revokeObjectURL;
+  URL.createObjectURL = () => 'blob:fixture'; URL.revokeObjectURL = () => {};
+  let finishUpload;
+  const posted = [];
+  const attachment = { id: 'image', name: 'screenshot.png', file_type: 'image/png', url: 'https://fixture.invalid/image.png' };
+  const app = await mount({}, { respond: (url, options) => {
+    if (url === '/api/projects/cards/card-b') return response({ card: { ...fixtureCard, id: 'card-b' }, comments: [] });
+    if (url.endsWith('/attachments')) return response({ signedUrl: 'https://fixture.invalid/storage', uploadToken: 'token' });
+    if (url === 'https://fixture.invalid/storage') return new Promise(resolve => { finishUpload = resolve; });
+    if (url.endsWith('/attachments/confirm')) return response({ attachment });
+    if (url.endsWith('/comments')) {
+      posted.push({ url, body: JSON.parse(options.body) });
+      return response({ comment: { id: 'image-comment', content: '', images: [{ attachment }] } });
+    }
+  } });
+  try {
+    const file = new dom.window.File(['png'], 'screenshot.png', { type: 'image/png' });
+    const paste = new dom.window.Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(paste, 'clipboardData', { value: {
+      items: [{ kind: 'file', getAsFile: () => file }], files: [file], getData: () => '',
+    } });
+    await act(async () => app.container.querySelector('[data-testid="input-new-comment"]').dispatchEvent(paste));
+    await settle();
+    assert.equal(app.container.querySelectorAll('img[alt="Preview screenshot.png"]').length, 1);
+    await click(app.container, '[data-testid="button-add-comment"]');
+    assert.match(app.container.textContent, /Uploading image/);
+    assert.equal(app.container.querySelector('[data-testid="button-add-comment"]').disabled, true);
+    app.props.card = { ...fixtureCard, id: 'card-b' }; await app.render();
+    assert.equal(app.container.querySelector('img[alt="Preview screenshot.png"]'), null);
+    await type(app.container, '[data-testid="input-new-comment"]', 'Other card draft');
+    await act(async () => finishUpload(response({}))); await settle();
+    assert.equal(posted.length, 1);
+    assert.equal(posted[0].url, '/api/projects/cards/card-a/comments');
+    assert.equal(app.container.querySelector('[data-testid="input-new-comment"]').value, 'Other card draft');
+    assert.equal(app.container.querySelector('aside img[alt="screenshot.png"]'), null);
+    app.props.card = fixtureCard; await app.render();
+    assert.equal(app.container.querySelector('[data-testid="button-add-comment"]').textContent, 'Submit');
+    assert.equal(app.container.querySelector('img[alt="Preview screenshot.png"]'), null);
+    app.props.card = { ...fixtureCard, id: 'card-b' }; await app.render();
+    assert.equal(app.container.querySelector('[data-testid="input-new-comment"]').value, 'Other card draft');
+  } finally {
+    await app.close(); URL.createObjectURL = originalCreate; URL.revokeObjectURL = originalRevoke;
+  }
 });
 
 test("dirty title survives detail refresh; untouched dates refresh and cleared dates save as null", async () => {
@@ -393,6 +491,7 @@ test("opening reads once, removes confirmed summary entry, invalidates both inbo
     await act(async () => finishPatch(response({ success: true })));
     await until(() => invalidations.length >= 4);
     assert.deepEqual(app.client.getQueryData(["board-inbox", "board-a", "summary"]).unreadCardIds, ["other-card"]);
+    await until(() => !app.container.querySelector('[data-testid="tile-mention-badge"]'));
     assert.equal(app.container.querySelector('[data-testid="tile-mention-badge"]'), null, "mounted tile updates on confirmed read");
     assert.ok(invalidations.some(({ queryKey, exact }) => exact && queryKey.length === 1 && queryKey[0] === "inbox"));
     assert.ok(invalidations.some(({ queryKey }) => queryKey[1] === "unread"));

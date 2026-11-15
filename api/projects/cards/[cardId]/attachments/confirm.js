@@ -1,6 +1,7 @@
 import { supabase } from '../../../../_lib/database.js';
 import { getSession } from '../../../../_lib/session.js';
 import crypto from 'crypto';
+import { guardSalesLinkedProject } from '../../../../_lib/salesLinkedProjectGuard.js';
 
 const TOKEN_SECRET = process.env.SESSION_SECRET || 'fallback-secret-for-dev-only';
 
@@ -94,8 +95,41 @@ export default async function handler(req, res) {
     if (access.membership.role === 'viewer') {
       return res.status(403).json({ error: 'Viewers cannot add attachments' });
     }
+    if (!await guardSalesLinkedProject(req, res, access.card.board_id)) return;
 
     const { storagePath, publicUrl, fileName, fileSize, mimeType } = tokenData;
+
+    if (tokenData.purpose === 'activity') {
+      if (!process.env.SESSION_SECRET) {
+        return res.status(503).json({ error: 'Activity image signing is not configured' });
+      }
+      if (!tokenData.attachmentId || tokenData.boardId !== access.card.board_id ||
+        !['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(mimeType) ||
+        !Number.isSafeInteger(fileSize) || fileSize <= 0 || fileSize > 104857600) {
+        return res.status(400).json({ error: 'Invalid Activity image upload' });
+      }
+      const slash = storagePath.lastIndexOf('/');
+      const { data: objects, error: objectError } = await supabase.storage.from('file-repository')
+        .list(storagePath.slice(0, slash), { search: storagePath.slice(slash + 1), limit: 100 });
+      if (objectError) return res.status(503).json({ error: 'Could not verify uploaded image; try again' });
+      const object = objects?.find(item => item.name === storagePath.slice(slash + 1));
+      if (!object || Number(object.metadata?.size) !== fileSize || object.metadata?.mimetype !== mimeType) {
+        return res.status(400).json({ error: 'Uploaded image is missing or does not match its declared type and size' });
+      }
+      // The signed ID makes confirmation retry-safe after a lost response.
+      const { data: attachment, error } = await supabase.from('project_card_attachment')
+        .upsert({ id: tokenData.attachmentId, card_id: cardId, name: fileName,
+          url: publicUrl, storage_path: storagePath, file_type: mimeType,
+          file_size: fileSize, uploaded_by: session.identityId },
+        { onConflict: 'id', ignoreDuplicates: true }).select().maybeSingle();
+      if (error) return res.status(500).json({ error: 'Failed to save image attachment' });
+      if (attachment) return res.json({ attachment });
+      const { data: existing, error: readError } = await supabase.from('project_card_attachment')
+        .select('*').eq('id', tokenData.attachmentId).eq('card_id', cardId)
+        .eq('uploaded_by', session.identityId).single();
+      if (readError || !existing) return res.status(500).json({ error: 'Could not confirm image; try again' });
+      return res.json({ attachment: existing });
+    }
 
     // Purpose is signed at upload preparation: a caller cannot turn an ordinary
     // attachment upload into a hidden cover by changing the confirmation body.

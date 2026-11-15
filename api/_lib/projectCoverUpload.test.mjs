@@ -18,7 +18,9 @@ for (const [name, file] of Object.entries({
   const output = await build({
     entryPoints: [file], bundle: true, write: false, format: 'cjs', platform: 'node',
     packages: 'external', logLevel: 'silent',
+    define: { 'process.env.SESSION_SECRET': '"isolated-image-fixture-secret"' },
     plugins: [{ name: 'isolated-cover-upload', setup(b) {
+      b.onLoad({ filter: /\/_lib\/salesLinkedProjectGuard\.js$/ }, () => ({ contents: 'export const guardSalesLinkedProject = async()=>true;' }));
       b.onLoad({ filter: /\/_lib\/database\.js$/ }, () => ({ contents: 'export const supabase = {from(...a){return globalThis.__coverUploadTest.db.from(...a)}, storage:{from(...a){return globalThis.__coverUploadTest.db.storage.from(...a)}}};' }));
       b.onLoad({ filter: /\/_lib\/session\.js$/ }, () => ({ contents: 'export const getSession = (...a)=>globalThis.__coverUploadTest.session(...a);' }));
       b.onLoad({ filter: /\/_lib\/planQuota\.js$/ }, () => ({ contents: 'export const checkStorageQuota = (...a)=>globalThis.__coverUploadTest.quota(...a);' }));
@@ -41,13 +43,19 @@ function setup() {
       storage: { from() { return {
         async createSignedUploadUrl(path) { calls.push({ signedPath: path }); return { data: { signedUrl: 'https://storage.invalid/upload' } }; },
         getPublicUrl(path) { return { data: { publicUrl: `https://storage.invalid/${path}` } }; },
+        async list(prefix) {
+          const prepared = calls.find(call => call.signedPath)?.signedPath || '';
+          return { data: f.missingObject ? [] : [{ name: prepared.split('/').at(-1),
+            metadata: { size: f.objectSize ?? 100, mimetype: f.objectType || 'image/png' } }], error: null };
+        },
       }; } },
       from(table) {
         const call = { table, filters: [] }; calls.push(call);
         const q = {
-          select() { return q; }, single() { return q; },
+          select() { return q; }, single() { return q; }, maybeSingle() { return q; },
           eq(k, v) { call.filters.push([k, v]); return q; },
           insert(data) { call.insert = data; return q; },
+          upsert(data) { call.insert = data; call.upsert = true; return q; },
           update(data) { call.update = data; return q; },
           then(resolve) {
             let data = table === 'project_card' ? { id: 'card', board_id: f.boardId, ...call.update }
@@ -82,6 +90,30 @@ test('cover-only upload sets cover and activity without creating an attachment',
   assert.equal(result.body.coverImage, token.publicUrl);
   assert.ok(!f.calls.some(c => c.table === 'project_card_attachment'));
   assert.equal(f.calls.find(c => c.table === 'project_card_activity').insert.action_type, 'cover_set');
+});
+
+test('Activity upload rejects missing/mismatched objects and uses a signed stable ID on retry', async () => {
+  const f = setup();
+  const prepared = await request('prepare', { fileName: 'paste.png', fileSize: 100, mimeType: 'image/png', purpose: 'activity' });
+  assert.equal(prepared.statusCode, 200);
+  const token = JSON.parse(Buffer.from(prepared.body.uploadToken.split('.')[0], 'base64').toString());
+  assert.ok(token.attachmentId);
+  assert.equal(f.calls.find(call => call.table === 'project_activity_upload').insert.id, token.attachmentId);
+  for (const patch of [{ missingObject: true }, { missingObject: false, objectSize: 999 },
+    { objectSize: 100, objectType: 'image/svg+xml' }]) {
+    Object.assign(f, patch);
+    assert.equal((await request('confirm', { uploadToken: prepared.body.uploadToken })).statusCode, 400);
+    assert.equal(f.calls.some(call => call.upsert), false);
+  }
+  f.objectType = 'image/png';
+  const first = await request('confirm', { uploadToken: prepared.body.uploadToken });
+  const second = await request('confirm', { uploadToken: prepared.body.uploadToken });
+  assert.equal(first.statusCode, 200);
+  assert.equal(first.body.attachment.id, token.attachmentId);
+  assert.equal(second.body.attachment.id, token.attachmentId);
+  assert.ok(f.calls.filter(call => call.upsert).every(call => call.insert.card_id === 'card'));
+  f.role = 'viewer';
+  assert.equal((await request('confirm', { uploadToken: prepared.body.uploadToken })).statusCode, 403);
 });
 test('ordinary uploads still create attachments; unsigned purpose cannot change the route', async () => {
   const f = setup();
