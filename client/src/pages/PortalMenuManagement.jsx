@@ -77,6 +77,7 @@ const availableIcons = {
 
 // Pages whose Role Access ID should default to a specific RBAC key when selected.
 const PAGE_DEFAULT_FEATURES = {
+  AwardApplications: "user.my-award-applications",
   PublicInvoicePoReport: "events.public-invoice-po-report",
   NMCMembershipReport: NMC_REPORT_FEATURE,
   EventBudgetReport: "events.event-budget-report",
@@ -180,6 +181,7 @@ const builtInPages = [
   { value: "MyJobPostings", label: "My Job Postings" },
   { value: "MyOrganisation", label: "My Organisation" },
   { value: "MyTickets", label: "My Tickets" },
+  { value: "AwardApplications", label: "My award applications", route: "/award-applications" },
   { value: "NavigationManagement", label: "Navigation Items" },
   { value: "News", label: "News" },
   { value: "ProjectBoards", label: "Project Boards" },

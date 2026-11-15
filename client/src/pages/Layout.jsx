@@ -153,13 +153,6 @@ const navigationItems = [
     featureId: "page_MyTickets"
   },
   {
-    title: "My award applications",
-    url: "/award-applications",
-    icon: FileText,
-    // Member self-service, independent of legacy badges and awards management.
-    isAwardApplicantDestination: true
-  },
-  {
     title: "My Waiting Lists",
     url: "/waitingList",
     icon: Clock,
@@ -2648,28 +2641,14 @@ useEffect(() => {
         : [next];
     });
     const withWaitingLists = addWaitingListCompanion(clonedItems);
-    // Keep this small member destination discoverable with authored menus too.
-    // A menu's administrative feature ID cannot gate member-owned applications.
-    const applicantDestination = item => !item.isExternal && (
-      /^\/award-applications\/?(?:[?#].*)?$/i.test(item.url || '') || item.isAwardApplicantDestination);
-    // A nested authored link may sit below a restricted parent. Preserve that
-    // authored tree and guarantee one independently reachable top-level link.
-    const withApplicantApplications = withWaitingLists.map(item =>
-      applicantDestination(item) && !item.subItems?.length
-        ? { ...item, title: 'My award applications', url: '/award-applications', icon: item.icon || FileText,
-          featureId: undefined, isAwardApplicantDestination: true, subItems: undefined }
-        : item);
-    if (!withApplicantApplications.some(item => applicantDestination(item) && !item.subItems?.length)) withApplicantApplications.push({
-      title: 'My award applications', url: '/award-applications', icon: FileText, isAwardApplicantDestination: true,
-    });
     
     // When NOT using custom slug, return cloned items with original createPageUrl() URLs
     if (!isCustomSlug) {
-      return withApplicantApplications;
+      return withWaitingLists;
     }
     
     // Apply dynamic URLs only when custom slug is confirmed
-    return withApplicantApplications.map(item => {
+    return withWaitingLists.map(item => {
       const processedItem = { ...item };
       
       if (item.isDynamicArticleSection && articleDisplayName) {

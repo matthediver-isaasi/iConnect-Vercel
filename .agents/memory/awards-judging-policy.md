@@ -3,6 +3,12 @@ name: Awards and judging policy
 description: Owner-approved competition policy and initial release scope.
 ---
 
+My award applications must be an optional tenant-authored portal menu destination, never automatically injected.
+
+**Why:** The owner requires tenants to choose when to expose it through Portal Menu Management and RBAC.
+
+**How to apply:** Preserve authored menu permissions and labels; do not strip RBAC gates or add a fallback application link.
+
 The owner approved the complete proposed contract in `docs/awards-judging-integration-contract.md` without changes on 2026-11-13. Its scoring, visibility, conflict, retention and release rules govern implementation.
 
 **Why:** These choices affect fairness, confidential decisions and personal-data retention; they must not be silently changed as implementation shortcuts.

@@ -46,6 +46,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
       {
         id: "user.my-bookings",
         label: "My Bookings"
+      },
+      {
+        id: "user.my-award-applications",
+        label: "My award applications"
       }
     ]
   },
@@ -1314,6 +1318,8 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_Bookings": "commerce.bookings",
   "page_CancellationRequests": "commerce.event-cancellations",
   "page_MyTickets": "events.my-tickets",
+  "page_AwardApplications": "user.my-award-applications",
+  "page_user_AwardApplications": "user.my-award-applications",
   "page_waitingList": "events.my-tickets",
   "page_user_waitingList": "events.my-tickets",
   "page_BuyProgramTickets": "commerce.buy-tickets",
