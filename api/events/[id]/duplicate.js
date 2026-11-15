@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, hasAdminAccess } from '../../_lib/tenantContext.js';
 import { authorizeGroupAdminEventAction } from '../../_lib/groupAdminEventWrite.js';
+import { duplicateSponsorCategories } from '../../_lib/duplicateSponsorCategories.js';
 
 // Schedule fields are intentionally NOT copied — duplicates land as drafts
 // with cleared dates so admins must explicitly set new dates before
@@ -131,12 +132,14 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: insertErr?.message || 'Failed to duplicate event' });
     }
     createdEventId = created.id;
+    const sponsorCategoryMap = await duplicateSponsorCategories(supabase, ctx.tenantId, id, createdEventId, 'simple');
 
     // Deep-copy child rows. On any error → rollback by deleting the new event row.
     for (const { table, fk, tenantScoped } of CHILD_TABLES) {
       try {
         let fetchQuery = supabase.from(table).select('*').eq(fk, id);
         if (tenantScoped) fetchQuery = fetchQuery.eq('tenant_id', ctx.tenantId);
+        if (table === 'event_sponsor_assignment') fetchQuery = fetchQuery.eq('event_type', 'simple');
         const { data: rows, error: childFetchErr } = await fetchQuery;
         if (childFetchErr) {
           // Table may not exist; skip silently.
@@ -147,6 +150,10 @@ export default async function handler(req, res) {
         const inserts = rows.map(({ id: _id, created_at, updated_at, ...rest }) => {
           const row = { ...rest, [fk]: createdEventId };
           if (tenantScoped) row.tenant_id = ctx.tenantId;
+          if (table === 'event_sponsor_assignment' && row.category_id) {
+            if (!sponsorCategoryMap.has(row.category_id)) throw new Error('Sponsor category is unavailable');
+            row.category_id = sponsorCategoryMap.get(row.category_id);
+          }
           return row;
         });
         const { error: insChildErr } = await supabase.from(table).insert(inserts);

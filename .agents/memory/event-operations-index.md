@@ -27,6 +27,7 @@ description: Index of event timing, booking lifecycle, attendance rewards and re
 - [Event display timezones](event-display-timezone-policy.md) — audience timezones are display-only; scheduling and date-only agendas stay unchanged.
 - [Zoom recovery approval](zoom-recovery-approval.md) — read-only diagnosis is not permission for live registration changes or message sends.
 - [Survey invitations](event-survey-invitation-policy.md) — attendance gates individual invitations; untracked events require warning and acknowledgement.
+- [Sponsor categories](event-sponsor-policy.md) — levels belong to event assignments; optional organisation links preserve independent sponsor presentation.
 
 **Why:** Specialized event constraints remain discoverable without crowding the always-loaded memory index.
 

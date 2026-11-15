@@ -1,4 +1,5 @@
 import { cloneEventRegistrationCommunication } from '../../_lib/eventRegistrationConsent.js';
+import { duplicateSponsorCategories } from '../../_lib/duplicateSponsorCategories.js';
 import { randomUUID } from 'crypto';
 import { supabase } from '../../_lib/database.js';
 import { resolveSessionCategories } from '../../_lib/sessionCategories.js';
@@ -105,6 +106,19 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: insertErr?.message || 'Failed to duplicate complex event' });
     }
     newEventId = newEvent.id;
+    const sponsorCategoryMap = await duplicateSponsorCategories(supabase, tenantId, id, newEventId, 'complex');
+    const { data: sponsorAssignments, error: sponsorError } = await supabase.from('event_sponsor_assignment')
+      .select('sponsor_id,category_id,sponsorship_detail').eq('tenant_id', tenantId).eq('event_id', id).eq('event_type', 'complex');
+    if (sponsorError) throw new Error('Could not load sponsor assignments');
+    if (sponsorAssignments?.length) {
+      const copies = sponsorAssignments.map(a => {
+        if (a.category_id && !sponsorCategoryMap.has(a.category_id)) throw new Error('Sponsor category is unavailable');
+        return { ...a, tenant_id: tenantId, event_id: newEventId, event_type: 'complex',
+          category_id: a.category_id ? sponsorCategoryMap.get(a.category_id) : null };
+      });
+      const { error } = await supabase.from('event_sponsor_assignment').insert(copies);
+      if (error) throw new Error('Could not duplicate sponsor assignments');
+    }
 
     // Tracks
     const trackIdMap = new Map();

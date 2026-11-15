@@ -1,5 +1,6 @@
 import { resolveEventEmailContext } from './eventEmailContext.js';
 import { getTenantTrustedBaseUrl } from './publicBaseUrl.js';
+import { groupEventSponsors } from '../../shared/eventSponsorGroups.js';
 
 const pattern = () => /\{\{event_sponsors\}\}|\[\[event\.sponsors\]\]/gi;
 // Encode template delimiters too: public names/URLs are data, never another
@@ -52,17 +53,16 @@ export async function resolveCampaignEventSponsors(db, campaign, tenantId) {
     if (error) throw new Error('Event sponsors: could not load public sponsors. Please retry.');
     return data || [];
   }
-  const assignments = await rows(db.from('event_sponsor_assignment').select('sponsor_id')
+  const assignments = await rows(db.from('event_sponsor_assignment').select('sponsor_id,category_id')
     .eq('tenant_id', tenantId).eq('event_id', event.id).eq('event_type', context.event_type === 'event' ? 'simple' : 'complex'));
   if (!assignments.length) return '';
-  const sponsors = await rows(db.from('event_sponsor').select('id,name,logo_url,website_url,category_id')
+  const sponsors = await rows(db.from('event_sponsor').select('id,name,logo_url,website_url')
     .eq('tenant_id', tenantId).in('id', assignments.map(a => a.sponsor_id)));
   const categories = await rows(db.from('event_sponsor_category').select('id,name,display_order')
-    .eq('tenant_id', tenantId).order('display_order', { ascending: true }));
-  const ordered = assignments.map(a => sponsors.find(s => s.id === a.sponsor_id)).filter(Boolean);
-  const groups = categories.map(c => ({ name: c.name, sponsors: ordered.filter(s => s.category_id === c.id) })).filter(g => g.sponsors.length);
-  const other = ordered.filter(s => !s.category_id);
-  if (other.length) groups.push({ name: groups.length ? 'Other Sponsors' : '', sponsors: other });
+    .eq('tenant_id', tenantId).eq('event_id', event.id)
+    .eq('event_type', context.event_type === 'event' ? 'simple' : 'complex')
+    .order('display_order', { ascending: true }));
+  const groups = groupEventSponsors(sponsors, assignments, categories);
   if (!groups.length) return '';
   const { data: tenant, error } = await db.from('tenant').select('slug,domain').eq('id', tenantId).maybeSingle();
   if (error || !tenant?.slug) throw new Error('Event sponsors: the tenant public URL is unavailable.');

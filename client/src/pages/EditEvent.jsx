@@ -85,6 +85,7 @@ import SpeakerAwardsSection, { configToFormState, formStateToConfig } from "@/co
 import { reconcileSpeakerAwards, finalRemovedSpeakerIds, hasRelevantAwardedBadge } from "@/lib/speakerAwardLifecycle";
 import SpeakerBadgeRemovalDialog from "@/components/events/SpeakerBadgeRemovalDialog";
 import EventSponsorSelector from "@/components/events/EventSponsorSelector";
+import { assignmentCategories } from "@/lib/eventSponsorState.mjs";
 import EventPeopleDisplayModeField from "@/components/events/EventPeopleDisplayModeField";
 import { useSpeakerModuleName } from "@/hooks/useSpeakerModuleName";
 import { useEventTypes } from "@/hooks/useEventTypes";
@@ -717,6 +718,7 @@ export default function EditEvent() {
   // Selected sponsors state
   const [selectedSponsors, setSelectedSponsors] = useState([]);
   const [sponsorDetails, setSponsorDetails] = useState({});
+  const [sponsorCategories, setSponsorCategories] = useState({});
   const [sponsorsInitialized, setSponsorsInitialized] = useState(false);
   const [sponsorsLoadFailed, setSponsorsLoadFailed] = useState(false);
   const [sponsorsExpanded, setSponsorsExpanded] = useState(false);
@@ -1406,12 +1408,13 @@ export default function EditEvent() {
       // Load sponsor assignments
       setSponsorsInitialized(false);
       setSponsorsLoadFailed(false);
-      base44.entities.EventSponsorAssignment.list({ filter: { event_id: event.id, event_type: 'simple' } })
+      base44.entities.EventSponsorAssignment.listAll({ filter: { event_id: event.id, event_type: 'simple' } })
         .then(assignments => {
           setSelectedSponsors(assignments.map(a => a.sponsor_id).filter(Boolean));
           const details = {};
           assignments.forEach(a => { if (a.sponsor_id && a.sponsorship_detail) details[a.sponsor_id] = a.sponsorship_detail; });
           setSponsorDetails(details);
+          setSponsorCategories(assignmentCategories(assignments));
           setSponsorsInitialized(true);
           setSponsorsLoadFailed(false);
         })
@@ -2012,17 +2015,8 @@ export default function EditEvent() {
           } else if (!sponsorsInitialized) {
             toast.warning('Sponsor assignments were not changed because they were still loading when you saved. Please save again to apply any sponsor changes.');
           } else if (sponsorsInitialized) {
-            const existingAssignments = await base44.entities.EventSponsorAssignment.list({ filter: { event_id: eventId, event_type: 'simple' } });
-
-            // Build category map only if needed
-            let sponsorCategoryMap = {};
-            const needsCategories = selectedSponsors.some(id => !existingAssignments.find(a => a.sponsor_id === id));
-            if (needsCategories) {
-              const allSponsors = await base44.entities.EventSponsor.list();
-              (allSponsors || []).forEach(s => { sponsorCategoryMap[s.id] = s.category_id || null; });
-            } else {
-              existingAssignments.forEach(a => { sponsorCategoryMap[a.sponsor_id] = a.category_id || null; });
-            }
+            const existingAssignments = await base44.entities.EventSponsorAssignment.listAll({ filter: { event_id: eventId, event_type: 'simple' } });
+            const sponsorCategoryMap = sponsorCategories;
 
             // Delete only removed sponsors
             const toDelete = existingAssignments.filter(a => !selectedSponsors.includes(a.sponsor_id));
@@ -2964,6 +2958,10 @@ export default function EditEvent() {
                       selectedSponsorIds={selectedSponsors}
                       onSelectedSponsorIdsChange={setSelectedSponsors}
                       sponsorDetails={sponsorDetails}
+                      sponsorCategories={sponsorCategories}
+                      onSponsorCategoryChange={(id, val) => setSponsorCategories(prev => ({ ...prev, [id]: val }))}
+                      assignmentsLoading={!sponsorsInitialized}
+                      assignmentsError={sponsorsLoadFailed}
                       onSponsorDetailsChange={(id, val) => setSponsorDetails(prev => ({ ...prev, [id]: val }))}
                     />
                   </div>

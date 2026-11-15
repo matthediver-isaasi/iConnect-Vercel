@@ -71,6 +71,7 @@ import { reconcileSpeakerAwards, finalRemovedSpeakerIds, hasRelevantAwardedBadge
 import SpeakerBadgeRemovalDialog from "@/components/events/SpeakerBadgeRemovalDialog";
 import EventPeopleDisplayModeField from "@/components/events/EventPeopleDisplayModeField";
 import EventSponsorSelector from "@/components/events/EventSponsorSelector";
+import { assignmentCategories } from "@/lib/eventSponsorState.mjs";
 import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
 import EventEmailSettingsEditor, {
@@ -848,6 +849,7 @@ export default function CreateComplexEvent() {
   const [filterTagsInitialized, setFilterTagsInitialized] = useState(false);
   const [selectedSponsors, setSelectedSponsors] = useState([]);
   const [sponsorDetails, setSponsorDetails] = useState({});
+  const [sponsorCategories, setSponsorCategories] = useState({});
   const [sponsorsExpanded, setSponsorsExpanded] = useState(false);
   const [seoTitle, setSeoTitle] = useState("");
   const [attachedDocuments, setAttachedDocuments] = useState([]);
@@ -1150,8 +1152,8 @@ export default function CreateComplexEvent() {
   };
 
   const buildSnapshot = useCallback(() => {
-    return JSON.stringify({ communicationCategories, formData, tracks, sessions, ticketClasses, cpdBadgeConfig, cpdPointsConfig, cpdCertificateConfig, selectedSponsors, sponsorDetails, seoTitle, seoDescription, ogImageUrl, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, qrOnConfirmation, collectThirdPartyConsent, allowPublicInvoicePo, isProgramEvent });
-  }, [communicationCategories, formData, tracks, sessions, ticketClasses, cpdBadgeConfig, cpdPointsConfig, cpdCertificateConfig, selectedSponsors, sponsorDetails, seoTitle, seoDescription, ogImageUrl, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, qrOnConfirmation, collectThirdPartyConsent, allowPublicInvoicePo, isProgramEvent]);
+    return JSON.stringify({ communicationCategories, formData, tracks, sessions, ticketClasses, cpdBadgeConfig, cpdPointsConfig, cpdCertificateConfig, selectedSponsors, sponsorDetails, sponsorCategories, seoTitle, seoDescription, ogImageUrl, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, qrOnConfirmation, collectThirdPartyConsent, allowPublicInvoicePo, isProgramEvent });
+  }, [communicationCategories, formData, tracks, sessions, ticketClasses, cpdBadgeConfig, cpdPointsConfig, cpdCertificateConfig, selectedSponsors, sponsorDetails, sponsorCategories, seoTitle, seoDescription, ogImageUrl, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, qrOnConfirmation, collectThirdPartyConsent, allowPublicInvoicePo, isProgramEvent]);
 
   const isDirty = !isEditMode || isDirtyState;
 
@@ -1286,12 +1288,13 @@ export default function CreateComplexEvent() {
       if (sponsorsInitializedForRef.current !== existingEvent.id) {
         setSponsorsInitialized(false);
         setSponsorsLoadFailed(false);
-        base44.entities.EventSponsorAssignment.list({ filter: { event_id: existingEvent.id, event_type: 'complex' } })
+        base44.entities.EventSponsorAssignment.listAll({ filter: { event_id: existingEvent.id, event_type: 'complex' } })
           .then(assignments => {
             setSelectedSponsors(assignments.map(a => a.sponsor_id).filter(Boolean));
             const details = {};
             assignments.forEach(a => { if (a.sponsor_id && a.sponsorship_detail) details[a.sponsor_id] = a.sponsorship_detail; });
             setSponsorDetails(details);
+            setSponsorCategories(assignmentCategories(assignments));
             sponsorsInitializedForRef.current = existingEvent.id;
             setSponsorsInitialized(true);
             setSponsorsLoadFailed(false);
@@ -2376,17 +2379,8 @@ export default function CreateComplexEvent() {
         } else if (isEditMode && !sponsorsInitialized) {
           toast.warning('Sponsor assignments were not changed because they were still loading when you saved. Please save again to apply any sponsor changes.');
         } else if (isEditMode && sponsorsInitialized) {
-          const existingAssignments = await base44.entities.EventSponsorAssignment.list({ filter: { event_id: eventId, event_type: 'complex' } });
-
-          // Build category map only if needed
-          let sponsorCategoryMap = {};
-          const needsCategories = selectedSponsors.some(id => !existingAssignments.find(a => a.sponsor_id === id));
-          if (needsCategories) {
-            const allSponsors = await base44.entities.EventSponsor.list();
-            (allSponsors || []).forEach(s => { sponsorCategoryMap[s.id] = s.category_id || null; });
-          } else {
-            existingAssignments.forEach(a => { sponsorCategoryMap[a.sponsor_id] = a.category_id || null; });
-          }
+          const existingAssignments = await base44.entities.EventSponsorAssignment.listAll({ filter: { event_id: eventId, event_type: 'complex' } });
+          const sponsorCategoryMap = sponsorCategories;
 
           // Delete only removed sponsors
           const toDelete = existingAssignments.filter(a => !selectedSponsors.includes(a.sponsor_id));
@@ -2421,11 +2415,7 @@ export default function CreateComplexEvent() {
           }
         } else if (!isEditMode) {
           // Create mode — just create all selected sponsors fresh
-          let sponsorCategoryMap = {};
-          if (selectedSponsors.length > 0) {
-            const allSponsors = await base44.entities.EventSponsor.list();
-            (allSponsors || []).forEach(s => { sponsorCategoryMap[s.id] = s.category_id || null; });
-          }
+          const sponsorCategoryMap = sponsorCategories;
           for (const sponsorId of selectedSponsors) {
             const detail = (sponsorDetails[sponsorId] || '').trim();
             await base44.entities.EventSponsorAssignment.create({
@@ -3008,6 +2998,10 @@ export default function CreateComplexEvent() {
                         selectedSponsorIds={selectedSponsors}
                         onSelectedSponsorIdsChange={setSelectedSponsors}
                         sponsorDetails={sponsorDetails}
+                        sponsorCategories={sponsorCategories}
+                        onSponsorCategoryChange={(id, val) => setSponsorCategories(prev => ({ ...prev, [id]: val }))}
+                        assignmentsLoading={isEditMode && !sponsorsInitialized}
+                        assignmentsError={sponsorsLoadFailed}
                         onSponsorDetailsChange={(id, val) => setSponsorDetails(prev => ({ ...prev, [id]: val }))}
                       />
                     </div>

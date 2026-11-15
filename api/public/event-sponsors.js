@@ -58,7 +58,7 @@ export default async function handler(req, res) {
 
     const { data: sponsors, error: sponsorError } = await supabase
       .from('event_sponsor')
-      .select('id, name, logo_url, website_url, description, category_id')
+      .select('id, name, logo_url, website_url, description')
       .eq('tenant_id', tenant.id)
       .in('id', sponsorIds);
 
@@ -69,12 +69,15 @@ export default async function handler(req, res) {
 
     const { data: categories, error: catError } = await supabase
       .from('event_sponsor_category')
-      .select('id, name, display_order')
+      .select('id, name, display_order, legacy_category_id')
       .eq('tenant_id', tenant.id)
+      .eq('event_id', eventId)
+      .eq('event_type', eventType)
       .order('display_order', { ascending: true });
 
     if (catError) {
       console.error('[Public event-sponsors] Category query error:', catError);
+      return res.status(500).json({ error: 'Failed to load sponsor categories' });
     }
 
     return res.status(200).json({

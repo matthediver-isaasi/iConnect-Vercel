@@ -8,6 +8,7 @@ import { useMemo, useState, useEffect, useRef, useId, useContext, lazy, Suspense
 import { DirectoryCarouselBootstrapContext, directoryCarouselBlockKey, directoryCarouselViewerIdentity, directoryCarouselQueryOptions, warmDirectoryCarouselImages, createDirectoryCarouselVisitSeed, buildDirectoryCarouselQuery } from '../directoryCarouselBootstrap';
 export { createDirectoryCarouselVisitSeed, buildDirectoryCarouselQuery } from '../directoryCarouselBootstrap';
 import { useQuery } from '@tanstack/react-query';
+import { groupEventSponsors, resolveEventSponsorCategoryIds } from '../../../../../shared/eventSponsorGroups.js';
 import {
   Calendar, MapPin, FileText, Newspaper, Heart, Users, Layers,
   CalendarDays, Folder, ArrowRight, Loader2, FormInput, Building2,
@@ -2945,60 +2946,7 @@ function useEventSponsors(eventValue, categoryOrder) {
     const sponsors = Array.isArray(data?.sponsors) ? data.sponsors : [];
     const categories = Array.isArray(data?.categories) ? data.categories : [];
     const assignments = Array.isArray(data?.assignments) ? data.assignments : [];
-    if (sponsors.length === 0) return [];
-    const sponsorById = new Map(sponsors.map((s) => [String(s.id), s]));
-    const catMeta = new Map();
-    categories.forEach((cat, i) => {
-      catMeta.set(String(cat.id), {
-        name: cat.name || '',
-        order: Number.isFinite(cat.display_order) ? cat.display_order : i,
-      });
-    });
-    const byCat = new Map();
-    const pushTo = (key, sponsor) => {
-      if (!byCat.has(key)) byCat.set(key, []);
-      byCat.get(key).push(sponsor);
-    };
-    // Category membership is event-scoped: use the assignment rows
-    // (sponsor_id -> category_id for THIS event), not the sponsor's global
-    // category. A sponsor assigned to multiple categories appears in each.
-    if (assignments.length > 0) {
-      for (const a of assignments) {
-        const sponsor = sponsorById.get(String(a.sponsor_id));
-        if (!sponsor) continue;
-        // Prefer the category stored on the assignment; for events saved
-        // before levels were persisted, fall back to the sponsor's global
-        // category so they still group correctly without a re-save.
-        const catId = a.category_id || sponsor.category_id;
-        pushTo(catId ? String(catId) : '__none__', sponsor);
-      }
-    } else {
-      for (const s of sponsors) {
-        pushTo(s.category_id ? String(s.category_id) : '__none__', s);
-      }
-    }
-    const result = [];
-    for (const [key, list] of byCat.entries()) {
-      if (key === '__none__') continue;
-      const meta = catMeta.get(key);
-      result.push({ id: key, name: meta?.name || '', order: meta?.order ?? 9998, sponsors: list });
-    }
-    // Per-block category order override (Task #1503). Categories listed in the
-    // override sort first, in the override's order; everything not listed falls
-    // back to the existing stored-order/alphabetical sort after them. The
-    // synthetic "Other" bucket is never part of the override and stays last.
-    const orderList = orderKey ? orderKey.split(',') : [];
-    const orderIndex = new Map(orderList.map((id, i) => [id, i]));
-    result.sort((a, b) => {
-      const ai = orderIndex.has(a.id) ? orderIndex.get(a.id) : Infinity;
-      const bi = orderIndex.has(b.id) ? orderIndex.get(b.id) : Infinity;
-      if (ai !== bi) return ai - bi;
-      return (a.order - b.order) || a.name.localeCompare(b.name);
-    });
-    if (byCat.has('__none__')) {
-      result.push({ id: '__none__', name: 'Other', order: 9999, sponsors: byCat.get('__none__') });
-    }
-    return result;
+    return groupEventSponsors(sponsors, assignments, categories, orderKey ? orderKey.split(',') : []);
   }, [data, orderKey]);
 
   // Per-assignment, event-specific sponsorship detail (e.g. "Lunch"), keyed by
@@ -3199,7 +3147,7 @@ function SponsorGridRender({ block, breakpoint, asEditor }) {
     ...allCategories.map((cat) => String(cat.id)),
     ...groups.map((g) => String(g.id)),
   ]);
-  const selectedCats = (Array.isArray(c.categoryIds) ? c.categoryIds.map(String) : [])
+  const selectedCats = resolveEventSponsorCategoryIds(c.categoryIds, allCategories)
     .filter((id) => allCatIds.has(id));
 
   // Groups that have sponsors, filtered by selection.
@@ -3263,7 +3211,7 @@ function SponsorGridRender({ block, breakpoint, asEditor }) {
   }
 
   // Build the sorted merged list of categories (sponsor-bearing + empty-with-CTA).
-  const orderList = Array.isArray(c.categoryOrder) ? c.categoryOrder.map(String) : [];
+  const orderList = resolveEventSponsorCategoryIds(c.categoryOrder, allCategories);
   const orderIndex = new Map(orderList.map((id, i) => [id, i]));
 
   const mergedCats = [];
@@ -3566,7 +3514,7 @@ function SponsorCarouselRender({ block, asEditor, breakpoint }) {
     ...allCategories.map((cat) => String(cat.id)),
     ...groups.map((g) => String(g.id)),
   ]);
-  const selectedCats = (Array.isArray(c.categoryIds) ? c.categoryIds.map(String) : [])
+  const selectedCats = resolveEventSponsorCategoryIds(c.categoryIds, allCategories)
     .filter((id) => allCatIds.has(id));
   const filteredGroups = selectedCats.length === 0
     ? groups

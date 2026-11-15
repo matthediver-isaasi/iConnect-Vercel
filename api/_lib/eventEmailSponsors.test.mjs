@@ -85,14 +85,35 @@ for (const label of ['empty', 'hidden', 'wrong tenant sponsor', 'wrong event ass
   assert.equal(await resolveCampaignEventSponsors(f.db, f.campaign, 't'), '');
 });
 
-test('existing public tiers use sponsor category, tier order then name, uncategorized last', async () => {
+test('public tiers use event assignment category, not global sponsor category', async () => {
   const f = fixture();
-  f.rows.event_sponsor_category = [{ id: 'gold', tenant_id: 't', name: 'Gold', display_order: 1 }, { id: 'silver', tenant_id: 't', name: 'Silver', display_order: 2 }];
-  f.rows.event_sponsor[0].category_id = 'silver';
-  f.rows.event_sponsor[1].category_id = 'gold';
+  f.rows.event_sponsor_category = [{ id: 'gold', tenant_id: 't', event_id: 'e1', event_type: 'simple', name: 'Gold', display_order: 1 }, { id: 'silver', tenant_id: 't', event_id: 'e1', event_type: 'simple', name: 'Silver', display_order: 2 }];
+  f.rows.event_sponsor[0].category_id = 'wrong-global';
+  f.rows.event_sponsor_assignment[0].category_id = 'silver';
+  f.rows.event_sponsor_assignment[1].category_id = 'gold';
   f.rows.event_sponsor_assignment[1].event_id = 'e1';
   const html = await resolveCampaignEventSponsors(f.db, f.campaign, 't');
   assert.ok(html.indexOf('Gold') < html.indexOf('Silver'));
+});
+
+test('the same sponsor renders different event categories and explicit no-category never falls back', async () => {
+  const f = fixture();
+  f.rows.event_sponsor[0].category_id = 'old';
+  f.rows.event_sponsor_assignment[1].sponsor_id = 's1';
+  f.rows.event_sponsor_assignment[0].category_id = 'gold';
+  f.rows.event_sponsor_assignment[1].category_id = 'bronze';
+  f.rows.event_sponsor_category = [
+    { id: 'gold', tenant_id: 't', event_id: 'e1', event_type: 'simple', name: 'Gold' },
+    { id: 'bronze', tenant_id: 't', event_id: 'e2', event_type: 'simple', name: 'Bronze' },
+    { id: 'old', tenant_id: 't', name: 'Obsolete' },
+  ];
+  assert.match(await resolveCampaignEventSponsors(f.db, f.campaign, 't'), /Gold/);
+  f.campaign.event_survey_context.event_id = 'e2';
+  const html = await resolveCampaignEventSponsors(f.db, f.campaign, 't');
+  assert.match(html, /Bronze/);
+  assert.doesNotMatch(html, /Gold|Obsolete/);
+  f.rows.event_sponsor_assignment[1].category_id = null;
+  assert.doesNotMatch(await resolveCampaignEventSponsors(f.db, f.campaign, 't'), /Gold|Bronze|Obsolete/);
 });
 
 for (const url of ['data:image/svg+xml,<svg onload=alert(1)>', '//evil.invalid/logo', 'java\nscript:alert(1)', 'https://user:pass@evil.invalid/', '\\\\evil.invalid\\logo', 'vbscript:alert(1)']) {
@@ -124,6 +145,7 @@ test('transactional confirmation/reminder resolver derives sponsors from its can
 test('actual send adapter resolves current sponsors before tracking, rejects stale retries, and preserves query parameters', async () => {
   const f = fixture();
   const submissions = [];
+  const errors = [];
   const source = (await readFile(new URL('./campaignService.js', import.meta.url), 'utf8'))
     .replace(/import\s+[\s\S]*?\s+from\s+['"][^'"]+['"];?/g, '')
     .replace('const supabase = preparationDatabase(rawSupabase);', '')
@@ -131,6 +153,8 @@ test('actual send adapter resolves current sponsors before tracking, rejects sta
   const { sendToRecipient } = vm.runInNewContext(`${source}\n;({sendToRecipient})`, {
     process: { env: {} }, crypto, Buffer, supabase: f.db, isStandaloneCampaignPreferencePlaceholder,
     campaignAddressSuppressed: async () => false,
+    transitionCampaignClaims: async () => {},
+    finalizeCampaignDelivery: async () => {},
     persistCampaignDeliveryProvenance: async () => {},
     verifyCampaignDeliveryProvenance: async () => {},
     resolveCampaignEventSurvey, replaceEventSurvey, resolveCampaignEventSponsors, replaceEventSponsors, resolveCampaignAttendeeContent,
@@ -141,12 +165,12 @@ test('actual send adapter resolves current sponsors before tracking, rejects sta
       submissions.push(payload);
       return { success: true };
     },
-    console: { error() {}, warn() {}, log() {} },
+    console: { error(...args) { errors.push(args.join(' ')); }, warn() {}, log() {} },
   });
   for (const n of [1, 2]) {
     f.campaign.event_survey_context.event_id = `e${n}`;
     const result = await sendToRecipient({ id: `r${n}`, email: 'recipient@fixture.invalid' }, f.campaign, 't', 'fixture', null, { hasUnsubscribeBlock: true });
-    assert.equal(result, 'sent');
+    assert.equal(result, 'sent', errors.join('\n'));
     const doc = new JSDOM(submissions.at(-1).html).window.document;
     assert.match(doc.body.textContent, n === 1 ? /Alpha/ : /Beta/);
     assert.equal(doc.querySelector('p table,script'), null);

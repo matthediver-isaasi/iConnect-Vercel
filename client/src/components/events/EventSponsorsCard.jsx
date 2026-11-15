@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Handshake, Image } from "lucide-react";
 import { publicClient } from "@/api/publicClient";
+import { groupEventSponsors } from "../../../../shared/eventSponsorGroups.js";
 import { EventDisclosureHeading, useEventDisclosure } from "@/components/events/EventDisclosure";
 
 export default function EventSponsorsCard({
@@ -31,46 +32,9 @@ export default function EventSponsorsCard({
   const groupedSponsors = useMemo(() => {
     if (assignments.length === 0 || sponsors.length === 0) return [];
 
-    const sponsorIds = assignments.map(a => a.sponsor_id).filter(Boolean);
-    const eventSponsors = sponsorIds
-      .map(id => sponsorMap[id])
-      .filter(Boolean);
-
-    if (eventSponsors.length === 0) return [];
-
-    const groups = {};
-    const uncategorized = [];
-
-    eventSponsors.forEach(sponsor => {
-      const catId = sponsor.category_id;
-      if (catId) {
-        if (!groups[catId]) groups[catId] = [];
-        groups[catId].push(sponsor);
-      } else {
-        uncategorized.push(sponsor);
-      }
-    });
-
-    const result = [];
-    categories.forEach(cat => {
-      if (groups[cat.id] && groups[cat.id].length > 0) {
-        result.push({
-          categoryName: cat.name,
-          categoryId: cat.id,
-          sponsors: groups[cat.id].sort((a, b) => a.name.localeCompare(b.name))
-        });
-      }
-    });
-
-    if (uncategorized.length > 0) {
-      result.push({
-        categoryName: result.length > 0 ? "Other Sponsors" : null,
-        categoryId: null,
-        sponsors: uncategorized.sort((a, b) => a.name.localeCompare(b.name))
-      });
-    }
-
-    return result;
+    return groupEventSponsors(sponsors, assignments, categories).map(group => ({
+      categoryName: group.name, categoryId: group.id, sponsors: group.sponsors,
+    }));
   }, [sponsors, sponsorMap, categories, assignments]);
 
   if (disclosure.hidden || groupedSponsors.length === 0) return null;
