@@ -13,3 +13,9 @@ Static Playwright fixtures may intercept only Vite's reload WebSocket rather tha
 **Why:** Middleware-mode Vite can advertise a direct fallback with an undefined port; isolated fixture routing can trigger that fallback even though all application interactions succeed. Switching to the proxied preview hostname alone does not resolve it.
 
 **How to apply:** Keep reload traffic local using a narrowly matched WebSocket route in static fixtures; retain page-error assertions and leave application WebSockets and production configuration unchanged.
+
+API interception in browser fixtures must check that the URL pathname starts with `/api/`, not merely match an `api` path segment.
+
+**Why:** Vite serves client modules beneath `/src/api/`; a broad `**/api/**` response stub can replace those JavaScript modules with JSON and cause unrelated dynamic imports to fail.
+
+**How to apply:** Let source-module requests continue normally and intercept only root API paths.

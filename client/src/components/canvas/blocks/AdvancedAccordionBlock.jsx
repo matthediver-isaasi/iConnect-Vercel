@@ -20,6 +20,7 @@ import { getCachedLucideIcon, loadLucideIcon } from '@/lib/lucideCatalog';
 import {
   BREAKPOINT_MAX_PX,
   BLOCK_TYPES,
+  ADVANCED_ACCORDION_SIZED_CHILD_TYPES,
   addAdvancedAccordionItem,
   cloneCanvasBlockWithFreshIds,
   createBlock,
@@ -240,7 +241,7 @@ function isNestedContainer(block) {
     || Array.isArray(block?.children);
 }
 
-const SIZED_NESTED_CHILD_TYPES = new Set([BLOCK_TYPES.BUTTON, BLOCK_TYPES.VIDEO]);
+const SIZED_NESTED_CHILD_TYPES = ADVANCED_ACCORDION_SIZED_CHILD_TYPES;
 const NESTED_LAYOUT_BREAKPOINTS = ['desktop', 'tablet', 'mobile'];
 
 function hasOwnNestedLayoutValue(child, breakpoint, field) {
@@ -310,6 +311,11 @@ function NestedLayoutControls({ child, breakpoint, update }) {
             ? 'Fill is the legacy default. Custom size uses this block’s Canvas width and height.'
             : `Blank values inherit from ${inheritedBreakpoint}. Use Reset to restore inheritance.`}
         </p>
+        {child.type === BLOCK_TYPES.IMAGE && (
+          <p className="mt-1 text-[11px] leading-snug text-slate-500">
+            Alignment places the image frame in the panel. Object fit and focal point control the picture inside that frame.
+          </p>
+        )}
       </div>
 
       <Field label={`Width mode${modeInherited && !isDesktop ? ` (inherited: ${resolvedLayout.mode})` : ''}`}>
@@ -432,6 +438,7 @@ function NestedCanvasChild({
   const fixedHeight = Math.max(24, Number(geom.h) || 40);
   const isAutoHeight = definition?.autoHeight || isFlowContainer;
   const hasExplicitNestedLayout = placement === 'stack'
+    && depth === 0
     && SIZED_NESTED_CHILD_TYPES.has(child.type)
     && !!child.accordionLayout;
   const nestedLayout = hasExplicitNestedLayout
@@ -1120,6 +1127,7 @@ export function AdvancedAccordionInspector({
                     update={patchSelectedChild}
                     onUpdate={patchSelectedChild}
                     breakpoint={breakpoint || 'desktop'}
+                    insideAccordionPanel
                   />
                 )
               : <div className="text-xs text-slate-500">This block has no content-specific settings.</div>;

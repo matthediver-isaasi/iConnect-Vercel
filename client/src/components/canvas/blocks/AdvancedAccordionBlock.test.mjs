@@ -425,9 +425,10 @@ test('nested child inspector functional updates change the accordion block', asy
   );
 });
 
-test('nested CTA layout inspector writes responsive geometry and resets tablet overrides', async () => {
+for (const type of [BLOCK_TYPES.BUTTON, BLOCK_TYPES.IMAGE]) {
+test(`nested ${type} layout inspector writes responsive geometry and resets tablet overrides`, async () => {
   const child = {
-    ...createBlock(BLOCK_TYPES.BUTTON, {
+    ...createBlock(type, {
       id: 'nested-cta',
       name: 'Nested CTA',
       desktop: { x: 0, y: 0, w: 320, h: 64 },
@@ -500,10 +501,55 @@ test('nested CTA layout inspector writes responsive geometry and resets tablet o
     align: 'left',
   });
 });
+}
 
-test('nested layout controls are not shown when a Row or Group owns child placement', async () => {
+for (const fit of ['cover', 'contain', 'fill', 'none', 'scale-down', 'fixed-crop']) {
+test(`real panel image preserves ${fit} inside responsive frames across render modes`, async () => {
+  const image = createBlock(BLOCK_TYPES.IMAGE, {
+    id: 'panel-image',
+    desktop: { x: 0, y: 0, w: 480, h: 240 },
+    tablet: { w: 320, h: 180 },
+    mobile: { h: 120 },
+    content: { src: '/photo.svg', alt: 'Panel photograph', href: '/gallery', newTab: true,
+      objectFit: fit, focalPoint: { x: 80, y: 25 } },
+  });
+  image.accordionLayout = { desktop: { mode: 'custom', align: 'center' }, mobile: { align: 'right' } };
+  const block = makeBlock({ initialState: 'first', items: [{ id: 'images', title: 'Images', children: [image] }] });
+  for (const props of [
+    { asEditor: true, breakpoint: 'desktop' },
+    { breakpoint: 'desktop' },
+    { asEditor: true, breakpoint: 'mobile' },
+    { breakpoint: 'mobile' },
+    {},
+  ]) {
+    await render(block, { ...props, getBlockDefinition: getRegisteredBlockDefinition });
+    const frame = container.querySelector('[data-advanced-accordion-child="panel-image"]');
+    const img = frame.querySelector('img');
+    const mobile = props.breakpoint === 'mobile';
+    assert.equal(frame.style.width, `min(100%, ${mobile ? 320 : 480}px)`);
+    assert.equal(frame.style.height, mobile ? '120px' : '240px');
+    assert.equal(frame.style.alignSelf, mobile ? 'flex-end' : 'center');
+    assert.equal(img.alt, 'Panel photograph');
+    if (fit === 'fixed-crop') {
+      assert.equal(img.style.left, '80%');
+      assert.equal(img.style.transform, 'translateX(-80%)');
+      assert.equal(img.style.width, 'auto');
+      assert.equal(img.parentElement.style.overflow, 'hidden');
+    } else {
+      assert.equal(img.style.objectFit, fit);
+      assert.equal(img.style.objectPosition, fit === 'cover' ? '80% 25%' : '');
+    }
+    assert.equal(!!frame.querySelector('a'), !props.asEditor);
+    if (!props.asEditor) assert.equal(frame.querySelector('a').target, '_blank');
+  }
+});
+}
+
+for (const type of [BLOCK_TYPES.BUTTON, BLOCK_TYPES.IMAGE]) {
+for (const parentType of [BLOCK_TYPES.ROW, BLOCK_TYPES.GROUP]) {
+test(`${type} layout controls and rendering respect parent ${parentType} placement`, async () => {
   const nestedButton = {
-    ...createBlock(BLOCK_TYPES.BUTTON, {
+    ...createBlock(type, {
       id: 'row-button',
       name: 'Row button',
     }),
@@ -512,7 +558,7 @@ test('nested layout controls are not shown when a Row or Group owns child placem
     },
   };
   const row = {
-    ...createBlock(BLOCK_TYPES.ROW, {
+    ...createBlock(parentType, {
       id: 'row',
       name: 'Row',
     }),
@@ -542,6 +588,32 @@ test('nested layout controls are not shown when a Row or Group owns child placem
   await act(async () => selectChild.click());
   assert.equal(container.querySelector('[data-testid="advanced-accordion-child-layout"]'), null);
   assert.match(container.textContent, /managed by its parent Row or Group layout/);
+  await render(block, { breakpoint: 'desktop', getBlockDefinition: (childType) => (
+    childType === BLOCK_TYPES.BUTTON ? getBlockDefinition(childType) : getRegisteredBlockDefinition(childType)
+  ) });
+  const frame = container.querySelector('[data-advanced-accordion-child="row-button"]');
+  assert.equal(frame.dataset.advancedAccordionLayoutMode, 'legacy-fill');
+  assert.equal(frame.style.alignSelf, '');
+});
+}
+}
+
+test('panel image alternate icon and link remain inside the configured frame', async () => {
+  const image = createBlock(BLOCK_TYPES.IMAGE, {
+    id: 'icon-image',
+    desktop: { x: 0, y: 0, w: 160, h: 100 },
+    content: { iconClass: 'fa-solid fa-star', iconAlign: 'right', href: '/icon', newTab: true },
+  });
+  image.accordionLayout = { desktop: { mode: 'custom', align: 'center' } };
+  const block = makeBlock({ items: [{ id: 'icons', title: 'Icons', children: [image] }] });
+  await render(block, { getBlockDefinition: getRegisteredBlockDefinition });
+  const frame = container.querySelector('[data-advanced-accordion-child="icon-image"]');
+  assert.equal(frame.style.width, 'min(100%, 160px)');
+  assert.equal(frame.style.height, '100px');
+  assert.equal(frame.style.alignSelf, 'center');
+  assert.ok(frame.querySelector('i.fa-star'));
+  assert.equal(frame.querySelector('a').getAttribute('href'), '/icon');
+  assert.equal(frame.querySelector('a > div').style.justifyContent, 'flex-end');
 });
 
 test('responsive nested CTA and video wrappers inherit custom size, align, height, and clamp to the panel', async () => {

@@ -2482,7 +2482,7 @@ function ImageRender({ block, asEditor, priority }) {
   return img;
 }
 
-function ImageInspector({ block, update }) {
+function ImageInspector({ block, update, insideAccordionPanel = false }) {
   const c = block.content || {};
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
@@ -2643,13 +2643,13 @@ function ImageInspector({ block, update }) {
         newTab={resolveNewTab(c)}
         onNewTabChange={(v) => set({ newTab: v })}
       />
-      <ToggleField
+      {!insideAccordionPanel && <ToggleField
         label="Full-bleed (span full screen width)"
         value={!!c.fullBleed}
         onChange={(v) => set({ fullBleed: v })}
         testId="toggle-image-full-bleed"
-      />
-      {c.fullBleed && (
+      />}
+      {!insideAccordionPanel && c.fullBleed && (
         <>
           <SelectField
             label="Height mode"

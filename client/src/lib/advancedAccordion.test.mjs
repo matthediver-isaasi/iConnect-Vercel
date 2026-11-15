@@ -15,6 +15,7 @@ import {
   addAdvancedAccordionItem,
   removeAdvancedAccordionItem,
   resolveAdvancedAccordionChildLayout,
+  resolveBlockAtBreakpoint,
   updateAdvancedAccordionItem,
   reorderAdvancedAccordionItems,
 } from './canvasDesign.js';
@@ -95,8 +96,9 @@ test('normalizeCanvasDesign preserves advanced accordion content across a round-
   assert.equal(reBlock.content.mode, 'single');
 });
 
-test('normalization preserves valid nested CTA layout and removes invalid layout values', () => {
-  const button = createBlock(BLOCK_TYPES.BUTTON);
+for (const type of [BLOCK_TYPES.BUTTON, BLOCK_TYPES.VIDEO, BLOCK_TYPES.IMAGE]) {
+test(`normalization preserves valid nested ${type} layout and removes invalid layout values`, () => {
+  const button = createBlock(type);
   button.accordionLayout = {
     desktop: { mode: 'custom', align: 'center', ignored: 'value' },
     tablet: { align: 'right' },
@@ -125,6 +127,35 @@ test('normalization preserves valid nested CTA layout and removes invalid layout
     reloaded.root.sections[0].children[0].content.items[0].children[0].accordionLayout,
     normalizedButton.accordionLayout,
   );
+});
+}
+
+test('image frames round-trip dimensions and inheritance without seeding legacy layout intent', () => {
+  const image = createBlock(BLOCK_TYPES.IMAGE, {
+    desktop: { x: 0, y: 0, w: 480, h: 240 },
+    tablet: { w: 320, h: 180 },
+    mobile: { h: 120 },
+    content: { objectFit: 'fixed-crop', focalPoint: { x: 80, y: 25 } },
+  });
+  image.accordionLayout = {
+    desktop: { mode: 'custom', align: 'center' },
+    tablet: { align: 'right' },
+  };
+  const legacy = createBlock(BLOCK_TYPES.IMAGE);
+  const accordion = createBlock(BLOCK_TYPES.ADVANCED_ACCORDION);
+  accordion.content.items[0].children = [image, legacy];
+  const saved = normalizeCanvasDesign({ root: { sections: [{ children: [accordion] }] } });
+  const reloaded = normalizeCanvasDesign(JSON.parse(JSON.stringify(saved)));
+  const [actual, old] = reloaded.root.sections[0].children[0].content.items[0].children;
+  assert.deepEqual(actual.accordionLayout, image.accordionLayout);
+  assert.deepEqual(actual.bp, image.bp);
+  assert.equal(resolveBlockAtBreakpoint(actual, 'mobile').w, 320);
+  assert.equal(resolveBlockAtBreakpoint(actual, 'mobile').h, 120);
+  assert.deepEqual(resolveAdvancedAccordionChildLayout(actual, 'mobile'), { mode: 'custom', align: 'right' });
+  assert.deepEqual(actual.content.focalPoint, { x: 80, y: 25 });
+  assert.equal(actual.content.objectFit, 'fixed-crop');
+  assert.equal(old.accordionLayout, undefined);
+  assert.deepEqual(resolveAdvancedAccordionChildLayout(old, 'mobile'), { mode: 'fill', align: 'left' });
 });
 
 test('nested CTA and video layout inherits wider breakpoints and defaults legacy children to fill', () => {

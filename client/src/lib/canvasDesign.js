@@ -3038,9 +3038,10 @@ const ADVANCED_ACCORDION_DISALLOWED_CHILD_TYPES = new Set([
 
 let _advAccNormDepth = 0;
 
-const ADVANCED_ACCORDION_SIZED_CHILD_TYPES = new Set([
+export const ADVANCED_ACCORDION_SIZED_CHILD_TYPES = new Set([
   BLOCK_TYPES.BUTTON,
   BLOCK_TYPES.VIDEO,
+  BLOCK_TYPES.IMAGE,
 ]);
 
 function normalizeAdvancedAccordionChildLayout(layout) {
