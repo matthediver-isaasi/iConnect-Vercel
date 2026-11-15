@@ -1,5 +1,7 @@
 import { supabase } from '../../_lib/database.js';
 import { getSession } from '../../_lib/session.js';
+import { guardSalesLinkedProject } from '../../_lib/salesLinkedProjectGuard.js';
+import { isListColor } from '../../../shared/projectListAppearance.mjs';
 
 async function getBoardMembershipForList(listId, identityId) {
   const { data: list } = await supabase
@@ -51,6 +53,7 @@ export default async function handler(req, res) {
     if (!access?.membership) {
       return res.status(403).json({ error: 'Not a member of this board' });
     }
+    if (!await guardSalesLinkedProject(req, res, access.list.board_id)) return;
 
     if (req.method === 'GET') {
       const { data: list, error } = await supabase
@@ -72,6 +75,15 @@ export default async function handler(req, res) {
       }
 
       const { name, position, color, is_archived } = req.body;
+      if (color !== undefined && !isListColor(color)) {
+        return res.status(400).json({ error: 'Colour must be a six-digit hex colour or null' });
+      }
+      if (position !== undefined) {
+        return res.status(400).json({ error: 'Use the board list reorder endpoint' });
+      }
+      if (name !== undefined && (typeof name !== 'string' || !name.trim())) {
+        return res.status(400).json({ error: 'List name is required' });
+      }
 
       const updateData = { updated_at: new Date().toISOString() };
       if (name !== undefined) updateData.name = name.trim();

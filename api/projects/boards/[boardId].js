@@ -61,12 +61,14 @@ export default async function handler(req, res) {
         return res.status(404).json({ error: 'Board not found' });
       }
 
-      const { data: lists } = await supabase
+      const { data: lists, error: listsError } = await supabase
         .from('project_list')
         .select('*')
         .eq('board_id', boardId)
         .eq('is_archived', false)
-        .order('position', { ascending: true });
+        .order('position', { ascending: true })
+        .order('id', { ascending: true });
+      if (listsError) return res.status(500).json({ error: 'Failed to load board lists' });
 
       const cards = [];
       for (let start = 0; ; start += 500) {

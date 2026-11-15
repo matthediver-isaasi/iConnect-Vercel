@@ -6,8 +6,8 @@ import { publishProjectCardComment, publishProjectCardUpdate } from "@/lib/proje
 import { invalidateInboxViews } from "@/lib/inboxSources.mjs";
 import BoardMentionTextarea from "./BoardMentionTextarea";
 import { mentionIdentityIds } from "./boardMentionHelpers.mjs";
+import { pastedImages, uploadPastedImage } from "./projectPastedImages";
 
-const imageTypes = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 const emptyDraft = () => ({ content: "", mentions: [], images: [], requestId: null, busy: false, error: "" });
 
 function Preview({ image }) {
@@ -42,26 +42,10 @@ export default function ActivityComposer({ cardId, boardId, members, drafts, ref
   const edit = patch => update({ ...patch, requestId: null, error: "" });
   const paste = event => {
     if (draft.current.busy || event.defaultPrevented) return;
-    // Use items OR files, never both: browsers expose the same image in both.
-    const clipboard = event.clipboardData;
-    const items = Array.from(clipboard?.items || []);
-    const files = items.length
-      ? items.filter(item => item.kind === "file").map(item => item.getAsFile()).filter(Boolean)
-      : Array.from(clipboard?.files || []);
-    const images = files.filter(file => file.type.startsWith("image/"));
-    if (!images.length) return; // Native plain text / mention paste is unchanged.
-    if (!clipboard.getData("text/plain")) event.preventDefault();
-    if (images.some(file => !imageTypes.has(file.type) || !file.size || file.size > 104857600)) {
-      update({ error: "Choose PNG, JPEG, GIF or WebP images, up to 100MB each." });
-      return;
-    }
-    if (draft.current.images.length + images.length > 10) {
-      update({ error: "You can include up to 10 images per comment." });
-      return;
-    }
-    edit({ images: [...draft.current.images, ...images.map(file => ({
-      id: crypto.randomUUID(), file, stage: "Ready to upload",
-    }))] });
+    try {
+      const images = pastedImages(event, draft.current.images.length);
+      if (images.length) edit({ images: [...draft.current.images, ...images] });
+    } catch (error) { update({ error: error.message }); }
   };
   const submit = async () => {
     const current = draft.current;
@@ -71,49 +55,7 @@ export default function ActivityComposer({ cardId, boardId, members, drafts, ref
       for (const image of current.images) {
         if (image.attachment) continue;
         const progress = stage => { image.stage = stage; update({}); };
-        if (!image.upload) {
-          progress("Preparing upload…");
-          image.upload = await apiRequest("POST", `/api/projects/cards/${cardId}/attachments`, {
-            fileName: image.file.name || "screenshot.png", fileSize: image.file.size,
-            mimeType: image.file.type, purpose: "activity",
-          });
-        }
-        if (!image.uploaded) {
-          progress("Uploading image…");
-          try {
-            const response = await fetch(image.upload.signedUrl, {
-              method: "PUT", headers: { "Content-Type": image.file.type }, body: image.file,
-            });
-            if (!response.ok) throw new Error("Image upload failed. Retry to keep your draft.");
-          } catch (error) {
-            // A PUT response may be lost after storage accepted it. Confirmation
-            // verifies the stored object, so retries need not overwrite it.
-            try {
-              const recovered = await apiRequest("POST", `/api/projects/cards/${cardId}/attachments/confirm`,
-                { uploadToken: image.upload.uploadToken });
-              image.attachment = recovered.attachment;
-            } catch (confirmError) {
-              if (/expired/i.test(confirmError.message)) image.upload = null;
-              throw error;
-            }
-          }
-          image.uploaded = true;
-        }
-        progress("Confirming upload…");
-        let confirmed;
-        try {
-          confirmed = image.attachment ? { attachment: image.attachment } : await apiRequest("POST", `/api/projects/cards/${cardId}/attachments/confirm`,
-            { uploadToken: image.upload.uploadToken });
-        } catch (error) {
-          if (/expired/i.test(error.message)) {
-            // Expired unconfirmed objects are handled by the durable cleanup
-            // ledger. A fresh signed upload can be requested on explicit retry.
-            image.upload = null;
-            image.uploaded = false;
-          }
-          throw error;
-        }
-        image.attachment = confirmed.attachment;
+        image.attachment = await uploadPastedImage(cardId, image, progress);
         await publishProjectCardUpdate(client, cardId, {}, { attachment: image.attachment });
         progress("Uploaded");
       }

@@ -17,6 +17,7 @@ async function setup() {
     stdin: { contents: `
       import React from 'react'; import {createRoot} from 'react-dom/client';
       import {QueryClient,QueryClientProvider,useQuery} from '@tanstack/react-query';
+      import {Toaster} from 'sonner';
       import Modal from './client/src/components/sales/ProjectCardDetailModal.jsx';
       import {publishProjectCardUpdate} from './client/src/lib/projectBoardCache.js';
       const params=new URLSearchParams(location.search);
@@ -35,10 +36,11 @@ async function setup() {
             labels={board.data.labels} lists={[{id:'list',name:'To do'}]}
             members={[{identity_id:'person',first_name:'Alex',last_name:'Example'}]}
             canEdit={canEdit} canManage={canEdit} canAssign={canEdit} canManageLabels={canEdit}
-            onUpdate={async patch=>{window.savedPatch=patch;await publishProjectCardUpdate(client,'card',patch);}}
+            onUpdate={async patch=>{if(window.failDescriptionSave) throw new Error('Description save failed');
+              window.savedPatch=patch;await publishProjectCardUpdate(client,'card',patch);}}
             onDelete={()=>{}} /></>;
       }
-      createRoot(document.getElementById('root')).render(<QueryClientProvider client={client}><App/></QueryClientProvider>);
+      createRoot(document.getElementById('root')).render(<QueryClientProvider client={client}><App/><Toaster/></QueryClientProvider>);
     `, resolveDir: process.cwd(), loader: 'jsx' },
     bundle: true, write: false, format: 'iife', jsx: 'automatic',
     alias: { '@': `${process.cwd()}/client/src` },
@@ -51,6 +53,7 @@ async function setup() {
     './client/src/components/sales/ProjectCardDetailModal.jsx',
     './client/src/components/projects/CardAttachments.jsx',
     './client/src/components/projects/ActivityComposer.jsx',
+    './client/src/components/projects/ProjectDescription.jsx',
     './client/src/components/ui/**/*.{jsx,tsx}',
   ]})]).process(await readFile('client/src/index.css','utf8'),{from:'client/src/index.css'})).css
     + (output.outputFiles.find(file => file.path.endsWith('.css'))?.text || '');
@@ -118,23 +121,99 @@ for (const width of [1280,390]) test(`wide/stacked layout and date fields at ${w
   } finally {await page.close();}
 });
 
-async function pasteImage(page, { type = 'image/png', native = false } = {}) {
+async function pasteImage(page, { type = 'image/png', native = false, field = 'input-new-comment' } = {}) {
   if (native) {
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
     await page.evaluate(async bytes => {
       const blob = new Blob([new Uint8Array(bytes)], { type: 'image/png' });
       await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
     }, [...screenshotBytes]);
-    await page.getByTestId('input-new-comment').focus();
+    await page.getByTestId(field).focus();
     await page.keyboard.press('Control+V');
   } else {
-    await page.getByTestId('input-new-comment').evaluate((el, type) => {
+    await page.getByTestId(field).evaluate((el, type) => {
       const clipboardData = new DataTransfer();
       clipboardData.items.add(new File(['fixture'], 'screenshot.png', { type }));
       el.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData }));
     }, type);
   }
 }
+
+test('description screenshot paste saves references, retries without duplicate uploads, reloads and respects viewers', async () => {
+  const page = await open(1280);
+  const json = (route, body, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+  const attachment = { id: '11111111-2222-4333-8444-555555555555', name: 'screenshot.png',
+    file_type: 'image/png', url: origin + '/saved-screenshot.png' };
+  let preparations = 0, confirmations = 0;
+  try {
+    await page.route('**/api/projects/boards/board', route => route.abort());
+    await page.route('**/api/projects/cards/card', route => route.abort());
+    await page.route('**/api/projects/cards/card/attachments', route => {
+      preparations++;
+      return json(route, { signedUrl: origin + '/storage', uploadToken: 'fixture' });
+    });
+    await page.route('**/storage', route => route.fulfill({ status: 200, body: '' }));
+    await page.route('**/api/projects/cards/card/attachments/confirm', route => {
+      confirmations++; return json(route, { attachment });
+    });
+    // Ordinary clipboard text remains native, alongside screenshot support.
+    await page.getByTestId('input-card-description').fill('');
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+    await page.evaluate(() => navigator.clipboard.writeText('Pasted description'));
+    await page.getByTestId('input-card-description').focus(); await page.keyboard.press('Control+V');
+    await page.waitForFunction(() => document.querySelector('#card-description').value === 'Pasted description');
+    await pasteImage(page, { field: 'input-card-description', native: true });
+    await page.getByAltText(/Description preview/).waitFor();
+    assert.equal(preparations, 0);
+    assert.equal(await page.getByAltText(/Description preview/).count(), 1);
+    await page.evaluate(() => { window.failDescriptionSave = true; });
+    await page.getByTestId('button-save-card').click();
+    await page.getByText('Description save failed', { exact: true }).waitFor();
+    assert.equal(await page.getByAltText(/Description preview/).count(), 1);
+    await page.evaluate(() => { window.failDescriptionSave = false; });
+    await page.getByTestId('button-save-card').click();
+    await page.waitForFunction(() => window.savedPatch?.description?.includes('[project-image:'));
+    const description = await page.evaluate(() => window.savedPatch.description);
+    assert.equal(description, `Pasted description\n[project-image:${attachment.id}]`);
+    assert.equal(preparations, 1); assert.equal(confirmations, 1);
+    await page.route('**/api/projects/cards/card', route => json(route, {
+      card: { id: 'card', board_id: 'board', list_id: 'list', description },
+      attachments: [attachment], comments: [], activity: [],
+    }));
+    await page.reload();
+    await page.getByTestId('card-description-section').getByAltText('screenshot.png', { exact: true }).waitFor();
+    assert.equal(await page.getByTestId('input-card-description').inputValue(), 'Pasted description');
+    await page.getByRole('button', { name: 'Remove description image screenshot.png', exact: true }).click();
+    await page.getByTestId('button-save-card').click();
+    await page.waitForFunction(() => window.savedPatch?.description === 'Pasted description');
+    await page.goto(origin + '/?readonly');
+    await page.getByTestId('card-description-section').getByAltText('screenshot.png', { exact: true }).waitFor();
+    assert.equal(await page.getByTestId('input-card-description').count(), 0);
+    assert.equal(await page.getByRole('button', { name: /Remove description image/ }).count(), 0);
+    assert.equal(await page.getByTestId('button-save-card').count(), 0);
+  } finally { await page.close(); }
+});
+
+test('description rejects unsupported images, allows removal and preserves draft after upload failure', async () => {
+  const page = await open(390);
+  try {
+    await pasteImage(page, { field: 'input-card-description', type: 'image/svg+xml' });
+    await page.getByRole('alert').filter({ hasText: 'Choose PNG' }).waitFor();
+    assert.equal(await page.getByAltText(/Description preview/).count(), 0);
+    await pasteImage(page, { field: 'input-card-description' });
+    await page.getByRole('button', { name: 'Remove pasted description image screenshot.png', exact: true }).click();
+    assert.equal(await page.getByAltText(/Description preview/).count(), 0);
+    await pasteImage(page, { field: 'input-card-description' });
+    await page.route('**/api/projects/cards/card/attachments', route => route.fulfill({
+      status: 403, contentType: 'application/json', body: '{"error":"Storage quota exceeded"}',
+    }));
+    await page.getByTestId('button-save-card').click();
+    await page.getByRole('alert').filter({ hasText: 'Storage quota exceeded' }).waitFor();
+    assert.equal(await page.getByAltText(/Description preview/).count(), 1);
+    assert.equal(await page.evaluate(() => window.savedPatch), undefined);
+    assert.equal(await page.getByTestId('input-card-description').inputValue(), 'Confirm the programme and prepare the speaker briefing.');
+  } finally { await page.close(); }
+});
 
 test('native screenshot paste, failed submit retry, immediate image publication and reload persistence', async () => {
   const page = await open(1280);

@@ -52,7 +52,8 @@ export default async function handler(req, res) {
         .select('*')
         .eq('board_id', boardId)
         .eq('is_archived', false)
-        .order('position', { ascending: true });
+        .order('position', { ascending: true })
+        .order('id', { ascending: true });
 
       if (error) {
         return res.status(500).json({ error: 'Failed to fetch lists' });
@@ -107,23 +108,24 @@ export default async function handler(req, res) {
         return res.status(403).json({ error: 'Viewers cannot reorder lists' });
       }
 
-      const { lists } = req.body;
+      const { lists } = req.body || {};
 
-      if (!Array.isArray(lists)) {
-        return res.status(400).json({ error: 'Lists array required' });
+      if (!Array.isArray(lists) || lists.some(item => !item || typeof item.id !== 'string' ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.id)) ||
+        new Set(lists.map(item => item.id.toLowerCase())).size !== lists.length) {
+        return res.status(400).json({ error: 'A complete list of unique list IDs is required' });
       }
 
-      const updates = lists.map((item, index) => 
-        supabase
-          .from('project_list')
-          .update({ position: index, updated_at: new Date().toISOString() })
-          .eq('id', item.id)
-          .eq('board_id', boardId)
-      );
-
-      await Promise.all(updates);
-
-      return res.json({ success: true });
+      const { data, error } = await supabase.rpc('reorder_project_lists', {
+        p_board_id: boardId, p_tenant_id: session.tenantId,
+        p_identity_id: session.identityId, p_list_ids: lists.map(item => item.id),
+      });
+      if (error) {
+        const status = error.code === 'PT409' ? 409 : error.code === '42501' ? 403 : 500;
+        return res.status(status).json({ error: status === 409
+          ? 'Lists changed. Reload the board and try again.' : 'Failed to reorder lists' });
+      }
+      return res.json({ success: true, lists: data });
     }
 
     return res.status(405).json({ error: 'Method not allowed' });

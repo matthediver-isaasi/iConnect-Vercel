@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import ActivityComposer from "@/components/projects/ActivityComposer";
+import ProjectDescription from "@/components/projects/ProjectDescription";
 import { projectTaskRequest, refreshSalesProjects } from "./useSalesProjectTasks";
 import { TaskError } from "./SalesProjectTaskStates";
 
@@ -59,6 +60,9 @@ export default function CardDetailModal({
 }) {
   const [editedCard, setEditedCard] = useState({});
   const activityDrafts = useRef(new Map());
+  const descriptionEditor = useRef(null);
+  const activeCardId = useRef(card?.id);
+  activeCardId.current = open ? card?.id : null;
   const [showLabelPicker, setShowLabelPicker] = useState(false);
   const [showMemberPicker, setShowMemberPicker] = useState(false);
   const [editingLabel, setEditingLabel] = useState(null);
@@ -257,15 +261,18 @@ export default function CardDetailModal({
   const save = async () => {
     if (!canEdit || saving) return;
     setSaving(true);
+    const savingCardId = card.id;
     try {
       const changes = Object.fromEntries([...dirtyFields.current].filter((key) => key !== "list_id")
         .map((key) => [key, ["start_date", "due_date"].includes(key) ? editedCard[key] || null : editedCard[key]]));
+      const description = await descriptionEditor.current?.prepare(editedCard.description || "");
+      if (description !== undefined && description !== (editedCard.description || "")) changes.description = description;
       if (Object.keys(changes).length) await onUpdate(changes);
       if (dirtyFields.current.has("list_id") && editedCard.list_id && editedCard.list_id !== liveCard.list_id) {
         await apiRequest("POST", `/api/projects/cards/${card.id}/move`, { list_id: editedCard.list_id, position: 0 });
       }
       await refresh();
-      onOpenChange(false);
+      if (activeCardId.current === savingCardId) onOpenChange(false);
     } catch (error) { reportError(error); } finally { setSaving(false); }
   };
   const deleteCard = async () => {
@@ -286,7 +293,7 @@ export default function CardDetailModal({
     }
   };
   return <><Dialog open={open} onOpenChange={(nextOpen) => {
-    if (!deletePending.current && !confirmDelete) onOpenChange(nextOpen);
+    if (!saving && !deletePending.current && !confirmDelete) onOpenChange(nextOpen);
   }}>
     <DialogContent data-testid="card-detail-modal" className="flex max-h-[92dvh] w-[calc(100%-1.5rem)] max-w-[1180px] flex-col gap-0 overflow-hidden rounded-xl p-0">
       <CardCoverSection presentation="header" cardId={card.id} coverImage={liveCard.cover_image} attachments={cardDetails?.attachments || []} canEdit={canEdit} onCoverChange={updateCover} />
@@ -370,8 +377,9 @@ export default function CardDetailModal({
               </div>}
             </div>
             <div><Label htmlFor="card-description" className="text-sm font-semibold">Description</Label>
-              {canEdit ? <Textarea id="card-description" data-testid="input-card-description" disabled={saving} value={editedCard.description || ""} onChange={(event) => editField("description", event.target.value)} placeholder="Add a more detailed description..." rows={5} className="mt-2" />
-                : <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{liveCard.description || "No description"}</p>}
+              <ProjectDescription key={`${card.id}-${open}`} ref={descriptionEditor} cardId={card.id}
+                value={canEdit ? editedCard.description : liveCard.description} onChange={value => editField("description", value)}
+                attachments={cardDetails?.attachments || liveCard.project_card_attachment || []} canEdit={canEdit} disabled={saving} />
             </div>
             <CardAttachments cardId={card.id} attachments={cardDetails?.attachments || []} coverImage={liveCard.cover_image} canEdit={canEdit} onCoverChange={updateCover} />
           </div>

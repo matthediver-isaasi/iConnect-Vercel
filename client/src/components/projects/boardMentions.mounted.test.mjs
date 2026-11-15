@@ -240,7 +240,8 @@ test("shared comment modal sends picked IDs only, invalidates board inbox, prese
   await key(input, "Enter");
   await click(document.querySelector('[data-testid="button-add-comment"]'));
   await waitFor(() => writes.length === 1 && !document.querySelector('[data-testid="button-add-comment"]').textContent.includes("Posting"), "picked comment posted");
-  assert.deepEqual(writes[0], { content: "Thanks @Mia Chen ", mentionIdentityIds: ["mia"] });
+  assert.match(writes[0].requestId, /^[0-9a-f-]{36}$/i);
+  assert.deepEqual(writes[0], { content: "Thanks @Mia Chen ", mentionIdentityIds: ["mia"], attachmentIds: [], requestId: writes[0].requestId });
   assert.equal(client.getQueryData(["project-board", "board-1"]).cards[0].project_card_comment[0].count, 1);
   assert.deepEqual(client.getQueryData(["project-board", "board-1"]).cards[1], { id: "untouched", title: "Other task" });
   assert.ok(invalidated.some((options) => JSON.stringify(options.queryKey) === JSON.stringify(["board-inbox", "board-1"])));

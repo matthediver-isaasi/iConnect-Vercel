@@ -10,11 +10,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { 
   Plus, MoreHorizontal, Loader2, ArrowLeft, Trash2, Settings,
-  AlertCircle, X, Check
+  AlertCircle, X, Check, GripVertical
 } from "lucide-react";
 import CardDetailModal from "@/components/sales/ProjectCardDetailModal";
 import ProjectBoardInbox from "@/components/projects/ProjectBoardInbox";
@@ -34,6 +33,9 @@ import { useProjectBoardRealtime } from "@/hooks/useProjectBoardRealtime";
 import { Link, useParams, useLocation } from "react-router-dom";
 import { apiRequest } from "@/lib/queryClient";
 import { publishCreatedProjectCard, publishProjectCardUpdate } from "@/lib/projectBoardCache";
+import { useProjectListWrites } from "@/components/projects/useProjectListWrites";
+import ProjectListColour from "@/components/projects/ProjectListColour";
+import { listAppearance } from "../../../shared/projectListAppearance.mjs";
 
 const PRIORITY_COLORS = {
   none: 'bg-muted',
@@ -92,10 +94,14 @@ export default function ProjectBoardPage() {
       }
       return response.json();
     },
-    enabled: accessChecked && !!boardId
+    enabled: accessChecked && !!boardId,
+    // Realtime delivery can be unavailable (offline/reconnecting or an unpublished
+    // table). Keep other users' saved list changes visible without a manual reload.
+    refetchInterval: 15000,
   });
 
   useProjectBoardRealtime(boardId);
+  const listWrites = useProjectListWrites(boardId, boardData);
   const boardFilters = useProjectBoardFilters(boardId, boardData, accessChecked && !error && Boolean(boardData?.board));
   const inboxSummary = useBoardInboxSummary(boardId, accessChecked && !error && Boolean(boardData?.board));
   const unreadCardIds = new Set(inboxSummary.data?.unreadCardIds || []);
@@ -133,7 +139,8 @@ export default function ProjectBoardPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['project-board', boardId] });
       setEditingListId(null);
-    }
+    },
+    onError: error => toast.error(error.message || 'Failed to rename list'),
   });
 
   const deleteListMutation = useMutation({
@@ -236,7 +243,8 @@ export default function ProjectBoardPage() {
     onError: (err, variables, context) => {
       // Rollback to previous data on error
       if (context?.previousData) {
-        queryClient.setQueryData(['project-board', boardId], context.previousData);
+        queryClient.setQueryData(['project-board', boardId], old => old
+          ? { ...old, cards: context.previousData.cards } : old);
       }
       toast.error('Failed to move card');
     },
@@ -275,6 +283,11 @@ export default function ProjectBoardPage() {
 
     if (!destination) return;
     if (destination.droppableId === source.droppableId && destination.index === source.index) return;
+    if (boardData?.board?.user_role === 'viewer') return;
+    if (type === 'list') {
+      listWrites.reorder(source.index, destination.index);
+      return;
+    }
 
     if (type === 'card') {
       moveCardMutation.mutate({
@@ -287,7 +300,7 @@ export default function ProjectBoardPage() {
         )
       });
     }
-  }, [moveCardMutation, boardFilters.cardsByList, boardFilters.filteredByList]);
+  }, [moveCardMutation, boardFilters.cardsByList, boardFilters.filteredByList, listWrites, boardData?.board?.user_role]);
 
   const handleCreateList = () => {
     if (!newListName.trim()) return;
@@ -341,7 +354,7 @@ export default function ProjectBoardPage() {
   }
 
   const board = boardData?.board;
-  const lists = boardData?.lists || [];
+  const lists = listWrites.lists;
   const canManage = ['owner', 'admin'].includes(board?.user_role);
   const canEdit = board?.user_role !== 'viewer';
   const canAssign = canEdit && !isFeatureExcluded('projects.board-view.assign-cards');
@@ -423,16 +436,27 @@ export default function ProjectBoardPage() {
           boardId={boardId} canEdit={canEdit && !isFeatureExcluded('projects.board-view.create-cards')}
           onCreateCard={createCardMutation.mutateAsync} />
       </div>
-      <ScrollArea className={`min-w-0 flex-1 ${boardView === 'calendar' ? 'hidden' : ''}`}>
+      <div className={`min-w-0 flex-1 overflow-auto ${boardView === 'calendar' ? 'hidden' : ''}`}>
         <div className="p-4">
           <DragDropContext onDragEnd={handleDragEnd}>
-            <div className="flex gap-4 items-start min-w-max">
-              {lists.map((list) => (
+            <Droppable droppableId={`lists-${boardId}`} type="list" direction="horizontal">
+            {(listDrop) => <div ref={listDrop.innerRef} {...listDrop.droppableProps} className="flex gap-4 items-start min-w-max">
+              {lists.map((list, listIndex) => (
+                <Draggable key={list.id} draggableId={`list-${list.id}`} index={listIndex}
+                  disableInteractiveElementBlocking
+                  isDragDisabled={!canEdit || listWrites.pending}>
+                {(listDrag) => (
                 <div
-                  key={list.id}
+                  ref={listDrag.innerRef}
+                  {...listDrag.draggableProps}
+                  style={{ ...listDrag.draggableProps.style, ...listAppearance(list.color) }}
+                  data-testid={`board-list-${list.id}`}
                   className="w-72 shrink-0 bg-muted/50 rounded-lg"
                 >
                   <div className="p-3 flex items-center justify-between">
+                    {canEdit && <button type="button" {...listDrag.dragHandleProps}
+                      aria-label={`Move list ${list.name}`} className="mr-1 shrink-0 rounded p-1 focus-visible:outline"
+                      disabled={listWrites.pending}><GripVertical className="h-4 w-4" /></button>}
                     {editingListId === list.id ? (
                       <div className="flex items-center gap-2 flex-1">
                         <Input
@@ -460,7 +484,7 @@ export default function ProjectBoardPage() {
                     ) : (
                       <>
                         <h3 
-                          className="font-semibold cursor-pointer"
+                           className="font-semibold cursor-pointer min-w-0 break-words"
                           onClick={() => {
                             if (canEdit) {
                               setEditingListId(list.id);
@@ -470,12 +494,14 @@ export default function ProjectBoardPage() {
                           data-testid={`text-list-name-${list.id}`}
                         >
                           {list.name}
-                           <span className="ml-2 text-xs font-normal text-muted-foreground" data-testid={`list-count-${list.id}`}>
+                           <span className="ml-2 text-xs font-normal" data-testid={`list-count-${list.id}`}>
                              {boardFilters.active ? `${getCardsByList(list.id).length} / ` : ""}
                              {boardFilters.cardsByList.get(String(list.id))?.length || 0}
                            </span>
                         </h3>
-                        {canManage && (
+                        {canEdit && <ProjectListColour list={list} disabled={listWrites.pending}
+                          onChange={color => listWrites.color(list.id, color)} />}
+                        {canEdit && (
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -490,13 +516,13 @@ export default function ProjectBoardPage() {
                                 Rename List
                               </DropdownMenuItem>
                               <DropdownMenuSeparator />
-                              <DropdownMenuItem 
+                              {canManage && <DropdownMenuItem
                                 className="text-destructive"
                                 onClick={() => deleteListMutation.mutate(list.id)}
                               >
                                 <Trash2 className="w-4 h-4 mr-2" />
                                 Delete List
-                              </DropdownMenuItem>
+                              </DropdownMenuItem>}
                             </DropdownMenuContent>
                           </DropdownMenu>
                         )}
@@ -655,7 +681,7 @@ export default function ProjectBoardPage() {
                           canEdit && (
                             <Button
                               variant="ghost"
-                              className="w-full justify-start text-muted-foreground"
+                              className="w-full justify-start"
                               onClick={() => setAddingCardToList(list.id)}
                               data-testid={`button-add-card-${list.id}`}
                             >
@@ -668,7 +694,10 @@ export default function ProjectBoardPage() {
                     )}
                   </Droppable>
                 </div>
+                )}
+                </Draggable>
               ))}
+              {listDrop.placeholder}
 
               {canEdit && (
                 <div className="w-72 shrink-0">
@@ -727,11 +756,11 @@ export default function ProjectBoardPage() {
                   )}
                 </div>
               )}
-            </div>
+            </div>}
+            </Droppable>
           </DragDropContext>
         </div>
-        <ScrollBar orientation="horizontal" />
-      </ScrollArea>
+      </div>
       </div>
 
       <CardDetailModal
