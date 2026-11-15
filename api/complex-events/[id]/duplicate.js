@@ -1,6 +1,7 @@
 import { cloneEventRegistrationCommunication } from '../../_lib/eventRegistrationConsent.js';
 import { randomUUID } from 'crypto';
 import { supabase } from '../../_lib/database.js';
+import { resolveSessionCategories } from '../../_lib/sessionCategories.js';
 import { getTenantContext, hasAdminAccess } from '../../_lib/tenantContext.js';
 import { authorizeGroupAdminEventAction } from '../../_lib/groupAdminEventWrite.js';
 import { recomputeComplexEventDates } from '../../_lib/complexEventDateSync.js';
@@ -130,12 +131,14 @@ export default async function handler(req, res) {
       .eq('complex_event_id', id).eq('tenant_id', tenantId).order('start_time', { ascending: true });
     if (sFetchErr) throw new Error(`fetch sessions: ${sFetchErr.message}`);
     if (sessions && sessions.length > 0) {
-      for (const s of sessions) {
+      const resolvedSessions = await resolveSessionCategories(supabase, tenantId, sessions, { isPrivileged: true });
+      for (const { categories, ...s } of resolvedSessions) {
         const r = stripPk(s);
         const { data: ns, error: sInsErr } = await supabase
           .from('complex_event_session')
           .insert({
             ...r,
+            category_ids: categories.map(c => c.id),
             complex_event_id: newEventId,
             tenant_id: tenantId,
             zoom_meeting_id: null,

@@ -1,4 +1,8 @@
 import RegistrationAssociationConfig from "@/components/events/RegistrationAssociationConfig";
+import SessionCategoryBadges from "@/components/events/SessionCategoryBadges";
+import SessionCategoryField from "@/components/events/SessionCategoryField";
+import { useSessionCategories } from "@/hooks/useSessionCategories";
+import { resolveSessionCategories, sessionCategoryIds } from "@/lib/sessionCategories";
 import ItemCpdPointsField from "@/components/events/ItemCpdPointsField";
 import { serializeItemCpdPoints, validateItemCpdPoints } from "@/lib/itemCpdPoints";
 import { normalizeRegistrationAssociationConfig, validateRegistrationAssociationConfig } from "@/lib/registrationAssociations";
@@ -273,7 +277,9 @@ function AdminSessionCard({ session, timezone, colors, isMultiTrack = false, spe
 
   return (
     <div
-      className={`p-2 rounded-md border relative group overflow-hidden ${hasCustomColors ? '' : fallbackClass}`}
+      className={`p-2 rounded-md border relative group overflow-y-auto ${hasCustomColors ? '' : fallbackClass}`}
+      tabIndex={fixedHeight != null ? 0 : undefined}
+      aria-label={fixedHeight != null ? `${session.title || "Untitled session"} — scroll for session details` : undefined}
       style={cardStyle}
       data-testid={`session-card-${session._localId}`}
     >
@@ -285,7 +291,7 @@ function AdminSessionCard({ session, timezone, colors, isMultiTrack = false, spe
           <Trash2 className="w-3.5 h-3.5 text-red-500" />
         </Button>
       </div>
-      <div className="flex items-center gap-1.5 flex-wrap">
+      <div className="flex items-center gap-1.5">
         <span className="font-medium text-sm text-slate-900 truncate">{session.title || "Untitled Session"}</span>
         {isMultiTrack && (
           <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
@@ -293,6 +299,7 @@ function AdminSessionCard({ session, timezone, colors, isMultiTrack = false, spe
           </Badge>
         )}
       </div>
+      <SessionCategoryBadges categories={session.categories} className="mt-1" />
       {session.start_time && (
         <div className="flex items-center gap-2 text-xs text-slate-600 mt-0.5">
           <Clock className="w-3 h-3 shrink-0" />
@@ -725,6 +732,7 @@ export default function CreateComplexEvent() {
     image_focal_point: null,
     use_event_image: true,
     speaker_ids: [],
+    category_ids: [],
     start_time: "",
     end_time: "",
     location: "",
@@ -801,6 +809,7 @@ export default function CreateComplexEvent() {
 
   const { eventTypes } = useEventTypes();
   const { internalEventTypes } = useInternalEventTypes();
+  const sessionCategoriesQuery = useSessionCategories({ memberInfo, isAccessReady });
 
   const { data: resourceCategories = [] } = useQuery({
     queryKey: ['/api/entities/ResourceCategory'],
@@ -1326,6 +1335,7 @@ export default function CreateComplexEvent() {
         ...s,
         _localId: s.id,
         speaker_ids: s.speaker_ids || [],
+        category_ids: sessionCategoryIds(s.category_ids),
         speaker_names: s.speaker_names || [],
         track_ids: s.track_ids || [],
         image_focal_point: s.image_focal_point || null,
@@ -1553,6 +1563,7 @@ export default function CreateComplexEvent() {
         image_focal_point: session.image_focal_point || null,
         use_event_image: session.use_event_image !== undefined ? session.use_event_image : !session.image_url,
         speaker_ids: session.speaker_ids || [],
+        category_ids: sessionCategoryIds(session.category_ids),
         start_time: toLocalDatetimeStr(session.start_time),
         end_time: toLocalDatetimeStr(session.end_time),
         location: session.location || "",
@@ -1593,6 +1604,7 @@ export default function CreateComplexEvent() {
         image_focal_point: null,
         use_event_image: true,
         speaker_ids: [],
+        category_ids: [],
         start_time: prefillStartTime,
         end_time: "",
         location: "",
@@ -2126,6 +2138,7 @@ export default function CreateComplexEvent() {
           image_url: sessionImageUrl,
           image_focal_point: session.use_event_image ? null : (session.image_focal_point || null),
           speaker_ids: session.speaker_ids || [],
+          category_ids: sessionCategoryIds(session.category_ids),
           speaker_names: session.speaker_names || [],
           start_time: session.start_time || null,
           end_time: session.end_time || null,
@@ -3844,7 +3857,12 @@ export default function CreateComplexEvent() {
                 </div>
               ) : (
                 <AdminScheduleGrid
-                  sessions={sessions}
+                  sessions={sessions.map(session => ({
+                    ...session,
+                    categories: resolveSessionCategories(session.category_ids, sessionCategoriesQuery.data, {
+                      settled: !sessionCategoriesQuery.isPending && !sessionCategoriesQuery.isError,
+                    }),
+                  }))}
                   tracks={tracks}
                   timezone={formData.timezone || DEFAULT_TIMEZONE}
                   speakerMap={speakers.reduce((map, s) => { map[s.id] = s; return map; }, {})}
@@ -4887,6 +4905,11 @@ export default function CreateComplexEvent() {
                 data-testid="input-session-title"
               />
             </div>
+            <SessionCategoryField
+              value={sessionForm.category_ids}
+              onChange={category_ids => setSessionForm(prev => ({ ...prev, category_ids }))}
+              query={sessionCategoriesQuery}
+            />
             <ItemCpdPointsField id="input-session-cpd-points"
               value={sessionForm.cpd_points}
               helperText="For overnight sessions, CPD is credited to the session start date in the event timezone."

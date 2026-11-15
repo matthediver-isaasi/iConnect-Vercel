@@ -1,7 +1,9 @@
 import { supabase } from '../_lib/database.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+import { resolveSessionCategories, PUBLIC_SESSION_FIELDS, projectPublicSession } from '../_lib/sessionCategories.js';
 
 export default async function handler(req, res) {
+  res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -61,7 +63,7 @@ export default async function handler(req, res) {
 
     const { data: sessions, error: sessionsError } = await supabase
       .from('complex_event_session')
-      .select('id, title, description, image_url, image_focal_point, speaker_names, speaker_ids, start_time, end_time, location, is_online, display_order, complex_event_id')
+      .select([...PUBLIC_SESSION_FIELDS, 'category_ids'].join(', '))
       .eq('complex_event_id', event_id)
       .eq('tenant_id', tenant.id)
       .order('display_order', { ascending: true })
@@ -95,7 +97,8 @@ export default async function handler(req, res) {
       sessionTrackMap[j.complex_event_session_id].push(j.complex_event_track_id);
     }
 
-    const enriched = sessions.map(session => {
+    const safeSessions = await resolveSessionCategories(supabase, tenant.id, sessions.map(projectPublicSession), { isGuest: true });
+    const enriched = safeSessions.map(session => {
       const trackIds = sessionTrackMap[session.id] || [];
       const trackNames = trackIds.map(tid => trackMap[tid]?.name).filter(Boolean);
       const trackColours = trackIds.map(tid => trackMap[tid]?.colour).filter(Boolean);

@@ -34,6 +34,7 @@ import {
   stripGenericServerOwnedFields,
 } from '../../_lib/serverOwnedEntityBoundary.js';
 import { isEventFamilyEntity, authorizeGroupAdminEventWrite } from '../../_lib/groupAdminEventWrite.js';
+import { guardGenericSessionCategories, validateSessionCategoryIds, sessionCategoryViewer } from '../../_lib/sessionCategories.js';
 import { checkBadgeWriteAccess } from '../../_lib/badgeAccess.js';
 import { isResourceEntity, applyGroupResourceSubcategoryDefaults } from '../../_lib/groupAdminResourceWrite.js';
 import { normalizeTenantFormResourceTarget } from '../../_lib/resourceFormTarget.js';
@@ -468,6 +469,7 @@ export default async function handler(req, res) {
   }
 
   // Get tenant context from session
+  if (guardGenericSessionCategories(req, res, entityNorm)) return;
   let tenantCtx;
   try {
     tenantCtx = await getTenantContext(req);
@@ -2744,6 +2746,13 @@ export default async function handler(req, res) {
         });
         if (!authz.ok) {
           return res.status(authz.status || 403).json({ error: authz.error });
+        }
+        if (entityNorm === 'complexeventsession' && Object.hasOwn(sanitizedBody, 'category_ids')) {
+          try {
+            sanitizedBody.category_ids = await validateSessionCategoryIds(supabase, tenantCtx.tenantId,
+              sanitizedBody.category_ids, [], await sessionCategoryViewer(tenantCtx));
+            authz.body.category_ids = sanitizedBody.category_ids;
+          } catch (error) { return res.status(error.status || 500).json({ error: error.status ? error.message : 'Failed to validate session categories' }); }
         }
         // Authorization may remove private fields. A merge would restore keys
         // left in the original request; snapshot first because admin bodies

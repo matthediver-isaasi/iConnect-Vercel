@@ -15,6 +15,7 @@
 - [Testimonials compatibility](testimonials-carousel-compatibility.md) — legacy scroll rows require explicit pagination opt-in; preserve authored fixed frames.
 - [Canvas member personalisation](canvas-member-personalisation.md) — display-only TipTap tokens use a fresh viewer snapshot, never cached identity or design-wide replacement.
 - [Event operations](event-operations-index.md) — attendee flags, reminders, timing, deleted bookings, counts, CPD rewards, revenue and ticket releases.
+- [Session category authority](session-category-assignment-authority.md) — limited editors’ replacement payloads cannot delete assignments withheld by category visibility.
 - [Member Group topics](member-group-index.md) — custom-field ownership, role naming, scoped lists, resource links, admin redaction and event access.
 - [PostgREST and pagination topics](postgrest-pagination-index.md) — index of durable rules for PostgREST caps, stable ranged pages, bounded exports, large filters, and exact totals.
 - [Membership invoice boundaries](membership-invoice-index.md) — duplicate prevention, override display, add-on lines and PO contracts.

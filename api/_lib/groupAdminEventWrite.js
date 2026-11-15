@@ -407,10 +407,16 @@ export async function authorizeGroupAdminEventWrite({ entity, op, body, existing
 
   if (n === 'complexeventsession') {
     const trackId = op === 'create' ? out.complex_event_track_id : existingRow?.complex_event_track_id;
-    const ceId = await trackComplexEventId(trackId);
+    const ceId = (op === 'create' ? out.complex_event_id : existingRow?.complex_event_id) || await trackComplexEventId(trackId);
     const parent = await parentComplexEvent(ceId);
-    if (!parent || !parent.member_group_id || !adminGroupIds.has(parent.member_group_id)) {
+    if (!parent || parent.tenant_id !== tenantCtx.tenantId || !parent.member_group_id || !adminGroupIds.has(parent.member_group_id)) {
       return { ok: false, status: 403, error: 'You can only manage sessions for events you administer' };
+    }
+    if (out.complex_event_id && out.complex_event_id !== ceId) {
+      const target = await parentComplexEvent(out.complex_event_id);
+      if (!target || target.tenant_id !== tenantCtx.tenantId || !adminGroupIds.has(target.member_group_id) || !groupAllowsComplex(target.member_group_id)) {
+        return { ok: false, status: 403, error: 'You can only move sessions to events you administer' };
+      }
     }
     if (!groupAllowsComplex(parent.member_group_id)) {
       return { ok: false, status: 403, error: 'This group does not allow multi-session events' };

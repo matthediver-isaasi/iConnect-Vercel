@@ -2,6 +2,8 @@ import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { getZoomAccessTokenForTenant } from '../_lib/zoomClient.js';
 import { recomputeComplexEventDates } from '../_lib/complexEventDateSync.js';
+import { authorizeGroupAdminEventAction, authorizeGroupAdminEventWrite } from '../_lib/groupAdminEventWrite.js';
+import { resolveSessionCategories, validateSessionCategoryIds, sessionCategoryViewer } from '../_lib/sessionCategories.js';
 import { fromZonedTime, formatInTimeZone } from 'date-fns-tz';
 
 // Converts a datetime-local string (e.g. "2025-06-15T10:00") representing a time
@@ -155,6 +157,7 @@ async function checkTrackOverlaps(supabase, tenantId, trackIds, startTime, endTi
 }
 
 export default async function handler(req, res) {
+  res.setHeader('Cache-Control', 'private, no-store');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, PATCH, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -168,6 +171,7 @@ export default async function handler(req, res) {
   }
 
   const tenantCtx = await getTenantContext(req);
+  if (tenantCtx?.tenantMismatch) return res.status(409).json({ error: 'Reload after switching organisation.' });
   if (!tenantCtx?.isAuthenticated || !tenantCtx?.tenantId) {
     return res.status(403).json({ error: 'Authentication required' });
   }
@@ -181,7 +185,7 @@ export default async function handler(req, res) {
     try {
       const { data: session, error } = await supabase
         .from('complex_event_session')
-        .select(SESSION_FIELDS)
+        .select(`${SESSION_FIELDS}, category_ids`)
         .eq('id', id)
         .eq('tenant_id', tenantId)
         .single();
@@ -193,6 +197,8 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: error.message });
       }
 
+      const access = await authorizeGroupAdminEventAction({ req, tenantCtx, eventId: session.complex_event_id, eventTable: 'complex_event', requireTypeEnabled: true });
+      if (!access.ok) return res.status(access.status || 403).json({ error: access.error });
       const { data: junctions } = await supabase
         .from('complex_event_session_track')
         .select('complex_event_track_id')
@@ -201,7 +207,8 @@ export default async function handler(req, res) {
 
       const track_ids = (junctions || []).map(j => j.complex_event_track_id);
 
-      return res.json({ ...session, track_ids });
+      const [resolved] = await resolveSessionCategories(supabase, tenantId, [{ ...session, track_ids }], await sessionCategoryViewer(tenantCtx), { keepIds: true });
+      return res.json(resolved);
     } catch (error) {
       console.error('[Sessions] Get error:', error);
       return res.status(500).json({ error: error.message || 'Failed to get session' });
@@ -210,11 +217,11 @@ export default async function handler(req, res) {
 
   if (req.method === 'PATCH') {
     try {
-      const body = req.body;
+      let body = req.body;
 
       const { data: existing, error: fetchError } = await supabase
         .from('complex_event_session')
-        .select(SESSION_FIELDS)
+        .select(`${SESSION_FIELDS}, category_ids`)
         .eq('id', id)
         .eq('tenant_id', tenantId)
         .single();
@@ -222,6 +229,16 @@ export default async function handler(req, res) {
       if (fetchError || !existing) {
         return res.status(404).json({ error: 'Session not found' });
       }
+      const authz = await authorizeGroupAdminEventWrite({
+        entity: 'ComplexEventSession', op: 'update', body, existingRow: existing, tenantCtx, req,
+      });
+      if (!authz.ok) return res.status(authz.status || 403).json({ error: authz.error });
+      body = authz.body;
+      if (body.complex_event_id && body.complex_event_id !== existing.complex_event_id) {
+        const access = await authorizeGroupAdminEventAction({ req, tenantCtx, eventId: body.complex_event_id, eventTable: 'complex_event', requireTypeEnabled: true });
+        if (!access.ok) return res.status(access.status || 403).json({ error: access.error });
+      }
+      const categoryIds = await validateSessionCategoryIds(supabase, tenantId, body.category_ids, existing.category_ids, await sessionCategoryViewer(tenantCtx));
 
       const skipOverlapCheck = req.query.skipOverlapCheck === 'true';
 
@@ -341,6 +358,7 @@ export default async function handler(req, res) {
         'attendance_policy_override'
       ];
       const dbUpdates = { updated_at: new Date().toISOString() };
+      if (categoryIds !== undefined) dbUpdates.category_ids = categoryIds;
       for (const field of ALLOWED_FIELDS) {
         if (field in body) {
           dbUpdates[field] = body[field];
@@ -360,7 +378,7 @@ export default async function handler(req, res) {
         .update(dbUpdates)
         .eq('id', id)
         .eq('tenant_id', tenantId)
-        .select(SESSION_FIELDS)
+        .select(`${SESSION_FIELDS}, category_ids`)
         .single();
 
       if (updateError) {
@@ -417,10 +435,11 @@ export default async function handler(req, res) {
         console.error('[Sessions] Date recompute failed:', recomputeErr?.message || recomputeErr);
       }
 
-      return res.json({ ...finalSession, ...(zoomProvisioningError ? { zoom_provisioning_error: zoomProvisioningError } : {}) });
+      const [resolved] = await resolveSessionCategories(supabase, tenantId, [finalSession], await sessionCategoryViewer(tenantCtx), { keepIds: true });
+      return res.json({ ...resolved, ...(zoomProvisioningError ? { zoom_provisioning_error: zoomProvisioningError } : {}) });
     } catch (error) {
       console.error('[Sessions] Update error:', error);
-      return res.status(500).json({ error: error.message || 'Failed to update session' });
+      return res.status(error.status || 500).json({ error: error.message || 'Failed to update session' });
     }
   }
 
@@ -436,6 +455,8 @@ export default async function handler(req, res) {
       if (fetchError || !session) {
         return res.status(404).json({ error: 'Session not found' });
       }
+      const access = await authorizeGroupAdminEventAction({ req, tenantCtx, eventId: session.complex_event_id, eventTable: 'complex_event', requireTypeEnabled: true });
+      if (!access.ok) return res.status(access.status || 403).json({ error: access.error });
 
       const { error: deleteError } = await supabase
         .from('complex_event_session')

@@ -2,6 +2,12 @@
   "name": "ComplexEventSession",
   "type": "object",
   "properties": {
+    "category_ids": {
+      "type": "array",
+      "items": { "type": "string", "format": "uuid" },
+      "default": [],
+      "description": "Existing tenant ResourceCategory assignments"
+    },
     "complex_event_track_id": {
       "type": "string",
       "format": "uuid",

@@ -10,6 +10,7 @@
 // event, its sessions and speakers via the tenant-scoped public API and
 // renders the schedule — useful when you only have an event id/slug.
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import SessionCategoryBadges from "@/components/events/SessionCategoryBadges";
 import { useQuery } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -363,19 +364,23 @@ function SessionCard({ session, timezone, colors, isMultiTrack = false, speakerM
 
   return (
     <div
-      className={`p-2 rounded-md border cursor-pointer transition-shadow hover:shadow-md overflow-hidden ${hasCustomColors ? '' : fallbackClass}`}
+      className={`p-2 rounded-md border cursor-pointer transition-shadow hover:shadow-md overflow-y-auto ${hasCustomColors ? '' : fallbackClass}`}
+      tabIndex={fixedHeight != null ? 0 : undefined}
+      role="group"
+      aria-label={`${session.title}${fixedHeight != null ? " — scroll for session details" : ""}`}
       style={cardStyle}
       data-testid={`session-card-${session.id}`}
       onClick={() => onClick?.(session)}
     >
       <div className="flex items-center gap-1.5">
-        <span className="font-medium text-sm text-slate-900 truncate">{session.title}</span>
+        <button type="button" className="font-medium text-sm text-slate-900 truncate text-left rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600" onClick={event => { event.stopPropagation(); onClick?.(session); }} aria-label={`Open session details: ${session.title}`}>{session.title}</button>
         {isMultiTrack && (
           <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
             <Layers className="h-2.5 w-2.5 mr-0.5" />Multi-Track
           </Badge>
         )}
       </div>
+      <SessionCategoryBadges categories={session.categories} className="mt-1" />
       <div className="flex items-center gap-2 text-xs text-slate-600 mt-0.5">
         <Clock className="w-3 h-3 shrink-0" />
         <span className="truncate">
@@ -621,6 +626,7 @@ function ExpandedSessionModal({ session, open, onOpenChange, timezone, speakerMa
         )}
         <div className="overflow-y-auto p-5 space-y-4">
           <h3 className="text-lg font-semibold text-slate-900">{session.title}</h3>
+          <SessionCategoryBadges categories={session.categories} />
 
           <div className="flex flex-wrap items-center gap-4 text-sm text-slate-600">
             {session.start_time && (

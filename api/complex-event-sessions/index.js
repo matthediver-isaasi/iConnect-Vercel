@@ -3,6 +3,8 @@ import { getTenantContext } from '../_lib/tenantContext.js';
 import { sendSessionUnavailable } from '../_lib/sessionAvailability.js';
 import { getZoomAccessTokenForTenant } from '../_lib/zoomClient.js';
 import { recomputeComplexEventDates } from '../_lib/complexEventDateSync.js';
+import { authorizeGroupAdminEventAction, authorizeGroupAdminEventWrite } from '../_lib/groupAdminEventWrite.js';
+import { resolveSessionCategories, validateSessionCategoryIds, sessionCategoryViewer, listSessionCategories } from '../_lib/sessionCategories.js';
 import { fromZonedTime, formatInTimeZone } from 'date-fns-tz';
 
 // Converts a datetime-local string (e.g. "2025-06-15T10:00") representing a time
@@ -156,6 +158,7 @@ async function checkTrackOverlaps(supabase, tenantId, trackIds, startTime, endTi
 }
 
 export default async function handler(req, res) {
+  res.setHeader('Cache-Control', 'private, no-store');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -188,6 +191,9 @@ export default async function handler(req, res) {
 
   if (req.method === 'GET') {
     try {
+      if (req.query.catalogue === 'true') {
+        return res.json(await listSessionCategories(supabase, tenantId, await sessionCategoryViewer(tenantCtx)));
+      }
       const { event_id } = req.query;
 
       if (!event_id) {
@@ -204,10 +210,12 @@ export default async function handler(req, res) {
       if (eventError || !event) {
         return res.status(404).json({ error: 'Event not found' });
       }
+      const access = await authorizeGroupAdminEventAction({ req, tenantCtx, eventId: event_id, eventTable: 'complex_event', requireTypeEnabled: true });
+      if (!access.ok) return res.status(access.status || 403).json({ error: access.error });
 
       const { data: sessions, error } = await supabase
         .from('complex_event_session')
-        .select(SESSION_FIELDS)
+        .select(`${SESSION_FIELDS}, category_ids`)
         .eq('complex_event_id', event_id)
         .eq('tenant_id', tenantId)
         .order('display_order', { ascending: true })
@@ -260,7 +268,7 @@ export default async function handler(req, res) {
         };
       });
 
-      return res.json(enriched);
+      return res.json(await resolveSessionCategories(supabase, tenantId, enriched, await sessionCategoryViewer(tenantCtx), { keepIds: true }));
     } catch (error) {
       console.error('[Sessions] List error:', error);
       return res.status(500).json({ error: error.message || 'Failed to list sessions' });
@@ -269,6 +277,14 @@ export default async function handler(req, res) {
 
   if (req.method === 'POST') {
     try {
+      const authz = await authorizeGroupAdminEventWrite({
+        entity: 'ComplexEventSession', op: 'create',
+        body: { ...req.body, complex_event_id: req.body.complex_event_id || req.body.event_id },
+        tenantCtx, req,
+      });
+      if (!authz.ok) return res.status(authz.status || 403).json({ error: authz.error });
+      req.body = authz.body;
+      const categoryIds = await validateSessionCategoryIds(supabase, tenantId, req.body.category_ids, [], await sessionCategoryViewer(tenantCtx));
       const {
         complex_event_id,
         event_id,
@@ -332,6 +348,7 @@ export default async function handler(req, res) {
       }
 
       const sessionData = {
+        category_ids: categoryIds || [],
         complex_event_id: effectiveEventId,
         tenant_id: tenantId,
         title,
@@ -387,7 +404,7 @@ export default async function handler(req, res) {
       const { data: session, error: insertError } = await supabase
         .from('complex_event_session')
         .insert(sessionData)
-        .select(SESSION_FIELDS)
+        .select(`${SESSION_FIELDS}, category_ids`)
         .single();
 
       if (insertError) {
@@ -460,10 +477,11 @@ export default async function handler(req, res) {
         console.error('[Sessions] Date recompute failed:', recomputeErr?.message || recomputeErr);
       }
 
-      return res.json({ success: true, session: finalSession, ...(zoomProvisioningError ? { zoom_provisioning_error: zoomProvisioningError } : {}) });
+      const [resolved] = await resolveSessionCategories(supabase, tenantId, [finalSession], await sessionCategoryViewer(tenantCtx), { keepIds: true });
+      return res.json({ success: true, session: resolved, ...(zoomProvisioningError ? { zoom_provisioning_error: zoomProvisioningError } : {}) });
     } catch (error) {
       console.error('[Sessions] Create error:', error);
-      return res.status(500).json({ error: error.message || 'Failed to create session' });
+      return res.status(error.status || 500).json({ error: error.message || 'Failed to create session' });
     }
   }
 
