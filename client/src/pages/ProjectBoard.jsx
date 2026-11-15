@@ -768,8 +768,9 @@ export default function ProjectBoardPage() {
   );
 }
 
-function BoardSettingsModal({ boardId, boardName, open, onOpenChange, members, userRole, onMembersChange }) {
+export function BoardSettingsModal({ boardId, boardName, open, onOpenChange, members, userRole, onMembersChange }) {
   const [searchQuery, setSearchQuery] = useState('');
+  const [memberRoleFilter, setMemberRoleFilter] = useState('all');
   const [selectedRole, setSelectedRole] = useState('member');
   const [editName, setEditName] = useState('');
   const queryClient = useQueryClient();
@@ -795,11 +796,23 @@ function BoardSettingsModal({ boardId, boardName, open, onOpenChange, members, u
     }
   });
 
-  const { data: availableUsers = { users: [] }, isLoading: loadingUsers } = useQuery({
-    queryKey: ['available-users', boardId, searchQuery],
-    queryFn: async () => {
-      const response = await fetch(`/api/projects/boards/${boardId}/available-users?search=${encodeURIComponent(searchQuery)}`, {
-        credentials: 'include'
+  const rolesQuery = useQuery({
+    queryKey: ['board-invite-member-roles', boardId],
+    queryFn: async ({ signal }) => {
+      const response = await fetch('/api/membership/roles', { credentials: 'include', signal });
+      if (!response.ok) throw new Error('Failed to load member roles');
+      return response.json();
+    },
+    enabled: open && !!boardId,
+  });
+
+  const { data: availableUsers = { users: [] }, isFetching: loadingUsers, isError: usersError, refetch: retryUsers } = useQuery({
+    queryKey: ['available-users', boardId, searchQuery, memberRoleFilter],
+    queryFn: async ({ signal }) => {
+      const params = new URLSearchParams({ search: searchQuery });
+      if (memberRoleFilter !== 'all') params.set('role_id', memberRoleFilter);
+      const response = await fetch(`/api/projects/boards/${boardId}/available-users?${params}`, {
+        credentials: 'include', signal
       });
       if (!response.ok) throw new Error('Failed to fetch users');
       return response.json();
@@ -863,7 +876,7 @@ function BoardSettingsModal({ boardId, boardName, open, onOpenChange, members, u
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Settings className="w-5 h-5" />
@@ -896,15 +909,35 @@ function BoardSettingsModal({ boardId, boardName, open, onOpenChange, members, u
 
           <div>
             <Label className="text-sm font-medium mb-2 block">Invite Members</Label>
-            <div className="flex gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="sm:col-span-2">
+              <Label htmlFor="invite-search">Name or email</Label>
               <Input
+                id="invite-search"
                 placeholder="Search by name or email..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 data-testid="input-search-members"
               />
+              </div>
+              <div className="min-w-0">
+                <Label htmlFor="invite-member-role">Member role</Label>
+                <Select value={memberRoleFilter} onValueChange={setMemberRoleFilter}>
+                  <SelectTrigger id="invite-member-role" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All roles</SelectItem>
+                    {(rolesQuery.data?.data || []).map(role => (
+                      <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="min-w-0">
+              <Label htmlFor="invite-board-permission">Board permission</Label>
               <Select value={selectedRole} onValueChange={setSelectedRole}>
-                <SelectTrigger className="w-32">
+                <SelectTrigger id="invite-board-permission" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -914,18 +947,30 @@ function BoardSettingsModal({ boardId, boardName, open, onOpenChange, members, u
                   {userRole === 'owner' && <SelectItem value="owner">Owner</SelectItem>}
                 </SelectContent>
               </Select>
+              </div>
             </div>
+            {rolesQuery.isLoading && <p role="status" className="text-sm mt-2">Loading member roles…</p>}
+            {rolesQuery.isError && <p role="alert" className="text-sm mt-2 text-destructive">
+              Could not load member roles. <Button variant="link" onClick={() => rolesQuery.refetch()}>Try again</Button>
+            </p>}
             
             {loadingUsers ? (
-              <div className="flex items-center justify-center py-4">
+              <div role="status" className="flex items-center justify-center gap-2 py-4">
                 <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                <span className="text-sm">Loading people…</span>
               </div>
+            ) : usersError ? (
+              <p role="alert" className="text-sm mt-2 text-destructive">
+                Could not load people. <Button variant="link" onClick={() => retryUsers()}>Try again</Button>
+              </p>
             ) : availableUsers.users.length > 0 ? (
               <div className="mt-2 border rounded-md max-h-40 overflow-y-auto">
                 {availableUsers.users.map((user) => (
-                  <div
+                  <button
+                    type="button"
+                    disabled={addMemberMutation.isPending}
                     key={user.id}
-                    className="flex items-center gap-2 p-2 hover:bg-muted cursor-pointer"
+                    className="flex w-full text-left items-center gap-2 p-2 hover:bg-muted cursor-pointer disabled:opacity-50"
                     onClick={() => addMemberMutation.mutate({ identity_id: user.id, role: selectedRole })}
                     data-testid={`button-add-member-${user.id}`}
                   >
@@ -942,12 +987,12 @@ function BoardSettingsModal({ boardId, boardName, open, onOpenChange, members, u
                       <p className="text-xs text-muted-foreground truncate">{user.email}</p>
                     </div>
                     <Plus className="w-4 h-4 text-muted-foreground" />
-                  </div>
+                  </button>
                 ))}
               </div>
-            ) : searchQuery ? (
-              <p className="text-sm text-muted-foreground mt-2">No users found matching "{searchQuery}"</p>
-            ) : null}
+            ) : (
+              <p role="status" className="text-sm text-muted-foreground mt-2">No matching people available to invite.</p>
+            )}
           </div>
 
           <div>
