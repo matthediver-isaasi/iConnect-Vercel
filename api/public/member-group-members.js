@@ -135,6 +135,7 @@ function buildMemberPageQuery({
 }
 
 async function handleMemberGroupMembers(req, res, dependencies = {}) {
+  res.setHeader('Cache-Control', 'private, no-store');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -172,7 +173,9 @@ async function handleMemberGroupMembers(req, res, dependencies = {}) {
     // Resolve the group and confirm it belongs to this tenant and is active.
     const { data: groups, error: groupError } = await supabase
       .from('member_group')
-      .select('id, name, description, roles, is_active')
+      .select(req.query.presentation === 'public_group'
+        ? 'id, name, description, roles, is_active, is_public'
+        : 'id, name, description, roles, is_active')
       .eq('tenant_id', tenantId)
       .eq('id', groupId)
       .neq('is_active', false)
@@ -184,6 +187,9 @@ async function handleMemberGroupMembers(req, res, dependencies = {}) {
     }
     const group = groups?.[0];
     if (!group) return res.status(404).json({ error: 'Member group not found' });
+    if (req.query.presentation === 'public_group' && (group.is_public !== true || group.is_active !== true)) {
+      return res.status(404).json({ error: 'Member group not found' });
+    }
 
     const rawRolesByNormalized = new Map();
     for (const rawRole of Array.isArray(group.roles) ? group.roles : []) {
@@ -228,7 +234,7 @@ async function handleMemberGroupMembers(req, res, dependencies = {}) {
         total: 0,
         page: pageNum,
         pageSize,
-        config: roleHolderPresentation
+        config: (roleHolderPresentation || req.query.presentation === 'public_group')
           ? { requestedRoles: requestedRoles || null }
           : {
             displaySettings,
@@ -293,6 +299,7 @@ async function handleMemberGroupMembers(req, res, dependencies = {}) {
       const { data: orgRows } = await supabase
         .from('organization')
         .select('id, name')
+        .eq('tenant_id', tenantId)
         .in('id', orgIds);
       for (const o of orgRows || []) orgNameById[o.id] = o.name;
     }
@@ -313,7 +320,7 @@ async function handleMemberGroupMembers(req, res, dependencies = {}) {
       organization_name: m.organization_id ? (orgNameById[m.organization_id] || null) : null,
       group_role: m.group_role || null,
     }));
-    const responseRecords = roleHolderPresentation
+  const responseRecords = (roleHolderPresentation || req.query.presentation === 'public_group')
       ? records.map((record) => ({
         id: record.id,
         name: record.name,
@@ -338,7 +345,7 @@ async function handleMemberGroupMembers(req, res, dependencies = {}) {
       total: total || 0,
       page: pageNum,
       pageSize,
-      config: roleHolderPresentation
+      config: (roleHolderPresentation || req.query.presentation === 'public_group')
         ? { requestedRoles: requestedRoles || null }
         : {
           displaySettings,

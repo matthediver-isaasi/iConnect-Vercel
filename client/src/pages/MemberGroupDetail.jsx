@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
+import { useLayoutContext, usePageLayoutDecision } from "@/contexts/LayoutContext";
+import PublicMemberGroup from "@/components/member-groups/PublicMemberGroup";
 import { buildTermSnapshot, formatTermLength, evaluateTermLimit } from "@/lib/memberGroupTermSnapshot";
 import { projectGroupMemberCards } from "@/lib/memberGroupCardEligibility";
 import { useGroupCardExpiryClock } from "@/hooks/useGroupCardExpiryClock";
@@ -442,6 +444,14 @@ function EditTermDialog({ target, open, onOpenChange, onSave, isSaving }) {
 }
 
 export default function MemberGroupDetailPage() {
+  const { authResolved, sessionValidated, memberInfo } = useLayoutContext();
+  const authenticated = !!(sessionValidated && memberInfo?.id);
+  usePageLayoutDecision(authResolved ? { forcePublicLayout: !authenticated, publicChrome: 'both' } : null);
+  if (!authResolved) return <p className="p-8" role="status">Loading group…</p>;
+  return authenticated ? <AuthenticatedMemberGroupDetail /> : <PublicMemberGroup />;
+}
+
+function AuthenticatedMemberGroupDetail() {
   const { memberInfo, isFeatureExcluded, isAccessReady } = useMemberAccess();
   const {
     eventsPerPage: EVENTS_PER_PAGE_CFG,

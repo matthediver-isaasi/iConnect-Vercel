@@ -135,6 +135,7 @@ export default function MemberGroupManagementPage() {
     is_active: true,
     header_image_url: '',
     allow_self_join: false,
+    is_public: false,
     hide_on_group_page: false,
     default_self_join_role: '',
     projects_enabled: false,
@@ -749,6 +750,7 @@ export default function MemberGroupManagementPage() {
       is_active: true,
       header_image_url: '',
       allow_self_join: false,
+      is_public: false,
       hide_on_group_page: false,
       default_self_join_role: '',
       projects_enabled: false,
@@ -796,6 +798,7 @@ export default function MemberGroupManagementPage() {
       is_active: group.is_active,
       header_image_url: group.header_image_url || '',
       allow_self_join: !!group.allow_self_join,
+      is_public: group.is_public === true,
       hide_on_group_page: resolveHideOnGroupPage(group),
       default_self_join_role: group.default_self_join_role || '',
       projects_enabled: !!group.projects_enabled,
@@ -841,6 +844,7 @@ export default function MemberGroupManagementPage() {
       is_active: group.is_active,
       header_image_url: group.header_image_url || '',
       allow_self_join: !!group.allow_self_join,
+      is_public: group.is_public === true,
       hide_on_group_page: resolveHideOnGroupPage(group),
       default_self_join_role: group.default_self_join_role || '',
       projects_enabled: !!group.projects_enabled,
@@ -2793,6 +2797,14 @@ export default function MemberGroupManagementPage() {
                   />
                 </div>
 
+                <div className="flex items-start justify-between gap-4 rounded-lg border p-4">
+                  <div>
+                    <Label htmlFor="group-public">Public</Label>
+                    <p className="text-sm text-slate-500">Allow visitors to read this group's content, eligible member cards, linked resources and discussions without signing in. Resources must also have Public Resource enabled and meet their other access restrictions. Role-restricted forums remain member-only. This does not join visitors, allow participation, or change joining and directory visibility settings.</p>
+                  </div>
+                  <Switch id="group-public" checked={groupForm.is_public === true}
+                    onCheckedChange={(checked) => setGroupForm({ ...groupForm, is_public: checked })} />
+                </div>
                 {groupForm.allow_self_join && (
                   <div>
                     <Label htmlFor="default_self_join_role">Default Self-Join Role *</Label>

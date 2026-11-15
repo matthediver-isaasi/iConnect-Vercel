@@ -24,6 +24,15 @@ const group = {
   default_self_join_role: 'Member',
 };
 
+test('public managed and closed self-join cards open directly without changing joining', async () => {
+  for (const allow_self_join of [true, false]) {
+    const view = await mount({ group: { ...group, allow_self_join, self_join_closed: true, is_public: true }, isAuthenticated: false });
+    await act(async () => click(view.container.querySelector('[data-testid="button-public-group-group-1"]')));
+    assert.deepEqual(view.navigations, ['/MemberGroupDetail?id=group-1']);
+    await view.cleanup();
+  }
+});
+
 async function mount(overrides = {}) {
   const container = document.createElement('div');
   document.body.appendChild(container);

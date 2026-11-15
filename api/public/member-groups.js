@@ -9,6 +9,7 @@ export const PUBLIC_DIRECTORY_GROUP_SELECT = `
   about_the_group,
   header_image_url,
   allow_self_join,
+  is_public,
   is_active,
   default_self_join_role,
   self_join_closed,
@@ -24,6 +25,7 @@ export const PUBLIC_SELECTED_GROUP_SELECT = `
   description,
   header_image_url,
   allow_self_join,
+  is_public,
   is_active,
   self_join_closed,
   self_join_closed_label
@@ -46,6 +48,7 @@ export function parseRequestedGroupIds(value) {
 }
 
 export async function handlePublicMemberGroups(req, res, { supabase, tenant }) {
+  res.setHeader('Cache-Control', 'private, no-store');
   const requestedSelectedGroups = Object.prototype.hasOwnProperty.call(req.query || {}, 'groupIds');
   const selectedGroupIds = parseRequestedGroupIds(req.query?.groupIds);
 

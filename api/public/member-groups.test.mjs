@@ -43,6 +43,7 @@ function response() {
   return {
     statusCode: 200,
     body: undefined,
+    setHeader() {},
     status(code) { this.statusCode = code; return this; },
     json(body) { this.body = body; return this; },
   };

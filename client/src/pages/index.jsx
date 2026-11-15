@@ -1478,7 +1478,7 @@ function PagesContent() {
     // microsite page may have the same slug as a built-in portal route).
     const matches = matchRoutes(createRoutesFromChildren(routes), location);
     const pageComponent = matches?.at(-1)?.route.element?.type;
-    const pageOwned = [DynamicPage, ViewPage, HomePageRedirect, SmartLoginRoute, AwardApplication].includes(pageComponent)
+    const pageOwned = [DynamicPage, ViewPage, HomePageRedirect, SmartLoginRoute, AwardApplication, MemberGroupDetail].includes(pageComponent)
         || (pageComponent === FormView && new URLSearchParams(location.search).has('externalApplicant'));
     const currentPage = pageComponent === DynamicPage ? '_DynamicPage' : _getCurrentPage(location.pathname, quoteNaming);
     const navigationScope = JSON.stringify([

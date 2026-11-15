@@ -112,9 +112,10 @@ export function selectSelectedMemberGroups(groups, selectedIds) {
 export function buildMemberGroupCardDestination({
   groupId,
   isAuthenticated,
+  isPublic = false,
   detailPath,
 }) {
-  if (isAuthenticated) return `${detailPath}?id=${groupId}`;
+  if (isAuthenticated || isPublic) return `${detailPath}?id=${encodeURIComponent(groupId)}`;
   return `/login?returnTo=${encodeURIComponent(detailPath)}&groupId=${encodeURIComponent(groupId)}`;
 }
 

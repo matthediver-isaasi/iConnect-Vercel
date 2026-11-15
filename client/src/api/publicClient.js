@@ -244,6 +244,10 @@ async function publicFetch(url, options = {}, tenantSlug = null) {
  * Automatically injects tenant parameter for proper multi-tenant isolation
  */
 class PublicClient {
+  async readMemberGroupContent(groupId, action = 'detail', params = {}) {
+    return this._fetch(`/api/public/member-group-content?${new URLSearchParams({ ...params, groupId, action })}`,
+      { cache: 'no-store', credentials: 'omit' });
+  }
   async listFormBundles(formId, fieldId, reservationId) {
     const params = new URLSearchParams({ form_id: formId, field_id: fieldId });
     if (reservationId) params.set('reservation_id', reservationId);

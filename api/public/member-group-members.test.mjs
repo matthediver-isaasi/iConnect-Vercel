@@ -465,7 +465,7 @@ test('configured role lookup returns every publishable holder using only safe ca
           email: 'hidden@example.test',
         },
       ],
-      organization: [{ id: 'org-1', name: 'Analytical Society' }],
+      organization: [{ id: 'org-1', tenant_id: 'tenant-1', name: 'Analytical Society' }],
     }),
   });
   assert.equal(res.statusCode, 200);
@@ -514,7 +514,7 @@ test('Canvas role-holder projection omits tenant-hidden profile fields at the se
         organization_id: 'org-1',
         email: 'ada@example.test',
       }],
-      organization: [{ id: 'org-1', name: 'Analytical Society' }],
+      organization: [{ id: 'org-1', tenant_id: 'tenant-1', name: 'Analytical Society' }],
       system_settings: [{
         tenant_id: 'tenant-1',
         setting_key: 'member_directory_display',
@@ -610,7 +610,7 @@ test('handler enforces assignment and directory privacy before deterministic pag
     tables: baseTables({
       member_group_assignment: assignments,
       member: membersForTest,
-      organization: [{ id: 'org-1', name: 'Analytical Society' }],
+      organization: [{ id: 'org-1', tenant_id: 'tenant-1', name: 'Analytical Society' }],
     }),
   });
 

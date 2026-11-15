@@ -45,7 +45,7 @@ export default function MemberGroupCard({
   // Only a deliberate false value identifies a managed-membership card.
   const isSelfJoinGroup = group?.allow_self_join !== false;
   const isJoined = isSelfJoinGroup ? hasAssignment : hasCurrentAssignment;
-  const canOpenDetail = isSelfJoinGroup || (
+  const canOpenDetail = (!isAuthenticated && group?.is_public === true) || isSelfJoinGroup || (
     !!isAuthenticated && (hasCurrentAssignment || isGroupAdmin)
   );
   const visibleRoleHolders = featuredRole && Array.isArray(roleHolders)
@@ -57,6 +57,7 @@ export default function MemberGroupCard({
     const destination = buildMemberGroupCardDestination({
       groupId,
       isAuthenticated,
+      isPublic: group?.is_public === true,
       detailPath: createPageUrl('MemberGroupDetail'),
     });
     if (onNavigate) {
@@ -233,6 +234,11 @@ export default function MemberGroupCard({
               data-testid={`button-members-only-${groupId}`}
             >
               Available to group members
+            </Button>
+          ) : !isAuthenticated && group.is_public === true ? (
+            <Button variant="outline" className="w-full" onClick={handleCtaClick}
+              data-testid={`button-public-group-${groupId}`}>
+              View group <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
           ) : !isAuthenticated ? (
             group.self_join_closed ? (
