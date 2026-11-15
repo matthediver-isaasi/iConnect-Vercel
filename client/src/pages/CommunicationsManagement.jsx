@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { base44 } from "@/api/base44Client";
+import { useState, useEffect, useMemo, useCallback, useRef, useSyncExternalStore } from "react";
+import { base44, getActiveTenantId, subscribeToActiveTenantId } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -56,6 +56,7 @@ const CATEGORY_AUDIENCE_LABELS = {
 };
 
 export default function CommunicationsManagementPage() {
+  const activeTenantId = useSyncExternalStore(subscribeToActiveTenantId, getActiveTenantId, () => null);
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [showCategoryDialog, setShowCategoryDialog] = useState(false);
@@ -281,33 +282,34 @@ export default function CommunicationsManagementPage() {
   }, [externalSubscriberCountsError]);
   const externalSubscriberCountsUnavailable = Boolean(externalSubscriberCountsError);
 
-  const { data: zohoStatus, isLoading: zohoStatusLoading } = useQuery({
-    queryKey: ['zoho-campaigns-status'],
+  const { data: zohoStatus, isLoading: zohoStatusLoading, isError: zohoStatusError } = useQuery({
+    queryKey: ['zoho-campaigns-status', activeTenantId],
     queryFn: async () => {
       const response = await fetch('/api/zoho-campaigns/oauth?action=status', {
-        credentials: 'include'
+        credentials: 'include', headers: { 'X-Tenant-Id': activeTenantId },
       });
       if (!response.ok) throw new Error('Failed to fetch Zoho status');
       return response.json();
     },
     staleTime: 30000,
+    enabled: isAccessReady && !!activeTenantId,
   });
 
   const { data: zohoListsData, isLoading: zohoListsLoading } = useQuery({
-    queryKey: ['zoho-campaigns-lists'],
+    queryKey: ['zoho-campaigns-lists', activeTenantId],
     queryFn: async () => {
       const response = await fetch('/api/zoho-campaigns/lists', {
-        credentials: 'include'
+        credentials: 'include', headers: { 'X-Tenant-Id': activeTenantId },
       });
       if (!response.ok) throw new Error('Failed to fetch Zoho lists');
       return response.json();
     },
-    enabled: zohoStatus?.connected === true,
+    enabled: !!activeTenantId && !zohoStatusError && zohoStatus?.connected === true,
     staleTime: 60000,
   });
 
   const zohoLists = zohoListsData?.lists || [];
-  const isZohoConnected = zohoStatus?.connected === true;
+  const isZohoConnected = !!activeTenantId && !zohoStatusError && zohoStatus?.connected === true;
   const isZohoCredentialsConfigured = zohoStatus?.credentialsConfigured === true;
 
   const { data: audienceLists = [] } = useQuery({
@@ -1907,7 +1909,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
 
               <TabsContent value="categories">
             {/* Zoho Campaigns Integration Status */}
-            <div className="mb-6 p-4 border border-slate-200 rounded-lg bg-slate-50">
+            {isZohoConnected && <div className="mb-6 p-4 border border-slate-200 rounded-lg bg-slate-50">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className={`p-2 rounded-lg ${isZohoConnected ? 'bg-green-100' : 'bg-warning/10'}`}>
@@ -1955,7 +1957,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                   )}
                 </div>
               </div>
-            </div>
+            </div>}
 
             <div className="mb-6 p-4 border border-slate-200 rounded-lg bg-slate-50">
               <div className="flex items-center justify-between gap-4">
