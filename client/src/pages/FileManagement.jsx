@@ -1148,7 +1148,7 @@ export default function FileManagementPage() {
                     draggable={true}
                     onDragStart={(e) => handleDragStart(e, file)}
                     onDragEnd={handleDragEnd}
-                    className={`border-slate-200 shadow-sm hover:shadow-md transition-all relative ${
+                    className={`min-w-0 border-slate-200 shadow-sm hover:shadow-md transition-all relative ${
                       bulkMoveMode ? 'cursor-pointer' : 'cursor-grab'
                     } ${
                       isSelected ? 'ring-4 ring-blue-500 bg-blue-50' : ''
@@ -1182,7 +1182,7 @@ export default function FileManagementPage() {
                       </div>
                     )}
 
-                    <CardHeader className="pb-3">
+                    <CardHeader className={`pb-3 ${file.file_type !== "image" ? `pr-10 ${bulkMoveMode ? 'pt-10' : ''}` : ''}`}>
                       <div className="flex items-start justify-between gap-2">
                         {file.file_type === "image" ? (
                           <div className="w-full h-40 mb-3 rounded-lg overflow-hidden bg-slate-100">
@@ -1193,10 +1193,10 @@ export default function FileManagementPage() {
                             />
                           </div>
                         ) : (
-                          <div className="flex items-center gap-3 mb-3">
-                            {getFileIcon(file.file_type)}
+                          <div className="flex min-w-0 flex-1 items-start gap-3 mb-3">
+                            <span className="shrink-0">{getFileIcon(file.file_type)}</span>
                             <div className="flex-1 min-w-0">
-                              <CardTitle className="text-sm truncate">{file.file_name}</CardTitle>
+                              <CardTitle className="text-sm whitespace-normal [overflow-wrap:anywhere] leading-5">{file.file_name}</CardTitle>
                               <p className="text-xs text-slate-500">{formatFileSize(file.file_size)}</p>
                             </div>
                           </div>

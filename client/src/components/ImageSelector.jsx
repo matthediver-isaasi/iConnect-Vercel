@@ -605,11 +605,11 @@ export function FileRepositoryPicker({
                       key={file.id}
                       type="button"
                       onClick={() => emit(file)}
-                      className="text-left border-2 rounded-md p-2 transition-colors hover:border-primary"
+                      className="min-w-0 text-left border-2 rounded-md p-2 transition-colors hover:border-primary"
                       data-testid={`file-select-${file.id}`}
                     >
                       <FilePreview file={file} />
-                      <p className="text-sm font-medium truncate">{file.file_name}</p>
+                      <p className="text-sm font-medium whitespace-normal [overflow-wrap:anywhere] leading-5">{file.file_name}</p>
                       {file.description && (
                         <p className="text-xs text-muted-foreground truncate mt-0.5">{file.description}</p>
                       )}
