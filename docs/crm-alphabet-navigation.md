@@ -1,9 +1,12 @@
 # CRM alphabet navigation
 
-Organisations keep their 20-row name-ascending default. Members keep their
-50-row newest-first default; the visible name-sort selector enables first-name
-or last-name ascending navigation. Descending and non-name sorts do not request
-metadata. Neither list uses alphabet buttons as filters.
+Organisations keep their 20-row name-ascending default. Members default to
+50-row last-name ascending order from the first server request, with the
+name-sort selector reflecting that order. Alphabet navigation appears once
+metadata loads, without applying a filter. Saved/default views retain explicit
+sort settings; views without sort settings use last-name ascending. The selector
+also supports first-name ascending navigation. Descending and non-name sorts do
+not request metadata. Neither list uses alphabet buttons as filters.
 
 ## Database prerequisite
 
@@ -74,6 +77,7 @@ node scripts/run-isolated-tests.mjs node --test api/_lib/crmAlphabet.test.mjs ap
 node scripts/run-isolated-tests.mjs node --import tsx --test client/src/hooks/useCrmAlphabet.test.jsx
 node scripts/run-isolated-tests.mjs --allow-local-postgres node --test scripts/crm-alphabet.postgres.test.mjs
 npx playwright test --config=client/src/tests/crm-alphabet.config.mjs
+npx playwright test --config=playwright.task4507-list-loading.config.mjs
 ```
 
 The PostgreSQL suite starts and removes its own socket-only temporary cluster;
@@ -85,6 +89,10 @@ SQL selections, not an in-browser comparator. Response size is asserted below
 16KB for the fixture; the indexed tenant/order plan is also exercised.
 
 Browser tests use network fixtures with real application components, not live
-member accounts. The workspace still points at the legacy SOURCE database;
+member accounts. They cover the unfiltered surname-ascending initial request,
+selector, cross-page exact-record jumps in list/card layouts, explicit saved
+sorts, missing-sort fallback, manual sorting and search cancellation, alongside
+the unchanged Organisations default. These are fixture-backed checks, not live
+production verification. The workspace still points at the legacy SOURCE database;
 unauthenticated preview capture does not verify the signed-in production UI.
 These checks are not evidence of a public rollout.

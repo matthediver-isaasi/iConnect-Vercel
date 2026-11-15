@@ -5,12 +5,17 @@ import {
 
 const configs = [
   { kind: 'organisations', endpoint: 'organizations', size: 20, field: 'name', row: 'row-org-', card: 'card-org-', layout: 'button-view-card' },
-  { kind: 'members', endpoint: 'members', size: 50, field: 'first_name', row: 'member-row-', card: 'member-card-', layout: 'button-member-view-card' },
+  { kind: 'members', endpoint: 'members', size: 50, field: 'last_name', row: 'member-row-', card: 'member-card-', layout: 'button-member-view-card' },
 ];
 
 async function setup(page, cfg, options = {}) {
-  const fixture = createListFixture({ savedView: options.saved
-    ? defaultSavedView(cfg.kind, { filters: { searchQuery: '', sortField: cfg.field, sortDir: 'asc' } }) : null });
+  const savedView = options.saved
+    ? defaultSavedView(cfg.kind, { filters: { searchQuery: '', sortField: cfg.field, sortDir: 'asc', ...options.filters } }) : null;
+  if (options.missingSort) {
+    delete savedView.filters.sortField;
+    delete savedView.filters.sortDir;
+  }
+  const fixture = createListFixture({ savedView });
   fixture.page = cfg.kind;
   await installListFixture(page, fixture);
   const state = { alphabet: [], reads: [], fail: false, delay: 0, missing: false };
@@ -22,7 +27,7 @@ async function setup(page, cfg, options = {}) {
     for (let index = 0; index < count; index++) {
       const id = `alphabet-${rows.length}`;
       rows.push({ ...fixture[cfg.kind === 'members' ? 'members' : 'organisations'][0], id,
-        name: `${label} Organisation ${id}`, first_name: `${label} Person`, last_name: id });
+        name: `${label} Organisation ${id}`, first_name: `Person ${id}`, last_name: `${label} Surname ${id}` });
     }
     return { label, count, offset, id: rows[offset].id };
   });
@@ -52,13 +57,14 @@ for (const cfg of configs) {
     const state = await setup(page, cfg);
     await page.goto(`/${cfg.kind}`);
     await expect.poll(() => state.reads.length).toBeGreaterThan(0);
-    expect(state.reads[0]).toMatchObject({ limit: String(cfg.size), sortField: cfg.kind === 'members' ? 'created_on' : 'name', sortDir: cfg.kind === 'members' ? 'desc' : 'asc' });
+    expect(state.reads[0]).toMatchObject({ page: '1', limit: String(cfg.size), sortField: cfg.field, sortDir: 'asc' });
     if (cfg.kind === 'members') {
-      await expect(page.getByRole('navigation', { name: 'Alphabet navigation' })).toHaveCount(0);
-      await page.getByTestId('select-member-name-sort').selectOption('first_name');
+      await expect(page.getByTestId('select-member-name-sort')).toHaveValue('last_name');
     }
     const nav = page.getByRole('navigation', { name: 'Alphabet navigation' });
     await expect(nav).toBeVisible();
+    expect(state.alphabet[0]).toMatchObject({ sortField: cfg.field, sortDir: 'asc' });
+    expect(state.alphabet[0].search || '').toBe('');
     const metaCount = state.alphabet.length;
     expect(state.alphabet[0]).not.toHaveProperty('page');
     expect(state.alphabet[0]).not.toHaveProperty('fields');
@@ -137,5 +143,36 @@ for (const cfg of configs) {
     await nav.getByRole('button', { name: 'Jump to B–C, 3 records' }).click();
     await expect(page.getByTestId(`${cfg.card}alphabet-${1 + cfg.size}`)).toBeFocused();
     await expect(nav).toHaveCSS('overflow-x', 'auto');
+  });
+}
+
+for (const sort of [
+  { sortField: 'created_on', sortDir: 'desc', visible: false },
+  { sortField: 'first_name', sortDir: 'asc', visible: true },
+  { sortField: 'last_name', sortDir: 'desc', visible: false },
+  { missingSort: true, visible: true },
+]) {
+  test(`members: saved default ${sort.missingSort ? 'without sort uses surname ascending' : `${sort.sortField} ${sort.sortDir} is preserved`}`, async ({ page }) => {
+    const cfg = configs.find(config => config.kind === 'members');
+    const state = await setup(page, cfg, { saved: true, missingSort: sort.missingSort,
+      filters: sort.missingSort ? {} : { sortField: sort.sortField, sortDir: sort.sortDir } });
+    await page.goto('/members');
+    await expect.poll(() => state.reads.length).toBeGreaterThan(0);
+    const expected = { sortField: sort.sortField || 'last_name', sortDir: sort.sortDir || 'asc' };
+    expect(state.reads[0]).toMatchObject({ ...expected, page: '1', limit: '50' });
+    const nav = page.getByRole('navigation', { name: 'Alphabet navigation' });
+    const selector = page.getByTestId('select-member-name-sort');
+    await expect(selector).toHaveValue(sort.visible ? expected.sortField : 'current');
+    if (sort.visible) {
+      await expect(nav).toBeVisible();
+      expect(state.alphabet[0]).toMatchObject(expected);
+    } else {
+      await expect(nav).toHaveCount(0);
+      expect(state.alphabet).toHaveLength(0);
+    }
+    await selector.selectOption('first_name');
+    await expect(nav).toBeVisible();
+    await expect.poll(() => state.reads.at(-1).sortField).toBe('first_name');
+    expect(state.reads.at(-1)).toMatchObject({ sortDir: 'asc', page: '1', limit: '50' });
   });
 }

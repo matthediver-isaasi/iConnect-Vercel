@@ -150,3 +150,4 @@
 - [Member note document privacy](member-note-document-privacy.md) — tenant-wide file access is insufficient for admin CRM notes; protect every signing path.
 - [GFI Role Alignment preservation](gfi-role-alignment-policy.md) — one approved display-label correction retains its original stored value; no broader merging or synchronization authority.
 - [Shared article preview boundary](article-preview-boundary.md) — password access is server-verified and uncached; shared atomic rate counters use a separate namespace.
+- [Validation thread pressure](validation-thread-pressure.md) — concurrent suites can exhaust Node worker threads; rerun affected commands sequentially to distinguish resource failures.

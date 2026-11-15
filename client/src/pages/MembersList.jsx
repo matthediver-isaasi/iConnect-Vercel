@@ -203,8 +203,8 @@ function MembersListPageInner({ access }) {
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [singleDeleteMember, setSingleDeleteMember] = useState(null);
   const [draggedColumn, setDraggedColumn] = useState(null);
-  const [sortField, setSortField] = useState('created_on');
-  const [sortDir, setSortDir] = useState('desc');
+  const [sortField, setSortField] = useState('last_name');
+  const [sortDir, setSortDir] = useState('asc');
   const [filtersReady, setFiltersReady] = useState(false);
   const [filterOrder, setFilterOrder] = useState(DEFAULT_MEMBER_FILTER_ORDER);
   const [hiddenFilterIds, setHiddenFilterIds] = useState([]);
@@ -662,8 +662,8 @@ function MembersListPageInner({ access }) {
         ? sanitizeFilterOps(filters.filterOps)
         : {}
     );
-    setSortField(typeof filters.sortField === 'string' ? filters.sortField : 'created_on');
-    setSortDir(filters.sortDir === 'asc' || filters.sortDir === 'desc' ? filters.sortDir : 'desc');
+    setSortField(typeof filters.sortField === 'string' ? filters.sortField : 'last_name');
+    setSortDir(filters.sortDir === 'asc' || filters.sortDir === 'desc' ? filters.sortDir : 'asc');
     if (Array.isArray(filters.filterOrder)) {
       const saved = filters.filterOrder.filter(id => typeof id === 'string');
       if (memberCustomFieldsLoaded && organizationCustomFieldsLoaded) {
