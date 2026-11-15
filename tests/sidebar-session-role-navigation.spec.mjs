@@ -171,6 +171,54 @@ const PORTAL_MENU = [
   },
 ];
 
+for (const mobile of [false, true]) {
+  test(`${mobile ? "mobile" : "desktop"} portal Dashboard is independent of Sales restrictions`, async ({ page }) => {
+    if (mobile) await page.setViewportSize({ width: 390, height: 844 });
+    // Sanitized GSF configuration: saved top-level Dashboard and denied Sales.
+    const dashboard = { id: "dashboard", title: "Dashboard", url: "Dashboard",
+      feature_id: "system.dashboard", section: "user", parent_id: null,
+      is_active: true, icon: "Target", display_order: 0 };
+    const state = await installFixture(page, {
+      menu: [dashboard],
+      authBody: sessionBody("ready", MEMBER_A, ["sales"]),
+      hierarchy: [
+        { id: "system", item_key: "system", item_type: "module", is_active: true },
+        { id: "dashboard", item_key: "system.dashboard", item_type: "page", parent_id: "system", is_active: true },
+      ],
+    });
+    const open = async () => {
+      await page.goto("/sidebar-session-role");
+      await expect(page.getByText("Verified sidebar fixture content", { exact: true })).toBeVisible();
+      if (mobile) await page.getByTestId("button-mobile-menu").click();
+    };
+    await open();
+    const link = page.getByRole("link", { name: "Dashboard", exact: true });
+    await expect(link).toBeVisible();
+    await expect(link).toHaveAttribute("href", "/Dashboard");
+    expectReadOnlyClean(state);
+    // Avoid loading unrelated Dashboard widgets: observe the real SPA click
+    // destination then return to the fixture page for exclusion checks.
+    await link.click();
+    await expect(page).toHaveURL(/\/Dashboard$/);
+    for (const [roleExclusions, memberExclusions] of [
+      [["sales", "system.dashboard"], []],
+      [["sales"], ["system.dashboard"]],
+      [["sales", "system"], []],
+    ]) {
+      state.setAuth(sessionBody("ready",
+        { ...MEMBER_A, member_excluded_features: memberExclusions }, roleExclusions));
+      await open();
+      await expect(link).toHaveCount(0);
+    }
+    state.setAuth(sessionBody("ready", MEMBER_A, ["sales"]));
+    await open();
+    await expect(link).toBeVisible();
+    state.menu = [{ ...dashboard, is_active: false }];
+    await open();
+    await expect(link).toHaveCount(0);
+  });
+}
+
 async function installFixture(page, {
   authBody = sessionBody("ready"),
   holdAuth = false,

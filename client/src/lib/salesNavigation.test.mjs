@@ -78,6 +78,16 @@ test('Reports navigation uses the same capability enforced by the API', () => {
   assert.equal(getSalesDestination('reports')?.permissionId, 'sales.reports.view');
 });
 
+test('authored Dashboard page names never inherit Sales permissions', () => {
+  for (const path of ['Dashboard', '/Dashboard', 'dashboard', 'Dashboard?tab=1#top']) {
+    assert.equal(getSalesPortalPermission(path), null);
+    assert.equal(getSalesPortalPermission(path, () => true), null);
+  }
+  assert.equal(getSalesPortalPermission('sales/dashboard'), 'sales.dashboard');
+  assert.equal(getSalesPortalPermission('/sales/dashboard', () => true), 'sales.view');
+  assert.equal(getSalesDestination('dashboard').permissionId, 'sales.dashboard');
+});
+
 test('Sales navigation is hidden when baseline Sales access is excluded', () => {
   const visible = getVisibleSalesDestinations((id) => id === 'sales.view');
   assert.deepEqual(visible, []);

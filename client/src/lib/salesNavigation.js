@@ -27,7 +27,11 @@ export const SALES_PORTAL_PAGES = Object.freeze(SALES_DESTINATIONS.map(item => (
 })));
 
 export function getSalesPortalPermission(url, isExcluded = () => false, naming = DEFAULT_QUOTE_NAMING) {
-  const path = String(url || '').split(/[?#]/)[0].replace(/\/+$/, '');
+  const rawPath = String(url || '').split(/[?#]/)[0].replace(/\/+$/, '');
+  // Authored portal URLs are paths (including bare built-in page names), not
+  // Sales destination keys. Keep getSalesDestination's shorthand for its own
+  // callers without reinterpreting "Dashboard" as "/sales/dashboard" here.
+  const path = rawPath.startsWith('/') ? rawPath : `/${rawPath}`;
   if (/^\/sales\/allocations\/[a-zA-Z0-9_-]+$/.test(path)) {
     return isExcluded(SALES_BASE_PERMISSION) ? SALES_BASE_PERMISSION : 'sales.allocations.manage';
   }
