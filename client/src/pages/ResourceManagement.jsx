@@ -2762,7 +2762,7 @@ export default function ResourceManagementPage() {
               </div>
 
               {/* Files Grid */}
-              <div className="md:col-span-3 flex flex-col min-h-0">
+              <div className="md:col-span-3 flex flex-col min-h-0 min-w-0">
                 {/* File count and info */}
                 <div className="flex items-center justify-between mb-3 text-sm text-slate-600">
                   <span>
@@ -2799,7 +2799,7 @@ export default function ResourceManagementPage() {
                         <button
                           key={file.id}
                           onClick={() => handleSelectFile(file.file_url, showFileSelector, file.file_name)}
-                          className="text-left border-2 border-slate-200 rounded-lg hover:border-blue-500 transition-colors p-2"
+                          className="min-w-0 text-left border-2 border-slate-200 rounded-lg hover:border-blue-500 transition-colors p-2"
                           data-testid={`file-select-${file.id}`}
                         >
                           {file.file_type === 'image' ? (
@@ -2813,7 +2813,10 @@ export default function ResourceManagementPage() {
                               <FileText className="w-12 h-12 text-slate-400" />
                             </div>
                           )}
-                          <p className="text-sm font-medium text-slate-900 truncate">
+                          <p
+                            className="text-sm font-medium text-slate-900 whitespace-normal [overflow-wrap:anywhere]"
+                            title={file.file_name}
+                          >
                             {file.file_name}
                           </p>
                           {file.description && (
