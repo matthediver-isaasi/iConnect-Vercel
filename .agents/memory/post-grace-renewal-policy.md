@@ -17,6 +17,18 @@ BNMS's intended post-grace fallback role is **CPD Guest**, not Former.
 implementing this policy. A schedule change alone must not be assumed to update
 existing terms. Preserve membership class and financial history.
 
+Correct legacy Former targets when recording a new expiry decision, rather
+than rewriting immutable purchase snapshots or completed enforcement journals.
+Preserve explicit no-role-change exceptions and independent login policies.
+
+**Why:** Existing terms retain agreed pricing and provider-consent evidence in
+their snapshots. A future access-role correction must not weaken those
+immutability guarantees or cause historical role workflows to replay.
+
+**How to apply:** Keep the persisted expiry target, subsequent role mutation and
+workflow evidence consistent; retain the original target as policy-override
+provenance. This correction does not authorize immediate expiry enforcement.
+
 When resolving provisional dates, preserve the purchase's original correlation identity and financial/consent evidence; do not treat changing service dates as permission to rename the purchase.
 
 **Why:** Provider notifications and existing checkout recovery correlate using the originally issued membership-year identifier. Changing that identifier with the service dates can disconnect a successful payment from its existing purchase and undermine duplicate protection.
