@@ -396,19 +396,32 @@ async function buildFieldCatalog(tenantId) {
     });
   }
 
+  const orgGroupCustomFields = [];
+  for (const [id, meta] of (scopeResult.organizationGroupTypes || new Map())) {
+    orgGroupCustomFields.push({ key: id, data_type: meta.data_type, field_type: 'custom',
+      entity_scope: 'organization_group', options: meta.options });
+  }
+
   // Fetch labels separately for display (preference_field has name/label)
-  const { data: prefFields } = await supabase
-    .from('preference_field')
-    .select('id, name, label, entity_scope')
-    .eq('tenant_id', tenantId)
-    .eq('is_active', true)
-    .order('display_order', { ascending: true });
+  const prefFields = [];
+  let afterId = null;
+  while (true) {
+    let query = supabase.from('preference_field').select('id, name, label, entity_scope')
+      .eq('tenant_id', tenantId).eq('is_active', true).order('id').limit(1000);
+    if (afterId) query = query.gt('id', afterId);
+    const { data, error } = await query;
+    if (error) throw new Error('Could not load automatic membership field labels');
+    prefFields.push(...(data || []));
+    if (!data || data.length < 1000) break;
+    afterId = data.at(-1).id;
+  }
 
   const labelMap = new Map();
   for (const f of prefFields || []) labelMap.set(f.id, f.label || f.name);
 
   memberCustomFields.forEach(f => { f.label = labelMap.get(f.key) || f.key; });
   orgCustomFields.forEach(f => { f.label = labelMap.get(f.key) || f.key; });
+  orgGroupCustomFields.forEach(f => { f.label = labelMap.get(f.key) || f.key; });
 
   return {
     member: {
@@ -418,6 +431,11 @@ async function buildFieldCatalog(tenantId) {
     organization: {
       core: CORE_ORG_FIELDS.map(f => ({ ...f, field_type: 'core', entity_scope: 'organization' })),
       custom: orgCustomFields,
+    },
+    organization_group: {
+      core: [{ key: 'name', label: 'Organisation Group Name', data_type: 'text',
+        field_type: 'core', entity_scope: 'organization_group' }],
+      custom: orgGroupCustomFields,
     },
   };
 }

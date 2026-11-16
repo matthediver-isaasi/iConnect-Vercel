@@ -37,6 +37,7 @@ function createCappedSupabase(tables, cap = 1000) {
     }
     select(columns) { this.selected = columns; return this; }
     eq(field, value) { this.filters.push(row => row[field] === value); return this; }
+    is(field, value) { this.filters.push(row => (row[field] ?? null) === value); return this; }
     neq(field, value) { this.filters.push(row => row[field] !== value); return this; }
     gt(field, value) { this.filters.push(row => row[field] > value); return this; }
     in(field, values) { const set = new Set(values); this.filters.push(row => set.has(row[field])); return this; }
@@ -1181,4 +1182,65 @@ test('CORE_ORG_FIELD_TYPES matches allowlist', () => {
   for (const k of ALLOWED_CORE_ORG_KEYS) {
     assert.ok(k in CORE_ORG_FIELD_TYPES, `CORE_ORG_FIELD_TYPES missing: ${k}`);
   }
+});
+
+test('organisation-group scope validates tenant-owned metadata and canonical types', async () => {
+  const tables = { preference_field: [
+    { id: 'field', tenant_id: 'tenant', entity_scope: 'organization_group', field_type: 'number', is_active: true },
+    { id: 'foreign', tenant_id: 'other', entity_scope: 'organization_group', field_type: 'text', is_active: true },
+    { id: 'inactive', tenant_id: 'tenant', entity_scope: 'organization_group', field_type: 'text', is_active: false },
+  ] };
+  const scopes = await fetchAllowedCustomFieldIdsByScope(createCappedSupabase(tables), 'tenant');
+  assert.deepEqual([...scopes.organization_group], ['field']);
+  const cond = { entity_scope: 'organization_group', field_type: 'custom',
+    field_key: 'field', data_type: 'text', operator: 'greater_than', value: '3' };
+  assert.equal(resolveCanonicalType(cond, buildFieldMeta(scopes)), 'number');
+  assert.equal(validateCondition(cond, scopes, buildFieldMeta(scopes)), null);
+  assert.match(validateCondition({ ...cond, field_key: 'foreign' }, scopes), /not an active tenant-owned/);
+  assert.match(validateCondition({ ...cond, field_type: 'core', field_key: 'status' }, scopes), /allowlist/);
+});
+
+test('group rules use primary organisation group else direct association, and paginate both paths', async () => {
+  const tables = { organization_group: [
+    { id: 'g1', tenant_id: 't', name: 'Target' },
+    { id: 'g2', tenant_id: 't', name: 'Other' },
+    { id: 'foreign-g', tenant_id: 'foreign', name: 'Target' },
+  ], organization: [
+    { id: 'org', tenant_id: 't', organization_group_id: 'g1' },
+    { id: 'other-org', tenant_id: 't', organization_group_id: 'g2' },
+    { id: 'bad-org', tenant_id: 'foreign', organization_group_id: 'g1' },
+  ], member: [], organization_group_preference_value: [
+    { id: 'p1', tenant_id: 't', organization_group_id: 'g1', field_id: 'country', value: 'UK' },
+    { id: 'p2', tenant_id: 't', organization_group_id: 'g2', field_id: 'country', value: 'US' },
+    { id: 'p3', tenant_id: 'foreign', organization_group_id: 'foreign-g', field_id: 'country', value: 'UK' },
+    { id: 'p4', tenant_id: 'foreign', organization_group_id: 'g1', field_id: 'country', value: 'US' },
+  ] };
+  for (let i = 0; i < 1205; i++) {
+    tables.member.push({ id: `m${String(i).padStart(5,'0')}`, tenant_id: 't', email: 'fixture@example.test',
+      organization_id: 'org', organization_group_id: 'g2' });
+    tables.member.push({ id: `d${String(i).padStart(5,'0')}`, tenant_id: 't', email: 'fixture@example.test',
+      organization_id: null, organization_group_id: 'g1' });
+  }
+  const base = { tenant_id: 't', email: 'fixture@example.test', organization_group_id: 'g1' };
+  tables.member.push(
+    { ...base, id: 'wrong-primary', organization_id: 'other-org' },
+    { ...base, id: 'foreign-member', tenant_id: 'foreign', organization_id: null },
+    { ...base, id: 'foreign-org', organization_id: 'bad-org' },
+    { ...base, id: 'foreign-group', organization_id: null, organization_group_id: 'foreign-g' },
+    { ...base, id: 'missing-group', organization_id: null, organization_group_id: null },
+    { ...base, id: 'deleted', organization_id: null, email: 'deleted_x@deleted.local' });
+  const scopes = { organization_group: new Set(['country','empty']), organizationGroupTypes: new Map([
+    ['country', { data_type: 'text' }], ['empty', { data_type: 'text' }],
+  ]) };
+  const query = conditions => runFilterQuery({ supabase: createCappedSupabase(tables), tenantId: 't',
+    filterGroups: [{ conditions }], allowedCustomFieldIdsByScope: scopes });
+  const name = { entity_scope: 'organization_group', field_type: 'core', field_key: 'name', operator: 'equals', value: 'Target' };
+  const country = { entity_scope: 'organization_group', field_type: 'custom', field_key: 'country', operator: 'equals', value: 'UK' };
+  assert.equal((await query([name, country])).length, 2410);
+  assert.equal((await query([name, { ...country, value: 'US' }])).length, 0, 'AND must match the same group');
+  assert.equal((await query([name, { ...country, field_key: 'empty', operator: 'is_empty' }])).length, 2410);
+  const negative = await query([{ ...country, operator: 'not_equals', value: 'UK' }]);
+  assert.deepEqual(negative, ['wrong-primary'], 'Unassociated and foreign members must not satisfy negative rules');
+  const combined = await query([name, { entity_scope: 'member', field_type: 'core', field_key: 'email', operator: 'equals', value: 'no-match' }]);
+  assert.deepEqual(combined, []);
 });

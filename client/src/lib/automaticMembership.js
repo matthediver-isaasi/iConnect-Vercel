@@ -3,7 +3,8 @@
  *
  * Backend contract:
  *  GET  /api/member-groups/automatic-membership[?group_id=<id>]
- *       → { fields: { member: { core, custom }, organization: { core, custom } }, group? }
+ *       → { fields: { member: { core, custom }, organization: { core, custom },
+ *                     organization_group: { core, custom } }, group? }
  *       Each field descriptor has field_key (backend may also send key — tolerate both).
  *
  *  POST /api/member-groups/automatic-membership
@@ -126,6 +127,7 @@ export function buildFieldOptions(fieldsData) {
   const scopes = [
     { scope: 'member', label: 'Member' },
     { scope: 'organization', label: 'Organisation' },
+    { scope: 'organization_group', label: 'Organisation Group' },
   ];
   for (const { scope, label: scopeLabel } of scopes) {
     const scopeFields = fieldsData[scope];
@@ -136,6 +138,8 @@ export function buildFieldOptions(fieldsData) {
       for (const f of list) {
         const fieldKey = f.field_key || f.key || '';
         if (!fieldKey) continue;
+        // Organisation groups expose only their name as a core rule field.
+        if (scope === 'organization_group' && fieldType === 'core' && fieldKey !== 'name') continue;
         out.push({
           ...f,
           field_key: fieldKey,
@@ -147,6 +151,11 @@ export function buildFieldOptions(fieldsData) {
     }
   }
   return out;
+}
+
+/** Stable selector identity: neither scopes nor core/custom fields may collide. */
+export function fieldOptionKey(field) {
+  return JSON.stringify([field.entity_scope, field.field_type, field.field_key]);
 }
 
 /** A blank filter group with one empty condition. */

@@ -7,6 +7,7 @@ import {
   isMultiValueOperator,
   normalizeConditionValue,
   buildFieldOptions,
+  fieldOptionKey,
   blankFilterGroup,
   blankCondition,
   validateAutoConfig,
@@ -208,6 +209,73 @@ test('buildFieldOptions: omits field for scope not in data', () => {
 });
 
 // ── blankFilterGroup / blankCondition ─────────────────────────────────────────
+test('buildFieldOptions: organisation group core name and custom fields preserve metadata', () => {
+  const custom = {
+    key: 'tier', label: 'Tier', data_type: 'select',
+    options: ['Regional', 'National'], description: 'Group tier',
+  };
+  const fields = {
+    organization_group: {
+      core: [{ key: 'name', label: 'Organisation Group Name', data_type: 'text' }],
+      custom: [custom],
+    },
+  };
+  const original = structuredClone(fields);
+  const opts = buildFieldOptions(fields);
+  assert.deepEqual(opts, [
+    {
+      ...fields.organization_group.core[0], field_key: 'name',
+      entity_scope: 'organization_group', field_type: 'core',
+      _label: 'Organisation Group · Organisation Group Name',
+    },
+    {
+      ...custom, field_key: 'tier', entity_scope: 'organization_group',
+      field_type: 'custom', _label: 'Organisation Group · Tier',
+    },
+  ]);
+  assert.deepEqual(fields, original, 'metadata must not be mutated');
+});
+
+test('buildFieldOptions: organisation group supports field_key and only name as core', () => {
+  const opts = buildFieldOptions({
+    organization_group: {
+      core: [
+        { field_key: 'name', key: 'ignored', data_type: 'text' },
+        { key: 'organization_id', data_type: 'text' },
+        { key: 'parent.name', data_type: 'text' },
+        { label: 'Missing key' },
+      ],
+      custom: [{ field_key: 'level', data_type: 'number' }],
+    },
+    secondary_organization_group: { core: [{ key: 'name' }] },
+  });
+  assert.deepEqual(opts.map((f) => [f.field_type, f.field_key, f.data_type]), [
+    ['core', 'name', 'text'], ['custom', 'level', 'number'],
+  ]);
+});
+
+test('fieldOptionKey: restored scope/type/key selects only its matching field', () => {
+  const fields = Object.fromEntries(['member', 'organization', 'organization_group'].map((scope) => [
+    scope, {
+      core: [{ key: 'name', data_type: 'text' }],
+      custom: [{ key: 'name', data_type: 'number' }, { key: 'tier:level', data_type: 'select' }],
+    },
+  ]));
+  const opts = buildFieldOptions(fields);
+  assert.equal(new Set(opts.map(fieldOptionKey)).size, opts.length);
+  for (const option of opts) {
+    const restored = JSON.parse(JSON.stringify({
+      entity_scope: option.entity_scope, field_type: option.field_type, field_key: option.field_key,
+    }));
+    assert.equal(opts.find((f) => fieldOptionKey(f) === fieldOptionKey(restored)), option);
+  }
+});
+
+test('buildFieldOptions: absent and malformed optional organisation group lists are harmless', () => {
+  assert.deepEqual(buildFieldOptions({ organization_group: {} }), []);
+  assert.deepEqual(buildFieldOptions({ organization_group: { core: null, custom: {} } }), []);
+});
+
 
 test('blankFilterGroup: returns one blank condition', () => {
   const fg = blankFilterGroup();

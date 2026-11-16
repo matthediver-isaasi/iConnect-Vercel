@@ -50,6 +50,7 @@ import {
   isMultiValueOperator,
   normalizeConditionValue,
   buildFieldOptions,
+  fieldOptionKey,
   blankFilterGroup,
   blankCondition,
   validateAutoConfig,
@@ -3230,6 +3231,10 @@ export default function MemberGroupManagementPage() {
                       <p className="text-xs text-slate-500">
                         A member must match <strong>all</strong> conditions in a group (AND), and at least <strong>one</strong> group (OR).
                       </p>
+                      <p className="text-xs text-slate-500" data-testid="text-organisation-group-rule-help">
+                        Organisation Group rules use the primary organisation’s group when the member has a primary organisation; otherwise they use the member’s direct organisation group.
+                        {' '}Members with no associated group do not match group conditions, including empty or negative rules.
+                      </p>
 
                       {(groupForm.automatic_membership_filter_groups || []).length === 0 && (
                         <p className="text-xs text-slate-400 italic" data-testid="text-no-filter-groups">No filter groups yet. Add one above.</p>
@@ -3286,7 +3291,7 @@ export default function MemberGroupManagementPage() {
                             const ops = operatorsForDataType(cond.data_type);
                             const nullary = isNullaryOperator(cond.operator);
                             const fieldDef = autoFieldOptions.find(
-                              (f) => f.field_key === cond.field_key && f.entity_scope === cond.entity_scope && f.field_type === cond.field_type
+                              (f) => fieldOptionKey(f) === fieldOptionKey(cond)
                             );
                             const isSelectType = cond.data_type === 'select' || cond.data_type === 'multi_select';
                             const fieldOptions = fieldDef?.options || [];
@@ -3304,17 +3309,17 @@ export default function MemberGroupManagementPage() {
                               <div key={ci} className="flex flex-wrap items-center gap-1.5" data-testid={`condition-${gi}-${ci}`}>
                                 {/* Field selector */}
                                 <Select
-                                  value={cond.field_key ? `${cond.entity_scope}:${cond.field_type}:${cond.field_key}` : ''}
+                                  value={cond.field_key ? fieldOptionKey(cond) : ''}
                                   onValueChange={(v) => {
                                     if (!v) return;
-                                    const [es, ft, fk] = v.split(':');
                                     const def = autoFieldOptions.find(
-                                      (f) => f.entity_scope === es && f.field_type === ft && f.field_key === fk
+                                      (f) => fieldOptionKey(f) === v
                                     );
+                                    if (!def) return;
                                     updateCond({
-                                      entity_scope: es,
-                                      field_type: ft,
-                                      field_key: fk,
+                                      entity_scope: def.entity_scope,
+                                      field_type: def.field_type,
+                                      field_key: def.field_key,
                                       data_type: def?.data_type || 'text',
                                       operator: operatorsForDataType(def?.data_type || 'text')[0]?.value || 'contains',
                                       value: '',
@@ -3330,8 +3335,8 @@ export default function MemberGroupManagementPage() {
                                     )}
                                     {autoFieldOptions.map((f) => (
                                       <SelectItem
-                                        key={`${f.entity_scope}:${f.field_type}:${f.field_key}`}
-                                        value={`${f.entity_scope}:${f.field_type}:${f.field_key}`}
+                                        key={fieldOptionKey(f)}
+                                        value={fieldOptionKey(f)}
                                         className="text-xs"
                                       >
                                         {f._label}

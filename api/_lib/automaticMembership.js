@@ -15,6 +15,8 @@ export const ALLOWED_CORE_MEMBER_KEYS = new Set([
 ]);
 
 export const ALLOWED_CORE_ORG_KEYS = new Set(['name', 'status']);
+export const ALLOWED_CORE_ORG_GROUP_KEYS = new Set(['name']);
+export const CORE_ORG_GROUP_FIELD_TYPES = { name: 'text' };
 
 /**
  * Server-authoritative canonical data_type for every core field.
@@ -119,7 +121,7 @@ export const ALLOWED_OPERATORS = new Set(
   Object.values(OPERATORS_BY_TYPE).flatMap(s => [...s])
 );
 
-export const ALLOWED_SCOPES = new Set(['member', 'organization']);
+export const ALLOWED_SCOPES = new Set(['member', 'organization', 'organization_group']);
 
 // ISO YYYY-MM-DD pattern
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -156,7 +158,8 @@ export function authorizeAutomaticMembershipPolicyWrite({ body, isAdmin }) {
  */
 export function resolveCanonicalType(cond, fieldMeta) {
   if (cond.field_type === 'core') {
-    const map = cond.entity_scope === 'member' ? CORE_MEMBER_FIELD_TYPES : CORE_ORG_FIELD_TYPES;
+    const map = cond.entity_scope === 'member' ? CORE_MEMBER_FIELD_TYPES
+      : cond.entity_scope === 'organization_group' ? CORE_ORG_GROUP_FIELD_TYPES : CORE_ORG_FIELD_TYPES;
     return map[cond.field_key] ?? null;
   }
   if (cond.field_type === 'custom') {
@@ -201,7 +204,8 @@ export function validateCondition(cond, allowedCustomFieldIdsByScope = {}, field
 
   // Field key / scope check
   if (cond.field_type === 'core') {
-    const allowed = cond.entity_scope === 'member' ? ALLOWED_CORE_MEMBER_KEYS : ALLOWED_CORE_ORG_KEYS;
+    const allowed = cond.entity_scope === 'member' ? ALLOWED_CORE_MEMBER_KEYS
+      : cond.entity_scope === 'organization_group' ? ALLOWED_CORE_ORG_GROUP_KEYS : ALLOWED_CORE_ORG_KEYS;
     if (!allowed.has(cond.field_key)) {
       return `field_key "${cond.field_key}" is not in the core allowlist for scope "${cond.entity_scope}"`;
     }
@@ -389,7 +393,7 @@ export async function validateAutomaticMembershipSettings(effectiveRow, {
  * @param {object} [customMemberValues]  - plain object: field_id -> value_string
  * @param {object} [customOrgValues]     - plain object: field_id -> value_string
  */
-export function evaluateCondition(cond, memberRow, orgRow, customMemberValues = {}, customOrgValues = {}) {
+export function evaluateCondition(cond, memberRow, orgRow, customMemberValues = {}, customOrgValues = {}, orgGroupRow = null, customOrgGroupValues = {}) {
   let rawValue;
   if (cond.entity_scope === 'member') {
     rawValue = cond.field_type === 'core'
@@ -399,6 +403,9 @@ export function evaluateCondition(cond, memberRow, orgRow, customMemberValues = 
     rawValue = cond.field_type === 'core'
       ? orgRow?.[cond.field_key]
       : customOrgValues?.[cond.field_key];
+  } else if (cond.entity_scope === 'organization_group') {
+    if (!orgGroupRow) return false;
+    rawValue = cond.field_type === 'core' ? orgGroupRow[cond.field_key] : customOrgGroupValues[cond.field_key];
   } else {
     return false;
   }
@@ -450,13 +457,13 @@ function applyOperator(operator, rawValue, filterValue) {
  * Evaluate all filter groups against a single member.
  * Groups are OR'd; within each group conditions are AND'd.
  */
-export function evaluateFilterGroups(filterGroups, memberRow, orgRow, customMemberValues = {}, customOrgValues = {}) {
+export function evaluateFilterGroups(filterGroups, memberRow, orgRow, customMemberValues = {}, customOrgValues = {}, orgGroupRow = null, customOrgGroupValues = {}) {
   if (!Array.isArray(filterGroups) || filterGroups.length === 0) return false;
   for (const group of filterGroups) {
     const conditions = Array.isArray(group.conditions) ? group.conditions : [];
     if (conditions.length === 0) continue;
     const allMatch = conditions.every(cond =>
-      evaluateCondition(cond, memberRow, orgRow, customMemberValues, customOrgValues)
+      evaluateCondition(cond, memberRow, orgRow, customMemberValues, customOrgValues, orgGroupRow, customOrgGroupValues)
     );
     if (allMatch) return true;
   }
@@ -566,6 +573,8 @@ export async function fetchAllowedCustomFieldIdsByScope(supabaseClient, tenantId
         organization: new Set(),
         memberTypes: new Map(),
         organizationTypes: new Map(),
+        organization_group: new Set(),
+        organizationGroupTypes: new Map(),
       };
     }
     if (!batch || batch.length === 0) break;
@@ -578,11 +587,19 @@ export async function fetchAllowedCustomFieldIdsByScope(supabaseClient, tenantId
   const organization = new Set();
   const memberTypes  = new Map();
   const organizationTypes = new Map();
+  const organization_group = new Set();
+  const organizationGroupTypes = new Map();
 
   for (const r of data) {
     if (r.entity_scope === 'member') {
       member.add(r.id);
       memberTypes.set(r.id, {
+        data_type: normalizePreferenceFieldType(r.field_type),
+        options: Array.isArray(r.options) ? r.options : null,
+      });
+    } else if (r.entity_scope === 'organization_group') {
+      organization_group.add(r.id);
+      organizationGroupTypes.set(r.id, {
         data_type: normalizePreferenceFieldType(r.field_type),
         options: Array.isArray(r.options) ? r.options : null,
       });
@@ -595,7 +612,7 @@ export async function fetchAllowedCustomFieldIdsByScope(supabaseClient, tenantId
     }
   }
 
-  return { member, organization, memberTypes, organizationTypes };
+  return { member, organization, memberTypes, organizationTypes, organization_group, organizationGroupTypes };
 }
 
 /**
@@ -609,6 +626,7 @@ export function buildFieldMeta(scopeResult) {
   return {
     member: scopeResult.memberTypes instanceof Map ? scopeResult.memberTypes : new Map(),
     organization: scopeResult.organizationTypes instanceof Map ? scopeResult.organizationTypes : new Map(),
+    organization_group: scopeResult.organizationGroupTypes instanceof Map ? scopeResult.organizationGroupTypes : new Map(),
   };
 }
 

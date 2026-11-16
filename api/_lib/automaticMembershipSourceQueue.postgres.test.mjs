@@ -391,6 +391,68 @@ test('source writes queue automatic memberships across creation routes and fence
        WHERE NOT tgisinternal
          AND tgname LIKE 'trg_%_auto_membership_queue_%';
     `), '12');
+
+    // Add the new association source boundary to this same isolated PostgreSQL
+    // fixture, keeping the historical source-trigger assertions above intact.
+    run(psql, args, `
+      ALTER TABLE member ADD COLUMN organization_group_id uuid;
+      ALTER TABLE organization ADD COLUMN organization_group_id uuid;
+      ALTER TABLE preference_field ADD COLUMN entity_scope text, ADD COLUMN is_active boolean,
+        ADD COLUMN field_type text, ADD COLUMN options jsonb;
+      CREATE TABLE organization_group(id uuid PRIMARY KEY,tenant_id uuid,name text,updated_at timestamptz);
+      CREATE TABLE organization_group_preference_value(
+        id uuid PRIMARY KEY,tenant_id uuid,organization_group_id uuid,field_id uuid,value text,updated_at timestamptz);
+      INSERT INTO organization_group VALUES('50000000-0000-4000-8000-000000000001','${T1}','Group',now());
+      UPDATE member_group SET automatic_membership_filter_groups=
+        '[{"conditions":[{"entity_scope":"organization_group","field_type":"core","field_key":"name","operator":"equals","value":"Group"}]}]',
+        automatic_membership_generation=800,automatic_membership_sync_status='running',
+        automatic_membership_cursor='500',automatic_membership_sync_error='old';
+    `);
+    const groupMigration = fileURLToPath(new URL(
+      '../../supabase/migrations/202611162015_automatic_membership_organisation_group_sources.sql', import.meta.url));
+    run(psql, [...args, '-f', groupMigration]);
+    run(psql, [...args, '-f', groupMigration]);
+    const disabledGeneration = run(psql, [...args, '-t', '-A'], `SELECT automatic_membership_generation
+      FROM member_group WHERE id='10000000-0000-4000-8000-000000000002'`);
+    const state = () => run(psql, [...args, '-t', '-A'], `
+      SELECT automatic_membership_generation FROM member_group
+      WHERE id='10000000-0000-4000-8000-000000000001'`);
+    const step = (sql, increment = 1) => {
+      const before = Number(state());
+      run(psql, args, sql);
+      assert.equal(Number(state()), before + increment);
+    };
+    step(`UPDATE member SET organization_group_id='50000000-0000-4000-8000-000000000001'
+      WHERE tenant_id='${T1}'`);
+    assert.equal(run(psql, [...args, '-t', '-A'], `SELECT automatic_membership_sync_status || ':' ||
+      (automatic_membership_cursor IS NULL)::text || ':' || (automatic_membership_sync_error IS NULL)::text
+      FROM member_group WHERE id='10000000-0000-4000-8000-000000000001'`), 'queued:true:true');
+    step(`UPDATE member SET organization_group_id=organization_group_id WHERE tenant_id='${T1}'`, 0);
+    step(`UPDATE member SET organization_id=NULL WHERE tenant_id='${T1}'`);
+    step(`UPDATE organization SET organization_group_id='50000000-0000-4000-8000-000000000001'
+      WHERE tenant_id='${T1}'`);
+    step(`UPDATE organization_group SET name='Changed' WHERE tenant_id='${T1}'`);
+    step(`UPDATE organization_group SET updated_at=now() WHERE tenant_id='${T1}'`, 0);
+    step(`INSERT INTO organization_group_preference_value
+      SELECT gen_random_uuid(),'${T1}','50000000-0000-4000-8000-000000000001',
+        '20000000-0000-4000-8000-000000000001','batch',now() FROM generate_series(1,1205)`);
+    step(`UPDATE organization_group_preference_value SET value='changed' WHERE tenant_id='${T1}'`);
+    step(`UPDATE organization_group_preference_value SET updated_at=now() WHERE tenant_id='${T1}'`, 0);
+    step(`DELETE FROM organization_group_preference_value WHERE tenant_id='${T1}'`);
+    step(`INSERT INTO preference_field(id,tenant_id,entity_scope,is_active,field_type)
+      VALUES('20000000-0000-4000-8000-000000000099','${T1}','organization_group',true,'text')`);
+    step(`UPDATE preference_field SET is_active=false WHERE id='20000000-0000-4000-8000-000000000099'`);
+    step(`DELETE FROM preference_field WHERE id='20000000-0000-4000-8000-000000000099'`);
+    step(`INSERT INTO organization_group VALUES('50000000-0000-4000-8000-000000000002','${T2}','Foreign',now())`, 0);
+    step(`DELETE FROM organization_group WHERE tenant_id='${T1}'`);
+    assert.equal(run(psql, [...args, '-t', '-A'], `SELECT automatic_membership_generation
+      FROM member_group WHERE id='10000000-0000-4000-8000-000000000002'`), disabledGeneration, 'Disabled rules are untouched');
+    assert.equal(run(psql, [...args, '-t', '-A'], `SELECT has_function_privilege('authenticated',
+      'trg_queue_auto_memberships_from_group_sources()','EXECUTE') OR has_function_privilege('anon',
+      'trg_queue_auto_memberships_from_group_sources()','EXECUTE')`), 'f');
+    assert.equal(run(psql, [...args, '-t', '-A'], `SELECT count(*) FROM pg_trigger
+      WHERE NOT tgisinternal AND (tgname LIKE 'trg_auto_group_source_%'
+      OR tgname IN ('trg_member_group_source_queue_update','trg_org_group_source_queue_update'))`), '11');
   } finally {
     if (started) spawnSync(pgCtl, ['-D', data, '-m', 'immediate', 'stop']);
     await rm(root, { recursive: true, force: true });

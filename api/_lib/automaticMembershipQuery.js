@@ -19,6 +19,7 @@
 import {
   ALLOWED_CORE_MEMBER_KEYS,
   ALLOWED_CORE_ORG_KEYS,
+  ALLOWED_CORE_ORG_GROUP_KEYS,
   ALLOWED_OPERATORS,
   ALLOWED_SCOPES,
   CORE_MEMBER_FIELD_TYPES,
@@ -95,28 +96,34 @@ export async function runFilterQuery({ supabase, tenantId, filterGroups, allowed
       }
     }
 
-    if (orgConditions.length > 0) {
-      const coreConds   = orgConditions.filter(c => c.field_type === 'core');
-      const customConds = orgConditions.filter(c => c.field_type === 'custom');
+    for (const scope of ['organization', 'organization_group']) {
+      const scopedConditions = scope === 'organization' ? orgConditions
+        : conditions.filter(c => c.entity_scope === scope);
+      if (!scopedConditions.length) continue;
+      const coreConds   = scopedConditions.filter(c => c.field_type === 'core');
+      const customConds = scopedConditions.filter(c => c.field_type === 'custom');
+      const types = scope === 'organization' ? orgTypesMap : scopeMap.organizationGroupTypes;
 
       let matchedOrgIds = null;
 
       if (coreConds.length > 0) {
-        matchedOrgIds = await fetchCoreOrgIds(supabase, tenantId, coreConds);
+        matchedOrgIds = await fetchCoreOrgIds(supabase, tenantId, coreConds, scope);
       }
 
       for (const cond of customConds) {
-        const condMeta = orgTypesMap.get(cond.field_key) || null;
+        const condMeta = types?.get(cond.field_key) || null;
         const condSet = await fetchCustomOrgConditionSet({ supabase, tenantId, cond, condMeta });
         // Intersect with tenant org IDs to prevent foreign IDs
-        const tenantIntersected = await intersectWithTenantOrgIds(supabase, tenantId, condSet);
+        const tenantIntersected = await intersectWithTenantOrgIds(supabase, tenantId, condSet, scope);
         matchedOrgIds = matchedOrgIds
           ? new Set([...matchedOrgIds].filter(id => tenantIntersected.has(id)))
           : tenantIntersected;
       }
 
       if (matchedOrgIds && matchedOrgIds.size > 0) {
-        const orgMemberIds = await fetchMemberIdsByOrgIds(supabase, tenantId, [...matchedOrgIds]);
+        const orgMemberIds = scope === 'organization'
+          ? await fetchMemberIdsByOrgIds(supabase, tenantId, [...matchedOrgIds])
+          : await fetchMemberIdsByOrgGroupIds(supabase, tenantId, [...matchedOrgIds]);
         memberIds = memberIds
           ? new Set([...memberIds].filter(id => orgMemberIds.has(id)))
           : orgMemberIds;
@@ -174,10 +181,10 @@ async function fetchCoreMemberIds(supabase, tenantId, coreConds) {
  * Fetch org IDs matching a set of core org conditions (AND'd together).
  * Uses keyset pagination on organization.id.
  */
-async function fetchCoreOrgIds(supabase, tenantId, coreConds) {
+async function fetchCoreOrgIds(supabase, tenantId, coreConds, entityTable = 'organization') {
   const makeQuery = (afterId) => {
     let q = supabase
-      .from('organization')
+      .from(entityTable)
       .select('id')
       .eq('tenant_id', tenantId)
       .order('id')
@@ -255,28 +262,31 @@ async function fetchCustomMemberConditionSet({ supabase, tenantId, cond, condMet
 async function fetchCustomOrgConditionSet({ supabase, tenantId, cond, condMeta }) {
   const canonType = condMeta?.data_type ?? 'text';
   const options   = Array.isArray(condMeta?.options) ? condMeta.options : null;
+  const entityTable = cond.entity_scope === 'organization_group' ? 'organization_group' : 'organization';
+  const prefTable = `${entityTable}_preference_value`;
+  const prefIdField = `${entityTable}_id`;
 
   if (cond.operator === 'is_empty') {
     return buildIsEmptySet({
       supabase, tenantId,
-      entityTable: 'organization', entityIdField: 'id',
-      prefTable: 'organization_preference_value', prefIdField: 'organization_id',
+      entityTable, entityIdField: 'id',
+      prefTable, prefIdField,
       fieldId: cond.field_key,
     });
   }
   if (canonType === 'boolean' && cond.operator === 'is_false') {
     return buildBooleanFalseSet({
       supabase, tenantId,
-      entityTable: 'organization', entityIdField: 'id',
-      prefTable: 'organization_preference_value', prefIdField: 'organization_id',
+      entityTable, entityIdField: 'id',
+      prefTable, prefIdField,
       fieldId: cond.field_key,
     });
   }
   const emptyMatches = shouldIncludeMissingPreferenceValue(cond.operator)
     ? await buildIsEmptySet({
         supabase, tenantId,
-        entityTable: 'organization', entityIdField: 'id',
-        prefTable: 'organization_preference_value', prefIdField: 'organization_id',
+        entityTable, entityIdField: 'id',
+        prefTable, prefIdField,
         fieldId: cond.field_key,
       })
     : null;
@@ -286,15 +296,16 @@ async function fetchCustomOrgConditionSet({ supabase, tenantId, cond, condMeta }
       (cond.operator === 'greater_than' || cond.operator === 'less_than')) ||
     cond.operator === 'is_not_one_of' ||
     (canonType === 'multi_select' && cond.operator === 'is_one_of');
-  const selectCols = needsValue ? 'id, organization_id, value' : 'id, organization_id';
+  const selectCols = needsValue ? `id, ${prefIdField}, value` : `id, ${prefIdField}`;
 
   const makeQuery = (afterId) => {
     let q = supabase
-      .from('organization_preference_value')
+      .from(prefTable)
       .select(selectCols)
       .eq('field_id', cond.field_key)
       .order('id')
       .limit(PAGE);
+    if (entityTable === 'organization_group') q = q.eq('tenant_id', tenantId);
     if (afterId) q = q.gt('id', afterId);
     const { query: qFiltered } = applyPrefValueCondition(q, cond.operator, cond.value, canonType, options);
     return qFiltered;
@@ -302,7 +313,7 @@ async function fetchCustomOrgConditionSet({ supabase, tenantId, cond, condMeta }
 
   const allRows = await fetchAllKeyset(makeQuery, 'id', true);
   const filtered = applyPrefValuePostFilter(allRows, cond.operator, cond.value, canonType);
-  const result = new Set(filtered.map(r => r.organization_id));
+  const result = new Set(filtered.map(r => r[prefIdField]));
   for (const id of emptyMatches || []) result.add(id);
   return result;
 }
@@ -342,14 +353,14 @@ async function intersectWithTenantMemberIds(supabase, tenantId, idSet) {
 /**
  * Intersect a set of org IDs with the tenant's actual org IDs.
  */
-async function intersectWithTenantOrgIds(supabase, tenantId, idSet) {
+async function intersectWithTenantOrgIds(supabase, tenantId, idSet, entityTable = 'organization') {
   if (idSet.size === 0) return new Set();
   const idsArr = [...idSet];
   const tenantOwned = new Set();
   for (let i = 0; i < idsArr.length; i += 500) {
     const slice = idsArr.slice(i, i + 500);
     const { data, error } = await supabase
-      .from('organization')
+      .from(entityTable)
       .select('id')
       .eq('tenant_id', tenantId)
       .in('id', slice);
@@ -380,6 +391,31 @@ async function fetchMemberIdsByOrgIds(supabase, tenantId, orgIdArr) {
     };
     const ids = await fetchAllKeyset(makeQuery, 'id');
     ids.forEach(id => result.add(id));
+  }
+  return result;
+}
+
+// Effective association: a primary organisation owns the group selection.
+// A direct member group is used only when there is no primary organisation.
+async function fetchMemberIdsByOrgGroupIds(supabase, tenantId, groupIds) {
+  const result = new Set();
+  for (let i = 0; i < groupIds.length; i += 500) {
+    const slice = groupIds.slice(i, i + 500);
+    const orgIds = await fetchAllKeyset(afterId => {
+      let q = supabase.from('organization').select('id').eq('tenant_id', tenantId)
+        .in('organization_group_id', slice).order('id').limit(PAGE);
+      if (afterId) q = q.gt('id', afterId);
+      return q;
+    }, 'id');
+    for (const id of await fetchMemberIdsByOrgIds(supabase, tenantId, [...orgIds])) result.add(id);
+    const direct = await fetchAllKeyset(afterId => {
+      let q = supabase.from('member').select('id').eq('tenant_id', tenantId)
+        .is('organization_id', null).in('organization_group_id', slice)
+        .not('email', 'ilike', 'deleted_%@deleted.local').order('id').limit(PAGE);
+      if (afterId) q = q.gt('id', afterId);
+      return q;
+    }, 'id');
+    for (const id of direct) result.add(id);
   }
   return result;
 }
@@ -416,6 +452,7 @@ async function buildIsEmptySet({ supabase, tenantId, entityTable, entityIdField,
       .neq('value', '[]')
       .order('id')
       .limit(PAGE);
+    if (entityTable === 'organization_group') q = q.eq('tenant_id', tenantId);
     if (afterId) q = q.gt('id', afterId);
     return q;
   };
@@ -436,6 +473,7 @@ async function buildBooleanFalseSet(args) {
       .eq('value', 'false')
       .order('id')
       .limit(PAGE);
+    if (args.entityTable === 'organization_group') q = q.eq('tenant_id', args.tenantId);
     if (afterId) q = q.gt('id', afterId);
     return q;
   };
@@ -618,6 +656,8 @@ function normaliseScopeMap(v) {
     organization: v.organization instanceof Set ? v.organization : new Set(),
     memberTypes:  v.memberTypes instanceof Map  ? v.memberTypes  : new Map(),
     organizationTypes: v.organizationTypes instanceof Map ? v.organizationTypes : new Map(),
+    organization_group: v.organization_group instanceof Set ? v.organization_group : new Set(),
+    organizationGroupTypes: v.organizationGroupTypes instanceof Map ? v.organizationGroupTypes : new Map(),
   };
 }
 
@@ -629,7 +669,8 @@ function isAllowedCondition(c, scopeMap) {
   if (!ALLOWED_SCOPES.has(c.entity_scope)) return false;
   if (!ALLOWED_OPERATORS.has(c.operator)) return false;
   if (c.field_type === 'core') {
-    const allowed = c.entity_scope === 'member' ? ALLOWED_CORE_MEMBER_KEYS : ALLOWED_CORE_ORG_KEYS;
+    const allowed = c.entity_scope === 'member' ? ALLOWED_CORE_MEMBER_KEYS
+      : c.entity_scope === 'organization_group' ? ALLOWED_CORE_ORG_GROUP_KEYS : ALLOWED_CORE_ORG_KEYS;
     if (!allowed.has(c.field_key)) return false;
   } else if (c.field_type === 'custom') {
     const scopeSet = scopeMap[c.entity_scope];

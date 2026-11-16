@@ -30,3 +30,14 @@ Member insertion queues reconciliation of existing memberships too.
 before promising no access or unrelated membership changes. If that conflicts
 with the authorized import boundary, stop for clarification rather than disabling
 triggers or treating queue writes as necessarily harmless.
+
+Organisation Group conditions require a real associated group, even for empty
+or negative comparisons. A missing field on an associated group is different
+from a missing association.
+
+**Why:** Treating an absent association as an empty group field could
+automatically enrol unrelated members through an "is empty" or "not equals"
+rule.
+
+**How to apply:** Preserve that distinction when extending automatic-membership
+relationship scopes; do not broaden eligibility through missing relationships.
