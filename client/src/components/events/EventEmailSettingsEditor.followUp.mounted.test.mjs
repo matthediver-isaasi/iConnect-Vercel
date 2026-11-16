@@ -53,6 +53,18 @@ const bundle = await build({
   plugins: [{
     name: "email-fixture-boundaries",
     setup(builder) {
+      // These workflow tests isolate visual controls; the real searchable picker
+      // and its editor integration are mounted in the dedicated template tests.
+      builder.onResolve({ filter: /\/EventEmailTemplatePicker$/ },
+        args => ({ path: args.path, namespace: "template-picker" }));
+      builder.onLoad({ filter: /.*/, namespace: "template-picker" }, () => ({
+        contents: `export default function Picker({emailId, templates, value, onSelect}) {
+          return <select data-testid={\`select-template-\${emailId}\`} value={value || ""} onChange={e => onSelect(e.target.value)}>
+            <option value="">Select a template to load...</option>
+            {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>;
+        }`, loader: "jsx",
+      }));
       builder.onResolve({ filter: /^react(\/.*)?$/ }, args => ({ path: args.path, external: true }));
       builder.onResolve({ filter: /^(sonner|react-quill.*|@\/components\/ui\/.*|@\/components\/CampaignEventSurveySettings|@\/components\/events\/TimezoneAwareDateTimeInput)$/ },
         args => ({ path: args.path, namespace: "fixture" }));

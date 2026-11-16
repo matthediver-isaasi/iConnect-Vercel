@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import EmailPreviewAttendees from "./EmailPreviewAttendees";
+import EventEmailTemplatePicker from "./EventEmailTemplatePicker";
 import { readEventEmailSaveResponse } from "./eventEmailSaveResponse.js";
 import CampaignEventSurveySettings from '@/components/CampaignEventSurveySettings';
 import { Button } from "@/components/ui/button";
@@ -508,26 +509,12 @@ export default function EventEmailSettingsEditor({
                 Load from Template
               </Label>
               <div className="flex gap-2">
-                <Select
-                  value={email.loaded_template_id || "none"}
-                  onValueChange={(templateId) => {
-                    if (templateId !== "none") {
-                      loadTemplateIntoEmail(email.id, templateId);
-                    }
-                  }}
-                >
-                  <SelectTrigger className="bg-white" data-testid={`select-template-${email.id}`}>
-                    <SelectValue placeholder="Select a template to load..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Select a template to load...</SelectItem>
-                    {emailTemplates.map((template) => (
-                      <SelectItem key={template.id} value={template.id}>
-                        {template.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <EventEmailTemplatePicker
+                  emailId={email.id}
+                  templates={emailTemplates}
+                  value={email.loaded_template_id}
+                  onSelect={(templateId) => loadTemplateIntoEmail(email.id, templateId)}
+                />
               </div>
               {email.loaded_template_name && (
                 <p className="text-xs text-slate-500 mt-1">
