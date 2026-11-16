@@ -1,6 +1,7 @@
 import { supabase } from '../../../_lib/database.js';
 import { getZoomAccessToken, getTenantIdFromSession } from '../../../_lib/zoomClient.js';
 import { fromZonedTime } from 'date-fns-tz';
+import { isValidWebinarDuration, WEBINAR_DURATION_ERROR } from '../../../../shared/zoomWebinarDuration.js';
 
 function convertLocalTimeToUTC(localTimeStr, timezone) {
   const localDate = new Date(localTimeStr);
@@ -8,7 +9,11 @@ function convertLocalTimeToUTC(localTimeStr, timezone) {
   return utcDate.toISOString();
 }
 
-export default async function handler(req, res) {
+export default async function handler(req, res, deps = {}) {
+  const db = deps.db || supabase;
+  const tenantFor = deps.tenantFor || getTenantIdFromSession;
+  const tokenFor = deps.tokenFor || getZoomAccessToken;
+  const fetchZoom = deps.fetchZoom || fetch;
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, PATCH, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -17,11 +22,11 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  if (!supabase) {
+  if (!db) {
     return res.status(503).json({ error: 'Supabase not configured' });
   }
 
-  const tenantId = await getTenantIdFromSession(req);
+  const tenantId = await tenantFor(req);
   if (!tenantId) {
     return res.status(401).json({ error: 'Authentication required' });
   }
@@ -30,7 +35,7 @@ export default async function handler(req, res) {
 
   if (req.method === 'GET') {
     try {
-      const { data: webinar, error: webinarError } = await supabase
+      const { data: webinar, error: webinarError } = await db
         .from('zoom_webinar')
         .select('*')
         .eq('id', id)
@@ -46,7 +51,7 @@ export default async function handler(req, res) {
       
       // Panelists are safe to fetch by webinar_id since we've already verified
       // the webinar belongs to this tenant in the query above
-      const { data: panelists } = await supabase
+      const { data: panelists } = await db
         .from('zoom_webinar_panelist')
         .select('*')
         .eq('webinar_id', webinar.id)
@@ -62,8 +67,11 @@ export default async function handler(req, res) {
   if (req.method === 'PATCH') {
     try {
       const updates = req.body;
+      if (Object.hasOwn(updates, 'duration_minutes') && !isValidWebinarDuration(updates.duration_minutes)) {
+        return res.status(400).json({ error: WEBINAR_DURATION_ERROR });
+      }
       
-      const { data: existing, error: fetchError } = await supabase
+      const { data: existing, error: fetchError } = await db
         .from('zoom_webinar')
         .select('zoom_webinar_id, timezone')
         .eq('id', id)
@@ -75,7 +83,7 @@ export default async function handler(req, res) {
       }
       
       if (updates.topic || updates.start_time || updates.duration_minutes || updates.agenda || updates.timezone) {
-        const token = await getZoomAccessToken(req);
+        const token = await tokenFor(req);
         
         const zoomUpdates = {};
         if (updates.topic) zoomUpdates.topic = updates.topic;
@@ -84,7 +92,7 @@ export default async function handler(req, res) {
         if (updates.agenda) zoomUpdates.agenda = updates.agenda;
         if (updates.timezone) zoomUpdates.timezone = updates.timezone;
         
-        const zoomResponse = await fetch(
+        const zoomResponse = await fetchZoom(
           `https://api.zoom.us/v2/webinars/${existing.zoom_webinar_id}`,
           {
             method: 'PATCH',
@@ -111,7 +119,7 @@ export default async function handler(req, res) {
         console.log('[Zoom] Converted start_time:', updates.start_time, 'in', timezone, '-> UTC:', dbUpdates.start_time);
       }
       
-      const { data: webinar, error: updateError } = await supabase
+      const { data: webinar, error: updateError } = await db
         .from('zoom_webinar')
         .update(dbUpdates)
         .eq('id', id)
@@ -135,7 +143,7 @@ export default async function handler(req, res) {
     try {
       const { deleteFromZoom = 'true' } = req.query;
       
-      const { data: webinar, error: fetchError } = await supabase
+      const { data: webinar, error: fetchError } = await db
         .from('zoom_webinar')
         .select('zoom_webinar_id')
         .eq('id', id)
@@ -147,9 +155,9 @@ export default async function handler(req, res) {
       }
       
       if (deleteFromZoom === 'true' && webinar.zoom_webinar_id) {
-        const token = await getZoomAccessToken(req);
+        const token = await tokenFor(req);
         
-        const zoomResponse = await fetch(
+        const zoomResponse = await fetchZoom(
           `https://api.zoom.us/v2/webinars/${webinar.zoom_webinar_id}`,
           {
             method: 'DELETE',
@@ -166,7 +174,7 @@ export default async function handler(req, res) {
         }
       }
       
-      const { error: updateError } = await supabase
+      const { error: updateError } = await db
         .from('zoom_webinar')
         .update({ status: 'cancelled', updated_at: new Date().toISOString() })
         .eq('id', id)

@@ -20,6 +20,8 @@ import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { base44 } from "@/api/base44Client";
+import WebinarDurationFields from "@/components/WebinarDurationFields";
+import { isValidWebinarDuration, WEBINAR_DURATION_ERROR } from "@shared/zoomWebinarDuration.js";
 
 function looksLikeEmail(value) {
   if (!value || value.includes(' ')) return false;
@@ -630,7 +632,7 @@ export default function ZoomWebinarProvisioning() {
       agenda: webinar.agenda || "",
       start_date: formatInTimeZone(parseISO(webinar.start_time), webinarTimezone, "yyyy-MM-dd"),
       start_time: formatInTimeZone(parseISO(webinar.start_time), webinarTimezone, "HH:mm"),
-      duration_minutes: webinar.duration_minutes || 60,
+      duration_minutes: webinar.duration_minutes ?? 60,
       timezone: webinarTimezone,
       registration_required: webinar.registration_required || false,
       host_id: webinar.zoom_host_id || "",
@@ -641,6 +643,10 @@ export default function ZoomWebinarProvisioning() {
   };
 
   const handleEditSubmit = () => {
+    if (!isValidWebinarDuration(formData.duration_minutes)) {
+      toast.error(WEBINAR_DURATION_ERROR);
+      return;
+    }
     if (!formData.topic) {
       toast.error('Please enter a webinar topic');
       return;
@@ -672,7 +678,7 @@ export default function ZoomWebinarProvisioning() {
   };
 
   const checkForConflicts = async () => {
-    if (!formData.start_date || !formData.start_time) return;
+    if (!formData.start_date || !formData.start_time || !isValidWebinarDuration(formData.duration_minutes)) return;
     
     setCheckingConflicts(true);
     try {
@@ -728,6 +734,10 @@ export default function ZoomWebinarProvisioning() {
   };
 
   const handleSubmit = () => {
+    if (!isValidWebinarDuration(formData.duration_minutes)) {
+      toast.error(WEBINAR_DURATION_ERROR);
+      return;
+    }
     console.log('[CreateWebinar] handleSubmit called, formData:', JSON.stringify(formData));
     console.log('[CreateWebinar] isSubmitting.current:', isSubmitting.current);
     
@@ -1337,25 +1347,13 @@ export default function ZoomWebinarProvisioning() {
             </div>
 
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="duration">Duration</Label>
-                <Select
-                  value={String(formData.duration_minutes)}
-                  onValueChange={(value) => setFormData(prev => ({ ...prev, duration_minutes: parseInt(value) }))}
-                >
-                  <SelectTrigger data-testid="select-duration">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="30">30 minutes</SelectItem>
-                    <SelectItem value="45">45 minutes</SelectItem>
-                    <SelectItem value="60">1 hour</SelectItem>
-                    <SelectItem value="90">1.5 hours</SelectItem>
-                    <SelectItem value="120">2 hours</SelectItem>
-                    <SelectItem value="180">3 hours</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              {showCreateDialog && (
+                <WebinarDurationFields
+                  id="duration"
+                  durationMinutes={formData.duration_minutes}
+                  onChange={(duration_minutes) => setFormData(prev => ({ ...prev, duration_minutes }))}
+                />
+              )}
               <div className="space-y-2">
                 <Label htmlFor="host">Host</Label>
                 <Select
@@ -2072,25 +2070,14 @@ export default function ZoomWebinarProvisioning() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-duration">Duration</Label>
-                <Select
-                  value={formData.duration_minutes.toString()}
-                  onValueChange={(value) => setFormData(prev => ({ ...prev, duration_minutes: parseInt(value) }))}
-                >
-                  <SelectTrigger data-testid="select-edit-duration">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="30">30 minutes</SelectItem>
-                    <SelectItem value="45">45 minutes</SelectItem>
-                    <SelectItem value="60">1 hour</SelectItem>
-                    <SelectItem value="90">1.5 hours</SelectItem>
-                    <SelectItem value="120">2 hours</SelectItem>
-                    <SelectItem value="180">3 hours</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              {showEditDialog && (
+                <WebinarDurationFields
+                  key={editingWebinar?.id}
+                  id="edit-duration"
+                  durationMinutes={formData.duration_minutes}
+                  onChange={(duration_minutes) => setFormData(prev => ({ ...prev, duration_minutes }))}
+                />
+              )}
             </div>
 
             {conflicts.length > 0 && (

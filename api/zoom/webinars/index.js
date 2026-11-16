@@ -1,6 +1,7 @@
 import { supabase } from '../../_lib/database.js';
 import { getZoomAccessToken, getTenantIdFromSession } from '../../_lib/zoomClient.js';
 import { fromZonedTime } from 'date-fns-tz';
+import { isValidWebinarDuration, WEBINAR_DURATION_ERROR } from '../../../shared/zoomWebinarDuration.js';
 
 function convertLocalTimeToUTC(localTimeStr, timezone) {
   const localDate = new Date(localTimeStr);
@@ -8,7 +9,11 @@ function convertLocalTimeToUTC(localTimeStr, timezone) {
   return utcDate.toISOString();
 }
 
-export default async function handler(req, res) {
+export default async function handler(req, res, deps = {}) {
+  const db = deps.db || supabase;
+  const tenantFor = deps.tenantFor || getTenantIdFromSession;
+  const tokenFor = deps.tokenFor || getZoomAccessToken;
+  const fetchZoom = deps.fetchZoom || fetch;
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -17,11 +22,11 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  if (!supabase) {
+  if (!db) {
     return res.status(503).json({ error: 'Supabase not configured' });
   }
 
-  const tenantId = await getTenantIdFromSession(req);
+  const tenantId = await tenantFor(req);
   if (!tenantId) {
     return res.status(401).json({ error: 'Authentication required' });
   }
@@ -30,7 +35,7 @@ export default async function handler(req, res) {
     try {
       const { status, upcoming } = req.query;
       
-      let query = supabase
+      let query = db
         .from('zoom_webinar')
         .select('*')
         .eq('tenant_id', tenantId)
@@ -75,8 +80,11 @@ export default async function handler(req, res) {
       if (!topic || !start_time) {
         return res.status(400).json({ error: 'topic and start_time are required' });
       }
+      if (!isValidWebinarDuration(duration_minutes)) {
+        return res.status(400).json({ error: WEBINAR_DURATION_ERROR });
+      }
       
-      const token = await getZoomAccessToken(req);
+      const token = await tokenFor(req);
       
       let userId = host_id || 'me';
       
@@ -108,7 +116,7 @@ export default async function handler(req, res) {
       
       console.log('[Zoom] Creating webinar:', JSON.stringify(webinarPayload, null, 2));
       
-      const zoomResponse = await fetch(`https://api.zoom.us/v2/users/${userId}/webinars`, {
+      const zoomResponse = await fetchZoom(`https://api.zoom.us/v2/users/${userId}/webinars`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -133,7 +141,7 @@ export default async function handler(req, res) {
       const utcStartTime = convertLocalTimeToUTC(start_time, timezone);
       console.log('[Zoom] Converted start_time:', start_time, 'in', timezone, '-> UTC:', utcStartTime);
       
-      const { data: webinar, error: dbError } = await supabase
+      const { data: webinar, error: dbError } = await db
         .from('zoom_webinar')
         .insert({
           tenant_id: tenantId,
@@ -164,7 +172,7 @@ export default async function handler(req, res) {
         
         for (const panelist of panelists) {
           try {
-            const panelistResponse = await fetch(
+            const panelistResponse = await fetchZoom(
               `https://api.zoom.us/v2/webinars/${zoomData.id}/panelists`,
               {
                 method: 'POST',
@@ -187,7 +195,7 @@ export default async function handler(req, res) {
               const zoomPanelistId = panelistData.panelists?.[0]?.id || panelistData.id;
               console.log('[Zoom] Panelist added, response:', JSON.stringify(panelistData));
               
-              const { data: savedPanelist } = await supabase
+              const { data: savedPanelist } = await db
                 .from('zoom_webinar_panelist')
                 .insert({
                   webinar_id: webinar.id,
