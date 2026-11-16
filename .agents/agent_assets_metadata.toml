@@ -2021,3 +2021,17 @@ mtime_ms = 1794390796022
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/e8af9f56-adc9-4924-907d-d4424bc53f73/03518606-4c4f-4bf0-9477-c80cd4db5aca"
 storage_version_token = "1794390805103455"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "Sp8F_oO-R2dUm7_yrNqov"
+uri = "file://generated-artifacts/bnms-invoice-address-backfill/BNMS-100-organisations-not-updated.xlsx"
+type = "table"
+title = "BNMS — 100 organisations not updated"
+description = "Excel workbook with organisation links, mailing and invoicing fields, and skip reasons: 91 missing mailing address line 1 and 9 with existing invoicing details."
+logical_id = "0f1f304f-ed40-4cde-8c29-9801cdd516ab"
+content_hash = "sha256:b7b861dcec56fbea4853cfb810ebfbf4e99f9317bcbe8883a0883a7ce449ad08"
+size = 22521
+mtime_ms = 1794858998186
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/0f1f304f-ed40-4cde-8c29-9801cdd516ab/385a729f-426b-46c7-849b-5c725d7957fc"
+storage_version_token = "1794859008511927"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

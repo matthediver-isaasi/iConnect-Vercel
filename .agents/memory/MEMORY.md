@@ -56,7 +56,7 @@
 - [Widget click-through drilldown](widget-drilldown-clickthrough.md) — big id lists POST in a body (never URL); toggle enforced server-side; Recharts click key via entry.key ?? payload.key ?? name.
 - [Member-driven membership fee tokens](member-fee-tokens.md) — fee tokens carry org_id OR member_id; every consumer must branch (history/invoicing/notes/sim); token DD adopts unpaid workflow rows.
 - [Cron email delivery model](speaker-award-notifications.md) — one-off notification emails need lease+delivered timestamp pairs (CAS everywhere) and a retry sweep independent of the parent's done-stamp; a claim is not delivery.
-- [Explicit Zoom confirmation retries](zoom-confirmation-retry-policy.md) — uncertain sends are not auto-reclaimed; retries retain identity and deliberate resends require new consent.
+- [Zoom operations](zoom-operations-index.md) — attendance finalization, explicit confirmation retries, and background email recovery.
 - [Resource category & subcategory role access](resource-category-role-access.md) — name-level visible-wins hiding via one shared helper; ~6 surfaces must strip access fields + trim hidden names or roles leak.
 - [record_create workflows & custom fields](workflow-record-create-custom-fields.md) — trigger AFTER preference values persist or custom-field conditions see empty; workflow_log status check allows success|partial|failed|skipped.
 - [Static "AI generated" page class](static-page-class.md) — builder_type='ai_static' pages render stored sanitized HTML/CSS read-only; writes only via the store-time sanitize+scope helper, never the entity API.
@@ -69,7 +69,6 @@
 - [Tenant feed cron fairness](tenant-feed-cron-fairness.md) — time-bounded tenant feed crons need an ordered durable cursor, or the first page silently starves later tenants.
 - [Preference-field ownership scopes](preference-field-ownership-scopes.md) — adding a new field owner requires API and DB guards on every legacy value table, not just filtering field definitions.
 - [Mail delivery and evidence](mail-delivery-index.md) — Mailgun readiness, correspondence, bounce/click authority and recipient-history preservation.
-- [Attendance snapshot finalization](attendance-snapshot-finalization.md) — provider reports must publish atomically; idempotency includes bookings, policy, target, intervals, and matches.
 - [Authoritative empty feeds](authoritative-empty-feeds.md) — destructive consumers need confirmed-empty vs load-failure states; never collapse backend errors into [].
 - [Communication consent boundaries](communication-consent-index.md) — category deletion, global/category serialization, and member opt-in eligibility.
 - [Directory access and privacy topics](directory-access-privacy-index.md) — scope, eligibility, field visibility, export, file access, and deleted-member history.
@@ -157,4 +156,3 @@
 - [Project list reorder locking](project-list-reorder-locking.md) — complete-set validation must serialize with legacy create/archive/delete writers, not just other reorders.
 - [Project description images](project-description-images.md) — retain plain-text compatibility; image references resolve only within the task and removal does not delete shared attachments.
 - [Xero tracking whitespace](xero-tracking-whitespace.md) — provider trimming can cause false invoice mismatches; verify existing invoices rather than recreating them.
-- [Zoom email recovery](zoom-background-email-recovery.md) — interrupted confirmation sends require delivery review, not automatic replay; registration and email remain separate choices.
