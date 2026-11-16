@@ -230,7 +230,7 @@ export default function CookieConsentSettings({ platform = false, tenantId }) {
                   className={`flex w-full rounded-md border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 ${platform ? 'border-input bg-background' : control}`} />
               </div>
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                {textField('privacyUrl', 'Privacy policy URL', 'Use a same-origin path such as /privacy or an https:// URL.')}
+                {textField('privacyUrl', 'Privacy policy URL', 'Optional consent-specific URL. When blank, the tenant’s saved website privacy policy is used. Use a same-origin path such as /privacy or an https:// URL.')}
                 {textField('cookieUrl', 'Cookie policy URL', 'Use a same-origin path such as /cookies or an https:// URL.')}
               </div>
               <div className="space-y-2">

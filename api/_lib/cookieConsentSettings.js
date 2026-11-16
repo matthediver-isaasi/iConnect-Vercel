@@ -32,19 +32,19 @@ export function consentSettingsHandler(platform) {
       if (platform) {
         let tenants = [];
         for (let start=0; ; start+=500) {
-          const { data, error } = await supabase.from('tenant').select('id,name,settings').order('id').range(start,start+499);
+          const { data, error } = await supabase.from('tenant').select('id,name,settings,footer_config').order('id').range(start,start+499);
           if (error) throw error;
           tenants.push(...data.map(t => {
-            const c = effectiveConsentConfig(pref?.value || {}, t.settings?.cookie_consent || {});
+            const c = effectiveConsentConfig(pref?.value || {}, t.settings?.cookie_consent || {}, t.footer_config?.privacyPolicyUrl);
             return {id:t.id,name:t.name,complete:consentComplete(c),active:c.enabled && c.pilotTenantIds.includes(t.id) && consentComplete(c)};
           }));
           if (data.length < 500) break;
         }
         return res.json({overrides:pref?.value || {},effective:effectiveConsentConfig(pref?.value || {}),tenants});
       }
-      const { data: tenant, error } = await supabase.from('tenant').select('settings').eq('id',tenantId).single();
+      const { data: tenant, error } = await supabase.from('tenant').select('settings,footer_config').eq('id',tenantId).single();
       if (error) throw error;
-      return res.json({overrides:tenant.settings?.cookie_consent || {},effective:effectiveConsentConfig(pref?.value || {},tenant.settings?.cookie_consent || {}),ga4MeasurementId:tenant.settings?.ga4_measurement_id || null});
+      return res.json({overrides:tenant.settings?.cookie_consent || {},effective:effectiveConsentConfig(pref?.value || {},tenant.settings?.cookie_consent || {},tenant.footer_config?.privacyPolicyUrl),ga4MeasurementId:tenant.settings?.ga4_measurement_id || null});
     } catch { return res.status(503).json({error:'Unable to load or save cookie consent settings'}); }
   };
 }

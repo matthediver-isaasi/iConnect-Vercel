@@ -38,8 +38,18 @@ export function validateConsentOverrides(input, platform = false) {
   }
   return result;
 }
-export function effectiveConsentConfig(platform = {}, tenant = {}) {
-  return { ...CONSENT_DEFAULTS, ...validateConsentOverrides(platform, true), ...validateConsentOverrides(tenant) };
+export function effectiveConsentConfig(platform = {}, tenant = {}, websitePrivacyUrl = '') {
+  const config = { ...CONSENT_DEFAULTS, ...validateConsentOverrides(platform, true), ...validateConsentOverrides(tenant) };
+  // A consent-specific URL wins. Otherwise reuse this tenant's website policy,
+  // applying the same URL safety checks rather than trusting legacy branding.
+  if (!config.privacyUrl && typeof websitePrivacyUrl === 'string' && websitePrivacyUrl.trim()) {
+    try {
+      config.privacyUrl = validateConsentOverrides({ privacyUrl: websitePrivacyUrl.trim() }).privacyUrl;
+    } catch {
+      // Invalid legacy URLs must not activate consent or produce unsafe links.
+    }
+  }
+  return config;
 }
 export function consentComplete(config) {
   return !!(config.privacyUrl && config.cookieUrl && config.title && config.description);

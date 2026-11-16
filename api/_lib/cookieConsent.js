@@ -20,7 +20,7 @@ export function sameOrigin(req, host) {
 export async function loadConsentConfig(tenant, db = supabase) {
   const { data, error } = await db.from('platform_preferences').select('value').eq('key', 'cookie_consent').maybeSingle();
   if (error) throw error;
-  const effective = effectiveConsentConfig(data?.value || {}, tenant?.settings?.cookie_consent || {});
+  const effective = effectiveConsentConfig(data?.value || {}, tenant?.settings?.cookie_consent || {}, tenant?.footer_config?.privacyPolicyUrl);
   return { effective, active: effective.enabled && effective.pilotTenantIds.includes(tenant?.id) && consentComplete(effective) };
 }
 export async function resolveConsentRequest(req) {
