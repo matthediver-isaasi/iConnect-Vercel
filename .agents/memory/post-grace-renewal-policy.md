@@ -7,7 +7,15 @@ Members must be able to renew after grace expires; the new term starts when they
 
 **Why:** On 2026-11-02 the owner explicitly accepted the potential benefit of a member using the grace period before paying for another year, rather than blocking late renewals.
 
-**How to apply:** Preserve the existing contiguous renewal rule within grace. After grace, use payment-confirmed commencement and keep historical terms unchanged. Preserve prior membership class separately from the access role so assignment to Former does not lose renewal identity. This records the requested policy, not a claim that late renewal is implemented.
+**How to apply:** Preserve the existing contiguous renewal rule within grace. After grace, use payment-confirmed commencement and keep historical terms unchanged. Preserve prior membership class separately from the access role so a fallback-role assignment does not lose renewal identity. This records the requested policy, not a claim that late renewal is implemented.
+
+BNMS's intended post-grace fallback role is **CPD Guest**, not Former.
+
+**Why:** The owner explicitly requested this role policy on 2026-11-16.
+
+**How to apply:** Audit both schedule settings and saved term-policy evidence when
+implementing this policy. A schedule change alone must not be assumed to update
+existing terms. Preserve membership class and financial history.
 
 When resolving provisional dates, preserve the purchase's original correlation identity and financial/consent evidence; do not treat changing service dates as permission to rename the purchase.
 
