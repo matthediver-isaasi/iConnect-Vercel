@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import { createPageUrl } from "@/utils";
 import { getReadableTextColor } from "@/components/RoleBadge";
 import { publicClient } from "@/api/publicClient";
 import { FORM_PRIVACY_SETTINGS_KEY, safeFormPrivacyUrl } from "../../../shared/formConsentSettings.js";
+import { FORM_SUBMISSION_LINK_EXPIRY_KEY as LINK_EXPIRY_KEY, isValidLinkExpiry, normalizeLinkExpiry } from "@/lib/formSubmissionLinkExpiry";
 
 const STATS_CARD_DEFS = [
   { key: 'submissions', defaultLabel: 'Submissions', defaultColour: '#dbeafe', Icon: FileText },
@@ -36,6 +37,9 @@ export default function FormSettingsPage() {
   const [statsBarFormsSettingId, setStatsBarFormsSettingId] = useState(null);
   const [cardStyles, setCardStyles] = useState({});
   const [cardStylesSettingId, setCardStylesSettingId] = useState(null);
+  const [linkExpiryDays, setLinkExpiryDays] = useState("7");
+  const [linkExpiryError, setLinkExpiryError] = useState("");
+  const linkExpiryDirty = useRef(false);
 
   const queryClient = useQueryClient();
 
@@ -54,7 +58,7 @@ export default function FormSettingsPage() {
     staleTime: 60000,
   });
 
-  const { data: formSettings, isLoading } = useQuery({
+  const { data: formSettings, isLoading, isError: settingsLoadFailed, refetch: retrySettings } = useQuery({
     queryKey: ['formDefaultSettings'],
     queryFn: async () => {
       const allSettings = await base44.entities.SystemSettings.list();
@@ -63,6 +67,7 @@ export default function FormSettingsPage() {
       const statsBarSetting = allSettings.find(s => s.setting_key === 'submission_stats_allowed_roles');
       const statsBarFormsSetting = allSettings.find(s => s.setting_key === 'submission_stats_included_form_ids');
       const cardStylesSetting = allSettings.find(s => s.setting_key === 'submission_stats_card_styles');
+      const linkExpirySetting = allSettings.find(s => s.setting_key === LINK_EXPIRY_KEY);
       
       let statsBarFormIds = [];
       if (statsBarFormsSetting?.setting_value) {
@@ -96,7 +101,9 @@ export default function FormSettingsPage() {
         stats_bar_forms_setting_id: statsBarFormsSetting?.id || null,
         stats_bar_form_ids: statsBarFormIds,
         card_styles_setting_id: cardStylesSetting?.id || null,
-        card_styles: cardStyles
+        card_styles: cardStyles,
+        link_expiry_setting_id: linkExpirySetting?.id || null,
+        link_expiry_days: normalizeLinkExpiry(linkExpirySetting?.setting_value)
       };
     },
     staleTime: 0,
@@ -128,6 +135,56 @@ export default function FormSettingsPage() {
       setCardStylesSettingId(formSettings.card_styles_setting_id || null);
     }
   }, [formSettings]);
+
+  useEffect(() => {
+    if (formSettings && !linkExpiryDirty.current) {
+      setLinkExpiryDays(formSettings.link_expiry_days);
+    }
+  }, [formSettings]);
+
+  const saveLinkExpiryMutation = useMutation({
+    mutationFn: async (value) => {
+      if (!isValidLinkExpiry(value)) {
+        throw new Error('Enter a whole number from 1 to 365.');
+      }
+      const setting = { setting_value: String(Number(value)) };
+      if (formSettings?.link_expiry_setting_id) {
+        return base44.entities.SystemSettings.update(formSettings.link_expiry_setting_id, setting);
+      }
+      return base44.entities.SystemSettings.create({
+        setting_key: LINK_EXPIRY_KEY,
+        ...setting,
+        description: 'Lifetime in days for new automatic alert and forwarded submission links'
+      });
+    },
+    onSuccess: (data, value) => {
+      linkExpiryDirty.current = false;
+      setLinkExpiryDays(String(Number(value)));
+      setLinkExpiryError("");
+      queryClient.setQueryData(['formDefaultSettings'], (old) => old ? {
+        ...old,
+        link_expiry_setting_id: data?.id || old.link_expiry_setting_id,
+        link_expiry_days: String(Number(value))
+      } : old);
+      queryClient.invalidateQueries({ queryKey: ['formDefaultSettings'] });
+      toast.success('Submission link expiry saved');
+    },
+    onError: (error) => {
+      const message = error?.message || 'Failed to save submission link expiry. Please try again.';
+      setLinkExpiryError(message);
+      toast.error(message);
+    }
+  });
+
+  const handleSaveLinkExpiry = (event) => {
+    event.preventDefault();
+    if (!isValidLinkExpiry(linkExpiryDays)) {
+      setLinkExpiryError('Enter a whole number from 1 to 365.');
+      return;
+    }
+    setLinkExpiryError("");
+    saveLinkExpiryMutation.mutate(linkExpiryDays);
+  };
 
   const saveSettingsMutation = useMutation({
     mutationFn: async (newConsentMessage) => {
@@ -349,6 +406,67 @@ export default function FormSettingsPage() {
             <p className="text-slate-500">Configure default settings for all forms</p>
           </div>
         </div>
+
+        <Card data-testid="submission-link-expiry-card" className="mb-6">
+          <CardHeader>
+            <CardTitle>Submission Link Lifetime</CardTitle>
+            <CardDescription id="submission-link-expiry-help">
+              Applies only to new automatic alert and forwarded submission links for this tenant.
+              This does not change submission retention or the expiry of existing links.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleSaveLinkExpiry} noValidate className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="submission-link-expiry-days">Submission link expiry (days)</Label>
+                <Input
+                  id="submission-link-expiry-days"
+                  data-testid="input-submission-link-expiry-days"
+                  type="number"
+                  min={1}
+                  max={365}
+                  step={1}
+                  required
+                  value={linkExpiryDays}
+                  disabled={settingsLoadFailed || saveLinkExpiryMutation.isPending}
+                  aria-invalid={!!linkExpiryError}
+                  aria-describedby={`submission-link-expiry-help submission-link-expiry-range${linkExpiryError ? ' submission-link-expiry-error' : ''}`}
+                  className="max-w-xs"
+                  onChange={(event) => {
+                    linkExpiryDirty.current = true;
+                    setLinkExpiryDays(event.target.value);
+                    setLinkExpiryError("");
+                  }}
+                />
+                <p id="submission-link-expiry-range" className="text-sm text-slate-500">
+                  Enter a whole number from 1 to 365. Default: 7 days.
+                </p>
+                {linkExpiryError && (
+                  <p id="submission-link-expiry-error" role="alert" className="text-sm text-red-600">
+                    {linkExpiryError}
+                  </p>
+                )}
+                {settingsLoadFailed && (
+                  <div role="alert" className="space-y-2">
+                    <p className="text-sm text-red-600">Unable to load settings. Retry before saving link expiry.</p>
+                    <Button type="button" variant="outline" onClick={() => retrySettings()}>Retry loading settings</Button>
+                  </div>
+                )}
+              </div>
+              <Button
+                type="submit"
+                data-testid="button-save-submission-link-expiry"
+                disabled={settingsLoadFailed || saveLinkExpiryMutation.isPending}
+              >
+                {saveLinkExpiryMutation.isPending ? (
+                  <><Loader2 aria-hidden="true" className="w-4 h-4 mr-2 animate-spin" />Saving...</>
+                ) : (
+                  <><Save aria-hidden="true" className="w-4 h-4 mr-2" />Save Link Expiry</>
+                )}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
 
         <Card data-testid="stats-bar-visibility-card" className="mb-6">
           <CardHeader>
