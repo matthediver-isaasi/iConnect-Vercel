@@ -7,6 +7,7 @@ import {
 import { sendConfirmationEmailsFromTemplate } from '../../_lib/eventConfirmationEmail.js';
 import { zoomAuthority } from '../../_lib/eventZoomRegistration.js';
 import { listZoomRegistrations, registerWithZoom } from '../../_lib/zoomRegistration.js';
+import { enqueueZoomJob, latestZoomJob } from '../../_lib/zoomRegistrationJobs.js';
 
 // Loads a zoom_webinar / zoom_meeting row from the local table by its PK.
 // Returns the cached row including the external Zoom resource ID + URLs +
@@ -98,6 +99,10 @@ export default async function handler(req, res) {
   if (!ctx.tenantId) return res.status(403).json({ error: 'No tenant context' });
 
   const tenantId = ctx.tenantId;
+  if (req.method === 'GET' && req.query.jobStatus === 'true') {
+    try { return res.status(200).json({ job: await latestZoomJob(tenantId, 'session', id) }); }
+    catch (error) { return res.status(503).json({ error: error.message }); }
+  }
 
   // GET → preview the attendee impact count for this session.
   if (req.method === 'GET') {
@@ -161,7 +166,11 @@ export default async function handler(req, res) {
     const newExternalMeetingId = externalZoomIdFromLocal('zoom_meeting', newLocalMeeting);
     const sameTarget = priorExternalWebinarId === newExternalWebinarId && priorExternalMeetingId === newExternalMeetingId;
     const allBookings = await resolveSessionScopedBookings(session, tenantId);
-    if (!sameTarget && allBookings.length > 25 && (registerNew || cancelOld || resendConfirmations)) {
+    const background = req.body?.background === true && registerNew === true;
+    if (background && cancelOld && !sameTarget && (priorExternalMeetingId || priorExternalWebinarId)) {
+      return res.status(409).json({ error: 'Background registration preserves existing registrations. Uncheck cancellation of previous Zoom registrations to continue.' });
+    }
+    if (!background && !sameTarget && allBookings.length > 25 && (registerNew || cancelOld || resendConfirmations)) {
       return res.status(409).json({ error: 'For more than 25 bookings, attach without attendee actions first, then select the current Zoom target to reconcile registrations. Existing registrations will not be cancelled.' });
     }
     if (afterBookingId && !sameTarget) return res.status(409).json({ error: 'Zoom target changed; restart reconciliation.' });
@@ -170,7 +179,7 @@ export default async function handler(req, res) {
     if ((registerNew || resendConfirmations) && (newLocalWebinar || newLocalMeeting)) {
       authority = await zoomAuthority(tenantId, newLocalWebinar || newLocalMeeting, newLocalMeeting ? 'meetings' : 'webinars');
       if (registerNew && !authority.live.registration_required) return res.status(409).json({ error: 'Registration is disabled in Zoom. Enable it in Zoom first, or uncheck registration to attach only.' });
-      if (authority.live.registration_required) registrants = await listZoomRegistrations(authority.token, authority.kind, authority.id);
+      if (!background && authority.live.registration_required) registrants = await listZoomRegistrations(authority.token, authority.kind, authority.id);
     }
 
     // Build session update.  For complex_event_session, store EXTERNAL Zoom
@@ -205,6 +214,19 @@ export default async function handler(req, res) {
       sessionUpdate.delivery_mode = 'in_person';
     }
 
+    if (background) {
+      if (!authority) return res.status(400).json({ error: 'Select a Zoom target for registration' });
+      const job = await enqueueZoomJob({
+        tenantId, kind: 'session', id, body: req.body, bookings: allBookings,
+        actor: ctx.tenantUserId || ctx.memberId,
+        expected: { zoom_meeting_id: priorExternalMeetingId, zoom_webinar_id: priorExternalWebinarId },
+        patch: sessionUpdate,
+        target: { kind: authority.kind, localId: (newLocalMeeting || newLocalWebinar).id, providerId: String(authority.id),
+          eventId: session.complex_event_id,
+          current: { zoom_meeting_id: newExternalMeetingId, zoom_webinar_id: newExternalWebinarId } },
+      });
+      return res.status(202).json({ job });
+    }
     const { error: updErr } = await supabase
       .from('complex_event_session').update(sessionUpdate).eq('id', id).eq('tenant_id', tenantId);
     if (updErr) {

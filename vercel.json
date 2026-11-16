@@ -3,6 +3,9 @@
   "buildCommand": "node scripts/patch-cookieyes.mjs && npx vite build && node scripts/build-cookie-preview.mjs --build",
   "outputDirectory": "dist/public",
   "functions": {
+    "api/cron/process-zoom-registrations.js": {
+      "maxDuration": 300
+    },
     "api/reports/registrant-survey-email.js": {
       "maxDuration": 60
     },
@@ -74,6 +77,10 @@
     }
   },
   "crons": [
+    {
+      "path": "/api/cron/process-zoom-registrations",
+      "schedule": "* * * * *"
+    },
     {
       "path": "/api/cron/cleanup-project-activity-uploads",
       "schedule": "17 * * * *"

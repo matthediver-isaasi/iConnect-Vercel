@@ -72,6 +72,9 @@ export default function ChangeZoomDialog({
   const [detectedCurrent, setDetectedCurrent] = useState(null);
   const [progress, setProgress] = useState("");
   const [operationError, setOperationError] = useState(null);
+  const [backgroundJob, setBackgroundJob] = useState(null);
+  const [jobLoading, setJobLoading] = useState(false);
+  const requestKeyRef = useRef(null);
   const operationRef = useRef(null);
   const busyRef = useRef(false);
   const notifiedRef = useRef(false);
@@ -86,13 +89,39 @@ export default function ChangeZoomDialog({
   useEffect(() => {
     if (!open) return;
     let active = true;
+    let timer;
+    setJobLoading(true);
+    const refresh = async () => {
+      try {
+        const response = await fetch(`${endpointBase}/change-zoom?jobStatus=true`, { credentials: 'include' });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Could not load background registration status');
+        if (active) {
+          setBackgroundJob(data.job || null);
+        }
+      } catch (error) { if (active) setOperationError(error.message); }
+      finally {
+        if (active) {
+          setJobLoading(false);
+          timer = setTimeout(refresh, 4000);
+        }
+      }
+    };
+    refresh();
+    return () => { active = false; clearTimeout(timer); };
+  }, [open, endpointBase]);
+  const jobRunning = backgroundJob && ['queued', 'running'].includes(backgroundJob.status);
+
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
     setType(initialType);
     setTargetId(isReconcile ? currentTarget?.[`zoom_${initialType}_id`] || "" : "");
     setShowPast(false);
     setSearch("");
     setDateFrom("");
     setDateTo("");
-    setCancelOld(!isAttach && !isReconcile);
+    setCancelOld(isDetach);
     setRegisterNew(!isDetach);
     setResendEmails(false);
     setOutcome(null);
@@ -101,6 +130,7 @@ export default function ChangeZoomDialog({
     notifiedRef.current = false;
     setOperationError(null);
     setProgress("");
+    requestKeyRef.current = null;
     setEnableRegistration(false);
     setConvertInPerson(false);
     setImpactCount(null);
@@ -170,7 +200,7 @@ export default function ChangeZoomDialog({
   }, [items, search, dateFrom, dateTo]);
 
   const handleAttachOrChange = async () => {
-    if (busyRef.current || operationRef.current?.done) return;
+    if (busyRef.current || jobRunning || jobLoading || operationRef.current?.done) return;
     if (!targetId) {
       toast.error(`Please select a ${type}`);
       return;
@@ -180,6 +210,31 @@ export default function ChangeZoomDialog({
     setSubmitting(true);
     setOperationError(null);
     try {
+      // Explicit replacement+cancellation keeps the existing small-operation
+      // path and its >25-booking safety guard. Background registration never
+      // silently cancels registrations on the old provider target.
+      if (registerNew && !(cancelOld && !sameTarget && (current?.zoom_meeting_id || current?.zoom_webinar_id))) {
+        const jobBody = {
+          background: true,
+          zoom_webinar_id: type === 'webinar' ? targetId : null,
+          zoom_meeting_id: type === 'meeting' ? targetId : null,
+          registerNew: true, cancelOld, resendConfirmations: resendEmails, enableRegistration,
+        };
+        const signature = JSON.stringify(jobBody);
+        if (requestKeyRef.current?.signature !== signature) requestKeyRef.current = { signature, key: crypto.randomUUID() };
+        const response = await fetch(`${endpointBase}/change-zoom`, {
+          method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...jobBody, requestKey: requestKeyRef.current.key }),
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Could not start background registration');
+        setBackgroundJob(result.job);
+        requestKeyRef.current = null;
+        setProgress('');
+        toast.success('Registration queued. You can close this page; registration will continue in the background.');
+        notifySuccess(result);
+        return;
+      }
       if (!operationRef.current) {
         setProgress("Checking current Zoom link…");
         // Never infer initial attach from the dialog mode or a stale parent.
@@ -319,13 +374,22 @@ export default function ChangeZoomDialog({
         </DialogHeader>
 
         {progress && <p role="status" className="text-sm" data-testid="zoom-action-progress">{progress}</p>}
+        {backgroundJob && <div role="status" className="p-3 border rounded text-sm space-y-1" data-testid="zoom-background-status">
+          <p>Background registration: {backgroundJob.status}. Processed {backgroundJob.processed} of {backgroundJob.total} bookings.</p>
+          <p>Newly registered: {backgroundJob.totals.registered || 0}; already registered: {backgroundJob.totals.existing || 0}; pending: {backgroundJob.totals.pending || 0}; denied: {backgroundJob.totals.denied || 0}; missing email: {backgroundJob.totals.missingEmail || 0}.</p>
+          <p>Skipped bookings: {backgroundJob.totals.skipped || 0}; failed registrations: {backgroundJob.totals.failed || 0}.</p>
+          <p>Confirmation emails sent: {backgroundJob.totals.emailed || 0}. Emails requiring delivery review: {backgroundJob.totals.uncertainEmails || 0}.</p>
+          {jobRunning && <p>You can close this page. Work continues in the background. Reopen this dialog to check progress.</p>}
+          {backgroundJob.error && <p>{backgroundJob.error}</p>}
+          {backgroundJob.status === 'attention' && <p>Review these results before starting a new reconciliation. Existing registrations will be retained. Leave confirmation emails off to avoid repeating previously sent emails.</p>}
+        </div>}
         {operationError && <div role="alert" className="p-3 border rounded text-sm" data-testid="zoom-action-error">
           {operationRef.current?.attached ? "Zoom link attached successfully, but attendee actions did not finish. " : operationRef.current?.batches ? "Some attendee batches completed, but the operation did not finish. " : ""}
-          {operationError} Retry resumes from the last acknowledged batch; completed batches will not be repeated.
+          {operationError} {registerNew ? "Reopen this dialog to check whether a background job was accepted before retrying." : "Retry resumes from the last acknowledged batch; completed batches will not be repeated."}
           {operationRef.current?.body.resendConfirmations && " If a failed request sent emails before its response was lost, those emails may repeat on retry."}
         </div>}
-        <fieldset disabled={submitting || !!operationRef.current} className="min-w-0 border-0 p-0 m-0">
-        <div inert={submitting || operationRef.current ? "" : undefined} className="space-y-4 py-2">
+        <fieldset disabled={submitting || jobRunning || jobLoading || !!operationRef.current} className="min-w-0 border-0 p-0 m-0">
+        <div inert={submitting || jobRunning || jobLoading || operationRef.current ? "" : undefined} className="space-y-4 py-2">
           {!isDetach && !isReconcile && (
             <>
               <div>
@@ -449,7 +513,7 @@ export default function ChangeZoomDialog({
             setRegisterNew(true);
             setResendEmails(false);
           }}>Use current Zoom target to reconcile registrations</Button>}
-          {sameTarget && <p className="text-sm">Current target: existing registrations will not be cancelled. Missing registrations are processed in batches; keep this dialog open.</p>}
+          {sameTarget && <p className="text-sm">Current target: existing registrations will not be cancelled. Missing registrations continue in the background after you close this page.</p>}
           {isEvent && targetId && !isDetach && <ZoomRegistrationEvidence evidence={evidence} loading={checkingEvidence} error={evidenceError} />}
           {isEvent && registerNew && evidence?.live?.registration_required === false && (
             <div className="p-3 border rounded space-y-2">
@@ -472,6 +536,7 @@ export default function ChangeZoomDialog({
                 </Label>
               </div>
             )}
+            {cancelOld && registerNew && !sameTarget && <p className="text-sm">Cancelling previous registrations uses the existing interactive process, limited to 25 bookings. Leave cancellation off to register in the background and retain previous registrations.</p>}
             {!isDetach && (
               <>
                 <div className="flex items-center space-x-2">
@@ -553,7 +618,7 @@ export default function ChangeZoomDialog({
             <Button
               type="button"
               onClick={handleAttachOrChange}
-               disabled={submitting || !!operationRef.current?.done || !targetId || (!operationRef.current && isEvent && (checkingEvidence || !evidence?.live || evidence.confirmedBookings == null || !!evidence.bookingError || (registerNew && !evidence.live.registration_required && !enableRegistration)))}
+               disabled={submitting || jobRunning || jobLoading || !!operationRef.current?.done || !targetId || (!operationRef.current && isEvent && (checkingEvidence || !evidence?.live || evidence.confirmedBookings == null || !!evidence.bookingError || (registerNew && !evidence.live.registration_required && !enableRegistration)))}
               data-testid="button-change-zoom-confirm"
             >
               {submitting

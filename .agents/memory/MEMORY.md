@@ -156,3 +156,4 @@
 - [Project list reorder locking](project-list-reorder-locking.md) — complete-set validation must serialize with legacy create/archive/delete writers, not just other reorders.
 - [Project description images](project-description-images.md) — retain plain-text compatibility; image references resolve only within the task and removal does not delete shared attachments.
 - [Xero tracking whitespace](xero-tracking-whitespace.md) — provider trimming can cause false invoice mismatches; verify existing invoices rather than recreating them.
+- [Zoom email recovery](zoom-background-email-recovery.md) — interrupted confirmation sends require delivery review, not automatic replay; registration and email remain separate choices.

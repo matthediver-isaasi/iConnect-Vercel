@@ -7,6 +7,7 @@ import {
 import { confirmedZoomBookings, zoomAuthority, zoomEvidence } from '../../_lib/eventZoomRegistration.js';
 import { listZoomRegistrations, registerWithZoom } from '../../_lib/zoomRegistration.js';
 import { sendConfirmationEmailsFromTemplate } from '../../_lib/eventConfirmationEmail.js';
+import { enqueueZoomJob, latestZoomJob } from '../../_lib/zoomRegistrationJobs.js';
 
 async function loadZoomRecord(table, pkId, tenantId) {
   if (!pkId) return null;
@@ -38,6 +39,10 @@ export default async function handler(req, res) {
   if (!await hasAdminAccess(ctx)) return res.status(403).json({ error: 'Admin access required' });
   if (!ctx.tenantId) return res.status(403).json({ error: 'No tenant context' });
   const tenantId = ctx.tenantId;
+  if (req.method === 'GET' && req.query.jobStatus === 'true') {
+    try { return res.status(200).json({ job: await latestZoomJob(tenantId, 'event', id) }); }
+    catch (error) { return res.status(503).json({ error: error.message }); }
+  }
 
   // GET → impact preview: return count of confirmed bookings that would be
   // affected by a Zoom change.  Admin UI calls this before opening the
@@ -98,7 +103,11 @@ export default async function handler(req, res) {
 
     const sameTarget = priorWebinarPk === zoom_webinar_id && priorMeetingPk === zoom_meeting_id;
     const allBookings = await confirmedZoomBookings(id, tenantId);
-    if (!sameTarget && allBookings.length > 25 && (registerNew || cancelOld || resendConfirmations)) {
+    const background = req.body?.background === true && registerNew === true;
+    if (background && cancelOld && !sameTarget && (priorWebinarPk || priorMeetingPk)) {
+      return res.status(409).json({ error: 'Background registration preserves existing registrations. Uncheck cancellation of the previous Zoom registrations to continue.' });
+    }
+    if (!background && !sameTarget && allBookings.length > 25 && (registerNew || cancelOld || resendConfirmations)) {
       return res.status(409).json({ error: 'For more than 25 bookings, attach without attendee actions first, then use Reconcile registrations. Existing registrations will not be cancelled.' });
     }
     if (afterBookingId && !sameTarget) return res.status(409).json({ error: 'Zoom target changed; restart reconciliation.' });
@@ -109,7 +118,7 @@ export default async function handler(req, res) {
       if (registerNew && !authority.live.registration_required) {
         return res.status(409).json({ code: 'REGISTRATION_DISABLED', error: 'Registration is disabled in Zoom. Confirm enabling registration or attach without registering attendees.' });
       }
-      if (registerNew || (resendConfirmations && authority.live.registration_required)) {
+      if (!background && (registerNew || (resendConfirmations && authority.live.registration_required))) {
         registrants = await listZoomRegistrations(authority.token, authority.kind, authority.id);
       }
       const { error } = await supabase.from(newMeeting ? 'zoom_meeting' : 'zoom_webinar')
@@ -146,6 +155,18 @@ export default async function handler(req, res) {
       updatePatch.is_online = false;
     }
 
+    if (background) {
+      if (!authority) return res.status(400).json({ error: 'Select a Zoom target for registration' });
+      const job = await enqueueZoomJob({
+        tenantId, kind: 'event', id, body: req.body, bookings: allBookings,
+        actor: ctx.tenantUserId || ctx.memberId,
+        expected: { zoom_meeting_id: priorMeetingPk, zoom_webinar_id: priorWebinarPk },
+        patch: updatePatch,
+        target: { kind: authority.kind, localId: (newMeeting || newWebinar).id, providerId: String(authority.id), eventId: id,
+          current: { zoom_meeting_id: zoom_meeting_id || null, zoom_webinar_id: zoom_webinar_id || null } },
+      });
+      return res.status(202).json({ job, eventPatch: updatePatch });
+    }
     const { error: updErr } = await supabase
       .from('event').update(updatePatch).eq('id', id).eq('tenant_id', tenantId);
     if (updErr) {

@@ -56,7 +56,7 @@ const click = async id => { assert.ok(byId(id), id); await act(async () => byId(
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
 const response = (data, ok = true) => ({ ok, json: async () => data });
 
-async function mount({ endpoint = '/api/events/event-1', mode = 'attach', current = empty, post, confirm = () => true } = {}) {
+async function mount({ endpoint = '/api/events/event-1', mode = 'attach', current = empty, post, job = null, confirm = () => true } = {}) {
   const requests = [];
   let success = 0, closes = 0, confirmations = 0;
   globalThis.confirm = () => { confirmations++; return confirm(); };
@@ -68,6 +68,7 @@ async function mount({ endpoint = '/api/events/event-1', mode = 'attach', curren
       return post(body, requests.length);
     }
     if (url.startsWith('/api/zoom/')) return response([{ id: 'selected', topic: 'Selected webinar' }, { id: 'other', topic: 'Other webinar' }]);
+    if (url.includes('jobStatus=true')) return response({ job });
     return response({ current, confirmedBookings: 43, live: { registration_required: true } });
   };
   const host = document.createElement('div');
@@ -87,58 +88,56 @@ async function mount({ endpoint = '/api/events/event-1', mode = 'attach', curren
 }
 
 for (const endpoint of ['/api/events/event-1', '/api/complex-event-sessions/session-1']) {
-  test(`${endpoint}: attach progress, locked controls, no intermediate callback, 43 attendees`, async () => {
-    const attach = deferred(), firstBatch = deferred();
-    const fixture = await mount({ endpoint, post: (_, n) => n === 1 ? attach.promise : n === 2 ? firstBatch.promise : response({ registered: 18 }) });
+  test(`${endpoint}: one durable request, close allowed after acceptance, no browser batching`, async () => {
+    const attach = deferred();
+    const job = { id: 'job', status: 'queued', processed: 0, total: 43, totals: {} };
+    const fixture = await mount({ endpoint, post: () => attach.promise });
     try {
       await click('button-change-zoom-confirm');
-      assert.match(byId('zoom-action-progress').textContent, /Attaching Zoom/);
       assert.equal(byId('checkbox-change-zoom-register-new').closest('fieldset').disabled, true);
       await click('button-change-zoom-confirm');
       await click('outside-close');
       assert.equal(fixture.requests.length, 1);
       assert.equal(fixture.closes, 0);
-      await act(async () => attach.resolve(response({ nextCursor: 'must-ignore' })));
-      assert.match(byId('zoom-action-progress').textContent, /batch 1/);
-      assert.equal(fixture.requests[1].afterBookingId, null);
-      assert.equal(fixture.success, 0);
-      await act(async () => firstBatch.resolve(response({ registered: 25, nextCursor: '25' })));
-      assert.equal(fixture.requests.length, 3);
-      assert.equal(fixture.requests[2].afterBookingId, '25');
+      await act(async () => attach.resolve(response({ job })));
+      assert.equal(fixture.requests.length, 1);
+      assert.equal(fixture.requests[0].background, true);
       assert.equal(fixture.success, 1);
       assert.equal(fixture.confirmations, 0);
-      assert.match(byId('zoom-action-outcome').textContent, /Newly registered: 43/);
+      assert.match(byId('zoom-background-status').textContent, /Processed 0 of 43/);
       assert.ok(fixture.requests.every(r => r.resendConfirmations === false && r.cancelOld === false));
       await click('button-change-zoom-confirm');
-      assert.equal(fixture.requests.length, 3);
+      assert.equal(fixture.requests.length, 1);
+      await click('outside-close');
+      assert.equal(fixture.closes, 1);
     } finally { await fixture.cleanup(); }
+    const reloaded = await mount({ endpoint, job: { ...job, processed: 25, totals: { registered: 25 } }, post: () => { throw new Error('Reload must not enqueue'); } });
+    try {
+      assert.match(byId('zoom-background-status').textContent, /Processed 25 of 43/);
+      await click('button-change-zoom-confirm');
+      assert.equal(reloaded.requests.length, 0);
+    } finally { await reloaded.cleanup(); }
   });
 }
 
-for (const failAt of [2, 3]) {
-  test(`mounted retry after request ${failAt} preserves partial success and email checkpoint`, async () => {
+  test('lost enqueue response retries the same durable request key and explicit email choice', async () => {
     const fixture = await mount({ post: (body, n) => {
-      if (n === failAt) return response({ error: 'batch unavailable' }, false);
-      if (n === 1) return response({});
-      return response(body.afterBookingId ? { registered: 18, emailed: 18 } : { registered: 25, emailed: 25, nextCursor: '25' });
+      if (n === 1) return response({ error: 'Response lost' }, false);
+      return response({ job: { id: 'job', status: 'queued', processed: 0, total: 43, totals: {} } });
     } });
     try {
       await click('checkbox-change-zoom-resend');
       await click('button-change-zoom-confirm');
       assert.equal(fixture.confirmations, 1);
-      assert.equal(fixture.requests[0].resendConfirmations, false);
-      assert.equal(fixture.requests[1].resendConfirmations, true);
-      assert.match(byId('zoom-action-error').textContent, /Zoom link attached successfully/);
+      assert.equal(fixture.requests[0].resendConfirmations, true);
+      assert.match(byId('zoom-action-error').textContent, /Response lost/);
       assert.equal(fixture.success, 0);
-      assert.match(byId('zoom-action-outcome').textContent, new RegExp(`emailed: ${failAt === 3 ? 25 : 0}`));
       await click('button-change-zoom-confirm');
-      assert.equal(fixture.confirmations, 1, 'retry uses the confirmed frozen email choice');
-      assert.equal(fixture.requests[failAt].afterBookingId, failAt === 3 ? '25' : null);
-      assert.match(byId('zoom-action-outcome').textContent, /emailed: 43/);
+      assert.equal(fixture.requests[1].requestKey, fixture.requests[0].requestKey);
+      assert.equal(fixture.requests[1].resendConfirmations, true);
       assert.equal(fixture.success, 1);
     } finally { await fixture.cleanup(); }
   });
-}
 
 test('declining explicit email confirmation sends no POST', async () => {
   const fixture = await mount({ confirm: () => false, post: () => { throw new Error('must not post'); } });
@@ -166,14 +165,15 @@ test('authoritative existing target in attach mode cannot bypass replacement gua
   } finally { await fixture.cleanup(); }
 });
 
-test('same-target reconcile uses GET target despite stale parent and batches directly', async () => {
-  const fixture = await mount({ mode: 'reconcile', current: target, post: (_, n) => response({ existing: n === 1 ? 25 : 18, nextCursor: n === 1 ? '25' : null }) });
+test('same-target reconcile uses GET target despite stale parent and queues once', async () => {
+  const fixture = await mount({ mode: 'reconcile', current: target, post: () => response({ job: { id: 'job', status: 'completed', processed: 43, total: 43, totals: { existing: 43 } } }) });
   try {
     await click('button-change-zoom-confirm');
-    assert.equal(fixture.requests.length, 2);
+    assert.equal(fixture.requests.length, 1);
     assert.equal(fixture.requests[0].registerNew, true);
     assert.equal(fixture.requests[0].cancelOld, false);
-    assert.match(byId('zoom-action-outcome').textContent, /already registered: 43/);
+    assert.equal(fixture.requests[0].zoom_webinar_id, 'selected');
+    assert.match(byId('zoom-background-status').textContent, /already registered: 43/);
   } finally { await fixture.cleanup(); }
 });
 
@@ -199,6 +199,7 @@ test('replacement with cancellation retains the server guard and is never split'
     },
   });
   try {
+    await click('checkbox-change-zoom-cancel-old');
     await click('button-change-zoom-confirm');
     assert.equal(fixture.requests.length, 1);
     assert.equal(fixture.success, 0);
@@ -206,15 +207,15 @@ test('replacement with cancellation retains the server guard and is never split'
   } finally { await fixture.cleanup(); }
 });
 
-test('closing after partial failure refreshes parent once, never during batches', async () => {
-  const fixture = await mount({ post: (_, n) => n === 1 ? response({ eventPatch: target }) : response({ error: 'Unavailable' }, false) });
+test('closing after enqueue failure does not claim the change succeeded', async () => {
+  const fixture = await mount({ post: () => response({ error: 'Unavailable' }, false) });
   try {
     await click('button-change-zoom-confirm');
     assert.equal(fixture.success, 0);
-    assert.match(byId('zoom-action-error').textContent, /attached successfully/);
+    assert.match(byId('zoom-action-error').textContent, /Unavailable/);
     await click('button-change-zoom-cancel');
-    assert.equal(fixture.success, 1);
+    assert.equal(fixture.success, 0);
     assert.equal(fixture.closes, 1);
-    assert.equal(fixture.requests.length, 2);
+    assert.equal(fixture.requests.length, 1);
   } finally { await fixture.cleanup(); }
 });
