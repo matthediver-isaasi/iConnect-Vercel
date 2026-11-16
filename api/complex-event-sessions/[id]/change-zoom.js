@@ -5,6 +5,7 @@ import {
   cancelZoomMeetingRegistrant,
 } from '../../_lib/zoomClient.js';
 import { sendConfirmationEmailsFromTemplate } from '../../_lib/eventConfirmationEmail.js';
+import { deliverZoomConfirmation, validZoomConfirmationOperation } from '../../_lib/zoomConfirmationDelivery.js';
 import { zoomAuthority } from '../../_lib/eventZoomRegistration.js';
 import { listZoomRegistrations, registerWithZoom } from '../../_lib/zoomRegistration.js';
 import { enqueueZoomJob, latestZoomJob } from '../../_lib/zoomRegistrationJobs.js';
@@ -135,8 +136,17 @@ export default async function handler(req, res) {
     resendConfirmations = false,
     convert_to_in_person = false,
     afterBookingId = null,
+    confirmationOperationId = null,
   } = req.body || {};
 
+  if (resendConfirmations !== false && resendConfirmations !== true) {
+    return res.status(400).json({ error: 'resendConfirmations must be an explicit boolean' });
+  }
+  const confirmationIdentity = req.body?.background === true && registerNew === true
+    ? req.body.requestKey : confirmationOperationId;
+  if (resendConfirmations && !validZoomConfirmationOperation(confirmationIdentity)) {
+    return res.status(400).json({ error: 'A valid confirmationOperationId is required to send confirmations' });
+  }
   if (webinarLocalPk && meetingLocalPk) {
     return res.status(400).json({ error: 'Provide only one of zoom_webinar_id or zoom_meeting_id' });
   }
@@ -296,9 +306,12 @@ export default async function handler(req, res) {
           continue;
         }
         try {
-          const results = await sendConfirmationEmailsFromTemplate(
+          const results = await deliverZoomConfirmation(supabase, {
+            tenantId, scope: 'session', resourceId: id, operationId: confirmationOperationId,
+            bookingId: b.id, target: JSON.stringify([webinarLocalPk, meetingLocalPk, !!convert_to_in_person]),
+          }, () => sendConfirmationEmailsFromTemplate(
             session.complex_event_id, b, attendee, personalizedJoinUrl, null, tenantId,
-          );
+          ));
           if (results && results.some(r => r.success)) summary.emailed += 1;
         } catch (err) { summary.errors.push({ bookingId: b.id, phase: 'email', message: err.message }); }
       }

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import Module from 'node:module';
 import { build } from 'esbuild';
 import { JSDOM } from 'jsdom';
+import { readFileSync } from 'node:fs';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost' });
 globalThis.window = dom.window;
@@ -16,7 +17,7 @@ after(() => dom.window.close());
 
 // Mount the real dialog and workflow. Only visual primitives and evidence
 // presentation are stubbed; all effects, handlers, fetches and checkpoints run.
-const bundle = await build({
+const bundleOptions = {
   entryPoints: ['client/src/components/events/ChangeZoomDialog.jsx'],
   bundle: true, write: false, packages: 'external', platform: 'node', format: 'cjs', jsx: 'automatic',
   plugins: [{
@@ -43,12 +44,29 @@ const bundle = await build({
       });
     },
   }],
-});
+};
+const bundle = await build(bundleOptions);
 const compiled = new Module(`${process.cwd()}/zoom-dialog-fixture.cjs`);
 compiled.filename = `${process.cwd()}/zoom-dialog-fixture.cjs`;
 compiled.paths = Module._nodeModulePaths(process.cwd());
 compiled._compile(bundle.outputFiles[0].text, compiled.filename);
 const ChangeZoomDialog = compiled.exports.default;
+// Mount the actual schedule entry-point wrapper with the real shared dialog.
+const scheduleSource = readFileSync('client/src/components/events/ComplexEventSchedule.jsx', 'utf8');
+const scheduleWrapper = scheduleSource.slice(scheduleSource.indexOf('function ChangeSessionZoomDialog('),
+  scheduleSource.indexOf('function ExpandedSessionModal('));
+const scheduleBundle = await build({
+  ...bundleOptions, entryPoints: undefined,
+  stdin: {
+    contents: `import React from 'react'; import ChangeZoomDialog from './client/src/components/events/ChangeZoomDialog.jsx'; ${scheduleWrapper}; export default ChangeSessionZoomDialog;`,
+    loader: 'jsx', resolveDir: process.cwd(),
+  },
+});
+const scheduleModule = new Module(`${process.cwd()}/zoom-schedule-fixture.cjs`);
+scheduleModule.filename = `${process.cwd()}/zoom-schedule-fixture.cjs`;
+scheduleModule.paths = Module._nodeModulePaths(process.cwd());
+scheduleModule._compile(scheduleBundle.outputFiles[0].text, scheduleModule.filename);
+const ScheduleZoomDialog = scheduleModule.exports.default;
 const empty = { zoom_webinar_id: null, zoom_meeting_id: null };
 const target = { zoom_webinar_id: 'selected', zoom_meeting_id: null };
 const byId = id => document.querySelector(`[data-testid="${id}"]`);
@@ -56,7 +74,7 @@ const click = async id => { assert.ok(byId(id), id); await act(async () => byId(
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
 const response = (data, ok = true) => ({ ok, json: async () => data });
 
-async function mount({ endpoint = '/api/events/event-1', mode = 'attach', current = empty, post, job = null, confirm = () => true } = {}) {
+async function mount({ endpoint = '/api/events/event-1', mode = 'attach', current = empty, post, job = null, confirm = () => true, schedule = false } = {}) {
   const requests = [];
   let success = 0, closes = 0, confirmations = 0;
   globalThis.confirm = () => { confirmations++; return confirm(); };
@@ -74,7 +92,8 @@ async function mount({ endpoint = '/api/events/event-1', mode = 'attach', curren
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  await act(async () => root.render(React.createElement(ChangeZoomDialog, {
+  await act(async () => root.render(React.createElement(schedule ? ScheduleZoomDialog : ChangeZoomDialog, {
+    session: { id: 'session-1', zoom_webinar_id: 'external-zoom-id' },
     open: true, endpointBase: endpoint, mode,
     currentTarget: empty, // Deliberately stale: GET must be authoritative.
     onSuccess: () => { success++; },
@@ -86,6 +105,45 @@ async function mount({ endpoint = '/api/events/event-1', mode = 'attach', curren
     cleanup: async () => { await act(async () => root.unmount()); host.remove(); },
   };
 }
+
+test('schedule admin entry uses explicit consent and retains delivery identity after a lost response', async () => {
+  assert.match(scheduleSource, /\{isAdmin && \(\s*<ChangeSessionZoomDialog/);
+  const f = await mount({
+    schedule: true, endpoint: '/api/complex-event-sessions/session-1',
+    current: target,
+    post: async (_, n) => {
+      if (n === 1) throw new Error('Response lost after send');
+      return response({ emailed: 1, nextCursor: null });
+    },
+  });
+  try {
+    assert.equal(byId('checkbox-change-zoom-resend').checked, false);
+    // Email-only actions use the interactive delivery ledger; registration
+    // jobs have their own durable request key and worker delivery claims.
+    await click('checkbox-change-zoom-register-new');
+    await click('checkbox-change-zoom-resend');
+    await click('button-change-zoom-confirm');
+    assert.equal(f.confirmations, 1);
+    assert.match(f.requests[0].confirmationOperationId, /^[a-f0-9-]{36}$/);
+    await click('button-change-zoom-confirm');
+    assert.equal(f.requests.length, 2);
+    assert.equal(f.requests[1].confirmationOperationId, f.requests[0].confirmationOperationId);
+    assert.equal(f.confirmations, 1);
+  } finally { await f.cleanup(); }
+});
+
+test('schedule admin entry declining confirmation consent makes no request', async () => {
+  const f = await mount({
+    schedule: true, current: target, confirm: () => false,
+    post: () => { throw new Error('Must not post'); },
+  });
+  try {
+    await click('checkbox-change-zoom-resend');
+    await click('button-change-zoom-confirm');
+    assert.equal(f.confirmations, 1);
+    assert.equal(f.requests.length, 0);
+  } finally { await f.cleanup(); }
+});
 
 for (const endpoint of ['/api/events/event-1', '/api/complex-event-sessions/session-1']) {
   test(`${endpoint}: one durable request, close allowed after acceptance, no browser batching`, async () => {

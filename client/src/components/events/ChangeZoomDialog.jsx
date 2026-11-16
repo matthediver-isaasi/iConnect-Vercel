@@ -386,7 +386,7 @@ export default function ChangeZoomDialog({
         {operationError && <div role="alert" className="p-3 border rounded text-sm" data-testid="zoom-action-error">
           {operationRef.current?.attached ? "Zoom link attached successfully, but attendee actions did not finish. " : operationRef.current?.batches ? "Some attendee batches completed, but the operation did not finish. " : ""}
           {operationError} {registerNew ? "Reopen this dialog to check whether a background job was accepted before retrying." : "Retry resumes from the last acknowledged batch; completed batches will not be repeated."}
-          {operationRef.current?.body.resendConfirmations && " If a failed request sent emails before its response was lost, those emails may repeat on retry."}
+          {operationRef.current?.body.resendConfirmations && " Confirmation sends are tracked across retries. Uncertain deliveries are not automatically resent; check delivery before starting a separate resend."}
         </div>}
         <fieldset disabled={submitting || jobRunning || jobLoading || !!operationRef.current} className="min-w-0 border-0 p-0 m-0">
         <div inert={submitting || jobRunning || jobLoading || operationRef.current ? "" : undefined} className="space-y-4 py-2">

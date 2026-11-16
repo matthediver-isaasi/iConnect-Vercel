@@ -15,10 +15,9 @@ import SchedulePdfDownloadButton from "./SchedulePdfDownloadButton";
 import { useQuery } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
+import ChangeZoomDialog from "./ChangeZoomDialog";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Calendar, MapPin, Clock, Layers, Mic, Video, Monitor, Building2,
   ChevronLeft, ChevronRight, ChevronDown, Loader2,
@@ -28,7 +27,6 @@ import { formatInTimeZone } from "date-fns-tz";
 import DOMPurify from "dompurify";
 import { computeTimelineLayout } from "@/lib/timelineUtils";
 import { getFocalPointStyle } from "@/components/FocalPointPicker";
-import { toast } from "sonner";
 import { publicClient } from "@/api/publicClient";
 
 const DEFAULT_TIMEZONE = "Europe/London";
@@ -443,155 +441,17 @@ function SessionCard({ session, timezone, colors, isMultiTrack = false, speakerM
 }
 
 function ChangeSessionZoomDialog({ session, open, onOpenChange }) {
-  const [type, setType] = useState(session?.zoom_meeting_id ? 'meeting' : 'webinar');
-  const [targetId, setTargetId] = useState('');
-  const [cancelOld, setCancelOld] = useState(true);
-  const [registerNew, setRegisterNew] = useState(true);
-  const [resend, setResend] = useState(true);
-  const [convertToInPerson, setConvertToInPerson] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [items, setItems] = useState([]);
-  const [loadingItems, setLoadingItems] = useState(false);
-  const [impactCount, setImpactCount] = useState(null);
-
-  useEffect(() => {
-    if (!open) return;
-    setType(session?.zoom_meeting_id ? 'meeting' : 'webinar');
-    setTargetId('');
-    setConvertToInPerson(false);
-    setImpactCount(null);
-    if (session?.id) {
-      fetch(`/api/complex-event-sessions/${session.id}/change-zoom`, { credentials: 'include' })
-        .then(r => r.ok ? r.json() : null)
-        .then(d => setImpactCount(d?.confirmedBookings ?? null))
-        .catch(() => setImpactCount(null));
-    }
-  }, [open, session?.id]);
-
-  useEffect(() => {
-    if (!open) return;
-    setLoadingItems(true);
-    fetch(`/api/zoom/${type === 'meeting' ? 'meetings' : 'webinars'}`, { credentials: 'include' })
-      .then(r => r.json())
-      .then(d => setItems(Array.isArray(d) ? d : (d?.data || [])))
-      .catch(() => setItems([]))
-      .finally(() => setLoadingItems(false));
-  }, [open, type]);
-
-  const submit = async (clearOnly = false) => {
-    if (!session) return;
-    if (!clearOnly && !targetId) {
-      toast.error(`Please select a ${type}`);
-      return;
-    }
-    setSubmitting(true);
-    try {
-      const body = {
-        zoom_webinar_id: clearOnly ? null : (type === 'webinar' ? targetId : null),
-        zoom_meeting_id: clearOnly ? null : (type === 'meeting' ? targetId : null),
-        cancelOld,
-        registerNew: clearOnly ? false : registerNew,
-        resendConfirmations: clearOnly ? false : resend,
-        convert_to_in_person: clearOnly ? convertToInPerson : false,
-      };
-      const resp = await fetch(`/api/complex-event-sessions/${session.id}/change-zoom`, {
-        method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({}));
-        throw new Error(err.error || 'Change Zoom failed');
-      }
-      const result = await resp.json();
-      toast.success(`Zoom updated. Cancelled ${result.cancelled || 0}, registered ${result.registered || 0}, emailed ${result.emailed || 0}.`);
-      onOpenChange(false);
-      window.location.reload();
-    } catch (err) {
-      toast.error('Failed: ' + err.message);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   if (!session) return null;
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg" data-testid={`dialog-change-session-zoom-${session.id}`}>
-        <DialogHeader>
-          <DialogTitle>Change Session Zoom Link</DialogTitle>
-          <DialogDescription>
-            Re-link this session to a different Zoom {type}. Confirmed bookings whose ticket grants access to this session can be cancelled, re-registered, and re-emailed.
-            {impactCount !== null && (
-              <span className="block mt-2 font-medium text-slate-900" data-testid="text-session-zoom-impact">
-                Impact: {impactCount} confirmed booking{impactCount === 1 ? '' : 's'} would be affected.
-              </span>
-            )}
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-4 py-2">
-          <div>
-            <Label className="mb-2 block">Type</Label>
-            <div className="flex gap-2">
-              <Button type="button" variant={type === 'webinar' ? 'default' : 'outline'} size="sm" onClick={() => { setType('webinar'); setTargetId(''); }} data-testid="button-session-zoom-type-webinar">Webinar</Button>
-              <Button type="button" variant={type === 'meeting' ? 'default' : 'outline'} size="sm" onClick={() => { setType('meeting'); setTargetId(''); }} data-testid="button-session-zoom-type-meeting">Meeting</Button>
-            </div>
-          </div>
-          <div>
-            <Label className="mb-2 block">Target {type}</Label>
-            <select
-              value={targetId}
-              onChange={(e) => setTargetId(e.target.value)}
-              className="w-full p-2 border rounded-md text-sm"
-              data-testid="select-session-zoom-target"
-            >
-              <option value="">{loadingItems ? 'Loading…' : `Select a ${type}`}</option>
-              {items.map(it => (
-                <option key={it.id} value={it.id}>{it.topic || it.title || it.id}</option>
-              ))}
-            </select>
-          </div>
-          <div className="space-y-2 pt-2 border-t">
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <Checkbox checked={cancelOld} onCheckedChange={(v) => setCancelOld(!!v)} data-testid="checkbox-session-zoom-cancel-old" />
-              Cancel previous Zoom registrants
-            </label>
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <Checkbox checked={registerNew} onCheckedChange={(v) => setRegisterNew(!!v)} data-testid="checkbox-session-zoom-register-new" />
-              Register confirmed attendees with new Zoom
-            </label>
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <Checkbox checked={resend} onCheckedChange={(v) => setResend(!!v)} data-testid="checkbox-session-zoom-resend" />
-              Resend confirmation emails with new join link
-            </label>
-            <label className="flex items-center gap-2 text-sm cursor-pointer pt-1 border-t">
-              <Checkbox checked={convertToInPerson} onCheckedChange={(v) => setConvertToInPerson(!!v)} data-testid="checkbox-session-zoom-convert-in-person" />
-              When clearing Zoom: also convert this session to In-Person (delivery_mode)
-            </label>
-          </div>
-        </div>
-        <div className="flex justify-end gap-2 pt-2 border-t">
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={submitting} data-testid="button-session-zoom-cancel">Cancel</Button>
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => {
-              const msg = convertToInPerson
-                ? 'Clear Zoom link AND convert session to In-Person?'
-                : 'Clear Zoom link from this session? It will remain Online with no join link until you set one.';
-              if (confirm(msg)) submit(true);
-            }}
-            disabled={submitting}
-            data-testid="button-session-zoom-clear"
-          >
-            Clear Zoom Link
-          </Button>
-          <Button type="button" onClick={() => submit(false)} disabled={submitting || !targetId} data-testid="button-session-zoom-confirm">
-            {submitting ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" />Updating…</>) : 'Update Zoom Link'}
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
+    <ChangeZoomDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      endpointBase={`/api/complex-event-sessions/${session.id}`}
+      targetLabel="session"
+      mode="change"
+      initialType={session.zoom_meeting_id ? 'meeting' : 'webinar'}
+      onSuccess={() => window.location.reload()}
+    />
   );
 }
 

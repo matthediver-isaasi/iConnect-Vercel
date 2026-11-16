@@ -56,6 +56,7 @@
 - [Widget click-through drilldown](widget-drilldown-clickthrough.md) — big id lists POST in a body (never URL); toggle enforced server-side; Recharts click key via entry.key ?? payload.key ?? name.
 - [Member-driven membership fee tokens](member-fee-tokens.md) — fee tokens carry org_id OR member_id; every consumer must branch (history/invoicing/notes/sim); token DD adopts unpaid workflow rows.
 - [Cron email delivery model](speaker-award-notifications.md) — one-off notification emails need lease+delivered timestamp pairs (CAS everywhere) and a retry sweep independent of the parent's done-stamp; a claim is not delivery.
+- [Explicit Zoom confirmation retries](zoom-confirmation-retry-policy.md) — uncertain sends are not auto-reclaimed; retries retain identity and deliberate resends require new consent.
 - [Resource category & subcategory role access](resource-category-role-access.md) — name-level visible-wins hiding via one shared helper; ~6 surfaces must strip access fields + trim hidden names or roles leak.
 - [record_create workflows & custom fields](workflow-record-create-custom-fields.md) — trigger AFTER preference values persist or custom-field conditions see empty; workflow_log status check allows success|partial|failed|skipped.
 - [Static "AI generated" page class](static-page-class.md) — builder_type='ai_static' pages render stored sanitized HTML/CSS read-only; writes only via the store-time sanitize+scope helper, never the entity API.

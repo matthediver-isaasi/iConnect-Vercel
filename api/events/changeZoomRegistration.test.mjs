@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { validZoomConfirmationOperation } from '../_lib/zoomConfirmationDelivery.js';
 const source = readFileSync(new URL('./[id]/change-zoom.js', import.meta.url),'utf8')
   .replace(/import[\s\S]*?from\s+['"][^'"]+['"];?/g,'').replace('export default async function handler','return async function handler');
 const helperSource = readFileSync(new URL('../_lib/eventZoomRegistration.js', import.meta.url),'utf8')
@@ -15,14 +16,15 @@ async function run({enabled=true,admin=true,lookupFailure=false,registerOutcome=
   const realEvidence = new Function('getZoomAccessTokenForTenant','readZoomRegistration','listZoomRegistrations',
     helperSource+'; return zoomEvidence;')(
       async()=> 't', async()=>({topic:'Live meeting',numericId:'123',registration_required:enabled}), async()=>new Map());
-  const handler = new Function('supabase','getTenantContext','hasAdminAccess','cancelZoomRegistrant','cancelZoomMeetingRegistrant','confirmedZoomBookings','zoomAuthority','zoomEvidence','listZoomRegistrations','registerWithZoom','sendConfirmationEmailsFromTemplate',source)(
+  const handler = new Function('validZoomConfirmationOperation','deliverZoomConfirmation','supabase','getTenantContext','hasAdminAccess','cancelZoomRegistrant','cancelZoomMeetingRegistrant','confirmedZoomBookings','zoomAuthority','zoomEvidence','listZoomRegistrations','registerWithZoom','sendConfirmationEmailsFromTemplate',source)(
+    validZoomConfirmationOperation, async (_db, _identity, send) => send(),
     db,async()=>({isAuthenticated:true,tenantId:'tenant'}),async()=>admin,async()=>{cancels++;return false;},async()=>{cancels++;return false;},
     realBookings,
     async()=>{authorities++;return {live:{registration_required:enabled},kind:'meetings',id:'123',token:'t'};},realEvidence,async()=>new Map(),
     async()=>{registrations++;return {success:registerOutcome==='existing',outcome:registerOutcome,join_url:registerOutcome==='existing'?'personal':null};},
     async()=>{emails++;return [{success:true}];});
   const res={status(n){this.code=n;return this;},json(d){this.body=d;return this;}};
-  await handler({method,query:{id:'event'},body:{zoom_meeting_id:'local',cancelOld:true,registerNew:true,resendConfirmations:true}},res);
+  await handler({method,query:{id:'event'},body:{zoom_meeting_id:'local',cancelOld:true,registerNew:true,resendConfirmations:true,confirmationOperationId:'00000000-0000-4000-8000-000000000001'}},res);
   return {res,writes,filters,cancels,emails,authorities,registrations};
 }
 test('disabled registration and failed booking lookup perform no writes',async()=>{

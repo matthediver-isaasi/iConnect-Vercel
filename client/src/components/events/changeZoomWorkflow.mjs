@@ -9,7 +9,10 @@ export function createZoomOperation(body, current) {
     && (body.zoom_meeting_id || null) === (current.zoom_meeting_id || null);
   const initialAttach = !hasCurrent && !!(body.zoom_webinar_id || body.zoom_meeting_id);
   return {
-    body: { ...body, cancelOld: same || initialAttach ? false : body.cancelOld },
+    body: {
+      ...body, cancelOld: same || initialAttach ? false : body.cancelOld,
+      ...(body.resendConfirmations === true ? { confirmationOperationId: crypto.randomUUID() } : {}),
+    },
     initialAttach,
     phase: initialAttach ? 'attach' : 'batches',
     attendeeActions: !!(body.registerNew || body.resendConfirmations),
@@ -23,7 +26,8 @@ export function createZoomOperation(body, current) {
 }
 
 // The operation is a checkpoint owned by the dialog. Advance it only after an
-// acknowledged response, so retry never repeats a completed email batch.
+// acknowledged response. The stable confirmationOperationId also protects sends
+// whose successful HTTP response was lost before this checkpoint advanced.
 export async function runZoomOperation(operation, post, onProgress = () => {}) {
   const op = operation;
   if (op.done) return op.lastResult;
