@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -10,6 +10,7 @@ import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "@
 import { Check, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import ZoomRegistrationEvidence from "./ZoomRegistrationEvidence";
+import { createZoomOperation, runZoomOperation } from "./changeZoomWorkflow.mjs";
 
 const formatStart = (iso) => {
   if (!iso) return "";
@@ -69,9 +70,14 @@ export default function ChangeZoomDialog({
   const [enableRegistration, setEnableRegistration] = useState(false);
   const [outcome, setOutcome] = useState(null);
   const [detectedCurrent, setDetectedCurrent] = useState(null);
+  const [progress, setProgress] = useState("");
+  const [operationError, setOperationError] = useState(null);
+  const operationRef = useRef(null);
+  const busyRef = useRef(false);
+  const notifiedRef = useRef(false);
   const isEvent = endpointBase.startsWith('/api/events/');
   const isReconcile = mode === 'reconcile';
-  const current = currentTarget || detectedCurrent;
+  const current = detectedCurrent || currentTarget;
   const sameTarget = targetId && targetId === current?.[`zoom_${type}_id`];
 
   const isAttach = mode === "attach";
@@ -79,6 +85,7 @@ export default function ChangeZoomDialog({
 
   useEffect(() => {
     if (!open) return;
+    let active = true;
     setType(initialType);
     setTargetId(isReconcile ? currentTarget?.[`zoom_${initialType}_id`] || "" : "");
     setShowPast(false);
@@ -90,20 +97,33 @@ export default function ChangeZoomDialog({
     setResendEmails(false);
     setOutcome(null);
     setDetectedCurrent(null);
+    operationRef.current = null;
+    notifiedRef.current = false;
+    setOperationError(null);
+    setProgress("");
     setEnableRegistration(false);
     setConvertInPerson(false);
     setImpactCount(null);
 
-    if (!isAttach) {
+    {
       fetch(`${endpointBase}/change-zoom`, { credentials: "include" })
         .then(r => (r.ok ? r.json() : null))
-        .then(d => { setImpactCount(d?.confirmedBookings ?? null); setDetectedCurrent(d?.current || null); })
-        .catch(() => setImpactCount(null));
+        .then(d => {
+          if (!active || busyRef.current || operationRef.current) return;
+          setImpactCount(d?.confirmedBookings ?? null);
+          setDetectedCurrent(d?.current || null);
+          if (isReconcile && d?.current) {
+            setType(d.current.zoom_meeting_id ? 'meeting' : 'webinar');
+            setTargetId(d.current.zoom_meeting_id || d.current.zoom_webinar_id || "");
+          }
+        })
+        .catch(() => { if (active) setImpactCount(null); });
     }
 
     if (!isDetach) {
       loadItems(initialType, false);
     }
+    return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
@@ -116,7 +136,7 @@ export default function ChangeZoomDialog({
     setEnableRegistration(false);
     fetch(`${endpointBase}/change-zoom?zoom_${type}_id=${encodeURIComponent(targetId)}`, { credentials: 'include' })
       .then(async r => { const d = await r.json(); if (!r.ok) throw new Error(d.error || 'Preflight failed'); return d; })
-      .then(d => { if (active) { setEvidence(d); setImpactCount(d.confirmedBookings); } })
+       .then(d => { if (active && !busyRef.current && !operationRef.current) { setEvidence(d); setImpactCount(d.confirmedBookings); setDetectedCurrent(d.current || null); } })
       .catch(e => { if (active) setEvidenceError(e); })
       .finally(() => { if (active) setCheckingEvidence(false); });
     return () => { active = false; };
@@ -150,58 +170,95 @@ export default function ChangeZoomDialog({
   }, [items, search, dateFrom, dateTo]);
 
   const handleAttachOrChange = async () => {
+    if (busyRef.current || operationRef.current?.done) return;
     if (!targetId) {
       toast.error(`Please select a ${type}`);
       return;
     }
-    if (resendEmails && !confirm('Send confirmation emails to the confirmed attendees now? This is separate from registration and may repeat previously sent emails.')) return;
+    if (!operationRef.current && resendEmails && !confirm('Send confirmation emails to the confirmed attendees now? This is separate from registration and may repeat previously sent emails.')) return;
+    busyRef.current = true;
     setSubmitting(true);
-    setOutcome(null);
+    setOperationError(null);
     try {
-      const body = {
+      if (!operationRef.current) {
+        setProgress("Checking current Zoom link…");
+        // Never infer initial attach from the dialog mode or a stale parent.
+        // This also resolves session external IDs to the API's local IDs.
+        const preview = await fetch(`${endpointBase}/change-zoom`, { credentials: "include" });
+        const checked = await preview.json();
+        if (!preview.ok) throw new Error(checked.error || "Could not verify current Zoom link");
+        setDetectedCurrent(checked.current || null);
+        const body = {
         zoom_webinar_id: type === "webinar" ? targetId : null,
         zoom_meeting_id: type === "meeting" ? targetId : null,
-        cancelOld: sameTarget ? false : cancelOld,
+        cancelOld,
         registerNew,
         resendConfirmations: resendEmails,
         ...(isEvent ? { enableRegistration } : {}),
-      };
-      const totals = { cancelled: 0, registered: 0, existing: 0, pending: 0, denied: 0, skipped: 0, missingEmail: 0, failed: 0, emailed: 0, errors: [] };
-      let cursor = null, result;
-      do {
+        };
+        operationRef.current = createZoomOperation(body, checked.current);
+      }
+      const op = operationRef.current;
+      const result = await runZoomOperation(op, async body => {
       const resp = await fetch(`${endpointBase}/change-zoom`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...body, afterBookingId: cursor }),
+        body: JSON.stringify(body),
       });
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));
         throw new Error(err.error || "Change Zoom failed");
       }
-      result = await resp.json();
-      for (const key of Object.keys(totals)) {
-        if (key === 'errors') totals.errors.push(...(result.errors || []));
-        else totals[key] += result[key] || 0;
-      }
-      setOutcome({ ...totals });
-      if (onSuccess) onSuccess(result);
-      cursor = result.nextCursor || null;
-      } while (cursor);
+        return resp.json();
+      }, checkpoint => {
+        if (checkpoint.attached) setDetectedCurrent({
+          zoom_webinar_id: checkpoint.body.zoom_webinar_id,
+          zoom_meeting_id: checkpoint.body.zoom_meeting_id,
+        });
+        setOutcome({ ...checkpoint.totals, errors: [...checkpoint.totals.errors] });
+        setProgress(checkpoint.done ? "Zoom action completed."
+          : checkpoint.phase === 'attach' ? "Attaching Zoom link…"
+          : `${checkpoint.attached ? "Zoom link attached. " : ""}Processing attendee batch ${checkpoint.batches + 1} (${checkpoint.batches} completed)…`);
+      });
+      const totals = op.totals;
       if (totals.errors.length || totals.failed || totals.missingEmail || totals.pending || totals.denied) toast.warning('Zoom action completed with items needing attention. See the results below.');
       else toast.success('Zoom action completed. See registration results below.');
+      // Parent callbacks refetch and patch editor state. Never call them in the
+      // loop: a parent refresh can close/remount the dialog mid-operation.
+      notifySuccess(result);
     } catch (err) {
+      setOperationError(err.message);
+      setProgress("");
       toast.error(`Failed to ${isAttach ? "attach" : "change"} Zoom: ${err.message}`);
     } finally {
+      busyRef.current = false;
       setSubmitting(false);
     }
   };
 
+  const notifySuccess = (result) => {
+    if (notifiedRef.current || !onSuccess) return;
+    notifiedRef.current = true;
+    // Refresh failures must not turn completed attendee work into a retry.
+    try { Promise.resolve(onSuccess(result)).catch(() => toast.error("Zoom changes saved, but the editor could not refresh. Close and reload to see them.")); }
+    catch { toast.error("Zoom changes saved, but the editor could not refresh. Close and reload to see them."); }
+  };
+
+  const handleOpenChange = (nextOpen) => {
+    if (busyRef.current) return;
+    const op = operationRef.current;
+    if (!nextOpen && op?.lastResult) notifySuccess({ ...op.lastResult, ...op.totals });
+    onOpenChange(nextOpen);
+  };
+
   const handleClear = async () => {
+    if (busyRef.current || operationRef.current) return;
     const msg = convertInPerson
       ? `Clear the Zoom link AND convert this ${targetLabel} to in-person? Existing registrants can be cancelled.`
       : `Clear the Zoom link from this ${targetLabel}? It will remain Online with no join link until you set one. Existing registrants can be cancelled.`;
     if (!confirm(msg)) return;
+    busyRef.current = true;
     setSubmitting(true);
     try {
       const body = {
@@ -229,6 +286,7 @@ export default function ChangeZoomDialog({
     } catch (err) {
       toast.error(`Failed to clear Zoom: ${err.message}`);
     } finally {
+      busyRef.current = false;
       setSubmitting(false);
     }
   };
@@ -241,7 +299,7 @@ export default function ChangeZoomDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-3xl" data-testid={`dialog-change-zoom-${targetLabel}`}>
         <DialogHeader>
           <DialogTitle>{titleByMode[mode]}</DialogTitle>
@@ -260,7 +318,14 @@ export default function ChangeZoomDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-2">
+        {progress && <p role="status" className="text-sm" data-testid="zoom-action-progress">{progress}</p>}
+        {operationError && <div role="alert" className="p-3 border rounded text-sm" data-testid="zoom-action-error">
+          {operationRef.current?.attached ? "Zoom link attached successfully, but attendee actions did not finish. " : operationRef.current?.batches ? "Some attendee batches completed, but the operation did not finish. " : ""}
+          {operationError} Retry resumes from the last acknowledged batch; completed batches will not be repeated.
+          {operationRef.current?.body.resendConfirmations && " If a failed request sent emails before its response was lost, those emails may repeat on retry."}
+        </div>}
+        <fieldset disabled={submitting || !!operationRef.current} className="min-w-0 border-0 p-0 m-0">
+        <div inert={submitting || operationRef.current ? "" : undefined} className="space-y-4 py-2">
           {!isDetach && !isReconcile && (
             <>
               <div>
@@ -393,10 +458,6 @@ export default function ChangeZoomDialog({
               <p>Alternatively, uncheck “Register confirmed attendees” to attach only.</p>
             </div>
           )}
-          {outcome && <div role="status" className="p-3 border rounded" data-testid="zoom-action-outcome">
-            <p>Newly registered: {outcome.registered}; already registered: {outcome.existing}; pending: {outcome.pending}; denied: {outcome.denied}; skipped: {outcome.skipped}; missing email: {outcome.missingEmail}; failed: {outcome.failed}; cancelled: {outcome.cancelled}; emailed: {outcome.emailed}.</p>
-            {outcome.errors.map((e, i) => <p key={i}>{e.phase}: {e.message}</p>)}
-          </div>}
           <div className="space-y-2 pt-2 border-t">
             {!isAttach && !isReconcile && !sameTarget && (
               <div className="flex items-center space-x-2">
@@ -452,23 +513,28 @@ export default function ChangeZoomDialog({
             )}
           </div>
         </div>
+        </fieldset>
+        {outcome && <div role="status" className="p-3 border rounded" data-testid="zoom-action-outcome">
+          <p>Newly registered: {outcome.registered}; already registered: {outcome.existing}; pending: {outcome.pending}; denied: {outcome.denied}; skipped: {outcome.skipped}; missing email: {outcome.missingEmail}; failed: {outcome.failed}; cancelled: {outcome.cancelled}; emailed: {outcome.emailed}.</p>
+          {outcome.errors.map((e, i) => <p key={i}>{e.phase}: {e.message}</p>)}
+        </div>}
 
         <DialogFooter>
           <Button
             type="button"
             variant="outline"
-            onClick={() => onOpenChange(false)}
+            onClick={() => handleOpenChange(false)}
             disabled={submitting}
             data-testid="button-change-zoom-cancel"
           >
-            Cancel
+            {operationRef.current ? "Close" : "Cancel"}
           </Button>
           {mode === "change" && (
             <Button
               type="button"
               variant="ghost"
               onClick={handleClear}
-              disabled={submitting}
+              disabled={submitting || !!operationRef.current}
               data-testid="button-change-zoom-clear"
             >
               Clear Zoom Link
@@ -487,12 +553,12 @@ export default function ChangeZoomDialog({
             <Button
               type="button"
               onClick={handleAttachOrChange}
-               disabled={submitting || !targetId || (isEvent && (checkingEvidence || !evidence?.live || evidence.confirmedBookings == null || !!evidence.bookingError || (registerNew && !evidence.live.registration_required && !enableRegistration)))}
+               disabled={submitting || !!operationRef.current?.done || !targetId || (!operationRef.current && isEvent && (checkingEvidence || !evidence?.live || evidence.confirmedBookings == null || !!evidence.bookingError || (registerNew && !evidence.live.registration_required && !enableRegistration)))}
               data-testid="button-change-zoom-confirm"
             >
               {submitting
-                ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" />{isAttach ? "Attaching…" : "Updating…"}</>)
-                : (isReconcile ? "Reconcile registrations" : isAttach ? "Attach Zoom Link" : "Update Zoom Link")}
+                 ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" />{operationRef.current?.phase === "batches" ? "Processing attendees…" : isAttach ? "Attaching…" : "Updating…"}</>)
+                 : operationRef.current?.done ? "Completed" : operationError && operationRef.current ? "Retry remaining actions" : (isReconcile ? "Reconcile registrations" : isAttach ? "Attach Zoom Link" : "Update Zoom Link")}
             </Button>
           )}
         </DialogFooter>
