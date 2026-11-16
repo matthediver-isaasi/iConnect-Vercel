@@ -141,7 +141,7 @@ export function simpleEventInvoiceLines({
   };
   const ticket = event.pricing_config?.ticket_classes?.find(tc => tc.id === ticketClassId);
   if (ticket?.vat_rate_key) line.TaxType = ticket.vat_rate_key;
-  if (event.internal_reference) line.Tracking = [{ Name: 'Projects', Option: event.internal_reference }];
+  if (event.internal_reference?.trim()) line.Tracking = [{ Name: 'Projects', Option: event.internal_reference.trim() }];
   return [freezeLineTax(line, ticket)];
 }
 
@@ -153,7 +153,7 @@ export function complexEventInvoiceLines({ event, resolvedItems, actualVoucherAp
       Quantity: item.attendees.length, UnitAmount: item.authoritativePrice, AccountCode: accountCode,
     };
     if (item.ticketClass?.vat_rate_key) line.TaxType = item.ticketClass.vat_rate_key;
-    if (event.internal_reference) line.Tracking = [{ Name: 'Projects', Option: event.internal_reference }];
+    if (event.internal_reference?.trim()) line.Tracking = [{ Name: 'Projects', Option: event.internal_reference.trim() }];
     return freezeLineTax(line, item.ticketClass);
   });
   if (voucherFunding.length) {

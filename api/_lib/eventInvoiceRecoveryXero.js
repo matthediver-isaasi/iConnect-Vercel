@@ -9,8 +9,12 @@ const day = value => {
   const date = xero ? new Date(Number(xero[1])) : new Date(value);
   return Number.isFinite(date.getTime()) ? date.toISOString().slice(0, 10) : null;
 };
+// Xero trims tracking labels; tolerate outer whitespace only, not case or
+// internal-space changes that could identify a different category/option.
 const tracking = value => JSON.stringify((value || []).map(item =>
-  [item.Name, item.Option]).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))));
+  [typeof item.Name === 'string' ? item.Name.trim() : item.Name,
+    typeof item.Option === 'string' ? item.Option.trim() : item.Option]
+  ).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))));
 // Xero can collapse whitespace in contact names. Preserve every non-space
 // character: this is formatting tolerance, not fuzzy customer matching.
 const contactName = value => String(value || '').trim().replace(/\s+/gu, ' ');
