@@ -1896,6 +1896,7 @@ export function ComplexEventDetailExperience({
                 </CardHeader>
                 <CardContent>
                   <ScrollableSchedule
+                    event={event}
                     sessions={filteredSessions}
                     timezone={tz}
                     trackColorMap={filteredTrackColorMap}

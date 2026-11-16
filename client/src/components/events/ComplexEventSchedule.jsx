@@ -11,6 +11,7 @@
 // renders the schedule — useful when you only have an event id/slug.
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import SessionCategoryBadges from "@/components/events/SessionCategoryBadges";
+import SchedulePdfDownloadButton from "./SchedulePdfDownloadButton";
 import { useQuery } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -744,7 +745,7 @@ function ExpandedSessionModal({ session, open, onOpenChange, timezone, speakerMa
   );
 }
 
-function ScrollableSchedule({ sessions, timezone, trackColorMap, eventTracks, speakerMap, eventImageUrl, eventImageFocalPoint, isAdmin, maxHeight }) {
+function ScrollableSchedule({ event, sessions, timezone, trackColorMap, eventTracks, speakerMap, eventImageUrl, eventImageFocalPoint, isAdmin, maxHeight }) {
   const scrollRef = useRef(null);
   const [canScrollUp, setCanScrollUp] = useState(false);
   const [canScrollDown, setCanScrollDown] = useState(false);
@@ -784,6 +785,8 @@ function ScrollableSchedule({ sessions, timezone, trackColorMap, eventTracks, sp
   }, []);
 
   return (
+    <>
+    {event && <SchedulePdfDownloadButton event={event} sessions={sessions} timezone={timezone} trackColorMap={trackColorMap} eventTracks={eventTracks} speakerMap={speakerMap} />}
     <div className="relative">
       {canScrollUp && (
         <div className="absolute top-0 left-0 right-0 h-8 bg-gradient-to-b from-white to-transparent z-10 pointer-events-none" />
@@ -821,6 +824,7 @@ function ScrollableSchedule({ sessions, timezone, trackColorMap, eventTracks, sp
         isAdmin={isAdmin}
       />
     </div>
+    </>
   );
 }
 
@@ -963,6 +967,7 @@ function ComplexEventProgramme({ eventId, eventSlug, maxHeight, emptyText, asEdi
         </div>
       )}
       <ScrollableSchedule
+        event={event}
         sessions={sessions}
         timezone={tz}
         trackColorMap={trackColorMap}
