@@ -396,7 +396,7 @@ test('settings validation and RPC errors surface safely', async () => {
     assert.equal(res.statusCode, 400);
     assert.ok(res.body.details.length);
   }
-  for (const [code, status] of [['40001', 409], ['22023', 500], ['XX000', 500]]) {
+  for (const [code, status] of [['PT409', 409], ['40001', 409], ['22023', 500], ['XX000', 500]]) {
     const res = response();
     await createSalesSettingsHandler({ getTenantContext,
       db: { rpc: async () => ({ data: null, error: { code, message: 'private database detail' } }) },

@@ -47,7 +47,7 @@ export async function patchSalesSettings(db, tenantId, actor, patch) {
     p_actor_type: actor.actorType,
   });
   if (error) {
-    if (error.code === '40001') {
+    if (error.code === 'PT409' || error.code === '40001') {
       const conflict = new SalesHttpError(409, 'Sales settings were changed; reload and retry');
       conflict.code = 'SALES_SETTINGS_VERSION_CONFLICT';
       throw conflict;
