@@ -5,6 +5,18 @@ description: Separate historical paid membership evidence from authority to calc
 
 A form can resolve a paid membership structure without persisting the corresponding selector on the member. A saved paid-year snapshot proves what was purchased, not which tier should price future renewals.
 
+For history labels without a saved name, the user approved using the exact
+linked structure's name within the same tenant, including retired structures.
+This is a display fallback, not authority to recalculate the historical price
+or infer a link from the member's current classification.
+
+**Why:** Legacy organisation history can retain valid structure links without
+name snapshots. Calling those structures unknown and exposing raw IDs hid
+useful information; saved names must still take precedence over later renames.
+
+**How to apply:** Keep this fallback confined to labels and keep internal IDs
+out of the ordinary history display.
+
 **Why:** Showing “no structures configured” hides a valid paid record, but injecting the old structure into future simulations can override a changed selection and expose pricing controls whose write endpoints resolve differently.
 
 User confirmation (2026-09-16): setting the missing member class restored next-year pricing for a flat-cost structure. Flat pricing does not bypass structure-scope selection.

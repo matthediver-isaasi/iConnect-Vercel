@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { attachLinkedHistoryStructureNames } from '../_lib/historyStructureNames.js';
 import { createMembershipSimulator } from '../_lib/membershipSimulationCore.js';
 import { createMembershipConfigResolver } from '../_lib/membershipConfigResolverCore.js';
 import { calculateMembershipYearWindow, calculateNextMembershipYearWindow } from '../_lib/membershipYear.js';
@@ -28,11 +29,12 @@ const success = year => ({
   totalWithVat: year === '2026' ? 960 : 1080,
 });
 
-function readOnlyDb({ org = { id: 'org', name: 'Organisation', tenant_id: 'tenant' }, history = [],
+function readOnlyDb({ org = { id: 'org', name: 'Organisation', tenant_id: 'tenant' }, history = [], structures = [],
   failTable = null, historyError = false } = {}) {
   const rows = {
     organization: org ? [org] : [],
     membership_tier_band: [],
+    membership_tier_config: structures,
     organisation_membership_history: history,
     organisation_membership_override: [],
     preference_field: [],
@@ -47,6 +49,7 @@ function readOnlyDb({ org = { id: 'org', name: 'Organisation', tenant_id: 'tenan
       const query = {
         select() { return query; },
         eq(field, value) { filters.push(row => row[field] === value); return query; },
+        in(field, values) { filters.push(row => values.includes(row[field])); return query; },
         order() { return query; },
         maybeSingle() { return Promise.resolve(result(true)); },
         then(resolve, reject) { return Promise.resolve(result(false)).then(resolve, reject); },
@@ -69,6 +72,7 @@ async function isolatedRoute({ db = readOnlyDb(), simulation = async (_tenant, _
   currentWindow = () => windows.current, nextWindow = () => windows.next } = {}) {
   const source = await readFile(new URL('./org-membership.js', import.meta.url), 'utf8');
   const deps = {
+    attachLinkedHistoryStructureNames,
     supabase: db, getTenantContext: async () => tenantContext,
     getConfigForOrganisation: resolveConfig, resolveBasisFieldLabel: async () => 'Membership',
     matchBand: () => null, calculateMembershipYearWindow: currentWindow,
@@ -92,6 +96,16 @@ async function get(options = {}, organizationId = 'org') {
   await handler({ method: 'GET', query: { organizationId }, headers: {} }, res);
   return res;
 }
+
+test('history response resolves exact linked structures without changing saved amounts', async () => {
+  const res = await get({db:readOnlyDb({
+    history:[{id:'history',tenant_id:'tenant',organization_id:'org',config_id:'old',membership_year:'2025',tier_label:'Tier 9',final_cost:75}],
+    structures:[{id:'old',tenant_id:'tenant',name:'2025 structure'}],
+  })});
+  assert.equal(res.statusCode,200);
+  assert.equal(res.body.history[0].linked_structure_name,'2025 structure');
+  assert.equal(res.body.history[0].final_cost,75);
+});
 
 test('record endpoint rejects prospective simulations before loading add-ons or writing history', async () => {
   const db = readOnlyDb();
@@ -350,6 +364,7 @@ test('future scheduled structure with a different start month keeps the next pre
       const query = {
         select() { return query; },
         eq(field, value) { filters.push(row => row[field] === value); return query; },
+        neq(field, value) { filters.push(row => row[field] !== value); return query; },
         or(expression) {
           const date = expression.match(/effective_(?:from|to)\.(?:lte|gte)\.(\d{4}-\d{2}-\d{2})/)?.[1];
           if (date && expression.startsWith('effective_from')) filters.push(row => !row.effective_from || row.effective_from <= date);
@@ -458,6 +473,7 @@ test('real simulator and organisation endpoint show both years before recording,
       const query = {
         select() { return query; },
         eq(column, value) { filters.push(row => row[column] === value); return query; },
+        neq(column, value) { filters.push(row => row[column] !== value); return query; },
         or(expression) {
           const year = expression.match(/^membership_year\.eq\.([^,]+),membership_year\.is\.null$/)?.[1];
           if (year) filters.push(row => row.membership_year === year || row.membership_year == null);

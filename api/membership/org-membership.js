@@ -1,4 +1,5 @@
 import { supabase } from '../_lib/database.js';
+import { attachLinkedHistoryStructureNames } from '../_lib/historyStructureNames.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { getConfigForOrganisation, resolveBasisFieldLabel } from '../_lib/membershipConfigResolver.js';
 import { simulateMembershipForOrg } from '../_lib/membershipSimulation.js';
@@ -314,6 +315,7 @@ async function handleGet(req, res, tenantId) {
     .order('membership_year', { ascending: false });
 
   if (historyError) throw historyError;
+  await attachLinkedHistoryStructureNames(supabase, tenantId, historyRecords || []);
   const goLiveFieldId = await getGoLiveFieldId(tenantId);
   const goLiveDate = goLiveFieldId ? await getOrgGoLiveDate(organizationId, goLiveFieldId) : null;
   const yearNumber = goLiveDate ? determineMembershipYearNumber(goLiveDate, currentYear, config) : 1;
@@ -591,6 +593,7 @@ async function getHistory(req, res, tenantId, organizationId) {
     return res.status(500).json({ error: 'Failed to fetch history' });
   }
 
+  await attachLinkedHistoryStructureNames(supabase, tenantId, data || []);
   return res.json(data || []);
 }
 

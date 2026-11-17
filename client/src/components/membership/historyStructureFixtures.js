@@ -6,6 +6,8 @@ export const historyStructureFixtures = [
   { id: 'blank', tier_label: ' ', commitment_snapshot: { structure_name: ' ' }, expected: 'Structure unknown' },
   { id: 'saved', tier_label: 'Flat Rate', commitment_snapshot: { structure_name: 'Purchased structure' }, expected: 'Purchased structure · Flat Rate' },
   { id: 'retired', tier_label: 'Flat Rate', config_id: 'old-config', commitment_snapshot: { config: { id: 'old-config', name: 'Retired structure' } }, expected: 'Retired structure · Flat Rate' },
-  { id: 'id-only', config_id: 'config', expected: 'Structure unknownRecorded structure ID: config (name not recorded)' },
+  { id: 'id-only', config_id: 'config', expected: 'Structure unknown' },
+  { id: 'linked', config_id: 'config', linked_structure_name: '01/08/2026–31/07/2027', tier_label: 'Tier 10', expected: '01/08/2026–31/07/2027 · Tier 10' },
+  { id: 'snapshot-first', linked_structure_name: 'Renamed structure', commitment_snapshot: { structure_name: 'Purchased name' }, expected: 'Purchased name' },
   { id: 'reconstructed-name', reconstructed_structure_name: 'Approved reconstructed structure', expected: 'Approved reconstructed structure' },
 ];

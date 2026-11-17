@@ -1,4 +1,5 @@
 import { supabase } from '../_lib/database.js';
+import { attachLinkedHistoryStructureNames } from '../_lib/historyStructureNames.js';
 import { handleManualCardApproval } from '../_lib/manualCardMembershipApproval.js';
 import { loadMemberGraceWarning } from '../_lib/memberGraceWarning.js';
 import { attachAlphaMembershipRecognition, currentMembershipRecognition } from '../_lib/alphaMembershipRecognition.js';
@@ -1287,6 +1288,7 @@ async function handleGet(req, res, tenantId, db = supabase, {
     return String(left.id || '').localeCompare(String(right.id || ''));
   });
   await enrichHistoryPrices(history, { db, tenantId });
+  await attachLinkedHistoryStructureNames(db, tenantId, history);
   if (isAdmin) await attachMembershipAccountingProgress(db, { tenantId, history, now });
   await attachAlphaMembershipRecognition(db, tenantId, memberId, history);
   let legacyCurrentMembership = findLegacyCurrentMembership(personalHistory, tenantId, now);
