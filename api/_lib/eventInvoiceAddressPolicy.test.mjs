@@ -234,7 +234,40 @@ test('deferred policy preserves known customer lookup identity without claiming 
   assert.equal(frozen.policy.existingContactId, null);
 });
 
-for (const outcome of ['existing', 'saved-address', 'missing-address', 'disconnected', 'provider-offline']) {
+const customerConflicts = {
+  archived: [{ ...existing, ContactStatus: 'ARCHIVED' }],
+  namesake: [{ ...existing, EmailAddress: 'other@example.test' }],
+  'blank-email': [{ ...existing, EmailAddress: '' }],
+  ambiguous: [existing, { ...existing, ContactID: 'other' }],
+};
+for (const source of ['simple', 'complex']) {
+  for (const [reason, contacts] of Object.entries(customerConflicts)) {
+    test(`${source}: ${reason} customer conflict defers checkout without authorising a customer`, async () => {
+      const f = fixture();
+      const lookup = identity => {
+        let reads = 0;
+        return lookupEventXeroContact(async () => ({ Contacts: reads++ ? [] : contacts }), identity);
+      };
+      const input = { ...f.input, source, lookup, charge: { amount: 1000 } };
+      const context = await eventAddressContext(input);
+      assert.equal(context.deferred, true);
+      assert.equal(context.required, false);
+      assert.equal(context.existingContactId, null);
+      assert.equal(f.calls.some(c => c.table === 'invoicing_address_private'), false);
+      const frozen = await prepareEventInvoiceAddressPolicy(input);
+      assert.equal(frozen.policy.mode, 'deferred');
+      assert.equal(frozen.policy.address, null);
+      assert.equal(frozen.policy.existingContactId, null);
+      assert.deepEqual(policyInvoiceContact(frozen.policy), { Name: contact.name, EmailAddress: contact.email });
+      assert.deepEqual(await prepareEventInvoiceAddressPolicy({
+        ...input, lookup: () => assert.fail('replay must use frozen policy'),
+      }), frozen);
+      assert.equal(f.stored.length, 1);
+    });
+  }
+}
+
+for (const outcome of ['existing', 'saved-address', 'missing-address', 'disconnected', 'provider-offline', ...Object.keys(customerConflicts)]) {
   test(`deferred invoice recovery: ${outcome}`, async () => {
     const policy = { version: 1, mode: 'deferred', tenantId: 'tenant', memberId: 'member',
       provider, contact, address: null };
@@ -259,7 +292,7 @@ for (const outcome of ['existing', 'saved-address', 'missing-address', 'disconne
         deadlineAt: Date.now() + 20000, fetchImpl: async (url, init) => {
           if (outcome === 'provider-offline') throw new Error('Network unavailable');
           if (init.method === 'GET') return { ok: true, json: async () => ({
-            Contacts: outcome === 'existing' && contactReads++ === 0 ? [existing] : [],
+            Contacts: contactReads++ === 0 ? (customerConflicts[outcome] || (outcome === 'existing' ? [existing] : [])) : [],
           }) };
           writes.push({ url, body: JSON.parse(init.body) });
           return { ok: true, json: async () => url.endsWith('/Contacts') ? { Contacts: [existing] } : { Invoices: [{ InvoiceID: 'invoice' }] } };
@@ -268,11 +301,11 @@ for (const outcome of ['existing', 'saved-address', 'missing-address', 'disconne
       assert.equal(writes.length, 0, 'preparation is read-only');
       await writer.createInvoice();
     };
-    if (['missing-address', 'disconnected', 'provider-offline'].includes(outcome)) {
+    if (['missing-address', 'disconnected', 'provider-offline'].includes(outcome) || customerConflicts[outcome]) {
       await assert.rejects(run(), error => {
-        assert.equal(error.code, outcome === 'missing-address' ? 'invoice_address_required'
+        assert.equal(error.code, customerConflicts[outcome] ? 'invoice_customer_identity_unverified' : outcome === 'missing-address' ? 'invoice_address_required'
           : outcome === 'disconnected' ? 'provider_reconnect_required' : 'transport_ambiguous');
-        assert.equal(error.retry, outcome !== 'missing-address');
+        assert.equal(error.retry, !customerConflicts[outcome] && outcome !== 'missing-address');
         return true;
       });
       assert.equal(writes.length, 0);

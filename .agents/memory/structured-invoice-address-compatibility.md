@@ -86,6 +86,17 @@ organisation address. Unverified company selection needs review, not an
 automatic invoice in an arbitrary company. Ownership and payment-replay
 conflicts still fail closed.
 
+Searched Xero customer conflicts (inactive/archived contact, matching name with
+different or blank email, or multiple matches) must also defer invoicing rather
+than block member event checkout.
+
+**Why:** The owner explicitly requires that the customer-review warning not
+prevent booking. This is not authority to invoice a namesake or revive an archived contact.
+
+**How to apply:** Keep the original purchaser and company in deferred instructions,
+recheck identity during invoice recovery, and leave unresolved conflicts for review
+without provider writes. Preserve hard ownership/company and payment replay checks.
+
 Checkout retry identity must retain the original invoice instructions. Do not
 silently generate a new payment attempt when the invoice-address choice changes
 after preparation.

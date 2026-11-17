@@ -4,6 +4,9 @@ import { xeroRateLimitedFetch as fetch } from './xeroRateLimit.js';
 const fail = (message, statusCode = 503) => { throw Object.assign(new Error(message), { statusCode }); };
 const normalized = value => String(value || '').trim().toLowerCase();
 const unavailable = message => { throw Object.assign(new Error(message), { statusCode: 503, accountingUnavailable: true }); };
+// Checkout may defer a customer conflict, but invoice recovery must still
+// reject it. Keep this distinct from a successful "customer not found" lookup.
+const customerReview = message => { throw Object.assign(new Error(message), { statusCode: 503, accountingCustomerReview: true }); };
 export const DEFERRED_EVENT_INVOICE_MESSAGE = 'You can continue with your booking. Your invoice may take a little longer to become available.';
 
 export async function knownEventXeroContact(db, tenantId, member, provider) {
@@ -52,10 +55,10 @@ export async function lookupEventXeroContact(api, { name, email, contactId = nul
     const result = await api(`Contacts?where=${encodeURIComponent(where)}&includeArchived=true&page=${page}&pageSize=100`);
     if (!Array.isArray(result?.Contacts) || result.Contacts.length > 100) fail('Xero customer lookup was incomplete');
     if (!result.Contacts.length) {
-      if (found.size > 1) fail('Xero customer identity is ambiguous');
+      if (found.size > 1) customerReview('Xero customer identity is ambiguous');
       const contact = [...found.values()][0];
       if (contact && (contact.ContactStatus !== 'ACTIVE' || normalized(contact.EmailAddress) !== normalized(email))) {
-        fail('Xero customer identity requires review');
+        customerReview('Xero customer identity requires review');
       }
       return contact || null;
     }
@@ -109,8 +112,8 @@ export async function eventAddressContext({ db, tenantId, memberId, eventId, sou
   const knownContactId = known.contactId;
   const identity = { ...contact, ...(knownContactId ? { contactId: knownContactId } : {}) };
   let existing;
-  // Only provider availability is deferred. Ownership/mapping ambiguity above,
-  // or an inconsistent customer response below, remains a hard safety failure.
+  // Availability and searched customer conflicts can defer invoicing.
+  // Invalid ownership/company mappings remain hard failures.
   const controller = new AbortController();
   let timer;
   const lookupWork = async () => {
@@ -169,7 +172,7 @@ export async function eventAddressContext({ db, tenantId, memberId, eventId, sou
   }
   return result;
   } catch (error) {
-    if (!error.accountingUnavailable) throw error;
+    if (!error.accountingUnavailable && !error.accountingCustomerReview) throw error;
     return { applicable: true, required: false, deferred: true, provider, contact,
       existingContactId: null, lookupContactId: known?.contactId || null,
       lookupContactTrusted: known?.trusted === true, message: DEFERRED_EVENT_INVOICE_MESSAGE };

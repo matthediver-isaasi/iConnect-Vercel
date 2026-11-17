@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import handler from './event-invoice-address.js';
+import { lookupEventXeroContact } from './_lib/eventInvoiceAddressPolicy.js';
 const context = { isAuthenticated: true, tenantId: 'tenant', memberId: 'member' };
 
-async function request({ ctx = context, method = 'POST', body = { eventId: 'event', source: 'simple' }, headers = {}, existing = true, error = false } = {}) {
+async function request({ ctx = context, method = 'POST', body = { eventId: 'event', source: 'simple' }, headers = {}, existing = true, error = false, conflict = false } = {}) {
   const calls = [];
   const db = { from(table) {
     const filters = {};
@@ -22,6 +23,12 @@ async function request({ ctx = context, method = 'POST', body = { eventId: 'even
   const res = { statusCode: 200, headers: {}, setHeader(k, v) { this.headers[k] = v; }, status(code) { this.statusCode = code; return this; },
     json(value) { this.body = value; return this; } };
   await handler({ method, body, headers }, res, { db, getTenantContext: async () => ctx, lookup: async () => {
+    if (conflict) {
+      let calls = 0;
+      return lookupEventXeroContact(async () => ({ Contacts: calls++ ? [] : [
+        { ContactID: 'namesake', ContactStatus: 'ACTIVE', Name: 'Buyer', EmailAddress: 'other@example.test' },
+      ] }), { name: 'Buyer', email: 'buyer@example.test' });
+    }
     if (error) throw new Error('Provider unavailable');
     return existing ? { ContactID: 'private-provider-id' } : null;
   } });
@@ -35,6 +42,16 @@ test('discovery requires authenticated member and tenant match before private re
     assert.ok([401, 403].includes(res.statusCode));
     assert.equal(calls.length, 0);
   }
+});
+test('identity conflict returns successful deferred discovery rather than blocking the modal', async () => {
+  const { res } = await request({ conflict: true });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.deferred, true);
+  assert.equal(res.body.required, false);
+  assert.match(res.body.message, /continue with your booking/);
+  assert.equal(res.body.personalAddress, null);
+  assert.equal(res.body.organizationAddress, null);
+  assert.equal(res.body.error, undefined);
 });
 test('existing customer discovery exposes no provider identity or private addresses', async () => {
   const { res, calls } = await request();

@@ -109,6 +109,12 @@ test("mounted discovery bypasses existing customers, errors require retry, cance
     response = { required: false, applicable: false };
     await click(container.querySelector("button"));
     assert.equal(result, undefined);
+    response = { required: false, applicable: true, deferred: true,
+      message: "You can continue with your booking. Your invoice may take a little longer to become available." };
+    result = "pending";
+    await click(container.querySelector("button"));
+    assert.equal(result, undefined, "deferred identity review must allow checkout to continue");
+    assert.equal(document.querySelector('[role="dialog"]'), null);
     fail = true;
     await click(container.querySelector("button"));
     assert.match(document.body.textContent, /Network unavailable/);
