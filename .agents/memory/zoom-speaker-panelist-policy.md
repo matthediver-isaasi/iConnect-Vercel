@@ -18,3 +18,14 @@ resend an invitation or infer deletion authority; require ownership review.
 Persist source changes and retries independently of an open browser. Verify the
 deployed scheduler separately from the preview endpoint. Test-event invitations
 need explicit approval because their speakers may be real people.
+
+A successful Zoom add-panelist response may omit the panelist identity. Do not
+require it to echo the email and ID.
+
+**Why:** A live add succeeded while its response could not satisfy the echo
+check, leaving a real panelist behind an incomplete local checkpoint.
+
+**How to apply:** After confirmed HTTP success, resolve the email against a
+complete fresh panelist list before storing ownership. Never repeat the POST to
+obtain its ID. A transport failure or interrupted response remains uncertain
+and must not inherit this confirmed-success ownership rule.

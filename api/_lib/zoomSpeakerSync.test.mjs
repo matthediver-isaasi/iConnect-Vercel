@@ -1,6 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { reconcileZoomSpeakers } from './zoomSpeakerSync.js';
+import { reconcileZoomSpeakers, resolveCreatedZoomPanelist } from './zoomSpeakerSync.js';
+
+test('successful add acknowledgements without identities use a read-back, never another invitation',async()=>{
+  const person={name:'Speaker',email:'speaker@example.test'};
+  const saved={...person,id:'provider-id'};
+  let reads=0;
+  for(const response of [{},null,{panelists:[{name:'Speaker'}]}]) {
+    assert.deepEqual(await resolveCreatedZoomPanelist(response,person,async()=>{reads++;return [saved];}),saved);
+  }
+  assert.equal(reads,3);
+  assert.deepEqual(await resolveCreatedZoomPanelist({panelists:[saved]},person,async()=>assert.fail('no read needed')),saved);
+  for(const found of [[],[saved,{...saved,id:'other'}]]) {
+    await assert.rejects(resolveCreatedZoomPanelist({},person,async()=>found),/could not be verified/);
+  }
+});
 
 function setup() {
   const job = { managed:{}, desired:[{id:'s',found:true,name:'Speaker',email:'speaker@example.test'}],

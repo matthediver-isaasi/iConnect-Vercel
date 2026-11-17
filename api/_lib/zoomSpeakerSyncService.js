@@ -1,6 +1,6 @@
 import { supabase } from './database.js';
 import { getZoomAccessTokenForTenant } from './zoomClient.js';
-import { reconcileZoomSpeakers } from './zoomSpeakerSync.js';
+import { reconcileZoomSpeakers, resolveCreatedZoomPanelist } from './zoomSpeakerSync.js';
 
 // Link persistence must not be reported as failed when Zoom is unavailable.
 export async function syncAttachedWebinarSpeakers(tenantId, webinarId) {
@@ -44,20 +44,21 @@ export async function runZoomSpeakerSync({ tenantId = null, webinarId = null, db
     if (!response.ok) throw new Error(`Zoom panelist request failed (${response.status}). Check the Zoom connection and webinar permissions.`);
     return response.status === 204 ? null : response.json();
   };
-  await reconcileZoomSpeakers(job, {
-    fence: () => checkpoint({}, true), save: patch => checkpoint(patch),
-    expired: () => Date.now() > deadlineAt,
-    async list() {
+  const list = async () => {
       const data = await api();
       if (!Array.isArray(data?.panelists) || data.next_page_token
         || (data.total_records != null && Number(data.total_records) !== data.panelists.length)) {
         throw new Error('Zoom panelist list was incomplete; existing panelists have been retained.');
       }
       return data.panelists;
-    },
+  };
+  await reconcileZoomSpeakers(job, {
+    fence: () => checkpoint({}, true), save: patch => checkpoint(patch),
+    expired: () => Date.now() > deadlineAt,
+    list,
     async add(person) {
       const data = await api('', { method: 'POST', body: JSON.stringify({ panelists: [person] }) });
-      return data?.panelists?.find(p => String(p.email || '').trim().toLowerCase() === person.email);
+      return resolveCreatedZoomPanelist(data, person, list);
     },
     remove: id => api(`/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   });

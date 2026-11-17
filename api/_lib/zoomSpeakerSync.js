@@ -1,6 +1,18 @@
 const emailKey = value => String(value || '').trim().toLowerCase();
 const validEmail = value => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 
+// Zoom can acknowledge an add without echoing the panelist identity. Only
+// after a successful POST may a complete read-back establish the created ID.
+export async function resolveCreatedZoomPanelist(response, person, list) {
+  const echoed = response?.panelists?.filter(p => emailKey(p.email) === emailKey(person.email)) || [];
+  if (echoed.length === 1 && echoed[0].id) return echoed[0];
+  const matches = (await list()).filter(p => emailKey(p.email) === emailKey(person.email));
+  if (matches.length !== 1 || !matches[0].id) {
+    throw new Error('Successful Zoom panelist addition could not be verified. The next attempt will reconcile without resending.');
+  }
+  return matches[0];
+}
+
 // No ambient credentials or database: exercised with fake providers in tests.
 export async function reconcileZoomSpeakers(job, io) {
   const managed = structuredClone(job.managed || {});
