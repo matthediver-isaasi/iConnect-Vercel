@@ -2035,3 +2035,17 @@ mtime_ms = 1794858998186
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/0f1f304f-ed40-4cde-8c29-9801cdd516ab/385a729f-426b-46c7-849b-5c725d7957fc"
 storage_version_token = "1794859008511927"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "Pm9HRoFjaDw9GOmuzOug0"
+uri = "file://generated-artifacts/bnms-cpd-guests/BNMS-CPD-Guests-No-CPD-Points.xlsx"
+type = "table"
+title = "BNMS CPD Guests with no CPD points"
+description = "796 members, with membership history, recorded payment/activity evidence, member links and a review shortlist."
+logical_id = "ce9992b2-a4ef-46fe-ab79-c666afa4d34c"
+content_hash = "sha256:b0355494e16d97c601138f15e2d06641a5a893847b962b987de229ea1ed6306e"
+size = 416718
+mtime_ms = 1794906252243
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/ce9992b2-a4ef-46fe-ab79-c666afa4d34c/1f8fc7a9-bbdb-4589-b882-987765725bcd"
+storage_version_token = "1794906261755148"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
