@@ -8,6 +8,7 @@ import { confirmedZoomBookings, zoomAuthority, zoomEvidence } from '../../_lib/e
 import { listZoomRegistrations, registerWithZoom } from '../../_lib/zoomRegistration.js';
 import { sendConfirmationEmailsFromTemplate } from '../../_lib/eventConfirmationEmail.js';
 import { enqueueZoomJob, latestZoomJob } from '../../_lib/zoomRegistrationJobs.js';
+import { syncAttachedWebinarSpeakers } from '../../_lib/zoomSpeakerSyncService.js';
 
 import { deliverZoomConfirmation, validZoomConfirmationOperation } from '../../_lib/zoomConfirmationDelivery.js';
 
@@ -176,7 +177,8 @@ export default async function handler(req, res) {
         target: { kind: authority.kind, localId: (newMeeting || newWebinar).id, providerId: String(authority.id), eventId: id,
           current: { zoom_meeting_id: zoom_meeting_id || null, zoom_webinar_id: zoom_webinar_id || null } },
       });
-      return res.status(202).json({ job, eventPatch: updatePatch });
+      const panelistSync = await syncAttachedWebinarSpeakers(tenantId, zoom_webinar_id);
+      return res.status(202).json({ job, eventPatch: updatePatch, panelistSync });
     }
     const { error: updErr } = await supabase
       .from('event').update(updatePatch).eq('id', id).eq('tenant_id', tenantId);
@@ -184,6 +186,8 @@ export default async function handler(req, res) {
       console.error('[ChangeZoom] update event error:', updErr);
       return res.status(500).json({ error: updErr.message });
     }
+
+    const panelistSync = zoom_webinar_id ? await syncAttachedWebinarSpeakers(tenantId, zoom_webinar_id) : null;
 
     const summary = { cancelled: 0, registered: 0, existing: 0, pending: 0, denied: 0, skipped: 0, missingEmail: 0, failed: 0, emailed: 0, errors: [] };
 
@@ -267,7 +271,7 @@ export default async function handler(req, res) {
 
     if (historyError) summary.errors.push({ phase: 'history', message: 'Actions completed but history could not be saved' });
     const hasMore = sameTarget && allBookings.some(b => b.id > bookings.at(-1)?.id);
-    return res.status(200).json({ success: summary.errors.length === 0, ...summary, eventPatch: updatePatch, nextCursor: hasMore ? bookings.at(-1).id : null });
+    return res.status(200).json({ success: summary.errors.length === 0, ...summary, panelistSync, eventPatch: updatePatch, nextCursor: hasMore ? bookings.at(-1).id : null });
   } catch (err) {
     console.error('[ChangeZoom] error:', err);
     return res.status(500).json({ error: err.message || 'Failed to change Zoom link' });

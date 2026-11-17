@@ -228,6 +228,9 @@ export default function ChangeZoomDialog({
         });
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || 'Could not start background registration');
+        if (result.panelistSync && result.panelistSync.status !== 'completed') {
+          toast.warning(result.panelistSync.last_error || 'Speaker synchronisation will continue in the background.');
+        }
         setBackgroundJob(result.job);
         requestKeyRef.current = null;
         setProgress('');
@@ -265,7 +268,11 @@ export default function ChangeZoomDialog({
         const err = await resp.json().catch(() => ({}));
         throw new Error(err.error || "Change Zoom failed");
       }
-        return resp.json();
+        const data = await resp.json();
+        if (data.panelistSync && data.panelistSync.status !== 'completed') {
+          toast.warning(data.panelistSync.last_error || 'Speaker synchronisation will continue in the background.');
+        }
+        return data;
       }, checkpoint => {
         if (checkpoint.attached) setDetectedCurrent({
           zoom_webinar_id: checkpoint.body.zoom_webinar_id,

@@ -78,6 +78,10 @@
   },
   "crons": [
     {
+      "path": "/api/cron/process-zoom-speakers",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/process-zoom-registrations",
       "schedule": "* * * * *"
     },

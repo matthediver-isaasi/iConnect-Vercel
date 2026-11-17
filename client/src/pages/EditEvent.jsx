@@ -78,6 +78,7 @@ import EventAwardsAdmin from "@/components/awards/EventAwardsAdmin";
 import EventOptionListsEditor from "@/components/events/EventOptionListsEditor";
 import { isAttendeeOptionsCollectionEnabled } from "@/lib/attendeeOptionsSetting";
 import ChangeZoomDialog from "@/components/events/ChangeZoomDialog";
+import ZoomSpeakerSyncStatus, { synchroniseEventSpeakers } from "@/components/events/ZoomSpeakerSyncStatus";
 import ZoomRegistrationEvidence from "@/components/events/ZoomRegistrationEvidence";
 import { FocalPointPicker } from "@/components/FocalPointPicker";
 import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
@@ -2070,6 +2071,14 @@ export default function EditEvent() {
           toast.warning(`Event updated, but CPD configuration could not be saved: ${cpdSaveError}`);
         } else {
           toast.success('Event updated successfully');
+        }
+        if (formData.zoom_webinar_id) {
+          try {
+            const sync = await synchroniseEventSpeakers(eventId);
+            if (sync?.status !== 'completed') toast.warning(sync?.last_error || 'Speaker synchronisation is queued and will continue in the background.');
+          } catch (error) {
+            toast.warning(`Event saved, but Zoom speakers need attention: ${error.message}`);
+          }
         }
         queryClient.invalidateQueries({ queryKey: ['events'] });
         queryClient.invalidateQueries({ queryKey: ['event', eventId] });
@@ -4609,6 +4618,7 @@ export default function EditEvent() {
             </div>
 
             {(formData.zoom_meeting_id || formData.zoom_webinar_id) && <ZoomRegistrationEvidence evidence={zoomEvidenceQuery.data} loading={zoomEvidenceQuery.isFetching} error={zoomEvidenceQuery.error} />}
+            <ZoomSpeakerSyncStatus eventId={eventId} webinarId={formData.zoom_webinar_id} />
 
             {/* Zoom Sync Status (only meaningful when Zoom is attached) */}
             {(formData.zoom_meeting_id || formData.zoom_webinar_id) && (
