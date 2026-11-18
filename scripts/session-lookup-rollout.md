@@ -82,3 +82,23 @@ No production writes, synthetic sessions or identity bypass were used.
 Successful database requests do not verify signed-in member/admin/legacy login
 or authorization behavior. Those live paths remain unverified; the 39 local
 regression checks remain the access-policy evidence.
+
+## Caller attribution investigation
+
+Both the production deployment above and latest preview
+`dpl_73LzrMW5Fdb4kmhk6j9xcYv8xp6Q` were verified READY on branch `postreg`,
+at the same corrected commit. There is no evidence implicating that preview.
+Older production/preview deployments exist, but their existence is not evidence
+of requests from them.
+
+The Vercel deployment runtime-log endpoint provided live streams, not the
+historical 12:38–12:41 UTC interval. The historical observability query returned
+HTTP 403 Forbidden with the installed connector. The connection uses an API key
+and does not support the inline reconnect flow. Better Stack exposed no relevant
+application log source. Historical deployment/endpoint attribution is therefore
+blocked by access to suitable logs, not established.
+
+A further completed Supabase window, 12:49–12:50 UTC, contained 1,684 REST requests
+and 12 of each scoped error. Residual traffic continues; neither zero errors nor
+an old-preview cause has been demonstrated. Production data and configuration
+were not changed during this investigation.
