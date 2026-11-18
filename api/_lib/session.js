@@ -643,17 +643,19 @@ async function tryPromoteMemberToTenantUser(session, req) {
         targetTenantId = tenantFromHost.id;
       }
     } catch (err) {
-      // Tenant resolver may not be available
+      // A failed tenant lookup is not evidence that no tenant was requested.
+      throw sessionUnavailable(err);
     }
   }
   
   // If still no tenantId, try to get it from the member's organization
   if (!targetTenantId && session.data.memberId) {
-    const { data: member } = await supabase
+    const { data: member, error: memberError } = await supabase
       .from('member')
       .select('organization:organization_id(tenant_id)')
       .eq('id', session.data.memberId)
-      .single();
+      .maybeSingle();
+    if (memberError) throw sessionUnavailable(memberError);
     
     targetTenantId = member?.organization?.tenant_id;
   }
@@ -668,12 +670,13 @@ async function tryPromoteMemberToTenantUser(session, req) {
     // This is the most reliable method as it doesn't depend on tenant_membership schema
     let tenantUser = null;
     
-    const { data: directTenantUser } = await supabase
+    const { data: directTenantUser, error: directError } = await supabase
       .from('tenant_user')
       .select('*, tenant:tenant_id(*)')
       .eq('identity_id', identityId)
       .eq('tenant_id', targetTenantId)
-      .single();
+      .maybeSingle();
+    if (directError) throw sessionUnavailable(directError);
     
     if (directTenantUser) {
       // A team revocation suspends the shared membership before it disables
@@ -686,44 +689,41 @@ async function tryPromoteMemberToTenantUser(session, req) {
         .eq('tenant_id', targetTenantId)
         .eq('status', 'inactive')
         .limit(1);
-      if (suspendError || suspended?.length) return null;
+      if (suspendError) throw sessionUnavailable(suspendError);
+      if (suspended?.length) return null;
       tenantUser = directTenantUser;
       console.log('[Session] Found tenant_user via identity_id lookup:', tenantUser.id);
     }
     
-    // Fallback: Check tenant_membership table if direct lookup fails
-    // This supports the newer membership-based access model.
-    // NOTE: admin-level access is conveyed via membership.role ('owner'/'admin'),
-    // NOT via membership_type. Most admin rows are stored as
-    // membership_type='member' with role='owner', so filtering on
-    // membership_type='owner' alone would (and did) reject legitimate admins
-    // and silently 401 every /api/admin/* call for that session.
+    // Unified accounts do not need a legacy tenant_user row. Memberships link
+    // to tenant_identity, NOT tenant_user_id. Resolve authority within this
+    // tenant and build the same compatibility object as readSessionTenantUser.
     if (!tenantUser) {
-      try {
-        const { data: membership } = await supabase
-          .from('tenant_membership')
-          .select('*, tenant_user:tenant_user_id(*)')
-          .eq('identity_id', identityId)
-          .eq('tenant_id', targetTenantId)
-          .eq('status', 'active')
-          .or('membership_type.eq.owner,role.eq.owner,role.eq.admin')
-          .maybeSingle();
-        
-        if (membership?.tenant_user) {
-          tenantUser = membership.tenant_user;
-          console.log('[Session] Found tenant_user via membership lookup');
-        } else if (membership?.tenant_user_id) {
-          const { data } = await supabase
-            .from('tenant_user')
-            .select('*, tenant:tenant_id(*)')
-            .eq('id', membership.tenant_user_id)
-            .single();
-          tenantUser = data;
-        }
-      } catch (membershipErr) {
-        // tenant_membership table may not have required columns yet
-        console.log('[Session] Membership lookup skipped (table may need migration)');
-      }
+      const { data: memberships, error: membershipError } = await supabase
+        .from('tenant_membership')
+        .select('*, tenant:tenant_id(*)')
+        .eq('identity_id', identityId)
+        .eq('tenant_id', targetTenantId);
+      if (membershipError) throw sessionUnavailable(membershipError);
+      if (memberships?.some(m => m.status === 'inactive')) return null;
+      const membership = memberships?.find(m => m.status === 'active'
+        && (m.role === 'owner' || m.role === 'admin' || m.membership_type === 'owner'));
+      if (!membership) return null;
+      const { data: identity, error: identityError } = await supabase
+        .from('tenant_identity')
+        .select('id,email,first_name,last_name')
+        .eq('id', identityId)
+        .maybeSingle();
+      if (identityError) throw sessionUnavailable(identityError);
+      if (!identity) return null;
+      tenantUser = {
+        ...identity,
+        tenant_id: targetTenantId,
+        role: membership.role || 'owner',
+        status: 'active',
+        tenant: membership.tenant,
+        _isUnifiedIdentity: true,
+      };
     }
     
     if (!tenantUser) {
@@ -734,6 +734,19 @@ async function tryPromoteMemberToTenantUser(session, req) {
     if (tenantUser.status !== 'active') {
       console.log('[Session] Tenant user inactive, cannot promote:', tenantUser.id);
       return null;
+    }
+
+    // Resolve all required reads before persisting promotion. A backend outage
+    // must not leave an elevated session behind on a failed request.
+    if (!tenantUser.tenant) {
+      const { data: tenant, error: tenantError } = await supabase
+        .from('tenant')
+        .select('*')
+        .eq('id', targetTenantId)
+        .maybeSingle();
+      if (tenantError) throw sessionUnavailable(tenantError);
+      if (!tenant) return null;
+      tenantUser.tenant = tenant;
     }
     
     // Upgrade the session to full tenant_user access
@@ -765,20 +778,10 @@ async function tryPromoteMemberToTenantUser(session, req) {
     tenantUser._sessionTenantId = targetTenantId;
     tenantUser._sessionIdentityId = identityId;
     
-    // Fetch tenant data if not included
-    if (!tenantUser.tenant) {
-      const { data: tenant } = await supabase
-        .from('tenant')
-        .select('*')
-        .eq('id', targetTenantId)
-        .single();
-      tenantUser.tenant = tenant;
-    }
-    
     return tenantUser;
   } catch (err) {
     console.error('[Session] Error promoting member session:', err);
-    return null;
+    throw sessionUnavailable(err);
   }
 }
 
