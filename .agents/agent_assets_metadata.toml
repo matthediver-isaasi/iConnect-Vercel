@@ -2049,3 +2049,17 @@ mtime_ms = 1794906252243
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/ce9992b2-a4ef-46fe-ab79-c666afa4d34c/1f8fc7a9-bbdb-4589-b882-987765725bcd"
 storage_version_token = "1794906261755148"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "jbGqcl_91ZANfNn3U4fN0"
+uri = "file://generated-artifacts/bnms-member-invoice-audit-2026-11-18/BNMS-member-invoice-address-audit.xlsx"
+type = "table"
+title = "BNMS member invoice address audit"
+description = "Private workbook: 1,406 eligible members, 2,685 CPD Guest exclusions, 251 verified copies, before/after addresses and review evidence."
+logical_id = "74066ff6-4da4-473c-8935-bcdfe0065a20"
+content_hash = "sha256:534ff681ee965926210570f60c5871412d63e24dbdb2e587c56cda94044f536e"
+size = 908501
+mtime_ms = 1795028653881
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/74066ff6-4da4-473c-8935-bcdfe0065a20/3b5706cf-232f-40ea-97ac-22ded06ae21c"
+storage_version_token = "1795028669983208"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
