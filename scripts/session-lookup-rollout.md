@@ -102,3 +102,25 @@ A further completed Supabase window, 12:49–12:50 UTC, contained 1,684 REST req
 and 12 of each scoped error. Residual traffic continues; neither zero errors nor
 an old-preview cause has been demonstrated. Production data and configuration
 were not changed during this investigation.
+
+## Uploaded runtime evidence: separate development-domain deployment
+
+The user's 50-line Vercel export for 12:38–12:50 UTC contained 48 entries from
+the corrected production deployment and two preview entries from
+`dpl_J3PsaKraFcztmRugb7zqCZXzzdZT`, serving `bnms.dev.iconn.app` on `gfitrain`
+at 12:43:13.051 and 12:43:16.238 UTC. None of the 50 messages contains the
+targeted session errors.
+
+Authenticated Vercel metadata confirmed this separate READY deployment serves
+commit `d0b5c9ffad51e00fb95eae1000d445358851b6b8` and holds aliases
+`dev.iconn.app`, `*.dev.iconn.app`, and `gfi.dev.iconn.app`. Inspecting that
+commit confirmed both old lookup patterns remain: the mandatory tenant_user
+single-row query and the nonexistent tenant_membership tenant_user_id embed.
+Those reads discard returned Supabase errors, explaining why an error/warning
+export need not contain the underlying PostgREST failures.
+
+This establishes an actively used deployment with the defective code, unlike
+merely finding an old deployment in history. It does not directly correlate
+individual Supabase failures to that deployment or prove it is the only caller.
+Updating that development deployment to include the fix, then remeasuring, is
+the next attribution test; no alias or deployment changes were made here.
