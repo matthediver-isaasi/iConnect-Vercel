@@ -148,3 +148,19 @@ supports improvement after routing correction, but traffic also declined and
 this is only a transition window. One residual pair remains unattributed;
 sustained zero-error clearance and signed-in access checks remain unverified.
 The user changed routing; the investigation made no production writes.
+
+## Final bounded verification
+
+At 14:05:37.834 UTC on 2026-11-18, the completed half-open interval
+14:00:00–14:05:00 UTC showed zero scoped PGRST200 and zero scoped PGRST116
+failures, also zero in each individual minute. Activity was nonzero:
+11,419 edge requests, 11,279 REST requests, 339 tenant_membership requests and
+171 tenant_user requests. Log coverage extended from 14:00:00.098 through
+14:04:59.977 UTC. The small server-side aggregate query succeeded without
+reported truncation.
+
+The code correction, 39 passing isolated checks, verified corrected production
+and development aliases, and clean active-traffic window close the targeted
+error remediation. This is bounded verification, not a guarantee of future
+absence. Signed-in production role/login flows were not directly exercised;
+that remaining verification is explicitly deferred rather than claimed.
