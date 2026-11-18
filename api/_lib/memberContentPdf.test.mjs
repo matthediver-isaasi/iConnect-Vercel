@@ -76,7 +76,10 @@ function database(bytes, record = file) {
         { content_type: 'file_repository', source_id: record.id, generation: 3 },
       ];
       const query = {
-        select() { return query; },
+        select(columns) {
+          if (table === 'file_repository') assert.doesNotMatch(columns, /updated_at|created_at/);
+          return query;
+        },
         eq(key, value) {
           if (key === 'tenant_id') assert.equal(value, 'tenant-a');
           return query;

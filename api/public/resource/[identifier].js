@@ -44,6 +44,8 @@ export function createPublicResourceHandler({
     }
 
     const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(identifier);
+    // Resources have an ID contract, not a persisted slug contract.
+    if (!isUUID) return res.status(404).json({ error: 'Resource not found' });
     
     let resourceQuery = db
       .from('resource')
@@ -51,11 +53,7 @@ export function createPublicResourceHandler({
       .eq('tenant_id', tenant.id)
       .eq('status', 'active');
     
-    if (isUUID) {
-      resourceQuery = resourceQuery.eq('id', identifier);
-    } else {
-      resourceQuery = resourceQuery.eq('slug', identifier);
-    }
+    resourceQuery = resourceQuery.eq('id', identifier);
 
     const { data: resource, error } = await resourceQuery.single();
 

@@ -21,6 +21,8 @@ import {
 } from '../../shared/canvasMemberOnly.js';
 import { setMemberContentCacheHeaders } from '../_lib/canvasMemberOnly.js';
 import { crawlerRichText } from '../_lib/crawlerRichText.js';
+import { isPublicLibraryResource } from '../_lib/publicResourceProjection.js';
+import { fetchCategoriesWithAccess, computeHiddenSubcategories, isResourceHiddenByCategories } from '../_lib/resourceCategoryAccess.js';
 
 function escapeHtml(str) {
   if (!str) return '';
@@ -966,7 +968,7 @@ function clampLimit(n, def, max) {
   return Math.min(max, Math.floor(v));
 }
 
-async function renderCanvasDynamicBlock(supabaseClient, tenant, block, now) {
+export async function renderCanvasDynamicBlock(supabaseClient, tenant, block, now) {
   const c = block.content || {};
   try {
     if (block.type === 'event-list') {
@@ -1038,14 +1040,19 @@ async function renderCanvasDynamicBlock(supabaseClient, tenant, block, now) {
       const limit = clampLimit(c.limit, 6, 20);
       let q = supabaseClient
         .from('resource')
-        .select('id, title, slug, description, resource_type, image_url, status, is_public, target_url')
+        .select('id, title, description, resource_type, image_url, status, is_public, release_date, member_group_id, linked_events, subcategories')
         .eq('tenant_id', tenant.id)
         .eq('status', 'active')
-        .order('created_at', { ascending: false });
+        .order('release_date', { ascending: false, nullsFirst: false })
+        .order('id', { ascending: true });
       if (c.resourceType) q = q.eq('resource_type', c.resourceType);
       q = applyResourceReleaseFilter(q, now);
-      const { data } = await q.limit(limit);
-      const items = (data || []).filter((r) => r.is_public !== false);
+      const { data, error } = await q.limit(limit);
+      if (error) throw error;
+      const categories = await fetchCategoriesWithAccess(supabaseClient, tenant.id);
+      const hidden = computeHiddenSubcategories(categories, { isGuest: true });
+      const items = (data || []).filter((r) => r.is_public !== false
+        && isPublicLibraryResource(r, now) && !isResourceHiddenByCategories(r, hidden));
       if (items.length === 0) return null;
       const texts = []; let firstImage = null;
       const cards = items.map((r) => {

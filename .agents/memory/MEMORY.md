@@ -156,3 +156,4 @@
 - [Project list reorder locking](project-list-reorder-locking.md) — complete-set validation must serialize with legacy create/archive/delete writers, not just other reorders.
 - [Project description images](project-description-images.md) — retain plain-text compatibility; image references resolve only within the task and removal does not delete shared attachments.
 - [Xero tracking whitespace](xero-tracking-whitespace.md) — provider trimming can cause false invoice mismatches; verify existing invoices rather than recreating them.
+- [Live query contract decisions](live-query-contract-policy.md) — ID resource routes and Teams meeting fields do not authorize new slug or parent-meeting schema.

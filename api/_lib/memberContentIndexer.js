@@ -289,7 +289,9 @@ async function deferMemberContentReindexJob(contentType, item, error, { supabase
 
 export async function extractResourcePdfChunks(item, supabase) {
   if (item?.resource_type !== 'download' || !item?.target_url || !item?.tenant_id) return [];
-  const fileColumns = 'id, tenant_id, file_url, file_name, file_type, mime_type, file_size, bucket, storage_path, updated_at';
+  // FileRepository has no timestamps. Dependency generations below are the
+  // mutation authority; compare the real file identity before downloading.
+  const fileColumns = 'id, tenant_id, file_url, file_name, file_type, mime_type, file_size, bucket, storage_path';
   const { data: file, error } = await supabase
     .from('file_repository')
     .select(fileColumns)

@@ -32,8 +32,10 @@ test('public group and event-linked resources are not exposed by UUID or slug', 
       const response = await request(resource, identifier);
       assert.equal(response.code, 404);
       assert.equal(JSON.stringify(response.body).includes('secret-target'), false);
-      assert.match(response.selected[0], /member_group_id/);
-      assert.match(response.selected[0], /linked_events/);
+      if (identifier === id) {
+        assert.match(response.selected[0], /member_group_id/);
+        assert.match(response.selected[0], /linked_events/);
+      } else assert.equal(response.selected.length, 0);
     }
   }
 });
@@ -47,8 +49,8 @@ test('release boundaries apply to direct UUID and slug before metadata projectio
     }
     for (const release_date of [null, '', '2026-09-22T12:00:00.000Z', '2026-09-21T12:00:00Z']) {
       const response = await request({ release_date }, identifier);
-      assert.equal(response.code, 200);
-      assert.equal(response.body.target_url, 'secret-target');
+      assert.equal(response.code, identifier === id ? 200 : 404);
+      assert.equal(response.body.target_url, identifier === id ? 'secret-target' : undefined);
     }
   }
 });

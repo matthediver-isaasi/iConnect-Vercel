@@ -5,7 +5,7 @@ export function teamsCapabilityFromProbes(probes) {
   const ready = probes?.attendanceTarget === true
     && probes?.teamsTargetFields === true
     && probes?.teamsBinding === true
-    && probes?.complexEventFields === true;
+    && probes?.teamsMeetingFields === true;
   return {
     available: ready,
     warning: ready
@@ -40,30 +40,36 @@ export function capabilityResponseFromProbes(probes) {
 async function supportsSelect(db, table, columns) {
   try {
     const { error } = await db.from(table).select(columns).limit(1);
-    return !error;
-  } catch {
-    // Missing relation/column versions of PostgREST can throw as well as
-    // return an error. A rules screen should remain usable in either case.
-    return false;
+    if (error) throw error;
+    return true;
+  } catch (error) {
+    if (['42703', '42P01', 'PGRST204', 'PGRST205'].includes(error?.code)) return false;
+    // Infrastructure/permission errors are not evidence of a missing migration.
+    throw error;
   }
 }
 
 export async function detectEventCpdAttendanceCapabilities(db) {
-  const [attendanceTarget, teamsTargetFields, teamsBinding, complexEventFields, currentOutcome, transitionOutbox, simpleCheckin, complexCheckin] = await Promise.all([
+  const [attendanceTarget, teamsBinding, currentOutcome, transitionOutbox, simpleCheckin, complexCheckin] = await Promise.all([
     supportsSelect(db, 'attendance_target', 'id,provider'),
-    supportsSelect(db, 'attendance_target', 'provider_connection_id,provider_organiser_id'),
     supportsSelect(db, 'teams_attendance_binding', 'id'),
-    supportsSelect(db, 'complex_event', 'online_provider,teams_online_meeting_id'),
     supportsSelect(db, 'attendance_current_outcome', 'provider,status,booking_type,booking_id'),
     supportsSelect(db, 'attendance_transition_outbox', 'id,status'),
     supportsSelect(db, 'booking', 'checked_in_at,check_in_reversed_at'),
     supportsSelect(db, 'complex_event_session_checkin', 'id,tenant_id,complex_event_id,booking_id,session_id,checked_in_at,check_in_reversed_at'),
   ]);
+  // The binding is installed with these fields. Do not repeatedly query
+  // unsupported columns on installations where Teams has never been installed.
+  const teamsTargetFields = teamsBinding && await supportsSelect(db, 'attendance_target', 'provider_connection_id,provider_organiser_id');
+  const teamsMeetingFields = teamsBinding && (await Promise.all(
+    ['event', 'complex_event_session', 'event_agenda_item'].map((table) =>
+      supportsSelect(db, table, 'online_provider,teams_online_meeting_id'))
+  )).every(Boolean);
   return capabilityResponseFromProbes({
     attendanceTarget,
     teamsTargetFields,
     teamsBinding,
-    complexEventFields,
+    teamsMeetingFields,
     currentOutcome,
     transitionOutbox,
     simpleCheckin,

@@ -9,6 +9,8 @@ import { resolveBlogPostAuthors } from './blogPostAuthors.js';
 import { resolveMicrositeByPrefix } from './microsites.js';
 import { findPublishedArticleBySlug } from './articleSlugLookup.js';
 import { projectCanvasDesignForGuest } from '../../shared/canvasMemberOnly.js';
+import { isPublicLibraryResource } from './publicResourceProjection.js';
+import { fetchCategoriesWithAccess, computeHiddenSubcategories, isResourceHiddenByCategories } from './resourceCategoryAccess.js';
 
 function stripHtml(html) {
   if (!html) return '';
@@ -322,18 +324,22 @@ async function resolveForumThread(tenantId, { id, slug }) {
   };
 }
 
-async function resolveResource(tenantId, identifier, now) {
-  if (!supabase || !identifier) return null;
+export async function resolveResource(tenantId, identifier, now, db = supabase) {
+  if (!db || !identifier) return null;
   const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(identifier);
-  let q = supabase
+  if (!isUUID) return null;
+  let q = db
     .from('resource')
-    .select('id, title, description, image_url, slug, status, author_name, resource_type, seo_title, seo_description, og_image_url')
+    .select('id, title, description, image_url, status, author_name, resource_type, seo_title, seo_description, og_image_url, release_date, member_group_id, linked_events, subcategories')
     .eq('tenant_id', tenantId)
     .eq('status', 'active');
-  q = isUUID ? q.eq('id', identifier) : q.eq('slug', identifier);
+  q = q.eq('id', identifier);
   q = applyResourceReleaseFilter(q, now);
-  const { data } = await q.maybeSingle();
-  if (!data) return null;
+  const { data, error } = await q.maybeSingle();
+  if (error) throw error;
+  if (!data || !isPublicLibraryResource(data, now)) return null;
+  const categories = await fetchCategoriesWithAccess(db, tenantId);
+  if (isResourceHiddenByCategories(data, computeHiddenSubcategories(categories, { isGuest: true }))) return null;
   const resourceTypeName = data.resource_type === 'tenant_form'
     ? 'Tenant form'
     : String(data.resource_type || '').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -344,7 +350,7 @@ async function resolveResource(tenantId, identifier, now) {
     title: data.seo_title?.trim() || data.title,
     description: data.seo_description?.trim() || autoDescription,
     image: data.og_image_url?.trim() || data.image_url || null,
-    canonicalPath: data.slug ? `/resources/${data.slug}` : `/Resources?resourceId=${data.id}`,
+    canonicalPath: `/Resources?resourceId=${data.id}`,
   };
 }
 
