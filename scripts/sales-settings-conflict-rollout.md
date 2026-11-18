@@ -49,5 +49,34 @@ tenant isolation must also remain enforced by the API.
 
 ## Current status
 
-Implementation and isolated tests are ready. Live application, deployment
-verification and post-rollout measurement require the rollout gate above.
+The 16 focused isolated checks passed. On 2026-11-18, Vercel's production
+target was verified as READY/PROMOTED at deployment
+`dpl_6xbz2MtYGax9WCUoq2Y2E4cGDWR8`, serving commit
+`79e11a63ea48ed2292c7f3d5f562df047654d981` with the compatible API mapping.
+
+Following explicit approval, the migration was applied to verified external DEST
+and checked at **2026-11-18 11:19:37.934 UTC**. A complete before/after function
+comparison confirmed only the exact exception code changed. Owner, ACL,
+security-definer status and configuration were identical. Execution remained
+denied for `anon` and `authenticated`, and allowed for `service_role`.
+No saved settings or audit records were modified by the migration.
+
+Read-only Supabase log aggregates measured the exact conflict message:
+
+| UTC window on 2026-11-18 (start inclusive, end exclusive) | 40001 | PT409 |
+| --- | ---: | ---: |
+| 11:14:00–11:19:00 | 300 | 0 |
+| 11:19:00–11:19:45 (transition) | 37 | 1 |
+| 11:19:45–11:20:45 | 0 | 0 |
+
+The last old-code error was at 11:19:36.971 and the single PT409 at
+11:19:37.826. The completion acknowledgment above is not the exact commit
+instant. Both transition groups referenced the same backend session-start time.
+The after-window query ran at 11:21:58 UTC; twelve other Postgres log entries
+provided positive ingestion evidence within that interval.
+
+This supports the retry flood stopping immediately (previously 60 errors/minute).
+One minute is not proof of sustained resolution, log ingestion has no guaranteed
+completeness watermark, and production user saves were not generated to test it.
+The valid-save/stale-save HTTP contract was verified in isolated native PostgREST
+tests, not by mutating live settings.
