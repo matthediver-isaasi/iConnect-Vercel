@@ -124,3 +124,27 @@ merely finding an old deployment in history. It does not directly correlate
 individual Supabase failures to that deployment or prove it is the only caller.
 Updating that development deployment to include the fix, then remeasuring, is
 the next attribution test; no alias or deployment changes were made here.
+
+## User switched development aliases to corrected preview
+
+On 2026-11-18, read-only Vercel alias lookups confirmed `dev.iconn.app`,
+`*.dev.iconn.app` and `gfi.dev.iconn.app` now point to fixed preview deployment
+`dpl_73LzrMW5Fdb4kmhk6j9xcYv8xp6Q`. The wildcard's recorded update time was
+13:57:20.603 UTC; the apex and GFI aliases updated slightly earlier. Production
+remains on the fixed production deployment. Both destinations are READY on
+`postreg`, commit `96c17812865e2da890886579df410b9ce18785c7`.
+`bnms.dev.iconn.app` has no separate exact alias and falls under the wildcard.
+These are control-plane observations, not authenticated route tests.
+
+Supabase counts in completed half-open UTC windows:
+
+| Window | REST requests | Scoped PGRST200 | Scoped PGRST116 |
+| --- | ---: | ---: | ---: |
+| 13:56:00–13:57:00, before alias update | 9,754 | 33 | 33 |
+| 13:57:21–13:58:21, after alias update | 2,223 | 1 | 1 |
+
+Latest observed post-window coverage was 13:58:20.990 UTC. The large reduction
+supports improvement after routing correction, but traffic also declined and
+this is only a transition window. One residual pair remains unattributed;
+sustained zero-error clearance and signed-in access checks remain unverified.
+The user changed routing; the investigation made no production writes.
