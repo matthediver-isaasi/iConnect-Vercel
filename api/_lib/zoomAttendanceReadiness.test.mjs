@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import { evaluateAttendance, normalizeParticipantKey, buildAttendanceSnapshotIdempotencyKey } from './attendanceEngine.js';
 import { eventAttendancePolicy } from './attendancePolicy.js';
 import { createZoomAttendanceMatcher } from './zoomAttendanceIdentity.js';
+import { zoomAttendanceIntervalIdentities } from './zoomAttendanceIntervalIdentity.js';
 
 const source = fs.readFileSync(new URL('./zoomAttendanceService.js', import.meta.url), 'utf8')
   .replace(/^import[\s\S]*?from\s+['"][^'"]+['"];\n/gm, '')
@@ -18,7 +19,7 @@ async function run(durations, { nextPage = false, enabled = true, registrants = 
   const context = vm.createContext({
     console: { log() {}, error() {} }, URL, Date,
     normalizeParticipantKey, buildAttendanceSnapshotIdempotencyKey, eventAttendancePolicy,
-    createZoomAttendanceMatcher,
+    createZoomAttendanceMatcher, zoomAttendanceIntervalIdentities,
     fetchZoomAttendanceRegistrants: async () => {
       if (registrationError) throw new Error(registrationError);
       return registrants;
@@ -59,6 +60,25 @@ async function run(durations, { nextPage = false, enabled = true, registrants = 
   return { result, snapshots, ledger, requests };
 }
 
+test('anonymous simultaneous joins retain every person and replay stable identities', async () => {
+  const options = { participantIdentity: { user_email: '', join_time: '2026-01-01T12:00:00Z' } };
+  const first = await run([60, 60, 120], options);
+  const replay = await run([120, 60, 60], options);
+  assert.equal(first.snapshots[0].intervals.length, 3);
+  assert.equal(new Set(first.snapshots[0].intervals.map(i => i.participantKey)).size, 3);
+  assert.equal(first.snapshots[0].idempotencyKey, replay.snapshots[0].idempotencyKey);
+  assert.ok(first.ledger.every(row => !('_intervalIdentity' in row)));
+});
+
+test('provider identities preserve simultaneous people but deduplicate report repeats', async () => {
+  const first = await run([60, 60, 60], { participantIdentity: [
+    { id: 'one', user_email: '', join_time: '2026-01-01T12:00:00Z' },
+    { id: 'two', user_email: '', join_time: '2026-01-01T12:00:00Z' },
+    { id: 'one', user_email: '', join_time: '2026-01-01T12:00:00Z' },
+  ] });
+  assert.equal(first.snapshots[0].intervals.length, 2);
+  assert.equal(new Set(first.snapshots[0].intervals.map(i => i.participantKey)).size, 2);
+});
 test('actual adapter joins repeat sessions by explicit registrant ID without leaking internal identity fields', async () => {
   const result = await run([600,600], {
     fixtureBookings:[{id:'booking',attendee_email:'old@example.test',zoom_registrant_id:'r'}],

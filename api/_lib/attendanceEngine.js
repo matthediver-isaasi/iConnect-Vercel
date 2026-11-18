@@ -5,9 +5,25 @@ export function normalizeParticipantKey(participant) {
   return email || `provider:${participant.providerParticipantId || participant.intervalKey}`;
 }
 
+export function canonicalizeAttendanceIntervals(intervals) {
+  const seen = new Map();
+  return intervals.filter(item => {
+    // Aggregation-only callers may omit interval identity; never merge those.
+    if (!item.intervalKey) return true;
+    const key = JSON.stringify([item.participantKey || normalizeParticipantKey(item), item.intervalKey]);
+    const facts = JSON.stringify([
+      item.durationSeconds, item.joinedAt || null, item.leftAt || null,
+      item.email || null, item.providerParticipantId || null,
+    ]);
+    if (!seen.has(key)) { seen.set(key, facts); return true; }
+    if (seen.get(key) !== facts) throw new Error('Conflicting attendance interval facts');
+    return false;
+  });
+}
+
 export function aggregateParticipantIntervals(intervals) {
   const totals = new Map();
-  for (const interval of intervals) {
+  for (const interval of canonicalizeAttendanceIntervals(intervals)) {
     const key = interval.participantKey || normalizeParticipantKey(interval);
     totals.set(key, (totals.get(key) || 0) + Math.max(0, Number(interval.durationSeconds) || 0));
   }
@@ -75,7 +91,7 @@ export function buildAttendanceSnapshotIdempotencyKey({ provider, target, interv
       id, bookingType, memberId: memberId || null, ticketId: ticketId || null,
     }))
       .sort((a, b) => `${a.bookingType}:${a.id}`.localeCompare(`${b.bookingType}:${b.id}`)),
-    intervals: [...intervals].map((item) => ({
+    intervals: canonicalizeAttendanceIntervals(intervals).map((item) => ({
       participantKey: item.participantKey, intervalKey: item.intervalKey,
       durationSeconds: item.durationSeconds, joinedAt: item.joinedAt || null,
       leftAt: item.leftAt || null, email: item.email || null,
@@ -141,6 +157,7 @@ export async function persistAttendanceSyncState(db, {
 export async function persistAttendanceReport(db, {
   tenantId, provider, target, intervals, matches, bookings, idempotencyKey, metadata = {},
 }) {
+  intervals = canonicalizeAttendanceIntervals(intervals);
   const outcomes = evaluateAttendance({
     bookings, intervals, matches, thresholdMinutes: target.thresholdMinutes, syncStatus: 'succeeded',
   });

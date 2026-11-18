@@ -44,3 +44,14 @@ as 20 minutes. Generic attendance-engine tests did not cover the provider adapte
 **How to apply:** Test the actual Zoom-response conversion at threshold boundaries
 and across rejoins. Do not infer provider units from legacy database column names;
 round only for display, not qualification.
+
+Anonymous Zoom attendees sharing a join timestamp are not necessarily the same
+person. Preserve indistinguishable occurrences when the report provides no stable
+identity; provider participant IDs are interval identity, not booking authority.
+
+**Why:** Live snapshot conflicts came from multiple email-free attendees receiving
+the same anonymous timestamp key. Collapsing them would hide legitimate attendance.
+
+**How to apply:** Deduplicate only identified repeats before computing totals.
+Keep anonymous multiplicity stable across report reorder/replay, and never fix
+duplicate-key failures with unconditional database conflict-ignore behavior.

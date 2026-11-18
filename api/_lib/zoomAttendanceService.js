@@ -10,6 +10,7 @@ import { eventAttendancePolicy, resolveInheritedPolicy } from './attendancePolic
 import { agendaScheduledEndAt } from './attendanceSchedule.js';
 import { legacyBookingMatch } from './attendanceMatching.js';
 import { fetchZoomAttendanceRegistrants, createZoomAttendanceMatcher } from './zoomAttendanceIdentity.js';
+import { zoomAttendanceIntervalIdentities } from './zoomAttendanceIntervalIdentity.js';
 
 async function fetchZoomParticipants(token, zoomId, zoomType) {
   const isWebinar = zoomType === 'webinar';
@@ -284,7 +285,8 @@ export async function syncAttendanceForMeeting({
   let matchedCount = 0;
   let unmatchedCount = 0;
 
-  const allRecords = participants.map(p => {
+  const intervalIdentities = zoomAttendanceIntervalIdentities(participants);
+  const allRecords = participants.map((p, index) => {
     const email = (p.user_email || p.email || '').toLowerCase().trim();
     const identity = matchIdentity(p);
     const candidates = identity.candidates;
@@ -311,6 +313,7 @@ export async function syncAttendanceForMeeting({
       duration_minutes: Math.round(zoomDurationSeconds(p) / 60),
       duration_seconds: zoomDurationSeconds(p),
       _identity: identity,
+      _intervalIdentity: intervalIdentities[index],
       matched_booking_id: match?.booking_id || null,
       matched_member_id: match?.member_id || null,
       synced_at: now,
@@ -320,11 +323,11 @@ export async function syncAttendanceForMeeting({
   const deduped = new Map();
   const nullKeyRecords = [];
   for (const rec of allRecords) {
-    if (!rec.participant_email || !rec.join_time) {
+    if (!rec.join_time) {
       nullKeyRecords.push(rec);
       continue;
     }
-    const key = `${rec.zoom_meeting_id}|${rec._identity.registrantId || rec.participant_email}|${rec.join_time}`;
+    const key = rec._intervalIdentity.intervalKey;
     const existing = deduped.get(key);
     if (!existing || rec.duration_seconds > existing.duration_seconds) {
       deduped.set(key, rec);
@@ -332,10 +335,10 @@ export async function syncAttendanceForMeeting({
   }
   const records = [...deduped.values(), ...nullKeyRecords];
 
-  const intervals = records.map((record, index) => {
+  const intervals = records.map((record) => {
     const providerParticipantId = record._identity.registrantId
-      ? `registrant:${record._identity.registrantId}` : null;
-    const intervalKey = `${record.participant_email || 'anonymous'}:${record.join_time || index}`;
+      ? `registrant:${record._identity.registrantId}` : record._intervalIdentity.providerParticipantId;
+    const intervalKey = record._intervalIdentity.intervalKey;
     // Rejoins can report different account emails or omit a registrant ID.
     // After an unambiguous resolution, aggregate all sessions for that booking.
     const resolved = record._identity.candidates.length === 1 && !record._identity.ambiguous
@@ -430,7 +433,7 @@ export async function syncAttendanceForMeeting({
 
   const batchSize = 100;
   for (let i = 0; i < records.length; i += batchSize) {
-    const batch = records.slice(i, i + batchSize).map(({ duration_seconds, _identity, ...record }) => record);
+    const batch = records.slice(i, i + batchSize).map(({ duration_seconds, _identity, _intervalIdentity, ...record }) => record);
     const { error: insertError } = await supabase
       .from('zoom_attendance')
       .insert(batch);
