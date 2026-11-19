@@ -40,6 +40,15 @@ function fixture({ memberships = [], users = [], failure, update = true, identit
   return { run: () => promote(session, {}), calls, writes };
 }
 
+test('masquerading never triggers promotion reads or writes', async () => {
+  session.data.isMasquerading = true;
+  try {
+    const f = fixture({ memberships: [admin], users: [legacy] });
+    assert.equal(await f.run(), null);
+    assert.equal(f.calls.length, 0); assert.equal(f.writes.length, 0);
+  } finally { delete session.data.isMasquerading; }
+});
+
 test('ordinary members repeatedly resolve absence without errors, writes or invalid joins', async () => {
   const f = fixture({ memberships: [{ ...admin, role: 'member' }] });
   for (let i = 0; i < 4; i++) assert.equal(await f.run(), null);

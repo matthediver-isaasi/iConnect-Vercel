@@ -171,7 +171,9 @@ export default async function handler(req, res, {
     const isMasquerading = session?.data?.isMasquerading === true;
     const masqueradeAdminName = isMasquerading ? session.data.masqueradeAdminName : null;
 
-    return res.json({ ...member, sessionRole, isAdmin, canEditMembers, canManageCommunications, hasTenantUserLink, isMasquerading, masqueradeAdminName, tenantSlug, tenantDomain, canvasMemberSnapshot });
+    return res.json({ ...member, sessionRole, isAdmin, canEditMembers, canManageCommunications,
+      hasTenantUserLink: !isMasquerading && hasTenantUserLink,
+      isMasquerading, masqueradeAdminName, tenantSlug, tenantDomain, canvasMemberSnapshot });
   } catch (error) {
     if (sendSessionUnavailable(res, error)) return;
     console.error('Auth me error:', error);

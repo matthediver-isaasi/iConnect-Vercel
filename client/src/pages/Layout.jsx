@@ -107,6 +107,7 @@ import dougalAvatar from "/dougal-avatar.webp";
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from "@/api/base44Client";
 import { useSessionMemberRole } from "@/hooks/useSessionMemberRole";
+import { returnToAdmin } from "@/lib/endMasquerade";
 import { usePortalNavigation } from "@/hooks/usePortalNavigation";
 import {
   createSessionRoleKey,
@@ -1144,6 +1145,8 @@ export default function Layout({ children, currentPageName, authenticationOnly =
   } = useLayoutContext();
   
   // Initialize from sessionStorage immediately to prevent flicker
+  const [endingMasquerade, setEndingMasquerade] = useState(false);
+  const [masqueradeReturnError, setMasqueradeReturnError] = useState('');
   const [memberInfo, setMemberInfo] = useState(() => {
     const stored = localStorage.getItem('agcas_member');
     if (!stored) return null;
@@ -3565,7 +3568,11 @@ useEffect(() => {
                   variant="outline"
                   size="sm"
                   className="bg-white/20 border-white/40 text-white"
+                  disabled={endingMasquerade}
                   onClick={async () => {
+                    if (endingMasquerade) return;
+                    setEndingMasquerade(true);
+                    setMasqueradeReturnError('');
                     authGenerationRef.current += 1;
                     invalidateViewerSessionRequest(viewerSessionScope);
                     setSessionValidated(false);
@@ -3578,29 +3585,20 @@ useEffect(() => {
                     setAuthResolved(false);
                     setSessionValidatedAt(0);
                     try {
-                      const response = await fetch('/api/auth/end-masquerade', {
-                        method: 'POST',
-                        credentials: 'include',
-                        headers: { 'Content-Type': 'application/json' },
-                      });
-                      if (response.ok) {
-                        const data = await response.json();
-                        localStorage.removeItem('agcas_member');
-                        localStorage.removeItem('agcas_organization');
-                        window.location.href = data.returnUrl || '/members';
-                      } else {
-                        setAuthRevision(value => value + 1);
-                      }
+                      await returnToAdmin({ queryClient });
                     } catch (error) {
                       console.error('Failed to end masquerade:', error);
+                      setMasqueradeReturnError(error.message || 'Unable to return to admin. Please try again.');
+                      setEndingMasquerade(false);
                       setAuthRevision(value => value + 1);
                     }
                   }}
                   data-testid="button-end-masquerade"
                 >
                   <LogOut className="w-4 h-4 mr-1" />
-                  Return to Admin
+                  {endingMasquerade ? 'Returning to admin…' : 'Return to Admin'}
                 </Button>
+                {masqueradeReturnError && <span role="alert">{masqueradeReturnError}</span>}
               </div>
             )}
             <a

@@ -157,3 +157,17 @@ Recovery request gates must not turn confirmed guests into permanently blocked v
 operations. A blanket pause after a cold null session blocks legitimate guest actions.
 
 **How to apply:** Test cold guest public actions separately from signed-in failures. Keep confirmed-guest flows working under server authorization.
+
+Masquerading is not ordinary admin/portal SSO. Automatic team-account promotion
+must not apply while viewing another member, even if that member's identity also
+has team access.
+
+**Why:** Supporting unified-account promotion exposed a mismatch with legacy-only
+admin restoration and allowed a masquerade persona to acquire team context. The
+viewed member's assigned role remains meaningful; the original administrator's
+authority belongs only to the explicit return operation.
+
+**How to apply:** Revalidate the saved original identity for return, including
+unified accounts without legacy rows. Restrict already-promoted masquerade
+sessions on read, and clear the previous persona's client caches after successful
+restoration. Keep session replacement failures retryable.

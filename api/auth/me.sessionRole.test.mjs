@@ -66,6 +66,18 @@ const request = {
   query: { memberId: 'member-b', tenant: 'tenant-b' },
 };
 
+test('masquerading never exposes the team-account switch from preserved admin context', async () => {
+  const db = database({ data: { id:'role-a', tenant_id:'tenant-a', excluded_features:[] }, error:null });
+  const member = { ...baseMember, _sessionPreservedTenantUserId: 'old-admin' };
+  const deps = dependencies(db, member);
+  deps.readSession = async () => ({ data: { memberId:member.id, tenantId:member.tenant_id, isMasquerading:true } });
+  const res = response();
+  await handler(request,res,deps);
+  assert.equal(res.statusCode,200);
+  assert.equal(res.body.isMasquerading,true);
+  assert.equal(res.body.hasTenantUserLink,false);
+});
+
 test('lookup outage is 503, never an authoritative guest response', async () => {
   const { SessionUnavailableError } = await import('../_lib/sessionAvailability.js');
   const res = response();

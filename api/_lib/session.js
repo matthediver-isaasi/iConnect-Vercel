@@ -121,6 +121,17 @@ export function getBearerToken(req) {
   return null;
 }
 
+export function isolateMasqueradeSession(data) {
+  if (!data?.isMasquerading) return data;
+  const memberOnly = { ...data, userType: 'member' };
+  // Older sessions may already have been promoted. Strip effective team
+  // authority on every read, retaining only the separately named return data.
+  for (const key of ['tenantUserId', 'tenantUserEmail', 'preservedTenantUserId',
+    'preservedTenantUserEmail', 'preservedIdentityId', 'preservedTenantId',
+    'promotedFromMember', 'originalUserType']) delete memberOnly[key];
+  return memberOnly;
+}
+
 export async function getSession(req) {
   return boundedSessionLookup(() => readSession(req));
 }
@@ -186,7 +197,7 @@ async function readSession(req) {
       return null;
     }
     
-    const sessData = typeof data.sess === 'string' ? JSON.parse(data.sess) : data.sess;
+    const sessData = isolateMasqueradeSession(typeof data.sess === 'string' ? JSON.parse(data.sess) : data.sess);
     
     // A bearer token must resolve to a session that was issued as a bearer
     // session. This keeps the two auth methods cleanly separated so a web
@@ -244,16 +255,6 @@ export async function createSession(res, sessionData, options = {}) {
   const isOnIconnDomain = host.endsWith('.iconn.app') || host === 'iconn.app';
   const effectiveDomain = cookieDomain || (isOnIconnDomain ? PRODUCTION_COOKIE_DOMAIN : undefined);
   
-  // If replacing an existing session, delete it first (database only, not cookie)
-  if (replaceSessionId) {
-    try {
-      await supabase.from('session').delete().eq('sid', replaceSessionId);
-      console.log('[Session] Deleted old session:', replaceSessionId.substring(0, 8));
-    } catch (err) {
-      console.error('[Session] Error deleting old session:', err);
-    }
-  }
-  
   // Build session object in Express/connect-pg-simple compatible format
   // Spread sessionData to support both member and tenant_user sessions
   const sessObject = {
@@ -292,6 +293,15 @@ export async function createSession(res, sessionData, options = {}) {
       }
     }
     
+    // Do not destroy a usable masquerade/login session before its replacement
+    // exists and passes the access fence. A failed return must remain retryable.
+    if (replaceSessionId) {
+      const { error: replaceError } = await supabase.from('session').delete().eq('sid', replaceSessionId);
+      if (replaceError) {
+        await supabase.from('session').delete().eq('sid', sessionId);
+        throw replaceError;
+      }
+    }
     console.log('[Session] createSession: Session inserted into database:', sessionId.substring(0, 8));
     
     // Sign the cookie value like Express does
@@ -625,6 +635,7 @@ export async function destroySession(req, res, options = {}) {
  * @returns {Promise<object|null>} - The tenant_user object if promotion succeeds, null otherwise
  */
 async function tryPromoteMemberToTenantUser(session, req) {
+  if (session?.data?.isMasquerading) return null;
   if (!supabase || !session?.data?.identityId) {
     return null;
   }
@@ -886,6 +897,9 @@ async function readSessionTenantUser(req, existingSession) {
   const session = existingSession === SESSION_NOT_PROVIDED
     ? await getSession(req)
     : existingSession;
+  // Includes previously promoted masquerade sessions: never expose team
+  // authority until the explicit end-masquerade operation creates a new session.
+  if (session?.data?.isMasquerading) return null;
   
   console.log('[Session] getSessionTenantUser called, session data:', JSON.stringify({
     hasSession: !!session,

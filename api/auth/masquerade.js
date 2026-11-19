@@ -173,7 +173,7 @@ export default async function handler(req, res) {
       masqueradeAdminMemberId: adminMemberId,
       masqueradeAdminTenantId: tenantId,
       masqueradeAdminIdentityId: session.data?.identityId || null,
-      masqueradeAdminUserType: session.data?.userType || 'member',
+      masqueradeAdminUserType: adminTenantUserId ? 'tenant_user' : (session.data?.userType || 'member'),
       masqueradeReturnUrl: normalizeInternalReturnTo(returnUrl, '/members'),
     };
 
