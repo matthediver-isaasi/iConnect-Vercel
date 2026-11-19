@@ -75,6 +75,7 @@ function ReportInvoice({ payment, groupRef, testId }) {
   if (eventInvoiceId(payment) || eventInvoiceNumber(payment) || eventInvoiceAwaited(payment) || eventInvoiceNeedsAttention(payment)) {
     return <span className="inline-flex items-center gap-1">
       <EventInvoiceStatus record={payment} admin showInvoice testId={testId} />
+      {payment.invoiceCustomer?.name && <span className="text-xs text-muted-foreground">Billed to {payment.invoiceCustomer.name}</span>}
       <ActivityInvoiceActions compact booking={{ ...payment, booking_group_reference: groupRef }} />
     </span>;
   }

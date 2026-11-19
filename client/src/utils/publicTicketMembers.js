@@ -40,7 +40,7 @@ export function purchaseIdentity(person = {}) {
   };
 }
 
-export function validatePurchaseIdentities(purchaser, items) {
+export function validatePurchaseIdentities(purchaser, items, { optionalOrganization = false } = {}) {
   // UX-only validation. The server must reload ticket policy and resolve roles
   // from tenant-owned tickets; no client provisioning fields are authoritative.
   const enabledItems = items.filter(item => ticketMemberPolicy(item.ticketClass).create_member_records);
@@ -48,7 +48,7 @@ export function validatePurchaseIdentities(purchaser, items) {
   const identities = new Map();
   const add = (person, role, label) => {
     const identity = purchaseIdentity(person);
-    if (!identity.first_name || !identity.last_name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identity.email) || !identity.organization) {
+    if (!identity.first_name || !identity.last_name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identity.email) || (!optionalOrganization && !identity.organization)) {
       return `Please provide first name, last name, a valid email and organisation for ${label}.`;
     }
     const existing = identities.get(identity.email);

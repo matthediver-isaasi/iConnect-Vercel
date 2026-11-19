@@ -85,6 +85,58 @@ test('provisioning outage preserves ready evidence and returns a retryable outco
   assert.equal(db.writes[0].value.completion_evidence.status, 'free');
 });
 
+test('thrown completion-evidence failures do not escape confirmed booking or start provisioning', async () => {
+  let calls = 0;
+  const db = {
+    from() {
+      return {
+        update() { return this; }, eq() { return this; },
+        async in() { throw new Error('transport unavailable'); },
+      };
+    },
+    async rpc() { calls++; throw new Error('must not provision'); },
+  };
+  for (const event_kind of ['simple', 'complex']) {
+    const result = await completePublicTicketMembers({
+      db, purchase: { ...purchase, event_kind }, tenantId: 'tenant',
+      bookingIds: ['booking'], paymentStatus: 'paid', paymentIntentId: paid.id,
+    });
+    assert.deepEqual(result, { state: 'retryable', code: 'completion_evidence_unavailable' });
+  }
+  assert.equal(calls, 0);
+});
+
+test('thrown provisioning failures retain original ready evidence without repeating the RPC', async () => {
+  for (const event_kind of ['simple', 'complex']) {
+    const db = fixture([booking]);
+    let calls = 0;
+    db.rpc = async (name, args) => {
+      calls++;
+      assert.equal(name, 'provision_public_ticket_members');
+      assert.deepEqual(args, { p_purchase_id: purchase.id });
+      throw new Error('response lost after commit');
+    };
+    const result = await completePublicTicketMembers({
+      db, purchase: { ...purchase, event_kind }, tenantId: 'tenant',
+      bookingIds: ['booking'], paymentStatus: 'paid', paymentIntentId: paid.id,
+    });
+    assert.deepEqual(result, { state: 'retryable', code: 'provisioning_unavailable' });
+    assert.equal(calls, 1);
+    assert.equal(db.writes.length, 1);
+    assert.deepEqual(db.writes[0].value.completion_evidence, {
+      status: 'paid', complete_batch: true, payment_intent_id: paid.id,
+    });
+    assert.deepEqual(db.writes[0].value.booking_ids, ['booking']);
+  }
+});
+
+test('missing provisioning result is not reported as successful completion', async () => {
+  const db = fixture([booking], { data: null, error: null });
+  assert.deepEqual(await completePublicTicketMembers({
+    db, purchase, tenantId: 'tenant', bookingIds: ['booking'], paymentStatus: 'free',
+  }), { state: 'retryable', code: 'provisioning_unavailable' });
+});
+
 test('literal email query escapes regex metacharacters without treating wildcard email characters as patterns', async () => {
   const pattern = literalNormalizedEmailPattern(' A_*%+Test@Example.com ');
   const regex = new RegExp(pattern.replaceAll('[[:space:]]', '\\s'), 'i');

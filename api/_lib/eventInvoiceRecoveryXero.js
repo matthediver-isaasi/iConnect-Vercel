@@ -305,7 +305,23 @@ export async function createEventInvoiceRecoveryXero({
     let contact = snapshot.invoice.Contact;
     // Covers queued pre-selector member Stripe invoices too. Never rewrite an
     // existing contact/address, even if the contact appeared after checkout.
-    if (snapshot.paymentMethod === 'stripe' && snapshot.contact?.provenance?.kind === 'member') {
+    if (snapshot.bookingContractVersion === 2) {
+      const payer = snapshot.contact;
+      if (!payer?.provenance || !payer.name || payer.providerBindingConflict) throw new EventInvoiceRecoveryError('invoice_customer_identity_unverified');
+      let existing;
+      try {
+        existing = await lookupEventXeroContact(api, { name: payer.name, email: payer.email,
+          contactId: payer.providerCustomerId || null });
+      } catch (error) {
+        if (error instanceof EventInvoiceRecoveryError) throw error;
+        throw new EventInvoiceRecoveryError('invoice_customer_identity_unverified');
+      }
+      if (existing) contact = { ContactID: existing.ContactID };
+      else {
+        if (!payer.invoicingAddress) throw new EventInvoiceRecoveryError('invoice_address_required');
+        contact = { Name: payer.name, EmailAddress: payer.email, Addresses: [invoicingAddressToXero(payer.invoicingAddress)] };
+      }
+    } else if (snapshot.paymentMethod === 'stripe' && snapshot.contact?.provenance?.kind === 'member') {
       const policy = snapshot.invoiceAddressPolicy;
       if (policy && (policy.version !== 1 || policy.memberId !== snapshot.contact.provenance.id
         || policy.tenantId !== row.tenant_id
@@ -427,7 +443,7 @@ export async function createEventInvoiceRecoveryXero({
         throw new EventInvoiceRecoveryError('invoice_creation_ambiguous');
       }
       let contact = await prepareInvoiceContact();
-      if (snapshot.paymentMethod === 'stripe' && snapshot.contact?.provenance?.kind === 'member' && !contact.ContactID) {
+      if ((snapshot.bookingContractVersion === 2 || snapshot.paymentMethod === 'stripe' && snapshot.contact?.provenance?.kind === 'member') && !contact.ContactID) {
         // Xero PUT Contacts is create-only (POST is upsert). Do not embed an
         // address in an invoice's contact: a customer appearing after the last
         // read must cause a unique-name create rejection, not an address update.

@@ -1,5 +1,6 @@
 import { speakersInOrder } from "../../../shared/speakerOrder.js";
 import RegistrationAssociationField from "@/components/booking/RegistrationAssociationField";
+import { useUnifiedBookingCapability } from "@/hooks/useUnifiedBookingCapability";
 import TenantEventTimeDisplay from "@/components/events/TenantEventTimeDisplay";
 import { reconcilePrivateCart, mergeAllocationTicket } from "@/utils/privateTicketAudience";
 import { useTicketViewerKey } from "@/hooks/useTicketViewerKey";
@@ -106,6 +107,9 @@ function TrackAccessIndicator({ ticket, tracks }) {
 }
 
 function AddAttendeeModal({ open, onOpenChange, ticketClass, memberInfo, organizationInfo, onAddAttendee, existingEmails, isGroupEvent = false, allocationContext = null, requireJobTitle = false, eventId }) {
+  const capability = useUnifiedBookingCapability({ eventId, source: "complex", viewerId: memberInfo?.id,
+    tenantId: memberInfo?.tenant_id, enabled: open });
+  const unified = capability.data?.version === 2 && capability.data.enabled;
   const [selfJobTitle, setSelfJobTitle] = useState(memberInfo?.job_title || '');
   const [externalJobTitle, setExternalJobTitle] = useState('');
   useEffect(() => { if (open) setSelfJobTitle(memberInfo?.job_title || ''); }, [open, memberInfo?.job_title]);
@@ -180,7 +184,7 @@ function AddAttendeeModal({ open, onOpenChange, ticketClass, memberInfo, organiz
       toast.error('Please enter first and last name');
       return;
     }
-    if (ticketMemberPolicy(ticketClass).create_member_records && !externalOrganization.trim()) {
+    if (!unified && ticketMemberPolicy(ticketClass).create_member_records && !externalOrganization.trim()) {
       toast.error('Please enter this attendee’s organisation');
       return;
     }
@@ -306,7 +310,7 @@ function AddAttendeeModal({ open, onOpenChange, ticketClass, memberInfo, organiz
                 disabled={Boolean(allocationContext)}
               data-testid="input-external-email"
             />
-            {!memberInfo && open && !allocationContext ? <RegistrationAssociationField
+            {!unified && !memberInfo && open && !allocationContext ? <RegistrationAssociationField
               eventId={eventId} eventKind="complex"
               placeholder="Organisation (optional)"
               value={{ organization: externalOrganization, registration_association: externalAssociation }}
@@ -879,6 +883,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
         purchaser_email: data.purchaser_email,
         purchaser_info: data.purchaser_info || null,
         purchase_request_id: data.purchase_request_id,
+        ...(data.booking_contract_version === 2 ? { booking_contract_version: 2, unifiedInvoiceSelection: data.unifiedInvoiceSelection } : {}),
         ...(data.invoiceAddressSelection ? { invoiceAddressSelection: data.invoiceAddressSelection } : {}),
         items,
         selected_voucher_ids: data.selected_voucher_ids || [],
@@ -921,6 +926,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
         purchase_order_number: data.purchase_order_number || null,
         purchaser_info: data.purchaser_info || null,
         purchase_request_id: data.purchase_request_id,
+        ...(data.booking_contract_version === 2 ? { booking_contract_version: 2, unifiedInvoiceSelection: data.unifiedInvoiceSelection } : {}),
         selected_voucher_ids: data.selected_voucher_ids || [],
         voucher_order_manual: data.voucher_order_manual === true,
         training_fund_amount: Number(data.training_fund_amount) || 0,

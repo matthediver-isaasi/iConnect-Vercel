@@ -49,7 +49,9 @@ export default function PublicInvoicePoBilling({ bookingId, isComplex, tenantId,
   };
   return <section aria-label="Booking invoice" className="rounded-lg border bg-muted/20 p-4 space-y-4">
     <div><h3 className="font-semibold">Invoice for the whole booking</h3>
-      <p className="text-sm text-muted-foreground">One invoice covers every attendee in this booking, including attendees hidden by report filters. It is billed to the organisation if supplied, otherwise the booker, and emailed to the booker, not individual attendees.</p></div>
+      <p className="text-sm text-muted-foreground">{data?.automatic
+        ? 'The original checkout customer and payment instructions are frozen. Invoicing is automatic and does not require a member account or administrator approval.'
+        : 'One invoice covers every attendee in this booking, including attendees hidden by report filters. It is billed to the organisation if supplied, otherwise the booker, and emailed to the booker, not individual attendees.'}</p></div>
     {billing.isLoading && <div role="status" className="space-y-2"><span className="text-sm">Loading invoice details…</span><div className="h-16 rounded bg-muted animate-pulse" /></div>}
     {billing.isError && <div role="alert" className="space-y-2"><p className="text-sm text-destructive">{billing.error.message}</p><Button variant="outline" onClick={() => billing.refetch()}>Retry invoice details</Button></div>}
     {data && <>
@@ -66,16 +68,20 @@ export default function PublicInvoicePoBilling({ bookingId, isComplex, tenantId,
           <span>{money(line.amount, data.currency)}</span>
         </li>)}</ul> : <p className="text-sm text-muted-foreground">No invoice lines available. Review the booking before generating an invoice.</p>}
       </div>
-      {!data.member?.id && <div className="space-y-2"><p className="text-sm">Create the original booker’s member account before generating the booking invoice.</p>
+      {!data.member?.id && <div className="space-y-2"><p className="text-sm">{data.automatic ? 'Member conversion is optional and does not change this invoice.' : 'Create the original booker’s member account before generating the booking invoice.'}</p>
         {canCreateGuestMember && onCreateMember && <Button variant="outline" onClick={() => onCreateMember({ bookingId, isComplex: !!isComplex, identity: "purchaser" })}>Create booker account</Button>}</div>}
       {data.invoice && <div role="status" className="rounded-md border p-3 text-sm"><p className="font-medium">Invoice {data.invoice.number || data.invoice.id || "requested"}</p><p>Status: {data.invoice.status || "Pending"}{data.invoice.provider ? ` · ${data.invoice.provider}` : ""}</p></div>}
       {queued && <p role="status" className="text-sm">Invoice queued. No further generation is needed; status will refresh automatically.</p>}
       {data.invoice?.paymentStatus && <p className="text-sm">Payment status: {data.invoice.paymentStatus}</p>}
       {(data.reason || status === "needs_review") && <p role="status" className="text-sm">{status === "needs_review" && "Needs review: "}{data.reason || "An administrator must review this booking before an invoice can be generated."}</p>}
+      {data.automatic && data.nextRetryAt && <p className="text-sm">Next invoice handoff retry: {new Date(data.nextRetryAt).toLocaleString("en-GB")}.</p>}
+      {data.automatic && data.provisionState === 'needs_review' && <p role="status" className="text-sm">Optional member creation needs review. The registration and original invoice customer are unchanged. Use the separate member conversion action where appropriate.</p>}
       {generate.isError && <p role="alert" className="text-sm text-destructive">{generate.error.message}</p>}
       {canGenerate && <Button disabled={billing.isFetching || generate.isPending} onClick={() => { generate.reset(); setConfirmation(true); }}>Generate invoice</Button>}
       {data.invoice && <p className="text-sm">Invoice email: {({sent:"Sent to the approved booker",sent_external:"Already sent by the accounting provider",pending:"Awaiting automatic delivery",preparing:"Preparing",sending:"Sending",unknown:"Delivery uncertain — review before resending",needs_review:"Needs review",legacy_review:"Existing invoice — delivery needs review"})[data.invoice.emailStatus] || "Awaiting automatic delivery"}.</p>}
-      <p className="text-xs text-muted-foreground">Once created, the invoice is emailed automatically to the booker shown above. No payment is recorded.</p>
+      <p className="text-xs text-muted-foreground">{data.automatic
+        ? 'Payment and invoice delivery follow the original checkout instructions. Conversion never redirects or reissues an invoice.'
+        : 'Once created, the invoice is emailed automatically to the booker shown above. No payment is recorded.'}</p>
     </>}
     <Dialog open={confirmation} onOpenChange={open => { if (!generate.isPending) setConfirmation(open); }}>
       <DialogContent onEscapeKeyDown={event => { if (generate.isPending) event.preventDefault(); }} onPointerDownOutside={event => { if (generate.isPending) event.preventDefault(); }}>

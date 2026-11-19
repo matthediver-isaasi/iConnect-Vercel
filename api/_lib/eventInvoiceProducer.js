@@ -196,7 +196,7 @@ export function capturedEventSettlement({ paymentIntent, paymentIntentId, amount
   };
 }
 
-async function loadContext(db, tenantId) {
+export async function loadEventInvoiceContext(db, tenantId) {
   const settingsResult = await db.from('system_settings')
     .select('setting_key, setting_value').eq('tenant_id', tenantId)
     .in('setting_key', ['xero_invoice_enabled', 'xero_sales_account_code', 'xero_invoice_status', 'xero_stripe_bank_account_code',
@@ -258,7 +258,7 @@ export function eventInvoiceBooker(booker) {
 export async function enqueueCheckoutEventInvoice({
   db, tenantId, source, bookingGroupReference, event, amount, currency,
   paymentMethod, paymentIntentId, paymentIntent, contact, purchaseOrderNumber,
-  poToFollow, buildLines, booker, now = new Date(),
+  poToFollow, buildLines, booker, now = new Date(), frozenContext, bookingContractVersion,
 }, { enqueue, captureAccountingEvent, logger = console } = {}) {
   if (paymentMethod === 'public_invoice_po' || paymentMethod === 'free' || Number(amount) <= 0) {
     return { status: 'not_applicable' };
@@ -285,25 +285,32 @@ export async function enqueueCheckoutEventInvoice({
   };
   try {
     if (!tenantId || event?.tenant_id !== tenantId) throw new Error('Checkout tenant binding is missing or inconsistent');
-    context = await loadContext(db, tenantId);
+    context = frozenContext || await loadEventInvoiceContext(db, tenantId);
+    if (context.reviewReason) throw new Error(context.reviewReason);
     if (context.excluded) return { status: 'not_applicable' };
     if (context.provider?.name === 'quickbooks') {
       try {
         return await (await import('./accountingEventSource.js')).enqueueQuickBooksEventInvoice({
           db, tenantId, source, bookingGroupReference, event, amount, currency,
-          paymentMethod, paymentIntentId, paymentIntent, contact, purchaseOrderNumber, poToFollow, buildLines, booker, now,
+          paymentMethod, paymentIntentId, paymentIntent, contact, purchaseOrderNumber, poToFollow, buildLines, booker, now, bookingContractVersion,
         }, context, { capture: captureAccountingEvent });
       } catch (error) {
         // Never hand accepted/uncertain QuickBooks work to the Xero writer.
         logger.error('[Event invoice recovery] QuickBooks capture unavailable');
-        const { error: markerError } = await db.from(source).update({
-          invoice_recovery_status: 'needs_review', invoice_recovery_next_attempt_at: null,
-        }).eq('tenant_id', tenantId).eq('booking_group_reference', bookingGroupReference);
-        if (markerError) logger.error('[Event invoice recovery] QuickBooks review marker unavailable');
+        try {
+          const { error: markerError } = await db.from(source).update({
+            invoice_recovery_status: 'needs_review', invoice_recovery_next_attempt_at: null,
+          }).eq('tenant_id', tenantId).eq('booking_group_reference', bookingGroupReference);
+          if (markerError) logger.error('[Event invoice recovery] QuickBooks review marker unavailable');
+        } catch {
+          // A rejected marker write must not fall through the outer catch into
+          // the Xero queue after QuickBooks may already have accepted capture.
+          logger.error('[Event invoice recovery] QuickBooks review marker unavailable');
+        }
         return { status: 'needs_review', queued: false, warning: 'Booking confirmed; invoice requires review.' };
       }
     }
-    if (paymentMethod === 'card') {
+    if (paymentMethod === 'card' && bookingContractVersion !== 2) {
       if (contact?.provenance?.kind === 'member') {
         snapshot.invoiceAddressPolicy = await loadPaidEventInvoicePolicy({
           db, tenantId, eventId: event.id, source, contact, paymentIntent, provider: context.provider,
@@ -315,6 +322,7 @@ export async function enqueueCheckoutEventInvoice({
       snapshot.contact = contact ? clone(contact) : null;
     }
     snapshot.provider = context.provider;
+    if (bookingContractVersion === 2) snapshot.bookingContractVersion = 2;
     const accountCode = event.xero_account_code?.trim() || context.settings.xero_sales_account_code || '200';
     const invoiceDate = new Date(now);
     const dueDate = new Date(now);

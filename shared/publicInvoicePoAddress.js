@@ -6,11 +6,11 @@ export function normalizePublicInvoicePoAddress(info = {}) {
   ]));
 }
 
-export function publicInvoicePoAddressError(info = {}, { required = true } = {}) {
+export function publicInvoicePoAddressError(info = {}, { required = true, requireOrganization = true } = {}) {
   const error = invoicingAddressError(info);
   if (error) return error;
   if (!required) return null;
-  if (typeof info.organization !== 'string' || !info.organization.trim()) return 'Organisation name is required for the invoice.';
+  if (requireOrganization && (typeof info.organization !== 'string' || !info.organization.trim())) return 'Organisation name is required for the invoice.';
   const address = normalizePublicInvoicePoAddress(info);
   for (const [key, label] of [
     ['invoicing_address_line1', 'Invoice address line 1'],

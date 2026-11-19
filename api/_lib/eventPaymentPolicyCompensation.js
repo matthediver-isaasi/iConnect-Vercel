@@ -2,6 +2,28 @@ function normalizeEmail(value) {
   return String(value || '').trim().toLowerCase();
 }
 
+// Stripe's immutable metadata determines payment authority. A browser cannot
+// downgrade a version-2 payment by omitting the checkout version.
+export function assertUnifiedBookingPaymentAuthority({
+  paymentIntent, attempt, requestedVersion, tenantId, eventId, source, memberId,
+} = {}) {
+  const metadata = paymentIntent?.metadata || {};
+  const contract = attempt?.contract;
+  const unifiedPayment = metadata.unified_booking_contract_id !== undefined || metadata.unified_booking_version !== undefined;
+  if (!unifiedPayment && !contract) return;
+  if (!unifiedPayment || requestedVersion !== 2 || metadata.unified_booking_version !== '2'
+    || !contract || contract.snapshot?.version !== 2 || !contract.id
+    || metadata.unified_booking_contract_id !== contract.id
+    || contract.tenant_id !== tenantId || contract.event_id !== eventId || contract.source !== source
+    || contract.member_id !== (memberId || null) || attempt.source !== source || attempt.p_tenant_id !== tenantId
+    || !attempt.key || !contract.payment_intent_id || contract.payment_intent_id !== paymentIntent?.id
+    || metadata.tenant_id !== tenantId || metadata.event_id !== eventId) {
+    throw Object.assign(new Error('Payment requires its original authorised booking contract; do not pay again'), {
+      statusCode: 403, code: 'UNIFIED_PAYMENT_AUTHORITY_MISMATCH',
+    });
+  }
+}
+
 function allocationMatches(metadata, allocationContext) {
   if (!allocationContext) return true;
   return metadata.allocation_invitation_id === allocationContext.invitationId
@@ -48,9 +70,15 @@ export async function compensateRejectedEventCreditPayment({
   purchaserEmail,
   allocationContext = null,
   expectedCreditSnapshot = null,
+  unifiedAuthority = null,
   refundSucceeded,
   cancelAuthorization,
 }) {
+  try {
+    assertUnifiedBookingPaymentAuthority({ ...unifiedAuthority, paymentIntent, tenantId, eventId });
+  } catch {
+    return { ok: false, compensated: false, reason: 'unverified_binding' };
+  }
   const metadata = paymentIntent?.metadata || {};
   const expectedEmail = normalizeEmail(purchaserEmail);
   const intentEmail = normalizeEmail(metadata.member_email || paymentIntent?.receipt_email);

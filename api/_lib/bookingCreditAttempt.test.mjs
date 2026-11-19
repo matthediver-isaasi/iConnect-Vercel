@@ -36,6 +36,20 @@ function dbFor(state) {
   };
 }
 test.beforeEach(()=>{globalThis[fixture]={tenant:{id:'t'},member:{id:'m'}};});
+test('unknown versions cannot silently enter the historical booking path',async()=>{
+  const db=dbFor({});
+  await assert.rejects(()=>api.runBookingCreditAttempt({db,req:{},body:{booking_contract_version:3},source:'booking',
+    work:()=>assert.fail('must not book')}),error=>error.statusCode===400);
+  assert.deepEqual(db.calls,[]);
+});
+test('positive new-flow balances cannot become free or paid without the original bound payment',async()=>{
+  for(const paymentMethod of ['free','card','mixed']){
+    const db=dbFor({});
+    await assert.rejects(()=>api.finalizeBookingCredit(db,{contract:{payment_intent_id:null}},
+      {eventId:'e',rows:[],funding:{invoiceInput:{amount:20,paymentMethod}}}),/verified original payment/);
+    assert.deepEqual(db.calls,[]);
+  }
+});
 test('stable canonical fingerprint detects changed funding but not object key order',()=>{
   assert.equal(api.bookingAttemptFingerprint(body),api.bookingAttemptFingerprint({...body,communication_nonce:'optional'}));
   assert.equal(api.bookingAttemptFingerprint({a:1,b:2}),api.bookingAttemptFingerprint({b:2,a:1}));

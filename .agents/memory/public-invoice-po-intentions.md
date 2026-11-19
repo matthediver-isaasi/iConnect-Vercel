@@ -3,6 +3,10 @@ name: Public Invoice / PO intentions
 description: Why record-only registrations must remain separate from invoicing and attendee membership.
 ---
 
+> Scope clarification (2026-11-19): the record-only/admin-approval policy below
+> remains authoritative for historical bookings and old attempts, not the
+> approved new unified flow. See [Unified booking invoice policy](unified-booking-invoice-policy.md).
+
 Public Invoice / PO is a registration intention, not an invoice or a receivable. Do not introduce collection, invoice recovery, accounting contacts, or automatic conversion as an incidental extension of booking processing.
 
 The owner now authorises a separate, explicit administrator **Generate invoice**

@@ -26,13 +26,13 @@ export function normalizePublicInvoicePurchaser(info = {}) {
   };
 }
 
-export function isPublicInvoicePurchaserComplete(info = {}) {
+export function isPublicInvoicePurchaserComplete(info = {}, { unified = false } = {}) {
   const normalized = normalizePublicInvoicePurchaser(info);
   return Boolean(
     normalized.first_name
     && normalized.last_name
     && /\S+@\S+\.\S+/.test(normalized.email)
-    && normalized.organization
-    && !publicInvoicePoAddressError(info, { required: true })
+    && (unified || normalized.organization)
+    && !publicInvoicePoAddressError(info, { required: true, requireOrganization: !unified })
   );
 }

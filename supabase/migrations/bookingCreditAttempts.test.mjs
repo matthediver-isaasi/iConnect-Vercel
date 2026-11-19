@@ -182,6 +182,143 @@ test('booking attempt fencing, atomic funding, capacity rollback, recovery and o
       assert.equal(sql(`SELECT funding->'invoiceInput'->>'amount' FROM booking_credit_attempt WHERE purchase_key='${key}';`),'10');
       assert.equal(Number(sql(`SELECT value FROM voucher WHERE id='${credit}';`)),0);
     }
+    // Install the additive unified contract after proving the unchanged legacy
+    // funding path, then exercise it against the same real capacity functions.
+    sql(`
+      ALTER TABLE booking ADD COLUMN invoice_recovery_status text;
+      ALTER TABLE booking ADD COLUMN purchaser_context jsonb;
+      ALTER TABLE booking ADD COLUMN stripe_payment_intent_id text;
+      ALTER TABLE booking ADD COLUMN attendee_first_name text;
+      ALTER TABLE booking ADD COLUMN attendee_last_name text;
+      ALTER TABLE complex_event_booking ADD COLUMN invoice_recovery_status text;
+      ALTER TABLE complex_event_booking ADD COLUMN purchaser_context jsonb;
+      ALTER TABLE complex_event_booking ADD COLUMN stripe_payment_intent_id text;
+      ALTER TABLE complex_event_booking ADD COLUMN attendee_first_name text;
+      ALTER TABLE complex_event_booking ADD COLUMN attendee_last_name text;
+      ALTER TABLE member ADD COLUMN first_name text;
+      ALTER TABLE member ADD COLUMN last_name text;
+      ALTER TABLE member ADD COLUMN supplied_organization_name text;
+      ALTER TABLE member ADD COLUMN organization_group_id uuid;
+      ALTER TABLE member ADD COLUMN IF NOT EXISTS role_id uuid;
+      ALTER TABLE member ADD COLUMN role_effective_from date;
+      ALTER TABLE member ADD COLUMN login_enabled boolean;
+      ALTER TABLE member ADD COLUMN show_in_directory boolean;
+      ALTER TABLE member ADD COLUMN communications_opted_out_all boolean;
+      ALTER TABLE member ADD COLUMN status text;
+      ALTER TABLE member ADD COLUMN is_guest boolean;
+      ALTER TABLE member ALTER COLUMN id SET DEFAULT gen_random_uuid();
+      CREATE FUNCTION normalize_public_ticket_email(value text) RETURNS text LANGUAGE sql IMMUTABLE STRICT AS $$ SELECT lower(btrim(value)) $$;
+      CREATE UNIQUE INDEX member_public_ticket_email_normalized_unique ON member(tenant_id,normalize_public_ticket_email(email));
+      CREATE TABLE role(id uuid PRIMARY KEY,tenant_id uuid,is_admin boolean DEFAULT false,is_tenant_admin boolean DEFAULT false,
+        requires_organization boolean DEFAULT false,requires_effective_from_date boolean DEFAULT false,max_members integer);
+      INSERT INTO role(id,tenant_id) VALUES('00000000-0000-4000-8000-000000000031','${t}');
+      ALTER TABLE booking ADD COLUMN xero_invoice_id text,ADD COLUMN xero_invoice_number text,ADD COLUMN total_cost numeric,ADD COLUMN currency text;
+      ALTER TABLE complex_event_booking ADD COLUMN xero_invoice_id text,ADD COLUMN xero_invoice_number text,ADD COLUMN total_cost numeric,ADD COLUMN currency text;
+      CREATE TABLE tenant_accounting_settings(tenant_id uuid,active_provider text);
+      CREATE TABLE quickbooks_token(id uuid,app_tenant_id uuid,realm_id text,environment text);
+      INSERT INTO tenant_accounting_settings VALUES('${t}','quickbooks');
+      INSERT INTO quickbooks_token VALUES('${t}','${t}','original-realm','production');
+    `);
+    for(const migration of [
+      '202607200001_public_invoice_po.sql',
+      '202611300001_event_invoice_recovery.sql','202612040001_event_invoice_future_tax_authority.sql',
+      '202612050001_accounting_request_queue.sql','202612050002_accounting_request_gc_preparation.sql',
+      '202612050005_event_accounting_queue.sql','202612090003_public_invoice_po_billing.sql',
+      '202612090004_public_invoice_booker_member.sql','202612090007_public_po_approval_guard.sql',
+      '202612090008_public_po_invoice_email.sql','202701050001_public_po_booker_correction.sql',
+      '202701220001_unified_booking_contract.sql',
+    ]) sql(readFileSync(new URL('./'+migration,import.meta.url),'utf8'));
+    assert.equal(sql(`SELECT unified_booking_readiness()->>'enabled';`),'false');
+    assert.equal(sql(`SELECT has_function_privilege('authenticated','unified_booking_finalize(uuid,text,uuid,uuid,jsonb,jsonb)','EXECUTE');`),'f');
+    assert.equal(sql(`SELECT has_function_privilege('service_role','unified_booking_finalize_core(uuid,text,uuid,uuid,jsonb,jsonb)','EXECUTE');`),'f');
+    assert.equal(sql(`SELECT has_table_privilege('authenticated','unified_booking_contract','SELECT');`),'f');
+    const customer={name:'Guest Booker',email:'guest@example.invalid',provenance:{kind:'guest_purchaser'}};
+    for (const source of ['booking','complex_event_booking']) {
+      const id=source==='booking'?'00000000-0000-4000-8000-000000000021':'00000000-0000-4000-8000-000000000022';
+      const snapshot={version:2,request:{booker:{email:'guest@example.invalid'},selection:null},
+        booker:{email:'guest@example.invalid',first_name:'Guest',last_name:'Booker'},contact:customer,policies:[]};
+      const prepare=`SELECT unified_booking_prepare('${id}','${t}','${source}','${e}',NULL,'${JSON.stringify(snapshot)}');`;
+      if(source==='booking'){
+        assert.match(sql(`DO $$ BEGIN
+          BEGIN PERFORM unified_booking_prepare('${id}','${t}','${source}','${e}',NULL,'${JSON.stringify(snapshot)}');
+           RAISE EXCEPTION 'unsafe enabled'; EXCEPTION WHEN OTHERS THEN
+           IF SQLERRM NOT LIKE 'Unified booking is not enabled%' THEN RAISE; END IF; END;
+        END $$; SELECT 'blocked';`),/blocked/);
+        sql('UPDATE unified_booking_rollout SET enabled=true,reader_version=2,worker_version=2;');
+      }
+      sql(prepare);
+      sql(`SELECT unified_booking_begin('${id}','${t}','unified-${source}','${f}','${'c'.repeat(64)}');`);
+      const unifiedRows=[{attendee_email:'guest@example.invalid',status:'confirmed',ticket_price:12,payment_method:'invoice',
+        purchaser_context:{classification:'public_non_member',booking_contract_version:2,original_payment_method:'public_invoice_po',
+          details:snapshot.booker,invoice_customer:{name:customer.name,kind:customer.provenance.kind}}}];
+      const unifiedFunding={payableMinor:1200,voucherMinor:0,voucherIds:[],trainingFundMinor:0,expectedOrganizationId:null,
+        currency:'GBP',invoiceInput:{amount:12,currency:'GBP',paymentMethod:'public_invoice_po',contact:customer},
+        preparedInvoice:{version:2,status:'pending',provider:'xero',snapshot:{provider:{connectionId:'original',xeroTenantId:'company'}}}};
+      const call=`SELECT unified_booking_finalize('${t}','unified-${source}','${f}','${e}','${JSON.stringify(unifiedRows)}','${JSON.stringify(unifiedFunding)}')->>'success';`;
+      assert.equal(sql(call),'true');
+      assert.equal(sql(call),'true','idempotent replay');
+      assert.equal(sql(`SELECT count(*) FROM ${source} WHERE booking_group_reference='unified-${source}';`),'1');
+      assert.equal(sql(`SELECT state FROM unified_booking_invoice WHERE purchase_key='unified-${source}';`),'pending');
+      assert.equal(sql(`SELECT member_id IS NULL AND actor_id IS NULL AND invoice_status='pending' AND email_status='pending'
+        FROM public_invoice_po_billing WHERE booking_group_reference='unified-${source}';`),'t');
+      assert.equal(sql(`SELECT invoice_recovery_status FROM ${source} WHERE booking_group_reference='unified-${source}';`),'pending');
+      assert.equal(sql(`SELECT unified_booking_provision('${t}','unified-${source}')->>'state';`),'not_applicable');
+      // A browser role has neither a private read nor an invoice writer.
+      assert.equal(sql(`SELECT has_table_privilege('anon','unified_booking_invoice','INSERT');`),'f');
+    }
+    const claimed=JSON.parse(sql(`SELECT unified_booking_invoice_claim();`));
+    assert.equal(claimed.prepared.snapshot.provider.connectionId,'original');
+    assert.equal(sql(`SELECT unified_booking_invoice_finish('${t}','${claimed.purchase_key}','${f}',true);`),'f','wrong fence');
+    assert.equal(sql(`SELECT unified_booking_invoice_finish('${t}','${claimed.purchase_key}','${claimed.lease_token}',true);`),'t');
+    const delayed={version:1,preparation:true,environment:'production',bookingContractVersion:2,payment:null,
+      linkage:{source:'booking',group:'unified-booking'},approvalProvider:{connectionId:t,realmId:'original-realm'},
+      invoice:{eventId:e,capturedAt:'2020-01-01T00:00:00Z',paymentMethod:'invoice',amount:12,currency:'GBP'}};
+    sql(`UPDATE unified_booking_invoice SET prepared=jsonb_build_object('provider','quickbooks','snapshot','${JSON.stringify(delayed)}'::jsonb)
+      WHERE purchase_key='unified-booking';
+      UPDATE booking SET created_at='2020-01-01' WHERE booking_group_reference='unified-booking';`);
+    assert.equal(sql(`SELECT (accounting_event_capture('${t}','booking','unified-booking','${t}','original-realm','${JSON.stringify(delayed)}')).id IS NOT NULL;`),'t',
+      'exact committed outbox remains authoritative after both legacy age windows expire');
+    assert.equal(sql(`SELECT (accounting_event_capture('${t}','booking','unified-booking','forged-company','different-realm','{}')).company_id;`),'original-realm',
+      'existing queue owner wins over changed retry settings');
+    for (const [suffix, enableLogin, duplicate] of [['23',false,false],['24',true,false],['25',false,true]]) {
+      const request=`00000000-0000-4000-8000-0000000000${suffix}`;
+      const email=`buyer${suffix}@example.invalid`;
+      const buyer={first_name:'Original',last_name:'Booker',email};
+      const snap={version:2,request:{booker:buyer},booker:buyer,contact:{name:'Original Booker',email,provenance:{kind:'guest_purchaser'}},
+        policies:[{ticketId:e,createMember:true,enableLogin,roleId:'00000000-0000-4000-8000-000000000031'}]};
+      const bookingRows=[{ticket_class_id:e,attendee_email:duplicate?'fixture@example.invalid':`attendee${suffix}@example.invalid`,
+        attendee_first_name:'Separate',attendee_last_name:'Attendee',status:'confirmed',ticket_price:0,payment_method:'free',
+        purchaser_context:{classification:'public_non_member',booking_contract_version:2,details:buyer,
+          invoice_customer:{name:snap.contact.name,kind:snap.contact.provenance.kind}}}];
+      const funding={payableMinor:0,voucherMinor:0,voucherIds:[],trainingFundMinor:0,expectedOrganizationId:null,currency:'GBP',
+        invoiceInput:{amount:0,contact:snap.contact},preparedInvoice:{version:2,status:'not_applicable',snapshot:null}};
+      sql(`SELECT unified_booking_prepare('${request}','${t}','booking','${e}',NULL,'${JSON.stringify(snap)}');
+        SELECT unified_booking_begin('${request}','${t}','optional-${suffix}','${f}','${'d'.repeat(64)}');
+        SELECT unified_booking_finalize('${t}','optional-${suffix}','${f}','${e}','${JSON.stringify(bookingRows)}','${JSON.stringify(funding)}');`);
+      const state=sql(`SELECT unified_booking_provision('${t}','optional-${suffix}')->>'state';`);
+      assert.equal(state,duplicate?'needs_review':'completed',
+        sql(`SELECT provision_error_code FROM unified_booking_invoice WHERE purchase_key='optional-${suffix}';`));
+      assert.equal(sql(`SELECT count(*) FROM booking WHERE booking_group_reference='optional-${suffix}' AND status='confirmed';`),'1');
+      assert.equal(sql(`SELECT count(*) FROM public_invoice_po_billing WHERE booking_group_reference='optional-${suffix}';`),'0','free purchases never create invoices');
+      if(!duplicate){
+        assert.equal(sql(`SELECT bool_and(organization_id IS NULL AND organization_group_id IS NULL AND login_enabled=${enableLogin})
+          FROM member WHERE email IN ('${email}','attendee${suffix}@example.invalid');`),'t');
+        assert.equal(sql(`SELECT jsonb_array_length(provisioned) FROM unified_booking_invoice WHERE purchase_key='optional-${suffix}';`),'2');
+        assert.equal(sql(`SELECT unified_booking_provision('${t}','optional-${suffix}')->>'state';`),'completed','replay never inserts duplicate accounts');
+      } else {
+        assert.equal(sql(`SELECT count(*) FROM member WHERE email='${email}';`),'0','optional failure rolls back every account, not registration');
+      }
+    }
+    // Explicit manual conversion can associate activity with the original
+    // booker even when no member creation was permitted by the ticket.
+    const bId=sql(`SELECT id FROM booking WHERE booking_group_reference='unified-booking';`);
+    sql(`UPDATE booking SET attendee_email='separate@example.invalid' WHERE id='${bId}';`);
+    const converted=JSON.parse(sql(`SELECT create_public_invoice_booker('${t}','${bId}',false,
+      'Guest','Booker','guest@example.invalid','',NULL,'00000000-0000-4000-8000-000000000031');`));
+    assert.ok(converted.member.id);
+    assert.equal(sql(`SELECT member_id::text FROM public_invoice_po_billing WHERE booking_group_reference='unified-booking';`),converted.member.id);
+    assert.equal(sql(`SELECT count(*) FROM booking WHERE id='${bId}' AND member_id IS NULL;`),'1','booker conversion is not attendee re-parenting');
+    assert.equal(sql(`SELECT prepared#>>'{snapshot,approvalProvider,connectionId}' FROM unified_booking_invoice WHERE purchase_key='unified-booking';`),t);
   } finally {
     if(started) run('pg_ctl',['-D',h.data,'-m','immediate','-w','stop']);
     await h.cleanup();

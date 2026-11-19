@@ -2,6 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {deliverPublicPoInvoice,publicPoEmailRecipient} from './publicPoInvoiceEmail.js';
 import {sendEmail} from './emailService.js';
+test('new automatic member and non-member invoices use the frozen booker, not the selected customer or attendee',()=>{
+ for(const member_id of [null,'safely-associated-member']){
+  const row={unified_contract_id:'original-contract',member_id,
+   billing_contact:{first_name:'Original',last_name:'Booker',email:'original@example.invalid'},
+   original_records:[{attendee_email:'attendee@example.invalid',purchaser_context:{details:{email:'different@example.invalid'}}}]};
+  assert.equal(publicPoEmailRecipient(row).email,'original@example.invalid');
+ }
+});
 function fixture(){
  const row={id:'id',tenant_id:'tenant',member_id:'member',invoice_number:'INV-1',email_status:'pending',
   email_next_at:new Date(0).toISOString(),original_records:[{purchaser_context:{details:{email:'booker@example.invalid',first_name:'Booker'}}}]};

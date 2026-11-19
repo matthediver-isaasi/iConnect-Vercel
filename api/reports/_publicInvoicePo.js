@@ -8,6 +8,7 @@ export function publicInvoicePurchaser(context) {
 }
 
 export function isPublicInvoicePo(booking) {
-  return (booking.payment_method === 'public_invoice_po' || !!booking.purchaser_context?.invoice_approval_id)
+  return (booking.payment_method === 'public_invoice_po' || !!booking.purchaser_context?.invoice_approval_id
+    || booking.purchaser_context?.booking_contract_version === 2 && booking.purchaser_context?.original_payment_method === 'public_invoice_po')
     && booking.purchaser_context?.classification === 'public_non_member';
 }

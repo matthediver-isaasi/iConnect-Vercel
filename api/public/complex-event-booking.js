@@ -53,7 +53,7 @@ import { loadEventPaymentPolicy, assertEventPaymentMethodsAllowed } from '../_li
 import { assertRequestedTicketsReleased, loadComplexReleaseTickets } from '../_lib/ticketReleaseAccess.js';
 import { assertPrivateTicketsAccessible, loadPrivateTicketViewer, isPurchasedTicketAllocation } from '../_lib/privateTicketAccess.js';
 import { isPrivateTicket } from '../../shared/ticketAudience.js';
-import { compensateRejectedEventCreditPayment } from '../_lib/eventPaymentPolicyCompensation.js';
+import { compensateRejectedEventCreditPayment, assertUnifiedBookingPaymentAuthority } from '../_lib/eventPaymentPolicyCompensation.js';
 
 function generateBookingReference() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -99,7 +99,8 @@ export default async function handler(req, res) {
 }
 
 async function handleBookingWithCredits(req, res) {
-  if (req.method !== 'POST' || !req.body?.selected_voucher_ids?.length) return processBooking(req, res);
+  if (req.method !== 'POST' || (!req.body?.selected_voucher_ids?.length
+    && (req.body?.booking_contract_version == null || req.body.booking_contract_version === 1))) return processBooking(req, res);
   const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_KEY;
   if (!url || !key) return res.status(503).json({ error: 'Supabase not configured' });
   let status = 200;
@@ -183,6 +184,9 @@ async function processBooking(req, res) {
       || authenticatedMember?.organization_id || null;
 
     if (!event_id) return res.status(400).json({ error: 'event_id is required' });
+    if (stripe_payment_intent_id && payment_method !== 'card') {
+      return res.status(400).json({ error: 'A card payment must use its original card checkout; do not pay again.' });
+    }
 
     const isMultiTicket = Array.isArray(items) && items.length > 0;
 
@@ -268,8 +272,8 @@ async function processBooking(req, res) {
     }
     const ticketPurchaser = await getSessionMember(req);
     const selectedRegistrationAssociation=!ticketPurchaser&&(hasRegistrationAssociation(purchaserInfo,provisioningItems) || provisioningItems.some(item => createsGuestAccounts(item.ticket)));
-    const needsPublicContactCreation = needsPublicTicketMemberCreation(provisioningItems.map(item => item.ticket).filter(ticket => !isPrivateTicket(ticket)), ticketPurchaser, tenant.id)||selectedRegistrationAssociation;
-    if (!privateTicketError && (previousPublicPurchase || needsPublicContactCreation) && (payment_method !== PUBLIC_INVOICE_PO||selectedRegistrationAssociation)) {
+    const needsPublicContactCreation = !req.bookingCreditAttempt?.contract && (needsPublicTicketMemberCreation(provisioningItems.map(item => item.ticket).filter(ticket => !isPrivateTicket(ticket)), ticketPurchaser, tenant.id)||selectedRegistrationAssociation);
+    if (!req.bookingCreditAttempt?.contract && !privateTicketError && (previousPublicPurchase || needsPublicContactCreation) && (payment_method !== PUBLIC_INVOICE_PO||selectedRegistrationAssociation)) {
       if (selected_voucher_ids?.length || Number(requestedTrainingFundAmount) || allocationContext
           || !['card', 'free',...(selectedRegistrationAssociation?[PUBLIC_INVOICE_PO]:[])].includes(payment_method)) {
         return res.status(400).json({ error: 'Public ticket member creation requires a guest card or free checkout without account credits.' });
@@ -359,6 +363,8 @@ async function processBooking(req, res) {
                 if (!response.ok) throw new Error(`Stripe compensation failed (${response.status})`);
               };
               const compensation = await compensateRejectedEventCreditPayment({
+                unifiedAuthority: { attempt: req.bookingCreditAttempt, requestedVersion: req.body.booking_contract_version,
+                  source: 'complex_event_booking', memberId: authenticatedMember?.id },
                 paymentIntent,
                 expectedIntentId: stripe_payment_intent_id,
                 tenantId: tenant.id,
@@ -413,6 +419,7 @@ async function processBooking(req, res) {
       try {
         if (purchaserSessionError) throw new Error('Unable to verify purchaser session');
         purchaserContext = await validatePublicInvoicePo({
+          unifiedContract: req.bookingCreditAttempt?.contract,
           client: supabase, event, authenticatedMember, purchaserInfo,
           stripePaymentIntentId: stripe_payment_intent_id, voucherIds: selected_voucher_ids,
           trainingFundAmount: requestedTrainingFundAmount, accountAmount: req.body.account_amount,
@@ -640,6 +647,12 @@ async function processBooking(req, res) {
             headers: { 'Authorization': `Bearer ${stripeSecretKey}` }
           });
           const paymentIntent = await stripeResponse.json();
+          if (paymentIntent.metadata?.unified_booking_contract_id !== undefined
+            || paymentIntent.metadata?.unified_booking_version !== undefined || req.bookingCreditAttempt?.contract) {
+            assertUnifiedBookingPaymentAuthority({ paymentIntent, attempt: req.bookingCreditAttempt,
+              requestedVersion: req.body.booking_contract_version, tenantId: tenant.id, eventId: event_id,
+              source: 'complex_event_booking', memberId: authenticatedMember?.id });
+          }
           if (paymentIntent.metadata?.event_invoice_policy_id || paymentIntent.metadata?.event_invoice_member_id) {
             if (!authenticatedMember || paymentIntent.metadata.event_invoice_member_id !== authenticatedMember.id
               || paymentIntent.metadata.tenant_id !== tenant.id || paymentIntent.metadata.event_id !== event_id) {
@@ -742,7 +755,8 @@ async function processBooking(req, res) {
           invoicePaymentEvidence = paymentIntent;
         } catch (stripeErr) {
           console.error('[Complex Event Booking] Stripe verification error:', stripeErr);
-          return res.status(500).json({ error: 'Failed to verify payment' });
+          return res.status(stripeErr.statusCode || 500).json({ error: stripeErr.statusCode === 403
+            ? stripeErr.message : 'Failed to verify payment' });
         }
 
         paymentStatus = 'paid';
@@ -1221,7 +1235,7 @@ async function processBooking(req, res) {
       }
     };
 
-    if (publicTicketPurchase) {
+    if (publicTicketPurchase && !req.bookingCreditAttempt?.contract) {
       const { data: batch, error: batchError } = await supabase.rpc('insert_public_ticket_booking_batch', {
         p_purchase_id: publicTicketPurchase.id, p_rows: publicTicketBookingRows,
       });
@@ -1453,7 +1467,8 @@ async function processBooking(req, res) {
       paymentStatus: confirmedPaymentMethod === 'card' ? 'paid' : validatedRemainingBalance === 0 ? 'free' : 'unpaid',
       paymentIntentId: stripe_payment_intent_id,
     }) : { state: 'not_applicable' };
-    const invoiceRecovery = confirmedPaymentMethod !== PUBLIC_INVOICE_PO && validatedRemainingBalance > 0
+    const invoiceRecovery = req.bookingCreditAttempt?.contract ? req.bookingCreditAttempt.invoiceRecovery || { status: 'needs_review', queued: false }
+      : confirmedPaymentMethod !== PUBLIC_INVOICE_PO && validatedRemainingBalance > 0
       ? await enqueueCheckoutEventInvoice({
       db: supabase, tenantId: tenant.id, source: 'complex_event_booking',
       bookingGroupReference: bookingGroupRef, event, amount: validatedRemainingBalance,

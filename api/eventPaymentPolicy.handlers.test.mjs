@@ -16,6 +16,8 @@ const synchronousDependencies = new Set([
   'resolveTicketPrice',
   'normalizeRequestedVoucherIds',
   'needsPublicTicketMemberCreation',
+  'hasRegistrationAssociation',
+  'createsGuestAccounts',
   'isPrivateTicket',
 ]);
 
@@ -45,7 +47,7 @@ async function loadHandler(path) {
       replacements.set(specifier, `export default (...args) => globalThis.${slot}.dependency(${JSON.stringify(names.trim())}, args);`);
       continue;
     }
-    replacements.set(specifier, exports.join('\n'));
+    replacements.set(specifier, [replacements.get(specifier),exports.join('\n')].filter(Boolean).join('\n'));
   }
 
   const result = await build({
@@ -174,6 +176,14 @@ function fixture({
       };
     },
     dependency(name, args = []) {
+      if (name === 'assertEventCodeOfConduct') return null;
+      if (name === 'runBookingCreditAttempt') return args[0].work();
+      if (name === 'loadBookingVouchers') return [];
+      if (name === 'hasRegistrationAssociation') return false;
+      if (name === 'createsGuestAccounts') return false;
+      if (name === 'validatePublicTicketSimpleCharge') return;
+      if (name === 'quoteProgramPurchase') return {remainingMinor:Math.round(args[1].params.amount*100),memberEmail:authenticatedMember?.email,
+        memberId:authenticatedMember?.id,programId:'program-fixture',binding:'program-fixture'};
       if (name === 'loadPublicTicketPurchase') return completedPurchase;
       if (name === 'preparePublicTicketPurchase' && completedPurchase) return completedPurchase;
       if (name === 'replayPublicTicketBooking' && completedPurchase) return { success: true, already_processed: true };
@@ -593,6 +603,7 @@ test('program-ticket credit card purchases never require attendee job titles', a
   const state = fixture({ extraSettings: [requiredTitleSetting] });
   const res = await invoke('simple', state, {
     functionName: 'createStripePaymentIntent', amount: 100,
+    purchaseRequestId:'00000000-0000-4000-8000-000000000001',
     metadata: { program_name: 'Training credit' }, memberEmail: 'member@example.test',
   });
   assert.equal(res.body.success, true);

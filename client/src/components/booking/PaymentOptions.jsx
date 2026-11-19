@@ -1,4 +1,7 @@
 import RegistrationAssociationField from "./RegistrationAssociationField";
+import UnifiedBookingCustomer from "./UnifiedBookingCustomer";
+import { useUnifiedBookingCapability } from "@/hooks/useUnifiedBookingCapability";
+import { invoiceAddressDraft } from "@/lib/eventInvoiceAddress.mjs";
 import PublicInvoicePoAddressFields from "./PublicInvoicePoAddressFields";
 import { normalizePublicInvoicePoAddress, publicInvoicePoAddressError } from "../../../../shared/publicInvoicePoAddress.js";
 import WaitingListCheckout from "./WaitingListCheckout";
@@ -532,6 +535,18 @@ function NormalPaymentOptions({
     scopeKey: checkoutScope, eventId: event?.id, source: isComplexEvent ? "complex" : "simple",
     request: (url, options) => adminFetch(url, options, memberInfo?.tenant_id || activeTenant),
   });
+  const unifiedDiscovery = useUnifiedBookingCapability({
+    eventId: event?.id, source: isComplexEvent ? "complex" : "simple", viewerId: memberInfo?.id,
+    tenantId: memberInfo?.tenant_id || activeTenant || event?.tenant_id,
+    enabled: isOneOffEvent || isComplexEvent,
+  });
+  const unifiedBooking = unifiedDiscovery.data?.version === 2 && unifiedDiscovery.data?.enabled === true;
+  const [unifiedDraft, setUnifiedDraft] = useState(null);
+  const firstCustomer = unifiedDiscovery.data?.choices?.[0];
+  const unifiedInvoiceSelection = unifiedDraft?.scope === checkoutScope ? unifiedDraft.value
+    : firstCustomer ? { kind: firstCustomer.kind, id: firstCustomer.id, address: invoiceAddressDraft(firstCustomer.invoicingAddress) }
+      : { kind: 'guest', address: {} };
+  const unifiedBookingPayload = unifiedBooking ? { booking_contract_version: 2, unifiedInvoiceSelection } : {};
 
   const [selectedVouchers, setSelectedVouchers] = useState([]);
   const [voucherOrderManual, setVoucherOrderManual] = useState(false);
@@ -569,17 +584,22 @@ function NormalPaymentOptions({
     phone: guestInfo?.phone || '',
     job_title: guestInfo?.job_title || ''
   }));
-  const hasRegistrationAssociations = !memberInfo && Boolean(guestInfo?.registration_association
+  const hasRegistrationAssociations = !unifiedBooking && !memberInfo && Boolean(guestInfo?.registration_association
     || separatePurchaserInfo.registration_association || attendees.some(person => person.registration_association));
-  const requiresPurchaserIdentity = ticketRequiresPurchaserIdentity || hasRegistrationAssociations;
+  const requiresPurchaserIdentity = unifiedBooking && isGuestCheckout || ticketRequiresPurchaserIdentity || hasRegistrationAssociations;
   // Association-only simple/group bookings already collect the purchaser's
   // full identity in the guest form; do not introduce a hidden self-choice gate.
   const associationSelfPurchaser = hasRegistrationAssociations && !ticketRequiresPurchaserIdentity
     && (!isComplexEvent || !!event?.member_group_id);
-  const selfBookingChoiceRequired = ticketRequiresPurchaserIdentity && isGuestCheckout
+  const selfBookingChoiceRequired = !unifiedBooking && ticketRequiresPurchaserIdentity && isGuestCheckout
     && (!isComplexEvent || !!event?.member_group_id) && guestBookingForSelf !== undefined;
-  const purchaserInfo = associationSelfPurchaser || (selfBookingChoiceRequired && guestBookingForSelf === true)
+  const basePurchaserInfo = associationSelfPurchaser || (selfBookingChoiceRequired && guestBookingForSelf === true)
     ? { ...purchaseIdentity(guestInfo), ...normalizePublicInvoicePoAddress(separatePurchaserInfo) } : separatePurchaserInfo;
+  const purchaserInfo = unifiedBooking && isGuestCheckout
+    ? { ...(requiresPurchaserIdentity ? basePurchaserInfo : { ...guestInfo, ...basePurchaserInfo,
+        first_name: basePurchaserInfo.first_name || guestInfo?.first_name, last_name: basePurchaserInfo.last_name || guestInfo?.last_name,
+        email: basePurchaserInfo.email || guestInfo?.email }), ...unifiedInvoiceSelection.address }
+    : basePurchaserInfo;
   const showPurchaserFields = requiresPurchaserIdentity
     && !associationSelfPurchaser && (!selfBookingChoiceRequired || guestBookingForSelf === false);
   const [showStripeModal, setShowStripeModal] = useState(false);
@@ -612,9 +632,12 @@ function NormalPaymentOptions({
     && (!purchaserInfo.first_name?.trim() || !purchaserInfo.last_name?.trim()
       || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(purchaserInfo.email || "") || !purchaserInfo.organization?.trim())
     ? "Please provide first name, last name, a valid email and organisation for the purchaser." : null;
-  const purchaseIdentityError = selfBookingChoiceRequired && guestBookingForSelf === null
+  const purchaseIdentityError = unifiedBooking && isGuestCheckout && (!purchaserInfo.first_name?.trim() || !purchaserInfo.last_name?.trim()
+    || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(purchaserInfo.email || ""))
+    ? "Please provide the booker's first name, last name and valid email address."
+    : selfBookingChoiceRequired && guestBookingForSelf === null
     ? "Please choose whether you are booking for yourself."
-    : associationIdentityError || (ticketRequiresPurchaserIdentity ? validatePurchaseIdentities(purchaserInfo, identityItems) : null);
+    : (unifiedBooking ? null : associationIdentityError) || (ticketRequiresPurchaserIdentity ? validatePurchaseIdentities(purchaserInfo, identityItems, { optionalOrganization: unifiedBooking }) : null);
   const guardGuestIdentityEmails = async () => {
     if (memberInfo || !isGuestCheckout) return true;
     const emails = [...new Set([purchaserInfo, guestInfo, ...attendees]
@@ -643,6 +666,16 @@ function NormalPaymentOptions({
     return true;
   };
   const guardTicketBooking = () => {
+    if ((isOneOffEvent || isComplexEvent) && (unifiedDiscovery.isPending || unifiedDiscovery.isError)) {
+      toast.error(unifiedDiscovery.isError ? 'Invoice customer choices could not be checked. Reload checkout before continuing.' : 'Please wait while checkout availability is checked.');
+      return false;
+    }
+    if (unifiedBooking && isGuestCheckout && remainingBalance > 0
+      && ['invoicing_address_line1','invoicing_city','invoicing_postal_code','invoicing_country']
+        .some(key => !String(unifiedInvoiceSelection.address?.[key] || '').trim())) {
+      toast.error('Enter invoice address line 1, city, postcode and country before continuing.');
+      return false;
+    }
     if (!isOneOffEvent && !isComplexEvent) return true;
     const current = latestTicketGate.current;
     const blocked = current.releaseTickets.find(ticket =>
@@ -1122,7 +1155,7 @@ function NormalPaymentOptions({
     ticket: selectedTicketClass,
   });
   const isPublicInvoicePo = remainingBalancePaymentMethod === 'public_invoice_po';
-  const purchaserInfoComplete = isPublicInvoicePurchaserComplete(purchaserInfo);
+  const purchaserInfoComplete = isPublicInvoicePurchaserComplete(purchaserInfo, { unified: unifiedBooking });
 
   useEffect(() => {
     if (!publicInvoicePoAvailable && remainingBalancePaymentMethod === 'public_invoice_po') {
@@ -1381,7 +1414,7 @@ function NormalPaymentOptions({
     }
 
     if (isPublicInvoicePo && !purchaserInfoComplete) {
-      toast.error(publicInvoicePoAddressError(purchaserInfo, { required: true })
+      toast.error(publicInvoicePoAddressError(purchaserInfo, { required: true, requireOrganization: !unifiedBooking })
         || "Please provide the purchaser's first name, last name, valid email address and organisation name");
       return;
     }
@@ -1418,7 +1451,7 @@ function NormalPaymentOptions({
     doSetSubmitting(true);
     try {
       let clientSecret, paymentIntentId;
-      const needsInvoiceDiscovery = !isGuestCheckout && !!memberInfo && (isOneOffEvent || isComplexEvent);
+      const needsInvoiceDiscovery = !unifiedBooking && !isGuestCheckout && !!memberInfo && (isOneOffEvent || isComplexEvent);
       let invoiceAddressSelection = needsInvoiceDiscovery ? await invoiceAddress.collect() : undefined;
       assertCurrent();
       // A server-side customer/provider change can introduce the requirement
@@ -1428,6 +1461,7 @@ function NormalPaymentOptions({
 
       if (isComplexEvent && complexEventApi) {
         const piPayload = {
+          ...unifiedBookingPayload,
           ...liveCodeOfConduct.current.payload,
           ...invoiceAddressSelectionPayload(invoiceAddressSelection),
           purchaser_info: purchaseIdentity(purchaserInfo),
@@ -1481,9 +1515,10 @@ function NormalPaymentOptions({
         
         if (!guardTicketBooking()) return;
         const response = await base44.functions.invoke('createStripePaymentIntent', {
+          ...unifiedBookingPayload,
           ...liveCodeOfConduct.current.payload,
           ...invoiceAddressSelectionPayload(invoiceAddressSelection),
-          purchaserInfo: requiresPurchaserIdentity ? purchaseIdentity(purchaserInfo) : (isGuestCheckout ? purchaseIdentity(guestInfo) : purchaseIdentity(memberInfo)),
+          purchaserInfo: requiresPurchaserIdentity || unifiedBooking ? purchaseIdentity(purchaserInfo) : (isGuestCheckout ? purchaseIdentity(guestInfo) : purchaseIdentity(memberInfo)),
           guestInfo: isGuestCheckout ? (requiresPurchaserIdentity ? purchaseIdentity(purchaserInfo) : guestInfo) : null,
           attendees: attendees.filter(a => a.isValid).map(a => ({ ...a, ...purchaseIdentity(a) })),
           purchase_request_id: getPurchaseRequestId(),
@@ -1539,8 +1574,9 @@ function NormalPaymentOptions({
         ? attendees 
         : attendees.filter(a => a.isValid);
       const savedPayload = {
+        ...unifiedBookingPayload,
         ...liveCodeOfConduct.current.payload,
-        purchaserInfo: requiresPurchaserIdentity ? purchaseIdentity(purchaserInfo) : (isGuestCheckout ? purchaseIdentity(guestInfo) : purchaseIdentity(memberInfo)),
+        purchaserInfo: requiresPurchaserIdentity || unifiedBooking ? purchaseIdentity(purchaserInfo) : (isGuestCheckout ? purchaseIdentity(guestInfo) : purchaseIdentity(memberInfo)),
         purchaser_info: purchaseIdentity(purchaserInfo),
         purchase_request_id: getPurchaseRequestId(),
         eventId: event.id,
@@ -1637,6 +1673,9 @@ function NormalPaymentOptions({
 
       if (isComplexEvent && complexEventApi) {
         const complexPayload = {
+          ...(paidPaymentSnapshot?.booking_contract_version === 2 ? {
+            booking_contract_version: 2, unifiedInvoiceSelection: paidPaymentSnapshot.unifiedInvoiceSelection,
+          } : paidPaymentSnapshot ? {} : unifiedBookingPayload),
           ...(paidPaymentSnapshot ? {
             code_of_conduct_accepted: paidPaymentSnapshot.code_of_conduct_accepted,
             code_of_conduct_content: paidPaymentSnapshot.code_of_conduct_content,
@@ -1718,11 +1757,14 @@ function NormalPaymentOptions({
         console.log('[PaymentOptions] Valid attendees after filter:', JSON.stringify(validAttendees));
         
         const bookingPayload = {
+          ...(paidPaymentSnapshot?.booking_contract_version === 2 ? {
+            booking_contract_version: 2, unifiedInvoiceSelection: paidPaymentSnapshot.unifiedInvoiceSelection,
+          } : paidPaymentSnapshot ? {} : unifiedBookingPayload),
           ...(paidPaymentSnapshot ? {
             code_of_conduct_accepted: paidPaymentSnapshot.code_of_conduct_accepted,
             code_of_conduct_content: paidPaymentSnapshot.code_of_conduct_content,
           } : codeOfConduct.payload),
-          purchaserInfo: paidPaymentSnapshot?.purchaserInfo || (requiresPurchaserIdentity ? purchaseIdentity(purchaserInfo) : (isGuestCheckout ? purchaseIdentity(guestInfo) : purchaseIdentity(memberInfo))),
+          purchaserInfo: paidPaymentSnapshot?.purchaserInfo || (requiresPurchaserIdentity || unifiedBooking ? purchaseIdentity(purchaserInfo) : (isGuestCheckout ? purchaseIdentity(guestInfo) : purchaseIdentity(memberInfo))),
           purchaser_info: paidPaymentSnapshot?.purchaser_info || purchaseIdentity(purchaserInfo),
           purchase_request_id: paidPaymentSnapshot?.purchase_request_id || getPurchaseRequestId(),
           eventId: event.id,
@@ -2271,15 +2313,16 @@ function NormalPaymentOptions({
                               onChange={(e) => setPurchaserInfo(prev => ({ ...prev, email: e.target.value }))}
                               data-testid="input-purchaser-email"
                             />
-                            <Label htmlFor="public-invoice-purchaser-organization">Organisation *</Label>
-                            <RegistrationAssociationField
+                            <Label htmlFor="public-invoice-purchaser-organization">Organisation{unifiedBooking ? ' (optional)' : ' *'}</Label>
+                            {unifiedBooking ? <Input id="public-invoice-purchaser-organization" value={purchaserInfo.organization || ''}
+                              onChange={event => setPurchaserInfo(prev => ({ ...prev, organization: event.target.value }))} /> : <RegistrationAssociationField
                               id="public-invoice-purchaser-organization" required
                               eventId={event.id} eventKind={isComplexEvent ? "complex" : "simple"}
                               placeholder="Organisation"
                               value={purchaserInfo}
                               onChange={patch => setPurchaserInfo(prev => ({ ...prev, ...patch }))}
                               data-testid="input-purchaser-organization"
-                            />
+                            />}
                             <Input
                               placeholder="Purchase Order Number (optional)"
                               value={purchaseOrderNumber}
@@ -2288,7 +2331,7 @@ function NormalPaymentOptions({
                             />
                           </div>
                         )}
-                        {isPublicInvoicePo && <PublicInvoicePoAddressFields
+                        {isPublicInvoicePo && !unifiedBooking && <PublicInvoicePoAddressFields
                           value={separatePurchaserInfo}
                           onChange={patch => setPurchaserInfo(previous => ({ ...previous, ...patch }))}
                         />}
@@ -2892,21 +2935,28 @@ function NormalPaymentOptions({
             <CardTitle className="text-xl">{resolveTbcSummaryTitle(tbcBookingReplacement, totalCost)}</CardTitle>
           </CardHeader>
           <CardContent className="pt-6 space-y-6">
-            {showPurchaserFields && <PurchaserIdentityFields value={purchaserInfo} onChange={setPurchaserInfo} eventId={event.id} eventKind={isComplexEvent ? "complex" : "simple"} />}
+            {showPurchaserFields && <PurchaserIdentityFields optionalOrganization={unifiedBooking} value={purchaserInfo} onChange={setPurchaserInfo} eventId={event.id} eventKind={isComplexEvent ? "complex" : "simple"} />}
             {purchaseIdentityError && <p role="alert" className="text-sm text-amber-700">{purchaseIdentityError}</p>}
             {mainContent}
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-6">
-          {showPurchaserFields && <PurchaserIdentityFields value={purchaserInfo} onChange={setPurchaserInfo} eventId={event.id} eventKind={isComplexEvent ? "complex" : "simple"} />}
+          {showPurchaserFields && <PurchaserIdentityFields optionalOrganization={unifiedBooking} value={purchaserInfo} onChange={setPurchaserInfo} eventId={event.id} eventKind={isComplexEvent ? "complex" : "simple"} />}
           {purchaseIdentityError && <p role="alert" className="text-sm text-amber-700">{purchaseIdentityError}</p>}
           {mainContent}
         </div>
       )}
 
       {/* Stripe Payment Drawer */}
+      {unifiedBooking && remainingBalance > 0 && <UnifiedBookingCustomer
+        choices={unifiedDiscovery.data.choices} guest={isGuestCheckout} value={unifiedInvoiceSelection}
+        required={isGuestCheckout} onChange={value => setUnifiedDraft({ scope: checkoutScope, value })} />}
       {invoiceAddress.step}
+      {unifiedBooking && unifiedDiscovery.data?.incomplete && <p role="status" className="text-sm text-amber-800">
+        Some linked customers or saved addresses could not be verified. Billing yourself remains available.
+        Reload to retry; do not select a different customer unless you intend to bill them.
+      </p>}
       <Sheet open={showStripeModal} onOpenChange={setShowStripeModal}>
         <SheetContent side="right" className="w-full sm:max-w-md flex flex-col h-full">
           <SheetHeader className="flex-shrink-0 mb-6">

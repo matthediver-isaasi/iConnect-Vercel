@@ -19,6 +19,28 @@ export async function loadPublicPoBilling(db,tenantId,bookingId,isComplex){
  if(!first.data)fail('Registration not found.',404);
  const b=first.data,group=b.booking_group_reference;
  if(!group||b.purchaser_context?.classification!=='public_non_member'||(!b.public_invoice_po_billing_id&&b.payment_method!=='public_invoice_po'))fail('This is not a public Invoice / PO booking.');
+ if(b.purchaser_context?.booking_contract_version===2){
+  const operation=await db.from('public_invoice_po_billing').select('*').eq('tenant_id',tenantId).eq('source',source).eq('booking_group_reference',group).maybeSingle();
+  if(operation.error)fail('Unable to load automatic invoice status.',503);
+  const o=operation.data;
+  if(!o?.unified_contract_id)fail('Automatic invoice evidence requires review.');
+  const frozen=await db.from('unified_booking_contract').select('snapshot').eq('tenant_id',tenantId).eq('id',o.unified_contract_id).maybeSingle();
+  if(frozen.error||!frozen.data?.snapshot)fail('Original invoice instructions are unavailable.',503);
+  const snapshot=frozen.data.snapshot,contact=snapshot.contact,booker=snapshot.booker;
+  const outbox=await db.from('unified_booking_invoice').select('state,prepared,last_error,next_at,provision_state')
+    .eq('tenant_id',tenantId).eq('purchase_key',group).maybeSingle();
+  if(outbox.error||!outbox.data)fail('Automatic invoice recovery status is unavailable.',503);
+  const invoice=o.provider_snapshot?.invoice;
+  const lines=(invoice?.LineItems||invoice?.lines||[]).map(l=>({description:l.Description,amount:Number(l.UnitAmount)*Number(l.Quantity),
+    taxType:l.TaxType,taxPercentage:l._checkoutTaxPercentage}));
+  return {public:{automatic:true,booker,originalBooker:booker,billingContact:contact,projectCode:null,
+    member:o.member_id?{id:o.member_id}:null,amount:Number(o.amount),currency:o.currency,lines,canGenerate:false,
+    reason:o.check_error||outbox.data.last_error||outbox.data.prepared?.snapshot?.reviewReasons?.join('; ')
+      ||outbox.data.prepared?.snapshot?.invoice?.reviewReason||null,
+    provisionState:outbox.data.provision_state,nextRetryAt:outbox.data.state==='pending'?outbox.data.next_at:null,
+    invoice:{id:o.invoice_id,number:o.invoice_number,provider:o.provider,status:o.invoice_status,
+      paymentStatus:o.payment_status,emailStatus:o.email_status}},source,group,operation:o};
+ }
  const result=await db.from(source).select('*').eq('tenant_id',tenantId).eq('booking_group_reference',group).order('id').limit(1001);
  if(result.error||!result.data?.length||result.data.length>1000)fail('Unable to load the complete booking.',503);
  const rows=result.data;

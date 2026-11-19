@@ -1,4 +1,4 @@
-import test from "node:test";
+import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 
@@ -10,6 +10,12 @@ globalThis.getComputedStyle = dom.window.getComputedStyle;
 globalThis.localStorage = dom.window.localStorage;
 globalThis.sessionStorage = dom.window.sessionStorage;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+const previousFetch = globalThis.fetch;
+globalThis.fetch = async url => {
+  assert.ok(String(url).startsWith("/api/events/ticket-members?"), "Only fixture organisation-type discovery is allowed");
+  return { ok: true, json: async () => ({ fields: [] }) };
+};
+after(() => { globalThis.fetch = previousFetch; });
 const React = (await import("react")).default;
 globalThis.React = React;
 const { act } = React;

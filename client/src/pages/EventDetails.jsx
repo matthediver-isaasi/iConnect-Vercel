@@ -1,5 +1,6 @@
 import { speakersInOrder } from "../../../shared/speakerOrder.js";
 import RegistrationAssociationField from "@/components/booking/RegistrationAssociationField";
+import { useUnifiedBookingCapability } from "@/hooks/useUnifiedBookingCapability";
 import { ticketMemberPolicy } from "@/utils/publicTicketMembers";
 import { useEventCodeOfConduct } from "@/hooks/useEventCodeOfConduct";
 import CodeOfConductAcceptance from "@/components/booking/CodeOfConductAcceptance";
@@ -331,15 +332,6 @@ export function EventDetailsExperience({
     accessibility_selections: []
   });
 
-  // Validate guest form
-  const isGuestFormValid = useMemo(() => {
-    return guestInfo.first_name.trim() !== '' &&
-           guestInfo.last_name.trim() !== '' &&
-           guestInfo.email.trim() !== '' &&
-           guestInfo.email.includes('@') &&
-           guestInfo.organization.trim() !== '';
-  }, [guestInfo]);
-
   const [showMemberEmailModal, setShowMemberEmailModal] = useState(false);
   const [checkingMemberEmail, setCheckingMemberEmail] = useState(false);
   const [guestEmailIsMember, setGuestEmailIsMember] = useState(false);
@@ -489,6 +481,12 @@ export function EventDetailsExperience({
 
   // Resolve waiting mode before realtime notifications: interest never sells out.
   const { data: event, isLoading } = useEventData(eventId);
+  const unifiedCapability = useUnifiedBookingCapability({ eventId, viewerId: currentMemberInfo?.id,
+    tenantId: currentMemberInfo?.tenant_id || event?.tenant_id,
+    enabled: authResolved && !!event && (event.waiting_list_enabled === true || !event.program_tag) });
+  const unifiedBooking = unifiedCapability.data?.version === 2 && unifiedCapability.data.enabled;
+  const isGuestFormValid = guestInfo.first_name.trim() !== '' && guestInfo.last_name.trim() !== ''
+    && guestInfo.email.includes('@') && (unifiedBooking || guestInfo.organization.trim() !== '');
   // Set up realtime subscription for seat updates
   const { isConnected: realtimeConnected } = useEventSeatRealtime(eventId, {
     showSoldOutToast: event?.waiting_list_enabled !== true,
@@ -2265,9 +2263,11 @@ export function EventDetailsExperience({
 
                     <div className="space-y-2">
                       <Label htmlFor="guest-organization" className={isGuestFormDisabled ? "text-slate-400" : ""}>
-                        Organisation <span className="text-red-500">*</span>
+                        Organisation {unifiedBooking ? '(optional)' : <span className="text-red-500">*</span>}
                       </Label>
-                      <RegistrationAssociationField
+                      {unifiedBooking ? <Input id="guest-organization" value={guestInfo.organization}
+                        placeholder="Organisation reference (optional)" disabled={isGuestFormDisabled}
+                        onChange={event => setGuestInfo(previous => ({ ...previous, organization: event.target.value }))} /> : <RegistrationAssociationField
                         eventId={eventId}
                         value={guestInfo}
                         id="guest-organization"
@@ -2276,7 +2276,7 @@ export function EventDetailsExperience({
                         disabled={isGuestFormDisabled || allocationMode}
                         className={isGuestFormDisabled || allocationMode ? "bg-slate-100 cursor-not-allowed" : ""}
                         data-testid="input-guest-organization"
-                      />
+                      />}
                     </div>
 
                     <div className={`grid gap-4 ${embedded ? "event-registration-options" : "grid-cols-1 md:grid-cols-2"}`}>

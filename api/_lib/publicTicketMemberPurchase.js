@@ -130,13 +130,27 @@ export async function completePublicTicketMembers({
   // Call only after ALL bookings, capacity checks and reversible financial work
   // have succeeded. Neither Stripe authorization nor a single booking is proof.
   const evidence = { status: paymentStatus, complete_batch: true, payment_intent_id: paymentIntentId };
-  const { error } = await db.from('public_ticket_member_purchase')
-    .update({ state: 'ready', booking_ids: bookingIds, completion_evidence: evidence, updated_at: new Date().toISOString() })
-    .eq('id', purchase.id).eq('tenant_id', tenantId).in('state', ['prepared', 'retryable', 'conflict']);
-  if (error) return { state: 'retryable', code: 'completion_evidence_unavailable' };
-  const result = await db.rpc('provision_public_ticket_members', { p_purchase_id: purchase.id });
-  if (result.error) return { state: 'retryable', code: 'provisioning_unavailable' };
-  return result.data;
+  try {
+    const { error } = await db.from('public_ticket_member_purchase')
+      .update({ state: 'ready', booking_ids: bookingIds, completion_evidence: evidence, updated_at: new Date().toISOString() })
+      .eq('id', purchase.id).eq('tenant_id', tenantId).in('state', ['prepared', 'retryable', 'conflict']);
+    if (error) return { state: 'retryable', code: 'completion_evidence_unavailable' };
+  } catch {
+    // Transport failures can reject rather than return a PostgREST error.
+    // Registration is already committed; do not turn optional provisioning
+    // into a booking failure or prevent the caller from scheduling its invoice.
+    // This outcome does NOT claim that recovery evidence was persisted.
+    return { state: 'retryable', code: 'completion_evidence_unavailable' };
+  }
+  try {
+    const result = await db.rpc('provision_public_ticket_members', { p_purchase_id: purchase.id });
+    if (result.error || !result.data) return { state: 'retryable', code: 'provisioning_unavailable' };
+    return result.data;
+  } catch {
+    // Preserve the ready evidence and original purchase identity after an
+    // uncertain RPC result. Recovery must use the same idempotent purchase.
+    return { state: 'retryable', code: 'provisioning_unavailable' };
+  }
 }
 
 // Recovery re-establishes the entire success boundary rather than trusting an

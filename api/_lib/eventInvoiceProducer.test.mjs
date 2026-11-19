@@ -499,6 +499,35 @@ test('missing durable result is never reported as queued', async () => {
   assert.equal(result.queued, false);
 });
 
+test('uncertain QuickBooks capture and thrown review write never fall through to Xero', async () => {
+  for (const source of ['booking', 'complex_event_booking']) {
+    const f = fixture({ provider: 'quickbooks' });
+    f.input.source = source;
+    const from = f.input.db.from.bind(f.input.db);
+    let captureCalls = 0;
+    let markerCalls = 0;
+    f.input.db.from = table => {
+      if (table !== source) return from(table);
+      return {
+        update() { markerCalls++; return this; },
+        eq() { return this; },
+        then(resolve, reject) { return Promise.reject(new Error('marker unavailable')).then(resolve, reject); },
+      };
+    };
+    f.deps.captureAccountingEvent = async () => {
+      captureCalls++;
+      throw new Error('capture response lost');
+    };
+    const outcome = await enqueueCheckoutEventInvoice(f.input, f.deps);
+    assert.equal(outcome.status, 'needs_review');
+    assert.equal(outcome.queued, false);
+    assert.match(outcome.warning, /Booking confirmed/);
+    assert.equal(captureCalls, 1);
+    assert.equal(markerCalls, 1);
+    assert.equal(f.queued.length, 0, 'must not create an operation in another provider queue');
+  }
+});
+
 test('booker is frozen separately from invoice payer and attendees without changing money', async () => {
   const f = fixture();
   await enqueueCheckoutEventInvoice(f.input, f.deps);

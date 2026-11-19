@@ -34,6 +34,7 @@ export async function enqueueQuickBooksEventInvoice(input, context, { capture } 
   const paymentMethod = input.paymentMethod === 'card' ? 'stripe' : 'invoice';
   const snapshot = {
     version: 1, preparation: true, environment: context.provider.environment,
+    ...(input.bookingContractVersion === 2 ? { bookingContractVersion: 2 } : {}),
     invoice: {
       amount: Number(input.amount), currency, paymentMethod, contact: structuredClone(contact),
       booker: input.booker ? structuredClone(input.booker) : null,
@@ -52,7 +53,7 @@ export async function enqueueQuickBooksEventInvoice(input, context, { capture } 
   if (!['card', 'account', 'invoice'].includes(input.paymentMethod)) snapshot.invoice.reviewReason = 'unsupported_payment_method';
   if (paymentMethod === 'stripe') {
     try {
-      snapshot.invoice.contact = stripeEventInvoiceContact(contact, input.paymentIntent);
+      if (input.bookingContractVersion !== 2) snapshot.invoice.contact = stripeEventInvoiceContact(contact, input.paymentIntent);
       snapshot.payment = capturedEventSettlement({
         paymentIntent: input.paymentIntent, paymentIntentId: input.paymentIntentId,
         amount: snapshot.invoice.amount, currency, accountCode: 'pending_event_mapping', eventId: event.id,
@@ -103,6 +104,7 @@ export async function prepareAccountingEventSource({ db, row, transport }) {
   // values are never replaced; the resolved envelope is immutable once saved.
   if (!settings.quickbooks_event_item_id || !settings.quickbooks_event_tax_code_id
     || (snapshot.payment && !settings.quickbooks_event_stripe_bank_account_id)) {
+    if (snapshot.bookingContractVersion === 2) fail('ACCOUNTING_EVENT_ORIGINAL_MAPPING_REQUIRED');
     const { data, error } = await db.from('system_settings').select('setting_key,setting_value')
       .eq('tenant_id', row.tenant_id).in('setting_key', settingsKeys);
     if (error) fail('ACCOUNTING_EVENT_MAPPING_UNAVAILABLE', true);
@@ -187,18 +189,23 @@ export async function prepareAccountingEventSource({ db, row, transport }) {
   // an unrelated same-name customer. A deterministic customer request ID covers
   // a lost create response; invoice/payment writes are not permitted here.
   const escaped = intent.contact.name.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-  const customers = (await request(`query?query=${encodeURIComponent(`SELECT * FROM Customer WHERE DisplayName = '${escaped}' MAXRESULTS 2`)}`))
-    .QueryResponse?.Customer || [];
+  if (snapshot.bookingContractVersion === 2 && intent.contact.providerBindingConflict) fail('ACCOUNTING_EVENT_CUSTOMER_COMPANY_CHANGED');
+  const knownCustomerId = snapshot.bookingContractVersion === 2 ? intent.contact.providerCustomerId : null;
+  const customerResponse = knownCustomerId ? { QueryResponse: { Customer: [await read('Customer', knownCustomerId)] } }
+    : await request(`query?query=${encodeURIComponent(`SELECT * FROM Customer WHERE DisplayName = '${escaped}' MAXRESULTS 2`)}`);
+  if (snapshot.bookingContractVersion === 2 && !customerResponse.QueryResponse) fail('ACCOUNTING_EVENT_CUSTOMER_LOOKUP_INCOMPLETE', true);
+  const customers = customerResponse.QueryResponse?.Customer || [];
   if (!Array.isArray(customers) || customers.length > 1) fail('ACCOUNTING_EVENT_PURCHASER_AMBIGUOUS');
   let customer = customers[0];
   const structuredAddress = intent.contact.invoicingAddress
     ? invoicingAddressToQuickBooks(intent.contact.invoicingAddress) : null;
   const capturedAddress = structuredAddress || capturedBillAddress(intent.contact.address);
-  if (customer && (!intent.contact.email || String(customer.PrimaryEmailAddr?.Address || '').toLowerCase() !== intent.contact.email.toLowerCase())) {
+  if (customer && !knownCustomerId && (!intent.contact.email || String(customer.PrimaryEmailAddr?.Address || '').toLowerCase() !== intent.contact.email.toLowerCase())) {
     fail('ACCOUNTING_EVENT_PURCHASER_MISMATCH');
   }
   if (!customer) {
     if (!intent.contact.email) fail('ACCOUNTING_EVENT_PURCHASER_EMAIL_REQUIRED');
+    if (snapshot.bookingContractVersion === 2 && !capturedAddress) fail('ACCOUNTING_EVENT_ORIGINAL_BILLING_ADDRESS_REQUIRED');
     const key = accountingOperationIdentity(`${row.tenant_id}:${row.source_type}:${row.source_id}`, 'cust', 50);
     customer = (await request(`customer?requestid=${encodeURIComponent(key)}`, {
       DisplayName: intent.contact.name, PrimaryEmailAddr: { Address: intent.contact.email },

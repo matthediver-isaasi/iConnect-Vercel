@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { build } from 'esbuild';
 import { eventInvoiceContact } from '../_lib/eventInvoiceProducer.js';
+import { assertUnifiedBookingPaymentAuthority } from '../_lib/eventPaymentPolicyCompensation.js';
 
 // Run with scripts/run-isolated-tests.mjs. Only module boundaries are replaced;
 // the actual exported HTTP handlers, validation, pricing and persistence run.
@@ -59,7 +60,7 @@ async function loadHandler(path) {
   return (await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`)).default;
 }
 
-function fixture({ enabled = true, member = null, memberEmail = null, free = false, soldOut = false, loseRace = false, visibility = 'members_and_public', noTickets = false, paid = false, paymentStatus = 'succeeded', atomicSoldOut = false, refundFails = false } = {}) {
+function fixture({ enabled = true, member = null, memberEmail = null, free = false, soldOut = false, loseRace = false, visibility = 'members_and_public', noTickets = false, paid = false, paymentStatus = 'succeeded', atomicSoldOut = false, refundFails = false, unified = false, unifiedIntent = false } = {}) {
   const tickets = noTickets ? [] : [
     { id: 'ticket-a', name: 'Standard', price: free ? 0 : 25, is_free: free, visibility_mode: visibility, is_unlimited_tickets: false, available_count: 20 },
     { id: 'ticket-b', name: 'Premium', price: 50, visibility_mode: 'public_only', is_unlimited_tickets: false, available_count: 20 },
@@ -78,6 +79,7 @@ function fixture({ enabled = true, member = null, memberEmail = null, free = fal
     id: 'pi_fixture', status: paymentStatus, amount: 5000, currency: 'gbp',
     metadata: { event_id: 'event-a', tenant_id: 'tenant-a',
       public_ticket_purchase_id: '00000000-0000-4000-8000-000000000001',
+      ...(unified||unifiedIntent?{public_ticket_purchase_id:'',unified_booking_contract_id:'contract',unified_booking_version:'2'}:{}),
       ticket_class_id: 'ticket-a', ticket_class_ids: 'ticket-a', booking_type: 'guest_one_off_event' },
     latest_charge: { paid: true, captured: true, refunded: false, amount_refunded: 0 },
   };
@@ -175,10 +177,27 @@ function fixture({ enabled = true, member = null, memberEmail = null, free = fal
       if (name === 'getTenantContext') return { tenantId: 'tenant-a' };
       if (name === 'getSessionMember') return member;
       if (name === 'getSession') return null;
+      if (name === 'assertUnifiedBookingPaymentAuthority') return assertUnifiedBookingPaymentAuthority(...args);
       if (name === 'runBookingCreditAttempt') {
         if ((args[0].body.selectedVoucherIds || args[0].body.selected_voucher_ids || []).length)
           throw Object.assign(new Error('Sign in to use booking credit vouchers'),{statusCode:401});
+        if(unified){
+          const {req,source}=args[0];
+          req.bookingCreditAttempt={key:'unified-original-attempt',source,p_tenant_id:'tenant-a',
+            contract:{id:'contract',tenant_id:'tenant-a',event_id:'event-a',source,member_id:member?.id||null,
+              payment_intent_id:paid?'pi_fixture':null,
+              snapshot:{version:2,booker:args[0].body.purchaserInfo||args[0].body.purchaser_info}}};
+        }
         return args[0].work();
+      }
+      if(unified && name==='bookingCreditInvoiceInput')return args[0];
+      if(unified && name==='finalizeBookingCredit'){
+        const [,attempt,input]=args;
+        const batch=input.rows.map((row,index)=>({...row,id:`unified-${index}`,member_id:null,organization_id:null}));
+        rows[attempt.source].push(...batch);
+        attempt.invoiceRecovery={status:Number(input.funding.invoiceInput.amount)>0?'needs_review':'not_applicable',queued:false};
+        calls.push({durableInvoiceIntent:input.funding.invoiceInput});
+        return {success:true,bookings:batch,credit:{allocations:[]}};
       }
       if (name === 'checkBookingAttendeeJobTitles') return null;
       if (name === 'assertEventCodeOfConduct') return null;
@@ -208,6 +227,10 @@ function fixture({ enabled = true, member = null, memberEmail = null, free = fal
 
 async function invoke(kind, options = {}, bodyOverride = {}) {
   const state = fixture(options);
+  if(options.existingUnifiedBooking)for(const table of ['booking','complex_event_booking'])state.rows[table].push({
+    id:'already-committed',tenant_id:'tenant-a',event_id:'event-a',stripe_payment_intent_id:'pi_fixture',
+    purchaser_context:{booking_contract_version:2},attendee_email:'private-existing@example.invalid',status:'confirmed',
+  });
   if (options.provisioning || options.guestAccounts) {
     for (const ticket of [...state.rows.event[0].pricing_config.ticket_classes, ...state.rows.complex_event_ticket_class]) {
       ticket.create_member_records = true;
@@ -236,6 +259,61 @@ async function invoke(kind, options = {}, bodyOverride = {}) {
 }
 
 for (const kind of ['simple', 'complex']) {
+  test(`${kind}: a legacy retry cannot expose an already committed unified payment booking`,async()=>{
+    const result=await invoke(kind,{paid:true,unifiedIntent:true,existingUnifiedBooking:true},kind==='simple'
+      ?{paymentMethod:'card',stripePaymentIntentId:'pi_fixture'}:{payment_method:'card',stripe_payment_intent_id:'pi_fixture'});
+    assert.notEqual(result.res.body.success,true);
+    assert.equal(result.bookings.length,1);
+    assert.ok(!JSON.stringify(result.res.body).includes('private-existing@example.invalid'));
+    assert.equal(result.calls.some(call=>call.refund||call.durableInvoiceIntent),false);
+    assert.equal(result.calls.some(call=>['insert','update','delete'].includes(call.operation)),false);
+    assert.deepEqual(result.unexpected,[]);
+  });
+  test(`${kind}: a captured payment cannot be attached to an unpaid legacy PO booking`,async()=>{
+    const result=await invoke(kind,{paid:true,unifiedIntent:true},kind==='simple'
+      ?{stripePaymentIntentId:'pi_fixture'}:{stripe_payment_intent_id:'pi_fixture'});
+    assert.notEqual(result.res.body.success,true);
+    assert.equal(result.bookings.length,0);
+    assert.equal(result.calls.some(call=>call.refund||call.durableInvoiceIntent),false);
+    assert.equal(result.calls.some(call=>['insert','update','delete'].includes(call.operation)),false);
+    assert.deepEqual(result.unexpected,[]);
+  });
+  for(const version of [undefined,1])for(const caller of [null,{id:'different-member',tenant_id:'tenant-a',email:'different@example.invalid'}])
+  test(`${kind}: ${caller?'another member':'a guest'} cannot downgrade a unified payment to version ${version??'omitted'}`,async()=>{
+    const result=await invoke(kind,{paid:true,unifiedIntent:true,member:caller},{
+      ...(version===undefined?{}:{booking_contract_version:version}),
+      ...(kind==='simple'?{paymentMethod:'card',stripePaymentIntentId:'pi_fixture'}:
+        {payment_method:'card',stripe_payment_intent_id:'pi_fixture'}),
+    });
+    assert.notEqual(result.res.body.success,true);
+    assert.equal(result.bookings.length,0);
+    assert.equal(result.calls.some(call=>call.refund),false);
+    assert.equal(result.calls.some(call=>call.durableInvoiceIntent),false);
+    assert.equal(result.calls.some(call=>call.dependency==='enqueueCheckoutEventInvoice'),false);
+    assert.equal(result.calls.some(call=>['insert','update','delete'].includes(call.operation)),false);
+    assert.equal(result.calls.some(call=>/atomic_decrement|adjust_event_seats|provision|finalize/.test(call.rpc||'')),false);
+    assert.deepEqual(result.unexpected,[]);
+  });
+  for(const method of ['public_invoice_po','free','card'])test(`${kind}: unified ${method} retains confirmed registration with durable accounting review and no member prerequisite`,async()=>{
+    const buyer={...purchaser,organization:''};
+    const free=method==='free';
+    const result=await invoke(kind,{unified:true,free,paid:method==='card'},{
+      booking_contract_version:2,purchase_request_id:'00000000-0000-4000-8000-000000000001',
+      purchaserInfo:buyer,purchaser_info:buyer,guestInfo:buyer,
+      ...(kind==='simple'?{paymentMethod:method,totalCost:free?0:50,
+        ...(method==='card'?{stripePaymentIntentId:'pi_fixture'}:{})}
+        :{payment_method:method,...(method==='card'?{stripe_payment_intent_id:'pi_fixture'}:{})}),
+    });
+    assert.equal(result.res.body.success,true,JSON.stringify(result.res.body));
+    assert.equal(result.bookings.length,2);
+    assert.equal(result.rows.member.length,0);
+    assert.equal(result.rows.public_ticket_member_purchase.length,0,'no legacy association-triggered provisioning');
+    assert.equal(result.calls.filter(call=>call.durableInvoiceIntent).length,1);
+    assert.equal(result.res.body.invoice_recovery?.status,free?'not_applicable':'needs_review');
+    assert.equal(result.calls.some(call=>call.dependency==='enqueueCheckoutEventInvoice'),false,'accounting scheduling is outside registration');
+    assert.equal(result.calls.some(call=>call.dependency==='findOrCreateStripeCustomer'),false);
+    assert.deepEqual(result.unexpected,[]);
+  });
   test(`${kind}: opted-in Other guests enter account creation for unpaid PO without settlement`,async()=>{
     const contact={...attendee,organization:'Typed hospital'};
     const result=await invoke(kind,{guestAccounts:true},{
@@ -399,7 +477,7 @@ for (const kind of ['simple', 'complex']) {
     assert.equal(result.bookings.length, 2, JSON.stringify(result.res.body));
     assert.ok(result.bookings.every(b => b.payment_method === 'free' && !b.purchaser_context));
   });
-  test(`${kind}: ordinary card request without payment proof cannot create bookings`, { todo: kind === 'simple' ? 'Existing simple-handler card-without-intent bypass; needs separate security fix' : false }, async () => {
+  test(`${kind}: ordinary card request without payment proof cannot create bookings`, async () => {
     const result = await invoke(kind, { enabled: false }, kind === 'simple' ? { paymentMethod: 'card' } : { payment_method: 'card' });
     assert.equal(result.bookings.length, 0);
     assert.ok(result.res.body.error);

@@ -37,6 +37,7 @@ async function load(entry) {
 }
 const AddressFields = await load("client/src/components/booking/PublicInvoicePoAddressFields.jsx");
 const Billing = await load("client/src/components/events/PublicInvoicePoBilling.jsx");
+const UnifiedCustomer = await load("client/src/components/booking/UnifiedBookingCustomer.jsx");
 async function mount(Component, props = {}) {
   const host = document.createElement("div");
   document.body.append(host);
@@ -44,6 +45,40 @@ async function mount(Component, props = {}) {
   await act(async () => root.render(h(Component, props)));
   return async () => { await act(async () => root.unmount()); host.remove(); };
 }
+test("unified member customers include self and independently select organisation or trust without changing saved addresses", async () => {
+  const choices = [
+    { kind:"member",id:"me",name:"Myself",invoicingAddress:null },
+    { kind:"organization",id:"org",name:"Employer",invoicingAddress:{source:"structured",address:{invoicing_address_line1:"Original office",invoicing_city:"London",invoicing_postal_code:"SW1",invoicing_country:"GB"}} },
+    { kind:"organization_group",id:"trust",name:"Trust",invoicingAddress:null },
+  ];
+  let value={kind:"member",id:"me",address:{}};
+  function Interactive() {
+    const [selection,setSelection]=React.useState(value);
+    return h(UnifiedCustomer,{choices,value:selection,onChange:next=>{value=next;setSelection(next);}});
+  }
+  const cleanup=await mount(Interactive);
+  const select=document.querySelector("select");
+  assert.equal(select.options.length,3);
+  await act(async()=>{select.value="organization:org";select.dispatchEvent(new Event("change",{bubbles:true}));});
+  assert.equal(value.kind,"organization");
+  assert.equal(value.id,"org");
+  assert.equal(value.address.invoicing_address_line1,"Original office");
+  assert.match(document.body.textContent,/whether you pay by card or Invoice/);
+  assert.equal(choices[1].invoicingAddress.address.invoicing_address_line1,"Original office");
+  await cleanup();
+});
+test("unified guest address collection never offers another entity as invoice customer",async()=>{
+  const cleanup=await mount(UnifiedCustomer,{guest:true,required:true,value:{kind:"guest",address:{}},onChange(){}});
+  assert.equal(document.querySelector("select"),null);
+  assert.match(document.body.textContent,/invoice is made out to you/);
+  assert.match(document.body.textContent,/optional reference information/);
+  for(const key of ["invoicing_address_line1","invoicing_city","invoicing_postal_code","invoicing_country"]){
+    const input=document.getElementById(`unified-${key}`);
+    assert.ok(input,`${key} is labelled and editable`);
+    assert.equal(input.required,true);
+  }
+  await cleanup();
+});
 const button = text => [...document.querySelectorAll("button")].find(node => node.textContent === text);
 after(() => { delete globalThis.__addressBillingFixture; dom.window.close(); });
 

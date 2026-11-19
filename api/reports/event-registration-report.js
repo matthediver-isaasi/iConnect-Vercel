@@ -8,6 +8,7 @@ import { attachReportCredits } from './_credits.js';
 import { summarizeRegistrationRevenue } from '../../shared/eventRegistrationRevenue.mjs';
 import { registrationMemberLinks } from '../_lib/eventRegistrationMemberLinks.js';
 import { registrationGroupMatches } from '../../shared/eventRegistrationSearch.mjs';
+import { addUnifiedBookingReportStatus } from '../_lib/unifiedBookingReport.js';
 
 // Never log provider messages/details: they can contain query values or HTML.
 export function reportQueryFailure(stage, error) {
@@ -340,7 +341,7 @@ export default async function handler(req, res, publicPoOnly = false) {
           .order('booking_group_reference', { ascending: true, nullsFirst: false })
           .order('created_at', { ascending: false }).order('id');
 
-        if (publicPoOnly) bookingQuery = bookingQuery.eq('payment_method', 'public_invoice_po').eq('purchaser_context->>classification', 'public_non_member');
+        if (publicPoOnly) bookingQuery = bookingQuery.or('payment_method.eq.public_invoice_po,and(purchaser_context->>booking_contract_version.eq.2,purchaser_context->>original_payment_method.eq.public_invoice_po)').eq('purchaser_context->>classification', 'public_non_member');
         if (dateFrom) {
           bookingQuery = bookingQuery.gte('created_at', new Date(dateFrom + 'T00:00:00.000Z').toISOString());
         }
@@ -381,7 +382,7 @@ export default async function handler(req, res, publicPoOnly = false) {
           complexBookingQuery = complexBookingQuery.lt('created_at', toDate.toISOString());
         }
 
-        if (publicPoOnly) complexBookingQuery = complexBookingQuery.eq('payment_method', 'public_invoice_po').eq('purchaser_context->>classification', 'public_non_member');
+        if (publicPoOnly) complexBookingQuery = complexBookingQuery.or('payment_method.eq.public_invoice_po,and(purchaser_context->>booking_contract_version.eq.2,purchaser_context->>original_payment_method.eq.public_invoice_po)').eq('purchaser_context->>classification', 'public_non_member');
         const { data: complexBookingData, error: complexBookingsError } = await readAllReportRows(complexBookingQuery);
 
         if (complexBookingsError) {
@@ -392,7 +393,7 @@ export default async function handler(req, res, publicPoOnly = false) {
             ...b,
             _report_booking_source: 'complex',
             // Invoice intentions have no payment, but retain a registration value.
-            total_cost: b.payment_method === 'public_invoice_po' ? b.ticket_price : b.total_paid,
+            total_cost: isPublicInvoicePo(b) ? b.ticket_price : b.total_paid,
             account_amount: b.account_balance_amount || 0,
             purchase_order_number: b.purchase_order_number || null,
             po_to_follow: null,
@@ -900,8 +901,12 @@ export default async function handler(req, res, publicPoOnly = false) {
 
         bookingGroups.push({
           bookingSource: first._report_booking_source === 'complex' ? 'complex_event_booking' : 'booking',
+          bookingContractVersion: first.purchaser_context?.booking_contract_version || 1,
           isPublicInvoicePo: members.some(isPublicInvoicePo),
-          publicInvoicePurchaser: publicInvoicePurchaser(members.find(isPublicInvoicePo)?.purchaser_context),
+          isNonMemberBooking: members.some(b => b.purchaser_context?.booking_contract_version === 2 && b.purchaser_context?.classification === 'public_non_member'),
+          invoiceCustomer: first.purchaser_context?.invoice_customer || null,
+          publicInvoicePurchaser: publicInvoicePurchaser(members.find(b => isPublicInvoicePo(b)
+            || b.purchaser_context?.booking_contract_version === 2 && b.purchaser_context?.classification === 'public_non_member')?.purchaser_context),
           groupRef: groupRef.startsWith('single_') ? null : groupRef,
           isGroup,
           attendeeCount: members.length,
@@ -928,6 +933,7 @@ export default async function handler(req, res, publicPoOnly = false) {
             trainingFundAmount: groupTrainingFund,
             accountAmount: groupAccountAmount,
             paymentMethod: first.payment_method,
+            invoiceCustomer: first.purchaser_context?.invoice_customer || null,
             purchaseOrderNumber: first.purchase_order_number,
             poToFollow: first.po_to_follow,
             stripePaymentIntentId: first.stripe_payment_intent_id,
@@ -1094,6 +1100,7 @@ export default async function handler(req, res, publicPoOnly = false) {
         }
       }
 
+      await addUnifiedBookingReportStatus(supabase, tenantId, bookingGroups);
       summary = {
         ...summarizeRegistrationRevenue(bookingGroups),
         totalVoucher,

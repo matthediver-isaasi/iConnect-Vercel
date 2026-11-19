@@ -2,6 +2,11 @@
 name: Guest registration association policy
 description: Explicit organisation/group selection must not reinterpret guest-entered company details or capacity rules.
 ---
+> For the approved new unified booking flow, automatic creation follows ticket
+> policy and creates no organisation relationships. The automatic-association
+> rules below describe legacy authority; manual admin conversion remains separate.
+> See [Unified booking invoice policy](unified-booking-invoice-policy.md).
+
 Guest-to-member conversion may link either an Organisation or a direct Organisation Group, never Member Groups. Free-text company details are reference information, not association authority.
 
 **Why:** The owner explicitly requested optional direct associations while preserving registration history and existing role-capacity policy.

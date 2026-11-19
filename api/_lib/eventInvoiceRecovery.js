@@ -244,6 +244,17 @@ export async function processEventInvoiceRecovery({
 export async function reconcileEventInvoices({ db, providerFactory, now = Date.now, maxItems = 8, budgetMs = 45_000,
   includeHistorical = false, reconcileQuickBooks = null } = {}) {
   const deadlineAt = now() + Math.min(45_000, Math.max(1000, budgetMs));
+  const unified = { queued: 0, status: 'idle' };
+  const unifiedDeadline = Math.min(deadlineAt, now() + 8000);
+  try {
+    const { recoverUnifiedBookingInvoices } = await import('./unifiedBookingRecovery.js');
+    for (let i = 0; i < Math.min(8, maxItems) && now() < unifiedDeadline - 1000; i++) {
+      const result = await recoverUnifiedBookingInvoices({ db, deadlineAt: unifiedDeadline, skipProvisioning: i > 0 });
+      unified.status = result.status;
+      if (result.status !== 'queued') break;
+      unified.queued++;
+    }
+  } catch { unified.status = 'unavailable'; }
   // Events have their own schedule, independent of membership queue rollout
   // flags. Both workers share the queue's fenced claims when enabled together.
   const qbo = reconcileQuickBooks || (await import('./accountingEventSource.js')).reconcileQuickBooksEventInvoices;
@@ -260,5 +271,6 @@ export async function reconcileEventInvoices({ db, providerFactory, now = Date.n
     counts[result.status]++;
   }
   await recoveryRpc(db, 'heartbeat', { p_success: true });
-  return { swept, hydrated, ...counts };
+  return { swept, hydrated, ...counts,
+    ...(unified.queued || !['idle','legacy_schema'].includes(unified.status) ? { unified } : {}) };
 }

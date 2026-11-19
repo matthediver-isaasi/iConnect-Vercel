@@ -1,4 +1,5 @@
 import Stripe from 'stripe';
+import { prepareUnifiedBookingContract, createUnifiedBookingPayment } from '../_lib/unifiedBookingContract.js';
 import { prepareEventInvoiceAddressPolicy, createPolicyPaymentIntent } from '../_lib/eventInvoiceAddressPolicy.js';
 import { enforceAttendeeJobTitles } from '../_lib/attendeeJobTitleRequirement.js';
 import { assertPublicTicketPurchaser } from '../_lib/publicTicketEmail.js';
@@ -34,6 +35,9 @@ import {
 } from '../_lib/complexEventCreditQuote.js';
 
 export default async function handler(req, res) {
+  if (req.method === 'POST' && req.body?.booking_contract_version != null && ![1,2].includes(req.body.booking_contract_version)) {
+    return res.status(400).json({ error: 'Unsupported booking contract version' });
+  }
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -218,8 +222,8 @@ export default async function handler(req, res) {
       ticket: getTicketClassFromConfig(allTicketClasses, item.ticket_class_id),
       attendees: isMultiTicket ? items[index]?.attendees : req.body.attendees,
     }));
-    if (needsPublicTicketMemberCreation(provisioningItems.map(item => item.ticket).filter(ticket => !isPrivateTicket(ticket)), isMember ? member : null, tenant.id)
-      ||(!isMember&&hasRegistrationAssociation(req.body.purchaser_info,provisioningItems))) {
+    if (req.body.booking_contract_version !== 2 && (needsPublicTicketMemberCreation(provisioningItems.map(item => item.ticket).filter(ticket => !isPrivateTicket(ticket)), isMember ? member : null, tenant.id)
+      ||(!isMember&&hasRegistrationAssociation(req.body.purchaser_info,provisioningItems)))) {
       if (provisioningItems.some((item, index) => !Array.isArray(item.attendees)
           || item.attendees.length !== normalizedItems[index].attendee_count)) {
         return res.status(400).json({ error: 'Provide complete attendee details matching each ticket quantity before payment.' });
@@ -373,7 +377,13 @@ export default async function handler(req, res) {
       });
     }
 
-    const invoiceAddressPolicy = isMember ? await prepareEventInvoiceAddressPolicy({
+    const unifiedContract = req.body.booking_contract_version === 2 ? await prepareUnifiedBookingContract({
+      db: supabase, tenantId: tenant.id, source: 'complex_event_booking', eventId: event_id,
+      requestId: req.body.purchase_request_id, memberId: isMember ? member.id : null,
+      purchaser: req.body.purchaser_info, selection: req.body.unifiedInvoiceSelection,
+      ticketIds: normalizedItems.map(item => item.ticket_class_id),
+    }) : null;
+    const invoiceAddressPolicy = isMember && !unifiedContract ? await prepareEventInvoiceAddressPolicy({
       db: supabase, tenantId: tenant.id, memberId: member.id, eventId: event_id, source: 'complex',
       selection: req.body.invoiceAddressSelection, requestId: req.body.purchase_request_id,
       charge: { amount: creditQuote.remainingMinor, currency, items: normalizedItems,
@@ -440,7 +450,9 @@ export default async function handler(req, res) {
       metadata: { ...metadata, public_ticket_purchase_id: publicTicketPurchase?.id || '' },
       ...(paymentEmail ? { receipt_email: paymentEmail } : {})
     };
-    const paymentIntent = invoiceAddressPolicy
+    const paymentIntent = unifiedContract
+      ? await createUnifiedBookingPayment({ db: supabase, stripe, contract: unifiedContract, parameters: paymentParameters })
+      : invoiceAddressPolicy
       ? await createPolicyPaymentIntent({ db: supabase, stripe, preparation: invoiceAddressPolicy, parameters: paymentParameters })
       : await stripe.paymentIntents.create(paymentParameters,
         publicTicketPurchase ? { idempotencyKey: `public-ticket:${tenant.id}:${publicTicketPurchase.id}` } : undefined);

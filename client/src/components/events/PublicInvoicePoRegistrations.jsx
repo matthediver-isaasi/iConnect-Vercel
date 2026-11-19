@@ -38,7 +38,7 @@ export default function PublicInvoicePoRegistrations({ groups = [], allGroups = 
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState(null);
   const [billingOpen, setBillingOpen] = useState(false);
-  const matching = groups.filter(group => group.isPublicInvoicePo);
+  const matching = groups.filter(group => group.isPublicInvoicePo || group.isNonMemberBooking);
   const pages = Math.max(1, Math.ceil(matching.length / PAGE_SIZE));
   useEffect(() => { setPage(1); }, [groups]);
   useEffect(() => {
@@ -56,9 +56,9 @@ export default function PublicInvoicePoRegistrations({ groups = [], allGroups = 
   const date = value => value ? new Date(value).toLocaleString() : 'Not recorded';
   return <>
     <Card data-testid="public-invoice-po-registrations">
-      <CardHeader><CardTitle>Public Invoice / PO Registrations</CardTitle></CardHeader>
+      <CardHeader><CardTitle>Non-member registrations and Public Invoice / PO</CardTitle></CardHeader>
       <CardContent className="space-y-4">
-        <p className="text-sm text-muted-foreground">This registration method records an invoice intention, not a payment. Manage the whole-booking invoice separately.</p>
+        <p className="text-sm text-muted-foreground">New checkout invoices are automatic; card bookings are paid and Invoice / PO bookings remain unpaid. Historical invoice intentions retain their original approval requirements.</p>
         {matching.length === 0 ? <p className="text-sm">No public Invoice / PO registrations match the current filters.</p> :
           <div className="divide-y">{matching.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map(group => {
             const first = group.attendees[0];
@@ -70,7 +70,7 @@ export default function PublicInvoicePoRegistrations({ groups = [], allGroups = 
               <p className="text-sm text-muted-foreground">{group.eventTitle} · {[...new Set(group.attendees.map(a => a.ticket_class_name).filter(Boolean))].join(', ')}</p>
               <p className="text-sm">PO: {group.groupPayment.purchaseOrderNumber || 'Not supplied'} · {date(first.created_at)}</p>
               </button>
-              {canManageInvoice && <Button variant="outline" className="shrink-0 self-start sm:self-auto mx-3" onClick={() => openDetails(group, true)}>Manage invoice</Button>}
+               {canManageInvoice && group.groupPayment.invoiceRecoveryStatus !== 'not_applicable' && <Button variant="outline" className="shrink-0 self-start sm:self-auto mx-3" onClick={() => openDetails(group, true)}>Manage invoice</Button>}
             </div>;
           })}</div>}
         <div className="flex items-center justify-between gap-2 text-sm">
@@ -85,12 +85,16 @@ export default function PublicInvoicePoRegistrations({ groups = [], allGroups = 
     <Dialog open={!!selected} onOpenChange={open => { if (!open) setSelected(null); }}>
       <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Public Invoice / PO registration</DialogTitle>
+          <DialogTitle>Non-member registration</DialogTitle>
           <DialogDescription>{selected?.eventTitle} — registration details and submitted form answers.</DialogDescription>
         </DialogHeader>
         {selected && <div className="space-y-6">
-          <Details entries={[['Payment method', 'Invoice / PO'], ['Purchase Order Number', selected.groupPayment.purchaseOrderNumber], ['Booking group', selected.groupRef], ['Event', selected.eventTitle]]} />
-          {canManageInvoice && selected.attendees[0] && <div className="space-y-3">
+          <Details entries={[['Payment method', selected.groupPayment.paymentMethod], ['Invoice customer', selected.invoiceCustomer?.name], ['Invoice status', selected.groupPayment.invoiceRecoveryStatus], ['Optional member creation', selected.provisionState], ['Purchase Order Number', selected.groupPayment.purchaseOrderNumber], ['Booking group', selected.groupRef], ['Event', selected.eventTitle]]} />
+          {selected.invoiceRecoveryReason && <p role="status" className="text-sm">{selected.invoiceRecoveryReason}</p>}
+          {selected.provisionState === 'needs_review' && <p role="status" className="text-sm">Optional member creation needs review. Registration and invoice instructions remain unchanged.</p>}
+          {selected.isNonMemberBooking && !selected.bookerCreatedMemberId && canCreateGuestMember && onCreateMember && <Button variant="outline"
+            onClick={() => onCreateMember({ bookingId: selected.attendees[0].id, isComplex: selected.bookingSource === "complex_event_booking", identity: "purchaser" })}>Create original booker member</Button>}
+          {canManageInvoice && selected.groupPayment.invoiceRecoveryStatus !== 'not_applicable' && selected.attendees[0] && <div className="space-y-3">
             <Button variant="outline" onClick={() => setBillingOpen(open => !open)} aria-expanded={billingOpen}>{billingOpen ? "Hide invoice" : "Manage invoice"}</Button>
             {billingOpen && <PublicInvoicePoBilling bookingId={selected.attendees[0].id}
               isComplex={selected.bookingSource === "complex_event_booking"} tenantId={tenantId} viewerId={viewerId}

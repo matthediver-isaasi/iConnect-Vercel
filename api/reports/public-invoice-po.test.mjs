@@ -34,6 +34,7 @@ async function runRoute(context, admin, feature, { fixtures = {}, query = {}, fa
     import { registrationGroupMatches } from ${JSON.stringify(new URL('../../shared/eventRegistrationSearch.mjs', import.meta.url).href)};
     import { attachSalesTicketValues } from ${JSON.stringify(new URL('../_lib/salesTicketValue.js', import.meta.url).href)};
     import { registrationMemberLinks } from ${JSON.stringify(new URL('../_lib/eventRegistrationMemberLinks.js', import.meta.url).href)};
+    import { addUnifiedBookingReportStatus } from ${JSON.stringify(new URL('../_lib/unifiedBookingReport.js', import.meta.url).href)};
     import { summarizeRegistrationRevenue } from ${JSON.stringify(new URL('../../shared/eventRegistrationRevenue.mjs', import.meta.url).href)};
     const isPublicInvoicePo = ${isPublicInvoicePo.toString()};
     const publicInvoicePurchaser = ${publicInvoicePurchaser.toString()};
@@ -88,6 +89,12 @@ async function runRoute(context, admin, feature, { fixtures = {}, query = {}, fa
           ? row[key.split('->>')[0]]?.[key.split('->>')[1]] === value : row[key] === value); return q; },
         in(key, values) { oversized ||= table.startsWith('attendance_') && values.length > maxIds; filters.push(row => values.includes(row[key])); return q; },
         overlaps(key, values) { filters.push(row => values.some(value => row[key]?.includes(value))); return q; },
+        or(expression) {
+          if (!expression.startsWith('payment_method.eq.public_invoice_po')) throw new Error('Unexpected report filter');
+          filters.push(row => row.payment_method === 'public_invoice_po'
+            || row.purchaser_context?.booking_contract_version === 2 && row.purchaser_context?.original_payment_method === 'public_invoice_po');
+          return q;
+        },
         gte(key, value) { filters.push(row => row[key] >= value); return q; },
         lt(key, value) { filters.push(row => row[key] < value); return q; },
         order() { return q; },

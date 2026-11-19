@@ -6,6 +6,7 @@ export const PUBLIC_INVOICE_PO = 'public_invoice_po';
 export async function validatePublicInvoicePo({
   client, event, authenticatedMember, purchaserInfo, stripePaymentIntentId,
   voucherIds, trainingFundAmount, accountAmount, allocationContext, purchaseOrderNumber,
+  unifiedContract = null,
 }) {
   if (event?.allow_public_invoice_po !== true || event.member_group_id) {
     throw new Error('Public Invoice / PO is not enabled for this event');
@@ -39,7 +40,7 @@ export async function validatePublicInvoicePo({
     details[field] = details[field].trim();
   }
   details.email = details.email.toLowerCase();
-  const addressError = publicInvoicePoAddressError(purchaserInfo);
+  const addressError = publicInvoicePoAddressError(purchaserInfo, { requireOrganization: unifiedContract?.snapshot?.version !== 2 });
   if (addressError) throw new Error(addressError);
   Object.assign(details, normalizePublicInvoicePoAddress(purchaserInfo));
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(details.email)) {

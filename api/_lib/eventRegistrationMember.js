@@ -66,7 +66,8 @@ export function makeEventRegistrationMemberHandler({ db, getContext, adminAccess
       const purchaser = identity === 'purchaser'
         ? (await loadPublicPoBooker(db, ctx.tenantId, table, booking)).booker : null;
       if (identity === 'purchaser' && (booking.purchaser_context?.classification !== 'public_non_member'
-        || !purchaser?.email || !['public_invoice_po','invoice'].includes(booking.payment_method))) reject('Original Invoice / PO booker details are unavailable.', 409);
+        || !purchaser?.email || !['public_invoice_po','invoice'].includes(booking.payment_method)
+          && booking.purchaser_context?.booking_contract_version !== 2)) reject('Original Invoice / PO booker details are unavailable.', 409);
       if (!booking.member_id && !input.isComplex && booking.is_guest_booking !== true && booking.organization_id) reject('This is not a guest registration.', 409);
       if (!booking.member_id && input.isComplex && booking.organization_id) reject('This is not a guest registration.', 409);
       const { data: event, error: eventError } = await db.from(input.isComplex ? 'complex_event' : 'event')
