@@ -66,6 +66,7 @@
 - [PostgreSQL safety topics](postgres-safety-index.md) — RPC grants, output-name collisions, pooled locks, nullable JSON and legacy schema compatibility.
 - [Member membership pause](member-membership-pause.md) — pause blocks access via its own flag (login_enabled never rewritten); GC resume only touches subs pause recorded; all reads 42703-tolerant.
 - [Organisation Group CRM parity](org-group-crm-parity.md) — preference_field.entity_scope is CHECK-constrained; org layout/rules editors take a coreFields prop, rule eval is entity-agnostic.
+- [Organisation Group audiences](organization-group-audience-policy.md) — Organisation precedence is mandatory; no effective group never matches negative or empty predicates.
 - [Per-instalment monthly invoicing](per-instalment-invoicing.md) — mode snapshotted at consent; idempotency via invoice linkage (GC row cols / Stripe unique table); annual paths must call shouldSuppressAnnualInvoice.
 - [Tenant feed cron fairness](tenant-feed-cron-fairness.md) — time-bounded tenant feed crons need an ordered durable cursor, or the first page silently starves later tenants.
 - [Preference-field ownership scopes](preference-field-ownership-scopes.md) — adding a new field owner requires API and DB guards on every legacy value table, not just filtering field definitions.

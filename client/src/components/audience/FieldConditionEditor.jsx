@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { popupOperators } from "@shared/cmsPopupContract.js";
+import { organizationGroupOperators } from "@shared/audienceOrganizationGroup.js";
 
 export const blankFieldCondition = () => ({ entity_scope: "member", field_key: "", field_type: "", data_type: "", operator: "", value: "", field_label: "" });
 export function getFieldOperators(type) {
@@ -26,13 +27,15 @@ export function FieldConditionRow({ condition: cond, metadata, onChange, onRemov
   const multi = ["list", "multiselect", "multi_select", "country", "countries"].includes(type) || cond.operator === "is_one_of";
   const needsValue = !["is_empty", "is_not_empty", "is_true", "is_false"].includes(cond.operator);
   const operatorLabels = Object.fromEntries([...getFieldOperators(type), ["is_true", "Is true"], ["is_false", "Is false"]]);
-  const allOperators = scopes.length === 2 ? popupOperators(type).map((value) => [value, operatorLabels[value] || value.replaceAll("_", " ")]) : getFieldOperators(type);
+  const allOperators = cond.entity_scope === 'organization_group'
+    ? organizationGroupOperators(type).map(value => [value, operatorLabels[value]])
+    : scopes.length === 2 ? popupOperators(type).map((value) => [value, operatorLabels[value] || value.replaceAll("_", " ")]) : getFieldOperators(type);
   const operators = field?.choice_only ? allOperators.filter(([op]) => ["equals", "not_equals", "is_empty", "is_not_empty"].includes(op)) : allOperators;
   const change = (patch) => onChange({ ...cond, ...patch });
   return <div className="flex flex-wrap items-center gap-2 rounded-md border bg-background p-2">
     <Select value={cond.entity_scope} disabled={disabled} onValueChange={(scope) => onScopeChange ? onScopeChange(scope) : onChange({ ...blankFieldCondition(), entity_scope: scope })}>
       <SelectTrigger className="w-36" aria-label="Condition scope" data-testid={`select-filter-scope-${testPrefix}`}><SelectValue /></SelectTrigger>
-      <SelectContent>{scopes.map((scope) => <SelectItem value={scope} key={scope}>{({ member: "Member", organization: "Organisation", event: "Event", custom_object: "Custom Object" })[scope]}</SelectItem>)}</SelectContent>
+      <SelectContent>{scopes.map((scope) => <SelectItem value={scope} key={scope}>{({ member: "Member", organization: "Organisation", organization_group: "Organisation Group", event: "Event", custom_object: "Custom Object" })[scope]}</SelectItem>)}</SelectContent>
     </Select>
     <Select value={cond.field_key} disabled={disabled} onValueChange={(key) => {
       const next = fields.find((f) => f.key === key);
@@ -67,6 +70,13 @@ export function FieldConditionRow({ condition: cond, metadata, onChange, onRemov
         const values = Array.isArray(cond.value) ? cond.value : [cond.value];
         return <label key={value} className="flex items-center gap-2"><input disabled={disabled} type={multi ? "checkbox" : "radio"} checked={values.includes(value)} onChange={(e) => change({ value: multi ? e.target.checked ? [...values.filter(Boolean), value] : values.filter((v) => v !== value) : value })} />{label}</label>;
       })}
+    </div> : cond.entity_scope === 'organization_group' && multi ? <div className="min-w-40 flex-1">
+      <textarea disabled={disabled} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+        aria-label="Condition values" data-testid={`input-filter-value-${testPrefix}`}
+        placeholder="One value per line"
+        value={Array.isArray(cond.value) ? cond.value.join('\n') : cond.value ?? ''}
+        onChange={e => change({ value: e.target.value.split('\n') })} />
+      <p className="text-xs text-muted-foreground">Enter one value per line. Matches any listed value.</p>
     </div> : <Input disabled={disabled} className="w-40" aria-label="Condition value" data-testid={`input-filter-value-${testPrefix}`}
       type={type === "date" ? "date" : ["number", "decimal"].includes(type) ? "number" : "text"}
       value={cond.value ?? ""} onChange={(e) => change({ value: e.target.value })} />)}

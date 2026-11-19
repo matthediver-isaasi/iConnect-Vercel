@@ -4,6 +4,7 @@ import { supabase as defaultDatabase } from './_lib/database.js';
 import { validateSurveyAudienceSegments } from './_lib/eventSurveyAudience.js';
 import { validateSpeakerAudienceSegments } from './_lib/eventSpeakerAudience.js';
 import { readAudienceListPage } from './_lib/audienceListPages.js';
+import { validateAudienceOrganizationGroups } from './_lib/audienceOrganizationGroups.js';
 
 export default async function handler(req, res, dependencies = {}) {
   const supabase = dependencies.supabase || defaultDatabase;
@@ -76,6 +77,7 @@ export default async function handler(req, res, dependencies = {}) {
       };
 
       await validateAudienceCustomObjects(supabase, tenantId, target_audiences, { context: tenantContext, isAdmin: true });
+      await validateAudienceOrganizationGroups(supabase, tenantId, target_audiences);
       await validateSurveyAudienceSegments(supabase, tenantId, target_audiences);
       await validateSpeakerAudienceSegments(supabase, tenantId, target_audiences);
 
@@ -121,6 +123,7 @@ export default async function handler(req, res, dependencies = {}) {
       };
 
       await validateAudienceCustomObjects(supabase, tenantId, target_audiences, { context: tenantContext, isAdmin: true });
+      await validateAudienceOrganizationGroups(supabase, tenantId, target_audiences);
       await validateSurveyAudienceSegments(supabase, tenantId, target_audiences);
       await validateSpeakerAudienceSegments(supabase, tenantId, target_audiences);
 

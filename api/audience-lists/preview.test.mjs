@@ -14,7 +14,7 @@ async function loadCampaignService() {
   const replacements = new Map();
 
   for (const [, names, specifier] of source.matchAll(importPattern)) {
-    if (specifier === 'crypto' || specifier === './prefValueOptionFilter.js' || specifier === './eventSurveyAudience.js' || specifier === './campaignRecordedAttendance.js') continue;
+    if (specifier === 'crypto' || specifier === './prefValueOptionFilter.js' || specifier === './eventSurveyAudience.js' || specifier === './campaignRecordedAttendance.js' || specifier === './audienceOrganizationGroups.js') continue;
     const exports = [];
     for (const entry of names.replace(/[{}]/g, '').split(',').map((value) => value.trim()).filter(Boolean)) {
       const [imported, local = imported] = entry.split(/\s+as\s+/);

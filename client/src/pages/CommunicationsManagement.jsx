@@ -25,6 +25,7 @@ import DuplicateAudienceListDialog from "@/components/communications/DuplicateAu
 import CustomObjectAudienceCondition, { customObjectConditionError, customObjectSummary } from "@/components/communications/CustomObjectAudienceCondition";
 import EventSurveyAudiencePicker from "@/components/communications/EventSurveyAudiencePicker";
 import { FieldConditionRow } from "@/components/audience/FieldConditionEditor";
+import { organizationGroupConditionError } from "@shared/audienceOrganizationGroup.js";
 import { listAllOrganizationsForAdmin } from '@/lib/adminOrgList';
 import { parseExternalContacts } from "@/lib/externalContactsCsv";
 import { downloadCsv, slugifyFilename } from "@/lib/csvExport";
@@ -214,7 +215,7 @@ export default function CommunicationsManagementPage() {
   });
 
   const { data: filterableFields = null, isLoading: fieldsLoading, isError: fieldsError, refetch: retryFields } = useQuery({
-    queryKey: ['filterable-fields'],
+    queryKey: ['filterable-fields', activeTenantId],
     queryFn: async () => {
       const res = await fetch('/api/audience-lists/filterable-fields', { credentials: 'include' });
       if (!res.ok) throw new Error('Failed to fetch filterable fields');
@@ -228,6 +229,15 @@ export default function CommunicationsManagementPage() {
     allOrganizations.forEach(org => { map[org.id] = org.name; });
     return map;
   }, [allOrganizations]);
+
+  const groupConditionError = (condition) => {
+    if (condition.entity_scope !== 'organization_group') return null;
+    if (fieldsLoading || fieldsError) return 'Organisation Group definitions could not be loaded. Retry before saving.';
+    const field = filterableFields?.organization_group?.custom?.find(f => f.key === condition.field_key);
+    return organizationGroupConditionError(condition, field && {
+      ...field, field_type: field.data_type, is_active: true, entity_scope: 'organization_group',
+    });
+  };
 
   const roleLookup = useMemo(() => {
     const map = {};
@@ -591,7 +601,7 @@ export default function CommunicationsManagementPage() {
           const fieldLabel = c.field_label || c.field_key;
           const opLabels = { equals: '=', not_equals: '!=', contains: 'contains', is_empty: 'is empty', is_not_empty: 'is not empty', is_true: 'is true', is_false: 'is false', greater_than: '>', less_than: '<', before: 'before', after: 'after', is_one_of: 'is one of', is_not_one_of: 'is not one of' };
           const opLabel = opLabels[c.operator] || c.operator;
-          const scope = c.entity_scope === 'organization' ? 'Org' : c.entity_scope === 'event' ? 'Event' : 'Member';
+          const scope = c.entity_scope === 'organization_group' ? 'Organisation Group' : c.entity_scope === 'organization' ? 'Org' : c.entity_scope === 'event' ? 'Event' : 'Member';
           if (c.operator === 'is_empty' || c.operator === 'is_not_empty' || c.operator === 'is_true' || c.operator === 'is_false') {
             return `${scope}.${fieldLabel} ${opLabel}`;
           }
@@ -600,6 +610,13 @@ export default function CommunicationsManagementPage() {
             displayVal = c.value.map(id => (c.value_names && c.value_names[id]) || eventLookup[id] || id).join(', ');
           } else {
             displayVal = Array.isArray(c.value) ? c.value.join(', ') : c.value;
+            if (c.entity_scope === 'organization_group') {
+              const options = filterableFields?.organization_group?.custom?.find(f => f.key === c.field_key)?.options || [];
+              displayVal = (Array.isArray(c.value) ? c.value : [c.value]).map(v => {
+                const option = options.find(o => String(typeof o === 'object' ? o.value ?? o.label : o) === String(v));
+                return option && typeof option === 'object' ? option.label ?? option.value : v;
+              }).join(', ');
+            }
           }
           return `${scope}.${fieldLabel} ${opLabel} ${displayVal}`;
         });
@@ -799,6 +816,8 @@ export default function CommunicationsManagementPage() {
     for (const segment of editListAudiences) {
       for (const group of segment.filter_groups || []) {
         for (const condition of group.conditions || []) {
+          const groupError = groupConditionError(condition);
+          if (groupError) { toast.error(groupError); return; }
           if (condition.entity_scope !== 'custom_object') continue;
           const error = fieldsError ? 'Field definitions could not be loaded. Retry before saving.' : customObjectConditionError(condition, filterableFields);
           if (error) { toast.error(error); return; }
@@ -3741,15 +3760,16 @@ CREATE POLICY "Service role has full access to member_communication_preference"
 
                                 // Event/custom-object authoring retains its specialized pickers.
                                 // Core/custom member and organisation rows share popup authoring.
-                                if ((cond.entity_scope === 'member' || cond.entity_scope === 'organization') && !isEventField) {
+                                if (['member', 'organization', 'organization_group'].includes(cond.entity_scope) && !isEventField) {
                                   const replaceCondition = next => setFieldFilterGroups(prev => prev.map((g, gi) => gi === gIdx ? { ...g, conditions: g.conditions.map((c, ci) => ci === cIdx ? next : c) } : g));
                                   return <div key={cIdx} className="space-y-1.5">
                                     {cIdx > 0 && <div className="text-xs text-muted-foreground font-medium px-1">AND</div>}
                                     <FieldConditionRow condition={cond} metadata={filterableFields} disabled={fieldsLoading || fieldsError}
-                                      testPrefix={`${gIdx}-${cIdx}`} scopes={["member", "organization", "event", "custom_object"]}
+                                      testPrefix={`${gIdx}-${cIdx}`} scopes={["member", "organization", "organization_group", "event", "custom_object"]}
                                       onChange={replaceCondition}
                                       onScopeChange={scope => replaceCondition({ entity_scope: scope, field_key: '', field_type: '', data_type: '', operator: '', value: '', field_label: '' })}
                                       onRemove={group.conditions.length > 1 ? () => setFieldFilterGroups(prev => prev.map((g, gi) => gi === gIdx ? { ...g, conditions: g.conditions.filter((_, ci) => ci !== cIdx) } : g)) : undefined} />
+                                    {cond.entity_scope === 'organization_group' && cond.field_key && groupConditionError(cond) && <p role="alert" className="text-xs text-destructive">{groupConditionError(cond)}</p>}
                                   </div>;
                                 }
 
@@ -3773,6 +3793,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                         <SelectContent>
                                           <SelectItem value="member">Member</SelectItem>
                                           <SelectItem value="organization">Organisation</SelectItem>
+                                          <SelectItem value="organization_group">Organisation Group</SelectItem>
                                           <SelectItem value="event">Event</SelectItem>
                                           <SelectItem value="custom_object">Custom Object</SelectItem>
                                         </SelectContent>
@@ -4238,6 +4259,8 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                             setEditListAudiences(prev => [...prev, { type: 'all_members', ids: [] }]);
                           } else if (addListSegmentType === 'field_filter') {
                             const customConditions = fieldFilterGroups.flatMap(g => g.conditions).filter(c => c.entity_scope === 'custom_object');
+                            const groupError = fieldFilterGroups.flatMap(g => g.conditions).map(groupConditionError).find(Boolean);
+                            if (groupError) { toast.error(groupError); return; }
                             const invalid = customConditions.map(c => customObjectConditionError(c, filterableFields)).find(Boolean);
                             if (invalid || (customConditions.length && fieldsError)) { toast.error(invalid || 'Retry loading field definitions.'); return; }
                             const noValueOps = ['is_empty', 'is_not_empty', 'is_true', 'is_false'];

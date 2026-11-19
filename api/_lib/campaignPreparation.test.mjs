@@ -4,9 +4,11 @@ import { prepareCampaignAudience, preparationContext, isRetryablePreparationErro
 import { resolveEventSurveyAudience } from './eventSurveyAudience.js';
 import { resolvePreparationChunk } from './campaignPreparationStream.js';
 import { resolveSpeakerAudience, validateSpeakerAudienceSegments } from './eventSpeakerAudience.js';
+import { organizationGroupConditionError } from '../../shared/audienceOrganizationGroup.js';
 
 process.env.SUPABASE_URL = 'https://campaign-preparation.invalid';
 process.env.SUPABASE_SERVICE_KEY = 'isolated-test-key';
+const { default: audienceListHandler } = await import('../audience-lists.js');
 const { getTargetRecipients, applyConditionToQuery, applyPrefValueCondition } = await import('./campaignService.js');
 const { supabase } = await import('./database.js');
 
@@ -95,6 +97,11 @@ function fixture(tables, segments = [{ type: 'all_members', ids: [] }]) {
         eq(k,v) { filters.push(r => k.split('.').reduce((o,key)=>o?.[key],r) === v); return this; },
         neq(k,v) { filters.push(r => r[k] !== v); return this; },
         or(expression) {
+          if (expression.startsWith('value.eq.')) {
+            const choices = [...expression.matchAll(/value\.eq\.("(?:\\.|[^"\\])*")/g)].map(m => JSON.parse(m[1]));
+            filters.push(r => choices.some(v => r.value === v || r.value?.includes(JSON.stringify(v))));
+            return this;
+          }
           const emails = [...expression.matchAll(/email\.ilike\.([^,]+)/g)].map(m => m[1].replaceAll('"','').toLowerCase());
           filters.push(r => emails.includes(r.email?.toLowerCase()));
           return this;
@@ -272,6 +279,148 @@ test('attendance preview and preparation agree for Zoom, check-in, both and neit
       assert.deepEqual(new Set(model.recipients.keys()),emails,`${type} ${selection} prepared`);
       if (selection === 'all') assert(!model.sourceQueries.some(q => q.table === 'attendance_current_outcome'));
     }
+  }
+});
+
+function groupAudienceFixture(operator = 'equals', value = 'trust') {
+  const c = { entity_scope: 'organization_group', field_type: 'custom', field_key: 'group-field', data_type: 'dropdown', operator, value };
+  const member = (id, organization_id, organization_group_id, extra = {}) => ({
+    id, tenant_id: 'tenant', email: `${id}@example.com`, organization_id, organization_group_id, ...extra,
+  });
+  const tables = {
+    preference_field: [{ id: 'group-field', tenant_id: 'tenant', entity_scope: 'organization_group', is_active: true, field_type: 'dropdown', options: ['trust', 'university'] }],
+    organization_group: ['trust', 'university', 'empty', 'missing'].map(id => ({ id, tenant_id: 'tenant' })),
+    organization: [{ id: 'org', tenant_id: 'tenant', organization_group_id: 'trust' }, { id: 'no-group', tenant_id: 'tenant' }],
+    organization_group_preference_value: [
+      { tenant_id: 'tenant', field_id: 'group-field', organization_group_id: 'trust', value: 'trust' },
+      { tenant_id: 'tenant', field_id: 'group-field', organization_group_id: 'university', value: 'university' },
+      { tenant_id: 'tenant', field_id: 'group-field', organization_group_id: 'empty', value: '' },
+    ],
+    member: [
+      member('inherited', 'org', null), member('conflicting', 'org', 'university'),
+      member('direct', null, 'trust'), member('other', null, 'university'),
+      member('empty', null, 'empty'), member('missing', null, 'missing'),
+      member('none', null, null), member('org-without-group', 'no-group', 'trust'),
+      member('foreign-org', 'foreign', 'trust'), member('foreign-group', null, 'foreign'),
+      member('opted', null, 'trust', { communications_opted_out_all: true }),
+      member('deleted', null, 'trust', { email: 'deleted_person@deleted.local' }),
+    ],
+  };
+  const segment = { type: 'field_filter', filter_groups: [{ conditions: [c] }] };
+  return { tables, segment, c };
+}
+
+test('Organisation Group conditions are validated on list create and update before any write', async () => {
+  for (const method of ['POST', 'PATCH']) {
+    for (const invalid of [false, true]) {
+      const { tables, segment } = groupAudienceFixture();
+      if (invalid) tables.preference_field[0].is_active = false;
+      const model = fixture(tables);
+      let writes = 0;
+      const db = { from(table) {
+        if (table !== 'audience_list') return model.db.from(table);
+        const query = {
+          insert() { writes++; return query; }, update() { writes++; return query; },
+          eq() { return query; }, select() { return query; },
+          single() { return Promise.resolve({ data: { id: 'saved', target_audiences: [segment] } }); },
+        };
+        return query;
+      } };
+      const res = { code: 200, status(code) { this.code = code; return this; }, json(body) { this.body = body; return this; } };
+      await audienceListHandler({ method, body: { id: 'saved', name: 'Groups', target_audiences: [segment] } }, res, {
+        supabase: db, getTenantContext: async () => ({ isAuthenticated: true, tenantId: 'tenant' }), hasAdminAccess: async () => true,
+      });
+      assert.equal(res.code, invalid ? 400 : method === 'POST' ? 201 : 200);
+      assert.equal(writes, invalid ? 0 : 1);
+    }
+  }
+});
+
+test('Organisation Group typed operands reject malformed values and accept typed controls', () => {
+  const field = type => ({ is_active: true, entity_scope: 'organization_group', field_type: type });
+  const check = (type, operator, value) => organizationGroupConditionError({ field_type: 'custom', data_type: type, operator, value }, field(type));
+  assert.equal(check('number', 'greater_than', '4.5'), null);
+  assert.ok(check('number', 'greater_than', 'bad'));
+  assert.ok(check('date', 'before', '2026-02-30'));
+  assert.equal(check('date', 'after', '2026-02-28'), null);
+  assert.equal(check('boolean', 'is_true', ''), null);
+  assert.ok(check('boolean', 'equals', 'true'));
+  assert.equal(check('multiselect', 'contains', ['a']), 'Organisation Group field choices are unavailable.');
+});
+
+test('Optionless Organisation Group list and country arrays match scalar and array storage in both resolvers', async () => {
+  for (const type of ['list', 'country', 'countries']) {
+    const { tables, segment, c } = groupAudienceFixture('contains', ['trust', 'university']);
+    c.data_type = type;
+    tables.preference_field[0].field_type = type;
+    delete tables.preference_field[0].options;
+    tables.organization_group_preference_value[1].value = '["university","other"]';
+    const model = fixture(tables, [segment]); model.sourceCost = 10;
+    const preview = await preparationContext.run({ db: model.db }, () => getTargetRecipients(model.state.snapshot, 'tenant'));
+    assert.equal(preview.success, true, preview.error);
+    assert.deepEqual(preview.recipients.map(r => r.id).sort(), ['conflicting', 'direct', 'inherited', 'other']);
+    await model.finishStream();
+    assert.deepEqual([...model.recipients.keys()].sort(), preview.recipients.map(r => r.email).sort());
+  }
+});
+
+test('Organisation Group preview, count and resumed preparation preserve inheritance, emptiness and negative semantics', async () => {
+  for (const [operator, value, expected] of [
+    ['equals', 'trust', ['conflicting', 'direct', 'inherited']],
+    ['not_equals', 'trust', ['empty', 'other']],
+    ['is_empty', '', ['empty', 'missing']],
+    ['is_not_empty', '', ['conflicting', 'direct', 'inherited', 'other']],
+    ['is_one_of', ['trust', 'university'], ['conflicting', 'direct', 'inherited', 'other']],
+  ]) {
+    const { tables, segment } = groupAudienceFixture(operator, value);
+    const model = fixture(tables, [segment]); model.sourceCost = 10;
+    const preview = await preparationContext.run({ db: model.db }, () => getTargetRecipients(model.state.snapshot, 'tenant'));
+    assert.equal(preview.success, true, preview.error);
+    assert.deepEqual(preview.recipients.map(r => r.id).sort(), expected);
+    const count = await preparationContext.run({ db: model.db }, () => getTargetRecipients(model.state.snapshot, 'tenant', true));
+    assert.equal(count.count, expected.length);
+    await model.finishStream();
+    assert.deepEqual([...model.recipients.keys()].sort(), expected.map(id => `${id}@example.com`).sort());
+  }
+});
+
+test('Organisation Group AND/OR and duplicate lists exceed a query page without truncation', async () => {
+  const { tables, segment, c } = groupAudienceFixture();
+  tables.member = Array.from({ length: 1205 }, (_, i) => ({
+    id: `m${String(i).padStart(4, '0')}`, email: `m${i}@example.com`, tenant_id: 'tenant', organization_id: 'org', organization_group_id: 'university', login_enabled: i % 2 === 0,
+  }));
+  segment.filter_groups = [
+    { conditions: [c, { entity_scope: 'member', field_type: 'core', field_key: 'login_enabled', operator: 'is_true' }] },
+    { conditions: [{ ...c, operator: 'is_empty', value: '' }] },
+  ];
+  tables.audience_list = [{ id: 'list', tenant_id: 'tenant', target_audiences: [segment], ignore_opt_outs: false }];
+  const model = fixture(tables, [{ type: 'audience_list', ids: ['list', 'list'] }]); model.sourceCost = 10;
+  const preview = await preparationContext.run({ db: model.db }, () => getTargetRecipients(model.state.snapshot, 'tenant'));
+  assert.equal(preview.success, true, preview.error);
+  assert.equal(preview.recipients.length, 603);
+  await model.finishStream();
+  assert.deepEqual([...model.recipients.keys()].sort(), preview.recipients.map(r => r.email).sort());
+});
+
+test('Organisation Group invalid metadata, operands and failed reads stop preview and preparation', async () => {
+  for (const variant of ['foreign', 'inactive', 'deleted', 'scope', 'type', 'operator', 'value', 'array',
+    'preference_field', 'organization', 'organization_group', 'organization_group_preference_value']) {
+    const { tables, segment, c } = groupAudienceFixture();
+    if (variant === 'foreign') tables.preference_field[0].tenant_id = 'other';
+    if (variant === 'inactive') tables.preference_field[0].is_active = false;
+    if (variant === 'deleted') tables.preference_field = [];
+    if (variant === 'scope') tables.preference_field[0].entity_scope = 'member';
+    if (variant === 'type') c.field_type = 'core';
+    if (variant === 'operator') c.operator = 'unknown';
+    if (variant === 'value') c.value = 'unavailable';
+    if (variant === 'array') c.value = ['trust'];
+    const model = fixture(tables, [segment]); model.sourceCost = 1;
+    if (variant.includes('_') || variant === 'organization') model.failTable = variant;
+    const preview = await preparationContext.run({ db: model.db }, () => getTargetRecipients(model.state.snapshot, 'tenant'));
+    assert.equal(preview.success, false, variant);
+    const result = await model.stream();
+    assert.equal(result.success, false, variant);
+    assert.equal(model.recipients.size, 0);
   }
 });
 

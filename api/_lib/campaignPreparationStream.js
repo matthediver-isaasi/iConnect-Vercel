@@ -6,6 +6,7 @@ import { customObjectSelectionKey } from '../../shared/audienceCustomObjectContr
 import { preparationError } from './campaignPreparation.js';
 import { speakerAudienceChunk } from './eventSpeakerAudience.js';
 import { waitingAudienceChunk } from './eventWaitingAudience.js';
+import { validateAudienceOrganizationGroups, matchOrganizationGroupMembers } from './audienceOrganizationGroups.js';
 
 export const RESOLUTION_PAGE_SIZE = 200;
 const normalize = value => typeof value === 'string' ? value.trim().toLowerCase() : '';
@@ -382,6 +383,7 @@ async function fieldChunk(db, state, work, bucket, helpers) {
   if (!helpers) throw new Error('Field-filter preparation helpers are unavailable');
   const tenant = state.tenant_id;
   if (!work.phase) {
+    await validateAudienceOrganizationGroups(db, tenant, [work.s]);
     const custom = (work.s.filter_groups || []).flatMap(g => g.conditions || []).filter(c => c.entity_scope === 'custom_object');
     const selectedMetadata = {
       custom_object_definition: ['id', [...new Set(custom.map(c => c.custom_object_id))]],
@@ -402,6 +404,10 @@ async function fieldChunk(db, state, work, bucket, helpers) {
     for (const group of work.s.filter_groups || []) {
       const predicates = [], customSelections = new Map();
       for (const c of group.conditions || []) {
+        if (c.entity_scope === 'organization_group') {
+          predicates.push(c);
+          continue;
+        }
         if (c.entity_scope === 'custom_object') {
           const key = customObjectSelectionKey(c);
           if (!customSelections.has(key)) customSelections.set(key, []);
@@ -430,7 +436,13 @@ async function fieldChunk(db, state, work, bucket, helpers) {
   if (work.phase === 'predicates') {
     const c = groups[group][condition], name = `${bucket}:g${group}:c${condition}`;
     let found, facts = [], finish, next = { ...work }, cursorKey = 'id';
-    if (c.entity_scope === 'custom_object') {
+    if (c.entity_scope === 'organization_group') {
+      await validateAudienceOrganizationGroups(db, tenant, [{ type: 'field_filter', filter_groups: [{ conditions: [c] }] }]);
+      found = await page(db.from('member').select('id,organization_id,organization_group_id')
+        .eq('tenant_id', tenant).not('email', 'ilike', 'deleted_%@deleted.local'), work.cursor);
+      const matched = await matchOrganizationGroupMembers(db, tenant, found, c, helpers.applyPrefValueCondition);
+      facts = [...matched].map(id => fact(name, id));
+    } else if (c.entity_scope === 'custom_object') {
       const first = c.predicates[0], objectSide = `${first.object_side}_record_id`;
       const memberSide = first.object_side === 'source' ? 'target_record_id' : 'source_record_id';
       found = await page(db.from('custom_object_relationship').select('id,source_record_id,target_record_id,field_values')
@@ -497,7 +509,7 @@ async function fieldChunk(db, state, work, bucket, helpers) {
       const m=work.members[i];
       let matched=matches.has(c.entity_scope==='organization'?m.organization_id:m.id) ||
         (emailMatches?.has(m.email?.toLowerCase()) || false);
-      if ((c.field_type==='custom' && c.operator==='is_empty') ||
+      if ((c.entity_scope !== 'organization_group' && c.field_type==='custom' && c.operator==='is_empty') ||
           (c.entity_scope==='event' && c.operator==='is_not_one_of')) matched=!matched;
       // Organization predicates never match members with no organization,
       // including custom-value "is empty".

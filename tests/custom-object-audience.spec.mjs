@@ -10,7 +10,7 @@ const metadata = { member: { core: [], custom: [] }, organization: { core: [], c
 }] };
 const json = (route, body, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
 
-async function fixtures(page, baseURL) {
+async function fixtures(page, baseURL, fieldMetadata = metadata) {
   const origin = new URL(baseURL).origin;
   const state = { lists: [], saves: [], forbidden: [], definitionsFail: false, definitionsMissing: false, countError: false };
   await page.addInitScript(() => { URL.parse ??= (value, base) => { try { return new URL(value, base); } catch { return null; } }; localStorage.clear(); sessionStorage.clear(); });
@@ -22,6 +22,7 @@ async function fixtures(page, baseURL) {
     const method = request.method();
     if (url.origin !== origin) return route.fulfill({ status: 204, body: '' });
     if (path.startsWith('/api/')) {
+      if (path === '/api/email-campaigns' && url.searchParams.has('summary')) return json(route, { totalSent: 0, totalOpened: 0, totalClicked: 0, openRate: 0, clickRate: 0 });
       if (path === '/api/audience-lists' && ['POST', 'PATCH'].includes(method)) {
         const body = request.postDataJSON();
         state.saves.push({ method, body });
@@ -36,8 +37,8 @@ async function fixtures(page, baseURL) {
         state.forbidden.push(`${method} ${path}`);
         return json(route, { error: 'Unexpected fixture write blocked' }, 599);
       }
-      if (path === '/api/audience-lists/filterable-fields') return state.definitionsFail ? json(route, { error: 'Fixture discovery failure' }, 503) : json(route, state.definitionsMissing ? { ...metadata, custom_objects: [] } : metadata);
-      if (path === '/api/audience-lists') return json(route, state.lists);
+      if (path === '/api/audience-lists/filterable-fields') return state.definitionsFail ? json(route, { error: 'Fixture discovery failure' }, 503) : json(route, state.definitionsMissing ? { ...fieldMetadata, custom_objects: [], organization_group: { core: [], custom: [] } } : fieldMetadata);
+      if (path === '/api/audience-lists') return json(route, url.searchParams.has('page') ? { lists: state.lists, total: state.lists.length } : state.lists);
       if (path === '/api/auth/me') return json(route, viewer);
       if (path === '/api/auth/tenant-user-me') return json(route, { authenticated: true, user: viewer, tenant: { id: viewer.tenant_id, slug: 'fixture' }, tenantId: viewer.tenant_id, memberId: viewer.id });
       if (path === `/api/entities/Member/${viewer.id}`) return json(route, viewer);
@@ -51,12 +52,101 @@ async function fixtures(page, baseURL) {
       // Empty shell datasets only: no API request is ever forwarded.
       return json(route, []);
     }
-    if (method === 'GET' && (path === '/CommunicationsManagement' || ['/src/', '/@', '/node_modules/', '/assets/'].some(prefix => path.startsWith(prefix)) || path === '/favicon.ico')) return route.continue();
+    if (method === 'GET' && (path === '/CommunicationsManagement' || ['/src/', '/@', '/node_modules/', '/assets/'].some(prefix => path.startsWith(prefix)) || path === '/favicon.ico' || path === '/dougal-avatar.webp')) return route.continue();
     state.forbidden.push(`${method} ${path}`);
     return route.fulfill({ status: 599, body: 'Unexpected request blocked' });
   });
   return state;
 }
+
+for (const type of ['list', 'country', 'countries']) {
+  test(`Optionless Organisation Group ${type} accepts values and survives save/reopen`, async ({ page, baseURL }) => {
+    const state = await fixtures(page, baseURL, { ...metadata, organization_group: { core: [], custom: [
+      { key: 'optionless', label: 'Group locations', field_type: 'custom', data_type: type },
+    ] } });
+    const choose = async (testId, option) => {
+      await page.getByTestId(testId).click();
+      await page.getByRole('option', { name: option, exact: true }).click();
+    };
+    await page.goto('/CommunicationsManagement');
+    await page.getByTestId('tab-lists').click();
+    await page.getByTestId('button-create-list').click();
+    await page.getByTestId('input-edit-list-name').fill('Optionless group audience');
+    await page.getByTestId('button-add-list-segment').click();
+    await choose('select-add-list-segment-type', 'Field Filter');
+    await choose('select-filter-scope-0-0', 'Organisation Group');
+    await choose('select-filter-field-0-0', 'Group locations');
+    await choose('select-filter-operator-0-0', 'Contains any of');
+    await page.getByRole('textbox', { name: 'Condition values', exact: true }).fill('United Kingdom\nKorea, Republic of');
+    await page.getByTestId('button-confirm-add-list-segment').click();
+    await page.getByTestId('button-save-edit-list').click();
+    await expect.poll(() => state.saves.length).toBe(1);
+    expect(state.saves[0].body.target_audiences[0].filter_groups[0].conditions[0]).toMatchObject({
+      entity_scope: 'organization_group', data_type: type, operator: 'contains', value: ['United Kingdom', 'Korea, Republic of'],
+    });
+    await page.goto('/CommunicationsManagement');
+    await page.getByTestId('tab-lists').click();
+    await page.getByTestId('button-edit-list-fixture-saved-list').click();
+    await page.getByRole('button', { name: 'Edit filters', exact: true }).click();
+    await expect(page.getByRole('textbox', { name: 'Condition values', exact: true })).toHaveValue('United Kingdom\nKorea, Republic of');
+    await page.getByTestId('button-confirm-add-list-segment').click();
+    await page.getByTestId('button-save-edit-list').click();
+    await expect.poll(() => state.saves.length).toBe(2);
+    expect(state.saves[1].body.target_audiences).toEqual(state.saves[0].body.target_audiences);
+    expect(state.forbidden).toEqual([]);
+  });
+}
+
+test('Organisation Group dropdown saves, reopens and rejects unavailable definitions', async ({ page, baseURL }) => {
+  const state = await fixtures(page, baseURL, { ...metadata, organization_group: { core: [], custom: [
+    { key: 'group-type', label: 'Group type', field_type: 'custom', data_type: 'dropdown', options: [
+      { value: 'trust', label: 'NHS Trust/Health Board' }, { value: 'university', label: 'University' },
+    ] },
+  ] } });
+  const choose = async (testId, option) => {
+    await page.getByTestId(testId).click();
+    await page.getByRole('option', { name: option, exact: true }).click();
+  };
+  await page.goto('/CommunicationsManagement');
+  await page.getByTestId('tab-lists').click();
+  await page.getByTestId('button-create-list').click();
+  await page.getByTestId('input-edit-list-name').fill('Group dropdown audience');
+  await page.getByTestId('button-add-list-segment').click();
+  await choose('select-add-list-segment-type', 'Field Filter');
+  await choose('select-filter-scope-0-0', 'Organisation Group');
+  await choose('select-filter-field-0-0', 'Group type');
+  await choose('select-filter-operator-0-0', 'Equals');
+  await page.getByRole('combobox', { name: 'Condition value', exact: true }).selectOption('trust');
+  await page.getByTestId('button-confirm-add-list-segment').click();
+  await expect(page.getByTestId('edit-list-segment-0')).toContainText('Organisation Group.Group type = NHS Trust/Health Board');
+  await page.getByTestId('button-save-edit-list').click();
+  await expect.poll(() => state.saves.length).toBe(1);
+  expect(state.saves[0].body.target_audiences[0].filter_groups[0].conditions[0]).toMatchObject({
+    entity_scope: 'organization_group', field_key: 'group-type', field_type: 'custom',
+    data_type: 'dropdown', operator: 'equals', value: 'trust',
+  });
+  const reopen = async () => {
+    await page.goto('/CommunicationsManagement');
+    await page.getByTestId('tab-lists').click();
+    await page.getByTestId('button-edit-list-fixture-saved-list').click();
+    await page.getByRole('button', { name: 'Edit filters', exact: true }).click();
+  };
+  await reopen();
+  await expect(page.getByRole('combobox', { name: 'Condition value', exact: true })).toHaveValue('trust');
+  await choose('select-filter-operator-0-0', 'Is one of');
+  await page.getByLabel('University', { exact: true }).check();
+  await page.getByTestId('button-confirm-add-list-segment').click();
+  await page.getByTestId('button-save-edit-list').click();
+  await expect.poll(() => state.saves.length).toBe(2);
+  await reopen();
+  await expect(page.getByLabel('University', { exact: true })).toBeChecked();
+  state.definitionsMissing = true;
+  await reopen();
+  await expect(page.getByText('Organisation Group field is unavailable. Reselect an active field.', { exact: true })).toBeVisible();
+  await page.getByTestId('button-confirm-add-list-segment').click();
+  expect(state.saves).toHaveLength(2);
+  expect(state.forbidden).toEqual([]);
+});
 
 test('full page isolated create/save/reopen, discovery retry and stale references', async ({ page, baseURL }) => {
   const state = await fixtures(page, baseURL);

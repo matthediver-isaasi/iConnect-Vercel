@@ -28,16 +28,22 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { data: prefFields, error } = await supabase
+    const prefFields = [];
+    for (let offset = 0; ; offset += 500) {
+    const { data, error } = await supabase
       .from('preference_field')
       .select('id, name, label, field_type, options, entity_scope, is_active')
       .eq('tenant_id', tenantContext.tenantId)
       .eq('is_active', true)
-      .order('display_order', { ascending: true });
+      .order('display_order', { ascending: true }).order('id').range(offset, offset + 499);
 
     if (error) {
       console.error('[FilterableFields] Error fetching preference fields:', error);
       return res.status(500).json({ error: error.message });
+    }
+    if (!Array.isArray(data)) throw new Error('Audience fields could not be loaded.');
+    prefFields.push(...data);
+    if (data.length < 500) break;
     }
 
     const memberCustomFields = (prefFields || [])
@@ -61,6 +67,12 @@ export default async function handler(req, res) {
       }));
 
     return res.json({
+      organization_group: {
+        core: [],
+        custom: prefFields.filter(f => f.entity_scope === 'organization_group').map(f => ({
+          key: f.id, label: f.label || f.name, data_type: f.field_type, field_type: 'custom', options: f.options,
+        })),
+      },
       custom_objects: await discoverAudienceCustomObjects(supabase, tenantContext.tenantId, {
         context: tenantContext, isAdmin: await hasAdminAccess(tenantContext),
       }),
