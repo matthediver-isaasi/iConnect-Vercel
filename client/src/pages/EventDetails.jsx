@@ -577,10 +577,10 @@ export function EventDetailsExperience({
   // Speakers assigned to this event — event-level plus any per-agenda-item
   // speakers (Task #3436, additive resolution).
   const allSpeakerIds = useMemo(() => {
-    const ids = new Set(Array.isArray(event?.speaker_ids) ? event.speaker_ids.filter(Boolean) : []);
+    const ids = new Set(!event?.is_training && Array.isArray(event?.speaker_ids) ? event.speaker_ids.filter(Boolean) : []);
     (agendaLines || []).forEach((l) => (Array.isArray(l.speaker_ids) ? l.speaker_ids : []).forEach((id) => id && ids.add(id)));
     return [...ids];
-  }, [event?.speaker_ids, agendaLines]);
+  }, [event?.speaker_ids, event?.is_training, agendaLines]);
 
   const { data: eventSpeakers = [] } = useQuery({
     queryKey: ['event-speakers', allSpeakerIds],

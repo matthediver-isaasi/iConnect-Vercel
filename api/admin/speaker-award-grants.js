@@ -34,12 +34,20 @@ export function createSpeakerAwardGrantsHandler({
   try {
     const { data, error } = await db
       .from('speaker_award_grant')
-      .select('id, speaker_id, speaker_name, member_id, organization_id, status, voucher_id, voucher_value, badge_id, member_badge_id, detail, created_at')
+      .select('id, agenda_item_id, agenda_snapshot, speaker_id, speaker_name, member_id, organization_id, status, voucher_id, voucher_value, badge_id, member_badge_id, detail, created_at')
       .eq('tenant_id', ctx.tenantId)
       .eq('event_type', eventType)
       .eq('event_id', eventId)
       .order('created_at', { ascending: true });
     if (error) throw new Error(error.message);
+    const recognitionByScope = new Map();
+    if ((data || []).some(g => g.agenda_item_id)) {
+      const recognition = await db.from('speaker_recognition')
+        .select('id,agenda_item_id,speaker_id,status,certificate_status,issued_at')
+        .eq('tenant_id', ctx.tenantId).eq('event_type', eventType).eq('event_id', eventId);
+      if (recognition.error) throw recognition.error;
+      for (const row of recognition.data || []) recognitionByScope.set(`${row.agenda_item_id}:${row.speaker_id}`, row);
+    }
 
     // Resolve badge names for display.
     const badgeIds = [...new Set((data || []).map(g => g.badge_id).filter(Boolean))];
@@ -72,6 +80,7 @@ export function createSpeakerAwardGrantsHandler({
     return res.status(200).json({
       grants: (data || []).map(g => ({
         ...g,
+        recognition: recognitionByScope.get(`${g.agenda_item_id}:${g.speaker_id}`) || null,
         badge_name: g.badge_id ? (badgeNames[g.badge_id] || null) : null,
         member_badge_active: g.member_badge_id ? activeMemberBadgeIds.has(g.member_badge_id) : false,
       })),

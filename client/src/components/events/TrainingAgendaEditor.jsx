@@ -6,6 +6,7 @@
 //   Self study -> external LMS URL
 import { useState, useMemo } from "react";
 import ItemCpdPointsField from "@/components/events/ItemCpdPointsField";
+import SpeakerAwardsSection, { configToFormState, formStateToConfig } from "@/components/events/SpeakerAwardsSection";
 import { validateTrainingAgendaCpdPoints } from "@/lib/itemCpdPoints";
 import { useQuery } from "@tanstack/react-query";
 import { DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors } from "@dnd-kit/core";
@@ -207,6 +208,10 @@ export default function TrainingAgendaEditor({
   onEventAttendancePolicyChange,
   timezone = 'UTC',
   isTraining = false,
+  eventId,
+  legacySpeakerIds = [],
+  onResolveLegacySpeaker,
+  legacyAwardConfig,
 }) {
   const anyOnline = (lines || []).some((l) => agendaTypeBehaviour(l.item_type, agendaItemTypes) === 'zoom');
   // Which line's speaker-selection modal is open (null = none).
@@ -492,7 +497,7 @@ export default function TrainingAgendaEditor({
               </div>
             )}
 
-            {/* Per-item speakers (Task #3436) — additive to the event-level speakers. */}
+            {/* Training appearances are authoritative, not event-wide aliases. */}
             <div className="space-y-1 pt-1 border-t border-slate-200">
               <Label className="text-xs flex items-center gap-1">
                 <Mic className="w-4 h-4 text-slate-500" /> Speakers for this item (optional)
@@ -524,6 +529,25 @@ export default function TrainingAgendaEditor({
                 </Button>
               </div>
             </div>
+            {isTraining && (
+              <div className="space-y-2">
+                {!line.speaker_award_config && legacyAwardConfig && (
+                  <div className="text-sm text-slate-600">
+                    This item has no speaker awards configured. Historical event settings are not active here.
+                    <Button type="button" variant="outline" size="sm" className="ml-2"
+                      onClick={() => updateLine(index, { speaker_award_config: structuredClone(legacyAwardConfig) })}>
+                      Copy editable event defaults
+                    </Button>
+                  </div>
+                )}
+                <SpeakerAwardsSection
+                  speakers={speakers.filter(s => (line.speaker_ids || []).includes(s.id))}
+                  value={configToFormState(line.speaker_award_config)}
+                  onChange={value => updateLine(index, { speaker_award_config: formStateToConfig(value) })}
+                  eventId={eventId} eventType="event" agendaItemId={line.id}
+                />
+              </div>
+            )}
 
             {/* Per-item sponsors (Task #3436) — additive to the event-level sponsors. */}
             <div className="pt-1 border-t border-slate-200">
@@ -539,6 +563,21 @@ export default function TrainingAgendaEditor({
       })}
       </SortableContext>
       </DndContext>
+      {isTraining && legacySpeakerIds.length > 0 && (
+        <div className="rounded border border-amber-300 bg-amber-50 p-4 space-y-3" data-testid="speaker-needs-allocation">
+          <h3 className="font-medium">Speakers needing allocation</h3>
+          <p className="text-sm">These historical event assignments are not assigned to every item and receive no new event-wide awards.
+            Add each speaker to one or more agenda items above, then resolve their allocation. Save the event to confirm.</p>
+          {legacySpeakerIds.map(id => {
+            const assigned = (lines || []).filter(line => (line.speaker_ids || []).includes(id));
+            return <div key={id} className="flex items-center justify-between gap-2 text-sm">
+              <span>{speakers.find(s => s.id === id)?.full_name || 'Unavailable speaker'} · {assigned.length} items selected</span>
+              <Button type="button" variant="outline" size="sm" disabled={!assigned.length}
+                onClick={() => onResolveLegacySpeaker?.(id)}>Resolve allocation</Button>
+            </div>;
+          })}
+        </div>
+      )}
 
       <SpeakerSelectionModal
         open={speakerModalIndex !== null}

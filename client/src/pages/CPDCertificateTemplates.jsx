@@ -45,6 +45,13 @@ const BUILTIN_FIELDS = [
   ['organisation.name', 'Organisation name', 'Example Institute'],
   ['event.name', 'Event name', 'Annual Conference 2026'],
   ['event.start_date', 'Event start date', '2026-02-28'],
+  ['speaker.full_name', 'Speaker full name', 'Example Speaker'],
+  ['speaker.email', 'Speaker email', 'speaker@example.test'],
+  ['agenda.id', 'Speaker agenda item ID', '00000000-0000-0000-0000-000000000001'],
+  ['agenda.description', 'Speaker agenda item', 'Practical workshop'],
+  ['agenda.start_date', 'Speaker agenda start date', '2026-02-28'],
+  ['agenda.end_date', 'Speaker agenda end date', '2026-03-01'],
+  ['agenda.timezone', 'Speaker agenda timezone', 'Europe/London'],
   ['event.end_date', 'Event end date', '2026-03-01'],
   ['cpd.activity_start_date', 'Certificate activity start (day 1)', '2026-02-28'],
   ['cpd.activity_end_date', 'Certificate activity end (day 2)', '2026-03-01'],
@@ -423,7 +430,7 @@ export function TemplateDesigner({ id }) {
     setSelectedId(next.id);
   };
   const addField = field => {
-    const isDate = ['event.start_date', 'event.end_date', 'cpd.activity_start_date', 'cpd.activity_end_date'].includes(field.key);
+    const isDate = ['event.start_date', 'event.end_date', 'agenda.start_date', 'agenda.end_date', 'cpd.activity_start_date', 'cpd.activity_end_date'].includes(field.key);
     const next = normalizeBox({ ...DEFAULT_FIELD, id: crypto.randomUUID(), key: field.key, label: field.label, sample: field.sample || field.label, page: currentPage, ...(isDate ? { field_type: 'date' } : {}),
       ...(field.key === 'cpd.daily_points' ? { multiline: true, width: 500, height: 64 } : {}) }, page);
     setDraft(old => ({ ...old, fields: [...old.fields, next] }));

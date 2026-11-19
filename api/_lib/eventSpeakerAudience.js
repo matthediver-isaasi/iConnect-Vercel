@@ -35,10 +35,11 @@ export async function speakerAudienceChunk(db, tenant, segment, cursor = {}) {
   if (index >= events.length) return { candidates: [], done: true, cursor };
   const event = events[index];
   // Recheck ownership on every resumed transition, including child reads.
-  const parents = await rows(db.from(event.source).select('id,speaker_ids')
+  const parents = await rows(db.from(event.source).select(event.source === 'event' ? 'id,speaker_ids,is_training' : 'id,speaker_ids')
     .eq('tenant_id', tenant).eq('id', event.id));
   if (!parents.length) throw new Error('Selected speaker event is missing or inaccessible');
   let assignment = parents[0];
+  if (event.source === 'event' && assignment.is_training) assignment = { ...assignment, speaker_ids: [] };
   if (cursor.children) {
     let query = db.from(event.source === 'event' ? 'event_agenda_item' : 'complex_event_session')
       .select('id,speaker_ids').eq('tenant_id', tenant).eq(event.source === 'event' ? 'event_id' : 'complex_event_id', event.id);
@@ -83,5 +84,5 @@ export async function resolveSpeakerAudience(db, tenant, segment) {
     candidates.push(...result.candidates);
     cursor = result.cursor;
   } while (!result.done);
-  return candidates;
+  return [...new Map(candidates.map(candidate => [email(candidate.email),candidate])).values()];
 }

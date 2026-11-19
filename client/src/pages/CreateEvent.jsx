@@ -804,6 +804,7 @@ export default function CreateEvent() {
               teams_meeting_lifecycle: line.teams_meeting_lifecycle || null,
               lms_url: agendaTypeBehaviour(line.item_type, agendaItemTypes) === 'lms' ? (line.lms_url || null) : null,
               speaker_ids: Array.isArray(line.speaker_ids) ? line.speaker_ids.filter(Boolean) : [],
+              speaker_award_config: isTraining ? line.speaker_award_config || null : null,
               sponsor_ids: Array.isArray(line.sponsor_ids) ? line.sponsor_ids.filter(Boolean) : [],
               ...attendancePolicyPayload(line, { inherit: true }),
               sort_order: i,
@@ -845,7 +846,7 @@ export default function CreateEvent() {
 
       // Badges configured for immediate timing are reconciled only after all
       // agenda rows exist. A failure is reported but never reverses a saved event.
-      if (eventData.speaker_award_config?.badge_timing === "on_assignment") {
+      if (isTraining || eventData.speaker_award_config?.badge_timing === "on_assignment") {
         try {
           await reconcileSpeakerAwards({
             action: "reconcile",
@@ -1188,7 +1189,7 @@ export default function CreateEvent() {
       zoom_meeting_id: isImmediateSave ? null : ((isGroupLimited || isTraining) ? null : (isOnline && zoomType === 'meeting' && selectedMeetingId ? selectedMeetingId : null)),
       online_provider: isOnline && !isTraining && !isGroupLimited ? onlineProvider : null,
       ...(isOnline && onlineProvider === 'teams' ? teamsMeeting : clearTeamsMeeting()),
-      speaker_ids: selectedSpeakers.length > 0 ? selectedSpeakers : [],
+      speaker_ids: !isTraining && selectedSpeakers.length > 0 ? selectedSpeakers : [],
       speaker_display_mode: formData.speaker_display_mode || "expanded",
       sponsor_display_mode: formData.sponsor_display_mode || "expanded",
       speaker_award_config: formStateToConfig(speakerAwards),
@@ -2023,8 +2024,8 @@ export default function CreateEvent() {
                 )}
               </div>
 
-              {/* Speakers Selection */}
-              {!isGroupLimited && (
+              {/* Training speakers are managed exclusively against agenda lines. */}
+              {!isGroupLimited && !isTraining && (
               <div className="space-y-2">
                 <Label className="flex items-center gap-2">
                   <Mic className="h-4 w-4 text-slate-500" />

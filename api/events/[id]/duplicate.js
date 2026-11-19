@@ -18,7 +18,7 @@ const FIELDS_TO_COPY = [
   'donation_config', 'seo_title', 'seo_description', 'og_image_url', 'event_timing', 'timezone',
   'organization_id', 'program_id', 'attached_documents', 'documents_section_title',
   'member_group_id', 'group_event_public', 'is_training',
-  'speaker_display_mode', 'sponsor_display_mode'
+  'speaker_display_mode', 'sponsor_display_mode', 'speaker_award_config'
 ];
 
 // Best-effort deep-copy. Tables that don't exist in this tenant's schema
@@ -115,6 +115,7 @@ export default async function handler(req, res) {
     insertRow.backstage_public_url = null;
     insertRow.last_synced = null;
     insertRow.pricing_config = rewriteTicketClasses(original.pricing_config);
+    if (original.is_training) insertRow.speaker_ids = [];
     insertRow.history_log = [
       {
         action: 'duplicated_from',
@@ -149,6 +150,11 @@ export default async function handler(req, res) {
         if (!rows || rows.length === 0) continue;
         const inserts = rows.map(({ id: _id, created_at, updated_at, ...rest }) => {
           const row = { ...rest, [fk]: createdEventId };
+          if (table === 'event_agenda_item') {
+            delete row.speaker_awards_error;
+            delete row.speaker_awards_granted_at;
+            delete row.speaker_recognition_processed_at;
+          }
           if (tenantScoped) row.tenant_id = ctx.tenantId;
           if (table === 'event_sponsor_assignment' && row.category_id) {
             if (!sponsorCategoryMap.has(row.category_id)) throw new Error('Sponsor category is unavailable');

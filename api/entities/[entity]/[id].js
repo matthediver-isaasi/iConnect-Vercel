@@ -39,6 +39,7 @@ import { rejectGenericCpdPointsEntity } from '../../_lib/cpdPointsEntityBoundary
 import {
   rejectGenericServerOwnedEntity,
   stripGenericServerOwnedFields,
+  redactSpeakerAwardSettings,
 } from '../../_lib/serverOwnedEntityBoundary.js';
 import { isEventFamilyEntity, authorizeGroupAdminEventWrite, authorizeGroupAdminEventAction } from '../../_lib/groupAdminEventWrite.js';
 import { guardGenericSessionCategories, validateSessionCategoryIds, sessionCategoryViewer } from '../../_lib/sessionCategories.js';
@@ -1079,9 +1080,11 @@ export default async function handler(req, res, dependencies = {}) {
       if (audienceContext) {
         const [visible] = projectTicketAudienceRows([data], entityNorm, audienceContext);
         if (!visible) return res.status(404).json({ error: 'Not found' });
-        return res.json(visible);
+        return res.json(['event','eventagendaitem'].includes(entityNorm) && !await hasAdminAccess(tenantCtx)
+          ? redactSpeakerAwardSettings(entity,[visible])[0] : visible);
       }
-      return res.json(data);
+      return res.json(['event','eventagendaitem'].includes(entityNorm) && !await hasAdminAccess(tenantCtx)
+        ? redactSpeakerAwardSettings(entity,[data])[0] : data);
 
     } else if (req.method === 'PATCH') {
       // Normalize entity name for comparison (handles both PascalCase and slug-case)
@@ -1388,6 +1391,12 @@ export default async function handler(req, res, dependencies = {}) {
       const sanitizedBody = Array.isArray(genericSanitizedBody)
         ? genericSanitizedBody
         : { ...genericSanitizedBody };
+      const trainingAgendaLines = sanitizedBody.training_agenda_lines;
+      delete sanitizedBody.training_agenda_lines;
+      if (trainingAgendaLines !== undefined && (entityNormalized !== 'event' || !Array.isArray(trainingAgendaLines)
+        || !await hasAdminAccess(tenantCtx))) {
+        return res.status(403).json({ error: 'Only event administrators may save a training agenda' });
+      }
       if (entityNormalized === 'organization') {
         const nameError = organizationNameError(req.body);
         if (nameError) return res.status(400).json({ error: nameError });
@@ -2492,7 +2501,11 @@ export default async function handler(req, res, dependencies = {}) {
         }
       }
       
-      const { data, error } = await patchQuery.select().single();
+      const { data, error } = trainingAgendaLines !== undefined
+        ? await supabase.rpc('save_training_event_agenda', {
+          p_tenant: tenantCtx.tenantId, p_event: id, p_parent: sanitizedBody, p_lines: trainingAgendaLines,
+        })
+        : await patchQuery.select().single();
 
       if (error) {
         if (error.code === 'PGRST116') {

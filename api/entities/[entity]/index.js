@@ -32,6 +32,7 @@ import { rejectGenericCpdPointsEntity } from '../../_lib/cpdPointsEntityBoundary
 import {
   rejectGenericServerOwnedEntity,
   stripGenericServerOwnedFields,
+  redactSpeakerAwardSettings,
 } from '../../_lib/serverOwnedEntityBoundary.js';
 import { isEventFamilyEntity, authorizeGroupAdminEventWrite } from '../../_lib/groupAdminEventWrite.js';
 import { guardGenericSessionCategories, validateSessionCategoryIds, sessionCategoryViewer } from '../../_lib/sessionCategories.js';
@@ -1613,6 +1614,9 @@ export default async function handler(req, res) {
       }
       if (entityNorm === 'membergroup') {
         data = await projectGroupCustomFields(supabase, tenantCtx, data || [], hasAdminAccess);
+      }
+      if (['event','eventagendaitem'].includes(entityNorm) && !await hasAdminAccess(tenantCtx)) {
+        data = redactSpeakerAwardSettings(entity,data || []);
       }
       if (wantsCount) {
         return res.json({ data: data || [], count: count ?? 0 });

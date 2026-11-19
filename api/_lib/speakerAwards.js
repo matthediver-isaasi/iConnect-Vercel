@@ -15,6 +15,8 @@
 // their email matches a member (case-insensitive) that is connected to an
 // organisation. Badges are assigned to the matched member.
 
+import { processTrainingSpeakerAwards } from './trainingSpeakerAwards.js';
+
 export function normalizeSpeakerAwardConfig(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const def = raw.default && typeof raw.default === 'object' ? raw.default : {};
@@ -189,6 +191,9 @@ function voucherCodeForGrant(grantId) {
 //    'pending' are re-fulfilled. The caller must NOT stamp the event as done
 //    while any speaker is left pending.
 export async function grantSpeakerAwardsForEvent(supabase, { eventType, event, speakers, now = new Date(), badgeOnly = false }) {
+  if (eventType === 'event' && event.is_training) {
+    return processTrainingSpeakerAwards(supabase, { tenantId: event.tenant_id, eventId: event.id, assignment: badgeOnly });
+  }
   const results = [];
   const tenantId = event.tenant_id;
   const config = normalizeSpeakerAwardConfig(event.speaker_award_config);

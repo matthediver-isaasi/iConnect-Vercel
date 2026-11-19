@@ -1,4 +1,5 @@
 const SERVER_OWNED_ENTITY_NAMES = new Set([
+  'speakerawardgrant','speakerrecognition','speakerrecognitionpolicy','trainingspeakerscopepolicy','speakerawardhistory',
   'profileaffiliationpolicy',
   'profileaffiliationoperation',
   'formalertsettings',
@@ -39,6 +40,9 @@ const SERVER_OWNED_ENTITY_NAMES = new Set([
 ]);
 
 const GENERIC_SERVER_OWNED_FIELDS = new Map([
+  ['event', new Set(['speaker_scope_ready','speaker_scope_attempted_at','speaker_awards_granted_at','speaker_recognition_processed_at'])],
+  ['complexevent', new Set(['speaker_awards_granted_at','speaker_recognition_processed_at'])],
+  ['eventagendaitem', new Set(['speaker_awards_error','speaker_awards_granted_at','speaker_recognition_processed_at'])],
   ['formsubmission', new Set(['legacy_application_scope','awards_binding_id','awards_applicant_member_id','awards_amendment_application_id'])],
   // This is retry bookkeeping owned by the due-diligence stage-action
   // processor. FormSubmissionDueDiligence itself remains available through
@@ -48,6 +52,15 @@ const GENERIC_SERVER_OWNED_FIELDS = new Map([
 
 export function normalizeGenericEntityName(entity) {
   return String(entity || '').replace(/[-_]/g, '').toLowerCase();
+}
+
+export function redactSpeakerAwardSettings(entity, rows) {
+  if (!['event','eventagendaitem'].includes(normalizeGenericEntityName(entity))) return rows;
+  return rows.map(row => {
+    const { speaker_award_config, speaker_awards_error, speaker_scope_ready, speaker_scope_attempted_at,
+      speaker_awards_granted_at, speaker_recognition_processed_at, ...safe } = row;
+    return safe;
+  });
 }
 
 /**

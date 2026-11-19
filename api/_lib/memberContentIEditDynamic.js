@@ -305,7 +305,7 @@ export async function resolveIEditDynamic({
     if (job) source('job_posting', job, [job.title, job.company_name, job.job_type, job.salary_range, job.closing_date]);
   } else if (type === 'event_spotlight') {
     if (c.event_id) {
-      const event = (await read('event', 'title,summary,description,status,event_state,member_group_id,group_event_public,start_date,end_date,location,speaker_ids,pricing_config', { id: c.event_id }))[0];
+      const event = (await read('event', 'title,summary,description,status,event_state,member_group_id,group_event_public,start_date,end_date,location,speaker_ids,is_training,pricing_config', { id: c.event_id }))[0];
       if (event && isPublicSimpleEventStatus(event.status) && event.event_state !== 'draft' &&
           (!visibilityCtx || isChunkVisibleToMember({ ...event, content_type: 'event',
             feature_key: event.member_group_id && event.group_event_public !== true ? 'events.browse-events' : null }, visibilityCtx))) {
@@ -316,6 +316,10 @@ export async function resolveIEditDynamic({
         source('event', event, [event.title, event.summary, c.show_description !== false && event.description,
           c.show_date !== false && event.start_date, c.show_time !== false && event.end_date,
           c.show_location !== false && event.location]);
+        if (event.is_training) {
+          const agenda = await read('event_agenda_item', 'speaker_ids,sort_order', { event_id: c.event_id });
+          event.speaker_ids = [...new Set(agenda.sort((a,b)=>(a.sort_order||0)-(b.sort_order||0)).flatMap(line => arr(line.speaker_ids)))];
+        }
         if (c.show_speakers !== false && arr(event.speaker_ids).length) {
           const speakerRows = await read('speaker', 'id,full_name,organization,job_title', { id: event.speaker_ids });
           for (const s of event.speaker_ids.map(id => speakerRows.find(row => row.id === id)).filter(Boolean)) {

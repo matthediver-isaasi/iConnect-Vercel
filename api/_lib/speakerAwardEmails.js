@@ -58,7 +58,7 @@ function formatValue(v) {
   return Number.isFinite(n) ? `£${n.toFixed(2)}` : null;
 }
 
-const GRANT_COLUMNS = 'id, tenant_id, event_type, event_id, speaker_id, speaker_name, member_id, organization_id, status, voucher_id, voucher_value, badge_id, member_badge_id, notified_at, member_notified_at, org_notified_at, member_notify_lease_at, org_notify_lease_at';
+const GRANT_COLUMNS = 'id, tenant_id, event_type, event_id, agenda_item_id, agenda_snapshot, speaker_id, speaker_name, member_id, organization_id, status, voucher_id, voucher_value, badge_id, member_badge_id, notified_at, member_notified_at, org_notified_at, member_notify_lease_at, org_notify_lease_at';
 
 // Sweep ALL granted-but-unnotified rows (regardless of whether their event is
 // still in the grant queue) and send the owed notification emails.
@@ -394,7 +394,10 @@ async function buildGrantContext(db, { event, grant, baseUrl }) {
   }
 
   const speakerName = grant.speaker_name || member?.first_name || 'Speaker';
-  const eventTitle = event.title || 'the event';
+  const agenda = grant.agenda_snapshot;
+  const eventTitle = agenda
+    ? `${agenda.event_title || event.title || 'the event'} — ${agenda.description || 'Agenda item'} (${agenda.start_date}${agenda.end_date && agenda.end_date !== agenda.start_date ? ` – ${agenda.end_date}` : ''}${agenda.timezone ? `, ${agenda.timezone}` : ''})`
+    : event.title || 'the event';
   const subject = `Thank you for speaking at ${eventTitle} — your speaker award`;
 
   const awardLines = [];

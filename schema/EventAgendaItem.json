@@ -52,7 +52,11 @@
     "speaker_ids": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Speaker ids for this agenda line, additive to the event-level speaker_ids"
+      "description": "Speaker appearances assigned to this agenda line. Authoritative for training events; legacy event-level speakers require manual allocation."
+    },
+    "speaker_award_config": {
+      "type": "object",
+      "description": "Independent speaker awards, exclusions, overrides and certificate selection for this training agenda line."
     },
     "sponsor_ids": {
       "type": "array",

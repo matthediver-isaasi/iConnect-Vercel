@@ -10,19 +10,27 @@ const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 // member.full_name alias is the existing template library's recipient field;
 // it names the speaker and does not assert that an external speaker is a member.
 export function speakerCertificateValues(snapshot) {
+  const start = snapshot.agenda_start_date || snapshot.event_start_date;
+  const end = snapshot.agenda_end_date || snapshot.event_end_date;
   return {
     ...certificateDatePlaceholderValues({
-      start_date: eventDateOnly(snapshot.event_start_date, snapshot.event_timezone || 'Europe/London'),
-      end_date: eventDateOnly(snapshot.event_end_date, snapshot.event_timezone || 'Europe/London'),
+      start_date: eventDateOnly(start, snapshot.event_timezone || 'Europe/London'),
+      end_date: eventDateOnly(end, snapshot.event_timezone || 'Europe/London'),
     }),
     'speaker.full_name': snapshot.speaker_name || '',
     'speaker.email': snapshot.speaker_email || '',
     'member.full_name': snapshot.speaker_name || '',
     'organisation.name': snapshot.organization || '',
     'event.name': snapshot.event_title || '',
-    'cpd.activity_title': snapshot.event_title || '',
+    'cpd.activity_title': snapshot.agenda_item_id
+      ? `${snapshot.event_title || ''} — ${snapshot.agenda_description || 'Agenda item'}` : snapshot.event_title || '',
     'event.start_date': snapshot.event_start_date || '',
     'event.end_date': snapshot.event_end_date || '',
+    'agenda.id': snapshot.agenda_item_id || '',
+    'agenda.description': snapshot.agenda_description || '',
+    'agenda.start_date': snapshot.agenda_start_date ? eventDateOnly(snapshot.agenda_start_date, snapshot.event_timezone || 'Europe/London') : '',
+    'agenda.end_date': snapshot.agenda_end_date ? eventDateOnly(snapshot.agenda_end_date, snapshot.event_timezone || 'Europe/London') : '',
+    'agenda.timezone': snapshot.event_timezone || '',
   };
 }
 
@@ -111,12 +119,23 @@ export async function processSpeakerRecognition(db, { limit = 20, now = new Date
   if (policy.error || !policy.data) throw new Error('Speaker recognition migration/policy unavailable');
   const refreshed = await db.rpc('refresh_speaker_recognition_badges');
   if (refreshed.error) summary.errors.push({ error: `Speaker badge evidence refresh failed: ${refreshed.error.message}` });
+  const training = await db.from('event').select('id,tenant_id').eq('is_training', true)
+    .eq('speaker_scope_ready', true).eq('status', 'published')
+    .or('event_state.is.null,event_state.neq.draft')
+    .order('speaker_scope_attempted_at', { ascending: true, nullsFirst: true }).order('id').limit(limit);
+  if (training.error) throw training.error;
+  for (const event of training.data || []) {
+    await syncSpeakerRecognition(db, { tenantId: event.tenant_id, eventType: 'event', eventId: event.id });
+    summary.events++;
+  }
   for (const eventType of ['event', 'complex_event']) {
-    const events = await db.from(eventType).select('id,tenant_id')
+    let query = db.from(eventType).select('id,tenant_id')
       .is('speaker_recognition_processed_at', null).not('speaker_award_config', 'is', null)
       .eq('status', 'published').or('event_state.is.null,event_state.neq.draft')
       .gte('start_date', policy.data.starts_at).lte('start_date', now.toISOString())
       .order('start_date').order('id').limit(limit);
+    if (eventType === 'event') query = query.or('is_training.is.null,is_training.eq.false');
+    const events = await query;
     if (events.error) throw events.error;
     for (const event of events.data || []) {
       try {

@@ -11,10 +11,13 @@ function certificateUrl(endpoint, id, download = false) {
   return `${endpoint}${endpoint.includes("?") ? "&" : "?"}id=${encodeURIComponent(id)}${download ? "&download=1" : ""}`;
 }
 
-function formatDate(value) {
+function formatDate(value, timezone) {
   if (!value) return "—";
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleDateString();
+  if (Number.isNaN(date.getTime())) return "—";
+  const timeZone = /^\d{4}-\d{2}-\d{2}$/.test(value) ? 'UTC' : timezone;
+  try { return date.toLocaleDateString(undefined, timeZone ? {timeZone} : undefined); }
+  catch { return date.toLocaleDateString(); }
 }
 
 async function loadHistory(endpoint, page) {
@@ -74,6 +77,11 @@ export function SpeakerAwardsHistoryView({ data, page, setPage, isFetching, onFi
                   <p className="font-medium">{record.event_title || "Event unavailable"}</p>
                   <time className="text-sm text-muted-foreground" dateTime={record.awarded_at || undefined}>{formatDate(record.awarded_at)}</time>
                 </div>
+                {record.agenda_item_id && <p className="text-sm">
+                  {record.agenda_description || 'Agenda item'} · {formatDate(record.agenda_start_date,record.agenda_timezone)}
+                  {record.agenda_end_date && ` – ${formatDate(record.agenda_end_date,record.agenda_timezone)}`}
+                  {record.agenda_timezone && ` (${record.agenda_timezone})`}
+                </p>}
                 <p className="text-sm text-muted-foreground">Status: {record.status || "Unavailable"}</p>
                 <div className="flex flex-wrap items-center gap-2 text-sm">
                   <span>Badge: {record.badge?.name || "None"}{record.badge?.status ? ` · ${record.badge.status}` : ""}{record.badge?.evidence ? ` · ${record.badge.evidence}` : ""}</span>

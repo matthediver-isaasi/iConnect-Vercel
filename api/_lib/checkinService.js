@@ -339,9 +339,16 @@ export async function resolveCheckinToken(token) {
   if (booking) {
     const { data: event } = await supabase
       .from('event')
-      .select('id, title, start_date, location, is_online, tenant_id, speaker_ids')
+      .select('id, title, start_date, location, is_online, tenant_id, speaker_ids, is_training')
       .eq('id', booking.event_id)
       .maybeSingle();
+    if (event?.is_training) {
+      const { data: ids, error } = await supabase.rpc('training_speaker_ids', {
+        p_tenant: booking.tenant_id || event.tenant_id, p_event: event.id,
+      });
+      if (error) throw error;
+      event.speaker_ids = ids;
+    }
     const [speaker, flags, profilePhotoUrl] = await Promise.all([
       resolveSpeakerForAttendee(
         booking.attendee_email,

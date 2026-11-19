@@ -11,9 +11,9 @@ export default function SpeakerBadgeRemovalDialog({ open, speakers = [], onKeep,
           <DialogTitle>Remove awarded speaker badge?</DialogTitle>
           <DialogDescription>
             {speakers.length === 1
-              ? "This speaker no longer has any reference on this event."
-              : `${speakers.length} speakers no longer have any reference on this event.`}
-            {" "}Their awarded badge can be kept, or removed after the event is saved. Training vouchers always remain unchanged.
+              ? "A speaker assignment has been removed from this event or agenda item."
+              : `${speakers.length} speakers have removed assignments on this event or its agenda items.`}
+            {" "}Their awarded badge can be kept, or removed after the event is saved. A badge still held through another valid assignment or a manual award will be retained. Training vouchers always remain unchanged.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>

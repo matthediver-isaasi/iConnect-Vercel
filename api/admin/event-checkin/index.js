@@ -205,7 +205,7 @@ async function dashboard(req, res, context) {
 
   const { data: event } = await supabase
     .from('event')
-    .select('id, title, start_date, location, is_online, tenant_id, speaker_ids')
+    .select('id, title, start_date, location, is_online, tenant_id, speaker_ids, is_training')
     .eq('id', eventId)
     .eq('tenant_id', context.tenantId)
     .maybeSingle();
@@ -221,6 +221,11 @@ async function dashboard(req, res, context) {
 
   // Build an email -> speaker-name lookup once for the event's speakers, so we
   // can flag speaker attendees in the list without a per-attendee query.
+  if (event.is_training) {
+    const { data: ids, error } = await supabase.rpc('training_speaker_ids', { p_tenant: context.tenantId, p_event: event.id });
+    if (error) throw error;
+    event.speaker_ids = ids;
+  }
   const speakers = await getSpeakersByIds(event.speaker_ids, context.tenantId);
   const speakerByEmail = new Map();
   for (const s of speakers) {

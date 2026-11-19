@@ -33,7 +33,7 @@ export async function pruneSpeakerIdsFromReferences(supabase, { tenantId, speake
 
   const idSet = new Set(ids);
 
-  for (const table of ['event', 'complex_event_session']) {
+  for (const table of ['event', 'complex_event_session', 'event_agenda_item']) {
     for (const speakerId of ids) {
       const { data: rows, error: selectError } = await supabase
         .from(table)
@@ -51,7 +51,7 @@ export async function pruneSpeakerIdsFromReferences(supabase, { tenantId, speake
         const { error: updateError } = await supabase
           .from(table)
           .update({ speaker_ids: next })
-          .eq('id', row.id);
+          .eq('id', row.id).eq('tenant_id', tenantId);
 
         if (updateError) {
           result.errors.push(`update ${table} ${row.id}: ${updateError.message}`);

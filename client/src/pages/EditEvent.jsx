@@ -83,7 +83,7 @@ import ZoomRegistrationEvidence from "@/components/events/ZoomRegistrationEviden
 import { FocalPointPicker } from "@/components/FocalPointPicker";
 import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
 import SpeakerAwardsSection, { configToFormState, formStateToConfig } from "@/components/events/SpeakerAwardsSection";
-import { reconcileSpeakerAwards, finalRemovedSpeakerIds, hasRelevantAwardedBadge } from "@/lib/speakerAwardLifecycle";
+import { reconcileSpeakerAwards, finalRemovedSpeakerIds, hasRelevantAwardedBadge, removedAgendaSpeakerIds, removedAgendaSpeakerGrants } from "@/lib/speakerAwardLifecycle";
 import SpeakerBadgeRemovalDialog from "@/components/events/SpeakerBadgeRemovalDialog";
 import EventSponsorSelector from "@/components/events/EventSponsorSelector";
 import { assignmentCategories } from "@/lib/eventSponsorState.mjs";
@@ -1025,6 +1025,7 @@ export default function EditEvent() {
           teams_meeting_lifecycle: behaviour === 'zoom' ? (line.teams_meeting_lifecycle || null) : null,
           lms_url: behaviour === 'lms' ? (line.lms_url || null) : null,
           speaker_ids: Array.isArray(line.speaker_ids) ? line.speaker_ids.filter(Boolean) : [],
+          speaker_award_config: isTraining ? line.speaker_award_config || null : null,
           sponsor_ids: Array.isArray(line.sponsor_ids) ? line.sponsor_ids.filter(Boolean) : [],
           ...attendancePolicyPayload(line, { inherit: true }),
           sort_order: sortOrder,
@@ -1033,7 +1034,7 @@ export default function EditEvent() {
 
       let agendaResult;
       try {
-        agendaResult = await persistAgendaLinesWithRollback({
+        agendaResult = isTraining ? { savedIds: [], persistedLines: [], undo: async () => [] } : await persistAgendaLinesWithRollback({
           api: {
             create: (payload) => base44.entities.EventAgendaItem.create(payload),
             update: (id, payload) => base44.entities.EventAgendaItem.update(id, payload),
@@ -1061,7 +1062,16 @@ export default function EditEvent() {
 
       let updated;
       try {
-        updated = await base44.entities.Event.update(eventId, eventData);
+        updated = await base44.entities.Event.update(eventId, isTraining ? {
+          ...eventData,
+          training_agenda_lines: orderedLines.map((line, index) => ({
+            ...buildAgendaPayload(line, index), ...(line.id ? { id: line.id } : {}),
+          })),
+        } : eventData);
+        if (isTraining) {
+          agendaResult.persistedLines = updated._training_agenda_lines;
+          agendaResult.savedIds = agendaResult.persistedLines.map(line => line.id);
+        }
       } catch (updateErr) {
         // Parent update failed after the agenda saved — best-effort revert of
         // the agenda so the event and its agenda stay consistent. Surface
@@ -1107,7 +1117,7 @@ export default function EditEvent() {
       // Keep immediate badges in sync only after both the event and every
       // agenda row are persisted. This is intentionally non-transactional:
       // surface the failure without pretending the event update failed.
-      if (eventData.speaker_award_config?.badge_timing === "on_assignment" && !postSaveRemovalRef.current) {
+      if ((isTraining || eventData.speaker_award_config?.badge_timing === "on_assignment") && !postSaveRemovalRef.current) {
         try {
           await reconcileSpeakerAwards({ action: "reconcile", eventType: "event", eventId });
         } catch (err) {
@@ -1217,6 +1227,7 @@ export default function EditEvent() {
               zoom_meeting_id: r.zoom_meeting_id || null,
               lms_url: r.lms_url || '',
               speaker_ids: Array.isArray(r.speaker_ids) ? r.speaker_ids : [],
+              speaker_award_config: r.speaker_award_config || null,
               sponsor_ids: Array.isArray(r.sponsor_ids) ? r.sponsor_ids : [],
               ...normalizeAttendancePolicy(r, { inherit: true }),
             })));
@@ -1235,6 +1246,7 @@ export default function EditEvent() {
               zoom_meeting_id: r.zoom_meeting_id || null,
               lms_url: r.lms_url || '',
               speaker_ids: Array.isArray(r.speaker_ids) ? r.speaker_ids : [],
+              speaker_award_config: r.speaker_award_config || null,
               sponsor_ids: Array.isArray(r.sponsor_ids) ? r.sponsor_ids : [],
               ...normalizeAttendancePolicy(r, { inherit: true }),
             }));
@@ -2100,7 +2112,7 @@ export default function EditEvent() {
       });
     };
     const submitUpdate = () => {
-      const removedSpeakerIds = finalRemovedSpeakerIds(
+      const removedSpeakerIds = isTraining ? removedAgendaSpeakerIds(initialAgendaRowsRef.current || [], agendaLines) : finalRemovedSpeakerIds(
         { eventSpeakerIds: event?.speaker_ids || [], agendaLines: initialAgendaRowsRef.current || [] },
         { eventSpeakerIds: selectedSpeakers, agendaLines },
       );
@@ -2110,7 +2122,8 @@ export default function EditEvent() {
         toast.error('Cannot save speaker removals until awarded badge information has loaded. Please try again.');
         return;
       }
-      if (removedSpeakerIds.length && hasRelevantAwardedBadge(event?.speaker_award_config, speakerAwardGrants, removedSpeakerIds)) {
+      const relevantGrants = isTraining ? removedAgendaSpeakerGrants(speakerAwardGrants || [], agendaLines) : speakerAwardGrants;
+      if (removedSpeakerIds.length && hasRelevantAwardedBadge(event?.speaker_award_config, relevantGrants, removedSpeakerIds)) {
         setBadgeRemovalSave({ removedSpeakerIds, runUpdate });
         return;
       }
@@ -2592,6 +2605,10 @@ export default function EditEvent() {
                 )}
                 <TrainingAgendaEditor
                   isTraining={isTraining}
+                  eventId={eventId}
+                  legacySpeakerIds={selectedSpeakers}
+                  legacyAwardConfig={event?.speaker_award_config}
+                  onResolveLegacySpeaker={id => setSelectedSpeakers(ids => ids.filter(sid => sid !== id))}
                   lines={agendaLines}
                   onChange={setAgendaLines}
                   agendaItemTypes={agendaItemTypes}
@@ -2804,7 +2821,7 @@ export default function EditEvent() {
               </div>
 
               {/* Speakers Selection */}
-              {!isGroupLimited && (
+              {!isGroupLimited && !isTraining && (
               <div className="space-y-2">
                 <Label className="flex items-center gap-2">
                   <Mic className="h-4 w-4 text-slate-500" />

@@ -12,6 +12,7 @@ import { supabase } from '../_lib/database.js';
 import { grantSpeakerAwardsForEvent, normalizeSpeakerAwardConfig } from '../_lib/speakerAwards.js';
 import { sendPendingSpeakerAwardNotifications } from '../_lib/speakerAwardEmails.js';
 import { processSpeakerRecognition } from '../_lib/speakerRecognition.js';
+import { processTrainingSpeakerAwards, loadTrainingSpeakerIds } from '../_lib/trainingSpeakerAwards.js';
 
 const MAX_EVENTS_PER_RUN = 20;
 
@@ -43,6 +44,7 @@ export async function loadEligibleSpeakerAwardEvents(db, nowIso) {
       .from('event')
       .select('id, tenant_id, title, start_date, speaker_ids, speaker_award_config, speaker_awards_granted_at, status, event_state')
       .not('speaker_award_config', 'is', null)
+      .or('is_training.is.null,is_training.eq.false')
       .is('speaker_awards_granted_at', null)
       .eq('status', 'published')
       .or('event_state.is.null,event_state.neq.draft')
@@ -94,6 +96,23 @@ export function createGrantSpeakerAwardsHandler({
   const summary = { processed: 0, granted: 0, skipped: 0, notified: 0, errors: [] };
 
   try {
+    // Independent queue: a parent which has already started/completed must not
+    // suppress an appearance on a later line. SQL checks each line's boundary.
+    const training = await db.from('event').select('id,tenant_id')
+      .eq('is_training', true).eq('speaker_scope_ready', true).eq('status', 'published')
+      .or('event_state.is.null,event_state.neq.draft')
+      .order('speaker_scope_attempted_at', { ascending: true, nullsFirst: true }).order('id').limit(MAX_EVENTS_PER_RUN);
+    if (training.error) throw training.error;
+    for (const event of training.data || []) {
+      try {
+        const attempt = await db.from('event').update({ speaker_scope_attempted_at: nowIso })
+          .eq('id', event.id).eq('tenant_id', event.tenant_id);
+        if (attempt.error) throw attempt.error;
+        const assignmentResults = await processTrainingSpeakerAwards(db, { tenantId: event.tenant_id, eventId: event.id, assignment: true });
+        const startResults = await processTrainingSpeakerAwards(db, { tenantId: event.tenant_id, eventId: event.id });
+        summary.errors.push(...[...assignmentResults,...startResults].filter(result => result.error).map(result => ({ eventId: event.id, ...result })));
+      } catch (error) { summary.errors.push({ eventId: event.id, error: error.message }); }
+    }
     const queue = await loadEligibleSpeakerAwardEvents(db, nowIso);
 
     for (const { eventType, event } of queue) {
@@ -186,6 +205,7 @@ export default createGrantSpeakerAwardsHandler();
 
 export async function collectSpeakerIds(db, eventType, event) {
   if (eventType === 'event') {
+    if (event.is_training) return loadTrainingSpeakerIds(db, event.tenant_id, event.id);
     const ids = new Set(Array.isArray(event.speaker_ids) ? event.speaker_ids.filter(Boolean) : []);
     // Training events also attach speakers per agenda item (Task #3436);
     // per-item speakers are event speakers for award purposes. Non-training

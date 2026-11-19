@@ -22,7 +22,7 @@ import {
 const NO_BADGE = "__none__";
 export { configToFormState, formStateToConfig };
 
-export default function SpeakerAwardsSection({ speakers, value, onChange, eventId, eventType }) {
+export default function SpeakerAwardsSection({ speakers, value, onChange, eventId, eventType, agendaItemId }) {
   const state = value || emptySpeakerAwardConfig();
   const [badges, setBadges] = useState([]);
   const [templates, setTemplates] = useState([]);
@@ -80,10 +80,10 @@ export default function SpeakerAwardsSection({ speakers, value, onChange, eventI
     let cancelled = false;
     fetch(`/api/admin/speaker-award-grants?event_id=${encodeURIComponent(eventId)}&event_type=${encodeURIComponent(eventType)}`, { credentials: "include" })
       .then(r => (r.ok ? r.json() : { grants: [] }))
-      .then(d => { if (!cancelled && (d.grants || []).length > 0) setGrants(d.grants); })
+      .then(d => { if (!cancelled) setGrants((d.grants || []).filter(g => (g.agenda_item_id || null) === (agendaItemId || null))); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [eventId, eventType]);
+  }, [eventId, eventType, agendaItemId]);
 
   const update = (patch) => onChange({ ...state, ...patch });
   const updateDefault = (patch) => update({ default: { ...state.default, ...patch } });
@@ -125,7 +125,7 @@ export default function SpeakerAwardsSection({ speakers, value, onChange, eventI
 
       {grants && (
         <div className="p-3 bg-slate-50 border border-slate-200 rounded-md space-y-2" data-testid="list-speaker-award-grants">
-          <p className="text-sm font-medium text-slate-700">Awards granted at event start</p>
+          <p className="text-sm font-medium text-slate-700">Speaker award processing</p>
           {grants.map(g => (
             <div key={g.id} className="flex items-start gap-2 text-sm text-slate-600">
               {g.status === "granted"
@@ -134,6 +134,8 @@ export default function SpeakerAwardsSection({ speakers, value, onChange, eventI
               <span>
                 <span className="font-medium">{g.speaker_name || g.speaker_id}</span>
                 {" — "}{grantStatusLabel[g.status] || g.status}
+                {g.agenda_snapshot && `; ${g.agenda_snapshot.description || 'Agenda item'} (${g.agenda_snapshot.start_date})`}
+                {g.recognition && `; certificate ${g.recognition.certificate_status}`}
                 {g.voucher_id && g.voucher_value ? `; voucher £${g.voucher_value}` : ""}
                 {g.member_badge_id && g.badge_name ? `; badge "${g.badge_name}"` : ""}
                 {g.speaker_badge_status && g.badge_name ? `; speaker badge "${g.badge_name}" (${g.speaker_badge_status})` : ""}

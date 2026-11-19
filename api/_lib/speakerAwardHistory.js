@@ -14,7 +14,7 @@ export function speakerHistoryPagination(query = {}) {
 
 export async function loadSpeakerAwardHistory(db, { tenantId, speakerId, memberId, page, pageSize }) {
   let query = db.from('speaker_award_history').select(
-    'id,event_type,event_id,event_title,awarded_at,status,badge_name,badge_image_url,badge_status,badge_evidence,certificate_status,certificate_available',
+    'id,event_type,event_id,event_title,agenda_item_id,agenda_description,agenda_start_date,agenda_end_date,agenda_timezone,awarded_at,status,badge_name,badge_image_url,badge_status,badge_evidence,certificate_status,certificate_available',
     { count: 'exact' },
   ).eq('tenant_id', tenantId);
   // Identity is taken solely from the authenticated member or authorized speaker.
@@ -26,6 +26,11 @@ export async function loadSpeakerAwardHistory(db, { tenantId, speakerId, memberI
     awards: (data || []).map(row => ({
       id: row.id, event_type: row.event_type, event_id: row.event_id,
       event_title: row.event_title || 'Event no longer available',
+      agenda_item_id: row.agenda_item_id || null,
+      agenda_description: row.agenda_description || null,
+      agenda_start_date: row.agenda_start_date || null,
+      agenda_end_date: row.agenda_end_date || null,
+      agenda_timezone: row.agenda_timezone || null,
       awarded_at: row.awarded_at, status: row.status,
       badge: row.badge_status ? {
         name: row.badge_name || 'Badge no longer available',

@@ -239,7 +239,13 @@ export default async function handler(req, res) {
       location: event.location,
       image_url: event.image_url,
       image_focal_point: event.image_focal_point,
-      speaker_ids: event.speaker_ids,
+      speaker_ids: event.is_training
+        ? await (async () => {
+          const { data, error } = await supabase.rpc('training_speaker_ids', { p_tenant: tenant.id, p_event: event.id });
+          if (error) throw error;
+          return data;
+        })()
+        : event.speaker_ids,
       speaker_display_mode: normalizeEventDisplayMode(event.speaker_display_mode),
       sponsor_display_mode: normalizeEventDisplayMode(event.sponsor_display_mode),
       status: event.status,

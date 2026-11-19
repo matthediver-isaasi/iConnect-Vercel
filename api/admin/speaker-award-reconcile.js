@@ -8,6 +8,7 @@ import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { collectSpeakerIds } from '../cron/grant-speaker-awards.js';
 import { reconcileAssignmentSpeakerBadges } from '../_lib/speakerAwards.js';
 import { syncSpeakerRecognition } from '../_lib/speakerRecognition.js';
+import { processTrainingSpeakerAwards } from '../_lib/trainingSpeakerAwards.js';
 
 export function createSpeakerAwardReconcileHandler({
   db = supabase,
@@ -38,10 +39,21 @@ export function createSpeakerAwardReconcileHandler({
     try {
       const table = eventType === 'event' ? 'event' : 'complex_event';
       const { data: event, error: eventError } = await db.from(table)
-        .select('id, tenant_id, title, speaker_ids, speaker_award_config, status, event_state')
+        .select('*')
         .eq('id', eventId).eq('tenant_id', ctx.tenantId).maybeSingle();
       if (eventError) throw new Error(eventError.message);
       if (!event) return res.status(404).json({ error: 'Event not found' });
+      if (eventType === 'event' && event.is_training) {
+        if (body.training_scope_version !== 1) return res.status(409).json({ error: 'Reload the event editor before reconciling agenda speakers' });
+        const { data, error } = await db.rpc('reconcile_training_speaker_scope', {
+          p_tenant: ctx.tenantId, p_event: eventId, p_revoke: revokeRemoved,
+          p_actor: ctx.memberId || null,
+        });
+        if (error) throw error;
+        const results = await processTrainingSpeakerAwards(db, { tenantId: ctx.tenantId, eventId, assignment: true });
+        await syncRecognition(db, { tenantId: ctx.tenantId, eventType, eventId });
+        return res.status(200).json({ ok: true, ...data, results });
+      }
       const speakerIds = await collectIds(db, eventType, event);
       let speakers = [];
       if (speakerIds.length) {

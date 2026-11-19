@@ -15,6 +15,17 @@ export function finalRemovedSpeakerIds(before, after) {
   return beforeIds.filter((id) => !afterIds.has(id));
 }
 
+export function removedAgendaSpeakerIds(before = [], after = []) {
+  const remaining = new Map(after.filter(row => row.id).map(row => [row.id, new Set(row.speaker_ids || [])]));
+  return [...new Set(before.flatMap(row => (row.speaker_ids || [])
+    .filter(id => !remaining.get(row.id)?.has(id))))];
+}
+
+export function removedAgendaSpeakerGrants(grants = [], after = []) {
+  return grants.filter(grant => grant.agenda_item_id && !after.some(row =>
+    row.id === grant.agenda_item_id && (row.speaker_ids || []).includes(grant.speaker_id)));
+}
+
 export function hasRelevantAwardedBadge(config, grants = [], removedSpeakerIds = []) {
   const removed = new Set(removedSpeakerIds || []);
   if (removed.size === 0) return false;
@@ -36,6 +47,7 @@ export async function reconcileSpeakerAwards({ action, eventType, eventId, speak
       action, // "reconcile" | "remove"
       event_type: eventType,
       event_id: eventId,
+      training_scope_version: 1,
       speaker_ids: speakerIds,
       ...(action === "remove" ? { revoke_badge: revokeBadge === true } : {}),
     }),
@@ -44,5 +56,7 @@ export async function reconcileSpeakerAwards({ action, eventType, eventId, speak
     const body = await response.json().catch(() => ({}));
     throw new Error(body.error || "Speaker award reconciliation failed");
   }
-  return response.json();
+  const body = await response.json();
+  if (body.results?.some(result => result.error)) throw new Error('Some agenda speaker awards failed; processing will retry.');
+  return body;
 }
