@@ -2,6 +2,27 @@
 
 ## Contract
 
+Invoice details now have two explicit sources:
+
+- **Use organisation invoice details:** select only an Organisation Drop Down.
+  Name and invoicing email come from the tenant-owned organisation record; the
+  six address components come from its scoped private invoicing-address row.
+  No separate name/email/address form questions are required for saving.
+- **Map individual form fields:** map billing name/email and individual address
+  line 1, line 2, city, region, postcode and country fields. Address line 1, city,
+  postcode and country are required at checkout; line 2 and region are optional.
+
+New configurations do not expose the retired combined-address selector or fall
+back to legacy text. Existing configuration without an explicit source retains
+its original contract until deliberately converted. Accepted historical
+snapshots remain unchanged.
+
+Billing details are frozen at acceptance. Xero preparation applies the explicitly
+selected structured postal address to the verified contact and requires matching
+provider readback before invoice issuance. It does not update the app organisation
+record or Xero contact email. The canonical address components use the shared
+Xero/QuickBooks mapping vocabulary; invoice checkout itself remains Xero-only.
+
 The invoice payment setting accepts either a text billing-name field (existing
 behaviour) or an Organisation Drop Down. Dropdown selection is tenant-validated
 and checked against its saved eligibility and conditional filters. The canonical

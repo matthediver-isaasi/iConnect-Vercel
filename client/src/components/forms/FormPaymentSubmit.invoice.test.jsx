@@ -16,6 +16,16 @@ const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query
 const FormPaymentSubmit = (await import('./FormPaymentSubmit.jsx')).default;
 const { default: InvoicePaymentSetting, invoiceBillingConfigurationError } = await import('./InvoicePaymentSetting.jsx');
 
+test('organisation billing mode saves without form billing questions and exposes the account source', () => {
+  const field = { id:'payment',type:'payment',payment_providers:['invoice'],
+    invoice_billing_source:'organization',invoice_organization_field_id:'org' };
+  const allFields = [{id:'org',type:'organisation_dropdown',label:'Organisation'}];
+  assert.equal(invoiceBillingConfigurationError(field,allFields),null);
+  const html=renderToStaticMarkup(<InvoicePaymentSetting field={field} allFields={allFields} provider={{configured:true}} />);
+  assert.match(html,/No separate billing questions are required/);
+  assert.doesNotMatch(html,/Billing email field|Invoice address field \(optional\)/);
+});
+
 test('invoice settings support an organisation dropdown as the billing identity', () => {
   const field = { id: 'payment', type: 'payment', payment_providers: ['invoice'],
     invoice_billing_name_field_id: 'org', invoice_billing_email_field_id: 'email' };
@@ -107,22 +117,24 @@ test('billing selectors offer only matching field types and persist explicit map
     [node.props?.children].flat(Infinity).forEach(walk);
   }
   walk(tree);
-  assert.equal(selects.length, 3);
-  assert.equal(selects[0].props.value, 'name');
+  assert.equal(selects.length, 9);
+  assert.equal(selects[0].props.value, 'fields');
+  assert.equal(selects[1].props.value, 'name');
   function choices(select) {
     return select.props.children[1].props.children.flat(Infinity).filter(Boolean).map(item => item.props.value);
   }
-  assert.deepEqual(choices(selects[0]), ['name']);
-  assert.deepEqual(choices(selects[1]), ['email']);
-  selects[0].props.onValueChange('name');
-  selects[1].props.onValueChange('email');
-  selects[2].props.onValueChange('notes');
-  selects[2].props.onValueChange('_none');
+  assert.deepEqual(choices(selects[1]), ['name']);
+  assert.deepEqual(choices(selects[2]), ['email']);
+  assert.deepEqual(choices(selects[3]), ['_none', 'name']);
+  selects[1].props.onValueChange('name');
+  selects[2].props.onValueChange('email');
+  selects[3].props.onValueChange('name');
+  selects[3].props.onValueChange('_none');
   assert.deepEqual(calls, [
     { invoice_billing_name_field_id: 'name' },
     { invoice_billing_email_field_id: 'email' },
-    { invoice_address_field_id: 'notes' },
-    { invoice_address_field_id: null },
+    { invoice_billing_source:'fields', invoice_address_fields:{invoicing_address_line1:'name'} },
+    { invoice_billing_source:'fields', invoice_address_fields:{invoicing_address_line1:null} },
   ]);
 });
 

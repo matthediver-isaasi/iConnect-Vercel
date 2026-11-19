@@ -27,6 +27,19 @@ Returning from a safely cancelled checkout may retain stock only for that
 original window. Coordinate deployment and database activation; never restore
 availability or clear a purchased cart while payment may still succeed.
 
+Form invoice billing has explicit organisation-account and mapped-form-input
+modes. Organisation mode must not require duplicate billing questions. New
+address configuration uses individual invoice address fields, not a multiline
+address.
+
+**Why:** The owner confirmed that combined invoice addresses are retired and
+address components must correspond to QuickBooks and Xero fields. Requiring form
+name/email/address mappings in organisation mode blocked saving the form.
+
+**How to apply:** Read only the selected organisation's private structured invoice
+address and invoicing email, or explicitly mapped components. Freeze the chosen
+details at acceptance; do not merge sources or rewrite historical snapshots.
+
 Organisation invoice checkout must use the verified organisation's Xero contact,
 not require the purchaser's email to match that accounting contact.
 

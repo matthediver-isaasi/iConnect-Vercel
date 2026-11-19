@@ -3,9 +3,23 @@ import { fetchFormAccountingTransport } from './formAccountingTransport.js';
 import { createFormRelationshipService } from './formRelationshipOptions.js';
 import { isOrganizationEligibleForField } from './organizationEligibility.js';
 import { conditionalSelectionAllowed, resolveConditionalFilter } from './formConditionalFilters.js';
+import { INVOICING_ADDRESS_KEYS } from '../../shared/invoicingAddress.js';
+import { structuredInvoiceAddress } from '../../shared/formInvoiceBilling.js';
 
 export const normalizeOrganizationName = value => String(value || '').trim().replace(/\s+/gu, ' ').toLowerCase();
 const fail = code => { throw Object.assign(new Error(code), { code, permanent: true, status: 409 }); };
+
+export async function readOrganizationInvoiceBilling(db, tenantId, organization) {
+  const email = typeof organization.invoicing_email === 'string' ? organization.invoicing_email.trim() : '';
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
+    throw Object.assign(new Error('The selected organisation needs a valid invoicing email on its account.'), { status:400 });
+  }
+  const stored = await db.from('invoicing_address_private').select(INVOICING_ADDRESS_KEYS.join(','))
+    .eq('tenant_id', tenantId).eq('owner_type', 'organization').eq('owner_id', organization.id).maybeSingle();
+  if (stored.error) fail('INVOICE_ORGANIZATION_ADDRESS_UNAVAILABLE');
+  try { return { name: organization.name, email, address: structuredInvoiceAddress(stored.data) }; }
+  catch (error) { throw Object.assign(new Error(`Organisation invoice details: ${error.message}`), { status:400 }); }
+}
 
 export async function uniqueOrganizationContact(read, name) {
   const expected = normalizeOrganizationName(name);
@@ -35,7 +49,8 @@ export async function uniqueOrganizationContact(read, name) {
 }
 
 export async function freezeFormOrganizationCustomer({ db, tenantId, form, field, values, binding }, dependencies = {}) {
-  const source = form.fields.find(f => f.id === field.invoice_billing_name_field_id);
+  const source = form.fields.find(f => f.id === (field.invoice_billing_source === 'organization'
+    ? field.invoice_organization_field_id : field.invoice_billing_name_field_id));
   const id = values[source?.id];
   if (source?.type !== 'organisation_dropdown' || typeof id !== 'string'
     || !/^[0-9a-f-]{36}$/i.test(id)) fail('INVOICE_ORGANIZATION_SELECTION_REQUIRED');
@@ -50,6 +65,10 @@ export async function freezeFormOrganizationCustomer({ db, tenantId, form, field
     || (conditional.orgFilter && !await isOrganizationEligibleForField({
       db, tenantId, organization: result.data, field: { org_filter: conditional.orgFilter },
     }))) fail('INVOICE_ORGANIZATION_SELECTION_NOT_ALLOWED');
+  let billing;
+  if (field.invoice_billing_source === 'organization') {
+    billing = await readOrganizationInvoiceBilling(db, tenantId, result.data);
+  }
   const tokens = await (dependencies.tokens || getValidXeroAccessToken)(tenantId);
   if (tokens.tenantId !== binding.companyId) fail('INVOICE_ORGANIZATION_COMPANY_CHANGED');
   const deadlineAt = Date.now() + 15000;
@@ -64,7 +83,7 @@ export async function freezeFormOrganizationCustomer({ db, tenantId, form, field
   const contact = await uniqueOrganizationContact(read, result.data.name);
   return { version: 1, organizationId: id, organizationName: result.data.name,
     contactId: contact.ContactID, companyId: binding.companyId, connectionId: binding.connectionId,
-    matchPolicy: 'unique_normalized_name' };
+    matchPolicy: 'unique_normalized_name', ...(billing ? { billing } : {}) };
 }
 
 export async function verifyFrozenOrganizationContact(customer, companyId, read) {

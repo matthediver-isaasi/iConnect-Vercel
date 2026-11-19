@@ -8,7 +8,9 @@ import { isDeepStrictEqual } from 'node:util';
 import { cartAccountingSettings } from '../../shared/formCartAccounting.js';
 import { membershipProjectTracking } from '../../shared/membershipProjectCode.js';
 import { freezeFormOrganizationCustomer, verifyFrozenOrganizationContact } from './formInvoiceOrganization.js';
-import { createXeroMembershipInvoice } from './xero.js';
+import { createXeroMembershipInvoice, findOrCreateXeroContact } from './xero.js';
+import { invoiceBillingConfigurationError, mappedInvoiceAddress } from '../../shared/formInvoiceBilling.js';
+import { invoicingAddressToXero } from '../../shared/invoicingAddress.js';
 
 export const FORM_INVOICE_SOURCE = 'form_invoice_order';
 // This object is supplied only by the server payment handler, never req.body.
@@ -39,6 +41,11 @@ export function invoiceBillingDetails(field, fields, values) {
   if ((!name && !organizationField) || name.length > 200 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
     fail('Enter the billing name and email address before requesting an invoice.', 'INVOICE_BILLING_REQUIRED', 400);
   }
+  if (field.invoice_billing_source === 'fields' || field.invoice_address_fields) {
+    try { return { name, email, address: mappedInvoiceAddress(field, fields, values) }; }
+    catch (error) { fail(error.message, 'INVOICE_ADDRESS_INVALID', 400); }
+  }
+  // Historical configurations retain their original multiline contract.
   const address = field.invoice_address_field_id ? values[field.invoice_address_field_id] : null;
   if (address != null && typeof address !== 'string') {
     fail('Use a Text or Long text field for the invoice address.', 'INVOICE_ADDRESS_INVALID', 400);
@@ -76,9 +83,12 @@ export async function prepareFormInvoiceOrder({ db, tenantId, form, field, value
   // has an exact, tested payload adapter for them.
   if (await getActiveAccountingProvider(tenantId) !== 'xero') fail('Invoice checkout requires a connected Xero account.');
   const binding = await resolveAccountingQueueBinding({ db, tenantId, provider: 'xero' });
-  const billing = invoiceBillingDetails(field, form.fields || [], values);
-  const organizationCustomer = form.fields?.some(f => f.id === field.invoice_billing_name_field_id && f.type === 'organisation_dropdown')
+  const configurationError = invoiceBillingConfigurationError(field, form.fields || []);
+  if (configurationError) fail(configurationError, 'INVOICE_BILLING_CONFIGURATION_INVALID', 400);
+  let billing = field.invoice_billing_source === 'organization' ? null : invoiceBillingDetails(field, form.fields || [], values);
+  const organizationCustomer = field.invoice_billing_source === 'organization' || form.fields?.some(f => f.id === field.invoice_billing_name_field_id && f.type === 'organisation_dropdown')
     ? await freezeFormOrganizationCustomer({ db, tenantId, form, field, values, binding }) : null;
+  if (field.invoice_billing_source === 'organization') billing = organizationCustomer.billing;
   if (organizationCustomer) billing.name = organizationCustomer.organizationName;
   const taxes = await listCatalogueTaxOptions(db, tenantId);
   const { data: settings, error } = await db.from('system_settings').select('setting_key,setting_value')
@@ -104,7 +114,7 @@ export async function prepareFormInvoiceOrder({ db, tenantId, form, field, value
   if (totalMinor !== Math.round(amount * 100)) fail('Invoice total changed. Refresh the payment summary.');
   const invoice = await freezeMembershipPreparation({ db, totalMinor, args: {
     appTenantId: tenantId, organizationName: billing.name, invoicingEmail: billing.email,
-    invoicingAddress: billing.address, finalCost: amount, currency,
+    invoicingAddress: typeof billing.address === 'string' ? billing.address : null, finalCost: amount, currency,
     invoiceDescription: field.payment_label || form.name, reference: accounting?.reference ?? form.name,
     ...(accounting ? { nominalCode: accounting.nominalCode, xeroProjectCode: accounting.projectCode } : {}),
   } });
@@ -112,7 +122,7 @@ export async function prepareFormInvoiceOrder({ db, tenantId, form, field, value
     version: 1, provider: binding.provider, connectionId: binding.connectionId, companyId: binding.companyId,
     amount, currency, snapshot: {
       version: 1, preparation: true, invoice, payment: null,
-      linkage: { formId: form.id }, lines, ...(organizationCustomer ? { organizationCustomer } : {}),
+      linkage: { formId: form.id }, lines, billingDetails: billing, ...(organizationCustomer ? { organizationCustomer } : {}),
     },
   };
 }
@@ -147,21 +157,42 @@ export async function prepareFormInvoiceSource({ row, transport }, dependencies 
   // Reuse the fenced contact-resolution preparation, never the membership
   // finalizer. Replace its single line with our frozen ordinary-order lines.
   const customer = row.snapshot.organizationCustomer;
-  const preparation = customer ? {
+  const frozenAddress = row.snapshot.billingDetails?.address;
+  const preparation = customer || frozenAddress?.source === 'structured' ? {
     ...dependencies,
     prepare: async (args, options) => {
-      if (customer.connectionId !== row.connection_id || customer.companyId !== row.company_id) {
+      if (customer && (customer.connectionId !== row.connection_id || customer.companyId !== row.company_id)) {
         fail('Organisation accounting binding changed.', 'INVOICE_ORGANIZATION_BINDING_INVALID');
       }
       return (dependencies.prepare || createXeroMembershipInvoice)(args, {
         ...options,
-        findOrCreateXeroContact: async (token, companyId) => verifyFrozenOrganizationContact(customer, companyId, async path => {
+        findOrCreateXeroContact: async (token, companyId, info, transportOptions) => {
+          const contactId = customer ? await verifyFrozenOrganizationContact(customer, companyId, async path => {
           const response = await transport.fetch(`https://api.xero.com/api.xro/2.0/${path}`, {
             headers: { Authorization: `Bearer ${token}`, 'xero-tenant-id': companyId, Accept: 'application/json' },
           });
           if (!response.ok) fail('Unable to verify saved Xero contact.', 'XERO_ORGANIZATION_CONTACT_UNAVAILABLE');
           return response.json();
-        }),
+          }) : await findOrCreateXeroContact(token, companyId, info, transportOptions);
+          if (frozenAddress?.source === 'structured') {
+            // Xero invoices use the contact's POBOX address. Apply only the
+            // explicitly selected, frozen address; never update its email.
+            const address = invoicingAddressToXero(frozenAddress);
+            const response = await transport.fetch('https://api.xero.com/api.xro/2.0/Contacts', {
+              method: 'POST', headers: { Authorization: `Bearer ${token}`, 'xero-tenant-id': companyId,
+                Accept: 'application/json', 'Content-Type': 'application/json' },
+              body: JSON.stringify({ Contacts: [{ ContactID: contactId, Addresses: [address] }] }),
+            });
+            if (!response.ok) fail('The selected invoice address could not be saved in Xero.', 'INVOICE_ADDRESS_SYNC_FAILED');
+            const saved = (await response.json()).Contacts?.find(c => c.ContactID === contactId);
+            const actual = saved?.Addresses?.find(a => a.AddressType === 'POBOX');
+            if (!actual || saved.HasValidationErrors || saved.HasErrors || Object.entries(address).some(([key,value]) =>
+              String(actual[key] ?? '').trim() !== String(value ?? '').trim())) {
+              fail('The selected invoice address could not be verified in Xero.', 'INVOICE_ADDRESS_SYNC_FAILED');
+            }
+          }
+          return contactId;
+        },
       });
     },
   } : dependencies;
@@ -178,6 +209,10 @@ export async function prepareFormInvoiceSource({ row, transport }, dependencies 
     fields: { ...envelope.expected.fields, Type: payload.Type, Status: payload.Status,
       LineAmountTypes: payload.LineAmountTypes, LineItems: payload.LineItems },
   } };
+  const address = row.snapshot.billingDetails?.address;
+  if (address?.source === 'structured') {
+    payload.Contact = { ...payload.Contact, Addresses: [invoicingAddressToXero(address)] };
+  }
   return prepared;
 }
 
