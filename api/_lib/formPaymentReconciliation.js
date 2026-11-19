@@ -335,6 +335,9 @@ export async function reconcileFormPayments(supabase, {
     },
   };
   const now = Date.now();
+  // Cleanup shares the sweep's wall-clock budget and must receive an initialized
+  // deadline; otherwise its ReferenceError is caught and all hold cleanup skips.
+  const deadlineAt = now + Math.max(5_000, Number(timeBudgetMs) || FORM_PAYMENT_COMPLETION_BUDGET_MS);
   try {
     results.cartHolds = await cleanupFormBundleHolds(supabase, { cart: true, deadlineAt });
     results.bundleHolds = await cleanupFormBundleHolds(supabase, {
@@ -347,7 +350,6 @@ export async function reconcileFormPayments(supabase, {
   // side-effects. Racing a provider call would leave it running after the
   // lease was released and could cause another worker to repeat an ambiguous
   // operation. We only start a new durable stage while enough time remains.
-  const deadlineAt = now + Math.max(5_000, Number(timeBudgetMs) || FORM_PAYMENT_COMPLETION_BUDGET_MS);
   const hasBudget = () => Date.now() < deadlineAt;
   const minCreated = new Date(now - MAX_AGE_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const maxCreated = new Date(now - MIN_AGE_MS).toISOString();

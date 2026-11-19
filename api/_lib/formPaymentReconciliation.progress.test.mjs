@@ -86,6 +86,28 @@ function makeDb({
   return db;
 }
 
+test('the reconciliation sweep expires shopping holds and reaches legacy bundle cleanup', async () => {
+  const db = makeDb({});
+  const rpc = db.rpc.bind(db);
+  const from = db.from.bind(db);
+  const reads = [];
+  db.rpc = async (name, args) => {
+    if (name === 'form_cart_version') return { data: 1, error: null };
+    return rpc(name, args);
+  };
+  db.from = table => { reads.push(table); return from(table); };
+  const result = await reconcileFormPayments(db, {
+    baseUrl: 'https://tenant.example.test', timeBudgetMs: 40000,
+    retrievePaymentIntent: async () => { throw new Error('No payments expected'); },
+  });
+  assert.equal(db.calls.filter(call => call.name === 'expire_form_cart_shopping_holds').length, 1);
+  assert.ok(reads.includes('form_cart_receipt'));
+  assert.ok(reads.includes('form_bundle_allocation'));
+  assert.deepEqual(result.cartHolds, { checked: 0, released: 0, unresolved: 0 });
+  assert.deepEqual(result.bundleHolds, { checked: 0, released: 0, unresolved: 0 });
+  assert.equal(result.errors.some(error => error.stage === 'bundle-hold-cleanup'), false);
+});
+
 function stripeIntent(row) {
   return {
     paymentIntent: {
