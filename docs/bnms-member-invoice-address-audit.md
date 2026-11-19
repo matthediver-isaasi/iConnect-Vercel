@@ -118,3 +118,20 @@ workbook data.
 
 Live evidence and per-member details are private and intentionally not
 committed. No Xero contacts, invoices or source address data were modified.
+
+## New current-state workbook
+
+When the original attachment and its historical evidence are unavailable, a
+separately authorised fresh read-only audit is not a restoration of that file.
+Use only `--discover` and `--plan` on a new private run directory, then run the
+existing exporter with `<dir> --current-state`. Never run `--apply` for this.
+Xero GET requests retain the shared quota bookkeeping; no member, address,
+contact or invoice changes are made.
+
+This mode requires a complete pinned discovery and no write receipts. It emits
+`BNMS-member-invoice-address-current-state-audit.xlsx`, with CURRENT address
+columns and a Historical context sheet instead of Copied addresses. Recorded
+historical totals are explicitly unverified aggregates, not row-level findings.
+It does not invent historical before/after addresses or infer which current
+addresses came from the earlier backfill. The separate reconciliation includes
+the SHA-256 of the actual workbook bytes.

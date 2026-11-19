@@ -2063,3 +2063,17 @@ mtime_ms = 1795028653881
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/74066ff6-4da4-473c-8935-bcdfe0065a20/3b5706cf-232f-40ea-97ac-22ded06ae21c"
 storage_version_token = "1795028669983208"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "ybpb_R1nPbYAa8Lxq_tNk"
+uri = "file://generated-artifacts/bnms-member-invoice-audit-current-2026-11-19/BNMS-member-invoice-address-current-state-audit.xlsx"
+type = "table"
+title = "BNMS invoice addresses — fresh current-state audit"
+description = "New read-only audit collected 19 November 2026. Six sheets; 1,406 eligible members; historical aggregates clearly separated. Not the recovered historical workbook. No member/address or Xero records changed."
+logical_id = "f31d196f-bd1f-48fc-945c-8fe6dee0b304"
+content_hash = "sha256:127a41d7819d46170bad125db21556d5077ec9cd08bf845dafa9c7474848aff8"
+size = 770821
+mtime_ms = 1795070191767
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/f31d196f-bd1f-48fc-945c-8fe6dee0b304/8b65fdc0-f5be-475d-8f79-1b45b98064c9"
+storage_version_token = "1795070211699794"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

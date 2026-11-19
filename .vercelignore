@@ -15,3 +15,6 @@ private/bnms-nmc-customer-import/
 /reports/
 /screenshots/
 /.agents/
+
+# Private operational exports and retained audit evidence.
+/generated-artifacts/
