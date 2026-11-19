@@ -2,10 +2,31 @@
 
 ## Status
 
-**Implemented behind a disabled readiness gate; not deployed or enabled.** This
-document separates the replacement implementation from environment rollout.
-No schema was applied, no historical records were changed, and no provider,
-payment or email writes were made during this work.
+**Schema applied to approved DEST on 2026-11-19; activation remains disabled.**
+The owner reports matching code deployed; reader/worker release capability has
+not yet been independently verified. No live booking, provider, payment or
+email writes were performed during the schema rollout.
+
+### Approved schema rollout evidence
+
+Applied `202701220001_unified_booking_contract.sql` using
+`scripts/apply-unified-booking-contract.mjs --apply` to pinned DEST
+`lvmzliemqnieeoruhkik`, with verified TLS. SHA-256:
+`6ef29240623d9f8f84fc73e95dbc2a400858f3cd23460290d840f9300ee3529a`.
+The related disposable PostgreSQL migration-chain regression passed, followed
+by rollback-only rehearsal against the actual target schema before commit.
+Independent post-commit reads confirmed three RLS/service-only tables and
+14 protected functions. Existing booking-attempt/billing row hashes and the
+legacy booking finalizer were preserved during application.
+
+The normalized unique email index passes the readiness definition.
+The rollout remains `enabled=false`, `reader_version=0`, `worker_version=0`;
+the readiness reader returns version 2, disabled. Source was not modified.
+No historical retries or test purchases ran. Application/schema discovery was
+notified to reload. Re-run `--verify` for schema verification while the gate
+is still disabled; never blindly replay this non-idempotent migration.
+Activation requires independent reader/worker verification and separate
+owner approval, as specified below.
 
 Implemented boundaries:
 
@@ -134,7 +155,8 @@ projection. Reject unknown versions rather than treating them as legacy.
 
 ## Readiness and rollout sequence
 
-Environment rollout is **not executed** and requires approval of a named target.
+Schema rollout was approved and completed as recorded above. Activation remains
+separate; the sequence below defines the remaining release gates.
 
 1. Apply additive service-only schema/RPCs and immutability/replay guards after
     explicit environment approval. The new migration is
@@ -219,5 +241,5 @@ from these isolated regression results.
   tenant-resolution failure. The signed-in checkout/report UI was **not**
   visually verified in this environment; mounted component tests are not a
   substitute for that check.
-- No target database migration, activation, deployment or live provider
-  verification was performed.
+- These original local results predate the approved schema application recorded
+  above. Activation and live provider verification remain outstanding.
