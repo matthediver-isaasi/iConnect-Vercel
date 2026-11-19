@@ -1,7 +1,8 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { matchBand, isNumericFieldType, isTextFieldType, normalizeMatchValue } from '../_lib/tierBandMatcher.js';
-import { getRemindersForConfig, saveRemindersForConfig } from '../_lib/membershipRemindersLive.js';
+import { getRemindersForConfig } from '../_lib/membershipRemindersLive.js';
+import { buildStructureChildren } from '../_lib/membershipStructureChildren.js';
 import { normalizeInvoiceRecipients, validateInvoiceRecipientsShape } from '../_lib/membershipRecipientResolver.js';
 import { parseFlatMembershipCost } from '../../shared/membershipFlatCost.js';
 import { normalizeMembershipProjectCode } from '../../shared/membershipProjectCode.js';
@@ -21,7 +22,7 @@ function isConfigInEffect(config, onDate = todayStr()) {
 
 function configLifecycleStatus(config, onDate = todayStr()) {
   if (isConfigInEffect(config, onDate)) return 'active';
-  if (config.effective_from && config.effective_from > onDate && (config.effective_to === null || config.effective_to === undefined)) {
+  if (config.effective_from && config.effective_from > onDate && (!config.effective_to || config.effective_to >= config.effective_from)) {
     return 'scheduled';
   }
   return 'historical';
@@ -217,7 +218,7 @@ async function getConfigById(req, res, tenantId, configId) {
     discounts,
     vatOverrides,
     reminders,
-    isHistorical: config.effective_to !== null
+    isHistorical: configLifecycleStatus(config) === 'historical'
   });
 }
 
@@ -243,7 +244,7 @@ async function getHistory(req, res, tenantId) {
       bands,
       discounts,
       vatOverrides,
-      isHistorical: config.effective_to !== null,
+      isHistorical: configLifecycleStatus(config) === 'historical',
       status: configLifecycleStatus(config)
     });
   }
@@ -893,25 +894,7 @@ async function handlePost(req, res, tenantId) {
 
   const configId = config.id || req.query.configId;
 
-  if (configId) {
-    const { data: existingConfig } = await supabase
-      .from('membership_tier_config')
-      .select('*')
-      .eq('id', configId)
-      .eq('tenant_id', tenantId)
-      .maybeSingle();
-
-    if (!existingConfig) {
-      return res.status(404).json({ error: 'Configuration not found' });
-    }
-
-    if (existingConfig.effective_to !== null) {
-      return res.status(400).json({ error: 'Cannot modify a historical tier structure. Create a new one instead.' });
-    }
-
-    const { data, error } = await supabase
-      .from('membership_tier_config')
-      .update({
+  const payload = {
         name: config.name || 'Default',
         field_source: config.field_source || 'custom',
         field_id: config.field_id || null,
@@ -950,185 +933,21 @@ async function handlePost(req, res, tenantId) {
           : {}),
         ...ddConfigFields(config),
         updated_at: new Date().toISOString()
-      })
-      .eq('id', configId)
-      .eq('tenant_id', tenantId)
-      .select()
-      .single();
-
-    if (error) {
-      console.error('[Membership Tiers] Error updating config:', error);
-      return res.status(500).json({ error: 'Failed to update configuration' });
-    }
-
-    if (bands && Array.isArray(bands)) {
-      await saveBandsForConfig(data.id, tenantId, bands);
-    }
-
-    if (discounts && Array.isArray(discounts)) {
-      await saveDiscountsForConfig(data.id, tenantId, discounts);
-    }
-
-    if (vatOverrides && Array.isArray(vatOverrides)) {
-      await saveVatOverridesForConfig(data.id, tenantId, vatOverrides);
-    }
-
-    if (reminders && Array.isArray(reminders)) {
-      await saveRemindersForConfig(data.id, tenantId, reminders);
-    }
-
-    const savedBands = await getBandsForConfig(data.id, tenantId);
-    const savedDiscounts = await getDiscountsForConfig(data.id, tenantId);
-    const savedVatOverrides = await getVatOverridesForConfig(data.id, tenantId);
-    const savedReminders = await getRemindersForConfig(data.id, tenantId);
-    return res.json({ config: data, bands: savedBands, discounts: savedDiscounts, vatOverrides: savedVatOverrides, reminders: savedReminders });
-  }
-
-  const structureFieldId = config.structure_field_id || null;
-  const structureMatchValue = config.structure_match_value || null;
-  const onDate = todayStr();
-
-  let scopeQuery = supabase
-    .from('membership_tier_config')
-    .select('*')
-    .eq('tenant_id', tenantId);
-
-  if (structureFieldId) {
-    scopeQuery = scopeQuery.eq('structure_field_id', structureFieldId).eq('structure_match_value', structureMatchValue);
-  } else {
-    scopeQuery = scopeQuery.is('structure_field_id', null);
-  }
-
-  const { data: scopeConfigsRaw } = await scopeQuery.order('effective_from', { ascending: false, nullsFirst: true });
-  const scopeConfigs = scopeConfigsRaw || [];
-
-  // The structure currently in effect today for this scope. It should remain
-  // live until the new structure's start date. It may already be capped by a
-  // previously-scheduled future structure.
-  const currentConfig = scopeConfigs.find(c => isConfigInEffect(c, onDate)) || null;
-
-  // Any pending future structure(s) already scheduled for this scope. Saving a
-  // new future-dated structure replaces these rather than leaving two
-  // conflicting open-ended records.
-  const pendingFuture = scopeConfigs.filter(c =>
-    c.effective_to === null &&
-    c.effective_from && c.effective_from > onDate &&
-    (!currentConfig || c.id !== currentConfig.id)
-  );
-
-  if (currentConfig && currentConfig.effective_from) {
-    if (config.effective_from <= currentConfig.effective_from) {
-      return res.status(400).json({
-        error: `New tier structure must start after the current one (${currentConfig.effective_from}). Please choose a later date.`
-      });
-    }
-  }
-
-  // Remove any previously-scheduled future structure for this scope so we don't
-  // leave conflicting pending records.
-  for (const pf of pendingFuture) {
-    await supabase.from('membership_tier_band').delete().eq('config_id', pf.id).eq('tenant_id', tenantId);
-    await deleteDiscountsForConfig(pf.id, tenantId);
-    await deleteVatOverridesForConfig(pf.id, tenantId);
-    await saveRemindersForConfig(pf.id, tenantId, []);
-    await supabase.from('membership_tier_config').delete().eq('id', pf.id).eq('tenant_id', tenantId);
-  }
-
-  // Cap the currently-active structure to end the day before the new one
-  // starts, so it stays live until the scheduled switch-over.
-  let prevEffectiveTo = null;
-  if (currentConfig) {
-    prevEffectiveTo = currentConfig.effective_to;
-    const prevDay = new Date(`${config.effective_from}T00:00:00Z`);
-    prevDay.setUTCDate(prevDay.getUTCDate() - 1);
-    const closingDate = prevDay.toISOString().split('T')[0];
-
-    const { error: closeError } = await supabase
-      .from('membership_tier_config')
-      .update({
-        effective_to: closingDate,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', currentConfig.id)
-      .eq('tenant_id', tenantId);
-
-    if (closeError) {
-      console.error('[Membership Tiers] Error closing previous config:', closeError);
-      return res.status(500).json({ error: 'Failed to close previous tier structure' });
-    }
-  }
-
-  const { data: newConfig, error: createError } = await supabase
-    .from('membership_tier_config')
-    .insert({
-      tenant_id: tenantId,
-      name: config.name || 'Default',
-      field_source: config.field_source || 'custom',
-      field_id: config.field_id || null,
-      field_name: deriveFieldName(config.field_name),
-      currency: config.currency || 'GBP',
-      billing_period: config.billing_period || 'annual',
-      is_active: config.is_active !== false,
-      effective_from: config.effective_from,
-      effective_to: null,
-      membership_start_month: config.membership_start_month ?? 1,
-      membership_start_day: config.membership_start_day ?? 1,
-      start_mode: config.start_mode === 'immediate' ? 'immediate' : 'fixed_date',
-      prorata_enabled: config.prorata_enabled ?? false,
-      free_period_amount: config.free_period_amount || null,
-      free_period_unit: config.free_period_amount ? (config.free_period_unit || 'months') : null,
-      rollover_enabled: config.free_period_amount ? (config.rollover_enabled ?? false) : false,
-      structure_field_id: structureFieldId,
-      structure_match_value: structureMatchValue,
-      structure_scope_type: config.structure_scope_type || 'organization',
-      pricing_model: config.pricing_model || 'tiered',
-      flat_cost: config.pricing_model === 'flat' ? parsedFlatCost.value : null,
-      flat_vat_rate: config.pricing_model === 'flat' ? (config.flat_vat_rate || null) : null,
-      invoice_description: config.invoice_description || null,
-      xero_project_code: normalizeMembershipProjectCode(config.xero_project_code),
-      auto_approve_fees: config.auto_approve_fees ?? false,
-      online_card_payment: config.online_card_payment ?? false,
-      invoice_address_field_id: parseInvoiceAddressFieldId(config.invoice_address_field),
-      invoice_address_field_name: parseInvoiceAddressFieldName(config.invoice_address_field),
-      invoice_recipients: normalizedRecipients,
-      fee_link_email_template_id: config.fee_link_email_template_id || null,
-      ...renewalPolicy.fields,
-      ...arrearsPolicy.fields,
-      ...collectionPolicy.fields,
-      ...(await checkConfigNominalCodeColumnExists()
-        ? { nominal_code: config.pricing_model === 'flat' ? normalizeNominalCode(config.nominal_code) : null }
-        : {}),
-      ...ddConfigFields(config),
-    })
-    .select()
-    .single();
-
-  if (createError) {
-    console.error('[Membership Tiers] Error creating config:', createError);
-    if (currentConfig) {
-      await supabase
-        .from('membership_tier_config')
-        .update({ effective_to: prevEffectiveTo, updated_at: new Date().toISOString() })
-        .eq('id', currentConfig.id)
-        .eq('tenant_id', tenantId);
-    }
-    return res.status(500).json({ error: 'Failed to create configuration' });
-  }
-
-  if (bands && Array.isArray(bands) && bands.length > 0) {
-    await saveBandsForConfig(newConfig.id, tenantId, bands);
-  }
-
-  if (discounts && Array.isArray(discounts) && discounts.length > 0) {
-    await saveDiscountsForConfig(newConfig.id, tenantId, discounts);
-  }
-
-  if (vatOverrides && Array.isArray(vatOverrides) && vatOverrides.length > 0) {
-    await saveVatOverridesForConfig(newConfig.id, tenantId, vatOverrides);
-  }
-
-  if (reminders && Array.isArray(reminders) && reminders.length > 0) {
-    await saveRemindersForConfig(newConfig.id, tenantId, reminders);
+  };
+  const children = buildStructureChildren({ bands, discounts, vatOverrides, reminders }, {
+    vat: await checkVatRateColumnExists(),
+    match: await checkMatchValueColumnExists(),
+    dd: await checkDdBandColumnExists(),
+    nominal: await checkBandNominalCodeColumnExists(),
+  });
+  const { data: newConfig, error: saveError } = await supabase.rpc('save_membership_structure', {
+    p_tenant_id: tenantId, p_config_id: configId || null, p_config: payload, p_children: children,
+  });
+  if (saveError) {
+    console.error('[Membership Tiers] Atomic save failed:', saveError);
+    return res.status(saveError.code === 'PT409' ? 409 : 503).json({
+      error: saveError.code === 'PT409' ? saveError.message : 'Could not save the structure. No changes were saved. Please retry.',
+    });
   }
 
   const savedBands = await getBandsForConfig(newConfig.id, tenantId);
@@ -1138,7 +957,7 @@ async function handlePost(req, res, tenantId) {
 
   const { data: allConfigs } = await supabase
     .from('membership_tier_config')
-    .select('id, name, effective_from, effective_to, created_at, structure_field_id, structure_match_value')
+    .select('id, name, effective_from, effective_to, created_at, structure_scope_type, structure_field_id, structure_match_value')
     .eq('tenant_id', tenantId)
     .order('effective_from', { ascending: false, nullsFirst: true });
 

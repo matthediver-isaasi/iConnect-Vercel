@@ -9,7 +9,7 @@
 - [Router consistency in client/](router-consistency.md) — app uses react-router-dom; new pages built with wouter look like they navigate but break SPA routing.
 - [Serverless runtime topics](serverless-runtime-index.md) — catch-all routing, traceable payment-handler imports, and invocation time budgets.
 - [Supabase realtime publication](supabase-realtime-publication.md) — realtime subscriptions silently get no events until the table is added to the supabase_realtime publication.
-- [Membership tier scheduling](membership-tier-scheduling.md) — a config is "in effect" by date range, not just effective_to IS NULL; switch-over caps the old config to newStart-1.
+- [Membership structure scheduling](membership-tier-scheduling.md) — activation is separate from membership years and purchased commitments; verify intermediate versions before correcting overlaps.
 - [base44 new field needs a DB column](base44-new-field-migration.md) — adding a new property to an existing base44 entity requires a migration; the column-per-field table does not auto-create columns.
 - [Canvas rendering and layout](canvas-rendering-layout-index.md) — index of durable rules for V1/V2 geometry, reflow, block rendering, editor behavior, symbols, links, and footers.
 - [Testimonials compatibility](testimonials-carousel-compatibility.md) — legacy scroll rows require explicit pagination opt-in; preserve authored fixed frames.

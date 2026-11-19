@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { normalizeMembershipProjectCode } from '../../shared/membershipProjectCode.js';
 import { parseFlatMembershipCost } from '../../shared/membershipFlatCost.js';
+import { buildStructureChildren } from '../_lib/membershipStructureChildren.js';
 
 function fixture() {
   const rows = [
@@ -10,7 +11,14 @@ function fixture() {
     { id: 'other', tenant_id: 'b', effective_from: '2025-01-01', effective_to: null, xero_project_code: 'OTHER' },
     { id: 'old', tenant_id: 'a', effective_from: '2024-01-01', effective_to: '2024-12-31', xero_project_code: 'OLD' },
   ];
-  const db = { from(table) {
+  const db = { async rpc(name, { p_tenant_id, p_config_id, p_config }) {
+    assert.equal(name, 'save_membership_structure');
+    const row = rows.find(r => r.id === p_config_id && r.tenant_id === p_tenant_id);
+    if (!row) return { error: { code: 'PT409', message: 'Membership structure not found.' } };
+    if (row.effective_to !== null) return { error: { code: 'PT409', message: 'Read-only' } };
+    Object.assign(row, structuredClone(p_config));
+    return { data: structuredClone(row), error: null };
+  }, from(table) {
     let filters = [], patch, inserting, remove = false, single = false;
     const q = {
       select() { return q; }, eq(k, v) { filters.push(r => r[k] === v); return q; },
@@ -35,10 +43,10 @@ function fixture() {
     .replace(/export default /g, '').replace(/export /g, '');
   const handler = new Function('supabase', 'getTenantContext', 'hasAdminAccess', 'normalizeMembershipProjectCode',
     'parseFlatMembershipCost', 'normalizeInvoiceRecipients', 'validateInvoiceRecipientsShape',
-    'getRemindersForConfig', 'getActiveAccountingProvider',
+    'getRemindersForConfig', 'getActiveAccountingProvider', 'buildStructureChildren',
     `${source}\nreturn handler;`)(db, async req => ({ tenantId: req.tenant || 'a', isAuthenticated: true }),
     async req => true, normalizeMembershipProjectCode, parseFlatMembershipCost, () => ({}), () => null,
-    async () => [], async () => 'xero');
+    async () => [], async () => 'xero', buildStructureChildren);
   const call = async (method, config, query = {}) => {
     const res = { statusCode: 200, status(n) { this.statusCode = n; return this; }, json(body) { this.body = body; return this; } };
     await handler({ method, body: { config }, query }, res);
@@ -50,7 +58,7 @@ function fixture() {
 for (const pricing_model of ['flat', 'tiered']) {
   test(`${pricing_model}: API saves, reloads, changes and clears without touching another tenant`, async () => {
     const { call, rows } = fixture();
-    const config = { id: 'own', pricing_model, flat_cost: 100, effective_from: '2025-01-01', structure_scope_type: 'member' };
+    const config = { id: 'own', pricing_model, flat_cost: 100, effective_from: '2025-01-01', structure_scope_type: 'member', term_end_mode: 'standard' };
     for (const [input, expected] of [[' MEMBERSHIPS ', 'MEMBERSHIPS'], ['NEXT', 'NEXT'], ['', null]]) {
       const saved = await call('POST', { ...config, xero_project_code: input });
       assert.equal(saved.statusCode, 200, JSON.stringify(saved.body));
@@ -61,8 +69,8 @@ for (const pricing_model of ['flat', 'tiered']) {
     await call('POST', { ...config, xero_project_code: 'KEEP' });
     await call('PUT', config);
     assert.equal(rows[0].xero_project_code, 'KEEP', 'omitted field must preserve settings from hidden/older clients');
-    assert.equal((await call('POST', { ...config, id: 'other', xero_project_code: 'BAD' })).statusCode, 404);
-    assert.equal((await call('POST', { ...config, id: 'old', xero_project_code: 'BAD' })).statusCode, 400);
+    assert.equal((await call('POST', { ...config, id: 'other', xero_project_code: 'BAD' })).statusCode, 409);
+    assert.equal((await call('POST', { ...config, id: 'old', xero_project_code: 'BAD' })).statusCode, 409);
     assert.equal(rows[2].xero_project_code, 'OLD');
   });
 }

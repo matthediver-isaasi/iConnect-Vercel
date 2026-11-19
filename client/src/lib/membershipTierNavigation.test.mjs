@@ -16,6 +16,17 @@ import {
 const date = value => value ? value.replaceAll('-', '/') : '';
 const pageSource = readFileSync(new URL('../pages/MembershipTierManagement.jsx', import.meta.url), 'utf8');
 
+test('inclusive handover lifecycle handles finite scheduled versions and stale status labels', () => {
+  const old={effective_from:'2026-08-01',effective_to:'2026-11-18',status:'active'};
+  const next={effective_from:'2026-11-19',effective_to:'2027-07-31',status:'historical'};
+  assert.equal(getTierLifecycle(old,'2026-11-18'),'active');
+  assert.equal(getTierLifecycle(old,'2026-11-19'),'historical');
+  assert.equal(getTierLifecycle(next,'2026-11-18'),'scheduled');
+  assert.equal(getTierLifecycle(next,'2026-11-19'),'active');
+  assert.equal(getTierLifecycle(next,'2027-07-31'),'active');
+  assert.equal(getTierLifecycle(next,'2027-08-01'),'historical');
+});
+
 test('groups structures by their API lifecycle without changing semantics', () => {
   const grouped = groupTierStructures([
     { id: 'a', status: 'active' },

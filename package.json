@@ -4,6 +4,7 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
+    "test:membership-structure-handover": "node scripts/run-isolated-tests.mjs --allow-local-postgres node --test scripts/membership-structure-handover.postgres.test.mjs api/membership/tiers.handover.test.mjs api/membership/tiers.projectCode.test.mjs api/membership/tiers.collectionPolicy.test.mjs api/_lib/membershipTiersActiveConfigs.test.mjs client/src/lib/membershipTierNavigation.test.mjs",
     "test:session-start-default": "node --test client/src/lib/sessionStartDefault.test.mjs",
     "test:session-start-default:browser": "playwright test --config=tests/session-start-default.config.mjs",
     "test:member-merge": "node scripts/run-isolated-tests.mjs node --test api/admin/members/merge.test.mjs && node --test tests/member-merge.browser.test.mjs",

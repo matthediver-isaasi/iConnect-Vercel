@@ -1468,6 +1468,10 @@ export default function MembershipTierManagement() {
               disabled={!isEditable}
               data-testid="input-effective-from"
             />
+            <p className="text-xs text-muted-foreground">
+              The previous version in this scope ends automatically the day before this date.
+              Scheduled versions are retained. This does not change purchased terms or the membership-year cycle.
+            </p>
           </div>
         </div>
 
@@ -1490,6 +1494,11 @@ export default function MembershipTierManagement() {
           <p className="text-sm text-muted-foreground mb-3">
             Optionally scope this tier structure to {config.structure_scope_type === 'member' ? 'members' : 'organisations'} with a specific field value. This allows multiple active tier structures for different {config.structure_scope_type === 'member' ? 'member' : 'organisation'} types.
           </p>
+          {!isCreatingNew && (
+            <p className="text-xs text-muted-foreground mb-3">
+              Duplicate this structure to change its scope. Existing versions stay in their original timeline.
+            </p>
+          )}
           <div className="space-y-4">
             <div className="space-y-2">
               <Label>Scope Type</Label>
@@ -1501,7 +1510,7 @@ export default function MembershipTierManagement() {
                   handleConfigChange('structure_match_value', null);
                   handleConfigChange('invoice_address_field', null);
                 }}
-                disabled={!isEditable}
+                disabled={!isEditable || !isCreatingNew}
               >
                 <SelectTrigger data-testid="select-structure-scope-type">
                   <SelectValue />
@@ -1526,7 +1535,7 @@ export default function MembershipTierManagement() {
                       handleConfigChange('structure_match_value', null);
                     }
                   }}
-                  disabled={!isEditable}
+                  disabled={!isEditable || !isCreatingNew}
                 >
                   <SelectTrigger data-testid="select-structure-field">
                     <SelectValue placeholder="No scope (applies to all)" />
@@ -1549,7 +1558,7 @@ export default function MembershipTierManagement() {
                     <Select
                       value={config.structure_match_value || ''}
                       onValueChange={(v) => handleConfigChange('structure_match_value', v)}
-                      disabled={!isEditable}
+                      disabled={!isEditable || !isCreatingNew}
                     >
                       <SelectTrigger data-testid="select-structure-match-value">
                         <SelectValue placeholder="Select a value" />
@@ -1565,7 +1574,7 @@ export default function MembershipTierManagement() {
                       value={config.structure_match_value || ''}
                       onChange={(e) => handleConfigChange('structure_match_value', e.target.value)}
                       placeholder="Enter the value to match"
-                      disabled={!isEditable}
+                      disabled={!isEditable || !isCreatingNew}
                       data-testid="input-structure-match-value"
                     />
                   )}

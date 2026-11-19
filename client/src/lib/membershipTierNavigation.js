@@ -4,8 +4,12 @@ export const TIER_LIFECYCLE = {
   historical: { label: 'Historical', group: 'History' },
 };
 
-export function getTierLifecycle(item) {
-  const status = item?.status || (item?.effective_to ? 'historical' : 'active');
+export function getTierLifecycle(item, onDate = new Date().toISOString().slice(0, 10)) {
+  const hasDates = item && ('effective_from' in item || 'effective_to' in item);
+  const status = hasDates
+    ? (item.effective_to && item.effective_to < onDate ? 'historical'
+      : item.effective_from && item.effective_from > onDate ? 'scheduled' : 'active')
+    : (item?.status || 'active');
   return TIER_LIFECYCLE[status] ? status : 'historical';
 }
 
