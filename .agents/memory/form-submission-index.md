@@ -14,6 +14,7 @@ Focused index for durable form, submission, mapping, validation, and payment-ent
 
 - [Public form submission idempotency](public-form-idempotency.md) — dup guard = client key + unique index returning the ORIGINAL success payload + keyless 10s backstop; test endpoint in-process against DEST (local DB is pre-tenant).
 - [Form submission emails](form-submission-emails.md) — exactly-once via atomic claim on form_submission.submission_email_state; all send paths must use the shared guarded sender.
+- [Invoice order alerts](invoice-order-alert-policy.md) — accepted orders alert before settlement; the reviewed historical BNMS submissions must not be backfilled.
 - [Form prefill logged-in fallback](form-prefill-fallback.md) — prefill target: URL param > authed member/org via shared resolver; prefill effect must wait for member AND org custom values; embed iframe resolves auth via /api/auth/me itself.
 - [Form processing topics](form-processing-topics.md) — paid-form pipeline, validation, tenant guards, prefill ownership, relationship owners, and retry state.
 - [Form membership auto-resolve](form-membership-auto-resolve.md) — membership action resolve_mode='auto' picks the structure from the mapped answer vs match values; no-match = descriptive error, never £0; tierless classes hide the payment field.

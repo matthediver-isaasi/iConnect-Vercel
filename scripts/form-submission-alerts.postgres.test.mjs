@@ -22,7 +22,9 @@ test('private alert schema: settings isolation, transactional scheduling, claims
     sql(`CREATE ROLE anon;CREATE ROLE authenticated;CREATE ROLE service_role BYPASSRLS;
       CREATE TABLE form(id uuid PRIMARY KEY,tenant_id uuid,name text,fields jsonb,pages jsonb);
       CREATE TABLE form_submission(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),tenant_id uuid,form_id uuid,
-        created_date timestamptz DEFAULT now(),source text,submission_email_state jsonb,payment_status text,payment_meta jsonb);
+        created_date timestamptz DEFAULT now(),source text,submission_email_state jsonb,payment_status text,payment_meta jsonb,
+        payment_provider text,awards_amendment_application_id uuid);
+      CREATE TABLE accounting_request_queue(tenant_id uuid,source_type text,source_id text,operation text);
       CREATE TABLE form_due_diligence_one_off_ready(form_submission_id uuid PRIMARY KEY,tenant_id uuid);`);
     const migration=readFileSync('supabase/migrations/20261210_form_submission_alerts.sql','utf8');
     sql(migration);sql(migration);
@@ -70,6 +72,53 @@ test('private alert schema: settings isolation, transactional scheduling, claims
     assert.equal(sql(`SELECT limit_form_alert_reads('${'c'.repeat(64)}')`),'f');
     sql(`DELETE FROM form_submission WHERE id='${sub}'`);
     assert.equal(sql(`SELECT count(*) FROM form_alert_delivery WHERE submission_id='${sub}'`),'0');
+    // Reproduce the real trigger order: accounting is enqueued only AFTER the
+    // original alert capture has run. No external provider calls in fixtures.
+    sql(`CREATE FUNCTION enqueue_test_invoice() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF NEW.payment_provider='invoice' AND NEW.payment_meta#>>'{invoice_order,version}'='1'
+          AND NOT coalesce((NEW.payment_meta->>'skip_queue')::boolean,false) THEN
+          INSERT INTO accounting_request_queue VALUES(NEW.tenant_id,'form_invoice_order',NEW.id::text,'invoice');
+        END IF;
+        RETURN NEW;
+      END $$;
+      CREATE TRIGGER zz_enqueue_form_invoice_order AFTER INSERT ON form_submission
+      FOR EACH ROW EXECUTE FUNCTION enqueue_test_invoice();
+      INSERT INTO form_submission(id,tenant_id,form_id,payment_provider,payment_status,payment_meta)
+      VALUES('${sub}','${tenant}','${form}','invoice','unpaid','{"invoice_order":{"version":1}}');`);
+    assert.equal(sql(`SELECT count(*) FROM form_alert_delivery WHERE submission_id='${sub}'`),'0');
+    const upgrade=readFileSync('supabase/migrations/202701230003_invoice_order_submission_alerts.sql','utf8');
+    sql(upgrade);sql(upgrade);
+    sql(`UPDATE form_submission SET payment_meta=payment_meta||'{"completion":{"status":"done"}}',payment_status='paid'
+      WHERE id='${sub}'`);
+    assert.equal(sql(`SELECT count(*) FROM form_alert_delivery WHERE submission_id='${sub}'`),'0',
+      'deploying or later editing historical orders must never backfill alerts');
+    const before=Number(sql('SELECT count(*) FROM form_alert_delivery'));
+    const insertInvoice=`INSERT INTO form_submission(tenant_id,form_id,payment_provider,payment_status,payment_meta)
+      VALUES('${tenant}','${form}','invoice','unpaid','{"invoice_order":{"version":1}}')`;
+    sql(`BEGIN;${insertInvoice};ROLLBACK;`);
+    assert.equal(Number(sql('SELECT count(*) FROM form_alert_delivery')),before);
+    sql(insertInvoice);
+    assert.equal(Number(sql('SELECT count(*) FROM form_alert_delivery')),before+2);
+    assert.equal(sql(`SELECT count(*) FROM form_submission WHERE payment_provider='invoice' AND payment_status='unpaid'`),'1');
+    sql(`UPDATE form_submission SET submission_email_state='{"status":"sent"}' WHERE payment_provider='invoice'`);
+    assert.equal(Number(sql('SELECT count(*) FROM form_alert_delivery')),before+2);
+    for(const [status,meta] of [['failed','{"invoice_order":{"version":1}}'],
+      ['unpaid','{"invoice_order":{"version":2}}'],['unpaid','{"invoice_order":{"version":1},"skip_queue":true}']]){
+      sql(`INSERT INTO form_submission(tenant_id,form_id,payment_provider,payment_status,payment_meta)
+        VALUES('${tenant}','${form}','invoice','${status}','${meta}')`);
+    }
+    assert.equal(Number(sql('SELECT count(*) FROM form_alert_delivery')),before+2);
+    const foreign='55555555-5555-4555-8555-555555555555';
+    sql(`INSERT INTO accounting_request_queue VALUES('${foreign}','form_invoice_order','${foreign}','invoice');
+      INSERT INTO form_submission(id,tenant_id,form_id,payment_provider,payment_status,payment_meta)
+      VALUES('${foreign}','${tenant}','${form}','invoice','unpaid','{"invoice_order":{"version":1},"skip_queue":true}');`);
+    assert.equal(Number(sql('SELECT count(*) FROM form_alert_delivery')),before+2,'foreign tenant accounting is not authority');
+    sql(`UPDATE form_alert_settings SET enabled=false;${insertInvoice};UPDATE form_alert_settings SET enabled=true;`);
+    assert.equal(Number(sql('SELECT count(*) FROM form_alert_delivery')),before+2,'disabled alert settings remain respected');
+    sql(`INSERT INTO form_submission(tenant_id,form_id,payment_provider,payment_status,payment_meta)
+      VALUES('${tenant}','${form}','stripe','paid','{"completion":{"status":"done"}}');`);
+    assert.equal(Number(sql('SELECT count(*) FROM form_alert_delivery')),before+4,'completed card payments still alert');
   }finally{
     if(started) spawnSync('pg_ctl',['-D',h.data,'-m','immediate','stop'],{encoding:'utf8'});
     await h.cleanup();
