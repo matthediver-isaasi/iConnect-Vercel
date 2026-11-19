@@ -287,7 +287,9 @@ export async function findOrCreateXeroContact(accessToken, xeroTenantId, contact
       email && String(contact.EmailAddress || '').trim().toLowerCase() === email
       && contact.ContactStatus !== 'ARCHIVED');
     if (matches.length !== 1) {
-      throw new Error('Xero contact name collision without a unique matching email; identity review required');
+      throw Object.assign(new Error('Xero contact name collision without a unique matching email; identity review required'), {
+        code: 'XERO_CONTACT_IDENTITY_REVIEW_REQUIRED', permanent: true,
+      });
     }
     const existingContact = matches[0];
     console.log(`[Xero] Found existing contact: ${existingContact.ContactID}`);

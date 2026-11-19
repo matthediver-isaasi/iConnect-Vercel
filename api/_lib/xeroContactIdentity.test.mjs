@@ -28,6 +28,15 @@ function transport(contacts) {
   };
 }
 
+test('a contact with no email preserves an actionable review code and performs no mutation', async () => {
+  const request = transport([{ ContactID: 'existing', Name: 'Example Company', ContactStatus: 'ACTIVE' }]);
+  await assert.rejects(findOrCreateXeroContact('test-only', 'isolated-company',
+    { name: 'Example Company', email: 'billing@example.invalid' }, request),
+  error => error.code === 'XERO_CONTACT_IDENTITY_REVIEW_REQUIRED' && error.permanent === true);
+  assert.equal(request.calls.length, 1);
+  assert.equal(request.calls[0].method || 'GET', 'GET');
+});
+
 test('explicit admin address retains every selected line and verifies provider readback', async () => {
   const request = transport([{ ContactID: 'right-person', EmailAddress: 'ada@example.com' }]);
   const address = ['Line 1', 'Line 2', 'Town', 'County', 'Postcode', 'Country', 'Extra'].join('\n');

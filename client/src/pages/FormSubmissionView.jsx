@@ -1,4 +1,5 @@
 import { formatCartReceipt } from "@/lib/formCart";
+import { submissionCheckoutText } from "@/lib/formSubmissionCheckout";
 import { useEffect, useRef, useState } from "react";
 import { useParams, Link, useSearchParams, useNavigate } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
@@ -317,6 +318,13 @@ export default function FormSubmissionView() {
 
   const renderField = (field) => {
     if (!field) return null;
+    const checkoutText = submissionCheckoutText(field, submission);
+    if (checkoutText !== null) {
+      return <div key={field.id} className="rounded-lg border bg-slate-50 p-4">
+        <p className="mb-1 text-sm font-medium">{field.label || field.id}</p>
+        <p className="whitespace-pre-wrap text-sm">{checkoutText}</p>
+      </div>;
+    }
     
     // Instructions fields are display-only, render them directly (no edit button)
     if (field.type === 'instructions') {

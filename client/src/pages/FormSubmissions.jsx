@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { bundleSubmissionLabel } from "@/lib/formBundles";
 import { formatCartReceipt } from "@/lib/formCart";
+import { submissionCheckoutText } from "@/lib/formSubmissionCheckout";
 import { Link, useSearchParams, useLocation } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
 import { reconcileDeletedSubmission } from "@/lib/formSubmissionDeletion";
@@ -2950,8 +2951,15 @@ export default function FormSubmissionsPage() {
               <div>
                 <h3 className="font-semibold text-slate-900 mb-3">Submission Data</h3>
                 <div className="space-y-3">
+                  {(viewingForm?.fields || []).filter(field => ['payment', 'sales_cart_view'].includes(field.type)).map(field => (
+                    <div key={field.id} className="rounded-lg border bg-white p-3">
+                      <Label className="mb-1 block text-xs uppercase tracking-wide text-slate-600">{field.label || field.id}</Label>
+                      <p className="whitespace-pre-wrap text-sm">{submissionCheckoutText(field, viewingSubmission)}</p>
+                    </div>
+                  ))}
                   {formatCartReceipt(viewingSubmission.submission_data?.__cart_receipt) && <div className="rounded-lg border bg-white p-3"><Label className="mb-1 block text-xs uppercase tracking-wide text-slate-600">Cart receipt</Label><p className="whitespace-pre-wrap text-sm">{formatCartReceipt(viewingSubmission.submission_data.__cart_receipt)}</p></div>}
                   {Object.entries(viewingSubmission.submission_data || {})
+                    .filter(([key]) => !['payment', 'sales_cart_view'].includes(resolveSubmissionField(viewingForm?.fields, key)?.type))
                     .filter(([key]) => key !== '__cart_receipt' && key !== viewingSubmission.submission_data?.__cart_receipt?.fieldId && key !== '__bundle_labels' && key !== FORM_NOT_LISTED_LABELS_KEY && key !== FORM_NOT_LISTED_TEXT_KEY)
                     .map(([key, value]) => {
                     const field = resolveSubmissionField(viewingForm?.fields, key);
