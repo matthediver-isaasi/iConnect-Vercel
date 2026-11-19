@@ -3,6 +3,9 @@ import { useState, useRef, useMemo, useCallback, useEffect } from "react";
 import { useFormPrefillLocked } from './FormPrefillBoundary';
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { CHECKOUT_PURCHASE_ORDER_KEY, normalizeCheckoutPurchaseOrder } from "../../../../shared/formCheckoutPurchaseOrder.js";
 import { Loader2, CreditCard, AlertCircle, Landmark, Info, FileText } from "lucide-react";
 import { INVOICE_PAYMENT_HELP } from "./InvoicePaymentSetting";
 import { filterPaymentProvidersForMembership, resolveEffectivePayment } from "@/lib/formPaymentQuote";
@@ -131,6 +134,7 @@ export default function FormPaymentSubmit({
   const [paymentCaptured, setPaymentCaptured] = useState(false);
   const [paymentStage, setPaymentStage] = useState(null);
   const [invoiceOutcome, setInvoiceOutcome] = useState(null);
+  const [invoicePurchaseOrder, setInvoicePurchaseOrder] = useState('');
   const [externalCheckoutUrl, setExternalCheckoutUrl] = useState(null);
   // GoCardless Drop-in modal state: { flowId, environment, authorisationUrl }
   const [gcDropin, setGcDropin] = useState(null);
@@ -345,7 +349,10 @@ export default function FormPaymentSubmit({
           action: 'create',
           form_id: payload.form_id,
           provider: providerId,
-          submission_data: payload.submission_data,
+          submission_data: providerId === 'invoice' ? {
+            ...payload.submission_data,
+            [CHECKOUT_PURCHASE_ORDER_KEY]: normalizeCheckoutPurchaseOrder(invoicePurchaseOrder),
+          } : payload.submission_data,
           idempotency_key: idempotencyKey || undefined,
           prefill_organization_id: payload.prefill_organization_id || null,
           prefill_member_id: payload.prefill_member_id || null,
@@ -814,6 +821,17 @@ export default function FormPaymentSubmit({
                 </p>
               )}
             </div>
+            {usableProviders?.some(p => p.id === 'invoice') && (
+              <div className="mb-4 space-y-2">
+                <Label htmlFor={`invoice-po-${field?.id}`}>Purchase order number (optional)</Label>
+                <Input id={`invoice-po-${field?.id}`} data-testid={`input-invoice-po-${field?.id}`}
+                  value={invoicePurchaseOrder} onChange={event => setInvoicePurchaseOrder(event.target.value)}
+                  maxLength={255} disabled={disabled || anyBusy} aria-describedby={`invoice-po-help-${field?.id}`} />
+                <p id={`invoice-po-help-${field?.id}`} className="text-xs text-muted-foreground">
+                  Applies only to Pay by invoice. Your PO number will be the invoice reference. Leave blank to use TBC.
+                </p>
+              </div>
+            )}
             <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,12.5rem),1fr))]">
               {effective.membership?.monthly_card && (
                 <button

@@ -116,3 +116,14 @@ literal TBC reference for the purchase-order report.
 when accepting an order. Keep provider recovery identifiers separate from the
 customer reference. Do not assume Xero ledger/tracking codes are QuickBooks
 item/class identifiers.
+
+Checkout must automatically offer an optional PO number whenever Pay by invoice
+is available; a separate builder question or mapping must not be required.
+
+**Why:** The owner identified mandatory manual PO-question configuration as a
+significant gap. Supplied PO numbers belong in Xero's reference; absence means
+exactly `TBC`.
+
+**How to apply:** Collect the PO at checkout, freeze it with the accepted order,
+show it in submission Checkout details, and reject contradictory legacy mapped
+and checkout values rather than silently discarding either.

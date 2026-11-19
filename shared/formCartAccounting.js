@@ -1,4 +1,5 @@
 // Admin-owned settings are read from the saved form, never the cart answer.
+import { CHECKOUT_PURCHASE_ORDER_KEY, invoicePurchaseOrderReference } from './formCheckoutPurchaseOrder.js';
 export const CART_PO_FIELD_TYPES = ['text', 'short_text'];
 
 export function cartAccountingConfigurationError(cart, fields) {
@@ -23,9 +24,7 @@ export function cartAccountingSettings(form, answers) {
   const error = cartAccountingConfigurationError(cart, fields);
   if (error) throw new Error(error);
   const answer = cart.purchase_order_field_id ? answers?.[cart.purchase_order_field_id] : null;
-  if (answer != null && typeof answer !== 'string') throw new Error('Purchase order must be text.');
-  const reference = answer?.trim() || 'TBC';
-  if (reference.length > 255) throw new Error('Purchase order must be no longer than 255 characters.');
+  const reference = invoicePurchaseOrderReference(answers?.[CHECKOUT_PURCHASE_ORDER_KEY], answer);
   return {
     nominalCode: cart.nominal_code?.trim() || null,
     projectCode: cart.project_code?.trim() || null,

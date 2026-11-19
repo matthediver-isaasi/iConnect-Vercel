@@ -167,6 +167,42 @@ test('readiness, required fields and reservation conflicts fail before provider 
     assert.equal(f.state.providerCreates, 0);
   }
 });
+
+test('invoice checkout normalizes its built-in PO before preparation and persisted submission', async () => {
+  const f=fixture({invoice:true});
+  let prepared=0,submitted=0;
+  f.dependencies.prepareFormInvoiceOrder=async args=>{
+    prepared++;
+    assert.equal(args.values.__invoice_purchase_order,'PO-42');
+    return {version:1,amount:7.4,currency:'GBP'};
+  };
+  f.dependencies.submitInvoiceForm=async(req,res)=>{
+    submitted++;
+    assert.equal(req.body.submission_data.__invoice_purchase_order,'PO-42');
+    return res.status(201).json({success:true,id:'invoice-submission'});
+  };
+  const accepted=await f.request('create',{provider:'invoice',submission_data:{...values,__invoice_purchase_order:' PO-42 '}});
+  assert.equal(accepted.statusCode,201,JSON.stringify(accepted.body));
+  for(const po of [{number:'forged'},'x'.repeat(256),'PO\n42']){
+    const invalid=await f.request('create',{provider:'invoice',submission_data:{...values,__invoice_purchase_order:po}});
+    assert.equal(invalid.statusCode,400,JSON.stringify(invalid.body));
+    assert.equal(invalid.body.code,'INVALID_PURCHASE_ORDER');
+  }
+  assert.equal(prepared,1);
+  assert.equal(submitted,1);
+  assert.equal(f.state.providerCreates,0);
+});
+
+test('a changed checkout PO cannot reuse an accepted invoice idempotency key',async()=>{
+  const existing={id:'invoice-submission',form_id:'form',tenant_id:'tenant',payment_provider:'invoice',
+    submission_data:{...values,__invoice_purchase_order:'PO-ORIGINAL'}};
+  const f=fixture({invoice:true,existing});
+  f.dependencies.prepareFormInvoiceOrder=async()=>assert.fail('cannot re-prepare accepted order');
+  f.dependencies.submitInvoiceForm=async()=>assert.fail('cannot resubmit changed PO');
+  const response=await f.request('create',{provider:'invoice',submission_data:{...values,__invoice_purchase_order:'PO-CHANGED'}});
+  assert.equal(response.statusCode,409);
+  assert.equal(response.body.code,'IDEMPOTENCY_KEY_REUSED');
+});
 test('provider creation ambiguity retains one accepted attempt; retry uses original idempotency key', async () => {
   const f = fixture();
   const create = f.dependencies.stripe.paymentIntents.create;

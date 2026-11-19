@@ -148,7 +148,7 @@ test('invoice card confirms unpaid order through its own callback without Stripe
     assert.equal(fixture.calls[0].body.action, 'create');
     assert.equal(fixture.calls[0].body.provider, 'invoice');
     assert.equal(fixture.calls[0].body.idempotency_key, 'stable-invoice-attempt');
-    assert.deepEqual(fixture.calls[0].body.submission_data, payload.submission_data);
+    assert.deepEqual(fixture.calls[0].body.submission_data, { ...payload.submission_data, __invoice_purchase_order:'' });
     assert.equal(fixture.calls[0].credentials, 'include');
     assert.deepEqual(fixture.confirmed, [invoiceResult]);
     assert.deepEqual(fixture.paid, []);
@@ -156,6 +156,23 @@ test('invoice card confirms unpaid order through its own callback without Stripe
     assert.equal(fixture.button(), null);
     assert.equal(document.querySelector('script[src*="stripe"]'), null);
     assert.equal(fixture.container.querySelector('[data-testid*="stripe-element"]'), null);
+  } finally { await fixture.cleanup(); }
+});
+
+test('checkout automatically offers an optional PO and sends its trimmed value with invoice orders', async () => {
+  const fixture = await mount();
+  try {
+    const input=fixture.container.querySelector('[data-testid="input-invoice-po-invoice"]');
+    assert.ok(input);
+    assert.equal(input.required,false);
+    assert.equal(input.maxLength,255);
+    assert.match(fixture.container.textContent,/Leave blank to use TBC/);
+    await act(async()=>{
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set.call(input,' PO-2026-42 ');
+      input.dispatchEvent(new window.Event('input',{bubbles:true}));
+    });
+    await act(async()=>fixture.button().click());
+    assert.equal(fixture.calls[0].body.submission_data.__invoice_purchase_order,'PO-2026-42');
   } finally { await fixture.cleanup(); }
 });
 

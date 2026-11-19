@@ -1,3 +1,4 @@
+import { CHECKOUT_PURCHASE_ORDER_KEY } from '../../../shared/formCheckoutPurchaseOrder.js';
 const methods = {
   invoice: 'Pay by invoice',
   stripe: 'Card',
@@ -17,6 +18,11 @@ export function submissionCheckoutText(field, submission) {
   if (submission.payment_status) {
     const status = String(submission.payment_status).replaceAll('_', ' ');
     lines.push(`Payment status: ${status.charAt(0).toUpperCase()}${status.slice(1)}`);
+  }
+  if (provider === 'invoice') {
+    const reference = submission.payment_meta?.invoice_order?.snapshot?.invoice?.args?.reference
+      || submission.submission_data?.[CHECKOUT_PURCHASE_ORDER_KEY];
+    if (typeof reference === 'string' && reference.trim()) lines.push(`Invoice reference / PO: ${reference.trim()}`);
   }
   return lines.join('\n');
 }

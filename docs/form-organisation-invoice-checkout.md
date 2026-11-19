@@ -2,6 +2,16 @@
 
 ## Contract
 
+Checkout automatically shows an optional PO-number input when invoice payment is
+available. No separate form question or PO mapping is needed. The server trims
+and validates the single-line value (maximum 255 characters), freezes it as the
+invoice reference, and persists it with the accepted submission. A missing PO
+becomes exactly `TBC`, never the form name. Existing mapped PO fields remain
+supported; contradictory nonblank answers fail rather than silently losing one.
+The submission's Checkout details show the frozen reference. A changed PO cannot
+reuse the accepted order's idempotency key. Card and Direct Debit do not collect
+this checkout input.
+
 Invoice details now have two explicit sources:
 
 - **Use organisation invoice details:** select only an Organisation Drop Down.

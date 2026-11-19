@@ -19,6 +19,13 @@ test('confirmation is intentionally display-only, not an unanswered question', (
   assert.match(text, /cart receipt/);
   assert.doesNotMatch(text, /Not provided/);
 });
+test('checkout shows the frozen invoice reference rather than a later changed answer', () => {
+  const submission={payment_provider:'invoice',submission_data:{__invoice_purchase_order:'CHANGED'},
+    payment_meta:{invoice_order:{snapshot:{invoice:{args:{reference:'PO-42'}}}}}};
+  assert.match(submissionCheckoutText({type:'payment'},submission),/Invoice reference \/ PO: PO-42$/);
+  submission.payment_meta.invoice_order.snapshot.invoice.args.reference='TBC';
+  assert.match(submissionCheckoutText({type:'payment'},submission),/Invoice reference \/ PO: TBC$/);
+});
 test('missing and unknown methods are not silently labelled card', () => {
   assert.equal(submissionCheckoutText({ type: 'payment' }, {}), 'No payment method was recorded.');
   assert.equal(submissionCheckoutText({ type: 'payment' }, { payment_provider: 'other' }), 'Payment method: other');

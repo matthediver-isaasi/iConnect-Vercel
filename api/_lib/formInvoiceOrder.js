@@ -11,6 +11,7 @@ import { freezeFormOrganizationCustomer, verifyFrozenOrganizationContact } from 
 import { createXeroMembershipInvoice, findOrCreateXeroContact } from './xero.js';
 import { invoiceBillingConfigurationError, mappedInvoiceAddress } from '../../shared/formInvoiceBilling.js';
 import { invoicingAddressToXero } from '../../shared/invoicingAddress.js';
+import { CHECKOUT_PURCHASE_ORDER_KEY, invoicePurchaseOrderReference } from '../../shared/formCheckoutPurchaseOrder.js';
 
 export const FORM_INVOICE_SOURCE = 'form_invoice_order';
 // This object is supplied only by the server payment handler, never req.body.
@@ -115,7 +116,8 @@ export async function prepareFormInvoiceOrder({ db, tenantId, form, field, value
   const invoice = await freezeMembershipPreparation({ db, totalMinor, args: {
     appTenantId: tenantId, organizationName: billing.name, invoicingEmail: billing.email,
     invoicingAddress: typeof billing.address === 'string' ? billing.address : null, finalCost: amount, currency,
-    invoiceDescription: field.payment_label || form.name, reference: accounting?.reference ?? form.name,
+    invoiceDescription: field.payment_label || form.name, reference: accounting?.reference
+      ?? invoicePurchaseOrderReference(values?.[CHECKOUT_PURCHASE_ORDER_KEY]),
     ...(accounting ? { nominalCode: accounting.nominalCode, xeroProjectCode: accounting.projectCode } : {}),
   } });
   return {

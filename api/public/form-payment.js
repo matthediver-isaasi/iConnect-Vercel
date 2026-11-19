@@ -1,6 +1,7 @@
 import { attachRetainedRenewalAffiliations } from '../_lib/retainedRenewalAffiliations.js';
 import { createLegacyApplicationScope } from '../_lib/formLegacyApplication.js';
 import { prepareFormInvoiceOrder, invoiceOrderAuthority } from '../_lib/formInvoiceOrder.js';
+import { CHECKOUT_PURCHASE_ORDER_KEY, normalizeCheckoutPurchaseOrder } from '../../shared/formCheckoutPurchaseOrder.js';
 /**
  * POST /api/public/form-payment (Task #3483)
  *
@@ -1180,7 +1181,14 @@ async function handleCreate(req, res, supabase, tenantData, dependencies = {}) {
   if (!enabledProviders.includes(provider)) {
     return res.status(400).json({ error: 'This payment method is not enabled for this form' });
   }
-  const values = submission_data || {};
+  const values = { ...(submission_data || {}) };
+  try {
+    const po = provider === 'invoice' ? normalizeCheckoutPurchaseOrder(values[CHECKOUT_PURCHASE_ORDER_KEY]) : '';
+    if (po) values[CHECKOUT_PURCHASE_ORDER_KEY] = po;
+    else delete values[CHECKOUT_PURCHASE_ORDER_KEY];
+  } catch (error) {
+    return res.status(400).json({ error: error.message, code: 'INVALID_PURCHASE_ORDER' });
+  }
   const idemKey = (typeof idempotency_key === 'string' && idempotency_key.trim())
     ? `pay:${idempotency_key.trim()}`.slice(0, 120)
     : null;
@@ -1234,7 +1242,7 @@ async function handleCreate(req, res, supabase, tenantData, dependencies = {}) {
         ...body, submissionId: body.id, invoiceOrderConfirmed: true, paymentStatus: 'unpaid',
       } : body);
       const invoiceRequest = Object.create(req);
-      invoiceRequest.body = { ...req.body, form_name: form.name, idempotency_key: idemKey };
+      invoiceRequest.body = { ...req.body, submission_data: values, form_name: form.name, idempotency_key: idemKey };
       return await submit(invoiceRequest, res,
         { ...dependencies, [invoiceOrderAuthority]: authority });
     } catch (error) {
