@@ -1,4 +1,4 @@
-modules = ["nodejs-20", "web", "python-3.11", "php-8.2", "postgresql-16"]
+modules = ["web", "python-3.11", "php-8.2", "postgresql-16", "nodejs-24"]
 run = "npm run dev"
 hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
 
@@ -223,4 +223,4 @@ timeoutMs = 120000
 [rules.formatter.fileExtensions]
 
 [rules.formatter.fileExtensions.".html"]
-id = "module:nodejs-20/formatter:prettier"
+id = "module:nodejs-24/formatter:prettier"

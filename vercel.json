@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "buildCommand": "node scripts/patch-cookieyes.mjs && npx vite build && node scripts/build-cookie-preview.mjs --build",
+  "buildCommand": "node scripts/check-node-runtime.mjs && node scripts/patch-cookieyes.mjs && npx vite build && node scripts/build-cookie-preview.mjs --build",
   "outputDirectory": "dist/public",
   "functions": {
     "api/cron/process-zoom-registrations.js": {

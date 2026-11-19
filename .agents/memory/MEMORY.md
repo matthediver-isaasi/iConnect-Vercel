@@ -5,6 +5,7 @@
 - [RLS review boundaries](rls-review-boundaries.md) — retained read-only review; remediation awaits owner approval and preview is not database isolation.
 - [Portal build display](portal-build-display.md) — shared portal build identifier must never show descriptive release labels or tenant-specific comments.
 - [External services and environment](external-services-index.md) — provider leases/timezones, destination DB targets, rollout, domains, runtime logs, Git, npm and SDK isolation.
+- [Runtime security scope](runtime-security-key-policy.md) — runtime remediation does not authorise Stripe key rotation; deployed patch versions require independent evidence.
 - [BNMS membership topics](bnms-membership-index.md) — owner-approved membership evidence, historical test cohorts and NMC fulfilment eligibility.
 - [Router consistency in client/](router-consistency.md) — app uses react-router-dom; new pages built with wouter look like they navigate but break SPA routing.
 - [Serverless runtime topics](serverless-runtime-index.md) — catch-all routing, traceable payment-handler imports, and invocation time budgets.

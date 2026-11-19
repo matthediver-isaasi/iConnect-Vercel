@@ -11,6 +11,10 @@
 
 import { createClient } from '@supabase/supabase-js';
 
+// Establish the actual function runtime in hosting logs, not just the
+// configured major or build-container version. No credentials are logged.
+console.info(`[Runtime] Node.js ${process.version}`);
+
 // Suppress DEP0169 (url.parse() deprecation) emitted by transitive dependencies
 // (follow-redirects via axios, Express internals, mdurl via markdown-it).
 // The warning is benign — nothing in this codebase calls url.parse() directly —

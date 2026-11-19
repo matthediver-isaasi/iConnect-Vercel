@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "type": "module",
   "license": "MIT",
+  "engines": {
+    "node": "24.x"
+  },
   "scripts": {
     "test:membership-structure-handover": "node scripts/run-isolated-tests.mjs --allow-local-postgres node --test scripts/membership-structure-handover.postgres.test.mjs api/membership/tiers.handover.test.mjs api/membership/tiers.projectCode.test.mjs api/membership/tiers.collectionPolicy.test.mjs api/_lib/membershipTiersActiveConfigs.test.mjs client/src/lib/membershipTierNavigation.test.mjs",
     "test:session-start-default": "node --test client/src/lib/sessionStartDefault.test.mjs",
@@ -24,7 +27,9 @@
     "test:organization-name-safeguards": "node scripts/run-isolated-tests.mjs --shell \"node --test shared/organizationNameValidation.test.mjs api/entities/organizationDeleteAuthorization.test.mjs api/_lib/importOrganizationName.test.mjs api/_lib/formStructuredActions.test.mjs api/forms/processApplicationOrganizationName.test.mjs api/due-diligence/fieldMappingWorkflowFanout.test.mjs api/due-diligence/mappingEmptySource.test.mjs\"",
     "test:featured-job-preview:browser": "playwright test --config=tests/featured-job-preview.config.mjs",
     "test:event-login-modal:browser": "playwright test --config=tests/event-login-modal.config.mjs",
-    "predev": "node scripts/patch-cookieyes.mjs && node scripts/build-cookie-preview.mjs",
+    "predev": "node scripts/check-node-runtime.mjs && node scripts/patch-cookieyes.mjs && node scripts/build-cookie-preview.mjs",
+    "prebuild": "node scripts/check-node-runtime.mjs",
+    "prestart": "node scripts/check-node-runtime.mjs",
     "dev": "NODE_ENV=development tsx server/index-dev.ts",
     "build": "node scripts/patch-cookieyes.mjs && vite build && node scripts/build-cookie-preview.mjs --build && esbuild server/index-prod.ts --platform=node --packages=external --bundle --format=esm --outfile=dist/index.js",
     "start": "NODE_ENV=production node dist/index.js",
