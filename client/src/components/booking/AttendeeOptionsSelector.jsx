@@ -1,5 +1,18 @@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { isOtherOption, isOtherAnswer, optionIsSelected, otherDetails, setOtherDetails,
+  OTHER_DETAILS_MAX_LENGTH } from "../../../../shared/eventOtherOptions.js";
+
+function OtherDetails({ options, selections, onChange, id, label }) {
+  if (!options.some(isOtherOption) || !selections.some(isOtherAnswer)) return null;
+  return <div className="space-y-1">
+    <Label htmlFor={id}>{label}</Label>
+    <Input id={id} value={otherDetails(selections)} maxLength={OTHER_DETAILS_MAX_LENGTH}
+      onChange={event => onChange(setOtherDetails(selections, event.target.value))}
+      placeholder="Please specify" />
+  </div>;
+}
 import {
   Select,
   SelectContent,
@@ -62,7 +75,7 @@ export default function AttendeeOptionsSelector({
   const toggleStringSelection = (key, current, option, checked) => {
     const next = checked
       ? [...current, option]
-      : current.filter((v) => v !== option);
+      : current.filter((v) => isOtherOption(option) ? !isOtherAnswer(v) : v !== option);
     emit({ [key]: next });
   };
 
@@ -97,7 +110,7 @@ export default function AttendeeOptionsSelector({
                 <div key={option} className="flex items-center gap-2">
                   <Checkbox
                     id={id}
-                    checked={dietarySelections.includes(option)}
+                    checked={optionIsSelected(dietarySelections, option)}
                     onCheckedChange={(checked) =>
                       toggleStringSelection("dietary_selections", dietarySelections, option, checked === true)
                     }
@@ -110,6 +123,9 @@ export default function AttendeeOptionsSelector({
               );
             })}
           </div>
+          <OtherDetails options={dietaryOptions} selections={dietarySelections}
+            id={`${idPrefix}-dietary-other`} label="Other dietary requirements"
+            onChange={next => emit({ dietary_selections: next })} />
         </div>
       )}
 
@@ -169,7 +185,7 @@ export default function AttendeeOptionsSelector({
                 <div key={option} className="flex items-center gap-2">
                   <Checkbox
                     id={id}
-                    checked={accessibilitySelections.includes(option)}
+                    checked={optionIsSelected(accessibilitySelections, option)}
                     onCheckedChange={(checked) =>
                       toggleStringSelection("accessibility_selections", accessibilitySelections, option, checked === true)
                     }
@@ -182,6 +198,9 @@ export default function AttendeeOptionsSelector({
               );
             })}
           </div>
+          <OtherDetails options={accessibilityOptions} selections={accessibilitySelections}
+            id={`${idPrefix}-accessibility-other`} label="Other accessibility needs"
+            onChange={next => emit({ accessibility_selections: next })} />
         </div>
       )}
     </div>

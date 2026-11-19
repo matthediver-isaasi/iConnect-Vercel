@@ -6,6 +6,7 @@
 // per-attendee selections submitted at booking time against the authoritative
 // option lists so only admin-defined values are ever persisted.
 
+import { sanitizeStringOptions } from '../../shared/eventOtherOptions.js';
 const SEVERITIES = new Set(['mild', 'moderate', 'severe']);
 
 /**
@@ -62,13 +63,9 @@ export function sanitizeOptionSelections(attendee, eventOptions) {
   const allergyAllowed = asArray(opts.allergy_options);
   const accessibilityAllowed = asArray(opts.accessibility_options);
 
-  const dietary = asArray(attendee?.dietary_selections).filter(
-    (v) => typeof v === 'string' && dietaryAllowed.includes(v)
-  );
+  const dietary = sanitizeStringOptions(attendee?.dietary_selections, dietaryAllowed);
 
-  const accessibility = asArray(attendee?.accessibility_selections).filter(
-    (v) => typeof v === 'string' && accessibilityAllowed.includes(v)
-  );
+  const accessibility = sanitizeStringOptions(attendee?.accessibility_selections, accessibilityAllowed);
 
   const seen = new Set();
   const allergies = [];

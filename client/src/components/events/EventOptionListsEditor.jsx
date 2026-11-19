@@ -2,6 +2,7 @@ import { Plus, Trash2, Utensils, Accessibility, AlertTriangle } from "lucide-rea
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { isOtherOption } from "../../../../shared/eventOtherOptions.js";
 
 const toArray = (v) => (Array.isArray(v) ? v : []);
 
@@ -65,6 +66,16 @@ function OptionList({ label, description, options, onChange, placeholder, testPr
         <Plus className="w-4 h-4 mr-1" />
         Add option
       </Button>
+      {testPrefix !== 'allergy' && <>
+        <Button type="button" variant="outline" size="sm" className="ml-2"
+          disabled={items.some(isOtherOption)} onClick={() => onChange([...items, 'Other'])}
+          data-testid={`button-add-${testPrefix}-other`}>
+          Add “Other”
+        </Button>
+        <p className="text-sm text-muted-foreground">
+          “Other” reveals a text field when selected during registration.
+        </p>
+      </>}
     </div>
   );
 }
