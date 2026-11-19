@@ -1844,7 +1844,10 @@ export default function CreateComplexEvent() {
     }));
   };
 
-  const handleSave = async (skipClashCheck = false, badgeRemovalDecision = null) => {
+  const saveAndCloseRef = useRef(false);
+  const handleSave = async (skipClashCheck = false, badgeRemovalDecision = null, closeAfterSave = saveAndCloseRef.current) => {
+    if (saving || checkingClashes) return;
+    saveAndCloseRef.current = closeAfterSave;
     const memberPolicyErrors = [
       ...validateRegistrationAssociationConfig(formData.registration_association_config, roles),
       ...validateTicketMemberPolicies(isGroupLimited ? [] : ticketClasses, roles),
@@ -2452,13 +2455,12 @@ export default function CreateComplexEvent() {
         } else {
           toast.success("Complex event updated");
         }
-        // Group events leave the editor and return to the group page; normal
-        // events stay on the editor as before.
+        // Keep Save in the editor for every event; only Save & Close returns.
         if (cpdSaveError) {
           // The remapped CPD draft remains retryable and must keep Save enabled.
           setIsDirtyState(true);
-        } else if (groupReturnUrl) {
-          setTimeout(() => { window.location.href = groupReturnUrl; }, 500);
+        } else if (closeAfterSave) {
+          setTimeout(() => { window.location.href = groupReturnUrl || createPageUrl("Events"); }, 500);
         } else {
           baselineSnapshotRef.current = buildSnapshot();
           pendingBaselineResetRef.current = true;
@@ -2494,10 +2496,16 @@ export default function CreateComplexEvent() {
             cpdSaveError && `CPD configuration could not be saved: ${cpdSaveError}`,
           ].filter(Boolean).join("; ");
           toast.error(`Complex event created, but ${failures}. Opening the event so you can fix it.`, { duration: 10000 });
-          window.location.href = `${createPageUrl("CreateComplexEvent")}?id=${eventId}`;
+          const params = new URLSearchParams(window.location.search);
+          params.set("id", eventId);
+          window.location.href = `${createPageUrl("CreateComplexEvent")}?${params}`;
         } else {
           toast.success("Complex event created");
-          window.location.href = groupReturnUrl || createPageUrl("Events");
+          const params = new URLSearchParams(window.location.search);
+          params.set("id", eventId);
+          window.location.href = closeAfterSave
+            ? groupReturnUrl || createPageUrl("Events")
+            : `${createPageUrl("CreateComplexEvent")}?${params}`;
         }
       }
     } catch (err) {
@@ -2554,10 +2562,15 @@ export default function CreateComplexEvent() {
               {isEditMode ? "Edit Complex Event" : "Create Complex Event"}
             </h1>
           </div>
-          <Button onClick={() => handleSave()} disabled={saving || checkingClashes || !isDirty} data-testid="button-save">
-            {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
-            {isEditMode ? "Save Changes" : "Create Event"}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => handleSave(false, null, false)} disabled={saving || checkingClashes || !isDirty} data-testid="button-save">
+              {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
+              Save
+            </Button>
+            <Button variant="outline" onClick={() => handleSave(false, null, true)} disabled={saving || checkingClashes} data-testid="button-save-close">
+              Save &amp; Close
+            </Button>
+          </div>
         </div>
 
         <Tabs value={activeSection} onValueChange={setActiveSection}>

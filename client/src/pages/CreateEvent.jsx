@@ -9,7 +9,7 @@ import { deriveTrainingAgendaBounds } from "@shared/trainingAgendaBounds.js";
 import { getZoomWebinarEndTime } from "@shared/zoomWebinarTiming.js";
 import ZoomSessionPicker from "@/components/events/ZoomSessionPicker";
 import { ticketMemberPolicy, updateTicketMemberField, validateTicketMemberPolicies } from "@/utils/publicTicketMembers";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -182,6 +182,12 @@ export default function CreateEvent() {
   const groupSearchParams = useMemo(() => new URLSearchParams(window.location.search), []);
   const groupId = groupSearchParams.get('group_id') || null;
   const isGroupLimited = groupSearchParams.get('group_event') === '1' && !!groupId;
+  const saveAndCloseRef = useRef(false);
+  const savedEventEditorUrl = (id) => {
+    const params = new URLSearchParams(window.location.search);
+    params.set('id', id);
+    return `${createPageUrl('EditEvent')}?${params}`;
+  };
   // Back-arrow target: in group-event mode, return to whichever context launched
   // the flow (Group Events listing or the member group detail page) rather than
   // the general Events page. Honors a `from` origin marker, defaulting to the
@@ -894,18 +900,16 @@ export default function CreateEvent() {
           `Event created, but ${failures}. Opening the event so you can fix it.`,
           { duration: 10000 }
         );
-        setTimeout(() => {
-          window.location.href = `${createPageUrl('EditEvent')}?id=${createdEvent.id}`;
-        }, 500);
+        window.location.href = savedEventEditorUrl(createdEvent.id);
         return;
       }
       if (schedulingWarning) {
         toast.error(`Event created and emails saved, but ${schedulingWarning}`);
       }
       toast.success('Event created successfully');
-      setTimeout(() => {
-        window.location.href = createPageUrl('Events');
-      }, 500);
+      // Move directly into edit mode before another submission can create
+      // a second event; preserve the selected action and group context.
+      window.location.href = saveAndCloseRef.current ? backUrl : savedEventEditorUrl(createdEvent.id);
     },
     onError: (error) => {
       console.error('Create event error:', error, {
@@ -941,7 +945,8 @@ export default function CreateEvent() {
     e.preventDefault();
 
     // Guard against double-submit while a clash check is already running.
-    if (checkingClashes) return;
+    if (checkingClashes || createEventMutation.isPending) return;
+    saveAndCloseRef.current = e.nativeEvent?.submitter?.value === 'close';
 
     // Collect all validation errors
     const errors = [];
@@ -3650,10 +3655,10 @@ export default function CreateEvent() {
             </Button>
             <Button
               type="submit"
-              disabled={createEventMutation.isPending}
+              value="save"
+              disabled={createEventMutation.isPending || checkingClashes}
               className="bg-blue-600 hover:bg-blue-700"
               data-testid="button-create-event"
-              onClick={() => console.log('[CreateEvent] Create Event button clicked')}
             >
               {createEventMutation.isPending ? (
                 <>
@@ -3663,10 +3668,13 @@ export default function CreateEvent() {
               ) : (
                 <>
                   <Save className="h-4 w-4 mr-2" />
-                  Create Event
+                  Save
                 </>
               )}
             </Button>
+            <Button type="submit" value="close" variant="outline"
+              disabled={createEventMutation.isPending || checkingClashes}
+              data-testid="button-save-close">Save &amp; Close</Button>
           </div>
         </form>
       </div>

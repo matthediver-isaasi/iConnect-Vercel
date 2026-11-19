@@ -1607,9 +1607,10 @@ export default function EditEvent() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const closeAfterSave = e.nativeEvent?.submitter?.value === 'close';
 
     // Guard against double-submit while a clash check is already running.
-    if (checkingClashes) return;
+    if (checkingClashes || updateEventMutation.isPending) return;
 
     const releaseErrors = [
       ...validateRegistrationAssociationConfig(formData.registration_association_config, roles),
@@ -2106,11 +2107,10 @@ export default function EditEvent() {
         queryClient.invalidateQueries({ queryKey: ['events'] });
         queryClient.invalidateQueries({ queryKey: ['event', eventId] });
         queryClient.invalidateQueries({ queryKey: ['/api/entities/EventSponsorAssignment'] });
-        // Group events return to where they came from: the group events list
-        // (when opened from there) or the member group detail page. Non-group
-        // events keep the existing redirect to the general Events list.
+        // Only Save & Close leaves the editor. Preserve the original group
+        // destination and keep failed CPD drafts open for correction.
         const returnGroupId = groupIdParam || event?.member_group_id || null;
-        setTimeout(() => {
+        if (closeAfterSave && !cpdSaveError) setTimeout(() => {
           if (returnGroupId) {
             window.location.href = fromParam === 'GroupEvents'
               ? createPageUrl('GroupEvents')
@@ -5223,7 +5223,8 @@ export default function EditEvent() {
             </Button>
             <Button
               type="submit"
-              disabled={updateEventMutation.isPending}
+              value="save"
+              disabled={updateEventMutation.isPending || checkingClashes}
               className="bg-blue-600 hover:bg-blue-700"
               data-testid="button-save-event"
             >
@@ -5235,10 +5236,13 @@ export default function EditEvent() {
               ) : (
                 <>
                   <Save className="h-4 w-4 mr-2" />
-                  Save Changes
+                  Save
                 </>
               )}
             </Button>
+            <Button type="submit" value="close" variant="outline"
+              disabled={updateEventMutation.isPending || checkingClashes}
+              data-testid="button-save-close">Save &amp; Close</Button>
           </div>
         </form>
       </div>
