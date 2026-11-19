@@ -27,6 +27,17 @@ Returning from a safely cancelled checkout may retain stock only for that
 original window. Coordinate deployment and database activation; never restore
 availability or clear a purchased cart while payment may still succeed.
 
+Organisation invoice checkout must use the verified organisation's Xero contact,
+not require the purchaser's email to match that accounting contact.
+
+**Why:** The owner explicitly confirmed this billing policy. A pre-filled
+organisation name is only text, not proof of a verified organisation selection.
+
+**How to apply:** Validate the organisation selection and accounting-company
+contact binding server-side before freezing invoice authority. Keep free-text
+customer matching separate; never infer a verified link from matching names or
+silently change the organisation's Xero email to the purchaser's.
+
 Form commerce bundles consume their own form-stock allowance, never component
 product stock. Ordinary product stock is finite/unlimited inventory, not Sales
 capacity metadata, and does not extend to proposal purchases.
