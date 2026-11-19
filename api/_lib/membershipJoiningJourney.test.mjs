@@ -4,6 +4,20 @@ import { loadJoiningJourney } from './membershipJoiningJourney.js';
 import { createRenewalJourneyHandler } from '../admin/membership-renewal-journey.js';
 const owner={id:'member',tenant_id:'tenant',organization_id:null};
 const formId='ab2d6278-686c-4604-be28-05d4bb328e03';
+test('initial card setup offers recovery without authorising a second checkout',async()=>{
+ const agreement={id:'agreement',tenant_id:'tenant',member_id:'member',provider:'stripe',
+  status:'payment_setup_required',stripe_checkout_session_id:'cs_test_fixture'};
+ const result=await loadJoiningJourney(fixture({membership_billing_agreements:[agreement]}),{tenantId:'tenant',owner});
+ assert.equal(result.eligible,false);assert.equal(result.recovery,true);assert.equal(result.needsReview,false);
+ assert.equal(result.entryHref,'/FormView?slug=getting-started-with-bnms');
+ const missing=await loadJoiningJourney(fixture({membership_billing_agreements:[{...agreement,stripe_checkout_session_id:null}]}),{tenantId:'tenant',owner});
+ assert.equal(missing.needsReview,true);
+ for(const status of ['active','first_payment_pending','cancelled']){
+  assert.deepEqual(await loadJoiningJourney(fixture({membership_billing_agreements:[{...agreement,status}]}),{tenantId:'tenant',owner}),{eligible:false});
+ }
+ assert.deepEqual(await loadJoiningJourney(fixture({membership_billing_agreements:[agreement],
+   member_membership_history:[{id:'history',tenant_id:'tenant',member_id:'member'}]}),{tenantId:'tenant',owner}),{eligible:false});
+});
 function fixture(overrides={},failure=null) {
  const tables={
   membership_joining_journey:[{tenant_id:'tenant',form_id:formId,revision:1}],

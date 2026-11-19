@@ -9,6 +9,19 @@ Do not treat the earliest retained term as original membership commencement, or 
 
 **How to apply:** Keep unknown joining dates explicit until a reviewed provenance source exists. A plan date is planned; a matching persisted provider-payment schedule can confirm a future collection. Past payments and active mandates remain separate facts. Card reads must never run pricing simulations or activate/schedule billing.
 
+An unfinished payment agreement without membership history needs an explicit
+recovery state, not an empty card coupled with a hidden joining action.
+
+**Why:** A monthly-card setup stopped before recording a Stripe Checkout ID.
+The no-history card showed no payment arrangement while the joining guard
+correctly refused to start a competing checkout, leaving the member stuck.
+
+**How to apply:** Link known initial setups to the existing guarded form recovery
+flow. Missing provider IDs require review, not automatic cancellation. A
+specifically approved historical release must record provider inspection and
+retire the agreement under the normal owner lock, keeping its original terms
+and establishing a new recovery generation for subsequent checkout.
+
 Do not repurpose a saved Canvas field key for a different kind of value.
 
 **Why:** Preserving a custom membership-class label while replacing its value with money produces a misleading card even though default-copy tests pass.

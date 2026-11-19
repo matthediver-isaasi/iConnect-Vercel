@@ -101,7 +101,13 @@ export function MembershipDataView({
    const showRenewal = paymentCard && ready && !bankSetupPending && summary.renewal.eligible && !!renewalHref;
   const joiningHref = safeMembershipLink(summary.joining.entryHref);
   const showJoining = paymentCard && ready && state === 'none' && !showRenewal && summary.joining.eligible && !!joiningHref;
-  const copy = showJoining ? { ...content.states[state], heading: 'Become a member',
+  const showSetupRecovery = paymentCard && ready && state === 'none' && !showRenewal
+    && summary.joining.recovery && !!joiningHref;
+  const copy = showSetupRecovery ? { ...content.states[state], heading: 'Membership checkout unfinished',
+    supporting: summary.joining.needsReview
+      ? 'Your earlier payment setup could not be verified. Contact the membership team to resolve it before making another payment.'
+      : 'You started a membership checkout but setup has not finished. Return to the form to check the existing attempt and safely return to payment choices.' }
+    : showJoining ? { ...content.states[state], heading: 'Become a member',
     supporting: 'Answer a few questions to find the right membership for you.' } : content.states[state];
   // Collapse only the duplicated generated label, never an author's heading.
   const hideDuplicateEyebrow = paymentCard && ready
@@ -362,6 +368,13 @@ export function MembershipDataView({
         <MembershipRenewalButton href={joiningHref} joining
           asEditor={asEditor} tenantStyles={tenantStyles} stylesResolved={stylesResolved}
           breakpoint={breakpoint || viewportBreakpoint} />
+      </div>}
+      {showSetupRecovery && <div style={{ marginTop: 24 }}>
+        <a href={asEditor ? undefined : joiningHref} onClick={asEditor ? event => event.preventDefault() : undefined}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 8, textDecoration: 'underline' }}
+          data-testid="membership-setup-recovery-link">
+          Review unfinished checkout <ArrowRight size={18} aria-hidden="true" />
+        </a>
       </div>}
       {paymentCard && ready && summary.renewal.journeyUnavailable && <p role="status" {...role('supporting')} style={{ marginTop: 16 }}>
         We could not load your renewal journey. Please try again or contact the membership team.

@@ -46,6 +46,18 @@ test('first membership action keeps the empty payment card visible and uses only
     result={{...result,status:'loading'}} />);
   assert.doesNotMatch(unknown,/membership-joining-cta/);
 });
+test('unfinished checkout exposes a recovery route rather than an empty card or Join',()=>{
+ for(const needsReview of [false,true]){
+  const html=renderToStaticMarkup(<MembershipDataView type="payment-details" block={{}}
+   result={{status:'ready',data:{membership:{state:'none'},payment:{state:'none'},joining:{
+    eligible:false,recovery:true,needsReview,entryHref:'/FormView?slug=continuing-with-bnms'}}}} />);
+  assert.match(html,/Membership checkout unfinished/);
+  assert.match(html,/membership-setup-recovery-link/);
+  assert.match(html,/href="\/FormView\?slug=continuing-with-bnms"/);
+  assert.doesNotMatch(html,/There is no payment arrangement to display|membership-joining-cta/);
+  if(needsReview)assert.match(html,/Contact the membership team/);
+ }
+});
 test('questionnaire routes override canvas links without authorising an ineligible renewal', () => {
   for (const state of [undefined, 'post_grace_renewal']) {
     const html = renderToStaticMarkup(<MembershipDataView type="payment-details"

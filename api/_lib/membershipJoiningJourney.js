@@ -33,7 +33,23 @@ export async function loadJoiningJourney(db, { tenantId, owner }) {
       if (retiredColumn) query = query.is(retiredColumn, null);
       return query.limit(1);
     }));
-    if (evidence.some(result => result.error || !Array.isArray(result.data) || result.data.length)) return hidden;
+    if (evidence.some(result => result.error || !Array.isArray(result.data))) return hidden;
+    // An initial setup must not offer a second purchase, but it must not leave
+    // the member at an empty payment card either. The joining form already
+    // owns provider-verified initial-checkout recovery.
+    if (evidence.some(result => result.data.length)) {
+      const onlySetup = evidence.every((result, index) => [1, 2].includes(index) || !result.data.length);
+      if (!onlySetup) return hidden;
+      const { data: agreements, error: setupError } = await db.from('membership_billing_agreements')
+        .select('id,provider,status,stripe_checkout_session_id,gocardless_billing_request_id')
+        .eq('tenant_id', tenantId).eq('member_id', owner.id).is('cancelled_for_switch_at', null);
+      if (setupError || !Array.isArray(agreements) || !agreements.length
+        || agreements.some(a => a.status !== 'payment_setup_required')) return hidden;
+      const needsReview = agreements.some(a => a.provider === 'stripe' ? !a.stripe_checkout_session_id
+        : a.provider === 'gocardless' ? !a.gocardless_billing_request_id : true);
+      return { eligible: false, recovery: true, needsReview,
+        entryHref: `/FormView?slug=${encodeURIComponent(form.slug)}` };
+    }
     // An expired token is not proof of cancellation. Only an explicitly
     // released first-membership voucher checkout can retire that evidence.
     for (let start = 0; ; start += 100) {

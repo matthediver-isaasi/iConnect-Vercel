@@ -263,6 +263,8 @@ export function normalizeCanvasMembershipSummary(value) {
   const orderedTerm = !termStartDate || !termEndDate || termStartDate.slice(0, 10) <= termEndDate.slice(0, 10);
   return {
     joining: { eligible: joining.eligible === true,
+      recovery: joining.recovery === true,
+      needsReview: joining.needsReview === true,
       entryHref: typeof joining.entryHref === 'string' && /^\/FormView\?slug=[^&\s]+$/.test(joining.entryHref) ? joining.entryHref : '' },
     // Only the authenticated server response can establish renewal eligibility.
     // A retained payment, signup quote or current collection is not a renewal quote.

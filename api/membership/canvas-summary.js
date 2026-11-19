@@ -498,7 +498,7 @@ export function createCanvasSummaryHandler(dependencies = {}) {
       if (!canViewHistory) {
         if (!dependencies.renewalPriceOnly) {
           const joining = await (dependencies.loadJoiningJourney || loadJoiningJourney)(db, { tenantId, owner });
-          if (joining.eligible) return res.json({ membership: { state: 'none' }, payment: { state: 'none' }, joining });
+          if (joining.eligible || joining.recovery) return res.json({ membership: { state: 'none' }, payment: { state: 'none' }, joining });
           const { loadFormMembershipRenewalContext } = await import('../_lib/formMembershipRenewalContext.js');
           const { createMembershipSimulator } = await import('../_lib/membershipSimulationCore.js');
           const entry = await loadMembershipEntryOnly(db, { tenantId, owner, now: now(),
