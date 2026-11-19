@@ -1,3 +1,4 @@
+import { projectSimpleEventCapacity } from '../../_lib/simpleEventCapacity.js';
 import { isOwnBookingHistoryRead, scopeOwnBookingHistory } from '../../_lib/ownBookingHistory.js';
 import { validateBundleConfiguration, resolveFormBundle, bundlePayableAmount, FormBundleError } from '../../_lib/formBundles.js';
 import { findPaymentField as findBundlePaymentField, computeAuthoritativeHiddenFieldIds as bundleHiddenFields } from '../../_lib/formFieldVisibility.js';
@@ -1618,6 +1619,7 @@ export default async function handler(req, res) {
       if (['event','eventagendaitem'].includes(entityNorm) && !await hasAdminAccess(tenantCtx)) {
         data = redactSpeakerAwardSettings(entity,data || []);
       }
+      if (entityNorm === 'event') data = await projectSimpleEventCapacity(supabase, data || []);
       if (wantsCount) {
         return res.json({ data: data || [], count: count ?? 0 });
       }

@@ -2,6 +2,16 @@
   "name": "Event",
   "type": "object",
   "properties": {
+    "capacity_mode": {
+      "type": "string",
+      "enum": ["legacy", "total"],
+      "description": "Explicit capacity authority. Never infer total from historical remaining counters."
+    },
+    "total_capacity": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "Fixed event-wide maximum in total mode; null is unlimited."
+    },
     "speaker_display_mode": {
       "type": "string",
       "enum": ["hidden", "collapsed", "expanded"],

@@ -1,4 +1,5 @@
 import RegistrationAssociationConfig from "@/components/events/RegistrationAssociationConfig";
+import EventCapacitySummary from "@/components/events/EventCapacitySummary";
 import { serializeItemCpdPoints } from "@/lib/itemCpdPoints";
 import { normalizeRegistrationAssociationConfig, validateRegistrationAssociationConfig } from "@/lib/registrationAssociations";
 import WaitingListTimingField from "@/components/events/WaitingListTimingField";
@@ -255,6 +256,7 @@ export default function EditEvent() {
 
   // Unlimited seats toggle
   const [unlimitedSeats, setUnlimitedSeats] = useState(true);
+  const [capacityMode, setCapacityMode] = useState('legacy');
   
   // Per-event seat visibility
   const [showSeatCount, setShowSeatCount] = useState(true);
@@ -1168,7 +1170,9 @@ export default function EditEvent() {
         image_url: event.image_url || "",
         image_focal_point: event.image_focal_point || null,
         // Only show available_seats if it's a positive number (limited seats), otherwise treat as unlimited
-        available_seats: event.available_seats !== null && event.available_seats !== undefined && event.available_seats > 0
+        available_seats: event.capacity_mode === 'total'
+          ? (event.total_capacity == null ? '' : String(event.total_capacity))
+          : event.available_seats !== null && event.available_seats !== undefined && event.available_seats >= 0
           ? String(event.available_seats) 
           : "",
         // Immediate events strip zoom ids on load
@@ -1265,6 +1269,7 @@ export default function EditEvent() {
         setZoomType("webinar");
       }
       
+      setCapacityMode(event.capacity_mode || 'legacy');
       // Set unlimited seats based on explicit is_unlimited_registration field (preferred)
       // Fallback to old logic for events without the new field
       if (event.is_unlimited_registration === true) {
@@ -1815,8 +1820,8 @@ export default function EditEvent() {
 
     // Validate seats when unlimited is off
     if (!unlimitedSeats) {
-      const seats = parseInt(formData.available_seats);
-      if (!formData.available_seats || isNaN(seats) || seats < 1) {
+      const seats = Number(formData.available_seats);
+      if (formData.available_seats === '' || !Number.isSafeInteger(seats) || seats < 0) {
         toast.error('Please enter a valid number of seats (or enable "Unlimited")');
         return;
       }
@@ -1877,7 +1882,13 @@ export default function EditEvent() {
       location: (isOnlineEvent || isTraining) ? null : (formData.location || null),
       image_url: formData.image_url || null,
       image_focal_point: formData.image_focal_point || null,
-      available_seats: unlimitedSeats ? null : (formData.available_seats ? parseInt(formData.available_seats) : null),
+      ...(capacityMode === 'total' ? {
+        capacity_mode: 'total',
+        total_capacity: unlimitedSeats ? null : Number(formData.available_seats),
+        available_seats: null,
+      } : {
+        available_seats: unlimitedSeats ? null : Number(formData.available_seats),
+      }),
       is_unlimited_registration: unlimitedSeats,
       // Per-event seat visibility (only meaningful when global setting is ON)
       show_seat_count: showSeatCount,
@@ -4820,8 +4831,18 @@ export default function EditEvent() {
 
               {/* Available Seats - shown for all event types */}
               <div className="space-y-3">
+                {capacityMode !== 'total' && (
+                  <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm">
+                    <p>This event uses a legacy remaining-places counter, not a verified total. Ordinary edits preserve that behavior. Saving a verified total permanently replaces the counter model; existing bookings stay unchanged.</p>
+                    <Button type="button" variant="outline" className="mt-2" onClick={() => {
+                      setCapacityMode('total');
+                      setUnlimitedSeats(false);
+                      handleInputChange('available_seats', '');
+                    }}>Establish total capacity</Button>
+                  </div>
+                )}
                 <div className="flex items-center justify-between">
-                  <Label htmlFor="available_seats">Available Seats</Label>
+                  <Label htmlFor="available_seats">{capacityMode === 'total' ? 'Total capacity' : 'Legacy remaining places'}</Label>
                   <div className="flex items-center gap-2">
                     <Switch
                       id="unlimited-seats"
@@ -4843,18 +4864,22 @@ export default function EditEvent() {
                   <Input
                     id="available_seats"
                     type="number"
-                    min="1"
+                    min="0"
                     value={formData.available_seats}
                     onChange={(e) => handleInputChange('available_seats', e.target.value)}
-                    placeholder="Enter number of seats"
+                    placeholder={capacityMode === 'total' ? 'Enter verified total capacity' : 'Enter remaining places'}
                     data-testid="input-seats"
                   />
                 )}
                 <p className="text-xs text-slate-500">
-                  {isOnlineEvent 
-                    ? "For online events, capacity is managed by your Zoom plan limits" 
-                    : "Set the maximum number of attendees for this event"}
+                  {capacityMode === 'total'
+                    ? 'Maximum places across all ticket classes. Do not subtract bookings yourself. Existing bookings are preserved if you lower the total.'
+                    : 'The historical counter is not evidence of the intended maximum.'}
                 </p>
+                {capacityMode === 'total' && (
+                  <EventCapacitySummary booked={event?.capacity_booked} commercial={event?.capacity_commercial}
+                    used={event?.capacity_used} unlimited={unlimitedSeats} total={formData.available_seats} />
+                )}
                 
                 {/* Per-event seat visibility toggle - only shown when global setting is ON */}
                 {globalShowSeats && !isGroupLimited && (

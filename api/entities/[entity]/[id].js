@@ -1,3 +1,4 @@
+import { projectSimpleEventCapacity } from '../../_lib/simpleEventCapacity.js';
 import { validateSurveyCompletionUpdate } from '../../_lib/surveyCompletionConfiguration.js';
 import { validateBundleConfiguration, FormBundleError } from '../../_lib/formBundles.js';
 import { rejectGenericAffiliationWrite } from '../../_lib/profileAffiliationEntityBoundary.js';
@@ -1080,9 +1081,11 @@ export default async function handler(req, res, dependencies = {}) {
       if (audienceContext) {
         const [visible] = projectTicketAudienceRows([data], entityNorm, audienceContext);
         if (!visible) return res.status(404).json({ error: 'Not found' });
+        if (entityNorm === 'event') Object.assign(visible, (await projectSimpleEventCapacity(supabase, [visible], { includeLegacy: true }))[0]);
         return res.json(['event','eventagendaitem'].includes(entityNorm) && !await hasAdminAccess(tenantCtx)
           ? redactSpeakerAwardSettings(entity,[visible])[0] : visible);
       }
+      if (entityNorm === 'event') Object.assign(data, (await projectSimpleEventCapacity(supabase, [data], { includeLegacy: true }))[0]);
       return res.json(['event','eventagendaitem'].includes(entityNorm) && !await hasAdminAccess(tenantCtx)
         ? redactSpeakerAwardSettings(entity,[data])[0] : data);
 

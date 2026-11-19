@@ -16,6 +16,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { getFocalPointStyle } from "@/components/FocalPointPicker";
+import { getSeatStatusLabels } from "@/lib/seatStatusLabels";
+import { hasUnlimitedEventCapacity } from "@shared/simpleEventCapacity.js";
 
 const DEFAULT_TIMEZONE = "Europe/London";
 
@@ -62,6 +64,14 @@ export default function EmbedEventPage() {
   const [copied, setCopied] = useState(false);
   
   const tenantParam = searchParams.get('tenant');
+  const { data: systemSettings = [], isSuccess: seatSettingsLoaded } = useQuery({
+    queryKey: ['embed-event-seat-settings', tenantParam],
+    queryFn: async () => {
+      const response = await fetch(`/api/public/system-settings${tenantParam ? `?tenant=${encodeURIComponent(tenantParam)}` : ''}`);
+      if (!response.ok) throw new Error('Could not load event display settings');
+      return response.json();
+    },
+  });
 
   const { data: event, isLoading, error } = useQuery({
     queryKey: ['embed-event', identifier, tenantParam],
@@ -180,6 +190,8 @@ export default function EmbedEventPage() {
   const isOnline = event.is_online || event.zoom_webinar_id || event.zoom_meeting_id;
   const isTBC = event.status === 'tbc';
   const isImmediate = isImmediateEventTiming(event.status);
+  const seatLabels = getSeatStatusLabels(systemSettings);
+  const hasUnlimitedCapacity = hasUnlimitedEventCapacity(event);
 
   return (
     <div className="p-4" data-testid="embed-event-container">
@@ -257,10 +269,10 @@ export default function EmbedEventPage() {
             </p>
           )}
 
-          {event.available_seats > 0 && (
+          {seatSettingsLoaded && event.show_seat_count !== false && Array.isArray(systemSettings) && systemSettings.find(s => s.setting_key === 'show_event_seats')?.setting_value !== 'false' && (
             <div className="flex items-center gap-2 text-xs text-slate-500 mt-2">
               <Users className="w-3 h-3" />
-              <span data-testid="event-capacity">{event.available_seats} seats available</span>
+              <span data-testid="event-capacity">{hasUnlimitedCapacity ? seatLabels.unlimited : event.available_seats > 0 ? seatLabels.available(event.available_seats) : seatLabels.soldOut}</span>
             </div>
           )}
         </CardHeader>

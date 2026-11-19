@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { hasUnlimitedEventCapacity } from "@shared/simpleEventCapacity.js";
 import { useTicketViewerKey } from "@/hooks/useTicketViewerKey";
 import { useTbcSectionNavigation } from "@/hooks/useTbcSectionNavigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -1926,7 +1927,7 @@ export default function EventsPage({
                         const detailUrl = event.slug
                           ? `/session-events/${event.slug}`
                           : `/ComplexEventDetail?id=${event.id}`;
-                        const hasUnlimitedCapacity = event.available_seats === 0 || event.available_seats === null;
+                        const hasUnlimitedCapacity = hasUnlimitedEventCapacity(event);
                         const isEventPast = isEventInPast(event);
                         const isRegistrationClosed = event.event_state === 'closed' || 
                           (!event.event_state && event.status === 'closed') ||
@@ -2294,7 +2295,7 @@ export default function EventsPage({
                     const detailUrl = event.slug
                       ? `/session-events/${event.slug}`
                       : `/ComplexEventDetail?id=${event.id}`;
-                    const hasUnlimitedCapacity = event.available_seats === 0 || event.available_seats === null;
+                    const hasUnlimitedCapacity = hasUnlimitedEventCapacity(event);
                     const isEventPast = isEventInPast(event);
                     const isRegistrationClosed = event.event_state === 'closed' || 
                       (!event.event_state && event.status === 'closed') ||

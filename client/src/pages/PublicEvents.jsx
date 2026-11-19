@@ -1,4 +1,5 @@
 import React, { useMemo } from "react";
+import { hasUnlimitedEventCapacity } from "@shared/simpleEventCapacity.js";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useTicketViewerKey } from "@/hooks/useTicketViewerKey";
 import { useQuery } from "@tanstack/react-query";
@@ -218,7 +219,7 @@ export default function PublicEventsPage() {
                 {featuredEvents.map((event) => {
                   const eventTimezone = event.timezone || DEFAULT_TIMEZONE;
                   const timezoneAbbr = getTimezoneAbbr(event.start_date, eventTimezone);
-                  const hasUnlimitedCapacity = event.available_seats === 0 || event.available_seats === null;
+                  const hasUnlimitedCapacity = hasUnlimitedEventCapacity(event);
                   const isComplex = !!event.is_complex;
                   const seatStatusLabels = getSeatStatusLabels(systemSettings, { availableDefault: isComplex ? '{count} places available' : '{count} seats available' });
                   const cheapest = getCheapestPrice(event.pricing_config);
@@ -315,7 +316,7 @@ export default function PublicEventsPage() {
                           </div>
                         )}
 
-                        {event.show_seat_count !== false && (
+                        {event.show_seat_count !== false && systemSettings.find(s => s.setting_key === 'show_event_seats')?.setting_value !== 'false' && (
                           <div className="flex items-center gap-2 text-sm">
                             <Users className="w-4 h-4 text-slate-400 shrink-0" />
                             {hasUnlimitedCapacity ? (
@@ -363,7 +364,7 @@ export default function PublicEventsPage() {
             {events.map((event) => {
               const eventTimezone = event.timezone || DEFAULT_TIMEZONE;
               const timezoneAbbr = getTimezoneAbbr(event.start_date, eventTimezone);
-              const hasUnlimitedCapacity = event.available_seats === 0 || event.available_seats === null;
+              const hasUnlimitedCapacity = hasUnlimitedEventCapacity(event);
               const isComplex = !!event.is_complex;
               const seatStatusLabels = getSeatStatusLabels(systemSettings, { availableDefault: isComplex ? '{count} places available' : '{count} seats available' });
               const cheapest = getCheapestPrice(event.pricing_config);
@@ -457,7 +458,7 @@ export default function PublicEventsPage() {
                       </div>
                     )}
 
-                    {event.show_seat_count !== false && (
+                    {event.show_seat_count !== false && systemSettings.find(s => s.setting_key === 'show_event_seats')?.setting_value !== 'false' && (
                       <div className="flex items-center gap-2 text-sm">
                         <Users className="w-4 h-4 text-slate-400 shrink-0" />
                         {hasUnlimitedCapacity ? (

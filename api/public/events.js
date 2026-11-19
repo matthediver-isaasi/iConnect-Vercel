@@ -1,4 +1,5 @@
 import { publicTicketMemberPolicy } from '../../shared/publicTicketMemberPolicy.js';
+import { projectSimpleEventCapacity } from '../_lib/simpleEventCapacity.js';
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import {
@@ -57,6 +58,9 @@ export default async function handler(req, res) {
         pricing_config,
         status,
         available_seats,
+        capacity_mode,
+        total_capacity,
+        is_unlimited_registration,
         show_seat_count,
         event_type,
         is_online,
@@ -124,7 +128,8 @@ export default async function handler(req, res) {
     }
 
     const viewer = await loadPrivateTicketViewer(req, tenant.id, supabase);
-    const events = (rawEvents || []).map(rawEvent => {
+    const capacityEvents = await projectSimpleEventCapacity(supabase, rawEvents || []);
+    const events = capacityEvents.map(rawEvent => {
       // Immediate events: suppress schedule fields and training agenda
       const event = suppressImmediateSchedule(rawEvent);
       const allTicketClasses = filterViewerTickets(event.pricing_config?.ticket_classes || [], viewer, tenant.id);
@@ -183,6 +188,9 @@ export default async function handler(req, res) {
         image_focal_point: event.image_focal_point,
         status: event.status,
         available_seats: event.available_seats,
+        capacity_mode: event.capacity_mode,
+        total_capacity: event.total_capacity,
+        is_unlimited_registration: event.is_unlimited_registration,
         event_type: event.event_type,
         is_online: event.is_online,
         timezone: event.timezone,

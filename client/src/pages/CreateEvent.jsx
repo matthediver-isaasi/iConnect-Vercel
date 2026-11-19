@@ -1,4 +1,5 @@
 import RegistrationAssociationConfig from "@/components/events/RegistrationAssociationConfig";
+import EventCapacitySummary from "@/components/events/EventCapacitySummary";
 import { serializeItemCpdPoints } from "@/lib/itemCpdPoints";
 import { normalizeRegistrationAssociationConfig, validateRegistrationAssociationConfig } from "@/lib/registrationAssociations";
 import WaitingListTimingField from "@/components/events/WaitingListTimingField";
@@ -1106,8 +1107,8 @@ export default function CreateEvent() {
     
     // Validate seats when unlimited is off
     if (!unlimitedSeats) {
-      const seats = parseInt(formData.available_seats);
-      if (!formData.available_seats || isNaN(seats) || seats < 1) {
+      const seats = Number(formData.available_seats);
+      if (formData.available_seats === '' || !Number.isSafeInteger(seats) || seats < 0) {
         errors.push('Please enter a valid number of seats (or enable "Unlimited")');
       }
     }
@@ -1175,7 +1176,9 @@ export default function CreateEvent() {
       timezone: isImmediateSave ? null : (isTraining ? effectiveTimezone : (formData.timezone || null)),
       location: locationValue,
       image_url: formData.image_url || null,
-      available_seats: unlimitedSeats ? null : (formData.available_seats ? parseInt(formData.available_seats) : null),
+      capacity_mode: 'total',
+      total_capacity: unlimitedSeats ? null : Number(formData.available_seats),
+      available_seats: null,
       is_unlimited_registration: unlimitedSeats,
       // Per-event seat visibility (only meaningful when global setting is ON)
       show_seat_count: showSeatCount,
@@ -3439,7 +3442,7 @@ export default function CreateEvent() {
               {/* Available Seats - shown for all event types */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <Label htmlFor="available_seats">Available Seats</Label>
+                  <Label htmlFor="available_seats">Total capacity</Label>
                   <div className="flex items-center gap-2">
                     <Switch
                       id="unlimited-seats"
@@ -3461,18 +3464,17 @@ export default function CreateEvent() {
                   <Input
                     id="available_seats"
                     type="number"
-                    min="1"
+                    min="0"
                     value={formData.available_seats}
                     onChange={(e) => handleInputChange('available_seats', e.target.value)}
-                    placeholder="Enter number of seats"
+                    placeholder="Enter total capacity"
                     data-testid="input-seats"
                   />
                 )}
                 <p className="text-xs text-slate-500">
-                  {isOnline 
-                    ? "For online events, capacity is managed by your Zoom plan limits" 
-                    : "Set the maximum number of attendees for this event"}
+                  Maximum places across all ticket classes. Booked places are deducted automatically. Online provider limits still apply.
                 </p>
+                <EventCapacitySummary booked={0} commercial={0} used={0} unlimited={unlimitedSeats} total={formData.available_seats} />
                 
                 {/* Per-event seat visibility toggle - only shown when global setting is ON */}
                 {globalShowSeats && !isGroupLimited && (

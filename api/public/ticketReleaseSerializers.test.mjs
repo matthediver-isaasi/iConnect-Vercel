@@ -43,6 +43,14 @@ async function handler(file) {
 
 function database(seed) {
   return {
+    async rpc(name, args) {
+      assert.equal(name, 'simple_event_capacity');
+      const event = seed.event.find(row => row.id === args.p_event_id);
+      const confirmed = (seed.booking || []).filter(row => row.status === 'confirmed').length;
+      const commercial = event.fixture_commercial || 0;
+      return {data: {total:event.total_capacity,confirmed,commercial_unused:commercial,
+        used:confirmed+commercial,remaining:event.total_capacity === null ? null : Math.max(0,event.total_capacity-confirmed-commercial)}};
+    },
     from(table) {
       let filters = [];
       let single = false;
@@ -79,6 +87,10 @@ async function invoke(file, tickets, extraPricing = {}, eventOverrides = {}, vie
     event: [event], complex_event: [event],
     complex_event_ticket_class: tickets.map(ticket => ({ ...ticket, tenant_id: 'tenant-a', complex_event_id: event.id })),
     member: viewer ? [viewer] : [],
+    booking: [
+      ...Array.from({length:event.fixture_confirmed || 0},()=>({status:'confirmed'})),
+      ...Array.from({length:event.fixture_cancelled || 0},()=>({status:'cancelled'})),
+    ],
   });
   globalThis.__ticketAudienceSession = viewer ? { data: { memberId: viewer.id } } : null;
   process.env.SUPABASE_URL = 'https://fixture.invalid';
@@ -99,6 +111,23 @@ const scheduled = {
   is_unlimited_tickets: true, ...release,
   early_bird_enabled: true, early_bird_price: 55, early_bird_deadline: '2035-08-01T00:00:00Z',
 };
+
+for (const file of ['./event.js','./events.js']) {
+  test(`${file} returns derived aggregate event capacity without exposing bookings`, async () => {
+    const capacity = {capacity_mode:'total',total_capacity:146,available_seats:999,
+      fixture_confirmed:118,fixture_cancelled:19};
+    const payload = await invoke(file,[scheduled],{},capacity);
+    assert.equal(payload.available_seats,28);
+    assert.equal(payload.total_capacity,146);
+    assert.equal(payload.capacity_mode,'total');
+    assert.equal(payload.is_unlimited_registration,false);
+    assert.equal('bookings' in payload,false);
+    assert.equal((await invoke(file,[scheduled],{},{...capacity,fixture_commercial:2})).available_seats,26);
+    assert.equal((await invoke(file,[scheduled],{},{...capacity,total_capacity:100})).available_seats,0);
+    assert.equal((await invoke(file,[scheduled],{},{...capacity,total_capacity:null})).available_seats,null);
+    assert.equal((await invoke(file,[scheduled],{},{...capacity,capacity_mode:'legacy',available_seats:146})).available_seats,146);
+  });
+}
 
 for (const file of ['./event.js', './complex-event.js']) {
   for (const flag of [true, false, undefined, 'true']) {

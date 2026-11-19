@@ -1,4 +1,5 @@
 import { publicTicketMemberPolicy } from '../../shared/publicTicketMemberPolicy.js';
+import { projectSimpleEventCapacity } from '../_lib/simpleEventCapacity.js';
 import { createClient } from '@supabase/supabase-js';
 import { getEventCommercialCapacity, mergeTicketCommercialCapacity } from '../_lib/eventCommercialCapacity.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
@@ -63,6 +64,9 @@ export default async function handler(req, res) {
         event_type,
         is_online,
         available_seats,
+        capacity_mode,
+        total_capacity,
+        is_unlimited_registration,
         show_seat_count,
         timezone,
         donation_config,
@@ -119,7 +123,7 @@ export default async function handler(req, res) {
     }
 
     // Immediate events: suppress schedule fields defensively before building payload
-    const event = suppressImmediateSchedule(rawEvent);
+    const [event] = await projectSimpleEventCapacity(supabase, [suppressImmediateSchedule(rawEvent)]);
 
     const allowGuestsToViewAllTickets = event.pricing_config?.allowGuestsToViewAllTickets || false;
 
@@ -253,6 +257,9 @@ export default async function handler(req, res) {
       event_type: event.event_type,
       is_online: event.is_online,
       available_seats: event.available_seats,
+      capacity_mode: event.capacity_mode,
+      total_capacity: event.total_capacity,
+      is_unlimited_registration: event.is_unlimited_registration,
       show_seat_count: event.show_seat_count,
       timezone: event.timezone,
       pricing_config: event.pricing_config ? {

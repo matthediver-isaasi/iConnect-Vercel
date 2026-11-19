@@ -6,7 +6,8 @@ import { execFileSync } from 'node:child_process';
 
 // Real CreateEvent, release controls and route boundary; only services are isolated.
 const stubs = {
-  '@/api/base44Client': `export const base44 = window.fixture.base44;`,
+  '@/api/base44Client': `export const base44 = window.fixture.base44;
+    export const getActiveTenantId=()=> 'tenant'; export const subscribeToActiveTenantId=()=>()=>{};`,
   '@/hooks/useMemberAccess': `export const useMemberAccess = () => ({
     memberInfo: null, isAccessReady: true, isFeatureExcluded: () => false
   });`,
@@ -91,6 +92,7 @@ async function mount(page) {
         '/api/zoom/meetings': [{ id: 'meeting-fixture', topic: 'Fixture meeting', status: 'scheduled', start_time: '2099-06-01T09:00:00Z', duration: 60, timezone: 'America/New_York' }],
         '/api/admin/event-cpd-badge-rules?event_type=simple': { rules: [], badges: [] },
         '/api/admin/event-cpd-certificate-rules?event_type=simple': { rules: [], templates: [] },
+        '/api/admin/event-registration-communication?event_kind=simple': { categories: [], category_ids: [] },
         '/api/public/check-event-slug?slug=fixture-webinar': { available: true },
         '/api/public/check-event-slug?slug=fixture-meeting': { available: true },
       };
@@ -117,6 +119,21 @@ async function mount(page) {
 const releases = page => page.locator('[data-testid^="ticket-release-ticket-"]');
 const names = page => page.locator('[data-testid^="input-ticket-name-"]');
 const header = (page, name) => page.getByRole('tabpanel', { name: 'Details' }).getByText(name, { exact: true });
+test('new events use an explicit total, including zero and unlimited', async ({ page }) => {
+  const assertHealthy = await mount(page);
+  await expect(page.getByText('Total capacity', {exact:true})).toBeVisible();
+  const summary = page.getByTestId('event-capacity-summary');
+  await expect(summary).toContainText('Booked: 0');
+  await expect(summary).toContainText('Remaining: Unlimited');
+  await page.getByTestId('switch-unlimited-seats').click();
+  await page.getByTestId('input-seats').fill('146');
+  await expect(summary).toContainText('Remaining: 146');
+  await page.getByTestId('input-seats').fill('0');
+  await expect(summary).toContainText('Remaining: 0');
+  await page.getByTestId('switch-unlimited-seats').click();
+  await expect(summary).toContainText('Remaining: Unlimited');
+  await assertHealthy();
+});
 async function eventZone(page, label) {
   await page.getByRole('combobox').filter({ hasText: /London \(GMT\/BST\)|Paris \(CET\/CEST\)|Berlin \(CET\/CEST\)/ }).click();
   await page.getByRole('option', { name: label, exact: true }).click();

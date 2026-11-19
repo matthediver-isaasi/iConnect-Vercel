@@ -29,6 +29,9 @@ export function useEventSeatRealtime(eventId, options = {}) {
       // Also invalidate any entity-style queries
       queryClient.invalidateQueries({ queryKey: ['/api/entities/Event', eventIdRef.current] });
       queryClient.invalidateQueries({ queryKey: ['/api/entities/Event'] });
+      queryClient.invalidateQueries({ queryKey: ['events'] });
+      queryClient.invalidateQueries({ queryKey: ['public-events'] });
+      queryClient.invalidateQueries({ queryKey: ['embed-event'] });
     }
   }, [queryClient]);
 
@@ -59,6 +62,12 @@ export function useEventSeatRealtime(eventId, options = {}) {
         (payload) => {
           const newData = payload.new;
           const oldData = payload.old;
+          // Total mode's stored legacy counter is deliberately null. Refetch
+          // authoritative aggregates rather than treating this row as availability.
+          if (newData?.capacity_mode === 'total') {
+            invalidateEventQueries();
+            return;
+          }
 
           const availableSeats = newData?.available_seats;
           const oldAvailableSeats = oldData?.available_seats;
@@ -115,6 +124,13 @@ export function useEventSeatRealtime(eventId, options = {}) {
           previousSeatsRef.current = availableSeats;
         }
       )
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'booking',
+        filter: `event_id=eq.${eventIdRef.current}`,
+      }, invalidateEventQueries)
+      .on('postgres_changes', {
+        event: 'INSERT', schema: 'public', table: 'sales_commercial_allocation_movement',
+      }, invalidateEventQueries)
       .subscribe((status) => {
         console.log('[useEventSeatRealtime] Subscription status:', status);
         setIsConnected(status === 'SUBSCRIBED');

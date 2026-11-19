@@ -319,6 +319,38 @@ test('booking attempt fencing, atomic funding, capacity rollback, recovery and o
     assert.equal(sql(`SELECT member_id::text FROM public_invoice_po_billing WHERE booking_group_reference='unified-booking';`),converted.member.id);
     assert.equal(sql(`SELECT count(*) FROM booking WHERE id='${bId}' AND member_id IS NULL;`),'1','booker conversion is not attendee re-parenting');
     assert.equal(sql(`SELECT prepared#>>'{snapshot,approvalProvider,connectionId}' FROM unified_booking_invoice WHERE purchase_key='unified-booking';`),t);
+     // Install the opt-in total contract after the legacy assertions above.
+     sql(`ALTER TABLE event ADD COLUMN is_complex boolean DEFAULT false;
+       CREATE TABLE public_ticket_member_purchase(id uuid PRIMARY KEY,tenant_id uuid,event_id uuid,
+         event_kind text,booking_ids uuid[] DEFAULT '{}',snapshot jsonb,state text DEFAULT 'prepared',
+         stripe_payment_intent_id text,last_error_code text,updated_at timestamptz);`);
+     sql(readFileSync(new URL('./20261005122000_public_ticket_member_booking_batch.sql',import.meta.url),'utf8'));
+     sql(readFileSync(new URL('./202701220001_simple_event_total_capacity.sql',import.meta.url),'utf8'));
+     const usage=Number(sql(`SELECT simple_event_capacity('${e}')->>'used';`));
+     sql(`UPDATE event SET capacity_mode='total',total_capacity=${usage+1},
+       pricing_config='{"ticket_classes":[{"id":"${e}","available_count":1000}]}' WHERE id='${e}';`);
+     const currentOrg=sql(`SELECT organization_id FROM member WHERE id='${m}';`) || null;
+     const totalVoucher=sql(`SELECT voucher_admin_write('${t}',NULL,'issue',
+       '${JSON.stringify({organization_id:currentOrg,member_id:currentOrg ? undefined : m,code:'TOTAL-CREDIT',value:10,expires_at:'2099-01-01'})}',
+       'admin','total-capacity-credit')->>'id';`);
+     const zeroFunding={payableMinor:100,voucherMinor:100,voucherIds:[totalVoucher],trainingFundMinor:0,
+       discountIds:[],currency:'GBP',expectedOrganizationId:currentOrg};
+     const totalRows=[{...rows[0],ticket_price:1,voucher_amount:1,training_fund_amount:0}];
+     const totalFinalize=(key)=>`SELECT booking_credit_finalize('${t}','${key}','${f}','${e}',
+       '${JSON.stringify(totalRows)}','${JSON.stringify(zeroFunding)}')->>'success';`;
+     sql(begin('total-credit'));
+     assert.equal(sql(totalFinalize('total-credit')),'true');
+     assert.equal(sql(totalFinalize('total-credit')),'true','total-mode credit retry is idempotent');
+     assert.equal(sql(`SELECT simple_event_capacity('${e}')->>'remaining';`),'0');
+     sql(begin('total-credit-overflow'));
+     sql(totalFinalize('total-credit-overflow'),true);
+     assert.equal(sql(`SELECT simple_event_capacity('${e}')->>'used';`),String(usage+1));
+     assert.equal(Number(sql(`SELECT value FROM voucher WHERE id='${totalVoucher}';`)),9,'overflow rolled back voucher debit');
+     sql(`SELECT booking_credit_reverse('${t}','total-credit','${f}','cancelled');`);
+     assert.equal(sql(`SELECT simple_event_capacity('${e}')->>'remaining';`),'1');
+     assert.equal(sql(`SELECT total_capacity FROM event WHERE id='${e}';`),String(usage+1));
+     assert.equal(sql(`SELECT available_seats IS NULL FROM event WHERE id='${e}';`),'t');
+     assert.equal(Number(sql(`SELECT value FROM voucher WHERE id='${totalVoucher}';`)),10,'credit reversal restored voucher');
   } finally {
     if(started) run('pg_ctl',['-D',h.data,'-m','immediate','-w','stop']);
     await h.cleanup();

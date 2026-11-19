@@ -246,6 +246,16 @@ test('commercial allocation functions work against isolated PostgreSQL', {
     psql(psqlBin, [...args, '-f', deliveryMigrationPath]);
     psql(psqlBin, [...args, '-f', delegateMigrationPath]);
     psql(psqlBin, [...args, '-f', hardeningMigrationPath]);
+    psql(psqlBin, args, `
+      ALTER TABLE event ADD COLUMN available_seats integer, ADD COLUMN is_unlimited_registration boolean,
+        ADD COLUMN is_complex boolean DEFAULT false;
+      CREATE TABLE public_ticket_member_purchase(id uuid PRIMARY KEY,tenant_id uuid,event_id uuid,
+        event_kind text,booking_ids uuid[] DEFAULT '{}',snapshot jsonb,state text DEFAULT 'prepared',
+        stripe_payment_intent_id text,last_error_code text,updated_at timestamptz);
+      CREATE FUNCTION normalize_public_ticket_email(text) RETURNS text LANGUAGE sql AS $$ SELECT lower(trim($1)) $$;
+    `);
+    psql(psqlBin, args, await readFile(new URL('../../supabase/migrations/20261005122000_public_ticket_member_booking_batch.sql',import.meta.url),'utf8'));
+    psql(psqlBin, args, await readFile(new URL('../../supabase/migrations/202701220001_simple_event_total_capacity.sql',import.meta.url),'utf8'));
 
     const firstRateLimit = psql(psqlBin, [...args, '-t', '-A'], `
       SELECT consume_sales_quote_public_rate_limit(
@@ -416,6 +426,30 @@ test('commercial allocation functions work against isolated PostgreSQL', {
     psql(psqlBin, args, `UPDATE complex_event_ticket_class SET group_size=99 WHERE id='60000000-0000-4000-8000-000000000001'; DELETE FROM sales_catalogue_product WHERE id='${complexProduct}'; DELETE FROM complex_event_ticket_class WHERE id='60000000-0000-4000-8000-000000000001';`);
     const snapshots = psql(psqlBin, [...args, '-t', '-A'], `SELECT (event_snapshot->>'event') || ':' || (ticket_snapshot->>'ticket') || ':' || allocated_places FROM sales_commercial_allocation WHERE id='${allocation}';`);
     assert.equal(snapshots, 'complex-old:group-old:6');
+    // An actual commercial sale and an ordinary booking compete for ONE
+    // event-wide place, using different classes and their original RPCs.
+    const used=Number(psql(psqlBin,[...args,'-t','-A'],`SELECT simple_event_capacity('${simpleEvent}')->>'used';`));
+    psql(psqlBin,args,`
+      UPDATE event SET capacity_mode='total',total_capacity=${used+1},
+        pricing_config='{"ticket_classes":[{"id":"S","available_count":100},{"id":"B","available_count":100}]}'
+        WHERE id='${simpleEvent}';
+      INSERT INTO sales_catalogue_product VALUES('30000000-0000-4000-8000-000000000009','${tenant}','simple','${simpleEvent}','B');
+      INSERT INTO sales_quote(id,tenant_id,current_version,row_version)
+        VALUES('70000000-0000-4000-8000-000000000009','${tenant}',1,1);
+      INSERT INTO sales_quote_version(id,tenant_id,quote_id,version_number,status,event_snapshot,gross_minor,currency)
+        VALUES('71000000-0000-4000-8000-000000000009','${tenant}','70000000-0000-4000-8000-000000000009',1,'accepted','{}',100,'GBP');
+      INSERT INTO sales_quote_line(id,tenant_id,quote_version_id,product_id,quantity,catalogue_snapshot)
+        VALUES('72000000-0000-4000-8000-000000000009','${tenant}','71000000-0000-4000-8000-000000000009',
+          '30000000-0000-4000-8000-000000000009',1,'{}');
+    `);
+    const bookingRow=[{id:'80000000-0000-4000-8000-000000000009',tenant_id:tenant,event_id:simpleEvent,status:'confirmed',ticket_class_id:'S'}];
+    const totalRace=await Promise.all([
+      psqlAsync(psqlBin,args,`SELECT insert_simple_total_booking_batch('${simpleEvent}','${JSON.stringify(bookingRow)}');`),
+      psqlAsync(psqlBin,args,`SELECT confirm_sales_quote_sale('${tenant}','70000000-0000-4000-8000-000000000009',1,'total-last-seat','member','${actor}');`),
+    ]);
+    assert.equal(totalRace.filter(r=>r.status===0).length,1,JSON.stringify(totalRace));
+    assert.doesNotMatch(totalRace.map(r=>r.stderr).join(''),/deadlock detected/i);
+    assert.equal(psql(psqlBin,[...args,'-t','-A'],`SELECT simple_event_capacity('${simpleEvent}')->>'used';`),String(used+1));
   } finally {
     if (started) psql(pgCtl, ['-D', data, '-m', 'fast', '-w', 'stop']);
     await rm(root, { recursive: true, force: true });

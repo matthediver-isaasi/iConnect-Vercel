@@ -12,7 +12,7 @@ const stubs = {
     export const base44={entities:new Proxy({}, {get:(_,key)=>key==='ComplexEvent'?{list:async()=>window.fixture.events.filter(e=>e.is_complex)}:key==='Booking'||key==='ComplexEventBooking'?{filter:async()=>{window.bookingReads++;return [{id:'booking',status:'confirmed',attendee_first_name:'Booked',attendee_last_name:'Person',attendee_email:'booked@example.invalid'}]}}:empty}),auth:{me:async()=>window.fixture.member},functions:{invoke:async()=>({})}};
     export const createClient=()=>base44;
   `,
-  '@/api/publicClient': `export const publicClient={listSystemSettings:async()=>[],getTenantSlug:()=> 'tenant'};`,
+  '@/api/publicClient': `export const publicClient={listSystemSettings:async()=>window.fixture.settings||[],getTenantSlug:()=> 'tenant'};`,
   '@/lib/adminFetch': `export const adminFetch=(url,opts)=>fetch(url,opts);`,
   '@/lib/adminOrgList': `export const listAllOrganizationsForAdmin=async()=>[];`,
   '@/contexts/LayoutContext': `export const useLayoutContext=()=>({memberInfo:window.fixture.member,isFeatureExcluded:()=>false});`,
@@ -58,7 +58,7 @@ const events = [
   { id: 'complex-wait', title: 'Complex Waiting', waiting_list_enabled: true, is_complex: true },
   { id: 'ordinary', title: 'Ordinary Event' },
 ].map(event => ({ ...event, status: 'published', start_date: '2099-01-01T10:00:00Z', timezone: 'Europe/London', available_seats: 0 }));
-async function mount(page, { fail = false, empty = false, status = 'published', featured = false, countsFail = false, delay = 0 } = {}) {
+async function mount(page, { fail = false, empty = false, status = 'published', featured = false, countsFail = false, delay = 0, capacity = {}, settings = [] } = {}) {
   const reads = [];
   await page.route('**/*', async route => {
     const url = new URL(route.request().url());
@@ -79,14 +79,28 @@ async function mount(page, { fail = false, empty = false, status = 'published', 
     throw new Error(`Unexpected network request: ${route.request().method()} ${url.pathname}`);
   });
   await page.goto('http://waiting.test/events');
-  await page.evaluate(({ events }) => {
-    window.fixture = { events, member: { id: 'member', tenant_id: 'tenant', page_tours_seen: { Events: true } } };
+  await page.evaluate(({ events, settings }) => {
+    window.fixture = { events, settings, member: { id: 'member', tenant_id: 'tenant', page_tours_seen: { Events: true } } };
     window.bookingReads = 0;
-  }, { events: events.map(event => ({ ...event, status, is_featured: featured })) });
+  }, { events: events.map(event => ({ ...event, status, is_featured: featured, ...(event.id==='ordinary' ? capacity : {}) })), settings });
   await page.addStyleTag({ content: css });
   await page.addScriptTag({ content: script });
   return reads;
 }
+for (const remaining of [28,0]) {
+  test(`total-mode cards show ${remaining} remaining with tenant labels rather than unlimited`, async ({page}) => {
+    await mount(page,{capacity:{capacity_mode:'total',total_capacity:146,available_seats:remaining},
+      settings:[{setting_key:'seat_label_available',setting_value:'{count} test places'},
+        {setting_key:'seat_label_sold_out',setting_value:'No test places'}]});
+    await expect(page.getByText(remaining ? '28 test places' : 'No test places',{exact:true})).toBeVisible();
+  });
+}
+test('total-mode card counts retain global seat visibility',async ({page})=>{
+  await mount(page,{capacity:{capacity_mode:'total',total_capacity:146,available_seats:28},
+    settings:[{setting_key:'show_event_seats',setting_value:'false'},
+      {setting_key:'seat_label_available',setting_value:'{count} hidden places'}]});
+  await expect(page.getByText('28 hidden places',{exact:true})).toHaveCount(0);
+});
 for (const status of ['published', 'tbc']) {
   test(`events ${status} cards show waiting entries, search, paginate and export without booking mutations`, async ({ page }) => {
     const reads = await mount(page, { status });

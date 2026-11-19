@@ -2629,7 +2629,7 @@ const functionHandlers = {
     // of status='confirmed' bookings per ticket_class_id. This atomically checks
     // there is room for the requested tickets before we take any further action.
     // Unlimited / legacy single-price tickets (no ticketClassId) return ok=true.
-    if (ticketClassId && !publicTicketPurchase) {
+    if (ticketClassId && !publicTicketPurchase && !(event.capacity_mode === 'total' && allocationContext)) {
       try {
         const { data: capCheck, error: capError } = await supabase.rpc('check_oneoff_ticket_capacity', {
           p_event_id: eventId,
@@ -3109,7 +3109,7 @@ const functionHandlers = {
       };
 
       console.log('[createOneOffEventBooking] Inserting booking:', JSON.stringify(bookingData));
-      if (publicTicketPurchase || req.bookingCreditAttempt) {
+      if (publicTicketPurchase || req.bookingCreditAttempt || event.capacity_mode === 'total') {
         publicTicketBookingRows.push(bookingData);
         continue;
       }
@@ -3160,6 +3160,14 @@ const functionHandlers = {
       }
     }
 
+    if (event.capacity_mode === 'total' && !publicTicketPurchase && !req.bookingCreditAttempt) {
+      const { data: batch, error: batchError } = await supabase.rpc('insert_simple_total_booking_batch', {
+        p_event_id: eventId, p_rows: publicTicketBookingRows,
+        p_allocation_token_hash: allocationContext ? hashAllocationInviteToken(allocationInvitationToken) : null,
+      });
+      if (!batchError && Array.isArray(batch)) createdBookings.push(...batch);
+      else console.error('[createOneOffEventBooking] Atomic total-capacity batch failed:', batchError?.message);
+    }
     if (publicTicketPurchase && !req.bookingCreditAttempt?.contract) {
       const { data: batch, error: batchError } = await supabase.rpc('insert_public_ticket_booking_batch', {
         p_purchase_id: publicTicketPurchase.id, p_rows: publicTicketBookingRows,
@@ -3318,7 +3326,7 @@ const functionHandlers = {
 
     // Claim only after the post-insert capacity guard. A losing capacity row
     // is deleted by that guard, so claiming earlier would strand its invite.
-    if (allocationContext && !req.bookingCreditAttempt) {
+    if (allocationContext && !req.bookingCreditAttempt && event.capacity_mode !== 'total') {
       const coveredBooking = createdBookings.find((booking) => String(booking.ticket_class_id) === String(ticketClassId));
       if (!coveredBooking) return { success: false, error: 'Booking was not returned for allocation claim' };
       try {

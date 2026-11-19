@@ -5,6 +5,7 @@ import EventWaitingListModal from './EventWaitingListModal';
 import { buildActiveAttendeeCountMap } from "@/lib/eventAttendeeCounts";
 import { resolveEventAttendeeCountDisplay } from "@/lib/eventAttendeeCountDisplay";
 import { isImmediateEvent } from "@shared/eventTiming.js";
+import { hasUnlimitedEventCapacity } from "@shared/simpleEventCapacity.js";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -444,7 +445,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
   // Check if event is in the past
   const isEventPast = isEventInPast(event);
 
-  const hasUnlimitedCapacity = event.available_seats === 0 || event.available_seats === null;
+  const hasUnlimitedCapacity = hasUnlimitedEventCapacity(event);
 
   // Determine if this is an online event using the is_online field
   const isOnlineEvent = event.is_online === true;
