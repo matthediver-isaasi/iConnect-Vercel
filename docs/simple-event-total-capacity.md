@@ -2,11 +2,72 @@
 
 ## Contract and safe rollout
 
-Apply `supabase/migrations/202701220001_simple_event_total_capacity.sql`
-before releasing the matching API and editor code. The migration depends on the
+`supabase/migrations/202701220001_simple_event_total_capacity.sql` was applied
+to verified DEST on **2026-11-19**. The migration depends on the
 existing commercial-allocation functions and public-ticket batch helper. Its
 function adjustments fail explicitly if the expected contracts have changed.
-It is prepared and tested locally, **not applied to a shared or live database**.
+The schema rollout is complete; this does **not** establish deployment of the
+matching API/editor code or verification of live checkout.
+
+### Destination rollout record
+
+- Target: DEST Supabase project `lvmzliemqnieeoruhkik`, database `postgres`,
+  via the documented pinned pooler/project user and REST origin. SQL used
+  provider-CA and hostname-verified TLS (the actual client socket was verified).
+  Independent SQL checks confirmed the destination tenant and database/user;
+  separately authenticated DEST REST and SQL event samples matched. SOURCE was
+  never connected to or changed.
+- Exact merged migration SHA-256:
+  `9cf03ac9d3c76c44db45be64b6d7cdf558c3d61299af718bb71c93fcda92f102`.
+  The file was unchanged from its merged version.
+- Read-only preflight found both columns, all five new functions and all five
+  triggers absent. All 12 referenced existing function signatures were present,
+  without unexpected overloads; each applicable patch anchor was checked.
+- Rollback-only rehearsal passed, then the apply command repeated the rehearsal
+  before one atomic application. Only the hash-pinned outer `BEGIN`/`COMMIT` were
+  removed so the runner owned the transaction; the SQL body was unchanged.
+  Rehearsal left the migration absent. Lock waits were bounded to 5 seconds and
+  statement waits to 60 seconds. No unrelated prerequisites were applied.
+- Pre-commit verification checked exact bodies of five new functions, exact
+  expected changes to existing functions (including retained ownership, security
+  context and grants), both column types/defaults/nullability, validated checks,
+  all five enabled row triggers, and both initially deferred constraint triggers.
+  Aggregate/batch RPC execution is service-only; new trigger helpers are not
+  executable by PUBLIC, anon or authenticated. Existing RPC grants were retained,
+  not broadly rewritten.
+- Under the event table's required DDL lock, all **200 existing events** retained
+  `available_seats`, `is_unlimited_registration`, `is_complex`, `pricing_config`,
+  IDs, tenant IDs and row versions. All received only `capacity_mode='legacy'`
+  and `total_capacity=NULL` defaults; no event UPDATE or conversion occurred.
+  This includes Leadership Conference 2027; its counter was not interpreted as
+  an intended maximum. The bounded preservation evidence SHA-256 (capacity
+  fields plus row versions, with new defaults) was
+  `06c2c1bf5086dcdd678825542e932560df7c65ee687c581493f512144c9115bd`
+  in both the separate rehearsal and successful application.
+- Post-commit catalog verification passed. The committed schema-reload
+  notification was confirmed through fresh service-authenticated PostgREST
+  OpenAPI discovery of both columns and both RPCs, a read-only event projection,
+  and an aggregate capacity GET matching a read-only SQL call as `service_role`.
+  No booking, sale, invitation, payment, refund or message writer was invoked.
+- No application code was deployed. Signed-in UI, public bundle version and
+  live checkout were not verified. Release the matching readers/writers
+  everywhere before any explicit administrator opt-in. The unchanged local
+  preview still renders its previously documented `Tenant not found` error
+  against legacy SOURCE configuration; it is not evidence about DEST rollout.
+
+Runner commands (offline review is the default):
+
+```sh
+node scripts/apply-simple-event-total-capacity.mjs
+node scripts/apply-simple-event-total-capacity.mjs --preflight
+node scripts/apply-simple-event-total-capacity.mjs --rehearse --review-sha256=9cf03ac9d3c76c44db45be64b6d7cdf558c3d61299af718bb71c93fcda92f102
+node scripts/apply-simple-event-total-capacity.mjs --apply --review-sha256=9cf03ac9d3c76c44db45be64b6d7cdf558c3d61299af718bb71c93fcda92f102
+node scripts/apply-simple-event-total-capacity.mjs --verify
+```
+
+A complete installation is verified, never reapplied. Partial installations,
+unexpected signatures, changed SQL or incompatible patch anchors stop without
+speculative repair. `--preflight` and `--verify` are read-only.
 
 All existing events default to `capacity_mode = 'legacy'`. No event capacities
 are backfilled, inferred or converted. Release the matching readers and writers
@@ -67,3 +128,18 @@ real SQL functions, including last-place competition across ticket classes,
 ordinary bookings versus commercial sale confirmation, cancellation, public
 payment recovery markers, replay and credit reversal.
 Browser checks use isolated service fixtures, not a signed-in customer session.
+
+Rollout-runner safeguards and its actual transaction lifecycle are checked with:
+
+```sh
+node scripts/run-isolated-tests.mjs --allow-local-postgres node --test --test-concurrency=1 scripts/apply-simple-event-total-capacity.test.mjs scripts/apply-simple-event-total-capacity.postgres.test.mjs scripts/apply-custom-object-relationship-deleted-members-migration.test.mjs
+```
+
+On 2026-11-19 all 11 runner/guard checks passed, including real disposable
+PostgreSQL rehearsal rollback, application, preservation, verify-only replay
+and rejection of a damaged patch. The three focused capacity-reader and
+disposable capacity-behavior checks also passed:
+
+```sh
+node scripts/run-isolated-tests.mjs --allow-local-postgres node --import tsx --test --test-concurrency=1 api/_lib/simpleEventCapacity.test.mjs api/_lib/simpleEventCapacity.postgres.test.mjs
+```
