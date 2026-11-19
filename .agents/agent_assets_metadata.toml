@@ -2077,3 +2077,17 @@ mtime_ms = 1795070191767
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/f31d196f-bd1f-48fc-945c-8fe6dee0b304/8b65fdc0-f5be-475d-8f79-1b45b98064c9"
 storage_version_token = "1795070211699794"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "1lk0Wio4_pypoiOeQa72a"
+uri = "file://docs/bnms-subscriber-reconciliation.md"
+type = "text"
+title = "BNMS subscriber reconciliation"
+description = "Timestamped aggregate evidence explaining the 19-subscription difference, with eligibility breakdowns and live-screen verification limits."
+logical_id = "8b2820d3-76b5-42c3-92c6-4e927a7fd013"
+content_hash = "sha256:13397ae7bf5b1694e995f12fc67cffcf352e92b3453f6c462fb85667bbc224f1"
+size = 10041
+mtime_ms = 1795120100240
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/8b2820d3-76b5-42c3-92c6-4e927a7fd013/70b72d9f-6c05-4a4b-bb0f-fcb1976fee64"
+storage_version_token = "1795120126727417"
+content_type = "text/markdown"

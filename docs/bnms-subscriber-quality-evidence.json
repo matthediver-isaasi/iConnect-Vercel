@@ -1,0 +1,66 @@
+{
+  "quality": [
+    {
+      "name": "Monthly Newsletter - Wavelength",
+      "orphan_rows": 0,
+      "null_member_rows": 2,
+      "foreign_member_rows": 0,
+      "foreign_preference_rows": 0
+    },
+    {
+      "name": "BNMS Annoucements",
+      "orphan_rows": 0,
+      "null_member_rows": 0,
+      "foreign_member_rows": 0,
+      "foreign_preference_rows": 0
+    }
+  ],
+  "external": [
+    {
+      "name": "BNMS Annoucements",
+      "active": 19,
+      "opted_out": 3,
+      "null_status": 0,
+      "member_email_overlap": 4,
+      "distinct_active_emails": 19
+    },
+    {
+      "name": "Monthly Newsletter - Wavelength",
+      "active": 24,
+      "opted_out": 1,
+      "null_status": 0,
+      "member_email_overlap": 4,
+      "distinct_active_emails": 24
+    }
+  ],
+  "categories": [
+    {
+      "id": "683b3d0f-3136-4cc8-bb39-b50c9496d1e8",
+      "name": "Monthly Newsletter - Wavelength",
+      "is_active": true,
+      "is_public": true,
+      "member_enabled": true,
+      "role_assignments": 0
+    },
+    {
+      "id": "814e0ba4-5afe-4e84-a502-81002ae34a93",
+      "name": "BNMS Annoucements",
+      "is_active": true,
+      "is_public": true,
+      "member_enabled": true,
+      "role_assignments": 0
+    }
+  ],
+  "observed_at": "2026-11-19T20:27:21.248644+00:00",
+  "independent_counts": [
+    {
+      "n": 3717,
+      "name": "BNMS Annoucements"
+    },
+    {
+      "n": 3731,
+      "name": "Monthly Newsletter - Wavelength"
+    }
+  ],
+  "duplicate_nonnull_pairs": 0
+}
