@@ -6,8 +6,8 @@ export const INVOICE_PAYMENT_HELP = 'Confirms the order immediately. Payment rem
 
 export function invoiceBillingConfigurationError(field, allFields) {
   if (!field.payment_providers?.includes('invoice')) return null;
-  if (!allFields.some(f => f.id === field.invoice_billing_name_field_id && f.type === 'text')) {
-    return 'Pay by invoice needs a Billing name field (Text).';
+  if (!allFields.some(f => f.id === field.invoice_billing_name_field_id && ['text', 'organisation_dropdown'].includes(f.type))) {
+    return 'Pay by invoice needs a Billing name field (Text or Organisation Drop Down).';
   }
   if (!allFields.some(f => f.id === field.invoice_billing_email_field_id && f.type === 'email')) {
     return 'Pay by invoice needs a Billing email field (Email).';
@@ -38,24 +38,25 @@ export default function InvoicePaymentSetting({ field, provider, allFields = [],
     {field.payment_providers?.includes('invoice') && (
       <div className="space-y-3 pl-6">
         <p className="text-xs text-slate-500">Choose the fields that identify the invoice recipient. Both are required.</p>
+        <p className="text-xs text-slate-500">An Organisation Drop Down uses the selected organisation’s unique Xero name match, ignoring case and whitespace. Its Xero contact is saved with the order; the purchaser’s email is not used to match or update that contact. Missing or ambiguous matches block checkout.</p>
         {[
           { key: 'invoice_billing_name_field_id', label: 'Billing name field', type: 'text' },
           { key: 'invoice_billing_email_field_id', label: 'Billing email field', type: 'email' },
         ].map(({ key, label, type }) => {
-          const choices = allFields.filter(f => f.type === type && f.id !== field.id);
+          const choices = allFields.filter(f => (f.type === type || (type === 'text' && f.type === 'organisation_dropdown')) && f.id !== field.id);
           const valid = choices.some(f => f.id === field[key]);
           return (
             <div className="space-y-1" key={key}>
               <Label htmlFor={`${id}-${key}`} className="text-xs">{label} <span className="text-destructive">*</span></Label>
               <Select value={valid ? field[key] : ''} onValueChange={value => onChange({ [key]: value })} required>
                 <SelectTrigger id={`${id}-${key}`} className="h-8" data-testid={`${key}-${field.id}`} aria-required="true">
-                  <SelectValue placeholder={`Choose a ${type === 'text' ? 'Text' : 'Email'} field…`} />
+                  <SelectValue placeholder={`Choose a ${type === 'text' ? 'Text or Organisation Drop Down' : 'Email'} field…`} />
                 </SelectTrigger>
                 <SelectContent>
                   {choices.map(f => <SelectItem key={f.id} value={f.id}>{f.label || f.name || f.id}</SelectItem>)}
                 </SelectContent>
               </Select>
-              {!choices.length && <p className="text-xs text-slate-500">Add a {type === 'text' ? 'Text' : 'Email'} field to the form first.</p>}
+              {!choices.length && <p className="text-xs text-slate-500">Add a {type === 'text' ? 'Text or Organisation Drop Down' : 'Email'} field to the form first.</p>}
               {field[key] && !valid && <p className="text-xs text-destructive">The saved field is unavailable. Choose another field.</p>}
             </div>
           );

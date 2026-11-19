@@ -7,6 +7,8 @@ import { buildXeroSalesInvoiceLine } from './xero.js';
 import { isDeepStrictEqual } from 'node:util';
 import { cartAccountingSettings } from '../../shared/formCartAccounting.js';
 import { membershipProjectTracking } from '../../shared/membershipProjectCode.js';
+import { freezeFormOrganizationCustomer, verifyFrozenOrganizationContact } from './formInvoiceOrganization.js';
+import { createXeroMembershipInvoice } from './xero.js';
 
 export const FORM_INVOICE_SOURCE = 'form_invoice_order';
 // This object is supplied only by the server payment handler, never req.body.
@@ -31,9 +33,10 @@ export function invoiceBillingDetails(field, fields, values) {
     const answer = source && values[source.id];
     return typeof answer === 'string' ? answer.trim() : '';
   };
+  const organizationField = fields.find(f => f.id === field.invoice_billing_name_field_id && f.type === 'organisation_dropdown');
   const name = value(field.invoice_billing_name_field_id, ['text', 'short_text', 'full_name']);
   const email = value(field.invoice_billing_email_field_id, ['email']);
-  if (!name || name.length > 200 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
+  if ((!name && !organizationField) || name.length > 200 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
     fail('Enter the billing name and email address before requesting an invoice.', 'INVOICE_BILLING_REQUIRED', 400);
   }
   const address = field.invoice_address_field_id ? values[field.invoice_address_field_id] : null;
@@ -74,6 +77,9 @@ export async function prepareFormInvoiceOrder({ db, tenantId, form, field, value
   if (await getActiveAccountingProvider(tenantId) !== 'xero') fail('Invoice checkout requires a connected Xero account.');
   const binding = await resolveAccountingQueueBinding({ db, tenantId, provider: 'xero' });
   const billing = invoiceBillingDetails(field, form.fields || [], values);
+  const organizationCustomer = form.fields?.some(f => f.id === field.invoice_billing_name_field_id && f.type === 'organisation_dropdown')
+    ? await freezeFormOrganizationCustomer({ db, tenantId, form, field, values, binding }) : null;
+  if (organizationCustomer) billing.name = organizationCustomer.organizationName;
   const taxes = await listCatalogueTaxOptions(db, tenantId);
   const { data: settings, error } = await db.from('system_settings').select('setting_key,setting_value')
     .eq('tenant_id', tenantId).in('setting_key', ['xero_sales_account_code']);
@@ -106,7 +112,7 @@ export async function prepareFormInvoiceOrder({ db, tenantId, form, field, value
     version: 1, provider: binding.provider, connectionId: binding.connectionId, companyId: binding.companyId,
     amount, currency, snapshot: {
       version: 1, preparation: true, invoice, payment: null,
-      linkage: { formId: form.id }, lines,
+      linkage: { formId: form.id }, lines, ...(organizationCustomer ? { organizationCustomer } : {}),
     },
   };
 }
@@ -140,7 +146,26 @@ export async function isConfirmedFormInvoice(db, submission) {
 export async function prepareFormInvoiceSource({ row, transport }, dependencies = {}) {
   // Reuse the fenced contact-resolution preparation, never the membership
   // finalizer. Replace its single line with our frozen ordinary-order lines.
-  const prepared = await prepareMembershipSourceRequest({ row, transport }, dependencies);
+  const customer = row.snapshot.organizationCustomer;
+  const preparation = customer ? {
+    ...dependencies,
+    prepare: async (args, options) => {
+      if (customer.connectionId !== row.connection_id || customer.companyId !== row.company_id) {
+        fail('Organisation accounting binding changed.', 'INVOICE_ORGANIZATION_BINDING_INVALID');
+      }
+      return (dependencies.prepare || createXeroMembershipInvoice)(args, {
+        ...options,
+        findOrCreateXeroContact: async (token, companyId) => verifyFrozenOrganizationContact(customer, companyId, async path => {
+          const response = await transport.fetch(`https://api.xero.com/api.xro/2.0/${path}`, {
+            headers: { Authorization: `Bearer ${token}`, 'xero-tenant-id': companyId, Accept: 'application/json' },
+          });
+          if (!response.ok) fail('Unable to verify saved Xero contact.', 'XERO_ORGANIZATION_CONTACT_UNAVAILABLE');
+          return response.json();
+        }),
+      });
+    },
+  } : dependencies;
+  const prepared = await prepareMembershipSourceRequest({ row, transport }, preparation);
   const envelope = prepared.invoice.envelope;
   const payload = { ...envelope.payload, Status: 'AUTHORISED', LineAmountTypes: 'Exclusive',
     LineItems: row.snapshot.lines.map(line => ({
@@ -162,7 +187,7 @@ export async function linkFormInvoiceSource({ db, row }) {
   const { data, error } = await db.from('form_submission').update({
     payment_meta: { ...source.payment_meta, invoice_result: row.invoice_result },
   }).eq('tenant_id', row.tenant_id).eq('id', row.source_id)
-    .eq('payment_meta', source.payment_meta).select('id').maybeSingle();
+    .eq('payment_meta', JSON.stringify(source.payment_meta)).select('id').maybeSingle();
   if (error || !data) throw error || new Error('Invoice linkage changed; retry required.');
   return { linked: true };
 }

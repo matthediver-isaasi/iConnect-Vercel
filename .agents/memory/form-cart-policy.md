@@ -35,8 +35,21 @@ organisation name is only text, not proof of a verified organisation selection.
 
 **How to apply:** Validate the organisation selection and accounting-company
 contact binding server-side before freezing invoice authority. Keep free-text
-customer matching separate; never infer a verified link from matching names or
+customer matching separate; never infer a verified link from free-text names or
 silently change the organisation's Xero email to the purchaser's.
+
+For organisation-dropdown billing, the owner approved establishing the contact
+binding from exactly one active Xero contact matching the selected organisation's
+stored name after trimming/collapsing whitespace and ignoring case.
+
+**Why:** Case and whitespace differences must not reject a legitimate organisation
+match; the owner's approval replaces the earlier assumption that a pre-existing
+explicit contact-ID mapping was required.
+
+**How to apply:** Exhaust discovery to prove uniqueness, reject missing or
+ambiguous matches, and freeze the Xero contact/company in the accepted authority.
+This exception does not authorize name-only matching for free-text customers or
+changing a shared contact's email.
 
 Form commerce bundles consume their own form-stock allowance, never component
 product stock. Ordinary product stock is finite/unlimited inventory, not Sales

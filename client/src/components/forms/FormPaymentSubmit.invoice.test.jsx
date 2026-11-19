@@ -16,6 +16,18 @@ const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query
 const FormPaymentSubmit = (await import('./FormPaymentSubmit.jsx')).default;
 const { default: InvoicePaymentSetting, invoiceBillingConfigurationError } = await import('./InvoicePaymentSetting.jsx');
 
+test('invoice settings support an organisation dropdown as the billing identity', () => {
+  const field = { id: 'payment', type: 'payment', payment_providers: ['invoice'],
+    invoice_billing_name_field_id: 'org', invoice_billing_email_field_id: 'email' };
+  const allFields = [{ id: 'org', type: 'organisation_dropdown', label: 'Organisation' },
+    { id: 'email', type: 'email' }];
+  assert.equal(invoiceBillingConfigurationError(field, allFields), null);
+  const html = renderToStaticMarkup(<InvoicePaymentSetting field={field} allFields={allFields} provider={{ configured: true }} />);
+  assert.match(html, /ignoring case and whitespace/);
+  assert.match(html, /Missing or ambiguous matches block checkout/);
+  assert.notEqual(invoiceBillingConfigurationError(field, [{ id: 'org', type: 'organisation_group_dropdown' }, allFields[1]]), null);
+});
+
 const invoiceResult = { submissionId: 'submission-invoice', invoiceOrderConfirmed: true, paymentStatus: 'unpaid' };
 const payload = { form_id: 'invoice-form', submission_data: { name: 'Mira Shah' } };
 async function mount(overrides = {}, response = invoiceResult, configured = true) {

@@ -1,6 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { invoiceBillingDetails, invoiceLines, prepareFormInvoiceSource } from './formInvoiceOrder.js';
+import { invoiceBillingDetails, invoiceLines, prepareFormInvoiceSource, linkFormInvoiceSource } from './formInvoiceOrder.js';
+
+test('invoice linkage serializes its JSON compare-and-swap filter', async () => {
+  const snapshot = { linkage: { formId: 'form' } };
+  const authority = { version: 1, provider: 'xero', companyId: 'company', connectionId: 'connection', amount: 120, currency: 'GBP', snapshot };
+  const source = { id: 'submission', form_id: 'form', payment_provider: 'invoice', payment_amount: 120, payment_currency: 'GBP',
+    payment_meta: { invoice_order: authority, other: 'preserved' } };
+  let update;
+  const db = { from() { const q = {
+    select() { return q; }, update(value) { update = value; return q; },
+    eq(key, value) { if (key === 'payment_meta') assert.deepEqual(JSON.parse(value), source.payment_meta); return q; },
+    async maybeSingle() { return { data: update ? { id: source.id } : source, error: null }; },
+  }; return q; } };
+  assert.deepEqual(await linkFormInvoiceSource({ db, row: { tenant_id: 'tenant', source_id: source.id,
+    provider: 'xero', company_id: 'company', connection_id: 'connection', snapshot, invoice_result: { id: 'invoice' } } }), { linked: true });
+  assert.equal(update.payment_meta.other, 'preserved');
+  assert.equal(update.payment_meta.invoice_result.id, 'invoice');
+});
 
 test('invoice billing requires explicit stored text/email mappings', () => {
   const field = { invoice_billing_name_field_id: 'name', invoice_billing_email_field_id: 'email' };
