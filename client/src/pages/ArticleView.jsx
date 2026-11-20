@@ -693,7 +693,7 @@ export default function ArticleViewPage() {
             Back to {articleDisplayName}
           </Link>
           
-          {isAuthor && (
+          {isAuthor && !(isDraft && canViewDraft) && (
             <Link to={getArticleEditorUrl(article.id)}>
               <Button variant="outline" className="gap-2">
                 <Edit className="w-4 h-4" />

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
+import { loadArticleForEditing, articleUpdateWithImageIntent } from "@/lib/articleEditorSafety";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -31,6 +32,9 @@ export default function ArticleEditorPage() {
   
   const queryClient = useQueryClient();
   const quillRef = useRef(null);
+  const [hydratedArticleId, setHydratedArticleId] = useState(null);
+  const imageChangedRef = useRef(false);
+  const lastAutoSaveSnapshot = useRef(null);
   
   const [title, setTitle] = useState("");
   const [slug, setSlug] = useState("");
@@ -137,18 +141,20 @@ export default function ArticleEditorPage() {
   });
 
   // Fetch existing article if editing
-  const { data: article, isLoading: articleLoading } = useQuery({
-    queryKey: ['article', articleId],
-    queryFn: async () => {
-      const articles = await base44.entities.BlogPost.list();
-      return articles.find(a => a.id === articleId);
-    },
+  const { data: article, isLoading: articleLoading, isFetching: articleFetching, error: articleError } = useQuery({
+    queryKey: ['article-editor', memberInfo?.tenant_id, articleId],
+    queryFn: () => loadArticleForEditing(base44.entities.BlogPost, articleId),
     enabled: isEditing,
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: false,
   });
 
   // Load article data into form - only set non-author fields initially
   useEffect(() => {
-    if (article) {
+    if (article && !articleFetching && article.id === articleId && hydratedArticleId !== articleId) {
+      imageChangedRef.current = false;
+      lastAutoSaveSnapshot.current = null;
       setTitle(article.title || "");
       setSummary(article.summary || "");
       setContent(article.content || "");
@@ -161,9 +167,7 @@ export default function ArticleEditorPage() {
       setSeoDescription(article.seo_description || "");
       setOgImageUrl(article.og_image_url || "");
       setSharePassword(article.share_password || "");
-      if (article.feature_image_focal_point) {
-        setFocalPoint(article.feature_image_focal_point);
-      }
+      setFocalPoint(article.feature_image_focal_point || { x: 50, y: 50 });
       
       // Handle slug - new structure stores clean slugs without handle suffix
       // For legacy articles, extract the base slug from "-by-{handle}" format
@@ -175,8 +179,9 @@ export default function ArticleEditorPage() {
         setOriginalAuthorHandle(byHandleMatch[1]);
       }
       setSlug(displaySlug);
+      setHydratedArticleId(articleId);
     }
-  }, [article]);
+  }, [article, articleFetching, articleId, hydratedArticleId]);
 
   // Fetch current author's handle if article has an author_id
   const { data: currentAuthorMember } = useQuery({
@@ -471,8 +476,15 @@ export default function ArticleEditorPage() {
 
   useEffect(() => {
     if (!memberInfo || !title) return;
+    if (isEditing && (hydratedArticleId !== articleId || articleFetching || articleError || uploadingImage)) return;
     // For member type, require handle. For other types, no handle required.
     if (authorType === "member" && !currentMember?.handle) return;
+    const snapshot = JSON.stringify([articleId, title, slug, summary, content, featureImage, focalPoint, subcategories, tags, status, publishedDate, seoTitle, seoDescription, ogImageUrl, authorType, selectedGuestWriterId, coAuthors]);
+    if (lastAutoSaveSnapshot.current === null) {
+      lastAutoSaveSnapshot.current = snapshot;
+      return;
+    }
+    if (lastAutoSaveSnapshot.current === snapshot) return;
 
     const autoSaveTimer = setTimeout(async () => {
       if (isEditing) {
@@ -523,7 +535,8 @@ export default function ArticleEditorPage() {
             : (autoSaveData.author_id ? { type: 'member', id: autoSaveData.author_id } : null);
           autoSaveData.authors = buildAuthorsArray(autoPrimaryRef);
 
-          await base44.entities.BlogPost.update(articleId, autoSaveData);
+          await base44.entities.BlogPost.update(articleId, articleUpdateWithImageIntent(autoSaveData, imageChangedRef.current));
+          lastAutoSaveSnapshot.current = snapshot;
           setLastSaved(new Date());
         } catch (error) {
           console.error('Auto-save failed:', error);
@@ -534,10 +547,13 @@ export default function ArticleEditorPage() {
     }, 3000);
 
     return () => clearTimeout(autoSaveTimer);
-  }, [title, slug, summary, content, featureImage, focalPoint, subcategories, tags, status, publishedDate, seoTitle, seoDescription, ogImageUrl, isEditing, articleId, memberInfo, currentMember, authorType, selectedGuestWriterId, originalAuthorId, originalAuthorName, persistedOriginalAuthorId, persistedOriginalAuthorName, article, coAuthors]);
+  }, [title, slug, summary, content, featureImage, focalPoint, subcategories, tags, status, publishedDate, seoTitle, seoDescription, ogImageUrl, isEditing, articleId, memberInfo, currentMember, authorType, selectedGuestWriterId, originalAuthorId, originalAuthorName, persistedOriginalAuthorId, persistedOriginalAuthorName, article, coAuthors, hydratedArticleId, articleFetching, articleError, uploadingImage]);
 
   const saveMutation = useMutation({
     mutationFn: async (publishNow = false) => {
+      if (isEditing && (hydratedArticleId !== articleId || articleFetching || articleError || uploadingImage)) {
+        throw new Error('Wait for the saved article and image to finish loading before saving.');
+      }
       if (!memberInfo) {
         throw new Error('Member information not available');
       }
@@ -682,7 +698,7 @@ export default function ArticleEditorPage() {
       articleData.authors = buildAuthorsArray(primaryRef);
 
       if (isEditing) {
-        return await base44.entities.BlogPost.update(articleId, articleData);
+        return await base44.entities.BlogPost.update(articleId, articleUpdateWithImageIntent(articleData, imageChangedRef.current));
       } else {
         return await base44.entities.BlogPost.create(articleData);
       }
@@ -787,6 +803,7 @@ export default function ArticleEditorPage() {
     setUploadingImage(true);
     try {
       const { file_url } = await base44.integrations.Core.UploadFile({ file });
+      imageChangedRef.current = true;
       setFeatureImage(file_url);
       toast.success('Image uploaded successfully');
     } catch (error) {
@@ -853,8 +870,14 @@ export default function ArticleEditorPage() {
     );
   }
 
-  // Show loading while fetching article data or member data
-  if (isEditing && (articleLoading || memberLoading)) {
+  if (isEditing && articleError) {
+    return <div className="p-8" role="alert">
+      <p>{articleError.message || 'The saved article could not be loaded. No changes have been saved.'}</p>
+      <Button className="mt-4" onClick={() => window.location.reload()}>Reload editor</Button>
+    </div>;
+  }
+  // Never expose an empty editable form before the by-ID record is hydrated.
+  if (isEditing && (articleLoading || memberLoading || hydratedArticleId !== articleId)) {
     return (
       <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <div className="animate-pulse text-slate-600">Loading...</div>
@@ -1262,6 +1285,7 @@ export default function ArticleEditorPage() {
                         const rect = e.currentTarget.getBoundingClientRect();
                         const x = Math.round(((e.clientX - rect.left) / rect.width) * 100);
                         const y = Math.round(((e.clientY - rect.top) / rect.height) * 100);
+                        imageChangedRef.current = true;
                         setFocalPoint({ x: Math.max(0, Math.min(100, x)), y: Math.max(0, Math.min(100, y)) });
                       }}
                       data-testid="focal-point-picker"
@@ -1292,7 +1316,7 @@ export default function ArticleEditorPage() {
                         variant="destructive"
                         size="icon"
                         className="absolute top-2 right-2"
-                        onClick={(e) => { e.stopPropagation(); setFeatureImage(""); setFocalPoint({ x: 50, y: 50 }); }}
+                        onClick={(e) => { e.stopPropagation(); imageChangedRef.current = true; setFeatureImage(""); setFocalPoint({ x: 50, y: 50 }); }}
                       >
                         <X className="w-4 h-4" />
                       </Button>

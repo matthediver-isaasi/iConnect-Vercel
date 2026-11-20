@@ -5,6 +5,8 @@ description: Password previews must not participate in authenticated entity fetc
 
 Shared draft access is a separate, server-verified capability, even for signed-in viewers. Keep passwords and draft responses out of React Query and persistent browser storage.
 
+For authenticated draft editing and image preservation, see [Article editor image safety](article-editor-image-safety.md).
+
 **Why:** Guest entity reads returned session-invalid responses and repeatedly cleared the shared query cache. Client-side password comparison also disclosed the protected draft and its password before verification.
 
 **How to apply:** Use the tenant-resolved public password endpoint, minimal display-author projections, and fresh verification on navigation. Preserve generic entity authorization and tenant page-visibility overrides.
